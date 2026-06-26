@@ -1,0 +1,1119 @@
+{% extends 'base.html' %}
+{% from '_list_macros.html' import sort_th, sort_th_center %}
+
+{% block title %}BOM清单管理{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="h3 mb-3 text-gray-800">BOM清单管理</h1>
+
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <form method="get" class="row g-2 align-items-end">
+                {% if request.args.get('embedded') == '1' %}
+                <input type="hidden" name="embedded" value="1">
+                {% endif %}
+                <div class="col-md-2">
+                    <label class="form-label small text-muted mb-1">状态</label>
+                    <select name="status" class="form-select form-select-sm">
+                        <option value="" {% if not filters.status %}selected{% endif %}>全部状态</option>
+                        <option value="active" {% if filters.status == 'active' %}selected{% endif %}>激活/启用</option>
+                        <option value="inactive" {% if filters.status == 'inactive' %}selected{% endif %}>停用</option>
+                    </select>
+                </div>
+                <div class="col-md-8">
+                    <label class="form-label small text-muted mb-1">关键词</label>
+                    <input type="text" name="search" class="form-control form-control-sm" placeholder="BOM编号/产品编码/产品名称/版本/物料/启用/停用" value="{{ filters.search }}">
+                </div>
+                <div class="col-md-2 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
+                    {% if filters.status or filters.search %}
+                    <a href="/bom{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- 上部：BOM父件列表 -->
+    <div class="card shadow mb-3">
+        <div class="card-header py-3 d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+            <h6 class="m-0 font-weight-bold"><i class="bi bi-list-ul me-2"></i>BOM清单列表</h6>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover mb-0" id="bomTable" width="100%" cellspacing="0">
+                    <thead style="background: #343a40; color: white;">
+                        <tr>
+                            <th class="text-center" style="width:40px"><input type="checkbox" id="selectAll"></th>
+                            <th class="text-center" style="width:60px">序号</th>
+                            {{ sort_th('BOM编号', 'bom_no', sort_by, sort_order, '', '', 'width:120px') }}
+                            {{ sort_th('产品编码', 'product_code', sort_by, sort_order, '', '', 'width:120px') }}
+                            {{ sort_th('产品名称', 'product_name', sort_by, sort_order) }}
+                            {{ sort_th('版本', 'version', sort_by, sort_order, '', '', 'width:80px') }}
+                            {{ sort_th_center('层级', 'level', sort_by, sort_order, '', 'width:60px') }}
+                            {{ sort_th_center('状态', 'status', sort_by, sort_order, '', 'width:70px') }}
+                            <th class="text-center" style="width:80px">物料数</th>
+                            {{ sort_th_center('总成本', 'total_cost', sort_by, sort_order, '', 'width:100px') }}
+                            {{ sort_th('创建时间', 'created_at', sort_by, sort_order, '', '', 'width:150px') }}
+                            <th class="text-center" style="width:150px">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for bom in boms %}
+                        <tr class="bom-row" data-id="{{ bom.id }}" style="cursor:pointer; transition: all 0.2s;">
+                            <td class="text-center" onclick="event.stopPropagation()">
+                                <input type="checkbox" class="itemCheck check-item" value="{{ bom.id }}">
+                            </td>
+                            <td class="text-center text-muted">{{ loop.index }}</td>
+                            <td><a href="{{ url_for('bom_detail', id=bom.id) }}"><code class="text-primary">{{ bom.bom_no }}</code></a></td>
+                            <td>{{ bom.product_code }}</td>
+                            <td class="fw-medium">{{ bom.product_name }}</td>
+                            <td class="text-center">{{ bom.version }}</td>
+                            <td class="text-center">
+                                <span class="badge bg-info">L{{ bom.level or 1 }}</span>
+                            </td>
+                            <td class="text-center">
+                                {% if bom.status == 'active' %}
+                                <span class="badge bg-success">激活</span>
+                                {% else %}
+                                <span class="badge bg-secondary">停用</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center"><span class="badge bg-info">{{ bom.materials|length }}</span></td>
+                            <td class="text-center">
+                                <span class="text-success fw-bold">¥{{ "%.2f"|format(bom.total_cost or 0) }}</span>
+                            </td>
+                            <td class="small text-muted">{{ bom.created_at }}</td>
+                            <td class="text-center" onclick="event.stopPropagation()">
+                                <button class="btn btn-outline-success btn-sm py-0 px-2 btn-calculate-cost" data-id="{{ bom.id }}" title="计算成本">
+                                    <i class="bi bi-calculator"></i>
+                                </button>
+                                <a class="btn btn-outline-primary btn-sm py-0 px-2" href="{{ url_for('bom_detail', id=bom.id) }}" title="编辑">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                <button class="btn btn-outline-danger btn-sm py-0 px-2 btn-delete" data-id="{{ bom.id }}" title="删除">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 下部：BOM子件明细（可编辑表格） -->
+    <div class="card shadow" id="bomDetailCard" style="display:none;">
+        <div class="card-header py-3 d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">
+            <h6 class="m-0 font-weight-bold" id="detailTitle"><i class="bi bi-table me-2"></i>BOM子件明细</h6>
+            <div>
+                <button class="btn btn-dark btn-sm" id="batchPasteBtn" title="批量粘贴">
+                    <i class="bi bi-clipboard"></i> 批量粘贴
+                </button>
+                <button class="btn btn-outline-light btn-sm ms-2" id="splitRowBtn" title="拆分行">
+                    <i class="bi bi-arrows-expand"></i> 拆分行
+                </button>
+                <button class="btn btn-light btn-sm ms-2" id="addItemBtn">
+                    <i class="bi bi-plus-lg"></i> 新增行
+                </button>
+                <button class="btn btn-warning btn-sm ms-2" id="saveAllBtn">
+                    <i class="bi bi-check2-all"></i> 保存全部
+                </button>
+                <button class="btn btn-outline-light btn-sm ms-2" id="generateRequisitionBtn">
+                    <i class="bi bi-file-earmark-text"></i> 生成领料单
+                </button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover table-sm mb-0" id="bomItemsTable" width="100%" cellspacing="0">
+                    <thead style="background: #343a40; color: white;">
+                        <tr>
+                            <th class="text-center" style="width:50px">序号</th>
+                            <th style="width:150px">物料编码 <span class="text-danger">*</span></th>
+                            <th style="width:150px">物料名称</th>
+                            <th style="width:120px">规格型号</th>
+                            <th class="text-center" style="width:70px">数量 <span class="text-danger">*</span></th>
+                            <th class="text-center" style="width:70px">单位</th>
+                            <th class="text-center" style="width:80px">用途</th>
+                            <th style="width:100px">备注</th>
+                            <th class="text-center" style="width:60px">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bomItemsBody">
+                        <!-- 子件数据通过AJAX加载 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 新增BOM模态框 -->
+<div class="modal fade" id="addModal" tabindex="-1" aria-labelledby="addModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addModalLabel">新增BOM清单</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addForm">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3 position-relative">
+                                <label for="product_code" class="form-label">产品编码</label>
+                                <input type="text" class="form-control" id="product_code" name="product_code" 
+                                       autocomplete="off" required placeholder="输入关键字搜索">
+                                <div class="position-absolute w-100" id="productDropdown" style="z-index:1050; display:none;">
+                                    <div class="list-group shadow" id="productList"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="product_name" class="form-label">产品名称</label>
+                                <input type="text" class="form-control" id="product_name" name="product_name" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="version" class="form-label">版本号</label>
+                                <input type="text" class="form-control" id="version" name="version" value="V1.0">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="status" class="form-label">状态</label>
+                                <select class="form-select" id="status" name="status">
+                                    <option value="active">激活</option>
+                                    <option value="inactive">停用</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="remark" class="form-label">备注</label>
+                        <textarea class="form-control" id="remark" name="remark" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="submitAdd">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑BOM模态框 -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editModalLabel">编辑BOM清单</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editForm">
+                    <input type="hidden" id="edit_id" name="id">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_product_code" class="form-label">产品编码</label>
+                                <input type="text" class="form-control" id="edit_product_code" name="product_code" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_product_name" class="form-label">产品名称</label>
+                                <input type="text" class="form-control" id="edit_product_name" name="product_name" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_version" class="form-label">版本号</label>
+                                <input type="text" class="form-control" id="edit_version" name="version">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_status" class="form-label">状态</label>
+                                <select class="form-select" id="edit_status" name="status">
+                                    <option value="active">激活</option>
+                                    <option value="inactive">停用</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_remark" class="form-label">备注</label>
+                        <textarea class="form-control" id="edit_remark" name="remark" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="submitEdit">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加子件模态框 -->
+<div class="modal fade" id="addItemModal" tabindex="-1" aria-labelledby="addItemModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addItemModalLabel">添加BOM子件</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addItemForm">
+                    <div class="mb-3">
+                        <label for="item_material_code" class="form-label">物料编码/条码</label>
+                        <input type="text" class="form-control" id="item_material_code" name="material_code" placeholder="扫码或输入物料编码" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="item_quantity" class="form-label">数量</label>
+                                <input type="number" class="form-control" id="item_quantity" name="quantity" value="1" min="0.01" step="0.01" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="item_unit_id" class="form-label">单位</label>
+                                <select class="form-select" id="item_unit_id" name="unit_id" required>
+                                    <option value="">请选择</option>
+                                    {% for unit in units %}
+                                    <option value="{{ unit.id }}">{{ unit.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="item_usage" class="form-label">用途</label>
+                        <input type="text" class="form-control" id="item_usage" name="usage" placeholder="例如：主体、配件等">
+                    </div>
+                    <div class="mb-3">
+                        <label for="item_remark" class="form-label">备注</label>
+                        <textarea class="form-control" id="item_remark" name="remark" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="submitItem">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 导入BOM模态框 -->
+<div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="importModalLabel">导入BOM清单</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <form id="importForm" action="{{ url_for('import_bom') }}" method="POST" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="file" class="form-label">上传Excel文件</label>
+                        <input type="file" class="form-control" id="file" name="file" accept=".xlsx,.xls" required>
+                    </div>
+                    <div class="alert alert-info">
+                        <strong>导入格式说明：</strong><br>
+                        请确保Excel文件包含以下列：<br>
+                        产品编码、产品名称、版本、物料编码、物料名称、规格、单位、数量、用途、备注。同一产品多行会导入为同一个BOM的多条明细。
+                        <br><a href="/export/template/bom">下载BOM导入模板</a>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="submitImport">导入</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Bootstrap Icons
+document.head.insertAdjacentHTML('beforeend', '<link href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}" rel="stylesheet">');
+
+var currentBomId = null;
+var bomData = {{ boms|tojson }};
+
+function escapeHtml(value) {
+    return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function bomUnitsHtml(selectedId) {
+    var html = '<option value="">请选择</option>';
+    {% for unit in units %}
+    html += '<option value="{{ unit.id }}"' + (String(selectedId || '') === '{{ unit.id }}' ? ' selected' : '') + '>{{ unit.name }}</option>';
+    {% endfor %}
+    return html;
+}
+
+function createBomItemRow(data) {
+    data = data || {};
+    var rowId = 'item_new_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+    var row = document.createElement('tr');
+    row.dataset.itemId = data.item_id || data.id || '';
+    row.dataset.new = data.is_new === false || row.dataset.itemId ? 'false' : 'true';
+    row.innerHTML =
+        '<td class="text-center text-muted p-1" style="background:#f8f9fa;"><span class="row-num"></span></td>' +
+        '<td class="p-1">' +
+            '<div class="position-relative">' +
+                '<input type="text" class="form-control form-control-sm material-code-input" value="' + escapeHtml(data.material_code || '') + '" placeholder="输入搜索" data-row="' + rowId + '">' +
+                '<div class="position-absolute w-100 material-search-dropdown" id="drop_' + rowId + '" style="z-index:1000; display:none; max-height:200px; overflow-y:auto;">' +
+                    '<div class="list-group shadow-sm material-search-list"></div>' +
+                '</div>' +
+                '<input type="hidden" class="material-id-input" value="' + escapeHtml(data.material_id || '') + '">' +
+            '</div>' +
+        '</td>' +
+        '<td class="p-1"><input type="text" class="form-control form-control-sm material-name-input" value="' + escapeHtml(data.material_name || '') + '" readonly tabindex="-1"></td>' +
+        '<td class="p-1"><input type="text" class="form-control form-control-sm material-spec-input" value="' + escapeHtml(data.material_spec || data.spec || '') + '" readonly tabindex="-1"></td>' +
+        '<td class="p-1"><input type="number" class="form-control form-control-sm text-end quantity-input" value="' + escapeHtml(data.quantity || 1) + '" min="0" step="0.01"></td>' +
+        '<td class="p-1"><select class="form-select form-select-sm unit-select">' + bomUnitsHtml(data.unit_id) + '</select></td>' +
+        '<td class="p-1"><input type="text" class="form-control form-control-sm text-center usage-input" value="' + escapeHtml(data.usage || '') + '" placeholder="用途"></td>' +
+        '<td class="p-1"><input type="text" class="form-control form-control-sm remark-input" value="' + escapeHtml(data.remark || '') + '"></td>' +
+        '<td class="p-1 text-center"><button class="btn btn-outline-danger btn-sm py-0 px-1 btn-delete-item" data-row="' + rowId + '" title="删除"><i class="bi bi-trash"></i></button></td>';
+    return row;
+}
+
+function addBomItemRow(beforeRow, data) {
+    if (!currentBomId) {
+        alert('请先选择一个BOM');
+        return null;
+    }
+    var tbody = document.getElementById('bomItemsBody');
+    var emptyRow = tbody.querySelector('tr td[colspan]');
+    if (emptyRow) emptyRow.closest('tr').remove();
+    var row = createBomItemRow(data);
+    if (beforeRow) {
+        tbody.insertBefore(row, beforeRow);
+    } else {
+        tbody.appendChild(row);
+    }
+    initMaterialSearch();
+    bindDeleteItemButtons();
+    updateRowNumbers();
+    row.querySelector('.material-code-input').focus();
+    return row;
+}
+
+function readBomItemRow(row) {
+    if (!row) return {};
+    return {
+        material_code: row.querySelector('.material-code-input')?.value || '',
+        material_name: row.querySelector('.material-name-input')?.value || '',
+        material_spec: row.querySelector('.material-spec-input')?.value || '',
+        material_id: row.querySelector('.material-id-input')?.value || '',
+        quantity: row.querySelector('.quantity-input')?.value || 1,
+        unit_id: row.querySelector('.unit-select')?.value || '',
+        usage: row.querySelector('.usage-input')?.value || '',
+        remark: row.querySelector('.remark-input')?.value || ''
+    };
+}
+
+function copyBomItemRow(row) {
+    var target = addBomItemRow(row ? row.nextElementSibling : null, readBomItemRow(row));
+    if (target) {
+        target.querySelector('.quantity-input').focus();
+        target.querySelector('.quantity-input').select();
+    }
+}
+
+function deleteBomItemRow(row) {
+    var button = row && row.querySelector('.btn-delete-item');
+    if (button) button.click();
+}
+
+// 点击BOM行加载子件明细
+document.querySelectorAll('.bom-row').forEach(function(row) {
+    row.addEventListener('click', function() {
+        var id = this.dataset.id;
+        window.location.href = '/bom/' + encodeURIComponent(id);
+        return;
+        var bom = bomData.find(function(b) { return b.id == id; });
+        
+        // 高亮选中行
+        document.querySelectorAll('.bom-row').forEach(function(r) {
+            r.classList.remove('table-active');
+            r.style.backgroundColor = '';
+        });
+        this.classList.add('table-active');
+        this.style.backgroundColor = '#e7f1ff';
+        
+        // 显示子件明细区域
+        document.getElementById('bomDetailCard').style.display = 'block';
+        document.getElementById('detailTitle').innerHTML = '<i class="bi bi-table me-2"></i>BOM子件明细 - ' + bom.product_name + ' (' + bom.bom_no + ')';
+        
+        currentBomId = id;
+        loadBomItems(id);
+    });
+});
+
+// 子件表格行选择功能（点击序号列选中）
+document.addEventListener('click', function(e) {
+    var cell = e.target.closest('td');
+    if (cell && cell.querySelector('.row-num')) {
+        var row = cell.closest('tr');
+        row.classList.toggle('selected');
+        if (row.classList.contains('selected')) {
+            row.style.backgroundColor = '#fff3cd';
+        } else {
+            row.style.backgroundColor = '';
+        }
+    } else if (!e.target.closest('#bomItemsBody')) {
+        // 点击其他区域取消选择
+        document.querySelectorAll('#bomItemsBody tr.selected').forEach(function(r) {
+            r.classList.remove('selected');
+            r.style.backgroundColor = '';
+        });
+    }
+});
+
+// 加载BOM子件明细（可编辑表格）
+function loadBomItems(bomId) {
+    var bom = bomData.find(function(b) { return b.id == bomId; });
+    var tbody = document.getElementById('bomItemsBody');
+    var unitsHtml = '<option value="">请选择</option>';
+    {% for unit in units %}
+    unitsHtml += '<option value="{{ unit.id }}">{{ unit.name }}</option>';
+    {% endfor %}
+    
+    if (bom && bom.materials && bom.materials.length > 0) {
+        tbody.innerHTML = bom.materials.map(function(item, idx) {
+            var rowId = 'item_' + (item.id || ('new_' + idx));
+            return '<tr data-item-id="' + (item.id || '') + '" data-new="' + (item.id ? 'false' : 'true') + '">' +
+                '<td class="text-center text-muted p-1" style="background:#f8f9fa;"><span class="row-num">' + (idx + 1) + '</span></td>' +
+                '<td class="p-1">' +
+                    '<div class="position-relative">' +
+                        '<input type="text" class="form-control form-control-sm material-code-input" ' +
+                        'value="' + (item.material_code || '') + '" placeholder="输入搜索"' +
+                        'data-row="' + rowId + '">' +
+                        '<div class="position-absolute w-100 material-search-dropdown" id="drop_' + rowId + '" style="z-index:1000; display:none; max-height:200px; overflow-y:auto;">' +
+                            '<div class="list-group shadow-sm material-search-list"></div>' +
+                        '</div>' +
+                        '<input type="hidden" class="material-id-input" value="' + (item.material_id || '') + '">' +
+                    '</div>' +
+                '</td>' +
+                '<td class="p-1"><input type="text" class="form-control form-control-sm material-name-input" value="' + (item.material_name || '') + '" readonly tabindex="-1"></td>' +
+                '<td class="p-1"><input type="text" class="form-control form-control-sm material-spec-input" value="' + (item.material_spec || '') + '" readonly tabindex="-1"></td>' +
+                '<td class="p-1"><input type="number" class="form-control form-control-sm text-end quantity-input" value="' + (item.quantity || '') + '" min="0" step="0.01"></td>' +
+                '<td class="p-1">' +
+                    '<select class="form-select form-select-sm unit-select">' +
+                        unitsHtml.replace('value="' + (item.unit_id || '') + '"', 'value="' + (item.unit_id || '') + '" selected') +
+                    '</select>' +
+                '</td>' +
+                '<td class="p-1"><input type="text" class="form-control form-control-sm text-center usage-input" value="' + (item.usage || '') + '" placeholder="用途"></td>' +
+                '<td class="p-1"><input type="text" class="form-control form-control-sm remark-input" value="' + (item.remark || '') + '"></td>' +
+                '<td class="p-1 text-center">' +
+                    '<button class="btn btn-outline-danger btn-sm py-0 px-1 btn-delete-item" data-row="' + rowId + '" title="删除"><i class="bi bi-trash"></i></button>' +
+                '</td>' +
+            '</tr>';
+        }).join('');
+    } else {
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4"><i class="bi bi-inbox" style="font-size:2rem;"></i><p class="mb-0 mt-2">暂无子件数据，点击"新增行"添加</p></td></tr>';
+    }
+    
+    // 初始化物料搜索功能
+    initMaterialSearch();
+    // 绑定删除按钮
+    bindDeleteItemButtons();
+}
+
+// 绑定删除子件按钮
+function bindDeleteItemButtons() {
+    document.querySelectorAll('.btn-delete-item').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var row = this.closest('tr');
+            var itemId = row.dataset.itemId;
+            var isNew = row.dataset.new === 'true';
+            
+            if (!isNew) {
+                if (!confirm('确定要删除该子件吗？')) return;
+                fetch('/bom/' + currentBomId + '/delete_item/' + itemId, {
+                    method: 'POST'
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.status === 'success') {
+                        row.remove();
+                        updateRowNumbers();  // 更新行号
+                        // 更新本地数据
+                        var bom = bomData.find(function(b) { return b.id == currentBomId; });
+                        if (bom) {
+                            bom.materials = bom.materials.filter(function(i) { return i.id != itemId; });
+                        }
+                    } else {
+                        alert('删除失败: ' + data.msg);
+                    }
+                });
+            } else {
+                row.remove();
+                updateRowNumbers();  // 更新行号
+            }
+        });
+    });
+}
+
+// 初始化物料搜索功能
+function initMaterialSearch() {
+    var searchTimeout = null;
+    
+    document.querySelectorAll('.material-code-input').forEach(function(input) {
+        input.addEventListener('input', function() {
+            var keyword = this.value.trim().toLowerCase();
+            var rowId = this.dataset.row;
+            var dropdown = document.getElementById('drop_' + rowId);
+            var list = dropdown.querySelector('.material-search-list');
+            
+            clearTimeout(searchTimeout);
+            
+            if (keyword.length < 1) {
+                dropdown.style.display = 'none';
+                return;
+            }
+            
+            searchTimeout = setTimeout(function() {
+                var matches = allMaterials.filter(function(m) {
+                    return m.code.toLowerCase().indexOf(keyword) >= 0 ||
+                           (m.name && m.name.toLowerCase().indexOf(keyword) >= 0) ||
+                           (m.spec && m.spec.toLowerCase().indexOf(keyword) >= 0);
+                }).slice(0, 8);
+                
+                if (matches.length > 0) {
+                    list.innerHTML = matches.map(function(m) {
+                        return '<button type="button" class="list-group-item list-group-item-action py-1 px-2" ' +
+                               'data-code="' + m.code + '" data-name="' + (m.name || '') + '" ' +
+                               'data-spec="' + (m.spec || '') + '" data-id="' + m.id + '">' +
+                               '<small><strong>' + m.code + '</strong> - ' + (m.name || '') + '</small></button>';
+                    }).join('');
+                } else {
+                    list.innerHTML = '<button type="button" class="list-group-item list-group-item-action py-1 px-2 disabled"><small>无匹配结果</small></button>';
+                }
+                dropdown.style.display = 'block';
+            }, 150);
+        });
+        
+        // 点击选择物料
+        input.addEventListener('blur', function() {
+            // 延迟关闭以便点击选择
+            setTimeout(function() {
+                dropdown.style.display = 'none';
+            }, 200);
+        });
+    });
+    
+    // 物料选择
+    document.querySelectorAll('.material-search-list').forEach(function(list) {
+        list.addEventListener('click', function(e) {
+            var btn = e.target.closest('[data-code]');
+            if (btn) {
+                var row = btn.closest('tr');
+                var codeInput = row.querySelector('.material-code-input');
+                var nameInput = row.querySelector('.material-name-input');
+                var specInput = row.querySelector('.material-spec-input');
+                var idInput = row.querySelector('.material-id-input');
+                
+                codeInput.value = btn.dataset.code;
+                nameInput.value = btn.dataset.name;
+                specInput.value = btn.dataset.spec;
+                idInput.value = btn.dataset.id;
+                
+                var dropdown = row.querySelector('.material-search-dropdown');
+                dropdown.style.display = 'none';
+            }
+        });
+    });
+}
+
+// 全选/取消全选
+document.getElementById('selectAll').addEventListener('click', function() {
+    var checkboxes = document.querySelectorAll('.itemCheck');
+    checkboxes.forEach(function(checkbox) {
+        checkbox.checked = document.getElementById('selectAll').checked;
+    });
+});
+
+// 批量删除
+var batchDeleteBtn = document.getElementById('batchDeleteBtn');
+if (batchDeleteBtn) {
+batchDeleteBtn.addEventListener('click', function() {
+    var checkedItems = document.querySelectorAll('.itemCheck:checked');
+    if (checkedItems.length === 0) {
+        alert('请选择要删除的BOM清单');
+        return;
+    }
+    
+    if (confirm('确定要删除选中的 ' + checkedItems.length + ' 个BOM清单吗？')) {
+        var ids = [];
+        checkedItems.forEach(function(item) {
+            ids.push(item.value);
+        });
+        
+        fetch('{{ url_for('batch_delete_bom') }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ids: ids})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.status === 'success') {
+                alert('删除成功');
+                location.reload();
+            } else {
+                alert('删除失败: ' + data.msg);
+            }
+        });
+    }
+});
+}
+
+// 新增BOM
+document.getElementById('submitAdd').addEventListener('click', function() {
+    var form = document.getElementById('addForm');
+    var formData = new FormData(form);
+    
+    fetch('{{ url_for('add_bom') }}', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            alert('新增成功');
+            location.reload();
+        } else {
+            alert('新增失败: ' + data.msg);
+        }
+    });
+});
+
+// 编辑BOM - 显示编辑模态框
+document.querySelectorAll('.btn-edit').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var id = this.dataset.id;
+        var bom = bomData.find(function(b) { return b.id == id; });
+        
+        document.getElementById('edit_id').value = bom.id;
+        document.getElementById('edit_product_code').value = bom.product_code;
+        document.getElementById('edit_product_name').value = bom.product_name;
+        document.getElementById('edit_version').value = bom.version;
+        document.getElementById('edit_status').value = bom.status;
+        document.getElementById('edit_remark').value = bom.remark || '';
+        
+        new bootstrap.Modal(document.getElementById('editModal')).show();
+    });
+});
+
+// 提交编辑
+document.getElementById('submitEdit').addEventListener('click', function() {
+    var id = document.getElementById('edit_id').value;
+    var form = document.getElementById('editForm');
+    var formData = new FormData(form);
+    
+    fetch('/bom/' + id + '/update', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            alert('更新成功');
+            location.reload();
+        } else {
+            alert('更新失败: ' + data.msg);
+        }
+    });
+});
+
+// 删除BOM
+document.querySelectorAll('.btn-delete').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (!confirm('确定要删除吗？')) return;
+        var id = this.dataset.id;
+        
+        fetch('/bom/delete/' + id, {
+            method: 'POST'
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.status === 'success') {
+                alert('删除成功');
+                location.reload();
+            } else {
+                alert('删除失败: ' + data.msg);
+            }
+        });
+    });
+});
+
+// 计算BOM成本
+document.addEventListener('click', function(e) {
+    var costBtn = e.target.closest('.btn-calculate-cost');
+    if (costBtn) {
+        e.stopPropagation();
+        var id = costBtn.dataset.id;
+        
+        if (!confirm('确定要重新计算该BOM的成本吗？')) return;
+        
+        fetch('/bom/' + id + '/calculate_cost', {
+            method: 'POST'
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.status === 'success') {
+                alert('✓ ' + data.msg);
+                location.reload();
+            } else {
+                alert('✗ 计算失败: ' + data.msg);
+            }
+        });
+    }
+});
+
+// 添加子件（新增一行）
+document.getElementById('addItemBtn').addEventListener('click', function() {
+    addBomItemRow();
+});
+
+// 拆分行功能
+document.getElementById('splitRowBtn').addEventListener('click', function() {
+    var selectedRows = document.querySelectorAll('#bomItemsBody tr.selected');
+    if (selectedRows.length === 0) {
+        alert('请先选择要拆分的行（点击行首序号选中）');
+        return;
+    }
+    
+    selectedRows.forEach(function(row) {
+        var quantity = parseFloat(row.querySelector('.quantity-input').value) || 1;
+        if (quantity > 1) {
+            var half = Math.ceil(quantity / 2);
+            row.querySelector('.quantity-input').value = half;
+            
+            // 添加新行
+            var tbody = document.getElementById('bomItemsBody');
+            var rowId = 'item_new_' + Date.now();
+            var unitsHtml = '';
+            {% for unit in units %}
+            unitsHtml += '<option value="{{ unit.id }}">{{ unit.name }}</option>';
+            {% endfor %}
+            
+            var newRow = document.createElement('tr');
+            newRow.dataset.itemId = '';
+            newRow.dataset.new = 'true';
+            
+            var code = row.querySelector('.material-code-input').value;
+            var name = row.querySelector('.material-name-input').value;
+            var spec = row.querySelector('.material-spec-input').value;
+            var unitId = row.querySelector('.unit-select').value;
+            var usage = row.querySelector('.usage-input').value;
+            
+            newRow.innerHTML = 
+                '<td class="text-center text-muted p-1" style="background:#f8f9fa;"><span class="row-num">' + (tbody.querySelectorAll('tr').length + 1) + '</span></td>' +
+                '<td class="p-1">' +
+                    '<div class="position-relative">' +
+                        '<input type="text" class="form-control form-control-sm material-code-input" value="' + code + '" data-row="' + rowId + '">' +
+                        '<input type="hidden" class="material-id-input" value="">' +
+                    '</div>' +
+                '</td>' +
+                '<td class="p-1"><input type="text" class="form-control form-control-sm material-name-input" value="' + name + '" readonly tabindex="-1"></td>' +
+                '<td class="p-1"><input type="text" class="form-control form-control-sm material-spec-input" value="' + spec + '" readonly tabindex="-1"></td>' +
+                '<td class="p-1"><input type="number" class="form-control form-control-sm text-end quantity-input" value="' + (quantity - half) + '" min="0" step="0.01"></td>' +
+                '<td class="p-1"><select class="form-select form-select-sm unit-select">' + unitsHtml + '</select></td>' +
+                '<td class="p-1"><input type="text" class="form-control form-control-sm text-center usage-input" value="' + usage + '"></td>' +
+                '<td class="p-1"><input type="text" class="form-control form-control-sm remark-input" placeholder="拆分"></td>' +
+                '<td class="p-1 text-center"><button class="btn btn-outline-danger btn-sm py-0 px-1 btn-delete-item" data-row="' + rowId + '" title="删除"><i class="bi bi-trash"></i></button></td>';
+            
+            tbody.appendChild(newRow);
+            bindDeleteItemButtons();
+        }
+    });
+    
+    updateRowNumbers();
+    alert('拆分完成');
+});
+
+// 批量粘贴功能
+document.getElementById('batchPasteBtn').addEventListener('click', function() {
+    var pasteText = prompt('请粘贴物料数据（格式：物料编码,数量,用途，每行一条）：\n例如：\nMAT001,10,主体\nMAT002,5,配件');
+    
+    if (!pasteText || !pasteText.trim()) return;
+    
+    var lines = pasteText.trim().split('\n');
+    var tbody = document.getElementById('bomItemsBody');
+    var rowId = 'item_new_' + Date.now();
+    var unitsHtml = '';
+    {% for unit in units %}
+    unitsHtml += '<option value="{{ unit.id }}">{{ unit.name }}</option>';
+    {% endfor %}
+    
+    // 移除空提示行
+    var emptyRow = tbody.querySelector('tr td[colspan]');
+    if (emptyRow) emptyRow.closest('tr').remove();
+    
+    var rowCount = tbody.querySelectorAll('tr').length;
+    
+    lines.forEach(function(line, idx) {
+        var parts = line.split(',');
+        var code = (parts[0] || '').trim();
+        var qty = parseFloat(parts[1]) || 1;
+        var usage = (parts[2] || '').trim();
+        
+        if (!code) return;
+        
+        rowCount++;
+        var newRow = document.createElement('tr');
+        newRow.dataset.itemId = '';
+        newRow.dataset.new = 'true';
+        newRow.innerHTML = 
+            '<td class="text-center text-muted p-1" style="background:#f8f9fa;"><span class="row-num">' + rowCount + '</span></td>' +
+            '<td class="p-1">' +
+                '<div class="position-relative">' +
+                    '<input type="text" class="form-control form-control-sm material-code-input" value="' + code + '" data-row="' + rowId + idx + '">' +
+                    '<div class="position-absolute w-100 material-search-dropdown" id="drop_' + rowId + idx + '" style="z-index:1000; display:none; max-height:200px; overflow-y:auto;">' +
+                        '<div class="list-group shadow-sm material-search-list"></div>' +
+                    '</div>' +
+                    '<input type="hidden" class="material-id-input" value="">' +
+                '</div>' +
+            '</td>' +
+            '<td class="p-1"><input type="text" class="form-control form-control-sm material-name-input" readonly tabindex="-1"></td>' +
+            '<td class="p-1"><input type="text" class="form-control form-control-sm material-spec-input" readonly tabindex="-1"></td>' +
+            '<td class="p-1"><input type="number" class="form-control form-control-sm text-end quantity-input" value="' + qty + '" min="0" step="0.01"></td>' +
+            '<td class="p-1"><select class="form-select form-select-sm unit-select">' + unitsHtml + '</select></td>' +
+            '<td class="p-1"><input type="text" class="form-control form-control-sm text-center usage-input" value="' + usage + '"></td>' +
+            '<td class="p-1"><input type="text" class="form-control form-control-sm remark-input" placeholder="批量粘贴"></td>' +
+            '<td class="p-1 text-center"><button class="btn btn-outline-danger btn-sm py-0 px-1 btn-delete-item" data-row="' + rowId + idx + '" title="删除"><i class="bi bi-trash"></i></button></td>';
+        
+        tbody.appendChild(newRow);
+        
+        // 自动查找物料信息
+        var match = allMaterials.find(function(m) { return m.code.toLowerCase() === code.toLowerCase(); });
+        if (match) {
+            newRow.querySelector('.material-code-input').value = match.code;
+            newRow.querySelector('.material-name-input').value = match.name || '';
+            newRow.querySelector('.material-spec-input').value = match.spec || '';
+            newRow.querySelector('.material-id-input').value = match.id;
+            if (match.unit_id) {
+                newRow.querySelector('.unit-select').value = match.unit_id;
+            }
+        }
+    });
+    
+    initMaterialSearch();
+    bindDeleteItemButtons();
+    alert('批量粘贴完成，共添加 ' + lines.length + ' 行');
+});
+
+// 更新行号
+function updateRowNumbers() {
+    document.querySelectorAll('#bomItemsBody tr').forEach(function(row, idx) {
+        var numSpan = row.querySelector('.row-num');
+        if (numSpan) numSpan.textContent = idx + 1;
+    });
+}
+
+// 保存全部
+document.getElementById('saveAllBtn').addEventListener('click', function() {
+    if (!currentBomId) return;
+    
+    var rows = document.querySelectorAll('#bomItemsBody tr');
+    var savedCount = 0;
+    var newCount = 0;
+    
+    rows.forEach(function(row) {
+        var isNew = row.dataset.new === 'true';
+        var code = row.querySelector('.material-code-input').value.trim();
+        var quantity = row.querySelector('.quantity-input').value;
+        
+        if (!code || !quantity) {
+            if (code || quantity) {
+                alert('物料编码和数量为必填项');
+            }
+            return;
+        }
+        
+        var formData = new FormData();
+        formData.append('material_code', code);
+        formData.append('quantity', quantity);
+        formData.append('unit_id', row.querySelector('.unit-select').value);
+        formData.append('usage', row.querySelector('.usage-input').value || '');
+        formData.append('remark', row.querySelector('.remark-input').value || '');
+        
+        if (isNew) {
+            newCount++;
+            fetch('/bom/' + currentBomId + '/add_item', {
+                method: 'POST',
+                body: formData
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.status === 'success') {
+                    savedCount++;
+                    row.dataset.new = 'false';
+                    row.dataset.itemId = data.id;
+                    if (savedCount + newCount === rows.length) {
+                        alert('保存成功！');
+                        location.reload();
+                    }
+                } else {
+                    alert('保存失败: ' + data.msg);
+                }
+            });
+        }
+    });
+    
+    if (savedCount === 0 && newCount === 0) {
+        alert('没有需要保存的数据');
+    }
+});
+
+document.getElementById('submitItem').addEventListener('click', function() {
+    var form = document.getElementById('addItemForm');
+    var formData = new FormData(form);
+    
+    fetch('/bom/' + currentBomId + '/add_item', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            alert('添加成功');
+            bootstrap.Modal.getInstance(document.getElementById('addItemModal')).hide();
+            // 重新加载页面获取最新数据
+            location.reload();
+        } else {
+            alert('添加失败: ' + data.msg);
+        }
+    });
+});
+
+// 生成领料单
+document.getElementById('generateRequisitionBtn').addEventListener('click', function() {
+    if (!currentBomId) {
+        alert('请先选择一个BOM');
+        return;
+    }
+    if (!confirm('确定要从该BOM生成领料单吗？')) return;
+
+    fetch('/bom/' + currentBomId + '/create_requisition', {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.status === 'success' && data.id) {
+            window.location.href = '/requisition/' + data.id;
+        } else {
+            alert('生成失败: ' + (data.msg || '未知错误'));
+        }
+    })
+    .catch(function(err) {
+        alert('生成失败：' + err.message);
+    });
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof registerDetailRowActions !== 'function') return;
+    registerDetailRowActions({
+        tableSelector: '#bomItemsTable',
+        rowSelector: '#bomItemsBody tr',
+        editable: function() { return !!currentBomId; },
+        add: function() { addBomItemRow(); },
+        insert: function(row) { addBomItemRow(row); },
+        copy: function(row) { copyBomItemRow(row); },
+        remove: function(row) { deleteBomItemRow(row); }
+    });
+});
+
+// 导入BOM
+document.getElementById('submitImport').addEventListener('click', function() {
+    document.getElementById('importForm').submit();
+});
+
+// 产品编码搜索功能
+var productSearchTimeout = null;
+var allMaterials = [];
+
+// 获取所有物料数据用于搜索
+fetch('/material/api/list')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.materials) {
+            allMaterials = data.materials;
+        }
+    })
+    .catch(function() {});
+
+document.getElementById('product_code').addEventListener('input', function() {
+    var keyword = this.value.trim().toLowerCase();
+    var dropdown = document.getElementById('productDropdown');
+    var list = document.getElementById('productList');
+    
+    clearTimeout(productSearchTimeout);
+    
+    if (keyword.length < 1) {
+        dropdown.style.display = 'none';
+        return;
+    }
+    
+    productSearchTimeout = setTimeout(function() {
+        // 搜索匹配
+        var matches = allMaterials.filter(function(m) {
+            return m.code.toLowerCase().indexOf(keyword) >= 0 ||
+                   (m.name && m.name.toLowerCase().indexOf(keyword) >= 0);
+        }).slice(0, 10);
+        
+        if (matches.length > 0) {
+            list.innerHTML = matches.map(function(m) {
+                return '<button type="button" class="list-group-item list-group-item-action" ' +
+                       'data-code="' + m.code + '" data-name="' + (m.name || '') + '">' +
+                       '<strong>' + m.code + '</strong> - ' + (m.name || '') +
+                       (m.spec ? ' (' + m.spec + ')' : '') + '</button>';
+            }).join('');
+            dropdown.style.display = 'block';
+        } else {
+            list.innerHTML = '<button type="button" class="list-group-item list-group-item-action disabled">无匹配结果</button>';
+            dropdown.style.display = 'block';
+        }
+    }, 200);
+});
+
+// 点击选择物料
+document.getElementById('productList').addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-code]');
+    if (btn) {
+        document.getElementById('product_code').value = btn.dataset.code;
+        document.getElementById('product_name').value = btn.dataset.name;
+        document.getElementById('productDropdown').style.display = 'none';
+    }
+});
+
+// 点击外部关闭下拉
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('#product_code') && !e.target.closest('#productDropdown')) {
+        document.getElementById('productDropdown').style.display = 'none';
+    }
+});
+
+// 模态框关闭时隐藏下拉
+document.getElementById('addModal').addEventListener('hidden.bs.modal', function() {
+    document.getElementById('productDropdown').style.display = 'none';
+});
+</script>
+{% endblock %}

@@ -1,0 +1,726 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+/* 重置样式覆盖 */
+body {
+    background: #f5f7fa !important;
+}
+</style>
+<link href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}" rel="stylesheet">
+<style>
+        body {
+            background: #f5f7fa;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+        
+        .header {
+            background: white;
+            padding: 15px 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+        
+        .designer-container {
+            display: flex;
+            gap: 20px;
+            padding: 0 30px;
+            height: calc(100vh - 200px);
+        }
+        
+        /* 左侧字段面板 */
+        .fields-sidebar {
+            width: 240px;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            overflow-y: auto;
+        }
+        
+        .fields-sidebar h6 {
+            color: #1a1a1a;
+            font-weight: 600;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e9ecef;
+        }
+        
+        .field-item {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 12px 15px;
+            margin-bottom: 10px;
+            cursor: move;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: #333;
+        }
+        
+        .field-item:hover {
+            border-color: #1890ff;
+            background: #e6f7ff;
+            transform: translateX(3px);
+        }
+        
+        .field-item i {
+            color: #8c8c8c;
+            font-size: 16px;
+        }
+        
+        /* 中间设计区域 */
+        .design-area {
+            flex: 1;
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            overflow-y: auto;
+        }
+        
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .toolbar-info {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .toolbar-info span {
+            background: #f5f5f5;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        
+        .label-preview-container {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 400px;
+            padding: 20px;
+            background: #fafafa;
+            border-radius: 6px;
+            border: 1px dashed #d9d9d9;
+        }
+        
+        /* 简道云风格标签 */
+        .label-sheet {
+            background: white;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            position: relative;
+        }
+        
+        .label-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        
+        .label-table td {
+            border: 1px solid #e9ecef;
+            padding: 0;
+            position: relative;
+            background: white;
+            transition: all 0.2s;
+        }
+        
+        .label-table td:hover {
+            background: #fafafa;
+        }
+        
+        .cell-content {
+            width: 100%;
+            height: 100%;
+            min-height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px;
+            font-size: 12px;
+            color: #333;
+            pointer-events: none; /* 让事件穿透到父元素td */
+        }
+        
+        .cell-placeholder {
+            color: #bfbfbf;
+            font-size: 11px;
+        }
+        
+        .cell-data {
+            color: #333;
+            font-size: 12px;
+        }
+        
+        /* 条码样式 */
+        .barcode-img {
+            max-width: 100%;
+            height: 25px;
+            display: block;
+        }
+        
+        /* 删除按钮 */
+        .delete-cell {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 20px;
+            height: 20px;
+            background: #ff4d4f;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            z-index: 10;
+        }
+        
+        .label-table td:hover .delete-cell {
+            display: flex;
+        }
+        
+        .delete-cell:hover {
+            background: #ff7875;
+        }
+        
+        /* 样式面板 */
+        .style-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            z-index: 9999;
+            width: 280px;
+            display: none;
+        }
+        
+        .style-panel.show {
+            display: block;
+        }
+        
+        .style-panel h6 {
+            margin-bottom: 15px;
+            color: #333;
+            font-weight: 600;
+        }
+        
+        .style-panel .form-group {
+            margin-bottom: 12px;
+        }
+        
+        .style-panel label {
+            font-size: 13px;
+            color: #666;
+            font-weight: 500;
+            margin-bottom: 5px;
+        }
+        
+        .style-panel input,
+        .style-panel select {
+            font-size: 13px;
+            padding: 6px 10px;
+        }
+        
+        .align-btns {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+        
+        .align-btn {
+            flex: 1;
+            padding: 6px;
+            font-size: 13px;
+        }
+        
+        .align-btn.active {
+            background: #1890ff !important;
+            border-color: #1890ff !important;
+            color: white !important;
+        }
+        
+        /* 打印样式 */
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            
+            .print-area,
+            .print-area * {
+                visibility: visible;
+            }
+            
+            .print-area {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+            }
+            
+            .label-sheet {
+                box-shadow: none;
+                border: none;
+            }
+            
+            .delete-cell {
+                display: none !important;
+            }
+        }
+        
+        /* 拖拽目标高亮 */
+        .drag-over {
+            background: #e6f7ff !important;
+            border-color: #1890ff !important;
+        }
+        
+        /* 空单元格提示 */
+        .empty-cell-hint {
+            color: #bfbfbf;
+            font-size: 11px;
+            pointer-events: none;
+        }
+    </style>
+{% endblock %}
+
+{% block title %}标签模板设计 - {{ template.name }}{% endblock %}
+
+{% block content %}
+    <div class="header">
+        <div class="d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center gap-3">
+                <a href="{{ url_for('label_template_list') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-arrow-left"></i> 返回
+                </a>
+                <h4 class="mb-0">
+                    <i class="bi bi-layout-sidebar me-2"></i>{{ template.name }}
+                </h4>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-primary" onclick="previewTemplate()">
+                    <i class="bi bi-eye"></i> 预览
+                </button>
+                <button class="btn btn-success" onclick="saveLayout()">
+                    <i class="bi bi-save"></i> 保存布局
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="designer-container">
+        <!-- 左侧字段面板 -->
+        <div class="fields-sidebar">
+            <h6><i class="bi bi-list-task me-2"></i>可用字段</h6>
+            
+            <div class="field-item" draggable="true" data-field="code">
+                <i class="bi bi-upc-scan"></i>
+                <span>物料编码</span>
+            </div>
+            <div class="field-item" draggable="true" data-field="name">
+                <i class="bi bi-font"></i>
+                <span>物料名称</span>
+            </div>
+            <div class="field-item" draggable="true" data-field="spec">
+                <i class="bi bi-rulers"></i>
+                <span>规格</span>
+            </div>
+            <div class="field-item" draggable="true" data-field="unit">
+                <i class="bi bi-box"></i>
+                <span>单位</span>
+            </div>
+            <div class="field-item" draggable="true" data-field="stock">
+                <i class="bi bi-cart"></i>
+                <span>库存</span>
+            </div>
+            <div class="field-item" draggable="true" data-field="category">
+                <i class="bi bi-folder"></i>
+                <span>分类</span>
+            </div>
+            <div class="field-item" draggable="true" data-field="supplier">
+                <i class="bi bi-shop"></i>
+                <span>供应商</span>
+            </div>
+            <div class="field-item" draggable="true" data-field="barcode">
+                <i class="bi bi-barcode"></i>
+                <span>条码</span>
+            </div>
+            <div class="field-item" draggable="true" data-field="qrcode">
+                <i class="bi bi-qr-code"></i>
+                <span>二维码</span>
+            </div>
+        </div>
+
+        <!-- 中间设计区域 -->
+        <div class="design-area">
+            <div class="toolbar">
+                <div class="toolbar-info">
+                    <span>尺寸: {{ template.width }}×{{ template.height }}mm</span>
+                    <span>网格: {{ template.cols }}×{{ template.rows }}</span>
+                </div>
+                <button class="btn btn-outline-danger btn-sm" onclick="clearLayout()">
+                    <i class="bi bi-trash"></i> 清空
+                </button>
+            </div>
+            
+            <div class="label-preview-container">
+                <div class="label-sheet" id="labelSheet" style="width: {{ (template.width * 3.78) | round(0) }}px;">
+                    <table class="label-table" id="labelTable">
+                        {% for row in range(template.rows) %}
+                        <tr style="height: {{ (template.height * 3.78 / template.rows) | round(0) }}px;">
+                            {% for col in range(template.cols) %}
+                            <td id="cell-{{ row }}-{{ col }}" data-row="{{ row }}" data-col="{{ col }}">
+                                <div class="cell-content">
+                                    <span class="empty-cell-hint">{{ row + 1 }}-{{ col + 1 }}</span>
+                                </div>
+                                <button class="delete-cell" onclick="removeCell({{ row }}, {{ col }})">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 样式配置面板 -->
+    <div class="style-panel" id="stylePanel">
+        <h6><i class="bi bi-gear me-2"></i>单元格样式</h6>
+        
+        <div class="form-group">
+            <label>对齐方式</label>
+            <div class="align-btns">
+                <button class="btn btn-outline-primary btn-sm align-btn" data-align="left" onclick="setAlign('left')">
+                    <i class="bi bi-text-left"></i>
+                </button>
+                <button class="btn btn-outline-primary btn-sm align-btn" data-align="center" onclick="setAlign('center')">
+                    <i class="bi bi-text-center"></i>
+                </button>
+                <button class="btn btn-outline-primary btn-sm align-btn" data-align="right" onclick="setAlign('right')">
+                    <i class="bi bi-text-right"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>字体大小 (px)</label>
+            <input type="number" class="form-control form-control-sm" id="styleFontSize" min="8" max="24" value="12">
+        </div>
+        
+        <div class="form-group">
+            <label>字体</label>
+            <select class="form-select form-select-sm" id="styleFontFamily">
+                <option value="Microsoft YaHei">微软雅黑</option>
+                <option value="SimSun">宋体</option>
+                <option value="SimHei">黑体</option>
+                <option value="KaiTi">楷体</option>
+                <option value="Arial">Arial</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label>字体颜色</label>
+            <input type="color" class="form-control form-control-sm" id="styleColor" value="#333333" style="height: 35px;">
+        </div>
+        
+        <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-secondary btn-sm flex-1" onclick="closeStylePanel()">取消</button>
+            <button class="btn btn-primary btn-sm flex-1" onclick="applyStyle()">应用</button>
+        </div>
+    </div>
+
+    <script>
+        // 布局数据存储
+        let layoutData = {{ template.layout | default('{}') | safe }};
+        let currentCell = null;
+        
+        // 字段映射
+        const fieldLabels = {
+            'code': '物料编码',
+            'name': '物料名称',
+            'spec': '规格',
+            'unit': '单位',
+            'stock': '库存',
+            'category': '分类',
+            'supplier': '供应商',
+            'barcode': '条码',
+            'qrcode': '二维码'
+        };
+        
+        // 示例数据
+        const sampleData = {
+            'code': 'TEST001',
+            'name': '示例物料',
+            'spec': '规格示例',
+            'unit': '个',
+            'stock': '100',
+            'category': '测试分类',
+            'supplier': '测试供应商',
+            'barcode': 'TEST001',
+            'qrcode': 'TEST001'
+        };
+        
+        // 初始化拖拽
+        function initDragDrop() {
+            const fields = document.querySelectorAll('.field-item');
+            fields.forEach(field => {
+                field.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('field', field.dataset.field);
+                    field.classList.add('dragging');
+                });
+                
+                field.addEventListener('dragend', () => {
+                    field.classList.remove('dragging');
+                });
+            });
+            
+            // 单元格拖放
+            const cells = document.querySelectorAll('.label-table td');
+            cells.forEach(cell => {
+                cell.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    cell.classList.add('drag-over');
+                });
+                
+                cell.addEventListener('dragleave', () => {
+                    cell.classList.remove('drag-over');
+                });
+                
+                cell.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    cell.classList.remove('drag-over');
+                    
+                    const field = e.dataTransfer.getData('field');
+                    if (field) {
+                        const row = cell.dataset.row;
+                        const col = cell.dataset.col;
+                        const cellKey = `${row}-${col}`;
+                        
+                        // 保存布局数据
+                        layoutData[cellKey] = {
+                            field: field,
+                            label: fieldLabels[field],
+                            style: {
+                                fontSize: 12,
+                                fontFamily: 'Microsoft YaHei',
+                                textAlign: 'center',
+                                color: '#333333'
+                            }
+                        };
+                        
+                        // 渲染单元格
+                        renderCell(row, col, field, fieldLabels[field], layoutData[cellKey].style);
+                    }
+                });
+                
+                // 点击单元格打开样式面板
+                cell.addEventListener('dblclick', (e) => {
+                    const row = cell.dataset.row;
+                    const col = cell.dataset.col;
+                    const cellKey = `${row}-${col}`;
+                    
+                    if (layoutData[cellKey]) {
+                        openStylePanel(row, col);
+                    }
+                });
+            });
+        }
+        
+        // 渲染单元格
+        function renderCell(row, col, field, label, style) {
+            const cell = document.getElementById(`cell-${row}-${col}`);
+            if (!cell) return;
+            
+            let content = '';
+            const sampleValue = sampleData[field] || '';
+            
+            // 根据字段类型渲染内容
+            if (field === 'barcode') {
+                content = `<img src="/api/barcode/${sampleValue}" alt="条码" class="barcode-img">`;
+            } else if (field === 'qrcode') {
+                content = `<img src="/api/qrcode/${sampleValue}" alt="二维码" style="max-width:100%;max-height:60px;display:block;">`;
+            } else {
+                content = `<span class="cell-data">${sampleValue}</span>`;
+            }
+            
+            // 应用样式
+            const cellStyle = {
+                'text-align': style.textAlign || 'center',
+                'font-size': (style.fontSize || 12) + 'px',
+                'font-family': style.fontFamily || 'Microsoft YaHei',
+                'color': style.color || '#333333'
+            };
+            
+            const cellContent = cell.querySelector('.cell-content');
+            cellContent.style.textAlign = cellStyle['text-align'];
+            cellContent.style.fontSize = cellStyle['font-size'];
+            cellContent.style.fontFamily = cellStyle['font-family'];
+            cellContent.style.color = cellStyle['color'];
+            cellContent.innerHTML = content;
+            
+            // 显示删除按钮
+            cell.querySelector('.delete-cell').style.display = 'none';
+        }
+        
+        // 删除单元格内容
+        function removeCell(row, col) {
+            const cellKey = `${row}-${col}`;
+            delete layoutData[cellKey];
+            
+            const cell = document.getElementById(`cell-${row}-${col}`);
+            if (cell) {
+                const cellContent = cell.querySelector('.cell-content');
+                cellContent.innerHTML = `<span class="empty-cell-hint">${parseInt(row) + 1}-${parseInt(col) + 1}</span>`;
+                cellContent.style.textAlign = 'center';
+                cellContent.style.fontSize = '12px';
+                cellContent.style.color = '#333333';
+            }
+        }
+        
+        // 打开样式面板
+        function openStylePanel(row, col) {
+            const cellKey = `${row}-${col}`;
+            const data = layoutData[cellKey];
+            if (!data) return;
+            
+            currentCell = { row, col };
+            const style = data.style || {};
+            
+            document.getElementById('styleFontSize').value = style.fontSize || 12;
+            document.getElementById('styleFontFamily').value = style.fontFamily || 'Microsoft YaHei';
+            document.getElementById('styleColor').value = style.color || '#333333';
+            
+            // 设置对齐按钮状态
+            document.querySelectorAll('.align-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.align === (style.textAlign || 'center')) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            document.getElementById('stylePanel').classList.add('show');
+        }
+        
+        // 关闭样式面板
+        function closeStylePanel() {
+            document.getElementById('stylePanel').classList.remove('show');
+            currentCell = null;
+        }
+        
+        // 设置对齐方式
+        function setAlign(align) {
+            document.querySelectorAll('.align-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.align === align) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+        
+        // 应用样式
+        function applyStyle() {
+            if (!currentCell) return;
+            
+            const { row, col } = currentCell;
+            const cellKey = `${row}-${col}`;
+            const data = layoutData[cellKey];
+            if (!data) return;
+            
+            const style = {
+                fontSize: parseInt(document.getElementById('styleFontSize').value),
+                fontFamily: document.getElementById('styleFontFamily').value,
+                color: document.getElementById('styleColor').value,
+                textAlign: document.querySelector('.align-btn.active').dataset.align
+            };
+            
+            data.style = style;
+            renderCell(row, col, data.field, data.label, style);
+            closeStylePanel();
+        }
+        
+        // 清空布局
+        function clearLayout() {
+            if (!confirm('确定要清空所有布局吗？')) return;
+            
+            layoutData = {};
+            for (let row = 0; row < {{ template.rows }}; row++) {
+                for (let col = 0; col < {{ template.cols }}; col++) {
+                    removeCell(row, col);
+                }
+            }
+        }
+        
+        // 保存布局
+        function saveLayout() {
+            fetch(`/label_template/{{ template.id }}/save_layout`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    layout: layoutData
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert('布局保存成功！');
+                } else {
+                    alert('保存失败：' + data.msg);
+                }
+            })
+            .catch(error => {
+                alert('保存失败：' + error.message);
+            });
+        }
+        
+        // 预览模板
+        function previewTemplate() {
+            window.open(`/label_template/{{ template.id }}/preview`, '_blank');
+        }
+        
+        // 加载已有布局
+        function loadLayout() {
+            for (const [cellKey, data] of Object.entries(layoutData)) {
+                const [row, col] = cellKey.split('-');
+                renderCell(row, col, data.field, data.label, data.style || {});
+            }
+        }
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            initDragDrop();
+            loadLayout();
+        });
+        
+        // 点击其他地方关闭样式面板
+        document.addEventListener('click', (e) => {
+            const panel = document.getElementById('stylePanel');
+            if (panel.classList.contains('show') && !panel.contains(e.target)) {
+                closeStylePanel();
+            }
+        });
+    </script>
+{% endblock %}
+

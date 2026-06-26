@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% from '_list_macros.html' import sort_th %}
+{% block title %}数据备份{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2><i class="bi bi-database"></i> 数据备份</h2>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">备份数据库</h5>
+            </div>
+            <div class="card-body">
+                <p>将当前 SQLite 数据库创建为一致性备份文件</p>
+                <button class="btn btn-primary" onclick="backupDatabase()">
+                    <i class="bi bi-download"></i> 立即备份
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">恢复数据库</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted mb-0">线上页面恢复已禁用。需要恢复数据库时，必须停机、备份当前库、人工确认后再执行。</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">
+        <h5 class="mb-0">备份历史</h5>
+    </div>
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end mb-3">
+            {% if request.args.get('embedded') == '1' %}
+            <input type="hidden" name="embedded" value="1">
+            {% endif %}
+            <div class="col-md-10">
+                <label class="form-label small text-muted mb-1">关键词</label>
+                <input type="text" name="search" class="form-control form-control-sm" placeholder="搜索备份文件名" value="{{ filters.search }}">
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-fill">筛选</button>
+                {% if filters.search %}
+                <a href="/backup{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+                {% endif %}
+            </div>
+        </form>
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>序号</th>
+                        {{ sort_th('文件名', 'filename', sort_by, sort_order) }}
+                        {{ sort_th('备份时间', 'created_at', sort_by, sort_order) }}
+                        {{ sort_th('文件大小', 'size_bytes', sort_by, sort_order) }}
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for backup in backups %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ backup.filename }}</td>
+                        <td>{{ backup.created_at.strftime('%Y-%m-%d %H:%M') if backup.created_at else '-' }}</td>
+                        <td>{{ backup.size }}</td>
+                        <td>
+                            <a href="{{ backup.url }}" class="btn btn-sm btn-outline-primary">下载</a>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteBackup('{{ backup.filename }}')">删除</button>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-center text-muted">暂无备份记录</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function getCsrfToken() {
+    const node = document.querySelector('meta[name="csrf-token"]');
+    return node && node.content ? node.content : '';
+}
+
+function backupDatabase() {
+    if (!confirm('确认备份数据库？')) return;
+    fetch('/backup/create', {
+        method: 'POST',
+        headers: {'X-CSRFToken': getCsrfToken()}
+    }).then(res => res.json()).then(res => {
+        if (res.status === 'success') {
+            alert('备份成功！');
+            location.reload();
+        } else {
+            alert('备份失败：' + (res.msg || '未知错误'));
+        }
+    }).catch(err => {
+        alert('备份请求失败：' + err.message);
+    });
+}
+
+function deleteBackup(filename) {
+    if (!confirm('确认删除该备份？')) return;
+    const formData = new FormData();
+    formData.append('filename', filename);
+    fetch('/backup/delete', {
+        method: 'POST',
+        body: formData,
+        headers: {'X-CSRFToken': getCsrfToken()}
+    }).then(res => res.json()).then(res => {
+        if (res.status === 'success') {
+            location.reload();
+        } else {
+            alert('删除失败：' + (res.msg || '未知错误'));
+        }
+    }).catch(err => {
+        alert('删除请求失败：' + err.message);
+    });
+}
+</script>
+{% endblock %}

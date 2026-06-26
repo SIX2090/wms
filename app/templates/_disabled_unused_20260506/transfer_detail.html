@@ -1,0 +1,649 @@
+{% extends "base.html" %}
+{% set order = transfer %}
+{% set order_no = transfer.transfer_no %}
+{% block title %}调拨单详情 - {{ order_no }}{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/excel-table.css') }}" rel="stylesheet">
+<script src="{{ url_for('static', filename='js/xlsx.full.min.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 order-animate">
+    <!-- 单据头部 -->
+    <div class="order-header">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+            <div>
+                <div class="order-title">
+                    <i class="bi bi-arrow-left-right"></i>
+                    调拨单：{{ order_no }}
+                    <span class="status-badge {{ order.status }}">
+                        <i class="bi bi-circle-fill" style="font-size:0.5rem"></i>
+                        {% if order.status == 'pending' %}草稿
+                        {% elif order.status == 'completed' %}已完成
+                        {% else %}{{ order.status }}{% endif %}
+                    </span>
+                </div>
+                <div class="order-meta">
+                    <span><i class="bi bi-calendar3"></i> {{ order.date }}</span>
+                    <span><i class="bi bi-box-arrow-in-right"></i> {{ order.from_location }}</span>
+                    <span><i class="bi bi-box-arrow-left"></i> {{ order.to_location }}</span>
+                    <span><i class="bi bi-person"></i> {{ order.operator.username if order.operator else '-' }}</span>
+                </div>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+                {% if order.status == 'pending' %}
+                <button class="btn-order btn-order-success btn-order-sm" onclick="completeTransfer({{ order.id }})">
+                    <i class="bi bi-check-circle"></i> 完成调拨
+                </button>
+                <button class="btn-order btn-order-danger btn-order-sm" onclick="deleteTransfer({{ order.id }})">
+                    <i class="bi bi-trash"></i> 删除
+                </button>
+                {% elif order.status == 'completed' %}
+                <button class="btn-order btn-order-warning btn-order-sm" onclick="revertTransfer({{ order.id }})">
+                    <i class="bi bi-arrow-return-left"></i> 反提交
+                </button>
+                {% endif %}
+                <button class="btn-order btn-order-info btn-order-sm" onclick="printTransfer()">
+                    <i class="bi bi-printer"></i> 打印
+                </button>
+                <a href="/transfer" class="btn-order btn-order-secondary btn-order-sm">
+                    <i class="bi bi-arrow-left"></i> 返回
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 单据信息 -->
+    <div class="order-info-card">
+        <div class="card-header-custom">
+            <i class="bi bi-info-circle"></i> 单据信息
+        </div>
+        <div class="card-body-custom">
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">单据编号</span>
+                    <span class="info-value">{{ order_no }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">调拨日期</span>
+                    <span class="info-value">{{ order.date }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">调出仓库</span>
+                    <span class="info-value">
+                        <i class="bi bi-box-arrow-in-right text-primary"></i> {{ order.from_location }}
+                    </span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">调入仓库</span>
+                    <span class="info-value">
+                        <i class="bi bi-box-arrow-left text-success"></i> {{ order.to_location }}
+                    </span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">操作人</span>
+                    <span class="info-value">{{ order.operator.username if order.operator else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">总金额</span>
+                    <span class="info-value amount">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">备注</span>
+                    <span class="info-value">{{ order.remark or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">创建时间</span>
+                    <span class="info-value">{{ order.created_at.strftime('%Y-%m-%d %H:%M') if order.created_at else '-' }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 工具栏 -->
+    {% if order.status == 'pending' %}
+    <div class="order-toolbar">
+        <div class="btn-group">
+            <button class="btn-order btn-order-primary btn-order-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="bi bi-plus-lg"></i> 添加物料
+            </button>
+            <button class="btn-order btn-order-secondary btn-order-sm" onclick="showBatchPasteModal()">
+                <i class="bi bi-clipboard"></i> 批量粘贴
+            </button>
+        </div>
+        <div class="btn-group">
+            <button class="btn-order btn-order-secondary btn-order-sm" id="batchDeleteBtn">
+                <i class="bi bi-trash"></i> 批量删除
+            </button>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 明细表格 -->
+    <div class="order-table-container">
+        <div class="order-toolbar">
+            <div class="table-header-custom">
+                <span><i class="bi bi-list-ul"></i> 调拨明细</span>
+                <span class="badge bg-light text-dark">共 {{ order.items|length }} 项</span>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table order-table mb-0" id="itemTable">
+                <thead>
+                    <tr>
+                        <th width="50" class="text-center">序</th>
+                        {% if order.status == 'pending' %}
+                        <th width="40"><input type="checkbox" id="selectAll"></th>
+                        {% endif %}
+                        <th>物料编码</th>
+                        <th>物料名称</th>
+                        <th>规格</th>
+                        <th class="text-center">单位</th>
+                        <th class="text-end">数量</th>
+                        <th class="text-end">单价</th>
+                        <th class="text-end">金额</th>
+                        {% if order.status == 'pending' %}
+                        <th class="text-center" width="120">操作</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in order.items %}
+                    <tr data-id="{{ item.id }}" data-material-id="{{ item.material_id }}">
+                        <td class="text-center"><span class="row-num">{{ loop.index }}</span></td>
+                        {% if order.status == 'pending' %}
+                        <td><input type="checkbox" class="itemCheck" value="{{ item.id }}"></td>
+                        {% endif %}
+                        <td class="fw-medium">{{ item.material.code }}</td>
+                        <td>{{ item.material.name }}</td>
+                        <td>{{ item.material.spec or '-' }}</td>
+                        <td class="text-center">{{ item.material.unit.name if item.material.unit else '-' }}</td>
+                        <td class="text-end fw-medium editable-cell" data-field="quantity" data-item-id="{{ item.id }}">{{ "%.2f"|format(item.quantity) }}</td>
+                        <td class="text-end editable-cell" data-field="price" data-item-id="{{ item.id }}">¥{{ "%.2f"|format(item.price) }}</td>
+                        <td class="text-end fw-bold">¥{{ "%.2f"|format(item.amount) }}</td>
+                        {% if order.status == 'pending' %}
+                        <td class="text-center">
+                            <button class="btn btn-sm btn-outline-primary editBtn" data-id="{{ item.id }}" title="修改">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger delBtn" data-id="{{ item.id }}" title="删除">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="{{ 10 if order.status == 'pending' else 9 }}" class="empty-state">
+                            <i class="bi bi-inbox"></i>
+                            <p>暂无明细，请添加物料</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                {% if order.items %}
+                <tfoot>
+                    <tr class="total-row">
+                        <td colspan="{{ 6 if order.status == 'pending' else 5 }}"></td>
+                        <td class="text-end">合计：</td>
+                        <td class="text-end">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
+                        <td></td>
+                        <td class="text-end fs-6">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
+                        {% if order.status == 'pending' %}
+                        <td></td>
+                        {% endif %}
+                    </tr>
+                </tfoot>
+                {% endif %}
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 添加物料模态框 -->
+<div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="bi bi-plus-circle"></i> 添加物料</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">物料编码 <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <input class="form-control" id="code" placeholder="扫码或输入物料编码">
+                            <button type="button" class="btn btn-outline-primary" id="openSearchBtn">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">物料名称</label>
+                        <input class="form-control" id="name" disabled>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">规格</label>
+                        <input class="form-control" id="spec" disabled>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">单位</label>
+                        <input class="form-control" id="unit" disabled>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">当前库存</label>
+                        <input class="form-control" id="stock" disabled>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">数量 <span class="text-danger">*</span></label>
+                        <input class="form-control" id="qty" type="number" step="0.01" placeholder="请输入数量">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">单价</label>
+                        <input class="form-control" id="price" type="number" step="0.01" placeholder="请输入单价">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" onclick="addItem()">
+                    <i class="bi bi-plus"></i> 确认添加
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 批量粘贴模态框 -->
+<div class="modal fade" id="batchPasteModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="bi bi-clipboard"></i> 批量粘贴物料</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info d-flex align-items-center">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <div>支持格式：每行一个物料，格式为 <code>编码,数量,单价</code>（单价可选）</div>
+                </div>
+                <textarea class="form-control" id="batchPasteContent" rows="8" placeholder="例如：
+MAT001,10,25.50
+MAT002,5
+MAT003,20,10.00"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-success" onclick="processBatchPaste()">
+                    <i class="bi bi-check"></i> 确认添加
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 修改物料模态框 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="bi bi-pencil"></i> 修改物料</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editItemId">
+                <div class="mb-3">
+                    <label class="form-label fw-medium">物料编码</label>
+                    <input class="form-control" id="editCode" disabled>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-medium">数量</label>
+                    <input class="form-control" id="editQty" type="number" step="0.01">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-medium">单价</label>
+                    <input class="form-control" id="editPrice" type="number" step="0.01">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" onclick="saveEdit()">
+                    <i class="bi bi-check"></i> 保存修改
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/excel-table.js') }}"></script>
+<script src="{{ url_for('static', filename='js/excel-import-export.js') }}"></script>
+<script>
+function formatStock(value) {
+    const stock = parseFloat(value);
+    return Number.isFinite(stock) ? stock.toFixed(2) : '0.00';
+}
+
+function getMaterialUnit(material) {
+    if (!material || !material.unit) return '';
+    return typeof material.unit === 'object' ? (material.unit.name || '') : material.unit;
+}
+
+function fillAddMaterialInfo(material) {
+    document.getElementById('name').value = material.name || '';
+    document.getElementById('spec').value = material.spec || '';
+    document.getElementById('unit').value = getMaterialUnit(material);
+    document.getElementById('stock').value = formatStock(material.stock);
+    const priceInput = document.getElementById('price');
+    if (priceInput && (!priceInput.value || Number(priceInput.value) === 0)) {
+        priceInput.value = (parseFloat(material.price) || 0).toFixed(2);
+    }
+}
+
+function clearAddMaterialInfo() {
+    document.getElementById('name').value = '';
+    document.getElementById('spec').value = '';
+    document.getElementById('unit').value = '';
+    document.getElementById('stock').value = '';
+}
+
+let materialLookupTimer = null;
+let materialLookupToken = 0;
+
+function lookupAddMaterial() {
+    const codeInput = document.getElementById('code');
+    const code = codeInput.value.trim();
+    const token = ++materialLookupToken;
+    if (!code) {
+        clearAddMaterialInfo();
+        return;
+    }
+
+    fetch('/api/material/info?code=' + encodeURIComponent(code), {credentials: 'same-origin'})
+        .then(r => r.json())
+        .then(res => {
+            if (token !== materialLookupToken) return;
+            if (res.status === 'success' && res.data) {
+                fillAddMaterialInfo(res.data);
+            } else {
+                clearAddMaterialInfo();
+            }
+        })
+        .catch(() => {
+            if (token === materialLookupToken) clearAddMaterialInfo();
+        });
+}
+
+function scheduleAddMaterialLookup() {
+    clearTimeout(materialLookupTimer);
+    materialLookupTimer = setTimeout(lookupAddMaterial, 250);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const codeInput = document.getElementById('code');
+    if (codeInput) {
+        codeInput.addEventListener('input', scheduleAddMaterialLookup);
+        codeInput.addEventListener('change', lookupAddMaterial);
+    }
+    const searchBtn = document.getElementById('openSearchBtn');
+    if (searchBtn) {
+        searchBtn.addEventListener('click', lookupAddMaterial);
+    }
+    const addModal = document.getElementById('addModal');
+    if (addModal) {
+        addModal.addEventListener('hidden.bs.modal', function() {
+            ['code', 'qty', 'price'].forEach(function(id) {
+                const input = document.getElementById(id);
+                if (input) input.value = '';
+            });
+            clearAddMaterialInfo();
+        });
+    }
+});
+
+// 初始化Excel表格
+{% if order.status == 'pending' %}
+var excelTable = new ExcelTable('itemTable', {
+    editableFields: ['quantity', 'price'],
+    autoSave: true,
+    enableKeyboard: true,
+    enableCopyPaste: true,
+    onSave: function(itemId, field, newValue, formData) {
+        return fetch('/transfer/{{ order.id }}/item/' + itemId + '/update', {
+            method: 'POST',
+            body: formData
+        }).then(r => r.json());
+    }
+});
+
+// 初始化导入导出功能
+var excelIO = new ExcelImportExport({
+    tableId: 'itemTable',
+    fileName: '调拨单明细_{{ order_no }}',
+    importUrl: '/transfer/{{ order.id }}/import',
+    exportUrl: '/transfer/{{ order.id }}/export',
+    columns: [
+        { label: '物料编码', field: 'material_code', required: true, example: 'MAT001' },
+        { label: '物料名称', field: 'material_name', required: false, example: '螺丝' },
+        { label: '规格', field: 'spec', required: false, example: 'M6*20' },
+        { label: '单位', field: 'unit', required: false, example: '个' },
+        { label: '数量', field: 'quantity', required: true, example: '100' },
+        { label: '单价', field: 'price', required: false, example: '0.5' }
+    ]
+});
+{% endif %}
+</script>
+<script>
+// 全选/取消全选
+document.getElementById('selectAll')?.addEventListener('change', function() {
+    document.querySelectorAll('.itemCheck').forEach(cb => cb.checked = this.checked);
+});
+
+// 批量删除
+document.getElementById('batchDeleteBtn')?.addEventListener('click', function() {
+    const checked = document.querySelectorAll('.itemCheck:checked');
+    if (!checked.length) {
+        showToast('请先选择要删除的物料', 'warning');
+        return;
+    }
+    showConfirm('确定要删除选中的 ' + checked.length + ' 项物料吗？', {title: '批量删除'}).then(function(confirmed) {
+        if (!confirmed) return;
+        const ids = Array.from(checked).map(cb => cb.value);
+        fetch('/transfer/{{ order.id }}/batch_delete_items', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ids: ids})
+        })
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast('删除成功', 'success');
+                setTimeout(() => location.reload(), 600);
+            } else {
+                showToast(res.msg || '删除失败', 'danger');
+            }
+        });
+    });
+});
+
+// 完成调拨
+function completeTransfer(id) {
+    showConfirm('确认完成调拨？调拨后库存将从调出仓库减少，调入仓库增加。', {title: '完成调拨'}).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/transfer/' + id + '/complete', {method: 'POST'})
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast(res.msg || '调拨完成', 'success');
+                setTimeout(() => location.reload(), 600);
+            } else {
+                showToast(res.msg || '操作失败', 'danger');
+            }
+        });
+    });
+}
+
+// 反提交
+function revertTransfer(id) {
+    showConfirm('确认反提交？反提交后库存将恢复到调拨前状态。', {title: '反提交调拨单'}).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/transfer/' + id + '/revert', {method: 'POST'})
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast(res.msg || '反提交成功', 'success');
+                setTimeout(() => location.reload(), 600);
+            } else {
+                showToast(res.msg || '操作失败', 'danger');
+            }
+        });
+    });
+}
+
+// 删除单据
+function deleteTransfer(id) {
+    showConfirm('确定要删除该调拨单吗？此操作不可恢复。', {title: '删除调拨单'}).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/transfer/' + id + '/delete', {method: 'POST'})
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast('删除成功', 'success');
+                setTimeout(() => location.href = '/transfer', 600);
+            } else {
+                showToast(res.msg || '删除失败', 'danger');
+            }
+        });
+    });
+}
+
+// 打印
+function printTransfer() {
+    window.open('/transfer/{{ order.id }}/print', '_blank');
+}
+
+// 显示批量粘贴模态框
+function showBatchPasteModal() {
+    const modal = new bootstrap.Modal(document.getElementById('batchPasteModal'));
+    modal.show();
+}
+
+// 处理批量粘贴
+function processBatchPaste() {
+    const content = document.getElementById('batchPasteContent').value.trim();
+    if (!content) {
+        showToast('请输入物料信息', 'warning');
+        return;
+    }
+    fetch('/transfer/{{ order.id }}/batch_add_items', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({content: content})
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.status === 'success') {
+            showToast('批量添加成功', 'success');
+            setTimeout(() => location.reload(), 600);
+        } else {
+            showToast(res.msg || '添加失败', 'danger');
+        }
+    });
+}
+
+// 添加物料
+function addItem() {
+    const code = document.getElementById('code').value.trim();
+    const qty = parseFloat(document.getElementById('qty').value);
+    const price = parseFloat(document.getElementById('price').value) || 0;
+    
+    if (!code) {
+        showToast('请输入物料编码', 'warning');
+        return;
+    }
+    if (!qty || qty <= 0) {
+        showToast('请输入有效的数量', 'warning');
+        return;
+    }
+    
+    fetch('/transfer/{{ order.id }}/item/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'material_code=' + encodeURIComponent(code) + '&quantity=' + qty + '&price=' + price
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.status === 'success') {
+            showToast('添加成功', 'success');
+            setTimeout(() => location.reload(), 600);
+        } else {
+            showToast(res.msg || '添加失败', 'danger');
+        }
+    });
+}
+
+// 编辑物料
+document.querySelectorAll('.editBtn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const row = this.closest('tr');
+        const cells = row.querySelectorAll('td');
+        document.getElementById('editItemId').value = this.dataset.id;
+        document.getElementById('editCode').value = cells[2].textContent.trim();
+        document.getElementById('editQty').value = cells[6].textContent.trim();
+        document.getElementById('editPrice').value = cells[7].textContent.replace('¥', '').trim();
+        new bootstrap.Modal(document.getElementById('editModal')).show();
+    });
+});
+
+// 保存编辑
+function saveEdit() {
+    const id = document.getElementById('editItemId').value;
+    const qty = parseFloat(document.getElementById('editQty').value);
+    const price = parseFloat(document.getElementById('editPrice').value) || 0;
+    
+    if (!qty || qty <= 0) {
+        showToast('请输入有效的数量', 'warning');
+        return;
+    }
+    
+    fetch('/transfer/{{ order.id }}/item/' + id + '/update', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'quantity=' + qty + '&price=' + price
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.status === 'success') {
+            showToast('修改成功', 'success');
+            setTimeout(() => location.reload(), 600);
+        } else {
+            showToast(res.msg || '修改失败', 'danger');
+        }
+    });
+}
+
+// 删除明细
+document.querySelectorAll('.delBtn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const id = this.dataset.id;
+        showConfirm('确定要删除该物料吗？', {title: '删除物料'}).then(function(confirmed) {
+            if (!confirmed) return;
+            fetch('/transfer/{{ order.id }}/item/' + id + '/delete', {method: 'POST'})
+            .then(r => r.json())
+            .then(res => {
+                if (res.status === 'success') {
+                    showToast('删除成功', 'success');
+                    setTimeout(() => location.reload(), 600);
+                } else {
+                    showToast(res.msg || '删除失败', 'danger');
+                }
+            });
+        });
+    });
+});
+</script>
+{% endblock %}

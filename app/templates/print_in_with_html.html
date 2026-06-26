@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>使用HTML模板打印入库单 - {{ order.order_no }}</title>
+    <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}">
+    <style>
+        body { background: #fff; padding: 20px; }
+        @media print {
+            .no-print { display: none !important; }
+            body { padding: 0; }
+        }
+        .template-info {
+            background-color: #f8f9fa;
+            border-left: 4px solid #0d6efd;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print" style="margin-bottom: 15px;">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <button class="btn btn-secondary" onclick="window.print()">
+                    <i class="bi bi-printer"></i> 打印
+                </button>
+                <button class="btn btn-outline-dark" onclick="window.close()">
+                    <i class="bi bi-x-lg"></i> 关闭
+                </button>
+                <button class="btn btn-outline-primary" onclick="editTemplate()">
+                    <i class="bi bi-pencil"></i> 编辑模板
+                </button>
+            </div>
+            <div>
+                <span class="badge bg-warning">使用模板：{{ template.name }}</span>
+            </div>
+        </div>
+        
+        <div class="template-info mt-3">
+            <h6><i class="bi bi-info-circle"></i> 模板信息</h6>
+            <div class="row">
+                <div class="col-md-4">
+                    <small class="text-muted">模板名称：</small>
+                    <strong>{{ template.name }}</strong>
+                </div>
+                <div class="col-md-4">
+                    <small class="text-muted">模板类型：</small>
+                    <strong>HTML模板</strong>
+                </div>
+                <div class="col-md-4">
+                    <small class="text-muted">创建时间：</small>
+                    <strong>{{ template.created_at.strftime('%Y-%m-%d %H:%M') }}</strong>
+                </div>
+            </div>
+            {% if template.is_default %}
+            <div class="mt-1">
+                <span class="badge bg-success">默认模板</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if rendered_content %}
+        {{ rendered_content|safe }}
+    {% else %}
+        <!-- 默认模板内容 -->
+        <div style="text-align: center; margin-bottom: 30px;">
+            <h2>入 库 单</h2>
+            <p style="color: #666;">RECEIPT</p>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <div><strong>入库单号：</strong>{{ order.order_no }}</div>
+            <div><strong>日　　期：</strong>{{ order.date }}</div>
+            <div><strong>供应商：</strong>{{ order.supplier.name if order.supplier else '-' }}</div>
+            <div><strong>用　　途：</strong>{{ order.purpose or '-' }}</div>
+            <div><strong>仓　　库：</strong>{{ order.warehouse or '-' }}</div>
+            <div><strong>操作员：</strong>{{ order.operator.username if order.operator else '-' }}</div>
+        </div>
+        
+        <table border="1" cellspacing="0" cellpadding="8" style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+            <thead>
+                <tr style="background-color: #f2f2f2;">
+                    <th>序号</th>
+                    <th>物料编码</th>
+                    <th>物料名称</th>
+                    <th>规格</th>
+                    <th>单位</th>
+                    <th>数量</th>
+                    <th>单价</th>
+                    <th>金额</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in order.items %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td>{{ item.material.code }}</td>
+                    <td>{{ item.material.name }}</td>
+                    <td>{{ item.material.spec or '-' }}</td>
+                    <td>{{ item.material.unit.name if item.material.unit else '-' }}</td>
+                    <td>{{ item.quantity }}</td>
+                    <td>¥{{ "%.2f"|format(item.price) }}</td>
+                    <td>¥{{ "%.2f"|format(item.amount) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr style="font-weight: bold;">
+                    <td colspan="5" style="text-align: right;">合计：</td>
+                    <td>{{ order.items|sum(attribute='quantity') }}</td>
+                    <td></td>
+                    <td>¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
+                </tr>
+            </tfoot>
+        </table>
+        
+        <div style="display: flex; justify-content: space-between; margin-top: 50px;">
+            <div>
+                <div>制单人：{{ order.operator.username if order.operator else '-' }}</div>
+                <div>打印时间：{{ now.strftime('%Y-%m-%d %H:%M') }}</div>
+            </div>
+            <div>
+                <div>供应商签收：</div>
+                <div style="height: 40px; margin-top: 30px;"></div>
+            </div>
+            <div>
+                <div>仓库签收：</div>
+                <div style="height: 40px; margin-top: 30px;"></div>
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="mt-4 no-print">
+        <div class="alert alert-warning">
+            <h6><i class="bi bi-lightbulb"></i> 使用说明</h6>
+            <ul class="mb-0">
+                <li>此页面使用HTML模板打印入库单</li>
+                <li>如需自定义模板，请点击"编辑模板"按钮，然后到模板管理页面修改</li>
+                <li>点击"打印"按钮可打印当前页面</li>
+                <li>HTML模板支持所有HTML和CSS样式</li>
+            </ul>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-code"></i> 当前模板内容预览</h6>
+            </div>
+            <div class="card-body">
+                <pre style="max-height: 300px; overflow-y: auto; background-color: #f8f9fa; padding: 15px; border-radius: 4px; font-size: 12px;">{{ template.html_template_content or '暂无HTML模板内容，使用默认模板' }}</pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function editTemplate() {
+            // 跳转到模板编辑页面
+            window.open('/in_order_print_template', '_blank');
+        }
+        
+        // 自动触发打印（可选）
+        // window.onload = function() {
+        //     setTimeout(function() {
+        //         window.print();
+        //     }, 1000);
+        // };
+    </script>
+</body>
+</html>

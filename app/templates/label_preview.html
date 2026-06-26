@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f7fa;
+            padding: 20px;
+        }
+        
+        .preview-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .preview-header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .preview-header h2 {
+            font-size: 20px;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .preview-info {
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .preview-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .labels-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        /* 简道云风格标签 */
+        .label-sheet {
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            position: relative;
+        }
+        
+        .label-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        
+        .label-table td {
+            border: 1px solid #e9ecef;
+            padding: 0;
+            background: white;
+        }
+        
+        .cell-content {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px;
+            overflow: hidden;
+        }
+        
+        .cell-value {
+            word-break: break-word;
+            text-align: center;
+        }
+        
+        /* 条码样式 */
+        .barcode-img {
+            max-width: 100%;
+            height: 25px;
+            display: block;
+        }
+        
+        /* 打印样式 */
+        @media print {
+            @page {
+                size: auto;
+                margin: 0;
+            }
+            
+            body {
+                background: white;
+                padding: 0;
+            }
+            
+            .preview-header,
+            .preview-header * {
+                display: none !important;
+            }
+            
+            .labels-grid {
+                display: block;
+            }
+            
+            .label-sheet {
+                box-shadow: none;
+                page-break-inside: avoid;
+                margin-bottom: 0;
+            }
+            
+            .labels-grid > div {
+                margin-bottom: 0;
+            }
+        }
+        
+        /* 预览物料信息 */
+        .material-info {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            max-width: 300px;
+            z-index: 1000;
+        }
+        
+        .material-info h4 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .material-info .form-group {
+            margin-bottom: 10px;
+        }
+        
+        .material-info label {
+            display: block;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 3px;
+        }
+        
+        .material-info input,
+        .material-info select {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #d9d9d9;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .material-info .btn-sm {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="preview-container">
+        <div class="preview-header">
+            <div>
+                <h2>标签预览 - {{ template.name }}</h2>
+                <div class="preview-info">
+                    尺寸: {{ template.width }}×{{ template.height }}mm | 网格: {{ template.cols }}×{{ template.rows }}
+                </div>
+            </div>
+            <div class="preview-actions">
+                <a href="{{ url_for('label_template_detail', id=template.id) }}" class="btn">
+                    <i class="bi bi-pencil"></i> 编辑
+                </a>
+                <button class="btn btn-primary" onclick="window.print()">
+                    <i class="bi bi-printer"></i> 打印
+                </button>
+            </div>
+        </div>
+        
+        <div class="labels-grid">
+            <!-- 示例标签 1 -->
+            <div class="label-sheet" style="width: {{ (template.width * 3.78) | round(0) }}px;">
+                <table class="label-table">
+                    {% set layout = template.layout | default('{}') | from_json %}
+                    {% for row in range(template.rows) %}
+                    <tr style="height: {{ (template.height * 3.78 / template.rows) | round(0) }}px;">
+                        {% for col in range(template.cols) %}
+                        <td>
+                            {% set cell_key = row|string + '-' + col|string %}
+                            {% set cell_data = layout.get(cell_key) %}
+                            {% if cell_data %}
+                            {% set style = cell_data.style | default({}) %}
+                            <div class="cell-content" style="
+                                text-align: {{ style.get('textAlign', 'center') }};
+                                font-size: {{ style.get('fontSize', 12) }}px;
+                                font-family: {{ style.get('fontFamily', 'Microsoft YaHei') }};
+                                color: {{ style.get('color', '#333333') }};
+                            ">
+                                {% set sample_data = {
+                                    'code': 'TEST001',
+                                    'name': '示例物料',
+                                    'spec': '规格示例',
+                                    'unit': '个',
+                                    'stock': '100',
+                                    'category': '测试分类',
+                                    'supplier': '测试供应商'
+                                } %}
+                                {% if cell_data.field == 'barcode' %}
+                                <img src="/api/barcode/{{ sample_data.get('code', 'TEST001') }}" alt="条码" class="barcode-img">
+                                {% else %}
+                                <span class="cell-value">{{ sample_data.get(cell_data.field, '') }}</span>
+                                {% endif %}
+                            </div>
+                            {% else %}
+                            <div class="cell-content">
+                                <span style="color: #bfbfbf; font-size: 11px;">{{ row + 1 }}-{{ col + 1 }}</span>
+                            </div>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+            
+            <!-- 示例标签 2 -->
+            <div class="label-sheet" style="width: {{ (template.width * 3.78) | round(0) }}px;">
+                <table class="label-table">
+                    {% set sample_data2 = {
+                        'code': 'TEST002',
+                        'name': '另一个物料',
+                        'spec': '另一规格',
+                        'unit': '箱',
+                        'stock': '50',
+                        'category': '其他分类',
+                        'supplier': '其他供应商'
+                    } %}
+                    {% for row in range(template.rows) %}
+                    <tr style="height: {{ (template.height * 3.78 / template.rows) | round(0) }}px;">
+                        {% for col in range(template.cols) %}
+                        <td>
+                            {% set cell_key = row|string + '-' + col|string %}
+                            {% set cell_data = layout.get(cell_key) %}
+                            {% if cell_data %}
+                            {% set style = cell_data.style | default({}) %}
+                            <div class="cell-content" style="
+                                text-align: {{ style.get('textAlign', 'center') }};
+                                font-size: {{ style.get('fontSize', 12) }}px;
+                                font-family: {{ style.get('fontFamily', 'Microsoft YaHei') }};
+                                color: {{ style.get('color', '#333333') }};
+                            ">
+                                {% if cell_data.field == 'barcode' %}
+                                <img src="/api/barcode/{{ sample_data2.get('code', 'TEST002') }}" alt="条码" class="barcode-img">
+                                {% else %}
+                                <span class="cell-value">{{ sample_data2.get(cell_data.field, '') }}</span>
+                                {% endif %}
+                            </div>
+                            {% else %}
+                            <div class="cell-content">
+                                <span style="color: #bfbfbf; font-size: 11px;">{{ row + 1 }}-{{ col + 1 }}</span>
+                            </div>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <div class="material-info">
+        <h4>预览物料</h4>
+        <div class="form-group">
+            <label>选择物料</label>
+            <select id="materialSelect" onchange="changeMaterial()">
+                {% if materials %}
+                {% for m in materials %}
+                <option value="{{ m.id }}">{{ m.code }} - {{ m.name }}</option>
+                {% endfor %}
+                {% else %}
+                <option value="">使用示例数据</option>
+                {% endif %}
+            </select>
+        </div>
+        <button class="btn btn-sm" onclick="refreshPreview()">刷新预览</button>
+    </div>
+    
+    <script>
+        function changeMaterial() {
+            const materialId = document.getElementById('materialSelect').value;
+            if (materialId) {
+                window.location.href = `/label_template/{{ template.id }}/preview?material_id=${materialId}`;
+            }
+        }
+        
+        function refreshPreview() {
+            window.location.reload();
+        }
+    </script>
+{% endblock %}
+

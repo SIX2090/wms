@@ -1,0 +1,376 @@
+{% extends "base.html" %}
+{% from '_list_macros.html' import sort_th %}
+{% block title %}物料分类{% endblock %}
+
+{% block content %}
+<style>
+.category-name-cell {
+    font-family: Consolas, "Microsoft YaHei", monospace;
+    white-space: nowrap;
+}
+.category-branch {
+    color: #94a3b8;
+    margin-right: 4px;
+}
+.category-folder {
+    color: #2563eb;
+    margin-right: 6px;
+}
+.category-level-badge {
+    display: inline-block;
+    min-width: 42px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #3730a3;
+    font-size: 12px;
+    text-align: center;
+}
+.category-layout {
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    gap: 14px;
+}
+.category-tree-panel,
+.category-table-panel {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.category-tree-header {
+    padding: 12px 14px;
+    border-bottom: 1px solid #e5e7eb;
+    font-weight: 600;
+    color: #0f172a;
+}
+.category-tree {
+    padding: 10px;
+    max-height: calc(100vh - 310px);
+    overflow: auto;
+}
+.category-tree-row {
+    display: flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    color: #0f172a;
+    text-decoration: none;
+    font-size: 13px;
+}
+.category-tree-row:hover {
+    background: #eff6ff;
+}
+.category-tree-code {
+    min-width: 46px;
+    color: #64748b;
+    font-family: Consolas, monospace;
+}
+.category-tree-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+@media (max-width: 992px) {
+    .category-layout {
+        grid-template-columns: 1fr;
+    }
+    .category-tree {
+        max-height: 260px;
+    }
+}
+</style>
+<div class="page-header d-flex justify-content-between align-items-center">
+    <h2><i class="bi bi-tags"></i> 物料分类管理</h2>
+</div>
+
+<div class="category-layout">
+    <div class="category-tree-panel">
+        <div class="category-tree-header"><i class="bi bi-diagram-3"></i> 分类树</div>
+        <div class="category-tree">
+            {% for row in category_rows %}
+            {% set cat = row.category %}
+            <a class="category-tree-row" href="javascript:void(0)" onclick="editCategory({{ cat.id }})" style="padding-left: {{ 8 + row.level * 18 }}px;">
+                <span class="category-tree-code">{{ cat.code }}</span>
+                <i class="bi {{ 'bi-folder2-open' if row.has_children else 'bi-tag' }} category-folder"></i>
+                <span class="category-tree-name">{{ cat.name }}</span>
+            </a>
+            {% else %}
+            <div class="text-muted small p-2">暂无分类</div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="category-table-panel">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end mb-3">
+            {% if request.args.get('embedded') == '1' %}
+            <input type="hidden" name="embedded" value="1">
+            {% endif %}
+            <div class="col-md-10">
+                <label class="form-label small text-muted mb-1">关键词</label>
+                <input type="text" name="search" class="form-control form-control-sm" placeholder="搜索分类编码、分类名称" value="{{ filters.search }}">
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-fill">筛选</button>
+                {% if filters.search %}
+                <a href="/category{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+                {% endif %}
+            </div>
+        </form>
+        <table class="table table-bordered table-hover" id="categoryTable">
+            <thead>
+                <tr>
+                    <th width="50"><input type="checkbox" id="checkAll"></th>
+                    {{ sort_th('ID', 'id', sort_by, sort_order) }}
+                    {{ sort_th('分类编码', 'code', sort_by, sort_order) }}
+                    {{ sort_th('分类名称', 'name', sort_by, sort_order) }}
+                    <th>上级分类</th>
+                    <th>层级</th>
+                    {{ sort_th('创建时间', 'created_at', sort_by, sort_order) }}
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in category_rows %}
+                {% set cat = row.category %}
+                <tr>
+                    <td><input type="checkbox" class="check-item" value="{{ cat.id }}"></td>
+                    <td>{{ cat.id }}</td>
+                    <td>{{ cat.code }}</td>
+                    <td class="category-name-cell">
+                        {% if row.branch %}<span class="category-branch">{{ row.branch }}</span>{% endif %}
+                        <i class="bi {{ 'bi-folder2-open' if row.has_children else 'bi-tag' }} category-folder"></i>{{ cat.name }}
+                    </td>
+                    <td>{{ cat.parent.name if cat.parent else '根分类' }}</td>
+                    <td><span class="category-level-badge">{{ row.level + 1 }} 级</span></td>
+                    <td>{{ cat.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="editCategory({{ cat.id }})">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('{{ url_for('delete_category') }}', {{ cat.id }})">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="text-center text-muted">暂无数据，请添加分类</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    </div>
+</div>
+
+<!-- 编辑弹窗 -->
+<div class="modal fade" id="editModal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">编辑分类</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editForm">
+                <input type="hidden" id="editId" name="id">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">分类编码 *</label>
+                        <input type="text" class="form-control" id="editCode" name="code" required placeholder="如 CAT-001">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">上级分类</label>
+                        <select class="form-select" id="editParentId" name="parent_id">
+                            <option value="">根分类</option>
+                            {% for option in parent_options %}
+                            <option value="{{ option.id }}">{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">分类名称 *</label>
+                        <input type="text" class="form-control" id="editName" name="name" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 新增弹窗 -->
+<div class="modal fade" id="addModal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">新增分类</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="addForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">分类编码 *</label>
+                        <input type="text" class="form-control" name="code" required placeholder="如 CAT-001">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">上级分类</label>
+                        <select class="form-select" name="parent_id">
+                            <option value="">根分类</option>
+                            {% for option in parent_options %}
+                            <option value="{{ option.id }}">{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">分类名称 *</label>
+                        <input type="text" class="form-control" name="name" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    initCheckAll('categoryTable');
+
+    // 新增分类
+    var addForm = document.getElementById('addForm');
+    if (addForm) {
+        addForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            var formData = new FormData(this);
+            fetch('{{ url_for("add_category") }}', {
+                method: 'POST',
+                body: formData
+            })
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                if (res.status === 'success') {
+                    notifyMasterDataChanged('category_updated');
+                    location.reload();
+                }
+                else alert(res.msg);
+            })
+            .catch(function(err){ alert('保存失败: ' + err.message); });
+        });
+    }
+
+    // 编辑分类
+    window.editCategory = function(id) {
+        fetch('/category/' + id)
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                if (res.status === 'success') {
+                    var cat = res.category;
+                    document.getElementById('editId').value = cat.id;
+                    document.getElementById('editCode').value = cat.code;
+                    document.getElementById('editName').value = cat.name;
+                    var parentSelect = document.getElementById('editParentId');
+                    parentSelect.value = cat.parent_id || '';
+                    Array.from(parentSelect.options).forEach(function(option) {
+                        option.disabled = option.value === String(cat.id);
+                    });
+                    var editModal = new bootstrap.Modal(document.getElementById('editModal'));
+                    editModal.show();
+                } else {
+                    alert(res.msg);
+                }
+            })
+            .catch(function(err){ alert('获取数据失败: ' + err.message); });
+    };
+
+    var editForm = document.getElementById('editForm');
+    if (editForm) {
+        editForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            var id = document.getElementById('editId').value;
+            var formData = new FormData(this);
+            fetch('/category/edit/' + id, {
+                method: 'POST',
+                body: formData
+            })
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                if (res.status === 'success') {
+                    notifyMasterDataChanged('category_updated');
+                    location.reload();
+                }
+                else alert(res.msg);
+            })
+            .catch(function(err){ alert('保存失败: ' + err.message); });
+        });
+    }
+
+    // 导入分类
+    var importForm = document.getElementById('importForm');
+    if (importForm) {
+        importForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            var formData = new FormData(this);
+            fetch('{{ url_for("import_category") }}', {
+                method: 'POST',
+                body: formData
+            })
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                if (res.status === 'success') {
+                    notifyMasterDataChanged('category_updated');
+                    alert(res.msg);
+                    location.reload();
+                } else {
+                    alert(res.msg);
+                }
+            })
+            .catch(function(err){ alert('导入失败: ' + err.message); });
+        });
+    }
+});
+
+function notifyMasterDataChanged(type) {
+    try {
+        if (typeof BroadcastChannel !== 'undefined') {
+            var bc = new BroadcastChannel('wms_master_data_update');
+            bc.postMessage({type: type, timestamp: Date.now()});
+            bc.close();
+        }
+    } catch(e) {}
+}
+</script>
+
+<!-- 导入弹窗 -->
+<div class="modal fade" id="importModal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-upload"></i> 导入分类</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="importForm" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">选择 Excel 文件</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                        <div class="form-text">请先下载模板，按模板格式填写后导入。支持分类编码+分类名称两列格式</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">导入</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+{% block title %}期初库存单据{% endblock %}
+
+{% block extra_css %}
+<style>
+.opening-doc { background:#f7f8fb; min-height:calc(100vh - 80px); padding:14px 16px 0; }
+.opening-toolbar { background:#fff; border:1px solid #dfe5f2; border-radius:6px; padding:8px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+.toolbar-left, .toolbar-right { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+.tool-btn { border:0; background:#fff; color:#172b4d; height:32px; padding:0 10px; display:inline-flex; align-items:center; gap:6px; font-size:13px; border-radius:4px; text-decoration:none; }
+.tool-btn:hover { background:#f1f5ff; color:#0d47a1; }
+.tool-sep { width:1px; height:22px; background:#e5e7eb; margin:0 5px; }
+.nav-tools { border:1px solid #cfd8e8; border-radius:6px; background:#f8fbff; padding:2px 6px; }
+.doc-panel { background:#fff; border:1px solid #d9d9d9; border-radius:6px; margin-top:12px; overflow:hidden; }
+.doc-title { height:42px; display:flex; align-items:center; padding:0 16px; font-size:15px; font-weight:700; color:#111827; border-bottom:1px solid #e5e7eb; }
+.doc-title i { color:#c2410c; margin-right:6px; }
+.doc-header { padding:12px 16px 10px; }
+.doc-header .form-label { font-size:12px; color:#4b5563; margin-bottom:4px; }
+.doc-header .form-control, .doc-header .form-select { height:28px; border-radius:2px; font-size:12px; padding:3px 8px; }
+.doc-header textarea.form-control { height:44px; min-height:44px; }
+.line-toolbar { padding:8px 16px 0; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.line-toolbar .btn, .line-toolbar .form-select { height:32px; font-size:12px; border-radius:3px; }
+.tabs { margin:8px 16px 0; border-bottom:1px solid #d9d9d9; display:flex; gap:0; }
+.tab { height:32px; min-width:68px; border:1px solid #d9d9d9; border-bottom:0; background:#fff; display:flex; align-items:center; justify-content:center; padding:0 16px; font-size:13px; color:#334155; }
+.tab.active { color:#2563eb; font-weight:600; }
+.opening-grid-wrap { margin:0 16px; border:1px solid #d9d9d9; overflow:auto; background:#fff; max-height:calc(100vh - 310px); min-height:410px; }
+.opening-grid { width:100%; border-collapse:collapse; table-layout:fixed; margin:0; }
+.opening-grid th { background:#fafafa; color:#111827; font-weight:500; text-align:center; height:34px; border:1px solid #e5e7eb; font-size:12px; white-space:nowrap; }
+.opening-grid td { height:30px; border:1px solid #e5e7eb; padding:0 4px; font-size:12px; vertical-align:middle; background:#fff; }
+.opening-grid tbody tr:nth-child(even) td { background:#fcfcfd; }
+.opening-grid tbody tr:hover td { background:#eef6ff; }
+.opening-grid input { width:100%; height:26px; border:1px solid transparent; border-radius:2px; padding:2px 5px; font-size:12px; background:transparent; }
+.opening-grid input:hover:not([readonly]) { border-color:#cbd5e1; background:#fff; }
+.opening-grid input:focus { border-color:#2563eb; outline:0; background:#fff; box-shadow:0 0 0 2px rgba(37,99,235,.12); }
+.opening-grid input[readonly] { color:#475569; }
+.row-no { width:42px; text-align:center; color:#334155; }
+.code-cell { position:relative; }
+.code-cell::after { content:""; position:absolute; right:8px; top:50%; margin-top:-2px; border-left:4px solid transparent; border-right:4px solid transparent; border-top:6px solid #b6beca; pointer-events:none; }
+.num input, .amount input { text-align:right; font-variant-numeric:tabular-nums; }
+.action-cell { display:flex; gap:6px; justify-content:center; }
+.icon-btn { width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; border:1px solid #c7d2fe; color:#4f46e5; background:#fff; border-radius:4px; padding:0; }
+.icon-btn.danger { border-color:#fecaca; color:#ef4444; }
+.grid-footer { margin:0 16px; border:1px solid #fde68a; border-top:0; background:#fffbea; min-height:28px; display:grid; grid-template-columns:1fr 110px 100px 120px 1fr 92px; align-items:center; font-size:12px; }
+.grid-footer span { padding:0 8px; }
+.grid-footer .label { text-align:right; font-weight:700; }
+.grid-footer .amount-total { color:#dc2626; text-align:right; font-weight:700; }
+.material-menu { position:fixed; z-index:3000; min-width:520px; max-height:300px; overflow:auto; background:#fff; border:1px solid #cbd5e1; border-radius:5px; box-shadow:0 12px 30px rgba(15,23,42,.18); }
+.material-menu-item { padding:8px 10px; border-bottom:1px solid #f1f5f9; cursor:pointer; font-size:12px; }
+.material-menu-item:hover, .material-menu-item.active { background:#eaf3ff; }
+.material-menu-item .code { color:#1d4ed8; font-weight:700; margin-right:8px; }
+.material-menu-item .name { font-weight:600; color:#111827; margin-right:10px; }
+.material-menu-item .meta { color:#64748b; margin-right:10px; }
+@media (max-width:900px) { .opening-doc { padding:8px; } .opening-grid-wrap { margin:0 8px; } .grid-footer { margin:0 8px; grid-template-columns:1fr 90px 90px; } .grid-footer span:nth-child(2), .grid-footer span:nth-child(3), .grid-footer span:nth-child(6) { display:none; } .material-menu { left:8px !important; right:8px; min-width:auto; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="opening-doc">
+    <div class="opening-toolbar">
+        <div class="toolbar-left">
+            <button class="tool-btn" type="button" onclick="resetDocument()"><i class="bi bi-plus-lg"></i> 新增</button>
+            <button class="tool-btn" type="button" onclick="saveDocument()"><i class="bi bi-save"></i> 保存</button>
+            <button class="tool-btn" type="button" onclick="clearSelectedRows()"><i class="bi bi-trash"></i> 删除</button>
+            <span class="tool-sep"></span>
+            <a class="tool-btn" href="/system_settings"><i class="bi bi-gear"></i> 设置</a>
+            <button class="tool-btn" type="button" onclick="window.print()"><i class="bi bi-printer"></i> 打印</button>
+            <span class="tool-sep"></span>
+            <button class="tool-btn" type="button" onclick="showImportHint()"><i class="bi bi-upload"></i> 导入</button>
+            <button class="tool-btn" type="button" onclick="exportRows()"><i class="bi bi-download"></i> 导出</button>
+            <button class="tool-btn" type="button" onclick="showImportHint()"><i class="bi bi-file-spreadsheet"></i> 导入导出模板</button>
+            <span class="tool-sep"></span>
+            <button class="tool-btn" type="button" onclick="showToast('期初库存已接入库存台账和仓库月报表', 'info')"><i class="bi bi-share"></i> 智能分享</button>
+        </div>
+        <div class="toolbar-right nav-tools">
+            <a class="tool-btn" href="/report/view/ledger"><i class="bi bi-search"></i> 查找单据</a>
+            <button class="tool-btn" type="button" disabled><i class="bi bi-chevron-bar-left"></i> 首张</button>
+            <button class="tool-btn" type="button" disabled><i class="bi bi-chevron-left"></i> 上一张</button>
+            <button class="tool-btn" type="button" disabled>下一张 <i class="bi bi-chevron-right"></i></button>
+            <button class="tool-btn" type="button" disabled>末张 <i class="bi bi-chevron-bar-right"></i></button>
+        </div>
+    </div>
+
+    <div class="doc-panel">
+        <div class="doc-title"><i class="bi bi-file-earmark-plus"></i> 新增期初库存单</div>
+        <div class="doc-header">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">单据编号</label>
+                    <input class="form-control" value="{{ opening_doc_no }}" readonly>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">日期</label>
+                    <input class="form-control" type="date" value="{{ doc_date }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">入库来源</label>
+                    <input class="form-control" value="期初建账" readonly>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">仓库</label>
+                    <select class="form-select">
+                        <option value="">请选择仓库</option>
+                    </select>
+                </div>
+                <div class="col-md-12">
+                    <label class="form-label">备注</label>
+                    <textarea class="form-control" id="headerRemark"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="line-toolbar">
+            <button class="btn btn-primary" type="button" onclick="addRow()"><i class="bi bi-plus"></i> 添加物料</button>
+            <button class="btn btn-outline-secondary" type="button" onclick="copyPreviousRow()"><i class="bi bi-files"></i> 复制上一行</button>
+            <button class="btn btn-outline-secondary" type="button" onclick="pasteImport()"><i class="bi bi-clipboard"></i> 粘贴导入</button>
+            <button class="btn btn-outline-secondary" type="button" onclick="showToast('最近使用会按物料档案排序展示', 'info')"><i class="bi bi-clock"></i> 最近使用</button>
+            <button class="btn btn-outline-secondary" type="button" onclick="showToast('当前模板为期初库存标准模板', 'info')"><i class="bi bi-bookmark"></i> 存为模板</button>
+            <select class="form-select" style="width:150px;">
+                <option>选择模板...</option>
+                <option>期初库存标准模板</option>
+            </select>
+            <button class="btn btn-outline-secondary" type="button" onclick="location.reload()"><i class="bi bi-arrow-clockwise"></i> 刷新物料</button>
+            <button class="btn btn-outline-secondary" type="button" onclick="showToast('请直接在表格中批量修改数量、单价和备注', 'info')"><i class="bi bi-pencil-square"></i> 批量修改</button>
+            <button class="btn btn-outline-secondary" type="button" onclick="showToast('字段已按期初库存单据固定：序号、物料、规格、单位、数量、单价、期初余额、备注', 'info')"><i class="bi bi-columns"></i> 字段设置</button>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active">明细</div>
+            <div class="tab">汇总</div>
+        </div>
+
+        <div class="opening-grid-wrap">
+            <table class="opening-grid" id="openingGrid">
+                <thead>
+                    <tr>
+                        <th style="width:42px;">序号</th>
+                        <th style="width:150px;">物料编码</th>
+                        <th>物料名称</th>
+                        <th style="width:100px;">规格</th>
+                        <th style="width:70px;">单位</th>
+                        <th style="width:100px;">数量</th>
+                        <th style="width:100px;">单价</th>
+                        <th style="width:120px;">期初余额</th>
+                        <th style="width:180px;">备注</th>
+                        <th style="width:92px;">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="openingGridBody"></tbody>
+            </table>
+        </div>
+        <div class="grid-footer">
+            <span></span>
+            <span></span>
+            <span></span>
+            <span class="label">合计：</span>
+            <span class="amount-total" id="totalAmount">¥0.00</span>
+            <span></span>
+        </div>
+    </div>
+</div>
+
+<div class="material-menu" id="materialMenu" hidden></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const materialData = {{ material_options|tojson }};
+const existingRows = [
+{% for record in records %}
+    {
+        material_id: {{ record.material_id }},
+        material_code: {{ (record.material.code if record.material else '')|tojson }},
+        material_name: {{ (record.material.name if record.material else '')|tojson }},
+        spec: {{ (record.material.spec if record.material else '')|tojson }},
+        unit: {{ (record.material.unit.name if record.material and record.material.unit else '')|tojson }},
+        quantity: {{ record.quantity or 0 }},
+        price: {{ record.price or 0 }},
+        remark: {{ (record.remark or '')|tojson }}
+    }{{ "," if not loop.last else "" }}
+{% endfor %}
+];
+
+let rows = existingRows.length ? existingRows.slice() : [];
+let activeCodeInput = null;
+const minimumRows = 15;
+const gridBody = document.getElementById('openingGridBody');
+const materialMenu = document.getElementById('materialMenu');
+
+function emptyRow() {
+    return {material_id: '', material_code: '', material_name: '', spec: '', unit: '', quantity: '', price: '', remark: ''};
+}
+
+function ensureRows() {
+    while (rows.length < minimumRows) rows.push(emptyRow());
+}
+
+function amountOf(row) {
+    const quantity = Number(row.quantity || 0);
+    const price = Number(row.price || 0);
+    return quantity * price;
+}
+
+function renderRows() {
+    ensureRows();
+    gridBody.innerHTML = rows.map((row, index) => `
+        <tr data-index="${index}">
+            <td class="row-no">${index + 1}</td>
+            <td class="code-cell"><input data-field="material_code" value="${escapeHtml(row.material_code || '')}" autocomplete="off" oninput="updateField(${index}, 'material_code', this.value); showMaterialMenu(this, ${index});" onfocus="showMaterialMenu(this, ${index});"></td>
+            <td><input value="${escapeHtml(row.material_name || '')}" readonly></td>
+            <td><input value="${escapeHtml(row.spec || '')}" readonly></td>
+            <td><input value="${escapeHtml(row.unit || '')}" readonly></td>
+            <td class="num"><input type="number" min="0" step="0.0001" data-field="quantity" value="${escapeHtml(row.quantity ?? '')}" oninput="updateField(${index}, 'quantity', this.value);"></td>
+            <td class="num"><input type="number" min="0" step="0.0001" data-field="price" value="${escapeHtml(row.price ?? '')}" oninput="updateField(${index}, 'price', this.value);"></td>
+            <td class="amount"><input value="${formatMoney(amountOf(row), false)}" readonly></td>
+            <td><input data-field="remark" value="${escapeHtml(row.remark || '')}" oninput="updateField(${index}, 'remark', this.value);"></td>
+            <td><div class="action-cell"><button class="icon-btn" type="button" onclick="insertRowAfter(${index})" title="插入行"><i class="bi bi-plus-circle"></i></button><button class="icon-btn danger" type="button" onclick="deleteRow(${index})" title="删除行"><i class="bi bi-trash"></i></button></div></td>
+        </tr>
+    `).join('');
+    updateTotal();
+}
+
+function updateField(index, field, value) {
+    rows[index][field] = value;
+    if (field === 'quantity' || field === 'price') {
+        const tr = gridBody.querySelector(`tr[data-index="${index}"]`);
+        if (tr) tr.querySelector('.amount input').value = formatMoney(amountOf(rows[index]), false);
+        updateTotal();
+    }
+}
+
+function addRow() {
+    rows.push(emptyRow());
+    renderRows();
+}
+
+function insertRowAfter(index) {
+    rows.splice(index + 1, 0, emptyRow());
+    renderRows();
+}
+
+function deleteRow(index) {
+    rows.splice(index, 1);
+    renderRows();
+}
+
+function clearSelectedRows() {
+    rows = rows.filter(row => row.material_id || row.material_code || row.quantity || row.price || row.remark);
+    if (rows.length) rows.pop();
+    renderRows();
+}
+
+function copyPreviousRow() {
+    const filled = rows.filter(row => row.material_id);
+    if (!filled.length) {
+        showToast('没有可复制的上一行', 'warning');
+        return;
+    }
+    rows.push({...filled[filled.length - 1], remark: ''});
+    renderRows();
+}
+
+function resetDocument() {
+    rows = [];
+    renderRows();
+}
+
+function getMaterialMatches(keyword) {
+    const kw = String(keyword || '').trim().toLowerCase();
+    return materialData.filter(item => {
+        if (!kw) return true;
+        return [item.code, item.name, item.spec].some(value => String(value || '').toLowerCase().includes(kw));
+    }).slice(0, 30);
+}
+
+function showMaterialMenu(input, index) {
+    activeCodeInput = {input, index};
+    const rect = input.getBoundingClientRect();
+    const matches = getMaterialMatches(input.value);
+    materialMenu.style.left = `${rect.left}px`;
+    materialMenu.style.top = `${rect.bottom + 4}px`;
+    materialMenu.style.width = `${Math.max(rect.width, 520)}px`;
+    materialMenu.hidden = false;
+    materialMenu.innerHTML = matches.length ? matches.map(item => `
+        <div class="material-menu-item" onclick="selectMaterial(${index}, ${item.id})">
+            <span class="code">${escapeHtml(item.code || '')}</span>
+            <span class="name">${escapeHtml(item.name || '')}</span>
+            <span class="meta">规格：${escapeHtml(item.spec || '-')}</span>
+            <span class="meta">单位：${escapeHtml(item.unit || '-')}</span>
+            <span class="meta">库存：${escapeHtml(item.stock ?? 0)}</span>
+        </div>
+    `).join('') : '<div class="material-menu-item">没有匹配物料</div>';
+}
+
+function selectMaterial(index, materialId) {
+    const material = materialData.find(item => Number(item.id) === Number(materialId));
+    if (!material) return;
+    rows[index] = {
+        ...rows[index],
+        material_id: material.id,
+        material_code: material.code || '',
+        material_name: material.name || '',
+        spec: material.spec || '',
+        unit: material.unit || '',
+        price: rows[index].price || material.price || 0,
+    };
+    materialMenu.hidden = true;
+    renderRows();
+}
+
+function collectItems() {
+    return rows
+        .filter(row => row.material_id || row.material_code || row.quantity || row.price || row.remark)
+        .map(row => ({
+            material_id: row.material_id,
+            quantity: row.quantity,
+            price: row.price,
+            remark: row.remark,
+        }));
+}
+
+function saveDocument() {
+    const items = collectItems();
+    if (!items.length) {
+        showToast('请至少录入一行期初库存', 'warning');
+        return;
+    }
+    fetch('/opening_stock/batch_save', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
+        },
+        body: JSON.stringify({items})
+    })
+    .then(response => response.json().then(data => ({ok: response.ok, data})))
+    .then(result => {
+        if (result.ok && result.data.status === 'success') {
+            showToast(result.data.msg || '保存成功', 'success');
+            setTimeout(() => location.reload(), 700);
+        } else {
+            showToast(result.data.msg || '保存失败', 'danger', 4200);
+        }
+    })
+    .catch(error => showToast('保存失败：' + error.message, 'danger', 4200));
+}
+
+function pasteImport() {
+    const text = prompt('请粘贴明细，每行格式：物料编码\\t数量\\t单价\\t备注');
+    if (!text) return;
+    const imported = text.split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);
+    imported.forEach(line => {
+        const [code, quantity, price, remark] = line.split(/\\t|,/);
+        const material = materialData.find(item => String(item.code).toLowerCase() === String(code || '').trim().toLowerCase());
+        if (material) {
+            rows.push({
+                material_id: material.id,
+                material_code: material.code || '',
+                material_name: material.name || '',
+                spec: material.spec || '',
+                unit: material.unit || '',
+                quantity: quantity || '',
+                price: price || material.price || 0,
+                remark: remark || '',
+            });
+        }
+    });
+    renderRows();
+}
+
+function showImportHint() {
+    showToast('当前支持粘贴导入：物料编码、数量、单价、备注', 'info', 3600);
+}
+
+function exportRows() {
+    const lines = [['物料编码', '物料名称', '规格', '单位', '数量', '单价', '期初余额', '备注'].join(',')];
+    rows.filter(row => row.material_id).forEach(row => {
+        lines.push([row.material_code, row.material_name, row.spec, row.unit, row.quantity, row.price, amountOf(row).toFixed(2), row.remark].map(value => `"${String(value ?? '').replaceAll('"', '""')}"`).join(','));
+    });
+    const blob = new Blob([lines.join('\\n')], {type: 'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'opening_stock.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
+function updateTotal() {
+    const total = rows.reduce((sum, row) => sum + amountOf(row), 0);
+    document.getElementById('totalAmount').textContent = formatMoney(total, true);
+}
+
+function formatMoney(value, symbol = true) {
+    const number = Number(value || 0).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    return symbol ? `¥${number}` : number;
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
+document.addEventListener('click', event => {
+    if (!event.target.closest('#materialMenu') && !event.target.closest('.code-cell')) {
+        materialMenu.hidden = true;
+    }
+});
+
+document.addEventListener('DOMContentLoaded', renderRows);
+</script>
+{% endblock %}

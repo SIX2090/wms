@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% block title %}库存调整{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-sliders"></i> 库存调整</h2>
+        {% if current_user.role in ['admin', 'warehouse'] %}
+        <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchAdjustmentDelete()"><i class="bi bi-trash"></i> 删除已选</button>
+            <a href="/export/template/adjustment" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
+            <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('adjustmentImportFile').click()">
+                <i class="bi bi-upload"></i> 导入
+            </button>
+            <a href="/adjustment/export?status={{ filters.status }}&search={{ filters.search|urlencode }}&adjustment_type={{ filters.adjustment_type }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-file-earmark-excel"></i> 导出
+            </a>
+            <a href="/adjustment/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增调整单</a>
+            <form id="adjustmentImportForm" action="/adjustment/import" method="post" enctype="multipart/form-data" class="d-none">
+                <input type="file" id="adjustmentImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('adjustmentImportForm', 'adjustmentImportFile')">
+            </form>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            {% if request.args.get('embedded') == '1' %}
+            <input type="hidden" name="embedded" value="1">
+            {% endif %}
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">状态</label>
+                <select name="status" class="form-select form-select-sm">
+                    <option value="" {% if not filters.status %}selected{% endif %}>全部状态</option>
+                    <option value="pending" {% if filters.status == 'pending' %}selected{% endif %}>草稿/待处理</option>
+                    <option value="completed" {% if filters.status == 'completed' %}selected{% endif %}>已完成</option>
+                    <option value="cancelled" {% if filters.status == 'cancelled' %}selected{% endif %}>已取消</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">类型</label>
+                <select name="adjustment_type" class="form-select form-select-sm">
+                    <option value="" {% if not filters.adjustment_type %}selected{% endif %}>全部类型</option>
+                    <option value="surplus" {% if filters.adjustment_type == 'surplus' %}selected{% endif %}>盘盈</option>
+                    <option value="loss" {% if filters.adjustment_type == 'loss' %}selected{% endif %}>盘亏</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">开始日期</label>
+                <input type="date" name="date_start" class="form-control form-control-sm" value="{{ filters.date_start }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">结束日期</label>
+                <input type="date" name="date_end" class="form-control form-control-sm" value="{{ filters.date_end }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">关键词</label>
+                <input type="text" name="search" class="form-control form-control-sm" placeholder="单号/物料/原因/草稿" value="{{ filters.search }}">
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
+                {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.adjustment_type %}
+                <a href="/adjustment{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive-wrapper">
+            <table class="table table-bordered table-hover table-sm mb-0" id="adjustmentTable">
+                <thead>
+                    <tr>
+                        <th width="56" class="text-center">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
+                        <th data-sortable="adjustment_no" class="sortable-header">调整单号 {% if sort_by=='adjustment_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                        <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                        <th data-sortable="adjustment_type" class="sortable-header">类型 {% if sort_by=='adjustment_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                        <th>物料</th>
+                        <th class="text-end">数量</th>
+                        <th class="text-end">明细数</th>
+                        <th>原因</th>
+                        <th>操作人</th>
+                        <th data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for adjustment in adjustments %}
+                    {% set first_item = adjustment.items[0] if adjustment.items else none %}
+                    {% set total_quantity = adjustment.items|sum(attribute='quantity', start=0) %}
+                    <tr data-id="{{ adjustment.id }}">
+                        <td class="text-center"><input type="checkbox" class="check-item" value="{{ adjustment.id }}" {% if adjustment.status != 'pending' %}disabled title="只能删除草稿单据"{% endif %}></td>
+                        <td><a href="{{ url_for('adjustment_detail', id=adjustment.id) }}">{{ adjustment.adjustment_no }}</a></td>
+                        <td>{{ adjustment.date }}</td>
+                        <td>
+                            {% if adjustment.adjustment_type == 'surplus' %}
+                            <span class="badge bg-success">盘盈</span>
+                            {% elif adjustment.adjustment_type == 'loss' %}
+                            <span class="badge bg-danger">盘亏</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ adjustment.adjustment_type or '-' }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if first_item and first_item.material %}
+                            {{ first_item.material.code }} - {{ first_item.material.name }}
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td class="text-end">{{ "%.2f"|format(total_quantity if total_quantity >= 0 else -total_quantity) }}</td>
+                        <td class="text-end">{{ adjustment.items|length }}</td>
+                        <td>{{ first_item.reason if first_item else (adjustment.remark or '') }}</td>
+                        <td>{{ adjustment.operator.username if adjustment.operator else '-' }}</td>
+                        <td>
+                            {% if adjustment.status == 'pending' %}
+                            <span class="badge bg-warning">草稿</span>
+                            {% elif adjustment.status == 'completed' %}
+                            <span class="badge bg-success">已完成</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ adjustment.status or '未知' }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('adjustment_detail', id=adjustment.id) }}" title="查看/编辑">
+                                <i class="bi bi-pencil-square"></i>
+                            </a>
+                            {% if adjustment.status == 'pending' %}
+                            <button class="btn btn-sm btn-outline-success completeBtn" data-id="{{ adjustment.id }}" title="完成">
+                                <i class="bi bi-check-circle"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger delBtn" data-id="{{ adjustment.id }}" title="删除">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                            {% elif adjustment.status == 'completed' %}
+                            <button class="btn btn-sm btn-outline-warning revertBtn" data-id="{{ adjustment.id }}" title="反提交">
+                                <i class="bi bi-arrow-counterclockwise"></i>
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="11" class="text-center text-muted">暂无调整记录</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+initCheckAll('adjustmentTable');
+
+document.querySelectorAll('.sortable-header').forEach(function(th) {
+    th.addEventListener('click', function() {
+        const sortField = this.dataset.sortable;
+        const url = new URL(window.location.href);
+        const currentSort = url.searchParams.get('sort');
+        const currentOrder = url.searchParams.get('order') || 'desc';
+        url.searchParams.set('sort', sortField);
+        url.searchParams.set('order', currentSort === sortField && currentOrder === 'asc' ? 'desc' : 'asc');
+        window.location.href = url.toString();
+    });
+});
+
+document.querySelectorAll('.completeBtn').forEach(function(btn) {
+    btn.addEventListener('click', async function() {
+        const id = this.dataset.id;
+        const confirmed = await showConfirm('确认完成该库存调整单？完成后会立即变更库存。', {title: '完成库存调整'});
+        if (!confirmed) return;
+        fetch('/adjustment/' + id + '/complete', {method: 'POST'})
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast(res.msg || '调整完成', 'success');
+                setTimeout(function(){ location.reload(); }, 650);
+            } else {
+                showToast(res.msg || '操作失败', 'danger', 3600);
+            }
+        })
+        .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
+    });
+});
+
+document.querySelectorAll('.delBtn').forEach(function(btn) {
+    btn.addEventListener('click', async function() {
+        const id = this.dataset.id;
+        const confirmed = await showConfirm('确认删除该库存调整单？', {title: '删除库存调整单'});
+        if (!confirmed) return;
+        fetch('/adjustment/' + id + '/delete', {method: 'POST'})
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast('删除成功', 'success');
+                setTimeout(function(){ location.reload(); }, 650);
+            } else {
+                showToast(res.msg || '删除失败', 'danger', 3600);
+            }
+        })
+        .catch(err => showToast('删除失败：' + err.message, 'danger', 3600));
+    });
+});
+
+document.querySelectorAll('.revertBtn').forEach(function(btn) {
+    btn.addEventListener('click', async function() {
+        const id = this.dataset.id;
+        const confirmed = await showConfirm('确认反提交该库存调整单？反提交后库存将恢复。', {title: '反提交库存调整'});
+        if (!confirmed) return;
+        fetch('/adjustment/' + id + '/revert', {method: 'POST'})
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast(res.msg || '反提交成功', 'success');
+                setTimeout(function(){ location.reload(); }, 650);
+            } else {
+                showToast(res.msg || '反提交失败', 'danger', 3600);
+            }
+        })
+        .catch(err => showToast('反提交失败：' + err.message, 'danger', 3600));
+    });
+});
+
+function batchAdjustmentDelete() {
+    const ids = Array.from(document.querySelectorAll('#adjustmentTable .check-item:checked')).map(function(cb) { return cb.value; });
+    if (!ids.length) {
+        showToast('请选择要删除的库存调整单', 'warning');
+        return;
+    }
+    showConfirm('确认删除选中的库存调整单？只能删除草稿单据。', {title: '批量删除库存调整单'}).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/adjustment/batch_delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ids: ids})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.status === 'success') {
+                showToast(res.msg || '删除成功', 'success');
+                setTimeout(function(){ location.reload(); }, 650);
+            } else {
+                showToast(res.msg || '删除失败', 'danger', 5000);
+            }
+        })
+        .catch(function(err) { showToast('删除失败：' + err.message, 'danger', 5000); });
+    });
+}
+
+function submitDocumentImport(formId, fileId) {
+    const form = document.getElementById(formId);
+    const fileInput = document.getElementById(fileId);
+    if (!fileInput.files.length) return;
+    const formData = new FormData(form);
+    fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        if (res.status === 'success') {
+            showToast(res.msg || '导入成功', 'success', 3600);
+            setTimeout(function(){ location.reload(); }, 900);
+        } else {
+            showToast(res.msg || '导入失败', 'danger', 5000);
+        }
+    })
+    .catch(function(err) { showToast('导入失败：' + err.message, 'danger', 5000); })
+    .finally(function() { fileInput.value = ''; });
+}
+</script>
+{% endblock %}

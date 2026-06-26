@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>领料单打印模板管理</title>
+    <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}">
+    <style>
+        .template-card {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+        }
+        .template-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+        .template-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .template-type-badge {
+            font-size: 12px;
+            padding: 3px 8px;
+            border-radius: 12px;
+        }
+        .template-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #0d6efd;
+            background-color: #f8f9fa;
+        }
+        .upload-area.dragover {
+            border-color: #0d6efd;
+            background-color: #e7f1ff;
+        }
+        .sortable-header {
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+        .sortable-header:hover {
+            background-color: rgba(13, 110, 253, 0.08);
+        }
+        .sortable-header:not([data-sort-active])::after {
+            content: '⇅';
+            font-size: 0.72em;
+            margin-left: 4px;
+            opacity: 0.42;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-printer"></i> 领料单打印模板管理</h2>
+            <a href="/out_order" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> 返回领料单
+            </a>
+        </div>
+
+        <!-- 添加模板卡片 -->
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-plus-circle"></i> 添加新模板</h5>
+            </div>
+            <div class="card-body">
+                <form id="addTemplateForm" enctype="multipart/form-data">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">模板名称 *</label>
+                                <input type="text" class="form-control" name="name" required placeholder="例如：标准领料单模板">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">模板类型</label>
+                                <select class="form-select" name="template_type" id="templateType">
+                                    <option value="excel" selected>Excel模板</option>
+                                    <option value="html">HTML模板</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3 form-check">
+                                <input type="checkbox" class="form-check-input" name="is_default" id="isDefault">
+                                <label class="form-check-label" for="isDefault">设为默认模板</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Excel模板上传区域 -->
+                    <div id="excelUploadArea" class="mb-3">
+                        <label class="form-label">Excel模板文件 *</label>
+                        <div class="upload-area" onclick="document.getElementById('excelFile').click()" 
+                             ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                             id="dropZone">
+                            <i class="bi bi-cloud-arrow-up fs-1 text-muted"></i>
+                            <p class="mt-2">点击或拖拽Excel文件到这里</p>
+                            <p class="small text-muted">支持 .xlsx, .xls 格式</p>
+                        </div>
+                        <input type="file" id="excelFile" name="excel_file" accept=".xlsx,.xls" style="display: none;" 
+                               onchange="handleFileSelect(this)">
+                        
+                        <!-- 文件信息显示 -->
+                        <div id="fileInfo" class="mt-3" style="display: none;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span id="fileName" class="text-success"></span>
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearFile()">
+                                    <i class="bi bi-trash"></i> 清除
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- HTML模板编辑区域 -->
+                    <div id="htmlEditorArea" class="mb-3" style="display: none;">
+                        <label class="form-label">HTML模板内容 *</label>
+                        <textarea class="form-control" name="html_content" rows="10" 
+                                  placeholder="输入HTML模板内容，可以使用模板变量如 order.order_no、order.date、order.customer 等"></textarea>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-save"></i> 保存模板
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 现有模板列表 -->
+        <div class="mb-4">
+            <h4><i class="bi bi-list-check"></i> 现有模板</h4>
+            <form method="get" class="row g-2 align-items-end mb-3">
+                <div class="col-md-2">
+                    <label class="form-label small text-muted mb-1">模板类型</label>
+                    <select name="type" class="form-select form-select-sm">
+                        <option value="" {% if not filters.type %}selected{% endif %}>全部类型</option>
+                        <option value="excel" {% if filters.type == 'excel' %}selected{% endif %}>Excel模板</option>
+                        <option value="html" {% if filters.type == 'html' %}selected{% endif %}>HTML模板</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small text-muted mb-1">默认状态</label>
+                    <select name="status" class="form-select form-select-sm">
+                        <option value="" {% if not filters.status %}selected{% endif %}>全部模板</option>
+                        <option value="default" {% if filters.status == 'default' %}selected{% endif %}>默认</option>
+                        <option value="normal" {% if filters.status == 'normal' %}selected{% endif %}>非默认</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small text-muted mb-1">关键词</label>
+                    <input type="text" name="search" class="form-control form-control-sm" placeholder="搜索模板名称、Excel、HTML、默认" value="{{ filters.search }}">
+                </div>
+                <div class="col-md-2 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm flex-fill">筛选</button>
+                    {% if filters.search or filters.status or filters.type %}
+                    <a href="/out_order_print_template" class="btn btn-outline-secondary btn-sm">清除</a>
+                    {% endif %}
+                </div>
+            </form>
+            <div class="d-flex flex-wrap gap-3 small text-muted mb-3">
+                <span class="sortable-header" data-sortable="name">模板名称 {% if sort_by == 'name' %}<i class="bi bi-caret-{{ 'up' if sort_order == 'asc' else 'down' }}-fill small"></i>{% endif %}</span>
+                <span class="sortable-header" data-sortable="template_type">类型 {% if sort_by == 'template_type' %}<i class="bi bi-caret-{{ 'up' if sort_order == 'asc' else 'down' }}-fill small"></i>{% endif %}</span>
+                <span class="sortable-header" data-sortable="is_default">默认 {% if sort_by == 'is_default' %}<i class="bi bi-caret-{{ 'up' if sort_order == 'asc' else 'down' }}-fill small"></i>{% endif %}</span>
+                <span class="sortable-header" data-sortable="created_at">创建时间 {% if sort_by == 'created_at' %}<i class="bi bi-caret-{{ 'up' if sort_order == 'asc' else 'down' }}-fill small"></i>{% endif %}</span>
+            </div>
+            {% if templates %}
+                {% for template in templates %}
+                <div class="template-card">
+                    <div class="template-header">
+                        <div>
+                            <h5 class="mb-1">{{ template.name }}</h5>
+                            <small class="text-muted">创建时间：{{ template.created_at.strftime('%Y-%m-%d %H:%M') if template.created_at else '' }}</small>
+                        </div>
+                        <span class="template-type-badge {% if template.template_type == 'excel' %}bg-info{% else %}bg-warning{% endif %}">
+                            {{ 'Excel' if template.template_type == 'excel' else 'HTML' }}
+                        </span>
+                    </div>
+                    
+                    <div class="mb-3">
+                        {% if template.template_type == 'excel' and template.excel_template_path %}
+                        <p><i class="bi bi-file-earmark-excel"></i> 模板文件：{{ template.excel_template_path.split('/')[-1] if template.excel_template_path else '无' }}</p>
+                        {% elif template.template_type == 'html' and template.html_template_content %}
+                        <p><i class="bi bi-file-earmark-code"></i> HTML内容：{{ (template.html_template_content|length) }} 字符</p>
+                        {% endif %}
+                        {% if template.is_default %}
+                        <span class="badge bg-success">默认模板</span>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="template-actions">
+                        {% if template.template_type == 'excel' and template.excel_template_path %}
+                        <a href="{{ template.excel_template_path }}" class="btn btn-sm btn-outline-success" download>
+                            <i class="bi bi-download"></i> 下载
+                        </a>
+                        {% endif %}
+                        {% if not template.is_default %}
+                        <button class="btn btn-sm btn-outline-warning" onclick="setDefault({{ template.id }})">
+                            <i class="bi bi-star"></i> 设为默认
+                        </button>
+                        {% endif %}
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteTemplate({{ template.id }})">
+                            <i class="bi bi-trash"></i> 删除
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> 暂无模板，请添加第一个模板
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- 字段说明和模板下载 -->
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0"><i class="bi bi-card-text"></i> 字段代码说明</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text">在模板中使用以下字段代码来显示数据：</p>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>字段代码</th>
+                                        <th>说明</th>
+                                        <th>示例</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>{order.order_no}</code></td>
+                                        <td>领料单号</td>
+                                        <td>OU26040001</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{order.date}</code></td>
+                                        <td>领料日期</td>
+                                        <td>2026-04-12</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{order.customer}</code></td>
+                                        <td>领料部门</td>
+                                        <td>生产部</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{order.purpose}</code></td>
+                                        <td>用途</td>
+                                        <td>工单领料</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{item.material.code}</code></td>
+                                        <td>物料编码</td>
+                                        <td>MAT-001</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{item.material.name}</code></td>
+                                        <td>物料名称</td>
+                                        <td>螺丝刀</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{item.quantity}</code></td>
+                                        <td>数量</td>
+                                        <td>100.00</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{item.price}</code></td>
+                                        <td>单价</td>
+                                        <td>5.00</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{item.amount}</code></td>
+                                        <td>金额</td>
+                                        <td>500.00</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="mt-3">
+                            <a href="/static/领料单打印模板字段说明.md" class="btn btn-outline-info btn-sm" download>
+                                <i class="bi bi-download"></i> 下载完整字段说明
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0"><i class="bi bi-file-earmark-excel"></i> Excel模板下载</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text">下载示例Excel模板，然后根据需要进行修改：</p>
+                        <div class="d-grid gap-2">
+                            <a href="/static/templates/领料单打印模板示例.xlsx" class="btn btn-success" download>
+                                <i class="bi bi-download"></i> 下载Excel模板文件 (.xlsx)
+                            </a>
+                            <a href="/static/templates/领料单Excel模板使用指南.md" class="btn btn-outline-success" download>
+                                <i class="bi bi-file-text"></i> 下载模板使用指南
+                            </a>
+                        </div>
+                        <div class="mt-3">
+                            <h6>Excel模板使用说明：</h6>
+                            <ol class="small">
+                                <li>下载Excel模板文件</li>
+                                <li>使用Excel打开模板文件</li>
+                                <li>在模板中使用 <code>{变量名}</code> 格式插入字段</li>
+                                <li>保存模板后上传到系统</li>
+                                <li>在领料单页面选择该模板进行打印</li>
+                            </ol>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 使用示例 -->
+        <div class="card mt-4">
+            <div class="card-header bg-warning">
+                <h5 class="mb-0"><i class="bi bi-lightbulb"></i> 使用示例</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>HTML模板示例：</h6>
+                        <pre class="bg-light p-3"><code>&lt;table&gt;
+    &lt;tr&gt;
+        &lt;td&gt;单号：{{ '{{ order.order_no }}' }}&lt;/td&gt;
+        &lt;td&gt;日期：{{ '{{ order.date }}' }}&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;客户：{{ '{{ order.customer|default(\'未指定\') }}' }}&lt;/td&gt;
+        &lt;td&gt;用途：{{ '{{ order.purpose|default(\'未填写\') }}' }}&lt;/td&gt;
+    &lt;/tr&gt;
+    {% raw %}{% for item in order.items %}{% endraw %}
+    &lt;tr&gt;
+        &lt;td&gt;{{ '{{ item.material.name }}' }}&lt;/td&gt;
+        &lt;td&gt;{{ '{{ item.quantity }}' }}&lt;/td&gt;
+        &lt;td&gt;{{ '{{ item.price }}' }}&lt;/td&gt;
+        &lt;td&gt;{{ '{{ item.amount }}' }}&lt;/td&gt;
+    &lt;/tr&gt;
+    {% raw %}{% endfor %}{% endraw %}
+    &lt;tr&gt;
+        &lt;td colspan="3"&gt;总计：&lt;/td&gt;
+        &lt;td&gt;{{ '{{ order.items|sum(attribute=\'amount\') }}' }}&lt;/td&gt;
+    &lt;/tr&gt;
+&lt;/table&gt;</code></pre>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Excel模板示例：</h6>
+                        <pre class="bg-light p-3"><code>A1: 领料单
+B1: {{ '{{ order.order_no }}' }}
+C1: 日期：{{ '{{ order.date }}' }}
+
+A3: 领料部门：{{ '{{ order.customer }}' }}
+B3: 用途：{{ '{{ order.purpose }}' }}
+
+A5: 物料编码    物料名称    数量    单价    金额
+A6: {{ '{{ item.material.code }}' }}  {{ '{{ item.material.name }}' }}  {{ '{{ item.quantity }}' }}  {{ '{{ item.price }}' }}  {{ '{{ item.amount }}' }}</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 模板类型切换
+        document.getElementById('templateType').addEventListener('change', function() {
+            const type = this.value;
+            document.getElementById('excelUploadArea').style.display = type === 'excel' ? 'block' : 'none';
+            document.getElementById('htmlEditorArea').style.display = type === 'html' ? 'block' : 'none';
+        });
+
+        // 文件拖拽处理
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            document.getElementById('dropZone').classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            document.getElementById('dropZone').classList.remove('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            document.getElementById('dropZone').classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        }
+
+        function handleFileSelect(input) {
+            if (input.files.length > 0) {
+                handleFile(input.files[0]);
+            }
+        }
+
+        function handleFile(file) {
+            if (!file.name.match(/\.(xlsx|xls)$/i)) {
+                alert('请选择Excel文件 (.xlsx, .xls)');
+                return;
+            }
+            
+            // 创建FormData并设置文件
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(file);
+            document.getElementById('excelFile').files = dataTransfer.files;
+            
+            // 显示文件信息
+            document.getElementById('fileName').textContent = file.name + ' (' + formatFileSize(file.size) + ')';
+            document.getElementById('fileInfo').style.display = 'block';
+        }
+
+        function clearFile() {
+            document.getElementById('excelFile').value = '';
+            document.getElementById('fileInfo').style.display = 'none';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // 表单提交
+        document.getElementById('addTemplateForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const templateType = document.getElementById('templateType').value;
+            
+            if (templateType === 'excel' && !formData.get('excel_file')) {
+                alert('请选择Excel模板文件');
+                return;
+            }
+            
+            if (templateType === 'html' && !formData.get('html_content')) {
+                alert('请输入HTML模板内容');
+                return;
+            }
+            
+            const submitBtn = this.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="bi bi-hourglass"></i> 保存中...';
+            
+            try {
+                const response = await fetch('/out_order_print_template/add', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert('模板添加成功');
+                    location.reload();
+                } else {
+                    alert(result.msg || '添加失败');
+                }
+            } catch (error) {
+                alert('网络错误：' + error.message);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="bi bi-save"></i> 保存模板';
+            }
+        });
+
+        // 设为默认模板
+        async function setDefault(templateId) {
+            if (!confirm('确定要设为默认模板吗？')) return;
+            
+            try {
+                const response = await fetch(`/out_order_print_template/${templateId}/set_default`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert('已设为默认模板');
+                    location.reload();
+                } else {
+                    alert('设置失败');
+                }
+            } catch (error) {
+                alert('网络错误：' + error.message);
+            }
+        }
+
+        // 删除模板
+        async function deleteTemplate(templateId) {
+            if (!confirm('确定要删除这个模板吗？')) return;
+            
+            try {
+                const response = await fetch(`/out_order_print_template/${templateId}/delete`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert('模板删除成功');
+                    location.reload();
+                } else {
+                    alert('删除失败');
+                }
+            } catch (error) {
+                alert('网络错误：' + error.message);
+            }
+        }
+
+        document.querySelectorAll('.sortable-header[data-sortable]').forEach(function(item) {
+            item.addEventListener('click', function() {
+                const url = new URL(window.location.href);
+                const field = this.dataset.sortable;
+                const currentSort = url.searchParams.get('sort') || '';
+                const currentOrder = url.searchParams.get('order') || 'desc';
+                url.searchParams.set('sort', field);
+                url.searchParams.set('order', currentSort === field && currentOrder === 'asc' ? 'desc' : 'asc');
+                window.location.href = url.toString();
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,254 @@
+{% extends 'base.html' %}
+
+{% block title %}BOM清单详情{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="h3 mb-3 text-gray-800">BOM清单详情</h1>
+    
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">基本信息</h6>
+        </div>
+        <div class="card-body">
+            <form id="updateForm">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="product_code">产品编码</label>
+                            <input type="text" class="form-control" id="product_code" name="product_code" value="{{ bom.product_code }}" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="product_name">产品名称</label>
+                            <input type="text" class="form-control" id="product_name" name="product_name" value="{{ bom.product_name }}" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="version">版本号</label>
+                            <input type="text" class="form-control" id="version" name="version" value="{{ bom.version }}">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="status">状态</label>
+                            <select class="form-control" id="status" name="status">
+                                <option value="active" {% if bom.status == 'active' %}selected{% endif %}>激活</option>
+                                <option value="inactive" {% if bom.status == 'inactive' %}selected{% endif %}>停用</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="remark">备注</label>
+                            <textarea class="form-control" id="remark" name="remark" rows="3">{{ bom.remark or '' }}</textarea>
+                        </div>
+                        <div class="form-group mt-4">
+                            <button type="button" class="btn btn-primary" id="submitUpdate">保存修改</button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- BOM明细 -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6 class="m-0 font-weight-bold text-primary">BOM明细</h6>
+                </div>
+                <div class="col-md-6 text-right">
+                    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addItemModal">
+                        <i class="fas fa-plus"></i> 添加明细
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="order-table-container">
+                <div class="order-toolbar">
+                    <div class="table-header-custom">
+                        <span><i class="bi bi-list-ul"></i> BOM明细</span>
+                        <span class="badge bg-primary">{{ bom.items|length }} 项</span>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table order-table mb-0" id="itemTable">
+                        <thead>
+                            <tr>
+                                <th>物料编码</th>
+                                <th>物料名称</th>
+                                <th>规格</th>
+                                <th>数量</th>
+                                <th>单位</th>
+                                <th>用途</th>
+                                <th>备注</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in bom.items %}
+                            <tr>
+                                <td>{{ item.material.code }}</td>
+                                <td>{{ item.material.name }}</td>
+                                <td>{{ item.material.spec or '' }}</td>
+                                <td>{{ item.quantity }}</td>
+                                <td>{{ item.unit.name if item.unit else '' }}</td>
+                                <td>{{ item.usage or '' }}</td>
+                                <td>{{ item.remark or '' }}</td>
+                                <td>
+                                    <button class="btn btn-danger btn-sm delete-item-btn" data-id="{{ item.id }}">删除</button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 操作按钮 -->
+    <div class="card shadow mb-4">
+        <div class="card-body text-center">
+            <button type="button" class="btn btn-warning btn-lg" id="createRequisitionBtn">
+                <i class="fas fa-file-invoice"></i> 生成工单领料单
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 添加明细模态框 -->
+<div class="modal fade" id="addItemModal" tabindex="-1" role="dialog" aria-labelledby="addItemModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addItemModalLabel">添加BOM明细</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addItemForm">
+                    <div class="form-group">
+                        <label for="material_code">物料编码/条码</label>
+                        <input type="text" class="form-control" id="material_code" name="material_code" placeholder="扫码或输入物料编码">
+                    </div>
+                    <div class="form-group">
+                        <label for="quantity">数量</label>
+                        <input type="number" class="form-control" id="quantity" name="quantity" value="1" min="0.01" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label for="unit_id">单位</label>
+                        <select class="form-control" id="unit_id" name="unit_id">
+                            <option value="">请选择</option>
+                            {% for unit in units %}
+                            <option value="{{ unit.id }}">{{ unit.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="usage">用途</label>
+                        <input type="text" class="form-control" id="usage" name="usage" placeholder="例如：主体、配件等">
+                    </div>
+                    <div class="form-group">
+                        <label for="remark">备注</label>
+                        <textarea class="form-control" id="remark" name="remark" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="submitItem">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/xlsx.full.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/excel-import-export.js') }}"></script>
+<script>
+// 初始化Excel导入导出
+document.addEventListener('DOMContentLoaded', function() {
+    new ExcelImportExport({
+        tableId: 'itemTable',
+        fileName: 'BOM清单明细',
+        columns: [
+            {label: '物料编码', field: 'material_code', required: true, example: 'MAT001'},
+            {label: '物料名称', field: 'material_name', required: false, example: '螺丝'},
+            {label: '规格', field: 'spec', required: false, example: 'M6*20'},
+            {label: '数量', field: 'quantity', required: true, example: '10'},
+            {label: '单位', field: 'unit', required: false, example: '个'},
+            {label: '用途', field: 'usage', required: false, example: '主体'},
+            {label: '备注', field: 'remark', required: false, example: '备注信息'}
+        ]
+    });
+
+    // 更新BOM信息
+    var submitUpdate = document.getElementById('submitUpdate');
+    if (submitUpdate) {
+        submitUpdate.addEventListener('click', function() {
+            var formData = new FormData(document.getElementById('updateForm'));
+            fetch('{{ url_for('update_bom', id=bom.id) }}', {method:'POST', body: formData})
+            .then(function(r){ return r.json(); })
+            .then(function(data) {
+                if (data.status === 'success') { alert('更新成功'); location.reload(); }
+                else alert('更新失败: ' + data.msg);
+            })
+            .catch(function(err){ alert('更新失败：'+err.message); });
+        });
+    }
+    
+    // 添加BOM明细
+    var submitItem = document.getElementById('submitItem');
+    if (submitItem) {
+        submitItem.addEventListener('click', function() {
+            var formData = new FormData(document.getElementById('addItemForm'));
+            fetch('{{ url_for('add_bom_item', id=bom.id) }}', {method:'POST', body: formData})
+            .then(function(r){ return r.json(); })
+            .then(function(data) {
+                if (data.status === 'success') { alert('添加成功'); location.reload(); }
+                else alert('添加失败: ' + data.msg);
+            })
+            .catch(function(err){ alert('添加失败：'+err.message); });
+        });
+    }
+    
+    // 删除BOM明细
+    document.querySelectorAll('.delete-item-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            if (confirm('确定要删除吗？')) {
+                var id = this.dataset.id;
+                fetch('{{ url_for('delete_bom_item', id=bom.id, item_id=0) }}'.replace('/0/', '/'+id+'/'), {method:'POST'})
+                .then(function(r){ return r.json(); })
+                .then(function(data) {
+                    if (data.status === 'success') { alert('删除成功'); location.reload(); }
+                    else alert('删除失败: ' + data.msg);
+                })
+                .catch(function(err){ alert('删除失败：'+err.message); });
+            }
+        });
+    });
+
+    var createRequisitionBtn = document.getElementById('createRequisitionBtn');
+    if (createRequisitionBtn) {
+        createRequisitionBtn.addEventListener('click', function() {
+            if (!confirm('确定要从该BOM生成工单领料单吗？')) return;
+            fetch('{{ url_for('create_requisition_from_bom', bom_id=bom.id) }}', {method:'POST'})
+            .then(function(r){ return r.json(); })
+            .then(function(data) {
+                if (data.status === 'success' && data.id) {
+                    window.location.href = '/requisition/' + data.id;
+                } else {
+                    alert('生成失败: ' + (data.msg || '未知错误'));
+                }
+            })
+            .catch(function(err){ alert('生成失败：'+err.message); });
+        });
+    }
+});
+</script>
+{% endblock %}

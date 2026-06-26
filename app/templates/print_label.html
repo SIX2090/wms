@@ -1,0 +1,364 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f7fa;
+            padding: 20px;
+        }
+        
+        .print-container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .print-header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        
+        .print-header h2 {
+            font-size: 20px;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .print-options {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+        
+        .print-option {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .print-option label {
+            display: block;
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        .print-option select,
+        .print-option input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #d9d9d9;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .print-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e9ecef;
+        }
+        
+        .labels-preview {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        
+        /* 简道云风格标签 */
+        .label-sheet {
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            position: relative;
+        }
+        
+        .label-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        
+        .label-table td {
+            border: 1px solid #e9ecef;
+            padding: 0;
+            background: white;
+        }
+        
+        .cell-content {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px;
+            overflow: hidden;
+        }
+        
+        .cell-value {
+            word-break: break-word;
+            text-align: center;
+        }
+        
+        /* 条码样式 */
+        .barcode-img {
+            max-width: 100%;
+            height: 25px;
+            display: block;
+        }
+        
+        /* 二维码样式 */
+        .qrcode-img {
+            max-width: 100%;
+            display: block;
+        }
+        
+        /* 打印样式 */
+        @media print {
+            @page {
+                size: auto;
+                margin: 0;
+            }
+            
+            body {
+                background: white;
+                padding: 0;
+            }
+            
+            .print-header,
+            .print-header * {
+                display: none !important;
+            }
+            
+            .labels-preview {
+                box-shadow: none;
+                padding: 0;
+                display: block;
+            }
+            
+            .label-sheet {
+                box-shadow: none;
+                page-break-inside: avoid;
+                margin-bottom: 0;
+            }
+            
+            .labels-preview > div {
+                margin-bottom: 0;
+            }
+        }
+        
+        .no-materials {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        
+        .no-materials i {
+            font-size: 48px;
+            margin-bottom: 15px;
+            display: block;
+        }
+    </style>
+{% endblock %}
+
+{% block title %}打印标签{% endblock %}
+
+{% block content %}
+    <div class="print-container">
+        <div class="print-header">
+            <h2><i class="bi bi-printer"></i> 打印标签</h2>
+            
+            <div class="print-options">
+                <div class="print-option">
+                    <label>选择标签模板</label>
+                    <select id="templateSelect" onchange="changeTemplate()">
+                        {% for t in templates %}
+                        <option value="{{ t.id }}" {% if t.id == template.id %}selected{% endif %}>
+                            {{ t.name }} ({{ t.width }}×{{ t.height }}mm)
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="print-option">
+                    <label>打印数量</label>
+                    <input type="number" id="printCount" value="1" min="1" max="100">
+                </div>
+                
+                <div class="print-option">
+                    <label>标签间距 (mm)</label>
+                    <input type="number" id="labelSpacing" value="2" min="0" max="10">
+                </div>
+            </div>
+            
+            <div class="print-actions">
+                <button class="btn" onclick="selectAll()">
+                    <i class="bi bi-check-all"></i> 全选
+                </button>
+                <button class="btn" onclick="selectNone()">
+                    <i class="bi bi-x-circle"></i> 取消全选
+                </button>
+                <button class="btn btn-primary" onclick="printSelected()">
+                    <i class="bi bi-printer"></i> 打印选中
+                </button>
+                <button class="btn btn-success" onclick="printAll()">
+                    <i class="bi bi-printer-fill"></i> 打印全部
+                </button>
+            </div>
+        </div>
+        
+        <div class="labels-preview" id="labelsPreview">
+            {% if materials and materials|length > 0 %}
+            {% for material in materials %}
+            <div class="label-item-wrapper" data-material-id="{{ material.id }}">
+                <div class="label-sheet" style="width: {{ (template.width * 3.78) | round(0) }}px;">
+                    <table class="label-table">
+                        {% set layout = template.layout | default('{}') | from_json %}
+                        {% for row in range(template.rows) %}
+                        <tr style="height: {{ (template.height * 3.78 / template.rows) | round(0) }}px;">
+                            {% for col in range(template.cols) %}
+                            <td>
+                                {% set cell_key = row|string + '-' + col|string %}
+                                {% set cell_data = layout.get(cell_key) %}
+                                {% if cell_data %}
+                                {% set style = cell_data.style | default({}) %}
+                                <div class="cell-content" style="
+                                    text-align: {{ style.get('textAlign', 'center') }};
+                                    font-size: {{ style.get('fontSize', 12) }}px;
+                                    font-family: {{ style.get('fontFamily', 'Microsoft YaHei') }};
+                                    color: {{ style.get('color', '#333333') }};
+                                ">
+                                    {% if cell_data.field == 'barcode' %}
+                                    <img src="/api/barcode/{{ material.code }}" alt="条码" class="barcode-img">
+                                    {% elif cell_data.field == 'qrcode' %}
+                                    <img src="/api/qrcode/{{ material.code }}" alt="二维码" class="qrcode-img" style="width: 25mm; height: 25mm;">
+                                    {% elif cell_data.field == 'code' %}
+                                    <span class="cell-value">{{ material.code }}</span>
+                                    {% elif cell_data.field == 'name' %}
+                                    <span class="cell-value">{{ material.name }}</span>
+                                    {% elif cell_data.field == 'spec' %}
+                                    <span class="cell-value">{{ material.spec or '' }}</span>
+                                    {% elif cell_data.field == 'unit' %}
+                                    <span class="cell-value">{{ material.unit.name if material.unit else '' }}</span>
+                                    {% elif cell_data.field == 'stock' %}
+                                    <span class="cell-value">{{ material.stock }}</span>
+                                    {% elif cell_data.field == 'category' %}
+                                    <span class="cell-value">{{ material.category.name if material.category else '' }}</span>
+                                    {% elif cell_data.field == 'supplier' %}
+                                    <span class="cell-value">{{ material.supplier.name if material.supplier else '' }}</span>
+                                    {% else %}
+                                    <span class="cell-value"></span>
+                                    {% endif %}
+                                </div>
+                                {% else %}
+                                <div class="cell-content">
+                                    <span style="color: #bfbfbf; font-size: 11px;">{{ row + 1 }}-{{ col + 1 }}</span>
+                                </div>
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </table>
+                </div>
+                <div style="text-align: center; margin-top: 5px; font-size: 12px; color: #666;">
+                    <input type="checkbox" checked onchange="toggleMaterial(this, {{ material.id }})">
+                    {{ material.code }} - {{ material.name }}
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="no-materials">
+                <i class="bi bi-inbox"></i>
+                <p>暂无物料数据</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <script>
+        let selectedMaterials = new Set();
+        
+        // 初始化选中所有物料
+        document.addEventListener('DOMContentLoaded', () => {
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(cb => {
+                const wrapper = cb.closest('.label-item-wrapper');
+                if (wrapper) {
+                    selectedMaterials.add(wrapper.dataset.materialId);
+                }
+            });
+        });
+        
+        function toggleMaterial(checkbox, materialId) {
+            if (checkbox.checked) {
+                selectedMaterials.add(materialId);
+            } else {
+                selectedMaterials.delete(materialId);
+            }
+        }
+        
+        function selectAll() {
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.checked = true);
+            
+            const wrappers = document.querySelectorAll('.label-item-wrapper');
+            wrappers.forEach(wrapper => {
+                selectedMaterials.add(wrapper.dataset.materialId);
+            });
+        }
+        
+        function selectNone() {
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.checked = false);
+            
+            selectedMaterials.clear();
+        }
+        
+        function printSelected() {
+            // 隐藏未选中的标签
+            const wrappers = document.querySelectorAll('.label-item-wrapper');
+            wrappers.forEach(wrapper => {
+                if (selectedMaterials.has(wrapper.dataset.materialId)) {
+                    wrapper.style.display = 'block';
+                } else {
+                    wrapper.style.display = 'none';
+                }
+            });
+            
+            window.print();
+            
+            // 恢复显示
+            wrappers.forEach(wrapper => {
+                wrapper.style.display = 'block';
+            });
+        }
+        
+        function printAll() {
+            selectAll();
+            window.print();
+        }
+        
+        function changeTemplate() {
+            const templateId = document.getElementById('templateSelect').value;
+            const params = new URLSearchParams(window.location.search);
+            const ids = params.get('ids') || '';
+            window.location.href = `/label_template/${templateId}/print?ids=${encodeURIComponent(ids)}`;
+        }
+    </script>
+{% endblock %}
+

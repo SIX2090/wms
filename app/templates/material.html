@@ -1,0 +1,2356 @@
+{% extends "base.html" %}
+{% block title %}物料档案{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-box"></i> 物料档案管理</h2>
+        <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-warning btn-sm" onclick="fixEmptyFields()">
+                <i class="bi bi-tools"></i> 修复空分类/单位
+            </button>
+            <button class="btn btn-warning btn-sm" onclick="openLabelTemplate()">
+                <i class="bi bi-grid-3x3"></i> 标签模板
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="d-flex gap-2 flex-wrap" id="searchForm">
+            {% if request.args.get('embedded') == '1' %}
+            <input type="hidden" name="embedded" value="1">
+            {% endif %}
+            {% if inventory_alert_enabled %}
+            <select name="stock_filter" class="form-select" style="width: 150px;" onchange="this.form.submit()">
+                <option value="" {% if not stock_filter %}selected{% endif %}>全部库存</option>
+                <option value="low" {% if stock_filter == 'low' %}selected{% endif %}>库存预警</option>
+            </select>
+            {% endif %}
+            <input type="hidden" name="category_id" value="{{ category_id or '' }}" id="materialCategoryFilter">
+            <input type="text" name="search" class="form-control flex-grow-1" style="min-width: 260px;" placeholder="搜索物料编码/名称/规格..." value="{{ request.args.get('search', '') }}">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> 搜索</button>
+            {% if request.args.get('search') or stock_filter or category_id %}
+            <a href="/material{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary">清除</a>
+            {% endif %}
+        </form>
+    </div>
+</div>
+
+<div class="material-layout">
+    <aside class="material-category-panel">
+        <div class="material-category-header">
+            <span><i class="bi bi-diagram-3"></i> 分类树</span>
+            <a href="{{ url_for('material_list', search=request.args.get('search', ''), stock_filter=stock_filter, embedded=request.args.get('embedded')) }}" class="small">全部</a>
+        </div>
+        <div class="material-category-tree">
+            <a class="material-category-node {{ 'active' if not category_id else '' }}" href="{{ url_for('material_list', search=request.args.get('search', ''), stock_filter=stock_filter, embedded=request.args.get('embedded')) }}">
+                <span class="material-category-code">ALL</span>
+                <i class="bi bi-folder2-open"></i>
+                <span class="material-category-name">全部分类</span>
+            </a>
+            {% for row in category_rows %}
+            {% set cat = row.category %}
+            <a class="material-category-node {{ 'active' if category_id == cat.id else '' }}"
+               href="{{ url_for('material_list', category_id=cat.id, search=request.args.get('search', ''), stock_filter=stock_filter, embedded=request.args.get('embedded')) }}"
+               style="padding-left: {{ 10 + row.level * 18 }}px;">
+                <span class="material-category-code">{{ cat.code }}</span>
+                <i class="bi {{ 'bi-folder2-open' if row.has_children else 'bi-tag' }}"></i>
+                <span class="material-category-name">{{ cat.name }}</span>
+            </a>
+            {% endfor %}
+        </div>
+    </aside>
+    <section class="material-list-panel">
+    <div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive-wrapper">
+        <table class="table table-bordered table-hover table-sm mb-0" id="materialTable">
+            <thead>
+                <tr>
+                    <th width="50" data-column-key="select"><input type="checkbox" id="checkAll"></th>
+                    <th data-column-key="code" data-sortable="code" class="sortable-header">物料编码 {% if sort_by=='code' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="name" data-sortable="name" class="sortable-header">物料名称 {% if sort_by=='name' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="spec" data-sortable="spec" class="sortable-header">规格 {% if sort_by=='spec' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="unit">单位<span class="col-resize"></span></th>
+                    <th data-column-key="category" data-sortable="category_id" class="sortable-header">分类 {% if sort_by=='category_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="supplier" data-sortable="supplier_id" class="sortable-header">供应商 {% if sort_by=='supplier_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="purpose">用途<span class="col-resize"></span></th>
+                    <th data-column-key="stock" data-sortable="stock" class="sortable-header">库存 {% if sort_by=='stock' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    {% if inventory_alert_enabled %}
+                    <th data-column-key="min_stock">最低库存<span class="col-resize"></span></th>
+                    {% endif %}
+                    <th data-column-key="price" data-sortable="price" class="sortable-header">单价 {% if sort_by=='price' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="remark">备注<span class="col-resize"></span></th>
+                    <th data-column-key="image">图片<span class="col-resize"></span></th>
+                    <th data-column-key="actions" class="action-col">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for mat in materials %}
+                {% set alert_enabled = (mat.min_stock or 0) > 0 or (mat.reorder_point or 0) > 0 %}
+                <tr class="{{ 'table-warning' if inventory_alert_enabled and alert_enabled and (mat.stock or 0) <= (mat.min_stock or 0) else '' }}">
+                    <td data-column-key="select"><input type="checkbox" class="check-item" value="{{ mat.id }}"></td>
+                    <td data-column-key="code">{{ mat.code }}</td>
+                    <td data-column-key="name">{{ mat.name }}</td>
+                    <td data-column-key="spec">{{ mat.spec or '-' }}</td>
+                    <td data-column-key="unit">{{ mat.unit.name if mat.unit else '-' }}</td>
+                    <td data-column-key="category">{{ mat.category.name if mat.category else '-' }}</td>
+                    <td data-column-key="supplier">{{ mat.supplier.name if mat.supplier else '-' }}</td>
+                    <td data-column-key="purpose">{{ mat.purpose or '-' }}</td>
+                    <td data-column-key="stock" class="{{ 'text-danger fw-bold' if inventory_alert_enabled and alert_enabled and (mat.stock or 0) <= (mat.min_stock or 0) else '' }}">{{ mat.stock }}</td>
+                    {% if inventory_alert_enabled %}
+                    <td data-column-key="min_stock">{{ mat.min_stock }}</td>
+                    {% endif %}
+                    <td data-column-key="price">¥{{ mat.price }}</td>
+                    <td data-column-key="remark" title="{{ mat.remark or '' }}">{{ (mat.remark[:30] + '...') if mat.remark and mat.remark|length > 30 else (mat.remark or '-') }}</td>
+                    <td data-column-key="image">
+                        {% if mat.image %}
+                        <img src="{{ url_for('static', filename=mat.image) }}" style="width: 40px; height: 40px; object-fit: cover;" class="img-thumbnail">
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td data-column-key="actions">
+                        <button class="btn btn-sm btn-outline-primary" onclick="editMaterial({{ mat.id }})" title="编辑">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="copyMaterial({{ mat.id }})" title="复制为新物料草稿">
+                            <i class="bi bi-files"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-info" onclick="printSingleLabel({{ mat.id }})" title="打印标签">
+                            <i class="bi bi-printer"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('{{ url_for('delete_material') }}', {{ mat.id }})" title="删除">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="{{ 14 if inventory_alert_enabled else 13 }}" class="text-center text-muted">暂无数据，请添加物料</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div><!-- end table-responsive-wrapper -->
+        
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <div class="d-flex align-items-center">
+                <span class="text-muted me-2">每页显示：</span>
+                <select class="form-select form-select-sm" id="perPageSelect" style="width: auto;">
+                    <option value="10" {% if per_page == 10 %}selected{% endif %}>10 条</option>
+                    <option value="20" {% if per_page == 20 %}selected{% endif %}>20 条</option>
+                    <option value="50" {% if per_page == 50 %}selected{% endif %}>50 条</option>
+                    <option value="100" {% if per_page == 100 %}selected{% endif %}>100 条</option>
+                    <option value="200" {% if per_page == 200 %}selected{% endif %}>200 条</option>
+                </select>
+                <span class="text-muted ms-2">共 {{ pagination.total }} 条记录</span>
+            </div>
+            
+            {% if pagination.pages > 1 %}
+            <nav aria-label="Page navigation">
+                <ul class="pagination justify-content-center mb-0">
+                    {% if pagination.has_prev %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('material_list', page=pagination.prev_num, per_page=per_page, sort=sort_by, order=sort_order, search=request.args.get('search', ''), category_id=category_id, stock_filter=stock_filter, embedded=request.args.get('embedded')) }}">上一页</a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">上一页</span>
+                    </li>
+                    {% endif %}
+                    
+                    {% for page_num in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
+                        {% if page_num %}
+                            {% if page_num == pagination.page %}
+                            <li class="page-item active">
+                                <span class="page-link">{{ page_num }}</span>
+                            </li>
+                            {% else %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('material_list', page=page_num, per_page=per_page, sort=sort_by, order=sort_order, search=request.args.get('search', ''), category_id=category_id, stock_filter=stock_filter, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
+                            </li>
+                            {% endif %}
+                        {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link">...</span>
+                        </li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if pagination.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('material_list', page=pagination.next_num, per_page=per_page, sort=sort_by, order=sort_order, search=request.args.get('search', ''), category_id=category_id, stock_filter=stock_filter, embedded=request.args.get('embedded')) }}">下一页</a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">下一页</span>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+            {% endif %}
+        </div>
+    </div>
+</div>
+    </section>
+</div>
+
+<div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addModalTitle">新增物料</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="addForm" enctype="multipart/form-data">
+                <div class="modal-body">
+                    <div class="alert alert-info d-none" id="copyHint">
+                        <strong>复制物料提示：</strong><br>
+                        1. 系统已自动生成新的物料编号（前3位分类保持不变，后3位流水号递增）<br>
+                        2. 物料编号不能重复<br>
+                        3. 系统已给物料名称追加“副本”，避免与原物料名称和规格重复<br>
+                        4. 请仔细检查并修改相关信息后，手动点击保存
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">物料编码 *</label>
+                                <input type="text" class="form-control" name="code" id="add_code" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">物料名称 *</label>
+                                <input type="text" class="form-control" name="name" id="add_name" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">分类</label>
+                                <div class="quick-select" data-hidden-id="add_category_id">
+                                    <input type="hidden" name="category_id" id="add_category_id">
+                                    <input type="text" class="form-control quick-select-input" id="add_category_input" placeholder="请选择或输入分类" autocomplete="off">
+                                    <button type="button" class="quick-select-toggle" aria-label="展开分类选项"><i class="bi bi-chevron-down"></i></button>
+                                    <div class="quick-select-menu"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">单位</label>
+                                <div class="quick-select" data-hidden-id="add_unit_id">
+                                    <input type="hidden" name="unit_id" id="add_unit_id">
+                                    <input type="text" class="form-control quick-select-input" id="add_unit_input" placeholder="请选择或输入单位" autocomplete="off">
+                                    <button type="button" class="quick-select-toggle" aria-label="展开单位选项"><i class="bi bi-chevron-down"></i></button>
+                                    <div class="quick-select-menu"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">供应商</label>
+                                <div class="quick-select" data-hidden-id="add_supplier_id">
+                                    <input type="hidden" name="supplier_id" id="add_supplier_id">
+                                    <input type="text" class="form-control quick-select-input" id="add_supplier_input" placeholder="请选择或输入供应商" autocomplete="off">
+                                    <button type="button" class="quick-select-toggle" aria-label="展开供应商选项"><i class="bi bi-chevron-down"></i></button>
+                                    <div class="quick-select-menu"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">规格</label>
+                                <input type="text" class="form-control" name="spec" id="add_spec">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">用途</label>
+                                <input type="text" class="form-control" name="purpose" id="add_purpose">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">单价</label>
+                                <input type="number" class="form-control" name="price" id="add_price" value="0" step="0.01">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        {% if inventory_alert_enabled %}
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">最低库存</label>
+                                <input type="number" class="form-control" name="min_stock" id="add_min_stock" value="0" step="0.01">
+                            </div>
+                        </div>
+                        {% endif %}
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">最大库存</label>
+                                <input type="number" class="form-control" name="max_stock" id="add_max_stock" value="0" step="0.01">
+                            </div>
+                        </div>
+                        {% if inventory_alert_enabled %}
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">安全库存</label>
+                                <input type="number" class="form-control" name="reorder_point" id="add_reorder_point" value="0" step="0.01">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">预警天数</label>
+                                <input type="number" class="form-control" name="alert_days" id="add_alert_days" value="30" min="0">
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">有效期至</label>
+                                <input type="date" class="form-control" name="expiry_date" id="add_expiry_date">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">物料图片</label>
+                        <input type="file" class="form-control" name="image" accept="image/*">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">备注</label>
+                        <textarea class="form-control" name="remark" id="add_remark" rows="2" maxlength="500" placeholder="可填写物料相关备注（最多500字）"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑物料弹窗 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">编辑物料</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editForm" enctype="multipart/form-data">
+                <input type="hidden" name="id" id="edit_id">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">物料编码 *</label>
+                                <input type="text" class="form-control" name="code" id="edit_code" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">物料名称 *</label>
+                                <input type="text" class="form-control" name="name" id="edit_name" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">分类</label>
+                                <div class="quick-select" data-hidden-id="edit_category_id">
+                                    <input type="hidden" name="category_id" id="edit_category_id">
+                                    <input type="text" class="form-control quick-select-input" id="edit_category_input" placeholder="请选择或输入分类" autocomplete="off">
+                                    <button type="button" class="quick-select-toggle" aria-label="展开分类选项"><i class="bi bi-chevron-down"></i></button>
+                                    <div class="quick-select-menu"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">单位</label>
+                                <div class="quick-select" data-hidden-id="edit_unit_id">
+                                    <input type="hidden" name="unit_id" id="edit_unit_id">
+                                    <input type="text" class="form-control quick-select-input" id="edit_unit_input" placeholder="请选择或输入单位" autocomplete="off">
+                                    <button type="button" class="quick-select-toggle" aria-label="展开单位选项"><i class="bi bi-chevron-down"></i></button>
+                                    <div class="quick-select-menu"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">供应商</label>
+                                <div class="quick-select" data-hidden-id="edit_supplier_id">
+                                    <input type="hidden" name="supplier_id" id="edit_supplier_id">
+                                    <input type="text" class="form-control quick-select-input" id="edit_supplier_input" placeholder="请选择或输入供应商" autocomplete="off">
+                                    <button type="button" class="quick-select-toggle" aria-label="展开供应商选项"><i class="bi bi-chevron-down"></i></button>
+                                    <div class="quick-select-menu"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">规格</label>
+                                <input type="text" class="form-control" name="spec" id="edit_spec">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">用途</label>
+                                <input type="text" class="form-control" name="purpose" id="edit_purpose">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">单价</label>
+                                <input type="number" class="form-control" name="price" id="edit_price" value="0" step="0.01">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        {% if inventory_alert_enabled %}
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">最低库存</label>
+                                <input type="number" class="form-control" name="min_stock" id="edit_min_stock" value="0" step="1">
+                            </div>
+                        </div>
+                        {% endif %}
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">最大库存</label>
+                                <input type="number" class="form-control" name="max_stock" id="edit_max_stock" value="0" step="1">
+                            </div>
+                        </div>
+                        {% if inventory_alert_enabled %}
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">安全库存</label>
+                                <input type="number" class="form-control" name="reorder_point" id="edit_reorder_point" value="0" step="1">
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">有效期至</label>
+                                <input type="date" class="form-control" name="expiry_date" id="edit_expiry_date">
+                            </div>
+                        </div>
+                        {% if inventory_alert_enabled %}
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">预警天数</label>
+                                <input type="number" class="form-control" name="alert_days" id="edit_alert_days" value="30" step="1">
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">物料图片</label>
+                        <input type="file" class="form-control" name="image" accept="image/*">
+                        <small class="text-muted">不选择则保留原图</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">备注</label>
+                        <textarea class="form-control" name="remark" id="edit_remark" rows="2" maxlength="500" placeholder="可填写物料相关备注（最多500字）"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">保存修改</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 标签打印模板设计弹窗 -->
+<div class="modal fade" id="labelTemplateModal" tabindex="-1" style="display:none;">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="bi bi-grid-3x3"></i> 标签打印模板设计器 (Excel风格)</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="padding: 0;">
+                <div style="display: flex; height: 70vh;">
+                    <!-- 左侧：字段选择面板 -->
+                    <div style="width: 220px; background: #f8f9fa; border-right: 1px solid #dee2e6; padding: 15px; overflow-y: auto;">
+                        <h6 style="font-weight: bold; margin-bottom: 15px;"><i class="bi bi-list-check"></i> 可用字段</h6>
+                        <div class="field-item" draggable="true" data-field="code" data-label="物料编码">
+                            <i class="bi bi-upc"></i> 物料编码
+                        </div>
+                        <div class="field-item" draggable="true" data-field="name" data-label="物料名称">
+                            <i class="bi bi-box"></i> 物料名称
+                        </div>
+                        <div class="field-item" draggable="true" data-field="spec" data-label="规格">
+                            <i class="bi bi-rulers"></i> 规格
+                        </div>
+                        <div class="field-item" draggable="true" data-field="unit_name" data-label="单位">
+                            <i class="bi bi-dash-circle"></i> 单位
+                        </div>
+                        <div class="field-item" draggable="true" data-field="category_name" data-label="分类">
+                            <i class="bi bi-tag"></i> 分类
+                        </div>
+                        <div class="field-item" draggable="true" data-field="stock" data-label="库存">
+                            <i class="bi bi-box-seam"></i> 库存
+                        </div>
+                        <div class="field-item" draggable="true" data-field="price" data-label="单价">
+                            <i class="bi bi-currency-yen"></i> 单价
+                        </div>
+                        <div class="field-item" draggable="true" data-field="barcode" data-label="条码">
+                            <i class="bi bi-barcode"></i> 条码
+                        </div>
+                        <div class="field-item" draggable="true" data-field="date" data-label="日期">
+                            <i class="bi bi-calendar"></i> 日期
+                        </div>
+                        <div class="field-item" draggable="true" data-field="supplier_name" data-label="供应商">
+                            <i class="bi bi-truck"></i> 供应商
+                        </div>
+                        <hr>
+                        <h6 style="font-weight: bold; margin-bottom: 15px;"><i class="bi bi-palette"></i> 样式工具</h6>
+                        <div class="mb-2">
+                            <label class="form-label" style="font-size: 12px;">字体大小</label>
+                            <select class="form-select form-select-sm" id="fontSizeSelect">
+                                <option value="10">10px</option>
+                                <option value="12" selected>12px</option>
+                                <option value="14">14px</option>
+                                <option value="16">16px</option>
+                                <option value="18">18px</option>
+                                <option value="20">20px</option>
+                                <option value="24">24px</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" style="font-size: 12px;">字体粗细</label>
+                            <select class="form-select form-select-sm" id="fontWeightSelect">
+                                <option value="normal">正常</option>
+                                <option value="bold" selected>粗体</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" style="font-size: 12px;">文字颜色</label>
+                            <input type="color" class="form-control form-control-color" id="textColorSelect" value="#000000">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" style="font-size: 12px;">对齐方式</label>
+                            <div class="btn-group btn-group-sm w-100">
+                                <button class="btn btn-outline-secondary" onclick="setTextAlign('left')" title="左对齐"><i class="bi bi-text-left"></i></button>
+                                <button class="btn btn-outline-secondary" onclick="setTextAlign('center')" title="居中"><i class="bi bi-text-center"></i></button>
+                                <button class="btn btn-outline-secondary" onclick="setTextAlign('right')" title="右对齐"><i class="bi bi-text-right"></i></button>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" style="font-size: 12px;">行高 (px)</label>
+                            <div class="input-group input-group-sm">
+                                <input type="number" class="form-control form-control-sm" id="rowHeightInput" min="20" max="200" step="5" value="30" placeholder="行高">
+                                <button class="btn btn-outline-primary btn-sm" onclick="applyRowHeight()" title="应用行高">应用</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 中间：模板画布 -->
+                    <div style="flex: 1; padding: 20px; background: #e9ecef; overflow: auto;">
+                        <div style="margin-bottom: 15px;">
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-success" onclick="previewLabel()"><i class="bi bi-eye"></i> 预览</button>
+                                <button class="btn btn-info" onclick="printLabels()"><i class="bi bi-printer"></i> 批量打印</button>
+                                <button class="btn btn-secondary" onclick="clearTemplate()"><i class="bi bi-trash3"></i> 清空</button>
+                            </div>
+                            <div class="btn-group btn-group-sm ms-2">
+                                <button class="btn btn-outline-primary" onclick="insertRow()" title="插入行"><i class="bi bi-file-plus"></i> 插入行</button>
+                                <button class="btn btn-outline-danger" onclick="deleteRow()" title="删除行"><i class="bi bi-file-minus"></i> 删除行</button>
+                                <button class="btn btn-outline-primary" onclick="insertCol()" title="插入列"><i class="bi bi-file-plus"></i> 插入列</button>
+                                <button class="btn btn-outline-danger" onclick="deleteCol()" title="删除列"><i class="bi bi-file-minus"></i> 删除列</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 标签尺寸选择 -->
+                        <div style="margin-bottom: 10px; background: white; padding: 10px; border-radius: 5px;">
+                            <label style="font-size: 12px; margin-right: 10px;">模板:</label>
+                            <select class="form-select form-select-sm" style="width: auto; display: inline-block;" id="templateSelect" onchange="switchTemplate()">
+                                <option value="">-- 选择模板 --</option>
+                            </select>
+                            <input type="text" class="form-control form-control-sm" style="width: 120px; display: inline-block; margin-left: 10px;" id="templateNameInput" placeholder="模板名称">
+                            <button class="btn btn-sm btn-primary" onclick="saveTemplate()"><i class="bi bi-save"></i> 保存</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteTemplate()"><i class="bi bi-trash"></i> 删除</button>
+                            <div style="margin-top: 8px;">
+                                <label style="font-size: 12px; margin-right: 10px;">标签尺寸:</label>
+                                <select class="form-select form-select-sm" style="width: auto; display: inline-block;" id="labelSizeSelect" onchange="changeLabelSize()">
+                                    <option value="small">小标签 (40x20mm)</option>
+                                    <option value="medium" selected>中标签 (60x40mm)</option>
+                                    <option value="large90">常用标签 (90x50mm)</option>
+                                    <option value="large">大标签 (100x50mm)</option>
+                                    <option value="custom">自定义</option>
+                                </select>
+                                <span id="customSize" style="display: none; margin-left: 10px;">
+                                    <input type="number" class="form-control form-control-sm" style="width: 60px; display: inline-block;" id="customWidth" value="60"> x
+                                    <input type="number" class="form-control form-control-sm" style="width: 60px; display: inline-block;" id="customHeight" value="40"> mm
+                                    <button class="btn btn-sm btn-primary" onclick="applyCustomSize()">应用</button>
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <!-- Excel风格表格画布 -->
+                        <div id="labelCanvas" style="background: white; border: 2px solid #dee2e6; position: relative; margin: 0 auto; display: table;">
+                            <table id="labelTable" style="width: 100%; border-collapse: collapse; table-layout: fixed;">
+                                <tr style="height: 30px; background: #f8f9fa;">
+                                    <td class="label-cell" style="border: 1px solid #dee2e6; width: 50%; min-height: 25px; padding: 2px 5px; cursor: move; position: relative;" data-row="0" data-col="0">
+                                        <span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;">[物料编码]</span>
+                                    </td>
+                                    <td class="label-cell" style="border: 1px solid #dee2e6; width: 50%; min-height: 25px; padding: 2px 5px; cursor: move; position: relative;" data-row="0" data-col="1">
+                                        <span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;">[物料名称]</span>
+                                    </td>
+                                </tr>
+                                <tr style="height: 30px; background: #f8f9fa;">
+                                    <td class="label-cell" style="border: 1px solid #dee2e6; width: 50%; min-height: 25px; padding: 2px 5px; cursor: move; position: relative;" data-row="1" data-col="0">
+                                        <span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;">[规格]</span>
+                                    </td>
+                                    <td class="label-cell" style="border: 1px solid #dee2e6; width: 50%; min-height: 25px; padding: 2px 5px; cursor: move; position: relative;" data-row="1" data-col="1">
+                                        <span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;">[单位]</span>
+                                    </td>
+                                </tr>
+                                <tr style="height: 40px; background: #f8f9fa;">
+                                    <td class="label-cell" style="border: 1px solid #dee2e6; width: 100%; min-height: 35px; padding: 2px 5px; cursor: move; position: relative;" data-row="2" data-col="0" colspan="2">
+                                        <span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;">[条码]</span>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                        
+                        <div style="margin-top: 10px; font-size: 12px; color: #666;">
+                            <i class="bi bi-info-circle"></i> 提示：拖拽字段到表格中，点击单元格可直接编辑，支持合并单元格
+                        </div>
+                    </div>
+                    
+                    <!-- 右侧：属性面板 -->
+                    <div style="width: 200px; background: #f8f9fa; border-left: 1px solid #dee2e6; padding: 15px; overflow-y: auto;">
+                        <h6 style="font-weight: bold; margin-bottom: 15px;"><i class="bi bi-sliders"></i> 当前选中</h6>
+                        <div id="cellProperties" style="display: none;">
+                            <div class="mb-2">
+                                <label class="form-label" style="font-size: 12px;">内容</label>
+                                <input type="text" class="form-control form-control-sm" id="cellText" placeholder="单元格内容">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" style="font-size: 12px;">字段绑定</label>
+                                <select class="form-select form-select-sm" id="cellField">
+                                    <option value="">-- 无 --</option>
+                                    <option value="code">物料编码</option>
+                                    <option value="name">物料名称</option>
+                                    <option value="spec">规格</option>
+                                    <option value="unit_name">单位</option>
+                                    <option value="category_name">分类</option>
+                                    <option value="stock">库存</option>
+                                    <option value="price">单价</option>
+                                    <option value="barcode">条码</option>
+                                    <option value="date">日期</option>
+                                    <option value="supplier_name">供应商</option>
+                                </select>
+                            </div>
+                            <!-- 条码宽高设置（选中条码字段时显示） -->
+                            <div id="barcodeSizeSettings" style="display: none;">
+                                <div class="mb-2">
+                                    <label class="form-label" style="font-size: 12px;">条码宽度(mm)</label>
+                                    <input type="number" class="form-control form-control-sm" id="barcodeWidth" value="50" min="10" max="100">
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label" style="font-size: 12px;">条码高度(mm)</label>
+                                    <input type="number" class="form-control form-control-sm" id="barcodeHeight" value="15" min="5" max="50">
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" style="font-size: 12px;">合并列数</label>
+                                <select class="form-select form-select-sm" id="cellColspan">
+                                    <option value="1">1列</option>
+                                    <option value="2">2列</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-sm btn-danger w-100 mb-2" onclick="deleteSelectedRow()"><i class="bi bi-trash"></i> 删除行</button>
+                        </div>
+                        <div id="noSelection" class="text-muted text-center" style="padding: 20px;">
+                            <i class="bi bi-mouse" style="font-size: 24px;"></i>
+                            <p style="font-size: 12px; margin-top: 10px;">点击单元格<br>编辑属性</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 预览打印弹窗 -->
+<div class="modal fade" id="previewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-eye"></i> 标签预览</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="previewContent" style="background: white; padding: 20px; border: 1px solid #ddd;">
+                    <!-- 预览内容动态生成 -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" onclick="doPrint()"><i class="bi bi-printer"></i> 打印</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 导入Excel弹窗 -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">导入物料</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="importMaterialForm" action="{{ url_for('import_material') }}" method="post" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        请上传 Excel 文件（.xlsx），表头需包含：物料编码、物料名称、规格、单位、分类、供应商、单价。请先下载模板参考格式。导入时按表头名称自动匹配列，列顺序不限。
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">选择文件 *</label>
+                        <input type="file" class="form-control" name="file" accept=".xlsx,.xls" required>
+                    </div>
+                    <div id="importResult" style="display:none;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary" id="importBtn">导入</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.field-item {
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    cursor: grab;
+    font-size: 13px;
+    transition: all 0.2s;
+}
+.field-item:hover {
+    background: #e7f1ff;
+    border-color: #0d6efd;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.field-item:active {
+    cursor: grabbing;
+}
+.label-cell {
+    transition: background 0.2s;
+}
+.label-cell:hover {
+    background: #e7f1ff !important;
+}
+.label-cell.selected {
+    outline: 2px solid #0d6efd;
+    background: #cfe2ff !important;
+}
+.drag-over {
+    background: #d4edda !important;
+    border-color: #28a745 !important;
+}
+.sortable-header {
+    user-select: none;
+    position: relative;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.sortable-header:hover {
+    background: #e9ecef;
+}
+.sortable-header:not([data-sort-active])::after {
+    content: '\21C5';
+    margin-left: 4px;
+    opacity: 0.3;
+    font-size: 0.8em;
+}
+.sortable-header:not([data-sort-active]):hover::after {
+    opacity: 0.7;
+}
+.quick-select {
+    position: relative;
+}
+.quick-select-input {
+    padding-right: 34px;
+}
+.quick-select-toggle {
+    position: absolute;
+    right: 1px;
+    top: 1px;
+    width: 32px;
+    height: calc(100% - 2px);
+    border: 0;
+    background: transparent;
+    color: #6c757d;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.quick-select-toggle:hover {
+    color: #4338ca;
+}
+.quick-select-menu {
+    display: none;
+    position: absolute;
+    z-index: 1080;
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
+    max-height: 220px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    box-shadow: 0 6px 18px rgba(0,0,0,.12);
+}
+.quick-select.open .quick-select-menu {
+    display: block;
+}
+.quick-select-item {
+    padding: 7px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 1px solid #f1f3f5;
+}
+.quick-select-item:last-child {
+    border-bottom: 0;
+}
+.quick-select-item:hover,
+.quick-select-item.active {
+    background: #eef2ff;
+    color: #3730a3;
+}
+.quick-select-item .quick-code {
+    color: #6c757d;
+    font-size: 12px;
+    margin-left: 6px;
+}
+.quick-select-empty {
+    padding: 8px 10px;
+    color: #999;
+    font-size: 13px;
+}
+.material-layout {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 14px;
+}
+.material-category-panel,
+.material-list-panel > .card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+}
+.material-category-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid #e5e7eb;
+    font-weight: 600;
+    color: #0f172a;
+}
+.material-category-tree {
+    padding: 10px;
+    max-height: calc(100vh - 310px);
+    overflow: auto;
+}
+.material-category-node {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 32px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    color: #0f172a;
+    text-decoration: none;
+    font-size: 13px;
+}
+.material-category-node:hover,
+.material-category-node.active {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+.material-category-code {
+    min-width: 44px;
+    color: #64748b;
+    font-family: Consolas, monospace;
+}
+.material-category-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+@media (max-width: 992px) {
+    .material-layout {
+        grid-template-columns: 1fr;
+    }
+    .material-category-tree {
+        max-height: 260px;
+    }
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const quickSelectData = {
+    category: [
+        {% for cat in categories %}
+        {id: {{ cat.id|tojson }}, name: {{ cat.name|tojson }}, code: {{ (cat.code or '')|tojson }} }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ],
+    unit: [
+        {% for unit in units %}
+        {id: {{ unit.id|tojson }}, name: {{ unit.name|tojson }}, code: {{ (unit.code or '')|tojson }} }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ],
+    supplier: [
+        {% for sup in suppliers %}
+        {id: {{ sup.id|tojson }}, name: {{ sup.name|tojson }}, code: {{ (sup.code or '')|tojson }} }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ]
+};
+
+const quickSelectTypeByHiddenId = {
+    add_category_id: 'category',
+    edit_category_id: 'category',
+    add_unit_id: 'unit',
+    edit_unit_id: 'unit',
+    add_supplier_id: 'supplier',
+    edit_supplier_id: 'supplier'
+};
+
+const quickSelectApiByType = {
+    category: '/api/categories',
+    unit: '/api/units',
+    supplier: '/api/suppliers'
+};
+
+function normalizeQuickText(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function quickSelectLabel(item) {
+    return item ? (item.name || item.code || '') : '';
+}
+
+function findQuickSelectItem(type, value) {
+    const normalized = normalizeQuickText(value);
+    if (!normalized) return null;
+    return (quickSelectData[type] || []).find(function(item) {
+        return normalizeQuickText(item.name) === normalized ||
+               normalizeQuickText(item.code) === normalized ||
+               String(item.id) === String(value);
+    }) || null;
+}
+
+function filterQuickSelectItems(type, keyword) {
+    const normalized = normalizeQuickText(keyword);
+    const items = quickSelectData[type] || [];
+    if (!normalized) return items.slice(0, 80);
+    return items.filter(function(item) {
+        return normalizeQuickText(item.name).includes(normalized) ||
+               normalizeQuickText(item.code).includes(normalized);
+    }).slice(0, 80);
+}
+
+function setQuickSelectValue(hiddenId, id) {
+    const hidden = document.getElementById(hiddenId);
+    const type = quickSelectTypeByHiddenId[hiddenId];
+    if (!hidden || !type) return;
+    const input = document.getElementById(hiddenId.replace('_id', '_input'));
+    const item = id ? (quickSelectData[type] || []).find(function(row) { return String(row.id) === String(id); }) : null;
+    hidden.value = item ? item.id : '';
+    if (input) input.value = item ? quickSelectLabel(item) : '';
+}
+
+function closeQuickSelects(exceptRoot) {
+    document.querySelectorAll('.quick-select.open').forEach(function(root) {
+        if (root !== exceptRoot) root.classList.remove('open');
+    });
+}
+
+function renderQuickSelectMenu(root, showAll) {
+    const hidden = document.getElementById(root.dataset.hiddenId);
+    const input = root.querySelector('.quick-select-input');
+    const menu = root.querySelector('.quick-select-menu');
+    const type = quickSelectTypeByHiddenId[root.dataset.hiddenId];
+    if (!hidden || !input || !menu || !type) return;
+    const matches = filterQuickSelectItems(type, showAll ? '' : input.value);
+    if (!matches.length) {
+        menu.innerHTML = '<div class="quick-select-empty">没有匹配项</div>';
+    } else {
+        menu.innerHTML = matches.map(function(item) {
+            const active = String(item.id) === String(hidden.value) ? ' active' : '';
+            const code = item.code ? '<span class="quick-code">' + escapeHtml(item.code) + '</span>' : '';
+            return '<div class="quick-select-item' + active + '" data-id="' + item.id + '">' + escapeHtml(item.name) + code + '</div>';
+        }).join('');
+    }
+    closeQuickSelects(root);
+    root.classList.add('open');
+}
+
+function commitQuickSelectInput(root) {
+    const hidden = document.getElementById(root.dataset.hiddenId);
+    const input = root.querySelector('.quick-select-input');
+    const type = quickSelectTypeByHiddenId[root.dataset.hiddenId];
+    if (!hidden || !input || !type) return;
+    const value = input.value.trim();
+    if (!value) {
+        hidden.value = '';
+        return;
+    }
+    const item = findQuickSelectItem(type, value) || filterQuickSelectItems(type, value)[0] || null;
+    if (item) {
+        hidden.value = item.id;
+        input.value = quickSelectLabel(item);
+    } else {
+        hidden.value = '';
+    }
+}
+
+function commitQuickSelects(form) {
+    if (!form) return;
+    form.querySelectorAll('.quick-select').forEach(function(root) {
+        commitQuickSelectInput(root);
+        root.classList.remove('open');
+    });
+}
+
+function escapeHtml(value) {
+    return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function initQuickSelects() {
+    document.querySelectorAll('.quick-select').forEach(function(root) {
+        if (root.dataset.ready === '1') return;
+        root.dataset.ready = '1';
+        const hidden = document.getElementById(root.dataset.hiddenId);
+        const input = root.querySelector('.quick-select-input');
+        const toggle = root.querySelector('.quick-select-toggle');
+        const menu = root.querySelector('.quick-select-menu');
+        if (!hidden || !input || !toggle || !menu) return;
+
+        input.addEventListener('focus', function() { renderQuickSelectMenu(root, false); });
+        input.addEventListener('input', function() {
+            hidden.value = '';
+            renderQuickSelectMenu(root, false);
+        });
+        input.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                root.classList.remove('open');
+                return;
+            }
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const active = menu.querySelector('.quick-select-item.active') || menu.querySelector('.quick-select-item');
+                if (active) setQuickSelectValue(root.dataset.hiddenId, active.dataset.id);
+                else commitQuickSelectInput(root);
+                root.classList.remove('open');
+            }
+        });
+        input.addEventListener('blur', function() {
+            setTimeout(function() {
+                if (!root.contains(document.activeElement)) {
+                    commitQuickSelectInput(root);
+                    root.classList.remove('open');
+                }
+            }, 160);
+        });
+        toggle.addEventListener('click', function() {
+            renderQuickSelectMenu(root, true);
+            input.focus();
+        });
+        menu.addEventListener('mousedown', function(event) {
+            const item = event.target.closest('.quick-select-item');
+            if (!item) return;
+            event.preventDefault();
+            setQuickSelectValue(root.dataset.hiddenId, item.dataset.id);
+            root.classList.remove('open');
+        });
+    });
+}
+
+function refreshQuickSelectData(types) {
+    (types || Object.keys(quickSelectApiByType)).forEach(function(type) {
+        fetch(quickSelectApiByType[type])
+            .then(function(r) { return r.json(); })
+            .then(function(list) {
+                if (Array.isArray(list)) {
+                    quickSelectData[type].length = 0;
+                    list.forEach(function(item) { quickSelectData[type].push(item); });
+                }
+            })
+            .catch(function() {});
+    });
+}
+
+window.WmsRefreshDropdowns = function() {
+    refreshQuickSelectData();
+};
+
+function getCsrfToken() {
+    var tokenNode = document.querySelector('meta[name="csrf-token"]');
+    if (tokenNode && tokenNode.content) return tokenNode.content;
+    try {
+        tokenNode = window.parent && window.parent.document
+            ? window.parent.document.querySelector('meta[name="csrf-token"]')
+            : null;
+        return tokenNode && tokenNode.content ? tokenNode.content : '';
+    } catch (e) {
+        return '';
+    }
+}
+
+function csrfFetch(url, options) {
+    options = options || {};
+    var headers = new Headers(options.headers || {});
+    var method = (options.method || 'GET').toUpperCase();
+    var token = getCsrfToken();
+    if (token && !/^(GET|HEAD|OPTIONS|TRACE)$/.test(method) && !headers.has('X-CSRFToken')) {
+        headers.set('X-CSRFToken', token);
+    }
+    options.headers = headers;
+    options.credentials = options.credentials || 'same-origin';
+    return fetch(url, options);
+}
+
+function setInputValueIfExists(id, value) {
+    var node = document.getElementById(id);
+    if (node) node.value = value;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    initCheckAll('materialTable');
+    if (typeof setupDynamicDetailColumnControls === 'function') {
+        window.materialColumnController = setupDynamicDetailColumnControls({
+            tableSelector: '#materialTable',
+            orderKey: 'material_col_order_v1',
+            widthKey: 'material_col_widths_v1',
+            lockedColumns: ['select', 'actions'],
+            minWidths: {
+                select: 50,
+                code: 120,
+                name: 140,
+                spec: 100,
+                unit: 70,
+                category: 90,
+                supplier: 110,
+                purpose: 110,
+                stock: 80,
+                min_stock: 90,
+                price: 80,
+                remark: 160,
+                image: 70,
+                actions: 150
+            }
+        });
+    }
+    initQuickSelects();
+    try {
+        if (typeof BroadcastChannel !== 'undefined') {
+            var masterBc = new BroadcastChannel('wms_master_data_update');
+            masterBc.onmessage = function(event) {
+                var type = event.data && event.data.type;
+                if (type === 'unit_updated') refreshQuickSelectData(['unit']);
+                if (type === 'supplier_updated') refreshQuickSelectData(['supplier']);
+                if (type === 'category_updated') refreshQuickSelectData(['category']);
+            };
+        }
+    } catch(e) {}
+
+    var importForm = document.getElementById('importMaterialForm');
+    if (importForm) {
+        importForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            var btn = document.getElementById('importBtn');
+            var resultDiv = document.getElementById('importResult');
+            btn.disabled = true;
+            btn.textContent = '导入中...';
+            resultDiv.style.display = 'none';
+            resultDiv.innerHTML = '';
+            var formData = new FormData(this);
+            csrfFetch(this.action, {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                btn.disabled = false;
+                btn.textContent = '导入';
+                resultDiv.style.display = 'block';
+                if (res.status === 'success') {
+                    var html = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + res.msg + '</div>';
+                    if (res.warnings) {
+                        html += '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> ' + res.warnings + '</div>';
+                    }
+                    resultDiv.innerHTML = html;
+                    setTimeout(function() { location.reload(); }, 2000);
+                } else {
+                    resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + res.msg + '</div>';
+                }
+            })
+            .catch(function(err) {
+                btn.disabled = false;
+                btn.textContent = '导入';
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 请求失败：' + err.message + '</div>';
+            });
+        });
+    }
+
+    // 每页显示条数切换
+    var perPageSelect = document.getElementById('perPageSelect');
+    if (perPageSelect) {
+        perPageSelect.addEventListener('change', function() {
+            var perPage = this.value;
+            var currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set('per_page', perPage);
+            currentUrl.searchParams.set('page', '1');
+            window.location.href = currentUrl.toString();
+        });
+    }
+
+    // 表头排序点击处理
+    var sortableHeaders = document.querySelectorAll('.sortable-header');
+    sortableHeaders.forEach(function(th) {
+        th.addEventListener('click', function(e) {
+            if (e.target.closest('.col-resize')) return;
+            // 如果正在拖拽，不触发排序
+            if (this.dataset.dragging === 'true') return;
+            var sortField = this.dataset.sortable;
+            if (!sortField) return;
+            var currentSort = '{{ sort_by }}';
+            var currentOrder = '{{ sort_order }}';
+            var newOrder = (currentSort === sortField && currentOrder === 'asc') ? 'desc' : 'asc';
+            var url = new URL(window.location.href);
+            url.searchParams.set('sort', sortField);
+            url.searchParams.set('order', newOrder);
+            url.searchParams.set('page', '1');
+            window.location.href = url.toString();
+        });
+    });
+
+    document.getElementById('addModal').addEventListener('show.bs.modal', function() {
+        window.WmsRefreshDropdowns && window.WmsRefreshDropdowns();
+    });
+    document.getElementById('editModal').addEventListener('show.bs.modal', function() {
+        window.WmsRefreshDropdowns && window.WmsRefreshDropdowns();
+    });
+
+    // 新增物料
+    var addForm = document.getElementById('addForm');
+    if (addForm) {
+        document.getElementById('addModal').addEventListener('hidden.bs.modal', function() {
+            addForm.reset();
+            ['add_category_id', 'add_unit_id', 'add_supplier_id'].forEach(function(id) { setQuickSelectValue(id, ''); });
+            document.getElementById('addModalTitle').textContent = '新增物料';
+            document.getElementById('copyHint').classList.add('d-none');
+        });
+
+        addForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            commitQuickSelects(this);
+            var formData = new FormData(this);
+            csrfFetch('{{ url_for("add_material") }}', {
+                method: 'POST',
+                body: formData
+            })
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                if (res.status === 'success') {
+                    // 广播通知其他页面刷新物料列表
+                    try {
+                        if (typeof BroadcastChannel !== 'undefined') {
+                            var bc = new BroadcastChannel('wms_material_update');
+                            bc.postMessage({type: 'material_updated', timestamp: Date.now()});
+                            bc.close();
+                        }
+                    } catch(e) {}
+                    showToast(res.msg || '物料保存成功，正在刷新列表…', 'success', 1800);
+                    setTimeout(function(){ location.reload(); }, 500);
+                }
+                else showToast(res.msg || '保存失败', 'danger', 3600);
+            })
+            .catch(function(err){ showToast('保存失败：' + err.message, 'danger', 3600); });
+        });
+    }
+
+    // 编辑物料 - 打开编辑弹窗
+    window.editMaterial = function(id) {
+        fetch('/material/' + id)
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                if (res.status === 'success') {
+                    var mat = res.material;
+                    document.getElementById('edit_id').value = mat.id;
+                    document.getElementById('edit_code').value = mat.code;
+                    document.getElementById('edit_code').setAttribute('data-original', mat.code);
+                    document.getElementById('edit_name').value = mat.name;
+                    document.getElementById('edit_name').setAttribute('data-original', mat.name);
+                    setQuickSelectValue('edit_category_id', mat.category_id || '');
+                    setQuickSelectValue('edit_unit_id', mat.unit_id || '');
+                    setQuickSelectValue('edit_supplier_id', mat.supplier_id || '');
+                    document.getElementById('edit_spec').value = mat.spec || '';
+                    document.getElementById('edit_purpose').value = mat.purpose || '';
+                    document.getElementById('edit_price').value = mat.price || 0;
+                    setInputValueIfExists('edit_min_stock', mat.min_stock || 0);
+                    setInputValueIfExists('edit_max_stock', mat.max_stock || 0);
+                    setInputValueIfExists('edit_reorder_point', mat.reorder_point || 0);
+                    document.getElementById('edit_expiry_date').value = mat.expiry_date || '';
+                    setInputValueIfExists('edit_alert_days', mat.alert_days || 30);
+                    setInputValueIfExists('edit_remark', mat.remark || '');
+                    
+                    // 显示编辑弹窗
+                    var editModal = new bootstrap.Modal(document.getElementById('editModal'));
+                    editModal.show();
+                } else {
+                    showToast(res.msg || '获取数据失败', 'danger', 3600);
+                }
+            })
+            .catch(function(err){ showToast('获取数据失败：' + err.message, 'danger', 3600); });
+    };
+
+    window.copyMaterial = function(id) {
+        csrfFetch('/material/' + id + '/copy', { method: 'POST' })
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                if (res.status === 'success') {
+                    var mat = res.material;
+                    var modalEl = document.getElementById('addModal');
+                    var modal = bootstrap.Modal.getInstance(modalEl);
+                    if (!modal) {
+                        modal = new bootstrap.Modal(modalEl);
+                    }
+                    modal.hide();
+                    setTimeout(function() {
+                        addForm.reset();
+                        document.getElementById('addModalTitle').textContent = '复制物料（编辑状态）';
+                        document.getElementById('copyHint').classList.remove('d-none');
+                        document.getElementById('add_code').value = mat.suggested_code || '';
+                        document.getElementById('add_code').placeholder = '系统已自动生成编号';
+                        document.getElementById('add_name').value = mat.name || '';
+                        setQuickSelectValue('add_category_id', mat.category_id || '');
+                        setQuickSelectValue('add_unit_id', mat.unit_id || '');
+                        setQuickSelectValue('add_supplier_id', mat.supplier_id || '');
+                        document.getElementById('add_spec').value = mat.spec || '';
+                        document.getElementById('add_purpose').value = mat.purpose || '';
+                        document.getElementById('add_price').value = mat.price || 0;
+                        setInputValueIfExists('add_min_stock', mat.min_stock || 0);
+                        setInputValueIfExists('add_max_stock', mat.max_stock || 0);
+                        setInputValueIfExists('add_reorder_point', mat.reorder_point || 0);
+                        setInputValueIfExists('add_alert_days', mat.alert_days || 30);
+                        document.getElementById('add_expiry_date').value = mat.expiry_date || '';
+                        setInputValueIfExists('add_remark', mat.remark || '');
+                        modal.show();
+                    }, 150);
+                } else {
+                    showToast(res.msg || '复制失败', 'danger', 3600);
+                }
+            })
+            .catch(function(err){ showToast('复制失败：' + err.message, 'danger', 3600); });
+    };
+
+    // 修复空分类/单位
+    window.fixEmptyFields = function() {
+        if (!confirm('将把所有空分类设为"默认分类"，空单位设为"个"，确定修复吗？')) return;
+        csrfFetch('{{ url_for("fix_empty_fields") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(res) {
+            alert(res.msg);
+            location.reload();
+        })
+        .catch(function(err){ alert('修复失败: ' + err.message); });
+    };
+
+    // 删除全部物料入口已禁用，后端也会拒绝请求。
+    window.deleteAllMaterials = function() {
+        alert('线上系统已禁用删除全部物料，请走停机维护流程');
+    };
+
+    // 编辑物料 - 提交表单
+    var editForm = document.getElementById('editForm');
+    if (editForm) {
+        editForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            commitQuickSelects(this);
+            var formData = new FormData(this);
+            var id = document.getElementById('edit_id').value;
+            var originalCode = document.getElementById('edit_code').getAttribute('data-original');
+            var currentCode = document.getElementById('edit_code').value.trim();
+            var originalName = document.getElementById('edit_name').getAttribute('data-original');
+            var currentName = document.getElementById('edit_name').value.trim();
+
+            function doSubmit() {
+                // 立即关闭确认对话框的 overlay
+                var confirmOverlay = document.getElementById('cbConfirmOverlay');
+                if (confirmOverlay) {
+                    confirmOverlay.classList.remove('show');
+                }
+
+                csrfFetch('/material/edit/' + id, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(r){ return r.json(); })
+                .then(function(res) {
+                    if (res.status === 'success') {
+                        // 先关闭编辑弹窗
+                        var editModalEl = document.getElementById('editModal');
+                        var editModalInstance = bootstrap.Modal.getInstance(editModalEl);
+                        if (editModalInstance) {
+                            editModalInstance.hide();
+                        }
+
+                        // 广播通知其他页面刷新物料列表
+                        try {
+                            if (typeof BroadcastChannel !== 'undefined') {
+                                var bc = new BroadcastChannel('wms_material_update');
+                                bc.postMessage({type: 'material_updated', timestamp: Date.now()});
+                                bc.close();
+                            }
+                        } catch(e) {}
+
+                        // 等待模态框完全关闭后再重新加载页面
+                        setTimeout(function() {
+                            if (res.msg && res.msg !== '物料更新成功') {
+                                showToast(res.msg, 'success', 4000);
+                                setTimeout(function(){ location.reload(); }, 1200);
+                            } else {
+                                location.reload();
+                            }
+                        }, 300);
+                    } else {
+                        showToast(res.msg || '保存失败', 'danger', 3600);
+                    }
+                })
+                .catch(function(err){ showToast('保存失败：' + err.message, 'danger', 3600); });
+            }
+
+            // 直接提交，不再弹出确认对话框
+            doSubmit();
+        });
+    }
+});
+
+// 标签打印模板相关函数
+var labelTemplateModal;
+var selectedCell = null;
+var currentTemplate = {
+    rows: 3,
+    cols: 2,
+    cells: [],
+    labelWidth: 60,
+    labelHeight: 40
+};
+
+function openLabelTemplate() {
+    labelTemplateModal = new bootstrap.Modal(document.getElementById('labelTemplateModal'));
+    labelTemplateModal.show();
+    
+    // 重置选中状态
+    selectedCell = null;
+    document.getElementById('cellProperties').style.display = 'none';
+    document.getElementById('noSelection').style.display = 'block';
+    document.querySelectorAll('.label-cell').forEach(c => c.classList.remove('selected'));
+    
+    // 重置委托标志，确保每次打开都能正确绑定事件
+    var table = document.getElementById('labelTable');
+    if (table) table._dragDelegated = false;
+    
+    // 加载模板列表
+    loadTemplateList();
+    
+    initTemplateDragDrop();
+}
+
+function initTemplateDragDrop() {
+    var table = document.getElementById('labelTable');
+    if (!table) return;
+    
+    // 字段拖拽源：使用事件委托绑定到父容器，避免重复绑定
+    var fieldPanel = table.closest('.modal-body');
+    if (fieldPanel && !fieldPanel._fieldDragBound) {
+        fieldPanel._fieldDragBound = true;
+        fieldPanel.addEventListener('dragstart', function(e) {
+            var item = e.target.closest('.field-item');
+            if (!item) return;
+            e.dataTransfer.effectAllowed = 'copy';
+            e.dataTransfer.setData('text/plain', JSON.stringify({
+                field: item.dataset.field,
+                label: item.dataset.label
+            }));
+        });
+    }
+    
+    // 表格拖拽事件：先移除旧监听器再添加，确保不重复
+    if (table._dragHandlers) {
+        table.removeEventListener('dragover', table._dragHandlers.dragover);
+        table.removeEventListener('dragleave', table._dragHandlers.dragleave);
+        table.removeEventListener('drop', table._dragHandlers.drop);
+        table.removeEventListener('click', table._dragHandlers.click);
+    }
+    
+    table._dragHandlers = {
+        dragover: function(e) {
+            var cell = e.target.closest('.label-cell');
+            if (!cell) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            document.querySelectorAll('.label-cell.drag-over').forEach(function(c) { c.classList.remove('drag-over'); });
+            cell.classList.add('drag-over');
+        },
+        dragleave: function(e) {
+            var cell = e.target.closest('.label-cell');
+            if (cell && !cell.contains(e.relatedTarget)) {
+                cell.classList.remove('drag-over');
+            }
+        },
+        drop: function(e) {
+            var cell = e.target.closest('.label-cell');
+            if (!cell) return;
+            e.preventDefault();
+            cell.classList.remove('drag-over');
+            try {
+                var raw = e.dataTransfer.getData('text/plain');
+                if (!raw) return;
+                var data = JSON.parse(raw);
+                var content = cell.querySelector('.cell-content');
+                if (!content) {
+                    cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
+                    content = cell.querySelector('.cell-content');
+                }
+                content.textContent = '[' + data.label + ']';
+                content.dataset.field = data.field;
+                saveTemplateToStorage();
+            } catch(err) { console.error('drop error', err); }
+        },
+        click: function(e) {
+            var cell = e.target.closest('.label-cell');
+            if (!cell) return;
+            document.querySelectorAll('.label-cell').forEach(function(c) { c.classList.remove('selected'); });
+            cell.classList.add('selected');
+            selectedCell = cell;
+            updateCellProperties();
+        }
+    };
+    
+    table.addEventListener('dragover', table._dragHandlers.dragover);
+    table.addEventListener('dragleave', table._dragHandlers.dragleave);
+    table.addEventListener('drop', table._dragHandlers.drop);
+    table.addEventListener('click', table._dragHandlers.click);
+}
+
+function updateCellProperties() {
+    if (!selectedCell) return;
+    var content = selectedCell.querySelector('.cell-content');
+    if (!content) return;
+    document.getElementById('cellProperties').style.display = 'block';
+    document.getElementById('noSelection').style.display = 'none';
+    document.getElementById('cellText').value = content.textContent;
+    document.getElementById('cellField').value = content.dataset.field || '';
+    document.getElementById('cellColspan').value = selectedCell.colSpan || 1;
+    
+    // 条码宽高设置显示/隐藏
+    var barcodeSettings = document.getElementById('barcodeSizeSettings');
+    var field = content.dataset.field || '';
+    if (field === 'barcode') {
+        barcodeSettings.style.display = 'block';
+        document.getElementById('barcodeWidth').value = content.dataset.barcodeWidth || '50';
+        document.getElementById('barcodeHeight').value = content.dataset.barcodeHeight || '15';
+    } else {
+        barcodeSettings.style.display = 'none';
+    }
+    
+    // 同步左侧样式工具的值到当前单元格的实际样式
+    var curFontSize = content.style.fontSize ? parseInt(content.style.fontSize) : 12;
+    var fontSizeSelect = document.getElementById('fontSizeSelect');
+    if (fontSizeSelect) fontSizeSelect.value = curFontSize;
+    
+    var curFontWeight = content.style.fontWeight || 'normal';
+    var fontWeightSelect = document.getElementById('fontWeightSelect');
+    if (fontWeightSelect) fontWeightSelect.value = curFontWeight;
+    
+    var curColor = content.style.color || '#000000';
+    var textColorSelect = document.getElementById('textColorSelect');
+    if (textColorSelect) {
+        // 将 rgb() 颜色转为 hex
+        if (curColor.startsWith('rgb')) {
+            var rgb = curColor.match(/\d+/g);
+            if (rgb) {
+                curColor = '#' + rgb.map(function(x){ return ('0'+parseInt(x).toString(16)).slice(-2); }).join('');
+            }
+        }
+        textColorSelect.value = curColor;
+    }
+    
+    // 同步行高
+    var row = selectedCell.parentElement;
+    if (row && row.tagName === 'TR') {
+        var curHeight = parseInt(row.style.height) || 30;
+        var rowHeightInput = document.getElementById('rowHeightInput');
+        if (rowHeightInput) rowHeightInput.value = curHeight;
+    }
+}
+
+var cellTextInput = document.getElementById('cellText');
+if (cellTextInput) {
+    cellTextInput.addEventListener('input', function() {
+        if (selectedCell) {
+            selectedCell.querySelector('.cell-content').textContent = this.value;
+            saveTemplateToStorage();
+        }
+    });
+}
+
+var cellFieldSelect = document.getElementById('cellField');
+if (cellFieldSelect) {
+    cellFieldSelect.addEventListener('change', function() {
+        if (selectedCell && this.value) {
+            var labels = {
+                code: '物料编码', name: '物料名称', spec: '规格', unit_name: '单位',
+                category_name: '分类', stock: '库存', price: '单价', barcode: '条码',
+                date: '日期', supplier_name: '供应商'
+            };
+            selectedCell.querySelector('.cell-content').textContent = '[' + (labels[this.value] || this.value) + ']';
+            selectedCell.querySelector('.cell-content').dataset.field = this.value;
+            
+            // 显示/隐藏条码宽高设置
+            var barcodeSettings = document.getElementById('barcodeSizeSettings');
+            if (this.value === 'barcode') {
+                barcodeSettings.style.display = 'block';
+            } else {
+                barcodeSettings.style.display = 'none';
+            }
+            
+            saveTemplateToStorage();
+        }
+    });
+}
+
+// 条码宽度变化
+var barcodeWidthInput = document.getElementById('barcodeWidth');
+if (barcodeWidthInput) {
+    barcodeWidthInput.addEventListener('input', function() {
+        if (selectedCell) {
+            var content = selectedCell.querySelector('.cell-content');
+            if (content.dataset.field === 'barcode') {
+                content.dataset.barcodeWidth = this.value;
+                saveTemplateToStorage();
+            }
+        }
+    });
+}
+
+// 条码高度变化
+var barcodeHeightInput = document.getElementById('barcodeHeight');
+if (barcodeHeightInput) {
+    barcodeHeightInput.addEventListener('input', function() {
+        if (selectedCell) {
+            var content = selectedCell.querySelector('.cell-content');
+            if (content.dataset.field === 'barcode') {
+                content.dataset.barcodeHeight = this.value;
+                saveTemplateToStorage();
+            }
+        }
+    });
+}
+
+var cellColspanSelect = document.getElementById('cellColspan');
+if (cellColspanSelect) {
+    cellColspanSelect.addEventListener('change', function() {
+        if (selectedCell) {
+            selectedCell.colSpan = parseInt(this.value);
+            saveTemplateToStorage();
+        }
+    });
+}
+
+function insertRow() {
+    var table = document.getElementById('labelTable');
+    var newRowIndex = table.rows.length; // 新行索引
+    var row = table.insertRow(-1);
+    row.style.height = '30px';
+    
+    // 计算实际列数
+    var actualCols = 0;
+    for (var i = 0; i < table.rows[0].cells.length; i++) {
+        actualCols += table.rows[0].cells[i].colSpan || 1;
+    }
+    
+    for (var i = 0; i < actualCols; i++) {
+        var cell = row.insertCell(-1);
+        cell.className = 'label-cell';
+        cell.style.cssText = 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;';
+        cell.dataset.row = newRowIndex;
+        cell.dataset.col = i;
+        cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
+    }
+    currentTemplate.rows++;
+    currentTemplate.cols = actualCols;
+    initTemplateDragDrop();
+    saveTemplateToStorage();
+}
+
+function insertCol() {
+    var table = document.getElementById('labelTable');
+    var newColIndex = 0;
+    
+    // 计算实际列数
+    for (var i = 0; i < table.rows[0].cells.length; i++) {
+        newColIndex += table.rows[0].cells[i].colSpan || 1;
+    }
+    
+    for (var i = 0; i < table.rows.length; i++) {
+        var row = table.rows[i];
+        var cell = row.insertCell(-1);
+        cell.className = 'label-cell';
+        cell.style.cssText = 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;';
+        cell.dataset.row = i;
+        cell.dataset.col = newColIndex;
+        cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
+    }
+    currentTemplate.cols++;
+    initTemplateDragDrop();
+    saveTemplateToStorage();
+}
+
+function deleteSelectedRow() {
+    if (selectedCell) {
+        var row = selectedCell.parentElement;
+        var table = document.getElementById('labelTable');
+        if (row && row.tagName === 'TR' && table.rows.length > 1) {
+            row.parentElement.removeChild(row);
+            currentTemplate.rows--;
+            selectedCell = null;
+            document.getElementById('cellProperties').style.display = 'none';
+            document.getElementById('noSelection').style.display = 'block';
+            saveTemplateToStorage();
+        } else if (table.rows.length <= 1) {
+            alert('至少需要保留一行！');
+        }
+    }
+}
+
+function deleteRow() {
+    var table = document.getElementById('labelTable');
+    if (table.rows.length <= 1) {
+        alert('至少需要保留一行！');
+        return;
+    }
+    
+    var rowIndex = table.rows.length - 1; // 默认删除最后一行
+    if (selectedCell) {
+        var row = selectedCell.parentElement;
+        if (row && row.tagName === 'TR') {
+            rowIndex = row.rowIndex;
+        }
+    }
+    
+    table.deleteRow(rowIndex);
+    currentTemplate.rows--;
+    selectedCell = null;
+    document.getElementById('cellProperties').style.display = 'none';
+    document.getElementById('noSelection').style.display = 'block';
+    saveTemplateToStorage();
+}
+
+function deleteCol() {
+    var table = document.getElementById('labelTable');
+    
+    // 计算实际列数（考虑跨列）
+    var actualCols = 0;
+    for (var i = 0; i < table.rows[0].cells.length; i++) {
+        actualCols += table.rows[0].cells[i].colSpan || 1;
+    }
+    
+    if (actualCols <= 1) {
+        alert('至少需要保留一列！');
+        return;
+    }
+    
+    var colIndex = actualCols - 1; // 默认删除最后一列
+    if (selectedCell) {
+        // 计算选中单元格的实际列索引
+        var tempIndex = 0;
+        for (var i = 0; i < selectedCell.cellIndex; i++) {
+            tempIndex += table.rows[0].cells[i].colSpan || 1;
+        }
+        colIndex = tempIndex + (selectedCell.colSpan || 1) - 1;
+    }
+    
+    // 从后往前遍历每行，删除指定列
+    for (var i = 0; i < table.rows.length; i++) {
+        var row = table.rows[i];
+        
+        // 计算该行的实际列索引
+        var currentColIndex = 0;
+        var targetCellIndex = -1;
+        for (var j = 0; j < row.cells.length; j++) {
+            var span = row.cells[j].colSpan || 1;
+            if (currentColIndex + span > colIndex) {
+                targetCellIndex = j;
+                break;
+            }
+            currentColIndex += span;
+        }
+        
+        if (targetCellIndex >= 0 && row.cells[targetCellIndex]) {
+            var cell = row.cells[targetCellIndex];
+            if (cell.colSpan > 1) {
+                // 合并单元格：减少跨度，如果只剩1则删除
+                cell.colSpan--;
+                if (cell.colSpan === 1) {
+                    row.deleteCell(targetCellIndex);
+                }
+            } else {
+                row.deleteCell(targetCellIndex);
+            }
+        }
+    }
+    
+    currentTemplate.cols--;
+    selectedCell = null;
+    document.getElementById('cellProperties').style.display = 'none';
+    document.getElementById('noSelection').style.display = 'block';
+    saveTemplateToStorage();
+}
+
+function setTextAlign(align) {
+    if (selectedCell) {
+        selectedCell.querySelector('.cell-content').style.textAlign = align;
+        saveTemplateToStorage();
+    }
+}
+
+function applyFontSizeToCell(cell, sizeVal) {
+    var content = cell.querySelector('.cell-content');
+    if (!content) return;
+    var px = parseInt(sizeVal);
+    content.style.fontSize = px + 'px';
+    // 自动撑高行，避免大字体被截断
+    var row = cell.parentElement;
+    if (row && row.tagName === 'TR') {
+        var minH = Math.max(px + 10, 30);
+        row.style.height = minH + 'px';
+        // 同步行高输入框
+        var rowHeightInput = document.getElementById('rowHeightInput');
+        if (rowHeightInput) rowHeightInput.value = minH;
+    }
+}
+
+function applyRowHeight() {
+    if (!selectedCell) {
+        alert('请先点击选中一个单元格');
+        return;
+    }
+    var input = document.getElementById('rowHeightInput');
+    var h = parseInt(input.value);
+    if (!h || h < 20) { h = 20; input.value = 20; }
+    if (h > 200) { h = 200; input.value = 200; }
+    var row = selectedCell.parentElement;
+    if (row && row.tagName === 'TR') {
+        row.style.height = h + 'px';
+        // 同步保存
+        saveTemplateToStorage();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var fontSizeSelect = document.getElementById('fontSizeSelect');
+    if (fontSizeSelect) {
+        fontSizeSelect.addEventListener('change', function() {
+            if (selectedCell) {
+                applyFontSizeToCell(selectedCell, this.value);
+                saveTemplateToStorage();
+            }
+        });
+    }
+
+    var fontWeightSelect = document.getElementById('fontWeightSelect');
+    if (fontWeightSelect) {
+        fontWeightSelect.addEventListener('change', function() {
+            if (selectedCell) {
+                var content = selectedCell.querySelector('.cell-content');
+                if (content) {
+                    content.style.fontWeight = this.value;
+                    saveTemplateToStorage();
+                }
+            }
+        });
+    }
+
+    var textColorSelect = document.getElementById('textColorSelect');
+    if (textColorSelect) {
+        textColorSelect.addEventListener('input', function() {
+            if (selectedCell) {
+                var content = selectedCell.querySelector('.cell-content');
+                if (content) {
+                    content.style.color = this.value;
+                    saveTemplateToStorage();
+                }
+            }
+        });
+    }
+});
+
+function changeLabelSize() {
+    var size = document.getElementById('labelSizeSelect').value;
+    var customSizeDiv = document.getElementById('customSize');
+    var canvas = document.getElementById('labelCanvas');
+    
+    if (size === 'custom') {
+        customSizeDiv.style.display = 'inline';
+    } else {
+        customSizeDiv.style.display = 'none';
+        var sizes = { small: { w: 40, h: 20 }, medium: { w: 60, h: 40 }, large90: { w: 90, h: 50 }, large: { w: 100, h: 50 } };
+        currentTemplate.labelWidth = sizes[size].w;
+        currentTemplate.labelHeight = sizes[size].h;
+        updateCanvasSize();
+    }
+}
+
+function applyCustomSize() {
+    currentTemplate.labelWidth = parseInt(document.getElementById('customWidth').value) || 60;
+    currentTemplate.labelHeight = parseInt(document.getElementById('customHeight').value) || 40;
+    updateCanvasSize();
+}
+
+function updateCanvasSize() {
+    var canvas = document.getElementById('labelCanvas');
+    var scale = 4;
+    canvas.style.width = (currentTemplate.labelWidth * scale) + 'px';
+    canvas.style.height = (currentTemplate.labelHeight * scale) + 'px';
+}
+
+function saveTemplate() {
+    var nameInput = document.getElementById('templateNameInput');
+    var templateName = nameInput.value.trim();
+    
+    if (!templateName) {
+        alert('请输入模板名称！');
+        nameInput.focus();
+        return;
+    }
+    
+    var cells = [];
+    document.querySelectorAll('.label-cell').forEach(function(cell) {
+        var content = cell.querySelector('.cell-content');
+        var cellData = {
+            row: cell.dataset.row,
+            col: cell.dataset.col,
+            text: content.textContent,
+            field: content.dataset.field || '',
+            style: {
+                fontSize: content.style.fontSize,
+                fontWeight: content.style.fontWeight,
+                color: content.style.color,
+                textAlign: content.style.textAlign
+            },
+            colSpan: cell.colSpan
+        };
+        if (content.dataset.field === 'barcode') {
+            cellData.barcodeWidth = content.dataset.barcodeWidth || '50';
+            cellData.barcodeHeight = content.dataset.barcodeHeight || '15';
+        }
+        cells.push(cellData);
+    });
+    
+    var rowHeights = [];
+    var table = document.getElementById('labelTable');
+    for (var i = 0; i < table.rows.length; i++) {
+        rowHeights.push(parseInt(table.rows[i].style.height) || 30);
+    }
+
+    var templateData = {
+        rows: currentTemplate.rows,
+        cols: currentTemplate.cols,
+        cells: cells,
+        rowHeights: rowHeights,
+        labelWidth: currentTemplate.labelWidth,
+        labelHeight: currentTemplate.labelHeight
+    };
+
+    var dbData = new FormData();
+    dbData.append('name', templateName);
+    dbData.append('width', currentTemplate.labelWidth);
+    dbData.append('height', currentTemplate.labelHeight);
+    dbData.append('cols', currentTemplate.cols);
+    dbData.append('rows', currentTemplate.rows);
+    dbData.append('layout', JSON.stringify(templateData));
+    
+    csrfFetch('/label_template/add', { method: 'POST', body: dbData })
+    .then(function(r){ return r.json(); })
+    .then(function(res) {
+        if (res.status === 'success') {
+            loadTemplateList();
+            alert('模板"' + templateName + '"已保存！');
+        } else {
+            alert('保存失败：' + (res.msg || '未知错误'));
+        }
+    })
+    .catch(function(err){ alert('网络错误：' + err.message); });
+}
+
+// 加载模板列表
+function loadTemplateList() {
+    var select = document.getElementById('templateSelect');
+    select.innerHTML = '<option value="">-- 加载中... --</option>';
+
+    fetch('/label_template/api/list')
+    .then(function(r){ return r.json(); })
+    .then(function(res) {
+        if (res.status !== 'success' || !res.templates || res.templates.length === 0) {
+            select.innerHTML = '<option value="">-- 无模板 --</option>';
+            return;
+        }
+        select.innerHTML = '<option value="">-- 选择模板 --</option>';
+        var defaultTmpl = null;
+        res.templates.forEach(function(t) {
+            var opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = t.name + ' (' + t.width + 'x' + t.height + 'mm)';
+            if (t.is_default) { opt.selected = true; defaultTmpl = t; }
+            select.appendChild(opt);
+        });
+        if (defaultTmpl && defaultTmpl.id) {
+            switchTemplateById(defaultTmpl.id);
+        } else if (res.templates.length > 0) {
+            select.selectedIndex = 1;
+            switchTemplateById(res.templates[0].id);
+        }
+    })
+    .catch(function(err){
+        console.error('加载模板列表失败:', err);
+        select.innerHTML = '<option value="">-- 加载失败 --</option>';
+    });
+}
+
+// 切换模板
+function switchTemplate() {
+    var select = document.getElementById('templateSelect');
+    var templateId = select.value;
+    if (templateId) switchTemplateById(templateId);
+}
+
+function switchTemplateById(templateId) {
+    var nameInput = document.getElementById('templateNameInput');
+    if (!templateId) { nameInput.value = ''; return; }
+
+    fetch('/label_template/api/' + templateId + '/detail')
+    .then(function(r){ return r.json(); })
+    .then(function(res) {
+        if (res.status === 'success' && res.template) {
+            nameInput.value = res.template.name;
+            loadTemplateToEditor(res.template);
+        }
+    })
+    .catch(function(err){ console.error('加载模板失败:', err); });
+}
+
+// 加载模板到编辑器
+function loadTemplateToEditor(template) {
+    var layout = template.layout || template;
+    currentTemplate = {
+        rows: layout.rows || 3,
+        cols: layout.cols || 2,
+        labelWidth: layout.width || layout.labelWidth || 60,
+        labelHeight: layout.height || layout.labelHeight || 40
+    };
+    
+    var sizeSelect = document.getElementById('labelSizeSelect');
+    var customSizeDiv = document.getElementById('customSize');
+    if (sizeSelect) {
+        var w = currentTemplate.labelWidth, h = currentTemplate.labelHeight;
+        if (w === 40 && h === 20) { sizeSelect.value = 'small'; }
+        else if (w === 60 && h === 40) { sizeSelect.value = 'medium'; }
+        else if (w === 90 && h === 50) { sizeSelect.value = 'large90'; }
+        else if (w === 100 && h === 50) { sizeSelect.value = 'large'; }
+        else {
+            sizeSelect.value = 'custom';
+            if (customSizeDiv) customSizeDiv.style.display = 'inline';
+            var cwInput = document.getElementById('customWidth');
+            var chInput = document.getElementById('customHeight');
+            if (cwInput) cwInput.value = w;
+            if (chInput) chInput.value = h;
+        }
+    }
+    
+    var table = document.getElementById('labelTable');
+    table.innerHTML = '';
+    table._dragDelegated = false;
+    
+    // 创建行
+    for (var r = 0; r < currentTemplate.rows; r++) {
+        var row = table.insertRow(-1);
+        var rh = (layout.rowHeights && layout.rowHeights[r]) ? layout.rowHeights[r] : 30;
+        row.style.height = rh + 'px';
+    }
+    
+    if (layout.cells && layout.cells.length > 0) {
+        layout.cells.forEach(function(cellData) {
+            var r = parseInt(cellData.row);
+            var c = parseInt(cellData.col);
+            if (r >= 0 && r < table.rows.length) {
+                var row = table.rows[r];
+                // 确保该行有足够的单元格
+                while (row.cells.length <= c) {
+                    var newCell = row.insertCell(-1);
+                    newCell.className = 'label-cell';
+                    newCell.style.cssText = 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;';
+                    newCell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
+                }
+                var cell = row.cells[c];
+                cell.dataset.row = r;
+                cell.dataset.col = c;
+                
+                if (cellData.text) {
+                    cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: ' + (cellData.style.fontSize || '12px') + '; font-weight: ' + (cellData.style.fontWeight || 'normal') + '; color: ' + (cellData.style.color || '#000') + '; text-align: ' + (cellData.style.textAlign || 'left') + '; overflow: hidden; white-space: normal; word-break: break-all;">' + cellData.text + '</span>';
+                    var content = cell.querySelector('.cell-content');
+                    content.dataset.field = cellData.field || '';
+                    // 恢复条码宽高
+                    if (cellData.field === 'barcode') {
+                        content.dataset.barcodeWidth = cellData.barcodeWidth || '50';
+                        content.dataset.barcodeHeight = cellData.barcodeHeight || '15';
+                    }
+                    if (cellData.colSpan > 1) cell.colSpan = cellData.colSpan;
+                } else {
+                    cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
+                }
+            }
+        });
+    } else {
+        // 创建空白的单元格
+        for (var r = 0; r < template.rows; r++) {
+            var row = table.rows[r];
+            for (var c = 0; c < template.cols; c++) {
+                var cell = row.insertCell(-1);
+                cell.className = 'label-cell';
+                cell.style.cssText = 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;';
+                cell.dataset.row = r;
+                cell.dataset.col = c;
+                cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
+            }
+        }
+    }
+    
+    // 补齐每行缺失的单元格
+    for (var r = 0; r < table.rows.length; r++) {
+        var row = table.rows[r];
+        var usedCols = 0;
+        for (var ci = 0; ci < row.cells.length; ci++) {
+            usedCols += (row.cells[ci].colSpan || 1);
+        }
+        while (usedCols < template.cols) {
+            var cell = row.insertCell(-1);
+            cell.className = 'label-cell';
+            cell.style.cssText = 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;';
+            cell.dataset.row = r;
+            cell.dataset.col = row.cells.length - 1;
+            cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
+            usedCols++;
+        }
+    }
+    
+    initTemplateDragDrop();
+}
+
+// 删除模板
+function deleteTemplate() {
+    var select = document.getElementById('templateSelect');
+    var templateId = select.value;
+    
+    if (!templateId) {
+        alert('请选择要删除的模板！');
+        return;
+    }
+    
+    if (!confirm('确定要删除该模板吗？')) return;
+
+    csrfFetch('/label_template/' + templateId + '/delete', { method: 'POST' })
+    .then(function(r){ return r.json(); })
+    .then(function(res) {
+        if (res.status === 'success') {
+            loadTemplateList();
+            alert('模板已删除！');
+        } else {
+            alert('删除失败：' + (res.msg || '未知错误'));
+        }
+    })
+    .catch(function(err){ alert('网络错误：' + err.message); });
+}
+
+function clearTemplate() {
+    if (confirm('确定清空当前模板吗？')) {
+        var table = document.getElementById('labelTable');
+        var newCell = document.createElement('td');
+        newCell.className = 'label-cell';
+        newCell.setAttribute('style', 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;');
+        newCell.setAttribute('data-row', '0');
+        newCell.setAttribute('data-col', '0');
+        newCell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;">点击输入内容或拖拽字段</span>';
+        
+        var newRow = document.createElement('tr');
+        newRow.style.height = '30px';
+        newRow.appendChild(newCell);
+        
+        table.innerHTML = '';
+        table.appendChild(newRow);
+        table._dragDelegated = false; // 重置委托标志
+        
+        currentTemplate.rows = 1;
+        currentTemplate.cols = 1;
+        selectedCell = null;
+        document.getElementById('cellProperties').style.display = 'none';
+        document.getElementById('noSelection').style.display = 'block';
+        initTemplateDragDrop();
+    }
+}
+
+function previewLabel() {
+    var preview = document.getElementById('previewContent');
+    var table = document.getElementById('labelTable');
+    var scale = 4;  // 预览放大倍数
+    
+    // 创建标签预览容器
+    var labelWidth = currentTemplate.labelWidth * scale;
+    var labelHeight = currentTemplate.labelHeight * scale;
+    
+    preview.innerHTML = '<div id="previewLabel" style="width: ' + labelWidth + 'px; height: ' + labelHeight + 'px; border: 1px solid #000; background: white; display: table; table-layout: fixed; border-collapse: collapse;"></div>';
+    
+    var previewLabel = document.getElementById('previewLabel');
+    
+    for (var r = 0; r < table.rows.length; r++) {
+        var tr = document.createElement('tr');
+        var rowHeight = parseInt(table.rows[r].style.height) || 30;
+        tr.style.height = (rowHeight * scale) + 'px';
+        
+        // 遍历实际列（考虑 colspan）
+        var colIndex = 0;
+        while (colIndex < table.rows[r].cells.length) {
+            var cell = table.rows[r].cells[colIndex];
+            var content = cell.querySelector('.cell-content');
+            var td = document.createElement('td');
+            
+            // 设置 colspan
+            if (cell.colSpan > 1) {
+                td.colSpan = cell.colSpan;
+            }
+            
+            // 单元格样式
+            td.style.border = '0.3px solid #ccc';
+            td.style.padding = (2 * scale) + 'px';
+            td.style.verticalAlign = 'middle';
+            td.style.overflow = 'hidden';
+            td.style.wordBreak = 'break-all';
+            
+            // 字体样式
+            td.style.fontSize = (parseInt(content.style.fontSize) || 12) * scale + 'px';
+            td.style.fontWeight = content.style.fontWeight || 'normal';
+            td.style.color = content.style.color || '#000';
+            td.style.textAlign = content.style.textAlign || 'left';
+            
+            // 内容
+            if (content.dataset.field === 'barcode') {
+                td.textContent = '[条码] ' + content.textContent;
+            } else {
+                td.textContent = content.textContent;
+            }
+            
+            tr.appendChild(td);
+            colIndex++;
+        }
+        
+        previewLabel.appendChild(tr);
+    }
+    
+    new bootstrap.Modal(document.getElementById('previewModal')).show();
+}
+
+function printLabels() {
+    var selected = [];
+    document.querySelectorAll('.check-item:checked').forEach(function(cb) {
+        selected.push(cb.value);
+    });
+    
+    if (selected.length === 0) {
+        alert('请先选择要打印标签的物料（勾选表格中的复选框）');
+        return;
+    }
+    
+    window.open('{{ url_for("print_batch_labels") }}?ids=' + selected.join(','), '_blank');
+}
+
+function printSingleLabel(id) {
+    window.open('{{ url_for("print_batch_labels") }}?ids=' + id, '_blank');
+}
+
+function doPrint() {
+    var label = document.getElementById('previewLabel');
+    if (!label) {
+        alert('请先生成预览');
+        return;
+    }
+    var scale = 4;
+    var w = currentTemplate.labelWidth;
+    var h = currentTemplate.labelHeight;
+    
+    var printWindow = window.open('', '', 'width=600,height=400');
+    printWindow.document.write('<!DOCTYPE html><html><head><title>标签打印</title>');
+    printWindow.document.write('<style>');
+    printWindow.document.write('@page { size: ' + w + 'mm ' + h + 'mm; margin: 0; }');
+    printWindow.document.write('@media print { body { margin: 0; } }');
+    printWindow.document.write('table { width: ' + w + 'mm; height: ' + h + 'mm; border-collapse: collapse; table-layout: fixed; }');
+    printWindow.document.write('td { border: 0.3px solid #000; padding: 1mm; vertical-align: middle; overflow: hidden; word-break: break-all; }');
+    printWindow.document.write('</style></head><body>');
+    printWindow.document.write('<table>');
+    for (var r = 0; r < label.rows.length; r++) {
+        printWindow.document.write('<tr style="height: ' + (parseInt(label.rows[r].style.height) / scale) + 'mm;">');
+        for (var c = 0; c < label.rows[r].cells.length; c++) {
+            var cell = label.rows[r].cells[c];
+            var colSpan = cell.colSpan > 1 ? ' colspan="' + cell.colSpan + '"' : '';
+            printWindow.document.write('<td' + colSpan + ' style="font-size: ' + (parseInt(cell.style.fontSize) / scale) + 'pt; font-weight: ' + cell.style.fontWeight + '; color: ' + cell.style.color + '; text-align: ' + cell.style.textAlign + ';">' + cell.textContent + '</td>');
+        }
+        printWindow.document.write('</tr>');
+    }
+    printWindow.document.write('</table>');
+    printWindow.document.write('<script>window.onload = function() { window.print(); window.close(); };<\/script>');
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+}
+</script>
+{% endblock %}

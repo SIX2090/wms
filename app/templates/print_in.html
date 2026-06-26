@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>入库单 - {{ order.order_no }}</title>
+    <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
+    <style>
+        body { background: #fff; padding: 10px; font-size: 12px; }
+        .print-title { text-align: center; font-size: 20px; font-weight: bold; margin-bottom: 5px; }
+        .print-subtitle { text-align: center; color: #666; margin-bottom: 15px; font-size: 12px; }
+        .info-row { display: flex; margin-bottom: 8px; font-size: 12px; }
+        .info-item { margin-right: 20px; }
+        .info-label { font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        th, td { border: 1px solid #333; padding: 4px 6px; text-align: center; }
+        th { background-color: #f0f0f0; font-weight: bold; }
+        .text-left { text-align: left; }
+        .text-right { text-align: right; }
+        .footer-area { margin-top: 30px; display: flex; justify-content: space-between; font-size: 12px; }
+        .footer-area div { min-width: 120px; }
+        tfoot td { font-weight: bold; }
+        @media print {
+            .no-print { display: none !important; }
+            body { padding: 0; margin: 0; }
+            @page { size: A4; margin: 10mm; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print" style="margin-bottom: 15px;">
+        <button class="btn btn-secondary" onclick="window.print()">
+            <i class="bi bi-printer"></i> 打印
+        </button>
+        <button class="btn btn-outline-dark" onclick="window.close()">
+            <i class="bi bi-x-lg"></i> 关闭
+        </button>
+    </div>
+
+    <div class="print-title">入 库 单</div>
+    <div class="print-subtitle">RECEIPT</div>
+
+    <div class="info-row">
+        <div class="info-item"><span class="info-label">入库单号：</span>{{ order.order_no }}</div>
+        <div class="info-item"><span class="info-label">日　　期：</span>{{ order.date }}</div>
+    </div>
+    <div class="info-row">
+        <div class="info-item"><span class="info-label">供应商：</span>{{ order.supplier.name if order.supplier else '-' }}</div>
+        <div class="info-item"><span class="info-label">用　　途：</span>{{ order.purpose or '-' }}</div>
+    </div>
+    <div class="info-row">
+        <div class="info-item"><span class="info-label">仓　　库：</span>{{ order.warehouse or '-' }}</div>
+    </div>
+    <div class="info-row">
+        <div class="info-item"><span class="info-label">操作员：</span>{{ order.operator.username if order.operator else '-' }}</div>
+        <div class="info-item"><span class="info-label">状　　态：</span>{{ '已完成' if order.status == 'completed' else '待处理' }}</div>
+    </div>
+
+    <table style="margin-top: 15px;">
+        <thead>
+            <tr>
+                <th style="width: 40px;">序号</th>
+                <th>物料编码</th>
+                <th>物料名称</th>
+                <th>规格</th>
+                <th>单位</th>
+                <th>数量</th>
+                <th>单价</th>
+                <th>金额</th>
+                <th>备注</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in order.items %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ item.material.code }}</td>
+                <td class="text-left">{{ item.material.name }}</td>
+                <td>{{ item.material.spec or '-' }}</td>
+                <td>{{ item.material.unit.name if item.material.unit else '-' }}</td>
+                <td>{{ item.quantity }}</td>
+                <td class="text-right">{{ "%.2f"|format(item.price) }}</td>
+                <td class="text-right">{{ "%.2f"|format(item.amount) }}</td>
+                <td class="text-left">{{ item.remark or '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="7" style="text-align: right;">合　计：</td>
+                <td class="text-right">{{ "%.2f"|format(order.total_amount) }}</td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+
+    {% if order.remark %}
+    <div style="margin-top: 15px;">
+        <span class="info-label">备　注：</span>{{ order.remark }}
+    </div>
+    {% endif %}
+
+    <div class="footer-area" style="margin-top: 60px;">
+        <div>制单人：__________</div>
+        <div>审核人：__________</div>
+        <div>收货人：__________</div>
+        <div>日　期：__________</div>
+    </div>
+
+    <script>window.print();</script>
+</body>
+</html>

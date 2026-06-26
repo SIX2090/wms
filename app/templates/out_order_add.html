@@ -1,0 +1,1624 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title or '新增领料单' }}{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ==================== Changjet T+ 风格 - 领料单 ==================== */
+.page-header {
+    background: #fff;
+    padding: 12px 16px;
+    border-bottom: 1px solid #D9D9D9;
+    margin-bottom: 0;
+}
+.page-header h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+}
+.card {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    margin-bottom: 0;
+}
+.card-body {
+    padding: 10px 16px;
+}
+.form-label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 3px;
+    font-weight: 400;
+}
+.form-control, .form-select {
+    border: 1px solid #D9D9D9;
+    border-radius: 2px;
+    padding: 3px 8px;
+    font-size: 12px;
+    height: 28px;
+    transition: border-color 0.15s;
+    background: #fff;
+}
+.form-control:focus, .form-select:focus {
+    border-color: #1890FF;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+    outline: none;
+}
+.form-control[readonly] {
+    background-color: #F5F5F5;
+    color: #666;
+}
+textarea.form-control {
+    height: auto;
+    resize: vertical;
+}
+
+/* 物料搜索下拉 */
+.material-input {
+    position: relative;
+}
+.material-input input {
+    width: 100%;
+    border: 1px solid transparent;
+    padding: 3px 18px 3px 4px;
+    border-radius: 2px;
+    font-size: 12px;
+    height: 26px;
+    background: transparent;
+    color: #333;
+}
+.material-input input:focus {
+    border-color: #1890FF;
+    outline: none;
+    background: #fff;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+}
+.material-input input:hover {
+    border-color: #D9D9D9;
+    background: #FAFAFA;
+}
+.material-dropdown {
+    position: fixed;
+    min-width: 380px;
+    max-height: 280px;
+    overflow-y: auto;
+    background: white;
+    border: 1px solid #D9D9D9;
+    border-radius: 3px;
+    z-index: 99999;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+}
+.material-dropdown-item {
+    padding: 9px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #F0F0F0;
+    transition: background-color 0.12s;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #1f2937;
+}
+.material-dropdown-item:hover,
+.material-dropdown-item.active {
+    background-color: #E6F7FF;
+}
+.material-dropdown-item:last-child {
+    border-bottom: none;
+}
+.material-dropdown-item .code {
+    font-weight: 600;
+    color: #0052cc;
+}
+.material-dropdown-item .name {
+    color: #111827;
+    font-weight: 500;
+}
+.material-dropdown-item .spec,
+.material-dropdown-item .unit,
+.material-dropdown-item .stock {
+    color: #4b5563;
+    font-size: 13px;
+}
+.material-select-btn {
+    position: absolute;
+    right: 1px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    padding: 1px 4px;
+    cursor: pointer;
+    font-size: 9px;
+    color: #BFBFBF;
+    z-index: 10;
+    transition: color 0.15s;
+    height: 20px;
+    line-height: 1;
+}
+.material-select-btn:hover {
+    color: #1890FF;
+}
+
+/* ==================== T+ 网格线表格 ==================== */
+.tplus-table-wrapper {
+    border: 1px solid #D9D9D9;
+    overflow: hidden;
+    background: #fff;
+    margin-top: 6px;
+}
+#materialTable {
+    margin-bottom: 0 !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+    table-layout: auto !important;
+}
+/* 表头 - T+ 风格 */
+#materialTable thead th {
+    background: #FAFAFA !important;
+    color: #333 !important;
+    font-weight: 500 !important;
+    padding: 7px 8px !important;
+    border: 1px solid #E8E8E8 !important;
+    font-size: 12px !important;
+    white-space: nowrap !important;
+    text-align: center !important;
+    height: 34px !important;
+    line-height: 1.4 !important;
+}
+/* 表体单元格 - 全网格线 */
+#materialTable tbody td {
+    padding: 0 4px !important;
+    vertical-align: middle !important;
+    font-size: 12px !important;
+    border: 1px solid #E8E8E8 !important;
+    height: 30px !important;
+    color: #333 !important;
+    transition: background-color 0.1s !important;
+}
+/* 隔行变色 */
+#materialTable tbody tr:nth-child(even) td {
+    background-color: #FAFAFA !important;
+}
+#materialTable tbody tr:nth-child(odd) td {
+    background-color: #fff !important;
+}
+/* 行悬停 */
+#materialTable tbody tr:hover td {
+    background-color: #E6F7FF !important;
+    border-color: #91D5FF !important;
+}
+/* 当前活动行高亮 */
+#materialTable tbody tr.row-active td {
+    background-color: #BAE7FF !important;
+    border-color: #69C0FF !important;
+}
+/* 序号列 */
+#materialTable .row-num {
+    width: 42px;
+    text-align: center;
+    color: #999;
+    font-size: 12px;
+    padding: 0 2px !important;
+}
+/* 操作列 */
+#materialTable .action-col {
+    width: 92px !important;
+    min-width: 92px !important;
+    text-align: center;
+    white-space: nowrap;
+}
+#materialTable .action-col .btn {
+    width: 26px;
+    height: 22px;
+    padding: 0 !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+/* 金额列 - 右对齐 */
+#materialTable .amount-col {
+    text-align: right;
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    font-variant-numeric: tabular-nums;
+    padding-right: 8px !important;
+}
+/* 数量/单价列 - 右对齐 */
+#materialTable .num-col {
+    text-align: right;
+    padding-right: 6px !important;
+}
+
+/* 单元格内输入框 - T+ 无边框风格 */
+#materialTable tbody td input.form-control,
+#materialTable tbody td select.form-select {
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    padding: 2px 4px !important;
+    height: 26px !important;
+    font-size: 12px !important;
+    width: 100% !important;
+    border-radius: 2px !important;
+    color: #333 !important;
+    text-align: inherit !important;
+}
+#materialTable tbody td .num-col input.form-control,
+#materialTable tbody td.num-col input.form-control {
+    text-align: right !important;
+}
+#materialTable tbody td input.form-control:hover {
+    border-color: #D9D9D9 !important;
+    background: #FAFAFA !important;
+}
+#materialTable tbody td input.form-control:focus {
+    background: #fff !important;
+    border-color: #1890FF !important;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1) !important;
+    outline: none !important;
+}
+#materialTable tbody td input.form-control[readonly] {
+    background: #fff !important;
+    cursor: default !important;
+    color: #333 !important;
+    border-color: transparent !important;
+}
+
+/* 表脚 - 合计行 T+ 金色风格 */
+#materialTable tfoot td {
+    padding: 8px !important;
+    font-size: 12px !important;
+    border: 1px solid #E8E8E8 !important;
+    font-weight: 600 !important;
+    color: #333 !important;
+    background: #FFFBE6 !important;
+}
+#materialTable .total-row td {
+    background: #FFFBE6 !important;
+    border-color: #FFE58F !important;
+    border-top: 1px solid #FFE58F !important;
+}
+.total-amount {
+    color: #F5222D;
+    font-weight: 700;
+    font-size: 13px;
+}
+/* 表脚空白单元格 */
+#materialTable tfoot td.empty-foot {
+    background: #FFFBE6 !important;
+}
+
+/* 底部按钮区 */
+.footer-bar {
+    background: #fff;
+    padding: 12px 16px;
+    border-top: 1px solid #D9D9D9;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+/* 列宽拖拽 - T+ 风格 */
+.col-resize {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    cursor: col-resize;
+    user-select: none;
+    z-index: 5;
+}
+.col-resize:hover,
+.col-resize.active {
+    background: #1890FF;
+}
+#materialTable th {
+    position: relative;
+}
+/* 添加按钮区域 */
+.tplus-toolbar {
+    display: flex;
+    gap: 6px;
+    padding: 4px 0;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.tplus-toolbar .btn,
+.tplus-toolbar .form-select {
+    height: 34px;
+    border-radius: 5px;
+    font-size: 12px;
+    line-height: 1;
+}
+.tplus-toolbar .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 14px;
+    font-weight: 500;
+    box-shadow: none;
+}
+.tplus-toolbar .btn i {
+    font-size: 13px;
+}
+.tplus-toolbar .form-select {
+    width: auto;
+    min-width: 150px;
+    padding: 0 32px 0 10px;
+}
+.tplus-toolbar .btn-primary {
+    background: #2563EB;
+    border-color: #2563EB;
+    color: #fff;
+}
+.tplus-toolbar .btn-outline-primary,
+.tplus-toolbar .btn-outline-success,
+.tplus-toolbar .btn-outline-info,
+.tplus-toolbar .btn-outline-warning,
+.tplus-toolbar .btn-outline-secondary,
+.tplus-toolbar .btn-outline-dark {
+    background: #fff;
+    border-color: #CBD5E1;
+    color: #1F2937;
+}
+.tplus-toolbar .btn-outline-primary:hover,
+.tplus-toolbar .btn-outline-success:hover,
+.tplus-toolbar .btn-outline-info:hover,
+.tplus-toolbar .btn-outline-warning:hover,
+.tplus-toolbar .btn-outline-secondary:hover,
+.tplus-toolbar .btn-outline-dark:hover {
+    background: #F1F5F9;
+    border-color: #64748B;
+    color: #111827;
+}
+/* 选择行的高亮 */
+#materialTable tbody tr.selected td {
+    background-color: #BAE7FF !important;
+    border-color: #69C0FF !important;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+    <h2><i class="bi bi-box-arrow-up"></i> {{ page_title or '新增领料单' }}</h2>
+    <div class="d-flex gap-2 flex-wrap">
+        <button type="button" class="btn btn-primary" onclick="submitForm()">
+            <i class="bi bi-save"></i> 保存
+        </button>
+        <button type="button" class="btn btn-success" onclick="submitForm(true)">
+            <i class="bi bi-plus-square"></i> 保存并新增
+        </button>
+        <a href="/out_order" class="btn btn-secondary">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <form id="addForm">
+            <input type="hidden" name="order_id" value="{{ order_id }}">
+            <input type="hidden" name="order_no" value="{{ order_no }}">
+            
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">单据编号</label>
+                        <input type="text" class="form-control" value="{{ order_no }}" readonly>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">日期</label>
+                        <input type="date" class="form-control" name="date" value="{{ order_date }}">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">业务类型</label>
+                        <select class="form-select" name="business_type">
+                            {% if is_sale_order %}
+                            <option value="销售出库" selected>销售出库</option>
+                            <option value="其他出库">其他出库</option>
+                            {% else %}
+                            <option value="领料单" {% if default_business_type == '领料单' %}selected{% endif %}>领料单</option>
+                            <option value="其他出库" {% if default_business_type == '其他出库' %}selected{% endif %}>其他出库</option>
+                            {% endif %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">{{ party_label or '领料部门' }}</label>
+                        {% if is_sale_order %}
+                        <div class="customer-input" style="position:relative;">
+                            <input type="text" class="form-control" id="customerSearch" name="customer" placeholder="请选择或输入客户名称" autocomplete="off">
+                            <div id="customerDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;min-width:100%;max-height:200px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
+                        </div>
+                        <input type="hidden" name="department_id" value="">
+                        {% else %}
+                        <select class="form-select" name="department_id">
+                            <option value="">请选择</option>
+                            {% for dept in departments %}
+                            <option value="{{ dept.id }}">{{ dept.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="hidden" name="customer" value="">
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">仓库</label>
+                        <select class="form-select" name="warehouse">
+                            <option value="">请选择仓库</option>
+                            {% for warehouse in warehouses %}
+                            <option value="{{ warehouse.name }}">{{ warehouse.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-9">
+                    <div class="mb-2">
+                        <label class="form-label">备注</label>
+                        <textarea class="form-control" name="remark" rows="2"></textarea>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tplus-toolbar mb-3">
+                <button type="button" class="btn btn-primary" onclick="addNewRow()">
+                    <i class="bi bi-plus"></i> 添加物料
+                </button>
+                <button type="button" class="btn btn-outline-primary" onclick="copyPreviousRow()">
+                    <i class="bi bi-copy"></i> 复制上一行
+                </button>
+                <button type="button" class="btn btn-outline-success" onclick="showPasteModal()">
+                    <i class="bi bi-clipboard"></i> 粘贴导入
+                </button>
+                <button type="button" class="btn btn-outline-info" onclick="showRecentMaterials()">
+                    <i class="bi bi-clock-history"></i> 最近使用
+                </button>
+                <button type="button" class="btn btn-outline-warning" onclick="saveAsTemplate()">
+                    <i class="bi bi-bookmark"></i> 存为模板
+                </button>
+                <select id="templateSelect" class="form-select" onchange="loadTemplate(this.value)">
+                    <option value="">选择模板...</option>
+                </select>
+                <button type="button" class="btn btn-outline-secondary" onclick="refreshMaterials()" title="刷新物料列表">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新物料
+                </button>
+                <button type="button" class="btn btn-outline-dark" onclick="batchUpdateField()">
+                    <i class="bi bi-pencil-square"></i> 批量修改
+                </button>
+                <button type="button" class="btn btn-outline-secondary" onclick="showColumnSettings()">
+                    <i class="bi bi-layout-three-columns"></i> 字段设置
+                </button>
+            </div>
+            
+            <div class="table-responsive">
+                <table id="materialTable">
+                    <thead>
+                        <tr>
+                            <th data-column-key="row_no" class="row-num">序号<span class="col-resize"></span></th>
+                            <th data-column-key="material_code" style="width: 150px;">物料编码<span class="col-resize"></span></th>
+                            <th data-column-key="material_name">物料名称<span class="col-resize"></span></th>
+                            <th data-column-key="spec" style="width: 100px;">规格<span class="col-resize"></span></th>
+                            <th data-column-key="unit" style="width: 70px;">单位<span class="col-resize"></span></th>
+                            <th data-column-key="quantity" style="width: 100px;">数量<span class="col-resize"></span></th>
+                            <th data-column-key="price" style="width: 100px;">单价<span class="col-resize"></span></th>
+                            <th data-column-key="amount" style="width: 100px;" class="amount-col">金额<span class="col-resize"></span></th>
+                            <th data-column-key="stock" style="width: 90px;">当前库存<span class="col-resize"></span></th>
+                            <th data-column-key="remark" style="width: 140px;">备注<span class="col-resize"></span></th>
+                            <th data-column-key="actions" class="action-col">操作<span class="col-resize"></span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="materialTableBody">
+                    </tbody>
+                    <tfoot>
+                        <tr class="total-row" data-total-row="true">
+                            <td data-column-key="row_no"></td>
+                            <td data-column-key="material_code"></td>
+                            <td data-column-key="material_name"></td>
+                            <td data-column-key="spec"></td>
+                            <td data-column-key="unit"></td>
+                            <td data-column-key="quantity"></td>
+                            <td data-column-key="price" class="text-end" data-total-label-cell="true"><strong>合计：</strong></td>
+                            <td data-column-key="amount" class="amount-col"><strong id="totalAmount" class="total-amount">¥0.00</strong></td>
+                            <td data-column-key="stock"></td>
+                            <td data-column-key="actions"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const materials = {{ materials|tojson }};
+const units = {{ units|tojson }};
+const customers = {{ customers|tojson }};
+const isSaleOrder = {{ is_sale_order|tojson }};
+let activeDropdown = null;
+let activeIndex = -1;
+
+function formatStock(value) {
+    const stock = parseFloat(value);
+    return Number.isFinite(stock) ? stock.toFixed(2) : '0.00';
+}
+
+function findMaterialByCode(code) {
+    const normalized = String(code || '').trim().toLowerCase();
+    if (!normalized) return null;
+    return materials.find(m => String(m.code || '').toLowerCase() === normalized) || null;
+}
+
+function getMaterialUnit(material) {
+    if (!material || !material.unit) return '';
+    return typeof material.unit === 'object' ? (material.unit.name || '') : material.unit;
+}
+
+function escapeHtml(value) {
+    return String(value || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function fillMaterialFields(row, material, options = {}) {
+    row.querySelector('.material-code').value = material.code;
+    row.querySelector('.material-name').value = material.name;
+    row.querySelector('.material-spec').value = material.spec || '';
+    row.querySelector('.material-unit').value = getMaterialUnit(material);
+    row.querySelector('.material-stock').value = formatStock(material.stock);
+
+    const priceInput = row.querySelector('.material-price');
+    if (priceInput && (options.forcePrice || !priceInput.value || Number(priceInput.value) === 0)) {
+        const price = parseFloat(material.price);
+        priceInput.value = Number.isFinite(price) ? price.toFixed(2) : '0.00';
+    }
+}
+
+function clearMaterialFields(row) {
+    row.querySelector('.material-name').value = '';
+    row.querySelector('.material-spec').value = '';
+    row.querySelector('.material-unit').value = '';
+    row.querySelector('.material-stock').value = '';
+}
+
+function handleMaterialCodeInput(row) {
+    const material = findMaterialByCode(row.querySelector('.material-code').value);
+    if (material) {
+        fillMaterialFields(row, material);
+        calcAmount(row);
+    } else {
+        clearMaterialFields(row);
+    }
+    showDropdown(row);
+}
+
+function addNewRow() {
+    const tbody = document.getElementById('materialTableBody');
+    if (!tbody) {
+        console.error('materialTableBody not found');
+        return;
+    }
+    const row = tbody.insertRow();
+    const rowIndex = tbody.rows.length;
+    row.innerHTML = `
+        <td data-column-key="row_no" class="row-num">${rowIndex}</td>
+        <td data-column-key="material_code">
+            <div class="material-input">
+                <input type="text" class="form-control material-code" placeholder="">
+                <button type="button" class="material-select-btn">▼</button>
+                <div class="material-dropdown" style="display:none;"></div>
+            </div>
+        </td>
+        <td data-column-key="material_name"><input type="text" class="form-control material-name" readonly></td>
+        <td data-column-key="spec"><input type="text" class="form-control material-spec" readonly></td>
+        <td data-column-key="unit"><input type="text" class="form-control material-unit" readonly></td>
+        <td data-column-key="quantity"><input type="number" class="form-control material-qty" min="0" step="0.01"></td>
+        <td data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01"></td>
+        <td data-column-key="amount" class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
+        <td data-column-key="stock" class="num-col"><input type="text" class="form-control material-stock" readonly></td>
+        <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
+        <td data-column-key="actions" class="action-col">
+            <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除行"><i class="bi bi-trash"></i></button>
+        </td>
+    `;
+
+    row.querySelector('.material-code').addEventListener('input', function() {
+        handleMaterialCodeInput(row);
+    });
+    row.querySelector('.material-code').addEventListener('keydown', function(event) {
+        handleKeydown(event, row);
+    });
+    row.querySelector('.material-select-btn').addEventListener('click', function() {
+        showDropdown(row, true);
+    });
+    row.querySelector('.material-qty').addEventListener('input', function() {
+        // 强制保留2位小数
+        let val = this.value;
+        if (val.includes('.')) {
+            const parts = val.split('.');
+            if (parts[1].length > 2) {
+                this.value = parts[0] + '.' + parts[1].substring(0, 2);
+            }
+        }
+        calcAmount(row);
+    });
+    row.querySelector('.material-qty').addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            row.querySelector('.material-price').focus();
+            row.querySelector('.material-price').select();
+        }
+    });
+    row.querySelector('.material-qty').addEventListener('blur', function() {
+        // 失去焦点时格式化
+        if (this.value) {
+            this.value = parseFloat(this.value).toFixed(2);
+            calcAmount(row);
+        }
+    });
+    row.querySelector('.material-price').addEventListener('input', function() {
+        // 强制保留2位小数
+        let val = this.value;
+        if (val.includes('.')) {
+            const parts = val.split('.');
+            if (parts[1].length > 2) {
+                this.value = parts[0] + '.' + parts[1].substring(0, 2);
+            }
+        }
+        calcAmount(row);
+    });
+    row.querySelector('.material-price').addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            let nextRow = row.nextElementSibling;
+            if (!nextRow) {
+                addNewRow();
+                nextRow = document.querySelector('#materialTableBody tr:last-child');
+            }
+            nextRow.querySelector('.material-code').focus();
+            nextRow.querySelector('.material-code').select();
+        }
+    });
+    row.querySelector('.material-price').addEventListener('blur', function() {
+        // 失去焦点时格式化
+        if (this.value) {
+            this.value = parseFloat(this.value).toFixed(2);
+            calcAmount(row);
+        }
+    });
+
+    if (window.outOrderColumnController) {
+        window.outOrderColumnController.applyOrder();
+    }
+    return row;
+}
+
+function showDropdown(row, showAll = false) {
+    const input = row.querySelector('.material-code');
+    const dropdown = row.querySelector('.material-dropdown');
+    const keyword = input.value.toLowerCase().trim();
+
+    if (activeDropdown && activeDropdown !== dropdown) {
+        activeDropdown.style.display = 'none';
+    }
+
+    const filtered = materials.filter(m =>
+        showAll ||
+        m.code.toLowerCase().includes(keyword) ||
+        m.name.toLowerCase().includes(keyword) ||
+        (m.spec && m.spec.toLowerCase().includes(keyword))
+    );
+
+    if (filtered.length === 0) {
+        dropdown.style.display = 'none';
+        return;
+    }
+
+    dropdown.innerHTML = filtered.map(m => `
+        <div class="material-dropdown-item" data-code="${m.code}">
+            <span class="code">${m.code}</span> - <span class="name">${m.name}</span>
+            <span class="spec">${m.spec || ''}</span>
+            <span class="unit">${getMaterialUnit(m)}</span>
+            <span class="stock">库存 ${formatStock(m.stock)}</span>
+        </div>
+    `).join('');
+
+    dropdown.querySelectorAll('.material-dropdown-item').forEach(item => {
+        item.addEventListener('click', function() {
+            selectMaterial(row, this.dataset.code);
+        });
+    });
+    
+    dropdown.style.display = 'block';
+    activeDropdown = dropdown;
+    activeIndex = Array.from(document.querySelectorAll('#materialTableBody tr')).indexOf(row);
+    
+    const rect = input.getBoundingClientRect();
+    dropdown.style.top = (rect.bottom + 5) + 'px';
+    dropdown.style.left = rect.left + 'px';
+}
+
+function selectMaterial(row, code) {
+    const material = materials.find(m => m.code === code);
+    if (!material) return;
+    
+    fillMaterialFields(row, material);
+    
+    row.querySelector('.material-dropdown').style.display = 'none';
+    activeDropdown = null;
+    calcAmount(row);
+    recordRecentMaterial(code);
+    row.querySelector('.material-qty').focus();
+    row.querySelector('.material-qty').select();
+}
+
+function handleKeydown(event, row) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const dropdown = row.querySelector('.material-dropdown');
+        const activeItem = dropdown && dropdown.style.display !== 'none' ? dropdown.querySelector('.material-dropdown-item') : null;
+        if (activeItem && event.target.classList.contains('material-code')) {
+            selectMaterial(row, activeItem.dataset.code);
+            return;
+        }
+        focusNextEditable(event.target);
+        return;
+    }
+    if (event.key === 'Escape') {
+        row.querySelector('.material-dropdown').style.display = 'none';
+        activeDropdown = null;
+    }
+}
+
+function focusNextEditable(current) {
+    const fields = Array.from(document.querySelectorAll('#addForm input:not([type="hidden"]):not([readonly]), #addForm select, #addForm textarea'));
+    const index = fields.indexOf(current);
+    const next = fields[index + 1];
+    if (next) {
+        next.focus();
+        if (next.select) next.select();
+        return;
+    }
+    addNewRow();
+    const rows = document.querySelectorAll('#materialTableBody tr');
+    const last = rows[rows.length - 1];
+    if (last) last.querySelector('.material-code').focus();
+}
+
+function calcAmount(row) {
+    const qty = parseFloat(row.querySelector('.material-qty').value) || 0;
+    const price = parseFloat(row.querySelector('.material-price').value) || 0;
+    const amount = qty * price;
+    row.querySelector('.material-amount').value = amount.toFixed(2);
+    calcTotal();
+}
+
+function calcTotal() {
+    let total = 0;
+    document.querySelectorAll('#materialTableBody tr').forEach(row => {
+        total += parseFloat(row.querySelector('.material-amount').value) || 0;
+    });
+    document.getElementById('totalAmount').textContent = '¥' + total.toFixed(2);
+}
+
+function deleteRow(btn) {
+    btn.closest('tr').remove();
+    renumberRows();
+    calcTotal();
+}
+
+function copyValuesToRow(source, target) {
+    if (!source || !target) return;
+    ['material-code', 'material-qty', 'material-price'].forEach(cls => {
+        target.querySelector('.' + cls).value = source.querySelector('.' + cls).value;
+    });
+    const material = findMaterialByCode(target.querySelector('.material-code').value);
+    if (material) fillMaterialFields(target, material, { forcePrice: true });
+    calcAmount(target);
+}
+
+function copyPreviousRow() {
+    const rows = document.querySelectorAll('#materialTableBody tr');
+    let source = null;
+    for (let i = rows.length - 1; i >= 0; i--) {
+        if (rows[i].querySelector('.material-code').value.trim()) {
+            source = rows[i];
+            break;
+        }
+    }
+    if (!source) {
+        addNewRow();
+        return;
+    }
+    addNewRow();
+    const target = document.querySelector('#materialTableBody tr:last-child');
+    copyValuesToRow(source, target);
+    target.querySelector('.material-qty').focus();
+    target.querySelector('.material-qty').select();
+}
+
+function copyRowAfter(row) {
+    if (!row) {
+        copyPreviousRow();
+        return;
+    }
+    const nextRow = row.nextElementSibling;
+    const target = nextRow ? insertRowBefore(nextRow) : addNewRow();
+    copyValuesToRow(row, target);
+    target.querySelector('.material-qty').focus();
+    target.querySelector('.material-qty').select();
+}
+
+function addRowAfterCurrent() {
+    const row = addNewRow();
+    row.querySelector('.material-code')?.focus();
+}
+
+function insertRowBefore(btn) {
+    const tbody = document.getElementById('materialTableBody');
+    const currentRow = btn.closest('tr');
+    const newRow = tbody.insertRow(currentRow.rowIndex - 1);
+    const rowIndex = currentRow.rowIndex;
+    newRow.innerHTML = `
+        <td data-column-key="row_no" class="row-num">${rowIndex}</td>
+        <td data-column-key="material_code">
+            <div class="material-input">
+                <input type="text" class="form-control material-code" placeholder="">
+                <button type="button" class="material-select-btn">▼</button>
+                <div class="material-dropdown" style="display:none;"></div>
+            </div>
+        </td>
+        <td data-column-key="material_name"><input type="text" class="form-control material-name" readonly></td>
+        <td data-column-key="spec"><input type="text" class="form-control material-spec" readonly></td>
+        <td data-column-key="unit"><input type="text" class="form-control material-unit" readonly></td>
+        <td data-column-key="quantity"><input type="number" class="form-control material-qty" min="0" step="0.01"></td>
+        <td data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01"></td>
+        <td data-column-key="amount" class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
+        <td data-column-key="stock" class="num-col"><input type="text" class="form-control material-stock" readonly></td>
+        <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
+        <td data-column-key="actions" class="action-col">
+            <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除行"><i class="bi bi-trash"></i></button>
+        </td>
+    `;
+
+    newRow.querySelector('.material-code').addEventListener('input', function() {
+        handleMaterialCodeInput(newRow);
+    });
+    newRow.querySelector('.material-code').addEventListener('keydown', function(event) {
+        handleKeydown(event, newRow);
+    });
+    newRow.querySelector('.material-select-btn').addEventListener('click', function() {
+        showDropdown(newRow, true);
+    });
+    newRow.querySelector('.material-qty').addEventListener('input', function() {
+        // 强制保留2位小数
+        let val = this.value;
+        if (val.includes('.')) {
+            const parts = val.split('.');
+            if (parts[1].length > 2) {
+                this.value = parts[0] + '.' + parts[1].substring(0, 2);
+            }
+        }
+        calcAmount(newRow);
+    });
+    newRow.querySelector('.material-qty').addEventListener('blur', function() {
+        // 失去焦点时格式化
+        if (this.value) {
+            this.value = parseFloat(this.value).toFixed(2);
+            calcAmount(newRow.closest('tr'));
+        }
+    });
+    newRow.querySelector('.material-price').addEventListener('input', function() {
+        // 强制保留2位小数
+        let val = this.value;
+        if (val.includes('.')) {
+            const parts = val.split('.');
+            if (parts[1].length > 2) {
+                this.value = parts[0] + '.' + parts[1].substring(0, 2);
+            }
+        }
+        calcAmount(newRow);
+    });
+    newRow.querySelector('.material-price').addEventListener('blur', function() {
+        // 失去焦点时格式化
+        if (this.value) {
+            this.value = parseFloat(this.value).toFixed(2);
+            calcAmount(newRow.closest('tr'));
+        }
+    });
+
+    renumberRows();
+    if (window.outOrderColumnController) {
+        window.outOrderColumnController.applyOrder();
+    }
+    newRow.querySelector('.material-code').focus();
+    return newRow;
+}
+
+function renumberRows() {
+    const rows = document.querySelectorAll('#materialTableBody tr');
+    rows.forEach((row, index) => {
+        const numCell = row.querySelector('.row-num');
+        if (numCell) {
+            numCell.textContent = index + 1;
+        }
+    });
+}
+
+function submitForm(saveAndNew = false) {
+    const rows = document.querySelectorAll('#materialTableBody tr');
+    
+    // ==================== 必填项检查 ====================
+    const date = document.querySelector('[name="date"]').value;
+    if (!date) {
+        alert('请填写日期');
+        document.querySelector('[name="date"]').focus();
+        return;
+    }
+
+    const departmentId = document.querySelector('[name="department_id"]').value;
+    const customerInput = document.querySelector('[name="customer"]');
+    const customer = customerInput ? customerInput.value.trim() : '';
+    if (isSaleOrder) {
+        if (!customer) {
+            alert('请输入客户名称');
+            customerInput.focus();
+            return;
+        }
+    } else if (!departmentId) {
+            alert('请选择部门');
+            document.querySelector('[name="department_id"]').focus();
+            return;
+    }
+    
+    const items = [];
+    let emptyQtyCount = 0;
+    let largeQtyCount = 0;
+    let stockErrors = [];
+    
+    for (const row of rows) {
+        const code = row.querySelector('.material-code').value.trim();
+        const qty = parseFloat(row.querySelector('.material-qty').value);
+        const price = parseFloat(row.querySelector('.material-price').value);
+        
+        if (!code) continue;
+        
+        if (!qty || qty <= 0) {
+            emptyQtyCount++;
+            row.querySelector('.material-qty').style.borderColor = '#ff4d4f';
+        } else {
+            row.querySelector('.material-qty').style.borderColor = '';
+        }
+        
+        // 数量异常大检查（超过10000）
+        if (qty > 10000) {
+            largeQtyCount++;
+        }
+        
+        // 库存不足检查
+        const material = materials.find(m => m.code === code);
+        if (material && qty > 0) {
+            const stock = parseFloat(material.stock) || 0;
+            if (stock < qty) {
+                stockErrors.push(material.name + '（编码：' + code + '）库存不足，当前库存：' + stock.toFixed(2) + '，需要：' + qty.toFixed(2));
+            }
+        }
+        
+        items.push({ code, quantity: qty, price: price || 0, remark: (row.querySelector('.material-remark')?.value || '').trim() });
+    }
+    
+    if (emptyQtyCount > 0) {
+        alert('有 ' + emptyQtyCount + ' 行物料数量未填写或无效，请检查标红的行');
+        return;
+    }
+    
+    if (items.length === 0) {
+        alert('请至少添加一条物料');
+        return;
+    }
+    
+    // 库存不足阻止提交
+    if (stockErrors.length > 0) {
+        alert('库存不足，无法提交：\n\n' + stockErrors.join('\n'));
+        return;
+    }
+    
+    // 数量异常大时二次确认
+    if (largeQtyCount > 0) {
+        if (!confirm('有 ' + largeQtyCount + ' 行物料数量超过10000，是否确认提交？')) {
+            return;
+        }
+    }
+    
+    const data = {
+        order_id: document.querySelector('[name="order_id"]').value,
+        order_no: document.querySelector('[name="order_no"]').value,
+        date: date,
+        business_type: document.querySelector('[name="business_type"]').value,
+        department_id: departmentId,
+        customer: customer,
+        warehouse: document.querySelector('[name="warehouse"]').value,
+        remark: document.querySelector('[name="remark"]').value,
+        items: items
+    };
+    
+    fetch('/out_order/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            const orderIdInput = document.querySelector('[name="order_id"]');
+            const orderNoInput = document.querySelector('[name="order_no"]');
+            if (orderIdInput) {
+                orderIdInput.value = data.id;
+            }
+            if (orderNoInput && data.order_no) {
+                orderNoInput.value = data.order_no;
+            }
+
+            return fetch(`/out_order/${data.id}/complete`, {
+                method: 'POST'
+            })
+            .then(res => res.json())
+            .then(completeRes => {
+                if (completeRes.status === 'success') {
+                    alert('保存成功');
+                } else {
+                    alert('单据已保存但领料提交失败：' + (completeRes.msg || '未知错误'));
+                }
+                window.location.href = saveAndNew ? '/out_order/add' : `/out_order/${data.id}`;
+            });
+        } else {
+            alert('保存失败：' + data.msg);
+        }
+    })
+    .catch(error => {
+        alert('保存失败：' + error.message);
+    });
+}
+
+document.addEventListener('click', function(e) {
+    if (activeDropdown && !e.target.closest('.material-input')) {
+        activeDropdown.style.display = 'none';
+        activeDropdown = null;
+    }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    for (let i = 0; i < 15; i++) {
+        addNewRow();
+    }
+    registerDetailRowActions({
+        tableSelector: '#materialTable',
+        rowSelector: '#materialTableBody tr',
+        add: function() { addRowAfterCurrent(); },
+        insert: function(row) { insertRowBefore(row); },
+        copy: function(row) { copyRowAfter(row); },
+        remove: function(row) { deleteRow(row); }
+    });
+
+    // ==================== 明细表字段位置和列宽 ====================
+    if (typeof setupDynamicDetailColumnControls === 'function') {
+        window.outOrderColumnController = setupDynamicDetailColumnControls({
+            tableSelector: '#materialTable',
+            orderKey: 'out_order_col_order_v1',
+            widthKey: 'out_order_col_widths_v3',
+            lockedColumns: ['row_no', 'actions'],
+            minWidths: {
+                row_no: 42,
+                actions: 92,
+                material_code: 120,
+                material_name: 140,
+                spec: 80,
+                unit: 60,
+                quantity: 80,
+                price: 80,
+                amount: 90,
+                stock: 90
+            }
+        });
+    }
+
+    // ==================== 初始化模板下拉框 ====================
+    loadTemplateOptions();
+    setupCustomerSearch();
+
+    // ==================== 监听基础资料更新广播 ====================
+    try {
+        if (typeof BroadcastChannel !== 'undefined') {
+            const bc = new BroadcastChannel('wms_material_update');
+            bc.onmessage = function(event) {
+                if (event.data && event.data.type === 'material_updated') {
+                    refreshMaterials({ silent: true });
+                }
+            };
+            const masterBc = new BroadcastChannel('wms_master_data_update');
+            masterBc.onmessage = function(event) {
+                const type = event.data && event.data.type;
+                if (type === 'unit_updated' || type === 'material_updated') {
+                    refreshMaterials({ silent: true });
+                }
+                if (type === 'customer_updated') {
+                    refreshCustomers({ silent: true });
+                }
+                if (type === 'warehouse_updated') {
+                    refreshWarehouses({ silent: true });
+                }
+                if (type === 'department_updated') {
+                    refreshDepartments({ silent: true });
+                }
+            };
+        }
+    } catch(e) {}
+});
+
+// ==================== 刷新物料列表 ====================
+function notifyMaterialRefresh(message, type, silent) {
+    if (silent) return;
+    if (window.showToast) {
+        window.showToast(message, type || 'success', 2500);
+    } else {
+        console.log(message);
+    }
+}
+
+function refreshMaterials(options) {
+    const silent = !!(options && options.silent);
+    const btn = document.querySelector('button[onclick="refreshMaterials()"]');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新中...';
+    }
+    fetch('/material/api/all')
+        .then(function(r){ return r.json(); })
+        .then(function(res) {
+            if (res.status === 'success' && res.materials) {
+                materials.length = 0;
+                res.materials.forEach(function(m){ materials.push(m); });
+                notifyMaterialRefresh('物料列表已更新，共 ' + materials.length + ' 条', 'success', silent);
+            } else {
+                notifyMaterialRefresh('刷新失败：' + (res.msg || '未知错误'), 'danger', silent);
+            }
+        })
+        .catch(function(err){ notifyMaterialRefresh('刷新失败：' + err.message, 'danger', silent); })
+        .finally(function() {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新物料';
+            }
+        });
+}
+
+function showCustomerDropdown(list) {
+    const dropdown = document.getElementById('customerDropdown');
+    const input = document.getElementById('customerSearch');
+    if (!dropdown || !input) return;
+    if (!list.length) {
+        dropdown.style.display = 'none';
+        return;
+    }
+    dropdown.innerHTML = list.map(function(c) {
+        const code = c.code ? '<span style="color:#999;margin-left:6px;">' + escapeHtml(c.code) + '</span>' : '';
+        const phone = c.phone ? '<span style="color:#999;margin-left:6px;">' + escapeHtml(c.phone) + '</span>' : '';
+        return '<div class="customer-item" data-name="' + escapeHtml(c.name || '') + '" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;"><strong>' + escapeHtml(c.name || '') + '</strong>' + code + phone + '</div>';
+    }).join('');
+    dropdown.querySelectorAll('.customer-item').forEach(function(item) {
+        item.addEventListener('mousedown', function(event) {
+            event.preventDefault();
+            input.value = this.dataset.name || '';
+            dropdown.style.display = 'none';
+        });
+    });
+    dropdown.style.display = 'block';
+}
+
+function setupCustomerSearch() {
+    const input = document.getElementById('customerSearch');
+    const dropdown = document.getElementById('customerDropdown');
+    if (!input || !dropdown) return;
+    input.addEventListener('focus', function() {
+        const keyword = this.value.trim().toLowerCase();
+        showCustomerDropdown(filterCustomers(keyword));
+    });
+    input.addEventListener('input', function() {
+        showCustomerDropdown(filterCustomers(this.value.trim().toLowerCase()));
+    });
+    input.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') dropdown.style.display = 'none';
+    });
+    document.addEventListener('click', function(event) {
+        if (!event.target.closest('.customer-input')) dropdown.style.display = 'none';
+    });
+}
+
+function filterCustomers(keyword) {
+    return customers.filter(function(c) {
+        if (!keyword) return true;
+        return String(c.name || '').toLowerCase().includes(keyword) ||
+               String(c.code || '').toLowerCase().includes(keyword) ||
+               String(c.phone || '').toLowerCase().includes(keyword) ||
+               String(c.contact || '').toLowerCase().includes(keyword);
+    }).slice(0, 80);
+}
+
+function refreshCustomers(options) {
+    const silent = !!(options && options.silent);
+    fetch('/api/customers')
+        .then(function(r){ return r.json(); })
+        .then(function(list) {
+            if (Array.isArray(list)) {
+                customers.length = 0;
+                list.forEach(function(c){ customers.push(c); });
+                notifyMaterialRefresh('客户列表已更新，共 ' + customers.length + ' 条', 'success', silent);
+            }
+        })
+        .catch(function(err){ notifyMaterialRefresh('客户刷新失败：' + err.message, 'danger', silent); });
+}
+
+function refreshWarehouses(options) {
+    const silent = !!(options && options.silent);
+    const select = document.querySelector('[name="warehouse"]');
+    if (!select) return;
+    const current = select.value;
+    fetch('/warehouse/api/list')
+        .then(function(r){ return r.json(); })
+        .then(function(res) {
+            if (res && Array.isArray(res.warehouses)) {
+                let html = '<option value="">请选择仓库</option>';
+                res.warehouses.forEach(function(w) {
+                    const selected = String(current) === String(w.name) ? ' selected' : '';
+                    html += '<option value="' + escapeHtml(w.name || '') + '"' + selected + '>' + escapeHtml(w.name || '') + '</option>';
+                });
+                select.innerHTML = html;
+                notifyMaterialRefresh('仓库列表已更新', 'success', silent);
+            }
+        })
+        .catch(function(err){ notifyMaterialRefresh('仓库刷新失败：' + err.message, 'danger', silent); });
+}
+
+function refreshDepartments(options) {
+    const silent = !!(options && options.silent);
+    const select = document.querySelector('[name="department_id"]');
+    if (!select || select.tagName !== 'SELECT') return;
+    const current = select.value;
+    fetch('/department/api/list')
+        .then(function(r){ return r.json(); })
+        .then(function(res) {
+            if (res && Array.isArray(res.departments)) {
+                let html = '<option value="">请选择</option>';
+                res.departments.forEach(function(d) {
+                    const selected = String(current) === String(d.id) ? ' selected' : '';
+                    html += '<option value="' + escapeHtml(d.id || '') + '"' + selected + '>' + escapeHtml(d.name || '') + '</option>';
+                });
+                select.innerHTML = html;
+                notifyMaterialRefresh('部门列表已更新', 'success', silent);
+            }
+        })
+        .catch(function(err){ notifyMaterialRefresh('部门刷新失败：' + err.message, 'danger', silent); });
+}
+
+// ==================== Excel粘贴导入 ====================
+function showPasteModal() {
+    const modal = document.createElement('div');
+    modal.id = 'pasteModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:white;border-radius:8px;padding:24px;width:600px;max-width:90%;max-height:80vh;display:flex;flex-direction:column;">
+            <h5 style="margin:0 0 16px 0;font-size:16px;font-weight:600;">Excel粘贴导入</h5>
+            <p style="color:#666;font-size:13px;margin:0 0 12px 0;">从Excel复制多行数据（格式：物料编码  数量  单价），粘贴到下方：</p>
+            <textarea id="pasteArea" style="flex:1;min-height:200px;border:1px solid #d9d9d9;border-radius:4px;padding:12px;font-size:13px;font-family:monospace;resize:vertical;" placeholder="示例：\nM001    100    5.50\nM002    200    3.00\nM003    50     10.00"></textarea>
+            <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('pasteModal').remove()">取消</button>
+                <button type="button" class="btn btn-primary" onclick="parsePastedData()">确认导入</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    setTimeout(() => document.getElementById('pasteArea').focus(), 100);
+}
+
+function parsePastedData() {
+    const pasteArea = document.getElementById('pasteArea');
+    const text = pasteArea.value.trim();
+    if (!text) {
+        alert('请输入数据');
+        return;
+    }
+
+    const lines = text.split('\n').filter(line => line.trim());
+    let successCount = 0;
+    let failList = [];
+
+    lines.forEach((line, idx) => {
+        const parts = line.split(/\t+|\s{2,}/).map(s => s.trim()).filter(s => s);
+        if (parts.length < 2) {
+            failList.push('第' + (idx + 1) + '行格式错误：' + line);
+            return;
+        }
+
+        const code = parts[0];
+        const qty = parseFloat(parts[1]) || 0;
+        const price = parts.length >= 3 ? parseFloat(parts[2]) || 0 : 0;
+
+        const material = materials.find(m => m.code === code);
+        if (!material) {
+            failList.push('第' + (idx + 1) + '行物料不存在：' + code);
+            return;
+        }
+
+        let row = findEmptyRow();
+        if (!row) {
+            addNewRow();
+            row = document.querySelector('#materialTableBody tr:last-child');
+        }
+
+        fillMaterialFields(row, material, { forcePrice: true });
+        row.querySelector('.material-qty').value = qty.toFixed(2);
+        row.querySelector('.material-price').value = price ? price.toFixed(2) : (material.price || 0).toFixed(2);
+        calcAmount(row);
+        successCount++;
+    });
+
+    calcTotal();
+    document.getElementById('pasteModal').remove();
+
+    let msg = '成功导入 ' + successCount + ' 条记录';
+    if (failList.length > 0) {
+        msg += '\n\n失败 ' + failList.length + ' 条：\n' + failList.join('\n');
+    }
+    alert(msg);
+}
+
+function findEmptyRow() {
+    const rows = document.querySelectorAll('#materialTableBody tr');
+    for (const row of rows) {
+        const code = row.querySelector('.material-code').value.trim();
+        if (!code) return row;
+    }
+    return null;
+}
+
+// ==================== 最近使用物料 ====================
+function showRecentMaterials() {
+    const recent = JSON.parse(localStorage.getItem('recentMaterials') || '[]');
+    if (recent.length === 0) {
+        alert('暂无最近使用记录');
+        return;
+    }
+
+    const modal = document.createElement('div');
+    modal.id = 'recentModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+
+    let html = `
+        <div style="background:white;border-radius:8px;padding:24px;width:700px;max-width:90%;max-height:80vh;display:flex;flex-direction:column;">
+            <h5 style="margin:0 0 16px 0;font-size:16px;font-weight:600;">最近使用物料</h5>
+            <div style="flex:1;overflow-y:auto;">
+                <table class="table table-sm table-hover" style="font-size:13px;">
+                    <thead><tr><th>物料编码</th><th>物料名称</th><th>规格</th><th>单位</th><th>操作</th></tr></thead>
+                    <tbody>`;
+
+    recent.forEach(code => {
+        const m = materials.find(mat => mat.code === code);
+        if (m) {
+            html += `<tr>
+                <td>${m.code}</td>
+                <td>${m.name}</td>
+                <td>${m.spec || ''}</td>
+                <td>${getMaterialUnit(m)}</td>
+                <td><button type="button" class="btn btn-sm btn-primary" onclick="addMaterialByCode('${m.code}');document.getElementById('recentModal').remove();">添加</button></td>
+            </tr>`;
+        }
+    });
+
+    html += `</tbody></table></div>
+            <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('recentModal').remove()">关闭</button>
+            </div>
+        </div>`;
+
+    modal.innerHTML = html;
+    document.body.appendChild(modal);
+}
+
+function addMaterialByCode(code) {
+    const material = materials.find(m => m.code === code);
+    if (!material) return;
+
+    let row = findEmptyRow();
+    if (!row) {
+        addNewRow();
+        row = document.querySelector('#materialTableBody tr:last-child');
+    }
+
+    fillMaterialFields(row, material, { forcePrice: true });
+    calcAmount(row);
+    calcTotal();
+}
+
+function recordRecentMaterial(code) {
+    let recent = JSON.parse(localStorage.getItem('recentMaterials') || '[]');
+    recent = recent.filter(c => c !== code);
+    recent.unshift(code);
+    if (recent.length > 10) recent = recent.slice(0, 10);
+    localStorage.setItem('recentMaterials', JSON.stringify(recent));
+}
+
+// ==================== 模板功能 ====================
+function saveAsTemplate() {
+    const name = prompt('请输入模板名称：');
+    if (!name || !name.trim()) return;
+
+    const rows = document.querySelectorAll('#materialTableBody tr');
+    const items = [];
+    rows.forEach(row => {
+        const code = row.querySelector('.material-code').value.trim();
+        if (code) {
+            items.push({
+                code: code,
+                qty: row.querySelector('.material-qty').value,
+                price: row.querySelector('.material-price').value,
+                remark: (row.querySelector('.material-remark')?.value || '').trim()
+            });
+        }
+    });
+
+    if (items.length === 0) {
+        alert('单据为空，无法保存模板');
+        return;
+    }
+
+    let templates = JSON.parse(localStorage.getItem('outOrderTemplates') || '[]');
+    templates = templates.filter(t => t.name !== name);
+    templates.push({ name: name, items: items, createdAt: new Date().toISOString() });
+    localStorage.setItem('outOrderTemplates', JSON.stringify(templates));
+
+    loadTemplateOptions();
+    alert('模板保存成功');
+}
+
+function loadTemplateOptions() {
+    const select = document.getElementById('templateSelect');
+    if (!select) return;
+    const templates = JSON.parse(localStorage.getItem('outOrderTemplates') || '[]');
+    let html = '<option value="">选择模板...</option>';
+    templates.forEach(t => {
+        html += '<option value="' + t.name + '">' + t.name + ' (' + t.items.length + '种物料)</option>';
+    });
+    select.innerHTML = html;
+}
+
+function loadTemplate(name) {
+    if (!name) return;
+    const templates = JSON.parse(localStorage.getItem('outOrderTemplates') || '[]');
+    const template = templates.find(t => t.name === name);
+    if (!template) return;
+
+    if (!confirm('加载模板将清空当前内容，是否继续？')) {
+        document.getElementById('templateSelect').value = '';
+        return;
+    }
+
+    const tbody = document.getElementById('materialTableBody');
+    tbody.innerHTML = '';
+
+    template.items.forEach(item => {
+        addNewRow();
+        const row = document.querySelector('#materialTableBody tr:last-child');
+        const material = materials.find(m => m.code === item.code);
+        if (material) {
+            fillMaterialFields(row, material, { forcePrice: true });
+            row.querySelector('.material-qty').value = item.qty ? parseFloat(item.qty).toFixed(2) : '0.00';
+            row.querySelector('.material-price').value = item.price ? parseFloat(item.price).toFixed(2) : (material.price || 0).toFixed(2);
+            const remarkInput = row.querySelector('.material-remark');
+            if (remarkInput) remarkInput.value = item.remark || '';
+            calcAmount(row);
+        }
+    });
+
+    calcTotal();
+    document.getElementById('templateSelect').value = '';
+}
+
+// ==================== 扫码自动填充 ====================
+function setupScanAutoFill() {
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && e.target.classList.contains('material-code')) {
+            const input = e.target;
+            const code = input.value.trim();
+            if (code.length >= 3) {
+                const material = materials.find(m => m.code === code);
+                if (material) {
+                    const row = input.closest('tr');
+                    fillMaterialFields(row, material, { forcePrice: true });
+                    calcAmount(row);
+                    calcTotal();
+                    recordRecentMaterial(code);
+                    setTimeout(() => row.querySelector('.material-qty').focus(), 50);
+                }
+            }
+        }
+    });
+}
+setupScanAutoFill();
+
+// ==================== 批量修改功能 ====================
+function batchUpdateField() {
+    const field = prompt('请选择要修改的字段：\n1. 单价\n2. 数量\n3. 仓库');
+    if (!field) return;
+
+    let selector, value;
+    if (field === '1') {
+        value = prompt('请输入新的单价：');
+        if (value === null) return;
+        selector = '.material-price';
+    } else if (field === '2') {
+        value = prompt('请输入新的数量：');
+        if (value === null) return;
+        selector = '.material-qty';
+    } else if (field === '3') {
+        const warehouseSelect = document.querySelector('[name="warehouse"]');
+        const options = Array.from(warehouseSelect.options).filter(option => option.value);
+        if (options.length === 0) {
+            alert('没有可用仓库，请先维护仓库档案');
+            return;
+        }
+        const optionText = options.map((option, index) => (index + 1) + '. ' + option.textContent).join('\n');
+        const choice = prompt('请选择新的仓库：\n' + optionText);
+        if (choice === null) return;
+        const index = parseInt(choice, 10) - 1;
+        if (!Number.isInteger(index) || index < 0 || index >= options.length) {
+            alert('无效选择');
+            return;
+        }
+        warehouseSelect.value = options[index].value;
+        alert('仓库已修改');
+        return;
+    } else {
+        alert('无效选择');
+        return;
+    }
+
+    const rows = document.querySelectorAll('#materialTableBody tr');
+    let count = 0;
+    rows.forEach(row => {
+        const code = row.querySelector('.material-code').value.trim();
+        if (code) {
+            row.querySelector(selector).value = parseFloat(value).toFixed(2);
+            calcAmount(row);
+            count++;
+        }
+    });
+    calcTotal();
+    alert('已修改 ' + count + ' 行');
+}
+
+function showColumnSettings() {
+    const controller = window.outOrderColumnController;
+    if (!controller) {
+        alert('字段设置暂不可用，请刷新页面后再试');
+        return;
+    }
+    const choice = prompt('明细字段设置：\n1. 当前库存放到金额后面\n2. 恢复默认字段位置和列宽\n\n表头也可以直接拖动调整位置，拖动右侧边线调整宽度。');
+    if (choice === '1') {
+        controller.setOrder(['row_no', 'material_code', 'material_name', 'spec', 'unit', 'quantity', 'price', 'amount', 'stock', 'actions']);
+        alert('已把当前库存放到金额后面');
+    } else if (choice === '2') {
+        controller.reset();
+        alert('已恢复默认字段位置和列宽');
+    }
+}
+
+</script>
+{% endblock %}

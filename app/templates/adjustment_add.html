@@ -1,0 +1,865 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title or '库存调整单' }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.adjust-page {
+    background: #fff;
+    min-height: calc(100vh - 80px);
+}
+.adjust-header {
+    background: #fff;
+    padding: 12px 16px;
+    border-bottom: 1px solid #D9D9D9;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.adjust-header h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.adjust-body {
+    padding: 12px 16px;
+}
+.adjust-form .form-label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 3px;
+    font-weight: 400;
+}
+.adjust-form .form-control,
+.adjust-form .form-select {
+    border: 1px solid #D9D9D9;
+    border-radius: 2px;
+    padding: 3px 8px;
+    font-size: 12px;
+    height: 28px;
+    transition: border-color 0.15s;
+    background: #fff;
+}
+.adjust-form textarea.form-control {
+    height: auto;
+    min-height: 28px;
+    resize: vertical;
+}
+.adjust-form .form-control:focus,
+.adjust-form .form-select:focus,
+.adjust-grid input:focus {
+    border-color: #1890FF !important;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+    outline: none;
+}
+.adjust-toolbar {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 6px 0;
+}
+.adjust-toolbar .btn,
+.footer-bar .btn {
+    height: 34px;
+    border-radius: 5px;
+    font-size: 12px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 14px;
+    font-weight: 500;
+}
+.adjust-grid-wrapper {
+    border: 1px solid #D9D9D9;
+    overflow: visible;
+    background: #fff;
+}
+.adjust-grid {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+    table-layout: auto;
+}
+.adjust-grid thead th {
+    background: #FAFAFA;
+    color: #333;
+    font-weight: 500;
+    padding: 7px 8px;
+    border: 1px solid #E8E8E8;
+    font-size: 12px;
+    white-space: nowrap;
+    text-align: center;
+    height: 34px;
+}
+.adjust-grid tbody td {
+    padding: 0 4px;
+    vertical-align: middle;
+    font-size: 12px;
+    border: 1px solid #E8E8E8;
+    height: 30px;
+    color: #333;
+}
+.adjust-grid tbody tr:nth-child(even) td {
+    background-color: #FAFAFA;
+}
+.adjust-grid tbody tr:nth-child(odd) td {
+    background-color: #fff;
+}
+.adjust-grid tbody tr:hover td {
+    background-color: #E6F7FF;
+    border-color: #91D5FF;
+}
+.adjust-grid .row-num {
+    width: 42px;
+    text-align: center;
+    color: #999;
+    font-size: 12px;
+    padding: 0 2px;
+}
+.adjust-grid .action-col {
+    width: 86px;
+    text-align: center;
+    white-space: nowrap;
+}
+.adjust-grid .num-col {
+    text-align: right;
+}
+.adjust-grid input {
+    width: 100%;
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 2px 4px;
+    height: 26px;
+    font-size: 12px;
+    border-radius: 2px;
+    color: #333;
+}
+.adjust-grid input:hover:not([readonly]) {
+    border-color: #D9D9D9;
+    background: #FAFAFA;
+}
+.adjust-grid input[readonly] {
+    cursor: default;
+    color: #333;
+}
+.adjust-grid .num-col input {
+    text-align: right;
+}
+.material-input {
+    position: relative;
+}
+.material-select-btn {
+    position: absolute;
+    right: 1px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    padding: 1px 4px;
+    cursor: pointer;
+    font-size: 9px;
+    color: #888;
+    height: 20px;
+    line-height: 1;
+}
+.material-select-btn:hover {
+    color: #1890FF;
+}
+.material-dropdown {
+    position: fixed;
+    min-width: 420px;
+    max-height: 280px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #D9D9D9;
+    border-radius: 3px;
+    z-index: 99999;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+}
+.material-dropdown-item {
+    padding: 6px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid #F0F0F0;
+    font-size: 12px;
+}
+.material-dropdown-item:hover,
+.material-dropdown-item.active {
+    background-color: #E6F7FF;
+}
+.material-dropdown-item .code {
+    font-weight: 600;
+    color: #1890FF;
+}
+.material-dropdown-item .meta {
+    color: #999;
+    font-size: 11px;
+    margin-left: 6px;
+}
+.adjust-grid tfoot td {
+    padding: 8px;
+    font-size: 12px;
+    border: 1px solid #FFE58F;
+    font-weight: 600;
+    color: #333;
+    background: #FFFBE6;
+}
+.footer-bar {
+    background: #fff;
+    padding: 12px 16px;
+    border-top: 1px solid #D9D9D9;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+}
+.readonly-mask input:not([type="hidden"]),
+.readonly-mask select,
+.readonly-mask textarea {
+    pointer-events: none;
+    background: #F5F5F5 !important;
+    color: #666 !important;
+}
+@media (max-width: 768px) {
+    .adjust-body {
+        padding: 10px;
+    }
+    .material-dropdown {
+        min-width: 300px;
+        left: 10px !important;
+        right: 10px;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="adjust-page">
+    <div class="adjust-header">
+        <h2>
+            <i class="bi bi-sliders"></i>
+            {{ page_title or '库存调整单' }}
+            {% if adjustment %}
+            <span class="badge {{ 'bg-warning text-dark' if adjustment.status == 'pending' else 'bg-success' }}">
+                {{ '草稿' if adjustment.status == 'pending' else '已完成' if adjustment.status == 'completed' else adjustment.status }}
+            </span>
+            {% endif %}
+        </h2>
+        <div class="d-flex gap-2 flex-wrap">
+            {% if not readonly %}
+            <button type="button" class="btn btn-primary btn-sm" onclick="submitForm(false)">
+                <i class="bi bi-save"></i> 保存
+            </button>
+            <button type="button" class="btn btn-success btn-sm" onclick="submitForm(true)">
+                <i class="bi bi-check-circle"></i> 保存并完成
+            </button>
+            {% endif %}
+            {% if adjustment and adjustment.status == 'pending' %}
+            <button type="button" class="btn btn-success btn-sm" onclick="completeAdjustment()">
+                <i class="bi bi-check-circle"></i> 完成调整
+            </button>
+            {% endif %}
+            {% if adjustment %}
+            <a href="{{ url_for('print_adjustment', id=adjustment.id) }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-printer"></i> 打印
+            </a>
+            {% endif %}
+            <a href="/adjustment" class="btn btn-secondary btn-sm">
+                <i class="bi bi-arrow-left"></i> 返回列表
+            </a>
+        </div>
+    </div>
+
+    <div class="adjust-body">
+        <form id="adjustmentForm" class="adjust-form {{ 'readonly-mask' if readonly else '' }}">
+            <input type="hidden" name="order_id" value="{{ order_id }}">
+            <input type="hidden" name="adjustment_no" value="{{ adjustment_no }}">
+
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">单据编号</label>
+                        <input type="text" class="form-control" value="{{ adjustment_no }}" readonly>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">日期</label>
+                        <input type="date" class="form-control" name="date" value="{{ adjustment_date }}" {% if readonly %}readonly{% endif %}>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">调整类型</label>
+                        <select class="form-select" name="adjustment_type" {% if readonly %}disabled{% endif %}>
+                            <option value="surplus" {% if selected_type == 'surplus' %}selected{% endif %}>盘盈增加库存</option>
+                            <option value="loss" {% if selected_type == 'loss' %}selected{% endif %}>盘亏减少库存</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">操作人</label>
+                        <input type="text" class="form-control" value="{{ adjustment.operator.username if adjustment and adjustment.operator else current_user.username }}" readonly>
+                    </div>
+                </div>
+                <div class="col-md-12">
+                    <div class="mb-2">
+                        <label class="form-label">备注</label>
+                        <textarea class="form-control" name="remark" rows="2" {% if readonly %}readonly{% endif %}>{{ remark }}</textarea>
+                    </div>
+                </div>
+            </div>
+
+            {% if not readonly %}
+            <div class="adjust-toolbar">
+                <button type="button" class="btn btn-primary" onclick="addNewRow()">
+                    <i class="bi bi-plus"></i> 添加行
+                </button>
+                <button type="button" class="btn btn-outline-success" onclick="showPasteModal()">
+                    <i class="bi bi-clipboard"></i> 粘贴导入
+                </button>
+                <button type="button" class="btn btn-outline-secondary" onclick="refreshMaterials()">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新物料
+                </button>
+            </div>
+            {% endif %}
+
+            <div class="table-responsive adjust-grid-wrapper">
+                <table class="adjust-grid" id="adjustmentTable">
+                    <thead>
+                        <tr>
+                            <th class="row-num">序号</th>
+                            <th style="width: 150px;">物料编码</th>
+                            <th>物料名称</th>
+                            <th style="width: 110px;">规格</th>
+                            <th style="width: 70px;">单位</th>
+                            <th style="width: 95px;">当前库存</th>
+                            <th style="width: 100px;">调整数量</th>
+                            <th style="width: 120px;">库位</th>
+                            <th style="width: 220px;">调整原因</th>
+                            {% if not readonly %}
+                            <th class="action-col">操作</th>
+                            {% endif %}
+                        </tr>
+                    </thead>
+                    <tbody id="adjustmentTableBody"></tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="6" class="text-end">合计：</td>
+                            <td class="text-end" id="totalQty">0.00</td>
+                            <td colspan="{{ 3 if not readonly else 2 }}"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const materials = {{ materials|tojson }};
+const existingItems = {{ existing_items|tojson }};
+const readonly = {{ readonly|tojson }};
+const minRowCount = 15;
+let activeDropdown = null;
+
+function formatQty(value) {
+    const num = parseFloat(value);
+    return Number.isFinite(num) ? num.toFixed(2) : '0.00';
+}
+
+function getMaterialUnit(material) {
+    if (!material || !material.unit) return '';
+    return typeof material.unit === 'object' ? (material.unit.name || '') : material.unit;
+}
+
+function findMaterialByCode(code) {
+    const normalized = String(code || '').trim().toLowerCase();
+    if (!normalized) return null;
+    return materials.find(m => String(m.code || '').toLowerCase() === normalized) || null;
+}
+
+function fillMaterialFields(row, material) {
+    row.dataset.materialId = material.id || '';
+    row.querySelector('.material-code').value = material.code || '';
+    row.querySelector('.material-name').value = material.name || '';
+    row.querySelector('.material-spec').value = material.spec || '';
+    row.querySelector('.material-unit').value = getMaterialUnit(material);
+    row.querySelector('.material-stock').value = formatQty(material.stock);
+}
+
+function clearMaterialFields(row) {
+    row.dataset.materialId = '';
+    row.querySelector('.material-name').value = '';
+    row.querySelector('.material-spec').value = '';
+    row.querySelector('.material-unit').value = '';
+    row.querySelector('.material-stock').value = '';
+}
+
+function bindRowEvents(row) {
+    if (readonly) return;
+
+    const codeInput = row.querySelector('.material-code');
+    codeInput.addEventListener('input', function() {
+        const material = findMaterialByCode(this.value);
+        if (material) {
+            fillMaterialFields(row, material);
+        } else {
+            clearMaterialFields(row);
+        }
+        showDropdown(row);
+    });
+    codeInput.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            hideDropdown();
+        } else if (event.key === 'Enter') {
+            event.preventDefault();
+            const material = findMaterialByCode(this.value);
+            if (material) {
+                fillMaterialFields(row, material);
+                hideDropdown();
+                row.querySelector('.adjust-qty').focus();
+            }
+        }
+    });
+    row.querySelector('.material-select-btn').addEventListener('click', function() {
+        showDropdown(row, true);
+    });
+    row.querySelector('.adjust-qty').addEventListener('input', function() {
+        trimDecimalInput(this);
+        calcTotal();
+    });
+    row.querySelector('.adjust-qty').addEventListener('blur', function() {
+        if (this.value) this.value = formatQty(this.value);
+        calcTotal();
+    });
+}
+
+function createRow(item) {
+    const tbody = document.getElementById('adjustmentTableBody');
+    const row = tbody.insertRow();
+    row.dataset.materialId = item && item.material_id ? item.material_id : '';
+    row.innerHTML = `
+        <td class="row-num"></td>
+        <td>
+            <div class="material-input">
+                <input type="text" class="material-code" ${readonly ? 'readonly' : ''}>
+                ${readonly ? '' : '<button type="button" class="material-select-btn">▼</button><div class="material-dropdown" style="display:none;"></div>'}
+            </div>
+        </td>
+        <td><input type="text" class="material-name" readonly></td>
+        <td><input type="text" class="material-spec" readonly></td>
+        <td><input type="text" class="material-unit" readonly></td>
+        <td class="num-col"><input type="text" class="material-stock" readonly></td>
+        <td class="num-col"><input type="number" class="adjust-qty" min="0" step="0.01" ${readonly ? 'readonly' : ''}></td>
+        <td><input type="text" class="adjust-location" ${readonly ? 'readonly' : ''}></td>
+        <td><input type="text" class="adjust-reason" ${readonly ? 'readonly' : ''}></td>
+        ${readonly ? '' : `<td class="action-col">
+            <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除行"><i class="bi bi-trash"></i></button>
+        </td>`}
+    `;
+
+    if (item) {
+        row.dataset.materialId = item.material_id || '';
+        row.querySelector('.material-code').value = item.code || '';
+        row.querySelector('.material-name').value = item.name || '';
+        row.querySelector('.material-spec').value = item.spec || '';
+        row.querySelector('.material-unit').value = item.unit || '';
+        row.querySelector('.material-stock').value = formatQty(item.stock);
+        row.querySelector('.adjust-qty').value = item.quantity ? formatQty(item.quantity) : '';
+        row.querySelector('.adjust-location').value = item.location || '';
+        row.querySelector('.adjust-reason').value = item.reason || '';
+    }
+
+    bindRowEvents(row);
+    renumberRows();
+    return row;
+}
+
+function addNewRow() {
+    const row = createRow(null);
+    const codeInput = row.querySelector('.material-code');
+    if (codeInput && !readonly) codeInput.focus();
+}
+
+function insertRowBefore(btn) {
+    const tbody = document.getElementById('adjustmentTableBody');
+    const currentRow = btn.closest('tr');
+    const row = createRow(null);
+    tbody.insertBefore(row, currentRow);
+    renumberRows();
+    row.querySelector('.material-code')?.focus();
+    return row;
+}
+
+function deleteRow(btn) {
+    const tbody = document.getElementById('adjustmentTableBody');
+    btn.closest('tr').remove();
+    while (tbody.rows.length < minRowCount) {
+        createRow(null);
+    }
+    renumberRows();
+    calcTotal();
+}
+
+function copyRowAfter(row) {
+    if (!row) {
+        addNewRow();
+        return;
+    }
+    const target = createRow(null);
+    if (row.nextElementSibling) {
+        document.getElementById('adjustmentTableBody').insertBefore(target, row.nextElementSibling);
+    }
+    target.dataset.materialId = row.dataset.materialId || '';
+    target.querySelector('.material-code').value = row.querySelector('.material-code').value;
+    target.querySelector('.material-name').value = row.querySelector('.material-name').value;
+    target.querySelector('.material-spec').value = row.querySelector('.material-spec').value;
+    target.querySelector('.material-unit').value = row.querySelector('.material-unit').value;
+    target.querySelector('.material-stock').value = row.querySelector('.material-stock').value;
+    target.querySelector('.adjust-qty').value = row.querySelector('.adjust-qty').value;
+    target.querySelector('.adjust-location').value = row.querySelector('.adjust-location').value;
+    target.querySelector('.adjust-reason').value = row.querySelector('.adjust-reason').value;
+    calcTotal();
+    target.querySelector('.adjust-qty').focus();
+    target.querySelector('.adjust-qty').select();
+}
+
+function renumberRows() {
+    document.querySelectorAll('#adjustmentTableBody tr').forEach(function(row, index) {
+        row.querySelector('.row-num').textContent = index + 1;
+    });
+}
+
+function trimDecimalInput(input) {
+    const val = input.value;
+    if (val.includes('.')) {
+        const parts = val.split('.');
+        if (parts[1].length > 2) {
+            input.value = parts[0] + '.' + parts[1].substring(0, 2);
+        }
+    }
+}
+
+function calcTotal() {
+    let total = 0;
+    document.querySelectorAll('#adjustmentTableBody tr').forEach(function(row) {
+        const code = row.querySelector('.material-code').value.trim();
+        if (!code) return;
+        total += parseFloat(row.querySelector('.adjust-qty').value) || 0;
+    });
+    document.getElementById('totalQty').textContent = total.toFixed(2);
+}
+
+function showDropdown(row, showAll) {
+    if (readonly) return;
+    const input = row.querySelector('.material-code');
+    const dropdown = row.querySelector('.material-dropdown');
+    if (!dropdown) return;
+    const keyword = input.value.toLowerCase().trim();
+    if (activeDropdown && activeDropdown !== dropdown) {
+        activeDropdown.style.display = 'none';
+    }
+
+    const filtered = materials.filter(function(m) {
+        return showAll ||
+            String(m.code || '').toLowerCase().includes(keyword) ||
+            String(m.name || '').toLowerCase().includes(keyword) ||
+            String(m.spec || '').toLowerCase().includes(keyword);
+    }).slice(0, 80);
+
+    if (!filtered.length) {
+        dropdown.style.display = 'none';
+        return;
+    }
+
+    dropdown.innerHTML = filtered.map(function(m) {
+        return `<div class="material-dropdown-item" data-code="${escapeHtml(m.code)}">
+            <span class="code">${escapeHtml(m.code)}</span> - ${escapeHtml(m.name)}
+            <span class="meta">${escapeHtml(m.spec || '')}</span>
+            <span class="meta">${escapeHtml(getMaterialUnit(m))}</span>
+            <span class="meta">库存 ${formatQty(m.stock)}</span>
+        </div>`;
+    }).join('');
+
+    dropdown.querySelectorAll('.material-dropdown-item').forEach(function(item) {
+        item.addEventListener('click', function() {
+            const material = findMaterialByCode(this.dataset.code);
+            if (material) {
+                fillMaterialFields(row, material);
+                hideDropdown();
+                row.querySelector('.adjust-qty').focus();
+            }
+        });
+    });
+
+    const rect = input.getBoundingClientRect();
+    dropdown.style.top = (rect.bottom + 5) + 'px';
+    dropdown.style.left = rect.left + 'px';
+    dropdown.style.display = 'block';
+    activeDropdown = dropdown;
+}
+
+function hideDropdown() {
+    if (activeDropdown) {
+        activeDropdown.style.display = 'none';
+        activeDropdown = null;
+    }
+}
+
+function escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function collectItems() {
+    const items = [];
+    let invalidRows = [];
+    document.querySelectorAll('#adjustmentTableBody tr').forEach(function(row, index) {
+        const codeInput = row.querySelector('.material-code');
+        const qtyInput = row.querySelector('.adjust-qty');
+        const code = codeInput.value.trim();
+        const qty = parseFloat(qtyInput.value);
+        if (!code) {
+            codeInput.style.borderColor = '';
+            qtyInput.style.borderColor = '';
+            return;
+        }
+
+        const material = findMaterialByCode(code);
+        if (!material) {
+            codeInput.style.borderColor = '#ff4d4f';
+            invalidRows.push('第 ' + (index + 1) + ' 行物料不存在');
+            return;
+        }
+        codeInput.style.borderColor = '';
+
+        if (!qty || qty <= 0) {
+            qtyInput.style.borderColor = '#ff4d4f';
+            invalidRows.push('第 ' + (index + 1) + ' 行数量无效');
+            return;
+        }
+        qtyInput.style.borderColor = '';
+
+        items.push({
+            material_id: material.id,
+            code: material.code,
+            quantity: qty,
+            location: row.querySelector('.adjust-location').value.trim(),
+            reason: row.querySelector('.adjust-reason').value.trim()
+        });
+    });
+    return {items, invalidRows};
+}
+
+function submitForm(completeAfterSave) {
+    if (readonly) return;
+    const date = document.querySelector('[name="date"]').value;
+    if (!date) {
+        showToast('请填写日期', 'warning');
+        document.querySelector('[name="date"]').focus();
+        return;
+    }
+
+    const result = collectItems();
+    if (result.invalidRows.length) {
+        showToast(result.invalidRows[0], 'danger', 3600);
+        return;
+    }
+    if (!result.items.length) {
+        showToast('请至少填写一条调整明细', 'warning');
+        return;
+    }
+
+    const data = {
+        order_id: document.querySelector('[name="order_id"]').value,
+        adjustment_no: document.querySelector('[name="adjustment_no"]').value,
+        date: date,
+        adjustment_type: document.querySelector('[name="adjustment_type"]').value,
+        remark: document.querySelector('[name="remark"]').value,
+        items: result.items
+    };
+
+    const saveBtn = document.querySelector('.footer-bar .btn-primary');
+    if (saveBtn) saveBtn.disabled = true;
+    fetch('/adjustment/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(res) {
+        if (res.status !== 'success') {
+            throw new Error(res.msg || '保存失败');
+        }
+        document.querySelector('[name="order_id"]').value = res.id;
+        if (res.adjustment_no) {
+            document.querySelector('[name="adjustment_no"]').value = res.adjustment_no;
+        }
+        if (!completeAfterSave) {
+            showToast('保存成功', 'success');
+            setTimeout(function() { window.location.href = '/adjustment/' + res.id; }, 500);
+            return null;
+        }
+        return fetch('/adjustment/' + res.id + '/complete', {method: 'POST'})
+            .then(function(r) { return r.json(); })
+            .then(function(completeRes) {
+                if (completeRes.status === 'success') {
+                    showToast(completeRes.msg || '库存调整已完成', 'success');
+                    setTimeout(function() { window.location.href = '/adjustment/' + res.id; }, 600);
+                } else {
+                    showToast('单据已保存但完成失败：' + (completeRes.msg || '未知错误'), 'danger', 4200);
+                    setTimeout(function() { window.location.href = '/adjustment/' + res.id; }, 900);
+                }
+            });
+    })
+    .catch(function(err) {
+        showToast(err.message || '保存失败', 'danger', 3600);
+    })
+    .finally(function() {
+        if (saveBtn) saveBtn.disabled = false;
+    });
+}
+
+function completeAdjustment() {
+    if (!confirm('确认完成该库存调整单？完成后会立即变更库存。')) return;
+    submitForm(true);
+}
+
+function showPasteModal() {
+    const modal = document.createElement('div');
+    modal.id = 'pasteModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:white;border-radius:8px;padding:22px;width:620px;max-width:92%;max-height:82vh;display:flex;flex-direction:column;">
+            <h5 style="margin:0 0 14px;font-size:16px;font-weight:600;">粘贴导入</h5>
+            <div style="color:#666;font-size:13px;margin-bottom:10px;">支持从 Excel 复制多行，格式：物料编码、数量、库位、原因。</div>
+            <textarea id="pasteArea" style="min-height:220px;border:1px solid #d9d9d9;border-radius:4px;padding:12px;font-size:13px;font-family:Consolas,monospace;resize:vertical;" placeholder="M001\t10\tA区\t盘盈调整\nM002\t5\tB区\t盘亏调整"></textarea>
+            <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('pasteModal').remove()">取消</button>
+                <button type="button" class="btn btn-primary" onclick="parsePastedData()">确认导入</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    setTimeout(function() { document.getElementById('pasteArea').focus(); }, 80);
+}
+
+function parsePastedData() {
+    const text = document.getElementById('pasteArea').value.trim();
+    if (!text) {
+        showToast('请输入要导入的数据', 'warning');
+        return;
+    }
+
+    let success = 0;
+    let failures = [];
+    text.split(/\r?\n/).forEach(function(line, index) {
+        if (!line.trim()) return;
+        const parts = line.split(/\t|,|，/).map(function(part) { return part.trim(); });
+        const code = parts[0] || '';
+        const quantity = parseFloat(parts[1]);
+        const material = findMaterialByCode(code);
+        if (!material || !quantity || quantity <= 0) {
+            failures.push('第 ' + (index + 1) + ' 行格式不正确');
+            return;
+        }
+        let row = findEmptyRow();
+        if (!row) {
+            row = createRow(null);
+        }
+        fillMaterialFields(row, material);
+        row.querySelector('.adjust-qty').value = formatQty(quantity);
+        row.querySelector('.adjust-location').value = parts[2] || '';
+        row.querySelector('.adjust-reason').value = parts[3] || '';
+        success++;
+    });
+    calcTotal();
+    document.getElementById('pasteModal').remove();
+    showToast('成功导入 ' + success + ' 行' + (failures.length ? '，失败 ' + failures.length + ' 行' : ''), failures.length ? 'warning' : 'success', 3600);
+}
+
+function findEmptyRow() {
+    const rows = document.querySelectorAll('#adjustmentTableBody tr');
+    for (const row of rows) {
+        if (!row.querySelector('.material-code').value.trim()) return row;
+    }
+    return null;
+}
+
+function refreshMaterials() {
+    fetch('/material/api/all')
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.status === 'success' && Array.isArray(res.materials)) {
+                materials.length = 0;
+                res.materials.forEach(function(m) { materials.push(m); });
+                showToast('物料列表已刷新', 'success');
+            } else {
+                showToast(res.msg || '刷新失败', 'danger');
+            }
+        })
+        .catch(function(err) {
+            showToast('刷新失败：' + err.message, 'danger');
+        });
+}
+
+document.addEventListener('click', function(e) {
+    if (activeDropdown && !e.target.closest('.material-input')) {
+        hideDropdown();
+    }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    existingItems.forEach(function(item) {
+        createRow(item);
+    });
+    const targetRows = Math.max(minRowCount, existingItems.length);
+    while (document.getElementById('adjustmentTableBody').rows.length < targetRows) {
+        createRow(null);
+    }
+    renumberRows();
+    calcTotal();
+    if (!readonly) {
+        registerDetailRowActions({
+            tableSelector: '#adjustmentTable',
+            rowSelector: '#adjustmentTableBody tr',
+            add: function() { addNewRow(); },
+            insert: function(row) { insertRowBefore(row); },
+            copy: function(row) { copyRowAfter(row); },
+            remove: function(row) { deleteRow(row); }
+        });
+    }
+    try {
+        if (typeof BroadcastChannel !== 'undefined') {
+            const materialBc = new BroadcastChannel('wms_material_update');
+            materialBc.onmessage = function(event) {
+                if (event.data && event.data.type === 'material_updated') refreshMaterials();
+            };
+            const masterBc = new BroadcastChannel('wms_master_data_update');
+            masterBc.onmessage = function(event) {
+                const type = event.data && event.data.type;
+                if (type === 'unit_updated' || type === 'material_updated') refreshMaterials();
+            };
+        }
+    } catch(e) {}
+});
+</script>
+{% endblock %}

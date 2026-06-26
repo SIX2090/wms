@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+{% block title %}领料明细{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-box-arrow-up"></i> 领料明细</h2>
+        {% if current_user.role in ['admin', 'warehouse'] %}
+        <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchOutOrderAction('/out_order/batch_delete', '请选择要删除的领料单', '确认删除选中的领料单？')">
+                <i class="bi bi-trash"></i> 删除已选
+            </button>
+            <button type="button" class="btn btn-outline-success btn-sm" onclick="batchOutOrderAction('/out_order/batch_complete', '请选择要完成的领料单', '确认完成选中的领料单？完成后会扣减库存。')">
+                <i class="bi bi-check2-circle"></i> 完成已选
+            </button>
+            <a href="/export/template/out_order" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
+            <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('outOrderImportFile').click()">
+                <i class="bi bi-upload"></i> 导入
+            </button>
+            <a href="/out_order/export?status={{ filters.status }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-file-earmark-excel"></i> 导出
+            </a>
+            <a href="/out_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增领料单</a>
+            <form id="outOrderImportForm" action="/import/out_order" method="post" enctype="multipart/form-data" class="d-none">
+                <input type="file" id="outOrderImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('outOrderImportForm', 'outOrderImportFile')">
+            </form>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            {% if request.args.get('embedded') == '1' %}
+            <input type="hidden" name="embedded" value="1">
+            {% endif %}
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">状态</label>
+                <select name="status" class="form-select form-select-sm">
+                    <option value="" {% if not filters.status %}selected{% endif %}>全部状态</option>
+                    <option value="pending" {% if filters.status == 'pending' %}selected{% endif %}>未审核/待完成</option>
+                    <option value="completed" {% if filters.status == 'completed' %}selected{% endif %}>已完成</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">开始日期</label>
+                <input type="date" name="date_start" class="form-control form-control-sm" value="{{ filters.date_start }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">结束日期</label>
+                <input type="date" name="date_end" class="form-control form-control-sm" value="{{ filters.date_end }}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small text-muted mb-1">关键词</label>
+                <input type="text" name="search" class="form-control form-control-sm" placeholder="单号/领料部门/物料编码/物料名称/规格" value="{{ filters.search }}">
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
+                {% if filters.status or filters.search or filters.date_start or filters.date_end %}
+                <a href="/out_order{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive-wrapper">
+        <table class="table table-bordered table-hover table-sm mb-0" id="outOrderTable">
+            <thead>
+                <tr>
+                    <th width="56" class="text-center">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
+                    <th width="50">序号</th>
+                    <th data-sortable="order_no" class="sortable-header">领料单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="customer" class="sortable-header">领料部门 {% if sort_by=='customer' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th>物料编号</th>
+                    <th>物料名称</th>
+                    <th>规格</th>
+                    <th>单位</th>
+                    <th>数量</th>
+                    <th>单价</th>
+                    <th data-sortable="total_amount" class="sortable-header">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="business_type" class="sortable-header">业务类型 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td class="text-center"><input type="checkbox" class="check-item" value="{{ item.out_order.id }}" {% if item.out_order.status != 'pending' %}disabled title="已完成单据不能删除"{% endif %}></td>
+                    <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
+                    <td><a href="{{ url_for('out_order_detail', id=item.out_order.id) }}">{{ item.out_order.order_no }}</a></td>
+                    <td>{{ item.out_order.date.strftime('%Y-%m-%d') if item.out_order.date else '-' }}</td>
+                    <td>{{ item.out_order.customer or (item.out_order.department.name if item.out_order.department else '-') }}</td>
+                    <td>{{ item.material.code if item.material else '-' }}</td>
+                    <td>{{ item.material.name if item.material else '-' }}</td>
+                    <td>{{ item.material.spec if item.material else '-' }}</td>
+                    <td>{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
+                    <td>{{ "%.2f"|format(item.quantity) if item.material else '-' }}</td>
+                    <td>{% if item.material %}¥{{ "%.2f"|format(item.price) }}{% else %}-{% endif %}</td>
+                    <td>{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
+                    <td>{{ item.out_order.business_type or item.out_order.purpose or '-' }}</td>
+                    <td>
+                        {% if item.out_order.status == 'pending' %}
+                        <span class="badge bg-warning">未审核/待完成</span>
+                        {% elif item.out_order.status == 'completed' %}
+                        <span class="badge bg-success">已完成</span>
+                        {% else %}
+                        <span class="badge bg-secondary">{{ item.out_order.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('out_order_detail', id=item.out_order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情">
+                            <i class="bi bi-eye"></i>
+                        </a>
+                        {% if item.out_order.status == 'pending' and current_user.role in ['admin', 'warehouse'] %}
+                        <button type="button" class="btn btn-sm btn-outline-success" title="完成" onclick="singleOutOrderAction('/out_order/{{ item.out_order.id }}/complete', '确认完成该领料单？完成后会扣减库存。')">
+                            <i class="bi bi-check-circle"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" title="删除" onclick="singleOutOrderAction('/out_order/{{ item.out_order.id }}/delete', '确认删除该领料单？')">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                        {% elif item.out_order.status == 'completed' and current_user.role in ['admin', 'warehouse'] %}
+                        <button type="button" class="btn btn-sm btn-outline-warning" title="反提交" onclick="singleOutOrderAction('/out_order/{{ item.out_order.id }}/revert', '确认反提交该领料单？反提交后库存将恢复。')">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                        </button>
+                        {% endif %}
+                        <a href="{{ url_for('print_out_order', id=item.out_order.id) }}" class="btn btn-sm btn-outline-secondary" title="打印">
+                            <i class="bi bi-printer"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="15" class="text-center text-muted">暂无领料明细</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        
+        {% if pagination.pages > 1 %}
+        <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <span class="text-muted">每页显示</span>
+                <select class="form-select form-select-sm" style="width:auto" onchange="changePerPage(this.value)">
+                    <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+                    <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+                    <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+                    <option value="200" {% if per_page == 200 %}selected{% endif %}>200</option>
+                </select>
+                <span class="text-muted">条，共 {{ pagination.total }} 条记录</span>
+            </div>
+        <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center mb-0">
+                {% if pagination.has_prev %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('out_order_list', page=pagination.prev_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">上一页</a>
+                </li>
+                {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link">上一页</span>
+                </li>
+                {% endif %}
+                
+                {% for page_num in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
+                    {% if page_num %}
+                        {% if page_num == pagination.page %}
+                        <li class="page-item active">
+                            <span class="page-link">{{ page_num }}</span>
+                        </li>
+                        {% else %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('out_order_list', page=page_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
+                        </li>
+                        {% endif %}
+                    {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">...</span>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if pagination.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('out_order_list', page=pagination.next_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">下一页</a>
+                </li>
+                {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link">下一页</span>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    initCheckAll('outOrderTable');
+    setupResizableTable({
+        tableSelector: '.table-responsive-wrapper table',
+        tableId: 'out-order-detail-list',
+        minWidth: 70
+    });
+
+    document.querySelectorAll('.sortable-header').forEach(function(th) {
+        th.addEventListener('click', function() {
+            var sortField = this.dataset.sortable;
+            if (!sortField) return;
+            var currentSort = '{{ sort_by }}';
+            var currentOrder = '{{ sort_order }}';
+            var newOrder = (currentSort === sortField && currentOrder === 'asc') ? 'desc' : 'asc';
+            var url = new URL(window.location.href);
+            url.searchParams.set('sort', sortField);
+            url.searchParams.set('order', newOrder);
+            url.searchParams.set('page', '1');
+            window.location.href = url.toString();
+        });
+    });
+});
+
+function changePerPage(perPage) {
+    var url = new URL(window.location.href);
+    url.searchParams.set('per_page', perPage);
+    url.searchParams.set('page', '1');
+    window.location.href = url.toString();
+}
+
+function selectedOrderIds(tableId) {
+    var ids = [];
+    document.querySelectorAll('#' + tableId + ' .check-item:checked').forEach(function(cb) {
+        if (ids.indexOf(cb.value) === -1) ids.push(cb.value);
+    });
+    return ids;
+}
+
+function batchOutOrderAction(url, emptyMessage, confirmMessage) {
+    var ids = selectedOrderIds('outOrderTable');
+    if (!ids.length) {
+        showToast(emptyMessage, 'warning');
+        return;
+    }
+    showConfirm(confirmMessage, {title: '批量处理领料单'}).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ids: ids})
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (data.status === 'success') {
+                showToast(data.msg || '操作成功', 'success');
+                setTimeout(function(){ location.reload(); }, 650);
+            } else {
+                showToast(data.msg || '操作失败', 'danger', 5000);
+            }
+        })
+        .catch(function(error) { showToast('操作失败：' + error.message, 'danger', 5000); });
+    });
+}
+
+function singleOutOrderAction(url, confirmMessage) {
+    showConfirm(confirmMessage, {title: '处理领料单'}).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch(url, {method: 'POST'})
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (data.status === 'success') {
+                showToast(data.msg || '操作成功', 'success');
+                setTimeout(function(){ location.reload(); }, 650);
+            } else {
+                showToast(data.msg || '操作失败', 'danger', 5000);
+            }
+        })
+        .catch(function(error) { showToast('操作失败：' + error.message, 'danger', 5000); });
+    });
+}
+
+function submitDocumentImport(formId, fileId) {
+    var form = document.getElementById(formId);
+    var fileInput = document.getElementById(fileId);
+    if (!fileInput.files.length) return;
+    var formData = new FormData(form);
+    fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            showToast(data.msg || '导入成功', 'success', 3600);
+            setTimeout(function(){ location.reload(); }, 900);
+        } else {
+            showToast(data.msg || '导入失败', 'danger', 5000);
+        }
+    })
+    .catch(function(error) { showToast('导入失败：' + error.message, 'danger', 5000); })
+    .finally(function() { fileInput.value = ''; });
+}
+</script>
+
+<style>
+.sortable-header { cursor: pointer; user-select: none; white-space: nowrap; }
+.sortable-header:hover { background-color: #e9ecef; }
+.sortable-header:not([data-sort-active])::after { content: '⇅'; font-size: 0.7em; margin-left: 4px; opacity: 0.4; }
+.sortable-header:not([data-sort-active]):hover::after { opacity: 0.8; }
+</style>
+{% endblock %}

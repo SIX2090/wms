@@ -1,0 +1,923 @@
+{% extends "base.html" %}
+{% block title %}首页{% endblock %}
+
+{% block extra_css %}
+<style>
+.dashboard-shell {
+    display: grid;
+    gap: 24px;
+    padding-bottom: 28px;
+}
+.workbench-hero {
+    background: linear-gradient(135deg, #0f4c81 0%, #1a73e8 50%, #2989d8 100%);
+    border-radius: 16px;
+    padding: 28px;
+    color: #fff;
+    box-shadow: 0 18px 42px rgba(15, 76, 129, 0.25);
+}
+.workbench-hero .hero-top {
+    display: grid;
+    grid-template-columns: minmax(360px, 0.95fr) minmax(520px, 1.35fr);
+    gap: 24px;
+    align-items: center;
+}
+.workbench-hero h2 {
+    margin: 0;
+    font-size: 30px;
+    font-weight: 700;
+}
+.workbench-hero p {
+    margin: 8px 0 0;
+    color: rgba(255,255,255,0.88);
+}
+.hero-action-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+.hero-action-card {
+    min-height: 112px;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 10px;
+    padding: 18px;
+    border-radius: 14px;
+    background: #ffffff;
+    color: #111827;
+    border: 1px solid rgba(255,255,255,0.55);
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
+    text-decoration: none;
+    transition: transform .16s ease, box-shadow .16s ease;
+}
+.hero-action-card:hover {
+    color: #111827;
+    transform: translateY(-2px);
+    box-shadow: 0 18px 38px rgba(15, 23, 42, 0.16);
+}
+.hero-action-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+}
+.hero-action-icon {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    color: #fff;
+    flex-shrink: 0;
+}
+.hero-action-icon.in { background: #16a34a; }
+.hero-action-icon.out { background: #2563eb; }
+.hero-action-icon.todo { background: #7c3aed; }
+.hero-action-count {
+    min-width: 30px;
+    height: 30px;
+    padding: 0 9px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #eef2ff;
+    color: #4338ca;
+    font-weight: 700;
+}
+.hero-action-main strong {
+    display: block;
+    font-size: 16px;
+    margin-bottom: 6px;
+}
+.hero-action-main span {
+    display: block;
+    color: #6b7280;
+    font-size: 13px;
+    line-height: 1.45;
+}
+.summary-grid,
+.quick-grid,
+.todo-grid,
+.board-grid {
+    display: grid;
+    gap: 16px;
+}
+.summary-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.summary-card {
+    display: block;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+    border-radius: 18px;
+    padding: 20px 24px;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+    border: 1px solid rgba(79, 140, 255, 0.12);
+    color: inherit;
+    text-decoration: none;
+    transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.summary-card:hover {
+    color: inherit;
+    transform: translateY(-3px);
+    border-color: rgba(26, 115, 232, 0.4);
+    box-shadow: 0 16px 36px rgba(26, 115, 232, 0.15);
+}
+.summary-card .label {
+    color: #6b7280;
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+.summary-card .value {
+    font-size: 30px;
+    font-weight: 700;
+    color: #111827;
+}
+.summary-card .hint {
+    margin-top: 6px;
+    font-size: 13px;
+    color: #6b7280;
+}
+.section-card {
+    background: linear-gradient(135deg, #ffffff 0%, #fafbff 100%);
+    border-radius: 16px;
+    border: 1px solid rgba(79, 140, 255, 0.1);
+    box-shadow: 0 10px 32px rgba(15, 23, 42, 0.08);
+    overflow: hidden;
+}
+.section-card .section-header {
+    padding: 18px 22px;
+    border-bottom: 1px solid #eef2f7;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.section-card .section-header h3 {
+    margin: 0;
+    font-size: 20px;
+}
+.section-card .section-header p {
+    margin: 4px 0 0;
+    color: #6b7280;
+    font-size: 14px;
+}
+.section-body {
+    padding: 22px;
+}
+.quick-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.quick-link {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    border-radius: 18px;
+    padding: 20px;
+    background: linear-gradient(135deg, #f8fbff 0%, #eef6ff 100%);
+    border: 1px solid rgba(79, 140, 255, 0.15);
+    transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.quick-link:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 14px 30px rgba(26, 115, 232, 0.15);
+    border-color: rgba(26, 115, 232, 0.35);
+}
+.quick-link .icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    margin-bottom: 14px;
+    color: #fff;
+}
+.quick-link.in .icon { background: linear-gradient(135deg, #16a34a, #22c55e); }
+.quick-link.out .icon { background: linear-gradient(135deg, #2563eb, #3b82f6); }
+.quick-link.purchase .icon { background: linear-gradient(135deg, #d97706, #f59e0b); }
+.quick-link.stock .icon { background: linear-gradient(135deg, #7c3aed, #8b5cf6); }
+.quick-link strong {
+    display: block;
+    font-size: 16px;
+    margin-bottom: 6px;
+}
+.quick-link span {
+    color: #6b7280;
+    font-size: 13px;
+}
+.todo-grid {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.todo-card {
+    border: 1px solid rgba(79, 140, 255, 0.12);
+    border-radius: 18px;
+    padding: 20px;
+    background: linear-gradient(135deg, #ffffff 0%, #fafbff 100%);
+}
+.todo-card .todo-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    gap: 10px;
+}
+.todo-card .todo-head h4 {
+    margin: 0;
+    font-size: 17px;
+}
+.todo-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-weight: 700;
+    background: #eef2ff;
+    color: #4338ca;
+}
+.todo-list {
+    display: grid;
+    gap: 10px;
+}
+.todo-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: #fff;
+    border: 1px solid #eef2f7;
+    text-decoration: none;
+    color: inherit;
+}
+.todo-item:hover {
+    border-color: #c7d2fe;
+    background: #f8faff;
+}
+.todo-item .meta {
+    color: #6b7280;
+    font-size: 13px;
+    margin-top: 4px;
+}
+.todo-empty,
+.empty-state {
+    color: #6b7280;
+    font-size: 14px;
+}
+.board-grid {
+    grid-template-columns: 1.3fr 1fr;
+}
+.recent-list {
+    display: grid;
+    gap: 12px;
+}
+.recent-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    padding: 14px 16px;
+    border: 1px solid #eef2f7;
+    border-radius: 16px;
+    text-decoration: none;
+    color: inherit;
+}
+.recent-item:hover {
+    border-color: #dbeafe;
+    background: #f8fbff;
+}
+.recent-main {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+}
+.recent-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 20px;
+}
+.badge-success-soft { background: linear-gradient(135deg, #16a34a, #22c55e); }
+.badge-primary-soft { background: linear-gradient(135deg, #2563eb, #3b82f6); }
+.badge-warning-soft { background: linear-gradient(135deg, #d97706, #f59e0b); }
+.mini-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.mini-table th,
+.mini-table td {
+    padding: 10px 0;
+    border-bottom: 1px solid #eef2f7;
+    font-size: 14px;
+}
+.mini-table th {
+    color: #6b7280;
+    font-weight: 600;
+}
+.mini-table tr:last-child td,
+.mini-table tr:last-child th {
+    border-bottom: none;
+}
+.business-flow {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+    align-items: stretch;
+}
+.flow-step {
+    position: relative;
+    display: grid;
+    gap: 8px;
+    padding: 18px;
+    border: 1px solid rgba(79, 140, 255, 0.12);
+    border-radius: 14px;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+    color: inherit;
+    text-decoration: none;
+    min-height: 112px;
+}
+.flow-step:hover {
+    color: inherit;
+    border-color: rgba(26, 115, 232, 0.35);
+    background: linear-gradient(135deg, #f8fbff 0%, #eef6ff 100%);
+}
+.flow-step .flow-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    background: #4f46e5;
+}
+.flow-step strong {
+    font-size: 15px;
+}
+.flow-step span {
+    color: #6b7280;
+    font-size: 12px;
+}
+.flow-step .flow-count {
+    position: absolute;
+    right: 12px;
+    top: 12px;
+    min-width: 28px;
+    height: 28px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #4338ca;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 12px;
+}
+.inventory-task-list {
+    display: grid;
+    gap: 10px;
+}
+.inventory-task {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid #eef2f7;
+    color: inherit;
+    text-decoration: none;
+}
+.inventory-task:hover {
+    color: inherit;
+    background: #f8faff;
+    border-color: #c7d2fe;
+}
+.mobile-scan-launch {
+    display: none;
+}
+@media (max-width: 991px) {
+    .workbench-hero .hero-top {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+    }
+    .hero-action-grid {
+        grid-template-columns: 1fr;
+    }
+    .board-grid {
+        grid-template-columns: 1fr;
+    }
+}
+@media (max-width: 768px) {
+    .dashboard-shell {
+        gap: 14px;
+        padding-bottom: 16px;
+    }
+    .mobile-scan-launch {
+        display: grid;
+        gap: 12px;
+        padding: 14px 0 4px;
+    }
+    .mobile-scan-launch-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+    .mobile-scan-launch-title h2 {
+        margin: 0;
+        color: #0f172a;
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: 0;
+    }
+    .mobile-scan-launch-title span {
+        color: #64748b;
+        font-size: 13px;
+    }
+    .mobile-scan-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+    .mobile-app-entry {
+        min-height: 92px;
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        align-items: center;
+        gap: 12px;
+        padding: 14px;
+        border: 1px solid #bbf7d0;
+        border-radius: 8px;
+        background: #f0fdf4;
+        color: #14532d;
+        text-decoration: none;
+        box-shadow: 0 2px 12px rgba(15, 23, 42, 0.08);
+    }
+    .mobile-app-entry i {
+        width: 42px;
+        height: 42px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        background: #16a34a;
+        color: #fff;
+        font-size: 22px;
+    }
+    .mobile-app-entry strong {
+        display: block;
+        font-size: 17px;
+        line-height: 1.25;
+    }
+    .mobile-app-entry span {
+        display: block;
+        margin-top: 4px;
+        color: #166534;
+        font-size: 12px;
+        line-height: 1.35;
+    }
+    .mobile-scan-entry {
+        min-height: 118px;
+        display: grid;
+        align-content: space-between;
+        gap: 10px;
+        padding: 14px;
+        border: 1px solid #dbeafe;
+        border-radius: 8px;
+        background: #fff;
+        color: #0f172a;
+        text-decoration: none;
+        box-shadow: 0 2px 12px rgba(15, 23, 42, 0.08);
+    }
+    .mobile-scan-entry:active {
+        transform: translateY(1px);
+    }
+    .mobile-scan-entry i {
+        width: 38px;
+        height: 38px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        color: #fff;
+        font-size: 20px;
+    }
+    .mobile-scan-entry strong {
+        display: block;
+        font-size: 17px;
+        line-height: 1.25;
+    }
+    .mobile-scan-entry span {
+        display: block;
+        margin-top: 4px;
+        color: #64748b;
+        font-size: 12px;
+        line-height: 1.35;
+    }
+    .mobile-scan-entry.in i { background: #16a34a; }
+    .mobile-scan-entry.out i { background: #2563eb; }
+    .mobile-scan-entry.query i { background: #0891b2; }
+    .mobile-scan-entry.check i { background: #7c3aed; }
+    .workbench-hero {
+        display: none;
+    }
+    .section-card .section-header p,
+    #businessWorkbench {
+        display: none;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-shell">
+    <section class="mobile-scan-launch" aria-label="手机扫码入口">
+        <div class="mobile-scan-launch-title">
+            <h2>手机端</h2>
+            <span>扫码请用APP</span>
+        </div>
+        <div class="mobile-scan-grid">
+            <a class="mobile-app-entry" href="{{ url_for('mobile_app_download') }}">
+                <i class="bi bi-phone"></i>
+                <div>
+                    <strong>下载扫码APP</strong>
+                    <span>浏览器不支持稳定扫码，APP 支持连续扫码入库、出库、查询、盘点</span>
+                </div>
+            </a>
+            <a class="mobile-scan-entry in" href="{{ url_for('mobile_scan', mode='in') }}">
+                <i class="bi bi-box-arrow-in-down"></i>
+                <div>
+                    <strong>手工入库</strong>
+                    <span>手机浏览器输入物料编码入库</span>
+                </div>
+            </a>
+            <a class="mobile-scan-entry out" href="{{ url_for('mobile_scan', mode='out') }}">
+                <i class="bi bi-box-arrow-up"></i>
+                <div>
+                    <strong>手工出库</strong>
+                    <span>手机浏览器输入物料编码出库</span>
+                </div>
+            </a>
+            <a class="mobile-scan-entry query" href="{{ url_for('mobile_scan', mode='query') }}">
+                <i class="bi bi-search"></i>
+                <div>
+                    <strong>手工查询</strong>
+                    <span>查库存和物料信息</span>
+                </div>
+            </a>
+            <a class="mobile-scan-entry check" href="{{ url_for('mobile_scan', mode='check') }}">
+                <i class="bi bi-clipboard-check"></i>
+                <div>
+                    <strong>手工盘点</strong>
+                    <span>输入物料编码录入实盘数</span>
+                </div>
+            </a>
+        </div>
+    </section>
+
+    <section class="workbench-hero">
+        <div class="hero-top">
+            <div>
+                <div class="text-white-50 small mb-2">做单工作台</div>
+                <h2>先处理待办，再开始新单</h2>
+                <p>欢迎回来，{{ current_user.username }}。这里优先展示待完成单据、快捷开单入口和最近操作，方便你连续做单。</p>
+            </div>
+            <div class="hero-action-grid">
+                <a href="/in_order/add" class="hero-action-card">
+                    <div class="hero-action-top">
+                        <span class="hero-action-icon in"><i class="bi bi-box-arrow-in-down"></i></span>
+                        <i class="bi bi-arrow-right text-muted"></i>
+                    </div>
+                    <div class="hero-action-main">
+                        <strong>新建入库单</strong>
+                        <span>采购到货、产品完工先录入库。</span>
+                    </div>
+                </a>
+                <a href="/out_order/add" class="hero-action-card">
+                    <div class="hero-action-top">
+                        <span class="hero-action-icon out"><i class="bi bi-box-arrow-up"></i></span>
+                        <i class="bi bi-arrow-right text-muted"></i>
+                    </div>
+                    <div class="hero-action-main">
+                        <strong>新建领料单</strong>
+                        <span>领料和销售发货快速处理。</span>
+                    </div>
+                </a>
+                <a href="/purchase_order?status=open" class="hero-action-card">
+                    <div class="hero-action-top">
+                        <span class="hero-action-icon todo"><i class="bi bi-truck"></i></span>
+                        <span class="hero-action-count">{{ purchase_order_summary.open_count }}</span>
+                    </div>
+                    <div class="hero-action-main">
+                        <strong>待入库采购单</strong>
+                        <span>当前没有待入库采购单。</span>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <section class="section-card" id="businessWorkbench">
+        <div class="section-header">
+            <div>
+                <h3><i class="bi bi-diagram-3"></i> 业务流程图</h3>
+                <p>采购到入库的主流程放在一个区域，按单据顺序处理，不需要在菜单里来回找。</p>
+            </div>
+            <a href="/purchase_order?status=open" class="btn btn-sm btn-outline-primary">处理待入库</a>
+        </div>
+        <div class="section-body business-flow">
+            <a class="flow-step" href="/purchase_request/add">
+                <div class="flow-icon" style="background:#f59e0b;"><i class="bi bi-cart-plus"></i></div>
+                <strong>采购申请</strong>
+                <span>补货、备料、临时采购先录申请</span>
+                <span class="flow-count">{{ pending_purchase }}</span>
+            </a>
+            <a class="flow-step" href="/purchase_order">
+                <div class="flow-icon" style="background:#4f46e5;"><i class="bi bi-bag-check"></i></div>
+                <strong>采购单</strong>
+                <span>由申请下推或手工创建采购单</span>
+                <span class="flow-count">{{ purchase_order_summary.open_count }}</span>
+            </a>
+            <a class="flow-step" href="/in_order/add">
+                <div class="flow-icon" style="background:#16a34a;"><i class="bi bi-box-arrow-in-down"></i></div>
+                <strong>采购入库</strong>
+                <span>选采购单带入明细，再保存入库</span>
+                <span class="flow-count">{{ pending_in }}</span>
+            </a>
+            <a class="flow-step" href="/stock_query">
+                <div class="flow-icon" style="background:#0891b2;"><i class="bi bi-box-seam"></i></div>
+                <strong>库存台账</strong>
+                <span>查看物料库存、供应商和规格</span>
+                <span class="flow-count">{{ total_materials }}</span>
+            </a>
+        </div>
+    </section>
+
+    <section class="section-card" id="inventoryTodo">
+        <div class="section-header">
+            <div>
+                <h3><i class="bi bi-clipboard-check"></i> 库存待处理</h3>
+                <p>仓库每天优先处理未完成入库、未完成领料、采购待收货和库存异常。</p>
+            </div>
+            <span class="todo-count">{{ pending_stock_tasks }}</span>
+        </div>
+        <div class="section-body inventory-task-list">
+            <a class="inventory-task" href="/purchase_order?status=open">
+                <span><i class="bi bi-truck"></i> 采购单待收货</span>
+                <strong>{{ purchase_order_summary.open_count }}</strong>
+            </a>
+            <a class="inventory-task" href="/in_order?status=pending">
+                <span><i class="bi bi-box-arrow-in-down"></i> 入库单待完成</span>
+                <strong>{{ pending_in }}</strong>
+            </a>
+            <a class="inventory-task" href="/out_order?status=pending">
+                <span><i class="bi bi-box-arrow-up"></i> 领料单待完成</span>
+                <strong>{{ pending_out }}</strong>
+            </a>
+            {% if inventory_alert_enabled %}
+            <a class="inventory-task" href="/material?stock_filter=low&sort=stock&order=asc">
+                <span><i class="bi bi-exclamation-triangle"></i> 库存预警物料</span>
+                <strong>{{ low_stock }}</strong>
+            </a>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="summary-grid">
+        <a class="summary-card" href="/in_order?status=pending">
+            <div class="label">待完成入库单</div>
+            <div class="value">{{ pending_in }}</div>
+            <div class="hint">优先处理未提交入库</div>
+        </a>
+        <a class="summary-card" href="/out_order?status=pending">
+            <div class="label">待完成领料单</div>
+            <div class="value">{{ pending_out }}</div>
+            <div class="hint">避免发料/出货积压</div>
+        </a>
+        <a class="summary-card" href="/purchase_request?status=pending">
+            <div class="label">待审批采购申请</div>
+            <div class="value">{{ pending_purchase }}</div>
+            <div class="hint">需要尽快审核流转</div>
+        </a>
+        <a class="summary-card" href="/purchase_order?status=open">
+            <div class="label">待入库采购单</div>
+            <div class="value">{{ purchase_order_summary.open_count }}</div>
+            <div class="hint">待收货数量 {{ "%.2f"|format(purchase_order_summary.remaining_qty) }}</div>
+        </a>
+        <a class="summary-card" href="/purchase_order?sort=expected_date&order=asc">
+            <div class="label">逾期采购</div>
+            <div class="value">{{ purchase_order_summary.overdue_count }}</div>
+            <div class="hint">预计到货已过且未完成</div>
+        </a>
+        {% if inventory_alert_enabled %}
+        <a class="summary-card" href="/material?stock_filter=low&sort=stock&order=asc">
+            <div class="label">库存预警物料</div>
+            <div class="value">{{ low_stock }}</div>
+            <div class="hint">建议及时查看补货</div>
+        </a>
+        {% endif %}
+        <a class="summary-card" href="/in_order?status=completed&date_start={{ today_date }}&date_end={{ today_date }}">
+            <div class="label">今日入库</div>
+            <div class="value">{{ today_in }}</div>
+            <div class="hint">今天已完成入库单数</div>
+        </a>
+        <a class="summary-card" href="/out_order?status=completed&date_start={{ today_date }}&date_end={{ today_date }}">
+            <div class="label">今日领料</div>
+            <div class="value">{{ today_out }}</div>
+            <div class="hint">今天已完成领料单数</div>
+        </a>
+    </section>
+
+    <section class="section-card">
+        <div class="section-header">
+            <div>
+                <h3><i class="bi bi-lightning-charge"></i> 快捷开单</h3>
+                <p>把高频动作放在首页首屏，减少找入口和切换页面。</p>
+            </div>
+        </div>
+        <div class="section-body quick-grid">
+            <a href="/in_order/add" class="quick-link in">
+                <div class="icon"><i class="bi bi-box-arrow-in-down"></i></div>
+                <strong>采购入库</strong>
+                <span>快速创建入库单，继续录入明细并提交。</span>
+            </a>
+            <a href="/out_order/add" class="quick-link out">
+                <div class="icon"><i class="bi bi-box-arrow-up"></i></div>
+                <strong>领料单</strong>
+                <span>直接进入领料单页面，适合高频领料和发货。</span>
+            </a>
+            <a href="/purchase_request/add" class="quick-link purchase">
+                <div class="icon"><i class="bi bi-cart-plus"></i></div>
+                <strong>采购申请</strong>
+                <span>补货、备料或紧急采购时可快速发起申请。</span>
+            </a>
+            <a href="/stock_query" class="quick-link stock">
+                <div class="icon"><i class="bi bi-box-seam"></i></div>
+                <strong>查物料库存</strong>
+                <span>先查库存再做单，避免缺料或重复录入。</span>
+            </a>
+        </div>
+    </section>
+
+    <section class="section-card">
+        <div class="section-header">
+            <div>
+                <h3><i class="bi bi-list-task"></i> 当前待办</h3>
+                <p>优先展示未完成单据，支持直接继续处理。</p>
+            </div>
+        </div>
+        <div class="section-body todo-grid">
+            <div class="todo-card">
+                <div class="todo-head">
+                    <h4>待完成入库单</h4>
+                    <a href="/in_order?status=pending" class="todo-count text-decoration-none">{{ pending_in }}</a>
+                </div>
+                <div class="todo-list">
+                    {% for order in in_progress_orders %}
+                    <a href="{{ url_for('in_order_detail', id=order.id) }}" class="todo-item">
+                        <div>
+                            <div class="fw-semibold">{{ order.order_no }}</div>
+                            <div class="meta">{{ order.date }} · {{ order.supplier.name if order.supplier else '未选择供应商' }}</div>
+                        </div>
+                        <span class="badge bg-warning text-dark">继续处理</span>
+                    </a>
+                    {% else %}
+                    <div class="todo-empty">当前没有待完成入库单。</div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="todo-card">
+                <div class="todo-head">
+                    <h4>待完成领料单</h4>
+                    <a href="/out_order?status=pending" class="todo-count text-decoration-none">{{ pending_out }}</a>
+                </div>
+                <div class="todo-list">
+                    {% for order in out_progress_orders %}
+                    <a href="{{ url_for('out_order_detail', id=order.id) }}" class="todo-item">
+                        <div>
+                            <div class="fw-semibold">{{ order.order_no }}</div>
+                            <div class="meta">{{ order.date }} · {{ order.customer or '未填写领用对象' }}</div>
+                        </div>
+                        <span class="badge bg-warning text-dark">继续处理</span>
+                    </a>
+                    {% else %}
+                    <div class="todo-empty">当前没有待完成领料单。</div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="todo-card">
+                <div class="todo-head">
+                    <h4>待审批采购申请</h4>
+                    <a href="/purchase_request?status=pending" class="todo-count text-decoration-none">{{ pending_purchase }}</a>
+                </div>
+                <div class="todo-list">
+                    {% for order in purchase_pending_orders %}
+                    <a href="{{ url_for('purchase_request_detail', id=order.id) }}" class="todo-item">
+                        <div>
+                            <div class="fw-semibold">{{ order.request_no }}</div>
+                            <div class="meta">{{ order.date }} · {{ order.applicant or '未填写申请人' }}</div>
+                        </div>
+                        <span class="badge bg-warning text-dark">查看单据</span>
+                    </a>
+                    {% else %}
+                    <div class="todo-empty">当前没有待审批采购申请。</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="board-grid">
+        <div class="section-card">
+            <div class="section-header">
+                <div>
+                    <h3><i class="bi bi-clock-history"></i> 最近操作</h3>
+                    <p>适合继续上次未做完的单据，减少反复查找。</p>
+                </div>
+            </div>
+            <div class="section-body recent-list">
+                {% for item in recent_work_items %}
+                <a href="{{ item.link }}" class="recent-item">
+                    <div class="recent-main">
+                        <div class="recent-icon badge-{{ item.badge }}-soft">
+                            <i class="bi {{ item.icon }}"></i>
+                        </div>
+                        <div>
+                            <div class="fw-semibold">{{ item.order_no }}</div>
+                            <div class="text-muted small">{{ item.type }} · {{ item.summary }}</div>
+                        </div>
+                    </div>
+                    <div class="text-end small text-muted">
+                        <div>{{ item.date }}</div>
+                        <div>
+                            {% if item.status == 'pending' %}
+                            <span class="badge bg-warning text-dark">待处理</span>
+                            {% elif item.status == 'completed' %}
+                            <span class="badge bg-success">已完成</span>
+                            {% elif item.status == 'approved' %}
+                            <span class="badge bg-info text-dark">已审批</span>
+                            {% elif item.status == 'rejected' %}
+                            <span class="badge bg-danger">已驳回</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ item.status }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </a>
+                {% else %}
+                <div class="empty-state">最近暂无可继续的做单记录。</div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="section-card">
+            <div class="section-header">
+                <div>
+                    <h3><i class="bi bi-bar-chart-line"></i> 今日概览</h3>
+                    <p>保留管理视角，但不抢占首要做单区域。</p>
+                </div>
+            </div>
+            <div class="section-body">
+                <table class="mini-table">
+                    <tbody>
+                        <tr>
+                            <th>物料总数</th>
+                            <td class="text-end fw-semibold">{{ total_materials }}</td>
+                        </tr>
+                        <tr>
+                            <th>今日入库</th>
+                            <td class="text-end fw-semibold">{{ today_in }}</td>
+                        </tr>
+                        <tr>
+                            <th>今日领料</th>
+                            <td class="text-end fw-semibold">{{ today_out }}</td>
+                        </tr>
+                        {% if inventory_alert_enabled %}
+                        <tr>
+                            <th>库存预警</th>
+                            <td class="text-end fw-semibold text-danger">{{ low_stock }}</td>
+                        </tr>
+                        {% endif %}
+                        <tr>
+                            <th>待处理总量</th>
+                            <td class="text-end fw-semibold">{{ pending_stock_tasks + pending_purchase }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

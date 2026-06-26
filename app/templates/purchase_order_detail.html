@@ -1,0 +1,406 @@
+{% extends "base.html" %}
+{% block title %}采购单详情{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+    <h2 class="mb-0"><i class="bi bi-bag-check"></i> 采购单详情</h2>
+    <div class="d-flex gap-2">
+        <a href="/purchase_order" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> 返回列表</a>
+        <a href="{{ url_for('print_purchase_order', id=order.id) }}" target="_blank" class="btn btn-outline-primary">
+            <i class="bi bi-printer"></i> 打印
+        </a>
+        <button class="btn btn-outline-info" onclick="copyPurchaseOrder({{ order.id }})">
+            <i class="bi bi-files"></i> 复制
+        </button>
+        {% if order.status == 'pending' %}
+        <a href="{{ url_for('purchase_order_edit_page', id=order.id) }}" class="btn btn-outline-secondary">
+            <i class="bi bi-pencil-square"></i> 编辑
+        </a>
+        <button class="btn btn-outline-danger" onclick="deletePurchaseOrder({{ order.id }})">
+            <i class="bi bi-trash"></i> 删除
+        </button>
+        {% endif %}
+        {% if order.status in ['pending', 'partial'] %}
+        <button class="btn btn-primary" onclick="createInOrder({{ order.id }})">
+            <i class="bi bi-box-arrow-in-down"></i> 生成采购入库单
+        </button>
+        <button class="btn btn-outline-danger" onclick="closePurchaseOrder({{ order.id }})">
+            <i class="bi bi-stop-circle"></i> 关闭
+        </button>
+        {% elif order.status == 'closed' %}
+        <button class="btn btn-outline-primary" onclick="reopenPurchaseOrder({{ order.id }})">
+            <i class="bi bi-arrow-counterclockwise"></i> 重新打开
+        </button>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3" id="documentInfo">
+    <div class="card-header py-2"><i class="bi bi-info-circle"></i> 基本信息</div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-3"><strong>采购单号：</strong>{{ order.order_no }}</div>
+            <div class="col-md-3"><strong>日期：</strong>{{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</div>
+            <div class="col-md-3"><strong>供应商：</strong>{{ order.supplier.name if order.supplier else '-' }}</div>
+            <div class="col-md-3"><strong>预计到货：</strong>{{ order.expected_date.strftime('%Y-%m-%d') if order.expected_date else '-' }}</div>
+            <div class="col-md-3">
+                <strong>状态：</strong>
+                {% if order.status == 'completed' %}
+                <span class="badge bg-success">{{ status_label(order.status) }}</span>
+                {% elif order.status == 'closed' %}
+                <span class="badge bg-secondary">{{ status_label(order.status) }}</span>
+                {% elif order.status == 'partial' %}
+                <span class="badge bg-info text-dark">{{ status_label(order.status) }}</span>
+                {% else %}
+                <span class="badge bg-warning text-dark">{{ status_label(order.status) }}</span>
+                {% endif %}
+            </div>
+            <div class="col-md-3"><strong>金额：</strong>¥{{ "%.2f"|format(order.total_amount or 0) }}</div>
+            <div class="col-md-3">
+                <strong>来源申请：</strong>
+                {% if order.purchase_request %}
+                <a href="{{ url_for('purchase_request_detail', id=order.purchase_request.id) }}">{{ order.purchase_request.request_no }}</a>
+                {% else %}-{% endif %}
+            </div>
+            <div class="col-md-12"><strong>备注：</strong>{{ order.remark or '' }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3 trace-panel" id="documentTrace">
+    <div class="card-header py-2"><i class="bi bi-diagram-3"></i> 单据联查</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover table-sm mb-0 trace-table">
+                <thead class="table-light">
+                    <tr>
+                        <th width="60">序号</th>
+                        <th>关系</th>
+                        <th>入库单号</th>
+                        <th>入库日期</th>
+                        <th>仓库</th>
+                        <th class="text-end">金额</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for in_order in related_in_orders %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td><span class="badge bg-primary">下游</span></td>
+                        <td><a href="{{ url_for('in_order_detail', id=in_order.id) }}">{{ in_order.order_no }}</a></td>
+                        <td>{{ in_order.date.strftime('%Y-%m-%d') if in_order.date else '-' }}</td>
+                        <td>{{ in_order.warehouse or '-' }}</td>
+                        <td class="text-end">¥{{ "%.2f"|format(in_order.total_amount or 0) }}</td>
+                        <td>
+                            {% if in_order.status == 'completed' %}
+                            <span class="badge bg-success">已完成</span>
+                            {% elif in_order.status == 'pending' %}
+                            <span class="badge bg-warning text-dark">草稿</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ in_order.status }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="text-center text-muted">暂无下推入库单</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if order.status in ['pending', 'partial'] %}
+<div class="card mb-3">
+    <div class="card-header py-2"><i class="bi bi-box-arrow-in-down"></i> 下推入库</div>
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label small text-muted mb-1">入库仓库</label>
+                <select id="warehouse" class="form-select form-select-sm">
+                    <option value="">请选择仓库</option>
+                    {% for warehouse in warehouses %}
+                    <option value="{{ warehouse.name }}">{{ warehouse.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-7">
+                <label class="form-label small text-muted mb-1">备注</label>
+                <input id="inRemark" class="form-control form-control-sm" value="由采购单 {{ order.order_no }} 下推生成">
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary btn-sm w-100" onclick="createInOrder({{ order.id }})">
+                    <i class="bi bi-arrow-right-square"></i> 生成入库单
+                </button>
+            </div>
+            <div class="col-md-12">
+                <span id="receiveSelectionSummary" class="small text-muted">已选 0 行</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header py-2"><i class="bi bi-list-ul"></i> 物料明细</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover table-sm mb-0" id="itemTable">
+                <thead class="table-light">
+                    <tr>
+                        {% if order.status in ['pending', 'partial'] %}
+                        <th width="40"><input type="checkbox" id="selectAllReceiveItems" onchange="toggleReceiveItemSelection(this.checked)"></th>
+                        {% endif %}
+                        <th width="60">序号</th>
+                        <th>物料编码</th>
+                        <th>物料名称</th>
+                        <th>规格</th>
+                        <th>单位</th>
+                        <th class="text-end">采购数量</th>
+                        <th class="text-end">已下推</th>
+                        <th class="text-end">已入库</th>
+                        <th class="text-end">待入库</th>
+                        <th class="text-end">未下推</th>
+                        <th>执行状态</th>
+                        {% if order.status in ['pending', 'partial'] %}
+                        <th class="text-end">本次入库</th>
+                        {% endif %}
+                        <th class="text-end">单价</th>
+                        <th class="text-end">金额</th>
+                        <th>备注</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in order.items %}
+                    {% set exec = item_execution.get(item.id, {}) %}
+                    {% set remain_qty = exec.get('remaining_to_push', (item.quantity or 0) - (item.received_quantity or 0)) %}
+                    <tr>
+                        {% if order.status in ['pending', 'partial'] %}
+                        <td>
+                            <input type="checkbox" class="receive-item-check" data-item-id="{{ item.id }}" {% if remain_qty <= 0 %}disabled{% endif %} onchange="updateReceiveSelectionSummary()">
+                        </td>
+                        {% endif %}
+                        <td>{{ loop.index }}</td>
+                        <td>{{ item.material.code if item.material else '-' }}</td>
+                        <td>{{ item.material.name if item.material else '-' }}</td>
+                        <td>{{ item.material.spec if item.material else '-' }}</td>
+                        <td>{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
+                        <td class="text-end">{{ "%.2f"|format(item.quantity or 0) }}</td>
+                        <td class="text-end" data-pushed-quantity="{{ '%.2f'|format(exec.get('pushed_quantity', item.received_quantity or 0)) }}">{{ "%.2f"|format(exec.get('pushed_quantity', item.received_quantity or 0)) }}</td>
+                        <td class="text-end" data-completed-quantity="{{ '%.2f'|format(exec.get('completed_quantity', 0)) }}">{{ "%.2f"|format(exec.get('completed_quantity', 0)) }}</td>
+                        <td class="text-end" data-pending-receive-quantity="{{ '%.2f'|format(exec.get('pending_receive_quantity', 0)) }}">{{ "%.2f"|format(exec.get('pending_receive_quantity', 0)) }}</td>
+                        <td class="text-end {% if remain_qty > 0 %}text-primary fw-semibold{% endif %}" data-remaining-to-push="{{ '%.2f'|format(remain_qty) }}">{{ "%.2f"|format(remain_qty) }}</td>
+                        <td data-execution-status="{{ exec.get('status', 'pending') }}">
+                            {% if exec.get('status') == 'completed' %}
+                            <span class="badge bg-success">已入库</span>
+                            {% elif exec.get('status') == 'partial_completed' %}
+                            <span class="badge bg-info text-dark">部分入库</span>
+                            {% elif exec.get('status') == 'pushed' %}
+                            <span class="badge bg-warning text-dark">已下推</span>
+                            {% elif exec.get('status') == 'closed' %}
+                            <span class="badge bg-secondary">已关闭</span>
+                            {% else %}
+                            <span class="badge bg-light text-dark border">未执行</span>
+                            {% endif %}
+                        </td>
+                        {% if order.status in ['pending', 'partial'] %}
+                        <td>
+                            {% if remain_qty > 0 %}
+                            <input type="number" class="form-control form-control-sm text-end receive-qty" data-item-id="{{ item.id }}" min="0" max="{{ "%.2f"|format(remain_qty) }}" step="0.01" value="{{ "%.2f"|format(remain_qty) }}">
+                            {% else %}
+                            <input type="number" class="form-control form-control-sm text-end receive-qty" data-item-id="{{ item.id }}" value="0" readonly>
+                            {% endif %}
+                        </td>
+                        {% endif %}
+                        <td class="text-end">¥{{ "%.2f"|format(item.price or 0) }}</td>
+                        <td class="text-end">¥{{ "%.2f"|format(item.amount or 0) }}</td>
+                        <td>{{ item.remark or '' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="{{ 16 if order.status in ['pending', 'partial'] else 14 }}" class="text-center text-muted">暂无明细</td></tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="{{ 14 if order.status in ['pending', 'partial'] else 12 }}" class="text-end"><strong>合计：</strong></td>
+                        <td class="text-end"><strong>¥{{ "%.2f"|format(order.total_amount or 0) }}</strong></td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleReceiveItemSelection(checked) {
+    document.querySelectorAll('.receive-item-check:not(:disabled)').forEach(function(input) {
+        input.checked = checked;
+    });
+    updateReceiveSelectionSummary();
+}
+
+function updateReceiveSelectionSummary() {
+    const checkedRows = Array.from(document.querySelectorAll('.receive-item-check:checked'));
+    let qty = 0;
+    checkedRows.forEach(function(input) {
+        const itemId = input.dataset.itemId;
+        const qtyInput = document.querySelector('.receive-qty[data-item-id="' + itemId + '"]');
+        qty += parseFloat(qtyInput ? qtyInput.value : '0') || 0;
+    });
+    const summary = document.getElementById('receiveSelectionSummary');
+    if (summary) {
+        summary.textContent = '已选 ' + checkedRows.length + ' 行，本次入库 ' + qty.toFixed(2);
+    }
+    const selectAll = document.getElementById('selectAllReceiveItems');
+    if (selectAll) {
+        const enabledRows = Array.from(document.querySelectorAll('.receive-item-check:not(:disabled)'));
+        selectAll.checked = enabledRows.length > 0 && enabledRows.every(function(input) { return input.checked; });
+    }
+}
+
+function createInOrder(id) {
+    const warehouse = document.getElementById('warehouse') ? document.getElementById('warehouse').value : '';
+    const remark = document.getElementById('inRemark') ? document.getElementById('inRemark').value : '';
+    const checkedRows = Array.from(document.querySelectorAll('.receive-item-check:checked'));
+    const items = [];
+    for (const checkbox of checkedRows) {
+        const itemId = checkbox.dataset.itemId;
+        const input = document.querySelector('.receive-qty[data-item-id="' + itemId + '"]');
+        const quantity = parseFloat(input ? input.value : '0');
+        const maxQty = parseFloat(input ? input.getAttribute('max') : '0');
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+            showToast('本次入库数量必须大于 0', 'warning');
+            if (input) input.focus();
+            return;
+        }
+        if (Number.isFinite(maxQty) && quantity - maxQty > 0.000001) {
+            showToast('本次入库数量不能大于未下推数量', 'warning');
+            if (input) input.focus();
+            return;
+        }
+        items.push({ item_id: itemId, quantity: quantity });
+    }
+    if (!items.length) {
+        showToast('请先勾选要下推入库的采购明细', 'warning');
+        return;
+    }
+    showConfirm('确认由此采购单生成采购入库单？', { title: '生成采购入库单' }).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch(`/purchase_order/${id}/create_in_order`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ warehouse: warehouse, remark: remark, items: items })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '采购入库单生成成功', 'success');
+                setTimeout(function() {
+                    window.location.href = data.redirect_url || ('/in_order/' + data.id);
+                }, 500);
+            } else {
+                showToast('生成失败：' + data.msg, 'danger', 3600);
+            }
+        })
+        .catch(err => showToast('生成失败：' + err.message, 'danger', 3600));
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.receive-qty').forEach(function(input) {
+        input.addEventListener('input', updateReceiveSelectionSummary);
+    });
+    updateReceiveSelectionSummary();
+});
+
+function closePurchaseOrder(id) {
+    const reason = prompt('请输入关闭原因（可选）：') || '';
+    showConfirm('确认关闭此采购单？关闭后不能继续入库。', { title: '关闭采购单' }).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch(`/purchase_order/${id}/close`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ reason: reason })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '采购单已关闭', 'success');
+                setTimeout(function() { location.reload(); }, 500);
+            } else {
+                showToast('关闭失败：' + data.msg, 'danger', 3600);
+            }
+        })
+        .catch(err => showToast('关闭失败：' + err.message, 'danger', 3600));
+    });
+}
+
+function reopenPurchaseOrder(id) {
+    showConfirm('确认重新打开此采购单？', { title: '重新打开采购单' }).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch(`/purchase_order/${id}/reopen`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '采购单已重新打开', 'success');
+                setTimeout(function() { location.reload(); }, 500);
+            } else {
+                showToast('重新打开失败：' + data.msg, 'danger', 3600);
+            }
+        })
+        .catch(err => showToast('重新打开失败：' + err.message, 'danger', 3600));
+    });
+}
+
+function deletePurchaseOrder(id) {
+    showConfirm('确定删除该采购单吗？此操作不可恢复。', { title: '删除采购单' }).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/purchase_order/' + id + '/delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '删除成功', 'success');
+                setTimeout(function() { window.location.href = '/purchase_order'; }, 500);
+            } else {
+                showToast(data.msg || '删除失败', 'danger', 3600);
+            }
+        })
+        .catch(err => showToast('删除失败：' + err.message, 'danger', 3600));
+    });
+}
+
+function copyPurchaseOrder(id) {
+    showConfirm('确定复制该采购单吗？系统会生成一张新的未入库采购单。', { title: '复制采购单' }).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/purchase_order/' + id + '/copy', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '复制成功', 'success');
+                setTimeout(function() {
+                    window.location.href = data.redirect_url || ('/purchase_order/' + data.id + '/edit');
+                }, 500);
+            } else {
+                showToast(data.msg || '复制失败', 'danger', 3600);
+            }
+        })
+        .catch(err => showToast('复制失败：' + err.message, 'danger', 3600));
+    });
+}
+</script>
+{% endblock %}

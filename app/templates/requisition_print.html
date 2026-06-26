@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>工单领料单打印 - {{ requisition.req_no }}</title>
+    <style>
+        body {
+            font-family: Arial, "Microsoft YaHei", sans-serif;
+            color: #111827;
+            margin: 24px;
+            font-size: 13px;
+        }
+        h1 {
+            text-align: center;
+            font-size: 22px;
+            margin: 0 0 18px;
+            letter-spacing: 0;
+        }
+        .meta {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px 18px;
+            margin-bottom: 18px;
+        }
+        .label { color: #6b7280; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #d1d5db;
+            padding: 7px 8px;
+        }
+        th {
+            background: #f3f4f6;
+            font-weight: 600;
+        }
+        .text-end { text-align: right; }
+        .remark { margin-top: 14px; }
+        @media print {
+            body { margin: 0; }
+        }
+    </style>
+</head>
+<body>
+    <h1>工单领料单</h1>
+    <div class="meta">
+        <div><span class="label">单据编号：</span>{{ requisition.req_no }}</div>
+        <div><span class="label">日期：</span>{{ requisition.date }}</div>
+        <div><span class="label">工单：</span>{{ requisition.production_order or '-' }}</div>
+        <div><span class="label">用途：</span>{{ requisition.purpose or '-' }}</div>
+        <div><span class="label">BOM：</span>{{ requisition.bom.bom_no if requisition.bom else '-' }}</div>
+        <div><span class="label">状态：</span>{{ '草稿' if requisition.status == 'pending' else ('已完成' if requisition.status == 'completed' else requisition.status) }}</div>
+        <div><span class="label">操作人：</span>{{ requisition.operator.username if requisition.operator else '-' }}</div>
+        <div><span class="label">创建时间：</span>{{ requisition.created_at.strftime('%Y-%m-%d %H:%M') if requisition.created_at else '-' }}</div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>序号</th>
+                <th>物料编码</th>
+                <th>物料名称</th>
+                <th>规格</th>
+                <th>单位</th>
+                <th class="text-end">数量</th>
+                <th class="text-end">单价</th>
+                <th class="text-end">金额</th>
+                <th>备注</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in requisition.items %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ item.material.code if item.material else '' }}</td>
+                <td>{{ item.material.name if item.material else '' }}</td>
+                <td>{{ item.material.spec if item.material else '' }}</td>
+                <td>{{ item.material.unit.name if item.material and item.material.unit else '' }}</td>
+                <td class="text-end">{{ "%.2f"|format(item.quantity or 0) }}</td>
+                <td class="text-end">{{ "%.2f"|format(item.material.price if item.material else 0) }}</td>
+                <td class="text-end">{{ "%.2f"|format((item.quantity or 0) * (item.material.price or 0) if item.material else 0) }}</td>
+                <td>{{ item.remark or '' }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="9" style="text-align:center;color:#6b7280;">暂无明细</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div class="remark"><span class="label">备注：</span>{{ requisition.remark or '' }}</div>
+    <script>
+        window.addEventListener('load', function() {
+            window.print();
+        });
+    </script>
+</body>
+</html>

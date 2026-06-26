@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>批量打印物料标签</title>
+    <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: "Microsoft YaHei", "微软雅黑", SimSun, "宋体", serif; background: #f5f5f5; }
+        .no-print {
+            padding: 15px 20px;
+            background: #fff;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .no-print h2 { font-size: 18px; color: #333; }
+        .no-print .info { color: #666; font-size: 13px; }
+        .btn {
+            padding: 8px 18px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            background: white;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: linear-gradient(135deg, #4338CA 0%, #4F46E5 50%, #6366F1 100%); color: white; box-shadow: 0 2px 6px -1px rgba(79, 70, 229, 0.35); }
+        .btn-primary:hover { background: linear-gradient(135deg, #3730A3 0%, #4338CA 50%, #4F46E5 100%); box-shadow: 0 6px 16px -2px rgba(79, 70, 229, 0.45); }
+        .btn-secondary { background: #fff; color: #374151; border: 1.5px solid #D1D5DB; }
+        .btn-secondary:hover { background: #F9FAFB; border-color: #9CA3AF; }
+        .btn:hover { transform: translateY(-1px); }
+
+        .labels-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3mm;
+            padding: 8mm;
+        }
+
+        .label-card {
+            background: white;
+            overflow: hidden;
+            page-break-inside: avoid;
+            width: var(--label-width, 90mm);
+            height: var(--label-height, 50mm);
+            flex-shrink: 0;
+        }
+
+        .label-inner-table {
+            width: 100%;
+            height: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .label-inner-table td {
+            border: none;
+            padding: 0.5mm 1mm;
+            overflow: hidden;
+            vertical-align: middle;
+            word-break: break-all;
+        }
+
+        @media print {
+            @page { size: auto; margin: 0; }
+            html, body {
+                width: auto !important;
+                height: auto !important;
+                overflow: visible !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            body { background: white; }
+            .no-print { display: none !important; }
+            .labels-container {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                padding: 0 !important;
+                gap: 0 !important;
+            }
+            .label-card {
+                display: block !important;
+                border: none !important;
+                page-break-inside: avoid !important;
+                page-break-after: auto !important;
+                width: var(--label-width, 90mm) !important;
+                height: var(--label-height, 50mm) !important;
+                flex-shrink: 0 !important;
+                overflow: hidden !important;
+            }
+            .label-inner-table { table-layout: fixed !important; }
+            .label-inner-table td { border: none !important; padding: 0.3mm !important; }
+        }
+
+        .label-simple {
+            padding: 2mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 1mm;
+        }
+        .label-simple-row { display: flex; justify-content: space-between; font-size: 9pt; }
+        .label-simple-name { font-size: 11pt; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="no-print">
+        <h2>🖨 打印物料标签{% if materials|length > 1 %}（批量）{% endif %}</h2>
+        <span class="info">共 {{ materials|length }} 个标签</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+            <label style="font-size:13px;color:#666;">选择模板:</label>
+            <select class="form-select form-select-sm" id="templateSelect" style="width:200px;">
+                <option value="">-- 加载中 --</option>
+            </select>
+            <button class="btn btn-primary" onclick="window.print()">▶ 开始打印</button>
+            <button class="btn btn-secondary" onclick="window.close()">✕ 关闭</button>
+        </div>
+        <span class="info" id="sizeInfo" style="color:#1890ff;"></span>
+    </div>
+
+    <div class="labels-container" id="labelsContainer">
+    </div>
+
+    <script>
+    var MATERIALS = {{ materials_json | safe }};
+    var container = document.getElementById('labelsContainer');
+    var templateCache = {};
+
+    function getFieldValue(mat, field) {
+        switch(field) {
+            case 'code':          return mat.code || '';
+            case 'name':          return mat.name || '';
+            case 'spec':          return mat.spec || '';
+            case 'unit':          return mat.unit_name || '';
+            case 'unit_name':     return mat.unit_name || '';
+            case 'category':      return mat.category_name || '';
+            case 'category_name': return mat.category_name || '';
+            case 'supplier':      return mat.supplier_name || '';
+            case 'stock':         return mat.stock || '0';
+            case 'price':         return mat.price ? '¥' + mat.price : '';
+            case 'barcode':       return mat.barcode || mat.code || '';
+            case 'qrcode':        return mat.code || '';
+            case 'date':          return mat.date || '';
+            case 'supplier_name': return mat.supplier_name || '';
+            default:              return '';
+        }
+    }
+
+    function loadTemplates() {
+        fetch('/label_template/api/list')
+            .then(function(r){ return r.json(); })
+            .then(function(res){
+                if (res.status !== 'success' || !res.templates || res.templates.length === 0) {
+                    document.getElementById('templateSelect').innerHTML = '<option value="">-- 无模板 --</option>';
+                    renderLabels(null);
+                    return;
+                }
+                var select = document.getElementById('templateSelect');
+                select.innerHTML = '<option value="">-- 选择模板 --</option>';
+                res.templates.forEach(function(t){
+                    var opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = t.name + ' (' + t.width + 'x' + t.height + 'mm)';
+                    select.appendChild(opt);
+                });
+                var defaultTmpl = res.templates.find(function(t){ return t.is_default; });
+                if (defaultTmpl) {
+                    select.value = defaultTmpl.id;
+                    switchTemplate(defaultTmpl.id);
+                } else if (res.templates.length > 0) {
+                    select.selectedIndex = 1;
+                    switchTemplate(res.templates[0].id);
+                }
+            })
+            .catch(function(err){
+                console.error('加载模板列表失败:', err);
+                document.getElementById('templateSelect').innerHTML = '<option value="">-- 加载失败 --</option>';
+                renderLabels(null);
+            });
+    }
+
+    function switchTemplate(templateId) {
+        if (!templateId) return;
+        container.innerHTML = '<div style="text-align:center;padding:40px;"><div class="spinner-border text-primary"></div><p>加载模板中...</p></div>';
+
+        if (templateCache[templateId]) {
+            renderFromDbTemplate(templateCache[templateId]);
+            return;
+        }
+
+        fetch('/label_template/api/' + templateId + '/detail')
+            .then(function(r){ return r.json(); })
+            .then(function(res){
+                if (res.status === 'success' && res.template) {
+                    templateCache[templateId] = res.template;
+                    renderFromDbTemplate(res.template);
+                } else {
+                    container.innerHTML = '<div style="text-align:center;padding:40px;color:red;">加载模板失败</div>';
+                }
+            })
+            .catch(function(err){
+                console.error('加载模板详情失败:', err);
+                container.innerHTML = '<div style="text-align:center;padding:40px;color:red;">网络错误，请刷新重试</div>';
+            });
+    }
+
+    document.getElementById('templateSelect').addEventListener('change', function(){
+        switchTemplate(this.value);
+    });
+
+    function renderFromDbTemplate(tmplData) {
+        var layout = tmplData.layout || {};
+        var cells = layout.cells || [];
+        var rowHeights = layout.rowHeights || [];
+
+        if (!cells || cells.length === 0) {
+            renderLabels(null);
+            return;
+        }
+
+        var W = tmplData.width;
+        var H = tmplData.height;
+        var rows = tmplData.rows || 1;
+        var cols = tmplData.cols || 1;
+
+        document.getElementById('sizeInfo').textContent = '标签尺寸: ' + W + ' × ' + H + ' mm';
+        document.documentElement.style.setProperty('--label-width', W + 'mm');
+        document.documentElement.style.setProperty('--label-height', H + 'mm');
+
+        var cellMap = {};
+        cells.forEach(function(cd){
+            cellMap[String(cd.row) + '-' + String(cd.col)] = cd;
+        });
+
+        var totalPx = 0;
+        for (var i = 0; i < rows; i++) totalPx += (rowHeights[i] || 30);
+
+        function rowHeightMm(r) {
+            if (totalPx <= 0) return (H / rows).toFixed(2);
+            var px = rowHeights[r] || 30;
+            return (px / totalPx * H).toFixed(2);
+        }
+
+        container.innerHTML = '';
+
+        MATERIALS.forEach(function(mat){
+            var card = document.createElement('div');
+            card.className = 'label-card';
+            card.style.width = W + 'mm';
+            card.style.height = H + 'mm';
+
+            var mLeft = layout.marginLeft || 0;
+            var mRight = layout.marginRight || 0;
+            var mTop = layout.marginTop || 0;
+            var mBottom = layout.marginBottom || 0;
+            card.style.padding = mTop + 'mm ' + mRight + 'mm ' + mBottom + 'mm ' + mLeft + 'mm';
+
+            var table = document.createElement('table');
+            table.className = 'label-inner-table';
+
+            for (var r = 0; r < rows; r++) {
+                var tr = document.createElement('tr');
+                tr.style.height = rowHeightMm(r) + 'mm';
+                var c = 0;
+                while (c < cols) {
+                    var key = String(r) + '-' + String(c);
+                    var cd = cellMap[key];
+                    var td = document.createElement('td');
+
+                    var span = (cd && cd.colSpan > 1) ? cd.colSpan : 1;
+                    if (span > 1) td.colSpan = span;
+
+                    var fieldVal = '';
+                    if (cd && cd.field) {
+                        fieldVal = getFieldValue(mat, cd.field);
+                    } else if (cd && cd.text && !cd.field) {
+                        fieldVal = cd.text;
+                    }
+
+                    var fs = (cd && cd.style && cd.style.fontSize) ? cd.style.fontSize : '12px';
+                    if (typeof fs === 'number' || String(fs).match(/^\d+$/)) fs = fs + 'px';
+                    var fw = (cd && cd.style && cd.style.fontWeight) ? cd.style.fontWeight : 'normal';
+                    var fc = (cd && cd.style && cd.style.color) ? cd.style.color : '#000';
+                    var ta = (cd && cd.style && cd.style.textAlign) ? cd.style.textAlign : 'left';
+                    td.style.fontSize = fs;
+                    td.style.fontWeight = fw;
+                    td.style.color = fc;
+                    td.style.textAlign = ta;
+
+                    var fieldName = (cd && cd.field) ? cd.field : '';
+
+                    if ((fieldName === 'barcode' || fieldName === 'code') && fieldVal) {
+                        var img = document.createElement('img');
+                        img.src = '/api/barcode/' + encodeURIComponent(fieldVal);
+                        img.alt = fieldVal;
+                        var bcW = (cd && cd.barcodeWidth) ? parseInt(cd.barcodeWidth) : 50;
+                        var bcH = (cd && cd.barcodeHeight) ? parseInt(cd.barcodeHeight) : 15;
+                        bcW = Math.min(bcW, W * 0.9);
+                        img.style.width = bcW + 'mm';
+                        img.style.height = bcH + 'mm';
+                        img.style.display = 'block';
+                        img.style.maxWidth = '100%';
+                        var barcodeText = fieldVal;
+                        img.onerror = function(){
+                            this.style.display='none';
+                            this.parentNode.textContent = barcodeText;
+                        };
+                        td.appendChild(img);
+                    } else if (fieldName === 'qrcode' && fieldVal) {
+                        var qrImg = document.createElement('img');
+                        qrImg.src = '/api/qrcode/' + encodeURIComponent(fieldVal);
+                        qrImg.alt = '二维码';
+                        var qrSize = Math.min(W * 0.4, H * 0.5);
+                        qrImg.style.width = qrSize + 'mm';
+                        qrImg.style.height = qrSize + 'mm';
+                        qrImg.style.display = 'block';
+                        qrImg.style.maxWidth = '100%';
+                        td.style.padding = '1mm';
+                        qrImg.onerror = function(){ this.style.display='none'; };
+                        td.appendChild(qrImg);
+                    } else {
+                        td.textContent = fieldVal;
+                    }
+
+                    tr.appendChild(td);
+                    c += span;
+                }
+                table.appendChild(tr);
+            }
+            card.appendChild(table);
+            container.appendChild(card);
+        });
+    }
+
+    function renderLabels(tmpl) {
+        var W = 90, H = 50;
+        document.getElementById('sizeInfo').textContent = '使用默认尺寸 90×50mm（无模板）';
+        document.documentElement.style.setProperty('--label-width', W + 'mm');
+        document.documentElement.style.setProperty('--label-height', H + 'mm');
+
+        container.innerHTML = '';
+
+        MATERIALS.forEach(function(mat){
+            var card = document.createElement('div');
+            card.className = 'label-card';
+            card.style.width = (W - 0.5) + 'mm';
+            card.style.height = H + 'mm';
+            var inner = document.createElement('div');
+            inner.className = 'label-simple';
+            inner.innerHTML =
+                '<div class="label-simple-name">' + (mat.name || '') + '</div>' +
+                '<div class="label-simple-row"><span>编码: ' + (mat.code||'') + '</span><span>规格: ' + (mat.spec||'-') + '</span></div>' +
+                '<div class="label-simple-row"><span>单位: ' + (mat.unit_name||'-') + '</span><span>库存: ' + (mat.stock||'0') + '</span></div>';
+            card.appendChild(inner);
+            container.appendChild(card);
+        });
+    }
+
+    window.addEventListener('DOMContentLoaded', loadTemplates);
+    </script>
+</body>
+</html>

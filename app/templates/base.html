@@ -1,0 +1,2063 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+    <!-- 禁用浏览器缓存 -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>{% block title %}仓库管理AI系统{% endblock %}</title>
+    <!-- CSRF Token -->
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <!-- Bootstrap 5 CSS (本地) -->
+    <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
+    <!-- Bootstrap Icons (本地) -->
+    <link href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}" rel="stylesheet">
+    <!-- 自定义优化样式 -->
+    <link href="{{ url_for('static', filename='css/custom.css') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}" rel="stylesheet">
+    <!-- jQuery (本地) -->
+    <script src="{{ url_for('static', filename='cdn/jquery-3.6.4.min.js') }}"></script>
+    <!-- CSRF Token for AJAX -->
+    <script>
+    $.ajaxSetup({
+        beforeSend: function(xhr, settings) {
+            if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+                xhr.setRequestHeader("X-CSRFToken", $('meta[name="csrf-token"]').attr('content'));
+            }
+        }
+    });
+    (function() {
+        var csrfToken = document.querySelector('meta[name="csrf-token"]');
+        if (csrfToken) {
+            var originalFetch = window.fetch;
+            window.fetch = function(input, init) {
+                init = init || {};
+                if (init.method && !/^(GET|HEAD|OPTIONS|TRACE)$/i.test(init.method)) {
+                    init.headers = init.headers || {};
+                    if (init.headers instanceof Headers) {
+                        if (!init.headers.has('X-CSRFToken')) {
+                            init.headers.set('X-CSRFToken', csrfToken.content);
+                        }
+                    } else if (typeof init.headers === 'object') {
+                        if (!init.headers['X-CSRFToken']) {
+                            init.headers['X-CSRFToken'] = csrfToken.content;
+                        }
+                    }
+                }
+                return originalFetch.call(this, input, init);
+            };
+        }
+    })();
+    </script>
+    <style>
+        :root {
+            --sidebar-width: 220px;
+            --header-height: 60px;
+        }
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+        body {
+            background-color: #f8f9fa;
+            touch-action: manipulation;
+            -webkit-text-size-adjust: 100%;
+            -moz-text-size-adjust: 100%;
+            -ms-text-size-adjust: 100%;
+            text-size-adjust: 100%;
+        }
+        /* 整体布局容器 */
+        .app-wrapper {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        /* 禁止缩放 */
+        * {
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+        input, textarea {
+            -webkit-user-select: auto;
+            -moz-user-select: auto;
+            -ms-user-select: auto;
+            user-select: auto;
+        }
+        .sidebar {
+            width: var(--sidebar-width);
+            height: 100vh;
+            background: linear-gradient(180deg, #0c1929 0%, #1a3a5c 40%, #0f2847 100%);
+            color: white;
+            padding-top: 15px;
+            z-index: 1000;
+            overflow: visible;
+            flex-shrink: 0;
+            position: relative;
+            box-shadow: 4px 0 20px rgba(15, 23, 42, 0.3);
+        }
+        .sidebar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .sidebar::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.3);
+            border-radius: 2px;
+        }
+        .sidebar .brand {
+            padding: 0 15px 15px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 15px;
+        }
+        .sidebar .brand h4 {
+            margin: 0;
+            font-weight: 600;
+            font-size: 1rem;
+        }
+        .sidebar .nav-link {
+            color: rgba(255,255,255,0.8);
+            padding: 10px 15px;
+            border-left: 3px solid transparent;
+            transition: all 0.3s;
+            font-size: 0.9rem;
+        }
+        .sidebar .nav-link:hover,
+        .sidebar .nav-link.active {
+            color: white;
+            background: rgba(79, 140, 255, 0.15);
+            border-left-color: #4F8CFF;
+        }
+        .sidebar .nav-link i {
+            margin-right: 8px;
+            width: 18px;
+            text-align: center;
+        }
+        .sidebar .nav-link.menu-multi-open,
+        .sidebar .dropdown-item.menu-multi-open,
+        .module-flyout .flyout-link.menu-multi-open {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .sidebar .menu-link-main {
+            display: inline-flex;
+            align-items: center;
+            min-width: 0;
+            flex: 1;
+        }
+        .sidebar .menu-link-open-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            color: rgba(255,255,255,0.72);
+            text-decoration: none;
+            flex-shrink: 0;
+            transition: all 0.2s ease;
+        }
+        .sidebar .dropdown-item .menu-link-open-btn {
+            color: #6b7280;
+        }
+        .sidebar .menu-link-open-btn:hover {
+            background: rgba(255,255,255,0.14);
+            color: #fff;
+        }
+        .sidebar .dropdown-item .menu-link-open-btn:hover {
+            background: rgba(102,126,234,0.12);
+            color: #4f46e5;
+        }
+        .sidebar .nav-link.menu-multi-open::after,
+        .sidebar .dropdown-item.menu-multi-open::after,
+        .module-flyout .flyout-link.menu-multi-open::after {
+            content: none;
+        }
+        /* 委外管理子菜单 - 畅捷通 T+ 风格横向展开 */
+        .sidebar .submenu-toggle {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .sidebar .submenu-arrow {
+            transition: transform 0.25s ease;
+            font-size: 0.75rem;
+            margin-left: auto;
+            opacity: 0.7;
+        }
+        .sidebar .submenu-toggle[aria-expanded="true"] .submenu-arrow {
+            transform: rotate(-180deg);
+        }
+        .sidebar .submenu-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease, opacity 0.25s ease;
+            max-height: 0;
+            opacity: 0;
+        }
+        .sidebar .submenu-list.open {
+            max-height: 300px;
+            opacity: 1;
+        }
+        .sidebar .submenu-list .nav-link {
+            padding: 8px 15px 8px 38px;
+            font-size: 0.85rem;
+            color: rgba(255,255,255,0.65);
+            border-left: 3px solid transparent;
+        }
+        .sidebar .submenu-list .nav-link:hover,
+        .sidebar .submenu-list .nav-link.active {
+            color: rgba(255,255,255,0.9);
+            background: rgba(79, 140, 255, 0.1);
+            border-left-color: rgba(79, 140, 255, 0.6);
+        }
+        .ai-assistant-button {
+            position: fixed;
+            right: 22px;
+            bottom: 22px;
+            z-index: 2200;
+            width: 56px;
+            height: 56px;
+            border: 0;
+            border-radius: 16px;
+            background: #135dd8;
+            color: #fff;
+            box-shadow: 0 14px 32px rgba(19, 93, 216, 0.28);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+        .ai-assistant-panel {
+            position: fixed;
+            right: 22px;
+            bottom: 88px;
+            z-index: 2200;
+            width: min(420px, calc(100vw - 28px));
+            height: min(620px, calc(100vh - 120px));
+            background: #fff;
+            border: 1px solid #dbe3ef;
+            border-radius: 8px;
+            box-shadow: 0 18px 54px rgba(15, 23, 42, 0.22);
+            display: none;
+            overflow: hidden;
+        }
+        .ai-assistant-panel.open {
+            display: flex;
+            flex-direction: column;
+        }
+        .ai-assistant-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 14px;
+            background: #0f172a;
+            color: #fff;
+        }
+        .ai-assistant-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+        }
+        .ai-assistant-close {
+            border: 0;
+            background: transparent;
+            color: #fff;
+            font-size: 20px;
+            line-height: 1;
+        }
+        .ai-assistant-messages {
+            flex: 1;
+            overflow: auto;
+            padding: 14px;
+            background: #f8fafc;
+        }
+        .ai-message {
+            max-width: 92%;
+            margin-bottom: 10px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            position: relative;
+        }
+        .ai-message.user {
+            margin-left: auto;
+            background: #135dd8;
+            color: #fff;
+        }
+        .ai-message.assistant {
+            background: #fff;
+            color: #111827;
+            border: 1px solid #e5e7eb;
+        }
+        .ai-message-copy {
+            position: absolute;
+            right: 6px;
+            top: 5px;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            opacity: 0;
+            font-size: 13px;
+            padding: 2px 4px;
+        }
+        .ai-message:hover .ai-message-copy {
+            opacity: 0.7;
+        }
+        .ai-message-copy:hover {
+            opacity: 1;
+        }
+        .ai-attachment-thumbs {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+        .ai-attachment-thumb {
+            position: relative;
+            width: 58px;
+            height: 58px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #fff;
+        }
+        .ai-attachment-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .ai-attachment-remove {
+            position: absolute;
+            right: 2px;
+            top: 2px;
+            width: 18px;
+            height: 18px;
+            border: 0;
+            border-radius: 50%;
+            background: rgba(15, 23, 42, 0.75);
+            color: #fff;
+            font-size: 12px;
+            line-height: 18px;
+            padding: 0;
+        }
+        .ai-card {
+            border: 1px solid #e5e7eb;
+            background: #fff;
+            border-radius: 8px;
+            padding: 9px 10px;
+            margin: 8px 0;
+            font-size: 13px;
+        }
+        .ai-card-title {
+            font-weight: 600;
+            color: #111827;
+        }
+        .ai-card-meta {
+            color: #64748b;
+            margin-top: 2px;
+        }
+        .ai-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .ai-action {
+            border: 1px solid #b9cdf5;
+            background: #eff6ff;
+            color: #135dd8;
+            border-radius: 6px;
+            padding: 5px 9px;
+            font-size: 13px;
+        }
+        .ai-assistant-input {
+            border-top: 1px solid #e5e7eb;
+            padding: 10px;
+            background: #fff;
+        }
+        .ai-assistant-input form {
+            display: flex;
+            gap: 8px;
+        }
+        .ai-assistant-input input {
+            flex: 1;
+            min-width: 0;
+        }
+        .ai-input-tool {
+            width: 34px;
+            min-width: 34px;
+            padding-left: 0;
+            padding-right: 0;
+        }
+        .ai-pending-attachments {
+            display: none;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .ai-pending-attachments.has-items {
+            display: flex;
+        }
+        .sidebar .submenu-list .nav-link i {
+            font-size: 0.6rem;
+            margin-right: 6px;
+        }
+        .sidebar .submenu-list hr {
+            margin: 2px 12px 2px 32px;
+            border: 0;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .sidebar .module-menu {
+            position: relative;
+        }
+        .sidebar .module-toggle {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .sidebar .module-toggle .module-title {
+            display: inline-flex;
+            align-items: center;
+            min-width: 0;
+        }
+        .sidebar .module-toggle .module-title i {
+            flex-shrink: 0;
+        }
+        .sidebar .module-arrow {
+            margin-left: auto;
+            opacity: .78;
+            font-size: .85rem;
+        }
+        .sidebar .module-flyout {
+            position: absolute;
+            top: 0;
+            left: calc(100% + 8px);
+            width: 245px;
+            max-height: calc(100vh - 28px);
+            overflow-y: auto;
+            padding: 8px;
+            border-radius: 10px;
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, .08);
+            box-shadow: 0 18px 38px rgba(15, 23, 42, .22);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateX(-6px);
+            transition: opacity .16s ease, transform .16s ease, visibility .16s ease;
+            z-index: 1200;
+        }
+        .sidebar .module-menu.open .module-flyout {
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(0);
+        }
+        .sidebar .module-menu.open > .module-toggle {
+            color: white;
+            background: rgba(79, 140, 255, 0.18);
+            border-left-color: #4F8CFF;
+        }
+        .module-flyout::before {
+            content: '';
+            position: absolute;
+            top: 14px;
+            left: -7px;
+            width: 12px;
+            height: 12px;
+            background: #fff;
+            border-left: 1px solid rgba(15, 23, 42, .08);
+            border-bottom: 1px solid rgba(15, 23, 42, .08);
+            transform: rotate(45deg);
+        }
+        .module-flyout .flyout-title {
+            padding: 8px 10px 7px;
+            font-size: .78rem;
+            color: #64748b;
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+        .module-flyout .flyout-link {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            min-height: 34px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            color: #1f2937;
+            text-decoration: none;
+            font-size: .9rem;
+        }
+        .module-flyout .flyout-link:hover,
+        .module-flyout .flyout-link.active {
+            color: #312e81;
+            background: #eef2ff;
+        }
+        .module-flyout .flyout-link i {
+            width: 18px;
+            text-align: center;
+            color: #4f46e5;
+            flex-shrink: 0;
+        }
+        .module-flyout .flyout-link .menu-link-main {
+            color: inherit;
+        }
+        .module-flyout .flyout-link .menu-link-open-btn {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            color: #64748b;
+        }
+        .module-flyout .flyout-link .menu-link-open-btn:hover {
+            background: #e0e7ff;
+            color: #312e81;
+        }
+        .module-flyout .flyout-divider {
+            height: 1px;
+            margin: 7px 6px;
+            background: #e5e7eb;
+        }
+
+
+        .main-content {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        .main-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        .main-content::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 3px;
+        }
+        .tab-workspace {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        .tab-bar {
+            display: flex;
+            align-items: flex-end;
+            gap: 6px;
+            min-height: 42px;
+            padding: 0 4px 8px;
+            overflow-x: auto;
+            flex-shrink: 0;
+        }
+        .tab-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            max-width: 220px;
+            padding: 8px 10px;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px 10px 0 0;
+            background: #eef2ff;
+            color: #4b5563;
+            cursor: pointer;
+            white-space: nowrap;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+        .tab-item.active {
+            background: #fff;
+            color: #312e81;
+            border-bottom-color: #fff;
+            font-weight: 600;
+        }
+        .tab-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tab-close {
+            border: none;
+            background: transparent;
+            color: #6b7280;
+            line-height: 1;
+            padding: 0 2px;
+        }
+        .tab-close:hover {
+            color: #dc2626;
+        }
+        .tab-frame-wrap {
+            flex: 1;
+            min-height: 0;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            overflow: hidden;
+        }
+        .tab-frame {
+            width: 100%;
+            height: 100%;
+            border: 0;
+            display: none;
+        }
+        .tab-frame.active {
+            display: block;
+        }
+        .embedded-content {
+            padding: 15px;
+            min-height: 100vh;
+            background: #f8f9fa;
+        }
+        body.embedded-page,
+        body.embedded-page html {
+            overflow: auto;
+        }
+        body.embedded-page .sidebar {
+            display: none !important;
+        }
+        body.embedded-page .app-wrapper {
+            margin-left: 0 !important;
+        }
+        body.embedded-page .main-content {
+            margin-left: 0 !important;
+            padding: 0 !important;
+        }
+        body.embedded-page .tab-workspace {
+            display: none !important;
+        }
+        body:not(.embedded-page) .embedded-content {
+            display: none !important;
+        }
+        .mobile-topbar,
+        .mobile-sidebar-backdrop,
+        .mobile-sidebar-close {
+            display: none;
+        }
+        .page-header {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            flex-shrink: 0;
+        }
+        .page-header h2 {
+            margin: 0;
+            color: #333;
+            font-size: 1.25rem;
+        }
+        .page-header .breadcrumb {
+            margin-bottom: 0;
+            font-size: 0.85rem;
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .card-header {
+            background: white;
+            border-bottom: 1px solid #eee;
+            font-weight: 600;
+            padding: 12px 15px;
+            font-size: 0.95rem;
+        }
+        .card-body {
+            padding: 15px;
+        }
+        .card-body .table {
+            margin-bottom: 0;
+        }
+        .table th {
+            /* 样式由 custom.css 统一管理 */
+        }
+        .table td {
+            /* 样式由 custom.css 统一管理 */
+        }
+        .badge-status {
+            padding: 4px 8px;
+            border-radius: 20px;
+            font-size: 0.8em;
+        }
+        .modal-header {
+            background: linear-gradient(135deg, #0f4c81 0%, #1a73e8 100%);
+            color: white;
+            padding: 12px 20px;
+        }
+        .modal-header .btn-close {
+            filter: invert(1) grayscale(1) brightness(2);
+        }
+        .modal-body {
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        .form-group label {
+            font-weight: 500;
+            font-size: 0.9rem;
+            margin-bottom: 0.3rem;
+        }
+        .form-control {
+            padding: 0.5rem 0.75rem;
+            font-size: 0.9rem;
+        }
+        /* 表格滚动容器 */
+        .table-responsive-wrapper {
+            overflow-x: auto;
+            max-height: calc(100vh - 320px);
+            overflow-y: auto;
+        }
+        .table-responsive-wrapper::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .table-responsive-wrapper::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 3px;
+        }
+        .cb-resizable-table {
+            table-layout: fixed;
+        }
+        .cb-resizable-table th {
+            position: relative;
+            white-space: nowrap;
+        }
+        .cb-resizable-table td,
+        .cb-resizable-table th {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .cb-resizable-table .cb-col-resizer,
+        .cb-detail-table-enhanced .cb-col-resizer {
+            position: absolute;
+            top: 0;
+            right: -2px;
+            width: 8px;
+            height: 100%;
+            cursor: col-resize;
+            z-index: 3;
+        }
+        .cb-resizable-table .cb-col-resizer::after,
+        .cb-detail-table-enhanced .cb-col-resizer::after {
+            content: '';
+            position: absolute;
+            top: 18%;
+            bottom: 18%;
+            left: 3px;
+            width: 2px;
+            border-radius: 999px;
+            background: rgba(148, 163, 184, 0.45);
+        }
+        .cb-col-resize-active {
+            cursor: col-resize !important;
+            user-select: none;
+        }
+        .cb-col-resize-active * {
+            user-select: none !important;
+        }
+        /* 操作按钮行 */
+
+        .cb-toast-stack {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 20000;
+            pointer-events: none;
+        }
+        .cb-toast {
+            min-width: 280px;
+            max-width: 420px;
+            background: rgba(17, 24, 39, 0.94);
+            color: #fff;
+            border-radius: 14px;
+            box-shadow: 0 18px 36px rgba(15, 23, 42, 0.24);
+            padding: 14px 16px;
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            pointer-events: auto;
+            transform: translateY(-8px);
+            opacity: 0;
+            transition: all 0.25s ease;
+        }
+        .cb-toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .cb-toast-success { border-left: 4px solid #22c55e; }
+        .cb-toast-danger { border-left: 4px solid #ef4444; }
+        .cb-toast-warning { border-left: 4px solid #f59e0b; }
+        .cb-toast-info { border-left: 4px solid #38bdf8; }
+        .cb-toast-secondary { border-left: 4px solid #94a3b8; }
+        .cb-toast-icon {
+            font-size: 1.1rem;
+            line-height: 1.4;
+        }
+        .cb-toast-body {
+            flex: 1;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        .cb-toast-close {
+            border: none;
+            background: transparent;
+            color: rgba(255,255,255,0.72);
+            font-size: 1rem;
+            line-height: 1;
+            padding: 2px;
+        }
+        .cb-confirm-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 21000;
+            padding: 16px;
+        }
+        .cb-confirm-overlay.show {
+            display: flex;
+        }
+        .cb-confirm-dialog {
+            width: min(460px, 100%);
+            background: #fff;
+            border-radius: 18px;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
+            overflow: hidden;
+        }
+        .cb-confirm-header {
+            padding: 18px 20px 8px;
+        }
+        .cb-confirm-header h5 {
+            margin: 0;
+            font-size: 1.1rem;
+            color: #111827;
+        }
+        .cb-confirm-body {
+            padding: 0 20px 20px;
+            color: #4b5563;
+            line-height: 1.6;
+        }
+        .cb-confirm-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding: 0 20px 20px;
+        }
+        .cb-actionbar {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 8px 12px;
+            margin: 0 0 12px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+        .cb-actionbar .btn {
+            border: 0;
+            color: #374151;
+            background: transparent;
+            padding: 5px 9px;
+            font-size: 0.86rem;
+            flex-shrink: 0;
+        }
+        .cb-actionbar .btn:hover {
+            background: #eef2ff;
+            color: #312e81;
+        }
+        .cb-actionbar .btn i {
+            margin-right: 4px;
+        }
+        .cb-actionbar .cb-actionbar-divider {
+            width: 1px;
+            height: 18px;
+            background: #e5e7eb;
+            margin: 0 4px;
+            flex-shrink: 0;
+        }
+        .cb-actionbar .cb-actionbar-spacer {
+            flex: 1 1 auto;
+            min-width: 12px;
+        }
+        .cb-doc-nav {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            margin-left: auto;
+            padding: 3px;
+            border: 1px solid #dbe3ee;
+            border-radius: 8px;
+            background: linear-gradient(180deg, #f8fafc 0%, #eef4fb 100%);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.88);
+            flex-shrink: 0;
+        }
+        .cb-actionbar .cb-doc-nav .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            height: 30px;
+            padding: 0 8px;
+            border-radius: 6px;
+            color: #1f3a5f;
+            background: transparent;
+            font-weight: 600;
+        }
+        .cb-actionbar .cb-doc-nav .btn:hover {
+            color: #0f766e;
+            background: #ffffff;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.14);
+        }
+        .cb-actionbar .cb-doc-nav .btn i {
+            margin-right: 0;
+            font-size: 1rem;
+        }
+        .cb-doc-nav-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+        }
+        .cb-doc-nav-label {
+            line-height: 1;
+        }
+        .cb-doc-search-modal .modal-title i {
+            color: #0f766e;
+            margin-right: 6px;
+        }
+        .cb-doc-search-input-wrap {
+            position: relative;
+        }
+        .cb-doc-search-input-wrap > i {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #64748b;
+            z-index: 2;
+        }
+        .cb-doc-search-input-wrap .form-control {
+            padding-left: 36px;
+            height: 40px;
+            border-color: #cbd5e1;
+        }
+        .cb-doc-search-input-wrap .form-control:focus {
+            border-color: #14b8a6;
+            box-shadow: 0 0 0 .2rem rgba(20, 184, 166, .14);
+        }
+        .cb-doc-search-meta {
+            margin: 10px 0 8px;
+            font-size: 0.85rem;
+            color: #64748b;
+        }
+        .cb-doc-search-results {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .cb-doc-search-row {
+            display: grid;
+            grid-template-columns: 34px minmax(0, 1fr) 94px 72px 26px;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            min-height: 48px;
+            padding: 7px 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #fff;
+            color: #1f2937;
+            text-align: left;
+        }
+        .cb-doc-search-row:hover {
+            border-color: #99f6e4;
+            background: #f0fdfa;
+        }
+        .cb-doc-search-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            color: #0f766e;
+            background: #ccfbf1;
+        }
+        .cb-doc-search-main {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        .cb-doc-search-no {
+            font-weight: 700;
+            color: #111827;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .cb-doc-search-title,
+        .cb-doc-search-date,
+        .cb-doc-search-status {
+            font-size: 0.82rem;
+            color: #64748b;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .cb-doc-search-open {
+            color: #0f766e;
+            font-size: 1.2rem;
+            text-align: right;
+        }
+        .cb-doc-search-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-height: 96px;
+            border: 1px dashed #cbd5e1;
+            border-radius: 8px;
+            color: #64748b;
+            background: #f8fafc;
+        }
+        .cb-actionbar .btn.disabled,
+        .cb-actionbar .btn:disabled {
+            color: #9ca3af;
+            pointer-events: none;
+        }
+
+        @media print {
+            .sidebar, .btn, .no-print {
+                display: none !important;
+            }
+            .main-content {
+                margin-left: 0;
+            }
+        }
+
+        @media (max-width: 768px) {
+            html,
+            body {
+                height: auto;
+                min-height: 100%;
+                overflow: auto;
+            }
+
+            body.mobile-sidebar-open {
+                overflow: hidden;
+            }
+
+            .mobile-topbar {
+                position: sticky;
+                top: 0;
+                z-index: 2050;
+                height: 54px;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 0 12px;
+                background: #ffffff;
+                border-bottom: 1px solid #e5e7eb;
+                box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+            }
+
+            body.embedded-page .mobile-topbar {
+                display: none;
+            }
+
+            .mobile-menu-toggle,
+            .mobile-home-link,
+            .mobile-sidebar-close {
+                width: 40px;
+                height: 40px;
+                border: 1px solid #dbe3ee;
+                border-radius: 8px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                background: #fff;
+                color: #1f2937;
+                text-decoration: none;
+                flex-shrink: 0;
+            }
+
+            .mobile-topbar-title {
+                min-width: 0;
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                line-height: 1.2;
+            }
+
+            .mobile-topbar-title span {
+                font-size: 15px;
+                font-weight: 700;
+                color: #111827;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .mobile-topbar-title small {
+                margin-top: 2px;
+                color: #64748b;
+                font-size: 11px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .app-wrapper {
+                display: block;
+                min-height: calc(100vh - 54px);
+                height: auto;
+                overflow: visible;
+            }
+
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                bottom: 0;
+                width: min(86vw, 320px);
+                height: 100vh;
+                padding-top: 0;
+                overflow-y: auto;
+                overflow-x: hidden;
+                z-index: 2100;
+                transform: translateX(-102%);
+                transition: transform .2s ease;
+                box-shadow: 16px 0 40px rgba(15, 23, 42, .28);
+            }
+
+            body.mobile-sidebar-open .sidebar {
+                transform: translateX(0);
+            }
+
+            .mobile-sidebar-backdrop {
+                position: fixed;
+                inset: 0;
+                z-index: 2090;
+                background: rgba(15, 23, 42, .42);
+            }
+
+            body.mobile-sidebar-open .mobile-sidebar-backdrop {
+                display: block;
+            }
+
+            .sidebar .brand {
+                position: sticky;
+                top: 0;
+                z-index: 2;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                min-height: 56px;
+                padding: 10px 12px;
+                margin-bottom: 6px;
+                background: rgba(12, 25, 41, .96);
+                backdrop-filter: blur(12px);
+            }
+
+            .sidebar .brand h4 {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .mobile-sidebar-close {
+                display: inline-flex;
+                border-color: rgba(255,255,255,.18);
+                background: rgba(255,255,255,.08);
+                color: #fff;
+            }
+
+            .sidebar .nav-link,
+            .sidebar .module-toggle {
+                min-height: 46px;
+                padding: 12px 16px;
+                font-size: 15px;
+                border-left-width: 0;
+            }
+
+            .sidebar .nav-link i,
+            .sidebar .module-toggle i {
+                font-size: 17px;
+                margin-right: 10px;
+            }
+
+            .sidebar .module-flyout {
+                position: static;
+                width: auto;
+                max-height: none;
+                display: none;
+                visibility: visible;
+                opacity: 1;
+                transform: none;
+                margin: 0 10px 10px 18px;
+                padding: 6px;
+                border-radius: 10px;
+                box-shadow: none;
+                background: rgba(255,255,255,.08);
+                border-color: rgba(255,255,255,.12);
+                overflow: visible;
+            }
+
+            .sidebar .module-menu.open .module-flyout {
+                display: block;
+            }
+
+            .module-flyout::before {
+                display: none;
+            }
+
+            .module-flyout .flyout-title {
+                color: rgba(255,255,255,.62);
+            }
+
+            .module-flyout .flyout-link {
+                min-height: 42px;
+                color: rgba(255,255,255,.9);
+                border-radius: 8px;
+                font-size: 14px;
+            }
+
+            .module-flyout .flyout-link:hover,
+            .module-flyout .flyout-link.active {
+                color: #fff;
+                background: rgba(79, 140, 255, .2);
+            }
+
+            .module-flyout .flyout-link i {
+                color: rgba(255,255,255,.82);
+            }
+
+            .module-flyout .flyout-divider {
+                background: rgba(255,255,255,.12);
+            }
+
+            .main-content {
+                padding: 0;
+                overflow: visible;
+            }
+
+            .tab-workspace {
+                display: none !important;
+            }
+
+            body:not(.embedded-page) .embedded-content {
+                display: block !important;
+            }
+
+            .embedded-content {
+                min-height: calc(100vh - 54px);
+                padding: 12px;
+                background: #f5f7fb;
+            }
+
+            .page-header {
+                padding: 12px;
+                margin-bottom: 12px;
+                border-radius: 8px;
+                align-items: flex-start !important;
+                gap: 10px;
+            }
+
+            .page-header h2 {
+                font-size: 1.05rem;
+                line-height: 1.35;
+            }
+
+            .cb-actionbar {
+                position: sticky;
+                top: 54px;
+                z-index: 100;
+                margin: -12px -12px 12px;
+                padding: 8px 10px;
+                border-width: 0 0 1px;
+                border-radius: 0;
+                box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
+            }
+
+            body.wms-doc-entry .cb-actionbar {
+                margin: -8px -8px 8px;
+            }
+
+            .cb-actionbar .btn {
+                min-height: 36px;
+                padding: 0 10px;
+                font-size: 13px;
+            }
+
+            .cb-actionbar .cb-doc-nav-label {
+                display: none;
+            }
+        }
+    </style>
+    <script>
+    // 彻底禁止缩放
+    document.addEventListener('touchstart', function(e) {
+        if (e.touches.length > 1) {
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    var lastTouchEnd = 0;
+    document.addEventListener('touchend', function(e) {
+        var now = (new Date()).getTime();
+        if (now - lastTouchEnd <= 300) {
+            e.preventDefault();
+        }
+        lastTouchEnd = now;
+    }, false);
+
+    document.addEventListener('gesturestart', function(e) {
+        e.preventDefault();
+    });
+    document.addEventListener('gesturechange', function(e) {
+        e.preventDefault();
+    });
+    document.addEventListener('gestureend', function(e) {
+        e.preventDefault();
+    });
+
+    // 禁止双击缩放
+    document.addEventListener('dblclick', function(e) {
+        e.preventDefault();
+    }, { passive: false });
+
+    // 禁止滚轮缩放
+    document.addEventListener('wheel', function(e) {
+        if (e.ctrlKey) {
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    function closeModuleMenus(exceptMenu) {
+        document.querySelectorAll('.module-menu.open').forEach(function(menu) {
+            if (exceptMenu && menu === exceptMenu) return;
+            menu.classList.remove('open');
+            var menuButton = menu.querySelector('.module-toggle');
+            if (menuButton) menuButton.setAttribute('aria-expanded', 'false');
+        });
+    }
+
+    function toggleModuleMenu(button) {
+        var item = button ? button.closest('.module-menu') : null;
+        if (!item) return;
+        var shouldOpen = !item.classList.contains('open') || item.dataset.openedByHover === 'true';
+        item.dataset.openedByHover = 'false';
+        closeModuleMenus(item);
+        item.classList.toggle('open', shouldOpen);
+        button.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    }
+
+    document.addEventListener('mouseover', function(e) {
+        var item = e.target.closest('.module-menu');
+        if (!item) return;
+        var hasOpenMenu = document.querySelector('.module-menu.open');
+        if (!hasOpenMenu || item.classList.contains('open')) return;
+        closeModuleMenus(item);
+        item.classList.add('open');
+        item.dataset.openedByHover = 'true';
+        var menuButton = item.querySelector('.module-toggle');
+        if (menuButton) menuButton.setAttribute('aria-expanded', 'true');
+    });
+
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.module-flyout .flyout-link')) {
+            closeModuleMenus();
+            return;
+        }
+        if (e.target.closest('.module-menu')) return;
+        closeModuleMenus();
+    });
+
+    document.addEventListener('DOMContentLoaded', function() {
+        var sidebar = document.querySelector('.sidebar');
+        if (!sidebar) return;
+        sidebar.addEventListener('mouseleave', function() {
+            window.setTimeout(function() {
+                if (!document.querySelector('.module-menu:hover')) {
+                    closeModuleMenus();
+                }
+            }, 120);
+        });
+    });
+    </script>
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+    <script>if(window.self!==window.top){document.body.classList.add('embedded-page');}</script>
+    <header class="mobile-topbar no-print">
+        <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-controls="appSidebar" aria-expanded="false" onclick="toggleMobileSidebar()">
+            <i class="bi bi-list"></i>
+        </button>
+        <div class="mobile-topbar-title">
+            <span>仓库管理</span>
+            <small>{% block mobile_title %}{{ self.title()|striptags }}{% endblock %}</small>
+        </div>
+        <a class="mobile-home-link" href="/" aria-label="首页"><i class="bi bi-house"></i></a>
+    </header>
+    <div class="mobile-sidebar-backdrop no-print" id="mobileSidebarBackdrop" onclick="closeMobileSidebar()"></div>
+    <div class="app-wrapper">
+    <!-- 侧边栏 -->
+    <nav class="sidebar" id="appSidebar">
+        <div class="brand">
+            <h4><i class="bi bi-brain"></i> 仓库管理</h4>
+            <button type="button" class="mobile-sidebar-close" aria-label="关闭菜单" onclick="closeMobileSidebar()">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <ul class="nav flex-column module-nav">
+            <li class="nav-item">
+                <a class="nav-link" href="/">
+                    <i class="bi bi-speedometer2"></i> 首页
+                </a>
+            </li>
+            <li class="nav-item module-menu">
+                <button type="button" class="nav-link module-toggle" onclick="toggleModuleMenu(this)" aria-expanded="false">
+                    <span class="module-title"><i class="bi bi-qr-code-scan"></i> 手机扫码</span>
+                    <i class="bi bi-chevron-right module-arrow"></i>
+                </button>
+                <div class="module-flyout">
+                    <div class="flyout-title">手机扫码</div>
+                    {% if current_user.role in ['admin', 'warehouse'] %}
+                    <a class="flyout-link" href="{{ url_for('mobile_app_download') }}"><i class="bi bi-phone"></i> 下载扫码APP</a>
+                    <a class="flyout-link" href="{{ url_for('mobile_scan', mode='in') }}"><i class="bi bi-box-arrow-in-down"></i> 手工入库</a>
+                    <a class="flyout-link" href="{{ url_for('mobile_scan', mode='out') }}"><i class="bi bi-box-arrow-up"></i> 手工出库</a>
+                    <a class="flyout-link" href="{{ url_for('mobile_scan', mode='check') }}"><i class="bi bi-clipboard-check"></i> 手工盘点</a>
+                    <div class="flyout-divider"></div>
+                    {% endif %}
+                    <a class="flyout-link" href="{{ url_for('mobile_scan', mode='query') }}"><i class="bi bi-search"></i> 手工查询</a>
+                </div>
+            </li>
+            {% if current_user.role in ['admin', 'warehouse'] %}
+            <li class="nav-item module-menu">
+                <button type="button" class="nav-link module-toggle" onclick="toggleModuleMenu(this)" aria-expanded="false">
+                    <span class="module-title"><i class="bi bi-bag-check"></i> 采购管理</span>
+                    <i class="bi bi-chevron-right module-arrow"></i>
+                </button>
+                <div class="module-flyout">
+                    <div class="flyout-title">采购管理</div>
+                    <a class="flyout-link" href="/purchase_request/add"><i class="bi bi-cart-plus"></i> 采购申请</a>
+                    <a class="flyout-link" href="/purchase_order/add"><i class="bi bi-bag-check"></i> 采购单</a>
+                    <a class="flyout-link" href="/in_order/add"><i class="bi bi-box-arrow-in-down"></i> 采购入库</a>
+                    <div class="flyout-divider"></div>
+                    <a class="flyout-link" href="/purchase_request"><i class="bi bi-list-check"></i> 采购申请列表</a>
+                    <a class="flyout-link" href="/purchase_order?view=list"><i class="bi bi-card-list"></i> 采购单列表</a>
+                    <a class="flyout-link" href="/in_order?business_type=采购入库"><i class="bi bi-card-list"></i> 采购入库明细</a>
+                    <a class="flyout-link" href="/supplier"><i class="bi bi-building"></i> 供应商管理</a>
+                    <div class="flyout-divider"></div>
+                    <a class="flyout-link" href="/purchase_report"><i class="bi bi-clipboard-data"></i> 采购报表</a>
+                    <a class="flyout-link" href="/report/view/purchase_order_execution"><i class="bi bi-bag-check"></i> 采购订单执行统计表</a>
+                    <a class="flyout-link" href="/report/view/supplier_purchase_summary"><i class="bi bi-building"></i> 供应商采购汇总表</a>
+                    <a class="flyout-link" href="/report/view/material_purchase_summary"><i class="bi bi-box"></i> 物料采购汇总表</a>
+                    <a class="flyout-link" href="/report/view/purchase_price_analysis"><i class="bi bi-currency-yen"></i> 采购价格分析表</a>
+                    <a class="flyout-link" href="/report/view/in_detail"><i class="bi bi-box-arrow-in-down"></i> 采购入库明细报表</a>
+                </div>
+            </li>
+            <li class="nav-item module-menu">
+                <button type="button" class="nav-link module-toggle" onclick="toggleModuleMenu(this)" aria-expanded="false">
+                    <span class="module-title"><i class="bi bi-box-seam"></i> 库存管理</span>
+                    <i class="bi bi-chevron-right module-arrow"></i>
+                </button>
+                <div class="module-flyout">
+                    <div class="flyout-title">库存管理</div>
+                    <a class="flyout-link" href="/in_order/add?type=product"><i class="bi bi-box-arrow-in-down"></i> 产品入库</a>
+                    <a class="flyout-link" href="/out_order/add"><i class="bi bi-box-arrow-up"></i> 领料单</a>
+                    <a class="flyout-link" href="/out_order/add?type=sale"><i class="bi bi-receipt"></i> 销售单</a>
+                    <a class="flyout-link" href="/after_sale_out/add"><i class="bi bi-arrow-return-left"></i> 售后出库</a>
+                    <div class="flyout-divider"></div>
+                    <a class="flyout-link" href="/transfer"><i class="bi bi-arrow-left-right"></i> 库存调拨</a>
+                    {% if location_management_enabled %}
+                    <a class="flyout-link" href="/adjustment"><i class="bi bi-sliders"></i> 库存调整</a>
+                    {% endif %}
+                    <a class="flyout-link" href="/check"><i class="bi bi-clipboard-check"></i> 库存盘点</a>
+                    <a class="flyout-link" href="/in_order"><i class="bi bi-card-list"></i> 入库明细</a>
+                    <a class="flyout-link" href="/out_order"><i class="bi bi-card-list"></i> 领料明细</a>
+                    <div class="flyout-divider"></div>
+                    <a class="flyout-link" href="/bom"><i class="bi bi-diagram-3"></i> BOM管理</a>
+                    <a class="flyout-link" href="/requisition"><i class="bi bi-file-earmark-text"></i> 工单领料</a>
+                    <a class="flyout-link" href="/subcontract"><i class="bi bi-truck"></i> 委外管理</a>
+                    <div class="flyout-divider"></div>
+                    <a class="flyout-link" href="/report/dashboard"><i class="bi bi-bar-chart-line"></i> 数据仪表盘</a>
+                    <a class="flyout-link" href="/report/view/inventory"><i class="bi bi-box-seam"></i> 库存报表</a>
+                    <a class="flyout-link" href="/report/view/out_detail"><i class="bi bi-box-arrow-up"></i> 领料明细报表</a>
+                    <a class="flyout-link" href="/report/view/summary"><i class="bi bi-clipboard-data"></i> 出入库汇总报表</a>
+                    <a class="flyout-link" href="/report/view/check"><i class="bi bi-clipboard-check"></i> 盘点报表</a>
+                    <a class="flyout-link" href="/report/view/ledger"><i class="bi bi-journal-text"></i> 库存台账</a>
+                    <a class="flyout-link" href="/report/view/warehouse_monthly"><i class="bi bi-calendar3"></i> 仓库月报表</a>
+                    <a class="flyout-link" href="/report/view/requisition"><i class="bi bi-file-earmark-text"></i> 工单领料报表</a>
+                    <a class="flyout-link" href="/report/view/subcontract"><i class="bi bi-tools"></i> 委外加工报表</a>
+                </div>
+            </li>
+            {% endif %}
+            {% if current_user.role == 'production' %}
+            <li class="nav-item module-menu">
+                <button type="button" class="nav-link module-toggle" onclick="toggleModuleMenu(this)" aria-expanded="false">
+                    <span class="module-title"><i class="bi bi-box-seam"></i> 库存管理</span>
+                    <i class="bi bi-chevron-right module-arrow"></i>
+                </button>
+                <div class="module-flyout">
+                    <div class="flyout-title">库存管理</div>
+                    <a class="flyout-link" href="/bom"><i class="bi bi-diagram-3"></i> BOM管理</a>
+                    <a class="flyout-link" href="/requisition"><i class="bi bi-file-earmark-text"></i> 工单领料</a>
+                    <a class="flyout-link" href="/subcontract"><i class="bi bi-truck"></i> 委外管理</a>
+                </div>
+            </li>
+            {% endif %}
+            {% if current_user.role == 'viewer' %}
+            <li class="nav-item">
+                <a class="nav-link" href="/report">
+                    <i class="bi bi-graph-up"></i> 报表中心
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/batch_import">
+                    <i class="bi bi-cloud-upload"></i> 批量导入
+                </a>
+            </li>
+            {% endif %}
+            {% if current_user.role == 'admin' %}
+            <li class="nav-item module-menu">
+                <button type="button" class="nav-link module-toggle" onclick="toggleModuleMenu(this)" aria-expanded="false">
+                    <span class="module-title"><i class="bi bi-folder2-open"></i> 基础资料</span>
+                    <i class="bi bi-chevron-right module-arrow"></i>
+                </button>
+                <div class="module-flyout">
+                    <div class="flyout-title">基础资料</div>
+                    <a class="flyout-link" href="/material"><i class="bi bi-box"></i> 物料管理</a>
+                    <a class="flyout-link" href="/opening_stock"><i class="bi bi-bank"></i> 期初库存</a>
+                    <a class="flyout-link" href="/category"><i class="bi bi-tags"></i> 物料分类</a>
+                    <a class="flyout-link" href="/unit"><i class="bi bi-rulers"></i> 计量单位</a>
+                    <a class="flyout-link" href="/supplier"><i class="bi bi-building"></i> 供应商管理</a>
+                    <a class="flyout-link" href="/customer"><i class="bi bi-people"></i> 客户管理</a>
+                    <a class="flyout-link" href="/warehouse"><i class="bi bi-house-door"></i> 仓库档案</a>
+                    <a class="flyout-link" href="/department"><i class="bi bi-diagram-2"></i> 部门档案</a>
+                    <a class="flyout-link" href="/employee"><i class="bi bi-person-badge"></i> 员工管理</a>
+                </div>
+            </li>
+            <li class="nav-item module-menu">
+                <button type="button" class="nav-link module-toggle" onclick="toggleModuleMenu(this)" aria-expanded="false">
+                    <span class="module-title"><i class="bi bi-gear"></i> 系统管理</span>
+                    <i class="bi bi-chevron-right module-arrow"></i>
+                </button>
+                <div class="module-flyout">
+                    <div class="flyout-title">系统管理</div>
+                    <a class="flyout-link" href="/system_settings"><i class="bi bi-sliders"></i> 系统设置</a>
+                    <a class="flyout-link" href="/user"><i class="bi bi-person-gear"></i> 用户管理</a>
+                    <a class="flyout-link" href="/approval"><i class="bi bi-check2-square"></i> 审批中心</a>
+                    <a class="flyout-link" href="/wechat_share"><i class="bi bi-wechat"></i> 微信分享</a>
+                    <a class="flyout-link" href="/backup"><i class="bi bi-database"></i> 数据备份</a>
+                </div>
+            </li>
+            {% endif %}
+            {% if current_user.role == 'manager' %}
+            <li class="nav-item">
+                <a class="nav-link" href="/approval">
+                    <i class="bi bi-check2-square"></i> 审批中心
+                </a>
+            </li>
+            {% endif %}
+        </ul>
+        <ul class="nav flex-column legacy-menu d-none">
+            <li class="nav-item">
+                <a class="nav-link" href="/">
+                    <i class="bi bi-speedometer2"></i> 首页
+                </a>
+            </li>
+            {% if current_user.role in ['admin', 'warehouse'] %}
+            <li class="nav-item">
+                <a class="nav-link" href="/in_order?business_type=采购入库">
+                    <i class="bi bi-box-arrow-in-down"></i> 采购入库
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/in_order?business_type=产品入库">
+                    <i class="bi bi-box-arrow-in-down"></i> 产品入库
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/out_order/add">
+                    <i class="bi bi-box-arrow-up"></i> 领料单
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/out_order/add?type=sale">
+                    <i class="bi bi-receipt"></i> 销售单
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/after_sale_out/add">
+                    <i class="bi bi-box-arrow-up"></i> 售后出库
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/purchase_request/add">
+                    <i class="bi bi-cart-plus"></i> 采购申请
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/purchase_order/add">
+                    <i class="bi bi-bag-check"></i> 采购单
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/transfer">
+                    <i class="bi bi-arrow-left-right"></i> 库存调拨
+                </a>
+            </li>
+            {% if location_management_enabled %}
+            <li class="nav-item">
+                <a class="nav-link" href="/adjustment">
+                    <i class="bi bi-sliders"></i> 库存调整
+                </a>
+            </li>
+            {% endif %}
+            <li class="nav-item">
+                <a class="nav-link" href="/check">
+                    <i class="bi bi-clipboard-check"></i> 库存盘点
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/bom">
+                    <i class="bi bi-diagram-3"></i> BOM管理
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/requisition">
+                    <i class="bi bi-file-earmark-text"></i> 工单领料
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/subcontract">
+                    <i class="bi bi-truck"></i> 委外管理
+                </a>
+            </li>
+            {% endif %}
+            {% if current_user.role == 'production' %}
+            <li class="nav-item">
+                <a class="nav-link" href="/bom">
+                    <i class="bi bi-diagram-3"></i> BOM管理
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/requisition">
+                    <i class="bi bi-file-earmark-text"></i> 工单领料
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/subcontract">
+                    <i class="bi bi-truck"></i> 委外管理
+                </a>
+            </li>
+            {% endif %}
+            {% if current_user.role in ['admin', 'warehouse', 'viewer'] %}
+            <li class="nav-item">
+                <a class="nav-link" href="/in_order">
+                    <i class="bi bi-box-arrow-in-down"></i> 入库明细
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/out_order">
+                    <i class="bi bi-box-arrow-up"></i> 领料明细
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/report">
+                    <i class="bi bi-graph-up"></i> 报表中心
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/batch_import">
+                    <i class="bi bi-cloud-upload"></i> 批量导入
+                </a>
+            </li>
+            {% endif %}
+            {% if current_user.role == 'admin' %}
+            <li class="nav-item">
+                <button type="button" class="nav-link submenu-toggle w-100 border-0 bg-transparent text-start" onclick="toggleSubmenu(this)" aria-expanded="false">
+                    <span><i class="bi bi-folder2-open"></i> 基础资料</span>
+                    <i class="bi bi-chevron-down submenu-arrow"></i>
+                </button>
+                <ul class="submenu-list">
+                    <li><a class="nav-link" href="/material"><i class="bi bi-circle"></i> 物料管理</a></li>
+                    <li><a class="nav-link" href="/opening_stock"><i class="bi bi-circle"></i> 期初库存</a></li>
+                    <li><a class="nav-link" href="/category"><i class="bi bi-circle"></i> 物料分类</a></li>
+                    <li><a class="nav-link" href="/unit"><i class="bi bi-circle"></i> 计量单位</a></li>
+                    <li><a class="nav-link" href="/supplier"><i class="bi bi-circle"></i> 供应商管理</a></li>
+                    <li><a class="nav-link" href="/customer"><i class="bi bi-circle"></i> 客户管理</a></li>
+                    <li><a class="nav-link" href="/warehouse"><i class="bi bi-circle"></i> 仓库档案</a></li>
+                    <li><a class="nav-link" href="/department"><i class="bi bi-circle"></i> 部门档案</a></li>
+                    <li><a class="nav-link" href="/employee"><i class="bi bi-circle"></i> 员工管理</a></li>
+                </ul>
+            </li>
+            <li class="nav-item">
+                <button type="button" class="nav-link submenu-toggle w-100 border-0 bg-transparent text-start" onclick="toggleSubmenu(this)" aria-expanded="false">
+                    <span><i class="bi bi-gear"></i> 系统管理</span>
+                    <i class="bi bi-chevron-down submenu-arrow"></i>
+                </button>
+                <ul class="submenu-list">
+                    <li><a class="nav-link" href="/system_settings"><i class="bi bi-circle"></i> 系统设置</a></li>
+                    <li><a class="nav-link" href="/user"><i class="bi bi-circle"></i> 用户管理</a></li>
+                    <li><a class="nav-link" href="/approval"><i class="bi bi-circle"></i> 审批中心</a></li>
+                    <li><a class="nav-link" href="/wechat_share"><i class="bi bi-circle"></i> 微信分享</a></li>
+                    <li><a class="nav-link" href="/backup"><i class="bi bi-circle"></i> 数据备份</a></li>
+                </ul>
+            </li>
+            {% endif %}
+            {% if current_user.role == 'manager' %}
+            <li class="nav-item">
+                <a class="nav-link" href="/approval">
+                    <i class="bi bi-check2-square"></i> 审批中心
+                </a>
+            </li>
+            {% endif %}
+        </ul>
+    </nav>
+
+    <!-- 主内容区 -->
+    <div class="main-content">
+        <div class="tab-workspace" id="tabWorkspace">
+            <div class="tab-bar" id="tabBar" aria-label="已打开页面"></div>
+            <div class="tab-frame-wrap" id="tabFrameWrap"></div>
+        </div>
+        <div class="embedded-content">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+    </div><!-- end app-wrapper -->
+
+    <div class="cb-toast-stack" id="cbToastStack"></div>
+
+    <div class="cb-confirm-overlay" id="cbConfirmOverlay">
+        <div class="cb-confirm-dialog">
+            <div class="cb-confirm-header">
+                <h5 id="cbConfirmTitle">请确认操作</h5>
+            </div>
+            <div class="cb-confirm-body" id="cbConfirmMessage">确定继续吗？</div>
+            <div class="cb-confirm-actions">
+                <button type="button" class="btn btn-outline-secondary" id="cbConfirmCancel">取消</button>
+                <button type="button" class="btn btn-primary" id="cbConfirmOk">确认</button>
+            </div>
+        </div>
+    </div>
+
+    {% if current_user.is_authenticated %}
+    <button type="button" class="ai-assistant-button" id="aiAssistantButton" title="AI仓库助手">
+        <i class="bi bi-robot"></i>
+    </button>
+    <div class="ai-assistant-panel" id="aiAssistantPanel" aria-label="AI仓库助手">
+        <div class="ai-assistant-header">
+            <div class="ai-assistant-title"><i class="bi bi-robot"></i> AI仓库助手</div>
+            <button type="button" class="ai-assistant-close" id="aiAssistantClose" aria-label="关闭">×</button>
+        </div>
+        <div class="ai-assistant-messages" id="aiAssistantMessages">
+            <div class="ai-message assistant">可以直接问我：查 A001 库存、今天有哪些异常、有哪些待处理单据，或生成领料单 A001 20。</div>
+        </div>
+        <div class="ai-assistant-input">
+            <div class="ai-pending-attachments" id="aiPendingAttachments"></div>
+            <form id="aiAssistantForm">
+                <button type="button" class="btn btn-outline-secondary btn-sm ai-input-tool" id="aiPasteButton" title="粘贴剪贴板"><i class="bi bi-clipboard"></i></button>
+                <button type="button" class="btn btn-outline-secondary btn-sm ai-input-tool" id="aiUploadButton" title="上传图片"><i class="bi bi-image"></i></button>
+                <input type="file" id="aiImageInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+                <input type="text" class="form-control form-control-sm" id="aiAssistantInput" placeholder="输入仓库业务问题..." autocomplete="off">
+                <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-send"></i></button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Bootstrap 5 JS Bundle (含 Popper) -->
+    <script src="{{ url_for('static', filename='cdn/bootstrap-bundle-5.3.0.min.js') }}"></script>
+    <!-- 主应用JS -->
+    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+    {% if current_user.is_authenticated %}
+    <script>
+    (function() {
+        const button = document.getElementById('aiAssistantButton');
+        const panel = document.getElementById('aiAssistantPanel');
+        const closeButton = document.getElementById('aiAssistantClose');
+        const form = document.getElementById('aiAssistantForm');
+        const input = document.getElementById('aiAssistantInput');
+        const messages = document.getElementById('aiAssistantMessages');
+        const pasteButton = document.getElementById('aiPasteButton');
+        const uploadButton = document.getElementById('aiUploadButton');
+        const imageInput = document.getElementById('aiImageInput');
+        const pendingWrap = document.getElementById('aiPendingAttachments');
+        if (!button || !panel || !form || !input || !messages) return;
+        const pendingImages = [];
+        const maxImages = 3;
+        const maxImageBytes = 3 * 1024 * 1024;
+        if (window.self !== window.top) {
+            button.style.display = 'none';
+            panel.remove();
+            return;
+        }
+
+        function copyText(text) {
+            if (!text) return;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).catch(function() {});
+            } else {
+                const area = document.createElement('textarea');
+                area.value = text;
+                document.body.appendChild(area);
+                area.select();
+                try { document.execCommand('copy'); } catch (error) {}
+                area.remove();
+            }
+        }
+
+        function addMessage(text, type, attachments) {
+            const node = document.createElement('div');
+            node.className = 'ai-message ' + (type || 'assistant');
+            const textNode = document.createElement('div');
+            textNode.textContent = text;
+            node.appendChild(textNode);
+            const copyButton = document.createElement('button');
+            copyButton.type = 'button';
+            copyButton.className = 'ai-message-copy';
+            copyButton.title = '复制';
+            copyButton.innerHTML = '<i class="bi bi-copy"></i>';
+            copyButton.addEventListener('click', function(event) {
+                event.stopPropagation();
+                copyText(text);
+            });
+            node.appendChild(copyButton);
+            if (attachments && attachments.length) {
+                const thumbs = document.createElement('div');
+                thumbs.className = 'ai-attachment-thumbs';
+                attachments.forEach(function(item) {
+                    const thumb = document.createElement('div');
+                    thumb.className = 'ai-attachment-thumb';
+                    const img = document.createElement('img');
+                    img.src = item.data_url;
+                    img.alt = item.name || '图片';
+                    thumb.appendChild(img);
+                    thumbs.appendChild(thumb);
+                });
+                node.appendChild(thumbs);
+            }
+            messages.appendChild(node);
+            messages.scrollTop = messages.scrollHeight;
+            return node;
+        }
+
+        function renderPendingImages() {
+            if (!pendingWrap) return;
+            pendingWrap.innerHTML = '';
+            pendingWrap.classList.toggle('has-items', pendingImages.length > 0);
+            pendingImages.forEach(function(item, index) {
+                const thumb = document.createElement('div');
+                thumb.className = 'ai-attachment-thumb';
+                const img = document.createElement('img');
+                img.src = item.data_url;
+                img.alt = item.name || '图片';
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'ai-attachment-remove';
+                remove.textContent = '×';
+                remove.addEventListener('click', function() {
+                    pendingImages.splice(index, 1);
+                    renderPendingImages();
+                });
+                thumb.appendChild(img);
+                thumb.appendChild(remove);
+                pendingWrap.appendChild(thumb);
+            });
+        }
+
+        function addImageFile(file) {
+            if (!file || !file.type || !file.type.startsWith('image/')) return;
+            if (pendingImages.length >= maxImages) {
+                addMessage('最多一次上传 ' + maxImages + ' 张图片。', 'assistant');
+                return;
+            }
+            if (file.size > maxImageBytes) {
+                addMessage('图片太大，请上传 3MB 以内的图片。', 'assistant');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                pendingImages.push({
+                    name: file.name || 'clipboard-image',
+                    mime_type: file.type,
+                    size: file.size,
+                    data_url: event.target.result
+                });
+                renderPendingImages();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function addImageFiles(files) {
+            Array.from(files || []).forEach(addImageFile);
+        }
+
+        function openUrl(url, label) {
+            if (!url) return;
+            if (window.WmsTabs) {
+                window.WmsTabs.open(url, label || 'AI助手');
+            } else {
+                window.location.href = url;
+            }
+        }
+
+        function renderCards(cards) {
+            (cards || []).forEach(function(card) {
+                const node = document.createElement('div');
+                node.className = 'ai-card';
+                const title = document.createElement('div');
+                title.className = 'ai-card-title';
+                title.textContent = card.title || (card.order_no ? ((card.type || '单据') + ' ' + card.order_no) : ((card.code || '') + ' ' + (card.name || '')));
+                const meta = document.createElement('div');
+                meta.className = 'ai-card-meta';
+                if (card.stock !== undefined) {
+                    meta.textContent = '库存：' + card.stock + (card.unit ? ' ' + card.unit : '') + (card.spec ? '｜规格：' + card.spec : '');
+                } else if (card.quantity !== undefined) {
+                    meta.textContent = '数量：' + card.quantity;
+                } else if (card.meta) {
+                    meta.textContent = card.meta;
+                } else if (card.status || card.date) {
+                    meta.textContent = [card.status, card.date].filter(Boolean).join('，');
+                } else {
+                    meta.textContent = card.url || '';
+                }
+                node.appendChild(title);
+                node.appendChild(meta);
+                if (card.url) {
+                    node.style.cursor = 'pointer';
+                    node.addEventListener('click', function() { openUrl(card.url, title.textContent); });
+                }
+                messages.appendChild(node);
+            });
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function renderActions(actions) {
+            if (!actions || !actions.length) return;
+            const wrap = document.createElement('div');
+            wrap.className = 'ai-actions';
+            actions.forEach(function(action) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'ai-action';
+                btn.textContent = action.label || '打开';
+                btn.addEventListener('click', function() { openUrl(action.url, action.label); });
+                wrap.appendChild(btn);
+            });
+            messages.appendChild(wrap);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        button.addEventListener('click', function() {
+            panel.classList.toggle('open');
+            if (panel.classList.contains('open')) input.focus();
+        });
+        closeButton.addEventListener('click', function() {
+            panel.classList.remove('open');
+        });
+        if (uploadButton && imageInput) {
+            uploadButton.addEventListener('click', function() {
+                imageInput.click();
+            });
+            imageInput.addEventListener('change', function() {
+                addImageFiles(imageInput.files);
+                imageInput.value = '';
+            });
+        }
+        if (pasteButton) {
+            pasteButton.addEventListener('click', function() {
+                if (!navigator.clipboard || !navigator.clipboard.readText) {
+                    input.focus();
+                    return;
+                }
+                navigator.clipboard.readText().then(function(text) {
+                    if (text) {
+                        input.value = input.value ? (input.value + ' ' + text) : text;
+                        input.focus();
+                    }
+                }).catch(function() {
+                    input.focus();
+                });
+            });
+        }
+        document.addEventListener('paste', function(event) {
+            if (!panel.classList.contains('open')) return;
+            const items = event.clipboardData && event.clipboardData.items ? Array.from(event.clipboardData.items) : [];
+            const imageItems = items.filter(function(item) { return item.type && item.type.startsWith('image/'); });
+            if (!imageItems.length) return;
+            imageItems.forEach(function(item) {
+                const file = item.getAsFile();
+                if (file) addImageFile(file);
+            });
+            event.preventDefault();
+        });
+        form.addEventListener('submit', function(event) {
+            event.preventDefault();
+            const text = input.value.trim();
+            if (!text && !pendingImages.length) return;
+            const attachments = pendingImages.slice();
+            pendingImages.length = 0;
+            renderPendingImages();
+            input.value = '';
+            addMessage(text || '请分析这张图片', 'user', attachments);
+            const loading = addMessage('正在处理...', 'assistant');
+            const activeContext = window.WmsTabs && window.WmsTabs.getActiveContext ? window.WmsTabs.getActiveContext() : null;
+            fetch('/api/ai/warehouse_assistant', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    message: text,
+                    attachments: attachments,
+                    page_url: activeContext ? activeContext.url : (window.location.pathname + window.location.search),
+                    page_title: activeContext ? activeContext.title : document.title
+                })
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                loading.remove();
+                if (data.status !== 'success') {
+                    addMessage(data.msg || '处理失败', 'assistant');
+                    return;
+                }
+                addMessage(data.reply || '已处理', 'assistant');
+                renderCards(data.cards);
+                renderActions(data.actions);
+            })
+            .catch(function(error) {
+                loading.remove();
+                addMessage('处理失败：' + error.message, 'assistant');
+            });
+        });
+    })();
+    </script>
+    {% endif %}
+
+    {% block extra_js %}{% endblock %}
+
+</body>
+</html>

@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% from '_list_macros.html' import sort_th %}
+
+{% block title %}标签模板管理{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0">
+        <i class="bi bi-tags me-2"></i>标签模板管理
+    </h4>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">
+        <i class="bi bi-plus-lg me-1"></i>新增模板
+    </button>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end mb-3">
+            {% if request.args.get('embedded') == '1' %}
+            <input type="hidden" name="embedded" value="1">
+            {% endif %}
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">默认状态</label>
+                <select name="status" class="form-select form-select-sm">
+                    <option value="" {% if not filters.status %}selected{% endif %}>全部模板</option>
+                    <option value="default" {% if filters.status == 'default' %}selected{% endif %}>默认</option>
+                    <option value="normal" {% if filters.status == 'normal' %}selected{% endif %}>非默认</option>
+                </select>
+            </div>
+            <div class="col-md-8">
+                <label class="form-label small text-muted mb-1">关键词</label>
+                <input type="text" name="search" class="form-control form-control-sm" placeholder="搜索模板名称、默认" value="{{ filters.search }}">
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-fill">筛选</button>
+                {% if filters.search or filters.status %}
+                <a href="/label_template{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+                {% endif %}
+            </div>
+        </form>
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead class="table-light">
+                    <tr>
+                        {{ sort_th('模板名称', 'name', sort_by, sort_order) }}
+                        {{ sort_th('宽度', 'width', sort_by, sort_order) }}
+                        {{ sort_th('高度', 'height', sort_by, sort_order) }}
+                        {{ sort_th('列数', 'cols', sort_by, sort_order) }}
+                        {{ sort_th('行数', 'rows', sort_by, sort_order) }}
+                        {{ sort_th('默认', 'is_default', sort_by, sort_order) }}
+                        {{ sort_th('创建时间', 'created_at', sort_by, sort_order) }}
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for template in templates %}
+                    <tr>
+                        <td>{{ template.name }}</td>
+                        <td>{{ template.width }}mm</td>
+                        <td>{{ template.height }}mm</td>
+                        <td>{{ template.cols }}</td>
+                        <td>{{ template.rows }}</td>
+                        <td>
+                            {% if template.is_default %}
+                            <span class="badge bg-success">默认</span>
+                            {% else %}
+                            <button class="btn btn-sm btn-outline-secondary" onclick="setDefault({{ template.id }})">设为默认</button>
+                            {% endif %}
+                        </td>
+                        <td>{{ template.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>
+                            <a href="{{ url_for('label_template_detail', id=template.id) }}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-pencil"></i> 设计
+                            </a>
+                            <a href="{{ url_for('preview_label_template', id=template.id) }}" class="btn btn-sm btn-outline-info" target="_blank">
+                                <i class="bi bi-eye"></i> 预览
+                            </a>
+                            <a href="{{ url_for('print_labels', id=template.id) }}" class="btn btn-sm btn-outline-success">
+                                <i class="bi bi-printer"></i> 打印
+                            </a>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteTemplate({{ template.id }})">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-center text-muted">暂无标签模板，请创建</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="addModal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">新增标签模板</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="addForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">模板名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="name" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-6 mb-3">
+                            <label class="form-label">标签宽度(mm)</label>
+                            <input type="number" class="form-control" name="width" value="100" min="20">
+                        </div>
+                        <div class="col-6 mb-3">
+                            <label class="form-label">标签高度(mm)</label>
+                            <input type="number" class="form-control" name="height" value="60" min="10">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6 mb-3">
+                            <label class="form-label">单元格宽度(mm)</label>
+                            <input type="number" class="form-control" name="cell_width" value="20" min="5">
+                        </div>
+                        <div class="col-6 mb-3">
+                            <label class="form-label">单元格高度(mm)</label>
+                            <input type="number" class="form-control" name="cell_height" value="10" min="5">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6 mb-3">
+                            <label class="form-label">列数</label>
+                            <input type="number" class="form-control" name="cols" value="5" min="1">
+                        </div>
+                        <div class="col-6 mb-3">
+                            <label class="form-label">行数</label>
+                            <input type="number" class="form-control" name="rows" value="6" min="1">
+                        </div>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" name="is_default" id="isDefault">
+                        <label class="form-check-label" for="isDefault">设为默认模板</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">创建</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var addForm = document.getElementById('addForm');
+    if (addForm) {
+        addForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            var formData = new FormData(this);
+            fetch('{{ url_for("add_label_template") }}', {method:'POST', body: formData})
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                if (res.status === 'success') location.reload();
+                else alert(res.msg || '创建失败');
+            })
+            .catch(function(err){ alert('创建失败：'+err.message); });
+        });
+    }
+});
+
+// 删除模板
+function deleteTemplate(id) {
+    if (!confirm('确定要删除此模板吗？')) return;
+    fetch('{{ url_for("delete_label_template", id=0) }}'.replace('/0/', '/'+id+'/'), {method:'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(res) {
+        if (res.status === 'success') location.reload();
+        else alert('删除失败');
+    })
+    .catch(function(err){ alert('删除失败：'+err.message); });
+}
+
+// 设为默认
+function setDefault(id) {
+    fetch('{{ url_for("set_default_template", id=0) }}'.replace('/0/', '/'+id+'/'), {method:'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(res) {
+        if (res.status === 'success') location.reload();
+        else alert('设置失败');
+    })
+    .catch(function(err){ alert('设置失败：'+err.message); });
+}
+</script>
+{% endblock %}

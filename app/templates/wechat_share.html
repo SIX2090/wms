@@ -1,0 +1,373 @@
+﻿{% extends "base.html" %}
+{% block title %}微信分享{% endblock %}
+
+{% block extra_css %}
+<style>
+    .wechat-log-table {
+        table-layout: fixed;
+    }
+    .wechat-log-table th,
+    .wechat-log-table td {
+        vertical-align: middle;
+    }
+    .wechat-log-table .col-time {
+        width: 128px;
+    }
+    .wechat-log-table .col-order {
+        width: 110px;
+    }
+    .wechat-log-table .col-receiver {
+        width: 120px;
+    }
+    .wechat-log-table .col-trigger,
+    .wechat-log-table .col-status {
+        width: 92px;
+    }
+    .wechat-log-table .col-image {
+        width: 112px;
+    }
+    .wechat-log-table .col-action {
+        width: 98px;
+    }
+    .wechat-log-message {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="mb-0"><i class="bi bi-wechat"></i> 微信分享</h2>
+    <button type="button" class="btn btn-primary" onclick="runWechatShareNow(false)">
+        <i class="bi bi-send"></i> 立即分享今日入库单
+    </button>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">分享设置</h5>
+            </div>
+            <div class="card-body">
+                <form id="wechatShareForm">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">发送人名称</label>
+                            <input type="text" class="form-control" name="sender_name" value="{{ share_config.sender_name or '' }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">发送人微信号</label>
+                            <input type="text" class="form-control" name="sender_wechat_id" value="{{ share_config.sender_wechat_id or '' }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">接收人名称</label>
+                            <input type="text" class="form-control" name="receiver_name" value="{{ share_config.receiver_name or '' }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">接收人微信号</label>
+                            <input type="text" class="form-control" name="receiver_wechat_id" value="{{ share_config.receiver_wechat_id or '' }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">微信搜索关键字</label>
+                            <input type="text" class="form-control" name="receiver_search_key" value="{{ share_config.receiver_search_key or '' }}" placeholder="联系人备注、昵称或群名">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">接收类型</label>
+                            <select name="receiver_type" class="form-select">
+                                <option value="person" {% if share_config.receiver_type != 'group' %}selected{% endif %}>个人微信</option>
+                                <option value="group" {% if share_config.receiver_type == 'group' %}selected{% endif %}>微信群</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">每天分享时间</label>
+                            <input type="time" class="form-control" name="share_time" value="{{ share_config.share_time or '15:30' }}" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">本机微信发送助手地址</label>
+                            <input type="text" class="form-control" name="helper_url" value="{{ share_config.helper_url or 'http://127.0.0.1:8765/send' }}" placeholder="http://127.0.0.1:8765/send">
+                        </div>
+                        <div class="col-12 d-flex flex-wrap gap-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="enabled" value="1" id="enabled" {% if share_config.enabled %}checked{% endif %}>
+                                <label class="form-check-label" for="enabled">启用定时分享</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="share_in_order" value="1" id="shareInOrder" {% if share_config.share_in_order %}checked{% endif %}>
+                                <label class="form-check-label" for="shareInOrder">分享今日已完成入库单</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="immediate_on_complete" value="1" id="immediateOnComplete" {% if share_config.immediate_on_complete %}checked{% endif %}>
+                                <label class="form-check-label" for="immediateOnComplete">做完入库单立即分享</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="auto_send" value="1" id="autoSend" {% if share_config.auto_send %}checked{% endif %}>
+                                <label class="form-check-label" for="autoSend">自动点击发送</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-3 d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-primary" onclick="saveWechatShareConfig()">
+                            <i class="bi bi-check2"></i> 保存设置
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="runWechatShareNow(true)">
+                            <i class="bi bi-arrow-repeat"></i> 重新生成今日图片
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0">当前状态</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between border-bottom py-2">
+                    <span class="text-muted">定时分享</span>
+                    <span class="fw-semibold">{{ '已启用' if share_config.enabled else '已停用' }} {{ share_config.share_time or '15:30' }}</span>
+                </div>
+                <div class="d-flex justify-content-between border-bottom py-2">
+                    <span class="text-muted">今日已完成入库单</span>
+                    <span class="fw-semibold">{{ today_count }} 张</span>
+                </div>
+                <div class="d-flex justify-content-between border-bottom py-2">
+                    <span class="text-muted">接收人</span>
+                    <span class="fw-semibold">{{ share_config.receiver_name or share_config.receiver_wechat_id or '-' }}</span>
+                </div>
+                <div class="d-flex justify-content-between border-bottom py-2">
+                    <span class="text-muted">发送助手</span>
+                    {% if helper_health.online and helper_health.wechat_window_found %}
+                    <span class="badge bg-success">在线</span>
+                    {% elif helper_health.online %}
+                    <span class="badge bg-warning text-dark">助手在线，未找到已打开微信</span>
+                    {% elif helper_configured %}
+                    <span class="badge bg-danger">不可用</span>
+                    {% else %}
+                    <span class="badge bg-warning text-dark">未配置</span>
+                    {% endif %}
+                </div>
+                <div class="d-flex justify-content-between border-bottom py-2">
+                    <span class="text-muted">今日已发送</span>
+                    <span class="fw-semibold">{{ log_counts.sent_today }} 条</span>
+                </div>
+                <div class="d-flex justify-content-between border-bottom py-2">
+                    <span class="text-muted">待发送/失败</span>
+                    <span class="fw-semibold">{{ log_counts.pending }} / {{ log_counts.failed }} 条</span>
+                </div>
+                {% if latest_log %}
+                <div class="border-bottom py-2">
+                    <div class="text-muted mb-1">最近结果</div>
+                    <div class="fw-semibold">{{ latest_log.order_no or '-' }}：{{ status_label(latest_log.status) }}</div>
+                    <div class="text-muted small">{{ latest_log.message or '-' }}</div>
+                </div>
+                {% endif %}
+                <div class="alert {% if helper_health.online and helper_health.wechat_window_found %}alert-success{% elif helper_health.online %}alert-warning{% else %}alert-danger{% endif %} mt-3 mb-0">
+                    {{ helper_health.message }}
+                    {% if helper_health.online %}
+                    ；微信主窗口：{{ '已识别' if helper_health.wechat_window_found else '未识别，请把已登录微信主窗口打开到桌面' }}；轮询：{{ '已开启' if helper_health.poll_enabled else '未开启' }}{% if helper_health.poll_interval %}，间隔 {{ helper_health.poll_interval }} 秒{% endif %}。
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header">
+        <h5 class="mb-0">今日入库单</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>入库单号</th>
+                        <th>日期</th>
+                        <th>供应商</th>
+                        <th>仓库</th>
+                        <th>金额</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in today_orders %}
+                    <tr>
+                        <td>{{ order.order_no }}</td>
+                        <td>{{ order.date }}</td>
+                        <td>{{ order.supplier.name if order.supplier else '-' }}</td>
+                        <td>{{ order.warehouse or '-' }}</td>
+                        <td>¥{{ "%.2f"|format(order.total_amount or 0) }}</td>
+                        <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('in_order_detail', id=order.id) }}">查看</a></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-center text-muted py-3">今天暂无已完成入库单</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h5 class="mb-0">分享记录</h5>
+            <div class="text-muted small">当前显示 {{ logs|length }} / {{ log_total_count }} 条</div>
+        </div>
+        <form method="get" class="d-flex flex-wrap align-items-center gap-2">
+            <select name="status" class="form-select form-select-sm" style="width: 110px;">
+                <option value="" {% if not log_filters.status %}selected{% endif %}>全部状态</option>
+                <option value="pending" {% if log_filters.status == 'pending' %}selected{% endif %}>待发送</option>
+                <option value="failed" {% if log_filters.status == 'failed' %}selected{% endif %}>失败</option>
+                <option value="sent" {% if log_filters.status == 'sent' %}selected{% endif %}>已发送</option>
+                <option value="skipped" {% if log_filters.status == 'skipped' %}selected{% endif %}>跳过</option>
+            </select>
+            <select name="limit" class="form-select form-select-sm" style="width: 100px;">
+                <option value="10" {% if log_filters.limit == 10 %}selected{% endif %}>最近10条</option>
+                <option value="20" {% if log_filters.limit == 20 %}selected{% endif %}>最近20条</option>
+                <option value="50" {% if log_filters.limit == 50 %}selected{% endif %}>最近50条</option>
+            </select>
+            <button type="submit" class="btn btn-sm btn-outline-primary">筛选</button>
+            {% if log_filters.status or log_filters.limit != 10 %}
+            <a href="{{ url_for('wechat_share_page') }}" class="btn btn-sm btn-outline-secondary">清除</a>
+            {% endif %}
+            {% if log_counts.failed > 0 %}
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearWechatShareLogs('failed')">清理失败</button>
+            {% endif %}
+        </form>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover table-sm mb-0 wechat-log-table">
+                <thead>
+                    <tr>
+                        <th class="col-time">时间</th>
+                        <th class="col-order">单据</th>
+                        <th class="col-receiver">接收人</th>
+                        <th class="col-trigger">触发方式</th>
+                        <th class="col-status">状态</th>
+                        <th>说明</th>
+                        <th class="col-image">图片</th>
+                        <th class="col-action">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td>{{ log.created_at.strftime('%Y-%m-%d %H:%M') if log.created_at else '-' }}</td>
+                        <td>{{ log.order_no or '-' }}</td>
+                        <td>{{ log.receiver_name or log.receiver_wechat_id or '-' }}</td>
+                        <td>{{ trigger_label(log.trigger_type) }}</td>
+                        <td>
+                            {% if log.status == 'sent' %}
+                            <span class="badge bg-success">{{ status_label(log.status) }}</span>
+                            {% elif log.status == 'pending' %}
+                            <span class="badge bg-warning text-dark">{{ status_label(log.status) }}</span>
+                            {% elif log.status == 'failed' %}
+                            <span class="badge bg-danger">{{ status_label(log.status) }}</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ status_label(log.status) }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="wechat-log-message" title="{{ log.message or '-' }}">{{ message_summary(log.message) }}</div>
+                        </td>
+                        <td>
+                            {% if log.image_path %}
+                            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('download_wechat_share_log_image', log_id=log.id) }}">下载</a>
+                            <span class="text-muted small">{{ format_file_size(log.image_size or 0) }}</span>
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if log.module_key == 'in_order' and log.image_path %}
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="resendWechatShareLog({{ log.id }})">
+                                <i class="bi bi-send"></i> 重发
+                            </button>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-center text-muted py-3">暂无分享记录</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function saveWechatShareConfig() {
+    const form = document.getElementById('wechatShareForm');
+    const formData = new FormData(form);
+    fetch('/wechat_share/save', {
+        method: 'POST',
+        body: formData
+    }).then(res => res.json()).then(res => {
+        alert(res.msg || (res.status === 'success' ? '保存成功' : '保存失败'));
+        if (res.status === 'success') {
+            location.reload();
+        }
+    }).catch(err => {
+        alert('保存失败：' + err.message);
+    });
+}
+
+function runWechatShareNow(force) {
+    const formData = new FormData();
+    if (force) {
+        formData.append('force', '1');
+    }
+    fetch('/wechat_share/run_now', {
+        method: 'POST',
+        body: formData
+    }).then(res => res.json()).then(res => {
+        alert(res.msg || (res.status === 'success' ? '已执行' : '执行失败'));
+        location.reload();
+    }).catch(err => {
+        alert('执行失败：' + err.message);
+    });
+}
+
+function resendWechatShareLog(logId) {
+    if (!confirm('确认重新发送这条微信分享记录？')) return;
+    fetch('/wechat_share/log/' + logId + '/resend', {
+        method: 'POST'
+    }).then(res => res.json()).then(res => {
+        alert(res.msg || (res.status === 'success' ? '已重发' : '重发失败'));
+        location.reload();
+    }).catch(err => {
+        alert('重发失败：' + err.message);
+    });
+}
+
+function clearWechatShareLogs(status) {
+    const label = status === 'failed' ? '失败' : '跳过';
+    if (!confirm('确认清理所有' + label + '分享记录？图片文件不会删除。')) return;
+    const formData = new FormData();
+    formData.append('status', status);
+    fetch('/wechat_share/logs/clear', {
+        method: 'POST',
+        body: formData
+    }).then(res => res.json()).then(res => {
+        alert(res.msg || (res.status === 'success' ? '已清理' : '清理失败'));
+        if (res.status === 'success') {
+            location.reload();
+        }
+    }).catch(err => {
+        alert('清理失败：' + err.message);
+    });
+}
+</script>
+{% endblock %}

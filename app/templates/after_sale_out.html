@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}售后出库管理{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-box-arrow-up"></i> 售后出库单管理</h2>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            {% if request.args.get('embedded') == '1' %}
+            <input type="hidden" name="embedded" value="1">
+            {% endif %}
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">状态</label>
+                <select name="status" class="form-select form-select-sm">
+                    <option value="" {% if not filters.status %}selected{% endif %}>全部状态</option>
+                    <option value="pending" {% if filters.status == 'pending' %}selected{% endif %}>待完成</option>
+                    <option value="completed" {% if filters.status == 'completed' %}selected{% endif %}>已完成</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">开始日期</label>
+                <input type="date" name="date_start" class="form-control form-control-sm" value="{{ filters.date_start }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">结束日期</label>
+                <input type="date" name="date_end" class="form-control form-control-sm" value="{{ filters.date_end }}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small text-muted mb-1">关键词</label>
+                <input type="text" name="search" class="form-control form-control-sm" placeholder="单号/客户/联系人/原因/物料/待完成" value="{{ filters.search }}">
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
+                {% if filters.status or filters.search or filters.date_start or filters.date_end %}
+                <a href="/after_sale_out{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive-wrapper">
+        <table class="table table-bordered table-hover table-sm mb-0" id="afterSaleOutTable">
+            <thead>
+                <tr>
+                    <th width="50"><input type="checkbox" id="checkAll" onclick="toggleAll()"></th>
+                    <th width="80">序号</th>
+                    <th data-sortable="order_no" class="sortable-header">单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="customer" class="sortable-header">客户 {% if sort_by=='customer' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th>联系人</th>
+                    <th data-sortable="reason" class="sortable-header">售后原因 {% if sort_by=='reason' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="total_amount" class="sortable-header">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in pagination.items %}
+                <tr>
+                    <td><input type="checkbox" class="order-check check-item" value="{{ order.id }}"></td>
+                    <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
+                    <td><a href="{{ url_for('after_sale_out_detail', id=order.id) }}">{{ order.order_no }}</a></td>
+                    <td>{{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</td>
+                    <td>{{ order.customer or '-' }}</td>
+                    <td>{{ order.contact or '-' }}</td>
+                    <td>{{ order.reason or '-' }}</td>
+                    <td>¥{{ "%.2f"|format(order.total_amount or 0) }}</td>
+                    <td>
+                        {% if order.status == 'pending' %}
+                        <span class="badge bg-warning">待完成</span>
+                        {% elif order.status == 'completed' %}
+                        <span class="badge bg-success">已完成</span>
+                        {% else %}
+                        <span class="badge bg-secondary">{{ order.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('after_sale_out_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情">
+                            <i class="bi bi-eye"></i>
+                        </a>
+                        {% if order.status == 'pending' %}
+                        <button class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})" title="完成">
+                            <i class="bi bi-check"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteOrder({{ order.id }})" title="删除">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                        {% elif order.status == 'completed' %}
+                        <button class="btn btn-sm btn-outline-warning" onclick="revertOrder({{ order.id }})" title="反提交">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="10" class="text-center text-muted">暂无售后出库单</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        
+        {% if pagination.pages > 1 %}
+        <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center mt-3">
+                {% if pagination.has_prev %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('after_sale_out_list', page=pagination.prev_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">上一页</a>
+                </li>
+                {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link">上一页</span>
+                </li>
+                {% endif %}
+                
+                {% for page_num in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
+                    {% if page_num %}
+                        {% if page_num == pagination.page %}
+                        <li class="page-item active">
+                            <span class="page-link">{{ page_num }}</span>
+                        </li>
+                        {% else %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('after_sale_out_list', page=page_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
+                        </li>
+                        {% endif %}
+                    {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link">...</span>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+                
+                {% if pagination.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('after_sale_out_list', page=pagination.next_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">下一页</a>
+                </li>
+                {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link">下一页</span>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('.sortable-header').forEach(function(th) {
+    th.addEventListener('click', function() {
+        const sortField = this.dataset.sortable;
+        const url = new URL(window.location.href);
+        const currentSort = url.searchParams.get('sort');
+        const currentOrder = url.searchParams.get('order') || 'desc';
+        url.searchParams.set('sort', sortField);
+        url.searchParams.set('order', currentSort === sortField && currentOrder === 'asc' ? 'desc' : 'asc');
+        url.searchParams.delete('page');
+        window.location.href = url.toString();
+    });
+});
+
+function toggleAll() {
+    const checkAll = document.getElementById('checkAll');
+    document.querySelectorAll('.order-check').forEach(cb => cb.checked = checkAll.checked);
+}
+
+function completeOrder(id) {
+    if (!confirm('确认完成此售后出库单？完成后将扣减库存。')) return;
+    fetch(`/after_sale_out/${id}/complete`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('操作成功');
+            location.reload();
+        } else {
+            alert('操作失败：' + data.msg);
+        }
+    });
+}
+
+function revertOrder(id) {
+    if (!confirm('确认反提交该售后出库单？反提交后库存将恢复。')) return;
+    fetch(`/after_sale_out/${id}/revert`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert(data.msg || '反提交成功');
+            location.reload();
+        } else {
+            alert('反提交失败：' + (data.msg || '未知错误'));
+        }
+    });
+}
+
+function deleteOrder(id) {
+    if (!confirm('确认删除此售后出库单？')) return;
+    fetch(`/after_sale_out/${id}/delete`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('删除成功');
+            location.reload();
+        } else {
+            alert('删除失败：' + data.msg);
+        }
+    });
+}
+
+function batchDelete() {
+    const checked = document.querySelectorAll('.order-check:checked');
+    if (checked.length === 0) {
+        alert('请选择要删除的单据');
+        return;
+    }
+    if (!confirm(`确认删除选中的 ${checked.length} 条记录？`)) return;
+    const ids = Array.from(checked).map(cb => cb.value);
+    let completed = 0;
+    ids.forEach(id => {
+        fetch(`/after_sale_out/${id}/delete`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        }).finally(() => {
+            completed++;
+            if (completed === ids.length) {
+                location.reload();
+            }
+        });
+    });
+}
+</script>
+{% endblock %}

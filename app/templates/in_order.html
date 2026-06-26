@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title or '入库明细' }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-box-arrow-in-down"></i> {{ page_title or '入库明细' }}</h2>
+        {% if current_user.role in ['admin', 'warehouse'] %}
+        <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchInOrderAction('/in_order/batch_delete', '请选择要删除的入库单', '确认删除选中的入库单？')">
+                <i class="bi bi-trash"></i> 删除已选
+            </button>
+            <button type="button" class="btn btn-outline-success btn-sm" onclick="batchInOrderAction('/in_order/batch_complete', '请选择要完成的入库单', '确认完成选中的入库单？完成后会增加库存。')">
+                <i class="bi bi-check2-circle"></i> 完成已选
+            </button>
+            <a href="/export/template/in_order" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
+            <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('inOrderImportFile').click()">
+                <i class="bi bi-upload"></i> 导入
+            </button>
+            <a href="/in_order/export?status={{ filters.status }}&search={{ filters.search|urlencode }}&business_type={{ filters.business_type|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-file-earmark-excel"></i> 导出
+            </a>
+            {% if filters.business_type == '产品入库' %}
+            <a href="/in_order/add?type=product" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增产品入库</a>
+            {% elif filters.business_type == '采购入库' %}
+            <a href="/in_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增采购入库</a>
+            {% else %}
+            <a href="/in_order/add" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-lg"></i> 采购入库</a>
+            <a href="/in_order/add?type=product" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 产品入库</a>
+            {% endif %}
+            <form id="inOrderImportForm" action="/import/in_order" method="post" enctype="multipart/form-data" class="d-none">
+                <input type="file" id="inOrderImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('inOrderImportForm', 'inOrderImportFile')">
+            </form>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            {% if request.args.get('embedded') == '1' %}
+            <input type="hidden" name="embedded" value="1">
+            {% endif %}
+            {% if filters.business_type %}
+            <input type="hidden" name="business_type" value="{{ filters.business_type }}">
+            {% endif %}
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">状态</label>
+                <select name="status" class="form-select form-select-sm">
+                    <option value="" {% if not filters.status %}selected{% endif %}>全部状态</option>
+                    <option value="pending" {% if filters.status == 'pending' %}selected{% endif %}>未审核/待完成</option>
+                    <option value="completed" {% if filters.status == 'completed' %}selected{% endif %}>已完成</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">开始日期</label>
+                <input type="date" name="date_start" class="form-control form-control-sm" value="{{ filters.date_start }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">结束日期</label>
+                <input type="date" name="date_end" class="form-control form-control-sm" value="{{ filters.date_end }}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small text-muted mb-1">关键词</label>
+                <input type="text" name="search" class="form-control form-control-sm" placeholder="单号/来源/物料编码/物料名称/规格" value="{{ filters.search }}">
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
+                {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.business_type %}
+                <a href="{{ url_for('in_order_list', business_type=filters.business_type, embedded=request.args.get('embedded')) }}" class="btn btn-outline-secondary btn-sm">清除</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive-wrapper">
+        <table class="table table-bordered table-hover table-sm mb-0" id="inOrderTable">
+            <thead>
+                <tr>
+                    <th width="56" class="text-center">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
+                    <th width="50">序号</th>
+                    <th data-sortable="order_no" class="sortable-header">入库单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="business_type" class="sortable-header">入库来源 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th>来源采购单</th>
+                    <th data-sortable="supplier_id" class="sortable-header">供应商/生产来源 {% if sort_by=='supplier_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th>物料编号</th>
+                    <th>物料名称</th>
+                    <th>规格</th>
+                    <th>单位</th>
+                    <th>数量</th>
+                    <th>单价</th>
+                    <th data-sortable="total_amount" class="sortable-header">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="purpose" class="sortable-header">用途 {% if sort_by=='purpose' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th>来源状态</th>
+                    <th data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td class="text-center"><input type="checkbox" class="check-item" value="{{ item.in_order.id }}" {% if item.in_order.status != 'pending' %}disabled title="已完成单据不能删除"{% endif %}></td>
+                    <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
+                    <td><a href="{{ url_for('in_order_detail', id=item.in_order.id) }}">{{ item.in_order.order_no }}</a></td>
+                    <td>{{ item.in_order.date }}</td>
+                    <td>{{ item.in_order.business_type or '采购入库' }}</td>
+                    <td class="text-nowrap" data-source-purchase-order-id="{{ item.source_purchase_order.id if item.source_purchase_order else '' }}">
+                        {% if item.source_purchase_order %}
+                        <a href="{{ url_for('purchase_order_detail', id=item.source_purchase_order.id) }}">{{ item.source_purchase_order.order_no }}</a>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td>{{ item.in_order.supplier.name if item.in_order.supplier else '-' }}</td>
+                    <td>{{ item.material.code if item.material else '-' }}</td>
+                    <td>{{ item.material.name if item.material else '-' }}</td>
+                    <td>{{ item.material.spec if item.material else '-' }}</td>
+                    <td>{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
+                    <td>{{ "%.2f"|format(item.quantity) if item.material else '-' }}</td>
+                    <td>{% if item.material %}¥{{ "%.2f"|format(item.price) }}{% else %}-{% endif %}</td>
+                    <td>{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
+                    <td>{{ item.in_order.purpose or '-' }}</td>
+                    <td data-source-status="{{ item.source_purchase_order.status if item.source_purchase_order else '' }}">
+                        {% if item.source_purchase_order %}
+                            {% if item.source_purchase_order.status == 'completed' %}
+                            <span class="badge bg-success">{{ purchase_order_status_label(item.source_purchase_order.status) }}</span>
+                            {% elif item.source_purchase_order.status == 'partial' %}
+                            <span class="badge bg-info text-dark">{{ purchase_order_status_label(item.source_purchase_order.status) }}</span>
+                            {% elif item.source_purchase_order.status == 'closed' %}
+                            <span class="badge bg-secondary">{{ purchase_order_status_label(item.source_purchase_order.status) }}</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">{{ purchase_order_status_label(item.source_purchase_order.status) }}</span>
+                            {% endif %}
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if item.in_order.status == 'pending' %}
+                        <span class="badge bg-warning">未审核/待完成</span>
+                        {% elif item.in_order.status == 'completed' %}
+                        <span class="badge bg-success">已完成</span>
+                        {% else %}
+                        <span class="badge bg-secondary">{{ item.in_order.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('in_order_detail', id=item.in_order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情">
+                            <i class="bi bi-eye"></i>
+                        </a>
+                        {% if current_user.role in ['admin', 'warehouse'] %}
+                        <button type="button" class="btn btn-sm btn-outline-info" title="复制单据" onclick="copyInOrder({{ item.in_order.id }})">
+                            <i class="bi bi-files"></i>
+                        </button>
+                        {% endif %}
+                        {% if item.in_order.status == 'pending' %}
+                        <a href="{{ url_for('in_order_detail', id=item.in_order.id) }}" class="btn btn-sm btn-outline-secondary" title="编辑">
+                            <i class="bi bi-pencil-square"></i>
+                        </a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="18" class="text-center text-muted">暂无入库明细</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        
+        {% if pagination.pages > 1 %}
+        <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <span class="text-muted">每页显示</span>
+                <select class="form-select form-select-sm" style="width:auto" onchange="changePerPage(this.value)">
+                    <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+                    <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+                    <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+                    <option value="200" {% if per_page == 200 %}selected{% endif %}>200</option>
+                </select>
+                <span class="text-muted">条，共 {{ pagination.total }} 条记录</span>
+            </div>
+        <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center mb-0">
+                {% if pagination.has_prev %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('in_order_list', page=pagination.prev_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, business_type=filters.business_type, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">上一页</a>
+                </li>
+                {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link">上一页</span>
+                </li>
+                {% endif %}
+                
+                {% for page_num in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
+                    {% if page_num %}
+                        {% if page_num == pagination.page %}
+                        <li class="page-item active">
+                            <span class="page-link">{{ page_num }}</span>
+                        </li>
+                        {% else %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('in_order_list', page=page_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, business_type=filters.business_type, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
+                        </li>
+                        {% endif %}
+                    {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">...</span>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if pagination.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('in_order_list', page=pagination.next_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, business_type=filters.business_type, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">下一页</a>
+                </li>
+                {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link">下一页</span>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    initCheckAll('inOrderTable');
+    setupResizableTable({
+        tableSelector: '.table-responsive-wrapper table',
+        tableId: 'in-order-detail-list',
+        minWidth: 70
+    });
+
+    document.querySelectorAll('.sortable-header').forEach(function(th) {
+        th.addEventListener('click', function() {
+            var sortField = this.dataset.sortable;
+            if (!sortField) return;
+            var currentSort = '{{ sort_by }}';
+            var currentOrder = '{{ sort_order }}';
+            var newOrder = (currentSort === sortField && currentOrder === 'asc') ? 'desc' : 'asc';
+            var url = new URL(window.location.href);
+            url.searchParams.set('sort', sortField);
+            url.searchParams.set('order', newOrder);
+            url.searchParams.set('page', '1');
+            window.location.href = url.toString();
+        });
+    });
+});
+
+function changePerPage(perPage) {
+    var url = new URL(window.location.href);
+    url.searchParams.set('per_page', perPage);
+    url.searchParams.set('page', '1');
+    window.location.href = url.toString();
+}
+
+function selectedOrderIds(tableId) {
+    var ids = [];
+    document.querySelectorAll('#' + tableId + ' .check-item:checked').forEach(function(cb) {
+        if (ids.indexOf(cb.value) === -1) ids.push(cb.value);
+    });
+    return ids;
+}
+
+function batchInOrderAction(url, emptyMessage, confirmMessage) {
+    var ids = selectedOrderIds('inOrderTable');
+    if (!ids.length) {
+        showToast(emptyMessage, 'warning');
+        return;
+    }
+    showConfirm(confirmMessage, {title: '批量处理入库单'}).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ids: ids})
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (data.status === 'success') {
+                showToast(data.msg || '操作成功', 'success');
+                setTimeout(function(){ location.reload(); }, 650);
+            } else {
+                showToast(data.msg || '操作失败', 'danger', 5000);
+            }
+        })
+        .catch(function(error) { showToast('操作失败：' + error.message, 'danger', 5000); });
+    });
+}
+
+function submitDocumentImport(formId, fileId) {
+    var form = document.getElementById(formId);
+    var fileInput = document.getElementById(fileId);
+    if (!fileInput.files.length) return;
+    var formData = new FormData(form);
+    fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            showToast(data.msg || '导入成功', 'success', 3600);
+            setTimeout(function(){ location.reload(); }, 900);
+        } else {
+            showToast(data.msg || '导入失败', 'danger', 5000);
+        }
+    })
+    .catch(function(error) { showToast('导入失败：' + error.message, 'danger', 5000); })
+    .finally(function() { fileInput.value = ''; });
+}
+
+function copyInOrder(id) {
+    showConfirm('确定复制该入库单吗？系统会生成一张新的入库草稿，不会直接增加库存。', {title: '复制入库单'}).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/in_order/' + id + '/copy', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (data.status === 'success') {
+                showToast(data.msg || '复制成功', 'success');
+                setTimeout(function() {
+                    window.location.href = data.redirect_url || ('/in_order/' + data.id);
+                }, 500);
+            } else {
+                showToast(data.msg || '复制失败', 'danger', 5000);
+            }
+        })
+        .catch(function(error) {
+            showToast('复制失败：' + error.message, 'danger', 5000);
+        });
+    });
+}
+</script>
+
+<style>
+.sortable-header { cursor: pointer; user-select: none; white-space: nowrap; }
+.sortable-header:hover { background-color: #e9ecef; }
+.sortable-header:not([data-sort-active])::after { content: '⇅'; font-size: 0.7em; margin-left: 4px; opacity: 0.4; }
+.sortable-header:not([data-sort-active]):hover::after { opacity: 0.8; }
+</style>
+{% endblock %}

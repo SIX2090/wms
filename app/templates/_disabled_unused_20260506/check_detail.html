@@ -1,0 +1,691 @@
+{% extends "base.html" %}
+{% block title %}盘点单详情 - {{ check.check_no }}{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/excel-table.css') }}" rel="stylesheet">
+<script src="{{ url_for('static', filename='js/xlsx.full.min.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 order-animate">
+    <!-- 单据头部 -->
+    <div class="order-header">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+            <div>
+                <div class="order-title">
+                    <i class="bi bi-clipboard-check"></i>
+                    盘点单：{{ check.check_no }}
+                    <span class="status-badge {{ check.status }}">
+                        <i class="bi bi-circle-fill" style="font-size:0.5rem"></i>
+                        {% if check.status == 'pending' %}草稿
+                        {% elif check.status == 'completed' %}已完成
+                        {% else %}{{ check.status }}{% endif %}
+                    </span>
+                </div>
+                <div class="order-meta">
+                    <span><i class="bi bi-calendar3"></i> {{ check.date }}</span>
+                    <span><i class="bi bi-person"></i> {{ check.operator.username if check.operator else '-' }}</span>
+                    <span><i class="bi bi-list-check"></i> 共 {{ check.items|length }} 项物料</span>
+                </div>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+                {% if check.status == 'pending' %}
+                <button class="btn-order btn-order-success btn-order-sm" onclick="completeCheck()">
+                    <i class="bi bi-check-circle"></i> 完成盘点
+                </button>
+                <button class="btn-order btn-order-danger btn-order-sm" onclick="deleteCheck({{ check.id }})">
+                    <i class="bi bi-trash"></i> 删除
+                </button>
+                {% elif check.status == 'completed' %}
+                <button class="btn-order btn-order-info btn-order-sm" onclick="printCheck()">
+                    <i class="bi bi-printer"></i> 打印报表
+                </button>
+                {% endif %}
+                <a href="/check" class="btn-order btn-order-secondary btn-order-sm">
+                    <i class="bi bi-arrow-left"></i> 返回
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 单据信息 -->
+    <div class="order-info-card">
+        <div class="card-header-custom">
+            <i class="bi bi-info-circle"></i> 单据信息
+        </div>
+        <div class="card-body-custom">
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">盘点单号</span>
+                    <span class="info-value">{{ check.check_no }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">盘点日期</span>
+                    <span class="info-value">{{ check.date }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">操作人</span>
+                    <span class="info-value">{{ check.operator.username if check.operator else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">盘点项数</span>
+                    <span class="info-value">{{ check.items|length }} 项</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">差异项</span>
+                    <span class="info-value {{ 'text-danger' if check.items|selectattr('difference', 'ne', 0)|list|length > 0 else 'text-success' }}">
+                        {{ check.items|selectattr('difference', 'ne', 0)|list|length }} 项
+                    </span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">备注</span>
+                    <span class="info-value">{{ check.remark or '-' }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 工具栏 -->
+    {% if check.status == 'pending' %}
+    <div class="order-toolbar">
+        <div class="btn-group">
+            <button class="btn-order btn-order-primary btn-order-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="bi bi-plus-lg"></i> 添加物料
+            </button>
+            <button class="btn-order btn-order-secondary btn-order-sm" id="batchDeleteBtn">
+                <i class="bi bi-trash"></i> 批量删除
+            </button>
+        </div>
+        <div class="btn-group">
+            <button class="btn-order btn-order-info btn-order-sm" onclick="saveAllStock()">
+                <i class="bi bi-save"></i> 保存所有盘点数
+            </button>
+            <div style="position:relative;display:inline-block;">
+                <button class="btn-order btn-order-secondary btn-order-sm" onclick="toggleColumnSettings()">
+                    <i class="bi bi-gear"></i> 列设置
+                </button>
+                <div class="column-settings-panel" id="columnSettingsPanel">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colCode')" id="chkCode">
+                        <label class="form-check-label" for="chkCode">物料编码</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colName')" id="chkName">
+                        <label class="form-check-label" for="chkName">物料名称</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colUnit')" id="chkUnit">
+                        <label class="form-check-label" for="chkUnit">单位</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colSys')" id="chkSys">
+                        <label class="form-check-label" for="chkSys">系统库存</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colActual')" id="chkActual">
+                        <label class="form-check-label" for="chkActual">实际库存</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colDiff')" id="chkDiff">
+                        <label class="form-check-label" for="chkDiff">差异</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colRate')" id="chkRate">
+                        <label class="form-check-label" for="chkRate">差异率</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 明细表格 -->
+    <div class="order-table-container">
+        <div class="order-toolbar">
+            <div class="table-header-custom">
+                <span><i class="bi bi-list-ul"></i> 盘点明细</span>
+                <div class="d-flex gap-2">
+                    <span class="badge bg-success">一致: {{ check.items|selectattr('difference', 'eq', 0)|list|length }}</span>
+                    <span class="badge bg-danger">差异: {{ check.items|selectattr('difference', 'ne', 0)|list|length }}</span>
+                </div>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table order-table mb-0" id="itemTable">
+                <thead>
+                    <tr>
+                        <th width="50" class="text-center resizable-th" data-col="seq">序<div class="resize-handle"></div></th>
+                        {% if check.status == 'pending' %}
+                        <th width="40" data-col="chk"><input type="checkbox" id="selectAll"></th>
+                        {% endif %}
+                        <th class="resizable-th" data-col="colCode">物料编码<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colName">物料名称<div class="resize-handle"></div></th>
+                        <th class="text-center resizable-th" data-col="colUnit">单位<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colSys">系统库存<div class="resize-handle"></div></th>
+                        <th class="text-center resizable-th" data-col="colActual">实际库存<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colDiff">差异<div class="resize-handle"></div></th>
+                        <th class="text-center resizable-th" data-col="colRate">差异率<div class="resize-handle"></div></th>
+                        {% if check.status == 'pending' %}
+                        <th class="text-center" width="100" data-col="action">操作</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in check.items %}
+                    <tr data-id="{{ item.id }}" data-material-id="{{ item.material_id }}"
+                        class="{{ 'table-success' if item.difference == 0 else 'table-danger' }}">
+                        <td class="text-center"><span class="row-num">{{ loop.index }}</span></td>
+                        {% if check.status == 'pending' %}
+                        <td><input type="checkbox" class="itemCheck" value="{{ item.id }}"></td>
+                        {% endif %}
+                        <td class="fw-medium">{{ item.material.code }}</td>
+                        <td>{{ item.material.name }}</td>
+                        <td class="text-center">{{ item.material.unit.name if item.material.unit else '-' }}</td>
+                        <td class="text-end">{{ "%.2f"|format(item.system_stock) }}</td>
+                        <td class="text-center editable-cell" data-field="actual_stock" data-item-id="{{ item.id }}">
+                            {% if check.status == 'pending' %}
+                            {{ "%.2f"|format(item.actual_stock) }}
+                            {% else %}
+                            <span class="fw-medium">{{ "%.2f"|format(item.actual_stock) }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end fw-bold {{ 'diff-positive' if item.difference > 0 else ('diff-negative' if item.difference < 0 else 'diff-zero') }}">
+                            {{ "+%.2f"|format(item.difference) if item.difference > 0 else "%.2f"|format(item.difference) }}
+                        </td>
+                        <td class="text-center">
+                            {% if item.system_stock != 0 %}
+                            {{ "%.1f"|format((item.difference / item.system_stock) * 100) }}%
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        {% if check.status == 'pending' %}
+                        <td class="text-center">
+                            <button class="btn btn-sm btn-outline-success" onclick="saveStock({{ item.id }})" title="保存">
+                                <i class="bi bi-check"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteItem({{ item.id }})" title="删除">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="{{ 10 if check.status == 'pending' else 9 }}" class="empty-state">
+                            <i class="bi bi-inbox"></i>
+                            <p>暂无盘点明细，请添加物料</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                {% if check.items %}
+                <tfoot>
+                    <tr class="total-row">
+                        <td colspan="{{ 5 if check.status == 'pending' else 4 }}"></td>
+                        <td class="text-end">合计：</td>
+                        <td class="text-end">{{ "%.2f"|format(check.items|sum(attribute='system_stock', start=0)) }}</td>
+                        <td class="text-center">{{ "%.2f"|format(check.items|sum(attribute='actual_stock', start=0)) }}</td>
+                        <td class="text-end">{{ "%.2f"|format(check.items|sum(attribute='difference', start=0)) }}</td>
+                        <td></td>
+                        {% if check.status == 'pending' %}
+                        <td></td>
+                        {% endif %}
+                    </tr>
+                </tfoot>
+                {% endif %}
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 添加物料模态框 -->
+<div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="bi bi-plus-circle"></i> 添加盘点物料</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-12">
+                        <label class="form-label fw-medium">选择物料 <span class="text-danger">*</span></label>
+                        <select class="form-select" id="materialSelect">
+                            <option value="">请选择物料</option>
+                            {% for material in materials %}
+                            <option value="{{ material.id }}">{{ material.code }} - {{ material.name }} (库存: {{ material.stock }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-12">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="text-muted small">已选择 <strong id="selectedCount">0</strong> 个物料</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addAllMaterials()">
+                                <i class="bi bi-plus-circle"></i> 全部添加
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-12">
+                        <div class="material-list-container" id="materialListContainer" style="max-height: 300px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px;">
+                            <div class="list-group list-group-flush" id="materialList">
+                                {% for material in materials %}
+                                <label class="list-group-item list-group-item-action d-flex align-items-center">
+                                    <input class="form-check-input me-3 material-checkbox" type="checkbox" value="{{ material.id }}">
+                                    <div class="flex-grow-1">
+                                        <div class="fw-medium">{{ material.code }} - {{ material.name }}</div>
+                                        <small class="text-muted">库存: {{ material.stock }} {{ material.unit.name if material.unit else '' }}</small>
+                                    </div>
+                                </label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" onclick="addSelectedMaterials()">
+                    <i class="bi bi-plus"></i> 添加选中物料 (<span id="footerCount">0</span>)
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/excel-table.js') }}"></script>
+<script src="{{ url_for('static', filename='js/excel-import-export.js') }}"></script>
+<script>
+// 初始化Excel表格
+{% if check.status == 'pending' %}
+var excelTable = new ExcelTable('itemTable', {
+    editableFields: ['actual_stock'],
+    autoSave: true,
+    enableKeyboard: true,
+    enableCopyPaste: true,
+    onSave: function(itemId, field, newValue, formData) {
+        return fetch('/check/{{ check.id }}/item/' + itemId, {
+            method: 'POST',
+            body: formData
+        }).then(r => r.json());
+    }
+});
+
+// 初始化导入导出功能
+var excelIO = new ExcelImportExport({
+    tableId: 'itemTable',
+    fileName: '盘点单明细_{{ check.check_no }}',
+    importUrl: '/check/{{ check.id }}/import',
+    exportUrl: '/check/{{ check.id }}/export',
+    columns: [
+        { label: '物料编码', field: 'material_code', required: true, example: 'MAT001' },
+        { label: '物料名称', field: 'material_name', required: false, example: '螺丝' },
+        { label: '单位', field: 'unit', required: false, example: '个' },
+        { label: '系统库存', field: 'system_stock', required: false, example: '100' },
+        { label: '实际库存', field: 'actual_stock', required: true, example: '98' }
+    ]
+});
+{% endif %}
+</script>
+<script>
+// ==================== 列设置 ====================
+function toggleColumnSettings() {
+    document.getElementById('columnSettingsPanel').classList.toggle('show');
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.column-settings-panel') && !e.target.closest('[onclick="toggleColumnSettings()"]')) {
+        document.getElementById('columnSettingsPanel').classList.remove('show');
+    }
+});
+
+function toggleColumn(colClass) {
+    const cells = document.querySelectorAll('[data-col="' + colClass + '"]');
+    const rows = document.querySelectorAll('#itemTable tbody tr');
+    const index = Array.from(document.querySelectorAll('#itemTable thead th')).findIndex(th => th.dataset.col === colClass);
+    
+    if (index === -1) return;
+    
+    cells.forEach(cell => cell.classList.toggle('d-none'));
+    
+    rows.forEach(row => {
+        const cell = row.cells[index];
+        if (cell) cell.classList.toggle('d-none');
+    });
+    
+    document.querySelectorAll('#itemTable tfoot tr').forEach(row => {
+        const cell = row.cells[index];
+        if (cell) cell.classList.toggle('d-none');
+    });
+}
+
+// ==================== 列宽调整 ====================
+let isResizing = false;
+let currentTh = null;
+let startX = 0;
+let startWidth = 0;
+
+document.querySelectorAll('.resizable-th .resize-handle').forEach(handle => {
+    handle.addEventListener('mousedown', function(e) {
+        isResizing = true;
+        currentTh = this.parentElement;
+        startX = e.pageX;
+        startWidth = currentTh.offsetWidth;
+        this.classList.add('resizing');
+        e.preventDefault();
+        e.stopPropagation();
+    });
+});
+
+document.addEventListener('mousemove', function(e) {
+    if (!isResizing || !currentTh) return;
+    const newWidth = startWidth + (e.pageX - startX);
+    if (newWidth > 30) {
+        currentTh.style.width = newWidth + 'px';
+        currentTh.style.minWidth = newWidth + 'px';
+    }
+});
+
+document.addEventListener('mouseup', function() {
+    if (isResizing && currentTh) {
+        currentTh.querySelector('.resize-handle').classList.remove('resizing');
+    }
+    isResizing = false;
+    currentTh = null;
+});
+
+// ==================== 全选/取消全选 ====================
+document.getElementById('selectAll')?.addEventListener('change', function() {
+    document.querySelectorAll('.itemCheck').forEach(cb => cb.checked = this.checked);
+});
+
+// ==================== 批量删除 ====================
+document.getElementById('batchDeleteBtn')?.addEventListener('click', function() {
+    const checked = document.querySelectorAll('.itemCheck:checked');
+    if (!checked.length) {
+        showToast('请先选择要删除的物料', 'warning');
+        return;
+    }
+    showConfirm('确定要删除选中的 ' + checked.length + ' 项物料吗？', {title: '批量删除'}).then(function(confirmed) {
+        if (!confirmed) return;
+        const ids = Array.from(checked).map(cb => cb.value);
+        let completed = 0;
+        ids.forEach(id => {
+            fetch('/check/{{ check.id }}/item/' + id + '/delete', {method: 'POST'})
+            .then(() => {
+                completed++;
+                if (completed === ids.length) {
+                    showToast('删除成功', 'success');
+                    setTimeout(() => location.reload(), 600);
+                }
+            });
+        });
+    });
+});
+
+// 保存单个盘点数量
+function saveStock(itemId) {
+    const actualStock = parseFloat(document.getElementById('stock_' + itemId).value);
+    if (isNaN(actualStock)) {
+        showToast('请输入有效的数量', 'warning');
+        return;
+    }
+    
+    fetch('/check/{{ check.id }}/item/' + itemId, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'actual_stock=' + actualStock
+    })
+    .then(response => response.json())
+    .then(res => {
+        if (res.status === 'success') {
+            showToast('盘点数量已保存', 'success');
+            setTimeout(function(){ location.reload(); }, 500);
+        } else {
+            showToast(res.msg || '保存失败', 'danger');
+        }
+    })
+    .catch(error => {
+        showToast('保存失败：' + error.message, 'danger');
+    });
+}
+
+// 保存所有盘点数量
+function saveAllStock() {
+    const inputs = document.querySelectorAll('.stock-input');
+    if (!inputs.length) {
+        showToast('没有需要保存的盘点数据', 'warning');
+        return;
+    }
+    
+    let completed = 0;
+    let hasError = false;
+    
+    inputs.forEach(input => {
+        const itemId = input.id.replace('stock_', '');
+        const actualStock = parseFloat(input.value);
+        if (isNaN(actualStock)) {
+            hasError = true;
+            return;
+        }
+        
+        fetch('/check/{{ check.id }}/item/' + itemId, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: 'actual_stock=' + actualStock
+        })
+        .then(() => {
+            completed++;
+            if (completed === inputs.length && !hasError) {
+                showToast('所有盘点数量已保存', 'success');
+                setTimeout(() => location.reload(), 500);
+            }
+        });
+    });
+    
+    if (hasError) {
+        showToast('请检查输入的数量是否有效', 'warning');
+    }
+}
+
+// 添加物料
+function addMaterial() {
+    var materialId = document.getElementById('materialSelect').value;
+    if (!materialId) {
+        showToast('请选择物料', 'warning');
+        return;
+    }
+    
+    fetch('/check/{{ check.id }}/add_item', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'material_id=' + materialId
+    })
+    .then(response => response.json())
+    .then(res => {
+        if (res.status === 'success') {
+            showToast('物料已加入盘点单', 'success');
+            setTimeout(function(){ location.reload(); }, 500);
+        } else {
+            showToast(res.msg || '添加失败', 'danger');
+        }
+    })
+    .catch(error => {
+        showToast('添加失败：' + error.message, 'danger');
+    });
+}
+
+// 添加选中物料
+function addSelectedMaterials() {
+    const checkboxes = document.querySelectorAll('.material-checkbox:checked');
+    if (!checkboxes.length) {
+        showToast('请选择要添加的物料', 'warning');
+        return;
+    }
+    
+    const materialIds = Array.from(checkboxes).map(cb => cb.value);
+    let completed = 0;
+    let hasError = false;
+    
+    materialIds.forEach(id => {
+        fetch('/check/{{ check.id }}/add_item', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: 'material_id=' + id
+        })
+        .then(response => response.json())
+        .then(res => {
+            completed++;
+            if (res.status !== 'success') {
+                hasError = true;
+            }
+            if (completed === materialIds.length) {
+                if (!hasError) {
+                    showToast('成功添加 ' + materialIds.length + ' 个物料', 'success');
+                } else {
+                    showToast('部分物料添加失败', 'warning');
+                }
+                setTimeout(function(){ location.reload(); }, 500);
+            }
+        })
+        .catch(error => {
+            completed++;
+            hasError = true;
+            if (completed === materialIds.length) {
+                showToast('添加失败：' + error.message, 'danger');
+            }
+        });
+    });
+}
+
+// 全部添加
+function addAllMaterials() {
+    const checkboxes = document.querySelectorAll('.material-checkbox');
+    if (!checkboxes.length) {
+        showToast('没有可添加的物料', 'warning');
+        return;
+    }
+    
+    const materialIds = Array.from(checkboxes).map(cb => cb.value);
+    let completed = 0;
+    let hasError = false;
+    
+    materialIds.forEach(id => {
+        fetch('/check/{{ check.id }}/add_item', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: 'material_id=' + id
+        })
+        .then(response => response.json())
+        .then(res => {
+            completed++;
+            if (res.status !== 'success') {
+                hasError = true;
+            }
+            if (completed === materialIds.length) {
+                if (!hasError) {
+                    showToast('成功添加全部 ' + materialIds.length + ' 个物料', 'success');
+                } else {
+                    showToast('部分物料添加失败', 'warning');
+                }
+                setTimeout(function(){ location.reload(); }, 500);
+            }
+        })
+        .catch(error => {
+            completed++;
+            hasError = true;
+            if (completed === materialIds.length) {
+                showToast('添加失败：' + error.message, 'danger');
+            }
+        });
+    });
+}
+
+// 更新选中数量
+document.addEventListener('DOMContentLoaded', function() {
+    const checkboxes = document.querySelectorAll('.material-checkbox');
+    const selectedCountEl = document.getElementById('selectedCount');
+    const footerCountEl = document.getElementById('footerCount');
+    
+    function updateCount() {
+        const checked = document.querySelectorAll('.material-checkbox:checked').length;
+        if (selectedCountEl) selectedCountEl.textContent = checked;
+        if (footerCountEl) footerCountEl.textContent = checked;
+    }
+    
+    checkboxes.forEach(cb => {
+        cb.addEventListener('change', updateCount);
+    });
+    
+    // 初始化计数
+    updateCount();
+});
+
+// 删除明细
+function deleteItem(itemId) {
+    showConfirm('确定要删除该物料吗？', { title: '删除盘点物料' }).then(function(confirmed) {
+        if (!confirmed) return;
+        
+        fetch('/check/{{ check.id }}/item/' + itemId + '/delete', {method: 'POST'})
+        .then(response => response.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast('盘点物料已删除', 'success');
+                setTimeout(function(){ location.reload(); }, 500);
+            } else {
+                showToast(res.msg || '删除失败', 'danger');
+            }
+        })
+        .catch(error => {
+            showToast('删除失败：' + error.message, 'danger');
+        });
+    });
+}
+
+// 完成盘点
+function completeCheck() {
+    showConfirm('确认完成盘点？将按照实际库存更新系统库存', { title: '完成盘点' }).then(function(confirmed) {
+        if (!confirmed) return;
+        
+        fetch('{{ url_for("complete_check", id=check.id) }}', {method: 'POST'})
+        .then(response => response.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast('盘点已完成，库存已更新', 'success');
+                setTimeout(function(){ location.reload(); }, 500);
+            } else {
+                showToast(res.msg || '操作失败', 'danger');
+            }
+        })
+        .catch(error => {
+            showToast('操作失败：' + error.message, 'danger');
+        });
+    });
+}
+
+// 删除盘点单
+function deleteCheck(id) {
+    showConfirm('确定要删除该盘点单吗？', {title: '删除盘点单'}).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/check/' + id + '/delete', {method: 'POST'})
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast('删除成功', 'success');
+                setTimeout(() => location.href = '/check', 600);
+            } else {
+                showToast(res.msg || '删除失败', 'danger');
+            }
+        });
+    });
+}
+
+// 打印
+function printCheck() {
+    window.open('/check/{{ check.id }}/print', '_blank');
+}
+</script>
+{% endblock %}
