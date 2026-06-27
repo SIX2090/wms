@@ -17,6 +17,7 @@
             </a>
             <a href="/purchase_request/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增采购申请</a>
             <form id="purchaseRequestImportForm" action="/purchase_request/import" method="post" enctype="multipart/form-data" class="d-none">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="file" id="purchaseRequestImportFile" name="file" accept=".xlsx,.xls" onchange="submitPurchaseRequestImport()">
             </form>
         </div>

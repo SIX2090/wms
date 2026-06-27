@@ -17,6 +17,7 @@
             </a>
             <a href="/adjustment/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增调整单</a>
             <form id="adjustmentImportForm" action="/adjustment/import" method="post" enctype="multipart/form-data" class="d-none">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="file" id="adjustmentImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('adjustmentImportForm', 'adjustmentImportFile')">
             </form>
         </div>

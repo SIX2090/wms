@@ -45,29 +45,32 @@ class ExcelTable {
     setupEditableCells() {
         const cells = this.table.querySelectorAll('.editable-cell');
         cells.forEach(cell => {
-            // 移除旧的事件监听器
-            const newCell = cell.cloneNode(true);
-            cell.parentNode.replaceChild(newCell, cell);
+            if (cell._excelTableHandlers) {
+                cell.removeEventListener('dblclick', cell._excelTableHandlers.dblclick);
+                cell.removeEventListener('click', cell._excelTableHandlers.click);
+                cell.removeEventListener('keydown', cell._excelTableHandlers.keydown);
+            }
 
-            // 双击编辑
-            newCell.addEventListener('dblclick', (e) => {
-                e.stopPropagation();
-                this.startEdit(newCell);
-            });
-
-            // 单击选中
-            newCell.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.selectCell(newCell);
-            });
-
-            // 直接输入开始编辑（数字键）
-            newCell.addEventListener('keydown', (e) => {
-                if (!this.isEditing && this.isNumberKey(e.key)) {
-                    this.startEdit(newCell, e.key);
-                    e.preventDefault();
+            const handlers = {
+                dblclick: (e) => {
+                    e.stopPropagation();
+                    this.startEdit(cell);
+                },
+                click: (e) => {
+                    e.stopPropagation();
+                    this.selectCell(cell);
+                },
+                keydown: (e) => {
+                    if (!this.isEditing && this.isNumberKey(e.key)) {
+                        this.startEdit(cell, e.key);
+                        e.preventDefault();
+                    }
                 }
-            });
+            };
+            cell._excelTableHandlers = handlers;
+            cell.addEventListener('dblclick', handlers.dblclick);
+            cell.addEventListener('click', handlers.click);
+            cell.addEventListener('keydown', handlers.keydown);
         });
     }
 

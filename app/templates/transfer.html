@@ -19,6 +19,7 @@
                 <i class="bi bi-plus-lg"></i> 新增调拨单
             </button>
             <form id="transferImportForm" action="/transfer/import" method="post" enctype="multipart/form-data" class="d-none">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="file" id="transferImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('transferImportForm', 'transferImportFile')">
             </form>
         </div>

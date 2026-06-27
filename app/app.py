@@ -1,4 +1,4 @@
-from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, jsonify, send_file, session, has_app_context, abort
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, jsonify, send_file, session, has_app_context, abort, Response, stream_with_context
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_wtf.csrf import CSRFProtect, CSRFError
 from werkzeug.exceptions import HTTPException
@@ -40,6 +40,8 @@ from utils import (
     recalculate_order_total,
     get_default_print_template, save_print_template_file, save_upload_image,
     require_role,
+    validate_excel_extension,
+    sanitize_print_html,
     currency_cn, from_json_filter, to_json_filter, range_filter, add_filter
 )
 
@@ -76,7 +78,8 @@ def auto_migrate_database():
         import sqlite3
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute('PRAGMA journal_mode=DELETE')
+        cursor.execute('PRAGMA journal_mode=WAL')
+        cursor.execute('PRAGMA busy_timeout=30000')
 
         modified = False
 
@@ -318,6 +321,11 @@ else:
 # Use config.py settings uniformly
 env = os.environ.get('FLASK_ENV', 'production')
 app.config.from_object(config_dict.get(env, config_dict['default']))
+if env == 'production' and not os.environ.get('SECRET_KEY') and not _env_flag('WMS_ALLOW_AUTO_SECRET_KEY'):
+    raise RuntimeError(
+        'SECRET_KEY is required in production. Set the SECRET_KEY environment variable, '
+        'or set WMS_ALLOW_AUTO_SECRET_KEY=1 only for a controlled local/offline deployment.'
+    )
 if not app.config.get('SECRET_KEY'):
     # 未显式配置 SECRET_KEY 时，尝试从 instance/secret_key 文件读取持久化密钥；
     # 文件不存在则随机生成并写入，避免每次重启 session 失效，同时不依赖硬编码默认值。
@@ -1319,10 +1327,14 @@ def generate_order_no(prefix='NO'):
                 else:
                     last_no = last_order.order_no if hasattr(last_order, 'order_no') else ''
 
+                base = f"{prefix}{year_month}"
+                suffix = last_no[len(base):] if last_no and last_no.startswith(base) else ''
+                if not suffix:
+                    match = re.search(r'(\d+)$', last_no or '')
+                    suffix = match.group(1) if match else ''
                 try:
-                    last_seq = int(last_no[-4:])
-                    seq = last_seq + 1
-                except (ValueError, IndexError):
+                    seq = int(suffix) + 1
+                except (ValueError, TypeError):
                     seq = 1
             else:
                 seq = 1
@@ -1339,24 +1351,15 @@ def deduct_stock(material, quantity, transaction_type=None, reference_type=None,
     """扣减库存，返回(是否成功, 错误信息)"""
     if not material:
         return False, '物料不存在'
-    current_stock = normalize_stock_quantity(material.stock or 0)
-    if not allow_negative_stock():
-        sufficient, current_stock, error_msg = check_stock_sufficient(material, quantity)
-        if not sufficient:
-            return False, error_msg
-    material.stock = normalize_stock_quantity(current_stock - normalize_stock_quantity(quantity))
-    if transaction_type:
-        transaction = StockTransaction(
-            material_id=material.id,
-            transaction_type=transaction_type,
-            quantity=-quantity,
-            reference_type=reference_type or '',
-            reference_id=reference_id or 0,
-            operator_id=current_user.id if current_user.is_authenticated else None,
-            remark=remark or ''
-        )
-        db.session.add(transaction)
-    return True, ''
+    ok, error_msg, _ = deduct_stock_atomic(
+        material.id,
+        quantity,
+        transaction_type=transaction_type,
+        reference_type=reference_type,
+        reference_id=reference_id,
+        remark=remark,
+    )
+    return ok, error_msg
 
 
 def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None):
@@ -1406,12 +1409,20 @@ def add_stock(material, quantity, transaction_type=None, reference_type=None, re
     """增加库存，返回(是否成功, 错误信息)"""
     if not material:
         return False, '物料不存在'
-    material.stock = normalize_stock_quantity((material.stock or 0) + normalize_stock_quantity(quantity))
+    qty = normalize_stock_quantity(quantity or 0)
+    rowcount = db.session.execute(
+        sa_update(Material)
+        .where(Material.id == material.id)
+        .values(stock=Material.stock + qty)
+    ).rowcount
+    if not rowcount:
+        return False, '物料不存在'
+    db.session.expire(material, ['stock'])
     if transaction_type:
         transaction = StockTransaction(
             material_id=material.id,
             transaction_type=transaction_type,
-            quantity=quantity,
+            quantity=qty,
             reference_type=reference_type or '',
             reference_id=reference_id or 0,
             operator_id=current_user.id if current_user.is_authenticated else None,
@@ -1427,12 +1438,24 @@ def update_location_inventory(material, location, quantity_delta):
     if not material or not location or not quantity_delta:
         return True, ''
 
+    if quantity_delta < 0:
+        inventory = LocationInventory.query.filter_by(
+            material_id=material.id,
+            location=location
+        ).first()
+        if not inventory and not allow_negative_location_stock():
+            return True, ''
+        return deduct_location_inventory_atomic(
+            material.id,
+            location,
+            abs(quantity_delta),
+            material_code_hint=material.code,
+        )
+
     inventory = LocationInventory.query.filter_by(
         material_id=material.id,
         location=location
     ).first()
-    if not inventory and quantity_delta < 0 and not allow_negative_location_stock():
-        return True, ''
     if not inventory:
         inventory = LocationInventory(
             material_id=material.id,
@@ -1463,7 +1486,7 @@ def deduct_location_inventory_atomic(material_id, location, quantity, material_c
         LocationInventory.material_id == material_id,
         LocationInventory.location == location,
     )
-    if location_available_stock_control() and not allow_negative_location_stock():
+    if not allow_negative_location_stock():
         condition = db.and_(condition, LocationInventory.quantity >= qty)
     rowcount = db.session.execute(
         sa_update(LocationInventory)
@@ -1575,6 +1598,9 @@ class User(UserMixin, db.Model):
 
     def increment_failed_count(self):
         """Increase failed login count and lock account if needed."""
+        if self.locked_until and self.locked_until <= datetime.now():
+            self.login_failed_count = 0
+            self.locked_until = None
         self.login_failed_count = (self.login_failed_count or 0) + 1
         if self.login_failed_count >= max_login_failures():
             self.locked_until = datetime.now() + timedelta(minutes=account_lock_minutes())
@@ -2941,11 +2967,11 @@ class WechatShareConfig(db.Model):
     __tablename__ = 'wechat_share_config'
 
     id = db.Column(db.Integer, primary_key=True)
-    sender_name = db.Column(db.String(100), default='山清酒里')
-    sender_wechat_id = db.Column(db.String(100), default='OK1949-2024')
-    receiver_name = db.Column(db.String(100), default='山清酒里')
-    receiver_wechat_id = db.Column(db.String(100), default='OK1949-2024')
-    receiver_search_key = db.Column(db.String(100), default='山清酒里')
+    sender_name = db.Column(db.String(100), default='')
+    sender_wechat_id = db.Column(db.String(100), default='')
+    receiver_name = db.Column(db.String(100), default='')
+    receiver_wechat_id = db.Column(db.String(100), default='')
+    receiver_search_key = db.Column(db.String(100), default='')
     receiver_type = db.Column(db.String(20), default='person')
     share_time = db.Column(db.String(5), default='15:30')
     share_in_order = db.Column(db.Boolean, default=True)
@@ -2990,7 +3016,7 @@ def ensure_bootstrap_admin_user():
         return None
 
     username = (os.environ.get('WMS_BOOTSTRAP_USERNAME') or 'admin').strip() or 'admin'
-    # 出厂默认密码改为随机生成并打印到日志，避免 admin123 等弱默认密码被滥用
+    # 出厂默认密码改为随机生成并打印到日志，避免弱默认密码被滥用
     password = os.environ.get('WMS_BOOTSTRAP_PASSWORD')
     if not password:
         password = secrets.token_urlsafe(12)
@@ -3063,12 +3089,14 @@ def initialize_database():
         app.logger.warning('Startup database initialization skipped by environment.')
         return
 
-    # 强制SQLite使用DELETE日志模式，避免WAL文件损坏导致数据丢失
+    # SQLite 并发优化：WAL 允许读写并发，busy_timeout 避免短暂写锁直接失败。
     from sqlalchemy import event as sa_event
     @sa_event.listens_for(db.engine, 'connect')
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
-        cursor.execute('PRAGMA journal_mode=DELETE')
+        cursor.execute('PRAGMA journal_mode=WAL')
+        cursor.execute('PRAGMA busy_timeout=30000')
+        cursor.execute('PRAGMA foreign_keys=ON')
         cursor.close()
 
     db.create_all()
@@ -3239,6 +3267,13 @@ def log_operation(operation_type, operation_content, target_type=None, target_id
 
 def api_material_payload(material):
     warehouse_code = getattr(material, 'warehouse', '') or ''
+    location_code = ''
+    if location_management_enabled():
+        location_row = LocationInventory.query.filter_by(material_id=material.id).order_by(
+            LocationInventory.quantity.desc(),
+            LocationInventory.location.asc()
+        ).first()
+        location_code = location_row.location if location_row else ''
     return {
         'id': material.id,
         'code': material.code or '',
@@ -3247,7 +3282,7 @@ def api_material_payload(material):
         'unit': material.unit.name if material.unit else '',
         'stock': material.stock or 0,
         'warehouse_code': warehouse_code,
-        'location_code': warehouse_code,
+        'location_code': location_code,
     }
 
 
@@ -3331,6 +3366,15 @@ def native_api_inbound(user):
     parsed, error = parse_api_lines(payload)
     if error:
         return api_json_error(error)
+    business_type = (payload.get('business_type') or payload.get('type') or '').strip()
+    if business_type in ('product', '产品', '产品入库'):
+        business_type = '产品入库'
+    elif business_type in ('purchase', '采购', '采购入库', ''):
+        business_type = '采购入库'
+    else:
+        business_type = business_type[:50]
+    if business_type == '采购入库' and purchase_in_order_requires_order():
+        return api_json_error('系统要求采购入库必须关联采购订单，请从采购订单下推或选单生成入库单', 403)
     if location_management_enabled() and location_required_on_save():
         order_warehouse = (payload.get('warehouse_code') or payload.get('warehouse') or '').strip()
         for _material, _quantity, line in parsed:
@@ -3343,6 +3387,7 @@ def native_api_inbound(user):
             order_no=generate_order_no('IN'),
             date=date.today(),
             warehouse=(payload.get('warehouse_code') or payload.get('warehouse') or '').strip() or None,
+            business_type=business_type,
             purpose='Android扫码入库',
             remark='Android原生端提交',
             status='completed',
@@ -3363,9 +3408,15 @@ def native_api_inbound(user):
                 price=price,
                 amount=amount,
             ))
-            add_stock(material, quantity, 'in', 'in_order', order.id, f'Android入库 {order.order_no}')
+            ok, msg = add_stock(material, quantity, 'in', 'in_order', order.id, f'Android入库 {order.order_no}')
+            if not ok:
+                db.session.rollback()
+                return api_json_error(msg or '库存增加失败', 500)
             location = (line.get('warehouse_code') or line.get('location_code') or order.warehouse or '').strip()
-            update_location_inventory(material, location, quantity)
+            loc_ok, loc_msg = update_location_inventory(material, location, quantity)
+            if not loc_ok:
+                db.session.rollback()
+                return api_json_error(loc_msg or '库位库存更新失败', 500)
         order.total_amount = round_to_2_decimals(total_amount)
         db.session.commit()
         return api_json_success({'order_no': order.order_no}, '入库提交成功')
@@ -3476,8 +3527,16 @@ def native_api_stocktake(user):
                 actual_stock=actual_stock,
                 difference=round_to_2_decimals(actual_stock - system_stock),
             ))
+        drafts, error = _create_adjustment_drafts_from_check_scan(check)
+        if error:
+            db.session.rollback()
+            return api_json_error(error, 400)
         db.session.commit()
-        return api_json_success({'check_no': check.check_no}, '盘点提交成功')
+        data = {'check_no': check.check_no, 'adjustment_nos': [order.adjustment_no for order in drafts]}
+        msg = '盘点提交成功'
+        if drafts:
+            msg += '，已生成库存调整草稿，请审核后提交'
+        return api_json_success(data, msg)
     except Exception:
         db.session.rollback()
         app.logger.exception('Android stocktake failed')
@@ -3677,7 +3736,10 @@ def mobile_scan_submit():
                 price=price,
                 amount=round_to_2_decimals(quantity * price),
             ))
-            add_stock(material, quantity, 'in', 'in_order', order.id, f'手机扫码入库 {order.order_no}')
+            ok, error_msg = add_stock(material, quantity, 'in', 'in_order', order.id, f'手机扫码入库 {order.order_no}')
+            if not ok:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库存增加失败'}), 500
             if location_management_enabled() and warehouse:
                 ok, error_msg = update_location_inventory(material, warehouse, quantity)
                 if not ok:
@@ -3786,13 +3848,24 @@ def mobile_scan_submit():
                 actual_stock=actual_stock,
                 difference=round_to_2_decimals(actual_stock - system_stock),
             ))
+            drafts, error = _create_adjustment_drafts_from_check_scan(check)
+            if error:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'success': False, 'msg': error}), 400
             db.session.commit()
             log_operation('手机扫码盘点', f'扫码盘点单：{check.check_no}', 'inventory_check_scan', check.id)
+            msg = f'盘点保存成功：{check.check_no}'
+            if drafts:
+                msg += '，已生成库存调整草稿，请审核后提交'
             return jsonify({
                 'status': 'success',
                 'success': True,
-                'msg': f'盘点保存成功：{check.check_no}',
-                'data': {'check_no': check.check_no, 'material': mobile_material_payload(material)},
+                'msg': msg,
+                'data': {
+                    'check_no': check.check_no,
+                    'adjustment_nos': [order.adjustment_no for order in drafts],
+                    'material': mobile_material_payload(material),
+                },
             })
     except Exception:
         db.session.rollback()
@@ -4084,10 +4157,13 @@ def api_subcontract_quick_receive():
     db.session.add(receive_item)
 
     # Add received material stock
-    add_stock(material, quantity,
-              transaction_type='subcontract_receive',
-              reference_type='subcontract_receive',
-              reference_id=receive.id)
+    ok, msg = add_stock(material, quantity,
+                        transaction_type='subcontract_receive',
+                        reference_type='subcontract_receive',
+                        reference_id=receive.id)
+    if not ok:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'msg': msg or '库存增加失败'}), 500
 
     # Update order status
     # 注意：上面 db.session.add(receive_item) 后，SQLAlchemy 默认 autoflush 会在下次查询前
@@ -4728,7 +4804,7 @@ def _opening_stock_payload_from_request():
     remark = (request.form.get('remark') or '').strip()
     if not material_id:
         return None, '请选择物料'
-    material = db.session.get(Material, material_id)
+    material = Material.query.filter_by(id=material_id).with_for_update().first()
     if not material:
         return None, '物料不存在'
     if quantity is None:
@@ -4771,7 +4847,12 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
         db.session.flush()
 
     if abs(quantity_delta) > STOCK_COMPARE_EPSILON:
-        material.stock = normalize_stock_quantity((material.stock or 0) + quantity_delta)
+        db.session.execute(
+            sa_update(Material)
+            .where(Material.id == material.id)
+            .values(stock=Material.stock + quantity_delta)
+        )
+        db.session.expire(material, ['stock'])
         db.session.add(StockTransaction(
             material_id=material.id,
             transaction_type='opening',
@@ -4858,7 +4939,7 @@ def add_opening_stock():
         return jsonify({'status': 'error', 'msg': error}), 400
 
     material = payload['material']
-    existing = OpeningStock.query.filter_by(material_id=material.id).first()
+    existing = OpeningStock.query.filter_by(material_id=material.id).with_for_update().first()
     if existing:
         return jsonify({'status': 'error', 'msg': '该物料已存在期初库存，请使用编辑按差额调整'}), 400
 
@@ -4903,7 +4984,7 @@ def get_opening_stock(id):
 @require_role('warehouse')
 @login_required
 def edit_opening_stock(id):
-    opening = OpeningStock.query.options(joinedload(OpeningStock.material)).get(id)
+    opening = OpeningStock.query.options(joinedload(OpeningStock.material)).filter_by(id=id).with_for_update().first()
     if not opening:
         return jsonify({'status': 'error', 'msg': '期初库存记录不存在'}), 404
 
@@ -4947,7 +5028,7 @@ def batch_save_opening_stock():
             return jsonify({'status': 'error', 'msg': f'第 {index} 行物料重复，请合并后保存'}), 400
         seen_material_ids.add(material_id)
 
-        material = db.session.get(Material, material_id)
+        material = Material.query.filter_by(id=material_id).with_for_update().first()
         if not material:
             return jsonify({'status': 'error', 'msg': f'第 {index} 行物料不存在'}), 400
 
@@ -4975,7 +5056,7 @@ def batch_save_opening_stock():
         changed_count = 0
         for item in normalized_items:
             material = item['material']
-            opening = OpeningStock.query.filter_by(material_id=material.id).first()
+            opening = OpeningStock.query.filter_by(material_id=material.id).with_for_update().first()
             _, delta = _apply_opening_stock_balance(
                 opening,
                 material,
@@ -5029,75 +5110,35 @@ def get_material(id):
 def generate_material_copy_code(source_code):
     """
     根据源物料编码生成新的物料编码
-    规则：前3位保持分类不变，后3位递增流水号
-    例如：101001 -> 101002
+    优先按末尾数字递增，并保留原数字位数；没有数字后缀时使用 -COPY 后缀。
     """
-    # 参数校验
     if not source_code or not isinstance(source_code, str):
         raise ValueError("物料编码不能为空")
 
     source_code = source_code.strip()
-
-    if len(source_code) < 6:
-        # 如果编码长度不足6位，使用原有逻辑
-        base_code = f"{source_code}-COPY"
-        if not Material.query.filter_by(code=base_code).first():
-            return base_code
-        index = 2
-        while True:
-            candidate = f"{base_code}{index}"
+    match = re.match(r'^(.*?)(\d+)$', source_code)
+    if match:
+        prefix, number_text = match.groups()
+        width = len(number_text)
+        max_number = int(number_text)
+        for (code,) in Material.query.with_entities(Material.code).filter(Material.code.like(f'{prefix}%')).all():
+            code_match = re.match(rf'^{re.escape(prefix)}(\d+)$', code or '')
+            if code_match:
+                max_number = max(max_number, int(code_match.group(1)))
+        for next_number in range(max_number + 1, max_number + 10000):
+            candidate = f'{prefix}{next_number:0{width}d}' if len(str(next_number)) <= width else f'{prefix}{next_number}'
             if not Material.query.filter_by(code=candidate).first():
                 return candidate
-            index += 1
-            # 防止无限循环
-            if index > 9999:
-                raise ValueError("无法生成唯一编码，请检查数据")
+        raise ValueError("无法生成唯一编码，请检查数据")
 
-    # 提取前3位分类编号
-    category_prefix = source_code[:3]
-
-    # 优化查询：只查询编码字段，提高性能
-    materials = Material.query.with_entities(Material.code).filter(
-        Material.code.like(f'{category_prefix}%')
-    ).all()
-
-    # 提取所有流水号
-    max_serial = 0
-    for (code,) in materials:
-        if len(code) >= 6 and code[:3] == category_prefix:
-            try:
-                # 提取后3位流水号
-                serial_str = code[3:6]
-                serial_num = int(serial_str)
-                if serial_num > max_serial:
-                    max_serial = serial_num
-            except (ValueError, IndexError):
-                # 如果后3位不是数字或索引错误，跳过
-                continue
-
-    # 生成新的流水号（最大流水号+1）
-    new_serial = max_serial + 1
-
-    # 检查流水号是否超出范围（3位最大999）
-    if new_serial > 999:
-        raise ValueError(f"分类 {category_prefix} 的流水号已达上限(999)，无法继续生成")
-
-    # 生成新编码：前3位分类 + 后3位流水号（补齐3位）
-    new_code = f"{category_prefix}{new_serial:03d}"
-
-    # 如果新编码已存在（理论上不应该），继续递增
-    retry_count = 0
-    while Material.query.filter_by(code=new_code).first():
-        new_serial += 1
-        if new_serial > 999:
-            raise ValueError(f"分类 {category_prefix} 的流水号已达上限(999)，无法继续生成")
-        new_code = f"{category_prefix}{new_serial:03d}"
-        retry_count += 1
-        # 防止无限循环
-        if retry_count > 100:
-            raise ValueError("无法生成唯一编码，请检查数据")
-
-    return new_code
+    base_code = f"{source_code}-COPY"
+    if not Material.query.filter_by(code=base_code).first():
+        return base_code
+    for index in range(2, 10000):
+        candidate = f"{base_code}{index}"
+        if not Material.query.filter_by(code=candidate).first():
+            return candidate
+    raise ValueError("无法生成唯一编码，请检查数据")
 
 
 def generate_material_copy_name(source_name, source_spec):
@@ -5211,8 +5252,13 @@ def add_warehouse():
         status=request.form.get('status', 'active'),
         remark=request.form.get('remark', '').strip() or None
     )
-    db.session.add(warehouse)
-    db.session.commit()
+    try:
+        db.session.add(warehouse)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'新增仓库失败: {e}')
+        return jsonify({'status': 'error', 'msg': '新增失败，请稍后重试'}), 500
     return jsonify({'status': 'success', 'msg': '新增成功'})
 
 
@@ -5270,7 +5316,12 @@ def edit_warehouse(id):
     warehouse.status = request.form.get('status', 'active')
     warehouse.remark = request.form.get('remark', '').strip() or None
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'编辑仓库失败: {e}')
+        return jsonify({'status': 'error', 'msg': '编辑失败，请稍后重试'}), 500
     return jsonify({'status': 'success', 'msg': '编辑成功'})
 
 
@@ -5286,8 +5337,13 @@ def delete_warehouse(id):
     if blockers:
         return jsonify({'status': 'error', 'msg': '该仓库已有业务数据，不能删除：' + _format_delete_blockers(blockers)})
 
-    db.session.delete(warehouse)
-    db.session.commit()
+    try:
+        db.session.delete(warehouse)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'删除仓库失败: {e}')
+        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
     return jsonify({'status': 'success', 'msg': '删除成功'})
 
 
@@ -5307,7 +5363,12 @@ def batch_delete_warehouse_master():
                 continue
             db.session.delete(warehouse)
             deleted += 1
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'批量删除仓库失败: {e}')
+        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
     if blocked:
         return jsonify({
             'status': 'error' if deleted == 0 else 'success',
@@ -5371,6 +5432,9 @@ def import_warehouse():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的仓库文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -5446,8 +5510,13 @@ def add_department():
         status=request.form.get('status', 'active'),
         remark=request.form.get('remark', '').strip() or None
     )
-    db.session.add(department)
-    db.session.commit()
+    try:
+        db.session.add(department)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'新增部门失败: {e}')
+        return jsonify({'status': 'error', 'msg': '新增失败，请稍后重试'}), 500
     return jsonify({'status': 'success', 'msg': '新增成功'})
 
 
@@ -5501,7 +5570,12 @@ def edit_department(id):
     department.status = request.form.get('status', 'active')
     department.remark = request.form.get('remark', '').strip() or None
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'编辑部门失败: {e}')
+        return jsonify({'status': 'error', 'msg': '编辑失败，请稍后重试'}), 500
     return jsonify({'status': 'success', 'msg': '编辑成功'})
 
 
@@ -5517,8 +5591,13 @@ def delete_department(id):
     if blockers:
         return jsonify({'status': 'error', 'msg': '该部门已有业务数据，不能删除：' + _format_delete_blockers(blockers)})
 
-    db.session.delete(department)
-    db.session.commit()
+    try:
+        db.session.delete(department)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'删除部门失败: {e}')
+        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
     return jsonify({'status': 'success', 'msg': '删除成功'})
 
 
@@ -5538,7 +5617,12 @@ def batch_delete_department_master():
                 continue
             db.session.delete(department)
             deleted += 1
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'批量删除部门失败: {e}')
+        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
     if blocked:
         return jsonify({
             'status': 'error' if deleted == 0 else 'success',
@@ -5601,6 +5685,9 @@ def import_department():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的部门文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -5897,46 +5984,21 @@ def delete_material():
                 or SubcontractItem.query.filter_by(material_id=id).first()
                 or SubcontractIssueItem.query.filter_by(material_id=id).first()
                 or SubcontractReceiveItem.query.filter_by(material_id=id).first()
+                or BOMItem.query.filter_by(material_id=id).first()
+                or InventoryCheckItem.query.filter_by(material_id=id).first()
+                or AfterSaleOutOrderItem.query.filter_by(material_id=id).first()
+                or PurchaseRequestItem.query.filter_by(material_id=id).first()
+                or TransferOrderItem.query.filter_by(material_id=id).first()
+                or AdjustmentOrderItem.query.filter_by(material_id=id).first()
+                or InventoryCheckScanItem.query.filter_by(material_id=id).first()
                 or OpeningStock.query.filter_by(material_id=id).first()
             ):
                 fail_count += 1
                 app.logger.info(f"跳过删除物料 {id}({material.code})：存在业务引用，建议改为停用")
                 continue
             try:
-                # Delete related detail records first
-                # Delete inbound details
-                InOrderItem.query.filter_by(material_id=id).delete()
-                # Delete outbound details
-                OutOrderItem.query.filter_by(material_id=id).delete()
-                # DeleteBOM
-                BOMItem.query.filter_by(material_id=id).delete()
-                # DeleteDetail
-                InventoryCheckItem.query.filter_by(material_id=id).delete()
-                # DeleteProduction requisitionDetail
-                ProductionRequisitionItem.query.filter_by(material_id=id).delete()
-                # 删除委外加工明细
-                SubcontractItem.query.filter_by(material_id=id).delete()
-                # 删除委外发料明细
-                SubcontractIssueItem.query.filter_by(material_id=id).delete()
-                # 删除委外收货明细
-                SubcontractReceiveItem.query.filter_by(material_id=id).delete()
-                # 删除售后出库明细
-                AfterSaleOutOrderItem.query.filter_by(material_id=id).delete()
-                # 删除采购申请明细
-                PurchaseRequestItem.query.filter_by(material_id=id).delete()
-                # 删除库位库存
+                # 无业务引用时，只清理物料的库位辅助记录后删除物料主数据。
                 LocationInventory.query.filter_by(material_id=id).delete()
-                OpeningStock.query.filter_by(material_id=id).delete()
-                # 删除库存流水
-                StockTransaction.query.filter_by(material_id=id).delete()
-                # 删除调拨明细
-                TransferOrderItem.query.filter_by(material_id=id).delete()
-                # 删除调整明细
-                AdjustmentOrderItem.query.filter_by(material_id=id).delete()
-                # 删除盘点扫描明细
-                InventoryCheckScanItem.query.filter_by(material_id=id).delete()
-
-                # 删除物料主数据
                 db.session.delete(material)
                 success_count += 1
             except Exception as e:
@@ -6316,6 +6378,258 @@ def _ai_pending_documents(limit=12):
     return rows[:limit]
 
 
+# ==================== AI 数据分析能力 ====================
+
+def _ai_analysis_inventory_turnover(top_n=10, days=90, warehouse=None, category=None):
+    """库存周转分析：按出库金额排序，识别动销/滞销品。
+    可选参数：
+      days: 统计窗口天数（默认 90）
+      warehouse: 仓库名/库位关键字，过滤 StockTransaction.location
+      category: 物料分类名，过滤 MaterialCategory.name
+    """
+    from sqlalchemy import func
+    days = max(1, int(days or 90))
+    cutoff = datetime.now() - timedelta(days=days)
+    # 近 N 天出库数量 TOP
+    txn_filters = [
+        StockTransaction.material_id == Material.id,
+        StockTransaction.transaction_type.in_(['out', 'transfer_out', 'adjustment_out']),
+        StockTransaction.created_at >= cutoff,
+    ]
+    if warehouse:
+        txn_filters.append(StockTransaction.location.like(f'%{warehouse}%'))
+    material_filters = []
+    if category:
+        material_filters.append(MaterialCategory.name.like(f'%{category}%'))
+
+    base_query = (
+        db.session.query(
+            Material.id, Material.code, Material.name, Material.spec, Material.stock,
+            func.coalesce(func.sum(StockTransaction.quantity), 0).label('out_qty'),
+        )
+        .outerjoin(StockTransaction, db.and_(*txn_filters))
+    )
+    if category:
+        base_query = base_query.outerjoin(MaterialCategory, MaterialCategory.id == Material.category_id)
+        base_query = base_query.filter(*material_filters)
+    out_rows = (
+        base_query
+        .group_by(Material.id)
+        .order_by(func.coalesce(func.sum(StockTransaction.quantity), 0).desc())
+        .limit(top_n)
+        .all()
+    )
+    scope = []
+    if warehouse:
+        scope.append(f'仓库={warehouse}')
+    if category:
+        scope.append(f'分类={category}')
+    scope_text = f'（{"，".join(scope)}）' if scope else ''
+    if not out_rows:
+        return f'近{days}天{scope_text}没有出库流水，无法计算周转。'
+    lines = [f'**近{days}天{scope_text}出库量 TOP10（动销品）**：\n']
+    lines.append('| 排名 | 物料编码 | 名称 | 规格 | 当前库存 | 出库量 |')
+    lines.append('|------|---------|------|------|---------|---------|')
+    for idx, row in enumerate(out_rows, 1):
+        name = (row.name or '')[:12]
+        spec = (row.spec or '')[:10]
+        lines.append(f'| {idx} | {row.code} | {name} | {spec} | {row.stock:.0f} | {abs(row.out_qty):.0f} |')
+    # 滞销品：库存>0 但 N 天无出库
+    slow_query = (
+        Material.query
+        .filter(Material.stock > 0)
+        .filter(~Material.id.in_([r.id for r in out_rows if r.out_qty > 0]))
+    )
+    if category:
+        slow_query = slow_query.join(MaterialCategory, MaterialCategory.id == Material.category_id).filter(MaterialCategory.name.like(f'%{category}%'))
+    slow_rows = slow_query.order_by(Material.stock.desc()).limit(5).all()
+    if slow_rows:
+        lines.append(f'\n**滞销品（有库存但近{days}天未出库）**：')
+        for m in slow_rows:
+            lines.append(f'- {m.code} {(m.name or "")[:12]}（库存 {m.stock:.0f}）')
+    reply = '\n'.join(lines)
+    return reply
+
+
+def _ai_analysis_stock_value(category=None):
+    """库存金额分布分析。
+    可选参数：
+      category: 物料分类名，过滤 MaterialCategory.name
+    """
+    from sqlalchemy import func
+    query = Material.query
+    if category:
+        query = query.join(MaterialCategory, MaterialCategory.id == Material.category_id).filter(MaterialCategory.name.like(f'%{category}%'))
+    total_value = db.session.query(func.coalesce(func.sum(Material.stock * Material.price), 0))
+    if category:
+        total_value = total_value.join(MaterialCategory, MaterialCategory.id == Material.category_id).filter(MaterialCategory.name.like(f'%{category}%'))
+    total_value = total_value.scalar() or 0
+    rows = (
+        query
+        .filter(Material.stock > 0)
+        .order_by((Material.stock * Material.price).desc())
+        .limit(10)
+        .all()
+    )
+    scope_text = f'（分类={category}）' if category else ''
+    lines = [f'**库存金额分析{scope_text}**：当前库存总价值约 **¥{total_value:,.2f}**\n']
+    if rows:
+        lines.append('**金额占用 TOP10**：')
+        lines.append('| 排名 | 物料编码 | 名称 | 库存 | 单价 | 金额 |')
+        lines.append('|------|---------|------|------|------|------|')
+        for idx, m in enumerate(rows, 1):
+            value = m.stock * m.price
+            lines.append(f'| {idx} | {m.code} | {(m.name or "")[:12]} | {m.stock:.0f} | ¥{m.price:.2f} | ¥{value:,.2f} |')
+    return '\n'.join(lines)
+
+
+def _ai_analysis_supplier(days=90, warehouse=None):
+    """供应商分析：采购金额、单据数。
+    可选参数：
+      days: 统计窗口天数（默认 90）
+      warehouse: 仓库名关键字，过滤 InOrder.warehouse
+    """
+    from sqlalchemy import func
+    days = max(1, int(days or 90))
+    cutoff = datetime.now() - timedelta(days=days)
+    query = (
+        db.session.query(
+            Supplier.id, Supplier.name,
+            func.count(InOrder.id).label('order_count'),
+            func.coalesce(func.sum(InOrder.total_amount), 0).label('total_amount'),
+        )
+        .join(InOrder, InOrder.supplier_id == Supplier.id)
+        .filter(InOrder.date >= cutoff.date())
+    )
+    if warehouse:
+        query = query.filter(InOrder.warehouse.like(f'%{warehouse}%'))
+    rows = (
+        query
+        .group_by(Supplier.id)
+        .order_by(func.coalesce(func.sum(InOrder.total_amount), 0).desc())
+        .limit(10)
+        .all()
+    )
+    scope_text = f'（仓库={warehouse}）' if warehouse else ''
+    if not rows:
+        return f'近{days}天{scope_text}没有采购入库记录，无法做供应商分析。'
+    lines = [f'**近{days}天{scope_text}供应商采购分析**：\n']
+    lines.append('| 排名 | 供应商 | 入库单数 | 采购金额 |')
+    lines.append('|------|--------|---------|---------|')
+    for idx, row in enumerate(rows, 1):
+        lines.append(f'| {idx} | {(row.name or "")[:16]} | {row.order_count} | ¥{row.total_amount:,.2f} |')
+    return '\n'.join(lines)
+
+
+def _ai_analysis_consumption_trend(keyword, days=30, warehouse=None):
+    """物料消耗趋势：返回近N天每日出库量。
+    可选参数：
+      days: 统计窗口天数（默认 30）
+      warehouse: 仓库名/库位关键字，过滤 StockTransaction.location
+    """
+    from sqlalchemy import func
+    days = max(1, int(days or 30))
+    materials = _ai_material_query(keyword, limit=1)
+    if not materials:
+        return f'没有找到物料 "{keyword}"，请确认编码或名称。'
+    material = materials[0]
+    cutoff = datetime.now() - timedelta(days=days)
+    query = (
+        db.session.query(
+            func.date(StockTransaction.created_at).label('day'),
+            func.coalesce(func.sum(func.abs(StockTransaction.quantity)), 0).label('qty'),
+        )
+        .filter(StockTransaction.material_id == material.id)
+        .filter(StockTransaction.transaction_type.in_(['out', 'transfer_out', 'adjustment_out']))
+        .filter(StockTransaction.created_at >= cutoff)
+    )
+    if warehouse:
+        query = query.filter(StockTransaction.location.like(f'%{warehouse}%'))
+    rows = (
+        query
+        .group_by(func.date(StockTransaction.created_at))
+        .order_by(func.date(StockTransaction.created_at))
+        .all()
+    )
+    scope_text = f'（仓库={warehouse}）' if warehouse else ''
+    if not rows:
+        return f'物料 {material.code} 近{days}天{scope_text}没有出库记录。'
+    total = sum(r.qty for r in rows)
+    avg = total / days
+    lines = [f'**物料 {material.code} {material.name} 近{days}天{scope_text}消耗趋势**：']
+    lines.append(f'- 总出库量：**{total:.1f}**')
+    lines.append(f'- 日均消耗：**{avg:.1f}**')
+    if avg > 0:
+        days_of_supply = material.stock / avg if avg > 0 else 999
+        lines.append(f'- 当前库存：**{material.stock:.1f}**，按当前消耗速率可支撑约 **{days_of_supply:.0f} 天**')
+    # 简易趋势判断
+    if len(rows) >= 7:
+        recent = sum(r.qty for r in rows[-7:]) / 7
+        earlier = sum(r.qty for r in rows[:7]) / 7
+        if earlier > 0:
+            change = (recent - earlier) / earlier * 100
+            arrow = '↑' if change > 0 else '↓'
+            lines.append(f'- 近7天日均 {recent:.1f}，较前期{arrow}{abs(change):.0f}%')
+    return '\n'.join(lines)
+
+
+def _ai_analysis_category_summary(category=None):
+    """按物料分类汇总库存：分类名、物料数、库存数量、库存金额。
+    可选参数：
+      category: 指定分类名（模糊匹配），不传则汇总所有分类
+    """
+    from sqlalchemy import func
+    query = (
+        db.session.query(
+            MaterialCategory.id, MaterialCategory.name,
+            func.count(Material.id).label('material_count'),
+            func.coalesce(func.sum(Material.stock), 0).label('total_stock'),
+            func.coalesce(func.sum(Material.stock * Material.price), 0).label('total_value'),
+        )
+        .outerjoin(Material, Material.category_id == MaterialCategory.id)
+    )
+    if category:
+        query = query.filter(MaterialCategory.name.like(f'%{category}%'))
+    rows = (
+        query
+        .group_by(MaterialCategory.id)
+        .order_by(func.coalesce(func.sum(Material.stock * Material.price), 0).desc())
+        .limit(15)
+        .all()
+    )
+    if not rows:
+        return '没有找到物料分类数据。请先在物料档案里维护分类。'
+    scope_text = f'（分类包含"{category}"）' if category else ''
+    lines = [f'**按物料分类汇总{scope_text}**：\n']
+    lines.append('| 排名 | 分类 | 物料数 | 库存数量 | 库存金额 |')
+    lines.append('|------|------|--------|---------|---------|')
+    for idx, row in enumerate(rows, 1):
+        lines.append(f'| {idx} | {(row.name or "-")[:16]} | {row.material_count} | {row.total_stock:.0f} | ¥{row.total_value:,.2f} |')
+    return '\n'.join(lines)
+
+
+def _ai_analysis_low_stock_report():
+    """低库存补货建议报告"""
+    if not inventory_alert_enabled():
+        return '库存预警未启用，无法生成低库存报告。请到系统设置开启库存预警。'
+    rows = (
+        Material.query
+        .filter(_material_low_stock_filter())
+        .order_by((Material.min_stock - Material.stock).desc())
+        .limit(20)
+        .all()
+    )
+    if not rows:
+        return '当前没有低库存物料，库存状态良好。'
+    lines = [f'**低库存预警报告（共 {len(rows)} 项）**：\n']
+    lines.append('| 物料编码 | 名称 | 当前库存 | 最低库存 | 建议补货 |')
+    lines.append('|---------|------|---------|---------|---------|')
+    for m in rows:
+        reorder = max(0, (m.max_stock or m.min_stock or 0) - m.stock)
+        lines.append(f'| {m.code} | {(m.name or "")[:12]} | {m.stock:.0f} | {m.min_stock:.0f} | {reorder:.0f} |')
+    return '\n'.join(lines)
+
+
 def _ai_today_summary():
     today = date.today()
     in_count = InOrder.query.filter_by(date=today).count()
@@ -6349,6 +6663,7 @@ def _ai_today_received_materials(limit=12):
     today = date.today()
     rows = (
         InOrderItem.query
+        .options(joinedload(InOrderItem.material).joinedload(Material.unit), joinedload(InOrderItem.in_order))
         .join(InOrder, InOrderItem.in_order_id == InOrder.id)
         .join(Material, InOrderItem.material_id == Material.id)
         .filter(InOrder.date == today)
@@ -6374,6 +6689,7 @@ def _ai_today_issued_materials(limit=12):
     today = date.today()
     rows = (
         OutOrderItem.query
+        .options(joinedload(OutOrderItem.material).joinedload(Material.unit), joinedload(OutOrderItem.out_order))
         .join(OutOrder, OutOrderItem.out_order_id == OutOrder.id)
         .join(Material, OutOrderItem.material_id == Material.id)
         .filter(OutOrder.date == today)
@@ -6466,6 +6782,23 @@ def _ai_context_value(context, key):
     if isinstance(context, dict):
         return str(context.get(key) or '').strip()
     return ''
+
+
+def _ai_material_from_context(context):
+    """从当前页面上下文推断用户正在查看的物料。
+    支持 URL 形如 /material/<id>、/material/edit/<id>、/material_detail/<id>。
+    """
+    page_url = _ai_context_value(context, 'page_url') or _ai_context_value(context, 'url')
+    if not page_url:
+        return None
+    match = re.search(r'/material(?:_detail|/edit)?/(\d+)(?:\D|$)', page_url)
+    if not match:
+        return None
+    try:
+        material_id = int(match.group(1))
+    except (ValueError, TypeError):
+        return None
+    return Material.query.get(material_id)
 
 
 def _ai_is_purchase_order_receive_request(message, context=None):
@@ -6681,6 +7014,200 @@ def _ai_create_in_order_draft(message):
     }, None
 
 
+def _ai_extract_transfer_locations(message):
+    """从自然语言中提取调拨的源仓库和目标仓库。
+    支持的表达式：
+        从A仓库转到B仓库 / 从A到B / A调拨到B / 把A仓库的...转到B仓库
+    """
+    text = (message or '').strip()
+    # 统一分隔符，便于正则匹配
+    text_norm = re.sub(r'[，,；;、\n]+', ' ', text)
+    patterns = [
+        # 从X[仓库](转到|调到|到|->)Y[仓库]
+        r'从\s*([\u4e00-\u9fffA-Za-z0-9]{1,20})\s*仓库?\s*(?:转到|调拨到|调到|移到|到|->|→)\s*([\u4e00-\u9fffA-Za-z0-9]{1,20})\s*仓库?',
+        # X[仓库](转到|调拨到|调到)Y[仓库]
+        r'([\u4e00-\u9fffA-Za-z0-9]{1,20})\s*仓库?\s*(?:转到|调拨到|调到|移到|->|→)\s*([\u4e00-\u9fffA-Za-z0-9]{1,20})\s*仓库?',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text_norm)
+        if m:
+            from_loc = m.group(1).strip()
+            to_loc = m.group(2).strip()
+            # 排除误匹配的关键词
+            skip_words = {'生成', '创建', '新增', '调拨', '转移', '物料', '数量'}
+            if from_loc in skip_words or to_loc in skip_words:
+                continue
+            if from_loc and to_loc and from_loc != to_loc:
+                return from_loc, to_loc
+    return None, None
+
+
+def _ai_create_transfer_draft(message):
+    """AI 助手生成库存调拨单草稿。
+    示例：从A仓库转到B仓库 M001 100 M002 20
+    """
+    if current_user.role not in ('admin', 'warehouse'):
+        return None, '当前账号没有创建调拨单草稿的权限'
+
+    from_loc, to_loc = _ai_extract_transfer_locations(message)
+    if not from_loc or not to_loc:
+        return None, '没有识别到调出/调入仓库。可以这样说：从A仓库转到B仓库 M001 100 M002 20'
+
+    items = _ai_parse_material_lines(message)
+    if not items:
+        return None, '没有识别到物料和数量。可以这样说：从A仓库转到B仓库 M001 100 M002 20'
+
+    order = TransferOrder(
+        transfer_no=generate_order_no('TF'),
+        date=date.today(),
+        from_location=from_loc,
+        to_location=to_loc,
+        remark=(message or '')[:200],
+        status='pending',
+        operator_id=current_user.id,
+    )
+    db.session.add(order)
+    db.session.flush()
+    for material, quantity in items:
+        price = round_to_2_decimals(material.price or 0)
+        db.session.add(TransferOrderItem(
+            transfer_order_id=order.id,
+            material_id=material.id,
+            quantity=quantity,
+            unit_id=material.unit_id,
+            price=price,
+            amount=round_to_2_decimals(quantity * price),
+        ))
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'AI生成调拨单草稿失败: {e}')
+        return None, '创建调拨单草稿失败，请稍后重试'
+    log_operation('AI生成调拨单草稿', f'调拨单：{order.transfer_no}', 'transfer', order.id)
+    return {
+        'order_no': order.transfer_no,
+        'url': url_for('transfer_detail', id=order.id),
+        'items': [{'code': m.code, 'name': m.name, 'quantity': q} for m, q in items],
+        'from_location': from_loc,
+        'to_location': to_loc,
+    }, None
+
+
+def _ai_create_check_draft(message):
+    """AI 助手生成盘点单草稿。
+    示例：盘点 M001 M002 M003  /  生成盘点单 A001 A002
+    物料行的 system_stock 自动填入当前库存，actual_stock 等待用户盘点录入。
+    """
+    if current_user.role not in ('admin', 'warehouse'):
+        return None, '当前账号没有创建盘点单草稿的权限'
+
+    items = _ai_parse_material_lines(message)
+    # 盘点单允许只指定物料不指定数量（数量用于辅助识别，实际以系统库存为准）
+    if not items:
+        # 尝试仅按物料名称/编码匹配（不要求带数量）
+        candidates = _ai_find_materials_from_message(message, limit=20)
+        items = [(m, normalize_stock_quantity(m.stock or 0)) for m in candidates]
+    if not items:
+        return None, '没有识别到要盘点的物料。可以这样说：盘点 M001 M002 M003'
+
+    order = InventoryCheck(
+        check_no=generate_order_no('CK'),
+        date=date.today(),
+        remark=(message or '')[:200],
+        status='pending',
+        operator_id=current_user.id,
+    )
+    db.session.add(order)
+    db.session.flush()
+    for material, _ in items:
+        sys_stock = normalize_stock_quantity(material.stock or 0)
+        db.session.add(InventoryCheckItem(
+            inventory_check_id=order.id,
+            material_id=material.id,
+            system_stock=sys_stock,
+            actual_stock=sys_stock,  # 默认等于系统库存，用户盘点时修改
+            difference=0,
+        ))
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'AI生成盘点单草稿失败: {e}')
+        return None, '创建盘点单草稿失败，请稍后重试'
+    log_operation('AI生成盘点单草稿', f'盘点单：{order.check_no}', 'check', order.id)
+    return {
+        'order_no': order.check_no,
+        'url': url_for('check_detail', id=order.id),
+        'items': [{'code': m.code, 'name': m.name, 'system_stock': normalize_stock_quantity(m.stock or 0)} for m, _ in items],
+    }, None
+
+
+def _ai_create_adjustment_draft(message):
+    """AI 助手生成库存调整单草稿。
+    示例：报废 M001 5  /  盘亏 A002 3  /  盘盈 B001 10
+    调整类型识别：
+      loss（盘亏）：报废、损坏、盘亏、损耗、丢失、少了
+      surplus（盘盈）：盘盈、多出、溢余、多了
+    """
+    if current_user.role not in ('admin', 'warehouse'):
+        return None, '当前账号没有创建调整单草稿的权限'
+
+    text = (message or '')
+    loss_keywords = ('报废', '损坏', '盘亏', '损耗', '丢失', '少了', '坏')
+    surplus_keywords = ('盘盈', '多出', '溢余', '多了')
+    if any(k in text for k in loss_keywords):
+        adjustment_type = 'loss'
+        type_label = '盘亏/报废'
+    elif any(k in text for k in surplus_keywords):
+        adjustment_type = 'surplus'
+        type_label = '盘盈'
+    else:
+        # 默认按盘亏处理（调整单最常见场景是处理差异/报废）
+        adjustment_type = 'loss'
+        type_label = '盘亏（默认）'
+
+    items = _ai_parse_material_lines(message)
+    if not items:
+        return None, '没有识别到物料和数量。可以这样说：报废 M001 5  /  盘盈 A002 10'
+
+    order = AdjustmentOrder(
+        adjustment_no=generate_order_no('ADJ'),
+        date=date.today(),
+        adjustment_type=adjustment_type,
+        source_type='manual',
+        remark=(message or '')[:200],
+        status='pending',
+        operator_id=current_user.id,
+    )
+    db.session.add(order)
+    db.session.flush()
+    for material, quantity in items:
+        # 盘亏数量为负，盘盈为正
+        signed_qty = -abs(quantity) if adjustment_type == 'loss' else abs(quantity)
+        db.session.add(AdjustmentOrderItem(
+            adjustment_order_id=order.id,
+            material_id=material.id,
+            location=material.spec or '',
+            quantity=signed_qty,
+            unit_id=material.unit_id,
+            reason=(message or '')[:200],
+        ))
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'AI生成调整单草稿失败: {e}')
+        return None, '创建调整单草稿失败，请稍后重试'
+    log_operation('AI生成调整单草稿', f'调整单：{order.adjustment_no}（{type_label}）', 'adjustment', order.id)
+    return {
+        'order_no': order.adjustment_no,
+        'url': url_for('adjustment_detail', id=order.id),
+        'items': [{'code': m.code, 'name': m.name, 'quantity': q} for m, q in items],
+        'adjustment_type': type_label,
+    }, None
+
+
 AI_ASSISTANT_INTENTS = {
     'greeting',
     'model_status',
@@ -6689,11 +7216,20 @@ AI_ASSISTANT_INTENTS = {
     'today_summary',
     'create_out_order_draft',
     'create_in_order_draft',
+    'create_transfer_draft',
+    'create_check_draft',
+    'create_adjustment_draft',
     'find_orders',
     'stock_alerts',
     'pending_documents',
     'query_material',
     'stock_transactions',
+    'analysis_turnover',
+    'analysis_stock_value',
+    'analysis_supplier',
+    'analysis_consumption_trend',
+    'analysis_low_stock',
+    'analysis_category',
     'help',
 }
 
@@ -6846,7 +7382,7 @@ def _ai_basic_conversation_response(message):
         return None
     greetings = {'你好', '您好', 'hello', 'hi', '嗨', '在吗', '在不在'}
     if compact in greetings or any(word in compact for word in ('你好', '您好', '在吗')):
-        return _ai_json_response('你好，我是仓库AI助手。你可以问我库存、单据、今日概况、待处理事项，也可以让我生成入库单或领料单草稿。')
+        return _ai_json_response('你好，我是仓库AI助手。你可以问我库存、单据、今日概况、待处理事项，也可以让我生成入库单、领料单、调拨单、盘点单、调整单草稿。')
     if any(word in compact for word in ('你是谁', '什么模型', '哪个模型', '大模型', 'gpt', 'gpt-5.5', 'gpt5.5', '模型状态')):
         return _ai_json_response(_ai_model_status_text())
     return None
@@ -7015,7 +7551,7 @@ def _ai_usage_help_response(message):
 
     if any(word in compact for word in ('盘点', '盘库')):
         return _ai_json_response(
-            '盘点流程：1. 新建盘点单；2. 添加需要盘点的物料；3. 填写实盘数量；4. 核对账面数和差异；5. 完成盘点后系统按差异调整库存。盘点前建议先导出当前库存备查。',
+            '盘点流程：1. 新建盘点单；2. 添加需要盘点的物料；3. 填写实盘数量；4. 核对账面数和差异；5. 完成盘点后生成库存调整草稿，审核提交调整单后才更新库存。盘点前建议先导出当前库存备查。',
             actions=[
                 {'label': '盘点列表', 'url': url_for('check_list')},
                 {'label': '新建盘点单', 'url': url_for('check_legacy_page')},
@@ -7173,6 +7709,59 @@ def _ai_rule_based_response(message):
                 draft['items'],
                 [{'label': '打开草稿', 'url': draft['url']}],
             )
+        if any(word in compact for word in ('调拨', '转移', '转库', '调转')):
+            draft, error = _ai_create_transfer_draft(message)
+            if error:
+                return _ai_json_response(error)
+            return _ai_json_response(
+                f'已生成调拨单草稿 {draft["order_no"]}（{draft["from_location"]} → {draft["to_location"]}），请打开检查后再提交。',
+                draft['items'],
+                [{'label': '打开草稿', 'url': draft['url']}],
+            )
+        if any(word in compact for word in ('盘点', '盘库')):
+            draft, error = _ai_create_check_draft(message)
+            if error:
+                return _ai_json_response(error)
+            return _ai_json_response(
+                f'已生成盘点单草稿 {draft["order_no"]}，系统库存已自动填入，请盘点后录入实际数量。',
+                draft['items'],
+                [{'label': '打开草稿', 'url': draft['url']}],
+            )
+        if any(word in compact for word in ('调整', '报废', '盘亏', '盘盈', '损坏', '损耗')):
+            draft, error = _ai_create_adjustment_draft(message)
+            if error:
+                return _ai_json_response(error)
+            return _ai_json_response(
+                f'已生成调整单草稿 {draft["order_no"]}（{draft["adjustment_type"]}），请打开检查后再提交。',
+                draft['items'],
+                [{'label': '打开草稿', 'url': draft['url']}],
+            )
+
+    # 盘点支持无"生成"关键词直接触发：盘点 M001 M002
+    if any(word in compact for word in ('盘点', '盘库')) and not any(
+        word in compact for word in ('查', '查看', '打开', '单号')
+    ):
+        draft, error = _ai_create_check_draft(message)
+        if error:
+            return _ai_json_response(error)
+        return _ai_json_response(
+            f'已生成盘点单草稿 {draft["order_no"]}，系统库存已自动填入，请盘点后录入实际数量。',
+            draft['items'],
+            [{'label': '打开草稿', 'url': draft['url']}],
+        )
+
+    # 报废/盘亏/盘盈 支持无"生成"关键词直接触发
+    if any(word in compact for word in ('报废', '盘亏', '盘盈', '损坏')) and not any(
+        word in compact for word in ('查', '查看', '打开', '单号')
+    ):
+        draft, error = _ai_create_adjustment_draft(message)
+        if error:
+            return _ai_json_response(error)
+        return _ai_json_response(
+            f'已生成调整单草稿 {draft["order_no"]}（{draft["adjustment_type"]}），请打开检查后再提交。',
+            draft['items'],
+            [{'label': '打开草稿', 'url': draft['url']}],
+        )
 
     found_orders = _ai_find_orders(message)
     if found_orders and any(word in compact for word in ('单号', '单据', '打开', '查')):
@@ -7202,6 +7791,21 @@ def _ai_rule_based_response(message):
             [{'label': '打开待处理中心', 'url': url_for('pending_documents')}],
         )
 
+    # 数据分析关键词：即使LLM未配置也能用本地规则触发
+    if any(word in compact for word in ('周转', '动销', '滞销', '销量排行', '销量排名', '出货排行')):
+        return _ai_json_response(_ai_analysis_inventory_turnover())
+    if any(word in compact for word in ('库存金额', '库存价值', '资金占用', '库存总值')):
+        return _ai_json_response(_ai_analysis_stock_value())
+    if any(word in compact for word in ('供应商分析', '供应商排行', '采购排行', '采购排名', '供应商排名')):
+        return _ai_json_response(_ai_analysis_supplier())
+    if any(word in compact for word in ('补货建议', '缺货清单', '补货清单', '低库存报告', '低库存报表')):
+        return _ai_json_response(_ai_analysis_low_stock_report())
+    if any(word in compact for word in ('消耗趋势', '消耗多少', '能用多久', '够用几天', '还够用', '消耗分析')):
+        kw = _ai_guess_keyword(message)
+        if not kw:
+            return _ai_json_response('请告诉我物料编码或名称，例如：查 M001 消耗趋势。')
+        return _ai_json_response(_ai_analysis_consumption_trend(kw))
+
     keyword = _ai_guess_keyword(message)
     materials = _ai_material_query(keyword, limit=8)
     if materials:
@@ -7217,7 +7821,7 @@ def _ai_rule_based_response(message):
         )
 
     return _ai_json_response(
-        '我可以查库存、查单号、查今日概况、查待处理、查库存异常、查物料流水，也可以生成入库单或领料单草稿。示例：查 A001 库存；查 IN26050001；今天概况；查 A001 流水；生成领料单 A001 20。'
+        '我可以查库存、查单号、查今日概况、查待处理、查库存异常、查物料流水，也可以生成各类单据草稿。示例：查 A001 库存；查 IN26050001；今天概况；查 A001 流水；生成领料单 A001 20；从A仓库转到B仓库 M001 100；盘点 M001 M002；报废 M001 5；盘盈 A002 10。'
     )
 
 
@@ -7288,9 +7892,10 @@ def _ai_llm_endpoint(overrides=None):
         'ai_llm_base_url',
         app.config.get('WMS_LLM_BASE_URL') or 'https://api.openai.com/v1/chat/completions',
     ).strip()
-    if base_url.rstrip('/').endswith('/chat/completions'):
-        return base_url
-    return base_url.rstrip('/') + '/chat/completions'
+    normalized = base_url.rstrip('/')
+    if normalized.endswith('/chat/completions'):
+        return normalized
+    return normalized + '/chat/completions'
 
 
 def _ai_extract_json_object(text):
@@ -7316,9 +7921,11 @@ def _ai_extract_json_object(text):
 def _ai_normalize_image_attachments(raw_attachments):
     if not isinstance(raw_attachments, list):
         return [], ''
+    if len(raw_attachments) > 3:
+        return [], '一次最多上传 3 张图片。'
     images = []
     allowed_types = {'image/png', 'image/jpeg', 'image/webp', 'image/gif'}
-    for item in raw_attachments[:3]:
+    for item in raw_attachments:
         if not isinstance(item, dict):
             continue
         data_url = str(item.get('data_url') or '').strip()
@@ -7337,8 +7944,6 @@ def _ai_normalize_image_attachments(raw_attachments):
         if compress_error:
             return [], compress_error
         images.append({'name': name, 'mime_type': mime_type, 'data_url': data_url})
-    if len(raw_attachments) > 3:
-        return [], '一次最多上传 3 张图片。'
     return images, ''
 
 
@@ -7399,14 +8004,26 @@ def _ai_call_llm_intent(message, overrides=None):
     system_prompt = (
         '你是仓库管理系统的意图解析器，只输出 JSON，不要输出解释。'
         '可用 intent：greeting, model_status, today_issued_materials, today_received_materials, today_summary, '
-        'create_out_order_draft, create_in_order_draft, find_orders, stock_alerts, '
-        'pending_documents, query_material, stock_transactions, help。'
-        'params 只允许包含 keyword。'
+        'create_out_order_draft, create_in_order_draft, create_transfer_draft, create_check_draft, create_adjustment_draft, '
+        'find_orders, stock_alerts, pending_documents, query_material, stock_transactions, '
+        'analysis_turnover, analysis_stock_value, analysis_supplier, analysis_consumption_trend, analysis_low_stock, analysis_category, help。'
+        'params 允许包含：keyword、warehouse（仓库名/库位，字符串）、days（天数，整数）、category（物料分类名，字符串）。'
+        '只有用户明确提到时才填相应字段，未提到就省略。'
         '新增、生成、开单只能选择草稿 intent；不要选择提交、审核、完成等高风险动作。'
         '如果用户问库存、物料、还有多少，选择 query_material；问流水/最近变化选择 stock_transactions；'
         '问单号/单据选择 find_orders；问待办/待审核选择 pending_documents；问异常/预警/负库存/低库存选择 stock_alerts；'
         '问你好/您好/在吗选择 greeting；问你是谁/哪个模型/是否接入大模型选择 model_status；'
         '问今天概况选择 today_summary；问今天入库/到货选择 today_received_materials；问今天出库/领料选择 today_issued_materials。'
+        '生成领料单/出库单选择 create_out_order_draft；生成入库单/产品入库选择 create_in_order_draft；'
+        '调拨/转移/转库（从一个仓库转到另一个仓库）选择 create_transfer_draft；'
+        '盘点/盘库/清点库存选择 create_check_draft；'
+        '报废/盘亏/盘盈/损坏/调整数量选择 create_adjustment_draft。'
+        '问周转/动销/滞销/销量排行选择 analysis_turnover；近N天/最近一段时间的周转记得在 params.days 填数字（默认90）。'
+        '问库存金额/库存价值/资金占用选择 analysis_stock_value；按分类/类别分析时在 params.category 填分类名。'
+        '问供应商分析/采购排行选择 analysis_supplier；'
+        '问某物料消耗趋势/消耗多少/能用多久/还够用几天选择 analysis_consumption_trend（keyword 填物料编码或名称，days 可选默认30）。'
+        '问补货建议/低库存报告/缺货清单选择 analysis_low_stock。'
+        '问按分类汇总/各分类库存/分类占比选择 analysis_category。'
         '输出格式示例：{"intent":"query_material","params":{"keyword":"A001"}}'
     )
     payload = {
@@ -7492,12 +8109,15 @@ def _ai_call_llm_chat(message):
 
 
 def _ai_call_llm_vision(message, images, context=None):
+    """调用视觉大模型识别图片，返回 (reply, extracted, error)。
+    extracted 为结构化提取结果（dict 或 None），包含 document_type / items 等。
+    """
     if not _ai_llm_configured():
-        return None, '请先启用大模型并保存 API Key'
+        return None, None, '请先启用大模型并保存 API Key'
     if not _ai_llm_vision_enabled():
-        return None, '系统设置里没有启用图片识别'
+        return None, None, '系统设置里没有启用图片识别'
     if not images:
-        return None, '没有收到图片附件'
+        return None, None, '没有收到图片附件'
 
     page_title = _ai_context_value(context, 'page_title')
     page_url = _ai_context_value(context, 'page_url')
@@ -7506,7 +8126,17 @@ def _ai_call_llm_vision(message, images, context=None):
         '请结合图片和用户文字判断业务场景，优先识别：物料编码、单号、数量、状态、错误提示、页面位置、需要用户点击的系统入口。'
         '如果图片是系统页面截图，要指出当前页面可能是什么模块，并给下一步操作建议。'
         '涉及真实库存、金额、审批状态时，不要凭图片编造最终结果；应建议到系统对应页面查询或通过已接入工具查询。'
-        '回答要简洁直接，像仓库主管指导操作。'
+        '回答要简洁直接，像仓库主管指导操作。\n\n'
+        '【结构化提取】如果图片包含物料清单、送货单、领料单、出库单、入库单、盘点表、库存调整单或物料标签，'
+        '请在回答末尾追加一个 JSON 代码块（用 ```json 包裹），格式如下：\n'
+        '```json\n'
+        '{"document_type": "in_order", "items": [{"code": "A001", "name": "物料名称", "quantity": 10}], '
+        '"order_no": "单号(如有)", "remarks": "备注(如有)", "adjustment_type": "loss"}\n'
+        '```\n'
+        'document_type 只能选：in_order（入库/送货/采购到货）、out_order（出库/领料/发料）、'
+        'transfer（调拨）、check（盘点表）、adjustment（库存调整/盘盈盘亏/报损报废）、label（单个物料标签）、other（其他）。\n'
+        '当 document_type 为 adjustment 时，必须输出 adjustment_type 字段，取值：loss（盘亏/报废/损耗）或 surplus（盘盈/溢余）。\n'
+        'quantity 必须是数字（正数表示实际数量，系统会按 adjustment_type 自动加正负号）。无法识别的字段留空或省略。items 为空数组时也要输出。'
     )
     user_content = [{'type': 'text', 'text': (message or '请分析这张图片，指出和仓库业务相关的问题及下一步操作。')[:1200]}]
     if page_title or page_url:
@@ -7521,7 +8151,7 @@ def _ai_call_llm_vision(message, images, context=None):
             {'role': 'user', 'content': user_content},
         ],
         'temperature': 0.2,
-        'max_tokens': min(max(_ai_llm_max_tokens(), 200), 800),
+        'max_tokens': min(max(_ai_llm_max_tokens(), 200), 1200),
     }
     headers = {
         'Authorization': f'Bearer {_ai_llm_api_key()}',
@@ -7535,16 +8165,118 @@ def _ai_call_llm_vision(message, images, context=None):
             timeout=max(_ai_llm_timeout_seconds(), 60),
         )
         if not response.ok:
-            return None, _ai_llm_error_message(response)
+            return None, None, _ai_llm_error_message(response)
         response.raise_for_status()
         data = response.json()
         content = (((data.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
         if not content:
-            return None, '供应商接口返回成功，但 choices[0].message.content 为空'
-        return content[:1400], ''
+            return None, None, '供应商接口返回成功，但 choices[0].message.content 为空'
+        reply, extracted = _ai_vision_parse_extracted(content)
+        return reply[:1400], extracted, ''
     except Exception as exc:
         app.logger.warning('AI vision model unavailable: %s', exc)
-        return None, str(exc)
+        return None, None, str(exc)
+
+
+def _ai_vision_parse_extracted(content):
+    """从视觉模型回复中解析末尾的 JSON 代码块，返回 (clean_reply, extracted_or_none)"""
+    if not content:
+        return '', None
+    # 兼容 ```json\n...```、```json...```、```...``` 等多种写法，不强求换行符
+    match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+    if not match:
+        return content.strip(), None
+    json_str = match.group(1).strip()
+    try:
+        extracted = json.loads(json_str)
+        if isinstance(extracted, dict):
+            clean = content[:match.start()].rstrip()
+            return clean, extracted
+    except (ValueError, TypeError):
+        pass
+    return content.strip(), None
+
+
+def _ai_vision_try_create_draft(extracted, message):
+    """根据视觉模型提取的结构化数据尝试创建单据草稿。
+    返回 (reply, cards, actions) 或 None。
+    """
+    if not extracted or not isinstance(extracted, dict):
+        return None
+    doc_type = str(extracted.get('document_type') or '').strip().lower()
+    items_raw = extracted.get('items') or []
+    if not items_raw or not isinstance(items_raw, list):
+        return None
+    # 只对明确的单据类型自动建单
+    if doc_type not in ('in_order', 'out_order', 'transfer', 'check', 'adjustment'):
+        return None
+
+    matched = []
+    unmatched = []
+    for item in items_raw:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get('code') or '').strip()
+        name = str(item.get('name') or '').strip()
+        qty = item.get('quantity')
+        try:
+            qty = float(qty) if qty is not None else None
+        except (ValueError, TypeError):
+            qty = None
+        if not code and not name:
+            continue
+        material = _ai_material_query(code or name, limit=1)
+        if not material and name and name != code:
+            material = _ai_material_query(name, limit=1)
+        if material and qty is not None and qty > 0:
+            matched.append({'material': material[0], 'quantity': qty})
+        else:
+            # 物料未匹配或数量无效（None/0/负数）→ 归入未匹配，提示用户手工补录
+            unmatched.append({'code': code, 'name': name, 'quantity': qty})
+
+    if not matched:
+        return None
+
+    # 构建草稿创建消息（复用现有建单逻辑）
+    lines = []
+    for m in matched:
+        code = m['material'].code or m['material'].name
+        qty = m['quantity']
+        qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+        lines.append(f'{code} {qty_str}')
+    draft_message = ' '.join(lines)
+
+    if doc_type == 'in_order':
+        draft, error = _ai_create_in_order_draft(draft_message)
+        type_label = '入库单'
+    elif doc_type == 'out_order':
+        draft, error = _ai_create_out_order_draft(draft_message)
+        type_label = '领料单'
+    elif doc_type == 'transfer':
+        draft, error = _ai_create_transfer_draft(draft_message)
+        type_label = '调拨单'
+    elif doc_type == 'adjustment':
+        # 调整单需要 loss/surplus 关键词；从提取的 adjustment_type 推断
+        adj_type = str(extracted.get('adjustment_type') or '').strip().lower()
+        if adj_type == 'surplus':
+            draft_message = '盘盈 ' + draft_message
+        else:
+            # 默认按盘亏/报废处理
+            draft_message = '报废 ' + draft_message
+        draft, error = _ai_create_adjustment_draft(draft_message)
+        type_label = '调整单'
+    else:
+        draft, error = _ai_create_check_draft(draft_message)
+        type_label = '盘点单'
+
+    if error:
+        return None
+
+    reply_parts = [f'从图片识别到 {len(matched)} 个物料，已生成{type_label}草稿 {draft["order_no"]}，请核对数量后再提交。']
+    if unmatched:
+        names = '、'.join([u['code'] or u['name'] or '?' for u in unmatched[:5]])
+        reply_parts.append(f'另有 {len(unmatched)} 个物料未匹配或数量无效，需手工补录：{names}')
+    return '\n'.join(reply_parts), draft['items'], [{'label': '打开草稿', 'url': draft['url']}]
 
 
 def _ai_test_llm_vision(overrides=None):
@@ -7614,16 +8346,17 @@ def _ai_llm_error_message(response):
     return f'HTTP {response.status_code}: {json.dumps(data, ensure_ascii=False)[:300]}'
 
 
-def _ai_execute_intent(message, intent_payload):
+def _ai_execute_intent(message, intent_payload, context=None):
     if not intent_payload:
         return None
 
     intent = intent_payload.get('intent')
     params = intent_payload.get('params') or {}
     keyword = str(params.get('keyword') or '').strip() or _ai_guess_keyword(message)
+    context = context or {}
 
     if intent == 'greeting':
-        return _ai_json_response('你好，我是仓库AI助手。你可以问我库存、单据、今日概况、待处理事项，也可以让我生成入库单或领料单草稿。')
+        return _ai_json_response('你好，我是仓库AI助手。你可以问我库存、单据、今日概况、待处理事项，也可以让我生成入库单、领料单、调拨单、盘点单、调整单草稿。')
 
     if intent == 'model_status':
         return _ai_json_response(_ai_model_status_text())
@@ -7663,6 +8396,36 @@ def _ai_execute_intent(message, intent_payload):
             [{'label': '打开草稿', 'url': draft['url']}],
         )
 
+    if intent == 'create_transfer_draft':
+        draft, error = _ai_create_transfer_draft(message)
+        if error:
+            return _ai_json_response(error)
+        return _ai_json_response(
+            f'已生成调拨单草稿 {draft["order_no"]}（{draft["from_location"]} → {draft["to_location"]}），请打开检查后再提交。',
+            draft['items'],
+            [{'label': '打开草稿', 'url': draft['url']}],
+        )
+
+    if intent == 'create_check_draft':
+        draft, error = _ai_create_check_draft(message)
+        if error:
+            return _ai_json_response(error)
+        return _ai_json_response(
+            f'已生成盘点单草稿 {draft["order_no"]}，系统库存已自动填入，请盘点后录入实际数量。',
+            draft['items'],
+            [{'label': '打开草稿', 'url': draft['url']}],
+        )
+
+    if intent == 'create_adjustment_draft':
+        draft, error = _ai_create_adjustment_draft(message)
+        if error:
+            return _ai_json_response(error)
+        return _ai_json_response(
+            f'已生成调整单草稿 {draft["order_no"]}（{draft["adjustment_type"]}），请打开检查后再提交。',
+            draft['items'],
+            [{'label': '打开草稿', 'url': draft['url']}],
+        )
+
     if intent == 'find_orders':
         found_orders = _ai_find_orders(keyword or message)
         if not found_orders and keyword and keyword != message:
@@ -7697,6 +8460,11 @@ def _ai_execute_intent(message, intent_payload):
         materials = _ai_material_query(keyword, limit=8)
         if not materials and keyword:
             materials = _ai_material_query(_ai_guess_keyword(message), limit=8)
+        # 上下文感知：用户在物料详情页或列表选中行问"这个库存"时，从 page_url 提取物料 id
+        if not materials:
+            ctx_material = _ai_material_from_context(context)
+            if ctx_material:
+                materials = [ctx_material]
         if not materials:
             return _ai_json_response('没有找到相关物料，可以换物料编码、名称或规格再查一次。')
         cards = [_ai_material_payload(material) for material in materials]
@@ -7710,9 +8478,50 @@ def _ai_execute_intent(message, intent_payload):
             actions,
         )
 
+    if intent == 'analysis_turnover':
+        days = params.get('days')
+        warehouse = str(params.get('warehouse') or '').strip() or None
+        category = str(params.get('category') or '').strip() or None
+        return _ai_json_response(_ai_analysis_inventory_turnover(days=days, warehouse=warehouse, category=category))
+
+    if intent == 'analysis_stock_value':
+        category = str(params.get('category') or '').strip() or None
+        return _ai_json_response(_ai_analysis_stock_value(category=category))
+
+    if intent == 'analysis_supplier':
+        days = params.get('days')
+        warehouse = str(params.get('warehouse') or '').strip() or None
+        return _ai_json_response(_ai_analysis_supplier(days=days, warehouse=warehouse))
+
+    if intent == 'analysis_consumption_trend':
+        kw = keyword or _ai_guess_keyword(message)
+        if not kw:
+            return _ai_json_response('请告诉我物料编码或名称，例如：查 M001 消耗趋势。')
+        days = params.get('days')
+        warehouse = str(params.get('warehouse') or '').strip() or None
+        return _ai_json_response(_ai_analysis_consumption_trend(kw, days=days, warehouse=warehouse))
+
+    if intent == 'analysis_low_stock':
+        return _ai_json_response(_ai_analysis_low_stock_report())
+
+    if intent == 'analysis_category':
+        category = str(params.get('category') or '').strip() or None
+        return _ai_json_response(_ai_analysis_category_summary(category=category))
+
     if intent == 'help':
         return _ai_json_response(
-            '我可以查库存、查单号、查今日概况、查待处理、查库存异常、查物料流水，也可以生成入库单或领料单草稿。示例：查 A001 库存；查 IN26050001；今天概况；查 A001 流水；生成领料单 A001 20。'
+            '我可以查库存、查单号、查今日概况、查待处理、查库存异常、查物料流水，也可以生成各类单据草稿，还支持周转分析、库存金额分析、供应商分析、消耗趋势、补货建议、按分类汇总等数据洞察。示例：\n'
+            '- 查库存/查单号：查 A001 库存；查 IN26050001\n'
+            '- 今日概况：今天概况\n'
+            '- 查流水：查 A001 流水\n'
+            '- 生成单据：生成领料单 A001 20；从A仓转到B仓 M001 100；盘点 M001 M002；报废 M001 5\n'
+            '- 数据分析（支持多仓库/分类/日期范围）：\n'
+            '  · 周转分析（默认90天，可指定：近30天周转）\n'
+            '  · 库存金额（可按分类：原料分类库存金额）\n'
+            '  · 供应商排行（可指定仓库和天数：A仓近30天供应商）\n'
+            '  · 查 M001 消耗趋势（可指定天数和仓库：M001近60天消耗 材料仓）\n'
+            '  · 补货建议\n'
+            '  · 按分类汇总（各分类库存金额）'
         )
 
     return None
@@ -7725,7 +8534,7 @@ def _ai_should_try_general_chat(message):
     business_words = (
         '库存', '物料', '单号', '单据', '入库', '出库', '领料', '采购', '盘点', '调拨', '待办', '待处理',
         '异常', '预警', '流水', '生成', '创建', '新增', '审核', '客户', '供应商', '仓库', '库位',
-        '怎么用', '不会用', '如何用', '操作', '流程', '教程', '教我', '怎么做', '扫码', '手机', 'app', '条码',
+        '扫码', '手机', 'app', '条码',
         '缺料', '缺货', '没货', '没有了', '没了', '断货', '用完了', '没有库存',
     )
     if any(word in compact for word in business_words):
@@ -7748,10 +8557,64 @@ def api_ai_warehouse_assistant():
     if not message and not images:
         return jsonify({'status': 'error', 'msg': '请输入要查询或处理的内容'}), 400
 
+    user_id = current_user.id if current_user.is_authenticated else 0
+    # 拼接最近一轮用户消息到当前 message 前面，让意图识别和草稿解析能感知多轮上下文。
+    # 仅取最近 1 条 user 历史，避免污染；不拼接 assistant 回复（含摘要文本会干扰正则）。
+    recent_user_messages = [h['content'] for h in _ai_get_history(user_id) if h.get('role') == 'user'][-1:]
+    augmented_message = message
+    if recent_user_messages:
+        prev = recent_user_messages[0]
+        # 只在当前消息没有出现物料代码特征时拼接（避免重复解析）
+        if not re.search(r'[A-Za-z0-9_\-\u4e00-\u9fff]{2,}\s*(?:数量|qty|x|X|\*)?\s*[0-9]+', message):
+            augmented_message = f'{prev}\n{message}'
+
     try:
         if images:
-            vision_reply, vision_error = _ai_call_llm_vision(message, images, context)
+            # 上下文感知：在采购单详情页上传送货单/到货图片 → 优先走采购单下推，生成与采购单关联的入库单
+            page_url = context.get('page_url') or ''
+            po_match = re.search(r'/purchase_order/(\d+)(?:\D|$)', page_url)
+            if po_match and current_user.role in ('admin', 'warehouse', 'purchase'):
+                try:
+                    po_id = int(po_match.group(1))
+                    order = PurchaseOrder.query.get(po_id)
+                    if order:
+                        in_order, error = _create_in_order_from_purchase_order_core(
+                            order, remark=f'由AI助手根据采购单 {order.order_no} 下推生成（视觉识别送货单）'
+                        )
+                        if not error:
+                            cards = [{
+                                'title': f'采购入库单 {in_order.order_no}',
+                                'meta': f'来源采购单 {order.order_no}，状态：草稿，明细 {len(in_order.items)} 行',
+                                'url': url_for('in_order_detail', id=in_order.id),
+                            }]
+                            full_reply = (
+                                f'检测到你在采购单 {order.order_no} 详情页上传图片，已根据该采购单明细生成采购入库单草稿 {in_order.order_no}。'
+                                '请打开入库单核对仓库、数量和明细，再完成入库。'
+                            )
+                            _ai_append_history(user_id, 'user', message or '(上传送货单图片)')
+                            _ai_append_history(user_id, 'assistant', full_reply)
+                            return _ai_json_response(full_reply, cards, [
+                                {'label': '打开入库单', 'url': url_for('in_order_detail', id=in_order.id)},
+                                {'label': '打开采购单', 'url': url_for('purchase_order_detail', id=order.id)},
+                            ])
+                        # 下推失败 → 继续走普通视觉识别路径，错误信息会展示给用户
+                        app.logger.warning('AI vision purchase order receive failed: %s', error)
+                except Exception as exc:
+                    db.session.rollback()
+                    app.logger.exception('AI vision purchase order receive failed: %s', exc)
+
+            vision_reply, extracted, vision_error = _ai_call_llm_vision(message, images, context)
             if vision_reply:
+                # 尝试根据提取的结构化数据自动建单
+                draft_result = _ai_vision_try_create_draft(extracted, message)
+                if draft_result:
+                    draft_reply, draft_cards, draft_actions = draft_result
+                    full_reply = vision_reply + '\n\n' + draft_reply
+                    _ai_append_history(user_id, 'user', message or '(上传图片)')
+                    _ai_append_history(user_id, 'assistant', full_reply)
+                    return _ai_json_response(full_reply, draft_cards, draft_actions)
+                _ai_append_history(user_id, 'user', message or '(上传图片)')
+                _ai_append_history(user_id, 'assistant', vision_reply)
                 return _ai_json_response(vision_reply)
             if not _ai_llm_vision_enabled():
                 return _ai_json_response(
@@ -7764,27 +8627,236 @@ def api_ai_warehouse_assistant():
                 + ' 请确认这张图片格式有效、图片内容清晰，并到“系统管理 - 系统设置 - AI助手参数”点击“测试图片识别”确认通道可用。'
             )
 
-        local_response, _skill_name = _ai_try_local_skills(message, context)
+        local_response, _skill_name = _ai_try_local_skills(augmented_message, context)
         if local_response:
             return local_response
 
-        if _ai_should_try_general_chat(message):
-            chat_reply = _ai_call_llm_chat(message)
+        if _ai_should_try_general_chat(augmented_message):
+            chat_reply = _ai_call_llm_chat(augmented_message)
             if chat_reply:
+                _ai_append_history(user_id, 'user', message)
+                _ai_append_history(user_id, 'assistant', chat_reply)
                 return _ai_json_response(chat_reply)
             basic_response = _ai_basic_conversation_response(message)
             if basic_response:
                 return basic_response
             return _ai_json_response('当前大模型聊天没有连通。请到“系统管理 - 系统设置 - AI助手参数”点击“测试连接”，确认接口地址、模型名称和 API Key 可用。')
 
-        llm_response = _ai_execute_intent(message, _ai_call_llm_intent(message))
+        llm_response = _ai_execute_intent(augmented_message, _ai_call_llm_intent(augmented_message), context)
         if llm_response:
+            body = llm_response.get_json(silent=True) or {}
+            reply_text = str(body.get('reply') or '')
+            if reply_text:
+                _ai_append_history(user_id, 'user', message)
+                _ai_append_history(user_id, 'assistant', reply_text)
             return llm_response
         return _ai_rule_based_response(message)
     except Exception as exc:
         db.session.rollback()
         app.logger.exception('AI warehouse assistant failed: %s', exc)
         return jsonify({'status': 'error', 'msg': 'AI助手处理失败，请稍后重试'}), 500
+
+
+# ==================== AI 流式响应 + 多轮对话 ====================
+
+# 简单的内存级会话上下文：key=user_id, value=list of {role, content}
+# 仅保留最近若干轮，避免内存膨胀；多实例部署下不共享，但对单机够用
+_AI_CHAT_HISTORY = {}
+_AI_CHAT_HISTORY_MAX_TURNS = 10  # 每个用户最多保留 10 轮（user+assistant 各算1条）
+
+
+def _ai_get_history(user_id):
+    """获取用户对话历史，返回 OpenAI messages 格式"""
+    if not user_id:
+        return []
+    return list(_AI_CHAT_HISTORY.get(user_id, []))
+
+
+def _ai_append_history(user_id, role, content):
+    """追加一条对话记录，超出上限自动裁剪"""
+    if not user_id or not content:
+        return
+    history = _AI_CHAT_HISTORY.setdefault(user_id, [])
+    history.append({'role': role, 'content': content})
+    # 超过上限时，从头丢弃完整的一轮（user+assistant）
+    while len(history) > _AI_CHAT_HISTORY_MAX_TURNS * 2:
+        # 丢掉最早的两条（一轮）
+        del history[:2]
+
+
+def _ai_clear_history(user_id):
+    """清空用户对话历史"""
+    if user_id and user_id in _AI_CHAT_HISTORY:
+        del _AI_CHAT_HISTORY[user_id]
+
+
+@app.route('/api/ai/chat/stream', methods=['POST'])
+@login_required
+def api_ai_chat_stream():
+    """流式返回 AI 回答（SSE），支持多轮对话上下文。
+    统一通道：闲聊问题走 LLM 流式；业务关键词命中时不再 redirect 回退，
+    而是在 SSE 内直接执行业务意图，把 reply 文本按字符拆分流式输出，
+    最后追加 cards/actions 事件，避免"流式光标闪一下→清空→重新 loading"的割裂体验。
+    """
+    payload = request.get_json(silent=True) or {}
+    message = (payload.get('message') or '').strip()
+    history_payload = payload.get('history') or []
+    page_url = (payload.get('page_url') or '').strip()
+    page_title = (payload.get('page_title') or '').strip()
+    user_id = current_user.id if current_user.is_authenticated else 0
+
+    if not message:
+        return jsonify({'status': 'error', 'msg': '请输入要查询或处理的内容'}), 400
+
+    # 业务关键词命中：在 SSE 通道内直接执行业务意图，不返回 redirect
+    if not _ai_should_try_general_chat(message):
+        context = {'page_url': page_url, 'page_title': page_title}
+        # 拼接最近一轮用户消息，让意图识别和草稿解析感知多轮上下文
+        recent_user_messages = [h['content'] for h in _ai_get_history(user_id) if h.get('role') == 'user'][-1:]
+        augmented_message = message
+        if recent_user_messages:
+            prev = recent_user_messages[0]
+            if not re.search(r'[A-Za-z0-9_\-\u4e00-\u9fff]{2,}\s*(?:数量|qty|x|X|\*)?\s*[0-9]+', message):
+                augmented_message = f'{prev}\n{message}'
+
+        def business_generate():
+            try:
+                # 1) 先尝试本地技能（采购单下推、库存短缺帮助等）
+                local_response, _skill_name = _ai_try_local_skills(augmented_message, context)
+                # 2) 本地技能未命中 → LLM 意图解析 + 执行
+                if local_response is None:
+                    intent_payload = _ai_call_llm_intent(augmented_message)
+                    if intent_payload:
+                        llm_response = _ai_execute_intent(augmented_message, intent_payload, context)
+                    else:
+                        llm_response = None
+                    if llm_response is None:
+                        # 3) LLM 未配置或未识别意图 → 规则匹配兜底
+                        llm_response = _ai_rule_based_response(message)
+                else:
+                    llm_response = local_response
+
+                if llm_response is None:
+                    yield f'data: {json.dumps({"type":"error","content":"未能处理该问题，请换种说法或到系统设置确认 AI 已配置"}, ensure_ascii=False)}\n\n'
+                    return
+
+                # llm_response 是 Flask Response 对象，需要提取 json 数据
+                body = llm_response.get_json(silent=True) or {}
+                reply_text = str(body.get('reply') or '')
+                cards = body.get('cards') or []
+                actions = body.get('actions') or []
+
+                # 把 reply 按字符拆分流式输出（每 2-3 个字一段，体验更顺）
+                chunk_size = 3
+                for i in range(0, len(reply_text), chunk_size):
+                    seg = reply_text[i:i + chunk_size]
+                    yield f'data: {json.dumps({"type":"token","content":seg}, ensure_ascii=False)}\n\n'
+
+                # 追加卡片事件（前端在收到 done 前渲染）
+                if cards:
+                    yield f'data: {json.dumps({"type":"cards","content":cards}, ensure_ascii=False)}\n\n'
+                if actions:
+                    yield f'data: {json.dumps({"type":"actions","content":actions}, ensure_ascii=False)}\n\n'
+
+                # 写入对话历史，业务回复也能被多轮引用
+                if reply_text:
+                    _ai_append_history(user_id, 'user', message)
+                    _ai_append_history(user_id, 'assistant', reply_text)
+
+                yield f'data: {json.dumps({"type":"done","content":reply_text}, ensure_ascii=False)}\n\n'
+            except Exception as exc:
+                db.session.rollback()
+                app.logger.exception('AI stream business intent failed: %s', exc)
+                yield f'data: {json.dumps({"type":"error","content":"AI助手处理失败，请稍后重试"}, ensure_ascii=False)}\n\n'
+
+        return Response(stream_with_context(business_generate()), mimetype='text/event-stream',
+                        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+    # 闲聊类问题走 LLM 流式
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': 'AI大模型未配置，请到系统设置配置接口地址、模型和API Key'}), 503
+
+    # 构建多轮上下文：系统提示 + 历史 + 当前问题
+    system_prompt = (
+        '你是仓库管理系统里的AI业务顾问。回答仓库相关问题要结合业务场景给出可执行步骤，'
+        '尽量引用系统里的页面入口名称（如库存查询、物料档案、采购申请、入库列表、待处理中心）。'
+        '涉及真实库存、单据、金额时不要编造，应建议用户到系统查询。'
+        '回答要简洁直接，像仓库主管给操作建议。支持 Markdown 格式输出，可以使用列表、表格、加粗等。'
+    )
+    messages = [{'role': 'system', 'content': system_prompt}]
+    # 合并前端传来的历史（优先）+ 后端内存历史（兜底）
+    seen_history = history_payload if isinstance(history_payload, list) else _ai_get_history(user_id)
+    for item in seen_history[-_AI_CHAT_HISTORY_MAX_TURNS * 2:]:
+        if isinstance(item, dict) and item.get('role') in ('user', 'assistant') and item.get('content'):
+            messages.append({'role': item['role'], 'content': str(item['content'])[:1000]})
+    messages.append({'role': 'user', 'content': message[:1000]})
+
+    payload_body = {
+        'model': _ai_llm_model(),
+        'messages': messages,
+        'temperature': 0.4,
+        'max_tokens': min(max(_ai_llm_max_tokens(), 200), 800),
+        'stream': True,
+    }
+    headers = {
+        'Authorization': f'Bearer {_ai_llm_api_key()}',
+        'Content-Type': 'application/json',
+    }
+
+    def generate():
+        full_reply = []
+        try:
+            with requests.post(
+                _ai_llm_endpoint(),
+                headers=headers,
+                json=payload_body,
+                stream=True,
+                timeout=max(_ai_llm_timeout_seconds(), 30),
+            ) as resp:
+                if not resp.ok:
+                    err_msg = f'大模型请求失败: HTTP {resp.status_code}'
+                    yield f'data: {json.dumps({"type":"error","content":err_msg}, ensure_ascii=False)}\n\n'
+                    return
+                for line in resp.iter_lines(decode_unicode=True):
+                    if not line:
+                        continue
+                    if line.startswith('data: '):
+                        chunk = line[6:]
+                        if chunk.strip() == '[DONE]':
+                            break
+                        try:
+                            data = json.loads(chunk)
+                            delta = ((data.get('choices') or [{}])[0].get('delta') or {}).get('content') or ''
+                            if delta:
+                                full_reply.append(delta)
+                                yield f'data: {json.dumps({"type":"token","content":delta}, ensure_ascii=False)}\n\n'
+                        except (ValueError, IndexError):
+                            continue
+        except requests.exceptions.Timeout:
+            yield f'data: {json.dumps({"type":"error","content":"大模型响应超时，请稍后重试或调高超时设置"}, ensure_ascii=False)}\n\n'
+            return
+        except Exception as exc:
+            app.logger.warning('AI stream chat failed: %s', exc)
+            yield f'data: {json.dumps({"type":"error","content":f"流式响应异常: {exc}"}, ensure_ascii=False)}\n\n'
+            return
+
+        reply_text = ''.join(full_reply).strip()
+        if reply_text:
+            _ai_append_history(user_id, 'user', message)
+            _ai_append_history(user_id, 'assistant', reply_text)
+        yield f'data: {json.dumps({"type":"done","content":reply_text}, ensure_ascii=False)}\n\n'
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@app.route('/api/ai/chat/clear', methods=['POST'])
+@login_required
+def api_ai_chat_clear():
+    """清空当前用户的对话历史"""
+    user_id = current_user.id if current_user.is_authenticated else 0
+    _ai_clear_history(user_id)
+    return jsonify({'status': 'success', 'msg': '已清空对话历史'})
 
 
 def _document_nav_related(obj, relation_name, field_name='name'):
@@ -8384,11 +9456,11 @@ def _wechat_share_default_config():
         return config
 
     config = WechatShareConfig(
-        sender_name='山清酒里',
-        sender_wechat_id='OK1949-2024',
-        receiver_name='山清酒里',
-        receiver_wechat_id='OK1949-2024',
-        receiver_search_key='山清酒里',
+        sender_name='',
+        sender_wechat_id='',
+        receiver_name='',
+        receiver_wechat_id='',
+        receiver_search_key='',
         receiver_type='person',
         share_time='15:30',
         share_in_order=True,
@@ -9799,6 +10871,9 @@ def import_customer():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的客户文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -10325,6 +11400,7 @@ def add_in_order_item(id):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '明细添加失败，请稍后重试'}), 500
 
         log_operation('编辑入库单', f'入库单新增物料：{material_code}', 'in_order', id)
         return jsonify({'status': 'success', 'msg': '明细添加成功'})
@@ -10414,6 +11490,7 @@ def delete_in_order_item(id, item_id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'数据库操作失败: {e}')
+        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
 
     return jsonify({'status': 'success', 'msg': '删除成功'})
 
@@ -10439,6 +11516,7 @@ def in_order_item_delete_alias(id, item_id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'数据库操作失败: {e}')
+        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
 
     return jsonify({'status': 'success', 'msg': '删除成功'})
 
@@ -10632,12 +11710,18 @@ def complete_in_order(id):
         affected_purchase_order_ids = set()
         for item in order.items:
             if item.material:
-                add_stock(item.material, item.quantity,
-                          transaction_type='in',
-                          reference_type='in_order',
-                          reference_id=order.id)
+                ok, err = add_stock(item.material, item.quantity,
+                                    transaction_type='in',
+                                    reference_type='in_order',
+                                    reference_id=order.id)
+                if not ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': err or '库存增加失败'})
                 if location_management_enabled() and order.warehouse:
-                    update_location_inventory(item.material, order.warehouse, item.quantity or 0)
+                    loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, item.quantity or 0)
+                    if not loc_ok:
+                        db.session.rollback()
+                        return jsonify({'status': 'error', 'msg': loc_err or '库位库存更新失败'})
             if is_recompleted and item.source_purchase_order_item:
                 source_item = item.source_purchase_order_item
                 source_item.received_quantity = round_to_2_decimals((source_item.received_quantity or 0) + (item.quantity or 0))
@@ -10764,13 +11848,19 @@ def update_completed_in_order(id):
                 )
                 db.session.add(new_item)
                 # 使用 add_stock 写流水+归一化+库位同步，避免直接改 stock
-                add_stock(material, quantity,
-                          transaction_type='add_in_item',
-                          reference_type='in_order',
-                          reference_id=order.id,
-                          remark=f'已完成入库单 {order.order_no} 新增明细')
+                ok, err = add_stock(material, quantity,
+                                    transaction_type='add_in_item',
+                                    reference_type='in_order',
+                                    reference_id=order.id,
+                                    remark=f'已完成入库单 {order.order_no} 新增明细')
+                if not ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': err or '库存增加失败'})
                 if location_management_enabled() and order.warehouse:
-                    update_location_inventory(material, order.warehouse, quantity)
+                    loc_ok, loc_err = update_location_inventory(material, order.warehouse, quantity)
+                    if not loc_ok:
+                        db.session.rollback()
+                        return jsonify({'status': 'error', 'msg': loc_err or '库位库存更新失败'})
 
             elif item_id:
                 item = db.session.get(InOrderItem, item_id)
@@ -10803,11 +11893,14 @@ def update_completed_in_order(id):
                             affected_purchase_order_ids.add(source_item.purchase_order.id)
                     # 使用 add_stock/deduct_stock 写流水+归一化+库位同步，避免直接改 stock
                     if qty_diff > 0:
-                        add_stock(item.material, qty_diff,
-                                  transaction_type='adjust_in_item',
-                                  reference_type='in_order',
-                                  reference_id=order.id,
-                                  remark=f'修改已完成入库单 {order.order_no} 明细数量增加')
+                        ok, err = add_stock(item.material, qty_diff,
+                                            transaction_type='adjust_in_item',
+                                            reference_type='in_order',
+                                            reference_id=order.id,
+                                            remark=f'修改已完成入库单 {order.order_no} 明细数量增加')
+                        if not ok:
+                            db.session.rollback()
+                            return jsonify({'status': 'error', 'msg': err or '库存增加失败'})
                     elif qty_diff < 0:
                         ok, err = deduct_stock(item.material, abs(qty_diff),
                                                transaction_type='adjust_in_item',
@@ -10817,7 +11910,10 @@ def update_completed_in_order(id):
                         if not ok:
                             return jsonify({'status': 'error', 'msg': err or '库存回退失败'})
                     if location_management_enabled() and order.warehouse and qty_diff != 0:
-                        update_location_inventory(item.material, order.warehouse, qty_diff)
+                        loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, qty_diff)
+                        if not loc_ok:
+                            db.session.rollback()
+                            return jsonify({'status': 'error', 'msg': loc_err or '库位库存更新失败'})
 
                     item.quantity = new_qty
                     item.price = new_price
@@ -11062,6 +12158,11 @@ def delete_in_order(id):
                 if not ok:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'msg': error_msg or '库存回退失败'})
+                if location_management_enabled() and order.warehouse:
+                    loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, -(item.quantity or 0))
+                    if not loc_ok:
+                        db.session.rollback()
+                        return jsonify({'status': 'error', 'msg': loc_err or '库位库存回退失败'})
 
         affected_purchase_order_ids = set()
         for item in order.items:
@@ -11150,6 +12251,8 @@ def convert_in_order_to_out_order(id):
 
     if in_order.status != 'completed':
         return jsonify({'status': 'error', 'msg': '只有已完成的入库单才能转为领料单'})
+    if in_order.business_type != '产品入库':
+        return jsonify({'status': 'error', 'msg': '只有产品入库单可以转为领料单，采购入库单不能转换'})
 
     try:
         # 生成领料单编号：必须复用 generate_order_no('OUT')，否则手动拼接的
@@ -11271,10 +12374,12 @@ def batch_complete_in_order():
         try:
             for item in order.items:
                 if item.material:
-                    add_stock(item.material, item.quantity,
-                              transaction_type='in',
-                              reference_type='in_order',
-                              reference_id=order.id)
+                    ok, err = add_stock(item.material, item.quantity,
+                                        transaction_type='in',
+                                        reference_type='in_order',
+                                        reference_id=order.id)
+                    if not ok:
+                        raise ValueError(err or '库存增加失败')
                     # 同步库位库存（与 complete_in_order 对称），仅启用库位管理且有仓库时
                     if location_management_enabled() and order.warehouse:
                         loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, item.quantity)
@@ -11547,6 +12652,7 @@ def add_bom():
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'}), 500
         log_operation('新增BOM', f'BOM：{bom_no}', 'bom', bom.id)
         return jsonify({'status': 'success', 'msg': 'BOM 新增成功'})
     except Exception as e:
@@ -11881,6 +12987,10 @@ def _workbook_response(filename, sheet_title, columns, rows=None):
 
 
 def _read_import_sheet(file, aliases):
+    # 底层防御：即使调用方漏校验，也阻止非 Excel 文件进入 openpyxl 解析
+    _ext_ok, _ext_msg = validate_excel_extension(getattr(file, 'filename', '') or '')
+    if not _ext_ok:
+        raise ValueError(_ext_msg)
     from openpyxl import load_workbook
     wb = load_workbook(file)
     ws = wb.active
@@ -12216,6 +13326,9 @@ def import_bom():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的 BOM 文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -13079,11 +14192,14 @@ def revert_requisition(id):
         # 恢复库存（走 add_stock 写流水+归一化，与 complete_requisition 对称）
         for item in requisition.items:
             if item.material:
-                add_stock(item.material, item.quantity or 0,
-                          transaction_type='revert_requisition',
-                          reference_type='requisition',
-                          reference_id=requisition.id,
-                          remark=f'撤销工单领料单 {requisition.req_no}')
+                ok, err = add_stock(item.material, item.quantity or 0,
+                                    transaction_type='revert_requisition',
+                                    reference_type='requisition',
+                                    reference_id=requisition.id,
+                                    remark=f'撤销工单领料单 {requisition.req_no}')
+                if not ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': err or '库存恢复失败'})
 
         requisition.status = 'pending'
         try:
@@ -13444,6 +14560,7 @@ def add_subcontract():
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'}), 500
         log_operation('新建委外单', f'委外单：{order_no}', 'subcontract', order.id)
         return jsonify({'status': 'success'})
     except Exception as e:
@@ -13611,10 +14728,13 @@ def quick_receive_subcontract(id):
             price=price,
             amount=round_to_2_decimals(quantity * price)
         ))
-        add_stock(material, quantity,
-                  transaction_type='subcontract_receive',
-                  reference_type='subcontract_receive',
-                  reference_id=receive.id)
+        ok, msg = add_stock(material, quantity,
+                            transaction_type='subcontract_receive',
+                            reference_type='subcontract_receive',
+                            reference_id=receive.id)
+        if not ok:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': msg or '库存增加失败'}), 500
 
         total_required = sum((item.quantity or 0) for item in order.items)
         total_received = sum((item.quantity or 0) for receive_order in order.receive_orders for item in receive_order.items) + quantity
@@ -14020,6 +15140,7 @@ def add_subcontract_issue():
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '创建失败，请稍后重试'}), 500
         
         log_operation('新增委外发料单', f'发料单：{issue_no}', 'subcontract_issue', issue.id)
         return jsonify({'status': 'success', 'msg': '委外发料单创建成功', 'id': issue.id})
@@ -14131,6 +15252,7 @@ def add_subcontract_issue_item(id):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '添加失败，请稍后重试'}), 500
         
         return jsonify({'status': 'success', 'msg': '发料明细添加成功'})
     except Exception as e:
@@ -14201,11 +15323,14 @@ def revert_subcontract_issue(id):
     try:
         for item in issue.items:
             if item.material:
-                add_stock(item.material, item.quantity or 0,
-                          transaction_type='revert_subcontract_issue',
-                          reference_type='subcontract_issue',
-                          reference_id=issue.id,
-                          remark=f'反提交委外发料 {issue.issue_no}')
+                ok, err = add_stock(item.material, item.quantity or 0,
+                                    transaction_type='revert_subcontract_issue',
+                                    reference_type='subcontract_issue',
+                                    reference_id=issue.id,
+                                    remark=f'反提交委外发料 {issue.issue_no}')
+                if not ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': err or '库存恢复失败'})
         issue.status = 'pending'
         db.session.commit()
         log_operation('反提交委外发料', f'发料单：{issue.issue_no}', 'subcontract_issue', id)
@@ -14526,6 +15651,7 @@ def add_subcontract_receive():
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '创建失败，请稍后重试'}), 500
         
         log_operation('新增委外收货单', f'收货单：{receive_no}', 'subcontract_receive', receive.id)
         return jsonify({'status': 'success', 'msg': '委外收货单创建成功', 'id': receive.id})
@@ -14651,6 +15777,7 @@ def add_subcontract_receive_item(id):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '添加失败，请稍后重试'}), 500
         
         return jsonify({'status': 'success', 'msg': '收货明细添加成功'})
     except Exception as e:
@@ -14678,11 +15805,14 @@ def complete_subcontract_receive(id):
         for item in receive.items:
             if item.material:
                 # 走 add_stock 写流水+归一化，与 quick_receive_subcontract 对称
-                add_stock(item.material, item.quantity or 0,
-                          transaction_type='subcontract_receive',
-                          reference_type='subcontract_receive',
-                          reference_id=receive.id,
-                          remark=f'完成委外收货 {receive.receive_no}')
+                ok, err = add_stock(item.material, item.quantity or 0,
+                                    transaction_type='subcontract_receive',
+                                    reference_type='subcontract_receive',
+                                    reference_id=receive.id,
+                                    remark=f'完成委外收货 {receive.receive_no}')
+                if not ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': err or '库存增加失败'})
                 total_quantity += item.quantity or 0
                 total_scrap += item.scrap_quantity or 0
         
@@ -14694,6 +15824,7 @@ def complete_subcontract_receive(id):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'}), 500
         
         log_operation('完成委外收货', f'收货单：{receive.receive_no}', 'subcontract_receive', id)
         return jsonify({'status': 'success', 'msg': '委外收货完成，库存已增加'})
@@ -15113,6 +16244,7 @@ def add_transfer():
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '创建失败，请稍后重试'}), 500
         
         log_operation('新增调拨单', f'调拨单：{transfer_no}', 'transfer', transfer.id)
         return jsonify({'status': 'success', 'msg': '调拨单创建成功', 'id': transfer.id})
@@ -15164,6 +16296,7 @@ def add_transfer_item(id):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '添加失败，请稍后重试'}), 500
         
         return jsonify({'status': 'success', 'msg': '调拨明细添加成功'})
     except Exception as e:
@@ -16031,7 +17164,7 @@ def complete_adjustment(id):
                 continue
             quantity = item.quantity or 0
             if quantity > 0:
-                add_stock(
+                ok, err = add_stock(
                     item.material,
                     quantity,
                     transaction_type='adjustment_in',
@@ -16039,6 +17172,9 @@ def complete_adjustment(id):
                     reference_id=adjustment.id,
                     remark=item.reason or adjustment.remark or ''
                 )
+                if not ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': err or '库存增加失败'})
             elif quantity < 0:
                 ok, err, _ = deduct_stock_atomic(
                     item.material_id,
@@ -16087,7 +17223,7 @@ def revert_adjustment(id):
                     db.session.rollback()
                     return jsonify({'status': 'error', 'msg': err})
             elif quantity < 0:
-                add_stock(
+                ok, err = add_stock(
                     item.material,
                     abs(quantity),
                     transaction_type='revert_adjustment_out',
@@ -16095,6 +17231,9 @@ def revert_adjustment(id):
                     reference_id=adjustment.id,
                     remark=f'反提交库存调整 {adjustment.adjustment_no}'
                 )
+                if not ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': err or '库存恢复失败'})
         adjustment.status = 'pending'
         db.session.commit()
         log_operation('反提交库存调整', f'调整单：{adjustment.adjustment_no}', 'adjustment', id)
@@ -16453,11 +17592,106 @@ def add_check():
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'}), 500
         log_operation('盘点单创建', f'盘点单：{check.check_no}', 'check', check.id)
         return jsonify({'status': 'success', 'id': check.id})
     except Exception as e:
         db.session.rollback()
         return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+
+def _create_adjustment_drafts_from_check(check):
+    """Create pending adjustment draft(s) from inventory check differences."""
+    existing = AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).all()
+    if existing:
+        return None, '该盘点单已生成库存调整单，请勿重复生成'
+
+    grouped = {'surplus': [], 'loss': []}
+    for item in check.items:
+        if not item.material_id:
+            continue
+        system_stock = normalize_stock_quantity(item.system_stock or 0)
+        actual_stock = normalize_stock_quantity(item.actual_stock or 0)
+        diff = normalize_stock_quantity(actual_stock - system_stock)
+        if abs(diff) <= STOCK_COMPARE_EPSILON:
+            continue
+        direction = 'surplus' if diff > 0 else 'loss'
+        grouped[direction].append((item, abs(diff), system_stock, actual_stock))
+
+    drafts = []
+    for adjustment_type, rows in grouped.items():
+        if not rows:
+            continue
+        order = AdjustmentOrder(
+            adjustment_no=generate_order_no('ADJ'),
+            date=date.today(),
+            adjustment_type=adjustment_type,
+            source_type='check',
+            source_id=check.id,
+            status='pending',
+            operator_id=current_user.id if current_user.is_authenticated else None,
+            remark=f'由盘点单 {check.check_no} 自动生成，请审核后提交'
+        )
+        db.session.add(order)
+        db.session.flush()
+        for item, qty, system_stock, actual_stock in rows:
+            signed_qty = qty if adjustment_type == 'surplus' else -qty
+            db.session.add(AdjustmentOrderItem(
+                adjustment_order_id=order.id,
+                material_id=item.material_id,
+                quantity=signed_qty,
+                unit_id=item.material.unit_id if item.material else None,
+                reason=item.reason or f'盘点差异：账面 {system_stock}，实盘 {actual_stock}'
+            ))
+        drafts.append(order)
+    return drafts, None
+
+
+def _create_adjustment_drafts_from_check_scan(check):
+    """Create pending adjustment draft(s) from mobile/native stocktake differences."""
+    existing = AdjustmentOrder.query.filter_by(source_type='check_scan', source_id=check.id).all()
+    if existing:
+        return None, '该扫码盘点单已生成库存调整单，请勿重复生成'
+
+    grouped = {'surplus': [], 'loss': []}
+    for item in check.items:
+        if not item.material_id:
+            continue
+        system_stock = normalize_stock_quantity(item.system_stock or 0)
+        actual_stock = normalize_stock_quantity(item.actual_stock or 0)
+        diff = normalize_stock_quantity(actual_stock - system_stock)
+        if abs(diff) <= STOCK_COMPARE_EPSILON:
+            continue
+        direction = 'surplus' if diff > 0 else 'loss'
+        grouped[direction].append((item, abs(diff), system_stock, actual_stock))
+
+    drafts = []
+    for adjustment_type, rows in grouped.items():
+        if not rows:
+            continue
+        order = AdjustmentOrder(
+            adjustment_no=generate_order_no('ADJ'),
+            date=date.today(),
+            adjustment_type=adjustment_type,
+            source_type='check_scan',
+            source_id=check.id,
+            status='pending',
+            operator_id=getattr(check, 'operator_id', None) or (current_user.id if current_user.is_authenticated else None),
+            remark=f'由扫码盘点单 {check.check_no} 自动生成，请审核后提交'
+        )
+        db.session.add(order)
+        db.session.flush()
+        for item, qty, system_stock, actual_stock in rows:
+            signed_qty = qty if adjustment_type == 'surplus' else -qty
+            db.session.add(AdjustmentOrderItem(
+                adjustment_order_id=order.id,
+                material_id=item.material_id,
+                quantity=signed_qty,
+                unit_id=item.material.unit_id if item.material else None,
+                reason=f'扫码盘点差异：账面 {system_stock}，实盘 {actual_stock}'
+            ))
+        drafts.append(order)
+    return drafts, None
+
 
 @app.route('/check/<int:id>/complete', methods=['POST'])
 @require_role('warehouse')
@@ -16466,42 +17700,30 @@ def complete_check(id):
     check = InventoryCheck.query.get_or_404(id)
     if check.status != 'pending':
         return jsonify({'status': 'error', 'msg': '当前盘点单状态不可完结'})
-    
-    # 检查是否有盘点明细
+
     if not check.items:
         return jsonify({'status': 'error', 'msg': '盘点单没有明细，无法完成'})
-    
+
     try:
-        # 根据实际库存调整系统库存（并记录流水）
-        for item in check.items:
-            if not item.material_id:
-                continue
-            old_stock = normalize_stock_quantity(item.material.stock or 0) if item.material else 0
-            actual = normalize_stock_quantity(item.actual_stock or 0)
-            diff = actual - old_stock
-            if diff > 0:
-                add_stock(item.material, diff,
-                          transaction_type='check_in',
-                          reference_type='inventory_check',
-                          reference_id=check.id,
-                          remark=f'盘点调整，系统库存{old_stock}→实际{actual}')
-            elif diff < 0:
-                ok, err, _ = deduct_stock_atomic(
-                    item.material_id, abs(diff),
-                    transaction_type='check_out',
-                    reference_type='inventory_check',
-                    reference_id=check.id,
-                    remark=f'盘点调整，系统库存{old_stock}→实际{actual}'
-                )
-                if not ok:
-                    db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err})
-            # diff == 0：账实相符，不写流水、不动库存
+        drafts, error = _create_adjustment_drafts_from_check(check)
+        if error:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': error}), 400
 
         check.status = 'completed'
         db.session.commit()
-        log_operation('盘点完成', f'盘点单：{check.check_no}', 'check', id)
-        return jsonify({'status': 'success', 'msg': '盘点完成，库存已更新'})
+        draft_nos = ', '.join(order.adjustment_no for order in drafts)
+        if drafts:
+            log_operation('盘点完成', f'盘点单：{check.check_no}，生成调整草稿：{draft_nos}', 'check', id)
+            return jsonify({
+                'status': 'success',
+                'msg': f'盘点完成，已生成库存调整草稿：{draft_nos}。请审核调整单后提交库存变动。',
+                'adjustment_ids': [order.id for order in drafts],
+                'adjustment_nos': [order.adjustment_no for order in drafts],
+            })
+
+        log_operation('盘点完成', f'盘点单：{check.check_no}，无库存差异', 'check', id)
+        return jsonify({'status': 'success', 'msg': '盘点完成，无库存差异，不需要生成调整单'})
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'盘点完成失败：{e}')
@@ -16516,6 +17738,11 @@ def revert_check(id):
     if check.status != 'completed':
         return jsonify({'status': 'error', 'msg': '只有已完成的盘点单可以反提交'})
     try:
+        linked_adjustments = AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).all()
+        completed_adjustments = [order.adjustment_no for order in linked_adjustments if order.status == 'completed']
+        if completed_adjustments:
+            return jsonify({'status': 'error', 'msg': '该盘点单生成的调整单已提交，不能直接反提交盘点单：' + ', '.join(completed_adjustments)})
+
         transactions = StockTransaction.query.filter(
             StockTransaction.reference_type == 'inventory_check',
             StockTransaction.reference_id == check.id,
@@ -16539,7 +17766,7 @@ def revert_check(id):
                     db.session.rollback()
                     return jsonify({'status': 'error', 'msg': err})
             elif quantity < 0:
-                add_stock(
+                ok, err = add_stock(
                     material,
                     abs(quantity),
                     transaction_type='revert_check_out',
@@ -16547,10 +17774,20 @@ def revert_check(id):
                     reference_id=check.id,
                     remark=f'反提交盘点 {check.check_no}'
                 )
+                if not ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': err or '库存恢复失败'})
+        for order in linked_adjustments:
+            if order.status == 'pending':
+                for item in list(order.items):
+                    db.session.delete(item)
+                db.session.delete(order)
         check.status = 'pending'
         db.session.commit()
         log_operation('反提交盘点', f'盘点单：{check.check_no}', 'check', id)
-        return jsonify({'status': 'success', 'msg': '反提交成功，库存已恢复到盘点前'})
+        if transactions:
+            return jsonify({'status': 'success', 'msg': '反提交成功，库存已恢复到盘点前'})
+        return jsonify({'status': 'success', 'msg': '反提交成功，已删除未提交的库存调整草稿'})
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'盘点反提交失败: {e}')
@@ -16604,6 +17841,7 @@ def add_check_item(id):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '添加失败，请稍后重试'}), 500
         
         log_operation('添加盘点明细', f'盘点单：{check.check_no}，物料：{material.code}', 'check', id)
         return jsonify({'status': 'success', 'msg': '盘点明细添加成功'})
@@ -16745,6 +17983,7 @@ def batch_delete_check():
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
         
         msg = f'成功删除 {deleted_count} 个盘点单'
         if failed_ids:
@@ -17113,6 +18352,7 @@ def add_out_order():
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'}), 500
 
         log_operation('保存领料单', f'领料单：{order_no}', 'out_order', order.id)
         app.logger.info(f'领料单创建成功：{order.order_no}')
@@ -17286,10 +18526,13 @@ def revert_out_order(id):
 
     try:
         for item in order.items:
-            add_stock(item.material, item.quantity or 0,
-                      transaction_type='revert_out',
-                      reference_type='out_order',
-                      reference_id=order.id)
+            ok, err = add_stock(item.material, item.quantity or 0,
+                                transaction_type='revert_out',
+                                reference_type='out_order',
+                                reference_id=order.id)
+            if not ok:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': err or '库存恢复失败'})
             # 同步还原库位库存（与 complete_out_order 对称），仅启用库位管理且有仓库时
             if location_management_enabled() and order.warehouse:
                 loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, item.quantity or 0)
@@ -17402,15 +18645,11 @@ def batch_complete_out_order():
                         raise ValueError(loc_err or '库位库存扣减失败')
             order.status = 'completed'
             recalculate_order_total(order)
+            db.session.commit()
             completed += 1
         except Exception as e:
-            skipped.append(f'{order.order_no}(错误: {e})')
             db.session.rollback()
-    try:
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'})
+            skipped.append(f'{order.order_no}(错误: {e})')
     msg = f'批量审核完成，共审核 {completed} 张领料单'
     if skipped:
         msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
@@ -17772,7 +19011,7 @@ def revert_after_sale_out_order(id):
 
         for item in order.items:
             if item.material:
-                add_stock(
+                ok, err = add_stock(
                     item.material,
                     item.quantity or 0,
                     transaction_type='revert_after_sale_out',
@@ -17780,6 +19019,9 @@ def revert_after_sale_out_order(id):
                     reference_id=order.id,
                     remark=f'反提交售后出库 {order.order_no}'
                 )
+                if not ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': err or '库存恢复失败'})
 
         order.status = 'pending'
         db.session.commit()
@@ -17807,6 +19049,7 @@ def delete_after_sale_out_order(id):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
         log_operation('删除售后出库单', f'售后出库单：{order.order_no}', 'after_sale_out_order', order.id)
         return jsonify({'status': 'success', 'msg': '删除成功'})
     except Exception as e:
@@ -18463,6 +19706,7 @@ def add_purchase_request():
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'}), 500
         log_operation('保存采购申请单', f'采购申请单：{request_order.request_no}', 'purchase_request', request_order.id)
         return jsonify({'status': 'success', 'msg': '保存成功', 'id': request_order.id, 'request_no': request_order.request_no})
     except Exception as e:
@@ -18501,6 +19745,7 @@ def reject_purchase_request(id):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'}), 500
         log_operation('采购申请驳回', f'采购申请单：{request_order.request_no}', 'purchase_request', request_order.id)
         return jsonify({'status': 'success', 'msg': '操作完成'})
     except Exception as e:
@@ -21635,6 +22880,9 @@ def import_category():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的分类文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -21716,6 +22964,9 @@ def import_unit():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的单位文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -21788,6 +23039,12 @@ def import_supplier():
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'status': 'error', 'msg': '请选择要导入的供应商文件'})
         flash('请选择要导入的供应商文件', 'danger')
+        return redirect(url_for('supplier_list'))
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'error', 'msg': _ext_msg})
+        flash(_ext_msg, 'danger')
         return redirect(url_for('supplier_list'))
     try:
         from openpyxl import load_workbook
@@ -21873,6 +23130,9 @@ def import_employee():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的员工文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -21977,6 +23237,12 @@ def import_material():
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'status': 'error', 'msg': '请选择要导入的物料文件'})
         flash('请选择要导入的物料文件', 'danger')
+        return redirect(url_for('material_list'))
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'error', 'msg': _ext_msg})
+        flash(_ext_msg, 'danger')
         return redirect(url_for('material_list'))
     try:
         from openpyxl import load_workbook
@@ -22148,6 +23414,12 @@ def import_out_order():
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'status': 'error', 'msg': '请选择要导入的领料单文件'})
         flash('请选择要导入的领料单文件', 'danger')
+        return redirect(url_for('batch_import_page'))
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'error', 'msg': _ext_msg})
+        flash(_ext_msg, 'danger')
         return redirect(url_for('batch_import_page'))
     try:
         from openpyxl import load_workbook
@@ -22342,6 +23614,12 @@ def import_in_order():
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'status': 'error', 'msg': '请选择要导入的入库单文件'})
         flash('请选择要导入的入库单文件', 'danger')
+        return redirect(url_for('batch_import_page'))
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'error', 'msg': _ext_msg})
+        flash(_ext_msg, 'danger')
         return redirect(url_for('batch_import_page'))
     try:
         from openpyxl import load_workbook
@@ -22556,7 +23834,10 @@ def _render_html_print_content(content, **context):
         env = SandboxedEnvironment(autoescape=True, trim_blocks=True, lstrip_blocks=True)
         # 仅暴露业务上下文，不暴露 Flask 全局（config/request/url_for 等）
         template = env.from_string(content)
-        return template.render(**context)
+        rendered = template.render(**context)
+        # 渲染后用白名单净化器二次过滤，移除 <script>/<iframe>/on* 事件属性等
+        # 危险内容，防止管理员账号被攻破后通过打印模板注入存储型 XSS
+        return sanitize_print_html(rendered)
     except Exception as exc:
         app.logger.warning(f'打印HTML模板渲染失败: {exc}')
         return f'<div style="color:#b91c1c;border:1px solid #fecaca;padding:12px;">打印模板渲染失败：{escape(str(exc))}</div>'

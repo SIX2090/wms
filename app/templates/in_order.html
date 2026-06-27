@@ -29,6 +29,7 @@
             <a href="/in_order/add?type=product" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 产品入库</a>
             {% endif %}
             <form id="inOrderImportForm" action="/import/in_order" method="post" enctype="multipart/form-data" class="d-none">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="file" id="inOrderImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('inOrderImportForm', 'inOrderImportFile')">
             </form>
         </div>

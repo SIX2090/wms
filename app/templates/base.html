@@ -410,6 +410,116 @@
         .ai-pending-attachments.has-items {
             display: flex;
         }
+        /* AI 消息 Markdown 渲染 */
+        .ai-message.assistant {
+            white-space: normal;
+        }
+        .ai-message-content {
+            word-break: break-word;
+        }
+        .ai-message-content p {
+            margin: 0 0 6px 0;
+        }
+        .ai-message-content p:last-child {
+            margin-bottom: 0;
+        }
+        .ai-message-content ul,
+        .ai-message-content ol {
+            margin: 4px 0 6px 0;
+            padding-left: 20px;
+        }
+        .ai-message-content li {
+            margin: 2px 0;
+        }
+        .ai-message-content strong {
+            font-weight: 600;
+        }
+        .ai-message-content code {
+            background: #f1f5f9;
+            color: #be123c;
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-size: 13px;
+            font-family: Consolas, Monaco, monospace;
+        }
+        .ai-message-content pre {
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 8px 10px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 6px 0;
+            font-size: 12.5px;
+        }
+        .ai-message-content pre code {
+            background: transparent;
+            color: inherit;
+            padding: 0;
+        }
+        .ai-message-content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 6px 0;
+            font-size: 13px;
+        }
+        .ai-message-content th,
+        .ai-message-content td {
+            border: 1px solid #e2e8f0;
+            padding: 4px 8px;
+            text-align: left;
+        }
+        .ai-message-content th {
+            background: #f1f5f9;
+            font-weight: 600;
+        }
+        .ai-message-content tr:nth-child(even) td {
+            background: #f8fafc;
+        }
+        .ai-message-content h1,
+        .ai-message-content h2,
+        .ai-message-content h3,
+        .ai-message-content h4 {
+            font-weight: 600;
+            margin: 8px 0 4px 0;
+            line-height: 1.3;
+        }
+        .ai-message-content h1 { font-size: 16px; }
+        .ai-message-content h2 { font-size: 15px; }
+        .ai-message-content h3 { font-size: 14px; }
+        .ai-message-content h4 { font-size: 13px; }
+        .ai-message-content blockquote {
+            border-left: 3px solid #cbd5e1;
+            margin: 4px 0;
+            padding: 2px 10px;
+            color: #475569;
+        }
+        /* 流式输出光标 */
+        .ai-streaming-cursor {
+            display: inline-block;
+            width: 7px;
+            height: 14px;
+            background: #135dd8;
+            margin-left: 2px;
+            vertical-align: text-bottom;
+            animation: ai-cursor-blink 1s steps(2) infinite;
+        }
+        @keyframes ai-cursor-blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+        .ai-history-clear {
+            border: 0;
+            background: transparent;
+            color: #fff;
+            font-size: 13px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            opacity: 0.8;
+        }
+        .ai-history-clear:hover {
+            background: rgba(255,255,255,0.15);
+            opacity: 1;
+        }
         .sidebar .submenu-list .nav-link i {
             font-size: 0.6rem;
             margin-right: 6px;
@@ -1772,7 +1882,10 @@
     <div class="ai-assistant-panel" id="aiAssistantPanel" aria-label="AI仓库助手">
         <div class="ai-assistant-header">
             <div class="ai-assistant-title"><i class="bi bi-robot"></i> AI仓库助手</div>
-            <button type="button" class="ai-assistant-close" id="aiAssistantClose" aria-label="关闭">×</button>
+            <div class="d-flex align-items-center gap-1">
+                <button type="button" class="ai-history-clear" id="aiHistoryClear" title="清空对话历史"><i class="bi bi-eraser"></i></button>
+                <button type="button" class="ai-assistant-close" id="aiAssistantClose" aria-label="关闭">×</button>
+            </div>
         </div>
         <div class="ai-assistant-messages" id="aiAssistantMessages">
             <div class="ai-message assistant">可以直接问我：查 A001 库存、今天有哪些异常、有哪些待处理单据，或生成领料单 A001 20。</div>
@@ -1800,6 +1913,7 @@
         const button = document.getElementById('aiAssistantButton');
         const panel = document.getElementById('aiAssistantPanel');
         const closeButton = document.getElementById('aiAssistantClose');
+        const clearButton = document.getElementById('aiHistoryClear');
         const form = document.getElementById('aiAssistantForm');
         const input = document.getElementById('aiAssistantInput');
         const messages = document.getElementById('aiAssistantMessages');
@@ -1811,10 +1925,126 @@
         const pendingImages = [];
         const maxImages = 3;
         const maxImageBytes = 3 * 1024 * 1024;
+        const chatHistory = [];
+        const maxHistory = 20;
         if (window.self !== window.top) {
             button.style.display = 'none';
             panel.remove();
             return;
+        }
+
+        function escapeHtml(text) {
+            return String(text || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function renderMarkdown(text) {
+            if (!text) return '';
+            let src = escapeHtml(text);
+            // 代码块 ```lang\ncode```
+            const blocks = [];
+            src = src.replace(/```(\w*)\n?([\s\S]*?)```/g, function(m, lang, code) {
+                const idx = blocks.length;
+                blocks.push('<pre><code>' + code.replace(/\n$/, '') + '</code></pre>');
+                return '\u0000BLOCK' + idx + '\u0000';
+            });
+            // 行内代码 `code`
+            const inlines = [];
+            src = src.replace(/`([^`\n]+)`/g, function(m, code) {
+                const idx = inlines.length;
+                inlines.push('<code>' + code + '</code>');
+                return '\u0000INLINE' + idx + '\u0000';
+            });
+            const lines = src.split('\n');
+            const out = [];
+            let i = 0;
+            let inList = null;
+            let tableRows = [];
+            let inTable = false;
+
+            function flushList() {
+                if (inList) { out.push('</' + inList + '>'); inList = null; }
+            }
+            function flushTable() {
+                if (!inTable) return;
+                if (tableRows.length) {
+                    out.push('<table>');
+                    tableRows.forEach(function(row, ri) {
+                        out.push('<tr>');
+                        row.forEach(function(cell) {
+                            if (ri === 0) out.push('<th>' + cell.trim() + '</th>');
+                            else out.push('<td>' + cell.trim() + '</td>');
+                        });
+                        out.push('</tr>');
+                    });
+                    out.push('</table>');
+                }
+                tableRows = [];
+                inTable = false;
+            }
+
+            while (i < lines.length) {
+                const line = lines[i];
+                if (line.indexOf('\u0000BLOCK') === 0) {
+                    flushList(); flushTable();
+                    out.push(line.replace(/\u0000BLOCK(\d+)\u0000/, function(m, idx) { return blocks[parseInt(idx)]; }));
+                    i++; continue;
+                }
+                if (/^\s*\|.+\|\s*$/.test(line)) {
+                    flushList();
+                    if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) { i++; continue; }
+                    const cells = line.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|');
+                    tableRows.push(cells);
+                    inTable = true;
+                    i++; continue;
+                } else {
+                    flushTable();
+                }
+                const h = line.match(/^(#{1,4})\s+(.*)$/);
+                if (h) {
+                    flushList();
+                    const level = h[1].length;
+                    out.push('<h' + level + '>' + h[2].trim() + '</h' + level + '>');
+                    i++; continue;
+                }
+                if (/^&gt;\s?/.test(line)) {
+                    flushList();
+                    out.push('<blockquote>' + line.replace(/^&gt;\s?/, '') + '</blockquote>');
+                    i++; continue;
+                }
+                if (/^(\*\*\*|---|___)\s*$/.test(line)) {
+                    flushList();
+                    out.push('<hr>');
+                    i++; continue;
+                }
+                if (/^\s*[-*+]\s+/.test(line)) {
+                    if (inList !== 'ul') { flushList(); out.push('<ul>'); inList = 'ul'; }
+                    out.push('<li>' + line.replace(/^\s*[-*+]\s+/, '') + '</li>');
+                    i++; continue;
+                }
+                if (/^\s*\d+\.\s+/.test(line)) {
+                    if (inList !== 'ol') { flushList(); out.push('<ol>'); inList = 'ol'; }
+                    out.push('<li>' + line.replace(/^\s*\d+\.\s+/, '') + '</li>');
+                    i++; continue;
+                }
+                if (!line.trim()) {
+                    flushList();
+                    i++; continue;
+                }
+                flushList();
+                out.push('<p>' + line + '</p>');
+                i++;
+            }
+            flushList(); flushTable();
+            let html = out.join('\n');
+            html = html.replace(/\u0000INLINE(\d+)\u0000/g, function(m, idx) { return inlines[parseInt(idx)]; });
+            // 加粗 **text**
+            html = html.replace(/\*\*([^\*\n]+)\*\*/g, '<strong>$1</strong>');
+            return html;
         }
 
         function copyText(text) {
@@ -1831,20 +2061,27 @@
             }
         }
 
-        function addMessage(text, type, attachments) {
+        function addMessage(text, type, attachments, useMarkdown) {
             const node = document.createElement('div');
             node.className = 'ai-message ' + (type || 'assistant');
-            const textNode = document.createElement('div');
-            textNode.textContent = text;
-            node.appendChild(textNode);
+            const contentEl = document.createElement('div');
+            contentEl.className = 'ai-message-content';
+            if (type === 'user') {
+                contentEl.textContent = text;
+            } else {
+                // assistant 消息渲染 Markdown（除非显式禁用）
+                contentEl.innerHTML = useMarkdown === false ? escapeHtml(text) : renderMarkdown(text);
+            }
+            node.appendChild(contentEl);
             const copyButton = document.createElement('button');
             copyButton.type = 'button';
             copyButton.className = 'ai-message-copy';
             copyButton.title = '复制';
             copyButton.innerHTML = '<i class="bi bi-copy"></i>';
+            copyButton._aiText = text;
             copyButton.addEventListener('click', function(event) {
                 event.stopPropagation();
-                copyText(text);
+                copyText(this._aiText);
             });
             node.appendChild(copyButton);
             if (attachments && attachments.length) {
@@ -1973,6 +2210,138 @@
             messages.scrollTop = messages.scrollHeight;
         }
 
+        // 非流式发送（业务类问题/图片识别走此通道，保留卡片和动作按钮）
+        function sendNonStreaming(text, attachments) {
+            const loading = addMessage('正在处理...', 'assistant', null, false);
+            const activeContext = window.WmsTabs && window.WmsTabs.getActiveContext ? window.WmsTabs.getActiveContext() : null;
+            fetch('/api/ai/warehouse_assistant', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    message: text,
+                    attachments: attachments,
+                    page_url: activeContext ? activeContext.url : (window.location.pathname + window.location.search),
+                    page_title: activeContext ? activeContext.title : document.title
+                })
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                loading.remove();
+                if (data.status !== 'success') {
+                    addMessage(data.msg || '处理失败', 'assistant');
+                    return;
+                }
+                addMessage(data.reply || '已处理', 'assistant');
+                renderCards(data.cards);
+                renderActions(data.actions);
+            })
+            .catch(function(error) {
+                loading.remove();
+                addMessage('处理失败：' + error.message, 'assistant');
+            });
+        }
+
+        // 流式发送（统一通道：闲聊逐字输出 + 业务意图在 SSE 内执行后输出卡片/动作）
+        function tryStreamChat(text) {
+            const loading = addMessage('', 'assistant');
+            const contentEl = loading.querySelector('.ai-message-content');
+            const cursor = document.createElement('span');
+            cursor.className = 'ai-streaming-cursor';
+            contentEl.appendChild(cursor);
+            const copyBtn = loading.querySelector('.ai-message-copy');
+            let buffer = '';
+            let finished = false;
+            let pendingCards = null;
+            let pendingActions = null;
+
+            function finalize() {
+                if (finished) return;
+                finished = true;
+                cursor.remove();
+                if (!buffer.trim()) {
+                    loading.remove();
+                    addMessage('没有收到回复，请稍后重试。', 'assistant');
+                    return;
+                }
+                contentEl.innerHTML = renderMarkdown(buffer);
+                if (copyBtn) copyBtn._aiText = buffer;
+                chatHistory.push({role: 'user', content: text});
+                chatHistory.push({role: 'assistant', content: buffer});
+                while (chatHistory.length > maxHistory) chatHistory.shift();
+                messages.scrollTop = messages.scrollHeight;
+                // 渲染业务卡片/动作（业务意图在流式通道内执行后追加的事件）
+                if (pendingCards) renderCards(pendingCards);
+                if (pendingActions) renderActions(pendingActions);
+            }
+
+            const activeContext = window.WmsTabs && window.WmsTabs.getActiveContext ? window.WmsTabs.getActiveContext() : null;
+            fetch('/api/ai/chat/stream', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    message: text,
+                    history: chatHistory,
+                    page_url: activeContext ? activeContext.url : (window.location.pathname + window.location.search),
+                    page_title: activeContext ? activeContext.title : document.title
+                })
+            }).then(function(res) {
+                const ct = res.headers.get('content-type') || '';
+                if (ct.includes('application/json')) {
+                    // 后端返回错误 JSON（如未配置 LLM）
+                    return res.json().then(function(data) {
+                        loading.remove();
+                        addMessage(data.msg || '处理失败', 'assistant');
+                    });
+                }
+                if (!res.body || !res.body.getReader) {
+                    loading.remove();
+                    sendNonStreaming(text, []);
+                    return;
+                }
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let pending = '';
+                function read() {
+                    reader.read().then(function(result) {
+                        if (result.done) { finalize(); return; }
+                        pending += decoder.decode(result.value, {stream: true});
+                        const lines = pending.split('\n');
+                        pending = lines.pop();
+                        for (const line of lines) {
+                            const trimmed = line.trim();
+                            if (!trimmed.startsWith('data: ')) continue;
+                            try {
+                                const evt = JSON.parse(trimmed.slice(6));
+                                if (evt.type === 'token' && evt.content) {
+                                    buffer += evt.content;
+                                    contentEl.innerHTML = renderMarkdown(buffer);
+                                    contentEl.appendChild(cursor);
+                                    messages.scrollTop = messages.scrollHeight;
+                                } else if (evt.type === 'cards') {
+                                    pendingCards = evt.content;
+                                } else if (evt.type === 'actions') {
+                                    pendingActions = evt.content;
+                                } else if (evt.type === 'done') {
+                                    buffer = evt.content || buffer;
+                                    finalize();
+                                    return;
+                                } else if (evt.type === 'error') {
+                                    loading.remove();
+                                    addMessage(evt.content || '处理失败', 'assistant');
+                                    return;
+                                }
+                            } catch(e) {}
+                        }
+                        read();
+                    }).catch(function() { finalize(); });
+                }
+                read();
+            }).catch(function(error) {
+                loading.remove();
+                addMessage('处理失败：' + error.message, 'assistant');
+            });
+        }
+
         button.addEventListener('click', function() {
             panel.classList.toggle('open');
             if (panel.classList.contains('open')) input.focus();
@@ -1980,6 +2349,19 @@
         closeButton.addEventListener('click', function() {
             panel.classList.remove('open');
         });
+        if (clearButton) {
+            clearButton.addEventListener('click', function() {
+                fetch('/api/ai/chat/clear', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+                    .then(function() {
+                        chatHistory.length = 0;
+                        addMessage('已清空对话历史，开始新的对话。', 'assistant');
+                    })
+                    .catch(function() {
+                        chatHistory.length = 0;
+                        addMessage('已清空本地对话历史。', 'assistant');
+                    });
+            });
+        }
         if (uploadButton && imageInput) {
             uploadButton.addEventListener('click', function() {
                 imageInput.click();
@@ -2025,33 +2407,12 @@
             renderPendingImages();
             input.value = '';
             addMessage(text || '请分析这张图片', 'user', attachments);
-            const loading = addMessage('正在处理...', 'assistant');
-            const activeContext = window.WmsTabs && window.WmsTabs.getActiveContext ? window.WmsTabs.getActiveContext() : null;
-            fetch('/api/ai/warehouse_assistant', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    message: text,
-                    attachments: attachments,
-                    page_url: activeContext ? activeContext.url : (window.location.pathname + window.location.search),
-                    page_title: activeContext ? activeContext.title : document.title
-                })
-            })
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
-                loading.remove();
-                if (data.status !== 'success') {
-                    addMessage(data.msg || '处理失败', 'assistant');
-                    return;
-                }
-                addMessage(data.reply || '已处理', 'assistant');
-                renderCards(data.cards);
-                renderActions(data.actions);
-            })
-            .catch(function(error) {
-                loading.remove();
-                addMessage('处理失败：' + error.message, 'assistant');
-            });
+            // 图片走非流式（视觉接口）；文字优先尝试流式，业务关键词会被后端重定向回非流式
+            if (attachments.length) {
+                sendNonStreaming(text, attachments);
+            } else {
+                tryStreamChat(text);
+            }
         });
     })();
     </script>
