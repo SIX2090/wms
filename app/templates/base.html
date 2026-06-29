@@ -1721,6 +1721,7 @@
                     <a class="flyout-link" href="/system_settings"><i class="bi bi-sliders"></i> 系统设置</a>
                     <a class="flyout-link" href="/user"><i class="bi bi-person-gear"></i> 用户管理</a>
                     <a class="flyout-link" href="/approval"><i class="bi bi-check2-square"></i> 审批中心</a>
+                    <a class="flyout-link" href="/operation_audit"><i class="bi bi-shield-check"></i> 操作审计</a>
                     <a class="flyout-link" href="/wechat_share"><i class="bi bi-wechat"></i> 微信分享</a>
                     <a class="flyout-link" href="/backup"><i class="bi bi-database"></i> 数据备份</a>
                 </div>
@@ -1875,6 +1876,7 @@
                     <li><a class="nav-link" href="/system_settings"><i class="bi bi-circle"></i> 系统设置</a></li>
                     <li><a class="nav-link" href="/user"><i class="bi bi-circle"></i> 用户管理</a></li>
                     <li><a class="nav-link" href="/approval"><i class="bi bi-circle"></i> 审批中心</a></li>
+                    <li><a class="nav-link" href="/operation_audit"><i class="bi bi-circle"></i> 操作审计</a></li>
                     <li><a class="nav-link" href="/wechat_share"><i class="bi bi-circle"></i> 微信分享</a></li>
                     <li><a class="nav-link" href="/backup"><i class="bi bi-circle"></i> 数据备份</a></li>
                 </ul>
@@ -1918,12 +1920,12 @@
     </div>
 
     {% if current_user.is_authenticated %}
-    <button type="button" class="ai-assistant-button" id="aiAssistantButton" title="AI仓库助手">
+    <button type="button" class="ai-assistant-button" id="aiAssistantButton" title="AI助手">
         <i class="bi bi-robot"></i>
     </button>
-    <div class="ai-assistant-panel" id="aiAssistantPanel" aria-label="AI仓库助手">
+    <div class="ai-assistant-panel" id="aiAssistantPanel" aria-label="AI助手">
         <div class="ai-assistant-header">
-            <div class="ai-assistant-title"><i class="bi bi-robot"></i> AI仓库助手</div>
+            <div class="ai-assistant-title"><i class="bi bi-robot"></i> AI助手</div>
             <div class="d-flex align-items-center gap-1">
                 <button type="button" class="ai-history-clear" id="aiHistoryClear" title="清空对话"><i class="bi bi-eraser"></i></button>
                 <button type="button" class="ai-assistant-close" id="aiAssistantClose" aria-label="关闭">×</button>
@@ -1932,9 +1934,29 @@
         <div class="ai-assistant-messages" id="aiAssistantMessages">
             <div class="ai-welcome">
                 <div class="ai-welcome-title">可以直接处理仓库问题</div>
-                <div class="ai-welcome-text">识别送货单图片、微信/文本内容，生成草稿并检查异常。扫码入库仍走 PDA，提交或扣库存前需要人工确认。</div>
+                <div class="ai-welcome-text">识别送货单图片、微信/文本内容，生成草稿，检查异常并给出仓库风险处理优先级。扫码入库仍走 PDA，提交或扣库存前需要人工确认。</div>
                 <div class="ai-suggestions" id="aiSuggestions">
-                    <button type="button" class="ai-suggestion" data-prompt="上传送货单图片生成采购入库草稿">送货单入库</button>
+                    <button type="button" class="ai-suggestion" data-prompt="Agent巡检仓库">Agent巡检</button>
+                    <button type="button" class="ai-suggestion" data-prompt="采购工作台">采购工作台</button>
+                    <button type="button" class="ai-suggestion" data-prompt="根据低库存生成采购申请草稿">补货请购</button>
+                    <button type="button" class="ai-suggestion" data-prompt="供应商采购画像">供应商画像</button>
+                    <button type="button" class="ai-suggestion" data-prompt="生成催供应商跟进话术">催交话术</button>
+                    <button type="button" class="ai-suggestion" data-prompt="基础资料AI体检">基础体检</button>
+                    <button type="button" class="ai-suggestion" data-prompt="基础资料修复清单">修复清单</button>
+                    <button type="button" class="ai-suggestion" data-prompt="基础资料导入助手">导入助手</button>
+                    <button type="button" class="ai-suggestion" data-prompt="系统管理AI体检">系统体检</button>
+                    <button type="button" class="ai-suggestion" data-prompt="系统管理修复清单">系统清单</button>
+                    <button type="button" class="ai-suggestion" data-prompt="权限账号助手">权限助手</button>
+                    <button type="button" class="ai-suggestion" data-prompt="操作日志审计">日志审计</button>
+                    <button type="button" class="ai-suggestion" data-prompt="仓库管理软件改进建议">软件建议</button>
+                    <button type="button" class="ai-suggestion" data-prompt="AI能力对标路线图">AI路线图</button>
+                    <button type="button" class="ai-suggestion" data-prompt="AI任务清单">任务清单</button>
+                    <button type="button" class="ai-suggestion" data-prompt="打开操作审计页面">打开功能</button>
+                    <button type="button" class="ai-suggestion" data-prompt="仓库异常工作台">异常工作台</button>
+                    <button type="button" class="ai-suggestion" data-prompt="今天优先处理什么">今日优先级</button>
+                    <button type="button" class="ai-suggestion" data-prompt="识图能力自检">识图自检</button>
+                    <button type="button" class="ai-suggestion" data-prompt="识别送货单图片并生成采购入库单草稿" data-ai-upload="delivery-note">送货单入库</button>
+                    <button type="button" class="ai-suggestion" data-prompt="表格生成领料单&#10;仓库：A仓&#10;物料编码&#9;物料名称&#9;规格&#9;数量&#9;单位&#10;A001&#9;示例物料&#9;规格A&#9;10&#9;个">表格转单</button>
                     <button type="button" class="ai-suggestion" data-prompt="微信内容生成领料单 A001 20 B002 5">微信成领料</button>
                     <button type="button" class="ai-suggestion" data-prompt="客户发货 A001 20 B002 5">微信成销售出库</button>
                     <button type="button" class="ai-suggestion" data-prompt="检查当前草稿">提交前检查</button>
@@ -1977,10 +1999,11 @@
         if (!button || !panel || !form || !input || !messages) return;
         const pendingImages = [];
         const maxImages = 3;
-        const maxImageBytes = 3 * 1024 * 1024;
+        const maxImageBytes = 10 * 1024 * 1024;
         const chatHistory = [];
         const maxHistory = 20;
         let isSending = false;
+        let pendingUploadPrompt = '';
         if (window.self !== window.top) {
             button.style.display = 'none';
             panel.remove();
@@ -2187,31 +2210,119 @@
             });
         }
 
-        function addImageFile(file) {
-            if (!file || !file.type || !file.type.startsWith('image/')) return;
-            if (pendingImages.length >= maxImages) {
-                addMessage('最多一次上传 ' + maxImages + ' 张图片。', 'assistant');
-                return;
-            }
-            if (file.size > maxImageBytes) {
-                addMessage('图片太大，请上传 3MB 以内的图片。', 'assistant');
-                return;
-            }
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                pendingImages.push({
-                    name: file.name || 'clipboard-image',
-                    mime_type: file.type,
-                    size: file.size,
-                    data_url: event.target.result
+        function readFileAsDataUrl(file) {
+            return new Promise(function(resolve, reject) {
+                const reader = new FileReader();
+                reader.onload = function(event) { resolve(event.target.result); };
+                reader.onerror = function() { reject(new Error('图片读取失败')); };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function loadImageElement(dataUrl) {
+            return new Promise(function(resolve, reject) {
+                const img = new Image();
+                img.onload = function() { resolve(img); };
+                img.onerror = function() { reject(new Error('图片解析失败')); };
+                img.src = dataUrl;
+            });
+        }
+
+        function canvasToDataUrl(canvas, mimeType, quality) {
+            return new Promise(function(resolve) {
+                if (canvas.toBlob) {
+                    canvas.toBlob(function(blob) {
+                        if (!blob) {
+                            resolve(canvas.toDataURL(mimeType, quality));
+                            return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = function(event) { resolve(event.target.result); };
+                        reader.onerror = function() { resolve(canvas.toDataURL(mimeType, quality)); };
+                        reader.readAsDataURL(blob);
+                    }, mimeType, quality);
+                } else {
+                    resolve(canvas.toDataURL(mimeType, quality));
+                }
+            });
+        }
+
+        function prepareImageAttachment(file) {
+            return readFileAsDataUrl(file).then(function(originalUrl) {
+                if (!/^image\/(jpeg|png|webp)$/i.test(file.type || '')) {
+                    return {
+                        name: file.name || 'clipboard-image',
+                        mime_type: file.type,
+                        size: file.size,
+                        data_url: originalUrl
+                    };
+                }
+                return loadImageElement(originalUrl).then(function(img) {
+                    const maxSide = 1800;
+                    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+                    if (scale >= 1 && file.size <= 2 * 1024 * 1024) {
+                        return {
+                            name: file.name || 'clipboard-image',
+                            mime_type: file.type,
+                            size: file.size,
+                            data_url: originalUrl
+                        };
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+                    canvas.height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    return canvasToDataUrl(canvas, 'image/jpeg', 0.86).then(function(dataUrl) {
+                        return {
+                            name: file.name || 'clipboard-image',
+                            mime_type: 'image/jpeg',
+                            size: Math.round(dataUrl.length * 0.75),
+                            data_url: dataUrl
+                        };
+                    });
+                }).catch(function() {
+                    return {
+                        name: file.name || 'clipboard-image',
+                        mime_type: file.type,
+                        size: file.size,
+                        data_url: originalUrl
+                    };
                 });
-                renderPendingImages();
-            };
-            reader.readAsDataURL(file);
+            });
+        }
+
+        function addImageFile(file) {
+            return new Promise(function(resolve) {
+                if (!file || !file.type || !file.type.startsWith('image/')) {
+                    resolve(false);
+                    return;
+                }
+                if (pendingImages.length >= maxImages) {
+                    addMessage('最多一次上传 ' + maxImages + ' 张图片。', 'assistant');
+                    resolve(false);
+                    return;
+                }
+                if (file.size > maxImageBytes) {
+                    addMessage('图片太大，请上传 10MB 以内的清晰原图。', 'assistant');
+                    resolve(false);
+                    return;
+                }
+                prepareImageAttachment(file).then(function(attachment) {
+                    pendingImages.push(attachment);
+                    renderPendingImages();
+                    resolve(true);
+                }).catch(function() {
+                    addMessage('图片读取失败，请重新选择图片。', 'assistant');
+                    resolve(false);
+                });
+            });
         }
 
         function addImageFiles(files) {
-            Array.from(files || []).forEach(addImageFile);
+            return Promise.all(Array.from(files || []).map(addImageFile)).then(function(results) {
+                return results.some(Boolean);
+            });
         }
 
         function openUrl(url, label) {
@@ -2263,7 +2374,16 @@
                 btn.type = 'button';
                 btn.className = 'ai-action';
                 btn.textContent = action.label || '打开';
-                btn.addEventListener('click', function() { openUrl(action.url, action.label); });
+                btn.addEventListener('click', function() {
+                    if (action.upload && imageInput) {
+                        pendingUploadPrompt = action.prompt || '识别送货单图片并生成采购入库单草稿';
+                        imageInput.click();
+                    } else if (action.prompt) {
+                        sendAssistantMessage(action.prompt, []);
+                    } else {
+                        openUrl(action.url, action.label);
+                    }
+                });
                 wrap.appendChild(btn);
             });
             messages.appendChild(wrap);
@@ -2430,11 +2550,21 @@
         }
         if (uploadButton && imageInput) {
             uploadButton.addEventListener('click', function() {
+                pendingUploadPrompt = '';
                 imageInput.click();
             });
             imageInput.addEventListener('change', function() {
-                addImageFiles(imageInput.files);
-                imageInput.value = '';
+                const prompt = pendingUploadPrompt;
+                pendingUploadPrompt = '';
+                addImageFiles(imageInput.files).then(function(hasImage) {
+                    imageInput.value = '';
+                    if (hasImage && prompt) {
+                        const attachments = pendingImages.slice();
+                        pendingImages.length = 0;
+                        renderPendingImages();
+                        sendAssistantMessage(prompt, attachments);
+                    }
+                });
             });
         }
         if (pasteButton) {
@@ -2468,7 +2598,8 @@
             if (isSending) return;
             attachments = attachments || [];
             if (!text && !attachments.length) return;
-            addMessage(text || '请分析这张图片', 'user', attachments);
+            if (!text && attachments.length) text = '请分析这张图片';
+            addMessage(text, 'user', attachments);
             if (attachments.length) {
                 sendNonStreaming(text, attachments);
             } else {
@@ -2482,6 +2613,11 @@
             if (!prompt) return;
             panel.classList.add('open');
             input.value = '';
+            if (btn.getAttribute('data-ai-upload') === 'delivery-note' && imageInput) {
+                pendingUploadPrompt = prompt;
+                imageInput.click();
+                return;
+            }
             sendAssistantMessage(prompt, []);
         });
         form.addEventListener('submit', function(event) {

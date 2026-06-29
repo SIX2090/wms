@@ -62,7 +62,7 @@ class Config:
     # 库存预警/安全库存尚未启用。启用前不在页面展示预警入口和低库存提示。
     INVENTORY_ALERT_ENABLED = os.environ.get('INVENTORY_ALERT_ENABLED', 'false').lower() in ('true', '1', 'yes')
 
-    # AI仓库助手大模型配置。兼容 OpenAI 风格的 /chat/completions 接口；
+    # AI助手大模型配置。兼容 OpenAI 风格的 /chat/completions 接口；
     # 未配置 API Key 时，系统会自动使用本地规则助手兜底。
     WMS_LLM_ENABLED = os.environ.get('WMS_LLM_ENABLED', 'true').lower() in ('true', '1', 'yes', 'on')
     WMS_LLM_BASE_URL = os.environ.get('WMS_LLM_BASE_URL', 'https://api.openai.com/v1/chat/completions')
@@ -125,6 +125,9 @@ class ProductionConfig(Config):
         'X-Content-Type-Options': 'nosniff',
         'X-Frame-Options': 'SAMEORIGIN',
         'X-XSS-Protection': '1; mode=block',
+        'Referrer-Policy': 'same-origin',
+        'Permissions-Policy': 'camera=(self), microphone=(), geolocation=()',
+        'Content-Security-Policy': "frame-ancestors 'self'; base-uri 'self'; object-src 'none'",
     }
     if os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() in ('true', '1', 'yes'):
         SECURITY_HEADERS['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'

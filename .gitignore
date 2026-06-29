@@ -54,6 +54,9 @@ desktop.ini
 *.tmp
 *.bak
 *.log
+runtime/*embed*.zip
 .playwright-cli/
 test-results/
 app/_tmp*
+app/WMS_NO_DB_TOUCH.flag
+WMS_NO_DB_TOUCH.flag

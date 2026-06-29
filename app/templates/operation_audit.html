@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}操作审计{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+    <h2><i class="bi bi-shield-check"></i> 操作审计</h2>
+    <button type="button" class="btn btn-outline-primary btn-sm" onclick="askAiAudit()">
+        <i class="bi bi-robot"></i> AI日志审计
+    </button>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-3">
+        <div class="card border-0 bg-primary text-white">
+            <div class="card-body py-3">
+                <div class="small opacity-75">筛选内记录</div>
+                <div class="fs-3 fw-semibold">{{ stats.total }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 bg-warning text-dark">
+            <div class="card-body py-3">
+                <div class="small opacity-75">风险操作</div>
+                <div class="fs-3 fw-semibold">{{ stats.risk }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 bg-danger text-white">
+            <div class="card-body py-3">
+                <div class="small opacity-75">登录失败</div>
+                <div class="fs-3 fw-semibold">{{ stats.failed_login }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 bg-secondary text-white">
+            <div class="card-body py-3">
+                <div class="small opacity-75">日志来源</div>
+                <div class="fw-semibold">旧日志 {{ stats.operation_log }} / 变更审计 {{ stats.operation_audit }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            {% if request.args.get('embedded') == '1' %}
+            <input type="hidden" name="embedded" value="1">
+            {% endif %}
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">开始日期</label>
+                <input type="date" name="date_start" class="form-control form-control-sm" value="{{ filters.date_start }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">结束日期</label>
+                <input type="date" name="date_end" class="form-control form-control-sm" value="{{ filters.date_end }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">来源</label>
+                <select name="source" class="form-select form-select-sm">
+                    <option value="" {% if not filters.source %}selected{% endif %}>全部来源</option>
+                    <option value="operation_log" {% if filters.source == 'operation_log' %}selected{% endif %}>旧操作日志</option>
+                    <option value="operation_audit" {% if filters.source == 'operation_audit' %}selected{% endif %}>变更审计</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">用户</label>
+                <input type="text" name="username" class="form-control form-control-sm" placeholder="用户名" value="{{ filters.username }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">动作</label>
+                <input type="text" name="operation" class="form-control form-control-sm" placeholder="删除/审核/备份" value="{{ filters.operation }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">对象</label>
+                <input type="text" name="target_type" class="form-control form-control-sm" placeholder="material/order" value="{{ filters.target_type }}">
+            </div>
+            <div class="col-md-8">
+                <label class="form-label small text-muted mb-1">关键词</label>
+                <input type="text" name="search" class="form-control form-control-sm" placeholder="搜索内容、对象、IP、原因" value="{{ filters.search }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">每页</label>
+                <select name="per_page" class="form-select form-select-sm">
+                    <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+                    <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+                    <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+                    <option value="200" {% if per_page == 200 %}selected{% endif %}>200</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-center">
+                <div class="form-check mt-4">
+                    <input class="form-check-input" type="checkbox" name="risk" value="1" id="riskOnly" {% if filters.risk %}checked{% endif %}>
+                    <label class="form-check-label small" for="riskOnly">只看风险操作</label>
+                </div>
+            </div>
+            <div class="col-md-12 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i> 筛选</button>
+                {% if filters.search or filters.username or filters.operation or filters.target_type or filters.source or filters.risk or filters.date_start or filters.date_end %}
+                <a href="{{ url_for('operation_audit_page', embedded=request.args.get('embedded')) }}" class="btn btn-outline-secondary btn-sm">清除</a>
+                {% endif %}
+                <span class="text-muted small align-self-center">默认查询近 7 天；本页只读，不提供删除、撤销或修改单据动作。</span>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">审计明细</h5>
+        <span class="text-muted small">共 {{ pagination.total }} 条</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th style="width:70px;">序号</th>
+                        <th style="width:145px;">时间</th>
+                        <th style="width:100px;">用户</th>
+                        <th style="width:110px;">动作</th>
+                        <th style="width:110px;">对象</th>
+                        <th>内容</th>
+                        <th style="width:120px;">IP</th>
+                        <th style="width:90px;">来源</th>
+                        <th style="width:80px;">状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
+                        <td>{{ row.time.strftime('%Y-%m-%d %H:%M') if row.time else '-' }}</td>
+                        <td>{{ row.username }}</td>
+                        <td>{{ row.operation }}</td>
+                        <td>
+                            {{ row.target_type }}
+                            {% if row.target_id %}
+                            <span class="text-muted">#{{ row.target_id }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-break">{{ row.content or '-' }}</td>
+                        <td>{{ row.ip_address }}</td>
+                        <td><span class="badge bg-light text-dark">{{ row.source }}</span></td>
+                        <td>
+                            {% if row.status == 'success' %}
+                            <span class="badge bg-success">成功</span>
+                            {% elif row.status == 'failed' %}
+                            <span class="badge bg-danger">失败</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ row.status }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="9" class="text-center text-muted py-4">暂无审计记录</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if pagination.pages > 1 %}
+        <nav aria-label="Page navigation" class="p-3">
+            <ul class="pagination justify-content-center mb-0">
+                {% if pagination.has_prev %}
+                <li class="page-item"><a class="page-link" href="{{ url_with_query(page=pagination.prev_num, per_page=per_page) }}">上一页</a></li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">上一页</span></li>
+                {% endif %}
+
+                {% for page_num in pagination.iter_pages() %}
+                    {% if page_num %}
+                    <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                        <a class="page-link" href="{{ url_with_query(page=page_num, per_page=per_page) }}">{{ page_num }}</a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if pagination.has_next %}
+                <li class="page-item"><a class="page-link" href="{{ url_with_query(page=pagination.next_num, per_page=per_page) }}">下一页</a></li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">下一页</span></li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function askAiAudit() {
+    var button = document.getElementById('aiAssistantButton');
+    var input = document.getElementById('aiAssistantInput');
+    if (button) button.click();
+    window.setTimeout(function() {
+        if (input) {
+            input.value = '操作日志审计';
+            var form = document.getElementById('aiAssistantForm');
+            if (form) form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true}));
+        }
+    }, 150);
+}
+</script>
+{% endblock %}

@@ -889,7 +889,7 @@ SYSTEM_SETTING_GROUPS = [
         'key': 'ai_assistant',
         'title': 'AI助手参数',
         'icon': 'bi-robot',
-        'description': '配置仓库AI助手调用的大模型接口。支持 OpenAI 兼容的 /chat/completions 服务。',
+        'description': '配置AI助手调用的大模型接口。支持 OpenAI 兼容的 /chat/completions 服务。',
         'settings': [
             {
                 'key': 'ai_llm_enabled',
@@ -3249,6 +3249,23 @@ def api_required(f):
     return decorated_function
 
 
+def api_role_required(*roles):
+    """Require a bearer token user with one of the allowed business roles."""
+    allowed = set(roles or ())
+
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            user = get_bearer_user()
+            if not user:
+                return jsonify({'status': 'error', 'msg': 'Bearer Token 无效或已过期'}), 401
+            if user.role != 'admin' and user.role not in allowed:
+                return jsonify({'status': 'error', 'msg': '当前账号没有权限执行该操作'}), 403
+            return f(user, *args, **kwargs)
+        return decorated_function
+    return decorator
+
+
 def web_or_api_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -3363,8 +3380,13 @@ def native_api_login():
 
     user = User.query.filter_by(username=username).first()
     if not user or not check_password_hash(user.password_hash, password):
+        if user and user.is_active:
+            user.increment_failed_count()
         add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
         return api_json_error('账号或密码错误', 401)
     if not user.is_active:
         return api_json_error('账号已被禁用', 403)
@@ -3396,7 +3418,7 @@ def native_api_login():
 
 @app.route('/api/inbound', methods=['POST'])
 @csrf.exempt
-@api_required
+@api_role_required('warehouse')
 def native_api_inbound(user):
     payload = request.get_json(silent=True) or {}
     parsed, error = parse_api_lines(payload)
@@ -3464,7 +3486,7 @@ def native_api_inbound(user):
 
 @app.route('/api/outbound', methods=['POST'])
 @csrf.exempt
-@api_required
+@api_role_required('warehouse', 'production')
 def native_api_outbound(user):
     payload = request.get_json(silent=True) or {}
     parsed, error = parse_api_lines(payload)
@@ -3531,7 +3553,7 @@ def native_api_outbound(user):
 
 @app.route('/api/stocktake', methods=['POST'])
 @csrf.exempt
-@api_required
+@api_role_required('warehouse')
 def native_api_stocktake(user):
     payload = request.get_json(silent=True) or {}
     lines = payload.get('lines') if isinstance(payload, dict) else None
@@ -3711,6 +3733,7 @@ def mobile_material_lookup():
 
 
 @app.route('/mobile/api/scan_submit', methods=['POST'])
+@require_role('warehouse')
 @login_required
 def mobile_scan_submit():
     data = request.get_json(silent=True) or {}
@@ -4055,6 +4078,7 @@ def index():
                          recent_work_items=recent_work_items)
 
 @app.route('/api/subcontract/quick_issue', methods=['POST'])
+@require_role('production')
 @login_required
 def api_subcontract_quick_issue():
     """Issue subcontract materials quickly."""
@@ -4143,6 +4167,7 @@ def api_subcontract_quick_issue():
     return jsonify({'status': 'success', 'msg': '发料成功'})
 
 @app.route('/api/subcontract/quick_receive', methods=['POST'])
+@require_role('production')
 @login_required
 def api_subcontract_quick_receive():
     """Receive subcontract finished goods quickly."""
@@ -4338,6 +4363,7 @@ def logout():
 
 @app.route('/user')
 @login_required
+@role_required('admin')
 def user_list():
     search, status_filter, sort_by, sort_order = _get_master_list_filters('created_at')
     role_filter = (request.args.get('role') or '').strip()
@@ -4390,6 +4416,222 @@ def user_list():
     users = query.all()
     filters = {'search': search, 'status': status_filter, 'role': role_filter}
     return render_template('user.html', users=users, filters=filters, sort_by=sort_by, sort_order=sort_order)
+
+
+def _audit_date_arg(name):
+    value = (request.args.get(name) or '').strip()
+    if not value:
+        return ''
+    try:
+        datetime.strptime(value, '%Y-%m-%d')
+        return value
+    except ValueError:
+        return ''
+
+
+def _audit_datetime_bounds(date_start, date_end):
+    if date_start:
+        start_dt = datetime.strptime(date_start, '%Y-%m-%d')
+    else:
+        start_dt = datetime.combine(date.today() - timedelta(days=7), time.min)
+    if date_end:
+        end_dt = datetime.strptime(date_end, '%Y-%m-%d') + timedelta(days=1)
+    else:
+        end_dt = datetime.now() + timedelta(seconds=1)
+    if start_dt > end_dt:
+        start_dt, end_dt = end_dt - timedelta(days=1), start_dt + timedelta(days=1)
+    return start_dt, end_dt
+
+
+def _audit_risk_condition(model, operation_attr, content_attrs):
+    conditions = [
+        operation_attr.ilike('%delete%'),
+        operation_attr.ilike('%删除%'),
+        operation_attr.ilike('%反审%'),
+        operation_attr.ilike('%恢复%'),
+        operation_attr.ilike('%备份%'),
+        operation_attr.ilike('%清理%'),
+    ]
+    for attr in content_attrs:
+        conditions.extend([
+            attr.ilike('%删除%'),
+            attr.ilike('%反审%'),
+            attr.ilike('%恢复%'),
+            attr.ilike('%备份%'),
+            attr.ilike('%清理%'),
+        ])
+    return db.or_(*conditions)
+
+
+def _audit_iter_pages(page, pages):
+    if pages <= 0:
+        return []
+    values = []
+    for num in range(1, pages + 1):
+        if num <= 2 or num > pages - 2 or abs(num - page) <= 2:
+            values.append(num)
+        elif values and values[-1] is not None:
+            values.append(None)
+    return values
+
+
+@app.route('/operation_audit')
+@login_required
+@role_required('admin')
+def operation_audit_page():
+    search = (request.args.get('search') or '').strip()
+    username = (request.args.get('username') or '').strip()
+    operation = (request.args.get('operation') or '').strip()
+    target_type = (request.args.get('target_type') or '').strip()
+    source = (request.args.get('source') or '').strip()
+    risk = (request.args.get('risk') or '').strip()
+    date_start = _audit_date_arg('date_start')
+    date_end = _audit_date_arg('date_end')
+    page = max(1, request.args.get('page', 1, type=int))
+    per_page = request.args.get('per_page', 20, type=int)
+    if per_page not in [20, 50, 100, 200]:
+        per_page = 20
+    if source not in {'operation_log', 'operation_audit'}:
+        source = ''
+    if risk not in {'1'}:
+        risk = ''
+
+    start_dt, end_dt = _audit_datetime_bounds(date_start, date_end)
+
+    log_query = OperationLog.query.options(joinedload(OperationLog.user)).filter(
+        OperationLog.created_at >= start_dt,
+        OperationLog.created_at < end_dt,
+    )
+    audit_query = OperationAudit.query.filter(
+        OperationAudit.operation_time >= start_dt,
+        OperationAudit.operation_time < end_dt,
+    )
+
+    if username:
+        like = f'%{username}%'
+        log_query = log_query.join(User, OperationLog.user_id == User.id, isouter=True).filter(User.username.like(like))
+        audit_query = audit_query.filter(OperationAudit.username.like(like))
+    if operation:
+        like = f'%{operation}%'
+        log_query = log_query.filter(OperationLog.operation_type.like(like))
+        audit_query = audit_query.filter(OperationAudit.operation.like(like))
+    if target_type:
+        like = f'%{target_type}%'
+        log_query = log_query.filter(OperationLog.target_type.like(like))
+        audit_query = audit_query.filter(OperationAudit.target_type.like(like))
+    if search:
+        like = f'%{search}%'
+        log_query = log_query.filter(db.or_(
+            OperationLog.operation_type.like(like),
+            OperationLog.operation_content.like(like),
+            OperationLog.target_type.like(like),
+            OperationLog.ip_address.like(like),
+        ))
+        audit_query = audit_query.filter(db.or_(
+            OperationAudit.operation.like(like),
+            OperationAudit.target_type.like(like),
+            OperationAudit.target_name.like(like),
+            OperationAudit.username.like(like),
+            OperationAudit.reason.like(like),
+            OperationAudit.ip_address.like(like),
+        ))
+    if risk:
+        log_query = log_query.filter(_audit_risk_condition(OperationLog, OperationLog.operation_type, [OperationLog.operation_content]))
+        audit_query = audit_query.filter(_audit_risk_condition(OperationAudit, OperationAudit.operation, [OperationAudit.target_name, OperationAudit.reason]))
+
+    total_log_count = 0 if source == 'operation_audit' else log_query.count()
+    total_audit_count = 0 if source == 'operation_log' else audit_query.count()
+
+    rows = []
+    max_fetch = max(500, page * per_page + per_page)
+    if source != 'operation_audit':
+        for log in log_query.order_by(OperationLog.created_at.desc()).limit(max_fetch).all():
+            rows.append({
+                'source': '旧操作日志',
+                'time': log.created_at,
+                'username': log.user.username if log.user else '-',
+                'operation': log.operation_type or '-',
+                'target_type': log.target_type or '-',
+                'target_id': log.target_id,
+                'content': log.operation_content or '',
+                'ip_address': log.ip_address or '-',
+                'status': 'success',
+            })
+    if source != 'operation_log':
+        for audit in audit_query.order_by(OperationAudit.operation_time.desc()).limit(max_fetch).all():
+            details = audit.reason or audit.target_name or ''
+            if audit.old_data or audit.new_data:
+                details = (details + '；' if details else '') + '包含变更前后数据'
+            rows.append({
+                'source': '变更审计',
+                'time': audit.operation_time,
+                'username': audit.username or '-',
+                'operation': audit.operation or '-',
+                'target_type': audit.target_type or '-',
+                'target_id': audit.target_id,
+                'content': details,
+                'ip_address': audit.ip_address or '-',
+                'status': audit.status or '-',
+            })
+
+    rows.sort(key=lambda item: item['time'] or datetime.min, reverse=True)
+    total = total_log_count + total_audit_count
+    pages = (total + per_page - 1) // per_page if total else 0
+    start = (page - 1) * per_page
+    audit_rows = rows[start:start + per_page]
+
+    risk_log_count = OperationLog.query.filter(
+        OperationLog.created_at >= start_dt,
+        OperationLog.created_at < end_dt,
+        _audit_risk_condition(OperationLog, OperationLog.operation_type, [OperationLog.operation_content]),
+    ).count()
+    risk_audit_count = OperationAudit.query.filter(
+        OperationAudit.operation_time >= start_dt,
+        OperationAudit.operation_time < end_dt,
+        _audit_risk_condition(OperationAudit, OperationAudit.operation, [OperationAudit.target_name, OperationAudit.reason]),
+    ).count()
+    failed_login_count = LoginLog.query.filter(
+        LoginLog.login_time >= start_dt,
+        LoginLog.login_time < end_dt,
+        LoginLog.status == 'failed',
+    ).count()
+
+    pagination = {
+        'page': page,
+        'per_page': per_page,
+        'total': total,
+        'pages': pages,
+        'has_prev': page > 1,
+        'has_next': pages > page,
+        'prev_num': page - 1,
+        'next_num': page + 1,
+        'iter_pages': lambda: _audit_iter_pages(page, pages),
+    }
+    filters = {
+        'search': search,
+        'username': username,
+        'operation': operation,
+        'target_type': target_type,
+        'source': source,
+        'risk': risk,
+        'date_start': date_start,
+        'date_end': date_end,
+    }
+    stats = {
+        'total': total,
+        'operation_log': total_log_count,
+        'operation_audit': total_audit_count,
+        'risk': risk_log_count + risk_audit_count,
+        'failed_login': failed_login_count,
+    }
+    return render_template(
+        'operation_audit.html',
+        rows=audit_rows,
+        pagination=pagination,
+        filters=filters,
+        stats=stats,
+        per_page=per_page,
+    )
 
 @app.route('/user/add', methods=['POST'])
 @require_role('admin')
@@ -4762,6 +5004,7 @@ def material_api_all():
     })
 
 @app.route('/material/add', methods=['GET', 'POST'])
+@require_role('warehouse')
 @login_required
 def add_material():
     if request.method == 'GET':
@@ -6137,10 +6380,16 @@ def ensure_material_category_tree_defaults():
     for code, name in roots:
         root = MaterialCategory.query.filter_by(code=code).first()
         if not root:
-            root = MaterialCategory(code=code, name=name)
-            db.session.add(root)
-            db.session.flush()
-            changed = True
+            root = MaterialCategory.query.filter_by(name=name).first()
+            if root:
+                root.code = code
+                root.parent_id = None
+                changed = True
+            else:
+                root = MaterialCategory(code=code, name=name)
+                db.session.add(root)
+                db.session.flush()
+                changed = True
         root_by_code[code] = root
 
     mapping = {
@@ -7269,6 +7518,9 @@ AI_ASSISTANT_INTENTS = {
     'analysis_consumption_trend',
     'analysis_low_stock',
     'analysis_category',
+    'exception_workbench',
+    'agent_patrol',
+    'delivery_note_inbound',
     'help',
 }
 
@@ -7286,6 +7538,82 @@ def _ai_model_status_text():
     if _ai_llm_configured():
         return f'当前已启用大模型意图理解，配置模型是 {_ai_llm_model()}。我会先用大模型理解你的仓库业务问题，再由系统后台执行查库存、查单据、生成草稿等操作。'
     return '当前没有启用可用的大模型配置，正在使用本地规则助手。请到“系统管理 - 系统设置 - AI助手参数”填写接口地址、模型名称和 API Key 后测试连接。'
+
+
+def _ai_is_vision_status_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    vision_words = (
+        '识图', '识字', 'ocr', '图片识别', '图像识别', '视觉识别', '视觉模型',
+        '送货单识别', '送货单入库', '图片入库', '拍照入库', '扫描送货单',
+    )
+    status_words = (
+        '状态', '配置', '能不能', '可以吗', '能力', '自检', '检查', '测试',
+        '怎么配', '如何配', '要求', '规范', '清晰', '准确',
+    )
+    return any(word in compact for word in vision_words) and any(word in compact for word in status_words)
+
+
+def _ai_vision_status_response(message, context=None):
+    if not _ai_is_vision_status_question(message):
+        return None
+
+    llm_enabled = _ai_llm_enabled()
+    has_key = bool(_ai_llm_api_key())
+    configured = _ai_llm_configured()
+    vision_enabled = _ai_llm_vision_enabled()
+    ready = configured and vision_enabled
+    model = _ai_llm_model()
+    endpoint = _ai_llm_endpoint()
+    timeout = _ai_llm_timeout_seconds()
+
+    cards = [
+        {
+            'title': '大模型连接',
+            'meta': '已配置 API Key' if configured else ('未启用大模型' if not llm_enabled else '缺少 API Key'),
+            'url': url_for('system_settings_page'),
+        },
+        {
+            'title': '图片识别',
+            'meta': '已启用，可上传送货单图片识别' if vision_enabled else '未启用，需要在 AI助手参数中打开“启用图片识别”',
+            'url': url_for('system_settings_page'),
+        },
+        {
+            'title': '当前模型',
+            'meta': f'{model}；超时 {timeout:g} 秒；接口 {endpoint}',
+            'url': url_for('system_settings_page'),
+        },
+    ]
+
+    missing = []
+    if not llm_enabled:
+        missing.append('启用 AI 大模型')
+    if not has_key:
+        missing.append('填写 API Key')
+    if not vision_enabled:
+        missing.append('打开“启用图片识别”')
+
+    lines = [
+        '**识字识图能力自检**',
+        f'- 当前状态：{"可用" if ready else "未就绪"}',
+        f'- 模型：{model}',
+        f'- 图片识别：{"已启用" if vision_enabled else "未启用"}',
+        f'- 大模型：{"已启用" if llm_enabled else "未启用"}；API Key：{"已保存" if has_key else "未配置"}',
+    ]
+    if missing:
+        lines.append(f'- 需要处理：{"、".join(missing)}。')
+    lines.extend([
+        '',
+        '送货单拍照建议：整张单据入镜、表头和明细不要裁掉、避免反光和阴影、保持文字水平、优先上传 10MB 以内原图或清晰截图。',
+        '识别后系统会先生成草稿或进入确认页；提交、审核、完成入库仍需要人工打开单据核对。',
+    ])
+
+    actions = [
+        {'label': 'AI助手参数', 'url': url_for('system_settings_page')},
+        {'label': '上传送货单测试', 'url': '#', 'prompt': '识别送货单图片并生成采购入库单草稿', 'upload': 'delivery-note'},
+    ]
+    return _ai_json_response('\n'.join(lines), cards, actions)
 
 
 AI_SYSTEM_API_GROUP_ORDER = [
@@ -7426,7 +7754,7 @@ def _ai_basic_conversation_response(message):
         return _ai_json_response(f'现在是 {now.strftime("%Y-%m-%d %H:%M:%S")}。')
     greetings = {'你好', '您好', 'hello', 'hi', '嗨', '在吗', '在不在'}
     if compact in greetings or any(word in compact for word in ('你好', '您好', '在吗')):
-        return _ai_json_response('你好，我是仓库AI助手。你可以问我库存、单据、今日概况、待处理事项，也可以让我生成入库单、领料单、调拨单、盘点单、调整单草稿。')
+        return _ai_json_response('你好，我是AI助手。你可以问我库存、单据、今日概况、待处理事项，也可以让我生成入库单、领料单、调拨单、盘点单、调整单草稿。')
     if any(word in compact for word in ('你是谁', '什么模型', '哪个模型', '大模型', 'gpt', 'gpt-5.5', 'gpt5.5', '模型状态')):
         return _ai_json_response(_ai_model_status_text())
     return None
@@ -7667,13 +7995,19 @@ AI_LOCAL_SKILLS = [
         'name': 'skill_catalog',
         'title': 'AI技能清单',
         'handler': _ai_skill_catalog_response,
-        'description': '说明当前 AI 仓库助手已接入哪些本地技能。',
+        'description': '说明当前 AI助手已接入哪些本地技能。',
     },
     {
         'name': 'system_api_catalog',
         'title': '当前系统API清单',
         'handler': _ai_system_api_catalog_response,
         'description': '回答当前 WMS 系统 API、接口、路由、endpoint 问题。',
+    },
+    {
+        'name': 'vision_status',
+        'title': '识字识图能力自检',
+        'handler': _ai_vision_status_response,
+        'description': '检查送货单图片识别、大模型视觉配置、上传规范和测试入口。',
     },
     {
         'name': 'stock_shortage_help',
@@ -7991,8 +8325,8 @@ def _ai_normalize_image_attachments(raw_attachments):
         mime_type = mime_type or header_type
         if mime_type not in allowed_types or header_type not in allowed_types:
             return [], '只支持 PNG、JPG、WEBP 或 GIF 图片。'
-        if len(b64_data) > 4 * 1024 * 1024:
-            return [], '图片太大，请上传 3MB 以内的图片。'
+        if len(b64_data) > 14 * 1024 * 1024:
+            return [], '图片太大，请上传 10MB 以内的清晰原图。'
         data_url, mime_type, compress_error = _ai_prepare_vision_image(data_url, mime_type)
         if compress_error:
             return [], compress_error
@@ -8025,13 +8359,19 @@ def _ai_prepare_vision_image(data_url, mime_type):
             elif image.mode == 'L':
                 image = image.convert('RGB')
 
-            max_side = 1280
+            max_side = 1800
             if max(image.size) > max_side:
                 image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
 
             output = io.BytesIO()
-            image.save(output, format='JPEG', quality=78, optimize=True)
+            image.save(output, format='JPEG', quality=86, optimize=True)
             compressed = output.getvalue()
+            if len(compressed) > 2 * 1024 * 1024:
+                if max(image.size) > 1600:
+                    image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+                output = io.BytesIO()
+                image.save(output, format='JPEG', quality=80, optimize=True)
+                compressed = output.getvalue()
     except Exception as exc:
         app.logger.warning('AI image compression failed: %s', exc)
         return data_url, mime_type, ''
@@ -8059,13 +8399,13 @@ def _ai_call_llm_intent(message, overrides=None):
         '可用 intent：greeting, model_status, current_time, general_chat, inventory_discrepancy, today_issued_materials, today_received_materials, today_summary, '
         'create_out_order_draft, create_in_order_draft, create_transfer_draft, create_check_draft, create_adjustment_draft, '
         'find_orders, stock_alerts, pending_documents, query_material, stock_transactions, '
-        'analysis_turnover, analysis_stock_value, analysis_supplier, analysis_consumption_trend, analysis_low_stock, analysis_category, help。'
+        'analysis_turnover, analysis_stock_value, analysis_supplier, analysis_consumption_trend, analysis_low_stock, analysis_category, exception_workbench, agent_patrol, delivery_note_inbound, help。'
         'params 允许包含：keyword、warehouse（仓库名/库位，字符串）、days（天数，整数）、category（物料分类名，字符串）。'
         '只有用户明确提到时才填相应字段，未提到就省略。'
         '新增、生成、开单只能选择草稿 intent；不要选择提交、审核、完成等高风险动作。'
         '如果用户问库存、物料、还有多少，选择 query_material；问流水/最近变化选择 stock_transactions；'
         '问库存账物不一致/账实不符/账实不一致/系统库存和实物不一致/库存盘点差异/库存不准怎么办，选择 inventory_discrepancy；'
-        '问单号/单据选择 find_orders；问待办/待审核选择 pending_documents；问异常/预警/负库存/低库存选择 stock_alerts；'
+        '问单号/单据选择 find_orders；问待办/待审核选择 pending_documents；问异常工作台/风险总览/今天优先处理什么选择 exception_workbench；问agent巡检/自动巡检/帮我巡检仓库选择 agent_patrol；问上传送货单/送货单入库/识别送货单生成采购入库选择 delivery_note_inbound；问异常/预警/负库存/低库存选择 stock_alerts；'
         '问你好/您好/在吗选择 greeting；问你是谁/哪个模型/是否接入大模型选择 model_status；'
         '问现在几点/当前时间/今天日期选择 current_time；完全不属于仓库业务或系统操作的问题选择 general_chat；'
         '问今天概况选择 today_summary；问今天入库/到货选择 today_received_materials；问今天出库/领料选择 today_issued_materials。'
@@ -8378,10 +8718,11 @@ def _ai_learn_material_alias(alias, material_id, source='confirm'):
     return row
 
 
-def _ai_material_match_one(code='', name=''):
+def _ai_material_match_one(code='', name='', spec=''):
     code = (code or '').strip()
     name = (name or '').strip()
-    for alias in (code, name):
+    spec = (spec or '').strip()
+    for alias in (code, name, spec, ' '.join(part for part in (name, spec) if part)):
         alias_key = _ai_material_alias_key(alias)
         if not alias_key:
             continue
@@ -8396,17 +8737,23 @@ def _ai_material_match_one(code='', name=''):
         if material:
             return material, 'exact_code'
     if name:
-        material = Material.query.options(joinedload(Material.unit)).filter(Material.name == name).first()
+        exact_query = Material.query.options(joinedload(Material.unit)).filter(Material.name == name)
+        if spec:
+            exact_query = exact_query.filter(db.func.coalesce(Material.spec, '') == spec)
+        material = exact_query.first()
         if material:
             return material, 'exact_name'
-    keyword = code or name
-    if keyword:
-        like = f'%{keyword}%'
-        matches = Material.query.options(joinedload(Material.unit)).filter(db.or_(
-            Material.code.ilike(like),
-            Material.name.ilike(like),
-            Material.spec.ilike(like),
-        )).limit(3).all()
+    keywords = [part for part in (code, name, spec) if part]
+    if keywords:
+        filters = []
+        for keyword in keywords:
+            like = f'%{keyword}%'
+            filters.append(db.or_(
+                Material.code.ilike(like),
+                Material.name.ilike(like),
+                Material.spec.ilike(like),
+            ))
+        matches = Material.query.options(joinedload(Material.unit)).filter(*filters).limit(3).all()
         if len(matches) == 1:
             return matches[0], 'single_fuzzy'
         if matches:
@@ -8489,6 +8836,212 @@ def _ai_extract_document_from_text(message):
     return extracted
 
 
+def _ai_is_excel_table_document_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        'excel转单据', 'Excel转单据', '表格转单据', '表格生成单据', '复制表格生成',
+        'excel生成领料', 'excel生成入库', 'excel生成出库', 'excel生成采购入库',
+        '表格生成领料', '表格生成入库', '表格生成出库', '粘贴表格',
+        '剪贴板表格', 'excel表格',
+    ))
+
+
+def _ai_table_columns(line):
+    line = (line or '').strip()
+    if not line:
+        return []
+    if '\t' in line:
+        return [part.strip() for part in line.split('\t')]
+    if '|' in line:
+        return [part.strip() for part in line.strip('|').split('|')]
+    if ',' in line:
+        return [part.strip() for part in line.split(',')]
+    return [part.strip() for part in re.split(r'\s{2,}', line) if part.strip()]
+
+
+def _ai_header_index(headers, aliases):
+    lowered = [str(header or '').strip().lower() for header in headers]
+    for alias in aliases:
+        alias_key = alias.lower()
+        for idx, header in enumerate(lowered):
+            if header == alias_key or alias_key in header:
+                return idx
+    return None
+
+
+def _ai_table_header_score(cols):
+    if not cols:
+        return 0
+    score = 0
+    if _ai_header_index(cols, ('物料编码', '编码', '料号', '品号', '货号', 'sku', 'code', 'material code')) is not None:
+        score += 3
+    if _ai_header_index(cols, ('物料名称', '品名', '名称', '产品名称', '商品名称', 'name', 'material name')) is not None:
+        score += 2
+    if _ai_header_index(cols, ('数量', '出库数量', '入库数量', '实发数量', '实收数量', '采购数量', 'qty', 'quantity')) is not None:
+        score += 3
+    if _ai_header_index(cols, ('单位', 'unit', 'uom')) is not None:
+        score += 1
+    return score
+
+
+def _ai_table_header_value(text, aliases):
+    text = (text or '').strip()
+    if not text:
+        return ''
+    alias_keys = [str(alias or '').strip().lower() for alias in aliases if str(alias or '').strip()]
+    for line in text.splitlines():
+        raw_line = (line or '').strip()
+        if not raw_line:
+            continue
+        normalized = raw_line.lower()
+        for alias in alias_keys:
+            if not normalized.startswith(alias):
+                continue
+            rest = raw_line[len(alias):].strip()
+            if rest.startswith((':', '：', '=', '-')):
+                rest = rest[1:].strip()
+            if not rest:
+                continue
+            value = re.split(r'[，,；;|]', rest, maxsplit=1)[0].strip()
+            if value:
+                return value[:100]
+    return ''
+
+
+def _ai_extract_document_table_from_text(message):
+    text = (message or '').strip()
+    if not text:
+        return None
+    lines_raw = [line.strip() for line in text.splitlines() if line.strip()]
+    table_rows = []
+    for line in lines_raw:
+        cols = _ai_table_columns(line)
+        if len(cols) >= 2:
+            table_rows.append(cols)
+    if len(table_rows) < 2:
+        return None
+
+    doc_type = _ai_guess_doc_type_from_text(text)
+    header_values = {
+        'customer': _ai_table_header_value(text, ('客户', '客户名称', '收货客户', 'customer')),
+        'supplier': _ai_table_header_value(text, ('供应商', '供应商名称', '供方', 'supplier')),
+        'warehouse': _ai_table_header_value(text, ('仓库', '入库仓库', '出库仓库', '库位', 'warehouse')),
+        'from_location': _ai_table_header_value(text, ('调出仓库', '调出库位', '源仓库', 'from', 'from warehouse')),
+        'to_location': _ai_table_header_value(text, ('调入仓库', '调入库位', '目标仓库', 'to', 'to warehouse')),
+        'remarks': _ai_table_header_value(text, ('备注', '说明', 'remark', 'remarks')),
+    }
+    header_idx = 0
+    best_score = -1
+    for idx, cols in enumerate(table_rows[:8]):
+        score = _ai_table_header_score(cols)
+        if score > best_score:
+            best_score = score
+            header_idx = idx
+    header = table_rows[header_idx]
+    code_idx = _ai_header_index(header, ('物料编码', '编码', '料号', '品号', '货号', 'sku', 'code', 'material code'))
+    name_idx = _ai_header_index(header, ('物料名称', '品名', '名称', '产品名称', '商品名称', 'name', 'material name'))
+    spec_idx = _ai_header_index(header, ('规格', '规格型号', '型号', 'spec', 'model'))
+    qty_idx = _ai_header_index(header, ('数量', '出库数量', '入库数量', '实发数量', '实收数量', '采购数量', 'qty', 'quantity'))
+    unit_idx = _ai_header_index(header, ('单位', 'unit', 'uom'))
+    remark_idx = _ai_header_index(header, ('备注', '说明', 'remark', 'note'))
+
+    data_rows = table_rows[header_idx + 1:]
+    if qty_idx is None:
+        # No clear header: treat the first row as data when it looks like code/name/qty.
+        data_rows = table_rows
+        code_idx, name_idx, spec_idx, qty_idx, unit_idx, remark_idx = 0, None, None, 1, None, None
+        if len(data_rows[0]) >= 3 and not _ai_ocr_number(data_rows[0][1], 0):
+            name_idx, qty_idx = 1, 2
+
+    items = []
+    for cols in data_rows[:100]:
+        def col(idx):
+            return cols[idx].strip() if idx is not None and idx < len(cols) else ''
+
+        code = col(code_idx)
+        name = col(name_idx)
+        spec = col(spec_idx)
+        quantity = _ai_ocr_number(col(qty_idx), 0)
+        unit = col(unit_idx)
+        remark = col(remark_idx)
+        if not code and not name:
+            continue
+        if quantity <= 0:
+            continue
+        items.append({
+            'code': code,
+            'name': name,
+            'spec': spec,
+            'quantity': quantity,
+            'unit': unit,
+            'remark': remark,
+            'raw_text': ' | '.join(cols)[:200],
+            'confidence': 0.92,
+        })
+
+    if not items:
+        return None
+    if not doc_type:
+        return {
+            'needs_doc_type': True,
+            'items': items,
+            'source_text': text,
+            **header_values,
+        }
+    source_parts = [text]
+    if header_values.get('customer'):
+        source_parts.append(f'客户：{header_values["customer"]}')
+    if header_values.get('supplier'):
+        source_parts.append(f'供应商：{header_values["supplier"]}')
+    if header_values.get('warehouse'):
+        source_parts.append(f'仓库：{header_values["warehouse"]}')
+    if header_values.get('from_location') or header_values.get('to_location'):
+        source_parts.append(f'从{header_values.get("from_location") or ""}转到{header_values.get("to_location") or ""}')
+    extracted = {
+        'document_type': doc_type,
+        'items': items,
+        'source_text': '\n'.join(part for part in source_parts if part),
+        **header_values,
+    }
+    if doc_type in ('sales_out_order', 'out_order'):
+        extracted['customer'] = header_values.get('customer') or _ai_extract_customer_from_text(text)
+    return extracted
+
+
+def _ai_excel_table_document_response(message, context=None, force=False):
+    if not force and not _ai_is_excel_table_document_question(message):
+        return None
+    extracted = _ai_extract_document_table_from_text(message)
+    if not extracted:
+        return _ai_json_response(
+            '请把Excel里的表头和明细一起复制给我，并说明要生成什么单据，例如“表格生成领料单”或“Excel生成采购入库”。表头可带客户、供应商、仓库、调出仓库、调入仓库；明细建议列：物料编码、物料名称、规格、数量、单位、备注。',
+            [],
+            [
+                {'label': '领料示例', 'url': '#', 'prompt': '表格生成领料单\n仓库：A仓\n物料编码\t物料名称\t规格\t数量\t单位\nA001\t示例物料\t规格A\t10\t个'},
+                {'label': '销售出库示例', 'url': '#', 'prompt': '表格生成销售出库\n客户：华南客户\n仓库：成品仓\n物料编码\t物料名称\t规格\t数量\t单位\nA001\t示例物料\t规格A\t10\t个'},
+                {'label': '调拨示例', 'url': '#', 'prompt': '表格生成调拨单\n调出仓库：A仓\n调入仓库：B仓\n物料编码\t物料名称\t规格\t数量\t单位\nA001\t示例物料\t规格A\t10\t个'},
+            ],
+        )
+    if extracted.get('needs_doc_type'):
+        cards = []
+        for item in extracted.get('items', [])[:8]:
+            cards.append({
+                'title': f'{item.get("code") or item.get("name")} {item.get("name") or ""}'.strip(),
+                'meta': f'数量 {normalize_stock_quantity(item.get("quantity") or 0)} {item.get("unit") or ""}；请补充单据类型',
+            })
+        return _ai_json_response(
+            f'已识别到 {len(extracted.get("items") or [])} 行表格明细，但还不知道要生成哪类单据。请说明“生成领料单/销售出库/采购入库/调拨/盘点/调整”。',
+            cards,
+            [
+                {'label': '生成领料单', 'url': '#', 'prompt': '表格生成领料单\n' + (message or '')[:1200]},
+                {'label': '生成采购入库', 'url': '#', 'prompt': 'Excel生成采购入库\n' + (message or '')[:1200]},
+            ],
+        )
+    return _ai_create_draft_from_extracted(extracted, source='excel', context=context)
+
+
 def _ai_call_llm_document_extract(message):
     if not _ai_llm_configured():
         return None
@@ -8553,16 +9106,60 @@ def _ai_call_llm_document_extract(message):
         return None
 
 
-def _ai_try_llm_document_response(message):
+def _ai_try_llm_document_response(message, context=None):
     extracted = _ai_call_llm_document_extract(message)
     if not extracted:
         return None
-    return _ai_create_draft_from_extracted(extracted, source='gpt')
+    return _ai_create_draft_from_extracted(extracted, source='gpt', context=context)
 
 
 def _ai_should_try_llm_document(message):
     compact = (message or '').replace(' ', '').lower()
     return any(marker in compact for marker in ('gpt识别', 'ai识别', '大模型识别', '智能识别'))
+
+
+_AI_ITEM_FIELD_ALIASES = {
+    'code': ('code', 'material_code', 'materialCode', 'item_code', 'sku', 'part_no', 'partNo', 'product_code', 'productCode', '\u7269\u6599\u7f16\u7801', '\u7f16\u7801', '\u6599\u53f7', '\u54c1\u53f7', '\u8d27\u53f7', '\u4ea7\u54c1\u7f16\u7801', '\u578b\u53f7\u7f16\u7801'),
+    'name': ('name', 'material_name', 'materialName', 'item_name', 'product_name', 'productName', 'description', '\u7269\u6599\u540d\u79f0', '\u54c1\u540d', '\u540d\u79f0', '\u4ea7\u54c1\u540d\u79f0', '\u8d27\u54c1\u540d\u79f0', '\u63cf\u8ff0'),
+    'spec': ('spec', 'specification', 'model', 'model_no', 'modelNo', 'size', '\u89c4\u683c', '\u89c4\u683c\u578b\u53f7', '\u578b\u53f7', '\u5c3a\u5bf8'),
+    'quantity': ('quantity', 'qty', 'count', 'amount_qty', 'actual_qty', 'total_qty', 'totalQuantity', '\u6570\u91cf', '\u9001\u8d27\u6570\u91cf', '\u5b9e\u9001\u6570\u91cf', '\u5165\u5e93\u6570\u91cf', '\u5408\u8ba1\u6570\u91cf', '\u603b\u6570\u91cf'),
+    'unit': ('unit', 'uom', '\u5355\u4f4d', '\u8ba1\u91cf\u5355\u4f4d'),
+    'remark': ('remark', 'remarks', 'note', 'memo', '\u5907\u6ce8', '\u8bf4\u660e'),
+    'raw_text': ('raw_text', 'rawText', 'ocr_text', 'line_text', 'source_line', '\u539f\u59cb\u884c', '\u8bc6\u522b\u539f\u6587'),
+    'barcode': ('barcode', 'bar_code', 'ean', '\u6761\u7801'),
+    'batch_no': ('batch_no', 'batchNo', 'lot_no', 'lotNo', '\u6279\u53f7', '\u6279\u6b21', '\u7089\u6279\u53f7'),
+    'box_count': ('box_count', 'boxCount', 'cartons', 'package_count', '\u7bb1\u6570', '\u4ef6\u6570', '\u5305\u6570'),
+    'pcs_per_box': ('pcs_per_box', 'pcsPerBox', 'per_box', 'perPackageQty', '\u6bcf\u7bb1\u6570', '\u6bcf\u4ef6\u6570', '\u5305\u88c5\u6570', '\u5355\u7bb1\u6570'),
+    'confidence': ('confidence', 'score', '\u7f6e\u4fe1\u5ea6'),
+}
+
+
+def _ai_item_value(item, field, default=''):
+    for key in _AI_ITEM_FIELD_ALIASES.get(field, (field,)):
+        if key in item and item.get(key) not in (None, ''):
+            return item.get(key)
+    return default
+
+
+def _ai_ocr_text(value):
+    table = str.maketrans('０１２３４５６７８９．，,＊×Xx', '0123456789.,,****')
+    return str(value or '').translate(table).strip()
+
+
+def _ai_ocr_number(value, default=0):
+    text = _ai_ocr_text(value)
+    text = re.sub(r'(?<=\d),(?=\d{3}(?:\D|$))', '', text)
+    match = re.search(r'\d+(?:\.\d+)?', text)
+    if not match:
+        return round_to_2_decimals(parse_float_value(value, default))
+    return round_to_2_decimals(parse_float_value(match.group(0), default))
+
+
+def _ai_ocr_confidence(value):
+    confidence = _ai_ocr_number(value, 0)
+    if confidence > 1 and confidence <= 100:
+        confidence = round_to_2_decimals(confidence / 100)
+    return confidence if 0 <= confidence <= 1 else 0
 
 
 def _ai_normalize_document_extraction(raw, source_text=''):
@@ -8580,23 +9177,43 @@ def _ai_normalize_document_extraction(raw, source_text=''):
     for item in items:
         if not isinstance(item, dict):
             continue
-        try:
-            quantity = float(item.get('quantity') or 0)
-        except (TypeError, ValueError):
-            quantity = 0
-        code = str(item.get('code') or item.get('material_code') or '').strip()
-        name = str(item.get('name') or item.get('material_name') or '').strip()
-        spec = str(item.get('spec') or '').strip()
+        quantity = _ai_ocr_number(_ai_item_value(item, 'quantity'), 0)
+        box_count = _ai_ocr_number(_ai_item_value(item, 'box_count'), 0)
+        pcs_per_box = _ai_ocr_number(_ai_item_value(item, 'pcs_per_box'), 0)
+        if quantity <= 0 and box_count > 0 and pcs_per_box > 0:
+            quantity = round_to_2_decimals(box_count * pcs_per_box)
+        code = str(_ai_item_value(item, 'code') or '').strip()
+        name = str(_ai_item_value(item, 'name') or '').strip()
+        spec = str(_ai_item_value(item, 'spec') or '').strip()
+        barcode = str(_ai_item_value(item, 'barcode') or '').strip()
+        batch_no = str(_ai_item_value(item, 'batch_no') or '').strip()
+        raw_text = str(_ai_item_value(item, 'raw_text') or '').strip()
         if not code and not name and spec:
             name = spec
+        if not code and barcode:
+            code = barcode
         if not code and not name:
             continue
+        remark_parts = [str(_ai_item_value(item, 'remark') or '').strip()]
+        if batch_no:
+            remark_parts.append(f'batch:{batch_no}')
+        if box_count > 0 and pcs_per_box > 0:
+            remark_parts.append(f'package:{box_count}*{pcs_per_box}')
+        if raw_text:
+            remark_parts.append(f'raw:{raw_text[:120]}')
         normalized_items.append({
             'code': code,
             'name': name,
             'spec': spec,
             'quantity': round_to_2_decimals(quantity),
-            'remark': str(item.get('remark') or '').strip(),
+            'unit': str(_ai_item_value(item, 'unit') or '').strip()[:20],
+            'remark': '; '.join(part for part in remark_parts if part)[:300],
+            'raw_text': raw_text[:200],
+            'barcode': barcode[:80],
+            'batch_no': batch_no[:80],
+            'box_count': box_count,
+            'pcs_per_box': pcs_per_box,
+            'confidence': _ai_ocr_confidence(_ai_item_value(item, 'confidence')),
         })
     if not normalized_items:
         return None
@@ -8627,18 +9244,22 @@ def _ai_call_llm_document_vision_extract(message, images, context=None):
     if not images:
         return None, '没有收到图片'
     system_prompt = (
-        'You are a WMS OCR and document extraction engine. Read uploaded warehouse document images. '
+        'You are a high-accuracy WMS OCR and document extraction engine for Chinese delivery notes, purchase receipts, sales shipments and warehouse documents. '
+        'Read the whole image, including stamps, handwritten notes, table headers, merged cells, rotated photos, low contrast scans and mixed Chinese/English text. '
         'Return JSON only. No markdown. No explanation. Schema: '
         '{"document_type":"in_order|sales_out_order|out_order|transfer|check|adjustment|other",'
         '"order_no":"","delivery_no":"","supplier":"","customer":"","warehouse":"","from_location":"","to_location":"",'
         '"remarks":"","adjustment_type":"loss|surplus",'
-        '"items":[{"code":"","name":"","spec":"","quantity":0,"unit":"","remark":""}]}. '
+        '"items":[{"code":"","name":"","spec":"","quantity":0,"unit":"","barcode":"","batch_no":"",'
+        '"box_count":0,"pcs_per_box":0,"confidence":0,"raw_text":"","remark":""}]}. '
         'Classify delivery note, supplier shipment, arrival notice, purchase receipt as in_order. '
         'Classify customer shipment, sales outbound as sales_out_order. '
         'Classify material picking or production issue as out_order. '
-        'Extract material code when visible; otherwise put visible material name/spec in name/spec. '
-        'Quantity must be numeric. If packages and per-package quantity are visible, compute total quantity and mention original text in remark. '
-        'Keep uncertain header fields blank. If the image is not a warehouse document, use document_type other and empty items.'
+        'Recognize common table columns: serial no, material code, item no, sku, product name, material name, spec/model, unit, quantity, delivered quantity, cartons, packages, pcs per carton, batch/lot no, barcode and remarks. '
+        'Extract material code when visible; otherwise put visible material name/spec in name/spec. Never use row serial numbers as material code. '
+        'Quantity must be numeric. If both package count and per-package quantity are clear, compute quantity as package_count * pcs_per_box, keep box_count and pcs_per_box, and mention the formula in remark. '
+        'Keep raw_text as the original OCR text for each detail row. Set confidence from 0 to 1 for each line; use lower confidence for handwriting, blur, crossed-out text or uncertain split rows. '
+        'Do not invent missing material codes, quantities, suppliers or order numbers. Keep uncertain header fields blank. If the image is not a warehouse document, use document_type other and empty items.'
     )
     user_content = [{'type': 'text', 'text': (message or 'Extract this warehouse document into WMS draft data.')[:1200]}]
     page_title = _ai_context_value(context or {}, 'page_title')
@@ -8694,21 +9315,43 @@ def _ai_match_extracted_items(items_raw):
     for item in items_raw or []:
         if not isinstance(item, dict):
             continue
-        code = str(item.get('code') or item.get('material_code') or '').strip()
-        name = str(item.get('name') or item.get('material_name') or '').strip()
-        quantity = round_to_2_decimals(parse_float_value(item.get('quantity'), 0))
+        code = str(_ai_item_value(item, 'code') or '').strip()
+        name = str(_ai_item_value(item, 'name') or '').strip()
+        spec = str(_ai_item_value(item, 'spec') or '').strip()
+        raw_text = str(_ai_item_value(item, 'raw_text') or '').strip()
+        quantity = _ai_ocr_number(_ai_item_value(item, 'quantity'), 0)
         if not code and not name:
             continue
-        material, match_type = _ai_material_match_one(code, name)
+        material, match_type = _ai_material_match_one(code, name, spec)
+        raw_label = raw_text or ' '.join(part for part in (code, name, spec) if part)
         if material and quantity > 0:
             if material.id in seen_materials:
-                unmatched.append({'title': code or name, 'meta': f'重复物料，需人工合并数量：{quantity}', 'quantity': quantity})
+                unmatched.append({
+                    'title': raw_label or code or name,
+                    'meta': f'重复物料，需要人工合并数量：{quantity}',
+                    'quantity': quantity,
+                    'item': item,
+                    'spec': spec,
+                })
                 continue
-            matched.append({'material': material, 'quantity': quantity, 'match_type': match_type, 'raw': code or name})
+            matched.append({
+                'material': material,
+                'quantity': quantity,
+                'match_type': match_type,
+                'raw': raw_label or code or name,
+                'item': item,
+                'spec': spec,
+            })
             seen_materials.add(material.id)
         else:
             reason = '数量无效' if quantity <= 0 else ('匹配到多个物料，请手工选择' if match_type == 'multiple' else '未找到物料档案')
-            unmatched.append({'title': code or name, 'meta': f'{reason}，识别数量：{quantity or "-"}', 'quantity': quantity})
+            unmatched.append({
+                'title': raw_label or code or name,
+                'meta': f'{reason}，识别数量：{quantity or "-"}',
+                'quantity': quantity,
+                'item': item,
+                'spec': spec,
+            })
     return matched, unmatched
 
 
@@ -8737,7 +9380,30 @@ def _ai_match_cards(matched, unmatched):
     return cards
 
 
-def _ai_confirmation_payload(extracted):
+def _ai_vision_low_confidence_items(items, threshold=0.75):
+    low_items = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        confidence = _ai_ocr_confidence(_ai_item_value(item, 'confidence'))
+        if confidence and confidence < threshold:
+            label = str(_ai_item_value(item, 'raw_text') or _ai_item_value(item, 'code') or _ai_item_value(item, 'name') or '').strip()
+            low_items.append({'label': label[:80] or '未命名行', 'confidence': confidence})
+    return low_items
+
+
+def _ai_context_purchase_order_id(context=None):
+    page_url = (context or {}).get('page_url') or ''
+    po_match = re.search(r'/purchase_order/(\d+)(?:\D|$)', page_url)
+    if not po_match:
+        return None
+    try:
+        return int(po_match.group(1))
+    except ValueError:
+        return None
+
+
+def _ai_confirmation_payload(extracted, context=None):
     doc_type = str((extracted or {}).get('document_type') or '').strip().lower()
     if doc_type == 'sales_out':
         doc_type = 'sales_out_order'
@@ -8745,35 +9411,62 @@ def _ai_confirmation_payload(extracted):
     matched, unmatched = _ai_match_extracted_items((extracted or {}).get('items') or [])
     for row in matched:
         material = row['material']
+        item = row.get('item') or {}
         rows.append({
             'raw': row.get('raw') or material.code or material.name or '',
             'code': material.code or '',
             'name': material.name or '',
+            'spec': item.get('spec') or row.get('spec') or material.spec or '',
+            'unit': item.get('unit') or (material.unit.name if material.unit else ''),
+            'raw_text': item.get('raw_text') or row.get('raw') or '',
+            'batch_no': item.get('batch_no') or '',
+            'barcode': item.get('barcode') or '',
+            'box_count': item.get('box_count') or '',
+            'pcs_per_box': item.get('pcs_per_box') or '',
+            'confidence': item.get('confidence') or '',
+            'remark': item.get('remark') or '',
             'quantity': row.get('quantity') or 0,
             'material_id': material.id,
             'match_status': 'matched',
         })
     for row in unmatched:
+        item = row.get('item') or {}
         rows.append({
             'raw': row.get('title') or '',
-            'code': row.get('title') or '',
-            'name': '',
+            'code': item.get('code') or row.get('title') or '',
+            'name': item.get('name') or '',
+            'spec': item.get('spec') or row.get('spec') or '',
+            'unit': item.get('unit') or '',
+            'raw_text': item.get('raw_text') or row.get('title') or '',
+            'batch_no': item.get('batch_no') or '',
+            'barcode': item.get('barcode') or '',
+            'box_count': item.get('box_count') or '',
+            'pcs_per_box': item.get('pcs_per_box') or '',
+            'confidence': item.get('confidence') or '',
+            'remark': item.get('remark') or '',
             'quantity': row.get('quantity') or 0,
             'material_id': None,
             'match_status': 'unmatched',
             'reason': row.get('meta') or '',
         })
+    source_purchase_order_id = _ai_context_purchase_order_id(context)
+    source_purchase_order_no = ''
+    if source_purchase_order_id:
+        source_po = db.session.get(PurchaseOrder, source_purchase_order_id)
+        source_purchase_order_no = source_po.order_no if source_po else ''
     return {
         'document_type': doc_type,
         'source_text': (extracted or {}).get('source_text') or '',
         'customer': (extracted or {}).get('customer') or '',
         'adjustment_type': (extracted or {}).get('adjustment_type') or '',
+        'source_purchase_order_id': source_purchase_order_id,
+        'source_purchase_order_no': source_purchase_order_no,
         'rows': rows,
     }
 
 
-def _ai_store_document_confirmation(extracted):
-    payload = _ai_confirmation_payload(extracted)
+def _ai_store_document_confirmation(extracted, context=None):
+    payload = _ai_confirmation_payload(extracted, context)
     token = secrets.token_urlsafe(12)
     pending = session.get('_ai_document_confirmations') or {}
     pending[token] = payload
@@ -8785,8 +9478,8 @@ def _ai_store_document_confirmation(extracted):
     return token, payload
 
 
-def _ai_confirmation_action(extracted):
-    token, payload = _ai_store_document_confirmation(extracted)
+def _ai_confirmation_action(extracted, context=None):
+    token, payload = _ai_store_document_confirmation(extracted, context)
     return {
         'label': '确认识别结果',
         'url': url_for('ai_document_confirm', token=token),
@@ -8794,7 +9487,7 @@ def _ai_confirmation_action(extracted):
     }
 
 
-def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustment_type='', customer=''):
+def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustment_type='', customer='', source_purchase_order_id=None):
     doc_type = (doc_type or '').strip()
     if doc_type == 'sales_out':
         doc_type = 'sales_out_order'
@@ -8816,6 +9509,14 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
 
     draft_message = _ai_draft_message_from_matches(matched)
     if doc_type == 'in_order':
+        if source_purchase_order_id:
+            context_po_result = _ai_try_create_in_order_from_context_purchase_order(
+                matched,
+                {'page_url': f'/purchase_order/{source_purchase_order_id}'},
+                source_text or 'AI识别结果确认',
+            )
+            if context_po_result:
+                return context_po_result
         po_result = _ai_try_create_in_order_from_purchase_order_matches(matched, source_text or 'AI识别结果确认')
         if po_result:
             return po_result
@@ -8903,6 +9604,8 @@ def _ai_find_purchase_order_candidates_for_matches(matched, limit=5):
 
 
 def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text=''):
+    if current_user.role not in ('admin', 'warehouse', 'purchase'):
+        return None
     candidates = _ai_find_purchase_order_candidates_for_matches(matched, limit=2)
     if len(candidates) != 1:
         return None
@@ -8930,7 +9633,69 @@ def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='')
     }, None
 
 
-def _ai_create_draft_from_extracted(extracted, source='text'):
+def _ai_try_create_in_order_from_context_purchase_order(matched, context=None, source_text=''):
+    page_url = (context or {}).get('page_url') or ''
+    po_match = re.search(r'/purchase_order/(\d+)(?:\D|$)', page_url)
+    if not po_match or current_user.role not in ('admin', 'warehouse', 'purchase'):
+        return None
+    try:
+        po_id = int(po_match.group(1))
+    except ValueError:
+        return None
+    order = PurchaseOrder.query.options(
+        joinedload(PurchaseOrder.supplier),
+        selectinload(PurchaseOrder.items).joinedload(PurchaseOrderItem.material),
+    ).get(po_id)
+    if not order:
+        return None
+
+    qty_by_material = _ai_purchase_match_qty_map(matched)
+    if not qty_by_material:
+        return None, '送货单没有识别到可匹配当前采购订单的物料数量'
+
+    submitted = {}
+    for material_id, need_qty in qty_by_material.items():
+        remaining = []
+        for item in order.items or []:
+            if item.material_id != material_id:
+                continue
+            remain_qty = round_to_2_decimals((item.quantity or 0) - (item.received_quantity or 0))
+            if remain_qty > 0:
+                remaining.append((item, remain_qty))
+        if not remaining:
+            material = Material.query.get(material_id)
+            code = material.code if material else material_id
+            return None, f'送货单物料 {code} 不在当前采购订单 {order.order_no} 的未入库明细中'
+        item, remain_qty = remaining[0]
+        if need_qty - remain_qty > STOCK_COMPARE_EPSILON:
+            material = item.material
+            code = material.code if material else item.material_id
+            return None, f'送货单物料 {code} 数量 {need_qty} 超过采购订单未入库数量 {normalize_stock_quantity(remain_qty)}'
+        submitted[item.id] = need_qty
+
+    in_order, error = _create_in_order_from_purchase_order_core(
+        order,
+        remark=(source_text or f'AI识别送货单并按当前采购订单 {order.order_no} 下推')[:200],
+        submitted_qty_by_id=submitted,
+    )
+    if error:
+        return None, error
+    return {
+        'order_no': in_order.order_no,
+        'url': url_for('in_order_detail', id=in_order.id),
+        'items': [
+            {
+                'code': item.material.code if item.material else '',
+                'name': item.material.name if item.material else '',
+                'quantity': item.quantity,
+            }
+            for item in in_order.items
+        ],
+        'source_purchase_order_no': order.order_no,
+    }, None
+
+
+def _ai_create_draft_from_extracted(extracted, source='text', context=None):
     if not extracted or not isinstance(extracted, dict):
         return None
     doc_type = str(extracted.get('document_type') or '').strip().lower()
@@ -8943,16 +9708,39 @@ def _ai_create_draft_from_extracted(extracted, source='text'):
         return _ai_json_response(
             '已识别到单据内容，但没有物料能自动匹配。请打开确认页手工选择物料后再生成草稿。',
             _ai_match_cards(matched, unmatched),
-            [_ai_confirmation_action(extracted)],
+            [_ai_confirmation_action(extracted, context)],
         )
     if unmatched:
         return _ai_json_response(
             f'已识别 {len(matched)} 条匹配物料、{len(unmatched)} 条未匹配物料。为避免生成缺行草稿，请先打开确认页处理未匹配项。',
             _ai_match_cards(matched, unmatched),
-            [_ai_confirmation_action(extracted)],
+            [_ai_confirmation_action(extracted, context)],
+        )
+    low_confidence_items = _ai_vision_low_confidence_items(extracted.get('items') or []) if source == 'vision' else []
+    if low_confidence_items:
+        cards = _ai_match_cards(matched, unmatched)
+        for item in low_confidence_items[:5]:
+            cards.insert(0, {
+                'title': f'低置信度识别 {item["label"]}',
+                'meta': f'模型置信度 {item["confidence"]}，建议人工核对原始图片和数量。',
+            })
+        return _ai_json_response(
+            f'已识别 {len(matched)} 条物料，但有 {len(low_confidence_items)} 条 OCR 置信度偏低。为避免错收，请先打开确认页核对后再生成草稿。',
+            cards,
+            [_ai_confirmation_action(extracted, context)],
         )
     draft_message = _ai_draft_message_from_matches(matched)
     if doc_type == 'in_order':
+        context_po_result = _ai_try_create_in_order_from_context_purchase_order(matched, context, extracted.get('source_text') or '')
+        if context_po_result:
+            draft, error = context_po_result
+            if error:
+                return _ai_json_response(error, _ai_match_cards(matched, unmatched))
+            return _ai_json_response(
+                f'已按当前采购订单 {draft.get("source_purchase_order_no")} 和送货单识别数量生成采购入库草稿 {draft["order_no"]}。请打开草稿核对仓库和数量后再提交。',
+                draft.get('items') or [],
+                [{'label': '打开采购入库草稿', 'url': draft['url']}],
+            )
         po_result = _ai_try_create_in_order_from_purchase_order_matches(matched, extracted.get('source_text') or '')
         if po_result:
             draft, error = po_result
@@ -8976,7 +9764,7 @@ def _ai_create_draft_from_extracted(extracted, source='text'):
             return _ai_json_response(
                 '采购入库要求关联采购订单，但没有找到唯一可自动下推的采购订单。请打开确认页或采购订单核对后再入库。',
                 cards,
-                [_ai_confirmation_action(extracted), {'label': '打开采购订单列表', 'url': url_for('purchase_order_list')}],
+                [_ai_confirmation_action(extracted, context), {'label': '打开采购订单列表', 'url': url_for('purchase_order_list')}],
             )
         draft, error = _ai_create_in_order_draft(draft_message)
         if draft:
@@ -9015,11 +9803,11 @@ def _ai_create_draft_from_extracted(extracted, source='text'):
     return _ai_json_response(reply, cards, [{'label': '打开草稿', 'url': draft['url']}])
 
 
-def _ai_try_text_document_response(message):
+def _ai_try_text_document_response(message, context=None):
     extracted = _ai_extract_document_from_text(message)
     if not extracted:
         return None
-    return _ai_create_draft_from_extracted(extracted, source='text')
+    return _ai_create_draft_from_extracted(extracted, source='text', context=context)
 
 
 def _ai_context_order_from_url(page_url):
@@ -9224,6 +10012,2447 @@ def _ai_inventory_discrepancy_response(message, context=None):
     return _ai_json_response(reply, cards, material_actions)
 
 
+def _ai_is_exception_workbench_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    direct_words = (
+        '异常工作台', '风险工作台', '异常总览', '异常汇总', '风险总览', '风险清单',
+        '仓库异常', '库存风险', '仓库风险', '今天要处理什么', '今天优先处理什么',
+        '现在要处理什么', '待处理优先级', '优先处理清单', '主管看板',
+    )
+    if any(word in compact for word in direct_words):
+        return True
+    scope_words = ('仓库', '库存', '物料', '单据', 'wms')
+    issue_words = ('异常', '风险', '待办', '待处理', '优先级', '要处理', '需要处理')
+    return any(word in compact for word in scope_words) and any(word in compact for word in issue_words)
+
+
+def _ai_pending_document_cards(limit=6):
+    rows = []
+    modules = globals().get('PENDING_DOCUMENT_MODULES') or []
+    for config in modules:
+        model = config.get('model')
+        statuses = tuple(config.get('status') or ())
+        if not model or not statuses:
+            continue
+        date_field = getattr(model, config.get('date'), None)
+        order_by = date_field.desc() if date_field is not None else model.id.desc()
+        for item in model.query.filter(model.status.in_(statuses)).order_by(order_by, model.id.desc()).limit(3).all():
+            number = _document_nav_value(item, config.get('number'))
+            title = f'{config.get("label") or "单据"} {number or item.id}'
+            meta_parts = [
+                _pending_status_label(config, item) if '_pending_status_label' in globals() else getattr(item, 'status', ''),
+                _pending_action_label(config, item) if '_pending_action_label' in globals() else '',
+                _format_document_nav_date(_document_nav_value(item, config.get('date'))) if '_format_document_nav_date' in globals() else '',
+                config.get('title')(item) if callable(config.get('title')) else '',
+            ]
+            endpoint = config.get('detail_endpoint')
+            rows.append({
+                'title': title,
+                'meta': '；'.join(str(part) for part in meta_parts if part),
+                'url': url_for(endpoint, id=item.id) if endpoint else '',
+                'date_value': _document_nav_value(item, config.get('date')) or date.min,
+                'id_value': item.id,
+            })
+    rows.sort(key=lambda row: (row.get('date_value') or date.min, row.get('id_value') or 0), reverse=True)
+    for row in rows:
+        row.pop('date_value', None)
+        row.pop('id_value', None)
+    return rows[:limit]
+
+
+def _ai_exception_workbench_response(message, context=None, force=False):
+    if not force and not _ai_is_exception_workbench_question(message):
+        return None
+
+    negative_materials = (
+        Material.query.options(joinedload(Material.unit), joinedload(Material.category))
+        .filter(Material.stock < 0)
+        .order_by(Material.stock.asc(), Material.code.asc())
+        .limit(5)
+        .all()
+    )
+    low_materials = []
+    if inventory_alert_enabled():
+        low_materials = (
+            Material.query.options(joinedload(Material.unit), joinedload(Material.category))
+            .filter(_material_low_stock_filter())
+            .order_by((Material.min_stock - Material.stock).desc(), Material.code.asc())
+            .limit(5)
+            .all()
+        )
+
+    cutoff = datetime.now() - timedelta(days=90)
+    recent_out_material_ids = (
+        db.session.query(StockTransaction.material_id)
+        .filter(StockTransaction.transaction_type.in_(['out', 'transfer_out', 'adjustment_out']))
+        .filter(StockTransaction.created_at >= cutoff)
+        .filter(StockTransaction.material_id.isnot(None))
+        .distinct()
+        .subquery()
+    )
+    slow_query = Material.query.options(joinedload(Material.unit)).filter(Material.stock > 0)
+    slow_query = slow_query.filter(~Material.id.in_(db.session.query(recent_out_material_ids.c.material_id)))
+    slow_count = slow_query.count()
+    slow_materials = slow_query.order_by((Material.stock * Material.price).desc(), Material.stock.desc()).limit(5).all()
+
+    pending_cards = _ai_pending_document_cards(limit=6)
+    pending_count = 0
+    for config in globals().get('PENDING_DOCUMENT_MODULES') or []:
+        model = config.get('model')
+        statuses = tuple(config.get('status') or ())
+        if model and statuses:
+            pending_count += model.query.filter(model.status.in_(statuses)).count()
+
+    cards = []
+    for material in negative_materials:
+        unit_name = material.unit.name if material.unit else ''
+        cards.append({
+            'title': f'负库存 {material.code} {material.name}',
+            'meta': f'当前库存 {normalize_stock_quantity(material.stock or 0)}{unit_name}。优先查最近出库、调拨、调整和反提交记录。',
+            'url': url_for('material_list', search=material.code or material.name or ''),
+        })
+    negative_ids = {material.id for material in negative_materials}
+    for material in low_materials:
+        if material.id in negative_ids:
+            continue
+        unit_name = material.unit.name if material.unit else ''
+        shortage = max(0, (material.min_stock or 0) - (material.stock or 0))
+        cards.append({
+            'title': f'低库存 {material.code} {material.name}',
+            'meta': f'当前 {normalize_stock_quantity(material.stock or 0)}{unit_name}，最低 {normalize_stock_quantity(material.min_stock or 0)}{unit_name}，缺口 {normalize_stock_quantity(shortage)}{unit_name}。',
+            'url': url_for('material_list', search=material.code or material.name or ''),
+        })
+    for material in slow_materials:
+        unit_name = material.unit.name if material.unit else ''
+        cards.append({
+            'title': f'90天未出库 {material.code} {material.name}',
+            'meta': f'当前库存 {normalize_stock_quantity(material.stock or 0)}{unit_name}，库存金额约 {float((material.stock or 0) * (material.price or 0)):,.2f}。',
+            'url': url_for('material_list', search=material.code or material.name or ''),
+        })
+    cards.extend(pending_cards)
+
+    lines = [
+        '**仓库异常工作台**',
+        f'- 负库存：{Material.query.filter(Material.stock < 0).count()} 项，先冻结继续出库并核对最近流水。',
+        f'- 低库存：{Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0} 项，按缺口和生产需求转采购申请。',
+        f'- 90天未出库且有库存：{slow_count} 项，建议核对呆滞、替代料和报废处理。',
+        f'- 待处理单据：{pending_count} 张，优先处理影响库存的入库、领料、调拨、盘点和调整草稿。',
+        '',
+        '建议顺序：1. 负库存止血；2. 待完成入出库闭环；3. 低库存补货；4. 呆滞库存复核。'
+    ]
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards[:16],
+        [
+            {'label': '待处理中心', 'url': url_for('pending_documents')},
+            {'label': '库存查询', 'url': url_for('stock_query')},
+            {'label': '库存预警', 'url': url_for('material_list', stock_filter='low')},
+            {'label': '采购申请', 'url': url_for('purchase_request_add_page')},
+        ],
+    )
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'exception_workbench',
+    'title': '仓库异常工作台',
+    'handler': _ai_exception_workbench_response,
+    'description': '汇总负库存、低库存、90天未出库和待处理单据，给仓库主管优先处理清单。',
+})
+
+
+def _ai_is_agent_patrol_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        'agent巡检', 'ai巡检', '自动巡检', '帮我巡检', '巡检仓库', '仓库巡检',
+        'agent功能', 'agent检查', '自动检查仓库', '帮我检查仓库', '跑一遍巡检', '今日巡检',
+    ))
+
+
+def _ai_agent_patrol_response(message, context=None, force=False):
+    if not force and not _ai_is_agent_patrol_question(message):
+        return None
+
+    negative_count = Material.query.filter(Material.stock < 0).count()
+    low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
+    pending_cards = _ai_pending_document_cards(limit=5)
+    purchase_summary = build_purchase_order_todo_summary()
+    purchase_open_count = int(purchase_summary.get('open_count') or 0)
+    purchase_overdue_count = int(purchase_summary.get('overdue_count') or 0)
+
+    draft_blockers = []
+    for label, model, endpoint in (
+        ('入库草稿', InOrder, 'in_order_list'),
+        ('领料草稿', OutOrder, 'out_order_list'),
+        ('调拨草稿', TransferOrder, 'transfer_list'),
+        ('盘点草稿', InventoryCheck, 'check_list'),
+        ('调整草稿', AdjustmentOrder, 'adjustment_list'),
+    ):
+        count = model.query.filter_by(status='pending').count()
+        if count:
+            draft_blockers.append({'label': label, 'count': count, 'endpoint': endpoint})
+
+    steps = [
+        ('库存风险', negative_count + low_count, '先处理负库存，再按最低库存缺口补货。'),
+        ('单据闭环', len(pending_cards), '优先完成会影响库存的入库、领料、调拨、盘点和调整草稿。'),
+        ('采购到货', purchase_open_count, '核对未完成采购订单，到货后从采购订单下推入库。'),
+        ('逾期待跟进', purchase_overdue_count, '逾期采购需要联系供应商或调整预计到货。'),
+    ]
+
+    lines = ['**Agent 仓库巡检结果**']
+    for index, (name, count, advice) in enumerate(steps, 1):
+        status = '需处理' if count else '正常'
+        lines.append(f'{index}. **{name}**：{count} 项，{status}。{advice}')
+    if draft_blockers:
+        lines.append('')
+        lines.append('草稿分布：' + '；'.join(f'{item["label"]}{item["count"]}张' for item in draft_blockers))
+    lines.append('')
+    lines.append('Agent 已完成读取和分析。为避免误操作，提交、审核、完成、作废仍需要人工进入单据确认。')
+
+    cards = []
+    if negative_count or low_count:
+        cards.append({
+            'title': '库存风险',
+            'meta': f'负库存 {negative_count} 项，低库存 {low_count} 项。',
+            'url': url_for('material_list', stock_filter='low'),
+        })
+    if purchase_open_count:
+        cards.append({
+            'title': '采购到货跟进',
+            'meta': f'未完成采购订单 {purchase_open_count} 张，逾期 {purchase_overdue_count} 张。',
+            'url': url_for('purchase_order_list', status='pending'),
+        })
+    cards.extend(pending_cards)
+
+    actions = [
+        {'label': '异常工作台', 'url': '#', 'prompt': '仓库异常工作台'},
+        {'label': '待处理中心', 'url': url_for('pending_documents')},
+        {'label': '采购订单', 'url': url_for('purchase_order_list')},
+        {'label': '库存查询', 'url': url_for('stock_query')},
+    ]
+    return _ai_json_response('\n'.join(lines), cards[:12], actions)
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'agent_patrol',
+    'title': 'Agent仓库巡检',
+    'handler': _ai_agent_patrol_response,
+    'description': '自动读取库存风险、待处理单据、采购到货和草稿阻塞，输出巡检步骤和下一步入口。',
+})
+
+
+def _ai_is_purchase_workbench_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    direct_words = (
+        '采购工作台', '采购agent', '采购助手', '采购巡检', '采购待办', '采购风险',
+        '采购异常', '采购优先级', '采购建议', '补货建议', '到货跟进', '催供应商',
+        '采购看板', '采购主管看板',
+    )
+    if any(word in compact for word in direct_words):
+        return True
+    return '采购' in compact and any(word in compact for word in ('待办', '逾期', '风险', '异常', '建议', '优先', '巡检', '跟进'))
+
+
+def _ai_purchase_price_risk_cards(limit=5):
+    recent_orders = (
+        PurchaseOrder.query.options(
+            joinedload(PurchaseOrder.supplier),
+            selectinload(PurchaseOrder.items).joinedload(PurchaseOrderItem.material),
+        )
+        .filter(PurchaseOrder.status.in_(('pending', 'partial', 'completed')))
+        .order_by(PurchaseOrder.date.desc(), PurchaseOrder.id.desc())
+        .limit(80)
+        .all()
+    )
+    latest_by_material = {}
+    history_by_material = {}
+    for order in recent_orders:
+        for item in order.items or []:
+            if not item.material_id or not item.price:
+                continue
+            history_by_material.setdefault(item.material_id, []).append((order, item))
+            if item.material_id not in latest_by_material:
+                latest_by_material[item.material_id] = (order, item)
+
+    cards = []
+    for material_id, (latest_order, latest_item) in latest_by_material.items():
+        history = history_by_material.get(material_id) or []
+        older_prices = [item.price for order, item in history[1:] if item.price and item.price > 0]
+        if len(older_prices) < 2:
+            continue
+        avg_price = sum(older_prices) / len(older_prices)
+        if avg_price <= 0:
+            continue
+        increase_pct = (latest_item.price - avg_price) / avg_price * 100
+        if increase_pct < 20:
+            continue
+        material = latest_item.material
+        cards.append({
+            'title': f'采购价异常 {material.code if material else material_id} {material.name if material else ""}',
+            'meta': f'最新价 {latest_item.price:.4f}，近单均价 {avg_price:.4f}，上涨 {increase_pct:.0f}%；供应商 {latest_order.supplier.name if latest_order.supplier else "-"}。',
+            'url': url_for('purchase_order_detail', id=latest_order.id),
+            'increase_pct': increase_pct,
+        })
+    cards.sort(key=lambda row: row.get('increase_pct', 0), reverse=True)
+    for row in cards:
+        row.pop('increase_pct', None)
+    return cards[:limit]
+
+
+def _ai_purchase_replenishment_cards(limit=8):
+    if not inventory_alert_enabled():
+        return []
+    materials = (
+        Material.query.options(joinedload(Material.unit), joinedload(Material.supplier))
+        .filter(_material_low_stock_filter())
+        .order_by((Material.min_stock - Material.stock).desc(), Material.code.asc())
+        .limit(limit)
+        .all()
+    )
+    cards = []
+    for material in materials:
+        unit_name = material.unit.name if material.unit else ''
+        reorder = max(0, (material.max_stock or material.min_stock or 0) - (material.stock or 0))
+        cards.append({
+            'title': f'建议补货 {material.code} {material.name}',
+            'meta': f'当前 {normalize_stock_quantity(material.stock or 0)}{unit_name}，最低 {normalize_stock_quantity(material.min_stock or 0)}{unit_name}，建议补 {normalize_stock_quantity(reorder)}{unit_name}；默认供应商 {material.supplier.name if material.supplier else "-"}。',
+            'url': url_for('material_list', search=material.code or material.name or ''),
+        })
+    return cards
+
+
+def _ai_is_purchase_request_draft_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '生成补货申请', '生成请购草稿', '生成采购申请草稿', '低库存生成采购申请',
+        '低库存转请购', '缺料采购申请', '缺料请购', '补货申请草稿',
+        '根据低库存生成采购申请草稿', '按低库存生成请购',
+    ))
+
+
+def _ai_purchase_replenishment_candidates(limit=20):
+    if not inventory_alert_enabled():
+        return [], []
+
+    materials = (
+        Material.query.options(joinedload(Material.unit), joinedload(Material.supplier))
+        .filter(_material_low_stock_filter())
+        .order_by((Material.min_stock - Material.stock).desc(), Material.code.asc())
+        .limit(limit * 3)
+        .all()
+    )
+    material_ids = [material.id for material in materials]
+    if not material_ids:
+        return [], []
+
+    open_po_qty = {material_id: 0 for material_id in material_ids}
+    po_rows = db.session.query(
+        PurchaseOrderItem.material_id,
+        func.coalesce(func.sum(PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity), 0),
+    ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
+        PurchaseOrderItem.material_id.in_(material_ids),
+        PurchaseOrder.status.in_(('pending', 'partial')),
+    ).group_by(PurchaseOrderItem.material_id).all()
+    for material_id, qty in po_rows:
+        open_po_qty[material_id] = round_to_2_decimals(max(qty or 0, 0))
+
+    pending_request_ids = set()
+    request_rows = db.session.query(PurchaseRequestItem.material_id).join(
+        PurchaseRequest, PurchaseRequestItem.purchase_request_id == PurchaseRequest.id
+    ).filter(
+        PurchaseRequestItem.material_id.in_(material_ids),
+        PurchaseRequest.status.in_(('pending', 'approved')),
+    ).all()
+    for row in request_rows:
+        pending_request_ids.add(row[0])
+
+    candidates = []
+    skipped = []
+    for material in materials:
+        unit_name = material.unit.name if material.unit else ''
+        target_stock = material.max_stock or material.min_stock or 0
+        shortage = max((target_stock or 0) - (material.stock or 0), 0)
+        on_order = open_po_qty.get(material.id, 0)
+        suggested_qty = round_to_2_decimals(max(shortage - on_order, 0))
+        if material.id in pending_request_ids:
+            skipped.append(f'{material.code} 已有待处理请购')
+            continue
+        if suggested_qty <= STOCK_COMPARE_EPSILON:
+            if on_order > 0:
+                skipped.append(f'{material.code} 待到货已覆盖缺口')
+            continue
+        candidates.append({
+            'material': material,
+            'unit_name': unit_name,
+            'current_stock': round_to_2_decimals(material.stock or 0),
+            'min_stock': round_to_2_decimals(material.min_stock or 0),
+            'target_stock': round_to_2_decimals(target_stock or 0),
+            'on_order': on_order,
+            'suggested_qty': suggested_qty,
+        })
+        if len(candidates) >= limit:
+            break
+    return candidates, skipped
+
+
+def _ai_create_purchase_request_draft_response(message, context=None, force=False):
+    if not force and not _ai_is_purchase_request_draft_question(message):
+        return None
+    if current_user.role not in ('admin', 'purchase'):
+        return _ai_json_response(
+            '当前账号没有创建采购申请草稿的权限。请使用采购或管理员账号处理补货请购。',
+            [],
+            [{'label': '采购工作台', 'url': '#', 'prompt': '采购工作台'}],
+        )
+    if not inventory_alert_enabled():
+        return _ai_json_response(
+            '库存预警未启用，无法按低库存生成采购申请草稿。请先到系统设置开启库存预警。',
+            [],
+            [{'label': 'AI助手参数', 'url': url_for('system_settings_page')}],
+        )
+
+    candidates, skipped = _ai_purchase_replenishment_candidates(limit=20)
+    if not candidates:
+        skip_text = f'\n已跳过：{"；".join(skipped[:8])}。' if skipped else ''
+        return _ai_json_response(
+            '当前没有需要生成请购草稿的低库存物料。可能已经有待处理请购，或未完成采购订单的待到货数量已覆盖缺口。' + skip_text,
+            _ai_purchase_replenishment_cards(limit=8),
+            [
+                {'label': '物料低库存', 'url': url_for('material_list', stock_filter='low')},
+                {'label': '采购申请', 'url': url_for('purchase_request_list')},
+            ],
+        )
+
+    request_order = PurchaseRequest(
+        request_no=generate_order_no('PR'),
+        date=date.today(),
+        applicant=current_user.username if current_user.is_authenticated else '',
+        department='采购',
+        urgency='urgent' if len(candidates) >= 5 else 'normal',
+        expected_date=date.today() + timedelta(days=7),
+        reason='AI助手按低库存预警生成补货申请草稿',
+        remark='AI助手仅生成草稿，请采购人员复核数量、供应商、价格后再审批或转采购订单。',
+        status='pending',
+        operator_id=current_user.id if current_user.is_authenticated else None,
+        total_amount=0,
+    )
+    db.session.add(request_order)
+    db.session.flush()
+
+    total_amount = 0
+    cards = []
+    for row in candidates:
+        material = row['material']
+        estimated_price = material.price or 0
+        estimated_amount = round_to_2_decimals(row['suggested_qty'] * estimated_price)
+        total_amount += estimated_amount
+        item = PurchaseRequestItem(
+            purchase_request_id=request_order.id,
+            material_id=material.id,
+            material_name=material.name,
+            material_code=material.code,
+            spec=material.spec or '',
+            quantity=row['suggested_qty'],
+            unit_id=material.unit_id,
+            estimated_price=estimated_price,
+            estimated_amount=estimated_amount,
+            supplier_id=material.supplier_id,
+            supplier_name=material.supplier.name if material.supplier else None,
+            remark=(
+                f'AI补货建议：当前{normalize_stock_quantity(row["current_stock"])}{row["unit_name"]}，'
+                f'最低{normalize_stock_quantity(row["min_stock"])}{row["unit_name"]}，'
+                f'目标{normalize_stock_quantity(row["target_stock"])}{row["unit_name"]}，'
+                f'待到货{normalize_stock_quantity(row["on_order"])}{row["unit_name"]}'
+            ),
+        )
+        db.session.add(item)
+        cards.append({
+            'title': f'{material.code} {material.name}',
+            'meta': f'建议请购 {normalize_stock_quantity(row["suggested_qty"])}{row["unit_name"]}；当前 {normalize_stock_quantity(row["current_stock"])}，最低 {normalize_stock_quantity(row["min_stock"])}，待到货 {normalize_stock_quantity(row["on_order"])}；供应商 {material.supplier.name if material.supplier else "-"}。',
+            'url': url_for('material_list', search=material.code or material.name or ''),
+        })
+
+    request_order.total_amount = round_to_2_decimals(total_amount)
+    db.session.commit()
+    log_operation('AI生成采购申请草稿', f'采购申请单：{request_order.request_no}', 'purchase_request', request_order.id)
+
+    skip_text = f'\n已跳过：{"；".join(skipped[:8])}。' if skipped else ''
+    reply = (
+        f'已生成低库存补货采购申请草稿 **{request_order.request_no}**，共 {len(candidates)} 行，'
+        f'预计金额 {request_order.total_amount:,.2f}。该单状态为待审批，未自动审核、未转采购订单。'
+        f'{skip_text}\n请打开草稿复核数量、供应商和价格。'
+    )
+    return _ai_json_response(
+        reply,
+        cards,
+        [
+            {'label': '打开请购草稿', 'url': url_for('purchase_request_detail', id=request_order.id)},
+            {'label': '编辑请购草稿', 'url': url_for('purchase_request_edit_page', id=request_order.id)},
+            {'label': '采购工作台', 'url': '#', 'prompt': '采购工作台'},
+        ],
+    )
+
+
+def _ai_is_supplier_profile_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    supplier_words = ('供应商画像', '供应商评估', '供应商分析', '供应商表现', '供应商风险', '供应商档案',
+                      '供应商采购', '供应商到货', '供应商逾期', '这个供应商', '供方画像', '供方评估')
+    return any(word in compact for word in supplier_words)
+
+
+def _ai_supplier_from_message(message):
+    text = (message or '').strip()
+    if not text:
+        return None
+    suppliers = Supplier.query.order_by(Supplier.code.asc(), Supplier.name.asc()).limit(500).all()
+    compact = text.replace(' ', '').lower()
+    exact_hits = []
+    fuzzy_hits = []
+    for supplier in suppliers:
+        code = (supplier.code or '').strip()
+        name = (supplier.name or '').strip()
+        code_key = code.replace(' ', '').lower()
+        name_key = name.replace(' ', '').lower()
+        if code and (text == code or compact == code_key):
+            exact_hits.append(supplier)
+        elif name and (text == name or compact == name_key):
+            exact_hits.append(supplier)
+        elif code_key and code_key in compact:
+            fuzzy_hits.append((len(code_key), supplier))
+        elif name_key and name_key in compact:
+            fuzzy_hits.append((len(name_key), supplier))
+    if exact_hits:
+        return exact_hits[0]
+    if fuzzy_hits:
+        fuzzy_hits.sort(key=lambda row: row[0], reverse=True)
+        return fuzzy_hits[0][1]
+    return None
+
+
+def _ai_top_supplier_by_recent_purchase(days=180):
+    cutoff = date.today() - timedelta(days=max(1, int(days or 180)))
+    row = db.session.query(
+        Supplier.id,
+        func.coalesce(func.sum(PurchaseOrder.total_amount), 0).label('amount'),
+    ).join(PurchaseOrder, PurchaseOrder.supplier_id == Supplier.id).filter(
+        PurchaseOrder.date >= cutoff,
+    ).group_by(Supplier.id).order_by(func.coalesce(func.sum(PurchaseOrder.total_amount), 0).desc()).first()
+    return db.session.get(Supplier, row.id) if row else None
+
+
+def _ai_supplier_profile_response(message, context=None, force=False):
+    if not force and not _ai_is_supplier_profile_question(message):
+        return None
+
+    supplier = _ai_supplier_from_message(message) or _ai_top_supplier_by_recent_purchase()
+    if not supplier:
+        return _ai_json_response(
+            '还没有找到可分析的供应商。你可以输入“供应商画像 供应商名称”，或先在供应商档案、采购订单、采购入库中维护数据。',
+            [],
+            [
+                {'label': '供应商档案', 'url': url_for('supplier_list')},
+                {'label': '采购订单', 'url': url_for('purchase_order_list')},
+            ],
+        )
+
+    today_value = date.today()
+    po_query = PurchaseOrder.query.options(
+        selectinload(PurchaseOrder.items).joinedload(PurchaseOrderItem.material)
+    ).filter(PurchaseOrder.supplier_id == supplier.id)
+    total_po_count = po_query.count()
+    open_orders = po_query.filter(PurchaseOrder.status.in_(('pending', 'partial'))).order_by(
+        PurchaseOrder.expected_date.asc().nullslast(), PurchaseOrder.id.desc()
+    ).limit(8).all()
+    overdue_orders = [
+        order for order in open_orders
+        if order.expected_date and order.expected_date < today_value
+    ]
+
+    amount_row = db.session.query(
+        func.coalesce(func.sum(PurchaseOrder.total_amount), 0),
+        func.coalesce(func.sum(PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity), 0),
+    ).join(PurchaseOrderItem, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
+        PurchaseOrder.supplier_id == supplier.id,
+        PurchaseOrder.status != 'closed',
+    ).first()
+    purchase_amount = round_to_2_decimals(amount_row[0] if amount_row else 0)
+    remaining_qty = round_to_2_decimals(max(amount_row[1] if amount_row else 0, 0))
+
+    recent_in_orders = InOrder.query.filter(
+        InOrder.supplier_id == supplier.id,
+        InOrder.business_type.like('%采购%'),
+    ).order_by(InOrder.date.desc(), InOrder.id.desc()).limit(5).all()
+
+    material_rows = db.session.query(
+        Material.code,
+        Material.name,
+        Material.spec,
+        func.coalesce(func.sum(PurchaseOrderItem.quantity), 0).label('qty'),
+        func.coalesce(func.sum(PurchaseOrderItem.amount), 0).label('amount'),
+    ).join(PurchaseOrderItem, PurchaseOrderItem.material_id == Material.id).join(
+        PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id
+    ).filter(
+        PurchaseOrder.supplier_id == supplier.id,
+        PurchaseOrder.status != 'closed',
+    ).group_by(Material.id).order_by(func.coalesce(func.sum(PurchaseOrderItem.amount), 0).desc()).limit(5).all()
+
+    cards = [
+        {
+            'title': f'{supplier.code} {supplier.name}',
+            'meta': f'联系人 {supplier.contact or "-"}；电话 {supplier.phone or "-"}；地址 {supplier.address or "-"}',
+            'url': url_for('supplier_list', search=supplier.name),
+        }
+    ]
+    for order in open_orders[:5]:
+        remain = round_to_2_decimals(sum(max((item.quantity or 0) - (item.received_quantity or 0), 0) for item in order.items or []))
+        cards.append({
+            'title': f'未完成采购 {order.order_no}',
+            'meta': f'预计到货 {order.expected_date or "-"}；状态 {purchase_order_status_label(order.status)}；未入库 {normalize_stock_quantity(remain)}；金额 {round_to_2_decimals(order.total_amount or 0):,.2f}',
+            'url': url_for('purchase_order_detail', id=order.id),
+        })
+    for in_order in recent_in_orders[:3]:
+        cards.append({
+            'title': f'最近采购入库 {in_order.order_no}',
+            'meta': f'日期 {in_order.date or "-"}；状态 {in_order.status}；金额 {round_to_2_decimals(in_order.total_amount or 0):,.2f}',
+            'url': url_for('in_order_detail', id=in_order.id),
+        })
+
+    lines = [
+        f'**供应商画像：{supplier.name}**',
+        f'- 采购订单：{total_po_count} 张；未完成 {len(open_orders)} 张；逾期 {len(overdue_orders)} 张。',
+        f'- 未关闭采购金额：{purchase_amount:,.2f}；未入库数量合计：{normalize_stock_quantity(remaining_qty)}。',
+        f'- 联系人：{supplier.contact or "-"}；电话：{supplier.phone or "-"}。',
+    ]
+    if recent_in_orders:
+        lines.append(f'- 最近到货：{recent_in_orders[0].date}，单号 {recent_in_orders[0].order_no}。')
+    if material_rows:
+        lines.append('')
+        lines.append('| 常购物料 | 规格 | 数量 | 金额 |')
+        lines.append('|---|---|---:|---:|')
+        for row in material_rows:
+            lines.append(f'| {row.code} {row.name} | {row.spec or ""} | {normalize_stock_quantity(row.qty or 0)} | {round_to_2_decimals(row.amount or 0):,.2f} |')
+    advice = []
+    if overdue_orders:
+        advice.append('优先催交逾期采购订单，并更新预计到货日')
+    if remaining_qty > STOCK_COMPARE_EPSILON:
+        advice.append('核对未入库数量，避免重复补货')
+    if not supplier.contact and not supplier.phone:
+        advice.append('补齐联系人和电话，方便采购跟进')
+    if not advice:
+        advice.append('当前未发现明显逾期待处理项，可继续跟踪价格和到货稳定性')
+    lines.append('')
+    lines.append('建议：' + '；'.join(advice) + '。')
+
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards[:12],
+        [
+            {'label': '供应商档案', 'url': url_for('supplier_list', search=supplier.name)},
+            {'label': '采购订单', 'url': url_for('purchase_order_list', supplier_id=supplier.id)},
+            {'label': '采购报表', 'url': url_for('report_view', report_type='supplier_purchase_summary', supplier=supplier.name)},
+        ],
+    )
+
+
+def _ai_is_supplier_followup_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '催供应商', '催货', '催交', '采购催交', '到货催促', '逾期采购催交',
+        '生成催货消息', '生成催交通知', '供应商跟进话术', '催到货',
+        '提醒供应商发货', '采购跟进消息',
+    ))
+
+
+def _ai_purchase_followup_orders(limit=12):
+    today_value = date.today()
+    return (
+        PurchaseOrder.query.options(
+            joinedload(PurchaseOrder.supplier),
+            selectinload(PurchaseOrder.items).joinedload(PurchaseOrderItem.material).joinedload(Material.unit),
+        )
+        .filter(PurchaseOrder.status.in_(('pending', 'partial')))
+        .filter(PurchaseOrder.expected_date.isnot(None))
+        .filter(PurchaseOrder.expected_date <= today_value + timedelta(days=3))
+        .order_by(PurchaseOrder.expected_date.asc(), PurchaseOrder.id.asc())
+        .limit(limit)
+        .all()
+    )
+
+
+def _ai_supplier_followup_response(message, context=None, force=False):
+    if not force and not _ai_is_supplier_followup_question(message):
+        return None
+
+    supplier = _ai_supplier_from_message(message)
+    orders = _ai_purchase_followup_orders(limit=20)
+    if supplier:
+        orders = [order for order in orders if order.supplier_id == supplier.id]
+
+    if not orders:
+        actions = [{'label': '采购工作台', 'url': '#', 'prompt': '采购工作台'}]
+        if supplier:
+            actions.append({'label': '供应商画像', 'url': '#', 'prompt': f'供应商采购画像 {supplier.name}'})
+        return _ai_json_response(
+            '当前没有找到需要催交的逾期或 3 天内到货采购订单。',
+            [],
+            actions,
+        )
+
+    today_value = date.today()
+    grouped = {}
+    for order in orders:
+        key = order.supplier_id or 0
+        grouped.setdefault(key, {
+            'supplier': order.supplier,
+            'orders': [],
+        })['orders'].append(order)
+
+    cards = []
+    message_blocks = []
+    for group in grouped.values():
+        supplier_obj = group['supplier']
+        supplier_name = supplier_obj.name if supplier_obj else '未指定供应商'
+        contact = supplier_obj.contact if supplier_obj else ''
+        phone = supplier_obj.phone if supplier_obj else ''
+        group_orders = group['orders']
+        overdue_count = 0
+        line_texts = []
+        for order in group_orders:
+            if order.expected_date and order.expected_date < today_value:
+                overdue_count += 1
+                date_note = f'已逾期 {(today_value - order.expected_date).days} 天'
+            elif order.expected_date:
+                date_note = f'{(order.expected_date - today_value).days} 天内到货'
+            else:
+                date_note = '未维护预计到货日'
+            item_summaries = []
+            for item in (order.items or [])[:4]:
+                material = item.material
+                remain_qty = round_to_2_decimals(max((item.quantity or 0) - (item.received_quantity or 0), 0))
+                if remain_qty <= STOCK_COMPARE_EPSILON:
+                    continue
+                unit_name = material.unit.name if material and material.unit else ''
+                item_summaries.append(
+                    f'{material.code if material else item.material_id} {material.name if material else ""} {normalize_stock_quantity(remain_qty)}{unit_name}'
+                )
+            line_texts.append(
+                f'- {order.order_no}：预计 {order.expected_date or "-"}，{date_note}，未到货：{"；".join(item_summaries) if item_summaries else "请核对明细"}'
+            )
+            cards.append({
+                'title': f'催交 {order.order_no}',
+                'meta': f'供应商 {supplier_name}；预计到货 {order.expected_date or "-"}；状态 {purchase_order_status_label(order.status)}；{date_note}',
+                'url': url_for('purchase_order_detail', id=order.id),
+            })
+
+        greeting_name = contact or supplier_name
+        block = [
+            f'**{supplier_name} 催交通知草稿**',
+            f'{greeting_name}您好，以下采购订单请协助确认发货/到货进度：',
+            *line_texts,
+            '请回复每张订单的预计发货时间、预计到货时间；如有缺料、延期或数量差异，请同步原因和可替代方案。谢谢。',
+        ]
+        if phone:
+            block.append(f'联系人电话：{phone}')
+        if overdue_count:
+            block.append(f'跟进重点：其中 {overdue_count} 张已逾期，请优先确认。')
+        message_blocks.append('\n'.join(block))
+
+    reply = (
+        f'已按供应商生成 {len(message_blocks)} 段催交话术，覆盖 {len(orders)} 张逾期或 3 天内到货采购订单。'
+        '\n\n'
+        + '\n\n---\n\n'.join(message_blocks)
+        + '\n\n以上只是话术草稿，系统没有自动发送消息，也没有修改采购订单。'
+    )
+    return _ai_json_response(
+        reply,
+        cards[:16],
+        [
+            {'label': '采购工作台', 'url': '#', 'prompt': '采购工作台'},
+            {'label': '采购订单', 'url': url_for('purchase_order_list')},
+            {'label': '供应商画像', 'url': '#', 'prompt': '供应商采购画像'},
+        ],
+    )
+
+
+def _ai_is_master_data_health_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '基础资料体检', '基础资料检查', '主数据体检', '主数据检查', '档案体检', '档案检查',
+        '资料健康', '物料体检', '物料档案体检', '供应商资料检查', '客户资料检查',
+        '基础资料ai', '基础资料AI', '主数据ai', '主数据AI',
+    ))
+
+
+def _ai_duplicate_group_count(model, *columns):
+    if not columns:
+        return 0
+    expressions = [func.lower(func.coalesce(column, '')) for column in columns]
+    query = db.session.query(*expressions, func.count(model.id)).group_by(*expressions).having(func.count(model.id) > 1)
+    for expression in expressions:
+        query = query.filter(expression != '')
+    return query.count()
+
+
+def _ai_master_data_health_response(message, context=None, force=False):
+    if not force and not _ai_is_master_data_health_question(message):
+        return None
+
+    material_count = Material.query.count()
+    supplier_count = Supplier.query.count()
+    customer_count = Customer.query.count()
+    warehouse_count = Warehouse.query.count()
+    unit_count = Unit.query.count()
+    category_count = MaterialCategory.query.count()
+
+    missing_unit = Material.query.filter(db.or_(Material.unit_id.is_(None), Material.unit_id == 0)).count()
+    missing_category = Material.query.filter(db.or_(Material.category_id.is_(None), Material.category_id == 0)).count()
+    missing_supplier = Material.query.filter(db.or_(Material.supplier_id.is_(None), Material.supplier_id == 0)).count()
+    missing_price = Material.query.filter(db.or_(Material.price.is_(None), Material.price <= 0)).count()
+    missing_stock_rule = Material.query.filter(
+        db.and_(
+            db.or_(Material.min_stock.is_(None), Material.min_stock <= 0),
+            db.or_(Material.reorder_point.is_(None), Material.reorder_point <= 0),
+            db.or_(Material.max_stock.is_(None), Material.max_stock <= 0),
+        )
+    ).count()
+    negative_stock = Material.query.filter(Material.stock < 0).count()
+    duplicate_material_name_spec = _ai_duplicate_group_count(Material, Material.name, Material.spec)
+    duplicate_supplier_contact = Supplier.query.filter(
+        db.and_(
+            db.or_(Supplier.contact.is_(None), Supplier.contact == ''),
+            db.or_(Supplier.phone.is_(None), Supplier.phone == ''),
+        )
+    ).count()
+    duplicate_customer_contact = Customer.query.filter(
+        db.and_(
+            db.or_(Customer.contact.is_(None), Customer.contact == ''),
+            db.or_(Customer.phone.is_(None), Customer.phone == ''),
+        )
+    ).count()
+    inactive_warehouses = Warehouse.query.filter(Warehouse.status != 'active').count()
+
+    risk_score = (
+        missing_unit * 3 + missing_category + missing_supplier + missing_price + missing_stock_rule
+        + negative_stock * 4 + duplicate_material_name_spec * 3 + duplicate_supplier_contact + duplicate_customer_contact
+    )
+    if risk_score >= 30:
+        level = '高'
+    elif risk_score >= 8:
+        level = '中'
+    else:
+        level = '低'
+
+    cards = [
+        {'title': '物料档案完整性', 'meta': f'物料 {material_count} 个；缺单位 {missing_unit}，缺分类 {missing_category}，缺供应商 {missing_supplier}，缺价格 {missing_price}', 'url': url_for('material_list')},
+        {'title': '库存预警基础', 'meta': f'未维护最低/安全/最高库存 {missing_stock_rule} 个；负库存 {negative_stock} 个', 'url': url_for('material_list', stock_filter='low')},
+        {'title': '重复物料线索', 'meta': f'同名称+规格重复组 {duplicate_material_name_spec} 组，建议导入前先清洗', 'url': url_for('material_list')},
+        {'title': '供应商资料', 'meta': f'供应商 {supplier_count} 个；缺联系人和电话 {duplicate_supplier_contact} 个', 'url': url_for('supplier_list')},
+        {'title': '客户资料', 'meta': f'客户 {customer_count} 个；缺联系人和电话 {duplicate_customer_contact} 个', 'url': url_for('customer_list')},
+        {'title': '仓库/单位/分类', 'meta': f'仓库 {warehouse_count} 个，停用 {inactive_warehouses}；单位 {unit_count} 个；分类 {category_count} 个', 'url': url_for('warehouse_list')},
+    ]
+
+    lines = [
+        f'**基础资料AI体检：风险 {level}**',
+        f'- 物料档案：{material_count} 个；缺单位 {missing_unit}，缺分类 {missing_category}，缺默认供应商 {missing_supplier}，缺参考价 {missing_price}。',
+        f'- 库存控制：未维护库存预警规则 {missing_stock_rule} 个；负库存 {negative_stock} 个。',
+        f'- 重复线索：同名称+规格物料重复组 {duplicate_material_name_spec} 组。',
+        f'- 往来单位：供应商 {supplier_count} 个，客户 {customer_count} 个；缺联系人/电话的供应商 {duplicate_supplier_contact} 个、客户 {duplicate_customer_contact} 个。',
+        f'- 仓库/单位/分类：仓库 {warehouse_count} 个，单位 {unit_count} 个，物料分类 {category_count} 个。',
+        '',
+        '建议顺序：1. 先补物料单位和分类；2. 处理负库存和预警上下限；3. 合并或停用重复物料线索；4. 补齐供应商/客户联系人；5. 批量导入前先用模板清洗编码、单位、供应商名称。',
+        'AI只做检查和定位，不会自动删除、停用或合并基础资料。',
+    ]
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards,
+        [
+            {'label': '物料档案', 'url': url_for('material_list')},
+            {'label': '供应商', 'url': url_for('supplier_list')},
+            {'label': '客户', 'url': url_for('customer_list')},
+            {'label': '仓库', 'url': url_for('warehouse_list')},
+        ],
+    )
+
+
+def _ai_is_master_data_fix_list_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '基础资料修复清单', '主数据修复清单', '资料修复清单', '基础资料待办',
+        '主数据待办', '物料修复清单', '缺失资料清单', '基础资料要修哪些',
+        '哪些资料要补', '资料补全清单', '档案修复清单',
+    ))
+
+
+def _ai_material_master_issues(material):
+    issues = []
+    if not material.unit_id:
+        issues.append(('缺单位', 4))
+    if not material.category_id:
+        issues.append(('缺分类', 2))
+    if not material.supplier_id:
+        issues.append(('缺默认供应商', 2))
+    if not material.price or material.price <= 0:
+        issues.append(('缺参考价', 1))
+    if (
+        (not material.min_stock or material.min_stock <= 0)
+        and (not material.reorder_point or material.reorder_point <= 0)
+        and (not material.max_stock or material.max_stock <= 0)
+    ):
+        issues.append(('缺库存预警规则', 2))
+    if material.stock is not None and material.stock < 0:
+        issues.append(('负库存', 5))
+    return issues
+
+
+def _ai_master_data_fix_list_response(message, context=None, force=False):
+    if not force and not _ai_is_master_data_fix_list_question(message):
+        return None
+
+    materials = (
+        Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
+        .order_by(Material.created_at.desc(), Material.id.desc())
+        .limit(300)
+        .all()
+    )
+    material_rows = []
+    for material in materials:
+        issues = _ai_material_master_issues(material)
+        if not issues:
+            continue
+        score = sum(weight for _name, weight in issues)
+        material_rows.append((score, material, [name for name, _weight in issues]))
+    material_rows.sort(key=lambda row: (row[0], abs(row[1].stock or 0)), reverse=True)
+
+    suppliers = (
+        Supplier.query
+        .filter(db.or_(Supplier.contact.is_(None), Supplier.contact == '', Supplier.phone.is_(None), Supplier.phone == ''))
+        .order_by(Supplier.created_at.desc(), Supplier.id.desc())
+        .limit(8)
+        .all()
+    )
+    customers = (
+        Customer.query
+        .filter(db.or_(Customer.contact.is_(None), Customer.contact == '', Customer.phone.is_(None), Customer.phone == ''))
+        .order_by(Customer.created_at.desc(), Customer.id.desc())
+        .limit(8)
+        .all()
+    )
+
+    duplicate_rows = (
+        db.session.query(
+            Material.name,
+            Material.spec,
+            func.count(Material.id).label('cnt'),
+            func.group_concat(Material.code, ',').label('codes'),
+        )
+        .filter(Material.name.isnot(None), Material.name != '')
+        .group_by(Material.name, Material.spec)
+        .having(func.count(Material.id) > 1)
+        .order_by(func.count(Material.id).desc())
+        .limit(5)
+        .all()
+    )
+    supplier_missing_contact_count = Supplier.query.filter(
+        db.or_(Supplier.contact.is_(None), Supplier.contact == '', Supplier.phone.is_(None), Supplier.phone == '')
+    ).count()
+    customer_missing_contact_count = Customer.query.filter(
+        db.or_(Customer.contact.is_(None), Customer.contact == '', Customer.phone.is_(None), Customer.phone == '')
+    ).count()
+
+    cards = []
+    for score, material, issues in material_rows[:12]:
+        cards.append({
+            'title': f'{material.code} {material.name}',
+            'meta': f'待补：{"、".join(issues)}；库存 {normalize_stock_quantity(material.stock or 0)}；单位 {material.unit.name if material.unit else "-"}；供应商 {material.supplier.name if material.supplier else "-"}',
+            'url': url_for('material_list', search=material.code or material.name or ''),
+            'score': score,
+        })
+    for supplier in suppliers[:4]:
+        missing = []
+        if not supplier.contact:
+            missing.append('联系人')
+        if not supplier.phone:
+            missing.append('电话')
+        cards.append({
+            'title': f'供应商待补 {supplier.code} {supplier.name}',
+            'meta': f'缺：{"、".join(missing)}',
+            'url': url_for('supplier_list', search=supplier.name),
+        })
+    for customer in customers[:4]:
+        missing = []
+        if not customer.contact:
+            missing.append('联系人')
+        if not customer.phone:
+            missing.append('电话')
+        cards.append({
+            'title': f'客户待补 {customer.code} {customer.name}',
+            'meta': f'缺：{"、".join(missing)}',
+            'url': url_for('customer_list', search=customer.name),
+        })
+
+    lines = [
+        '**基础资料修复清单**',
+        f'- 待修物料：{len(material_rows)} 个；优先显示前 {min(len(material_rows), 12)} 个。',
+        f'- 待补供应商联系人/电话：{supplier_missing_contact_count} 个。',
+        f'- 待补客户联系人/电话：{customer_missing_contact_count} 个。',
+        f'- 重复物料线索：{len(duplicate_rows)} 组已列出前几组。',
+        '',
+    ]
+    if material_rows:
+        lines.append('| 优先级 | 物料 | 待补字段 |')
+        lines.append('|---:|---|---|')
+        for score, material, issues in material_rows[:10]:
+            lines.append(f'| {score} | {material.code} {material.name} | {"、".join(issues)} |')
+    if duplicate_rows:
+        lines.append('')
+        lines.append('**重复物料线索**')
+        for row in duplicate_rows:
+            lines.append(f'- {row.name} / {row.spec or "-"}：{row.cnt} 条，编码 {row.codes or "-"}')
+    lines.extend([
+        '',
+        '处理建议：先修“缺单位、负库存、缺库存预警规则”的物料；再补供应商/客户联系方式；重复物料只给线索，需要人工确认后再合并或停用。',
+    ])
+
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards[:20],
+        [
+            {'label': '物料档案', 'url': url_for('material_list')},
+            {'label': '供应商', 'url': url_for('supplier_list')},
+            {'label': '客户', 'url': url_for('customer_list')},
+            {'label': '基础资料体检', 'url': '#', 'prompt': '基础资料AI体检'},
+        ],
+    )
+
+
+def _ai_is_system_health_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '系统管理体检', '系统体检', '系统检查', '系统管理检查', 'ai配置检查', 'AI配置检查',
+        '配置体检', '登录安全检查', '备份检查', '启动检查', '系统健康', '管理体检',
+    ))
+
+
+def _ai_system_health_response(message, context=None, force=False):
+    if not force and not _ai_is_system_health_question(message):
+        return None
+
+    now_value = datetime.now()
+    cutoff = now_value - timedelta(days=7)
+    failed_login_count = LoginLog.query.filter(LoginLog.status == 'failed', LoginLog.login_time >= cutoff).count()
+    locked_user_count = User.query.filter(User.locked_until.isnot(None), User.locked_until > now_value).count()
+    inactive_user_count = User.query.filter(User.status.in_(('disabled', 'inactive'))).count()
+    admin_count = User.query.filter(User.role == 'admin', User.status.notin_(('disabled', 'inactive'))).count()
+    recent_operation_count = OperationLog.query.filter(OperationLog.created_at >= cutoff).count()
+    recent_delete_count = OperationLog.query.filter(
+        OperationLog.created_at >= cutoff,
+        OperationLog.operation_type.like('%删除%'),
+    ).count()
+
+    backup_files = []
+    backup_dir = Path(BACKUP_DIR)
+    if backup_dir.exists():
+        backup_files = sorted(
+            [path for path in backup_dir.glob('*.db') if path.is_file()],
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    latest_backup = backup_files[0] if backup_files else None
+    latest_backup_age_days = None
+    if latest_backup:
+        latest_backup_age_days = int((now_value.timestamp() - latest_backup.stat().st_mtime) // 86400)
+
+    ai_ready = _ai_llm_configured()
+    vision_ready = ai_ready and _ai_llm_vision_enabled()
+    warnings = []
+    if not ai_ready:
+        warnings.append('AI大模型未完整配置')
+    if not vision_ready:
+        warnings.append('图片识别未就绪')
+    if failed_login_count > 10:
+        warnings.append('近7天登录失败偏多')
+    if locked_user_count:
+        warnings.append('存在锁定账号')
+    if admin_count == 0:
+        warnings.append('没有启用管理员账号')
+    if not latest_backup:
+        warnings.append('未发现数据库备份')
+    elif latest_backup_age_days is not None and latest_backup_age_days > 7:
+        warnings.append('最近备份超过7天')
+    if allow_negative_stock():
+        warnings.append('允许负库存已开启')
+    if location_management_enabled() and allow_negative_location_stock():
+        warnings.append('允许库位负库存已开启')
+    if not purchase_in_order_requires_order():
+        warnings.append('采购入库不强制来源采购订单')
+
+    cards = [
+        {'title': 'AI助手配置', 'meta': f'大模型 {"已就绪" if ai_ready else "未就绪"}；图片识别 {"已启用" if vision_ready else "未就绪"}；模型 {_ai_llm_model()}', 'url': url_for('system_settings_page')},
+        {'title': '登录安全', 'meta': f'近7天登录失败 {failed_login_count} 次；锁定账号 {locked_user_count} 个；停用账号 {inactive_user_count} 个', 'url': url_for('user_list')},
+        {'title': '数据库备份', 'meta': f'备份文件 {len(backup_files)} 个；最近 {latest_backup.name if latest_backup else "-"}；距今 {latest_backup_age_days if latest_backup_age_days is not None else "-"} 天', 'url': url_for('backup_page')},
+        {'title': '业务控制参数', 'meta': f'负库存 {"允许" if allow_negative_stock() else "禁止"}；库位管理 {"启用" if location_management_enabled() else "未启用"}；采购入库来源订单 {"强制" if purchase_in_order_requires_order() else "未强制"}', 'url': url_for('system_settings_page')},
+        {'title': '操作活跃度', 'meta': f'近7天操作 {recent_operation_count} 次；删除类操作 {recent_delete_count} 次', 'url': url_for('index')},
+    ]
+    level = '高' if len(warnings) >= 4 else ('中' if warnings else '低')
+    lines = [
+        f'**系统管理AI体检：风险 {level}**',
+        f'- AI助手：大模型 {"已就绪" if ai_ready else "未就绪"}；图片识别 {"已就绪" if vision_ready else "未就绪"}。',
+        f'- 登录安全：近7天失败 {failed_login_count} 次；锁定账号 {locked_user_count} 个；启用管理员 {admin_count} 个。',
+        f'- 备份：发现 {len(backup_files)} 个备份；最近备份 {latest_backup.name if latest_backup else "-"}；距今 {latest_backup_age_days if latest_backup_age_days is not None else "-"} 天。',
+        f'- 控制参数：负库存 {"允许" if allow_negative_stock() else "禁止"}；库位负库存 {"允许" if allow_negative_location_stock() else "禁止"}；采购入库来源采购订单 {"强制" if purchase_in_order_requires_order() else "未强制"}。',
+        f'- 近7天操作：{recent_operation_count} 次；删除类操作 {recent_delete_count} 次。',
+    ]
+    if warnings:
+        lines.append('')
+        lines.append('需要关注：' + '；'.join(warnings) + '。')
+    lines.extend([
+        '',
+        '建议：系统管理AI只做体检、解释和定位入口；用户权限、关键配置、备份删除/恢复必须由管理员手工确认。',
+    ])
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards,
+        [
+            {'label': '系统设置', 'url': url_for('system_settings_page')},
+            {'label': '用户管理', 'url': url_for('user_list')},
+            {'label': '数据备份', 'url': url_for('backup_page')},
+            {'label': '识图自检', 'url': '#', 'prompt': '识图能力自检'},
+        ],
+    )
+
+
+def _ai_is_system_fix_list_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '系统管理修复清单', '系统修复清单', '系统待办', '系统管理待办',
+        '配置修复清单', '登录安全修复', '备份修复清单', '系统要修哪些',
+        '管理修复清单', '系统风险清单',
+    ))
+
+
+def _ai_system_fix_list_response(message, context=None, force=False):
+    if not force and not _ai_is_system_fix_list_question(message):
+        return None
+
+    now_value = datetime.now()
+    cutoff = now_value - timedelta(days=7)
+    tasks = []
+    cards = []
+
+    def add_task(priority, title, detail, action_label, action_url):
+        tasks.append({
+            'priority': priority,
+            'title': title,
+            'detail': detail,
+            'action_label': action_label,
+            'action_url': action_url,
+        })
+        cards.append({
+            'title': title,
+            'meta': f'优先级 {priority}：{detail}',
+            'url': action_url,
+        })
+
+    if not _ai_llm_configured():
+        add_task(5, '配置AI大模型连接', 'AI助手当前不能稳定调用大模型，请检查启用状态、接口地址、模型名称和API Key。', '系统设置', url_for('system_settings_page'))
+    if not _ai_llm_vision_enabled():
+        add_task(4, '启用图片识别配置', '送货单、标签、拍照入库依赖图片识别，建议配置支持视觉的模型后做识图自检。', 'AI助手参数', url_for('system_settings_page'))
+
+    backup_files = []
+    backup_dir = Path(BACKUP_DIR)
+    if backup_dir.exists():
+        backup_files = sorted(
+            [path for path in backup_dir.glob('*.db') if path.is_file()],
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    latest_backup = backup_files[0] if backup_files else None
+    latest_backup_age_days = None
+    if latest_backup:
+        latest_backup_age_days = int((now_value.timestamp() - latest_backup.stat().st_mtime) // 86400)
+    if not latest_backup:
+        add_task(5, '创建数据库备份', '当前未发现数据库备份，升级、导入、批量维护前风险较高。', '数据备份', url_for('backup_page'))
+    elif latest_backup_age_days is not None and latest_backup_age_days > 7:
+        add_task(4, '更新数据库备份', f'最近备份距今 {latest_backup_age_days} 天，建议先创建新备份再做批量操作。', '数据备份', url_for('backup_page'))
+
+    failed_login_count = LoginLog.query.filter(LoginLog.status == 'failed', LoginLog.login_time >= cutoff).count()
+    locked_users = User.query.filter(User.locked_until.isnot(None), User.locked_until > now_value).order_by(User.locked_until.desc()).limit(5).all()
+    if failed_login_count > 10:
+        add_task(4, '排查登录失败', f'近7天登录失败 {failed_login_count} 次，建议核对账号、密码策略和异常IP。', '用户管理', url_for('user_list'))
+    for user in locked_users:
+        add_task(3, f'处理锁定账号 {user.username}', f'账号锁定至 {user.locked_until}，需要管理员确认是否解锁或重置密码。', '用户管理', url_for('user_list', search=user.username))
+
+    admin_count = User.query.filter(User.role == 'admin', User.status.notin_(('disabled', 'inactive'))).count()
+    if admin_count == 0:
+        add_task(5, '恢复管理员账号', '当前没有启用状态的管理员账号，系统管理操作可能无法闭环。', '用户管理', url_for('user_list'))
+
+    if allow_negative_stock():
+        add_task(4, '复核允许负库存', '当前允许物料负库存，可能掩盖出库、盘点或入库滞后问题。', '系统设置', url_for('system_settings_page'))
+    if location_management_enabled() and allow_negative_location_stock():
+        add_task(4, '复核库位负库存', '已启用库位管理但允许库位负库存，库位账实一致性风险较高。', '系统设置', url_for('system_settings_page'))
+    if not inventory_alert_enabled():
+        add_task(3, '启用库存预警', '库存预警未启用，低库存补货、基础资料体检的预警能力会受限。', '系统设置', url_for('system_settings_page'))
+    if not purchase_in_order_requires_order():
+        add_task(3, '复核采购入库来源控制', '采购入库不强制关联采购订单，采购申请-订单-入库追踪会变弱。', '系统设置', url_for('system_settings_page'))
+
+    delete_logs = (
+        OperationLog.query
+        .filter(OperationLog.created_at >= cutoff, OperationLog.operation_type.like('%删除%'))
+        .order_by(OperationLog.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    if delete_logs:
+        add_task(2, '复核近期删除操作', f'近7天发现 {len(delete_logs)} 条删除类操作样本，建议确认是否为正常维护。', '首页', url_for('index'))
+
+    tasks.sort(key=lambda item: item['priority'], reverse=True)
+    cards.sort(key=lambda item: int(str(item.get('meta', '')).split('优先级 ')[1].split('：')[0]) if '优先级 ' in str(item.get('meta', '')) else 0, reverse=True)
+
+    if not tasks:
+        return _ai_json_response(
+            '系统管理修复清单当前为空。AI配置、备份、登录安全和关键业务控制参数没有发现需要优先处理的问题。',
+            [],
+            [
+                {'label': '系统体检', 'url': '#', 'prompt': '系统管理AI体检'},
+                {'label': '系统设置', 'url': url_for('system_settings_page')},
+                {'label': '数据备份', 'url': url_for('backup_page')},
+            ],
+        )
+
+    lines = [
+        '**系统管理修复清单**',
+        f'- 待处理项：{len(tasks)} 项；高优先级 {sum(1 for item in tasks if item["priority"] >= 4)} 项。',
+        '',
+        '| 优先级 | 待办 | 说明 |',
+        '|---:|---|---|',
+    ]
+    for item in tasks[:12]:
+        lines.append(f'| {item["priority"]} | {item["title"]} | {item["detail"]} |')
+    lines.extend([
+        '',
+        '处理边界：AI只生成清单和入口，不会自动改权限、改配置、删除备份或恢复数据库。',
+    ])
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards[:16],
+        [
+            {'label': '系统体检', 'url': '#', 'prompt': '系统管理AI体检'},
+            {'label': '系统设置', 'url': url_for('system_settings_page')},
+            {'label': '用户管理', 'url': url_for('user_list')},
+            {'label': '数据备份', 'url': url_for('backup_page')},
+        ],
+    )
+
+
+def _ai_is_master_data_import_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '基础资料导入', '主数据导入', '物料导入', '供应商导入', '客户导入',
+        '单位导入', '仓库导入', '导入模板', 'excel导入', 'Excel导入',
+        '批量导入资料', '导入前检查', '导入清洗', '资料导入助手',
+    ))
+
+
+def _ai_master_data_import_response(message, context=None, force=False):
+    if not force and not _ai_is_master_data_import_question(message):
+        return None
+
+    unit_count = Unit.query.count()
+    category_count = MaterialCategory.query.count()
+    supplier_count = Supplier.query.count()
+    warehouse_count = Warehouse.query.count()
+    material_count = Material.query.count()
+    duplicate_material_name_spec = _ai_duplicate_group_count(Material, Material.name, Material.spec)
+
+    cards = [
+        {'title': '1. 单位导入/维护', 'meta': f'当前单位 {unit_count} 个；物料导入前先统一“个、件、箱、米”等单位写法', 'url': url_for('unit_list')},
+        {'title': '2. 物料分类导入/维护', 'meta': f'当前分类 {category_count} 个；建议先建原材料、半成品、成品、辅料等分类', 'url': url_for('category_list')},
+        {'title': '3. 供应商导入/维护', 'meta': f'当前供应商 {supplier_count} 个；物料默认供应商必须先统一名称', 'url': url_for('supplier_list')},
+        {'title': '4. 仓库导入/维护', 'meta': f'当前仓库 {warehouse_count} 个；启用库位管理时先统一仓库/库位编码', 'url': url_for('warehouse_list')},
+        {'title': '5. 物料导入', 'meta': f'当前物料 {material_count} 个；同名称+规格重复线索 {duplicate_material_name_spec} 组', 'url': url_for('material_list')},
+        {'title': '导入后体检', 'meta': '导入完成后跑基础资料AI体检和修复清单，检查缺单位、缺供应商、负库存和重复线索', 'url': '#', 'prompt': '基础资料AI体检'},
+    ]
+
+    lines = [
+        '**基础资料导入助手**',
+        '建议导入顺序：1. 单位；2. 物料分类；3. 供应商/客户；4. 仓库；5. 物料；6. 期初库存或业务单据。',
+        '',
+        '**导入前清洗规则**',
+        '- 编码：物料、供应商、客户、仓库编码必须唯一且稳定，避免用名称当编码。',
+        '- 名称：供应商/客户名称要统一全称，避免“有限公司/公司/简称”混用。',
+        '- 单位：物料单位必须先存在，避免“PCS、pcs、个、只”混成多套单位。',
+        '- 规格：同名物料必须填规格，否则后续扫码、采购、出入库容易选错。',
+        '- 价格/库存：参考价可以为0但导入后要体检；期初库存不要混在物料档案里反复导入。',
+        '',
+        f'当前基础数据：单位 {unit_count} 个，分类 {category_count} 个，供应商 {supplier_count} 个，仓库 {warehouse_count} 个，物料 {material_count} 个。',
+        'AI只做导入顺序和清洗检查，不自动上传Excel、不自动写库。',
+    ]
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards,
+        [
+            {'label': '单位', 'url': url_for('unit_list')},
+            {'label': '物料分类', 'url': url_for('category_list')},
+            {'label': '供应商', 'url': url_for('supplier_list')},
+            {'label': '物料档案', 'url': url_for('material_list')},
+            {'label': '导入后体检', 'url': '#', 'prompt': '基础资料修复清单'},
+        ],
+    )
+
+
+def _ai_is_user_permission_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '权限助手', '账号助手', '用户权限', '角色权限', '权限体检', '账号体检',
+        '用户管理ai', '用户管理AI', '谁有权限', '角色说明', '账号风险',
+        '锁定账号', '登录失败', '权限检查',
+    ))
+
+
+def _ai_role_label(role):
+    return {
+        'admin': '管理员',
+        'warehouse': '仓库',
+        'purchase': '采购',
+        'production': '生产',
+        'user': '普通用户',
+    }.get(role or '', role or '未设置')
+
+
+def _ai_user_permission_response(message, context=None, force=False):
+    if not force and not _ai_is_user_permission_question(message):
+        return None
+
+    now_value = datetime.now()
+    cutoff = now_value - timedelta(days=7)
+    role_rows = db.session.query(User.role, func.count(User.id)).group_by(User.role).all()
+    role_counts = {role or '未设置': count or 0 for role, count in role_rows}
+    active_admin_count = User.query.filter(User.role == 'admin', User.status.notin_(('disabled', 'inactive'))).count()
+    locked_users = User.query.filter(User.locked_until.isnot(None), User.locked_until > now_value).order_by(User.locked_until.desc()).limit(8).all()
+    inactive_users = User.query.filter(User.status.in_(('disabled', 'inactive'))).order_by(User.created_at.desc()).limit(8).all()
+    failed_login_count = LoginLog.query.filter(LoginLog.status == 'failed', LoginLog.login_time >= cutoff).count()
+    failed_user_rows = (
+        db.session.query(LoginLog.username, func.count(LoginLog.id).label('cnt'))
+        .filter(LoginLog.status == 'failed', LoginLog.login_time >= cutoff)
+        .group_by(LoginLog.username)
+        .order_by(func.count(LoginLog.id).desc())
+        .limit(5)
+        .all()
+    )
+
+    cards = []
+    for role in ('admin', 'warehouse', 'purchase', 'production', 'user'):
+        cards.append({
+            'title': f'{_ai_role_label(role)}账号',
+            'meta': f'{role_counts.get(role, 0)} 个；建议只授予实际需要的最小权限',
+            'url': url_for('user_list', role=role),
+        })
+    for user in locked_users[:4]:
+        cards.append({
+            'title': f'锁定账号 {user.username}',
+            'meta': f'锁定至 {user.locked_until}；角色 {_ai_role_label(user.role)}',
+            'url': url_for('user_list', search=user.username),
+        })
+    for row in failed_user_rows[:4]:
+        cards.append({
+            'title': f'登录失败 {row.username or "-"}',
+            'meta': f'近7天失败 {row.cnt} 次',
+            'url': url_for('user_list', search=row.username or ''),
+        })
+
+    warnings = []
+    if active_admin_count == 0:
+        warnings.append('没有启用管理员账号')
+    if role_counts.get('admin', 0) > 3:
+        warnings.append('管理员账号偏多，建议复核最小权限')
+    if locked_users:
+        warnings.append(f'存在 {len(locked_users)} 个锁定账号')
+    if failed_login_count > 10:
+        warnings.append('近7天登录失败偏多')
+
+    lines = [
+        '**权限账号助手**',
+        f'- 启用管理员：{active_admin_count} 个；近7天登录失败：{failed_login_count} 次；当前锁定账号：{len(locked_users)} 个。',
+        '',
+        '| 角色 | 账号数 | 建议边界 |',
+        '|---|---:|---|',
+        f'| 管理员 | {role_counts.get("admin", 0)} | 用户、系统设置、备份等高风险管理操作，人数要少 |',
+        f'| 仓库 | {role_counts.get("warehouse", 0)} | 物料、仓库、出入库、盘点、调拨、调整 |',
+        f'| 采购 | {role_counts.get("purchase", 0)} | 采购申请、采购订单、采购入库协同 |',
+        f'| 生产 | {role_counts.get("production", 0)} | 生产领料、BOM、委外相关流程 |',
+        f'| 普通用户 | {role_counts.get("user", 0)} | 查询和基础使用，避免授予高风险操作 |',
+    ]
+    if locked_users:
+        lines.append('')
+        lines.append('**锁定账号**')
+        for user in locked_users[:5]:
+            lines.append(f'- {user.username}：{_ai_role_label(user.role)}，锁定至 {user.locked_until}')
+    if failed_user_rows:
+        lines.append('')
+        lines.append('**登录失败TOP**')
+        for row in failed_user_rows:
+            lines.append(f'- {row.username or "-"}：{row.cnt} 次')
+    if warnings:
+        lines.append('')
+        lines.append('需要关注：' + '；'.join(warnings) + '。')
+    lines.append('')
+    lines.append('AI只做权限说明和风险定位，不自动启停账号、不重置密码、不调整角色。')
+
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards[:16],
+        [
+            {'label': '用户管理', 'url': url_for('user_list')},
+            {'label': '系统体检', 'url': '#', 'prompt': '系统管理AI体检'},
+            {'label': '系统清单', 'url': '#', 'prompt': '系统管理修复清单'},
+        ],
+    )
+
+
+def _ai_is_operation_audit_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '操作日志审计', '日志审计', '操作日志分析', '日志分析', '操作风险',
+        '删除操作', '谁删除', '最近谁操作', '最近操作', '操作记录',
+        '管理员审计', '审计助手', '系统审计',
+    ))
+
+
+def _ai_operation_audit_response(message, context=None, force=False):
+    if not force and not _ai_is_operation_audit_question(message):
+        return None
+
+    now_value = datetime.now()
+    cutoff = now_value - timedelta(days=7)
+    total_count = OperationLog.query.filter(OperationLog.created_at >= cutoff).count()
+    delete_count = OperationLog.query.filter(
+        OperationLog.created_at >= cutoff,
+        OperationLog.operation_type.like('%删除%'),
+    ).count()
+    complete_count = OperationLog.query.filter(
+        OperationLog.created_at >= cutoff,
+        db.or_(
+            OperationLog.operation_type.like('%完成%'),
+            OperationLog.operation_type.like('%审核%'),
+            OperationLog.operation_type.like('%反审%'),
+        ),
+    ).count()
+    backup_count = OperationLog.query.filter(
+        OperationLog.created_at >= cutoff,
+        db.or_(
+            OperationLog.operation_type.like('%备份%'),
+            OperationLog.target_type == 'backup',
+        ),
+    ).count()
+
+    user_rows = (
+        db.session.query(User.username, User.role, func.count(OperationLog.id).label('cnt'))
+        .join(OperationLog, OperationLog.user_id == User.id)
+        .filter(OperationLog.created_at >= cutoff)
+        .group_by(User.id)
+        .order_by(func.count(OperationLog.id).desc())
+        .limit(8)
+        .all()
+    )
+    type_rows = (
+        db.session.query(OperationLog.operation_type, func.count(OperationLog.id).label('cnt'))
+        .filter(OperationLog.created_at >= cutoff)
+        .group_by(OperationLog.operation_type)
+        .order_by(func.count(OperationLog.id).desc())
+        .limit(8)
+        .all()
+    )
+    target_rows = (
+        db.session.query(OperationLog.target_type, func.count(OperationLog.id).label('cnt'))
+        .filter(OperationLog.created_at >= cutoff, OperationLog.target_type.isnot(None), OperationLog.target_type != '')
+        .group_by(OperationLog.target_type)
+        .order_by(func.count(OperationLog.id).desc())
+        .limit(8)
+        .all()
+    )
+    recent_risk_logs = (
+        OperationLog.query.options(joinedload(OperationLog.user))
+        .filter(
+            OperationLog.created_at >= cutoff,
+            db.or_(
+                OperationLog.operation_type.like('%删除%'),
+                OperationLog.operation_type.like('%反审%'),
+                OperationLog.operation_type.like('%恢复%'),
+                OperationLog.operation_type.like('%备份%'),
+            )
+        )
+        .order_by(OperationLog.created_at.desc())
+        .limit(8)
+        .all()
+    )
+
+    cards = [
+        {'title': '近7天操作总览', 'meta': f'操作 {total_count} 次；删除 {delete_count} 次；审核/完成/反审 {complete_count} 次；备份相关 {backup_count} 次', 'url': url_for('operation_audit_page')},
+        {'title': '权限账号助手', 'meta': '结合角色分布、锁定账号和登录失败一起判断操作风险', 'url': '#', 'prompt': '权限账号助手'},
+        {'title': '系统管理修复清单', 'meta': '查看AI配置、备份、登录安全和危险参数待办', 'url': '#', 'prompt': '系统管理修复清单'},
+    ]
+    for row in user_rows[:5]:
+        cards.append({
+            'title': f'活跃用户 {row.username}',
+            'meta': f'{_ai_role_label(row.role)}；近7天操作 {row.cnt} 次',
+            'url': url_for('user_list', search=row.username or ''),
+        })
+    for log in recent_risk_logs[:5]:
+        cards.append({
+            'title': f'{log.operation_type} {log.target_type or ""}'.strip(),
+            'meta': f'{log.created_at}；用户 {log.user.username if log.user else "-"}；{(log.operation_content or "")[:80]}',
+            'url': url_for('operation_audit_page', username=log.user.username if log.user else '', risk='1'),
+        })
+
+    warnings = []
+    if delete_count:
+        warnings.append(f'近7天有 {delete_count} 次删除类操作')
+    if complete_count > 30:
+        warnings.append('审核/完成/反审类操作较多，建议抽查来源单据')
+    if backup_count == 0:
+        warnings.append('近7天没有备份相关操作记录')
+    if total_count == 0:
+        warnings.append('近7天没有操作日志，需确认系统是否正常记录日志')
+
+    lines = [
+        '**操作日志审计助手**',
+        f'- 近7天操作：{total_count} 次；删除类 {delete_count} 次；审核/完成/反审 {complete_count} 次；备份相关 {backup_count} 次。',
+        '',
+    ]
+    if user_rows:
+        lines.append('| 用户 | 角色 | 操作次数 |')
+        lines.append('|---|---|---:|')
+        for row in user_rows[:8]:
+            lines.append(f'| {row.username or "-"} | {_ai_role_label(row.role)} | {row.cnt} |')
+    if type_rows:
+        lines.append('')
+        lines.append('**操作类型TOP**')
+        for row in type_rows[:8]:
+            lines.append(f'- {row.operation_type or "-"}：{row.cnt} 次')
+    if target_rows:
+        lines.append('')
+        lines.append('**对象类型TOP**')
+        for row in target_rows[:8]:
+            lines.append(f'- {row.target_type or "-"}：{row.cnt} 次')
+    if recent_risk_logs:
+        lines.append('')
+        lines.append('**近期风险操作样本**')
+        for log in recent_risk_logs[:6]:
+            lines.append(f'- {log.created_at} {log.user.username if log.user else "-"}：{log.operation_type} / {log.target_type or "-"} / {(log.operation_content or "")[:60]}')
+    if warnings:
+        lines.append('')
+        lines.append('需要关注：' + '；'.join(warnings) + '。')
+    lines.append('')
+    lines.append('AI只做日志审计和风险提示，不自动删除日志、不撤销操作、不修改单据。')
+
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards[:16],
+        [
+            {'label': '操作审计', 'url': url_for('operation_audit_page')},
+            {'label': '权限助手', 'url': '#', 'prompt': '权限账号助手'},
+            {'label': '系统体检', 'url': '#', 'prompt': '系统管理AI体检'},
+            {'label': '用户管理', 'url': url_for('user_list')},
+        ],
+    )
+
+
+def _ai_is_product_suggestion_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '软件建议', '功能建议', '改进建议', '产品建议', '系统建议', '优化建议',
+        '仓库管理软件建议', '这个软件建议', '这个系统建议', '还需要什么功能',
+        '下一步开发什么', '功能规划', '产品规划', '开发建议', 'AI建议功能',
+        'ai建议功能', '软件改进',
+    ))
+
+
+def _ai_product_suggestion_response(message, context=None, force=False):
+    if not force and not _ai_is_product_suggestion_question(message):
+        return None
+
+    material_count = Material.query.count()
+    supplier_count = Supplier.query.count()
+    customer_count = Customer.query.count()
+    low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
+    negative_count = Material.query.filter(Material.stock < 0).count()
+    pending_count = sum(
+        config['model'].query.filter(config['model'].status.in_(config['status'])).count()
+        for config in (globals().get('PENDING_DOCUMENT_MODULES') or [])
+    )
+    report_count = len(globals().get('REPORT_DEFINITIONS') or {})
+    ai_ready = _ai_llm_configured()
+    vision_ready = ai_ready and _ai_llm_vision_enabled()
+    purchase_summary = build_purchase_order_todo_summary()
+    backup_files = []
+    backup_dir = Path(BACKUP_DIR)
+    if backup_dir.exists():
+        backup_files = [path for path in backup_dir.glob('*.db') if path.is_file()]
+
+    suggestions = []
+
+    def add_suggestion(priority, module, title, reason, action):
+        suggestions.append({
+            'priority': priority,
+            'module': module,
+            'title': title,
+            'reason': reason,
+            'action': action,
+        })
+
+    if material_count == 0 or supplier_count == 0:
+        add_suggestion(5, '基础资料', '做基础资料初始化向导', '物料或供应商数据偏少，新用户需要按单位、分类、供应商、物料顺序导入。', '提供导入步骤、模板入口、导入后体检。')
+    if low_count or negative_count:
+        add_suggestion(5, '库存执行', '强化库存异常闭环', f'当前低库存 {low_count} 项、负库存 {negative_count} 项。', '增加异常原因、责任人、处理状态和关闭记录。')
+    if purchase_summary.get('overdue_count', 0):
+        add_suggestion(5, '采购', '增加采购交期跟踪看板', f'当前逾期采购 {purchase_summary.get("overdue_count", 0)} 张。', '按供应商、采购员、预计到货日跟踪催交和延期原因。')
+    if not vision_ready:
+        add_suggestion(4, 'AI识图', '完善图片识别配置和样例库', '送货单/标签识别依赖视觉模型，当前图片识别未完全就绪。', '提供测试样张、字段映射、低置信度确认页。')
+    if pending_count:
+        add_suggestion(4, '待办中心', '增强待处理中心优先级', f'当前待处理单据 {pending_count} 张。', '增加超期、金额、库存影响、来源单据的综合排序。')
+    if report_count < 8:
+        add_suggestion(3, '报表', '补齐经营分析报表', f'当前报表定义 {report_count} 个。', '增加库存周转、采购到货及时率、供应商价格趋势、呆滞料分析。')
+    if not backup_files:
+        add_suggestion(4, '系统管理', '增加备份提醒和升级前检查', '未发现数据库备份文件。', '在导入、升级、批量删除前提示先备份。')
+    if location_management_enabled():
+        add_suggestion(3, '仓库执行', '增强库位作业体验', '系统已启用库位管理。', '增加库位推荐、库位库存差异、扫码上架/拣货路线。')
+    else:
+        add_suggestion(2, '仓库执行', '评估是否启用库位管理', '当前未启用库位管理。', '如果仓库有多货架/多库区，应启用库位并做库位库存控制。')
+
+    add_suggestion(4, '移动端/PDA', '增强扫码闭环', '仓库高频作业依赖扫码效率。', '完善扫码入库、扫码出库、盘点、调拨、条码打印和异常提示。')
+    add_suggestion(3, '权限审计', '用操作审计页面复核风险', '系统已提供操作审计筛选页，可按用户、动作、对象、时间、IP定位。', '定期筛选删除、反审、恢复、备份等风险操作并留痕。')
+    add_suggestion(3, 'AI助手', '增加“建议转任务”能力', 'AI建议目前是文本和卡片。', '后续可把建议生成待办草稿，由管理员确认后进入任务清单。')
+
+    suggestions.sort(key=lambda row: row['priority'], reverse=True)
+    cards = []
+    for item in suggestions[:12]:
+        if item['module'] == '基础资料':
+            url = url_for('material_list')
+        elif item['module'] == '采购':
+            url = url_for('purchase_order_list')
+        elif item['module'] == '报表':
+            url = url_for('report_dashboard')
+        elif item['module'] == '系统管理':
+            url = url_for('system_settings_page')
+        elif item['module'] == '权限审计':
+            url = url_for('operation_audit_page')
+        else:
+            url = url_for('index')
+        cards.append({
+            'title': f'{item["module"]}：{item["title"]}',
+            'meta': f'优先级 {item["priority"]}；{item["reason"]}',
+            'url': url,
+            'prompt': '操作日志审计' if item['module'] == '权限审计' else None,
+        })
+
+    lines = [
+        '**仓库管理软件改进建议**',
+        f'- 当前数据：物料 {material_count} 个，供应商 {supplier_count} 个，客户 {customer_count} 个；待处理单据 {pending_count} 张。',
+        f'- 库存状态：低库存 {low_count} 项，负库存 {negative_count} 项；采购逾期 {purchase_summary.get("overdue_count", 0)} 张。',
+        f'- 系统能力：报表 {report_count} 个；AI大模型 {"已配置" if ai_ready else "未配置"}；图片识别 {"已就绪" if vision_ready else "未就绪"}。',
+        '',
+        '| 优先级 | 模块 | 建议功能 | 原因 |',
+        '|---:|---|---|---|',
+    ]
+    for item in suggestions[:10]:
+        lines.append(f'| {item["priority"]} | {item["module"]} | {item["title"]} | {item["reason"]} |')
+    lines.extend([
+        '',
+        '建议开发顺序：先补数据质量和异常闭环，再做采购交期、扫码作业、审计报表，最后把AI建议转成可确认的任务清单。',
+        'AI只提出软件改进建议，不自动改代码、不自动改配置。',
+    ])
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards,
+        [
+            {'label': '基础资料体检', 'url': '#', 'prompt': '基础资料AI体检'},
+            {'label': '采购工作台', 'url': '#', 'prompt': '采购工作台'},
+            {'label': '系统体检', 'url': '#', 'prompt': '系统管理AI体检'},
+            {'label': '操作审计', 'url': url_for('operation_audit_page')},
+            {'label': '日志审计AI', 'url': '#', 'prompt': '操作日志审计'},
+        ],
+    )
+
+
+def _ai_is_ai_benchmark_roadmap_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        'ai路线图', 'AI路线图', 'ai能力路线图', 'AI能力路线图', 'ai对标',
+        'AI对标', 'copilot', 'joule', 'oracleagent', 'oracle ai agent',
+        '金蝶用友', 'erp ai对标', 'ERP AI对标', 'ai标杆', 'AI标杆',
+    ))
+
+
+def _ai_benchmark_roadmap_response(message, context=None, force=False):
+    if not force and not _ai_is_ai_benchmark_roadmap_question(message):
+        return None
+
+    ai_ready = _ai_llm_configured()
+    vision_ready = ai_ready and _ai_llm_vision_enabled()
+    low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
+    purchase_summary = build_purchase_order_todo_summary()
+    report_count = len(globals().get('REPORT_DEFINITIONS') or {})
+    skill_titles = [skill.get('title') for skill in AI_LOCAL_SKILLS if skill.get('title')]
+    has_agent = any('Agent' in title or '巡检' in title for title in skill_titles)
+    has_purchase_ai = any('采购' in title for title in skill_titles)
+    has_system_ai = any('系统' in title or '权限' in title or '日志' in title for title in skill_titles)
+
+    roadmap = [
+        {
+            'benchmark': 'Microsoft Copilot',
+            'target': '自然语言操作、Excel/微信/图片转单据',
+            'current': '已支持文本/微信生成草稿、送货单图片识别、识图自检' if vision_ready else '已支持文本/微信生成草稿；图片识别需配置视觉模型',
+            'gap': 'Excel整表解析、跨页复制粘贴、从邮件/聊天自动抽取上下文还可增强',
+            'next': '开发Excel/剪贴板表格识别，统一进入草稿确认页',
+            'priority': 5,
+        },
+        {
+            'benchmark': 'SAP Joule',
+            'target': '流程建议、异常解释、采购/库存闭环',
+            'current': f'已有异常工作台、采购工作台、低库存请购草稿；低库存 {low_count} 项，采购逾期 {purchase_summary.get("overdue_count", 0)} 张',
+            'gap': '异常处理状态、责任人、关闭记录还不完整',
+            'next': '开发库存异常闭环表：原因、责任人、处理动作、关闭状态',
+            'priority': 5,
+        },
+        {
+            'benchmark': 'Oracle AI Agent',
+            'target': '采购Agent、仓库Agent、系统管理Agent等角色型智能体',
+            'current': f'已具备{"Agent巡检、" if has_agent else ""}采购、系统管理、权限、日志、基础资料等AI技能',
+            'gap': 'Agent还主要是即时问答，缺少定时巡检、任务派发和执行记录',
+            'next': '开发AI任务中心：建议转任务、定时巡检、人工确认后关闭',
+            'priority': 4,
+        },
+        {
+            'benchmark': '金蝶/用友',
+            'target': '中国ERP单据、审核、下推、反审、报表、基础资料习惯',
+            'current': f'已有采购申请下推采购订单、采购订单下推入库、待办中心、报表 {report_count} 个、基础资料体检',
+            'gap': '部分列表缺少下一动作/阻塞原因，审计导出和字段级自定义还可增强',
+            'next': '补齐单据列表“下一动作”和“阻塞原因”，完善操作审计导出和追踪',
+            'priority': 4,
+        },
+    ]
+
+    cards = []
+    for item in roadmap:
+        if item['benchmark'] == 'Microsoft Copilot':
+            prompt = '识别送货单图片并生成采购入库单草稿'
+            url = '#'
+        elif item['benchmark'] == 'SAP Joule':
+            prompt = '仓库异常工作台'
+            url = '#'
+        elif item['benchmark'] == 'Oracle AI Agent':
+            prompt = 'Agent巡检仓库'
+            url = '#'
+        else:
+            prompt = '基础资料AI体检'
+            url = '#'
+        cards.append({
+            'title': f'{item["benchmark"]}：{item["target"]}',
+            'meta': f'优先级 {item["priority"]}；下一步：{item["next"]}',
+            'url': url,
+            'prompt': prompt,
+        })
+
+    lines = [
+        '**AI能力对标路线图**',
+        f'- 当前AI状态：大模型 {"已配置" if ai_ready else "未配置"}；图片识别 {"已就绪" if vision_ready else "未就绪"}；本地AI技能 {len(AI_LOCAL_SKILLS)} 个。',
+        f'- 采购AI：{"已具备" if has_purchase_ai else "待增强"}；系统管理AI：{"已具备" if has_system_ai else "待增强"}；角色Agent：{"已具备" if has_agent else "待增强"}。',
+        '',
+        '| 标杆 | 学什么 | 当前已有 | 缺口 | 下一步 |',
+        '|---|---|---|---|---|',
+    ]
+    for item in roadmap:
+        lines.append(f'| {item["benchmark"]} | {item["target"]} | {item["current"]} | {item["gap"]} | {item["next"]} |')
+    lines.extend([
+        '',
+        '建议优先级：1. Excel/剪贴板转单据；2. 库存异常闭环；3. AI任务中心；4. 单据下一动作和审计页面。',
+        'AI路线图只做规划和对标，不自动修改系统配置或业务数据。',
+    ])
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards,
+        [
+            {'label': '软件建议', 'url': '#', 'prompt': '仓库管理软件改进建议'},
+            {'label': '异常工作台', 'url': '#', 'prompt': '仓库异常工作台'},
+            {'label': '采购工作台', 'url': '#', 'prompt': '采购工作台'},
+            {'label': '系统体检', 'url': '#', 'prompt': '系统管理AI体检'},
+        ],
+    )
+
+
+def _ai_is_task_list_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        'ai任务清单', '任务清单', '执行清单', '待办清单', '建议转任务',
+        'ai任务中心', '任务中心', '下一步任务', '把建议变任务',
+        '改进任务', '处理清单', '闭环清单',
+    ))
+
+
+def _ai_task_priority_label(score):
+    if score >= 90:
+        return 'P0'
+    if score >= 75:
+        return 'P1'
+    if score >= 55:
+        return 'P2'
+    return 'P3'
+
+
+def _ai_task_list_response(message, context=None, force=False):
+    if not force and not _ai_is_task_list_question(message):
+        return None
+
+    today_value = date.today()
+    tasks = []
+
+    def add_task(score, module, title, basis, action, url=None, prompt=None, owner='人工确认'):
+        tasks.append({
+            'score': score,
+            'priority': _ai_task_priority_label(score),
+            'module': module,
+            'title': title,
+            'basis': basis,
+            'action': action,
+            'url': url or '#',
+            'prompt': prompt,
+            'owner': owner,
+        })
+
+    low_materials = []
+    if inventory_alert_enabled():
+        low_materials = (
+            Material.query
+            .filter(_material_low_stock_filter())
+            .order_by((Material.stock - Material.reorder_point).asc(), Material.code.asc())
+            .limit(8)
+            .all()
+        )
+    negative_materials = (
+        Material.query
+        .filter(Material.stock < 0)
+        .order_by(Material.stock.asc(), Material.code.asc())
+        .limit(8)
+        .all()
+    )
+    if negative_materials:
+        examples = '、'.join(f'{item.code}/{normalize_stock_quantity(item.stock)}' for item in negative_materials[:4])
+        add_task(
+            96,
+            '库存',
+            '处理负库存异常',
+            f'发现 {len(negative_materials)} 个负库存样本：{examples}',
+            '先查最近出入库、调拨、盘点记录，确认是否补录入库或做盘点调整。',
+            url_for('material_list'),
+            '仓库异常工作台',
+            '仓库主管',
+        )
+    if low_materials:
+        examples = '、'.join(f'{item.code}/{normalize_stock_quantity(item.stock)}' for item in low_materials[:4])
+        add_task(
+            88,
+            '采购',
+            '低库存生成补货请购',
+            f'低库存预警样本 {len(low_materials)} 个：{examples}',
+            '扣减未到货采购后，生成采购申请草稿并由采购确认供应商和数量。',
+            '#',
+            '根据低库存生成采购申请草稿',
+            '采购员',
+        )
+
+    purchase_summary = build_purchase_order_todo_summary()
+    overdue_orders = (
+        PurchaseOrder.query.options(joinedload(PurchaseOrder.supplier))
+        .filter(PurchaseOrder.status.in_(('pending', 'partial')))
+        .filter(PurchaseOrder.expected_date.isnot(None))
+        .filter(PurchaseOrder.expected_date < today_value)
+        .order_by(PurchaseOrder.expected_date.asc(), PurchaseOrder.id.asc())
+        .limit(5)
+        .all()
+    )
+    if overdue_orders:
+        first_order = overdue_orders[0]
+        add_task(
+            92,
+            '采购',
+            '催交逾期采购订单',
+            f'逾期采购 {purchase_summary.get("overdue_count", 0)} 张，最早预计到货 {first_order.expected_date}。',
+            '按供应商生成催交话术，记录延期原因和新的承诺到货日。',
+            url_for('purchase_order_list'),
+            '生成催供应商跟进话术',
+            '采购员',
+        )
+
+    pending_modules = globals().get('PENDING_DOCUMENT_MODULES') or []
+    pending_items = []
+    for config in pending_modules:
+        count = config['model'].query.filter(config['model'].status.in_(config['status'])).count()
+        if count:
+            pending_items.append((config, count))
+    pending_total = sum(count for _, count in pending_items)
+    if pending_total:
+        basis = '；'.join(f'{config["label"]}{count}张' for config, count in pending_items[:5])
+        add_task(
+            82,
+            '单据',
+            '清理待审批/待完成单据',
+            f'当前待处理单据 {pending_total} 张：{basis}',
+            '优先处理影响库存和采购到货的单据，避免账实不一致。',
+            url_for('pending_documents_center') if 'pending_documents_center' in app.view_functions else url_for('index'),
+            '今天优先处理什么',
+            '业务主管',
+        )
+
+    missing_unit_count = Material.query.filter(Material.unit_id.is_(None)).count()
+    missing_supplier_count = Material.query.filter(Material.supplier_id.is_(None)).count()
+    missing_category_count = Material.query.filter(Material.category_id.is_(None)).count()
+    if missing_unit_count or missing_supplier_count or missing_category_count:
+        add_task(
+            76,
+            '基础资料',
+            '补全物料基础属性',
+            f'缺单位 {missing_unit_count} 个，缺默认供应商 {missing_supplier_count} 个，缺分类 {missing_category_count} 个。',
+            '先补单位和分类，再维护默认供应商，避免采购、报表和导入匹配失败。',
+            url_for('material_list'),
+            '基础资料修复清单',
+            '资料管理员',
+        )
+
+    if not _ai_llm_configured() or not _ai_llm_vision_enabled():
+        add_task(
+            72,
+            'AI助手',
+            '完善大模型和图片识别配置',
+            f'大模型 {"已配置" if _ai_llm_configured() else "未配置"}，图片识别 {"已启用" if _ai_llm_vision_enabled() else "未启用"}。',
+            '配置接口、模型和视觉模型后，测试送货单图片识别并保留人工确认。',
+            url_for('system_settings_page'),
+            '识图能力自检',
+            '系统管理员',
+        )
+
+    backup_dir = Path(BACKUP_DIR)
+    backup_files = [path for path in backup_dir.glob('*.db') if path.is_file()] if backup_dir.exists() else []
+    if not backup_files:
+        add_task(
+            70,
+            '系统管理',
+            '做一次数据库备份',
+            '未发现数据库备份文件。',
+            '在批量导入、升级、修改权限前先备份数据库。',
+            url_for('backup_page'),
+            '系统管理修复清单',
+            '系统管理员',
+        )
+
+    week_ago = datetime.now() - timedelta(days=7)
+    risky_log_count = OperationLog.query.filter(
+        OperationLog.created_at >= week_ago,
+        db.or_(
+            OperationLog.operation_type.ilike('%delete%'),
+            OperationLog.operation_type.ilike('%删除%'),
+            OperationLog.operation_type.ilike('%反审%'),
+            OperationLog.operation_content.ilike('%删除%'),
+            OperationLog.operation_content.ilike('%反审%'),
+        ),
+    ).count()
+    if risky_log_count:
+        add_task(
+            68,
+            '审计',
+            '复核近期高风险操作',
+            f'近7天删除/反审类操作 {risky_log_count} 次。',
+            '按用户、单据和时间复核操作原因，必要时导出留痕。',
+            url_for('operation_audit_page', risk='1'),
+            '操作日志审计',
+            '管理员',
+        )
+
+    tasks.sort(key=lambda row: row['score'], reverse=True)
+
+    if not tasks:
+        add_task(
+            40,
+            '日常巡检',
+            '保持每日 AI 巡检',
+            '当前没有检测到高优先级异常。',
+            '每天上班先运行 Agent 巡检，再处理新增待办和采购到货。',
+            '#',
+            'Agent巡检仓库',
+            '业务主管',
+        )
+
+    cards = []
+    for item in tasks[:16]:
+        cards.append({
+            'title': f'{item["priority"]} {item["module"]}：{item["title"]}',
+            'meta': f'负责人：{item["owner"]}；依据：{item["basis"]}；动作：{item["action"]}',
+            'url': item['url'],
+            'prompt': item.get('prompt'),
+        })
+
+    lines = [
+        '**AI任务清单**',
+        f'- 生成时间：{datetime.now().strftime("%Y-%m-%d %H:%M")}；任务数 {len(tasks)} 项。',
+        '- 规则：AI只生成执行清单和入口，不自动审核、不自动扣库存、不自动改权限、不自动删除数据。',
+        '',
+        '| 优先级 | 模块 | 任务 | 依据 | 建议动作 | 负责人 |',
+        '|---|---|---|---|---|---|',
+    ]
+    for item in tasks[:12]:
+        lines.append(
+            f'| {item["priority"]} | {item["module"]} | {item["title"]} | {item["basis"]} | {item["action"]} | {item["owner"]} |'
+        )
+    lines.extend([
+        '',
+        '建议闭环顺序：先处理 P0/P1 库存和采购风险，再处理基础资料、系统配置和审计任务。每项任务都需要人工确认后进入对应业务页面处理。',
+    ])
+
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards,
+        [
+            {'label': 'Agent巡检', 'url': '#', 'prompt': 'Agent巡检仓库'},
+            {'label': '异常工作台', 'url': '#', 'prompt': '仓库异常工作台'},
+            {'label': '采购工作台', 'url': '#', 'prompt': '采购工作台'},
+            {'label': '软件建议', 'url': '#', 'prompt': '仓库管理软件改进建议'},
+        ],
+    )
+
+
+def _ai_is_page_navigation_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    nav_words = (
+        '打开', '进入', '跳转', '去', '访问', '查看', '页面', '在哪',
+        '在哪里', '入口', '菜单', '功能', '帮我打开', '带我去',
+    )
+    page_words = (
+        '采购', '入库', '出库', '领料', '销售', '盘点', '调拨', '调整',
+        '物料', '供应商', '客户', '仓库', '单位', '分类', '部门', '员工',
+        '报表', '台账', '审计', '日志', '用户', '权限', '设置', '备份',
+        '审批', '微信', '扫码', '别名', '任务清单', '异常工作台',
+    )
+    return any(word in compact for word in nav_words) and any(word in compact for word in page_words)
+
+
+def _ai_safe_url_for(endpoint, **values):
+    if endpoint not in app.view_functions:
+        return None
+    try:
+        return url_for(endpoint, **values)
+    except Exception:
+        return None
+
+
+def _ai_page_navigation_catalog():
+    pages = [
+        ('首页', '工作台', 'index', {}, ('首页', '仪表盘', '工作台', '主页')),
+        ('采购申请列表', '采购', 'purchase_request_list', {}, ('采购申请', '请购', '请购单', '采购需求')),
+        ('新建采购申请', '采购', 'purchase_request_add_page', {}, ('新建采购申请', '新增采购申请', '创建请购', '补货请购')),
+        ('采购订单列表', '采购', 'purchase_order_list', {}, ('采购订单', '采购单', '采购列表', '订单采购')),
+        ('新建采购订单', '采购', 'purchase_order_add_page', {}, ('新建采购订单', '新增采购订单', '创建采购订单')),
+        ('采购入库列表', '采购/库存', 'in_order_list', {'business_type': '采购入库'}, ('采购入库', '采购收货', '到货入库')),
+        ('新建入库单', '库存', 'in_order_add_page', {}, ('新建入库', '新增入库', '入库单', '采购入库单')),
+        ('入库明细', '库存', 'in_order_list', {}, ('入库明细', '入库列表', '入库查询')),
+        ('领料/出库列表', '库存', 'out_order_list', {}, ('出库', '领料', '领料单', '出库明细', '出库列表')),
+        ('新建领料单', '库存', 'out_order_add_page', {}, ('新建领料', '新增领料', '创建领料', '领料开单')),
+        ('销售出库', '销售/库存', 'out_order_add_page', {'type': 'sale'}, ('销售出库', '销售单', '客户发货', '销售开单')),
+        ('库存盘点', '库存', 'check_list', {}, ('盘点', '盘点单', '库存盘点')),
+        ('库存调拨', '库存', 'transfer_list', {}, ('调拨', '调拨单', '库存调拨')),
+        ('库存调整', '库存', 'adjustment_list', {}, ('调整单', '库存调整', '库存修正')),
+        ('BOM管理', '生产', 'bom_list', {}, ('bom', 'BOM', '物料清单')),
+        ('工单领料', '生产', 'requisition_list', {}, ('工单领料', '工单', '生产领料')),
+        ('委外管理', '生产', 'subcontract_list', {}, ('委外', '外协', '委外加工')),
+        ('物料管理', '基础资料', 'material_list', {}, ('物料', '物料档案', '物料管理', '商品档案')),
+        ('供应商管理', '基础资料', 'supplier_list', {}, ('供应商', '供方', '供应商档案')),
+        ('客户管理', '基础资料', 'customer_list', {}, ('客户', '客户档案')),
+        ('仓库档案', '基础资料', 'warehouse_list', {}, ('仓库', '库房', '仓库档案')),
+        ('计量单位', '基础资料', 'unit_list', {}, ('单位', '计量单位')),
+        ('物料分类', '基础资料', 'category_list', {}, ('分类', '物料分类')),
+        ('部门档案', '基础资料', 'department_list', {}, ('部门', '部门档案')),
+        ('员工管理', '基础资料', 'employee_list', {}, ('员工', '员工档案')),
+        ('期初库存', '基础资料', 'opening_stock_list', {}, ('期初', '期初库存', '初始库存')),
+        ('报表中心', '报表', 'report_list', {}, ('报表', '报表中心')),
+        ('数据仪表盘', '报表', 'report_dashboard', {}, ('数据仪表盘', '经营看板', '库存看板')),
+        ('系统设置', '系统管理', 'system_settings_page', {}, ('系统设置', 'AI参数', 'AI助手参数', '配置')),
+        ('用户管理', '系统管理', 'user_list', {}, ('用户', '账号', '权限', '用户管理')),
+        ('审批中心', '系统管理', 'approval_list', {}, ('审批', '审批中心', '待审批')),
+        ('操作审计', '系统管理', 'operation_audit_page', {}, ('操作审计', '日志审计', '操作日志', '审计', '日志')),
+        ('风险操作审计', '系统管理', 'operation_audit_page', {'risk': '1'}, ('风险日志', '风险操作', '删除记录', '反审记录')),
+        ('数据备份', '系统管理', 'backup_page', {}, ('备份', '数据库备份', '数据备份')),
+        ('微信分享', '系统管理', 'wechat_share_page', {}, ('微信', '微信分享')),
+        ('扫码页面', '移动作业', 'mobile_scan', {}, ('扫码', '手机扫码', 'pda', 'PDA')),
+        ('AI物料别名', 'AI助手', 'ai_material_alias_list', {}, ('物料别名', 'AI别名', '识别别名')),
+    ]
+    catalog = []
+    for title, module, endpoint, values, keywords in pages:
+        url = _ai_safe_url_for(endpoint, **values)
+        if not url:
+            continue
+        catalog.append({
+            'title': title,
+            'module': module,
+            'endpoint': endpoint,
+            'url': url,
+            'keywords': keywords,
+        })
+    return catalog
+
+
+def _ai_page_navigation_response(message, context=None, force=False):
+    if not force and not _ai_is_page_navigation_question(message):
+        return None
+
+    compact = (message or '').replace(' ', '').lower()
+    catalog = _ai_page_navigation_catalog()
+    matches = []
+    for page in catalog:
+        score = 0
+        for keyword in page['keywords']:
+            key = str(keyword or '').replace(' ', '').lower()
+            if not key:
+                continue
+            if key == compact:
+                score += 20
+            elif key in compact:
+                score += 8 + min(len(key), 8)
+        if page['title'].replace(' ', '').lower() in compact:
+            score += 12
+        if page['module'].replace(' ', '').lower() in compact:
+            score += 3
+        if score:
+            matches.append((score, page))
+
+    matches.sort(key=lambda item: item[0], reverse=True)
+    selected = [page for _, page in matches[:8]]
+    if not selected:
+        selected = [
+            page for page in catalog
+            if page['title'] in ('首页', '采购订单列表', '物料管理', '操作审计', '报表中心', '系统设置')
+        ][:8]
+
+    cards = [
+        {
+            'title': f'{page["module"]}：{page["title"]}',
+            'meta': '点击打开页面；AI只负责导航，不自动提交、审核或修改数据。',
+            'url': page['url'],
+        }
+        for page in selected
+    ]
+    lines = [
+        '**自然语言打开功能**',
+        f'- 已匹配到 {len(selected)} 个页面入口。',
+        '- 你可以继续说“打开采购订单”“进入操作审计”“去物料管理”“打开系统设置”。',
+        '',
+        '| 模块 | 页面 |',
+        '|---|---|',
+    ]
+    for page in selected[:6]:
+        lines.append(f'| {page["module"]} | {page["title"]} |')
+    lines.append('')
+    lines.append('AI只做页面导航，不自动保存、审核、反审、删除或修改业务数据。')
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards,
+        [{'label': page['title'], 'url': page['url']} for page in selected[:4]],
+    )
+
+
+def _ai_purchase_workbench_response(message, context=None, force=False):
+    if not force and not _ai_is_purchase_workbench_question(message):
+        return None
+
+    summary = build_purchase_order_todo_summary()
+    today_value = date.today()
+    overdue_orders = (
+        PurchaseOrder.query.options(joinedload(PurchaseOrder.supplier))
+        .filter(PurchaseOrder.status.in_(('pending', 'partial')))
+        .filter(PurchaseOrder.expected_date.isnot(None))
+        .filter(PurchaseOrder.expected_date < today_value)
+        .order_by(PurchaseOrder.expected_date.asc(), PurchaseOrder.id.asc())
+        .limit(6)
+        .all()
+    )
+    due_soon = (
+        PurchaseOrder.query.options(joinedload(PurchaseOrder.supplier))
+        .filter(PurchaseOrder.status.in_(('pending', 'partial')))
+        .filter(PurchaseOrder.expected_date.isnot(None))
+        .filter(PurchaseOrder.expected_date >= today_value)
+        .filter(PurchaseOrder.expected_date <= today_value + timedelta(days=3))
+        .order_by(PurchaseOrder.expected_date.asc(), PurchaseOrder.id.asc())
+        .limit(6)
+        .all()
+    )
+    pending_requests = (
+        PurchaseRequest.query
+        .filter(PurchaseRequest.status.in_(('pending', 'approved')))
+        .order_by(PurchaseRequest.expected_date.asc().nullslast(), PurchaseRequest.created_at.desc(), PurchaseRequest.id.desc())
+        .limit(6)
+        .all()
+    )
+
+    cards = []
+    for order in overdue_orders:
+        days = (today_value - order.expected_date).days if order.expected_date else 0
+        cards.append({
+            'title': f'逾期采购 {order.order_no}',
+            'meta': f'逾期 {days} 天；供应商 {order.supplier.name if order.supplier else "-"}；状态 {purchase_order_status_label(order.status)}；金额 {round_to_2_decimals(order.total_amount or 0):,.2f}。',
+            'url': url_for('purchase_order_detail', id=order.id),
+        })
+    for order in due_soon:
+        cards.append({
+            'title': f'即将到货 {order.order_no}',
+            'meta': f'预计 {order.expected_date}；供应商 {order.supplier.name if order.supplier else "-"}；状态 {purchase_order_status_label(order.status)}。',
+            'url': url_for('purchase_order_detail', id=order.id),
+        })
+    for request_order in pending_requests:
+        cards.append({
+            'title': f'待处理请购 {request_order.request_no}',
+            'meta': f'状态 {request_order.status}；申请人 {request_order.applicant or "-"}；需求日期 {request_order.expected_date or "-"}。',
+            'url': url_for('purchase_request_detail', id=request_order.id),
+        })
+    replenishment_cards = _ai_purchase_replenishment_cards(limit=6)
+    price_risk_cards = _ai_purchase_price_risk_cards(limit=20)
+    cards.extend(replenishment_cards)
+    cards.extend(price_risk_cards[:5])
+
+    pending_request_count = PurchaseRequest.query.filter(PurchaseRequest.status.in_(('pending', 'approved'))).count()
+    low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
+    price_risk_count = len(price_risk_cards)
+    lines = [
+        '**采购工作台**',
+        f'- 未完成采购订单：{summary.get("open_count", 0)} 张，未入库数量合计 {normalize_stock_quantity(summary.get("remaining_qty", 0))}。',
+        f'- 逾期采购：{summary.get("overdue_count", 0)} 张，优先催交或调整预计到货。',
+        f'- 待处理请购：{pending_request_count} 张，建议先处理紧急和低库存关联项。',
+        f'- 低库存补货：{low_count} 项，优先转采购申请或采购订单。',
+        f'- 采购价异常：{price_risk_count} 项，建议复核供应商报价和历史价。',
+        '',
+        '建议顺序：1. 逾期采购催交；2. 低库存补货；3. 待处理请购转单；4. 送货单到货识别入库；5. 价格异常复核。'
+    ]
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards[:24],
+        [
+            {'label': '采购订单', 'url': url_for('purchase_order_list')},
+            {'label': '采购申请', 'url': url_for('purchase_request_list')},
+            {'label': '生成补货申请草稿', 'url': '#', 'prompt': '根据低库存生成采购申请草稿'},
+            {'label': '生成催交话术', 'url': '#', 'prompt': '生成催供应商跟进话术'},
+            {'label': '新建采购申请', 'url': url_for('purchase_request_add_page')},
+            {'label': '送货单入库', 'url': '#', 'prompt': '识别送货单图片并生成采购入库单草稿', 'upload': 'delivery-note'},
+        ],
+    )
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'purchase_workbench',
+    'title': '采购工作台',
+    'handler': _ai_purchase_workbench_response,
+    'description': '汇总逾期采购、即将到货、待处理请购、低库存补货和采购价异常，给采购优先处理清单。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'purchase_replenishment_draft',
+    'title': '低库存补货请购草稿',
+    'handler': _ai_create_purchase_request_draft_response,
+    'description': '按低库存预警生成待审批采购申请草稿，扣减未完成采购待到货并跳过已有待处理请购。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'supplier_profile',
+    'title': '供应商采购画像',
+    'handler': _ai_supplier_profile_response,
+    'description': '按供应商汇总采购订单、未到货、逾期、最近到货、常购物料和跟进建议。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'supplier_followup',
+    'title': '采购催交话术',
+    'handler': _ai_supplier_followup_response,
+    'description': '按逾期和即将到货采购订单生成分供应商催交话术，不自动发送。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'master_data_health',
+    'title': '基础资料AI体检',
+    'handler': _ai_master_data_health_response,
+    'description': '检查物料、供应商、客户、仓库、单位、分类的完整性、重复线索和库存预警基础。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'master_data_fix_list',
+    'title': '基础资料修复清单',
+    'handler': _ai_master_data_fix_list_response,
+    'description': '列出需要优先补全的物料、供应商、客户和重复物料线索，只定位不自动修改。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'system_health',
+    'title': '系统管理AI体检',
+    'handler': _ai_system_health_response,
+    'description': '检查AI配置、图片识别、登录安全、数据库备份、关键业务控制参数和近期操作风险。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'system_fix_list',
+    'title': '系统管理修复清单',
+    'handler': _ai_system_fix_list_response,
+    'description': '列出AI配置、备份、登录安全、危险业务参数等系统管理待处理项，只定位不自动修改。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'master_data_import_assistant',
+    'title': '基础资料导入助手',
+    'handler': _ai_master_data_import_response,
+    'description': '给出基础资料Excel导入顺序、清洗规则、模板入口和导入后体检建议，不自动写库。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'user_permission_assistant',
+    'title': '权限账号助手',
+    'handler': _ai_user_permission_response,
+    'description': '汇总用户角色、登录失败、锁定/停用账号并解释权限边界，不自动改账号。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'operation_audit_assistant',
+    'title': '操作日志审计助手',
+    'handler': _ai_operation_audit_response,
+    'description': '汇总近7天操作日志、删除/审核/备份类动作、活跃用户和风险样本，只读审计不处理日志。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'product_suggestion_assistant',
+    'title': '软件改进建议助手',
+    'handler': _ai_product_suggestion_response,
+    'description': '基于当前WMS模块、数据状态、待办、报表和AI配置提出软件功能改进建议。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'ai_benchmark_roadmap',
+    'title': 'AI能力对标路线图',
+    'handler': _ai_benchmark_roadmap_response,
+    'description': '对标Microsoft Copilot、SAP Joule、Oracle AI Agent和金蝶用友，输出AI能力差距和开发路线图。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'ai_task_list',
+    'title': 'AI任务清单',
+    'handler': _ai_task_list_response,
+    'description': '把库存、采购、单据、基础资料、系统管理和审计风险整理成可人工确认的执行清单。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'page_navigator',
+    'title': '自然语言打开功能',
+    'handler': _ai_page_navigation_response,
+    'description': '按“打开采购订单、进入操作审计、去物料管理”等自然语言返回系统页面入口，不执行写操作。',
+})
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'excel_table_document',
+    'title': 'Excel表格转单据',
+    'handler': _ai_excel_table_document_response,
+    'description': '识别从Excel复制出来的表格明细，按单据类型生成草稿或提示补充单据类型。',
+})
+
+
+def _ai_is_delivery_note_inbound_request(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '送货单入库', '上传送货单', '识别送货单', '送货单图片', '送货单生成入库',
+        '送货单生成采购入库', '到货单入库', '来货单入库', '供应商送货单',
+        '生成采购入库草稿', '生成采购入库单草稿',
+    ))
+
+
+def _ai_delivery_note_inbound_response(message, context=None, force=False):
+    if not force and not _ai_is_delivery_note_inbound_request(message):
+        return None
+    actions = [
+        {'label': '上传送货单图片', 'url': '#', 'prompt': '识别送货单图片并生成采购入库单草稿', 'upload': 'delivery-note'},
+        {'label': '采购订单', 'url': url_for('purchase_order_list')},
+        {'label': 'AI助手参数', 'url': url_for('system_settings_page')},
+    ]
+    cards = [{
+        'title': '送货单入库 Agent',
+        'meta': '上传送货单图片后，系统会识别供应商、单号、物料和数量，匹配采购订单并生成采购入库草稿。',
+    }]
+    if not _ai_llm_vision_enabled():
+        return _ai_json_response(
+            '送货单入库需要先启用图片识别。请到“系统管理 - 系统设置 - AI助手参数”打开“启用图片识别”，填写支持视觉的模型并测试通过。',
+            cards,
+            actions,
+        )
+    if not _ai_llm_configured():
+        return _ai_json_response(
+            '送货单入库需要配置可用的大模型接口和 API Key。配置完成后，点击“上传送货单图片”即可生成采购入库草稿。',
+            cards,
+            actions,
+        )
+    return _ai_json_response(
+        '请上传或粘贴送货单图片。我会识别图片内容，优先匹配采购订单并生成采购入库单草稿；不会自动完成入库，提交前需要人工核对。',
+        cards,
+        actions,
+    )
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'delivery_note_inbound',
+    'title': '送货单入库Agent',
+    'handler': _ai_delivery_note_inbound_response,
+    'description': '引导用户上传送货单图片，并走图片识别、采购订单匹配、采购入库草稿生成流程。',
+})
+
+
 @app.route('/api/ai/draft_check', methods=['POST'])
 @login_required
 def api_ai_draft_check():
@@ -9298,7 +12527,74 @@ def ai_material_alias_delete(id):
     return redirect(url_for('ai_material_alias_list', search=request.args.get('search', '')))
 
 
+def _ai_confirmation_material_candidates(payload, limit=300):
+    payload = payload or {}
+    rows = payload.get('rows') or []
+    material_ids = {
+        _clean_int(row.get('material_id'))
+        for row in rows
+        if isinstance(row, dict) and _clean_int(row.get('material_id'))
+    }
+    candidates = []
+    seen = set()
+    if material_ids:
+        for material in Material.query.options(joinedload(Material.unit)).filter(Material.id.in_(material_ids)).all():
+            candidates.append(material)
+            seen.add(material.id)
+
+    keywords = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in ('code', 'name', 'spec', 'raw_text', 'raw'):
+            value = str(row.get(key) or '').strip()
+            if value and value not in keywords:
+                keywords.append(value)
+    for keyword in keywords[:20]:
+        if len(candidates) >= limit:
+            break
+        like = f'%{keyword[:80]}%'
+        matches = (
+            Material.query.options(joinedload(Material.unit))
+            .filter(db.or_(Material.code.ilike(like), Material.name.ilike(like), Material.spec.ilike(like)))
+            .order_by(Material.code.asc())
+            .limit(20)
+            .all()
+        )
+        for material in matches:
+            if material.id in seen:
+                continue
+            candidates.append(material)
+            seen.add(material.id)
+            if len(candidates) >= limit:
+                break
+
+    if len(candidates) < min(limit, 50):
+        for material in Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).limit(50).all():
+            if material.id in seen:
+                continue
+            candidates.append(material)
+            seen.add(material.id)
+            if len(candidates) >= limit:
+                break
+    return candidates
+
+
+def _ai_document_confirm_allowed(doc_type):
+    doc_type = (doc_type or '').strip()
+    if doc_type == 'sales_out':
+        doc_type = 'sales_out_order'
+    if current_user.role == 'admin':
+        return True
+    if doc_type in {'in_order', 'out_order', 'sales_out_order', 'transfer', 'check', 'adjustment'}:
+        return current_user.role == 'warehouse'
+    if doc_type in {'purchase_request', 'purchase_order'}:
+        return current_user.role == 'purchase'
+    return False
+
+
 @app.route('/ai/document_confirm/<token>', methods=['GET', 'POST'])
+@require_role('warehouse', 'purchase')
 @login_required
 def ai_document_confirm(token):
     pending = session.get('_ai_document_confirmations') or {}
@@ -9307,8 +12603,12 @@ def ai_document_confirm(token):
         flash('AI识别结果已过期，请重新识别。', 'warning')
         return redirect(url_for('index'))
 
-    materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()
+    materials = _ai_confirmation_material_candidates(payload)
+    material_count = Material.query.count()
     if request.method == 'POST':
+        if not _ai_document_confirm_allowed(payload.get('document_type')):
+            flash('当前账号没有权限生成该类型单据草稿。', 'danger')
+            return redirect(url_for('index'))
         row_count = _clean_int(request.form.get('row_count')) or 0
         rows = []
         for idx in range(row_count):
@@ -9326,18 +12626,19 @@ def ai_document_confirm(token):
             source_text=payload.get('source_text') or '',
             adjustment_type=payload.get('adjustment_type') or '',
             customer=(request.form.get('customer') or payload.get('customer') or '').strip(),
+            source_purchase_order_id=payload.get('source_purchase_order_id'),
         )
         if error:
             db.session.rollback()
             flash(error, 'danger')
-            return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials)
+            return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count)
         pending.pop(token, None)
         session['_ai_document_confirmations'] = pending
         session.modified = True
         flash(f'已生成草稿 {draft["order_no"]}，请核对后再提交。', 'success')
         return redirect(draft['url'])
 
-    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials)
+    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count)
 
 
 def _ai_test_llm_vision(overrides=None):
@@ -9413,8 +12714,12 @@ def _ai_execute_intent(message, intent_payload, context=None):
     keyword = str(params.get('keyword') or '').strip() or _ai_guess_keyword(message)
     context = context or {}
 
+    supplier_profile_response = _ai_supplier_profile_response(message, context)
+    if supplier_profile_response:
+        return supplier_profile_response
+
     if intent == 'greeting':
-        return _ai_json_response('你好，我是仓库AI助手。你可以问我库存、单据、今日概况、待处理事项，也可以让我生成入库单、领料单、调拨单、盘点单、调整单草稿。')
+        return _ai_json_response('你好，我是AI助手。你可以问我库存、单据、今日概况、待处理事项，也可以让我生成入库单、领料单、调拨单、盘点单、调整单草稿。')
 
     if intent == 'model_status':
         return _ai_json_response(_ai_model_status_text())
@@ -9576,6 +12881,15 @@ def _ai_execute_intent(message, intent_payload, context=None):
         category = str(params.get('category') or '').strip() or None
         return _ai_json_response(_ai_analysis_category_summary(category=category))
 
+    if intent == 'exception_workbench':
+        return _ai_exception_workbench_response(message, context, force=True)
+
+    if intent == 'agent_patrol':
+        return _ai_agent_patrol_response(message, context, force=True)
+
+    if intent == 'delivery_note_inbound':
+        return _ai_delivery_note_inbound_response(message, context, force=True)
+
     if intent == 'help':
         return _ai_json_response(
             '我可以查库存、查单号、查今日概况、查待处理、查库存异常、查物料流水，也可以生成各类单据草稿，还支持周转分析、库存金额分析、供应商分析、消耗趋势、补货建议、按分类汇总等数据洞察。示例：\n'
@@ -9665,42 +12979,9 @@ def api_ai_warehouse_assistant():
 
     try:
         if images:
-            # 上下文感知：在采购单详情页上传送货单/到货图片 → 优先走采购单下推，生成与采购单关联的入库单
-            page_url = context.get('page_url') or ''
-            po_match = re.search(r'/purchase_order/(\d+)(?:\D|$)', page_url)
-            if po_match and current_user.role in ('admin', 'warehouse', 'purchase'):
-                try:
-                    po_id = int(po_match.group(1))
-                    order = PurchaseOrder.query.get(po_id)
-                    if order:
-                        in_order, error = _create_in_order_from_purchase_order_core(
-                            order, remark=f'由AI助手根据采购单 {order.order_no} 下推生成（视觉识别送货单）'
-                        )
-                        if not error:
-                            cards = [{
-                                'title': f'采购入库单 {in_order.order_no}',
-                                'meta': f'来源采购单 {order.order_no}，状态：草稿，明细 {len(in_order.items)} 行',
-                                'url': url_for('in_order_detail', id=in_order.id),
-                            }]
-                            full_reply = (
-                                f'检测到你在采购单 {order.order_no} 详情页上传图片，已根据该采购单明细生成采购入库单草稿 {in_order.order_no}。'
-                                '请打开入库单核对仓库、数量和明细，再完成入库。'
-                            )
-                            _ai_append_history(user_id, 'user', message or '(上传送货单图片)')
-                            _ai_append_history(user_id, 'assistant', full_reply)
-                            return _ai_json_response(full_reply, cards, [
-                                {'label': '打开入库单', 'url': url_for('in_order_detail', id=in_order.id)},
-                                {'label': '打开采购单', 'url': url_for('purchase_order_detail', id=order.id)},
-                            ])
-                        # 下推失败 → 继续走普通视觉识别路径，错误信息会展示给用户
-                        app.logger.warning('AI vision purchase order receive failed: %s', error)
-                except Exception as exc:
-                    db.session.rollback()
-                    app.logger.exception('AI vision purchase order receive failed: %s', exc)
-
             extracted_doc, doc_vision_error = _ai_call_llm_document_vision_extract(message, images, context)
             if extracted_doc:
-                structured_response = _ai_create_draft_from_extracted(extracted_doc, source='vision')
+                structured_response = _ai_create_draft_from_extracted(extracted_doc, source='vision', context=context)
                 if structured_response:
                     body = structured_response.get_json(silent=True) or {}
                     reply_text = str(body.get('reply') or '')
@@ -9718,7 +12999,7 @@ def api_ai_warehouse_assistant():
             vision_reply, extracted, vision_error = _ai_call_llm_vision(message, images, context)
             if vision_reply:
                 # 尝试根据提取的结构化数据自动建单
-                structured_response = _ai_create_draft_from_extracted(extracted, source='vision')
+                structured_response = _ai_create_draft_from_extracted(extracted, source='vision', context=context)
                 if structured_response:
                     body = structured_response.get_json(silent=True) or {}
                     full_reply = vision_reply + '\n\n' + str(body.get('reply') or '')
@@ -9771,6 +13052,78 @@ def api_ai_warehouse_assistant():
         if check_response:
             return check_response
 
+        vision_status_response = _ai_vision_status_response(augmented_message, context)
+        if vision_status_response:
+            return vision_status_response
+
+        delivery_response = _ai_delivery_note_inbound_response(augmented_message, context)
+        if delivery_response:
+            return delivery_response
+
+        excel_table_response = _ai_excel_table_document_response(augmented_message, context)
+        if excel_table_response:
+            return excel_table_response
+
+        agent_response = _ai_agent_patrol_response(augmented_message, context)
+        if agent_response:
+            return agent_response
+
+        purchase_draft_response = _ai_create_purchase_request_draft_response(augmented_message, context)
+        if purchase_draft_response:
+            return purchase_draft_response
+
+        supplier_profile_response = _ai_supplier_profile_response(augmented_message, context)
+        if supplier_profile_response:
+            return supplier_profile_response
+
+        supplier_followup_response = _ai_supplier_followup_response(augmented_message, context)
+        if supplier_followup_response:
+            return supplier_followup_response
+
+        master_data_health_response = _ai_master_data_health_response(augmented_message, context)
+        if master_data_health_response:
+            return master_data_health_response
+
+        master_data_fix_list_response = _ai_master_data_fix_list_response(augmented_message, context)
+        if master_data_fix_list_response:
+            return master_data_fix_list_response
+
+        system_health_response = _ai_system_health_response(augmented_message, context)
+        if system_health_response:
+            return system_health_response
+
+        system_fix_list_response = _ai_system_fix_list_response(augmented_message, context)
+        if system_fix_list_response:
+            return system_fix_list_response
+
+        master_data_import_response = _ai_master_data_import_response(augmented_message, context)
+        if master_data_import_response:
+            return master_data_import_response
+
+        user_permission_response = _ai_user_permission_response(augmented_message, context)
+        if user_permission_response:
+            return user_permission_response
+
+        operation_audit_response = _ai_operation_audit_response(augmented_message, context)
+        if operation_audit_response:
+            return operation_audit_response
+
+        product_suggestion_response = _ai_product_suggestion_response(augmented_message, context)
+        if product_suggestion_response:
+            return product_suggestion_response
+
+        benchmark_roadmap_response = _ai_benchmark_roadmap_response(augmented_message, context)
+        if benchmark_roadmap_response:
+            return benchmark_roadmap_response
+
+        purchase_workbench_response = _ai_purchase_workbench_response(augmented_message, context)
+        if purchase_workbench_response:
+            return purchase_workbench_response
+
+        workbench_response = _ai_exception_workbench_response(augmented_message, context)
+        if workbench_response:
+            return workbench_response
+
         discrepancy_response = _ai_inventory_discrepancy_response(augmented_message, context)
         if discrepancy_response:
             return discrepancy_response
@@ -9783,7 +13136,7 @@ def api_ai_warehouse_assistant():
         if alias_response:
             return alias_response
 
-        text_doc_response = _ai_try_text_document_response(augmented_message)
+        text_doc_response = _ai_try_text_document_response(augmented_message, context)
         if text_doc_response:
             return text_doc_response
 
@@ -9799,7 +13152,7 @@ def api_ai_warehouse_assistant():
             return local_response
 
         if _ai_should_try_llm_document(augmented_message):
-            llm_doc_response = _ai_try_llm_document_response(augmented_message)
+            llm_doc_response = _ai_try_llm_document_response(augmented_message, context)
             if llm_doc_response:
                 return llm_doc_response
 
@@ -9891,15 +13244,51 @@ def api_ai_chat_stream():
     if priority_response is None and not force_general_chat:
         priority_response = _ai_draft_check_response(message, context)
     if priority_response is None and not force_general_chat:
+        priority_response = _ai_vision_status_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_delivery_note_inbound_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_excel_table_document_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_agent_patrol_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_create_purchase_request_draft_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_supplier_profile_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_supplier_followup_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_master_data_health_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_master_data_fix_list_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_system_health_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_system_fix_list_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_master_data_import_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_user_permission_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_operation_audit_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_product_suggestion_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_benchmark_roadmap_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_purchase_workbench_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_exception_workbench_response(message, context)
+    if priority_response is None and not force_general_chat:
         priority_response = _ai_inventory_discrepancy_response(message, context)
     if priority_response is None and not force_general_chat:
         priority_response = _ai_exception_explain_response(message, context)
     if priority_response is None and not force_general_chat:
         priority_response = _ai_alias_management_response(message)
     if priority_response is None and not force_general_chat:
-        priority_response = _ai_try_text_document_response(message)
+        priority_response = _ai_try_text_document_response(message, context)
     if priority_response is None and not force_general_chat and _ai_should_try_llm_document(message):
-        priority_response = _ai_try_llm_document_response(message)
+        priority_response = _ai_try_llm_document_response(message, context)
     if priority_response is not None:
         def priority_generate():
             body = priority_response.get_json(silent=True) or {}
@@ -9930,19 +13319,55 @@ def api_ai_chat_stream():
             try:
                 local_response = _ai_draft_check_response(augmented_message, context)
                 if local_response is None:
+                    local_response = _ai_vision_status_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_delivery_note_inbound_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_excel_table_document_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_agent_patrol_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_create_purchase_request_draft_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_supplier_profile_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_supplier_followup_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_master_data_health_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_master_data_fix_list_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_system_health_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_system_fix_list_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_master_data_import_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_user_permission_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_operation_audit_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_product_suggestion_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_benchmark_roadmap_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_purchase_workbench_response(augmented_message, context)
+                if local_response is None:
+                    local_response = _ai_exception_workbench_response(augmented_message, context)
+                if local_response is None:
                     local_response = _ai_inventory_discrepancy_response(augmented_message, context)
                 if local_response is None:
                     local_response = _ai_exception_explain_response(augmented_message, context)
                 if local_response is None:
                     local_response = _ai_alias_management_response(augmented_message)
                 if local_response is None:
-                    local_response = _ai_try_text_document_response(augmented_message)
+                    local_response = _ai_try_text_document_response(augmented_message, context)
                 if local_response is None:
                     local_response, _skill_name = _ai_try_local_skills(augmented_message, context)
                 if local_response is None:
                     local_response = _ai_rule_based_response(augmented_message)
                 if local_response is None and _ai_should_try_llm_document(augmented_message):
-                    local_response = _ai_try_llm_document_response(augmented_message)
+                    local_response = _ai_try_llm_document_response(augmented_message, context)
                 if local_response is None:
                     llm_response = _ai_rule_based_response(message)
                 else:
@@ -25660,6 +29085,7 @@ def pending_documents():
 
 @app.route('/approval')
 @login_required
+@role_required('admin', 'manager', 'purchase')
 def approval_list():
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)

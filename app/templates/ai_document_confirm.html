@@ -78,6 +78,37 @@
         font-size: 13px;
         white-space: pre-wrap;
     }
+    .ai-ocr-line {
+        display: grid;
+        gap: 4px;
+        min-width: 220px;
+    }
+    .ai-ocr-main {
+        font-weight: 600;
+        color: #111827;
+        line-height: 1.35;
+    }
+    .ai-ocr-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    .ai-ocr-tag {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid #d1d5db;
+        border-radius: 999px;
+        padding: 1px 7px;
+        color: #4b5563;
+        background: #f9fafb;
+        font-size: 12px;
+        line-height: 20px;
+    }
+    .ai-row-tools {
+        display: flex;
+        gap: 6px;
+        margin-top: 6px;
+    }
     .ai-confirm-actions {
         display: flex;
         justify-content: flex-end;
@@ -119,7 +150,10 @@
             <div class="ai-confirm-summary">
                 <span>单据类型：{{ {'in_order':'采购入库','out_order':'领料单','sales_out_order':'销售出库','transfer':'调拨','check':'盘点','adjustment':'调整'}.get(payload.document_type, payload.document_type) }}</span>
                 <span>识别行数：{{ payload.rows|length }}</span>
-                <span>可选物料：{{ materials|length }}</span>
+                <span>候选物料：{{ materials|length }} / {{ material_count or materials|length }}</span>
+                {% if payload.source_purchase_order_id %}
+                <span>来源采购订单：{{ payload.source_purchase_order_no or payload.source_purchase_order_id }}</span>
+                {% endif %}
             </div>
         </div>
         <input type="search" class="form-control form-control-sm ai-material-filter" id="materialFilter" placeholder="过滤物料编码/名称/规格">
@@ -146,8 +180,8 @@
                     <tr>
                         <th style="width: 70px;">生成</th>
                         <th style="width: 120px;">状态</th>
-                        <th>识别内容</th>
-                        <th style="width: 42%;">系统物料</th>
+                        <th style="min-width: 260px;">识别内容</th>
+                        <th style="width: 38%;">系统物料</th>
                         <th style="width: 130px;">数量</th>
                         <th>说明</th>
                     </tr>
@@ -156,7 +190,7 @@
                     {% for row in payload.rows %}
                     <tr>
                         <td class="text-center">
-                            <input type="checkbox" name="use_row_{{ loop.index0 }}" value="1" {% if row.material_id %}checked{% endif %}>
+                            <input type="checkbox" class="ai-use-row" name="use_row_{{ loop.index0 }}" value="1" {% if row.material_id %}checked{% endif %}>
                         </td>
                         <td>
                             <span class="ai-status {{ row.match_status }}">
@@ -164,11 +198,29 @@
                             </span>
                         </td>
                         <td>
-                            <div>{{ row.raw or row.code or '-' }}</div>
-                            {% if row.code and row.code != row.raw %}<small class="text-muted">{{ row.code }}</small>{% endif %}
+                            <div class="ai-ocr-line">
+                                <div class="ai-ocr-main">{{ row.raw_text or row.raw or row.code or '-' }}</div>
+                                <div class="ai-ocr-meta">
+                                    {% if row.code %}<span class="ai-ocr-tag">编码 {{ row.code }}</span>{% endif %}
+                                    {% if row.name %}<span class="ai-ocr-tag">品名 {{ row.name }}</span>{% endif %}
+                                    {% if row.spec %}<span class="ai-ocr-tag">规格 {{ row.spec }}</span>{% endif %}
+                                    {% if row.unit %}<span class="ai-ocr-tag">单位 {{ row.unit }}</span>{% endif %}
+                                    {% if row.batch_no %}<span class="ai-ocr-tag">批号 {{ row.batch_no }}</span>{% endif %}
+                                    {% if row.barcode %}<span class="ai-ocr-tag">条码 {{ row.barcode }}</span>{% endif %}
+                                    {% if row.box_count and row.pcs_per_box %}<span class="ai-ocr-tag">包装 {{ row.box_count }} × {{ row.pcs_per_box }}</span>{% endif %}
+                                    {% if row.confidence %}<span class="ai-ocr-tag">置信度 {{ row.confidence }}</span>{% endif %}
+                                </div>
+                                <div class="ai-row-tools">
+                                    <button type="button"
+                                            class="btn btn-outline-secondary btn-sm ai-row-filter"
+                                            data-keyword="{{ (row.code or row.name or row.spec or row.raw_text or row.raw or '')|e }}">
+                                        筛物料
+                                    </button>
+                                </div>
+                            </div>
                         </td>
                         <td>
-                            <select name="material_id_{{ loop.index0 }}" class="ai-material-select">
+                            <select name="material_id_{{ loop.index0 }}" class="ai-material-select" data-row-index="{{ loop.index0 }}">
                                 <option value="">请选择物料</option>
                                 {% for material in materials %}
                                 <option value="{{ material.id }}"
@@ -182,7 +234,9 @@
                         <td>
                             <input type="number" name="quantity_{{ loop.index0 }}" value="{{ row.quantity or '' }}" min="0" step="0.01">
                         </td>
-                        <td class="text-muted">{{ row.reason or '' }}</td>
+                        <td class="text-muted">
+                            {{ row.reason or row.remark or '' }}
+                        </td>
                     </tr>
                     {% endfor %}
                     {% if not payload.rows %}
@@ -195,11 +249,11 @@
         </div>
         <div class="ai-confirm-actions">
             <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">取消</a>
-            <button type="submit" class="btn btn-primary btn-sm" {% if not materials %}disabled{% endif %}>
+            <button type="submit" class="btn btn-primary btn-sm" {% if not material_count %}disabled{% endif %}>
                 <i class="bi bi-check2-circle"></i> 生成草稿
             </button>
         </div>
-        {% if not materials %}
+        {% if not material_count %}
         <div class="alert alert-warning mt-3 mb-0">当前没有物料档案，无法生成草稿。请先维护物料档案，再重新确认。</div>
         {% endif %}
     </form>
@@ -212,30 +266,118 @@
     const filter = document.getElementById('materialFilter');
     const selects = Array.from(document.querySelectorAll('.ai-material-select'));
     if (!filter || !selects.length) return;
-    const snapshots = selects.map(function(select) {
-        return Array.from(select.options).map(function(option) {
-            return {
-                value: option.value,
-                text: option.textContent,
-                search: option.getAttribute('data-search') || '',
-                selected: option.selected
-            };
+    const rowFilters = Array.from(document.querySelectorAll('.ai-row-filter'));
+    const fetcher = window.csrfFetch || fetch;
+    const initialOptions = new Map();
+    selects.forEach(function(select) {
+        Array.from(select.options).forEach(function(option) {
+            if (option.value) {
+                initialOptions.set(option.value, {
+                    id: option.value,
+                    label: option.textContent,
+                    search: option.getAttribute('data-search') || ''
+                });
+            }
         });
     });
-    filter.addEventListener('input', function() {
-        const keyword = filter.value.trim().toLowerCase();
-        selects.forEach(function(select, idx) {
-            const selectedValue = select.value;
-            select.innerHTML = '';
-            snapshots[idx].forEach(function(item) {
-                if (item.value && keyword && item.search.indexOf(keyword) === -1 && item.value !== selectedValue) return;
-                const option = document.createElement('option');
-                option.value = item.value;
-                option.textContent = item.text;
-                if (item.search) option.setAttribute('data-search', item.search);
-                if (item.value === selectedValue) option.selected = true;
-                select.appendChild(option);
+
+    function materialLabel(material) {
+        const parts = [material.code || '', material.name || ''].filter(Boolean);
+        let label = parts.join(' - ');
+        if (material.spec) label += ' / ' + material.spec;
+        const unitName = typeof material.unit === 'string' ? material.unit : (material.unit && material.unit.name ? material.unit.name : '');
+        if (unitName) label += ' / ' + unitName;
+        return label || ('物料 #' + material.id);
+    }
+
+    function optionFromItem(item) {
+        const option = document.createElement('option');
+        option.value = String(item.id || item.value || '');
+        option.textContent = item.label || materialLabel(item);
+        option.setAttribute('data-search', item.search || [item.code, item.name, item.spec].filter(Boolean).join(' ').toLowerCase());
+        return option;
+    }
+
+    function updateSelect(select, items) {
+        const selectedValue = select.value;
+        const selectedOption = selectedValue ? Array.from(select.options).find(function(option) { return option.value === selectedValue; }) : null;
+        const selectedItem = selectedOption ? {
+            id: selectedValue,
+            label: selectedOption.textContent,
+            search: selectedOption.getAttribute('data-search') || ''
+        } : initialOptions.get(selectedValue);
+        select.innerHTML = '';
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = '请选择物料';
+        select.appendChild(empty);
+        const seen = new Set();
+        if (selectedItem && selectedItem.id) {
+            const option = optionFromItem(selectedItem);
+            option.selected = true;
+            select.appendChild(option);
+            seen.add(String(selectedItem.id));
+        }
+        (items || []).forEach(function(item) {
+            const id = String(item.id || '');
+            if (!id || seen.has(id)) return;
+            select.appendChild(optionFromItem(item));
+            seen.add(id);
+        });
+    }
+
+    let filterTimer = null;
+    function searchMaterials(keyword, callback) {
+        keyword = (keyword || '').trim();
+        if (!keyword) {
+            const items = Array.from(initialOptions.values()).slice(0, 100);
+            callback(items);
+            return;
+        }
+        fetcher('/api/material/search?kw=' + encodeURIComponent(keyword), {credentials: 'same-origin'})
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                callback(data && data.data ? data.data : []);
+            })
+            .catch(function() {
+                callback([]);
             });
+    }
+
+    function applyFilter() {
+        const keyword = filter.value.trim();
+        clearTimeout(filterTimer);
+        filterTimer = setTimeout(function() {
+            searchMaterials(keyword, function(items) {
+                selects.forEach(function(select) {
+                    updateSelect(select, items);
+                });
+            });
+        }, 180);
+    }
+    filter.addEventListener('input', applyFilter);
+    rowFilters.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const keyword = btn.getAttribute('data-keyword') || '';
+            const row = btn.closest('tr');
+            const select = row ? row.querySelector('.ai-material-select') : null;
+            filter.value = keyword;
+            if (!select) {
+                applyFilter();
+                filter.focus();
+                return;
+            }
+            searchMaterials(keyword, function(items) {
+                updateSelect(select, items);
+                filter.focus();
+            });
+        });
+    });
+    selects.forEach(function(select) {
+        select.addEventListener('change', function() {
+            const row = select.closest('tr');
+            const checkbox = row ? row.querySelector('.ai-use-row') : null;
+            if (checkbox) checkbox.checked = !!select.value;
         });
     });
 })();

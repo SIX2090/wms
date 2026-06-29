@@ -12,7 +12,7 @@ import html.parser
 from datetime import datetime, date
 from functools import wraps
 
-from flask import request, jsonify, current_app
+from flask import request, jsonify, current_app, redirect, url_for, flash
 from flask_login import current_user
 
 from db import db
@@ -434,14 +434,29 @@ def save_upload_image(file_storage, subfolder='', upload_folder=None):
 
 # ==================== 权限装饰器 ====================
 def require_role(*roles):
-    """检查用户角色，如果不符合则返回错误"""
+    """Require one of the allowed business roles on the server side."""
+    allowed = set(roles or ())
+
+    def wants_json_response():
+        if request.path.startswith('/api/'):
+            return True
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return True
+        best = request.accept_mimetypes.best_match(['application/json', 'text/html'])
+        return best == 'application/json' and request.accept_mimetypes[best] >= request.accept_mimetypes['text/html']
+
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             if not current_user.is_authenticated:
-                return jsonify({'status': 'error', 'msg': '请先登录'})
-            if current_user.role not in roles and current_user.role != 'admin':
-                return jsonify({'status': 'error', 'msg': '您没有权限执行此操作'})
+                if wants_json_response():
+                    return jsonify({'status': 'error', 'msg': '请先登录'}), 401
+                return redirect(url_for('login', next=request.full_path if request.query_string else request.path))
+            if current_user.role != 'admin' and current_user.role not in allowed:
+                if wants_json_response():
+                    return jsonify({'status': 'error', 'msg': '当前账号没有权限执行此操作'}), 403
+                flash('当前账号没有权限访问该页面', 'danger')
+                return redirect(url_for('index'))
             return f(*args, **kwargs)
         return decorated_function
     return decorator

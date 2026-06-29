@@ -69,6 +69,49 @@ http://127.0.0.1:8080/login
 
 ## Windows 离线安装
 
+### 用户电脑免 Python 便携版
+
+最终用户电脑不需要安装 Python 3.11。开发/打包电脑执行：
+
+```bat
+build_portable_dist.bat
+```
+
+脚本会生成便携目录：
+
+```text
+dist\WMS\
+```
+
+该目录内包含 Python 解释器、依赖包、WMS 程序和启动入口。把整个 `dist\WMS\` 文件夹复制到用户电脑后，用户只需要双击：
+
+```bat
+启动WMS.bat
+```
+
+或：
+
+```bat
+WMS.exe
+```
+
+然后浏览器访问：
+
+```text
+http://127.0.0.1:8080/login
+```
+
+默认管理员账号：
+
+```text
+用户名：admin
+密码：admin123
+```
+
+便携包由 `tools\build_portable_dist.ps1` 生成，`dist/` 是构建产物，不提交到 Git。
+
+### 源码离线安装
+
 项目根目录提供离线安装入口：
 
 ```bat
@@ -147,6 +190,7 @@ C:\wms
 ├── runtime/                     离线运行环境资源
 ├── tools/                       安装和维护工具
 ├── wheelhouse/                  离线 Python 依赖包
+├── build_portable_dist.bat      生成 dist\WMS 便携包
 ├── install.bat                  离线安装入口
 ├── wms.bat                      快速启动入口
 └── README.md                    项目说明
