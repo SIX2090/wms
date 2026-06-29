@@ -19,6 +19,7 @@
                 <i class="bi bi-plus-lg"></i> 新增盘点单
             </button>
             <form id="checkImportForm" action="/check/import" method="post" enctype="multipart/form-data" class="d-none">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="file" id="checkImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('checkImportForm', 'checkImportFile')">
             </form>
         </div>
@@ -230,7 +231,7 @@ document.addEventListener('DOMContentLoaded', function() {
     revertBtns.forEach(function(btn) {
         btn.addEventListener('click', async function() {
             let id = this.getAttribute('data-id');
-            const confirmed = await showConfirm('确认反提交该盘点单？反提交后库存将恢复到盘点前。', { title: '反提交盘点单' });
+            const confirmed = await showConfirm('确认反提交该盘点单？未提交的库存调整草稿会一并删除。', { title: '反提交盘点单' });
             if(!confirmed) return;
 
             fetch('/check/'+id+'/revert', {

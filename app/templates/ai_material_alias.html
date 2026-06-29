@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}AI物料别名{% endblock %}
+
+{% block extra_css %}
+<style>
+    .alias-toolbar {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: flex-end;
+        margin-bottom: 14px;
+        flex-wrap: wrap;
+    }
+    .alias-title {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 700;
+        color: #111827;
+    }
+    .alias-subtitle {
+        color: #6b7280;
+        font-size: 13px;
+        margin-top: 4px;
+    }
+    .alias-form {
+        display: grid;
+        grid-template-columns: minmax(160px, 220px) minmax(260px, 420px) auto;
+        gap: 8px;
+        align-items: end;
+    }
+    .alias-search {
+        display: flex;
+        gap: 8px;
+        min-width: min(100%, 360px);
+    }
+    .alias-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 14px;
+        margin-bottom: 14px;
+    }
+    .alias-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+    }
+    .alias-table th,
+    .alias-table td {
+        border-bottom: 1px solid #e5e7eb;
+        padding: 8px;
+        font-size: 13px;
+        vertical-align: middle;
+    }
+    .alias-table th {
+        background: #f9fafb;
+        color: #374151;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .alias-material {
+        font-weight: 600;
+        color: #111827;
+    }
+    .alias-muted {
+        color: #6b7280;
+        font-size: 12px;
+    }
+    @media (max-width: 900px) {
+        .alias-form {
+            grid-template-columns: 1fr;
+        }
+        .alias-search {
+            width: 100%;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="alias-toolbar">
+        <div>
+            <h1 class="alias-title">AI物料别名</h1>
+            <div class="alias-subtitle">维护微信、送货单、客户叫法和系统物料之间的映射。</div>
+        </div>
+        <form method="get" class="alias-search">
+            <input type="search" name="search" class="form-control form-control-sm" value="{{ search or '' }}" placeholder="搜索别名/物料编码/名称/规格">
+            <button type="submit" class="btn btn-outline-primary btn-sm">搜索</button>
+            {% if search %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ai_material_alias_list') }}">清空</a>{% endif %}
+        </form>
+    </div>
+
+    <div class="alias-card">
+        <form method="post" action="{{ url_for('ai_material_alias_add') }}" class="alias-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="form-label mb-0">
+                外部叫法
+                <input type="text" name="alias" class="form-control form-control-sm" maxlength="100" placeholder="例如：黑螺丝" required>
+            </label>
+            <label class="form-label mb-0">
+                系统物料
+                <select name="material_id" class="form-select form-select-sm" required>
+                    <option value="">请选择物料</option>
+                    {% for material in materials %}
+                    <option value="{{ material.id }}">
+                        {{ material.code }} - {{ material.name }}{% if material.spec %} / {{ material.spec }}{% endif %}{% if material.unit %} / {{ material.unit.name }}{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button type="submit" class="btn btn-primary btn-sm">新增别名</button>
+        </form>
+    </div>
+
+    <div class="table-responsive">
+        <table class="alias-table">
+            <thead>
+                <tr>
+                    <th style="width: 70px;">ID</th>
+                    <th style="width: 180px;">外部叫法</th>
+                    <th>系统物料</th>
+                    <th style="width: 90px;">来源</th>
+                    <th style="width: 90px;">使用次数</th>
+                    <th style="width: 150px;">更新时间</th>
+                    <th style="width: 100px;">创建人</th>
+                    <th style="width: 90px;">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in aliases %}
+                <tr>
+                    <td>{{ row.id }}</td>
+                    <td>
+                        <div class="alias-material">{{ row.alias }}</div>
+                        <div class="alias-muted">{{ row.alias_key }}</div>
+                    </td>
+                    <td>
+                        {% if row.material %}
+                        <div class="alias-material">{{ row.material.code }} - {{ row.material.name }}</div>
+                        <div class="alias-muted">
+                            {% if row.material.spec %}{{ row.material.spec }}{% endif %}
+                            {% if row.material.unit %} {{ row.material.unit.name }}{% endif %}
+                        </div>
+                        {% else %}
+                        <span class="text-danger">物料不存在</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ row.source or '-' }}</td>
+                    <td>{{ row.use_count or 0 }}</td>
+                    <td>{{ row.updated_at.strftime('%Y-%m-%d %H:%M') if row.updated_at else '' }}</td>
+                    <td>{{ row.creator.username if row.creator else '-' }}</td>
+                    <td>
+                        <form method="post" action="{{ url_for('ai_material_alias_delete', id=row.id, search=search or '') }}" onsubmit="return confirm('确定删除这个AI物料别名？');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline-danger btn-sm">删除</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8" class="text-center text-muted py-4">暂无AI物料别名。</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

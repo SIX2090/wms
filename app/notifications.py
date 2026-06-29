@@ -246,22 +246,31 @@ notification_manager = NotificationManager()
 def init_notification_scheduler(app, db, Material, User):
     """初始化定时通知任务"""
     from apscheduler.schedulers.background import BackgroundScheduler
-    
+
     scheduler = BackgroundScheduler()
     notification_manager.init_app(app)
-    
+
     # 每天上午9点检查库存
     # 显式指定 id、replace_existing、max_instances，避免 init_notification_scheduler
     # 被多次调用（debug reloader、测试）时注册多个相同 job 导致重复执行
-    @scheduler.scheduled_job('cron', hour=9, minute=0,
-                             id='daily_stock_check',
-                             replace_existing=True,
-                             max_instances=1)
+    # 注意：APScheduler 3.10.x 的 @scheduler.scheduled_job 装饰器签名不含 replace_existing，
+    # 传入会被吞入 **trigger_args 再传给 add_job，与装饰器内部硬编码的 True 位置参数冲突，
+    # 报 "got multiple values for argument 'replace_existing'"。因此改用 add_job 直接调用。
     def daily_stock_check():
         with app.app_context():
             logging.getLogger(__name__).info('执行每日库存检查...')
             notification_manager.check_low_stock(db, Material, User)
             notification_manager.check_expiring_materials(db, Material, User)
-    
+
+    scheduler.add_job(
+        daily_stock_check,
+        'cron',
+        hour=9,
+        minute=0,
+        id='daily_stock_check',
+        replace_existing=True,
+        max_instances=1,
+    )
+
     scheduler.start()
     return scheduler

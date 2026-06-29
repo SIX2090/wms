@@ -54,3 +54,6 @@ desktop.ini
 *.tmp
 *.bak
 *.log
+.playwright-cli/
+test-results/
+app/_tmp*

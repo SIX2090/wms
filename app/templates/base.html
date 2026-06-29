@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -177,7 +177,7 @@
         .module-flyout .flyout-link.menu-multi-open::after {
             content: none;
         }
-        /* 委外管理子菜单 - 畅捷通 T+ 风格横向展开 */
+        /* 濮斿绠＄悊瀛愯彍鍗?- 鐣呮嵎閫?T+ 椋庢牸妯悜灞曞紑 */
         .sidebar .submenu-toggle {
             cursor: pointer;
             display: flex;
@@ -295,6 +295,48 @@
             background: #135dd8;
             color: #fff;
         }
+        .ai-welcome {
+            border: 1px solid #e2e8f0;
+            background: #fff;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #111827;
+        }
+        .ai-welcome-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .ai-welcome-text {
+            color: #475569;
+            margin-bottom: 9px;
+        }
+        .ai-suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px;
+        }
+        .ai-suggestion {
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            color: #0f172a;
+            border-radius: 6px;
+            padding: 5px 8px;
+            font-size: 12.5px;
+            line-height: 1.25;
+        }
+        .ai-suggestion:hover {
+            border-color: #135dd8;
+            color: #135dd8;
+            background: #eff6ff;
+        }
+        .ai-assistant-panel.is-busy .ai-suggestion,
+        .ai-assistant-panel.is-busy .ai-input-tool,
+        .ai-assistant-panel.is-busy button[type="submit"] {
+            opacity: 0.65;
+            pointer-events: none;
+        }
         .ai-message.assistant {
             background: #fff;
             color: #111827;
@@ -409,6 +451,116 @@
         }
         .ai-pending-attachments.has-items {
             display: flex;
+        }
+        /* AI 娑堟伅 Markdown 娓叉煋 */
+        .ai-message.assistant {
+            white-space: normal;
+        }
+        .ai-message-content {
+            word-break: break-word;
+        }
+        .ai-message-content p {
+            margin: 0 0 6px 0;
+        }
+        .ai-message-content p:last-child {
+            margin-bottom: 0;
+        }
+        .ai-message-content ul,
+        .ai-message-content ol {
+            margin: 4px 0 6px 0;
+            padding-left: 20px;
+        }
+        .ai-message-content li {
+            margin: 2px 0;
+        }
+        .ai-message-content strong {
+            font-weight: 600;
+        }
+        .ai-message-content code {
+            background: #f1f5f9;
+            color: #be123c;
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-size: 13px;
+            font-family: Consolas, Monaco, monospace;
+        }
+        .ai-message-content pre {
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 8px 10px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 6px 0;
+            font-size: 12.5px;
+        }
+        .ai-message-content pre code {
+            background: transparent;
+            color: inherit;
+            padding: 0;
+        }
+        .ai-message-content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 6px 0;
+            font-size: 13px;
+        }
+        .ai-message-content th,
+        .ai-message-content td {
+            border: 1px solid #e2e8f0;
+            padding: 4px 8px;
+            text-align: left;
+        }
+        .ai-message-content th {
+            background: #f1f5f9;
+            font-weight: 600;
+        }
+        .ai-message-content tr:nth-child(even) td {
+            background: #f8fafc;
+        }
+        .ai-message-content h1,
+        .ai-message-content h2,
+        .ai-message-content h3,
+        .ai-message-content h4 {
+            font-weight: 600;
+            margin: 8px 0 4px 0;
+            line-height: 1.3;
+        }
+        .ai-message-content h1 { font-size: 16px; }
+        .ai-message-content h2 { font-size: 15px; }
+        .ai-message-content h3 { font-size: 14px; }
+        .ai-message-content h4 { font-size: 13px; }
+        .ai-message-content blockquote {
+            border-left: 3px solid #cbd5e1;
+            margin: 4px 0;
+            padding: 2px 10px;
+            color: #475569;
+        }
+        /* 娴佸紡杈撳嚭鍏夋爣 */
+        .ai-streaming-cursor {
+            display: inline-block;
+            width: 7px;
+            height: 14px;
+            background: #135dd8;
+            margin-left: 2px;
+            vertical-align: text-bottom;
+            animation: ai-cursor-blink 1s steps(2) infinite;
+        }
+        @keyframes ai-cursor-blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+        .ai-history-clear {
+            border: 0;
+            background: transparent;
+            color: #fff;
+            font-size: 13px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            opacity: 0.8;
+        }
+        .ai-history-clear:hover {
+            background: rgba(255,255,255,0.15);
+            opacity: 1;
         }
         .sidebar .submenu-list .nav-link i {
             font-size: 0.6rem;
@@ -680,10 +832,10 @@
             margin-bottom: 0;
         }
         .table th {
-            /* 样式由 custom.css 统一管理 */
+            /* 鏍峰紡鐢?custom.css 缁熶竴绠＄悊 */
         }
         .table td {
-            /* 样式由 custom.css 统一管理 */
+            /* 鏍峰紡鐢?custom.css 缁熶竴绠＄悊 */
         }
         .badge-status {
             padding: 4px 8px;
@@ -713,7 +865,7 @@
             padding: 0.5rem 0.75rem;
             font-size: 0.9rem;
         }
-        /* 表格滚动容器 */
+        /* 琛ㄦ牸婊氬姩瀹瑰櫒 */
         .table-responsive-wrapper {
             overflow-x: auto;
             max-height: calc(100vh - 320px);
@@ -767,7 +919,7 @@
         .cb-col-resize-active * {
             user-select: none !important;
         }
-        /* 操作按钮行 */
+        /* 鎿嶄綔鎸夐挳琛?*/
 
         .cb-toast-stack {
             position: fixed;
@@ -1316,7 +1468,7 @@
         }
     </style>
     <script>
-    // 彻底禁止缩放
+    // 褰诲簳绂佹缂╂斁
     document.addEventListener('touchstart', function(e) {
         if (e.touches.length > 1) {
             e.preventDefault();
@@ -1342,12 +1494,12 @@
         e.preventDefault();
     });
 
-    // 禁止双击缩放
+    // 绂佹鍙屽嚮缂╂斁
     document.addEventListener('dblclick', function(e) {
         e.preventDefault();
     }, { passive: false });
 
-    // 禁止滚轮缩放
+    // 绂佹婊氳疆缂╂斁
     document.addEventListener('wheel', function(e) {
         if (e.ctrlKey) {
             e.preventDefault();
@@ -1462,11 +1614,11 @@
                 <div class="module-flyout">
                     <div class="flyout-title">采购管理</div>
                     <a class="flyout-link" href="/purchase_request/add"><i class="bi bi-cart-plus"></i> 采购申请</a>
-                    <a class="flyout-link" href="/purchase_order/add"><i class="bi bi-bag-check"></i> 采购单</a>
+                    <a class="flyout-link" href="/purchase_order/add"><i class="bi bi-bag-check"></i> 采购订单</a>
                     <a class="flyout-link" href="/in_order/add"><i class="bi bi-box-arrow-in-down"></i> 采购入库</a>
                     <div class="flyout-divider"></div>
                     <a class="flyout-link" href="/purchase_request"><i class="bi bi-list-check"></i> 采购申请列表</a>
-                    <a class="flyout-link" href="/purchase_order?view=list"><i class="bi bi-card-list"></i> 采购单列表</a>
+                    <a class="flyout-link" href="/purchase_order?view=list"><i class="bi bi-card-list"></i> 采购订单列表</a>
                     <a class="flyout-link" href="/in_order?business_type=采购入库"><i class="bi bi-card-list"></i> 采购入库明细</a>
                     <a class="flyout-link" href="/supplier"><i class="bi bi-building"></i> 供应商管理</a>
                     <div class="flyout-divider"></div>
@@ -1621,7 +1773,7 @@
             </li>
             <li class="nav-item">
                 <a class="nav-link" href="/purchase_order/add">
-                    <i class="bi bi-bag-check"></i> 采购单
+                    <i class="bi bi-bag-check"></i> 采购订单
                 </a>
             </li>
             <li class="nav-item">
@@ -1738,10 +1890,10 @@
         </ul>
     </nav>
 
-    <!-- 主内容区 -->
+    <!-- 涓诲唴瀹瑰尯 -->
     <div class="main-content">
         <div class="tab-workspace" id="tabWorkspace">
-            <div class="tab-bar" id="tabBar" aria-label="已打开页面"></div>
+            <div class="tab-bar" id="tabBar" aria-label="宸叉墦寮€椤甸潰"></div>
             <div class="tab-frame-wrap" id="tabFrameWrap"></div>
         </div>
         <div class="embedded-content">
@@ -1755,12 +1907,12 @@
     <div class="cb-confirm-overlay" id="cbConfirmOverlay">
         <div class="cb-confirm-dialog">
             <div class="cb-confirm-header">
-                <h5 id="cbConfirmTitle">请确认操作</h5>
+                <h5 id="cbConfirmTitle">璇风‘璁ゆ搷浣?/h5>
             </div>
-            <div class="cb-confirm-body" id="cbConfirmMessage">确定继续吗？</div>
+            <div class="cb-confirm-body" id="cbConfirmMessage">纭畾缁х画鍚楋紵</div>
             <div class="cb-confirm-actions">
-                <button type="button" class="btn btn-outline-secondary" id="cbConfirmCancel">取消</button>
-                <button type="button" class="btn btn-primary" id="cbConfirmOk">确认</button>
+                <button type="button" class="btn btn-outline-secondary" id="cbConfirmCancel">鍙栨秷</button>
+                <button type="button" class="btn btn-primary" id="cbConfirmOk">纭</button>
             </div>
         </div>
     </div>
@@ -1772,15 +1924,29 @@
     <div class="ai-assistant-panel" id="aiAssistantPanel" aria-label="AI仓库助手">
         <div class="ai-assistant-header">
             <div class="ai-assistant-title"><i class="bi bi-robot"></i> AI仓库助手</div>
-            <button type="button" class="ai-assistant-close" id="aiAssistantClose" aria-label="关闭">×</button>
+            <div class="d-flex align-items-center gap-1">
+                <button type="button" class="ai-history-clear" id="aiHistoryClear" title="清空对话"><i class="bi bi-eraser"></i></button>
+                <button type="button" class="ai-assistant-close" id="aiAssistantClose" aria-label="关闭">×</button>
+            </div>
         </div>
         <div class="ai-assistant-messages" id="aiAssistantMessages">
-            <div class="ai-message assistant">可以直接问我：查 A001 库存、今天有哪些异常、有哪些待处理单据，或生成领料单 A001 20。</div>
+            <div class="ai-welcome">
+                <div class="ai-welcome-title">可以直接处理仓库问题</div>
+                <div class="ai-welcome-text">识别送货单图片、微信/文本内容，生成草稿并检查异常。扫码入库仍走 PDA，提交或扣库存前需要人工确认。</div>
+                <div class="ai-suggestions" id="aiSuggestions">
+                    <button type="button" class="ai-suggestion" data-prompt="上传送货单图片生成采购入库草稿">送货单入库</button>
+                    <button type="button" class="ai-suggestion" data-prompt="微信内容生成领料单 A001 20 B002 5">微信成领料</button>
+                    <button type="button" class="ai-suggestion" data-prompt="客户发货 A001 20 B002 5">微信成销售出库</button>
+                    <button type="button" class="ai-suggestion" data-prompt="检查当前草稿">提交前检查</button>
+                    <button type="button" class="ai-suggestion" data-prompt="为什么 A001 库存不对">解释异常</button>
+                    <button type="button" class="ai-suggestion" data-prompt="GPT识别微信：华南客户今天发 A001 两箱，B003 15个，备注加急">GPT识别微信</button>
+                </div>
+            </div>
         </div>
         <div class="ai-assistant-input">
             <div class="ai-pending-attachments" id="aiPendingAttachments"></div>
             <form id="aiAssistantForm">
-                <button type="button" class="btn btn-outline-secondary btn-sm ai-input-tool" id="aiPasteButton" title="粘贴剪贴板"><i class="bi bi-clipboard"></i></button>
+                <button type="button" class="btn btn-outline-secondary btn-sm ai-input-tool" id="aiPasteButton" title="粘贴剪贴板文本"><i class="bi bi-clipboard"></i></button>
                 <button type="button" class="btn btn-outline-secondary btn-sm ai-input-tool" id="aiUploadButton" title="上传图片"><i class="bi bi-image"></i></button>
                 <input type="file" id="aiImageInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
                 <input type="text" class="form-control form-control-sm" id="aiAssistantInput" placeholder="输入仓库业务问题..." autocomplete="off">
@@ -1790,9 +1956,9 @@
     </div>
     {% endif %}
 
-    <!-- Bootstrap 5 JS Bundle (含 Popper) -->
+    <!-- Bootstrap 5 JS Bundle (鍚?Popper) -->
     <script src="{{ url_for('static', filename='cdn/bootstrap-bundle-5.3.0.min.js') }}"></script>
-    <!-- 主应用JS -->
+    <!-- 涓诲簲鐢↗S -->
     <script src="{{ url_for('static', filename='js/app.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     {% if current_user.is_authenticated %}
     <script>
@@ -1800,6 +1966,7 @@
         const button = document.getElementById('aiAssistantButton');
         const panel = document.getElementById('aiAssistantPanel');
         const closeButton = document.getElementById('aiAssistantClose');
+        const clearButton = document.getElementById('aiHistoryClear');
         const form = document.getElementById('aiAssistantForm');
         const input = document.getElementById('aiAssistantInput');
         const messages = document.getElementById('aiAssistantMessages');
@@ -1811,10 +1978,133 @@
         const pendingImages = [];
         const maxImages = 3;
         const maxImageBytes = 3 * 1024 * 1024;
+        const chatHistory = [];
+        const maxHistory = 20;
+        let isSending = false;
         if (window.self !== window.top) {
             button.style.display = 'none';
             panel.remove();
             return;
+        }
+
+        function setBusy(busy) {
+            isSending = !!busy;
+            panel.classList.toggle('is-busy', isSending);
+            input.disabled = isSending;
+        }
+
+        function escapeHtml(text) {
+            return String(text || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function renderMarkdown(text) {
+            if (!text) return '';
+            let src = escapeHtml(text);
+            // 浠ｇ爜鍧?```lang\ncode```
+            const blocks = [];
+            src = src.replace(/```(\w*)\n?([\s\S]*?)```/g, function(m, lang, code) {
+                const idx = blocks.length;
+                blocks.push('<pre><code>' + code.replace(/\n$/, '') + '</code></pre>');
+                return '\u0000BLOCK' + idx + '\u0000';
+            });
+            // 琛屽唴浠ｇ爜 `code`
+            const inlines = [];
+            src = src.replace(/`([^`\n]+)`/g, function(m, code) {
+                const idx = inlines.length;
+                inlines.push('<code>' + code + '</code>');
+                return '\u0000INLINE' + idx + '\u0000';
+            });
+            const lines = src.split('\n');
+            const out = [];
+            let i = 0;
+            let inList = null;
+            let tableRows = [];
+            let inTable = false;
+
+            function flushList() {
+                if (inList) { out.push('</' + inList + '>'); inList = null; }
+            }
+            function flushTable() {
+                if (!inTable) return;
+                if (tableRows.length) {
+                    out.push('<table>');
+                    tableRows.forEach(function(row, ri) {
+                        out.push('<tr>');
+                        row.forEach(function(cell) {
+                            if (ri === 0) out.push('<th>' + cell.trim() + '</th>');
+                            else out.push('<td>' + cell.trim() + '</td>');
+                        });
+                        out.push('</tr>');
+                    });
+                    out.push('</table>');
+                }
+                tableRows = [];
+                inTable = false;
+            }
+
+            while (i < lines.length) {
+                const line = lines[i];
+                if (line.indexOf('\u0000BLOCK') === 0) {
+                    flushList(); flushTable();
+                    out.push(line.replace(/\u0000BLOCK(\d+)\u0000/, function(m, idx) { return blocks[parseInt(idx)]; }));
+                    i++; continue;
+                }
+                if (/^\s*\|.+\|\s*$/.test(line)) {
+                    flushList();
+                    if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) { i++; continue; }
+                    const cells = line.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|');
+                    tableRows.push(cells);
+                    inTable = true;
+                    i++; continue;
+                } else {
+                    flushTable();
+                }
+                const h = line.match(/^(#{1,4})\s+(.*)$/);
+                if (h) {
+                    flushList();
+                    const level = h[1].length;
+                    out.push('<h' + level + '>' + h[2].trim() + '</h' + level + '>');
+                    i++; continue;
+                }
+                if (/^&gt;\s?/.test(line)) {
+                    flushList();
+                    out.push('<blockquote>' + line.replace(/^&gt;\s?/, '') + '</blockquote>');
+                    i++; continue;
+                }
+                if (/^(\*\*\*|---|___)\s*$/.test(line)) {
+                    flushList();
+                    out.push('<hr>');
+                    i++; continue;
+                }
+                if (/^\s*[-*+]\s+/.test(line)) {
+                    if (inList !== 'ul') { flushList(); out.push('<ul>'); inList = 'ul'; }
+                    out.push('<li>' + line.replace(/^\s*[-*+]\s+/, '') + '</li>');
+                    i++; continue;
+                }
+                if (/^\s*\d+\.\s+/.test(line)) {
+                    if (inList !== 'ol') { flushList(); out.push('<ol>'); inList = 'ol'; }
+                    out.push('<li>' + line.replace(/^\s*\d+\.\s+/, '') + '</li>');
+                    i++; continue;
+                }
+                if (!line.trim()) {
+                    flushList();
+                    i++; continue;
+                }
+                flushList();
+                out.push('<p>' + line + '</p>');
+                i++;
+            }
+            flushList(); flushTable();
+            let html = out.join('\n');
+            html = html.replace(/\u0000INLINE(\d+)\u0000/g, function(m, idx) { return inlines[parseInt(idx)]; });
+            // 鍔犵矖 **text**
+            html = html.replace(/\*\*([^\*\n]+)\*\*/g, '<strong>$1</strong>');
+            return html;
         }
 
         function copyText(text) {
@@ -1831,20 +2121,27 @@
             }
         }
 
-        function addMessage(text, type, attachments) {
+        function addMessage(text, type, attachments, useMarkdown) {
             const node = document.createElement('div');
             node.className = 'ai-message ' + (type || 'assistant');
-            const textNode = document.createElement('div');
-            textNode.textContent = text;
-            node.appendChild(textNode);
+            const contentEl = document.createElement('div');
+            contentEl.className = 'ai-message-content';
+            if (type === 'user') {
+                contentEl.textContent = text;
+            } else {
+                // assistant 娑堟伅娓叉煋 Markdown锛堥櫎闈炴樉寮忕鐢級
+                contentEl.innerHTML = useMarkdown === false ? escapeHtml(text) : renderMarkdown(text);
+            }
+            node.appendChild(contentEl);
             const copyButton = document.createElement('button');
             copyButton.type = 'button';
             copyButton.className = 'ai-message-copy';
             copyButton.title = '复制';
             copyButton.innerHTML = '<i class="bi bi-copy"></i>';
+            copyButton._aiText = text;
             copyButton.addEventListener('click', function(event) {
                 event.stopPropagation();
-                copyText(text);
+                copyText(this._aiText);
             });
             node.appendChild(copyButton);
             if (attachments && attachments.length) {
@@ -1875,7 +2172,7 @@
                 thumb.className = 'ai-attachment-thumb';
                 const img = document.createElement('img');
                 img.src = item.data_url;
-                img.alt = item.name || '图片';
+                    img.alt = item.name || '图片';
                 const remove = document.createElement('button');
                 remove.type = 'button';
                 remove.className = 'ai-attachment-remove';
@@ -1936,7 +2233,7 @@
                 const meta = document.createElement('div');
                 meta.className = 'ai-card-meta';
                 if (card.stock !== undefined) {
-                    meta.textContent = '库存：' + card.stock + (card.unit ? ' ' + card.unit : '') + (card.spec ? '｜规格：' + card.spec : '');
+                    meta.textContent = '库存：' + card.stock + (card.unit ? ' ' + card.unit : '') + (card.spec ? '，规格：' + card.spec : '');
                 } else if (card.quantity !== undefined) {
                     meta.textContent = '数量：' + card.quantity;
                 } else if (card.meta) {
@@ -1973,6 +2270,144 @@
             messages.scrollTop = messages.scrollHeight;
         }
 
+        function sendNonStreaming(text, attachments) {
+            setBusy(true);
+            const loading = addMessage('正在处理...', 'assistant', null, false);
+            const activeContext = window.WmsTabs && window.WmsTabs.getActiveContext ? window.WmsTabs.getActiveContext() : null;
+            fetch('/api/ai/warehouse_assistant', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    message: text,
+                    attachments: attachments,
+                    page_url: activeContext ? activeContext.url : (window.location.pathname + window.location.search),
+                    page_title: activeContext ? activeContext.title : document.title
+                })
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                loading.remove();
+                setBusy(false);
+                if (data.status !== 'success') {
+                    addMessage(data.msg || '处理失败', 'assistant');
+                    return;
+                }
+                addMessage(data.reply || '已处理', 'assistant');
+                renderCards(data.cards);
+                renderActions(data.actions);
+            })
+            .catch(function(error) {
+                loading.remove();
+                setBusy(false);
+                addMessage('处理失败：' + error.message, 'assistant');
+            });
+        }
+
+        function tryStreamChat(text) {
+            setBusy(true);
+            const loading = addMessage('正在处理...', 'assistant', null, false);
+            const contentEl = loading.querySelector('.ai-message-content');
+            const cursor = document.createElement('span');
+            cursor.className = 'ai-streaming-cursor';
+            contentEl.appendChild(cursor);
+            const copyBtn = loading.querySelector('.ai-message-copy');
+            let buffer = '';
+            let finished = false;
+            let pendingCards = null;
+            let pendingActions = null;
+
+            function finalize() {
+                if (finished) return;
+                finished = true;
+                setBusy(false);
+                cursor.remove();
+                if (!buffer.trim()) {
+                    loading.remove();
+                    addMessage('没有收到回复，请稍后重试。', 'assistant');
+                    return;
+                }
+                contentEl.innerHTML = renderMarkdown(buffer);
+                if (copyBtn) copyBtn._aiText = buffer;
+                chatHistory.push({role: 'user', content: text});
+                chatHistory.push({role: 'assistant', content: buffer});
+                while (chatHistory.length > maxHistory) chatHistory.shift();
+                messages.scrollTop = messages.scrollHeight;
+                // 娓叉煋涓氬姟鍗＄墖/鍔ㄤ綔锛堜笟鍔℃剰鍥惧湪娴佸紡閫氶亾鍐呮墽琛屽悗杩藉姞鐨勪簨浠讹級
+                if (pendingCards) renderCards(pendingCards);
+                if (pendingActions) renderActions(pendingActions);
+            }
+
+            const activeContext = window.WmsTabs && window.WmsTabs.getActiveContext ? window.WmsTabs.getActiveContext() : null;
+            fetch('/api/ai/chat/stream', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    message: text,
+                    history: chatHistory,
+                    page_url: activeContext ? activeContext.url : (window.location.pathname + window.location.search),
+                    page_title: activeContext ? activeContext.title : document.title
+                })
+            }).then(function(res) {
+                const ct = res.headers.get('content-type') || '';
+                if (ct.includes('application/json')) {
+                    return res.json().then(function(data) {
+                        loading.remove();
+                        setBusy(false);
+                    addMessage(data.msg || '处理失败', 'assistant');
+                    });
+                }
+                if (!res.body || !res.body.getReader) {
+                    loading.remove();
+                    setBusy(false);
+                    sendNonStreaming(text, []);
+                    return;
+                }
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let pending = '';
+                function read() {
+                    reader.read().then(function(result) {
+                        if (result.done) { finalize(); return; }
+                        pending += decoder.decode(result.value, {stream: true});
+                        const lines = pending.split('\n');
+                        pending = lines.pop();
+                        for (const line of lines) {
+                            const trimmed = line.trim();
+                            if (!trimmed.startsWith('data: ')) continue;
+                            try {
+                                const evt = JSON.parse(trimmed.slice(6));
+                                if (evt.type === 'token' && evt.content) {
+                                    buffer += evt.content;
+                                    contentEl.innerHTML = renderMarkdown(buffer);
+                                    contentEl.appendChild(cursor);
+                                    messages.scrollTop = messages.scrollHeight;
+                                } else if (evt.type === 'cards') {
+                                    pendingCards = evt.content;
+                                } else if (evt.type === 'actions') {
+                                    pendingActions = evt.content;
+                                } else if (evt.type === 'done') {
+                                    buffer = evt.content || buffer;
+                                    finalize();
+                                    return;
+                                } else if (evt.type === 'error') {
+                                    loading.remove();
+                                    setBusy(false);
+                                    addMessage(evt.content || '处理失败', 'assistant');
+                                    return;
+                                }
+                            } catch(e) {}
+                        }
+                        read();
+                    }).catch(function() { finalize(); });
+                }
+                read();
+            }).catch(function(error) {
+                loading.remove();
+                setBusy(false);
+                addMessage('处理失败：' + error.message, 'assistant');
+            });
+        }
+
         button.addEventListener('click', function() {
             panel.classList.toggle('open');
             if (panel.classList.contains('open')) input.focus();
@@ -1980,6 +2415,19 @@
         closeButton.addEventListener('click', function() {
             panel.classList.remove('open');
         });
+        if (clearButton) {
+            clearButton.addEventListener('click', function() {
+                fetch('/api/ai/chat/clear', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+                    .then(function() {
+                        chatHistory.length = 0;
+                        addMessage('已清空对话历史，可以开始新的对话。', 'assistant');
+                    })
+                    .catch(function() {
+                        chatHistory.length = 0;
+                        addMessage('已清空本地对话历史。', 'assistant');
+                    });
+            });
+        }
         if (uploadButton && imageInput) {
             uploadButton.addEventListener('click', function() {
                 imageInput.click();
@@ -2016,42 +2464,36 @@
             });
             event.preventDefault();
         });
+        function sendAssistantMessage(text, attachments) {
+            if (isSending) return;
+            attachments = attachments || [];
+            if (!text && !attachments.length) return;
+            addMessage(text || '请分析这张图片', 'user', attachments);
+            if (attachments.length) {
+                sendNonStreaming(text, attachments);
+            } else {
+                tryStreamChat(text);
+            }
+        }
+        messages.addEventListener('click', function(event) {
+            const btn = event.target.closest('.ai-suggestion');
+            if (!btn || isSending) return;
+            const prompt = (btn.getAttribute('data-prompt') || btn.textContent || '').trim();
+            if (!prompt) return;
+            panel.classList.add('open');
+            input.value = '';
+            sendAssistantMessage(prompt, []);
+        });
         form.addEventListener('submit', function(event) {
             event.preventDefault();
+            if (isSending) return;
             const text = input.value.trim();
             if (!text && !pendingImages.length) return;
             const attachments = pendingImages.slice();
             pendingImages.length = 0;
             renderPendingImages();
             input.value = '';
-            addMessage(text || '请分析这张图片', 'user', attachments);
-            const loading = addMessage('正在处理...', 'assistant');
-            const activeContext = window.WmsTabs && window.WmsTabs.getActiveContext ? window.WmsTabs.getActiveContext() : null;
-            fetch('/api/ai/warehouse_assistant', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    message: text,
-                    attachments: attachments,
-                    page_url: activeContext ? activeContext.url : (window.location.pathname + window.location.search),
-                    page_title: activeContext ? activeContext.title : document.title
-                })
-            })
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
-                loading.remove();
-                if (data.status !== 'success') {
-                    addMessage(data.msg || '处理失败', 'assistant');
-                    return;
-                }
-                addMessage(data.reply || '已处理', 'assistant');
-                renderCards(data.cards);
-                renderActions(data.actions);
-            })
-            .catch(function(error) {
-                loading.remove();
-                addMessage('处理失败：' + error.message, 'assistant');
-            });
+            sendAssistantMessage(text, attachments);
         });
     })();
     </script>

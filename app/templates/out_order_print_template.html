@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>领料单打印模板管理</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}">
     <style>
@@ -80,6 +81,7 @@
             </div>
             <div class="card-body">
                 <form id="addTemplateForm" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="row">
                         <div class="col-md-4">
                             <div class="mb-3">
@@ -383,6 +385,9 @@ A6: {{ '{{ item.material.code }}' }}  {{ '{{ item.material.name }}' }}  {{ '{{ i
     </div>
 
     <script>
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+        const csrfHeaders = { 'X-CSRFToken': csrfToken };
+
         // 模板类型切换
         document.getElementById('templateType').addEventListener('change', function() {
             const type = this.value;
@@ -473,6 +478,7 @@ A6: {{ '{{ item.material.code }}' }}  {{ '{{ item.material.name }}' }}  {{ '{{ i
             try {
                 const response = await fetch('/out_order_print_template/add', {
                     method: 'POST',
+                    headers: csrfHeaders,
                     body: formData
                 });
                 
@@ -497,7 +503,8 @@ A6: {{ '{{ item.material.code }}' }}  {{ '{{ item.material.name }}' }}  {{ '{{ i
             
             try {
                 const response = await fetch(`/out_order_print_template/${templateId}/set_default`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: csrfHeaders
                 });
                 
                 const result = await response.json();
@@ -518,7 +525,8 @@ A6: {{ '{{ item.material.code }}' }}  {{ '{{ item.material.name }}' }}  {{ '{{ i
             
             try {
                 const response = await fetch(`/out_order_print_template/${templateId}/delete`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: csrfHeaders
                 });
                 
                 const result = await response.json();

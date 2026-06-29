@@ -3,8 +3,8 @@ WMS 仓库管理系统离线安装包
 1. 解压 wms.zip。
 2. 双击 install.bat / wms.bat，或在 CMD/批处理中运行 install.cmd / wms.cmd。
 3. 安装完成后打开 http://127.0.0.1:8080/login。
-4. 默认账号：admin
-5. 默认密码：admin123
+4. 初始账号：admin
+5. 初始密码：请设置 WMS_BOOTSTRAP_PASSWORD；未设置时系统会生成随机密码并写入启动日志。
 
 说明：
 - 安装包已包含 Python 3.11 安装器和 Python 依赖 wheelhouse。

@@ -95,6 +95,10 @@ class ExcelImportExport {
     }
 
     createImportModal() {
+        if (document.getElementById('excelImportModal')) {
+            return;
+        }
+
         const modalHtml = `
         <div class="modal fade" id="excelImportModal" tabindex="-1">
             <div class="modal-dialog modal-lg">
@@ -111,7 +115,7 @@ class ExcelImportExport {
                                 <ul class="mb-0 mt-2">
                                     <li>支持 .xlsx 和 .xls 格式</li>
                                     <li>第一行为表头，从第二行开始为数据</li>
-                                    <li>必填列：${this.getRequiredColumns()}</li>
+                                    <li>必填列：<span id="excelRequiredColumns"></span></li>
                                     <li>建议先下载模板，按模板格式填写数据</li>
                                 </ul>
                             </div>
@@ -145,6 +149,7 @@ class ExcelImportExport {
         </div>`;
 
         document.body.insertAdjacentHTML('beforeend', modalHtml);
+        document.getElementById('excelRequiredColumns').textContent = this.getRequiredColumns();
 
         // 绑定文件选择事件
         document.getElementById('excelFileInput').addEventListener('change', (e) => {
@@ -316,14 +321,14 @@ class ExcelImportExport {
 
         // 获取表格数据
         const data = [];
-        const headers = [];
+        const exportColumns = [];
 
         // 表头
         const headerCells = table.querySelectorAll('thead th');
-        headerCells.forEach(th => {
+        headerCells.forEach((th, index) => {
             const text = th.textContent.trim();
             if (text && text !== '序' && text !== '操作' && !th.querySelector('input[type="checkbox"]')) {
-                headers.push(text);
+                exportColumns.push({ index: index, header: text });
             }
         });
 
@@ -334,20 +339,13 @@ class ExcelImportExport {
 
             const rowData = {};
             const cells = tr.querySelectorAll('td');
-            let headerIndex = 0;
-
-            cells.forEach((td, index) => {
-                // 跳过序号、复选框、操作列
-                if (index === 0 || td.querySelector('input[type="checkbox"]') || td.querySelector('.btn')) {
-                    return;
-                }
-
-                if (headerIndex < headers.length) {
+            exportColumns.forEach(column => {
+                const td = cells[column.index];
+                if (td && !td.querySelector('input[type="checkbox"]') && !td.querySelector('.btn')) {
                     let value = td.textContent.trim();
                     // 移除货币符号
                     value = value.replace(/¥|￥/g, '');
-                    rowData[headers[headerIndex]] = value;
-                    headerIndex++;
+                    rowData[column.header] = value;
                 }
             });
 

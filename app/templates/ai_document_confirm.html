@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %}AI识别结果确认{% endblock %}
+
+{% block extra_css %}
+<style>
+    .ai-confirm-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+    .ai-confirm-title {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 700;
+        color: #111827;
+    }
+    .ai-confirm-summary {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        color: #4b5563;
+        font-size: 13px;
+    }
+    .ai-confirm-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+    }
+    .ai-confirm-table th,
+    .ai-confirm-table td {
+        border-bottom: 1px solid #e5e7eb;
+        padding: 8px;
+        vertical-align: middle;
+        font-size: 13px;
+    }
+    .ai-confirm-table th {
+        background: #f9fafb;
+        color: #374151;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .ai-confirm-table select,
+    .ai-confirm-table input[type="number"] {
+        width: 100%;
+        min-height: 32px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 13px;
+    }
+    .ai-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .ai-status.matched {
+        color: #047857;
+        background: #d1fae5;
+    }
+    .ai-status.unmatched {
+        color: #b45309;
+        background: #fef3c7;
+    }
+    .ai-source-text {
+        margin: 12px 0;
+        padding: 10px 12px;
+        border: 1px solid #e5e7eb;
+        background: #f9fafb;
+        border-radius: 6px;
+        color: #374151;
+        font-size: 13px;
+        white-space: pre-wrap;
+    }
+    .ai-confirm-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 14px;
+    }
+    .ai-material-filter {
+        max-width: 280px;
+    }
+    .ai-header-fields {
+        display: grid;
+        grid-template-columns: minmax(220px, 360px);
+        gap: 10px;
+        margin: 12px 0;
+    }
+    .ai-header-fields label {
+        display: grid;
+        gap: 4px;
+        color: #374151;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    .ai-header-fields input {
+        min-height: 34px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        padding: 5px 9px;
+        font-size: 13px;
+        font-weight: 400;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="ai-confirm-toolbar">
+        <div>
+            <h1 class="ai-confirm-title">AI识别结果确认</h1>
+            <div class="ai-confirm-summary">
+                <span>单据类型：{{ {'in_order':'采购入库','out_order':'领料单','sales_out_order':'销售出库','transfer':'调拨','check':'盘点','adjustment':'调整'}.get(payload.document_type, payload.document_type) }}</span>
+                <span>识别行数：{{ payload.rows|length }}</span>
+                <span>可选物料：{{ materials|length }}</span>
+            </div>
+        </div>
+        <input type="search" class="form-control form-control-sm ai-material-filter" id="materialFilter" placeholder="过滤物料编码/名称/规格">
+    </div>
+
+    {% if payload.source_text %}
+    <div class="ai-source-text">{{ payload.source_text }}</div>
+    {% endif %}
+
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="row_count" value="{{ payload.rows|length }}">
+        {% if payload.document_type in ['sales_out_order', 'out_order'] %}
+        <div class="ai-header-fields">
+            <label>
+                客户
+                <input type="text" name="customer" value="{{ payload.customer or '' }}" maxlength="100" placeholder="客户名称">
+            </label>
+        </div>
+        {% endif %}
+        <div class="table-responsive">
+            <table class="ai-confirm-table">
+                <thead>
+                    <tr>
+                        <th style="width: 70px;">生成</th>
+                        <th style="width: 120px;">状态</th>
+                        <th>识别内容</th>
+                        <th style="width: 42%;">系统物料</th>
+                        <th style="width: 130px;">数量</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in payload.rows %}
+                    <tr>
+                        <td class="text-center">
+                            <input type="checkbox" name="use_row_{{ loop.index0 }}" value="1" {% if row.material_id %}checked{% endif %}>
+                        </td>
+                        <td>
+                            <span class="ai-status {{ row.match_status }}">
+                                {% if row.match_status == 'matched' %}已匹配{% else %}未匹配{% endif %}
+                            </span>
+                        </td>
+                        <td>
+                            <div>{{ row.raw or row.code or '-' }}</div>
+                            {% if row.code and row.code != row.raw %}<small class="text-muted">{{ row.code }}</small>{% endif %}
+                        </td>
+                        <td>
+                            <select name="material_id_{{ loop.index0 }}" class="ai-material-select">
+                                <option value="">请选择物料</option>
+                                {% for material in materials %}
+                                <option value="{{ material.id }}"
+                                        data-search="{{ (material.code ~ ' ' ~ material.name ~ ' ' ~ (material.spec or ''))|lower }}"
+                                        {% if row.material_id == material.id %}selected{% endif %}>
+                                    {{ material.code }} - {{ material.name }}{% if material.spec %} / {{ material.spec }}{% endif %}{% if material.unit %} / {{ material.unit.name }}{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td>
+                            <input type="number" name="quantity_{{ loop.index0 }}" value="{{ row.quantity or '' }}" min="0" step="0.01">
+                        </td>
+                        <td class="text-muted">{{ row.reason or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not payload.rows %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">没有识别到明细行，请重新识别。</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        <div class="ai-confirm-actions">
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">取消</a>
+            <button type="submit" class="btn btn-primary btn-sm" {% if not materials %}disabled{% endif %}>
+                <i class="bi bi-check2-circle"></i> 生成草稿
+            </button>
+        </div>
+        {% if not materials %}
+        <div class="alert alert-warning mt-3 mb-0">当前没有物料档案，无法生成草稿。请先维护物料档案，再重新确认。</div>
+        {% endif %}
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const filter = document.getElementById('materialFilter');
+    const selects = Array.from(document.querySelectorAll('.ai-material-select'));
+    if (!filter || !selects.length) return;
+    const snapshots = selects.map(function(select) {
+        return Array.from(select.options).map(function(option) {
+            return {
+                value: option.value,
+                text: option.textContent,
+                search: option.getAttribute('data-search') || '',
+                selected: option.selected
+            };
+        });
+    });
+    filter.addEventListener('input', function() {
+        const keyword = filter.value.trim().toLowerCase();
+        selects.forEach(function(select, idx) {
+            const selectedValue = select.value;
+            select.innerHTML = '';
+            snapshots[idx].forEach(function(item) {
+                if (item.value && keyword && item.search.indexOf(keyword) === -1 && item.value !== selectedValue) return;
+                const option = document.createElement('option');
+                option.value = item.value;
+                option.textContent = item.text;
+                if (item.search) option.setAttribute('data-search', item.search);
+                if (item.value === selectedValue) option.selected = true;
+                select.appendChild(option);
+            });
+        });
+    });
+})();
+</script>
+{% endblock %}

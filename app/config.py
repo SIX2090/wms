@@ -108,7 +108,7 @@ class DevelopmentConfig(Config):
     """开发环境配置"""
     SECRET_KEY = os.environ.get('SECRET_KEY') or os.environ.get('DEV_SECRET_KEY')
     DEBUG = True
-    SQLALCHEMY_ECHO = True  # 打印 SQL 语句
+    SQLALCHEMY_ECHO = os.environ.get('SQLALCHEMY_ECHO', 'false').lower() in ('true', '1', 'yes')  # 按需打印 SQL
 
 
 # ==================== 生产环境配置 ====================

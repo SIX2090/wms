@@ -327,6 +327,7 @@
             </div>
             <div class="modal-body">
                 <form id="importForm" action="{{ url_for('import_bom') }}" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label for="file" class="form-label">上传Excel文件</label>
                         <input type="file" class="form-control" id="file" name="file" accept=".xlsx,.xls" required>

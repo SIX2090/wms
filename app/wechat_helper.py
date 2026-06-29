@@ -37,7 +37,7 @@ except Exception:  # pragma: no cover - reported in health check.
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("WMS_WECHAT_HELPER_PORT", "8765"))
 WMS_BASE_URL = os.environ.get("WMS_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
-WMS_HELPER_TOKEN = os.environ.get("WECHAT_HELPER_TOKEN", "change-this-wechat-helper-token")
+WMS_HELPER_TOKEN = os.environ.get("WECHAT_HELPER_TOKEN")
 POLL_ENABLED = os.environ.get("WMS_WECHAT_HELPER_POLL", "0").lower() in {"1", "true", "yes"}
 POLL_INTERVAL = max(5, int(os.environ.get("WMS_WECHAT_HELPER_INTERVAL", "30")))
 
@@ -374,6 +374,9 @@ def send_image_task(image_bytes: bytes, task: dict) -> tuple[str, str]:
 
 
 def helper_headers() -> dict[str, str]:
+    # 未配置 token 时拒绝发起请求，避免使用弱默认值导致任意客户端可触发本机微信发送
+    if not WMS_HELPER_TOKEN:
+        raise RuntimeError("WECHAT_HELPER_TOKEN 未配置，拒绝以无认证方式调用 WMS 主服务")
     return {"X-Wechat-Helper-Token": WMS_HELPER_TOKEN}
 
 
@@ -522,6 +525,12 @@ def main() -> None:
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8")
     if POLL_ENABLED:
+        # poll 模式需要主动向 WMS 主服务认证拉取任务，未配置 token 时拒绝启动，
+        # 避免使用弱默认 token 导致任意人可触发本机微信发送图片
+        if not WMS_HELPER_TOKEN:
+            print("[FATAL] 已启用轮询模式(POLL_ENABLED=1)但未配置 WECHAT_HELPER_TOKEN 环境变量，拒绝启动。", flush=True)
+            print("        请在启动前设置 WECHAT_HELPER_TOKEN（与 WMS 主服务 instance/wechat_helper_token 文件中的值一致）。", flush=True)
+            sys.exit(1)
         thread = threading.Thread(target=poll_loop, name="wechat-task-poller", daemon=True)
         thread.start()
         print(f"Polling WMS tasks from {WMS_BASE_URL} every {POLL_INTERVAL}s", flush=True)

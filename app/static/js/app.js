@@ -1,5 +1,7 @@
-// 全局确认框解析器
+// 全局确认框队列
 let confirmResolver = null;
+let confirmQueue = [];
+let activeConfirm = null;
 
 // Toast 图标映射
 function getToastIcon(type) {
@@ -56,15 +58,43 @@ function confirmDialog(message, options) {
         return Promise.resolve(window.confirm(message));
     }
 
+    return new Promise(function(resolve) {
+        confirmQueue.push({
+            message: message,
+            options: options,
+            resolve: resolve
+        });
+        showNextConfirm();
+    });
+}
+
+function showNextConfirm() {
+    if (activeConfirm || !confirmQueue.length) {
+        return;
+    }
+
+    const overlay = document.getElementById('cbConfirmOverlay');
+    const titleNode = document.getElementById('cbConfirmTitle');
+    const messageNode = document.getElementById('cbConfirmMessage');
+    const okBtn = document.getElementById('cbConfirmOk');
+    const cancelBtn = document.getElementById('cbConfirmCancel');
+
+    if (!overlay || !titleNode || !messageNode || !okBtn || !cancelBtn) {
+        const next = confirmQueue.shift();
+        next.resolve(window.confirm(next.message));
+        showNextConfirm();
+        return;
+    }
+
+    activeConfirm = confirmQueue.shift();
+    const message = activeConfirm.message;
+    const options = activeConfirm.options || {};
     titleNode.textContent = options.title || '请确认操作';
     messageNode.textContent = message;
     okBtn.textContent = options.okText || '确认';
     cancelBtn.textContent = options.cancelText || '取消';
     overlay.classList.add('show');
-
-    return new Promise(function(resolve) {
-        confirmResolver = resolve;
-    });
+    confirmResolver = activeConfirm.resolve;
 }
 
 function resolveConfirm(result) {
@@ -74,6 +104,8 @@ function resolveConfirm(result) {
         confirmResolver(result);
         confirmResolver = null;
     }
+    activeConfirm = null;
+    setTimeout(showNextConfirm, 0);
 }
 
 // 兼容旧接口
@@ -335,7 +367,7 @@ window.WmsTabs = (function() {
             restored = null;
         }
         const savedTabs = Array.isArray(restored && restored.tabs) ? restored.tabs : [];
-        savedTabs.slice(0, 3).forEach(function(tab) {
+        savedTabs.slice(0, 8).forEach(function(tab) {
             if (tab.url && tab.title) open(tab.url, tab.title);
         });
         const currentKey = makeKey(currentUrl);
@@ -1184,11 +1216,15 @@ function setupDetailTable(config) {
         columnPanel.classList.toggle('show');
     });
 
-    document.addEventListener('click', function(event) {
+    if (setupDetailTable._columnPanelClickHandler) {
+        document.removeEventListener('click', setupDetailTable._columnPanelClickHandler);
+    }
+    setupDetailTable._columnPanelClickHandler = function(event) {
         if (!columnPanel.contains(event.target) && !columnBtn.contains(event.target)) {
             columnPanel.classList.remove('show');
         }
-    });
+    };
+    document.addEventListener('click', setupDetailTable._columnPanelClickHandler);
 
     resetBtn.addEventListener('click', function() {
         state = Object.assign({}, defaultState);
