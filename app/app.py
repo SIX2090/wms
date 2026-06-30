@@ -6,7 +6,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from markupsafe import escape
 from functools import wraps
 from datetime import datetime, date, time, timedelta
-from urllib.parse import urljoin, urlparse, urlencode
+from urllib.parse import urljoin, urlparse, urlencode, quote_plus
 from sqlalchemy import func, false, true, update as sa_update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload, selectinload
@@ -21,6 +21,7 @@ import re
 import sqlite3
 import requests
 import base64
+import json
 from pathlib import Path
 from reportlab.graphics import renderPDF
 
@@ -529,9 +530,6 @@ if not os.path.exists(app.config['UPLOAD_FOLDER']):
 
 # Notifications
 notification_manager.init_app(app)
-
-# JSON support
-import json
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -5386,6 +5384,172 @@ def get_material(id):
     })
 
 
+def _material_image_search_terms(material):
+    parts = [
+        material.name or '',
+        material.spec or '',
+        material.purpose or '',
+        material.category.name if material.category else '',
+        '工业品 标准件 产品图片',
+    ]
+    tokens = []
+    seen = set()
+    for part in parts:
+        for token in re.split(r'[\s,，;；/|]+', str(part).strip()):
+            token = token.strip()
+            if not token or token.lower() in seen:
+                continue
+            seen.add(token.lower())
+            tokens.append(token)
+    return ' '.join(tokens[:10]).strip()
+
+
+def _extract_bing_image_candidates(html, limit=12):
+    candidates = []
+    seen = set()
+    patterns = [
+        r'm="(?P<meta>{.*?})"',
+        r'&quot;m&quot;:&quot;(?P<meta>{.*?})&quot;',
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, html or '', flags=re.S):
+            raw = match.group('meta')
+            raw = raw.replace('&quot;', '"').replace('&amp;', '&')
+            try:
+                meta = json.loads(raw)
+            except Exception:
+                continue
+            image_url = (meta.get('murl') or '').strip()
+            if not image_url or image_url in seen:
+                continue
+            if not image_url.lower().startswith(('http://', 'https://')):
+                continue
+            seen.add(image_url)
+            candidates.append({
+                'image_url': image_url,
+                'thumb_url': (meta.get('turl') or image_url).strip(),
+                'source_url': (meta.get('purl') or '').strip(),
+                'title': (meta.get('t') or meta.get('desc') or '').strip()[:120],
+            })
+            if len(candidates) >= limit:
+                return candidates
+    return candidates
+
+
+def _search_material_images_online(material, limit=12):
+    query = _material_image_search_terms(material)
+    if not query:
+        return [], ''
+    url = f'https://www.bing.com/images/search?q={quote_plus(query)}&form=HDRSC2&first=1'
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.6',
+    }
+    response = requests.get(url, headers=headers, timeout=8)
+    response.raise_for_status()
+    return _extract_bing_image_candidates(response.text, limit=limit), query
+
+
+def _save_material_image_from_url(material, image_url):
+    image_url = (image_url or '').strip()
+    if not image_url.lower().startswith(('http://', 'https://')):
+        return None, '图片地址无效'
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        'Referer': 'https://www.bing.com/',
+    }
+    with requests.get(image_url, headers=headers, timeout=12, stream=True) as response:
+        response.raise_for_status()
+        content_type = (response.headers.get('Content-Type') or '').split(';', 1)[0].lower()
+        if content_type and not content_type.startswith('image/'):
+            return None, '远程地址不是图片'
+        max_bytes = 8 * 1024 * 1024
+        image_bytes = bytearray()
+        for chunk in response.iter_content(chunk_size=65536):
+            if not chunk:
+                continue
+            image_bytes.extend(chunk)
+            if len(image_bytes) > max_bytes:
+                return None, '图片文件过大'
+
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(io.BytesIO(bytes(image_bytes))) as image:
+            image = ImageOps.exif_transpose(image)
+            if image.mode not in ('RGB', 'L'):
+                if image.mode in ('RGBA', 'LA'):
+                    background = Image.new('RGB', image.size, 'white')
+                    rgba = image.convert('RGBA')
+                    background.paste(rgba, mask=rgba.split()[-1])
+                    image = background
+                else:
+                    image = image.convert('RGB')
+            elif image.mode == 'L':
+                image = image.convert('RGB')
+            if max(image.size) > 1600:
+                image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+            relative_dir = os.path.join('uploads', 'material_images')
+            absolute_dir = os.path.join(app.static_folder, relative_dir)
+            os.makedirs(absolute_dir, exist_ok=True)
+            filename = f'material_{material.id}_{uuid.uuid4().hex}.jpg'
+            absolute_path = os.path.join(absolute_dir, filename)
+            image.save(absolute_path, format='JPEG', quality=88, optimize=True)
+    except Exception as exc:
+        app.logger.warning('Material image download validation failed: %s', exc)
+        return None, '图片下载后无法识别，请换一张'
+
+    return f'uploads/material_images/{filename}', ''
+
+
+@app.route('/material/<int:id>/image_candidates')
+@login_required
+def material_image_candidates(id):
+    material = Material.query.options(joinedload(Material.category)).get_or_404(id)
+    try:
+        candidates, query = _search_material_images_online(material)
+    except Exception as exc:
+        app.logger.warning('Material image search failed: %s', exc)
+        return jsonify({'status': 'error', 'msg': '网上找图失败，请稍后重试或手动上传图片'}), 502
+    return jsonify({
+        'status': 'success',
+        'query': query,
+        'candidates': candidates,
+    })
+
+
+@app.route('/material/<int:id>/image_select', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def material_image_select(id):
+    material = Material.query.get_or_404(id)
+    payload = request.get_json(silent=True) or {}
+    image_url = (payload.get('image_url') or '').strip()
+    if not image_url:
+        return jsonify({'status': 'error', 'msg': '请选择图片'}), 400
+
+    image_path, error = _save_material_image_from_url(material, image_url)
+    if error:
+        return jsonify({'status': 'error', 'msg': error}), 400
+
+    material.image = image_path
+    try:
+        db.session.commit()
+        log_operation('网上找图绑定物料图片', f'{material.code} {material.name}', 'material', material.id)
+        return jsonify({
+            'status': 'success',
+            'msg': '图片已保存',
+            'image': image_path,
+            'image_url': url_for('static', filename=image_path),
+        })
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.error('Material image bind failed: %s', exc)
+        return jsonify({'status': 'error', 'msg': '保存物料图片失败'}), 500
+
+
 def generate_material_copy_code(source_code):
     """
     根据源物料编码生成新的物料编码
@@ -8763,6 +8927,8 @@ def _ai_material_match_one(code='', name='', spec=''):
 
 def _ai_guess_doc_type_from_text(text):
     compact = (text or '').replace(' ', '').lower()
+    if _ai_is_wechat_delivery_notice(text):
+        return 'in_order'
     if any(word in compact for word in ('送货单', '到货', '采购入库', '供应商发货', '来货', '收货')):
         return 'in_order'
     if any(word in compact for word in ('销售出库', '客户发货', '发给客户', '发货给客户', '客户要货')):
@@ -8776,6 +8942,65 @@ def _ai_guess_doc_type_from_text(text):
     if any(word in compact for word in ('报废', '损坏', '盘亏', '盘盈', '调整')):
         return 'adjustment'
     return None
+
+
+def _ai_is_wechat_delivery_notice(text):
+    """Detect short WeChat-style supplier shipment notices.
+
+    Example: 明天发鑫达 6204轴承 100套，M8螺母 500个
+    In this WMS, that means supplier delivery/arrival notice, so create an inbound draft.
+    """
+    compact = (text or '').strip()
+    if not compact:
+        return False
+    if not re.search(r'(今天|明天|后天|上午|下午|晚上|到货|送货|发货|出货|发)\S{0,20}', compact):
+        return False
+    if not _ai_parse_wechat_material_segments(compact):
+        return False
+    # Exclude explicit customer outbound wording; those should become sales/outbound documents.
+    if any(word in compact for word in ('发给客户', '发往客户', '客户要货', '销售出库')):
+        return False
+    return True
+
+
+def _ai_parse_wechat_material_segments(text):
+    text = (text or '').strip()
+    if not text:
+        return []
+    normalized = re.sub(r'[\r\n,\uff0c;\uff1b\u3001]+', ' ', text)
+    segments = []
+    unit_pattern = r'(?:\u4e2a|\u53ea|\u5957|\u4ef6|\u7bb1|\u5305|PCS|pcs|kg|KG|\u7c73|\u652f|\u6761)'
+    for match in re.finditer(r'([A-Za-z0-9_\-\*/\u4e00-\u9fff]{2,40}?)\s*([0-9]+(?:\.[0-9]+)?)\s*(' + unit_pattern + r')?(?=\s|$)', normalized):
+        name = (match.group(1) or '').strip()
+        qty = round_to_2_decimals(parse_float_value(match.group(2), 0))
+        unit = (match.group(3) or '').strip()
+        if not name or qty <= 0:
+            continue
+        if re.fullmatch(r'\d+(?:\.\d+)?', name):
+            continue
+        segments.append({'name': name, 'quantity': qty, 'unit': unit})
+    return segments
+
+
+def _ai_extract_supplier_from_wechat_delivery_notice(text):
+    text = (text or '').strip()
+    if not text:
+        return ''
+    patterns = (
+        r'(?:今天|明天|后天|上午|下午|晚上)?\s*(?:发|送|出货|发货)\s*([\u4e00-\u9fffA-Za-z0-9_\-]{2,30})',
+        r'(?:供应商|厂家)\s*[:：]?\s*([\u4e00-\u9fffA-Za-z0-9_\-]{2,30})',
+    )
+    stop_words = ('货', '货单', '送货单', '出货通知', '通知', '一下')
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        value = (match.group(1) or '').strip()
+        value = re.split(r'\s|,|，|;|；', value, 1)[0].strip()
+        if not value or value in stop_words:
+            continue
+        return value[:100]
+    return ''
 
 
 def _ai_extract_customer_from_text(text):
@@ -8805,16 +9030,21 @@ def _ai_extract_document_from_text(message):
     doc_type = _ai_guess_doc_type_from_text(text)
     if not doc_type:
         return None
-    normalized = re.sub(r'[\r\n,，;；、]+', ' ', text)
-    normalized = re.sub(r'(数量|qty|Qty|QTY|：|:|=|×)', ' ', normalized)
+    normalized = re.sub(r'[\r\n,\uff0c;\uff1b\u3001]+', ' ', text)
+    normalized = re.sub(r'(?:\u6570\u91cf|qty|Qty|QTY|\uff1a|:|=|\u00d7)', ' ', normalized)
     skip = {
         '生成', '创建', '新增', '做一张', '开一张', '送货单', '采购入库', '领料单', '领料', '销售出库',
         '出库', '入库', '文本', '微信', '客户', '供应商', '发货', '到货', '数量', '草稿', '检查',
     }
     items = []
     seen_tokens = set()
-    pattern = re.compile(r'([A-Za-z0-9_\-\u4e00-\u9fff]{2,40})\s*(?:x|X|\*)?\s*([0-9]+(?:\.[0-9]+)?)')
-    for token, qty_text in pattern.findall(normalized):
+    parsed_segments = _ai_parse_wechat_material_segments(normalized) if _ai_is_wechat_delivery_notice(text) else []
+    if parsed_segments:
+        raw_rows = [(row['name'], row['quantity'], row.get('unit') or '') for row in parsed_segments]
+    else:
+        pattern = re.compile(r'([A-Za-z0-9_\-\*/\u4e00-\u9fff]{2,40}?)\s*(?:x|X|\*)?\s*([0-9]+(?:\.[0-9]+)?)(?:\s*(\u4e2a|\u53ea|\u5957|\u4ef6|\u7bb1|\u5305|PCS|pcs|kg|KG|\u7c73|\u652f|\u6761))?')
+        raw_rows = [(token, round_to_2_decimals(parse_float_value(qty_text, 0)), unit_text or '') for token, qty_text, unit_text in pattern.findall(normalized)]
+    for token, quantity, unit_text in raw_rows:
         token = token.strip()
         if token in skip or token.lower() in skip:
             continue
@@ -8823,14 +9053,18 @@ def _ai_extract_document_from_text(message):
         key = token.lower()
         if key in seen_tokens:
             continue
-        quantity = round_to_2_decimals(parse_float_value(qty_text, 0))
         if quantity <= 0:
             continue
-        items.append({'code': token, 'name': '', 'quantity': quantity, 'raw': token})
+        items.append({'code': token, 'name': '', 'quantity': quantity, 'unit': unit_text or '', 'raw': token})
         seen_tokens.add(key)
     if not items:
         return None
     extracted = {'document_type': doc_type, 'items': items, 'source_text': text}
+    if doc_type == 'in_order':
+        supplier = _ai_extract_supplier_from_wechat_delivery_notice(text)
+        if supplier:
+            extracted['supplier'] = supplier
+            extracted['source_text'] = f'{text}\n供应商：{supplier}'
     if doc_type in ('sales_out_order', 'out_order'):
         extracted['customer'] = _ai_extract_customer_from_text(text)
     return extracted
@@ -9236,6 +9470,46 @@ def _ai_normalize_document_extraction(raw, source_text=''):
     return result
 
 
+def _ai_collect_vision_ocr_text(raw, message=''):
+    parts = []
+    if message:
+        parts.append(str(message).strip())
+    if isinstance(raw, dict):
+        for key in ('source_text', 'ocr_text', 'raw_text', 'text', 'message_text', 'chat_text', 'remarks'):
+            value = str(raw.get(key) or '').strip()
+            if value:
+                parts.append(value)
+        for item in raw.get('items') or []:
+            if not isinstance(item, dict):
+                continue
+            line_parts = []
+            for field in ('raw_text', 'name', 'spec', 'code', 'quantity', 'unit', 'remark'):
+                value = str(_ai_item_value(item, field) or '').strip()
+                if value:
+                    line_parts.append(value)
+            if line_parts:
+                parts.append(' '.join(line_parts))
+    seen = set()
+    clean_parts = []
+    for part in parts:
+        key = part.lower()
+        if key and key not in seen:
+            clean_parts.append(part)
+            seen.add(key)
+    return '\n'.join(clean_parts).strip()
+
+
+def _ai_try_wechat_document_from_vision_json(raw, message=''):
+    ocr_text = _ai_collect_vision_ocr_text(raw, message)
+    if not ocr_text or not _ai_is_wechat_delivery_notice(ocr_text):
+        return None
+    extracted = _ai_extract_document_from_text(ocr_text)
+    if not extracted:
+        return None
+    extracted['extracted_by'] = 'vision_ocr_text'
+    return extracted
+
+
 def _ai_call_llm_document_vision_extract(message, images, context=None):
     if not _ai_llm_configured():
         return None, '请先配置AI模型 API Key'
@@ -9245,14 +9519,16 @@ def _ai_call_llm_document_vision_extract(message, images, context=None):
         return None, '没有收到图片'
     system_prompt = (
         'You are a high-accuracy WMS OCR and document extraction engine for Chinese delivery notes, purchase receipts, sales shipments and warehouse documents. '
-        'Read the whole image, including stamps, handwritten notes, table headers, merged cells, rotated photos, low contrast scans and mixed Chinese/English text. '
+        'Read the whole image, including WeChat chat screenshots, stamps, handwritten notes, table headers, merged cells, rotated photos, low contrast scans and mixed Chinese/English text. '
         'Return JSON only. No markdown. No explanation. Schema: '
         '{"document_type":"in_order|sales_out_order|out_order|transfer|check|adjustment|other",'
         '"order_no":"","delivery_no":"","supplier":"","customer":"","warehouse":"","from_location":"","to_location":"",'
-        '"remarks":"","adjustment_type":"loss|surplus",'
+        '"remarks":"","source_text":"","ocr_text":"","adjustment_type":"loss|surplus",'
         '"items":[{"code":"","name":"","spec":"","quantity":0,"unit":"","barcode":"","batch_no":"",'
         '"box_count":0,"pcs_per_box":0,"confidence":0,"raw_text":"","remark":""}]}. '
         'Classify delivery note, supplier shipment, arrival notice, purchase receipt as in_order. '
+        'For a WeChat screenshot or chat message such as "明天发鑫达 6204轴承 100套，M8螺母 500个", classify it as in_order: supplier is 鑫达, items are 6204轴承 quantity 100 unit 套 and M8螺母 quantity 500 unit 个. '
+        'When the image is a WeChat shipment notice, extract the visible chat text into source_text or ocr_text even if the layout is not a formal document table. '
         'Classify customer shipment, sales outbound as sales_out_order. '
         'Classify material picking or production issue as out_order. '
         'Recognize common table columns: serial no, material code, item no, sku, product name, material name, spec/model, unit, quantity, delivered quantity, cartons, packages, pcs per carton, batch/lot no, barcode and remarks. '
@@ -9298,7 +9574,11 @@ def _ai_call_llm_document_vision_extract(message, images, context=None):
         data = response.json()
         content = (((data.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
         extracted = _ai_extract_json_object(content)
-        normalized = _ai_normalize_document_extraction(extracted, source_text=message or '图片识别')
+        wechat_extracted = _ai_try_wechat_document_from_vision_json(extracted, message)
+        if wechat_extracted:
+            return wechat_extracted, ''
+        source_text = _ai_collect_vision_ocr_text(extracted, message) or message or '图片识别'
+        normalized = _ai_normalize_document_extraction(extracted, source_text=source_text)
         if not normalized:
             return None, '图片没有识别到可生成草稿的单据明细'
         normalized['extracted_by'] = 'vision'
@@ -13027,6 +13307,15 @@ def api_ai_warehouse_assistant():
                 + ' 请确认这张图片格式有效、图片内容清晰，并到“系统管理 - 系统设置 - AI助手参数”点击“测试图片识别”确认通道可用。'
             )
 
+        text_doc_response = _ai_try_text_document_response(augmented_message, context)
+        if text_doc_response:
+            body = text_doc_response.get_json(silent=True) or {}
+            reply_text = str(body.get('reply') or '')
+            if reply_text:
+                _ai_append_history(user_id, 'user', message)
+                _ai_append_history(user_id, 'assistant', reply_text)
+            return text_doc_response
+
         intent_payload = _ai_call_llm_intent(augmented_message)
         if (
             intent_payload
@@ -13135,10 +13424,6 @@ def api_ai_warehouse_assistant():
         alias_response = _ai_alias_management_response(augmented_message)
         if alias_response:
             return alias_response
-
-        text_doc_response = _ai_try_text_document_response(augmented_message, context)
-        if text_doc_response:
-            return text_doc_response
 
         if _ai_should_try_business_chat(augmented_message):
             chat_reply = _ai_call_llm_chat(_ai_strip_general_chat_marker(augmented_message))

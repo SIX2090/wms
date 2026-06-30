@@ -109,7 +109,9 @@
                         {% if mat.image %}
                         <img src="{{ url_for('static', filename=mat.image) }}" style="width: 40px; height: 40px; object-fit: cover;" class="img-thumbnail">
                         {% else %}
-                        <span class="text-muted">-</span>
+                        <button type="button" class="btn btn-sm btn-outline-success" onclick="findMaterialImage({{ mat.id }})" title="网上找图">
+                            <i class="bi bi-image"></i>
+                        </button>
                         {% endif %}
                     </td>
                     <td data-column-key="actions">
@@ -121,6 +123,9 @@
                         </button>
                         <button class="btn btn-sm btn-outline-info" onclick="printSingleLabel({{ mat.id }})" title="打印标签">
                             <i class="bi bi-printer"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-success" onclick="findMaterialImage({{ mat.id }})" title="网上找图">
+                            <i class="bi bi-image"></i>
                         </button>
                         <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('{{ url_for('delete_material') }}', {{ mat.id }})" title="删除">
                             <i class="bi bi-trash"></i>
@@ -194,6 +199,27 @@
     </div>
 </div>
     </section>
+</div>
+
+<div class="modal fade" id="materialImageModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title mb-0">物料网上找图</h5>
+                    <div class="small text-muted" id="materialImageQuery"></div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2">
+                    图片来自互联网搜索结果，请人工确认外观正确后再绑定到物料。找不到准确图片时建议拍照上传。
+                </div>
+                <div id="materialImageStatus" class="text-muted py-3">正在搜索候选图片...</div>
+                <div id="materialImageGrid" class="material-image-grid"></div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="modal fade" id="addModal" tabindex="-1">
@@ -909,6 +935,37 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.material-image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+}
+.material-image-card {
+    border: 1px solid #d9e2ef;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+}
+.material-image-card img {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: contain;
+    background: #f8fafc;
+    display: block;
+}
+.material-image-card .image-meta {
+    padding: 8px;
+    min-height: 70px;
+}
+.material-image-card .image-title {
+    font-size: 12px;
+    color: #334155;
+    height: 32px;
+    overflow: hidden;
+}
+.material-image-card .btn {
+    width: 100%;
+}
 @media (max-width: 992px) {
     .material-layout {
         grid-template-columns: 1fr;
@@ -1379,6 +1436,93 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(function(err){ showToast('复制失败：' + err.message, 'danger', 3600); });
+    };
+
+    window.findMaterialImage = function(id) {
+        var modalEl = document.getElementById('materialImageModal');
+        var modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+        var statusEl = document.getElementById('materialImageStatus');
+        var gridEl = document.getElementById('materialImageGrid');
+        var queryEl = document.getElementById('materialImageQuery');
+        statusEl.textContent = '正在搜索候选图片...';
+        statusEl.className = 'text-muted py-3';
+        gridEl.innerHTML = '';
+        queryEl.textContent = '';
+        modal.show();
+
+        fetch('/material/' + id + '/image_candidates')
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                if (res.status !== 'success') {
+                    statusEl.textContent = res.msg || '找图失败';
+                    statusEl.className = 'text-danger py-3';
+                    return;
+                }
+                queryEl.textContent = res.query ? ('搜索词：' + res.query) : '';
+                var candidates = res.candidates || [];
+                if (!candidates.length) {
+                    statusEl.textContent = '没有找到可用候选图，请尝试补充规格/品牌，或手动上传图片。';
+                    statusEl.className = 'text-muted py-3';
+                    return;
+                }
+                statusEl.textContent = '请选择一张确认绑定。';
+                statusEl.className = 'text-muted pb-3';
+                candidates.forEach(function(candidate) {
+                    var card = document.createElement('div');
+                    card.className = 'material-image-card';
+                    var img = document.createElement('img');
+                    img.src = candidate.thumb_url || candidate.image_url;
+                    img.alt = candidate.title || '候选图片';
+                    img.referrerPolicy = 'no-referrer';
+                    img.onerror = function() {
+                        this.src = candidate.image_url;
+                    };
+                    var meta = document.createElement('div');
+                    meta.className = 'image-meta';
+                    var title = document.createElement('div');
+                    title.className = 'image-title';
+                    title.textContent = candidate.title || candidate.source_url || '候选图片';
+                    var btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn btn-sm btn-primary mt-2';
+                    btn.innerHTML = '<i class="bi bi-check2"></i> 选用';
+                    btn.addEventListener('click', function() {
+                        btn.disabled = true;
+                        btn.textContent = '保存中...';
+                        csrfFetch('/material/' + id + '/image_select', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({image_url: candidate.image_url})
+                        })
+                        .then(function(r){ return r.json(); })
+                        .then(function(saveRes) {
+                            if (saveRes.status === 'success') {
+                                showToast('图片已保存', 'success', 2200);
+                                modal.hide();
+                                setTimeout(function(){ location.reload(); }, 300);
+                            } else {
+                                btn.disabled = false;
+                                btn.innerHTML = '<i class="bi bi-check2"></i> 选用';
+                                showToast(saveRes.msg || '保存失败', 'danger', 3600);
+                            }
+                        })
+                        .catch(function(err) {
+                            btn.disabled = false;
+                            btn.innerHTML = '<i class="bi bi-check2"></i> 选用';
+                            showToast('保存失败：' + err.message, 'danger', 3600);
+                        });
+                    });
+                    meta.appendChild(title);
+                    meta.appendChild(btn);
+                    card.appendChild(img);
+                    card.appendChild(meta);
+                    gridEl.appendChild(card);
+                });
+            })
+            .catch(function(err) {
+                statusEl.textContent = '找图失败：' + err.message;
+                statusEl.className = 'text-danger py-3';
+            });
     };
 
     // 修复空分类/单位
