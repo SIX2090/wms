@@ -283,6 +283,27 @@ def main() -> int:
         'AI 采购入库业务类型和全局确认框不得包含已知乱码',
     ))
 
+    checks.append((
+        'AI-IDEMPOTENCY-001',
+        'class AIRequestIdempotency' in app_py
+        and 'uix_ai_request_user_request' in app_py
+        and '@_ai_idempotent_request\ndef api_ai_warehouse_assistant' in app_py
+        and '@_ai_idempotent_request\ndef api_ai_chat_stream' in app_py
+        and 'request_id: requestId' in base_html
+        and 'createAIRequestId()' in base_html,
+        'AI 普通响应和流式响应必须使用持久化 request_id 幂等保护',
+    ))
+
+    checks.append((
+        'AI-AUDIT-001',
+        'class AIRun' in app_py
+        and 'class AIToolCall' in app_py
+        and 'ai_run_id = db.Column' in app_py
+        and '_ai_finish_run' in function_body(app_py, '_ai_finish_idempotent_request')
+        and '_ai_record_capability_audit(capability, allowed)' in function_body(app_py, '_ai_capability_allowed'),
+        'AI 请求必须记录运行状态、模型、耗时，并将能力授权结果写入工具调用审计',
+    ))
+
     ok, message = check_post_forms_have_csrf()
     checks.append(("VULN-003", ok, message))
 

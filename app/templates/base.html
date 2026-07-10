@@ -2390,7 +2390,15 @@
             messages.scrollTop = messages.scrollHeight;
         }
 
-        function sendNonStreaming(text, attachments) {
+        function createAIRequestId() {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                return window.crypto.randomUUID();
+            }
+            return 'ai-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 14);
+        }
+
+        function sendNonStreaming(text, attachments, requestId) {
+            requestId = requestId || createAIRequestId();
             setBusy(true);
             const loading = addMessage('正在处理...', 'assistant', null, false);
             const activeContext = window.WmsTabs && window.WmsTabs.getActiveContext ? window.WmsTabs.getActiveContext() : null;
@@ -2398,6 +2406,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
+                    request_id: requestId,
                     message: text,
                     attachments: attachments,
                     page_url: activeContext ? activeContext.url : (window.location.pathname + window.location.search),
@@ -2423,7 +2432,8 @@
             });
         }
 
-        function tryStreamChat(text) {
+        function tryStreamChat(text, requestId) {
+            requestId = requestId || createAIRequestId();
             setBusy(true);
             const loading = addMessage('正在处理...', 'assistant', null, false);
             const contentEl = loading.querySelector('.ai-message-content');
@@ -2462,6 +2472,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
+                    request_id: requestId,
                     message: text,
                     history: chatHistory,
                     page_url: activeContext ? activeContext.url : (window.location.pathname + window.location.search),
@@ -2479,7 +2490,7 @@
                 if (!res.body || !res.body.getReader) {
                     loading.remove();
                     setBusy(false);
-                    sendNonStreaming(text, []);
+                    sendNonStreaming(text, [], createAIRequestId());
                     return;
                 }
                 const reader = res.body.getReader();
@@ -2600,10 +2611,11 @@
             if (!text && !attachments.length) return;
             if (!text && attachments.length) text = '请分析这张图片';
             addMessage(text, 'user', attachments);
+            const requestId = createAIRequestId();
             if (attachments.length) {
-                sendNonStreaming(text, attachments);
+                sendNonStreaming(text, attachments, requestId);
             } else {
-                tryStreamChat(text);
+                tryStreamChat(text, requestId);
             }
         }
         messages.addEventListener('click', function(event) {

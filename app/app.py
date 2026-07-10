@@ -1,4 +1,4 @@
-from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, jsonify, send_file, session, has_app_context, abort, Response, stream_with_context
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, jsonify, send_file, session, g, has_app_context, has_request_context, abort, Response, stream_with_context
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_wtf.csrf import CSRFProtect, CSRFError
 from werkzeug.exceptions import HTTPException
@@ -8,7 +8,7 @@ from functools import wraps
 from datetime import datetime, date, time, timedelta
 from urllib.parse import urljoin, urlparse, urlencode, quote_plus
 from sqlalchemy import func, false, true, update as sa_update
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import joinedload, selectinload
 import logging
 import os
@@ -21,6 +21,7 @@ import re
 import sqlite3
 import requests
 import base64
+import hashlib
 import json
 from pathlib import Path
 from reportlab.graphics import renderPDF
@@ -1849,6 +1850,76 @@ class AIMaterialAlias(db.Model):
 
     material = db.relationship('Material', backref=db.backref('ai_aliases', cascade='all, delete-orphan'))
     creator = db.relationship('User', backref='ai_material_aliases')
+
+
+class AIRun(db.Model):
+    __tablename__ = 'ai_run'
+    __table_args__ = (
+        db.Index('idx_ai_run_user_started', 'user_id', 'started_at'),
+        db.Index('idx_ai_run_status_started', 'status', 'started_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    request_id = db.Column(db.String(80), nullable=False)
+    request_hash = db.Column(db.String(64), nullable=False)
+    endpoint = db.Column(db.String(100), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='running')
+    model = db.Column(db.String(100))
+    prompt_version = db.Column(db.String(50), default='legacy-v1')
+    duration_ms = db.Column(db.Integer)
+    error_message = db.Column(db.String(500))
+    started_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    completed_at = db.Column(db.DateTime)
+
+    user = db.relationship('User', backref='ai_runs')
+
+
+class AIToolCall(db.Model):
+    __tablename__ = 'ai_tool_call'
+    __table_args__ = (
+        db.Index('idx_ai_tool_call_run', 'ai_run_id'),
+        db.Index('idx_ai_tool_call_name_created', 'tool_name', 'created_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    ai_run_id = db.Column(db.Integer, db.ForeignKey('ai_run.id'), nullable=False)
+    tool_name = db.Column(db.String(100), nullable=False)
+    capability = db.Column(db.String(100))
+    risk_level = db.Column(db.String(20), nullable=False, default='read')
+    status = db.Column(db.String(20), nullable=False)
+    permission_allowed = db.Column(db.Boolean, nullable=False)
+    duration_ms = db.Column(db.Integer, default=0)
+    error_message = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    completed_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    ai_run = db.relationship('AIRun', backref=db.backref('tool_calls', cascade='all, delete-orphan'))
+
+
+class AIRequestIdempotency(db.Model):
+    __tablename__ = 'ai_request_idempotency'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'request_id', name='uix_ai_request_user_request'),
+        db.Index('idx_ai_request_status_updated', 'status', 'updated_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    ai_run_id = db.Column(db.Integer, db.ForeignKey('ai_run.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    request_id = db.Column(db.String(80), nullable=False)
+    request_hash = db.Column(db.String(64), nullable=False)
+    endpoint = db.Column(db.String(100), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='processing')
+    response_status = db.Column(db.Integer)
+    response_content_type = db.Column(db.String(120))
+    response_body = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    completed_at = db.Column(db.DateTime)
+
+    user = db.relationship('User', backref='ai_idempotent_requests')
+    ai_run = db.relationship('AIRun', backref=db.backref('idempotent_request', uselist=False))
 
 
 class OpeningStock(db.Model):
@@ -6737,13 +6808,54 @@ AI_CAPABILITY_ROLES = {
     'alias_management': frozenset({'warehouse', 'purchase'}),
 }
 
+AI_CAPABILITY_RISK_LEVELS = {
+    'out_order_draft': 'draft',
+    'sales_out_draft': 'draft',
+    'in_order_draft': 'draft',
+    'purchase_receive_draft': 'draft',
+    'transfer_draft': 'draft',
+    'check_draft': 'draft',
+    'adjustment_draft': 'draft',
+    'purchase_request_draft': 'draft',
+    'admin_insights': 'sensitive_read',
+}
+
+
+def _ai_record_capability_audit(capability, allowed):
+    if not has_request_context():
+        return
+    run_id = getattr(g, 'ai_run_id', None)
+    if not run_id:
+        return
+    tool_call = AIToolCall.query.filter_by(
+        ai_run_id=run_id,
+        tool_name=capability,
+    ).first()
+    now_value = datetime.now()
+    if not tool_call:
+        tool_call = AIToolCall(
+            ai_run_id=run_id,
+            tool_name=capability,
+            capability=capability,
+            risk_level=AI_CAPABILITY_RISK_LEVELS.get(capability, 'read'),
+            status='authorized' if allowed else 'denied',
+            permission_allowed=bool(allowed),
+            created_at=now_value,
+            completed_at=now_value,
+        )
+        db.session.add(tool_call)
+        return
+    tool_call.status = 'authorized' if allowed else 'denied'
+    tool_call.permission_allowed = bool(allowed)
+    tool_call.completed_at = now_value
+
 
 def _ai_capability_allowed(capability):
     if not current_user.is_authenticated:
         return False
-    if current_user.role == 'admin':
-        return True
-    return current_user.role in AI_CAPABILITY_ROLES.get(capability, frozenset())
+    allowed = current_user.role == 'admin' or current_user.role in AI_CAPABILITY_ROLES.get(capability, frozenset())
+    _ai_record_capability_audit(capability, allowed)
+    return allowed
 
 
 def _ai_permission_denied_text(capability):
@@ -6752,6 +6864,160 @@ def _ai_permission_denied_text(capability):
 
 def _ai_permission_denied_response(capability):
     return _ai_json_response(_ai_permission_denied_text(capability))
+
+
+def _ai_idempotency_error(message, status_code=409):
+    return jsonify({'status': 'error', 'msg': message}), status_code
+
+
+def _ai_idempotency_replay(record):
+    return Response(
+        record.response_body or '',
+        status=record.response_status or 200,
+        content_type=record.response_content_type or 'application/json; charset=utf-8',
+    )
+
+
+def _ai_finish_run(run_id, status, error_message=''):
+    run = db.session.get(AIRun, run_id)
+    if not run:
+        return
+    completed_at = datetime.now()
+    run.status = status
+    run.completed_at = completed_at
+    run.duration_ms = max(0, int((completed_at - run.started_at).total_seconds() * 1000))
+    run.error_message = (error_message or '')[:500] or None
+
+
+def _ai_finish_idempotent_request(record_id, response_status, content_type, response_body):
+    record = db.session.get(AIRequestIdempotency, record_id)
+    if not record:
+        return
+    record.status = 'completed'
+    record.response_status = response_status
+    record.response_content_type = (content_type or '')[:120]
+    record.response_body = response_body
+    record.completed_at = datetime.now()
+    record.updated_at = datetime.now()
+    run_failed = response_status >= 500 or bool(re.search(r'"type"\s*:\s*"error"', response_body or ''))
+    if record.ai_run_id:
+        _ai_finish_run(record.ai_run_id, 'failed' if run_failed else 'completed')
+    db.session.commit()
+
+
+def _ai_fail_idempotent_request(record_id, error_message=''):
+    db.session.rollback()
+    record = db.session.get(AIRequestIdempotency, record_id)
+    if not record:
+        return
+    record.status = 'failed'
+    record.updated_at = datetime.now()
+    if record.ai_run_id:
+        _ai_finish_run(record.ai_run_id, 'failed', error_message)
+    db.session.commit()
+
+
+def _ai_idempotent_request(view_function):
+    @wraps(view_function)
+    def wrapped(*args, **kwargs):
+        payload = request.get_json(silent=True) or {}
+        request_id = str(payload.get('request_id') or '').strip()
+        if not request_id:
+            return _ai_idempotency_error('缺少 request_id，无法安全处理 AI 请求', 400)
+        if not re.fullmatch(r'[A-Za-z0-9._:-]{8,80}', request_id):
+            return _ai_idempotency_error('request_id 格式不正确', 400)
+
+        request_hash = hashlib.sha256(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+        ).hexdigest()
+        record = AIRequestIdempotency.query.filter_by(
+            user_id=current_user.id,
+            request_id=request_id,
+        ).first()
+        if record:
+            if record.request_hash != request_hash:
+                return _ai_idempotency_error('request_id 已用于不同请求')
+            if record.status == 'completed':
+                return _ai_idempotency_replay(record)
+            return _ai_idempotency_error('该 AI 请求正在处理或此前处理失败，请先检查是否已生成草稿')
+
+        run = AIRun(
+            user_id=current_user.id,
+            request_id=request_id,
+            request_hash=request_hash,
+            endpoint=request.path[:100],
+            status='running',
+            model=_ai_llm_model()[:100],
+            prompt_version='legacy-v1',
+        )
+        record = AIRequestIdempotency(
+            user_id=current_user.id,
+            request_id=request_id,
+            request_hash=request_hash,
+            endpoint=request.path[:100],
+            status='processing',
+        )
+        db.session.add(run)
+        db.session.add(record)
+        try:
+            db.session.flush()
+            record.ai_run_id = run.id
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            existing = AIRequestIdempotency.query.filter_by(
+                user_id=current_user.id,
+                request_id=request_id,
+            ).first()
+            if existing and existing.request_hash == request_hash and existing.status == 'completed':
+                return _ai_idempotency_replay(existing)
+            return _ai_idempotency_error('该 AI 请求已被接收，请勿重复提交')
+
+        record_id = record.id
+        g.ai_run_id = run.id
+        try:
+            response = app.make_response(view_function(*args, **kwargs))
+        except Exception as exc:
+            _ai_fail_idempotent_request(record_id, str(exc))
+            raise
+
+        if response.is_streamed:
+            original_iterator = response.response
+            response_status = response.status_code
+            content_type = response.content_type
+
+            def record_stream():
+                body_parts = []
+                try:
+                    for chunk in original_iterator:
+                        if isinstance(chunk, bytes):
+                            body_parts.append(chunk.decode('utf-8', errors='replace'))
+                        else:
+                            body_parts.append(str(chunk))
+                        yield chunk
+                    _ai_finish_idempotent_request(
+                        record_id,
+                        response_status,
+                        content_type,
+                        ''.join(body_parts),
+                    )
+                except BaseException as exc:
+                    _ai_fail_idempotent_request(record_id, str(exc))
+                    raise
+
+            response.response = stream_with_context(record_stream())
+            return response
+
+        response_body = response.get_data(as_text=True)
+        _ai_finish_idempotent_request(
+            record_id,
+            response.status_code,
+            response.content_type,
+            response_body,
+        )
+        return response
+
+    return wrapped
 
 
 def _ai_material_query(keyword, limit=8):
@@ -13320,6 +13586,7 @@ def _ai_strip_general_chat_marker(message):
 
 @app.route('/api/ai/warehouse_assistant', methods=['POST'])
 @login_required
+@_ai_idempotent_request
 def api_ai_warehouse_assistant():
     payload = request.get_json(silent=True) or {}
     message = (payload.get('message') or '').strip()
@@ -13579,6 +13846,7 @@ def _ai_clear_history(user_id):
 
 @app.route('/api/ai/chat/stream', methods=['POST'])
 @login_required
+@_ai_idempotent_request
 def api_ai_chat_stream():
     """流式返回 AI 回答（SSE），支持多轮对话上下文。
     统一通道：闲聊问题走 LLM 流式；业务关键词命中时不再 redirect 回退，
