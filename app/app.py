@@ -24680,7 +24680,7 @@ def create_purchase_order_from_request(id):
                     purchase_request_id=request_order.id,
                     expected_date=request_order.expected_date,
                     status='pending',
-                    remark=f'鐢遍噰璐敵璇?{request_order.request_no} 涓嬫帹鐢熸垚',
+                    remark=f'由采购申请 {request_order.request_no} 下推生成',
                     operator_id=current_user.id,
                 )
                 db.session.add(order)

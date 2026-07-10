@@ -279,7 +279,8 @@ def main() -> int:
         'AI-ENCODING-001',
         '閲囪喘鍏ュ簱' not in app_py
         and '璇风‘璁ゆ搷浣' not in base_html
-        and '纭畾缁х画' not in base_html,
+        and '纭畾缁х画' not in base_html
+        and '鐢遍噰璐敵璇' not in app_py,
         'AI 采购入库业务类型和全局确认框不得包含已知乱码',
     ))
 
