@@ -65,6 +65,7 @@ def main() -> int:
     app_js = read_text("app/static/js/app.js")
     excel_table_js = read_text("app/static/js/excel-table.js")
     excel_import_js = read_text("app/static/js/excel-import-export.js")
+    base_html = read_text("app/templates/base.html")
 
     checks: list[tuple[str, bool, str]] = []
 
@@ -258,6 +259,28 @@ def main() -> int:
         "validate_password_strength(password)" in add_user_body
         and "validate_password_strength(new_password)" in reset_body,
         "新增用户和重置密码必须复用 validate_password_strength()",
+    ))
+
+    checks.append((
+        'AI-AUTH-001',
+        'AI_CAPABILITY_ROLES' in app_py
+        and '_ai_capability_allowed(\'out_order_draft\')' in function_body(app_py, '_ai_create_out_order_draft')
+        and '_ai_capability_allowed(\'in_order_draft\')' in function_body(app_py, '_ai_create_in_order_draft')
+        and '_ai_capability_allowed(\'purchase_request_draft\')' in function_body(app_py, '_ai_create_purchase_request_draft_response')
+        and '_ai_capability_allowed(\'purchase_receive_draft\')' in function_body(app_py, '_ai_purchase_order_receive_response')
+        and '_ai_capability_allowed(\'admin_insights\')' in function_body(app_py, '_ai_user_permission_response')
+        and '_ai_capability_allowed(\'admin_insights\')' in function_body(app_py, '_ai_operation_audit_response')
+        and '_ai_capability_allowed(capability)' in function_body(app_py, '_ai_create_draft_from_extracted')
+        and '_ai_capability_allowed(capability)' in function_body(app_py, '_ai_document_confirm_allowed'),
+        'AI 草稿、敏感分析和文档确认必须通过统一能力权限矩阵校验',
+    ))
+
+    checks.append((
+        'AI-ENCODING-001',
+        '閲囪喘鍏ュ簱' not in app_py
+        and '璇风‘璁ゆ搷浣' not in base_html
+        and '纭畾缁х画' not in base_html,
+        'AI 采购入库业务类型和全局确认框不得包含已知乱码',
     ))
 
     ok, message = check_post_forms_have_csrf()

@@ -6721,6 +6721,39 @@ def api_customers():
     return jsonify([serialize_customer(customer) for customer in customers])
 
 
+AI_CAPABILITY_ROLES = {
+    'out_order_draft': frozenset({'warehouse', 'production'}),
+    'sales_out_draft': frozenset({'warehouse'}),
+    'in_order_draft': frozenset({'warehouse'}),
+    'purchase_receive_draft': frozenset({'warehouse', 'purchase'}),
+    'transfer_draft': frozenset({'warehouse'}),
+    'check_draft': frozenset({'warehouse'}),
+    'adjustment_draft': frozenset({'warehouse'}),
+    'purchase_request_draft': frozenset({'purchase'}),
+    'warehouse_insights': frozenset({'warehouse'}),
+    'purchase_insights': frozenset({'purchase'}),
+    'master_data_insights': frozenset({'warehouse'}),
+    'admin_insights': frozenset({'admin'}),
+    'alias_management': frozenset({'warehouse', 'purchase'}),
+}
+
+
+def _ai_capability_allowed(capability):
+    if not current_user.is_authenticated:
+        return False
+    if current_user.role == 'admin':
+        return True
+    return current_user.role in AI_CAPABILITY_ROLES.get(capability, frozenset())
+
+
+def _ai_permission_denied_text(capability):
+    return f'当前账号没有权限使用此 AI 能力（{capability}）'
+
+
+def _ai_permission_denied_response(capability):
+    return _ai_json_response(_ai_permission_denied_text(capability))
+
+
 def _ai_material_query(keyword, limit=8):
     keyword = (keyword or '').strip()
     query = Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
@@ -7390,8 +7423,8 @@ def _ai_parse_material_lines(message):
 
 
 def _ai_create_out_order_draft(message):
-    if current_user.role not in ('admin', 'warehouse', 'production'):
-        return None, '当前账号没有创建领料/出库草稿的权限'
+    if not _ai_capability_allowed('out_order_draft'):
+        return None, _ai_permission_denied_text('out_order_draft')
     items = _ai_parse_material_lines(message)
     if not items:
         return None, '没有识别到物料和数量。可以这样说：生成领料单 A001 20 B002 5'
@@ -7426,8 +7459,8 @@ def _ai_create_out_order_draft(message):
 
 
 def _ai_create_in_order_draft(message):
-    if current_user.role not in ('admin', 'warehouse'):
-        return None, '当前账号没有创建入库草稿的权限'
+    if not _ai_capability_allowed('in_order_draft'):
+        return None, _ai_permission_denied_text('in_order_draft')
     if '采购' in (message or '') and purchase_in_order_requires_order():
         return None, '采购入库必须关联采购订单，请从采购订单下推或选单生成。AI 可以先帮你查采购订单。'
     items = _ai_parse_material_lines(message)
@@ -7495,8 +7528,8 @@ def _ai_create_transfer_draft(message):
     """AI 助手生成库存调拨单草稿。
     示例：从A仓库转到B仓库 M001 100 M002 20
     """
-    if current_user.role not in ('admin', 'warehouse'):
-        return None, '当前账号没有创建调拨单草稿的权限'
+    if not _ai_capability_allowed('transfer_draft'):
+        return None, _ai_permission_denied_text('transfer_draft')
 
     from_loc, to_loc = _ai_extract_transfer_locations(message)
     if not from_loc or not to_loc:
@@ -7548,8 +7581,8 @@ def _ai_create_check_draft(message):
     示例：盘点 M001 M002 M003  /  生成盘点单 A001 A002
     物料行的 system_stock 自动填入当前库存，actual_stock 等待用户盘点录入。
     """
-    if current_user.role not in ('admin', 'warehouse'):
-        return None, '当前账号没有创建盘点单草稿的权限'
+    if not _ai_capability_allowed('check_draft'):
+        return None, _ai_permission_denied_text('check_draft')
 
     items = _ai_parse_material_lines(message)
     # 盘点单允许只指定物料不指定数量（数量用于辅助识别，实际以系统库存为准）
@@ -7599,8 +7632,8 @@ def _ai_create_adjustment_draft(message):
       loss（盘亏）：报废、损坏、盘亏、损耗、丢失、少了
       surplus（盘盈）：盘盈、多出、溢余、多了
     """
-    if current_user.role not in ('admin', 'warehouse'):
-        return None, '当前账号没有创建调整单草稿的权限'
+    if not _ai_capability_allowed('adjustment_draft'):
+        return None, _ai_permission_denied_text('adjustment_draft')
 
     text = (message or '')
     loss_keywords = ('报废', '损坏', '盘亏', '损耗', '丢失', '少了', '坏')
@@ -7996,6 +8029,8 @@ def _ai_stock_shortage_help_response(message):
 def _ai_purchase_order_receive_response(message, context=None):
     if not _ai_is_purchase_order_receive_request(message, context):
         return None
+    if not _ai_capability_allowed('purchase_receive_draft'):
+        return _ai_permission_denied_response('purchase_receive_draft')
     if current_user.role not in ('admin', 'warehouse', 'purchase'):
         return _ai_json_response('你当前账号没有生成采购入库单权限，请让仓库或采购权限账号操作。')
 
@@ -9983,6 +10018,15 @@ def _ai_create_draft_from_extracted(extracted, source='text', context=None):
         doc_type = 'sales_out_order'
     if doc_type not in AI_DOC_TYPE_LABELS:
         return None
+    capability = 'purchase_receive_draft' if doc_type == 'in_order' else {
+        'out_order': 'out_order_draft',
+        'sales_out_order': 'sales_out_draft',
+        'transfer': 'transfer_draft',
+        'check': 'check_draft',
+        'adjustment': 'adjustment_draft',
+    }.get(doc_type)
+    if not capability or not _ai_capability_allowed(capability):
+        return _ai_permission_denied_response(capability or 'document_draft')
     matched, unmatched = _ai_match_extracted_items(extracted.get('items') or [])
     if not matched:
         return _ai_json_response(
@@ -10050,7 +10094,7 @@ def _ai_create_draft_from_extracted(extracted, source='text', context=None):
         if draft:
             order = InOrder.query.filter_by(order_no=draft.get('order_no')).first()
             if order:
-                order.business_type = '閲囪喘鍏ュ簱'
+                order.business_type = '采购入库'
                 db.session.commit()
     elif doc_type in ('out_order', 'sales_out_order'):
         draft, error = _ai_create_out_order_draft(draft_message)
@@ -10163,6 +10207,8 @@ def _ai_alias_management_response(message):
     compact = (message or '').replace(' ', '').lower()
     if not any(word in compact for word in ('物料别名', 'ai别名', '匹配学习', '学习记录', '别名管理')):
         return None
+    if not _ai_capability_allowed('alias_management'):
+        return _ai_permission_denied_response('alias_management')
     alias_count = AIMaterialAlias.query.count()
     return _ai_json_response(
         f'当前已有 {alias_count} 条AI物料别名。可以在管理页查看、搜索、新增或删除错误映射。',
@@ -10217,6 +10263,8 @@ def _ai_is_inventory_discrepancy_question(message):
 def _ai_inventory_discrepancy_response(message, context=None):
     if not _ai_is_inventory_discrepancy_question(message):
         return None
+    if not _ai_capability_allowed('warehouse_insights'):
+        return _ai_permission_denied_response('warehouse_insights')
 
     material = None
     candidates = _ai_find_materials_from_message(message, limit=3)
@@ -10345,6 +10393,8 @@ def _ai_pending_document_cards(limit=6):
 def _ai_exception_workbench_response(message, context=None, force=False):
     if not force and not _ai_is_exception_workbench_question(message):
         return None
+    if not _ai_capability_allowed('warehouse_insights'):
+        return _ai_permission_denied_response('warehouse_insights')
 
     negative_materials = (
         Material.query.options(joinedload(Material.unit), joinedload(Material.category))
@@ -10455,6 +10505,8 @@ def _ai_is_agent_patrol_question(message):
 def _ai_agent_patrol_response(message, context=None, force=False):
     if not force and not _ai_is_agent_patrol_question(message):
         return None
+    if not _ai_capability_allowed('warehouse_insights'):
+        return _ai_permission_denied_response('warehouse_insights')
 
     negative_count = Material.query.filter(Material.stock < 0).count()
     low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
@@ -10685,6 +10737,8 @@ def _ai_purchase_replenishment_candidates(limit=20):
 def _ai_create_purchase_request_draft_response(message, context=None, force=False):
     if not force and not _ai_is_purchase_request_draft_question(message):
         return None
+    if not _ai_capability_allowed('purchase_request_draft'):
+        return _ai_permission_denied_response('purchase_request_draft')
     if current_user.role not in ('admin', 'purchase'):
         return _ai_json_response(
             '当前账号没有创建采购申请草稿的权限。请使用采购或管理员账号处理补货请购。',
@@ -10832,6 +10886,8 @@ def _ai_top_supplier_by_recent_purchase(days=180):
 def _ai_supplier_profile_response(message, context=None, force=False):
     if not force and not _ai_is_supplier_profile_question(message):
         return None
+    if not _ai_capability_allowed('purchase_insights'):
+        return _ai_permission_denied_response('purchase_insights')
 
     supplier = _ai_supplier_from_message(message) or _ai_top_supplier_by_recent_purchase()
     if not supplier:
@@ -10973,6 +11029,8 @@ def _ai_purchase_followup_orders(limit=12):
 def _ai_supplier_followup_response(message, context=None, force=False):
     if not force and not _ai_is_supplier_followup_question(message):
         return None
+    if not _ai_capability_allowed('purchase_insights'):
+        return _ai_permission_denied_response('purchase_insights')
 
     supplier = _ai_supplier_from_message(message)
     orders = _ai_purchase_followup_orders(limit=20)
@@ -11089,6 +11147,8 @@ def _ai_duplicate_group_count(model, *columns):
 def _ai_master_data_health_response(message, context=None, force=False):
     if not force and not _ai_is_master_data_health_question(message):
         return None
+    if not _ai_capability_allowed('master_data_insights'):
+        return _ai_permission_denied_response('master_data_insights')
 
     material_count = Material.query.count()
     supplier_count = Supplier.query.count()
@@ -11202,6 +11262,8 @@ def _ai_material_master_issues(material):
 def _ai_master_data_fix_list_response(message, context=None, force=False):
     if not force and not _ai_is_master_data_fix_list_question(message):
         return None
+    if not _ai_capability_allowed('master_data_insights'):
+        return _ai_permission_denied_response('master_data_insights')
 
     materials = (
         Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
@@ -11333,6 +11395,8 @@ def _ai_is_system_health_question(message):
 def _ai_system_health_response(message, context=None, force=False):
     if not force and not _ai_is_system_health_question(message):
         return None
+    if not _ai_capability_allowed('admin_insights'):
+        return _ai_permission_denied_response('admin_insights')
 
     now_value = datetime.now()
     cutoff = now_value - timedelta(days=7)
@@ -11432,6 +11496,8 @@ def _ai_is_system_fix_list_question(message):
 def _ai_system_fix_list_response(message, context=None, force=False):
     if not force and not _ai_is_system_fix_list_question(message):
         return None
+    if not _ai_capability_allowed('admin_insights'):
+        return _ai_permission_denied_response('admin_insights')
 
     now_value = datetime.now()
     cutoff = now_value - timedelta(days=7)
@@ -11557,6 +11623,8 @@ def _ai_is_master_data_import_question(message):
 def _ai_master_data_import_response(message, context=None, force=False):
     if not force and not _ai_is_master_data_import_question(message):
         return None
+    if not _ai_capability_allowed('master_data_insights'):
+        return _ai_permission_denied_response('master_data_insights')
 
     unit_count = Unit.query.count()
     category_count = MaterialCategory.query.count()
@@ -11625,6 +11693,8 @@ def _ai_role_label(role):
 def _ai_user_permission_response(message, context=None, force=False):
     if not force and not _ai_is_user_permission_question(message):
         return None
+    if not _ai_capability_allowed('admin_insights'):
+        return _ai_permission_denied_response('admin_insights')
 
     now_value = datetime.now()
     cutoff = now_value - timedelta(days=7)
@@ -11726,6 +11796,8 @@ def _ai_is_operation_audit_question(message):
 def _ai_operation_audit_response(message, context=None, force=False):
     if not force and not _ai_is_operation_audit_question(message):
         return None
+    if not _ai_capability_allowed('admin_insights'):
+        return _ai_permission_denied_response('admin_insights')
 
     now_value = datetime.now()
     cutoff = now_value - timedelta(days=7)
@@ -12113,6 +12185,8 @@ def _ai_task_priority_label(score):
 def _ai_task_list_response(message, context=None, force=False):
     if not force and not _ai_is_task_list_question(message):
         return None
+    if not _ai_capability_allowed('admin_insights'):
+        return _ai_permission_denied_response('admin_insights')
 
     today_value = date.today()
     tasks = []
@@ -12473,6 +12547,8 @@ def _ai_page_navigation_response(message, context=None, force=False):
 def _ai_purchase_workbench_response(message, context=None, force=False):
     if not force and not _ai_is_purchase_workbench_question(message):
         return None
+    if not _ai_capability_allowed('purchase_insights'):
+        return _ai_permission_denied_response('purchase_insights')
 
     summary = build_purchase_order_todo_summary()
     today_value = date.today()
@@ -12697,6 +12773,8 @@ def _ai_is_delivery_note_inbound_request(message):
 def _ai_delivery_note_inbound_response(message, context=None, force=False):
     if not force and not _ai_is_delivery_note_inbound_request(message):
         return None
+    if not _ai_capability_allowed('purchase_receive_draft'):
+        return _ai_permission_denied_response('purchase_receive_draft')
     actions = [
         {'label': '上传送货单图片', 'url': '#', 'prompt': '识别送货单图片并生成采购入库单草稿', 'upload': 'delivery-note'},
         {'label': '采购订单', 'url': url_for('purchase_order_list')},
@@ -12864,17 +12942,20 @@ def _ai_document_confirm_allowed(doc_type):
     doc_type = (doc_type or '').strip()
     if doc_type == 'sales_out':
         doc_type = 'sales_out_order'
-    if current_user.role == 'admin':
-        return True
-    if doc_type in {'in_order', 'out_order', 'sales_out_order', 'transfer', 'check', 'adjustment'}:
-        return current_user.role == 'warehouse'
-    if doc_type in {'purchase_request', 'purchase_order'}:
-        return current_user.role == 'purchase'
-    return False
+    capability = {
+        'in_order': 'purchase_receive_draft',
+        'out_order': 'out_order_draft',
+        'sales_out_order': 'sales_out_draft',
+        'transfer': 'transfer_draft',
+        'check': 'check_draft',
+        'adjustment': 'adjustment_draft',
+        'purchase_request': 'purchase_request_draft',
+    }.get(doc_type)
+    return bool(capability and _ai_capability_allowed(capability))
 
 
 @app.route('/ai/document_confirm/<token>', methods=['GET', 'POST'])
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'production')
 @login_required
 def ai_document_confirm(token):
     pending = session.get('_ai_document_confirmations') or {}
