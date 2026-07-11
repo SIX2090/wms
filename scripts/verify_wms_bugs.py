@@ -576,6 +576,22 @@ def main() -> int:
         'AI prelaunch checks, access control, rollback readiness, and regression guidance must stay stable',
     ))
 
+    ai_stage7 = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_stage7_replenishment.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if ai_stage7.stdout:
+        print(ai_stage7.stdout.rstrip())
+    if ai_stage7.stderr:
+        print(ai_stage7.stderr.rstrip())
+    checks.append((
+        'AI-STAGE7-REPLENISHMENT-001',
+        ai_stage7.returncode == 0,
+        'AI PC replenishment planning, risk calculation, permissions, and entrypoint must stay stable',
+    ))
+
     warehouse_handler_body = function_body(app_py, '_ai_handle_warehouse_assistant_request')
     checks.append((
         'AI-WAREHOUSE-ROUTE-SHELL-001',

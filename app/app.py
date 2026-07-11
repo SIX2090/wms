@@ -11763,6 +11763,185 @@ def _ai_create_purchase_request_draft_response(message, context=None, force=Fals
     )
 
 
+def _ai_replenishment_triggered(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '补货建议', '补货预测', '缺货预测', '采购建议', '智能补货', '安全库存建议',
+        '再订货', 'replenishment', 'shortage forecast', 'stock coverage',
+    ))
+
+
+def _ai_replenishment_out_qty_by_material(days=30):
+    cutoff = datetime.now() - timedelta(days=max(int(days or 30), 1))
+    rows = db.session.query(
+        StockTransaction.material_id,
+        func.coalesce(func.sum(func.abs(StockTransaction.quantity)), 0),
+    ).filter(
+        StockTransaction.created_at >= cutoff,
+        StockTransaction.quantity < 0,
+    ).group_by(StockTransaction.material_id).all()
+    return {material_id: round_to_2_decimals(qty or 0) for material_id, qty in rows}
+
+
+def _ai_replenishment_open_qty(material_ids):
+    if not material_ids:
+        return {}, set()
+    on_order = {material_id: 0 for material_id in material_ids}
+    po_rows = db.session.query(
+        PurchaseOrderItem.material_id,
+        func.coalesce(func.sum(PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity), 0),
+    ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
+        PurchaseOrderItem.material_id.in_(material_ids),
+        PurchaseOrder.status.in_(('pending', 'partial')),
+    ).group_by(PurchaseOrderItem.material_id).all()
+    for material_id, qty in po_rows:
+        on_order[material_id] = round_to_2_decimals(max(qty or 0, 0))
+
+    pending_request_ids = set()
+    request_rows = db.session.query(PurchaseRequestItem.material_id).join(
+        PurchaseRequest, PurchaseRequestItem.purchase_request_id == PurchaseRequest.id
+    ).filter(
+        PurchaseRequestItem.material_id.in_(material_ids),
+        PurchaseRequest.status.in_(('pending', 'approved')),
+    ).all()
+    for row in request_rows:
+        pending_request_ids.add(row[0])
+    return on_order, pending_request_ids
+
+
+def _ai_replenishment_report(days=30, coverage_days=30, limit=100, only_action=False):
+    days = max(int(days or 30), 1)
+    coverage_days = max(int(coverage_days or 30), 1)
+    limit = max(min(int(limit or 100), 300), 1)
+    materials = Material.query.options(
+        joinedload(Material.unit),
+        joinedload(Material.supplier),
+        joinedload(Material.category),
+    ).order_by(Material.code.asc()).all()
+    material_ids = [material.id for material in materials]
+    out_qty = _ai_replenishment_out_qty_by_material(days)
+    on_order, pending_request_ids = _ai_replenishment_open_qty(material_ids)
+
+    rows = []
+    for material in materials:
+        outbound_qty = round_to_2_decimals(out_qty.get(material.id, 0))
+        avg_daily = round_to_2_decimals(outbound_qty / days) if outbound_qty else 0
+        current_stock = round_to_2_decimals(material.stock or 0)
+        min_stock = round_to_2_decimals(material.min_stock or 0)
+        reorder_point = round_to_2_decimals(material.reorder_point or 0)
+        max_stock = round_to_2_decimals(material.max_stock or 0)
+        coverage_stock = round_to_2_decimals(avg_daily * coverage_days)
+        safety_line = max(min_stock, reorder_point, coverage_stock)
+        target_stock = max(max_stock, safety_line)
+        available_with_orders = round_to_2_decimals(current_stock + on_order.get(material.id, 0))
+        suggested_qty = round_to_2_decimals(max(target_stock - available_with_orders, 0))
+        days_of_supply = None if avg_daily <= STOCK_COMPARE_EPSILON else round_to_2_decimals(current_stock / avg_daily)
+        projected_stock = round_to_2_decimals(current_stock - coverage_stock + on_order.get(material.id, 0))
+        has_pending_request = material.id in pending_request_ids
+
+        if current_stock <= 0 and avg_daily > 0:
+            risk_level = 'critical'
+            risk_label = '立即处理'
+        elif current_stock < min_stock or projected_stock < 0 or (days_of_supply is not None and days_of_supply <= 7):
+            risk_level = 'high'
+            risk_label = '高风险'
+        elif suggested_qty > STOCK_COMPARE_EPSILON:
+            risk_level = 'medium'
+            risk_label = '建议补货'
+        else:
+            risk_level = 'normal'
+            risk_label = '正常'
+
+        action_required = suggested_qty > STOCK_COMPARE_EPSILON and not has_pending_request
+        if only_action and not action_required:
+            continue
+        rows.append({
+            'material': material,
+            'code': material.code,
+            'name': material.name,
+            'spec': material.spec or '',
+            'unit': material.unit.name if material.unit else '',
+            'category': material.category.name if material.category else '',
+            'supplier': material.supplier.name if material.supplier else '',
+            'current_stock': current_stock,
+            'min_stock': min_stock,
+            'reorder_point': reorder_point,
+            'max_stock': max_stock,
+            'outbound_qty': outbound_qty,
+            'avg_daily': avg_daily,
+            'coverage_stock': coverage_stock,
+            'on_order': on_order.get(material.id, 0),
+            'pending_request': has_pending_request,
+            'projected_stock': projected_stock,
+            'days_of_supply': days_of_supply,
+            'suggested_qty': suggested_qty,
+            'estimated_amount': round_to_2_decimals(suggested_qty * (material.price or 0)),
+            'risk_level': risk_level,
+            'risk_label': risk_label,
+            'action_required': action_required,
+        })
+
+    risk_rank = {'critical': 0, 'high': 1, 'medium': 2, 'normal': 3}
+    rows.sort(key=lambda row: (
+        risk_rank.get(row['risk_level'], 9),
+        999999 if row['days_of_supply'] is None else row['days_of_supply'],
+        -row['suggested_qty'],
+        row['code'] or '',
+    ))
+    rows = rows[:limit]
+    summary = {
+        'total': len(rows),
+        'critical': sum(1 for row in rows if row['risk_level'] == 'critical'),
+        'high': sum(1 for row in rows if row['risk_level'] == 'high'),
+        'medium': sum(1 for row in rows if row['risk_level'] == 'medium'),
+        'action_required': sum(1 for row in rows if row['action_required']),
+        'pending_request': sum(1 for row in rows if row['pending_request']),
+        'suggested_amount': round_to_2_decimals(sum(row['estimated_amount'] for row in rows if row['action_required'])),
+        'days': days,
+        'coverage_days': coverage_days,
+        'generated_at': datetime.now(),
+    }
+    return {'rows': rows, 'summary': summary}
+
+
+def _ai_replenishment_planning_response(message, context=None, force=False):
+    if not force and not _ai_replenishment_triggered(message):
+        return None
+    if not _ai_capability_allowed('replenishment_planning'):
+        return _ai_permission_denied_response('replenishment_planning')
+    report = _ai_replenishment_report(days=30, coverage_days=30, limit=8, only_action=True)
+    summary = report['summary']
+    cards = []
+    for row in report['rows'][:6]:
+        days_text = '-' if row['days_of_supply'] is None else normalize_stock_quantity(row['days_of_supply'])
+        cards.append({
+            'title': f'{row["risk_label"]} {row["code"]} {row["name"]}',
+            'meta': (
+                f'现存 {normalize_stock_quantity(row["current_stock"])}{row["unit"]}，'
+                f'近30天出库 {normalize_stock_quantity(row["outbound_qty"])}{row["unit"]}，'
+                f'可用天数 {days_text}，建议补货 {normalize_stock_quantity(row["suggested_qty"])}{row["unit"]}。'
+            ),
+            'url': url_for('material_list', search=row['code'] or row['name'] or ''),
+        })
+    reply = (
+        f'PC端AI补货预测已计算：需要处理 {summary["action_required"]} 项，'
+        f'高风险以上 {summary["critical"] + summary["high"]} 项，'
+        f'建议金额 {summary["suggested_amount"]:,.2f}。'
+        '该结果只读，不会自动生成采购单或改变库存。'
+    )
+    return _ai_json_response(
+        reply,
+        cards,
+        [
+            {'label': '打开AI补货建议', 'url': url_for('ai_replenishment_page')},
+            {'label': '生成请购草稿', 'url': '#', 'prompt': '生成补货采购申请草稿'},
+            {'label': '采购申请列表', 'url': url_for('purchase_request_list')},
+        ],
+    )
+
+
 def _ai_is_supplier_profile_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -13777,6 +13956,7 @@ AI_LOCAL_SKILLS.append({
 
 def _ai_warehouse_insights_response(message, context=None):
     for handler in (
+        _ai_replenishment_planning_response,
         _ai_agent_patrol_response,
         _ai_exception_workbench_response,
         _ai_inventory_discrepancy_response,
@@ -13790,6 +13970,7 @@ def _ai_warehouse_insights_response(message, context=None):
 
 def _ai_purchase_insights_response(message, context=None):
     for handler in (
+        _ai_replenishment_planning_response,
         _ai_supplier_profile_response,
         _ai_supplier_followup_response,
         _ai_purchase_workbench_response,
@@ -13828,6 +14009,7 @@ def _ai_admin_insights_response(message, context=None):
 AI_TOOL_DISPATCHERS = {
     'warehouse_insights': _ai_warehouse_insights_response,
     'purchase_insights': _ai_purchase_insights_response,
+    'replenishment_planning': _ai_replenishment_planning_response,
     'master_data_insights': _ai_master_data_insights_response,
     'admin_insights': _ai_admin_insights_response,
 }
@@ -13916,6 +14098,26 @@ def ai_ops_dashboard():
     metrics_7d = _ai_ops_metrics(window_hours=168)
     recent_runs = AIRun.query.options(joinedload(AIRun.user)).order_by(AIRun.started_at.desc()).limit(50).all()
     return render_template('ai_ops_dashboard.html', metrics_24h=metrics_24h, metrics_7d=metrics_7d, recent_runs=recent_runs)
+
+
+@app.route('/ai/replenishment')
+@login_required
+@require_role('warehouse', 'purchase')
+def ai_replenishment_page():
+    if not _ai_capability_allowed('replenishment_planning'):
+        flash('当前账号没有访问AI补货建议的权限。', 'danger')
+        return redirect(url_for('index'))
+    days = request.args.get('days', 30, type=int)
+    coverage_days = request.args.get('coverage_days', 30, type=int)
+    risk = (request.args.get('risk') or 'action').strip()
+    only_action = risk == 'action'
+    report = _ai_replenishment_report(
+        days=days,
+        coverage_days=coverage_days,
+        limit=200,
+        only_action=only_action,
+    )
+    return render_template('ai_replenishment.html', report=report, risk=risk)
 
 
 def _ai_prelaunch_add_check(checks, code, title, status, detail, action_label='', action_url='', severity='medium'):

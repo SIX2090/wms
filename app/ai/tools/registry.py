@@ -74,6 +74,7 @@ AI_TOOL_REGISTRY = MappingProxyType({
     'purchase_request_draft': _tool('purchase_request_draft', 'Create a purchase request draft for manual review.', 'purchase_draft', confirmation_required=True),
     'warehouse_insights': _tool('warehouse_insights', 'Read warehouse exceptions, stock status, pending documents, and warehouse summaries.', 'warehouse_read', handler_name='_ai_warehouse_insights_response'),
     'purchase_insights': _tool('purchase_insights', 'Read purchase workbench, supplier follow-up, and purchase exception summaries.', 'purchase_read', handler_name='_ai_purchase_insights_response'),
+    'replenishment_planning': _tool('replenishment_planning', 'Read projected shortages, stock coverage, on-order quantity, and replenishment suggestions.', 'purchase_read', handler_name='_ai_replenishment_planning_response'),
     'warehouse_patrol_agent': _tool('warehouse_patrol_agent', 'Run a controlled warehouse patrol agent and persist auditable task steps.', 'agent_task', handler_name='_ai_run_warehouse_patrol_agent'),
     'purchase_followup_agent': _tool('purchase_followup_agent', 'Run a controlled purchase follow-up agent and persist auditable task steps.', 'agent_task', confirmation_required=True, handler_name='_ai_run_purchase_followup_agent'),
     'knowledge_base': _tool('knowledge_base', 'Explain WMS SOPs, page locations, status rules, fields, and report basis without replacing live data queries.', 'knowledge_read', handler_name='_ai_knowledge_response'),
