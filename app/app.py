@@ -8,7 +8,7 @@ from functools import wraps
 from datetime import datetime, date, time, timedelta
 from urllib.parse import urljoin, urlparse, urlencode, quote_plus
 from sqlalchemy import func, false, true, update as sa_update
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload, selectinload
 import logging
 import os
@@ -21,7 +21,6 @@ import re
 import sqlite3
 import requests
 import base64
-import hashlib
 import json
 from pathlib import Path
 from reportlab.graphics import renderPDF
@@ -31,6 +30,17 @@ from notifications import notification_manager, init_notification_scheduler
 
 # Initialize Flask application
 from config import config_dict
+from ai.policies import (
+    AI_CAPABILITY_ROLES,
+    is_ai_capability_allowed_for_role,
+)
+from ai.history import AI_CHAT_HISTORY_MAX_TURNS, append_history, clear_history, get_history
+from ai.idempotency import configure_ai_idempotency_service
+from ai.knowledge import is_knowledge_question, search_knowledge_entries
+from ai.orchestrator import dispatch_registered_tool
+from ai.routes import ai_bp
+from ai.streaming import sse_event, stream_response_payload
+from ai.tools.registry import get_ai_tool_spec
 
 # Import utility functions
 from utils import (
@@ -493,6 +503,7 @@ login_manager.login_view = 'login'
 login_manager.login_message = '请先登录后再继续'
 login_manager.login_message_category = 'warning'
 login_manager.session_protection = 'basic'
+app.register_blueprint(ai_bp)
 
 MAX_LOGIN_FAILURES = 5
 ACCOUNT_LOCK_MINUTES = 30
@@ -947,6 +958,62 @@ SYSTEM_SETTING_GROUPS = [
                 'max': 2000,
                 'unit': 'tokens',
                 'remark': '当前只让模型输出意图 JSON，通常 300 足够。',
+            },
+        ],
+    },
+    {
+        'key': 'ai_rollout',
+        'title': 'AI生产化与灰度',
+        'icon': 'bi-shield-check',
+        'description': '控制 AI 功能总开关、灰度范围、草稿、Agent、视觉识别和本地规则降级。',
+        'settings': [
+            {
+                'key': 'ai_feature_global_enabled',
+                'label': 'AI功能总开关',
+                'type': 'bool',
+                'default': '1',
+                'remark': '关闭后 AI API 返回停用提示，不影响 WMS 主业务页面。',
+            },
+            {
+                'key': 'ai_feature_rollout_mode',
+                'label': 'AI灰度范围',
+                'type': 'select',
+                'default': 'all',
+                'options': [
+                    {'value': 'admin_only', 'label': '仅管理员'},
+                    {'value': 'read_only', 'label': '业务角色只读'},
+                    {'value': 'read_draft', 'label': '业务角色只读+草稿'},
+                    {'value': 'all', 'label': '按权限矩阵开放'},
+                ],
+                'remark': '用于分阶段开放 AI 能力。管理员始终按权限矩阵执行。',
+            },
+            {
+                'key': 'ai_feature_drafts_enabled',
+                'label': '允许AI生成草稿',
+                'type': 'bool',
+                'default': '1',
+                'remark': '关闭后所有 draft 风险等级能力会被拒绝，只保留只读分析和导航。',
+            },
+            {
+                'key': 'ai_feature_agents_enabled',
+                'label': '允许AI Agent任务',
+                'type': 'bool',
+                'default': '1',
+                'remark': '关闭后仓库巡检、采购跟进等受控 Agent 不可运行。',
+            },
+            {
+                'key': 'ai_feature_vision_enabled',
+                'label': '允许视觉识别灰度',
+                'type': 'bool',
+                'default': '1',
+                'remark': '独立于模型视觉配置的灰度开关。关闭后图片识别降级为文字/手工入口。',
+            },
+            {
+                'key': 'ai_degrade_local_only',
+                'label': '本地规则降级模式',
+                'type': 'bool',
+                'default': '0',
+                'remark': '开启后不调用大模型，只使用本地规则、知识库、报表和人工入口。',
             },
         ],
     },
@@ -1920,6 +1987,152 @@ class AIRequestIdempotency(db.Model):
 
     user = db.relationship('User', backref='ai_idempotent_requests')
     ai_run = db.relationship('AIRun', backref=db.backref('idempotent_request', uselist=False))
+
+
+class AIDocumentJob(db.Model):
+    __tablename__ = 'ai_document_job'
+    __table_args__ = (
+        db.Index('idx_ai_document_job_user_created', 'user_id', 'created_at'),
+        db.Index('idx_ai_document_job_status_created', 'status', 'created_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    ai_run_id = db.Column(db.Integer, db.ForeignKey('ai_run.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    source = db.Column(db.String(30), nullable=False)
+    document_type = db.Column(db.String(40))
+    status = db.Column(db.String(30), nullable=False, default='recognized')
+    supplier = db.Column(db.String(100))
+    customer = db.Column(db.String(100))
+    order_no = db.Column(db.String(100))
+    source_text_summary = db.Column(db.String(500))
+    source_purchase_order_id = db.Column(db.Integer, db.ForeignKey('purchase_order.id'))
+    confirmation_token = db.Column(db.String(40))
+    generated_document_type = db.Column(db.String(40))
+    generated_document_id = db.Column(db.Integer)
+    generated_document_no = db.Column(db.String(100))
+    error_message = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    completed_at = db.Column(db.DateTime)
+
+    user = db.relationship('User', backref='ai_document_jobs')
+    ai_run = db.relationship('AIRun', backref='document_jobs')
+    source_purchase_order = db.relationship('PurchaseOrder', foreign_keys=[source_purchase_order_id])
+
+
+class AIDocumentItem(db.Model):
+    __tablename__ = 'ai_document_item'
+    __table_args__ = (
+        db.Index('idx_ai_document_item_job', 'job_id'),
+        db.Index('idx_ai_document_item_material', 'material_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('ai_document_job.id'), nullable=False)
+    line_no = db.Column(db.Integer, nullable=False, default=0)
+    material_id = db.Column(db.Integer, db.ForeignKey('material.id'))
+    raw_text = db.Column(db.String(500))
+    code = db.Column(db.String(100))
+    name = db.Column(db.String(200))
+    spec = db.Column(db.String(200))
+    unit = db.Column(db.String(50))
+    quantity = db.Column(db.Float, default=0)
+    confidence = db.Column(db.Float)
+    match_status = db.Column(db.String(30), nullable=False, default='unmatched')
+    match_reason = db.Column(db.String(300))
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    job = db.relationship('AIDocumentJob', backref=db.backref('items', cascade='all, delete-orphan'))
+    material = db.relationship('Material', backref='ai_document_items')
+
+
+class AIDocumentAttempt(db.Model):
+    __tablename__ = 'ai_document_attempt'
+    __table_args__ = (
+        db.Index('idx_ai_document_attempt_job', 'job_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('ai_document_job.id'), nullable=False)
+    attempt_no = db.Column(db.Integer, nullable=False, default=1)
+    source = db.Column(db.String(30), nullable=False)
+    model = db.Column(db.String(100))
+    prompt_version = db.Column(db.String(50), default='legacy-v1')
+    status = db.Column(db.String(30), nullable=False, default='started')
+    item_count = db.Column(db.Integer, default=0)
+    matched_count = db.Column(db.Integer, default=0)
+    unmatched_count = db.Column(db.Integer, default=0)
+    error_message = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    completed_at = db.Column(db.DateTime)
+
+    job = db.relationship('AIDocumentJob', backref=db.backref('attempts', cascade='all, delete-orphan'))
+
+
+class AIDocumentFeedback(db.Model):
+    __tablename__ = 'ai_document_feedback'
+    __table_args__ = (
+        db.Index('idx_ai_document_feedback_job', 'job_id'),
+        db.Index('idx_ai_document_feedback_user_created', 'user_id', 'created_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('ai_document_job.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    rating = db.Column(db.String(20), nullable=False)
+    error_type = db.Column(db.String(50))
+    note = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    job = db.relationship('AIDocumentJob', backref=db.backref('feedbacks', cascade='all, delete-orphan'))
+    user = db.relationship('User', backref='ai_document_feedbacks')
+
+
+class AIAgentTask(db.Model):
+    __tablename__ = 'ai_agent_task'
+    __table_args__ = (
+        db.Index('idx_ai_agent_task_user_created', 'user_id', 'created_at'),
+        db.Index('idx_ai_agent_task_type_status', 'agent_type', 'status'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    ai_run_id = db.Column(db.Integer, db.ForeignKey('ai_run.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    agent_type = db.Column(db.String(50), nullable=False)
+    objective = db.Column(db.String(300), nullable=False)
+    status = db.Column(db.String(30), nullable=False, default='running')
+    summary = db.Column(db.String(1000))
+    next_action_url = db.Column(db.String(300))
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    completed_at = db.Column(db.DateTime)
+
+    user = db.relationship('User', backref='ai_agent_tasks')
+    ai_run = db.relationship('AIRun', backref='agent_tasks')
+
+
+class AIAgentStep(db.Model):
+    __tablename__ = 'ai_agent_step'
+    __table_args__ = (
+        db.Index('idx_ai_agent_step_task', 'task_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey('ai_agent_task.id'), nullable=False)
+    step_no = db.Column(db.Integer, nullable=False, default=1)
+    name = db.Column(db.String(120), nullable=False)
+    tool_name = db.Column(db.String(100))
+    risk_level = db.Column(db.String(30), nullable=False, default='read')
+    status = db.Column(db.String(30), nullable=False, default='completed')
+    data_scope = db.Column(db.String(300))
+    result_summary = db.Column(db.String(1000))
+    action_label = db.Column(db.String(100))
+    action_url = db.Column(db.String(300))
+    error_message = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    completed_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    task = db.relationship('AIAgentTask', backref=db.backref('steps', cascade='all, delete-orphan'))
 
 
 class OpeningStock(db.Model):
@@ -6792,35 +7005,6 @@ def api_customers():
     return jsonify([serialize_customer(customer) for customer in customers])
 
 
-AI_CAPABILITY_ROLES = {
-    'out_order_draft': frozenset({'warehouse', 'production'}),
-    'sales_out_draft': frozenset({'warehouse'}),
-    'in_order_draft': frozenset({'warehouse'}),
-    'purchase_receive_draft': frozenset({'warehouse', 'purchase'}),
-    'transfer_draft': frozenset({'warehouse'}),
-    'check_draft': frozenset({'warehouse'}),
-    'adjustment_draft': frozenset({'warehouse'}),
-    'purchase_request_draft': frozenset({'purchase'}),
-    'warehouse_insights': frozenset({'warehouse'}),
-    'purchase_insights': frozenset({'purchase'}),
-    'master_data_insights': frozenset({'warehouse'}),
-    'admin_insights': frozenset({'admin'}),
-    'alias_management': frozenset({'warehouse', 'purchase'}),
-}
-
-AI_CAPABILITY_RISK_LEVELS = {
-    'out_order_draft': 'draft',
-    'sales_out_draft': 'draft',
-    'in_order_draft': 'draft',
-    'purchase_receive_draft': 'draft',
-    'transfer_draft': 'draft',
-    'check_draft': 'draft',
-    'adjustment_draft': 'draft',
-    'purchase_request_draft': 'draft',
-    'admin_insights': 'sensitive_read',
-}
-
-
 def _ai_record_capability_audit(capability, allowed):
     if not has_request_context():
         return
@@ -6833,11 +7017,12 @@ def _ai_record_capability_audit(capability, allowed):
     ).first()
     now_value = datetime.now()
     if not tool_call:
+        tool_spec = get_ai_tool_spec(capability)
         tool_call = AIToolCall(
             ai_run_id=run_id,
             tool_name=capability,
             capability=capability,
-            risk_level=AI_CAPABILITY_RISK_LEVELS.get(capability, 'read'),
+            risk_level=tool_spec.risk_level if tool_spec else 'read',
             status='authorized' if allowed else 'denied',
             permission_allowed=bool(allowed),
             created_at=now_value,
@@ -6853,7 +7038,16 @@ def _ai_record_capability_audit(capability, allowed):
 def _ai_capability_allowed(capability):
     if not current_user.is_authenticated:
         return False
-    allowed = current_user.role == 'admin' or current_user.role in AI_CAPABILITY_ROLES.get(capability, frozenset())
+    spec = get_ai_tool_spec(capability)
+    allowed = is_ai_capability_allowed_for_role(capability, current_user.role)
+    if allowed and not _ai_global_enabled():
+        allowed = False
+    if allowed and not _ai_capability_allowed_by_rollout(capability, current_user.role):
+        allowed = False
+    if allowed and spec and spec.risk_level == 'draft' and not _ai_feature_enabled('ai_feature_drafts_enabled', True):
+        allowed = False
+    if allowed and capability.endswith('_agent') and not _ai_feature_enabled('ai_feature_agents_enabled', True):
+        allowed = False
     _ai_record_capability_audit(capability, allowed)
     return allowed
 
@@ -6866,158 +7060,18 @@ def _ai_permission_denied_response(capability):
     return _ai_json_response(_ai_permission_denied_text(capability))
 
 
-def _ai_idempotency_error(message, status_code=409):
-    return jsonify({'status': 'error', 'msg': message}), status_code
-
-
-def _ai_idempotency_replay(record):
-    return Response(
-        record.response_body or '',
-        status=record.response_status or 200,
-        content_type=record.response_content_type or 'application/json; charset=utf-8',
-    )
-
-
-def _ai_finish_run(run_id, status, error_message=''):
-    run = db.session.get(AIRun, run_id)
-    if not run:
-        return
-    completed_at = datetime.now()
-    run.status = status
-    run.completed_at = completed_at
-    run.duration_ms = max(0, int((completed_at - run.started_at).total_seconds() * 1000))
-    run.error_message = (error_message or '')[:500] or None
-
-
-def _ai_finish_idempotent_request(record_id, response_status, content_type, response_body):
-    record = db.session.get(AIRequestIdempotency, record_id)
-    if not record:
-        return
-    record.status = 'completed'
-    record.response_status = response_status
-    record.response_content_type = (content_type or '')[:120]
-    record.response_body = response_body
-    record.completed_at = datetime.now()
-    record.updated_at = datetime.now()
-    run_failed = response_status >= 500 or bool(re.search(r'"type"\s*:\s*"error"', response_body or ''))
-    if record.ai_run_id:
-        _ai_finish_run(record.ai_run_id, 'failed' if run_failed else 'completed')
-    db.session.commit()
-
-
-def _ai_fail_idempotent_request(record_id, error_message=''):
-    db.session.rollback()
-    record = db.session.get(AIRequestIdempotency, record_id)
-    if not record:
-        return
-    record.status = 'failed'
-    record.updated_at = datetime.now()
-    if record.ai_run_id:
-        _ai_finish_run(record.ai_run_id, 'failed', error_message)
-    db.session.commit()
-
-
-def _ai_idempotent_request(view_function):
-    @wraps(view_function)
-    def wrapped(*args, **kwargs):
-        payload = request.get_json(silent=True) or {}
-        request_id = str(payload.get('request_id') or '').strip()
-        if not request_id:
-            return _ai_idempotency_error('缺少 request_id，无法安全处理 AI 请求', 400)
-        if not re.fullmatch(r'[A-Za-z0-9._:-]{8,80}', request_id):
-            return _ai_idempotency_error('request_id 格式不正确', 400)
-
-        request_hash = hashlib.sha256(
-            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
-        ).hexdigest()
-        record = AIRequestIdempotency.query.filter_by(
-            user_id=current_user.id,
-            request_id=request_id,
-        ).first()
-        if record:
-            if record.request_hash != request_hash:
-                return _ai_idempotency_error('request_id 已用于不同请求')
-            if record.status == 'completed':
-                return _ai_idempotency_replay(record)
-            return _ai_idempotency_error('该 AI 请求正在处理或此前处理失败，请先检查是否已生成草稿')
-
-        run = AIRun(
-            user_id=current_user.id,
-            request_id=request_id,
-            request_hash=request_hash,
-            endpoint=request.path[:100],
-            status='running',
-            model=_ai_llm_model()[:100],
-            prompt_version='legacy-v1',
-        )
-        record = AIRequestIdempotency(
-            user_id=current_user.id,
-            request_id=request_id,
-            request_hash=request_hash,
-            endpoint=request.path[:100],
-            status='processing',
-        )
-        db.session.add(run)
-        db.session.add(record)
-        try:
-            db.session.flush()
-            record.ai_run_id = run.id
-            db.session.commit()
-        except IntegrityError:
-            db.session.rollback()
-            existing = AIRequestIdempotency.query.filter_by(
-                user_id=current_user.id,
-                request_id=request_id,
-            ).first()
-            if existing and existing.request_hash == request_hash and existing.status == 'completed':
-                return _ai_idempotency_replay(existing)
-            return _ai_idempotency_error('该 AI 请求已被接收，请勿重复提交')
-
-        record_id = record.id
-        g.ai_run_id = run.id
-        try:
-            response = app.make_response(view_function(*args, **kwargs))
-        except Exception as exc:
-            _ai_fail_idempotent_request(record_id, str(exc))
-            raise
-
-        if response.is_streamed:
-            original_iterator = response.response
-            response_status = response.status_code
-            content_type = response.content_type
-
-            def record_stream():
-                body_parts = []
-                try:
-                    for chunk in original_iterator:
-                        if isinstance(chunk, bytes):
-                            body_parts.append(chunk.decode('utf-8', errors='replace'))
-                        else:
-                            body_parts.append(str(chunk))
-                        yield chunk
-                    _ai_finish_idempotent_request(
-                        record_id,
-                        response_status,
-                        content_type,
-                        ''.join(body_parts),
-                    )
-                except BaseException as exc:
-                    _ai_fail_idempotent_request(record_id, str(exc))
-                    raise
-
-            response.response = stream_with_context(record_stream())
-            return response
-
-        response_body = response.get_data(as_text=True)
-        _ai_finish_idempotent_request(
-            record_id,
-            response.status_code,
-            response.content_type,
-            response_body,
-        )
-        return response
-
-    return wrapped
+_ai_idempotency = configure_ai_idempotency_service(
+    db=db,
+    run_model=AIRun,
+    request_model=AIRequestIdempotency,
+    model_name_getter=lambda: _ai_llm_model(),
+)
+_ai_idempotent_request = _ai_idempotency.idempotent_request
+_ai_idempotency_error = _ai_idempotency.error
+_ai_idempotency_replay = _ai_idempotency.replay
+_ai_finish_run = _ai_idempotency.finish_run
+_ai_finish_idempotent_request = _ai_idempotency.finish_request
+_ai_fail_idempotent_request = _ai_idempotency.fail_request
 
 
 def _ai_material_query(keyword, limit=8):
@@ -7196,6 +7250,11 @@ def _ai_analysis_inventory_turnover(top_n=10, days=90, warehouse=None, category=
         for m in slow_rows:
             lines.append(f'- {m.code} {(m.name or "")[:12]}（库存 {m.stock:.0f}）')
     reply = '\n'.join(lines)
+    reply += _ai_data_source_footer(
+        '实时数据库查询',
+        f'最近{days}天' + (f'；仓库/库位包含 {warehouse}' if warehouse else '') + (f'；分类包含 {category}' if category else ''),
+        ['material', 'stock_transaction', 'material_category'],
+    )
     return reply
 
 
@@ -7376,6 +7435,238 @@ def _ai_analysis_low_stock_report():
         reorder = max(0, (m.max_stock or m.min_stock or 0) - m.stock)
         lines.append(f'| {m.code} | {(m.name or "")[:12]} | {m.stock:.0f} | {m.min_stock:.0f} | {reorder:.0f} |')
     return '\n'.join(lines)
+
+
+def _ai_is_stage4_deep_analysis_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '可用天数', '预计可用', '还能用几天', '库存覆盖', '库存覆盖天数',
+        '滞销', '呆滞', '慢动销', '长期未出库',
+        '缺料', '缺货', '短缺', '补货缺口',
+        '供应商履约', '供应商交付', '供应商到货', '采购履约',
+        '盘点差异', '盘盈盘亏', '差异分析',
+        '深度分析', '分析深度',
+        'stage4', 'deep analysis', 'supply_days', 'days_of_supply', 'slow_moving',
+        'shortage', 'supplier_performance', 'stocktake_variance',
+    ))
+
+
+def _ai_stage4_out_qty_by_material(days=30):
+    cutoff = datetime.now() - timedelta(days=max(1, int(days or 30)))
+    rows = db.session.query(
+        StockTransaction.material_id,
+        func.coalesce(func.sum(func.abs(StockTransaction.quantity)), 0),
+    ).filter(
+        StockTransaction.transaction_type.in_(('out', 'transfer_out', 'adjustment_out')),
+        StockTransaction.created_at >= cutoff,
+    ).group_by(StockTransaction.material_id).all()
+    return {material_id: float(qty or 0) for material_id, qty in rows}
+
+
+def _ai_stage4_days_of_supply_report(days=30, limit=12):
+    out_qty = _ai_stage4_out_qty_by_material(days)
+    material_ids = list(out_qty)
+    if not material_ids:
+        return '最近没有出库类库存流水，暂时无法计算预计可用天数。'
+    materials = Material.query.options(joinedload(Material.unit)).filter(Material.id.in_(material_ids)).all()
+    rows = []
+    for material in materials:
+        total_out = out_qty.get(material.id, 0)
+        if total_out <= 0:
+            continue
+        avg_daily = total_out / max(1, int(days or 30))
+        available_days = (material.stock or 0) / avg_daily if avg_daily > 0 else 999999
+        rows.append((available_days, avg_daily, material))
+    rows.sort(key=lambda row: row[0])
+    lines = [f'**预计可用天数分析（最近{days}天消耗）**']
+    lines.append('| 物料 | 当前库存 | 日均消耗 | 预计可用天数 | 判断 |')
+    lines.append('|---|---:|---:|---:|---|')
+    for available_days, avg_daily, material in rows[:limit]:
+        unit_name = material.unit.name if material.unit else ''
+        status = '紧急' if available_days <= 7 else ('关注' if available_days <= 30 else '正常')
+        lines.append(
+            f'| {material.code} {material.name} | {normalize_stock_quantity(material.stock or 0)}{unit_name} | '
+            f'{normalize_stock_quantity(avg_daily)}{unit_name}/天 | {available_days:.1f} | {status} |'
+        )
+    return '\n'.join(lines)
+
+
+def _ai_stage4_slow_moving_report(days=90, limit=12):
+    cutoff = datetime.now() - timedelta(days=max(1, int(days or 90)))
+    recent_out_material_ids = db.session.query(StockTransaction.material_id).filter(
+        StockTransaction.transaction_type.in_(('out', 'transfer_out', 'adjustment_out')),
+        StockTransaction.created_at >= cutoff,
+    ).distinct()
+    rows = Material.query.options(joinedload(Material.unit)).filter(
+        Material.stock > 0,
+        ~Material.id.in_(recent_out_material_ids),
+    ).order_by((Material.stock * Material.price).desc(), Material.stock.desc()).limit(limit).all()
+    if not rows:
+        return f'最近{days}天没有发现有库存且无出库的滞销物料。'
+    lines = [f'**滞销/呆滞库存分析（最近{days}天无出库）**']
+    lines.append('| 物料 | 当前库存 | 库存金额 | 建议动作 |')
+    lines.append('|---|---:|---:|---|')
+    for material in rows:
+        unit_name = material.unit.name if material.unit else ''
+        value = round_to_2_decimals((material.stock or 0) * (material.price or 0))
+        lines.append(
+            f'| {material.code} {material.name} | {normalize_stock_quantity(material.stock or 0)}{unit_name} | '
+            f'{value:,.2f} | 复核需求、替代料、报废或降库存上限 |'
+        )
+    return '\n'.join(lines)
+
+
+def _ai_stage4_shortage_report(limit=12):
+    if not inventory_alert_enabled():
+        return '库存预警未启用，缺料分析只能参考负库存；建议先启用库存预警并维护最低/安全/最高库存。'
+    materials = Material.query.options(joinedload(Material.unit), joinedload(Material.supplier)).filter(_material_low_stock_filter()).limit(200).all()
+    material_ids = [material.id for material in materials]
+    on_order = {material_id: 0 for material_id in material_ids}
+    if material_ids:
+        po_rows = db.session.query(
+            PurchaseOrderItem.material_id,
+            func.coalesce(func.sum(PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity), 0),
+        ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
+            PurchaseOrderItem.material_id.in_(material_ids),
+            PurchaseOrder.status.in_(('pending', 'partial')),
+        ).group_by(PurchaseOrderItem.material_id).all()
+        for material_id, qty in po_rows:
+            on_order[material_id] = max(float(qty or 0), 0)
+    rows = []
+    for material in materials:
+        target = material.max_stock or material.min_stock or material.reorder_point or 0
+        shortage = max((target or 0) - (material.stock or 0) - on_order.get(material.id, 0), 0)
+        severity = max((material.min_stock or 0) - (material.stock or 0), 0)
+        rows.append((severity, shortage, material))
+    rows.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    if not rows:
+        return '当前没有低库存缺料项。'
+    lines = ['**缺料/补货缺口分析**']
+    lines.append('| 物料 | 当前库存 | 在途未到 | 建议补货缺口 | 默认供应商 |')
+    lines.append('|---|---:|---:|---:|---|')
+    for _severity, shortage, material in rows[:limit]:
+        unit_name = material.unit.name if material.unit else ''
+        lines.append(
+            f'| {material.code} {material.name} | {normalize_stock_quantity(material.stock or 0)}{unit_name} | '
+            f'{normalize_stock_quantity(on_order.get(material.id, 0))}{unit_name} | {normalize_stock_quantity(shortage)}{unit_name} | '
+            f'{material.supplier.name if material.supplier else "-"} |'
+        )
+    return '\n'.join(lines)
+
+
+def _ai_stage4_supplier_performance_report(days=90, limit=12):
+    today_value = date.today()
+    cutoff = today_value - timedelta(days=max(1, int(days or 90)))
+    rows = db.session.query(
+        Supplier.id,
+        Supplier.name,
+        func.count(PurchaseOrder.id).label('order_count'),
+        func.coalesce(func.sum(PurchaseOrder.total_amount), 0).label('total_amount'),
+    ).join(PurchaseOrder, PurchaseOrder.supplier_id == Supplier.id).filter(
+        PurchaseOrder.date >= cutoff,
+    ).group_by(Supplier.id).order_by(func.count(PurchaseOrder.id).desc()).limit(limit).all()
+    if not rows:
+        return f'最近{days}天没有采购订单，暂时无法计算供应商履约。'
+    lines = [f'**供应商履约分析（最近{days}天采购订单）**']
+    lines.append('| 供应商 | 订单数 | 逾期未完 | 未到货数量 | 采购金额 | 履约判断 |')
+    lines.append('|---|---:|---:|---:|---:|---|')
+    for row in rows:
+        orders = PurchaseOrder.query.options(selectinload(PurchaseOrder.items)).filter(
+            PurchaseOrder.supplier_id == row.id,
+            PurchaseOrder.date >= cutoff,
+        ).all()
+        overdue = 0
+        remaining_qty = 0
+        for order in orders:
+            remaining = sum(max((item.quantity or 0) - (item.received_quantity or 0), 0) for item in order.items or [])
+            remaining_qty += remaining
+            if order.expected_date and order.expected_date < today_value and remaining > STOCK_COMPARE_EPSILON and order.status not in ('completed', 'closed'):
+                overdue += 1
+        status = '风险' if overdue else ('跟进' if remaining_qty > 0 else '正常')
+        lines.append(f'| {row.name or "-"} | {row.order_count} | {overdue} | {normalize_stock_quantity(remaining_qty)} | {float(row.total_amount or 0):,.2f} | {status} |')
+    return '\n'.join(lines)
+
+
+def _ai_stage4_stocktake_variance_report(days=90, limit=12):
+    cutoff = date.today() - timedelta(days=max(1, int(days or 90)))
+    rows = InventoryCheckItem.query.options(
+        joinedload(InventoryCheckItem.material),
+        joinedload(InventoryCheckItem.inventory_check),
+    ).join(InventoryCheck, InventoryCheckItem.inventory_check_id == InventoryCheck.id).filter(
+        InventoryCheck.date >= cutoff,
+        InventoryCheckItem.difference != 0,
+    ).order_by(func.abs(InventoryCheckItem.difference).desc()).limit(limit).all()
+    if not rows:
+        return f'最近{days}天没有盘点差异记录。'
+    lines = [f'**盘点差异分析（最近{days}天）**']
+    lines.append('| 盘点单 | 物料 | 系统数 | 实盘数 | 差异 | 原因 |')
+    lines.append('|---|---|---:|---:|---:|---|')
+    for item in rows:
+        material = item.material
+        check = item.inventory_check
+        lines.append(
+            f'| {check.check_no if check else "-"} | {material.code if material else item.material_id} {material.name if material else ""} | '
+            f'{normalize_stock_quantity(item.system_stock or 0)} | {normalize_stock_quantity(item.actual_stock or 0)} | '
+            f'{normalize_stock_quantity(item.difference or 0)} | {item.reason or "-"} |'
+        )
+    return '\n'.join(lines)
+
+
+def _ai_stage4_deep_analysis_response(message, context=None, force=False):
+    if not force and not _ai_is_stage4_deep_analysis_question(message):
+        return None
+    compact = (message or '').replace(' ', '').lower()
+    reports = []
+    actions = []
+    tables = set()
+    source_scope = []
+
+    if any(word in compact for word in ('供应商履约', '供应商交付', '供应商到货', '采购履约', 'supplier_performance')):
+        if not _ai_capability_allowed('purchase_insights'):
+            return _ai_permission_denied_response('purchase_insights')
+        reports.append(_ai_stage4_supplier_performance_report(days=90))
+        actions.append({'label': '采购订单', 'url': url_for('purchase_order_list')})
+        tables.update(('supplier', 'purchase_order', 'purchase_order_item'))
+        source_scope.append('最近90天采购履约')
+    else:
+        if not _ai_capability_allowed('warehouse_insights'):
+            return _ai_permission_denied_response('warehouse_insights')
+        if any(word in compact for word in ('可用天数', '预计可用', '还能用几天', '库存覆盖', 'supply_days', 'days_of_supply')):
+            reports.append(_ai_stage4_days_of_supply_report(days=30))
+            source_scope.append('最近30天消耗和当前库存')
+        if any(word in compact for word in ('滞销', '呆滞', '慢动销', '长期未出库', 'slow_moving')):
+            reports.append(_ai_stage4_slow_moving_report(days=90))
+            source_scope.append('最近90天出库流水和当前库存')
+        if any(word in compact for word in ('缺料', '缺货', '短缺', '补货缺口', 'shortage')):
+            reports.append(_ai_stage4_shortage_report())
+            source_scope.append('当前低库存、在途采购和补货缺口')
+        if any(word in compact for word in ('盘点差异', '盘盈盘亏', '差异分析', 'stocktake_variance')):
+            reports.append(_ai_stage4_stocktake_variance_report(days=90))
+            actions.append({'label': '盘点单', 'url': url_for('check_list')})
+            source_scope.append('最近90天盘点差异')
+        if not reports:
+            reports.extend([
+                _ai_stage4_days_of_supply_report(days=30),
+                _ai_stage4_slow_moving_report(days=90),
+                _ai_stage4_shortage_report(),
+                _ai_stage4_stocktake_variance_report(days=90),
+            ])
+            source_scope.append('阶段4库存深度分析组合')
+        actions.append({'label': '库存查询', 'url': url_for('stock_query')})
+        actions.append({'label': '物料档案', 'url': url_for('material_list')})
+        tables.update(('material', 'stock_transaction', 'purchase_order', 'purchase_order_item', 'inventory_check', 'inventory_check_item'))
+
+    reply = '\n\n'.join(reports)
+    reply += '\n\nAI只做只读分析和入口定位，不自动提交、审核、完成、调整库存或修改主数据。'
+    reply = _ai_append_data_source(
+        reply,
+        '实时数据库查询',
+        '；'.join(source_scope) if source_scope else '阶段4深度分析',
+        sorted(tables),
+    )
+    return _ai_json_response(reply, [], actions[:4])
 
 
 def _ai_today_summary():
@@ -7997,6 +8288,68 @@ def _ai_json_response(reply, cards=None, actions=None):
     })
 
 
+def _ai_data_source_footer(source, scope='当前可见业务数据', tables=None, query_time=None):
+    when = query_time or datetime.now()
+    table_text = '、'.join(tables or [])
+    lines = [
+        '',
+        '---',
+        f'数据来源：{source}' + (f'（{table_text}）' if table_text else ''),
+        f'查询时间：{when.strftime("%Y-%m-%d %H:%M:%S")}',
+        f'查询范围：{scope}',
+    ]
+    return '\n'.join(lines)
+
+
+def _ai_append_data_source(reply, source, scope='当前可见业务数据', tables=None):
+    text = reply or ''
+    if '数据来源：' in text and '查询时间：' in text and '查询范围：' in text:
+        return text
+    return text + _ai_data_source_footer(source, scope, tables)
+
+
+def _ai_knowledge_response(message, context=None, force=False):
+    if not force and not is_knowledge_question(message):
+        return None
+    if not _ai_capability_allowed('knowledge_base'):
+        return _ai_permission_denied_response('knowledge_base')
+    entries = search_knowledge_entries(message, limit=4)
+    if not entries:
+        return None
+
+    lines = ['**WMS知识库命中**']
+    cards = []
+    actions = []
+    seen_endpoints = set()
+    for index, entry in enumerate(entries, 1):
+        try:
+            page_url = url_for(entry.page_endpoint)
+        except Exception:
+            page_url = ''
+        lines.extend([
+            f'{index}. **{entry.title}**',
+            f'- 操作说明：{entry.summary}',
+            f'- 业务规则：{entry.rule}',
+            f'- 页面入口：{entry.page_label}',
+            f'- 边界：{entry.data_boundary}',
+        ])
+        cards.append({
+            'title': entry.title,
+            'meta': f'{entry.page_label}；{entry.rule}',
+            'url': page_url,
+        })
+        if page_url and entry.page_endpoint not in seen_endpoints:
+            actions.append({'label': entry.page_label, 'url': page_url})
+            seen_endpoints.add(entry.page_endpoint)
+
+    lines.append(_ai_data_source_footer(
+        'AI知识库',
+        '页面操作、状态规则、SOP和报表口径；不包含实时库存数量或单据余额',
+        ['ai.knowledge.AI_KNOWLEDGE_BASE'],
+    ))
+    return _ai_json_response('\n'.join(lines), cards, actions[:4])
+
+
 def _ai_model_status_text():
     if _ai_llm_configured():
         return f'当前已启用大模型意图理解，配置模型是 {_ai_llm_model()}。我会先用大模型理解你的仓库业务问题，再由系统后台执行查库存、查单据、生成草稿等操作。'
@@ -8469,6 +8822,18 @@ AI_LOCAL_SKILLS = [
         'description': '回答当前 WMS 系统 API、接口、路由、endpoint 问题。',
     },
     {
+        'name': 'knowledge_base',
+        'title': 'WMS知识库和SOP',
+        'handler': _ai_knowledge_response,
+        'description': '解释采购入库、领料出库、盘点、基础资料、单据状态和库存报表口径，并定位页面入口。',
+    },
+    {
+        'name': 'stage4_deep_analysis',
+        'title': '阶段4深度分析',
+        'handler': _ai_stage4_deep_analysis_response,
+        'description': '分析预计可用天数、滞销/呆滞、缺料补货缺口、供应商履约和盘点差异。',
+    },
+    {
         'name': 'vision_status',
         'title': '识字识图能力自检',
         'handler': _ai_vision_status_response,
@@ -8513,6 +8878,9 @@ def _ai_try_local_skills(message, context=None):
 
 
 def _ai_rule_based_response(message):
+    stage4_response = _ai_stage4_deep_analysis_response(message)
+    if stage4_response:
+        return stage4_response
     local_response, _skill_name = _ai_try_local_skills(message)
     if local_response:
         return local_response
@@ -8668,6 +9036,38 @@ def _ai_rule_based_response(message):
     )
 
 
+def _ai_feature_enabled(key, default=True):
+    return get_system_setting_bool(key, bool(default))
+
+
+def _ai_global_enabled():
+    return _ai_feature_enabled('ai_feature_global_enabled', True)
+
+
+def _ai_degrade_local_only():
+    return _ai_feature_enabled('ai_degrade_local_only', False)
+
+
+def _ai_rollout_mode():
+    mode = get_system_setting('ai_feature_rollout_mode', 'all')
+    return mode if mode in {'admin_only', 'read_only', 'read_draft', 'all'} else 'all'
+
+
+def _ai_capability_allowed_by_rollout(capability, role):
+    if role == 'admin':
+        return True
+    spec = get_ai_tool_spec(capability)
+    risk_level = spec.risk_level if spec else 'read'
+    mode = _ai_rollout_mode()
+    if mode == 'admin_only':
+        return False
+    if mode == 'read_only':
+        return risk_level in {'read', 'sensitive_read'}
+    if mode == 'read_draft':
+        return risk_level in {'read', 'sensitive_read', 'draft'}
+    return True
+
+
 def _ai_llm_configured(overrides=None):
     return bool(
         _ai_llm_enabled(overrides)
@@ -8682,6 +9082,8 @@ def _ai_override_value(overrides, key):
 
 
 def _ai_llm_enabled(overrides=None):
+    if _ai_degrade_local_only():
+        return False
     override = _ai_override_value(overrides, 'ai_llm_enabled')
     if override is not None:
         return override == '1'
@@ -8703,6 +9105,8 @@ def _ai_llm_model(overrides=None):
 
 
 def _ai_llm_vision_enabled(overrides=None):
+    if not _ai_feature_enabled('ai_feature_vision_enabled', True):
+        return False
     override = _ai_override_value(overrides, 'ai_llm_vision_enabled')
     if override is not None:
         return override == '1'
@@ -9936,6 +10340,184 @@ def _ai_match_extracted_items(items_raw):
     return matched, unmatched
 
 
+def _ai_document_summary_text(extracted):
+    text = str((extracted or {}).get('source_text') or (extracted or {}).get('ocr_text') or '').strip()
+    if not text:
+        parts = []
+        for item in (extracted or {}).get('items') or []:
+            if isinstance(item, dict):
+                parts.append(str(item.get('raw_text') or item.get('name') or item.get('code') or '').strip())
+        text = '\n'.join(part for part in parts if part)
+    return text[:500]
+
+
+def _ai_document_generated_type(doc_type):
+    if doc_type == 'in_order':
+        return 'in_order'
+    if doc_type in ('out_order', 'sales_out_order'):
+        return 'out_order'
+    if doc_type == 'transfer':
+        return 'transfer'
+    if doc_type == 'adjustment':
+        return 'adjustment'
+    if doc_type == 'check':
+        return 'check'
+    return doc_type or ''
+
+
+def _ai_record_document_job(extracted, source, status, context=None, matched=None, unmatched=None, error_message=''):
+    if not has_request_context() or not current_user.is_authenticated:
+        return None
+    extracted = extracted or {}
+    doc_type = str(extracted.get('document_type') or '').strip().lower()
+    if doc_type == 'sales_out':
+        doc_type = 'sales_out_order'
+    job = AIDocumentJob(
+        ai_run_id=getattr(g, 'ai_run_id', None),
+        user_id=current_user.id,
+        source=(source or 'unknown')[:30],
+        document_type=doc_type[:40],
+        status=(status or 'recognized')[:30],
+        supplier=str(extracted.get('supplier') or '')[:100],
+        customer=str(extracted.get('customer') or '')[:100],
+        order_no=str(extracted.get('order_no') or '')[:100],
+        source_text_summary=_ai_document_summary_text(extracted),
+        source_purchase_order_id=_ai_context_purchase_order_id(context),
+        error_message=(error_message or '')[:500] or None,
+    )
+    db.session.add(job)
+    db.session.flush()
+    matched_count = len(matched or [])
+    unmatched_count = len(unmatched or [])
+    db.session.add(AIDocumentAttempt(
+        job_id=job.id,
+        attempt_no=1,
+        source=(source or 'unknown')[:30],
+        model=_ai_llm_model()[:100] if _ai_llm_configured() else 'local-rules',
+        prompt_version='legacy-v1',
+        status=(status or 'recognized')[:30],
+        item_count=matched_count + unmatched_count,
+        matched_count=matched_count,
+        unmatched_count=unmatched_count,
+        error_message=(error_message or '')[:500] or None,
+        completed_at=datetime.now(),
+    ))
+
+    line_no = 1
+    for row in matched or []:
+        material = row.get('material')
+        item = row.get('item') or {}
+        db.session.add(AIDocumentItem(
+            job_id=job.id,
+            line_no=line_no,
+            material_id=material.id if material else None,
+            raw_text=str(item.get('raw_text') or row.get('raw') or '')[:500],
+            code=str(item.get('code') or (material.code if material else ''))[:100],
+            name=str(item.get('name') or (material.name if material else ''))[:200],
+            spec=str(item.get('spec') or row.get('spec') or '')[:200],
+            unit=str(item.get('unit') or (material.unit.name if material and material.unit else ''))[:50],
+            quantity=row.get('quantity') or 0,
+            confidence=_ai_ocr_confidence(item.get('confidence')),
+            match_status='matched',
+            match_reason=str(row.get('match_type') or '')[:300],
+        ))
+        line_no += 1
+    for row in unmatched or []:
+        item = row.get('item') or {}
+        db.session.add(AIDocumentItem(
+            job_id=job.id,
+            line_no=line_no,
+            raw_text=str(item.get('raw_text') or row.get('title') or '')[:500],
+            code=str(item.get('code') or '')[:100],
+            name=str(item.get('name') or '')[:200],
+            spec=str(item.get('spec') or row.get('spec') or '')[:200],
+            unit=str(item.get('unit') or '')[:50],
+            quantity=row.get('quantity') or 0,
+            confidence=_ai_ocr_confidence(item.get('confidence')),
+            match_status='unmatched',
+            match_reason=str(row.get('meta') or '')[:300],
+        ))
+        line_no += 1
+    db.session.commit()
+    return job
+
+
+def _ai_record_document_attempt(job, source, status, matched=None, unmatched=None, error_message=''):
+    if not job:
+        return None
+    attempt_no = (len(job.attempts or []) + 1) if job.id else 1
+    matched_count = len(matched or [])
+    unmatched_count = len(unmatched or [])
+    attempt = AIDocumentAttempt(
+        job_id=job.id,
+        attempt_no=attempt_no,
+        source=(source or job.source or 'unknown')[:30],
+        model=_ai_llm_model()[:100] if _ai_llm_configured() else 'local-rules',
+        prompt_version='legacy-v1',
+        status=(status or 'recognized')[:30],
+        item_count=matched_count + unmatched_count,
+        matched_count=matched_count,
+        unmatched_count=unmatched_count,
+        error_message=(error_message or '')[:500] or None,
+        completed_at=datetime.now(),
+    )
+    db.session.add(attempt)
+    db.session.commit()
+    return attempt
+
+
+def _ai_update_document_job(job_id, status, **values):
+    if not job_id:
+        return
+    job = db.session.get(AIDocumentJob, job_id)
+    if not job:
+        return
+    job.status = (status or job.status)[:30]
+    job.updated_at = datetime.now()
+    if status in ('draft_created', 'failed', 'cancelled'):
+        job.completed_at = datetime.now()
+    for field in (
+        'confirmation_token',
+        'generated_document_type',
+        'generated_document_id',
+        'generated_document_no',
+        'error_message',
+    ):
+        if field in values:
+            value = values.get(field)
+            if isinstance(value, str):
+                value = value[:500] if field == 'error_message' else value[:100]
+            setattr(job, field, value)
+    db.session.commit()
+
+
+def _ai_generated_document_ref(doc_type, draft):
+    if not draft:
+        return '', None, ''
+    order_no = draft.get('order_no') or ''
+    generated_type = _ai_document_generated_type(doc_type)
+    model = {
+        'in_order': InOrder,
+        'out_order': OutOrder,
+        'transfer': TransferOrder,
+        'adjustment': AdjustmentOrder,
+        'check': InventoryCheck,
+    }.get(generated_type)
+    row = model.query.filter_by(order_no=order_no).first() if model and order_no else None
+    return generated_type, row.id if row else None, order_no
+
+
+def _ai_mark_document_job_draft_created(job_id, doc_type, draft):
+    generated_type, generated_id, generated_no = _ai_generated_document_ref(doc_type, draft)
+    _ai_update_document_job(
+        job_id,
+        'draft_created',
+        generated_document_type=generated_type,
+        generated_document_id=generated_id,
+        generated_document_no=generated_no,
+    )
+
+
 def _ai_draft_message_from_matches(matched):
     parts = []
     for row in matched:
@@ -9984,7 +10566,7 @@ def _ai_context_purchase_order_id(context=None):
         return None
 
 
-def _ai_confirmation_payload(extracted, context=None):
+def _ai_confirmation_payload(extracted, context=None, document_job_id=None):
     doc_type = str((extracted or {}).get('document_type') or '').strip().lower()
     if doc_type == 'sales_out':
         doc_type = 'sales_out_order'
@@ -10042,12 +10624,13 @@ def _ai_confirmation_payload(extracted, context=None):
         'adjustment_type': (extracted or {}).get('adjustment_type') or '',
         'source_purchase_order_id': source_purchase_order_id,
         'source_purchase_order_no': source_purchase_order_no,
+        'document_job_id': document_job_id,
         'rows': rows,
     }
 
 
-def _ai_store_document_confirmation(extracted, context=None):
-    payload = _ai_confirmation_payload(extracted, context)
+def _ai_store_document_confirmation(extracted, context=None, document_job_id=None):
+    payload = _ai_confirmation_payload(extracted, context, document_job_id)
     token = secrets.token_urlsafe(12)
     pending = session.get('_ai_document_confirmations') or {}
     pending[token] = payload
@@ -10056,15 +10639,50 @@ def _ai_store_document_confirmation(extracted, context=None):
         pending.pop(key, None)
     session['_ai_document_confirmations'] = pending
     session.modified = True
+    _ai_update_document_job(document_job_id, 'pending_confirmation', confirmation_token=token)
     return token, payload
 
 
-def _ai_confirmation_action(extracted, context=None):
-    token, payload = _ai_store_document_confirmation(extracted, context)
+def _ai_confirmation_action(extracted, context=None, document_job_id=None):
+    token, payload = _ai_store_document_confirmation(extracted, context, document_job_id)
     return {
         'label': '确认识别结果',
         'url': url_for('ai_document_confirm', token=token),
         'payload': payload,
+    }
+
+
+def _ai_document_job_confirmation_payload(job):
+    rows = []
+    for item in sorted(job.items or [], key=lambda row: (row.line_no or 0, row.id or 0)):
+        rows.append({
+            'raw': item.raw_text or item.code or item.name or '',
+            'code': item.code or '',
+            'name': item.name or '',
+            'spec': item.spec or '',
+            'unit': item.unit or (item.material.unit.name if item.material and item.material.unit else ''),
+            'raw_text': item.raw_text or '',
+            'batch_no': '',
+            'barcode': '',
+            'box_count': '',
+            'pcs_per_box': '',
+            'confidence': item.confidence if item.confidence is not None else '',
+            'remark': item.match_reason or '',
+            'quantity': item.quantity or 0,
+            'material_id': item.material_id,
+            'match_status': item.match_status or 'unmatched',
+            'reason': item.match_reason or '',
+        })
+    return {
+        'document_type': job.document_type,
+        'source_text': job.source_text_summary or '',
+        'customer': job.customer or '',
+        'supplier': job.supplier or '',
+        'adjustment_type': '',
+        'source_purchase_order_id': job.source_purchase_order_id,
+        'source_purchase_order_no': job.source_purchase_order.order_no if job.source_purchase_order else '',
+        'document_job_id': job.id,
+        'rows': rows,
     }
 
 
@@ -10294,17 +10912,27 @@ def _ai_create_draft_from_extracted(extracted, source='text', context=None):
     if not capability or not _ai_capability_allowed(capability):
         return _ai_permission_denied_response(capability or 'document_draft')
     matched, unmatched = _ai_match_extracted_items(extracted.get('items') or [])
+    document_status = 'pending_confirmation' if unmatched or not matched else 'recognized'
+    document_job = _ai_record_document_job(
+        extracted,
+        source,
+        document_status,
+        context,
+        matched=matched,
+        unmatched=unmatched,
+    )
+    document_job_id = document_job.id if document_job else None
     if not matched:
         return _ai_json_response(
             '已识别到单据内容，但没有物料能自动匹配。请打开确认页手工选择物料后再生成草稿。',
             _ai_match_cards(matched, unmatched),
-            [_ai_confirmation_action(extracted, context)],
+            [_ai_confirmation_action(extracted, context, document_job_id)],
         )
     if unmatched:
         return _ai_json_response(
             f'已识别 {len(matched)} 条匹配物料、{len(unmatched)} 条未匹配物料。为避免生成缺行草稿，请先打开确认页处理未匹配项。',
             _ai_match_cards(matched, unmatched),
-            [_ai_confirmation_action(extracted, context)],
+            [_ai_confirmation_action(extracted, context, document_job_id)],
         )
     low_confidence_items = _ai_vision_low_confidence_items(extracted.get('items') or []) if source == 'vision' else []
     if low_confidence_items:
@@ -10317,7 +10945,7 @@ def _ai_create_draft_from_extracted(extracted, source='text', context=None):
         return _ai_json_response(
             f'已识别 {len(matched)} 条物料，但有 {len(low_confidence_items)} 条 OCR 置信度偏低。为避免错收，请先打开确认页核对后再生成草稿。',
             cards,
-            [_ai_confirmation_action(extracted, context)],
+            [_ai_confirmation_action(extracted, context, document_job_id)],
         )
     draft_message = _ai_draft_message_from_matches(matched)
     if doc_type == 'in_order':
@@ -10325,7 +10953,9 @@ def _ai_create_draft_from_extracted(extracted, source='text', context=None):
         if context_po_result:
             draft, error = context_po_result
             if error:
+                _ai_update_document_job(document_job_id, 'failed', error_message=error)
                 return _ai_json_response(error, _ai_match_cards(matched, unmatched))
+            _ai_mark_document_job_draft_created(document_job_id, doc_type, draft)
             return _ai_json_response(
                 f'已按当前采购订单 {draft.get("source_purchase_order_no")} 和送货单识别数量生成采购入库草稿 {draft["order_no"]}。请打开草稿核对仓库和数量后再提交。',
                 draft.get('items') or [],
@@ -10335,7 +10965,9 @@ def _ai_create_draft_from_extracted(extracted, source='text', context=None):
         if po_result:
             draft, error = po_result
             if error:
+                _ai_update_document_job(document_job_id, 'failed', error_message=error)
                 return _ai_json_response(error, _ai_match_cards(matched, unmatched))
+            _ai_mark_document_job_draft_created(document_job_id, doc_type, draft)
             return _ai_json_response(
                 f'已匹配采购订单 {draft.get("source_purchase_order_no")}，并生成采购入库草稿 {draft["order_no"]}。请打开草稿核对仓库和数量后再提交。',
                 draft.get('items') or [],
@@ -10354,7 +10986,7 @@ def _ai_create_draft_from_extracted(extracted, source='text', context=None):
             return _ai_json_response(
                 '采购入库要求关联采购订单，但没有找到唯一可自动下推的采购订单。请打开确认页或采购订单核对后再入库。',
                 cards,
-                [_ai_confirmation_action(extracted, context), {'label': '打开采购订单列表', 'url': url_for('purchase_order_list')}],
+                [_ai_confirmation_action(extracted, context, document_job_id), {'label': '打开采购订单列表', 'url': url_for('purchase_order_list')}],
             )
         draft, error = _ai_create_in_order_draft(draft_message)
         if draft:
@@ -10380,7 +11012,9 @@ def _ai_create_draft_from_extracted(extracted, source='text', context=None):
     else:
         draft, error = _ai_create_check_draft(draft_message)
     if error:
+        _ai_update_document_job(document_job_id, 'failed', error_message=error)
         return _ai_json_response(error, _ai_match_cards(matched, unmatched))
+    _ai_mark_document_job_draft_created(document_job_id, doc_type, draft)
     label = AI_DOC_TYPE_LABELS.get(doc_type, '单据草稿')
     reply = f'已从{"图片" if source == "vision" else "文本/微信内容"}识别 {len(matched)} 条物料，并生成{label} {draft["order_no"]}。提交前请打开草稿核对仓库、数量和未匹配项。'
     if unmatched:
@@ -10773,6 +11407,25 @@ def _ai_agent_patrol_response(message, context=None, force=False):
         return None
     if not _ai_capability_allowed('warehouse_insights'):
         return _ai_permission_denied_response('warehouse_insights')
+    task, error = _ai_run_warehouse_patrol_agent()
+    if error:
+        return _ai_permission_denied_response('warehouse_patrol_agent')
+    detail_url = url_for('ai_agent_task_detail', id=task.id)
+    return _ai_json_response(
+        f'仓库巡检 Agent 已生成任务 #{task.id}，共记录 {len(task.steps or [])} 个受控步骤。AI 只做读取、分析和入口指引，不会自动提交、审核、完成、作废或删除单据。',
+        [
+            {
+                'title': f'仓库巡检任务 #{task.id}',
+                'meta': task.summary or '已完成受控巡检',
+                'url': detail_url,
+            }
+        ],
+        [
+            {'label': '打开Agent任务', 'url': detail_url},
+            {'label': 'AI任务中心', 'url': url_for('ai_agent_task_list')},
+            {'label': '待处理中心', 'url': url_for('pending_documents')},
+        ],
+    )
 
     negative_count = Material.query.filter(Material.stock < 0).count()
     low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
@@ -10854,6 +11507,16 @@ def _ai_is_purchase_workbench_question(message):
     if any(word in compact for word in direct_words):
         return True
     return '采购' in compact and any(word in compact for word in ('待办', '逾期', '风险', '异常', '建议', '优先', '巡检', '跟进'))
+
+
+def _ai_is_purchase_followup_agent_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '采购agent', '采购aiagent', '采购巡检', '采购跟进agent', '到货跟进agent',
+        '催供应商agent', '采购自动跟进', '自动催交', '采购任务agent',
+    ))
 
 
 def _ai_purchase_price_risk_cards(limit=5):
@@ -11454,6 +12117,7 @@ def _ai_master_data_health_response(message, context=None, force=False):
         missing_unit * 3 + missing_category + missing_supplier + missing_price + missing_stock_rule
         + negative_stock * 4 + duplicate_material_name_spec * 3 + duplicate_supplier_contact + duplicate_customer_contact
     )
+    quality_score = max(0, min(100, 100 - risk_score))
     if risk_score >= 30:
         level = '高'
     elif risk_score >= 8:
@@ -11481,8 +12145,16 @@ def _ai_master_data_health_response(message, context=None, force=False):
         '建议顺序：1. 先补物料单位和分类；2. 处理负库存和预警上下限；3. 合并或停用重复物料线索；4. 补齐供应商/客户联系人；5. 批量导入前先用模板清洗编码、单位、供应商名称。',
         'AI只做检查和定位，不会自动删除、停用或合并基础资料。',
     ]
+    reply_text = '\n'.join(lines)
+    reply_text += '\n' + f'- 质量评分：{quality_score}/100；风险分 {risk_score}。评分按缺单位、缺分类、缺供应商、缺价格、缺库存预警、负库存、重复物料和往来单位联系方式加权扣分。'
+    reply_text = _ai_append_data_source(
+        reply_text,
+        '实时数据库查询',
+        '基础资料当前档案状态；不自动修改主数据',
+        ['material', 'supplier', 'customer', 'warehouse', 'unit', 'material_category'],
+    )
     return _ai_json_response(
-        '\n'.join(lines),
+        reply_text,
         cards,
         [
             {'label': '物料档案', 'url': url_for('material_list')},
@@ -11636,8 +12308,14 @@ def _ai_master_data_fix_list_response(message, context=None, force=False):
         '处理建议：先修“缺单位、负库存、缺库存预警规则”的物料；再补供应商/客户联系方式；重复物料只给线索，需要人工确认后再合并或停用。',
     ])
 
-    return _ai_json_response(
+    reply_text = _ai_append_data_source(
         '\n'.join(lines),
+        '实时数据库查询',
+        '基础资料待补字段、重复物料线索和联系方式缺失；只生成修复清单',
+        ['material', 'supplier', 'customer'],
+    )
+    return _ai_json_response(
+        reply_text,
         cards[:20],
         [
             {'label': '物料档案', 'url': url_for('material_list')},
@@ -12815,6 +13493,26 @@ def _ai_purchase_workbench_response(message, context=None, force=False):
         return None
     if not _ai_capability_allowed('purchase_insights'):
         return _ai_permission_denied_response('purchase_insights')
+    if _ai_is_purchase_followup_agent_question(message):
+        task, error = _ai_run_purchase_followup_agent()
+        if error:
+            return _ai_permission_denied_response('purchase_followup_agent')
+        detail_url = url_for('ai_agent_task_detail', id=task.id)
+        return _ai_json_response(
+            f'采购跟进 Agent 已生成任务 #{task.id}，共记录 {len(task.steps or [])} 个受控步骤。低库存补货只生成草稿建议入口，不会自动提交采购申请、发送催交通知或改动订单状态。',
+            [
+                {
+                    'title': f'采购跟进任务 #{task.id}',
+                    'meta': task.summary or '已完成受控跟进',
+                    'url': detail_url,
+                }
+            ],
+            [
+                {'label': '打开Agent任务', 'url': detail_url},
+                {'label': 'AI任务中心', 'url': url_for('ai_agent_task_list')},
+                {'label': '采购订单', 'url': url_for('purchase_order_list')},
+            ],
+        )
 
     summary = build_purchase_order_todo_summary()
     today_value = date.today()
@@ -13077,12 +13775,690 @@ AI_LOCAL_SKILLS.append({
 })
 
 
-@app.route('/api/ai/draft_check', methods=['POST'])
+def _ai_warehouse_insights_response(message, context=None):
+    for handler in (
+        _ai_agent_patrol_response,
+        _ai_exception_workbench_response,
+        _ai_inventory_discrepancy_response,
+        _ai_exception_explain_response,
+    ):
+        response = handler(message, context)
+        if response:
+            return response
+    return None
+
+
+def _ai_purchase_insights_response(message, context=None):
+    for handler in (
+        _ai_supplier_profile_response,
+        _ai_supplier_followup_response,
+        _ai_purchase_workbench_response,
+    ):
+        response = handler(message, context)
+        if response:
+            return response
+    return None
+
+
+def _ai_master_data_insights_response(message, context=None):
+    for handler in (
+        _ai_master_data_health_response,
+        _ai_master_data_fix_list_response,
+        _ai_master_data_import_response,
+    ):
+        response = handler(message, context)
+        if response:
+            return response
+    return None
+
+
+def _ai_admin_insights_response(message, context=None):
+    for handler in (
+        _ai_system_health_response,
+        _ai_system_fix_list_response,
+        _ai_user_permission_response,
+        _ai_operation_audit_response,
+    ):
+        response = handler(message, context)
+        if response:
+            return response
+    return None
+
+
+AI_TOOL_DISPATCHERS = {
+    'warehouse_insights': _ai_warehouse_insights_response,
+    'purchase_insights': _ai_purchase_insights_response,
+    'master_data_insights': _ai_master_data_insights_response,
+    'admin_insights': _ai_admin_insights_response,
+}
+
+
+def _ai_dispatch_registered_tool(tool_name, message, context=None):
+    return dispatch_registered_tool(tool_name, message, context, AI_TOOL_DISPATCHERS, app.logger)
+
+
+def _ai_percentile(values, percentile):
+    cleaned = sorted(int(value or 0) for value in values if value is not None)
+    if not cleaned:
+        return 0
+    index = int(round((len(cleaned) - 1) * percentile))
+    return cleaned[max(0, min(index, len(cleaned) - 1))]
+
+
+def _ai_ops_metrics(window_hours=168):
+    now_value = datetime.now()
+    cutoff = now_value - timedelta(hours=window_hours)
+    runs = AIRun.query.filter(AIRun.started_at >= cutoff).order_by(AIRun.started_at.desc()).all()
+    total = len(runs)
+    completed = sum(1 for run in runs if run.status == 'completed')
+    failed = sum(1 for run in runs if run.status == 'failed')
+    running = sum(1 for run in runs if run.status == 'running')
+    durations = [run.duration_ms for run in runs if run.duration_ms is not None]
+    tool_rows = (
+        db.session.query(AIToolCall.tool_name, func.count(AIToolCall.id))
+        .filter(AIToolCall.created_at >= cutoff)
+        .group_by(AIToolCall.tool_name)
+        .order_by(func.count(AIToolCall.id).desc())
+        .limit(12)
+        .all()
+    )
+    denied_tools = AIToolCall.query.filter(
+        AIToolCall.created_at >= cutoff,
+        AIToolCall.permission_allowed.is_(False),
+    ).count()
+    unauthorized_success = AIToolCall.query.filter(
+        AIToolCall.created_at >= cutoff,
+        AIToolCall.permission_allowed.is_(False),
+        AIToolCall.status.in_(('completed', 'success', 'authorized')),
+    ).count()
+    document_total = AIDocumentJob.query.filter(AIDocumentJob.created_at >= cutoff).count()
+    document_drafts = AIDocumentJob.query.filter(
+        AIDocumentJob.created_at >= cutoff,
+        AIDocumentJob.status == 'draft_created',
+    ).count()
+    feedback_total = AIDocumentFeedback.query.filter(AIDocumentFeedback.created_at >= cutoff).count()
+    agent_total = AIAgentTask.query.filter(AIAgentTask.created_at >= cutoff).count()
+    local_only = _ai_degrade_local_only()
+    return {
+        'window_hours': window_hours,
+        'total': total,
+        'completed': completed,
+        'failed': failed,
+        'running': running,
+        'success_rate': round(completed / total * 100, 1) if total else 100.0,
+        'avg_ms': int(sum(durations) / len(durations)) if durations else 0,
+        'p95_ms': _ai_percentile(durations, 0.95),
+        'tool_rows': tool_rows,
+        'denied_tools': denied_tools,
+        'unauthorized_success': unauthorized_success,
+        'document_total': document_total,
+        'document_drafts': document_drafts,
+        'draft_conversion_rate': round(document_drafts / document_total * 100, 1) if document_total else 0.0,
+        'feedback_total': feedback_total,
+        'agent_total': agent_total,
+        'global_enabled': _ai_global_enabled(),
+        'rollout_mode': _ai_rollout_mode(),
+        'drafts_enabled': _ai_feature_enabled('ai_feature_drafts_enabled', True),
+        'agents_enabled': _ai_feature_enabled('ai_feature_agents_enabled', True),
+        'vision_enabled': _ai_feature_enabled('ai_feature_vision_enabled', True),
+        'local_only': local_only,
+        'llm_configured': _ai_llm_configured(),
+        'model': _ai_llm_model(),
+        'generated_at': now_value,
+    }
+
+
+@app.route('/ai/ops')
 @login_required
-def api_ai_draft_check():
-    payload = request.get_json(silent=True) or {}
+@require_role('admin')
+def ai_ops_dashboard():
+    metrics_24h = _ai_ops_metrics(window_hours=24)
+    metrics_7d = _ai_ops_metrics(window_hours=168)
+    recent_runs = AIRun.query.options(joinedload(AIRun.user)).order_by(AIRun.started_at.desc()).limit(50).all()
+    return render_template('ai_ops_dashboard.html', metrics_24h=metrics_24h, metrics_7d=metrics_7d, recent_runs=recent_runs)
+
+
+def _ai_prelaunch_add_check(checks, code, title, status, detail, action_label='', action_url='', severity='medium'):
+    checks.append({
+        'code': code,
+        'title': title,
+        'status': status,
+        'detail': detail,
+        'action_label': action_label,
+        'action_url': action_url,
+        'severity': severity,
+    })
+
+
+def _ai_prelaunch_checks():
+    checks = []
+    now_value = datetime.now()
+
+    backup_dir = Path(BACKUP_DIR)
+    backup_files = sorted(
+        [path for path in backup_dir.glob('*.db') if path.is_file()] if backup_dir.exists() else [],
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    latest_backup = backup_files[0] if backup_files else None
+    latest_backup_age_hours = None
+    if latest_backup:
+        latest_backup_age_hours = int((now_value.timestamp() - latest_backup.stat().st_mtime) // 3600)
+    backup_ok = bool(latest_backup and latest_backup_age_hours is not None and latest_backup_age_hours <= 24)
+    _ai_prelaunch_add_check(
+        checks,
+        'BACKUP-READY',
+        '上线前数据库备份',
+        'pass' if backup_ok else 'fail',
+        (
+            f'最近备份：{latest_backup.name}，距今 {latest_backup_age_hours} 小时。'
+            if latest_backup else '未发现数据库备份文件。上线、迁移、批量导入前必须先创建备份。'
+        ),
+        '数据备份',
+        url_for('backup_page'),
+        'high',
+    )
+
+    secret_ok = bool(app.config.get('SECRET_KEY')) and str(app.config.get('SECRET_KEY')) != 'dev-secret-key'
+    _ai_prelaunch_add_check(
+        checks,
+        'SECRET-KEY',
+        '生产密钥配置',
+        'pass' if secret_ok else 'fail',
+        'SECRET_KEY 已配置。' if secret_ok else 'SECRET_KEY 不应使用开发默认值；生产环境必须显式配置。',
+        '系统设置',
+        url_for('system_settings_page'),
+        'high',
+    )
+
+    ai_metrics = _ai_ops_metrics(window_hours=168)
+    _ai_prelaunch_add_check(
+        checks,
+        'AI-ROLLBACK-SWITCH',
+        'AI一键降级/停用',
+        'pass' if 'ai_feature_global_enabled' in SYSTEM_SETTING_DEFINITIONS and 'ai_degrade_local_only' in SYSTEM_SETTING_DEFINITIONS else 'fail',
+        f'总开关={"开启" if ai_metrics["global_enabled"] else "关闭"}；本地规则降级={"开启" if ai_metrics["local_only"] else "关闭"}；灰度={ai_metrics["rollout_mode"]}。',
+        'AI运维看板',
+        url_for('ai_ops_dashboard'),
+        'high',
+    )
+
+    _ai_prelaunch_add_check(
+        checks,
+        'AI-UNAUTHORIZED-ZERO',
+        'AI越权执行为零',
+        'pass' if ai_metrics['unauthorized_success'] == 0 else 'fail',
+        f'最近7天越权成功数：{ai_metrics["unauthorized_success"]}；拒绝工具调用：{ai_metrics["denied_tools"]}。',
+        'AI运维看板',
+        url_for('ai_ops_dashboard'),
+        'high',
+    )
+
+    _ai_prelaunch_add_check(
+        checks,
+        'AI-SUCCESS-RATE',
+        'AI可用率基线',
+        'pass' if ai_metrics['success_rate'] >= 99.5 or ai_metrics['total'] == 0 else 'warn',
+        f'最近7天调用 {ai_metrics["total"]} 次，成功率 {ai_metrics["success_rate"]}%，P95 {ai_metrics["p95_ms"]} ms。',
+        'AI运维看板',
+        url_for('ai_ops_dashboard'),
+        'medium',
+    )
+
+    pending_documents = AIDocumentJob.query.filter(AIDocumentJob.status.in_(('recognized', 'pending_confirmation', 'failed'))).count()
+    pending_agents = AIAgentTask.query.filter(AIAgentTask.status.in_(('running', 'failed'))).count()
+    _ai_prelaunch_add_check(
+        checks,
+        'AI-WORK-QUEUE',
+        'AI任务积压',
+        'pass' if pending_documents == 0 and pending_agents == 0 else 'warn',
+        f'待处理文档任务 {pending_documents} 个；未完成/失败 Agent 任务 {pending_agents} 个。',
+        '文档任务',
+        url_for('ai_document_job_list'),
+        'medium',
+    )
+
+    db_uri = str(app.config.get('SQLALCHEMY_DATABASE_URI') or '')
+    sqlite_db = db_uri.startswith('sqlite:///')
+    db_path = db_uri.replace('sqlite:///', '', 1) if sqlite_db else ''
+    db_exists = Path(db_path).exists() if db_path else True
+    _ai_prelaunch_add_check(
+        checks,
+        'DB-ACCESS',
+        '数据库文件可访问',
+        'pass' if db_exists else 'fail',
+        '数据库连接配置可用。' if db_exists else f'数据库文件不存在：{db_path}',
+        '数据备份',
+        url_for('backup_page'),
+        'high',
+    )
+
+    _ai_prelaunch_add_check(
+        checks,
+        'REGRESSION-COMMAND',
+        '上线回归命令',
+        'pass',
+        '上线前应执行：python -m compileall app scripts；python scripts/verify_source_encoding.py；python scripts/verify_wms_bugs.py。',
+        '',
+        '',
+        'medium',
+    )
+
+    passed = sum(1 for item in checks if item['status'] == 'pass')
+    failed = sum(1 for item in checks if item['status'] == 'fail')
+    warned = sum(1 for item in checks if item['status'] == 'warn')
+    return {
+        'checks': checks,
+        'passed': passed,
+        'failed': failed,
+        'warned': warned,
+        'ready': failed == 0,
+        'generated_at': now_value,
+    }
+
+
+@app.route('/ai/prelaunch')
+@login_required
+@require_role('admin')
+def ai_prelaunch_page():
+    report = _ai_prelaunch_checks()
+    return render_template('ai_prelaunch.html', report=report)
+
+
+def _ai_create_agent_task(agent_type, objective):
+    task = AIAgentTask(
+        ai_run_id=getattr(g, 'ai_run_id', None),
+        user_id=current_user.id,
+        agent_type=agent_type,
+        objective=objective[:300],
+        status='running',
+    )
+    db.session.add(task)
+    db.session.flush()
+    return task
+
+
+def _ai_add_agent_step(task, step_no, name, tool_name, data_scope, result_summary, action_label='', action_url='', status='completed', risk_level='read', error_message=''):
+    step = AIAgentStep(
+        task_id=task.id,
+        step_no=step_no,
+        name=name[:120],
+        tool_name=(tool_name or '')[:100],
+        risk_level=(risk_level or 'read')[:30],
+        status=(status or 'completed')[:30],
+        data_scope=(data_scope or '')[:300],
+        result_summary=(result_summary or '')[:1000],
+        action_label=(action_label or '')[:100],
+        action_url=(action_url or '')[:300],
+        error_message=(error_message or '')[:500] or None,
+        completed_at=datetime.now(),
+    )
+    db.session.add(step)
+    return step
+
+
+def _ai_finish_agent_task(task, status, summary, next_action_url=''):
+    task.status = status
+    task.summary = (summary or '')[:1000]
+    task.next_action_url = (next_action_url or '')[:300]
+    task.completed_at = datetime.now()
+    db.session.commit()
+    return task
+
+
+def _ai_pending_document_count():
+    count = 0
+    for config in globals().get('PENDING_DOCUMENT_MODULES') or []:
+        model = config.get('model')
+        statuses = tuple(config.get('status') or ())
+        if model and statuses:
+            count += model.query.filter(model.status.in_(statuses)).count()
+    return count
+
+
+def _ai_run_warehouse_patrol_agent():
+    if not _ai_capability_allowed('warehouse_patrol_agent'):
+        return None, 'warehouse_patrol_agent denied'
+    task = _ai_create_agent_task('warehouse_patrol', 'Warehouse daily patrol: stock risks, pending documents, drafts, and purchase arrival blockers.')
+    negative_count = Material.query.filter(Material.stock < 0).count()
+    low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
+    _ai_add_agent_step(
+        task,
+        1,
+        'Stock risk scan',
+        'warehouse_insights',
+        'material.stock, min_stock and inventory alert settings',
+        f'Negative stock: {negative_count}; low stock: {low_count}.',
+        'Open stock alerts',
+        url_for('material_list', stock_filter='low'),
+    )
+
+    pending_count = _ai_pending_document_count()
+    _ai_add_agent_step(
+        task,
+        2,
+        'Pending document closure scan',
+        'warehouse_insights',
+        'pending inbound, outbound, transfer, stocktake and adjustment documents',
+        f'Pending documents affecting stock closure: {pending_count}.',
+        'Open pending center',
+        url_for('pending_documents'),
+    )
+
+    draft_parts = []
+    for label, model, endpoint in (
+        ('inbound drafts', InOrder, 'in_order_list'),
+        ('outbound drafts', OutOrder, 'out_order_list'),
+        ('transfer drafts', TransferOrder, 'transfer_list'),
+        ('stocktake drafts', InventoryCheck, 'check_list'),
+        ('adjustment drafts', AdjustmentOrder, 'adjustment_list'),
+    ):
+        count = model.query.filter_by(status='pending').count()
+        if count:
+            draft_parts.append(f'{label}: {count}')
+    _ai_add_agent_step(
+        task,
+        3,
+        'Draft blocker scan',
+        'warehouse_insights',
+        'warehouse draft documents only; no submit/audit/complete actions',
+        '; '.join(draft_parts) if draft_parts else 'No warehouse draft blockers found.',
+        'Open pending center',
+        url_for('pending_documents'),
+    )
+
+    purchase_summary = build_purchase_order_todo_summary()
+    _ai_add_agent_step(
+        task,
+        4,
+        'Purchase arrival dependency scan',
+        'purchase_insights',
+        'open purchase orders linked to warehouse receiving',
+        f'Open purchase orders: {purchase_summary.get("open_count", 0)}; overdue: {purchase_summary.get("overdue_count", 0)}.',
+        'Open purchase orders',
+        url_for('purchase_order_list'),
+    )
+    summary = f'Warehouse patrol completed. Stock risks {negative_count + low_count}, pending documents {pending_count}, open purchase orders {purchase_summary.get("open_count", 0)}.'
+    return _ai_finish_agent_task(task, 'completed', summary, url_for('pending_documents')), None
+
+
+def _ai_run_purchase_followup_agent():
+    if not _ai_capability_allowed('purchase_followup_agent'):
+        return None, 'purchase_followup_agent denied'
+    task = _ai_create_agent_task('purchase_followup', 'Purchase follow-up: overdue orders, due-soon arrivals, pending requests, and low-stock replenishment.')
+    summary = build_purchase_order_todo_summary()
+    _ai_add_agent_step(
+        task,
+        1,
+        'Open purchase order scan',
+        'purchase_insights',
+        'purchase orders with pending or partial status',
+        f'Open orders: {summary.get("open_count", 0)}; remaining quantity: {normalize_stock_quantity(summary.get("remaining_qty", 0))}; overdue: {summary.get("overdue_count", 0)}.',
+        'Open purchase orders',
+        url_for('purchase_order_list'),
+    )
+
+    today_value = date.today()
+    due_soon_count = PurchaseOrder.query.filter(
+        PurchaseOrder.status.in_(('pending', 'partial')),
+        PurchaseOrder.expected_date.isnot(None),
+        PurchaseOrder.expected_date >= today_value,
+        PurchaseOrder.expected_date <= today_value + timedelta(days=3),
+    ).count()
+    _ai_add_agent_step(
+        task,
+        2,
+        'Due-soon arrival scan',
+        'purchase_insights',
+        'purchase orders expected within 3 days',
+        f'Due-soon purchase orders: {due_soon_count}.',
+        'Open purchase orders',
+        url_for('purchase_order_list'),
+    )
+
+    pending_request_count = PurchaseRequest.query.filter(PurchaseRequest.status.in_(('pending', 'approved'))).count()
+    _ai_add_agent_step(
+        task,
+        3,
+        'Purchase request conversion scan',
+        'purchase_insights',
+        'pending and approved purchase requests',
+        f'Purchase requests waiting for approval or conversion: {pending_request_count}.',
+        'Open purchase requests',
+        url_for('purchase_request_list'),
+    )
+
+    low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
+    _ai_add_agent_step(
+        task,
+        4,
+        'Low-stock replenishment scan',
+        'purchase_request_draft',
+        'low-stock materials, open PO remaining quantities, pending purchase requests',
+        f'Low-stock materials requiring review: {low_count}. Draft creation remains manual or explicit AI draft action.',
+        'Create replenishment draft',
+        '#',
+        risk_level='draft',
+    )
+    task_summary = f'Purchase follow-up completed. Open orders {summary.get("open_count", 0)}, overdue {summary.get("overdue_count", 0)}, due soon {due_soon_count}, pending requests {pending_request_count}.'
+    return _ai_finish_agent_task(task, 'completed', task_summary, url_for('purchase_order_list')), None
+
+
+def _ai_handle_draft_check_request(payload):
+    payload = payload or {}
     context = {'page_url': (payload.get('page_url') or '').strip()}
     return _ai_draft_check_response('检查当前草稿', context)
+
+
+def _ai_agent_task_query():
+    query = AIAgentTask.query.options(joinedload(AIAgentTask.user))
+    if current_user.role != 'admin':
+        query = query.filter_by(user_id=current_user.id)
+    return query
+
+
+@app.route('/ai/agent_tasks')
+@login_required
+def ai_agent_task_list():
+    agent_type = (request.args.get('agent_type') or '').strip()
+    query = _ai_agent_task_query()
+    if agent_type:
+        query = query.filter_by(agent_type=agent_type)
+    tasks = query.order_by(AIAgentTask.created_at.desc(), AIAgentTask.id.desc()).limit(200).all()
+    stats_base = _ai_agent_task_query()
+    stats = {
+        'total': stats_base.count(),
+        'warehouse_patrol': stats_base.filter_by(agent_type='warehouse_patrol').count(),
+        'purchase_followup': stats_base.filter_by(agent_type='purchase_followup').count(),
+        'completed': stats_base.filter_by(status='completed').count(),
+    }
+    return render_template('ai_agent_tasks.html', tasks=tasks, stats=stats, agent_type=agent_type)
+
+
+@app.route('/ai/agent_tasks/<int:id>')
+@login_required
+def ai_agent_task_detail(id):
+    task = _ai_agent_task_query().options(selectinload(AIAgentTask.steps)).filter(AIAgentTask.id == id).first_or_404()
+    steps = sorted(task.steps or [], key=lambda step: (step.step_no or 0, step.id or 0))
+    return render_template('ai_agent_task_detail.html', task=task, steps=steps)
+
+
+@app.route('/ai/agent_tasks/run/warehouse_patrol', methods=['POST'])
+@login_required
+def ai_agent_run_warehouse_patrol():
+    task, error = _ai_run_warehouse_patrol_agent()
+    if error:
+        flash('当前账号没有权限运行仓库巡检 Agent。', 'danger')
+        return redirect(url_for('ai_agent_task_list'))
+    flash('仓库巡检 Agent 已完成。', 'success')
+    return redirect(url_for('ai_agent_task_detail', id=task.id))
+
+
+@app.route('/ai/agent_tasks/run/purchase_followup', methods=['POST'])
+@login_required
+def ai_agent_run_purchase_followup():
+    task, error = _ai_run_purchase_followup_agent()
+    if error:
+        flash('当前账号没有权限运行采购跟进 Agent。', 'danger')
+        return redirect(url_for('ai_agent_task_list'))
+    flash('采购跟进 Agent 已完成。', 'success')
+    return redirect(url_for('ai_agent_task_detail', id=task.id))
+
+
+def _ai_document_job_url(job):
+    if not job:
+        return ''
+    if job.generated_document_type and job.generated_document_id:
+        endpoint = {
+            'in_order': 'in_order_detail',
+            'out_order': 'out_order_detail',
+            'transfer': 'transfer_detail',
+            'adjustment': 'adjustment_detail',
+            'check': 'check_detail',
+        }.get(job.generated_document_type)
+        if endpoint:
+            return url_for(endpoint, id=job.generated_document_id)
+    if job.confirmation_token:
+        return url_for('ai_document_confirm', token=job.confirmation_token)
+    return ''
+
+
+@app.route('/ai/document_jobs')
+@login_required
+def ai_document_job_list():
+    status = (request.args.get('status') or '').strip()
+    base_query = AIDocumentJob.query
+    if current_user.role != 'admin':
+        base_query = base_query.filter_by(user_id=current_user.id)
+    stats = {
+        key: base_query.filter_by(status=key).count()
+        for key in ('recognized', 'pending_confirmation', 'draft_created', 'failed')
+    }
+    stats['total'] = base_query.count()
+
+    query = base_query.options(
+        joinedload(AIDocumentJob.user),
+        joinedload(AIDocumentJob.source_purchase_order),
+    )
+    if status:
+        query = query.filter_by(status=status)
+    jobs = query.order_by(AIDocumentJob.created_at.desc(), AIDocumentJob.id.desc()).limit(200).all()
+    return render_template(
+        'ai_document_jobs.html',
+        jobs=jobs,
+        status=status,
+        job_url=_ai_document_job_url,
+        stats=stats,
+    )
+
+
+@app.route('/ai/document_jobs/<int:id>')
+@login_required
+def ai_document_job_detail(id):
+    query = AIDocumentJob.query.options(
+        joinedload(AIDocumentJob.user),
+        joinedload(AIDocumentJob.source_purchase_order),
+        selectinload(AIDocumentJob.items).joinedload(AIDocumentItem.material).joinedload(Material.unit),
+    )
+    if current_user.role != 'admin':
+        query = query.filter_by(user_id=current_user.id)
+    job = query.filter(AIDocumentJob.id == id).first_or_404()
+    items = sorted(job.items or [], key=lambda item: (item.line_no or 0, item.id or 0))
+    return render_template(
+        'ai_document_job_detail.html',
+        job=job,
+        items=items,
+        result_url=_ai_document_job_url(job),
+    )
+
+
+@app.route('/ai/document_jobs/<int:id>/confirm', methods=['POST'])
+@login_required
+def ai_document_job_reopen_confirmation(id):
+    query = AIDocumentJob.query.options(
+        joinedload(AIDocumentJob.source_purchase_order),
+        selectinload(AIDocumentJob.items).joinedload(AIDocumentItem.material).joinedload(Material.unit),
+    )
+    if current_user.role != 'admin':
+        query = query.filter_by(user_id=current_user.id)
+    job = query.filter(AIDocumentJob.id == id).first_or_404()
+    if not _ai_document_confirm_allowed(job.document_type):
+        flash('当前账号没有权限生成该类型单据草稿。', 'danger')
+        return redirect(url_for('ai_document_job_detail', id=job.id))
+    if not job.items:
+        flash('该任务没有可确认的识别明细，无法重新打开确认页。', 'warning')
+        return redirect(url_for('ai_document_job_detail', id=job.id))
+    token = secrets.token_urlsafe(12)
+    payload = _ai_document_job_confirmation_payload(job)
+    pending = session.get('_ai_document_confirmations') or {}
+    pending[token] = payload
+    for key in list(pending.keys())[:-8]:
+        pending.pop(key, None)
+    session['_ai_document_confirmations'] = pending
+    session.modified = True
+    _ai_update_document_job(job.id, 'pending_confirmation', confirmation_token=token, error_message='')
+    return redirect(url_for('ai_document_confirm', token=token))
+
+
+@app.route('/ai/document_jobs/<int:id>/retry', methods=['POST'])
+@login_required
+def ai_document_job_retry(id):
+    query = AIDocumentJob.query.options(
+        selectinload(AIDocumentJob.attempts),
+    )
+    if current_user.role != 'admin':
+        query = query.filter_by(user_id=current_user.id)
+    job = query.filter(AIDocumentJob.id == id).first_or_404()
+    text = (job.source_text_summary or '').strip()
+    if not text:
+        _ai_record_document_attempt(job, 'retry', 'failed', error_message='no retryable text')
+        _ai_update_document_job(job.id, 'failed', error_message='该任务没有保存可重试的OCR/文本摘要，请重新上传图片识别。')
+        flash('该任务没有保存可重试的OCR/文本摘要，请重新上传图片识别。', 'warning')
+        return redirect(url_for('ai_document_job_detail', id=job.id))
+
+    extracted = _ai_call_llm_document_extract(text) if _ai_llm_configured() else _ai_extract_document_from_text(text)
+    if not extracted:
+        _ai_record_document_attempt(job, 'retry', 'failed', error_message='document extraction returned no usable result')
+        _ai_update_document_job(job.id, 'failed', error_message='重试识别未得到可用单据结果。')
+        flash('重试识别未得到可用单据结果。', 'danger')
+        return redirect(url_for('ai_document_job_detail', id=job.id))
+
+    matched, unmatched = _ai_match_extracted_items(extracted.get('items') or [])
+    status = 'pending_confirmation' if unmatched or not matched else 'recognized'
+    _ai_record_document_attempt(job, 'retry', status, matched=matched, unmatched=unmatched)
+    response = _ai_create_draft_from_extracted(extracted, source='retry', context={})
+    flash('已发起重试识别；新的识别结果已按当前规则处理。', 'success')
+    if response is not None:
+        return response
+    _ai_update_document_job(job.id, 'failed', error_message='重试识别结果无法生成草稿或确认页。')
+    return redirect(url_for('ai_document_job_detail', id=job.id))
+
+
+@app.route('/ai/document_jobs/<int:id>/feedback', methods=['POST'])
+@login_required
+def ai_document_job_feedback(id):
+    query = AIDocumentJob.query
+    if current_user.role != 'admin':
+        query = query.filter_by(user_id=current_user.id)
+    job = query.filter(AIDocumentJob.id == id).first_or_404()
+    rating = (request.form.get('rating') or '').strip()
+    error_type = (request.form.get('error_type') or '').strip()
+    note = (request.form.get('note') or '').strip()
+    allowed_ratings = {'helpful', 'not_helpful'}
+    allowed_errors = {'', 'ocr_error', 'material_match_error', 'quantity_error', 'purchase_order_error', 'draft_error', 'other'}
+    if rating not in allowed_ratings or error_type not in allowed_errors:
+        flash('反馈选项无效。', 'danger')
+        return redirect(url_for('ai_document_job_detail', id=job.id))
+    db.session.add(AIDocumentFeedback(
+        job_id=job.id,
+        user_id=current_user.id,
+        rating=rating,
+        error_type=error_type or None,
+        note=note[:500],
+    ))
+    db.session.commit()
+    flash('AI文档反馈已记录。', 'success')
+    return redirect(url_for('ai_document_job_detail', id=job.id))
 
 
 @app.route('/ai/material_alias')
@@ -13257,11 +14633,17 @@ def ai_document_confirm(token):
         )
         if error:
             db.session.rollback()
+            _ai_update_document_job(payload.get('document_job_id'), 'failed', error_message=error)
             flash(error, 'danger')
             return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count)
         pending.pop(token, None)
         session['_ai_document_confirmations'] = pending
         session.modified = True
+        _ai_mark_document_job_draft_created(
+            payload.get('document_job_id'),
+            payload.get('document_type'),
+            draft,
+        )
         flash(f'已生成草稿 {draft["order_no"]}，请核对后再提交。', 'success')
         return redirect(draft['url'])
 
@@ -13486,12 +14868,25 @@ def _ai_execute_intent(message, intent_payload, context=None):
 
     if intent == 'analysis_stock_value':
         category = str(params.get('category') or '').strip() or None
-        return _ai_json_response(_ai_analysis_stock_value(category=category))
+        reply = _ai_append_data_source(
+            _ai_analysis_stock_value(category=category),
+            '实时数据库查询',
+            '当前库存' + (f'；分类包含 {category}' if category else ''),
+            ['material', 'material_category'],
+        )
+        return _ai_json_response(reply)
 
     if intent == 'analysis_supplier':
         days = params.get('days')
         warehouse = str(params.get('warehouse') or '').strip() or None
-        return _ai_json_response(_ai_analysis_supplier(days=days, warehouse=warehouse))
+        scope_days = max(1, int(days or 90))
+        reply = _ai_append_data_source(
+            _ai_analysis_supplier(days=days, warehouse=warehouse),
+            '实时数据库查询',
+            f'最近{scope_days}天' + (f'；仓库包含 {warehouse}' if warehouse else ''),
+            ['supplier', 'in_order'],
+        )
+        return _ai_json_response(reply)
 
     if intent == 'analysis_consumption_trend':
         kw = keyword or _ai_guess_keyword(message)
@@ -13499,14 +14894,33 @@ def _ai_execute_intent(message, intent_payload, context=None):
             return _ai_json_response('请告诉我物料编码或名称，例如：查 M001 消耗趋势。')
         days = params.get('days')
         warehouse = str(params.get('warehouse') or '').strip() or None
-        return _ai_json_response(_ai_analysis_consumption_trend(kw, days=days, warehouse=warehouse))
+        scope_days = max(1, int(days or 30))
+        reply = _ai_append_data_source(
+            _ai_analysis_consumption_trend(kw, days=days, warehouse=warehouse),
+            '实时数据库查询',
+            f'物料 {kw}；最近{scope_days}天' + (f'；仓库/库位包含 {warehouse}' if warehouse else ''),
+            ['material', 'stock_transaction'],
+        )
+        return _ai_json_response(reply)
 
     if intent == 'analysis_low_stock':
-        return _ai_json_response(_ai_analysis_low_stock_report())
+        reply = _ai_append_data_source(
+            _ai_analysis_low_stock_report(),
+            '实时数据库查询',
+            '当前库存预警启用范围',
+            ['material', 'system_setting'],
+        )
+        return _ai_json_response(reply)
 
     if intent == 'analysis_category':
         category = str(params.get('category') or '').strip() or None
-        return _ai_json_response(_ai_analysis_category_summary(category=category))
+        reply = _ai_append_data_source(
+            _ai_analysis_category_summary(category=category),
+            '实时数据库查询',
+            ('分类包含 ' + category) if category else '全部物料分类',
+            ['material_category', 'material'],
+        )
+        return _ai_json_response(reply)
 
     if intent == 'exception_workbench':
         return _ai_exception_workbench_response(message, context, force=True)
@@ -13539,6 +14953,8 @@ def _ai_execute_intent(message, intent_payload, context=None):
 def _ai_should_try_general_chat(message):
     compact = (message or '').strip().replace(' ', '').lower()
     if not compact:
+        return False
+    if _ai_is_stage4_deep_analysis_question(message):
         return False
     business_words = (
         '库存', '物料', '单号', '单据', '入库', '出库', '领料', '采购', '盘点', '调拨', '待办', '待处理',
@@ -13584,11 +15000,8 @@ def _ai_strip_general_chat_marker(message):
     return text
 
 
-@app.route('/api/ai/warehouse_assistant', methods=['POST'])
-@login_required
-@_ai_idempotent_request
-def api_ai_warehouse_assistant():
-    payload = request.get_json(silent=True) or {}
+def _ai_handle_warehouse_assistant_request(payload):
+    payload = payload or {}
     message = (payload.get('message') or '').strip()
     context = {
         'page_url': (payload.get('page_url') or '').strip(),
@@ -13600,6 +15013,9 @@ def api_ai_warehouse_assistant():
     if not message and not images:
         return jsonify({'status': 'error', 'msg': '请输入要查询或处理的内容'}), 400
 
+    if not _ai_global_enabled():
+        return _ai_json_response('AI功能当前已由管理员关闭。WMS主业务不受影响，请使用对应业务页面手工查询或处理。')
+
     user_id = current_user.id if current_user.is_authenticated else 0
     # 拼接最近一轮用户消息到当前 message 前面，让意图识别和草稿解析能感知多轮上下文。
     # 仅取最近 1 条 user 历史，避免污染；不拼接 assistant 回复（含摘要文本会干扰正则）。
@@ -13607,6 +15023,11 @@ def api_ai_warehouse_assistant():
 
     try:
         if images:
+            if not _ai_feature_enabled('ai_feature_vision_enabled', True):
+                return _ai_json_response(
+                    'AI视觉识别当前处于灰度关闭状态。请改用文字描述、Excel粘贴，或进入对应业务页面手工录入。',
+                    actions=[{'label': 'AI助手参数', 'url': url_for('system_settings_page')}],
+                )
             extracted_doc, doc_vision_error = _ai_call_llm_document_vision_extract(message, images, context)
             if extracted_doc:
                 structured_response = _ai_create_draft_from_extracted(extracted_doc, source='vision', context=context)
@@ -13701,49 +15122,9 @@ def api_ai_warehouse_assistant():
         if excel_table_response:
             return excel_table_response
 
-        agent_response = _ai_agent_patrol_response(augmented_message, context)
-        if agent_response:
-            return agent_response
-
         purchase_draft_response = _ai_create_purchase_request_draft_response(augmented_message, context)
         if purchase_draft_response:
             return purchase_draft_response
-
-        supplier_profile_response = _ai_supplier_profile_response(augmented_message, context)
-        if supplier_profile_response:
-            return supplier_profile_response
-
-        supplier_followup_response = _ai_supplier_followup_response(augmented_message, context)
-        if supplier_followup_response:
-            return supplier_followup_response
-
-        master_data_health_response = _ai_master_data_health_response(augmented_message, context)
-        if master_data_health_response:
-            return master_data_health_response
-
-        master_data_fix_list_response = _ai_master_data_fix_list_response(augmented_message, context)
-        if master_data_fix_list_response:
-            return master_data_fix_list_response
-
-        system_health_response = _ai_system_health_response(augmented_message, context)
-        if system_health_response:
-            return system_health_response
-
-        system_fix_list_response = _ai_system_fix_list_response(augmented_message, context)
-        if system_fix_list_response:
-            return system_fix_list_response
-
-        master_data_import_response = _ai_master_data_import_response(augmented_message, context)
-        if master_data_import_response:
-            return master_data_import_response
-
-        user_permission_response = _ai_user_permission_response(augmented_message, context)
-        if user_permission_response:
-            return user_permission_response
-
-        operation_audit_response = _ai_operation_audit_response(augmented_message, context)
-        if operation_audit_response:
-            return operation_audit_response
 
         product_suggestion_response = _ai_product_suggestion_response(augmented_message, context)
         if product_suggestion_response:
@@ -13753,21 +15134,21 @@ def api_ai_warehouse_assistant():
         if benchmark_roadmap_response:
             return benchmark_roadmap_response
 
-        purchase_workbench_response = _ai_purchase_workbench_response(augmented_message, context)
-        if purchase_workbench_response:
-            return purchase_workbench_response
+        warehouse_insights_response = _ai_dispatch_registered_tool('warehouse_insights', augmented_message, context)
+        if warehouse_insights_response:
+            return warehouse_insights_response
 
-        workbench_response = _ai_exception_workbench_response(augmented_message, context)
-        if workbench_response:
-            return workbench_response
+        purchase_insights_response = _ai_dispatch_registered_tool('purchase_insights', augmented_message, context)
+        if purchase_insights_response:
+            return purchase_insights_response
 
-        discrepancy_response = _ai_inventory_discrepancy_response(augmented_message, context)
-        if discrepancy_response:
-            return discrepancy_response
+        master_data_insights_response = _ai_dispatch_registered_tool('master_data_insights', augmented_message, context)
+        if master_data_insights_response:
+            return master_data_insights_response
 
-        exception_response = _ai_exception_explain_response(augmented_message, context)
-        if exception_response:
-            return exception_response
+        admin_insights_response = _ai_dispatch_registered_tool('admin_insights', augmented_message, context)
+        if admin_insights_response:
+            return admin_insights_response
 
         alias_response = _ai_alias_management_response(augmented_message)
         if alias_response:
@@ -13813,47 +15194,23 @@ def api_ai_warehouse_assistant():
 
 # ==================== AI 流式响应 + 多轮对话 ====================
 
-# 简单的内存级会话上下文：key=user_id, value=list of {role, content}
-# 仅保留最近若干轮，避免内存膨胀；多实例部署下不共享，但对单机够用
-_AI_CHAT_HISTORY = {}
-_AI_CHAT_HISTORY_MAX_TURNS = 10  # 每个用户最多保留 10 轮（user+assistant 各算1条）
-
-
 def _ai_get_history(user_id):
-    """获取用户对话历史，返回 OpenAI messages 格式"""
-    if not user_id:
-        return []
-    return list(_AI_CHAT_HISTORY.get(user_id, []))
+    """Return the current user AI chat history."""
+    return get_history(user_id)
 
 
 def _ai_append_history(user_id, role, content):
-    """追加一条对话记录，超出上限自动裁剪"""
-    if not user_id or not content:
-        return
-    history = _AI_CHAT_HISTORY.setdefault(user_id, [])
-    history.append({'role': role, 'content': content})
-    # 超过上限时，从头丢弃完整的一轮（user+assistant）
-    while len(history) > _AI_CHAT_HISTORY_MAX_TURNS * 2:
-        # 丢掉最早的两条（一轮）
-        del history[:2]
+    """Append a message to the current user AI chat history."""
+    append_history(user_id, role, content)
 
 
-def _ai_clear_history(user_id):
-    """清空用户对话历史"""
-    if user_id and user_id in _AI_CHAT_HISTORY:
-        del _AI_CHAT_HISTORY[user_id]
-
-
-@app.route('/api/ai/chat/stream', methods=['POST'])
-@login_required
-@_ai_idempotent_request
-def api_ai_chat_stream():
+def _ai_handle_chat_stream_request(payload):
     """流式返回 AI 回答（SSE），支持多轮对话上下文。
     统一通道：闲聊问题走 LLM 流式；业务关键词命中时不再 redirect 回退，
     而是在 SSE 内直接执行业务意图，把 reply 文本按字符拆分流式输出，
     最后追加 cards/actions 事件，避免"流式光标闪一下→清空→重新 loading"的割裂体验。
     """
-    payload = request.get_json(silent=True) or {}
+    payload = payload or {}
     message = (payload.get('message') or '').strip()
     history_payload = payload.get('history') or []
     page_url = (payload.get('page_url') or '').strip()
@@ -13862,6 +15219,9 @@ def api_ai_chat_stream():
 
     if not message:
         return jsonify({'status': 'error', 'msg': '请输入要查询或处理的内容'}), 400
+
+    if not _ai_global_enabled():
+        return jsonify({'status': 'error', 'msg': 'AI功能当前已由管理员关闭。WMS主业务不受影响。'}), 503
 
     context = {'page_url': page_url, 'page_title': page_title}
     intent_payload = _ai_call_llm_intent(message)
@@ -13884,39 +15244,19 @@ def api_ai_chat_stream():
     if priority_response is None and not force_general_chat:
         priority_response = _ai_excel_table_document_response(message, context)
     if priority_response is None and not force_general_chat:
-        priority_response = _ai_agent_patrol_response(message, context)
-    if priority_response is None and not force_general_chat:
         priority_response = _ai_create_purchase_request_draft_response(message, context)
-    if priority_response is None and not force_general_chat:
-        priority_response = _ai_supplier_profile_response(message, context)
-    if priority_response is None and not force_general_chat:
-        priority_response = _ai_supplier_followup_response(message, context)
-    if priority_response is None and not force_general_chat:
-        priority_response = _ai_master_data_health_response(message, context)
-    if priority_response is None and not force_general_chat:
-        priority_response = _ai_master_data_fix_list_response(message, context)
-    if priority_response is None and not force_general_chat:
-        priority_response = _ai_system_health_response(message, context)
-    if priority_response is None and not force_general_chat:
-        priority_response = _ai_system_fix_list_response(message, context)
-    if priority_response is None and not force_general_chat:
-        priority_response = _ai_master_data_import_response(message, context)
-    if priority_response is None and not force_general_chat:
-        priority_response = _ai_user_permission_response(message, context)
-    if priority_response is None and not force_general_chat:
-        priority_response = _ai_operation_audit_response(message, context)
     if priority_response is None and not force_general_chat:
         priority_response = _ai_product_suggestion_response(message, context)
     if priority_response is None and not force_general_chat:
         priority_response = _ai_benchmark_roadmap_response(message, context)
     if priority_response is None and not force_general_chat:
-        priority_response = _ai_purchase_workbench_response(message, context)
+        priority_response = _ai_dispatch_registered_tool('warehouse_insights', message, context)
     if priority_response is None and not force_general_chat:
-        priority_response = _ai_exception_workbench_response(message, context)
+        priority_response = _ai_dispatch_registered_tool('purchase_insights', message, context)
     if priority_response is None and not force_general_chat:
-        priority_response = _ai_inventory_discrepancy_response(message, context)
+        priority_response = _ai_dispatch_registered_tool('master_data_insights', message, context)
     if priority_response is None and not force_general_chat:
-        priority_response = _ai_exception_explain_response(message, context)
+        priority_response = _ai_dispatch_registered_tool('admin_insights', message, context)
     if priority_response is None and not force_general_chat:
         priority_response = _ai_alias_management_response(message)
     if priority_response is None and not force_general_chat:
@@ -13927,16 +15267,10 @@ def api_ai_chat_stream():
         def priority_generate():
             body = priority_response.get_json(silent=True) or {}
             reply_text = str(body.get('reply') or '')
-            for i in range(0, len(reply_text), 3):
-                yield f'data: {json.dumps({"type":"token","content":reply_text[i:i + 3]}, ensure_ascii=False)}\n\n'
-            if body.get('cards'):
-                yield f'data: {json.dumps({"type":"cards","content":body.get("cards")}, ensure_ascii=False)}\n\n'
-            if body.get('actions'):
-                yield f'data: {json.dumps({"type":"actions","content":body.get("actions")}, ensure_ascii=False)}\n\n'
+            yield from stream_response_payload(reply_text, body.get('cards'), body.get('actions'))
             if reply_text:
                 _ai_append_history(user_id, 'user', message)
                 _ai_append_history(user_id, 'assistant', reply_text)
-            yield f'data: {json.dumps({"type":"done","content":reply_text}, ensure_ascii=False)}\n\n'
 
         return Response(stream_with_context(priority_generate()), content_type='text/event-stream; charset=utf-8',
                         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
@@ -13959,39 +15293,19 @@ def api_ai_chat_stream():
                 if local_response is None:
                     local_response = _ai_excel_table_document_response(augmented_message, context)
                 if local_response is None:
-                    local_response = _ai_agent_patrol_response(augmented_message, context)
-                if local_response is None:
                     local_response = _ai_create_purchase_request_draft_response(augmented_message, context)
-                if local_response is None:
-                    local_response = _ai_supplier_profile_response(augmented_message, context)
-                if local_response is None:
-                    local_response = _ai_supplier_followup_response(augmented_message, context)
-                if local_response is None:
-                    local_response = _ai_master_data_health_response(augmented_message, context)
-                if local_response is None:
-                    local_response = _ai_master_data_fix_list_response(augmented_message, context)
-                if local_response is None:
-                    local_response = _ai_system_health_response(augmented_message, context)
-                if local_response is None:
-                    local_response = _ai_system_fix_list_response(augmented_message, context)
-                if local_response is None:
-                    local_response = _ai_master_data_import_response(augmented_message, context)
-                if local_response is None:
-                    local_response = _ai_user_permission_response(augmented_message, context)
-                if local_response is None:
-                    local_response = _ai_operation_audit_response(augmented_message, context)
                 if local_response is None:
                     local_response = _ai_product_suggestion_response(augmented_message, context)
                 if local_response is None:
                     local_response = _ai_benchmark_roadmap_response(augmented_message, context)
                 if local_response is None:
-                    local_response = _ai_purchase_workbench_response(augmented_message, context)
+                    local_response = _ai_dispatch_registered_tool('warehouse_insights', message, context)
                 if local_response is None:
-                    local_response = _ai_exception_workbench_response(augmented_message, context)
+                    local_response = _ai_dispatch_registered_tool('purchase_insights', message, context)
                 if local_response is None:
-                    local_response = _ai_inventory_discrepancy_response(augmented_message, context)
+                    local_response = _ai_dispatch_registered_tool('master_data_insights', message, context)
                 if local_response is None:
-                    local_response = _ai_exception_explain_response(augmented_message, context)
+                    local_response = _ai_dispatch_registered_tool('admin_insights', message, context)
                 if local_response is None:
                     local_response = _ai_alias_management_response(augmented_message)
                 if local_response is None:
@@ -14008,7 +15322,7 @@ def api_ai_chat_stream():
                     llm_response = local_response
 
                 if llm_response is None:
-                    yield f'data: {json.dumps({"type":"error","content":"未能处理该问题，请换种说法或到系统设置确认 AI 已配置"}, ensure_ascii=False)}\n\n'
+                    yield sse_event('error', '未能处理该问题，请换种说法或到系统设置确认 AI 已配置')
                     return
 
                 # llm_response 是 Flask Response 对象，需要提取 json 数据
@@ -14017,28 +15331,17 @@ def api_ai_chat_stream():
                 cards = body.get('cards') or []
                 actions = body.get('actions') or []
 
-                # 把 reply 按字符拆分流式输出（每 2-3 个字一段，体验更顺）
-                chunk_size = 3
-                for i in range(0, len(reply_text), chunk_size):
-                    seg = reply_text[i:i + chunk_size]
-                    yield f'data: {json.dumps({"type":"token","content":seg}, ensure_ascii=False)}\n\n'
-
-                # 追加卡片事件（前端在收到 done 前渲染）
-                if cards:
-                    yield f'data: {json.dumps({"type":"cards","content":cards}, ensure_ascii=False)}\n\n'
-                if actions:
-                    yield f'data: {json.dumps({"type":"actions","content":actions}, ensure_ascii=False)}\n\n'
+                yield from stream_response_payload(reply_text, cards, actions)
 
                 # 写入对话历史，业务回复也能被多轮引用
                 if reply_text:
                     _ai_append_history(user_id, 'user', message)
                     _ai_append_history(user_id, 'assistant', reply_text)
 
-                yield f'data: {json.dumps({"type":"done","content":reply_text}, ensure_ascii=False)}\n\n'
             except Exception as exc:
                 db.session.rollback()
                 app.logger.exception('AI stream business intent failed: %s', exc)
-                yield f'data: {json.dumps({"type":"error","content":"AI助手处理失败，请稍后重试"}, ensure_ascii=False)}\n\n'
+                yield sse_event('error', 'AI助手处理失败，请稍后重试')
 
         return Response(stream_with_context(business_generate()), content_type='text/event-stream; charset=utf-8',
                         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
@@ -14060,7 +15363,7 @@ def api_ai_chat_stream():
     messages = [{'role': 'system', 'content': system_prompt}]
     # 合并前端传来的历史（优先）+ 后端内存历史（兜底）
     seen_history = history_payload if isinstance(history_payload, list) else _ai_get_history(user_id)
-    for item in seen_history[-_AI_CHAT_HISTORY_MAX_TURNS * 2:]:
+    for item in seen_history[-AI_CHAT_HISTORY_MAX_TURNS * 2:]:
         if isinstance(item, dict) and item.get('role') in ('user', 'assistant') and item.get('content'):
             messages.append({'role': item['role'], 'content': str(item['content'])[:1000]})
     chat_message = _ai_strip_general_chat_marker(message)
@@ -14087,7 +15390,7 @@ def api_ai_chat_stream():
             ) as resp:
                 if not resp.ok:
                     err_msg = f'大模型请求失败: HTTP {resp.status_code}'
-                    yield f'data: {json.dumps({"type":"error","content":err_msg}, ensure_ascii=False)}\n\n'
+                    yield sse_event('error', err_msg)
                     return
                 resp.encoding = 'utf-8'
                 for line in resp.iter_lines(decode_unicode=True):
@@ -14102,33 +15405,31 @@ def api_ai_chat_stream():
                             delta = ((data.get('choices') or [{}])[0].get('delta') or {}).get('content') or ''
                             if delta:
                                 full_reply.append(delta)
-                                yield f'data: {json.dumps({"type":"token","content":delta}, ensure_ascii=False)}\n\n'
+                                yield sse_event('token', delta)
                         except (ValueError, IndexError):
                             continue
         except requests.exceptions.Timeout:
-            yield f'data: {json.dumps({"type":"error","content":"大模型响应超时，请稍后重试或调高超时设置"}, ensure_ascii=False)}\n\n'
+            yield sse_event('error', '大模型响应超时，请稍后重试或调高超时设置')
             return
         except Exception as exc:
             app.logger.warning('AI stream chat failed: %s', exc)
-            yield f'data: {json.dumps({"type":"error","content":f"流式响应异常: {exc}"}, ensure_ascii=False)}\n\n'
+            yield sse_event('error', f'流式响应异常: {exc}')
             return
 
         reply_text = ''.join(full_reply).strip()
         if reply_text:
             _ai_append_history(user_id, 'user', chat_message)
             _ai_append_history(user_id, 'assistant', reply_text)
-        yield f'data: {json.dumps({"type":"done","content":reply_text}, ensure_ascii=False)}\n\n'
+        yield sse_event('done', reply_text)
 
     return Response(stream_with_context(generate()), content_type='text/event-stream; charset=utf-8',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
-@app.route('/api/ai/chat/clear', methods=['POST'])
-@login_required
-def api_ai_chat_clear():
+def _ai_handle_chat_clear_request():
     """清空当前用户的对话历史"""
     user_id = current_user.id if current_user.is_authenticated else 0
-    _ai_clear_history(user_id)
+    clear_history(user_id)
     return jsonify({'status': 'success', 'msg': '已清空对话历史'})
 
 

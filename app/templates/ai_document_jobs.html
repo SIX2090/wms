@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}AI文档任务{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">AI文档任务</h1>
+            <div class="text-muted small">跟踪送货单、微信截图、Excel文本等识别结果和草稿生成状态。</div>
+        </div>
+        <form method="get" class="d-flex align-items-center gap-2">
+            <select name="status" class="form-select form-select-sm" style="width: 170px;">
+                <option value="">全部状态</option>
+                {% for item in ['recognized', 'pending_confirmation', 'draft_created', 'failed'] %}
+                <option value="{{ item }}" {% if status == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-outline-secondary btn-sm" type="submit">筛选</button>
+        </form>
+    </div>
+
+    <div class="row g-2 mb-3">
+        {% for key, label in [('total', '全部'), ('pending_confirmation', '待确认'), ('draft_created', '已生成'), ('failed', '失败')] %}
+        <div class="col-6 col-md-3">
+            <div class="border rounded p-2">
+                <div class="text-muted small">{{ label }}</div>
+                <div class="h5 mb-0">{{ stats.get(key, 0) }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 150px;">时间</th>
+                    <th style="width: 110px;">状态</th>
+                    <th style="width: 100px;">来源</th>
+                    <th style="width: 120px;">单据类型</th>
+                    <th>识别摘要</th>
+                    <th style="width: 90px;">行数</th>
+                    <th style="width: 160px;">生成结果</th>
+                    {% if current_user.role == 'admin' %}
+                    <th style="width: 120px;">用户</th>
+                    {% endif %}
+                    <th style="width: 90px;">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in jobs %}
+                <tr>
+                    <td>{{ job.created_at.strftime('%Y-%m-%d %H:%M') if job.created_at else '-' }}</td>
+                    <td>
+                        <span class="badge {% if job.status == 'draft_created' %}bg-success{% elif job.status == 'failed' %}bg-danger{% elif job.status == 'pending_confirmation' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                            {{ job.status }}
+                        </span>
+                    </td>
+                    <td>{{ job.source }}</td>
+                    <td>{{ job.document_type or '-' }}</td>
+                    <td class="text-truncate" style="max-width: 420px;" title="{{ job.source_text_summary or '' }}">
+                        {{ job.source_text_summary or job.order_no or '-' }}
+                        {% if job.error_message %}
+                        <div class="text-danger small">{{ job.error_message }}</div>
+                        {% endif %}
+                    </td>
+                    <td>{{ job.items|length }}</td>
+                    <td>
+                        {% if job.generated_document_no %}
+                        {{ job.generated_document_type }} {{ job.generated_document_no }}
+                        {% elif job.source_purchase_order %}
+                        采购订单 {{ job.source_purchase_order.order_no }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    {% if current_user.role == 'admin' %}
+                    <td>{{ job.user.username if job.user else '-' }}</td>
+                    {% endif %}
+                    <td>
+                        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('ai_document_job_detail', id=job.id) }}">详情</a>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not jobs %}
+                <tr>
+                    <td colspan="{% if current_user.role == 'admin' %}9{% else %}8{% endif %}" class="text-center text-muted py-4">
+                        暂无AI文档任务。
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -275,6 +276,420 @@ def main() -> int:
         'AI 草稿、敏感分析和文档确认必须通过统一能力权限矩阵校验',
     ))
 
+    permission_matrix = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_permission_matrix.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if permission_matrix.stdout:
+        print(permission_matrix.stdout.rstrip())
+    if permission_matrix.stderr:
+        print(permission_matrix.stderr.rstrip())
+    checks.append((
+        'AI-AUTH-002',
+        permission_matrix.returncode == 0,
+        'AI permission matrix must have automated role coverage and deny undeclared capabilities',
+    ))
+
+    tool_registry = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_tool_registry.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if tool_registry.stdout:
+        print(tool_registry.stdout.rstrip())
+    if tool_registry.stderr:
+        print(tool_registry.stderr.rstrip())
+    checks.append((
+        'AI-TOOL-REGISTRY-001',
+        tool_registry.returncode == 0,
+        'AI tool registry metadata and role-filtered listings must match policy capabilities',
+    ))
+
+    platform_foundations = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_platform_foundations.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if platform_foundations.stdout:
+        print(platform_foundations.stdout.rstrip())
+    if platform_foundations.stderr:
+        print(platform_foundations.stderr.rstrip())
+    checks.append((
+        'AI-PLATFORM-FOUNDATIONS-001',
+        platform_foundations.returncode == 0,
+        'AI platform schemas, prompts, provider config, and tool input validation must stay stable',
+    ))
+
+    tools_endpoint = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_tools_endpoint.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if tools_endpoint.stdout:
+        print(tools_endpoint.stdout.rstrip())
+    if tools_endpoint.stderr:
+        print(tools_endpoint.stderr.rstrip())
+    checks.append((
+        'AI-TOOLS-ENDPOINT-001',
+        tools_endpoint.returncode == 0,
+        'AI tools endpoint must require login and return role-filtered tool metadata',
+    ))
+
+    ai_routes_py = read_text('app/ai/routes.py')
+    ai_handlers_py = read_text('app/ai/handlers.py')
+    ai_legacy_py = read_text('app/ai/legacy.py')
+    checks.append((
+        'AI-ROUTES-BLUEPRINT-001',
+        "from ai.routes import ai_bp" in app_py
+        and "app.register_blueprint(ai_bp)" in app_py
+        and "ai_bp = Blueprint('ai', __name__, url_prefix='/api/ai')" in ai_routes_py
+        and "from ai.handlers import handle_chat_stream, handle_draft_check, handle_warehouse_assistant" in ai_routes_py
+        and "from app import _ai_" not in ai_routes_py
+        and "@ai_bp.get('/tools')" in ai_routes_py
+        and "@ai_bp.post('/chat/clear')" in ai_routes_py
+        and "@ai_bp.post('/draft_check')" in ai_routes_py
+        and "@ai_bp.post('/warehouse_assistant')" in ai_routes_py
+        and "@ai_bp.post('/chat/stream')" in ai_routes_py
+        and "def api_ai_tools" not in app_py
+        and "def api_ai_chat_clear" not in app_py
+        and "def api_ai_draft_check" not in app_py
+        and "def api_ai_warehouse_assistant" not in app_py
+        and "def api_ai_chat_stream" not in app_py
+        and "@app.route('/api/ai/tools'" not in app_py
+        and "@app.route('/api/ai/chat/clear'" not in app_py
+        and "@app.route('/api/ai/draft_check'" not in app_py
+        and "@app.route('/api/ai/warehouse_assistant'" not in app_py
+        and "@app.route('/api/ai/chat/stream'" not in app_py,
+        'AI API endpoints must live on the ai Blueprint instead of the monolithic app route table',
+    ))
+
+    platform_boundaries = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_platform_boundaries.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if platform_boundaries.stdout:
+        print(platform_boundaries.stdout.rstrip())
+    if platform_boundaries.stderr:
+        print(platform_boundaries.stderr.rstrip())
+    checks.append((
+        'AI-PLATFORM-BOUNDARIES-001',
+        platform_boundaries.returncode == 0,
+        'AI Blueprint routes, handler proxies, and idempotency boundaries must stay separated',
+    ))
+
+    ai_handlers = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_handlers.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if ai_handlers.stdout:
+        print(ai_handlers.stdout.rstrip())
+    if ai_handlers.stderr:
+        print(ai_handlers.stderr.rstrip())
+    checks.append((
+        'AI-HANDLERS-001',
+        ai_handlers.returncode == 0,
+        'AI route handlers must delegate through the centralized legacy bridge',
+    ))
+
+    ai_streaming = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_streaming.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if ai_streaming.stdout:
+        print(ai_streaming.stdout.rstrip())
+    if ai_streaming.stderr:
+        print(ai_streaming.stderr.rstrip())
+    checks.append((
+        'AI-STREAMING-001',
+        ai_streaming.returncode == 0,
+        'AI SSE event formatting and streamed response ordering must stay stable',
+    ))
+
+    history_endpoint = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_history.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if history_endpoint.stdout:
+        print(history_endpoint.stdout.rstrip())
+    if history_endpoint.stderr:
+        print(history_endpoint.stderr.rstrip())
+    checks.append((
+        'AI-CHAT-HISTORY-001',
+        history_endpoint.returncode == 0,
+        'AI chat clear endpoint must require login and clear only the current user history',
+    ))
+
+    draft_check_endpoint = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_draft_check_endpoint.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if draft_check_endpoint.stdout:
+        print(draft_check_endpoint.stdout.rstrip())
+    if draft_check_endpoint.stderr:
+        print(draft_check_endpoint.stderr.rstrip())
+    checks.append((
+        'AI-DRAFT-CHECK-ENDPOINT-001',
+        draft_check_endpoint.returncode == 0,
+        'AI draft check endpoint must require login and delegate through the ai Blueprint',
+    ))
+
+    warehouse_assistant_endpoint = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_warehouse_assistant_endpoint.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if warehouse_assistant_endpoint.stdout:
+        print(warehouse_assistant_endpoint.stdout.rstrip())
+    if warehouse_assistant_endpoint.stderr:
+        print(warehouse_assistant_endpoint.stderr.rstrip())
+    checks.append((
+        'AI-WAREHOUSE-ASSISTANT-ENDPOINT-001',
+        warehouse_assistant_endpoint.returncode == 0,
+        'AI warehouse assistant endpoint must live on the ai Blueprint and keep request_id idempotency',
+    ))
+
+    chat_stream_endpoint = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_chat_stream_endpoint.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if chat_stream_endpoint.stdout:
+        print(chat_stream_endpoint.stdout.rstrip())
+    if chat_stream_endpoint.stderr:
+        print(chat_stream_endpoint.stderr.rstrip())
+    checks.append((
+        'AI-CHAT-STREAM-ENDPOINT-001',
+        chat_stream_endpoint.returncode == 0,
+        'AI chat stream endpoint must live on the ai Blueprint and keep request_id idempotency',
+    ))
+
+    document_jobs = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_document_jobs.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if document_jobs.stdout:
+        print(document_jobs.stdout.rstrip())
+    if document_jobs.stderr:
+        print(document_jobs.stderr.rstrip())
+    checks.append((
+        'AI-DOCUMENT-JOBS-001',
+        document_jobs.returncode == 0,
+        'AI document recognition jobs must persist status, items, confirmation links, and draft results',
+    ))
+
+    document_evaluation = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_document_evaluation.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if document_evaluation.stdout:
+        print(document_evaluation.stdout.rstrip())
+    if document_evaluation.stderr:
+        print(document_evaluation.stderr.rstrip())
+    checks.append((
+        'AI-DOCUMENT-EVALUATION-001',
+        document_evaluation.returncode == 0,
+        'AI document golden-sample evaluation metrics must be deterministic',
+    ))
+
+    ai_agents = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_agents.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if ai_agents.stdout:
+        print(ai_agents.stdout.rstrip())
+    if ai_agents.stderr:
+        print(ai_agents.stderr.rstrip())
+    checks.append((
+        'AI-AGENTS-001',
+        ai_agents.returncode == 0,
+        'AI controlled agents must create auditable tasks and steps',
+    ))
+
+    ai_stage4 = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_stage4_knowledge.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if ai_stage4.stdout:
+        print(ai_stage4.stdout.rstrip())
+    if ai_stage4.stderr:
+        print(ai_stage4.stderr.rstrip())
+    checks.append((
+        'AI-STAGE4-KNOWLEDGE-001',
+        ai_stage4.returncode == 0,
+        'AI knowledge grounding, source annotations, and master-data scoring must stay stable',
+    ))
+
+    ai_stage5 = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_stage5_ops.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if ai_stage5.stdout:
+        print(ai_stage5.stdout.rstrip())
+    if ai_stage5.stderr:
+        print(ai_stage5.stderr.rstrip())
+    checks.append((
+        'AI-STAGE5-OPS-001',
+        ai_stage5.returncode == 0,
+        'AI production flags, degradation, metrics dashboard, and rollout controls must stay stable',
+    ))
+
+    ai_stage6 = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_stage6_prelaunch.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if ai_stage6.stdout:
+        print(ai_stage6.stdout.rstrip())
+    if ai_stage6.stderr:
+        print(ai_stage6.stderr.rstrip())
+    checks.append((
+        'AI-STAGE6-PRELAUNCH-001',
+        ai_stage6.returncode == 0,
+        'AI prelaunch checks, access control, rollback readiness, and regression guidance must stay stable',
+    ))
+
+    warehouse_handler_body = function_body(app_py, '_ai_handle_warehouse_assistant_request')
+    checks.append((
+        'AI-WAREHOUSE-ROUTE-SHELL-001',
+        "def api_ai_warehouse_assistant" not in app_py
+        and "@ai_bp.post('/warehouse_assistant')" in ai_routes_py
+        and "return handle_warehouse_assistant(payload)" in ai_routes_py
+        and "def handle_warehouse_assistant(payload)" in ai_handlers_py
+        and "return warehouse_assistant_request(payload or {})" in ai_handlers_py
+        and "'_ai_handle_warehouse_assistant_request'" in ai_legacy_py
+        and "_ai_normalize_image_attachments" in warehouse_handler_body
+        and "_ai_dispatch_registered_tool('warehouse_insights', augmented_message, context)" in warehouse_handler_body,
+        'AI warehouse assistant route must be a Blueprint shell backed by the extracted handler',
+    ))
+
+    chat_stream_handler_body = function_body(app_py, '_ai_handle_chat_stream_request')
+    checks.append((
+        'AI-CHAT-STREAM-ROUTE-SHELL-001',
+        "def api_ai_chat_stream" not in app_py
+        and "@ai_bp.post('/chat/stream')" in ai_routes_py
+        and "return handle_chat_stream(payload)" in ai_routes_py
+        and "def handle_chat_stream(payload)" in ai_handlers_py
+        and "return chat_stream_request(payload or {})" in ai_handlers_py
+        and "'_ai_handle_chat_stream_request'" in ai_legacy_py
+        and "from ai.streaming import sse_event, stream_response_payload" in app_py
+        and "yield from stream_response_payload(reply_text, body.get('cards'), body.get('actions'))" in chat_stream_handler_body
+        and "yield from stream_response_payload(reply_text, cards, actions)" in chat_stream_handler_body
+        and "yield f'data: {json.dumps({\"type\"" not in chat_stream_handler_body
+        and "def generate()" in chat_stream_handler_body
+        and "Response(stream_with_context(generate())" in chat_stream_handler_body
+        and "_ai_dispatch_registered_tool('warehouse_insights', message, context)" in chat_stream_handler_body,
+        'AI chat stream route must be a Blueprint shell backed by the extracted handler',
+    ))
+
+    orchestrator = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts' / 'verify_ai_orchestrator.py')],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if orchestrator.stdout:
+        print(orchestrator.stdout.rstrip())
+    if orchestrator.stderr:
+        print(orchestrator.stderr.rstrip())
+    checks.append((
+        'AI-ORCHESTRATOR-001',
+        orchestrator.returncode == 0,
+        'AI orchestrator must dispatch registered tools and reject handler mismatches',
+    ))
+
+    warehouse_dispatch_body = function_body(app_py, '_ai_warehouse_insights_response')
+    checks.append((
+        'AI-WAREHOUSE-DISPATCH-001',
+        '_ai_agent_patrol_response' in warehouse_dispatch_body
+        and '_ai_exception_workbench_response' in warehouse_dispatch_body
+        and '_ai_inventory_discrepancy_response' in warehouse_dispatch_body
+        and '_ai_exception_explain_response' in warehouse_dispatch_body
+        and "'warehouse_insights': _ai_warehouse_insights_response" in app_py,
+        'AI warehouse insight fallbacks must dispatch through the unified warehouse_insights path',
+    ))
+
+    purchase_dispatch_body = function_body(app_py, '_ai_purchase_insights_response')
+    checks.append((
+        'AI-PURCHASE-DISPATCH-001',
+        '_ai_supplier_profile_response' in purchase_dispatch_body
+        and '_ai_supplier_followup_response' in purchase_dispatch_body
+        and '_ai_purchase_workbench_response' in purchase_dispatch_body
+        and "'purchase_insights': _ai_purchase_insights_response" in app_py,
+        'AI purchase insight fallbacks must dispatch through the unified purchase_insights path',
+    ))
+
+    master_data_dispatch_body = function_body(app_py, '_ai_master_data_insights_response')
+    checks.append((
+        'AI-MASTER-DATA-DISPATCH-001',
+        '_ai_master_data_health_response' in master_data_dispatch_body
+        and '_ai_master_data_fix_list_response' in master_data_dispatch_body
+        and '_ai_master_data_import_response' in master_data_dispatch_body
+        and "'master_data_insights': _ai_master_data_insights_response" in app_py,
+        'AI master-data insight fallbacks must dispatch through the unified master_data_insights path',
+    ))
+
+    admin_dispatch_body = function_body(app_py, '_ai_admin_insights_response')
+    checks.append((
+        'AI-ADMIN-DISPATCH-001',
+        '_ai_system_health_response' in admin_dispatch_body
+        and '_ai_system_fix_list_response' in admin_dispatch_body
+        and '_ai_user_permission_response' in admin_dispatch_body
+        and '_ai_operation_audit_response' in admin_dispatch_body
+        and "'admin_insights': _ai_admin_insights_response" in app_py,
+        'AI admin insight fallbacks must dispatch through the unified admin_insights path',
+    ))
+
+    warehouse_assistant_body = function_body(app_py, '_ai_handle_warehouse_assistant_request')
+    chat_stream_body = function_body(app_py, '_ai_handle_chat_stream_request')
+    checks.append((
+        'AI-TOOL-DISPATCH-001',
+        'from ai.orchestrator import dispatch_registered_tool' in app_py
+        and 'AI_TOOL_DISPATCHERS' in app_py
+        and 'def _ai_dispatch_registered_tool' in app_py
+        and 'dispatch_registered_tool(tool_name, message, context, AI_TOOL_DISPATCHERS, app.logger)' in app_py
+        and "'warehouse_insights': _ai_warehouse_insights_response" in app_py
+        and "'purchase_insights': _ai_purchase_insights_response" in app_py
+        and "'master_data_insights': _ai_master_data_insights_response" in app_py
+        and "'admin_insights': _ai_admin_insights_response" in app_py
+        and "_ai_dispatch_registered_tool('warehouse_insights', augmented_message, context)" in warehouse_assistant_body
+        and "_ai_dispatch_registered_tool('purchase_insights', augmented_message, context)" in warehouse_assistant_body
+        and "_ai_dispatch_registered_tool('master_data_insights', augmented_message, context)" in warehouse_assistant_body
+        and "_ai_dispatch_registered_tool('admin_insights', augmented_message, context)" in warehouse_assistant_body
+        and "_ai_dispatch_registered_tool('warehouse_insights', message, context)" in chat_stream_body
+        and "_ai_dispatch_registered_tool('purchase_insights', message, context)" in chat_stream_body
+        and "_ai_dispatch_registered_tool('master_data_insights', message, context)" in chat_stream_body
+        and "_ai_dispatch_registered_tool('admin_insights', message, context)" in chat_stream_body,
+        'AI insight fallbacks must execute registered tools through the registry dispatch layer',
+    ))
+
     checks.append((
         'AI-ENCODING-001',
         '閲囪喘鍏ュ簱' not in app_py
@@ -284,12 +699,93 @@ def main() -> int:
         'AI 采购入库业务类型和全局确认框不得包含已知乱码',
     ))
 
+    ai_idempotency_py = read_text('app/ai/idempotency.py')
+    ai_schemas_py = read_text('app/ai/schemas.py')
+    ai_prompts_py = read_text('app/ai/prompts.py')
+    ai_providers_py = read_text('app/ai/providers.py')
+    ai_registry_py = read_text('app/ai/tools/registry.py')
+    ai_orchestrator_py = read_text('app/ai/orchestrator.py')
+    checks.append((
+        'AI-FOUNDATION-MODULES-001',
+        'def validate_json_schema_payload' in ai_schemas_py
+        and 'CURRENT_PROMPT_VERSION' in ai_prompts_py
+        and 'class OpenAICompatibleConfig' in ai_providers_py
+        and 'def build_chat_payload' in ai_providers_py
+        and 'def validate_ai_tool_input' in ai_registry_py
+        and 'validate_ai_tool_input(tool_name, context or {})' in ai_orchestrator_py
+        and 'from ai.prompts import CURRENT_PROMPT_VERSION' in ai_idempotency_py
+        and 'prompt_version=CURRENT_PROMPT_VERSION' in ai_idempotency_py,
+        'AI platform foundation modules must provide schema validation, prompt versioning, provider config, and dispatch-time input validation',
+    ))
+
+    checks.append((
+        'AI-DOCUMENT-JOB-MODELS-001',
+        'class AIDocumentJob' in app_py
+        and 'class AIDocumentItem' in app_py
+        and 'class AIDocumentAttempt' in app_py
+        and 'class AIDocumentFeedback' in app_py
+        and "@app.route('/ai/document_jobs')" in app_py
+        and "@app.route('/ai/document_jobs/<int:id>')" in app_py
+        and "@app.route('/ai/document_jobs/<int:id>/confirm', methods=['POST'])" in app_py
+        and "@app.route('/ai/document_jobs/<int:id>/retry', methods=['POST'])" in app_py
+        and "@app.route('/ai/document_jobs/<int:id>/feedback', methods=['POST'])" in app_py
+        and "def _ai_record_document_job" in app_py
+        and "def _ai_record_document_attempt" in app_py
+        and "def _ai_update_document_job" in app_py
+        and "def _ai_mark_document_job_draft_created" in app_py
+        and "def _ai_document_job_confirmation_payload" in app_py
+        and "_ai_record_document_job(" in function_body(app_py, '_ai_create_draft_from_extracted')
+        and "_ai_mark_document_job_draft_created(" in function_body(app_py, 'ai_document_confirm')
+        and 'ai_document_jobs.html' in app_py
+        and 'ai_document_job_detail.html' in app_py,
+        'AI document recognition must be tracked in durable job/item/attempt/feedback records with list/detail visibility, retry, recovery, and draft result updates',
+    ))
+
+    ai_document_eval_py = read_text('app/ai/documents/evaluation.py')
+    checks.append((
+        'AI-DOCUMENT-EVALUATION-MODULE-001',
+        'def evaluate_document_samples' in ai_document_eval_py
+        and 'header_accuracy' in ai_document_eval_py
+        and 'line_recall' in ai_document_eval_py
+        and 'quantity_accuracy' in ai_document_eval_py
+        and 'material_match_accuracy' in ai_document_eval_py
+        and read_text('scripts/evaluate_ai_document_samples.py').find("samples' / 'ai_documents") > -1,
+        'AI document intelligence must include a reusable golden-sample evaluation framework',
+    ))
+
+    checks.append((
+        'AI-CONTROLLED-AGENTS-001',
+        'class AIAgentTask' in app_py
+        and 'class AIAgentStep' in app_py
+        and 'def _ai_run_warehouse_patrol_agent' in app_py
+        and 'def _ai_run_purchase_followup_agent' in app_py
+        and "@app.route('/ai/agent_tasks')" in app_py
+        and "@app.route('/ai/agent_tasks/<int:id>')" in app_py
+        and "@app.route('/ai/agent_tasks/run/warehouse_patrol', methods=['POST'])" in app_py
+        and "@app.route('/ai/agent_tasks/run/purchase_followup', methods=['POST'])" in app_py
+        and 'ai_agent_tasks.html' in app_py
+        and 'ai_agent_task_detail.html' in app_py
+        and "risk_level='draft'" in function_body(app_py, '_ai_run_purchase_followup_agent')
+        and '.submit(' not in function_body(app_py, '_ai_run_warehouse_patrol_agent').lower()
+        and '.audit(' not in function_body(app_py, '_ai_run_warehouse_patrol_agent').lower()
+        and '.complete(' not in function_body(app_py, '_ai_run_warehouse_patrol_agent').lower(),
+        'AI Agent phase must persist auditable tasks/steps and keep high-risk workflow actions out of autonomous execution',
+    ))
+
     checks.append((
         'AI-IDEMPOTENCY-001',
         'class AIRequestIdempotency' in app_py
         and 'uix_ai_request_user_request' in app_py
-        and '@_ai_idempotent_request\ndef api_ai_warehouse_assistant' in app_py
-        and '@_ai_idempotent_request\ndef api_ai_chat_stream' in app_py
+        and 'from ai.idempotency import configure_ai_idempotency_service' in app_py
+        and '_ai_idempotency = configure_ai_idempotency_service(' in app_py
+        and '_ai_idempotent_request = _ai_idempotency.idempotent_request' in app_py
+        and 'class AIIdempotencyService' in ai_idempotency_py
+        and 'def idempotent_request(self, view_function)' in ai_idempotency_py
+        and 'hashlib.sha256' in ai_idempotency_py
+        and 'IntegrityError' in ai_idempotency_py
+        and 'stream_with_context(record_stream())' in ai_idempotency_py
+        and '@ai_idempotent_request\ndef warehouse_assistant' in ai_routes_py
+        and '@ai_idempotent_request\ndef chat_stream' in ai_routes_py
         and 'request_id: requestId' in base_html
         and 'createAIRequestId()' in base_html,
         'AI 普通响应和流式响应必须使用持久化 request_id 幂等保护',
@@ -300,7 +796,8 @@ def main() -> int:
         'class AIRun' in app_py
         and 'class AIToolCall' in app_py
         and 'ai_run_id = db.Column' in app_py
-        and '_ai_finish_run' in function_body(app_py, '_ai_finish_idempotent_request')
+        and 'def finish_run(self, run_id: int, status: str, error_message: str = \'\')' in ai_idempotency_py
+        and 'self.finish_run(record.ai_run_id' in ai_idempotency_py
         and '_ai_record_capability_audit(capability, allowed)' in function_body(app_py, '_ai_capability_allowed'),
         'AI 请求必须记录运行状态、模型、耗时，并将能力授权结果写入工具调用审计',
     ))

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}AI Agent任务{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">AI Agent任务</h1>
+            <div class="text-muted small">受控执行仓库巡检和采购跟进，只读分析和草稿建议，不自动审核、完成、作废或删除单据。</div>
+        </div>
+        <div class="d-flex gap-2">
+            <form method="post" action="{{ url_for('ai_agent_run_warehouse_patrol') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-primary btn-sm" type="submit">运行仓库巡检</button>
+            </form>
+            <form method="post" action="{{ url_for('ai_agent_run_purchase_followup') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-primary btn-sm" type="submit">运行采购跟进</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="row g-2 mb-3">
+        {% for key, label in [('total', '全部'), ('warehouse_patrol', '仓库巡检'), ('purchase_followup', '采购跟进'), ('completed', '已完成')] %}
+        <div class="col-6 col-md-3">
+            <div class="border rounded p-2">
+                <div class="text-muted small">{{ label }}</div>
+                <div class="h5 mb-0">{{ stats.get(key, 0) }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 150px;">时间</th>
+                    <th style="width: 140px;">Agent</th>
+                    <th style="width: 110px;">状态</th>
+                    <th>目标</th>
+                    <th>摘要</th>
+                    {% if current_user.role == 'admin' %}
+                    <th style="width: 120px;">用户</th>
+                    {% endif %}
+                    <th style="width: 90px;">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for task in tasks %}
+                <tr>
+                    <td>{{ task.created_at.strftime('%Y-%m-%d %H:%M') if task.created_at else '-' }}</td>
+                    <td>{{ task.agent_type }}</td>
+                    <td><span class="badge {% if task.status == 'completed' %}bg-success{% elif task.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">{{ task.status }}</span></td>
+                    <td class="text-truncate" style="max-width: 360px;">{{ task.objective }}</td>
+                    <td class="text-truncate" style="max-width: 420px;">{{ task.summary or '-' }}</td>
+                    {% if current_user.role == 'admin' %}
+                    <td>{{ task.user.username if task.user else '-' }}</td>
+                    {% endif %}
+                    <td><a class="btn btn-outline-primary btn-sm" href="{{ url_for('ai_agent_task_detail', id=task.id) }}">详情</a></td>
+                </tr>
+                {% endfor %}
+                {% if not tasks %}
+                <tr>
+                    <td colspan="{% if current_user.role == 'admin' %}7{% else %}6{% endif %}" class="text-center text-muted py-4">暂无AI Agent任务。</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

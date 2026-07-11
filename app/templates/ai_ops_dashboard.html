@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}AI运维看板{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">AI运维看板</h1>
+            <div class="text-muted small">监控调用量、成功率、耗时、工具使用、草稿转化、反馈和灰度开关。AI故障不影响WMS主业务。</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('system_settings_page') }}">AI灰度设置</a>
+            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('ai_agent_task_list') }}">Agent任务</a>
+            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('ai_document_job_list') }}">文档任务</a>
+        </div>
+    </div>
+
+    <div class="row g-2 mb-3">
+        {% for item in [
+            ('24小时调用', metrics_24h.total),
+            ('24小时成功率', metrics_24h.success_rate ~ '%'),
+            ('24小时P95', metrics_24h.p95_ms ~ ' ms'),
+            ('7天调用', metrics_7d.total),
+            ('7天成功率', metrics_7d.success_rate ~ '%'),
+            ('7天P95', metrics_7d.p95_ms ~ ' ms'),
+            ('文档草稿转化', metrics_7d.draft_conversion_rate ~ '%'),
+            ('越权成功', metrics_7d.unauthorized_success)
+        ] %}
+        <div class="col-6 col-md-3 col-xl-2">
+            <div class="border rounded p-2 h-100">
+                <div class="text-muted small">{{ item[0] }}</div>
+                <div class="h5 mb-0">{{ item[1] }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-5">
+            <div class="border rounded p-3 h-100">
+                <div class="fw-semibold mb-2">灰度与降级状态</div>
+                <table class="table table-sm mb-0">
+                    <tbody>
+                        <tr><th>总开关</th><td>{{ '开启' if metrics_7d.global_enabled else '关闭' }}</td></tr>
+                        <tr><th>灰度范围</th><td>{{ metrics_7d.rollout_mode }}</td></tr>
+                        <tr><th>草稿能力</th><td>{{ '开启' if metrics_7d.drafts_enabled else '关闭' }}</td></tr>
+                        <tr><th>Agent任务</th><td>{{ '开启' if metrics_7d.agents_enabled else '关闭' }}</td></tr>
+                        <tr><th>视觉识别</th><td>{{ '开启' if metrics_7d.vision_enabled else '关闭' }}</td></tr>
+                        <tr><th>本地规则降级</th><td>{{ '开启' if metrics_7d.local_only else '关闭' }}</td></tr>
+                        <tr><th>大模型配置</th><td>{{ '可用' if metrics_7d.llm_configured else '未配置/降级' }}；{{ metrics_7d.model }}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="col-lg-7">
+            <div class="border rounded p-3 h-100">
+                <div class="fw-semibold mb-2">7天工具调用</div>
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>工具</th>
+                            <th class="text-end">次数</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for name, count in metrics_7d.tool_rows %}
+                        <tr>
+                            <td>{{ name }}</td>
+                            <td class="text-end">{{ count }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% if not metrics_7d.tool_rows %}
+                        <tr><td colspan="2" class="text-center text-muted py-3">暂无工具调用记录</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 150px;">时间</th>
+                    <th style="width: 130px;">用户</th>
+                    <th style="width: 170px;">入口</th>
+                    <th style="width: 110px;">状态</th>
+                    <th style="width: 110px;">耗时</th>
+                    <th>模型</th>
+                    <th>错误</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in recent_runs %}
+                <tr>
+                    <td>{{ run.started_at.strftime('%Y-%m-%d %H:%M') if run.started_at else '-' }}</td>
+                    <td>{{ run.user.username if run.user else '-' }}</td>
+                    <td>{{ run.endpoint }}</td>
+                    <td><span class="badge {% if run.status == 'completed' %}bg-success{% elif run.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">{{ run.status }}</span></td>
+                    <td>{{ run.duration_ms or 0 }} ms</td>
+                    <td>{{ run.model or '-' }}</td>
+                    <td class="text-truncate" style="max-width: 360px;">{{ run.error_message or '-' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not recent_runs %}
+                <tr><td colspan="7" class="text-center text-muted py-4">暂无AI运行记录</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="text-muted small mt-2">
+        生成时间：{{ metrics_7d.generated_at.strftime('%Y-%m-%d %H:%M:%S') }}。指标来自 ai_run、ai_tool_call、ai_document_job、ai_document_feedback 和 ai_agent_task。
+    </div>
+</div>
+{% endblock %}

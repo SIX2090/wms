@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}AI文档任务详情{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex align-items-start justify-content-between gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">AI文档任务详情 #{{ job.id }}</h1>
+            <div class="text-muted small">
+                {{ job.created_at.strftime('%Y-%m-%d %H:%M:%S') if job.created_at else '-' }}
+                {% if current_user.role == 'admin' and job.user %} · {{ job.user.username }}{% endif %}
+            </div>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ai_document_job_list') }}">返回列表</a>
+            {% if items %}
+            <form method="post" action="{{ url_for('ai_document_job_reopen_confirmation', id=job.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-primary btn-sm">重新确认</button>
+            </form>
+            {% endif %}
+            <form method="post" action="{{ url_for('ai_document_job_retry', id=job.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-primary btn-sm">重试识别</button>
+            </form>
+            {% if result_url %}
+            <a class="btn btn-primary btn-sm" href="{{ result_url }}">打开结果</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="border rounded p-3 h-100">
+                <div class="text-muted small">状态</div>
+                <div class="fw-semibold">{{ job.status }}</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="border rounded p-3 h-100">
+                <div class="text-muted small">来源 / 类型</div>
+                <div class="fw-semibold">{{ job.source }} / {{ job.document_type or '-' }}</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="border rounded p-3 h-100">
+                <div class="text-muted small">供应商 / 客户</div>
+                <div class="fw-semibold">{{ job.supplier or job.customer or '-' }}</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="border rounded p-3 h-100">
+                <div class="text-muted small">生成结果</div>
+                <div class="fw-semibold">
+                    {% if job.generated_document_no %}
+                    {{ job.generated_document_type }} {{ job.generated_document_no }}
+                    {% else %}
+                    -
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if job.source_text_summary or job.error_message %}
+    <div class="border rounded p-3 mb-3">
+        {% if job.source_text_summary %}
+        <div class="text-muted small mb-1">识别摘要</div>
+        <div style="white-space: pre-wrap;">{{ job.source_text_summary }}</div>
+        {% endif %}
+        {% if job.error_message %}
+        <div class="text-danger mt-2">{{ job.error_message }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 70px;">行号</th>
+                    <th style="width: 120px;">匹配状态</th>
+                    <th>原始识别</th>
+                    <th style="width: 260px;">系统物料</th>
+                    <th style="width: 100px;">数量</th>
+                    <th style="width: 100px;">置信度</th>
+                    <th style="width: 220px;">说明</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td>{{ item.line_no }}</td>
+                    <td>
+                        <span class="badge {% if item.match_status == 'matched' %}bg-success{% else %}bg-warning text-dark{% endif %}">
+                            {{ item.match_status }}
+                        </span>
+                    </td>
+                    <td>
+                        <div class="fw-semibold">{{ item.raw_text or item.name or item.code or '-' }}</div>
+                        <div class="text-muted small">
+                            {% if item.code %}编码 {{ item.code }}{% endif %}
+                            {% if item.name %} · 名称 {{ item.name }}{% endif %}
+                            {% if item.spec %} · 规格 {{ item.spec }}{% endif %}
+                            {% if item.unit %} · 单位 {{ item.unit }}{% endif %}
+                        </div>
+                    </td>
+                    <td>
+                        {% if item.material %}
+                        {{ item.material.code }} - {{ item.material.name }}
+                        {% if item.material.spec %}<div class="text-muted small">{{ item.material.spec }}</div>{% endif %}
+                        {% else %}
+                        <span class="text-muted">未匹配</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ item.quantity or '-' }}</td>
+                    <td>{{ item.confidence if item.confidence is not none else '-' }}</td>
+                    <td>{{ item.match_reason or '-' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not items %}
+                <tr>
+                    <td colspan="7" class="text-center text-muted py-4">没有识别明细。</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="row g-3 mt-3">
+        <div class="col-lg-12">
+            <div class="border rounded p-3">
+                <h2 class="h6 mb-3">识别尝试</h2>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 80px;">次数</th>
+                                <th style="width: 100px;">来源</th>
+                                <th style="width: 130px;">状态</th>
+                                <th style="width: 180px;">模型</th>
+                                <th style="width: 160px;">行数</th>
+                                <th>错误</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for attempt in job.attempts|sort(attribute='attempt_no') %}
+                            <tr>
+                                <td>{{ attempt.attempt_no }}</td>
+                                <td>{{ attempt.source }}</td>
+                                <td>{{ attempt.status }}</td>
+                                <td>{{ attempt.model or '-' }}</td>
+                                <td>{{ attempt.item_count or 0 }} / 匹配 {{ attempt.matched_count or 0 }} / 未匹配 {{ attempt.unmatched_count or 0 }}</td>
+                                <td>{{ attempt.error_message or '-' }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" class="text-muted">暂无尝试记录。</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="border rounded p-3">
+                <h2 class="h6 mb-3">反馈</h2>
+                <form method="post" action="{{ url_for('ai_document_job_feedback', id=job.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-2">
+                        <label class="form-label small text-muted">结果</label>
+                        <select name="rating" class="form-select form-select-sm" required>
+                            <option value="helpful">有帮助</option>
+                            <option value="not_helpful">无帮助</option>
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small text-muted">问题类型</label>
+                        <select name="error_type" class="form-select form-select-sm">
+                            <option value="">无</option>
+                            <option value="ocr_error">OCR识别错误</option>
+                            <option value="material_match_error">物料匹配错误</option>
+                            <option value="quantity_error">数量错误</option>
+                            <option value="purchase_order_error">采购订单匹配错误</option>
+                            <option value="draft_error">草稿生成错误</option>
+                            <option value="other">其他</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">备注</label>
+                        <textarea name="note" class="form-control form-control-sm" rows="3" maxlength="500"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-outline-primary btn-sm">提交反馈</button>
+                </form>
+            </div>
+        </div>
+        <div class="col-lg-7">
+            <div class="border rounded p-3">
+                <h2 class="h6 mb-3">反馈记录</h2>
+                {% for feedback in job.feedbacks|sort(attribute='created_at', reverse=True) %}
+                <div class="border-bottom pb-2 mb-2">
+                    <div class="d-flex justify-content-between gap-2">
+                        <strong>{{ feedback.rating }}</strong>
+                        <span class="text-muted small">{{ feedback.created_at.strftime('%Y-%m-%d %H:%M') if feedback.created_at else '-' }}</span>
+                    </div>
+                    <div class="text-muted small">{{ feedback.error_type or '无问题类型' }}</div>
+                    {% if feedback.note %}<div>{{ feedback.note }}</div>{% endif %}
+                </div>
+                {% else %}
+                <div class="text-muted small">暂无反馈。</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

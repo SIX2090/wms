@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}AI Agent任务详情{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex align-items-start justify-content-between gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">AI Agent任务详情 #{{ task.id }}</h1>
+            <div class="text-muted small">
+                {{ task.agent_type }} · {{ task.status }} · {{ task.created_at.strftime('%Y-%m-%d %H:%M:%S') if task.created_at else '-' }}
+                {% if current_user.role == 'admin' and task.user %} · {{ task.user.username }}{% endif %}
+            </div>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ai_agent_task_list') }}">返回列表</a>
+            {% if task.next_action_url %}
+            <a class="btn btn-primary btn-sm" href="{{ task.next_action_url }}">打开下一步</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="border rounded p-3 mb-3">
+        <div class="text-muted small mb-1">目标</div>
+        <div>{{ task.objective }}</div>
+        {% if task.summary %}
+        <div class="text-muted small mt-3 mb-1">总结</div>
+        <div>{{ task.summary }}</div>
+        {% endif %}
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 70px;">步骤</th>
+                    <th style="width: 180px;">名称</th>
+                    <th style="width: 140px;">工具</th>
+                    <th style="width: 90px;">风险</th>
+                    <th style="width: 110px;">状态</th>
+                    <th>数据范围</th>
+                    <th>结果</th>
+                    <th style="width: 120px;">入口</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for step in steps %}
+                <tr>
+                    <td>{{ step.step_no }}</td>
+                    <td>{{ step.name }}</td>
+                    <td>{{ step.tool_name or '-' }}</td>
+                    <td>{{ step.risk_level }}</td>
+                    <td>{{ step.status }}</td>
+                    <td>{{ step.data_scope or '-' }}</td>
+                    <td>{{ step.result_summary or step.error_message or '-' }}</td>
+                    <td>
+                        {% if step.action_url and step.action_url != '#' %}
+                        <a class="btn btn-outline-primary btn-sm" href="{{ step.action_url }}">{{ step.action_label or '打开' }}</a>
+                        {% elif step.action_label %}
+                        <span class="text-muted small">{{ step.action_label }}</span>
+                        {% else %}
+                        <span class="text-muted small">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not steps %}
+                <tr>
+                    <td colspan="8" class="text-center text-muted py-4">没有步骤记录。</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

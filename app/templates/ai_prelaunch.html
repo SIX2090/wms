@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}AI上线预检{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">AI上线预检</h1>
+            <div class="text-muted small">上线前检查备份、回滚、灰度、安全指标、任务积压和数据库状态。此页只读，不执行恢复或自动修改配置。</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('ai_ops_dashboard') }}">AI运维看板</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('backup_page') }}">数据备份</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('system_settings_page') }}">系统设置</a>
+        </div>
+    </div>
+
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-3">
+            <div class="border rounded p-2">
+                <div class="text-muted small">状态</div>
+                <div class="h5 mb-0 {% if report.ready %}text-success{% else %}text-danger{% endif %}">{{ '可上线' if report.ready else '需处理' }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="border rounded p-2">
+                <div class="text-muted small">通过</div>
+                <div class="h5 mb-0">{{ report.passed }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="border rounded p-2">
+                <div class="text-muted small">警告</div>
+                <div class="h5 mb-0">{{ report.warned }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="border rounded p-2">
+                <div class="text-muted small">失败</div>
+                <div class="h5 mb-0">{{ report.failed }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 150px;">编号</th>
+                    <th style="width: 190px;">检查项</th>
+                    <th style="width: 90px;">状态</th>
+                    <th>说明</th>
+                    <th style="width: 120px;">入口</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in report.checks %}
+                <tr>
+                    <td>{{ item.code }}</td>
+                    <td>{{ item.title }}</td>
+                    <td>
+                        <span class="badge {% if item.status == 'pass' %}bg-success{% elif item.status == 'warn' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                            {{ item.status }}
+                        </span>
+                    </td>
+                    <td>{{ item.detail }}</td>
+                    <td>
+                        {% if item.action_url %}
+                        <a class="btn btn-outline-primary btn-sm" href="{{ item.action_url }}">{{ item.action_label or '打开' }}</a>
+                        {% else %}
+                        <span class="text-muted small">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="border rounded p-3 mt-3">
+        <div class="fw-semibold mb-2">上线执行顺序</div>
+        <ol class="mb-0">
+            <li>创建数据库备份并下载到安全位置。</li>
+            <li>执行编译、编码扫描和总回归脚本。</li>
+            <li>确认 AI 总开关、灰度范围、本地规则降级和视觉/Agent/草稿开关。</li>
+            <li>先开放管理员测试，再开放业务角色只读，稳定后开放草稿和 Agent。</li>
+            <li>上线后观察 AI运维看板的成功率、P95、越权成功数和任务积压。</li>
+        </ol>
+    </div>
+
+    <div class="text-muted small mt-2">生成时间：{{ report.generated_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>
+</div>
+{% endblock %}

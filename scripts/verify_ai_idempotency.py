@@ -27,6 +27,7 @@ def main() -> int:
     def verify_json():
         counters['json'] += 1
         wms_app._ai_capability_allowed('admin_insights')
+        wms_app._ai_capability_allowed('unknown_capability_for_audit')
         return wms_app.jsonify({'status': 'success', 'count': counters['json']})
 
     @app.post('/_verify/ai-idempotency/stream')
@@ -94,10 +95,14 @@ def main() -> int:
         assert all(run.model for run in runs)
         assert wms_app.AIRequestIdempotency.query.count() == 2
         tool_calls = wms_app.AIToolCall.query.all()
-        assert len(tool_calls) == 1
-        assert tool_calls[0].tool_name == 'admin_insights'
-        assert tool_calls[0].permission_allowed is True
-        assert tool_calls[0].ai_run_id == runs[0].id
+        assert len(tool_calls) == 2
+        by_name = {tool_call.tool_name: tool_call for tool_call in tool_calls}
+        assert by_name['admin_insights'].permission_allowed is True
+        assert by_name['admin_insights'].risk_level == 'sensitive_read'
+        assert by_name['admin_insights'].ai_run_id == runs[0].id
+        assert by_name['unknown_capability_for_audit'].permission_allowed is False
+        assert by_name['unknown_capability_for_audit'].risk_level == 'read'
+        assert by_name['unknown_capability_for_audit'].status == 'denied'
 
     print('PASS AI-IDEMPOTENCY: requests execute once, replay responses, and persist run/tool audits')
     return 0
