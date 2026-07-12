@@ -4216,6 +4216,90 @@ def mobile_scan_submit():
     return jsonify({'status': 'error', 'success': False, 'msg': '扫码类型不正确'}), 400
 
 
+@app.route('/mobile/api/recognize_material', methods=['POST'])
+@login_required
+def mobile_recognize_material():
+    if not _ai_llm_configured() or not _ai_llm_vision_enabled():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中启用大模型和图片识别'}), 400
+
+    if 'image' not in request.files:
+        return jsonify({'status': 'error', 'msg': '请上传图片'}), 400
+
+    file = request.files['image']
+    if not file.filename:
+        return jsonify({'status': 'error', 'msg': '请选择图片文件'}), 400
+
+    allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in allowed_ext:
+        return jsonify({'status': 'error', 'msg': '不支持的图片格式'}), 400
+
+    file.seek(0, 2)
+    file_size = file.tell()
+    file.seek(0)
+    if file_size > 10 * 1024 * 1024:
+        return jsonify({'status': 'error', 'msg': '图片大小不能超过10MB'}), 400
+
+    try:
+        import base64
+        img_data = base64.b64encode(file.read()).decode('ascii')
+        data_url = f'data:image/{ext};base64,{img_data}'
+
+        prompt = '''请识别这张图片中的物料。如果是物料标签、物料实物或包装，请提取：
+1. 物料编码（如有）
+2. 物料名称
+3. 规格型号
+4. 数量（如有）
+
+请在回答末尾追加 JSON 代码块，格式如下：
+```json
+{"code": "编码", "name": "名称", "spec": "规格", "quantity": 数量或null, "confidence": 0.8}
+```
+如果无法识别，code和name留空，confidence设为0。'''
+
+        reply, extracted, error = _ai_call_llm_vision(prompt, [{'data_url': data_url}])
+        if error:
+            return jsonify({'status': 'error', 'msg': error}), 500
+
+        matches = []
+        if extracted:
+            code = (extracted.get('code') or '').strip()
+            name = (extracted.get('name') or '').strip()
+            spec = (extracted.get('spec') or '').strip()
+
+            query = Material.query.options(
+                joinedload(Material.unit),
+                joinedload(Material.category),
+                joinedload(Material.supplier)
+            )
+            if code:
+                exact = query.filter_by(code=code).first()
+                if exact:
+                    matches = [exact]
+                else:
+                    search = f'%{code}%'
+                    matches = query.filter(Material.code.like(search)).limit(5).all()
+            if not matches and name:
+                search = f'%{name}%'
+                matches = query.filter(
+                    db.or_(Material.name.like(search), Material.code.like(search))
+                ).limit(5).all()
+            if not matches and spec:
+                search = f'%{spec}%'
+                matches = query.filter(Material.spec.like(search)).limit(5).all()
+
+        return jsonify({
+            'status': 'success',
+            'reply': reply,
+            'extracted': extracted,
+            'matches': [mobile_material_payload(m) for m in matches],
+            'match_count': len(matches)
+        })
+    except Exception as e:
+        app.logger.error(f'拍照识物失败: {e}')
+        return jsonify({'status': 'error', 'msg': '识别失败，请稍后重试'}), 500
+
+
 def _material_alert_enabled_filter():
     if not inventory_alert_enabled():
         return false()
@@ -18583,6 +18667,16 @@ def complete_in_order(id):
     if not valid_source:
         return jsonify({'status': 'error', 'msg': source_msg})
 
+    force_submit = request.args.get('force', '').lower() in ('true', '1', 'yes')
+    if not force_submit:
+        anomalies = _check_in_order_anomalies(order)
+        if anomalies:
+            return jsonify({
+                'status': 'warning',
+                'msg': '检测到异常，请确认是否继续提交',
+                'anomalies': anomalies
+            })
+
     try:
         is_recompleted = StockTransaction.query.filter_by(
             reference_type='in_order',
@@ -29670,6 +29764,36 @@ def purchase_report():
 def report_dashboard():
     stats, chart_data = build_report_dashboard_context()
     return render_template('report_dashboard.html', stats=stats, chart_data=chart_data)
+
+@app.route('/report/dashboard/ai_insights', methods=['POST'])
+@login_required
+def report_dashboard_ai_insights():
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+    stats, chart_data = build_report_dashboard_context()
+    prompt = f"""你是仓库管理系统的数据分析师，请基于以下仪表盘数据生成简洁的业务洞察：
+
+【核心指标】
+- 本月入库金额：{stats.month_in_amount} 元，共 {stats.month_in_count} 笔单据
+- 本月领料金额：{stats.month_out_amount} 元，共 {stats.month_out_count} 笔单据
+- 库存总量：{stats.total_stock}，共 {stats.material_count} 种物料
+- 库存金额：{stats.stock_value} 元
+
+【趋势数据】近10天出入库数量趋势：{json.dumps(chart_data.get('trend', {}), ensure_ascii=False)[:500]}
+
+请生成3-5条有价值的业务洞察，包括：
+1. 出入库趋势分析（上升/下降/平稳及可能原因）
+2. 库存健康度评估（是否有积压或缺货风险）
+3.  actionable的改进建议
+要求语言简洁专业，每条不超过80字，用换行分隔。"""
+    try:
+        insights = _ai_call_llm_chat(prompt)
+        if not insights:
+            return jsonify({'status': 'error', 'msg': 'AI生成失败，请稍后重试'})
+        return jsonify({'status': 'success', 'insights': insights})
+    except Exception as e:
+        app.logger.error(f'报表AI解读失败: {e}')
+        return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
 
 @app.route('/report/view/<report_type>')
 @login_required

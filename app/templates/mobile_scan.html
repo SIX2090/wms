@@ -49,10 +49,14 @@
             <label class="mobile-scan-label" for="scanCode">物料编码</label>
             <div class="mobile-scan-input-row">
                 <input id="scanCode" class="form-control mobile-scan-code-input" type="text" inputmode="text" autocomplete="off" placeholder="扫描或输入编码">
+                <button type="button" class="btn btn-outline-primary mobile-scan-camera" id="cameraBtn" title="拍照识物">
+                    <i class="bi bi-camera"></i>
+                </button>
                 <button type="button" class="btn btn-primary mobile-scan-lookup" id="lookupBtn">
                     <i class="bi bi-search"></i>
                 </button>
             </div>
+            <input type="file" id="cameraFileInput" accept="image/*" capture="environment" hidden>
             <div class="mobile-scan-status" id="scanStatus"></div>
         </div>
 
@@ -351,6 +355,57 @@
                 });
         });
     });
+
+    var cameraBtn = document.getElementById('cameraBtn');
+    var cameraFileInput = document.getElementById('cameraFileInput');
+
+    if (cameraBtn && cameraFileInput) {
+        cameraBtn.addEventListener('click', function() {
+            cameraFileInput.click();
+        });
+
+        cameraFileInput.addEventListener('change', function(e) {
+            var file = e.target.files && e.target.files[0];
+            if (!file) return;
+            recognizeMaterialImage(file);
+            cameraFileInput.value = '';
+        });
+    }
+
+    function recognizeMaterialImage(file) {
+        setStatus('正在识别图片...', '');
+        var formData = new FormData();
+        formData.append('image', file);
+
+        fetch('/mobile/api/recognize_material', {
+            method: 'POST',
+            credentials: 'same-origin',
+            body: formData
+        })
+        .then(function(response) {
+            return response.json().then(function(data) {
+                if (!response.ok || data.status !== 'success') throw data;
+                return data;
+            });
+        })
+        .then(function(data) {
+            setStatus('识别完成', 'success');
+            if (data.matches && data.matches.length > 0) {
+                if (data.matches.length === 1) {
+                    renderMaterial(data.matches[0]);
+                } else {
+                    renderMatches(data.matches);
+                }
+            } else if (data.extracted && (data.extracted.name || data.extracted.code)) {
+                setStatus('识别到：' + (data.extracted.name || data.extracted.code) + '，但未找到匹配物料', 'warning');
+            } else {
+                setStatus('未能识别出物料信息，请调整角度重拍', 'warning');
+            }
+        })
+        .catch(function(error) {
+            setStatus((error && (error.msg || error.message)) || '识别失败', 'error');
+        });
+    }
 
     window.setTimeout(function() {
         scanCode.focus();
