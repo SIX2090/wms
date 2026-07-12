@@ -30220,6 +30220,169 @@ def ai_inventory_health():
         app.logger.error(f'库存健康度分析失败: {e}')
         return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
 
+@app.route('/ai/document_ocr')
+@login_required
+@require_role('warehouse', 'purchase')
+def document_ocr_page():
+    """单据OCR识别页面"""
+    return render_template('document_ocr.html')
+
+@app.route('/api/ai/document_ocr', methods=['POST'])
+@login_required
+def api_document_ocr():
+    """单据OCR识别API：上传图片，AI识别单据内容并生成入库草稿。"""
+    if not _ai_llm_configured() or not _ai_llm_vision_enabled():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中启用大模型和图片识别'}), 400
+    
+    if 'image' not in request.files:
+        return jsonify({'status': 'error', 'msg': '请上传图片'}), 400
+    
+    file = request.files['image']
+    if not file.filename:
+        return jsonify({'status': 'error', 'msg': '请选择图片文件'}), 400
+    
+    allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in allowed_ext:
+        return jsonify({'status': 'error', 'msg': '不支持的图片格式'}), 400
+    
+    file.seek(0, 2)
+    file_size = file.tell()
+    file.seek(0)
+    if file_size > 10 * 1024 * 1024:
+        return jsonify({'status': 'error', 'msg': '图片大小不能超过10MB'}), 400
+    
+    try:
+        import base64
+        img_data = base64.b64encode(file.read()).decode('ascii')
+        data_url = f'data:image/{ext};base64,{img_data}'
+        
+        # 获取用户指定的单据类型和备注
+        doc_type_hint = request.form.get('document_type', 'auto')
+        remarks = request.form.get('remarks', '').strip()
+        
+        # 构建识别提示
+        prompt = '''请仔细识别这张单据图片的内容。这可能是一张送货单、入库单、出库单、领料单、微信聊天截图或手写单据。
+
+请提取以下信息：
+1. 单据类型（入库/出库/调拨/盘点/微信通知）
+2. 供应商/客户名称（如有）
+3. 单据编号（如有）
+4. 物料明细：编码、名称、规格、数量、单价、金额
+5. 日期（如有）
+6. 备注信息
+
+请在回答末尾追加一个JSON代码块，格式如下：
+```json
+{
+  "document_type": "in_order",
+  "supplier": "供应商名称",
+  "order_no": "单据编号",
+  "date": "2024-01-15",
+  "items": [
+    {"code": "A001", "name": "物料名称", "spec": "规格", "quantity": 100, "price": 10.5}
+  ],
+  "remarks": "备注"
+}
+```
+document_type可选：in_order（入库/送货）、out_order（出库/领料）、transfer（调拨）、check（盘点）、wechat（微信通知）。
+无法识别的字段留空或省略。'''
+        
+        if doc_type_hint != 'auto':
+            type_labels = {
+                'in_order': '这是一张入库单/送货单',
+                'out_order': '这是一张出库单/领料单',
+                'wechat': '这是微信聊天截图，可能包含送货通知'
+            }
+            prompt = f'提示：{type_labels.get(doc_type_hint, "")}\n\n' + prompt
+        
+        if remarks:
+            prompt += f'\n\n用户备注：{remarks}'
+        
+        # 调用视觉模型
+        reply, extracted, error = _ai_call_llm_vision(prompt, [{'data_url': data_url}])
+        if error:
+            return jsonify({'status': 'error', 'msg': error}), 500
+        
+        # 尝试创建草稿
+        draft_info = None
+        items_info = []
+        
+        if extracted and isinstance(extracted, dict):
+            items_raw = extracted.get('items', [])
+            
+            # 匹配物料并构建items_info
+            for item in items_raw:
+                if not isinstance(item, dict):
+                    continue
+                code = str(item.get('code') or '').strip()
+                name = str(item.get('name') or '').strip()
+                spec = str(item.get('spec') or '').strip()
+                qty = item.get('quantity')
+                try:
+                    qty = float(qty) if qty is not None else None
+                except (ValueError, TypeError):
+                    qty = None
+                
+                # 尝试匹配物料
+                matched = False
+                if code or name:
+                    material = _ai_material_query(code or name, limit=1)
+                    if material and qty and qty > 0:
+                        items_info.append({
+                            'code': code,
+                            'name': name,
+                            'spec': spec,
+                            'quantity': qty,
+                            'matched': True
+                        })
+                        matched = True
+                
+                if not matched:
+                    items_info.append({
+                        'code': code,
+                        'name': name,
+                        'spec': spec,
+                        'quantity': qty,
+                        'matched': False
+                    })
+            
+            # 尝试创建入库草稿
+            doc_type = str(extracted.get('document_type') or '').strip().lower()
+            if doc_type in ('in_order', 'wechat') and items_info:
+                matched_items = [i for i in items_info if i['matched']]
+                unmatched_items = [i for i in items_info if not i['matched']]
+                
+                if matched_items:
+                    # 构建草稿消息
+                    lines = []
+                    for m in matched_items:
+                        code = m['code'] or m['name']
+                        qty_str = str(int(m['quantity'])) if m['quantity'] == int(m['quantity']) else str(m['quantity'])
+                        lines.append(f'{code} {qty_str}')
+                    draft_message = ' '.join(lines)
+                    
+                    draft, error = _ai_create_in_order_draft(draft_message)
+                    if not error and draft:
+                        draft_info = {
+                            'order_no': draft['order_no'],
+                            'url': draft['url'],
+                            'matched_count': len(matched_items),
+                            'unmatched_count': len(unmatched_items)
+                        }
+        
+        return jsonify({
+            'status': 'success',
+            'reply': reply,
+            'extracted': extracted,
+            'items': items_info,
+            'draft': draft_info
+        })
+        
+    except Exception as e:
+        app.logger.error(f'单据OCR识别失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'识别失败：{str(e)}'}), 500
+
 @app.route('/report/view/<report_type>')
 @login_required
 def report_view(report_type):
