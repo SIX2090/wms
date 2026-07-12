@@ -1,0 +1,50 @@
+{
+  "description": "部分匹配测试 - OCR识别有误差",
+  "expected": {
+    "document_type": "in_order",
+    "supplier": "华强电子",
+    "items": [
+      {
+        "code": "R10K",
+        "name": "电阻",
+        "spec": "10KΩ 0805",
+        "quantity": 1000,
+        "unit": "个"
+      },
+      {
+        "code": "C100N",
+        "name": "电容",
+        "spec": "100nF 0603",
+        "quantity": 2000,
+        "unit": "个"
+      }
+    ]
+  },
+  "actual": {
+    "document_type": "in_order",
+    "supplier": "华强电子",
+    "items": [
+      {
+        "code": "R10K",
+        "name": "电阻",
+        "spec": "10KΩ 0805",
+        "quantity": 1000,
+        "unit": "个"
+      },
+      {
+        "code": "C100N",
+        "name": "电容",
+        "spec": "100nF 0603",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "LED-R",
+        "name": "LED灯珠",
+        "spec": "红色 0805",
+        "quantity": 500,
+        "unit": "个"
+      }
+    ]
+  }
+}

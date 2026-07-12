@@ -11,7 +11,7 @@
         <form method="get" class="d-flex align-items-center gap-2">
             <select name="status" class="form-select form-select-sm" style="width: 170px;">
                 <option value="">全部状态</option>
-                {% for item in ['recognized', 'pending_confirmation', 'draft_created', 'failed'] %}
+                {% for item in ['uploading', 'recognizing', 'recognized', 'pending_confirmation', 'draft_created', 'failed', 'cancelled'] %}
                 <option value="{{ item }}" {% if status == item %}selected{% endif %}>{{ item }}</option>
                 {% endfor %}
             </select>
@@ -20,7 +20,7 @@
     </div>
 
     <div class="row g-2 mb-3">
-        {% for key, label in [('total', '全部'), ('pending_confirmation', '待确认'), ('draft_created', '已生成'), ('failed', '失败')] %}
+        {% for key, label in [('total', '全部'), ('recognizing', '识别中'), ('pending_confirmation', '待确认'), ('draft_created', '已生成'), ('failed', '失败')] %}
         <div class="col-6 col-md-3">
             <div class="border rounded p-2">
                 <div class="text-muted small">{{ label }}</div>
@@ -52,8 +52,8 @@
                 <tr>
                     <td>{{ job.created_at.strftime('%Y-%m-%d %H:%M') if job.created_at else '-' }}</td>
                     <td>
-                        <span class="badge {% if job.status == 'draft_created' %}bg-success{% elif job.status == 'failed' %}bg-danger{% elif job.status == 'pending_confirmation' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
-                            {{ job.status }}
+                        <span class="badge {% if job.status == 'draft_created' %}bg-success{% elif job.status == 'failed' %}bg-danger{% elif job.status == 'pending_confirmation' %}bg-warning text-dark{% elif job.status == 'recognizing' %}bg-info text-dark{% elif job.status == 'uploading' %}bg-primary{% else %}bg-secondary{% endif %}">
+                            {{ {'uploading': '上传中', 'recognizing': '识别中', 'recognized': '已识别', 'pending_confirmation': '待确认', 'draft_created': '已生成草稿', 'failed': '失败', 'cancelled': '已取消'}.get(job.status, job.status) }}
                         </span>
                     </td>
                     <td>{{ job.source }}</td>

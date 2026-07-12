@@ -1,0 +1,39 @@
+{
+  "description": "微信发货通知识别测试",
+  "expected": {
+    "document_type": "in_order",
+    "supplier": "鑫达",
+    "items": [
+      {
+        "code": "6204",
+        "name": "轴承",
+        "quantity": 100,
+        "unit": "套"
+      },
+      {
+        "code": "M8-NUT",
+        "name": "螺母",
+        "quantity": 500,
+        "unit": "个"
+      }
+    ]
+  },
+  "actual": {
+    "document_type": "in_order",
+    "supplier": "鑫达",
+    "items": [
+      {
+        "code": "6204",
+        "name": "轴承",
+        "quantity": 100,
+        "unit": "套"
+      },
+      {
+        "code": "M8-NUT",
+        "name": "螺母",
+        "quantity": 500,
+        "unit": "个"
+      }
+    ]
+  }
+}

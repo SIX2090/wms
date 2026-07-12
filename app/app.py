@@ -1986,6 +1986,19 @@ class AIRequestIdempotency(db.Model):
     ai_run = db.relationship('AIRun', backref=db.backref('idempotent_request', uselist=False))
 
 
+# AI document job status flow: uploading -> recognizing -> recognized -> pending_confirmation -> draft_created / failed
+AI_DOCUMENT_JOB_STATUSES = ('uploading', 'recognizing', 'recognized', 'pending_confirmation', 'draft_created', 'failed', 'cancelled')
+AI_DOCUMENT_JOB_STATUS_LABELS = {
+    'uploading': '上传中',
+    'recognizing': '识别中',
+    'recognized': '已识别',
+    'pending_confirmation': '待确认',
+    'draft_created': '已生成草稿',
+    'failed': '失败',
+    'cancelled': '已取消',
+}
+
+
 class AIDocumentJob(db.Model):
     __tablename__ = 'ai_document_job'
     __table_args__ = (
@@ -2009,6 +2022,7 @@ class AIDocumentJob(db.Model):
     generated_document_id = db.Column(db.Integer)
     generated_document_no = db.Column(db.String(100))
     error_message = db.Column(db.String(500))
+    image_path = db.Column(db.String(500))
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
     completed_at = db.Column(db.DateTime)
@@ -10006,11 +10020,40 @@ def _ai_learn_material_alias(alias, material_id, source='confirm'):
     return row
 
 
-def _ai_material_match_one(code='', name='', spec=''):
+def _ai_material_match_one(code='', name='', spec='', barcode=''):
+    """Match extracted item to a Material record.
+
+    Priority order:
+    1. Exact material code match (case-insensitive)
+    2. Exact name + spec match
+    3. Learned alias match (for supplier nicknames, old part numbers, barcodes)
+    4. Single fuzzy candidate (only when exactly one result)
+    """
     code = (code or '').strip()
     name = (name or '').strip()
     spec = (spec or '').strip()
-    for alias in (code, name, spec, ' '.join(part for part in (name, spec) if part)):
+    barcode = (barcode or '').strip()
+
+    # Priority 1: exact code match
+    if code:
+        material = Material.query.options(joinedload(Material.unit)).filter(db.func.lower(Material.code) == code.lower()).first()
+        if material:
+            return material, 'exact_code'
+
+    # Priority 2: exact name + spec match
+    if name:
+        exact_query = Material.query.options(joinedload(Material.unit)).filter(Material.name == name)
+        if spec:
+            exact_query = exact_query.filter(db.func.coalesce(Material.spec, '') == spec)
+        material = exact_query.first()
+        if material:
+            return material, 'exact_name'
+
+    # Priority 3: learned alias match (covers supplier nicknames, barcodes stored as aliases)
+    alias_candidates = [name, spec, barcode, ' '.join(part for part in (name, spec) if part)]
+    if code and code not in alias_candidates:
+        alias_candidates.insert(0, code)
+    for alias in alias_candidates:
         alias_key = _ai_material_alias_key(alias)
         if not alias_key:
             continue
@@ -10020,18 +10063,9 @@ def _ai_material_match_one(code='', name='', spec=''):
             learned.updated_at = datetime.now()
             db.session.flush()
             return learned.material, 'learned_alias'
-    if code:
-        material = Material.query.options(joinedload(Material.unit)).filter(db.func.lower(Material.code) == code.lower()).first()
-        if material:
-            return material, 'exact_code'
-    if name:
-        exact_query = Material.query.options(joinedload(Material.unit)).filter(Material.name == name)
-        if spec:
-            exact_query = exact_query.filter(db.func.coalesce(Material.spec, '') == spec)
-        material = exact_query.first()
-        if material:
-            return material, 'exact_name'
-    keywords = [part for part in (code, name, spec) if part]
+
+    # Priority 4: single fuzzy candidate
+    keywords = [part for part in (code, name, spec, barcode) if part]
     if keywords:
         filters = []
         for keyword in keywords:
@@ -10712,23 +10746,57 @@ def _ai_call_llm_document_vision_extract(message, images, context=None):
         return None, str(exc)
 
 
-def _ai_match_extracted_items(items_raw):
+def _ai_match_extracted_items(items_raw, purchase_order_id=None):
+    """Match extracted document items to materials.
+
+    Args:
+        items_raw: List of extracted item dicts from OCR/vision
+        purchase_order_id: Optional purchase order ID for over-purchase blocking
+
+    Returns:
+        (matched, unmatched) tuple
+    """
     matched = []
     unmatched = []
     seen_materials = set()
+
+    # Pre-load purchase order remaining quantities if needed
+    po_remaining = {}
+    if purchase_order_id:
+        po_items = PurchaseOrderItem.query.filter_by(purchase_order_id=purchase_order_id).all()
+        for po_item in po_items:
+            remaining = po_item.quantity - (po_item.received_quantity or 0)
+            po_remaining[po_item.material_id] = max(0, remaining)
+
     for item in items_raw or []:
         if not isinstance(item, dict):
             continue
         code = str(_ai_item_value(item, 'code') or '').strip()
         name = str(_ai_item_value(item, 'name') or '').strip()
         spec = str(_ai_item_value(item, 'spec') or '').strip()
+        barcode = str(_ai_item_value(item, 'barcode') or '').strip()
         raw_text = str(_ai_item_value(item, 'raw_text') or '').strip()
         quantity = _ai_ocr_number(_ai_item_value(item, 'quantity'), 0)
-        if not code and not name:
+        if not code and not name and not barcode:
             continue
-        material, match_type = _ai_material_match_one(code, name, spec)
-        raw_label = raw_text or ' '.join(part for part in (code, name, spec) if part)
+        material, match_type = _ai_material_match_one(code, name, spec, barcode)
+        raw_label = raw_text or ' '.join(part for part in (code, name, spec, barcode) if part)
         if material and quantity > 0:
+            # Over-purchase blocking: check against purchase order remaining quantity
+            if purchase_order_id and material.id in po_remaining:
+                remaining = po_remaining[material.id]
+                if quantity > remaining:
+                    unmatched.append({
+                        'title': raw_label or code or name,
+                        'meta': f'超采购数量（识别{quantity}，剩余{remaining}），需要人工确认',
+                        'quantity': quantity,
+                        'item': item,
+                        'spec': spec,
+                        'material': material,
+                        'match_type': match_type,
+                    })
+                    continue
+
             if material.id in seen_materials:
                 unmatched.append({
                     'title': raw_label or code or name,
@@ -10784,7 +10852,7 @@ def _ai_document_generated_type(doc_type):
     return doc_type or ''
 
 
-def _ai_record_document_job(extracted, source, status, context=None, matched=None, unmatched=None, error_message=''):
+def _ai_record_document_job(extracted, source, status, context=None, matched=None, unmatched=None, error_message='', image_path=None):
     if not has_request_context() or not current_user.is_authenticated:
         return None
     extracted = extracted or {}
@@ -10803,6 +10871,7 @@ def _ai_record_document_job(extracted, source, status, context=None, matched=Non
         source_text_summary=_ai_document_summary_text(extracted),
         source_purchase_order_id=_ai_context_purchase_order_id(context),
         error_message=(error_message or '')[:500] or None,
+        image_path=(image_path or '')[:500] or None,
     )
     db.session.add(job)
     db.session.flush()
@@ -10985,15 +11054,27 @@ def _ai_context_purchase_order_id(context=None):
         return None
 
 
+AI_MATCH_TYPE_LABELS = {
+    'exact_code': '精确编码',
+    'exact_name': '精确名称',
+    'learned_alias': '别名匹配',
+    'single_fuzzy': '模糊匹配',
+    'multiple': '多个候选',
+    'none': '未找到',
+}
+
+
 def _ai_confirmation_payload(extracted, context=None, document_job_id=None):
     doc_type = str((extracted or {}).get('document_type') or '').strip().lower()
     if doc_type == 'sales_out':
         doc_type = 'sales_out_order'
     rows = []
-    matched, unmatched = _ai_match_extracted_items((extracted or {}).get('items') or [])
+    po_id = _ai_context_purchase_order_id(context)
+    matched, unmatched = _ai_match_extracted_items((extracted or {}).get('items') or [], purchase_order_id=po_id)
     for row in matched:
         material = row['material']
         item = row.get('item') or {}
+        match_type = row.get('match_type') or ''
         rows.append({
             'raw': row.get('raw') or material.code or material.name or '',
             'code': material.code or '',
@@ -11010,6 +11091,8 @@ def _ai_confirmation_payload(extracted, context=None, document_job_id=None):
             'quantity': row.get('quantity') or 0,
             'material_id': material.id,
             'match_status': 'matched',
+            'match_type': match_type,
+            'match_type_label': AI_MATCH_TYPE_LABELS.get(match_type, match_type),
         })
     for row in unmatched:
         item = row.get('item') or {}
@@ -11074,6 +11157,7 @@ def _ai_confirmation_action(extracted, context=None, document_job_id=None):
 def _ai_document_job_confirmation_payload(job):
     rows = []
     for item in sorted(job.items or [], key=lambda row: (row.line_no or 0, row.id or 0)):
+        match_type = item.match_reason or ''
         rows.append({
             'raw': item.raw_text or item.code or item.name or '',
             'code': item.code or '',
@@ -11091,6 +11175,8 @@ def _ai_document_job_confirmation_payload(job):
             'material_id': item.material_id,
             'match_status': item.match_status or 'unmatched',
             'reason': item.match_reason or '',
+            'match_type': match_type,
+            'match_type_label': AI_MATCH_TYPE_LABELS.get(match_type, match_type) if match_type else '',
         })
     return {
         'document_type': job.document_type,
@@ -11330,7 +11416,8 @@ def _ai_create_draft_from_extracted(extracted, source='text', context=None):
     }.get(doc_type)
     if not capability or not _ai_capability_allowed(capability):
         return _ai_permission_denied_response(capability or 'document_draft')
-    matched, unmatched = _ai_match_extracted_items(extracted.get('items') or [])
+    po_id = _ai_context_purchase_order_id(context)
+    matched, unmatched = _ai_match_extracted_items(extracted.get('items') or [], purchase_order_id=po_id)
     document_status = 'pending_confirmation' if unmatched or not matched else 'recognized'
     document_job = _ai_record_document_job(
         extracted,
@@ -15309,10 +15396,10 @@ def ai_document_job_retry(id):
         flash('重试识别未得到可用单据结果。', 'danger')
         return redirect(url_for('ai_document_job_detail', id=job.id))
 
-    matched, unmatched = _ai_match_extracted_items(extracted.get('items') or [])
+    matched, unmatched = _ai_match_extracted_items(extracted.get('items') or [], purchase_order_id=job.source_purchase_order_id)
     status = 'pending_confirmation' if unmatched or not matched else 'recognized'
     _ai_record_document_attempt(job, 'retry', status, matched=matched, unmatched=unmatched)
-    response = _ai_create_draft_from_extracted(extracted, source='retry', context={})
+    response = _ai_create_draft_from_extracted(extracted, source='retry', context={'page_url': f'/purchase_order/{job.source_purchase_order_id}' if job.source_purchase_order_id else ''})
     flash('已发起重试识别；新的识别结果已按当前规则处理。', 'success')
     if response is not None:
         return response

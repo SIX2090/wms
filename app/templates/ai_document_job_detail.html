@@ -33,7 +33,7 @@
         <div class="col-md-3">
             <div class="border rounded p-3 h-100">
                 <div class="text-muted small">状态</div>
-                <div class="fw-semibold">{{ job.status }}</div>
+                <div class="fw-semibold">{{ {'uploading': '上传中', 'recognizing': '识别中', 'recognized': '已识别', 'pending_confirmation': '待确认', 'draft_created': '已生成草稿', 'failed': '失败', 'cancelled': '已取消'}.get(job.status, job.status) }}</div>
             </div>
         </div>
         <div class="col-md-3">
