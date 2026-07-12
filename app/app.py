@@ -14203,6 +14203,20 @@ def ai_replenishment_page():
     )
     return render_template('ai_replenishment.html', report=report, risk=risk)
 
+@app.route('/ai/replenishment_smart')
+@login_required
+@require_role('warehouse', 'purchase')
+def ai_replenishment_smart_page():
+    """智能补货建议页面（新版AI驱动）"""
+    return render_template('ai_replenishment.html')
+
+@app.route('/ai/inventory_health')
+@login_required
+@require_role('warehouse')
+def ai_inventory_health_page():
+    """库存健康度评分页面"""
+    return render_template('ai_inventory_health.html')
+
 
 def _ai_prelaunch_add_check(checks, code, title, status, detail, action_label='', action_url='', severity='medium'):
     checks.append({
@@ -30082,6 +30096,128 @@ def ai_replenishment_suggestions():
         })
     except Exception as e:
         app.logger.error(f'智能补货建议失败: {e}')
+        return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
+
+@app.route('/api/ai/inventory_health', methods=['POST'])
+@login_required
+def ai_inventory_health():
+    """库存健康度评分：AI评估每个物料的库存健康度（积压/缺货风险）。"""
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+    
+    # 查询所有有库存的物料
+    materials = Material.query.filter(Material.stock > 0).all()
+    
+    if not materials:
+        return jsonify({'status': 'success', 'health_scores': [], 'msg': '当前无库存数据'})
+    
+    # 收集物料健康度数据
+    health_data = []
+    thirty_days_ago = date.today() - timedelta(days=30)
+    ninety_days_ago = date.today() - timedelta(days=90)
+    
+    for material in materials[:50]:  # 限制最多50个物料
+        # 查询近30天出库量
+        recent_out_30 = db.session.query(
+            func.coalesce(func.sum(OutOrderItem.quantity), 0)
+        ).join(OutOrder, OutOrderItem.out_order_id == OutOrder.id).filter(
+            OutOrderItem.material_id == material.id,
+            OutOrder.status == 'completed',
+            OutOrder.date >= thirty_days_ago
+        ).scalar() or 0
+        
+        # 查询近90天出库量
+        recent_out_90 = db.session.query(
+            func.coalesce(func.sum(OutOrderItem.quantity), 0)
+        ).join(OutOrder, OutOrderItem.out_order_id == OutOrder.id).filter(
+            OutOrderItem.material_id == material.id,
+            OutOrder.status == 'completed',
+            OutOrder.date >= ninety_days_ago
+        ).scalar() or 0
+        
+        # 计算日均出库量
+        daily_avg_30 = recent_out_30 / 30 if recent_out_30 > 0 else 0
+        daily_avg_90 = recent_out_90 / 90 if recent_out_90 > 0 else 0
+        
+        # 计算库存可用天数
+        days_of_supply = material.stock / daily_avg_30 if daily_avg_30 > 0 else 999
+        
+        # 判断健康状态
+        health_status = 'healthy'
+        risk_level = 'low'
+        
+        if material.stock < material.min_stock:
+            health_status = 'critical'
+            risk_level = 'high'
+        elif material.stock < material.reorder_point:
+            health_status = 'warning'
+            risk_level = 'medium'
+        elif days_of_supply > 90 and daily_avg_30 > 0:
+            health_status = 'overstock'
+            risk_level = 'medium'
+        elif daily_avg_30 == 0 and daily_avg_90 == 0:
+            health_status = 'dead_stock'
+            risk_level = 'high'
+        
+        health_data.append({
+            'material_code': material.code,
+            'material_name': material.name,
+            'current_stock': material.stock,
+            'min_stock': material.min_stock,
+            'reorder_point': material.reorder_point,
+            'daily_avg_30': round(daily_avg_30, 2),
+            'daily_avg_90': round(daily_avg_90, 2),
+            'days_of_supply': round(days_of_supply, 1) if days_of_supply < 999 else '无出库',
+            'health_status': health_status,
+            'risk_level': risk_level,
+            'unit': material.unit.name if material.unit else '个',
+            'stock_value': round(material.stock * (material.price or 0), 2)
+        })
+    
+    # 按风险等级排序
+    health_data.sort(key=lambda x: {'high': 0, 'medium': 1, 'low': 2}.get(x['risk_level'], 3))
+    
+    # 构建AI分析提示
+    critical_items = [h for h in health_data if h['risk_level'] == 'high'][:5]
+    overstock_items = [h for h in health_data if h['health_status'] == 'overstock'][:5]
+    
+    prompt = f"""作为仓库管理专家，请分析以下库存健康度数据，给出专业的库存优化建议：
+
+【库存概况】共{len(health_data)}种物料有库存
+
+【高风险物料】（需立即关注）
+"""
+    for i, h in enumerate(critical_items, 1):
+        prompt += f"{i}. {h['material_name']}（{h['material_code']}）：库存{h['current_stock']}，状态{h['health_status']}\n"
+    
+    if overstock_items:
+        prompt += "\n【积压风险物料】（库存周转慢）\n"
+        for i, h in enumerate(overstock_items, 1):
+            prompt += f"{i}. {h['material_name']}：库存{h['current_stock']}，可用{h['days_of_supply']}天\n"
+    
+    prompt += """
+
+请生成简洁的库存优化建议（200字内），包括：
+1. 高风险物料处理建议（紧急补货或清理）
+2. 积压物料处理建议（促销、调拨或暂停采购）
+3. 整体库存健康度评估和改进方向
+要求语言简洁实用，可直接指导库存管理决策。"""
+    
+    try:
+        ai_analysis = _ai_call_llm_chat(prompt)
+        return jsonify({
+            'status': 'success',
+            'health_scores': health_data,
+            'ai_analysis': ai_analysis or 'AI分析暂不可用，请参考系统评分进行库存优化。',
+            'summary': {
+                'total': len(health_data),
+                'critical': len([h for h in health_data if h['risk_level'] == 'high']),
+                'warning': len([h for h in health_data if h['risk_level'] == 'medium']),
+                'healthy': len([h for h in health_data if h['risk_level'] == 'low'])
+            }
+        })
+    except Exception as e:
+        app.logger.error(f'库存健康度分析失败: {e}')
         return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
 
 @app.route('/report/view/<report_type>')
