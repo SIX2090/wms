@@ -18460,6 +18460,112 @@ def copy_in_order(id):
         return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
 
 
+def _check_in_order_anomalies(order):
+    """检测入库单异常：数量异常、价格异常、重复单据。返回异常列表。"""
+    anomalies = []
+    if not order.items:
+        return anomalies
+    
+    today = date.today()
+    thirty_days_ago = today - timedelta(days=30)
+    
+    for item in order.items:
+        if not item.material:
+            continue
+        
+        material_name = item.material.name or item.material.code or '未知物料'
+        
+        # 1. 数量异常检测：与近30天平均入库量对比
+        recent_in_orders = InOrder.query.filter(
+            InOrder.status == 'completed',
+            InOrder.date >= thirty_days_ago,
+            InOrder.date < today,
+            InOrder.id != order.id
+        ).all()
+        
+        recent_quantities = []
+        for ro in recent_in_orders:
+            for ri in ro.items:
+                if ri.material_id == item.material_id and ri.quantity:
+                    recent_quantities.append(ri.quantity)
+        
+        if recent_quantities:
+            avg_qty = sum(recent_quantities) / len(recent_quantities)
+            if avg_qty > 0 and item.quantity:
+                deviation = abs(item.quantity - avg_qty) / avg_qty
+                if deviation > 0.5:  # 偏离超过50%
+                    anomalies.append({
+                        'type': 'quantity_deviation',
+                        'material': material_name,
+                        'current': item.quantity,
+                        'average': round(avg_qty, 2),
+                        'deviation': f'{deviation*100:.0f}%',
+                        'msg': f'物料 {material_name} 本次入库量 {item.quantity} 是近30天平均 {round(avg_qty, 2)} 的 {deviation*100:.0f}%，请确认是否正确'
+                    })
+        
+        # 2. 价格异常检测：与近3次采购价对比
+        if item.price and item.price > 0:
+            recent_prices = []
+            for ro in recent_in_orders:
+                for ri in ro.items:
+                    if ri.material_id == item.material_id and ri.price and ri.price > 0:
+                        recent_prices.append(ri.price)
+            
+            if recent_prices:
+                recent_prices = sorted(recent_prices, reverse=True)[:3]  # 取最近3次
+                avg_price = sum(recent_prices) / len(recent_prices)
+                if avg_price > 0:
+                    price_deviation = abs(item.price - avg_price) / avg_price
+                    if price_deviation > 0.3:  # 偏离超过30%
+                        anomalies.append({
+                            'type': 'price_deviation',
+                            'material': material_name,
+                            'current': item.price,
+                            'average': round(avg_price, 2),
+                            'deviation': f'{price_deviation*100:.0f}%',
+                            'msg': f'物料 {material_name} 本次单价 {item.price} 与近3次平均 {round(avg_price, 2)} 偏离 {price_deviation*100:.0f}%，请确认'
+                        })
+    
+    # 3. 重复单据检测：同一天同物料同供应商
+    if order.supplier_id and order.date == today:
+        today_orders = InOrder.query.filter(
+            InOrder.date == today,
+            InOrder.supplier_id == order.supplier_id,
+            InOrder.id != order.id
+        ).all()
+        
+        for to in today_orders:
+            for ti in to.items:
+                for oi in order.items:
+                    if ti.material_id == oi.material_id:
+                        material_name = oi.material.name or oi.material.code
+                        anomalies.append({
+                            'type': 'duplicate_order',
+                            'material': material_name,
+                            'existing_order': to.order_no,
+                            'msg': f'物料 {material_name} 今天已在单据 {to.order_no} 中入库，请确认是否为重复操作'
+                        })
+    
+    return anomalies
+
+
+@app.route('/in_order/<int:id>/check_anomalies', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def check_in_order_anomalies(id):
+    """检查入库单异常，返回异常列表供前端确认。"""
+    order = InOrder.query.get_or_404(id)
+    if order.status != 'pending':
+        return jsonify({'status': 'error', 'msg': '该入库单已提交，不能检查异常'})
+    
+    anomalies = _check_in_order_anomalies(order)
+    return jsonify({
+        'status': 'success',
+        'anomalies': anomalies,
+        'has_anomalies': len(anomalies) > 0
+    })
+
+
 @app.route('/in_order/<int:id>/complete', methods=['POST'])
 @require_role('warehouse')
 @login_required
