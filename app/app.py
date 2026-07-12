@@ -30536,6 +30536,359 @@ def api_supplier_evaluation():
         app.logger.error(f'供应商评估失败: {e}')
         return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
 
+
+@app.route('/ai/location_recommendation')
+@login_required
+def ai_location_recommendation():
+    """智能库位推荐页面"""
+    return render_template('ai_location_recommendation.html')
+
+
+@app.route('/api/ai/recommend_location', methods=['POST'])
+@login_required
+def api_recommend_location():
+    """智能库位推荐API：基于物料周转率和库位使用情况，推荐最优库位。"""
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+
+    data = request.get_json() or {}
+    material_id = data.get('material_id')
+    
+    # 获取所有物料供选择
+    materials = Material.query.filter_by(status='active').all()
+    material_options = [{'id': m.id, 'code': m.code, 'name': m.name, 'spec': m.spec or '', 'unit': m.unit or ''} for m in materials]
+    
+    if not material_id:
+        return jsonify({
+            'status': 'success', 
+            'materials': material_options[:100],
+            'msg': '请选择要推荐的物料'
+        })
+    
+    material = Material.query.get(material_id)
+    if not material:
+        return jsonify({'status': 'error', 'msg': '物料不存在'}), 404
+    
+    # 1. 计算物料周转率（近90天出入库次数）
+    ninety_days_ago = date.today() - timedelta(days=90)
+    turnover_in = StockTransaction.query.filter(
+        StockTransaction.material_id == material_id,
+        StockTransaction.transaction_type.in_(['in', 'transfer_in', 'adjustment_in']),
+        StockTransaction.created_at >= ninety_days_ago
+    ).count()
+    
+    turnover_out = StockTransaction.query.filter(
+        StockTransaction.material_id == material_id,
+        StockTransaction.transaction_type.in_(['out', 'transfer_out', 'adjustment_out']),
+        StockTransaction.created_at >= ninety_days_ago
+    ).count()
+    
+    total_turnover = turnover_in + turnover_out
+    
+    # 周转率等级：高/中/低
+    if total_turnover >= 30:
+        turnover_level = '高'
+        turnover_desc = '高频周转物料，建议放置在靠近出入口、易于存取的位置'
+    elif total_turnover >= 10:
+        turnover_level = '中'
+        turnover_desc = '中频周转物料，建议放置在常规库位'
+    else:
+        turnover_level = '低'
+        turnover_desc = '低频周转物料，可放置在偏远或高层库位'
+    
+    # 2. 获取当前库位分布
+    current_locations = LocationInventory.query.filter(
+        LocationInventory.material_id == material_id,
+        LocationInventory.quantity > 0
+    ).all()
+    
+    current_dist = [{
+        'location': loc.location,
+        'quantity': loc.quantity,
+    } for loc in current_locations]
+    
+    # 3. 获取所有库位的使用情况
+    all_location_stats = db.session.query(
+        LocationInventory.location,
+        db.func.count(LocationInventory.material_id).label('material_count'),
+        db.func.sum(LocationInventory.quantity).label('total_qty')
+    ).group_by(LocationInventory.location).all()
+    
+    location_usage = [{
+        'location': stat.location,
+        'material_count': stat.material_count,
+        'total_qty': stat.total_qty or 0,
+    } for stat in all_location_stats]
+    
+    # 4. 库位推荐评分
+    # 高周转物料 → 推荐物料种类少（专区）或总库存低的库位（空间充足）
+    # 低周转物料 → 推荐物料种类多的库位（混放区）
+    recommendations = []
+    
+    for loc in location_usage:
+        score = 50  # 基础分
+        
+        if turnover_level == '高':
+            # 高周转物料：优先推荐物料种类少的库位（专区）
+            if loc['material_count'] <= 5:
+                score += 30  # 专区加分
+            elif loc['material_count'] <= 15:
+                score += 15
+            # 总库存适中的库位（有空间）
+            if 0 < loc['total_qty'] < 1000:
+                score += 20
+        elif turnover_level == '中':
+            # 中周转物料：常规库位即可
+            if 5 < loc['material_count'] <= 20:
+                score += 20
+        else:
+            # 低周转物料：可以放在物料种类多的库位
+            if loc['material_count'] > 15:
+                score += 25  # 混放区加分
+        
+        # 如果该物料已在此库位，加分（保持一致性）
+        if any(cl['location'] == loc['location'] for cl in current_dist):
+            score += 15
+        
+        recommendations.append({
+            'location': loc['location'],
+            'score': min(score, 100),
+            'material_count': loc['material_count'],
+            'total_qty': loc['total_qty'],
+        })
+    
+    # 按评分排序，取前5
+    recommendations.sort(key=lambda x: x['score'], reverse=True)
+    top_recommendations = recommendations[:5]
+    
+    # 5. AI分析
+    prompt = f"""作为仓储管理专家，请为以下物料提供库位优化建议：
+
+【物料信息】
+编码：{material.code}
+名称：{material.name}
+规格：{material.spec or '无'}
+单位：{material.unit or '无'}
+
+【周转情况】
+近90天出入库次数：{total_turnover}次（入库{turnover_in}次，出库{turnover_out}次）
+周转等级：{turnover_level}
+周转特点：{turnover_desc}
+
+【当前库位分布】
+"""
+    if current_dist:
+        for cd in current_dist:
+            prompt += f"- {cd['location']}：{cd['quantity']}{material.unit or ''}\n"
+    else:
+        prompt += "暂无库存分布\n"
+    
+    prompt += f"""
+【推荐库位】（按评分排序）
+"""
+    for i, rec in enumerate(top_recommendations, 1):
+        prompt += f"{i}. {rec['location']}（评分{rec['score']}，当前存放{rec['material_count']}种物料，总库存{rec['total_qty']}）\n"
+    
+    prompt += """
+请生成简洁的库位优化建议（150字内），包括：
+1. 推荐库位及理由
+2. 库位调整建议（如需要）
+3. 仓储效率提升要点
+要求语言简洁实用，可直接指导仓库操作。"""
+
+    try:
+        ai_analysis = _ai_call_llm_chat(prompt)
+        return jsonify({
+            'status': 'success',
+            'material': {
+                'id': material.id,
+                'code': material.code,
+                'name': material.name,
+                'spec': material.spec or '',
+                'unit': material.unit or '',
+            },
+            'turnover': {
+                'total': total_turnover,
+                'in_count': turnover_in,
+                'out_count': turnover_out,
+                'level': turnover_level,
+                'description': turnover_desc,
+            },
+            'current_locations': current_dist,
+            'recommendations': top_recommendations,
+            'ai_analysis': ai_analysis or 'AI分析暂不可用，请参考数据进行库位规划。',
+            'materials': material_options[:100],
+        })
+    except Exception as e:
+        app.logger.error(f'库位推荐失败: {e}')
+        return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
+
+
+@app.route('/ai/demand_forecast')
+@login_required
+def ai_demand_forecast():
+    """需求预测页面"""
+    return render_template('ai_demand_forecast.html')
+
+
+@app.route('/api/ai/demand_forecast', methods=['POST'])
+@login_required
+def api_demand_forecast():
+    """需求预测API：基于历史出库数据预测未来需求，生成补货建议。"""
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+
+    data = request.get_json() or {}
+    forecast_days = data.get('forecast_days', 30)  # 预测天数：7/14/30
+    category = data.get('category', '')  # 物料分类筛选
+    
+    # 获取物料列表
+    materials_query = Material.query.filter_by(status='active')
+    if category:
+        materials_query = materials_query.filter_by(category=category)
+    materials = materials_query.limit(100).all()
+    
+    if not materials:
+        return jsonify({'status': 'success', 'forecasts': [], 'msg': '暂无物料数据'})
+    
+    # 获取分类列表
+    categories = db.session.query(Material.category).distinct().filter(Material.category.isnot(None), Material.category != '').all()
+    category_list = [c[0] for c in categories]
+    
+    # 历史数据周期
+    history_days = 180
+    history_start = date.today() - timedelta(days=history_days)
+    
+    forecasts = []
+    
+    for material in materials[:50]:  # 限制处理数量，避免超时
+        # 查询近180天出库记录
+        out_transactions = StockTransaction.query.filter(
+            StockTransaction.material_id == material.id,
+            StockTransaction.transaction_type.in_(['out', 'transfer_out', 'adjustment_out']),
+            StockTransaction.created_at >= history_start
+        ).all()
+        
+        if not out_transactions:
+            continue
+        
+        # 按日统计出库量
+        daily_out = {}
+        for txn in out_transactions:
+            day = txn.created_at.date()
+            daily_out[day] = daily_out.get(day, 0) + abs(txn.quantity)
+        
+        # 计算统计指标
+        days_with_out = len(daily_out)
+        total_out = sum(daily_out.values())
+        avg_daily = total_out / history_days if history_days > 0 else 0
+        
+        # 标准差
+        if days_with_out >= 2:
+            values = list(daily_out.values())
+            mean = sum(values) / len(values)
+            variance = sum((v - mean) ** 2 for v in values) / len(values)
+            std = variance ** 0.5
+        else:
+            std = 0
+        
+        # 变异系数
+        cv = std / avg_daily if avg_daily > 0 else 0
+        
+        # 需求稳定性
+        if cv < 0.3:
+            stability = '稳定'
+        elif cv < 0.7:
+            stability = '波动'
+        else:
+            stability = '剧烈波动'
+        
+        # 预测未来需求量（均值 × 天数）
+        forecast_qty = avg_daily * forecast_days
+        
+        # 当前库存
+        current_stock = material.stock or 0
+        
+        # 预计库存缺口
+        gap = forecast_qty - current_stock
+        
+        # 补货建议
+        if gap > 0:
+            action = '需补货'
+            urgency = '紧急' if gap > current_stock * 0.5 else '常规'
+        elif gap > -current_stock * 0.2:
+            action = '库存充足'
+            urgency = '-'
+        else:
+            action = '库存积压'
+            urgency = '-'
+        
+        forecasts.append({
+            'material_id': material.id,
+            'material_code': material.code,
+            'material_name': material.name,
+            'material_spec': material.spec or '',
+            'category': material.category or '-',
+            'unit': material.unit or '',
+            'current_stock': round(current_stock, 2),
+            'history_days': history_days,
+            'total_out': round(total_out, 2),
+            'avg_daily': round(avg_daily, 2),
+            'std': round(std, 2),
+            'cv': round(cv, 2),
+            'stability': stability,
+            'forecast_days': forecast_days,
+            'forecast_qty': round(forecast_qty, 2),
+            'gap': round(gap, 2),
+            'action': action,
+            'urgency': urgency,
+        })
+    
+    # 按紧急程度排序（需补货 > 库存充足 > 库存积压）
+    priority = {'需补货': 0, '库存充足': 1, '库存积压': 2}
+    forecasts.sort(key=lambda x: (priority.get(x['action'], 9), x['gap']))
+    
+    # AI分析
+    need_restock = [f for f in forecasts if f['action'] == '需补货']
+    prompt = f"""作为库存管理专家，请分析以下需求预测数据，给出专业的库存管理建议：
+
+【预测概况】
+预测周期：未来{forecast_days}天
+分析物料数：{len(forecasts)}种
+需补货物料：{len(need_restock)}种
+
+【需补货物料明细】（前10种）
+"""
+    for i, f in enumerate(need_restock[:10], 1):
+        prompt += f"{i}. {f['material_code']} {f['material_name']}\n"
+        prompt += f"   当前库存：{f['current_stock']}{f['unit']}，预测需求：{f['forecast_qty']}{f['unit']}，缺口：{f['gap']}{f['unit']}\n"
+        prompt += f"   需求稳定性：{f['stability']}（变异系数{f['cv']}），紧急程度：{f['urgency']}\n\n"
+    
+    prompt += """请生成简洁的库存管理建议（200字内），包括：
+1. 紧急补货清单（优先处理缺口大、紧急程度高的物料）
+2. 库存优化建议（针对需求波动大的物料）
+3. 采购策略建议（是否需要调整安全库存或采购周期）
+要求语言简洁实用，可直接指导采购决策。"""
+
+    try:
+        ai_analysis = _ai_call_llm_chat(prompt) if need_restock else '所有物料库存充足，暂无需补货。'
+        return jsonify({
+            'status': 'success',
+            'forecasts': forecasts,
+            'categories': category_list,
+            'ai_analysis': ai_analysis or 'AI分析暂不可用，请参考数据进行库存管理。',
+            'summary': {
+                'total': len(forecasts),
+                'need_restock': len(need_restock),
+                'stock_sufficient': len([f for f in forecasts if f['action'] == '库存充足']),
+                'stock_excess': len([f for f in forecasts if f['action'] == '库存积压']),
+            }
+        })
+    except Exception as e:
+        app.logger.error(f'需求预测失败: {e}')
+        return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
+
+
 @app.route('/report/view/<report_type>')
 @login_required
 def report_view(report_type):

@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+{% block title %}需求预测{% endblock %}
+
+{% block extra_css %}
+<style>
+.forecast-summary-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 16px;
+    background: #fff;
+    text-align: center;
+}
+.forecast-summary-card .value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1e293b;
+}
+.forecast-summary-card .label {
+    font-size: 13px;
+    color: #64748b;
+    margin-top: 4px;
+}
+.forecast-summary-card.restock .value { color: #dc2626; }
+.forecast-summary-card.sufficient .value { color: #16a34a; }
+.forecast-summary-card.excess .value { color: #9333ea; }
+.action-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+.action-restock { background: #fee2e2; color: #991b1b; }
+.action-sufficient { background: #dcfce7; color: #166534; }
+.action-excess { background: #f3e8ff; color: #6b21a8; }
+.urgency-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+}
+.urgency-urgent { background: #fef2f2; color: #dc2626; }
+.urgency-normal { background: #f0f9ff; color: #0369a1; }
+.stability-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+}
+.stability-stable { background: #dcfce7; color: #166534; }
+.stability-volatile { background: #fef3c7; color: #92400e; }
+.stability-wild { background: #fee2e2; color: #991b1b; }
+.ai-analysis-box {
+    background: linear-gradient(135deg, #f0f4ff 0%, #faf5ff 100%);
+    border: 1px solid #c7d2fe;
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 16px;
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    color: #1e293b;
+}
+.filter-bar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-graph-up"></i> 需求预测</h4>
+    </div>
+
+    <!-- 筛选条件 -->
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body">
+            <div class="filter-bar">
+                <div>
+                    <label class="form-label mb-1 small">预测周期</label>
+                    <select class="form-select form-select-sm" id="forecastDays">
+                        <option value="7">未来7天</option>
+                        <option value="14">未来14天</option>
+                        <option value="30" selected>未来30天</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label mb-1 small">物料分类</label>
+                    <select class="form-select form-select-sm" id="categoryFilter">
+                        <option value="">全部分类</option>
+                    </select>
+                </div>
+                <div class="align-self-end">
+                    <button class="btn btn-primary" onclick="generateForecast()">
+                        <i class="bi bi-stars"></i> 生成预测
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 加载状态 -->
+    <div id="loadingArea" class="text-center my-4" style="display:none;">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-2 text-muted">AI正在分析历史出库数据，预测未来需求...</p>
+    </div>
+
+    <!-- 结果区域 -->
+    <div id="resultArea" style="display:none;">
+        <!-- 汇总卡片 -->
+        <div class="row g-3 mb-3">
+            <div class="col-md-3">
+                <div class="forecast-summary-card">
+                    <div class="value" id="summaryTotal">-</div>
+                    <div class="label">分析物料数</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="forecast-summary-card restock">
+                    <div class="value" id="summaryRestock">-</div>
+                    <div class="label">需补货</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="forecast-summary-card sufficient">
+                    <div class="value" id="summarySufficient">-</div>
+                    <div class="label">库存充足</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="forecast-summary-card excess">
+                    <div class="value" id="summaryExcess">-</div>
+                    <div class="label">库存积压</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 预测明细 -->
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-list-check"></i> 预测明细</h5>
+                <div class="d-flex gap-2">
+                    <select class="form-select form-select-sm" style="width: auto;" id="actionFilter" onchange="filterTable()">
+                        <option value="all">全部状态</option>
+                        <option value="需补货">需补货</option>
+                        <option value="库存充足">库存充足</option>
+                        <option value="库存积压">库存积压</option>
+                    </select>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="exportForecast()">
+                        <i class="bi bi-download"></i> 导出
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>物料编码</th>
+                                <th>物料名称</th>
+                                <th>分类</th>
+                                <th class="text-end">当前库存</th>
+                                <th class="text-end">日均出库</th>
+                                <th class="text-end">预测需求</th>
+                                <th class="text-end">缺口</th>
+                                <th>需求稳定性</th>
+                                <th>状态</th>
+                                <th>紧急程度</th>
+                            </tr>
+                        </thead>
+                        <tbody id="forecastTable"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card-footer bg-white text-muted small">
+                <i class="bi bi-info-circle"></i> 
+                基于近180天历史出库数据预测，变异系数<0.3为稳定，0.3-0.7为波动，>0.7为剧烈波动
+            </div>
+        </div>
+
+        <!-- AI分析 -->
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-robot"></i> AI库存管理建议</h5>
+            </div>
+            <div class="card-body">
+                <div class="ai-analysis-box" id="aiAnalysis"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let forecastData = [];
+
+$(document).ready(function() {
+    loadCategories();
+});
+
+function loadCategories() {
+    // 分类会在首次预测后加载
+}
+
+function generateForecast() {
+    const forecastDays = parseInt($('#forecastDays').val());
+    const category = $('#categoryFilter').val();
+    
+    $('#loadingArea').show();
+    $('#resultArea').hide();
+    
+    fetch('/api/ai/demand_forecast', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({forecast_days: forecastDays, category: category})
+    })
+    .then(r => r.json())
+    .then(data => {
+        $('#loadingArea').hide();
+        if (data.status === 'error') {
+            alert(data.msg || '生成失败');
+            return;
+        }
+        forecastData = data.forecasts || [];
+        renderForecast(data);
+    })
+    .catch(err => {
+        $('#loadingArea').hide();
+        alert('请求失败：' + err.message);
+    });
+}
+
+function renderForecast(data) {
+    // 汇总
+    $('#summaryTotal').text(data.summary.total);
+    $('#summaryRestock').text(data.summary.need_restock);
+    $('#summarySufficient').text(data.summary.stock_sufficient);
+    $('#summaryExcess').text(data.summary.stock_excess);
+    
+    // 分类下拉
+    if (data.categories && data.categories.length > 0) {
+        const select = $('#categoryFilter');
+        select.find('option:not(:first)').remove();
+        data.categories.forEach(cat => {
+            select.append(`<option value="${cat}">${cat}</option>`);
+        });
+    }
+    
+    // 表格
+    renderTable(forecastData);
+    
+    // AI分析
+    $('#aiAnalysis').text(data.ai_analysis || '');
+    
+    $('#resultArea').show();
+}
+
+function renderTable(data) {
+    const tbody = $('#forecastTable');
+    if (!data || data.length === 0) {
+        tbody.html('<tr><td colspan="10" class="text-center text-muted py-4">暂无预测数据</td></tr>');
+        return;
+    }
+    
+    tbody.html(data.map(f => {
+        const actionClass = f.action === '需补货' ? 'action-restock' : 
+                           f.action === '库存充足' ? 'action-sufficient' : 'action-excess';
+        const stabilityClass = f.stability === '稳定' ? 'stability-stable' : 
+                              f.stability === '波动' ? 'stability-volatile' : 'stability-wild';
+        const urgencyHtml = f.urgency === '紧急' ? 
+            `<span class="urgency-badge urgency-urgent">${f.urgency}</span>` : 
+            f.urgency === '常规' ? `<span class="urgency-badge urgency-normal">${f.urgency}</span>` : '-';
+        
+        return `<tr>
+            <td><strong>${f.material_code}</strong></td>
+            <td>${f.material_name}</td>
+            <td>${f.category}</td>
+            <td class="text-end">${f.current_stock} ${f.unit}</td>
+            <td class="text-end">${f.avg_daily}</td>
+            <td class="text-end">${f.forecast_qty}</td>
+            <td class="text-end ${f.gap > 0 ? 'text-danger' : ''}">${f.gap > 0 ? '+' : ''}${f.gap}</td>
+            <td><span class="stability-tag ${stabilityClass}">${f.stability}</span></td>
+            <td><span class="action-badge ${actionClass}">${f.action}</span></td>
+            <td>${urgencyHtml}</td>
+        </tr>`;
+    }).join(''));
+}
+
+function filterTable() {
+    const action = $('#actionFilter').val();
+    if (action === 'all') {
+        renderTable(forecastData);
+    } else {
+        renderTable(forecastData.filter(f => f.action === action));
+    }
+}
+
+function exportForecast() {
+    if (!forecastData || forecastData.length === 0) {
+        alert('暂无数据可导出');
+        return;
+    }
+    
+    const csv = [
+        ['物料编码', '物料名称', '分类', '当前库存', '日均出库', '预测需求', '缺口', '需求稳定性', '状态', '紧急程度'].join(','),
+        ...forecastData.map(f => [
+            f.material_code,
+            f.material_name,
+            f.category,
+            f.current_stock,
+            f.avg_daily,
+            f.forecast_qty,
+            f.gap,
+            f.stability,
+            f.action,
+            f.urgency
+        ].join(','))
+    ].join('\n');
+    
+    const blob = new Blob(['\uFEFF' + csv], {type: 'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `需求预测_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}

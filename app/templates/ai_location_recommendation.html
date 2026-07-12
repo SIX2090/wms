@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+{% block title %}智能库位推荐{% endblock %}
+
+{% block extra_css %}
+<style>
+.recommend-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    background: #fff;
+    transition: box-shadow 0.2s;
+}
+.recommend-card:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.score-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 14px;
+}
+.score-high { background: #dcfce7; color: #166534; }
+.score-medium { background: #fef3c7; color: #92400e; }
+.score-low { background: #f3f4f6; color: #374151; }
+.turnover-tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+.turnover-high { background: #fee2e2; color: #991b1b; }
+.turnover-medium { background: #fef3c7; color: #92400e; }
+.turnover-low { background: #e0e7ff; color: #3730a3; }
+.location-pill {
+    display: inline-block;
+    padding: 4px 10px;
+    margin: 2px 4px 2px 0;
+    background: #f0f4ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 14px;
+    font-size: 13px;
+    color: #3730a3;
+}
+.ai-analysis-box {
+    background: linear-gradient(135deg, #f0f4ff 0%, #faf5ff 100%);
+    border: 1px solid #c7d2fe;
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 16px;
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    color: #1e293b;
+}
+.material-select-wrapper {
+    position: relative;
+}
+.material-search {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 14px;
+}
+.material-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 300px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    z-index: 100;
+    display: none;
+}
+.material-dropdown.show { display: block; }
+.material-option {
+    padding: 10px 14px;
+    cursor: pointer;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 14px;
+}
+.material-option:hover { background: #f0f4ff; }
+.material-option:last-child { border-bottom: none; }
+.material-option .code { font-weight: 600; color: #1e293b; }
+.material-option .name { color: #64748b; margin-left: 8px; }
+.material-option .spec { color: #94a3b8; margin-left: 8px; font-size: 12px; }
+.stat-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+}
+.stat-card .stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1e293b;
+}
+.stat-card .stat-label {
+    font-size: 13px;
+    color: #64748b;
+    margin-top: 4px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-geo-alt"></i> 智能库位推荐</h4>
+    </div>
+
+    <!-- 物料选择 -->
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body">
+            <label class="form-label fw-bold">选择要推荐库位的物料</label>
+            <div class="material-select-wrapper">
+                <input type="text" class="material-search" id="materialSearch" placeholder="输入编码或名称搜索物料..." autocomplete="off">
+                <div class="material-dropdown" id="materialDropdown"></div>
+            </div>
+            <div id="selectedMaterial" class="mt-2" style="display:none;">
+                <span class="badge bg-primary" id="selectedBadge"></span>
+                <button class="btn btn-sm btn-link" onclick="clearSelection()">清除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 生成按钮 -->
+    <div class="text-center mb-3">
+        <button class="btn btn-primary btn-lg" id="generateBtn" onclick="generateRecommendation()" disabled>
+            <i class="bi bi-stars"></i> 生成库位推荐
+        </button>
+    </div>
+
+    <!-- 加载状态 -->
+    <div id="loadingArea" class="text-center my-4" style="display:none;">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-2 text-muted">AI正在分析物料周转率和库位使用情况...</p>
+    </div>
+
+    <!-- 结果区域 -->
+    <div id="resultArea" style="display:none;">
+        <!-- 物料信息卡片 -->
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-box-seam"></i> 物料信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-value" id="statCode">-</div>
+                            <div class="stat-label">物料编码</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-value" id="statName">-</div>
+                            <div class="stat-label">物料名称</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-value" id="statTurnover">-</div>
+                            <div class="stat-label">近90天周转次数</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-value" id="statLevel">-</div>
+                            <div class="stat-label">周转等级</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <span class="text-muted">周转分析：</span>
+                    <span id="turnoverDesc" class="ms-1"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 当前库位分布 -->
+        <div class="card border-0 shadow-sm mb-3" id="currentLocationCard">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-geo"></i> 当前库位分布</h5>
+            </div>
+            <div class="card-body">
+                <div id="currentLocations"></div>
+            </div>
+        </div>
+
+        <!-- 推荐库位 -->
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-star"></i> 推荐库位</h5>
+            </div>
+            <div class="card-body" id="recommendationsArea"></div>
+        </div>
+
+        <!-- AI分析 -->
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-robot"></i> AI库位优化建议</h5>
+            </div>
+            <div class="card-body">
+                <div class="ai-analysis-box" id="aiAnalysis"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let allMaterials = [];
+let selectedMaterialId = null;
+
+// 初始化加载物料列表
+$(document).ready(function() {
+    loadMaterials();
+});
+
+function loadMaterials() {
+    fetch('/api/ai/recommend_location', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success' && data.materials) {
+            allMaterials = data.materials;
+        }
+    });
+}
+
+// 物料搜索
+$('#materialSearch').on('input', function() {
+    const query = $(this).val().trim().toLowerCase();
+    const dropdown = $('#materialDropdown');
+    
+    if (!query) {
+        dropdown.removeClass('show');
+        return;
+    }
+    
+    const filtered = allMaterials.filter(m => 
+        m.code.toLowerCase().includes(query) || 
+        m.name.toLowerCase().includes(query) ||
+        (m.spec && m.spec.toLowerCase().includes(query))
+    ).slice(0, 20);
+    
+    if (filtered.length === 0) {
+        dropdown.html('<div class="material-option text-muted">未找到匹配物料</div>');
+    } else {
+        dropdown.html(filtered.map(m => 
+            `<div class="material-option" onclick="selectMaterial(${m.id}, '${m.code}', '${m.name}')">
+                <span class="code">${m.code}</span>
+                <span class="name">${m.name}</span>
+                ${m.spec ? `<span class="spec">${m.spec}</span>` : ''}
+            </div>`
+        ).join(''));
+    }
+    dropdown.addClass('show');
+});
+
+// 点击外部关闭下拉
+$(document).on('click', function(e) {
+    if (!$(e.target).closest('.material-select-wrapper').length) {
+        $('#materialDropdown').removeClass('show');
+    }
+});
+
+function selectMaterial(id, code, name) {
+    selectedMaterialId = id;
+    $('#materialSearch').val(code + ' - ' + name);
+    $('#materialDropdown').removeClass('show');
+    $('#selectedBadge').text(code + ' - ' + name);
+    $('#selectedMaterial').show();
+    $('#generateBtn').prop('disabled', false);
+}
+
+function clearSelection() {
+    selectedMaterialId = null;
+    $('#materialSearch').val('');
+    $('#selectedMaterial').hide();
+    $('#generateBtn').prop('disabled', true);
+    $('#resultArea').hide();
+}
+
+function generateRecommendation() {
+    if (!selectedMaterialId) return;
+    
+    $('#loadingArea').show();
+    $('#resultArea').hide();
+    
+    fetch('/api/ai/recommend_location', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({material_id: selectedMaterialId})
+    })
+    .then(r => r.json())
+    .then(data => {
+        $('#loadingArea').hide();
+        if (data.status === 'error') {
+            alert(data.msg || '生成失败');
+            return;
+        }
+        renderResult(data);
+    })
+    .catch(err => {
+        $('#loadingArea').hide();
+        alert('请求失败：' + err.message);
+    });
+}
+
+function renderResult(data) {
+    // 物料信息
+    $('#statCode').text(data.material.code);
+    $('#statName').text(data.material.name);
+    $('#statTurnover').text(data.turnover.total);
+    
+    const levelClass = data.turnover.level === '高' ? 'turnover-high' : 
+                       data.turnover.level === '中' ? 'turnover-medium' : 'turnover-low';
+    $('#statLevel').html(`<span class="turnover-tag ${levelClass}">${data.turnover.level}</span>`);
+    $('#turnoverDesc').text(data.turnover.description);
+    
+    // 当前库位
+    const currentLocs = data.current_locations || [];
+    if (currentLocs.length > 0) {
+        $('#currentLocations').html(
+            currentLocs.map(loc => 
+                `<span class="location-pill">${loc.location}：${loc.quantity}${data.material.unit}</span>`
+            ).join('')
+        );
+        $('#currentLocationCard').show();
+    } else {
+        $('#currentLocations').html('<span class="text-muted">暂无库位分布</span>');
+        $('#currentLocationCard').show();
+    }
+    
+    // 推荐库位
+    const recs = data.recommendations || [];
+    if (recs.length > 0) {
+        $('#recommendationsArea').html(
+            recs.map((rec, idx) => {
+                const scoreClass = rec.score >= 80 ? 'score-high' : 
+                                   rec.score >= 60 ? 'score-medium' : 'score-low';
+                return `
+                <div class="recommend-card">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong class="fs-5">${idx + 1}. ${rec.location}</strong>
+                            <span class="score-badge ${scoreClass} ms-2">${rec.score}分</span>
+                        </div>
+                    </div>
+                    <div class="mt-2 text-muted small">
+                        当前存放 <strong>${rec.material_count}</strong> 种物料，
+                        总库存 <strong>${rec.total_qty}</strong>
+                    </div>
+                </div>`;
+            }).join('')
+        );
+    } else {
+        $('#recommendationsArea').html('<p class="text-muted text-center mb-0">暂无可用库位数据</p>');
+    }
+    
+    // AI分析
+    $('#aiAnalysis').text(data.ai_analysis || '');
+    
+    $('#resultArea').show();
+}
+</script>
+{% endblock %}
