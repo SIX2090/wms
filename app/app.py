@@ -18558,6 +18558,32 @@ def copy_in_order(id):
         return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
 
 
+def _calc_smart_threshold(values, base_threshold=0.5, min_threshold=0.2, max_threshold=1.0):
+    """基于历史数据计算智能异常阈值。
+    数据稳定（变异系数小）→ 阈值收紧；数据波动大 → 阈值放宽。
+    返回 (threshold, mean, std)。
+    """
+    if not values or len(values) < 2:
+        return base_threshold, (sum(values) / len(values) if values else 0), 0
+    
+    n = len(values)
+    mean = sum(values) / n
+    if mean <= 0:
+        return base_threshold, mean, 0
+    
+    variance = sum((v - mean) ** 2 for v in values) / (n - 1)
+    std = variance ** 0.5
+    cv = std / mean  # 变异系数
+    
+    # 变异系数映射到阈值系数：cv=0 → 0.6倍基础阈值，cv=1 → 1.5倍基础阈值
+    scale = 0.6 + cv * 0.9
+    scale = max(0.6, min(scale, 2.0))
+    threshold = base_threshold * scale
+    threshold = max(min_threshold, min(threshold, max_threshold))
+    
+    return threshold, mean, std
+
+
 def _check_in_order_anomalies(order):
     """检测入库单异常：数量异常、价格异常、重复单据。返回异常列表。"""
     anomalies = []
@@ -18597,38 +18623,40 @@ def _check_in_order_anomalies(order):
         
         material_name = item.material.name or item.material.code or '未知物料'
         
-        # 1. 数量异常检测：与近30天平均入库量对比
+        # 1. 数量异常检测：与近30天平均入库量对比（智能阈值）
         recent_quantities = qty_by_material.get(item.material_id, [])
         if recent_quantities:
-            avg_qty = sum(recent_quantities) / len(recent_quantities)
+            qty_threshold, avg_qty, _ = _calc_smart_threshold(recent_quantities, base_threshold=0.5)
             if avg_qty > 0 and item.quantity:
                 deviation = abs(item.quantity - avg_qty) / avg_qty
-                if deviation > 0.5:  # 偏离超过50%
+                if deviation > qty_threshold:
                     anomalies.append({
                         'type': 'quantity_deviation',
                         'material': material_name,
                         'current': item.quantity,
                         'average': round(avg_qty, 2),
                         'deviation': f'{deviation*100:.0f}%',
-                        'msg': f'物料 {material_name} 本次入库量 {item.quantity} 是近30天平均 {round(avg_qty, 2)} 的 {deviation*100:.0f}%，请确认是否正确'
+                        'threshold': f'{qty_threshold*100:.0f}%',
+                        'msg': f'物料 {material_name} 本次入库量 {item.quantity} 偏离近30天均值 {round(avg_qty, 2)} 达 {deviation*100:.0f}%（动态阈值 {qty_threshold*100:.0f}%），请确认是否正确'
                     })
         
-        # 2. 价格异常检测：与近3次采购价对比
+        # 2. 价格异常检测：与近3次采购价对比（智能阈值）
         if item.price and item.price > 0:
             recent_prices = price_by_material.get(item.material_id, [])
             if recent_prices:
-                recent_prices = sorted(recent_prices, reverse=True)[:3]  # 取最近3次
-                avg_price = sum(recent_prices) / len(recent_prices)
+                recent_prices_sorted = sorted(recent_prices, reverse=True)[:3]  # 取最近3次
+                price_threshold, avg_price, _ = _calc_smart_threshold(recent_prices_sorted, base_threshold=0.3)
                 if avg_price > 0:
                     price_deviation = abs(item.price - avg_price) / avg_price
-                    if price_deviation > 0.3:  # 偏离超过30%
+                    if price_deviation > price_threshold:
                         anomalies.append({
                             'type': 'price_deviation',
                             'material': material_name,
                             'current': item.price,
                             'average': round(avg_price, 2),
                             'deviation': f'{price_deviation*100:.0f}%',
-                            'msg': f'物料 {material_name} 本次单价 {item.price} 与近3次平均 {round(avg_price, 2)} 偏离 {price_deviation*100:.0f}%，请确认'
+                            'threshold': f'{price_threshold*100:.0f}%',
+                            'msg': f'物料 {material_name} 本次单价 {item.price} 偏离近期均价 {round(avg_price, 2)} 达 {price_deviation*100:.0f}%（动态阈值 {price_threshold*100:.0f}%），请确认'
                         })
     
     # 3. 重复单据检测：同一天同物料同供应商
@@ -25523,38 +25551,40 @@ def _check_out_order_anomalies(order):
         
         material_name = item.material.name or item.material.code or '未知物料'
         
-        # 1. 数量异常检测：与近30天平均出库量对比
+        # 1. 数量异常检测：与近30天平均出库量对比（智能阈值）
         recent_quantities = qty_by_material.get(item.material_id, [])
         if recent_quantities:
-            avg_qty = sum(recent_quantities) / len(recent_quantities)
+            qty_threshold, avg_qty, _ = _calc_smart_threshold(recent_quantities, base_threshold=0.5)
             if avg_qty > 0 and item.quantity:
                 deviation = abs(item.quantity - avg_qty) / avg_qty
-                if deviation > 0.5:  # 偏离超过50%
+                if deviation > qty_threshold:
                     anomalies.append({
                         'type': 'quantity_deviation',
                         'material': material_name,
                         'current': item.quantity,
                         'average': round(avg_qty, 2),
                         'deviation': f'{deviation*100:.0f}%',
-                        'msg': f'物料 {material_name} 本次出库量 {item.quantity} 是近30天平均 {round(avg_qty, 2)} 的 {deviation*100:.0f}%，请确认是否正确'
+                        'threshold': f'{qty_threshold*100:.0f}%',
+                        'msg': f'物料 {material_name} 本次出库量 {item.quantity} 偏离近30天均值 {round(avg_qty, 2)} 达 {deviation*100:.0f}%（动态阈值 {qty_threshold*100:.0f}%），请确认是否正确'
                     })
         
-        # 2. 金额异常检测：与近3次出库单价对比
+        # 2. 金额异常检测：与近3次出库单价对比（智能阈值）
         if item.price and item.price > 0:
             recent_prices = price_by_material.get(item.material_id, [])
             if recent_prices:
-                recent_prices = sorted(recent_prices, reverse=True)[:3]  # 取最近3次
-                avg_price = sum(recent_prices) / len(recent_prices)
+                recent_prices_sorted = sorted(recent_prices, reverse=True)[:3]  # 取最近3次
+                price_threshold, avg_price, _ = _calc_smart_threshold(recent_prices_sorted, base_threshold=0.3)
                 if avg_price > 0:
                     price_deviation = abs(item.price - avg_price) / avg_price
-                    if price_deviation > 0.3:  # 偏离超过30%
+                    if price_deviation > price_threshold:
                         anomalies.append({
                             'type': 'price_deviation',
                             'material': material_name,
                             'current': item.price,
                             'average': round(avg_price, 2),
                             'deviation': f'{price_deviation*100:.0f}%',
-                            'msg': f'物料 {material_name} 本次单价 {item.price} 与近3次平均 {round(avg_price, 2)} 偏离 {price_deviation*100:.0f}%，请确认'
+                            'threshold': f'{price_threshold*100:.0f}%',
+                            'msg': f'物料 {material_name} 本次单价 {item.price} 偏离近期均价 {round(avg_price, 2)} 达 {price_deviation*100:.0f}%（动态阈值 {price_threshold*100:.0f}%），请确认'
                         })
     
     # 3. 重复单据检测：同一天同物料同客户/部门
