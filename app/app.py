@@ -18650,6 +18650,26 @@ def check_in_order_anomalies(id):
         return jsonify({'status': 'error', 'msg': '该入库单已提交，不能检查异常'})
     
     anomalies = _check_in_order_anomalies(order)
+    
+    # 如果有异常且启用了AI，添加AI原因分析
+    if anomalies and _ai_llm_configured():
+        for anomaly in anomalies:
+            # 生成AI分析提示
+            prompt = f"作为仓库管理专家，请分析以下异常情况并给出简短建议（50字内）：\n"
+            prompt += f"异常类型：{anomaly['type']}\n"
+            prompt += f"物料：{anomaly['material']}\n"
+            prompt += f"当前值：{anomaly['current']}\n"
+            prompt += f"历史均值：{anomaly['average']}\n"
+            prompt += f"偏离度：{anomaly['deviation']}\n"
+            prompt += f"可能原因和建议："
+            
+            try:
+                ai_suggestion = _ai_call_llm_chat(prompt)
+                if ai_suggestion:
+                    anomaly['ai_suggestion'] = ai_suggestion.strip()
+            except Exception as e:
+                app.logger.warning(f'AI异常分析失败: {e}')
+    
     return jsonify({
         'status': 'success',
         'anomalies': anomalies,
@@ -25564,6 +25584,26 @@ def check_out_order_anomalies(id):
         return jsonify({'status': 'error', 'msg': '该出库单已提交，不能检查异常'})
     
     anomalies = _check_out_order_anomalies(order)
+    
+    # 如果有异常且启用了AI，添加AI原因分析
+    if anomalies and _ai_llm_configured():
+        for anomaly in anomalies:
+            # 生成AI分析提示
+            prompt = f"作为仓库管理专家，请分析以下出库异常情况并给出简短建议（50字内）：\n"
+            prompt += f"异常类型：{anomaly['type']}\n"
+            prompt += f"物料：{anomaly['material']}\n"
+            prompt += f"当前值：{anomaly['current']}\n"
+            prompt += f"历史均值：{anomaly['average']}\n"
+            prompt += f"偏离度：{anomaly['deviation']}\n"
+            prompt += f"可能原因和建议："
+            
+            try:
+                ai_suggestion = _ai_call_llm_chat(prompt)
+                if ai_suggestion:
+                    anomaly['ai_suggestion'] = ai_suggestion.strip()
+            except Exception as e:
+                app.logger.warning(f'AI异常分析失败: {e}')
+    
     return jsonify({
         'status': 'success',
         'anomalies': anomalies,
@@ -28406,6 +28446,25 @@ def build_report_dashboard_context():
         OutOrder.date >= month_start,
         OutOrder.date < next_month_start
     ).scalar() or 0
+    
+    # 上月数据用于环比分析
+    last_month_start = _shift_month_start(month_start, -1)
+    last_month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
+        InOrder.date >= last_month_start,
+        InOrder.date < month_start
+    ).scalar() or 0
+    last_month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
+        OutOrder.date >= last_month_start,
+        OutOrder.date < month_start
+    ).scalar() or 0
+    last_month_in_count = db.session.query(func.count(InOrder.id)).filter(
+        InOrder.date >= last_month_start,
+        InOrder.date < month_start
+    ).scalar() or 0
+    last_month_out_count = db.session.query(func.count(OutOrder.id)).filter(
+        OutOrder.date >= last_month_start,
+        OutOrder.date < month_start
+    ).scalar() or 0
 
     total_stock = db.session.query(func.coalesce(func.sum(Material.stock), 0)).scalar() or 0
     material_count = db.session.query(func.count(Material.id)).scalar() or 0
@@ -28421,6 +28480,10 @@ def build_report_dashboard_context():
         'total_stock': float(total_stock),
         'material_count': int(material_count),
         'stock_value': float(stock_value),
+        'last_month_in_amount': float(last_month_in_amount),
+        'last_month_out_amount': float(last_month_out_amount),
+        'last_month_in_count': int(last_month_in_count),
+        'last_month_out_count': int(last_month_out_count),
     }
 
     trend_start = today - timedelta(days=9)
@@ -29910,20 +29973,30 @@ def report_dashboard_ai_insights():
     if not _ai_llm_configured():
         return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
     stats, chart_data = build_report_dashboard_context()
+    
+    # 计算环比增长率
+    in_amount_mom = ((stats['month_in_amount'] - stats['last_month_in_amount']) / stats['last_month_in_amount'] * 100) if stats['last_month_in_amount'] > 0 else 0
+    out_amount_mom = ((stats['month_out_amount'] - stats['last_month_out_amount']) / stats['last_month_out_amount'] * 100) if stats['last_month_out_amount'] > 0 else 0
+    
     prompt = f"""你是仓库管理系统的数据分析师，请基于以下仪表盘数据生成简洁的业务洞察：
 
 【核心指标】
-- 本月入库金额：{stats.month_in_amount} 元，共 {stats.month_in_count} 笔单据
-- 本月领料金额：{stats.month_out_amount} 元，共 {stats.month_out_count} 笔单据
-- 库存总量：{stats.total_stock}，共 {stats.material_count} 种物料
-- 库存金额：{stats.stock_value} 元
+- 本月入库金额：{stats.month_in_amount:.2f} 元，共 {stats.month_in_count} 笔单据
+- 本月领料金额：{stats.month_out_amount:.2f} 元，共 {stats.month_out_count} 笔单据
+- 库存总量：{stats.total_stock:.2f}，共 {stats.material_count} 种物料
+- 库存金额：{stats.stock_value:.2f} 元
+
+【环比分析】
+- 入库金额环比：{in_amount_mom:+.1f}%（上月 {stats.last_month_in_amount:.2f} 元）
+- 领料金额环比：{out_amount_mom:+.1f}%（上月 {stats.last_month_out_amount:.2f} 元）
 
 【趋势数据】近10天出入库数量趋势：{json.dumps(chart_data.get('trend', {}), ensure_ascii=False)[:500]}
 
-请生成3-5条有价值的业务洞察，包括：
-1. 出入库趋势分析（上升/下降/平稳及可能原因）
-2. 库存健康度评估（是否有积压或缺货风险）
-3. 可执行的改进建议
+请生成4-6条有价值的业务洞察，包括：
+1. 环比分析（本月vs上月，增长/下降原因分析）
+2. 出入库趋势分析（近10天波动情况及可能原因）
+3. 库存健康度评估（是否有积压或缺货风险）
+4. 可执行的改进建议
 要求语言简洁专业，每条不超过80字，用换行分隔。"""
     try:
         insights = _ai_call_llm_chat(prompt)
@@ -29932,6 +30005,83 @@ def report_dashboard_ai_insights():
         return jsonify({'status': 'success', 'insights': insights})
     except Exception as e:
         app.logger.error(f'报表AI解读失败: {e}')
+        return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
+
+@app.route('/api/ai/replenishment_suggestions', methods=['POST'])
+@login_required
+def ai_replenishment_suggestions():
+    """智能补货建议：分析库存低于补货点的物料，结合历史出库数据生成补货建议。"""
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+    
+    # 查询库存低于补货点的物料
+    materials = Material.query.filter(
+        Material.stock < Material.reorder_point,
+        Material.reorder_point > 0
+    ).all()
+    
+    if not materials:
+        return jsonify({'status': 'success', 'suggestions': [], 'msg': '当前所有物料库存充足，无需补货'})
+    
+    # 收集物料信息和历史出库数据
+    suggestions_data = []
+    thirty_days_ago = date.today() - timedelta(days=30)
+    
+    for material in materials[:20]:  # 限制最多20个物料，避免数据过大
+        # 查询近30天出库量
+        recent_out = db.session.query(
+            func.coalesce(func.sum(OutOrderItem.quantity), 0)
+        ).join(OutOrder, OutOrderItem.out_order_id == OutOrder.id).filter(
+            OutOrderItem.material_id == material.id,
+            OutOrder.status == 'completed',
+            OutOrder.date >= thirty_days_ago
+        ).scalar() or 0
+        
+        # 计算日均出库量
+        daily_avg = recent_out / 30 if recent_out > 0 else 0
+        
+        # 计算建议补货量（补到最大库存或满足30天需求）
+        target_stock = max(material.max_stock, material.reorder_point + daily_avg * 30)
+        suggested_qty = max(0, target_stock - material.stock)
+        
+        suggestions_data.append({
+            'material_code': material.code,
+            'material_name': material.name,
+            'current_stock': material.stock,
+            'reorder_point': material.reorder_point,
+            'daily_avg_out': round(daily_avg, 2),
+            'suggested_qty': round(suggested_qty, 2),
+            'supplier': material.supplier.name if material.supplier else '未设置',
+            'unit': material.unit.name if material.unit else '个',
+            'price': material.price or 0
+        })
+    
+    # 构建AI分析提示
+    prompt = f"""作为仓库管理专家，请分析以下需要补货的物料，给出专业的补货建议：
+
+【需要补货的物料】（共{len(suggestions_data)}种）
+"""
+    for i, s in enumerate(suggestions_data[:10], 1):  # 最多分析10个
+        prompt += f"{i}. {s['material_name']}（{s['material_code']}）\n"
+        prompt += f"   当前库存：{s['current_stock']} {s['unit']}，补货点：{s['reorder_point']}\n"
+        prompt += f"   近30天日均出库：{s['daily_avg_out']}，建议补货量：{s['suggested_qty']}\n"
+        prompt += f"   供应商：{s['supplier']}，单价：{s['price']}元\n\n"
+    
+    prompt += """请生成简洁的补货建议（200字内），包括：
+1. 紧急程度排序（哪些物料最急需补货）
+2. 补货策略建议（批量采购还是分批补货）
+3. 风险提示（是否有供应商交期、季节性因素等需要注意）
+要求语言简洁实用，可直接指导采购操作。"""
+    
+    try:
+        ai_analysis = _ai_call_llm_chat(prompt)
+        return jsonify({
+            'status': 'success',
+            'suggestions': suggestions_data,
+            'ai_analysis': ai_analysis or 'AI分析暂不可用，请参考系统建议量进行补货。'
+        })
+    except Exception as e:
+        app.logger.error(f'智能补货建议失败: {e}')
         return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
 
 @app.route('/report/view/<report_type>')
