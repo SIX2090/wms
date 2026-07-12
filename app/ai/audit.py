@@ -26,10 +26,10 @@ def create_conversation(user_id: int, title: str | None = None) -> AIConversatio
 
 def get_conversation(conversation_id: int, user_id: int | None = None) -> AIConversation | None:
     """获取对话会话，可选按用户过滤。"""
-    query = AIConversation.query
+    query = AIConversation.query.filter_by(id=conversation_id)
     if user_id is not None:
         query = query.filter_by(user_id=user_id)
-    return query.get(conversation_id)
+    return query.first()
 
 
 def list_conversations(user_id: int, limit: int = 50) -> list[AIConversation]:
