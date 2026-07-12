@@ -58,6 +58,21 @@
     </div>
 </div>
 
+<div class="card border-0 shadow-sm mb-4" id="aiInsightsCard" style="display: none;">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-stars text-primary me-2"></i>AI 业务洞察</h5>
+        <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('aiInsightsCard').style.display='none'">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+    <div class="card-body" id="aiInsightsContent">
+        <div class="text-center text-muted py-4">
+            <div class="spinner-border text-primary mb-2" role="status"></div>
+            <div>正在生成洞察...</div>
+        </div>
+    </div>
+</div>
+
 <div class="row g-4 mb-4">
     <div class="col-lg-8">
         <div class="card border-0 shadow-sm h-100">

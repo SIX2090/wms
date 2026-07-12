@@ -18553,6 +18553,30 @@ def _check_in_order_anomalies(order):
     today = date.today()
     thirty_days_ago = today - timedelta(days=30)
     
+    # 收集所有物料ID
+    material_ids = [item.material_id for item in order.items if item.material_id]
+    if not material_ids:
+        return anomalies
+    
+    # 一次性查询近30天所有相关物料的入库明细（性能优化）
+    recent_items = InOrderItem.query.join(InOrder).filter(
+        InOrder.status == 'completed',
+        InOrder.date >= thirty_days_ago,
+        InOrder.date < today,
+        InOrder.id != order.id,
+        InOrderItem.material_id.in_(material_ids)
+    ).all()
+    
+    # 按物料ID分组数据
+    qty_by_material = {}
+    price_by_material = {}
+    for ri in recent_items:
+        mid = ri.material_id
+        if ri.quantity:
+            qty_by_material.setdefault(mid, []).append(ri.quantity)
+        if ri.price and ri.price > 0:
+            price_by_material.setdefault(mid, []).append(ri.price)
+    
     for item in order.items:
         if not item.material:
             continue
@@ -18560,19 +18584,7 @@ def _check_in_order_anomalies(order):
         material_name = item.material.name or item.material.code or '未知物料'
         
         # 1. 数量异常检测：与近30天平均入库量对比
-        recent_in_orders = InOrder.query.filter(
-            InOrder.status == 'completed',
-            InOrder.date >= thirty_days_ago,
-            InOrder.date < today,
-            InOrder.id != order.id
-        ).all()
-        
-        recent_quantities = []
-        for ro in recent_in_orders:
-            for ri in ro.items:
-                if ri.material_id == item.material_id and ri.quantity:
-                    recent_quantities.append(ri.quantity)
-        
+        recent_quantities = qty_by_material.get(item.material_id, [])
         if recent_quantities:
             avg_qty = sum(recent_quantities) / len(recent_quantities)
             if avg_qty > 0 and item.quantity:
@@ -18589,12 +18601,7 @@ def _check_in_order_anomalies(order):
         
         # 2. 价格异常检测：与近3次采购价对比
         if item.price and item.price > 0:
-            recent_prices = []
-            for ro in recent_in_orders:
-                for ri in ro.items:
-                    if ri.material_id == item.material_id and ri.price and ri.price > 0:
-                        recent_prices.append(ri.price)
-            
+            recent_prices = price_by_material.get(item.material_id, [])
             if recent_prices:
                 recent_prices = sorted(recent_prices, reverse=True)[:3]  # 取最近3次
                 avg_price = sum(recent_prices) / len(recent_prices)
@@ -25443,6 +25450,89 @@ def update_out_order_item():
         db.session.rollback()
         return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
 
+def _check_out_order_anomalies(order):
+    """检测出库单异常：数量异常、重复单据。返回异常列表。"""
+    anomalies = []
+    if not order.items:
+        return anomalies
+    
+    today = date.today()
+    thirty_days_ago = today - timedelta(days=30)
+    
+    # 收集所有物料ID
+    material_ids = [item.material_id for item in order.items if item.material_id]
+    if not material_ids:
+        return anomalies
+    
+    # 一次性查询近30天所有相关物料的出库明细（性能优化）
+    recent_items = OutOrderItem.query.join(OutOrder).filter(
+        OutOrder.status == 'completed',
+        OutOrder.date >= thirty_days_ago,
+        OutOrder.date < today,
+        OutOrder.id != order.id,
+        OutOrderItem.material_id.in_(material_ids)
+    ).all()
+    
+    # 按物料ID分组数量
+    qty_by_material = {}
+    for ri in recent_items:
+        mid = ri.material_id
+        if ri.quantity:
+            qty_by_material.setdefault(mid, []).append(ri.quantity)
+    
+    for item in order.items:
+        if not item.material:
+            continue
+        
+        material_name = item.material.name or item.material.code or '未知物料'
+        
+        # 1. 数量异常检测：与近30天平均出库量对比
+        recent_quantities = qty_by_material.get(item.material_id, [])
+        if recent_quantities:
+            avg_qty = sum(recent_quantities) / len(recent_quantities)
+            if avg_qty > 0 and item.quantity:
+                deviation = abs(item.quantity - avg_qty) / avg_qty
+                if deviation > 0.5:  # 偏离超过50%
+                    anomalies.append({
+                        'type': 'quantity_deviation',
+                        'material': material_name,
+                        'current': item.quantity,
+                        'average': round(avg_qty, 2),
+                        'deviation': f'{deviation*100:.0f}%',
+                        'msg': f'物料 {material_name} 本次出库量 {item.quantity} 是近30天平均 {round(avg_qty, 2)} 的 {deviation*100:.0f}%，请确认是否正确'
+                    })
+    
+    # 2. 重复单据检测：同一天同物料同客户/部门
+    if order.date == today:
+        today_orders = OutOrder.query.filter(
+            OutOrder.date == today,
+            OutOrder.id != order.id
+        )
+        # 按客户或部门过滤
+        if order.customer_id:
+            today_orders = today_orders.filter(OutOrder.customer_id == order.customer_id)
+        elif order.department_id:
+            today_orders = today_orders.filter(OutOrder.department_id == order.department_id)
+        else:
+            today_orders = None  # 无客户/部门信息时不检测重复
+        
+        if today_orders:
+            today_orders = today_orders.all()
+            for to in today_orders:
+                for ti in to.items:
+                    for oi in order.items:
+                        if ti.material_id == oi.material_id:
+                            material_name = oi.material.name or oi.material.code
+                            anomalies.append({
+                                'type': 'duplicate_order',
+                                'material': material_name,
+                                'existing_order': to.order_no,
+                                'msg': f'物料 {material_name} 今天已在单据 {to.order_no} 中出库，请确认是否为重复操作'
+                            })
+    
+    return anomalies
+
+
 @app.route('/out_order/<int:id>/complete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -25454,6 +25544,17 @@ def complete_out_order(id):
         return jsonify({'status': 'error', 'msg': '请至少添加一条领料明细'})
     if location_management_enabled() and location_required_on_save() and not order.warehouse:
         return jsonify({'status': 'error', 'msg': '启用库位管理后，领料单必须填写仓库/库位'})
+
+    # 异常检测（force=true时跳过）
+    force_submit = request.args.get('force', '').lower() in ('true', '1', 'yes')
+    if not force_submit:
+        anomalies = _check_out_order_anomalies(order)
+        if anomalies:
+            return jsonify({
+                'status': 'warning',
+                'msg': '检测到异常，请确认是否继续提交',
+                'anomalies': anomalies
+            })
 
     use_location = bool(location_management_enabled() and order.warehouse)
 

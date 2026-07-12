@@ -60,6 +60,23 @@
             <div class="mobile-scan-status" id="scanStatus"></div>
         </div>
 
+        <!-- 拍照识物预览区 -->
+        <div class="mobile-recognize-preview" id="recognizePreview" hidden>
+            <div class="mobile-recognize-preview-header">
+                <span>图片预览</span>
+                <button type="button" class="btn-close-sm" id="closePreviewBtn" title="关闭预览">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="mobile-recognize-preview-body">
+                <img id="recognizePreviewImg" alt="预览图片">
+                <div class="mobile-recognize-loading" id="recognizeLoading" hidden>
+                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                    <span>AI识别中...</span>
+                </div>
+            </div>
+        </div>
+
         <div class="mobile-scan-matches" id="matchList" hidden></div>
 
         <article class="mobile-material-card" id="materialCard" hidden>
@@ -358,6 +375,10 @@
 
     var cameraBtn = document.getElementById('cameraBtn');
     var cameraFileInput = document.getElementById('cameraFileInput');
+    var recognizePreview = document.getElementById('recognizePreview');
+    var recognizePreviewImg = document.getElementById('recognizePreviewImg');
+    var recognizeLoading = document.getElementById('recognizeLoading');
+    var closePreviewBtn = document.getElementById('closePreviewBtn');
 
     if (cameraBtn && cameraFileInput) {
         cameraBtn.addEventListener('click', function() {
@@ -367,8 +388,25 @@
         cameraFileInput.addEventListener('change', function(e) {
             var file = e.target.files && e.target.files[0];
             if (!file) return;
+            
+            // 显示图片预览
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                recognizePreviewImg.src = e.target.result;
+                recognizePreview.hidden = false;
+                recognizeLoading.hidden = false;
+            };
+            reader.readAsDataURL(file);
+            
             recognizeMaterialImage(file);
             cameraFileInput.value = '';
+        });
+    }
+
+    if (closePreviewBtn) {
+        closePreviewBtn.addEventListener('click', function() {
+            recognizePreview.hidden = true;
+            recognizeLoading.hidden = true;
         });
     }
 
@@ -389,6 +427,7 @@
             });
         })
         .then(function(data) {
+            recognizeLoading.hidden = true;
             setStatus('识别完成', 'success');
             if (data.matches && data.matches.length > 0) {
                 if (data.matches.length === 1) {
@@ -403,6 +442,7 @@
             }
         })
         .catch(function(error) {
+            recognizeLoading.hidden = true;
             setStatus((error && (error.msg || error.message)) || '识别失败', 'error');
         });
     }
@@ -412,4 +452,59 @@
     }, 200);
 })();
 </script>
+
+<style>
+.mobile-recognize-preview {
+    margin: 16px 0;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #f9fafb;
+}
+.mobile-recognize-preview-header {
+    padding: 8px 12px;
+    background: #f3f4f6;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 500;
+}
+.btn-close-sm {
+    background: none;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    color: #6b7280;
+    font-size: 12px;
+}
+.btn-close-sm:hover {
+    color: #1f2937;
+}
+.mobile-recognize-preview-body {
+    position: relative;
+    padding: 12px;
+    text-align: center;
+}
+.mobile-recognize-preview-body img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 4px;
+}
+.mobile-recognize-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(255, 255, 255, 0.95);
+    padding: 12px 20px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    font-size: 14px;
+}
+</style>
 {% endblock %}

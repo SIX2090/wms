@@ -4,6 +4,59 @@
 {% block extra_css %}
 <link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
 <link href="{{ url_for('static', filename='css/excel-table.css') }}" rel="stylesheet">
+<style>
+.anomaly-modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+}
+.anomaly-modal {
+    background: white;
+    border-radius: 8px;
+    max-width: 600px;
+    width: 90%;
+    max-height: 80vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.anomaly-modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.anomaly-modal-header h5 {
+    margin: 0;
+    color: #1f2937;
+}
+.anomaly-modal-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #6b7280;
+}
+.anomaly-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+}
+.anomaly-modal-footer {
+    padding: 16px 20px;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+</style>
 {% endblock %}
 
 {% block content %}
@@ -330,6 +383,24 @@ MAT003,20,10.00"></textarea>
                     <i class="bi bi-check"></i> 确认添加
                 </button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- 异常检测弹窗 -->
+<div class="anomaly-modal-overlay" id="anomalyModal">
+    <div class="anomaly-modal">
+        <div class="anomaly-modal-header">
+            <h5><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>异常检测提醒</h5>
+            <button class="anomaly-modal-close" onclick="closeAnomalyModal()"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="anomaly-modal-body">
+            <p class="text-muted mb-3">检测到以下异常，请确认是否继续提交：</p>
+            <ul class="list-group list-group-flush" id="anomalyList"></ul>
+        </div>
+        <div class="anomaly-modal-footer">
+            <button class="btn btn-secondary" onclick="closeAnomalyModal()">取消</button>
+            <button class="btn btn-warning" onclick="forceCompleteOrder()">确认提交</button>
         </div>
     </div>
 </div>
@@ -770,13 +841,19 @@ document.getElementById('batchDeleteBtn')?.addEventListener('click', function() 
 });
 
 // ==================== 完成领料 ====================
-function completeOrder(id) {
+function completeOrder(id, force) {
     _showConfirm('确认完成领料？完成后库存将减少。', {title: '完成领料'}).then(function(confirmed) {
         if (!confirmed) return;
-        csrfFetch('/out_order/' + id + '/complete')
+        var url = '/out_order/' + id + '/complete';
+        if (force) {
+            url += '?force=true';
+        }
+        csrfFetch(url)
         .then(function(r) { return r.json(); })
         .then(function(res) {
-            if (res.status === 'success') {
+            if (res.status === 'warning') {
+                showAnomalyWarning(res.anomalies, id);
+            } else if (res.status === 'success') {
                 _showToast(res.msg || '领料完成', 'success');
                 setTimeout(function() { location.reload(); }, 600);
             } else {
@@ -784,6 +861,34 @@ function completeOrder(id) {
             }
         });
     });
+}
+
+function showAnomalyWarning(anomalies, orderId) {
+    var modal = document.getElementById('anomalyModal');
+    var list = document.getElementById('anomalyList');
+    if (!modal || !list) return;
+    list.innerHTML = '';
+    anomalies.forEach(function(a) {
+        var li = document.createElement('li');
+        li.className = 'list-group-item list-group-item-warning';
+        li.innerHTML = '<div class="d-flex align-items-start gap-2"><i class="bi bi-exclamation-triangle-fill text-warning mt-1"></i><div>' + a.msg + '</div></div>';
+        list.appendChild(li);
+    });
+    modal.dataset.orderId = orderId;
+    modal.style.display = 'flex';
+}
+
+function closeAnomalyModal() {
+    var modal = document.getElementById('anomalyModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function forceCompleteOrder() {
+    var modal = document.getElementById('anomalyModal');
+    if (!modal) return;
+    var orderId = modal.dataset.orderId;
+    closeAnomalyModal();
+    completeOrder(orderId, true);
 }
 
 // ==================== 反提交 ====================
