@@ -30413,6 +30413,129 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
         app.logger.error(f'单据OCR识别失败: {e}')
         return jsonify({'status': 'error', 'msg': f'识别失败：{str(e)}'}), 500
 
+@app.route('/ai/supplier_evaluation')
+@login_required
+@require_role('warehouse', 'purchase')
+def ai_supplier_evaluation_page():
+    """供应商智能评估页面"""
+    return render_template('ai_supplier_evaluation.html')
+
+@app.route('/api/ai/supplier_evaluation', methods=['POST'])
+@login_required
+def api_supplier_evaluation():
+    """供应商智能评估API：分析供应商交货表现、价格稳定性，生成AI评估报告。"""
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+
+    suppliers = Supplier.query.all()
+    if not suppliers:
+        return jsonify({'status': 'success', 'evaluations': [], 'msg': '暂无供应商数据'})
+
+    ninety_days_ago = date.today() - timedelta(days=90)
+    evaluations = []
+
+    for supplier in suppliers:
+        # 近90天入库单据
+        recent_orders = InOrder.query.filter(
+            InOrder.supplier_id == supplier.id,
+            InOrder.date >= ninety_days_ago
+        ).all()
+
+        order_count = len(recent_orders)
+        if order_count == 0:
+            continue
+
+        # 交货频率（次/月）
+        days_span = max((date.today() - min(o.date for o in recent_orders)).days, 1)
+        delivery_freq = round(order_count / (days_span / 30), 1)
+
+        # 总金额
+        total_amount = sum(o.total_amount or 0 for o in recent_orders)
+
+        # 价格稳定性：同物料多次采购的价格变异系数
+        price_cv_list = []
+        for order in recent_orders:
+            for item in order.items:
+                if item.price and item.price > 0 and item.material_id:
+                    # 查该物料在该供应商的历史价格
+                    hist_prices = InOrderItem.query.join(InOrder).filter(
+                        InOrder.supplier_id == supplier.id,
+                        InOrderItem.material_id == item.material_id,
+                        InOrder.status == 'completed',
+                        InOrder.date >= ninety_days_ago,
+                        InOrderItem.price > 0
+                    ).with_entities(InOrderItem.price).all()
+                    prices = [p[0] for p in hist_prices if p[0] and p[0] > 0]
+                    if len(prices) >= 2:
+                        mean_p = sum(prices) / len(prices)
+                        if mean_p > 0:
+                            std_p = (sum((p - mean_p) ** 2 for p in prices) / (len(prices) - 1)) ** 0.5
+                            cv = std_p / mean_p
+                            price_cv_list.append(cv)
+
+        avg_price_cv = round(sum(price_cv_list) / len(price_cv_list), 3) if price_cv_list else 0
+        price_stability = '稳定' if avg_price_cv < 0.05 else ('波动' if avg_price_cv < 0.15 else '剧烈波动')
+
+        # 物料种类数
+        material_ids = set()
+        for order in recent_orders:
+            for item in order.items:
+                if item.material_id:
+                    material_ids.add(item.material_id)
+        material_count = len(material_ids)
+
+        evaluations.append({
+            'supplier_id': supplier.id,
+            'supplier_name': supplier.name,
+            'supplier_code': supplier.code,
+            'contact': supplier.contact or '-',
+            'phone': supplier.phone or '-',
+            'order_count': order_count,
+            'delivery_freq': delivery_freq,
+            'total_amount': round(total_amount, 2),
+            'material_count': material_count,
+            'avg_price_cv': avg_price_cv,
+            'price_stability': price_stability,
+        })
+
+    # 按交货次数排序
+    evaluations.sort(key=lambda x: x['order_count'], reverse=True)
+
+    # AI分析
+    prompt = f"""作为采购管理专家，请分析以下供应商评估数据，给出专业的供应商管理建议：
+
+【供应商概况】共{len(evaluations)}家供应商在近90天有交货记录
+
+【供应商明细】
+"""
+    for i, e in enumerate(evaluations[:10], 1):
+        prompt += f"{i}. {e['supplier_name']}（{e['supplier_code']}）\n"
+        prompt += f"   交货次数：{e['order_count']}次，月均{e['delivery_freq']}次\n"
+        prompt += f"   采购金额：{e['total_amount']}元，物料种类：{e['material_count']}种\n"
+        prompt += f"   价格稳定性：{e['price_stability']}（变异系数{e['avg_price_cv']}）\n\n"
+
+    prompt += """请生成简洁的供应商评估建议（200字内），包括：
+1. 核心供应商识别（交货频繁、金额大的供应商）
+2. 价格风险提醒（价格波动大的供应商需关注）
+3. 供应商优化建议（是否需引入新供应商、淘汰表现差的）
+要求语言简洁实用，可直接指导采购决策。"""
+
+    try:
+        ai_analysis = _ai_call_llm_chat(prompt)
+        return jsonify({
+            'status': 'success',
+            'evaluations': evaluations,
+            'ai_analysis': ai_analysis or 'AI分析暂不可用，请参考数据进行评估。',
+            'summary': {
+                'total': len(evaluations),
+                'total_amount': round(sum(e['total_amount'] for e in evaluations), 2),
+                'price_unstable': len([e for e in evaluations if e['price_stability'] != '稳定']),
+            }
+        })
+    except Exception as e:
+        app.logger.error(f'供应商评估失败: {e}')
+        return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
+
 @app.route('/report/view/<report_type>')
 @login_required
 def report_view(report_type):
