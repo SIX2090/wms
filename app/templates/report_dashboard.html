@@ -23,6 +23,14 @@
                 <div class="metric-label">本月入库</div>
                 <div class="metric-value">¥{{ stats.month_in_amount|currency_cn }}</div>
                 <div class="metric-sub">{{ stats.month_in_count }} 笔单据</div>
+                {% if stats.in_amount_mom is not none %}
+                <div class="metric-mom {{ 'mom-up' if stats.in_amount_mom >= 0 else 'mom-down' }}">
+                    <i class="bi {{ 'bi-arrow-up-short' if stats.in_amount_mom >= 0 else 'bi-arrow-down-short' }}"></i>
+                    环比 {{ '%+.1f' % stats.in_amount_mom }}%
+                </div>
+                {% else %}
+                <div class="metric-mom mom-neutral">环比 暂无上月数据</div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -32,6 +40,14 @@
                 <div class="metric-label">本月领料</div>
                 <div class="metric-value">¥{{ stats.month_out_amount|currency_cn }}</div>
                 <div class="metric-sub">{{ stats.month_out_count }} 笔单据</div>
+                {% if stats.out_amount_mom is not none %}
+                <div class="metric-mom {{ 'mom-up' if stats.out_amount_mom >= 0 else 'mom-down' }}">
+                    <i class="bi {{ 'bi-arrow-up-short' if stats.out_amount_mom >= 0 else 'bi-arrow-down-short' }}"></i>
+                    环比 {{ '%+.1f' % stats.out_amount_mom }}%
+                </div>
+                {% else %}
+                <div class="metric-mom mom-neutral">环比 暂无上月数据</div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -284,6 +300,28 @@ new Chart(document.getElementById('amountChart'), {
     margin-top: 0.5rem;
     font-size: 0.86rem;
     opacity: 0.9;
+}
+
+.metric-mom {
+    margin-top: 0.4rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.metric-mom.mom-up {
+    color: #d4edda;
+}
+
+.metric-mom.mom-down {
+    color: #f8d7da;
+}
+
+.metric-mom.mom-neutral {
+    color: rgba(255, 255, 255, 0.7);
+    font-weight: 400;
 }
 
 .chart-shell {

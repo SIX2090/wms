@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}智能补货建议{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">智能补货建议</h1>
+            <div class="text-muted small">基于AI分析的智能补货建议，包含消耗趋势、优先级评分和补货策略建议；本页只读，不自动生成采购单、不改变库存。</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('purchase_request_list') }}">采购申请</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('purchase_order_list') }}">采购订单</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ai_replenishment_page') }}">AI补货建议</a>
+            <a class="btn btn-success btn-sm" href="{{ url_for('ai_replenishment_smart_page', days=request.args.get('days', 30), coverage_days=request.args.get('coverage_days', 30), risk=request.args.get('risk', 'action'), export='csv') }}">
+                <i class="bi bi-download"></i> 导出CSV
+            </a>
+        </div>
+    </div>
+
+    <form class="row g-2 align-items-end mb-3" method="get">
+        <div class="col-6 col-md-2">
+            <label class="form-label small text-muted mb-1" for="daysInput">消耗周期</label>
+            <select class="form-select form-select-sm" id="daysInput" name="days">
+                {% for value in [7, 30, 60, 90] %}
+                <option value="{{ value }}" {% if report.summary.days == value %}selected{% endif %}>近{{ value }}天</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small text-muted mb-1" for="coverageInput">覆盖天数</label>
+            <select class="form-select form-select-sm" id="coverageInput" name="coverage_days">
+                {% for value in [7, 15, 30, 60] %}
+                <option value="{{ value }}" {% if report.summary.coverage_days == value %}selected{% endif %}>{{ value }}天</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small text-muted mb-1" for="riskInput">显示范围</label>
+            <select class="form-select form-select-sm" id="riskInput" name="risk">
+                <option value="action" {% if risk == 'action' %}selected{% endif %}>只看需处理</option>
+                <option value="all" {% if risk == 'all' %}selected{% endif %}>全部物料</option>
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <button class="btn btn-primary btn-sm w-100" type="submit">刷新分析</button>
+        </div>
+    </form>
+
+    <div class="row g-2 mb-3">
+        {% for label, value in [
+            ('总物料数', report.summary.total),
+            ('需处理', report.summary.action_required),
+            ('立即处理', report.summary.critical),
+            ('高风险', report.summary.high),
+            ('建议补货', report.summary.medium),
+            ('建议金额', '%.2f'|format(report.summary.suggested_amount))
+        ] %}
+        <div class="col-6 col-md-2">
+            <div class="border rounded p-2 h-100">
+                <div class="text-muted small">{{ label }}</div>
+                <div class="h5 mb-0">{{ value }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th class="text-end" style="width: 70px;">优先级</th>
+                    <th style="width: 110px;">物料编码</th>
+                    <th style="min-width: 160px;">名称</th>
+                    <th style="width: 140px;">规格</th>
+                    <th style="width: 70px;">单位</th>
+                    <th class="text-end" style="width: 90px;">当前库存</th>
+                    <th class="text-end" style="width: 100px;">近{{ report.summary.days }}天出库</th>
+                    <th class="text-end" style="width: 80px;">日均消耗</th>
+                    <th class="text-end" style="width: 80px;">可用天数</th>
+                    <th class="text-end" style="width: 80px;">在途数量</th>
+                    <th class="text-end" style="width: 100px;">建议补货量</th>
+                    <th class="text-center" style="width: 60px;">趋势</th>
+                    <th style="min-width: 200px;">AI建议</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report.rows %}
+                <tr>
+                    <td class="text-end fw-semibold">{{ row.priority_score }}</td>
+                    <td><a href="{{ url_for('material_list', search=row.code) }}">{{ row.code }}</a></td>
+                    <td>{{ row.name }}</td>
+                    <td class="text-truncate" style="max-width: 150px;">{{ row.spec or '-' }}</td>
+                    <td>{{ row.unit }}</td>
+                    <td class="text-end">{{ row.current_stock }}</td>
+                    <td class="text-end">{{ row.outbound_qty }}</td>
+                    <td class="text-end">{{ row.avg_daily }}</td>
+                    <td class="text-end">{{ row.days_of_supply if row.days_of_supply is not none else '-' }}</td>
+                    <td class="text-end">{{ row.on_order }}</td>
+                    <td class="text-end fw-semibold">{{ row.suggested_qty }}</td>
+                    <td class="text-center">
+                        {% if row.trend == 'increasing' %}
+                        <span class="text-danger fw-bold" title="消耗上升">{{ row.trend_symbol }}</span>
+                        {% elif row.trend == 'decreasing' %}
+                        <span class="text-success fw-bold" title="消耗下降">{{ row.trend_symbol }}</span>
+                        {% else %}
+                        <span class="text-secondary fw-bold" title="消耗稳定">{{ row.trend_symbol }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="small">{{ row.ai_suggestion }}</td>
+                </tr>
+                {% endfor %}
+                {% if not report.rows %}
+                <tr><td colspan="13" class="text-center text-muted py-4">当前没有符合条件的补货建议。</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="text-muted small mt-2">
+        计算口径：日均消耗=近{{ report.summary.days }}天负向库存流水绝对值/{{ report.summary.days }}；趋势=近15天vs前15天出库量对比；优先级=风险等级+趋势+可用天数综合评分；建议补货=目标库存-现存-在途采购，目标库存取最大库存、安全库存、再订货点和覆盖天数需求的较大值。生成时间：{{ report.summary.generated_at.strftime('%Y-%m-%d %H:%M:%S') }}。
+    </div>
+</div>
+{% endblock %}

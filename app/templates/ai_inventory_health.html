@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}AI库存健康度{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">AI库存健康度</h1>
+            <div class="text-muted small">基于可用天数、库存水位、出库频率等多维度评分，识别缺货、超储、呆滞风险物料；本页只读，不自动调整库存。</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ai_replenishment_page') }}">AI补货建议</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('material_list') }}">物料管理</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('report_dashboard') }}">库存报表</a>
+        </div>
+    </div>
+
+    <form class="row g-2 align-items-end mb-3" method="get">
+        <div class="col-6 col-md-2">
+            <label class="form-label small text-muted mb-1" for="daysInput">统计周期</label>
+            <select class="form-select form-select-sm" id="daysInput" name="days">
+                {% for value in [7, 30, 60, 90] %}
+                <option value="{{ value }}" {% if report.summary.days == value %}selected{% endif %}>近{{ value }}天</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small text-muted mb-1" for="riskInput">显示范围</label>
+            <select class="form-select form-select-sm" id="riskInput" name="risk">
+                <option value="all" {% if risk == 'all' %}selected{% endif %}>全部物料</option>
+                <option value="critical" {% if risk == 'critical' %}selected{% endif %}>仅风险(&lt;60)</option>
+                <option value="warning" {% if risk == 'warning' %}selected{% endif %}>仅预警(60-79)</option>
+                <option value="healthy" {% if risk == 'healthy' %}selected{% endif %}>仅健康(≥80)</option>
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <button class="btn btn-primary btn-sm w-100" type="submit">刷新分析</button>
+        </div>
+        <div class="col-6 col-md-2">
+            <a class="btn btn-outline-success btn-sm w-100" href="{{ url_for('ai_inventory_health_page', days=report.summary.days, risk=risk, export='csv') }}">导出CSV</a>
+        </div>
+    </form>
+
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-2">
+            <div class="border rounded p-2 h-100">
+                <div class="text-muted small">综合健康分</div>
+                <div class="h5 mb-0">{{ report.summary.avg_health_score }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="border rounded p-2 h-100">
+                <div class="text-muted small">健康物料(≥80)</div>
+                <div class="h5 mb-0 text-success">{{ report.summary.healthy }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="border rounded p-2 h-100">
+                <div class="text-muted small">预警物料(60-79)</div>
+                <div class="h5 mb-0 text-warning">{{ report.summary.warning }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="border rounded p-2 h-100">
+                <div class="text-muted small">风险物料(&lt;60)</div>
+                <div class="h5 mb-0 text-danger">{{ report.summary.critical }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="border rounded p-2 h-100">
+                <div class="text-muted small">积压金额</div>
+                <div class="h5 mb-0">¥{{ '%.2f'|format(report.summary.overstock_value) }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="border rounded p-2 h-100">
+                <div class="text-muted small">呆滞金额</div>
+                <div class="h5 mb-0">¥{{ '%.2f'|format(report.summary.stagnant_value) }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 80px;">健康分</th>
+                    <th style="width: 120px;">物料编码</th>
+                    <th style="min-width: 180px;">名称</th>
+                    <th style="width: 150px;">规格</th>
+                    <th style="width: 80px;">单位</th>
+                    <th class="text-end" style="width: 90px;">当前库存</th>
+                    <th class="text-end" style="width: 90px;">最低库存</th>
+                    <th class="text-end" style="width: 90px;">最大库存</th>
+                    <th class="text-end" style="width: 100px;">近{{ report.summary.days }}天出库</th>
+                    <th class="text-end" style="width: 90px;">可用天数</th>
+                    <th style="width: 100px;">风险类型</th>
+                    <th style="min-width: 200px;">AI优化建议</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report.rows %}
+                <tr>
+                    <td>
+                        <span class="badge {% if row.health_score >= 80 %}bg-success{% elif row.health_score >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                            {{ row.health_score }}
+                        </span>
+                    </td>
+                    <td><a href="{{ url_for('material_list', search=row.code) }}">{{ row.code }}</a></td>
+                    <td>{{ row.name }}</td>
+                    <td class="text-truncate" style="max-width: 160px;">{{ row.spec or '-' }}</td>
+                    <td>{{ row.unit }}</td>
+                    <td class="text-end">{{ row.current_stock }}</td>
+                    <td class="text-end">{{ row.min_stock }}</td>
+                    <td class="text-end">{{ row.max_stock }}</td>
+                    <td class="text-end">{{ row.outbound_qty }}</td>
+                    <td class="text-end">{{ row.days_of_supply if row.days_of_supply is not none else '-' }}</td>
+                    <td>
+                        {% if row.risk_type == 'shortage' %}
+                        <span class="badge bg-danger">缺货风险</span>
+                        {% elif row.risk_type == 'overstock' %}
+                        <span class="badge bg-warning text-dark">积压风险</span>
+                        {% elif row.risk_type == 'stagnant' %}
+                        <span class="badge bg-info text-dark">呆滞风险</span>
+                        {% else %}
+                        <span class="badge bg-success">正常</span>
+                        {% endif %}
+                    </td>
+                    <td class="small">{{ row.ai_suggestion }}</td>
+                </tr>
+                {% endfor %}
+                {% if not report.rows %}
+                <tr><td colspan="12" class="text-center text-muted py-4">当前没有符合条件的库存健康数据。</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="text-muted small mt-2">
+        计算口径：健康分基于可用天数、库存水位、出库频率综合评分；可用天数=当前库存/近{{ report.summary.days }}天日均出库；缺货风险=可用天数≤7天；超储风险=当前库存>最大库存×2；呆滞风险=近90天无出库且有库存。生成时间：{{ report.summary.generated_at.strftime('%Y-%m-%d %H:%M:%S') }}。
+    </div>
+</div>
+{% endblock %}

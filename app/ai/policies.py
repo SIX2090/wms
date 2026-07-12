@@ -15,6 +15,7 @@ AI_CAPABILITY_ROLES = {
     'warehouse_patrol_agent': frozenset({'warehouse'}),
     'purchase_followup_agent': frozenset({'purchase'}),
     'replenishment_planning': frozenset({'warehouse', 'purchase'}),
+    'inventory_health': frozenset({'warehouse', 'purchase'}),
     'knowledge_base': frozenset({'warehouse', 'purchase', 'production', 'user'}),
     'master_data_insights': frozenset({'warehouse'}),
     'admin_insights': frozenset({'admin'}),
@@ -33,6 +34,7 @@ AI_CAPABILITY_RISK_LEVELS = {
     'warehouse_patrol_agent': 'read',
     'purchase_followup_agent': 'draft',
     'replenishment_planning': 'read',
+    'inventory_health': 'read',
     'knowledge_base': 'read',
     'admin_insights': 'sensitive_read',
 }

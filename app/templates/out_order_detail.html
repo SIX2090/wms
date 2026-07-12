@@ -45,6 +45,9 @@
                 <button class="toolbar-btn" onclick="printOrder()">
                     <i class="bi bi-printer"></i> 打印
                 </button>
+                <button class="toolbar-btn toolbar-btn-info" onclick="showAiAnomalyAnalysis()">
+                    <i class="bi bi-robot"></i> AI异常分析
+                </button>
                 <a href="/out_order" class="toolbar-btn">
                     <i class="bi bi-arrow-left"></i> 返回
                 </a>
@@ -329,6 +332,32 @@ MAT003,20,10.00"></textarea>
                 <button class="btn btn-success" onclick="processBatchPaste()">
                     <i class="bi bi-check"></i> 确认添加
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- AI异常分析模态框 -->
+<div class="modal fade" id="aiAnomalyModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="bi bi-robot"></i> AI异常分析</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="aiAnomalyLoading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2">AI正在分析出库单异常...</p>
+                </div>
+                <div id="aiAnomalyContent" style="display:none;">
+                    <div id="aiAnomalySummary" class="alert alert-info mb-3"></div>
+                    <div id="aiAnomalyList"></div>
+                </div>
+                <div id="aiAnomalyError" class="alert alert-danger" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
             </div>
         </div>
     </div>
@@ -839,6 +868,85 @@ function printOrder() {
 
 function printLabel(materialId) {
     window.open('{{ url_for("print_batch_labels") }}?ids=' + materialId, '_blank');
+}
+
+// ==================== AI异常分析 ====================
+function showAiAnomalyAnalysis() {
+    var modal = new bootstrap.Modal(document.getElementById('aiAnomalyModal'));
+    modal.show();
+    
+    // 重置状态
+    document.getElementById('aiAnomalyLoading').style.display = 'block';
+    document.getElementById('aiAnomalyContent').style.display = 'none';
+    document.getElementById('aiAnomalyError').style.display = 'none';
+    
+    // 调用API
+    fetch('/api/ai/out_order/{{ order.id }}/anomaly_analysis', {
+        method: 'GET',
+        credentials: 'same-origin'
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        document.getElementById('aiAnomalyLoading').style.display = 'none';
+        
+        if (res.status === 'success' && res.data) {
+            var data = res.data;
+            document.getElementById('aiAnomalySummary').innerHTML = '<i class="bi bi-lightbulb"></i> ' + escapeHtml(data.summary || '分析完成');
+            
+            var anomalies = data.anomalies || [];
+            var listHtml = '';
+            
+            if (anomalies.length === 0) {
+                listHtml = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> 未发现异常，所有物料状态正常。</div>';
+            } else {
+                listHtml = '<div class="table-responsive"><table class="table table-sm table-bordered">';
+                listHtml += '<thead class="table-light"><tr><th>物料编码</th><th>物料名称</th><th>异常类型</th><th>说明</th><th>严重程度</th></tr></thead><tbody>';
+                
+                anomalies.forEach(function(a) {
+                    var severityClass = 'bg-secondary';
+                    var severityText = '提示';
+                    if (a.severity === 'danger') {
+                        severityClass = 'bg-danger';
+                        severityText = '严重';
+                    } else if (a.severity === 'warning') {
+                        severityClass = 'bg-warning text-dark';
+                        severityText = '警告';
+                    } else if (a.severity === 'info') {
+                        severityClass = 'bg-info text-dark';
+                        severityText = '提示';
+                    }
+                    
+                    listHtml += '<tr>';
+                    listHtml += '<td>' + escapeHtml(a.material_code || '') + '</td>';
+                    listHtml += '<td>' + escapeHtml(a.material_name || '') + '</td>';
+                    listHtml += '<td>' + escapeHtml(a.anomaly_type || '') + '</td>';
+                    listHtml += '<td>' + escapeHtml(a.description || '') + '</td>';
+                    listHtml += '<td><span class="badge ' + severityClass + '">' + severityText + '</span></td>';
+                    listHtml += '</tr>';
+                });
+                
+                listHtml += '</tbody></table></div>';
+            }
+            
+            document.getElementById('aiAnomalyList').innerHTML = listHtml;
+            document.getElementById('aiAnomalyContent').style.display = 'block';
+        } else {
+            document.getElementById('aiAnomalyError').innerHTML = '<i class="bi bi-exclamation-triangle"></i> ' + escapeHtml(res.msg || '分析失败');
+            document.getElementById('aiAnomalyError').style.display = 'block';
+        }
+    })
+    .catch(function(err) {
+        document.getElementById('aiAnomalyLoading').style.display = 'none';
+        document.getElementById('aiAnomalyError').innerHTML = '<i class="bi bi-exclamation-triangle"></i> 请求失败：' + escapeHtml(err.message || '网络错误');
+        document.getElementById('aiAnomalyError').style.display = 'block';
+    });
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // ==================== 显示批量粘贴模态框 ====================

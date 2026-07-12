@@ -10,6 +10,7 @@ from urllib.parse import urljoin, urlparse, urlencode, quote_plus
 from sqlalchemy import func, false, true, update as sa_update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload, selectinload
+import csv
 import logging
 import os
 import secrets
@@ -23,10 +24,6 @@ import requests
 import base64
 import json
 from pathlib import Path
-from reportlab.graphics import renderPDF
-
-# Import notification module
-from notifications import notification_manager, init_notification_scheduler
 
 # Initialize Flask application
 from config import config_dict
@@ -7437,6 +7434,428 @@ def _ai_analysis_low_stock_report():
     return '\n'.join(lines)
 
 
+def _ai_inventory_health_report(days=30, limit=200, risk_filter='all'):
+    """库存健康度评分报告。
+    计算每个物料的健康分数、风险类型和优化建议。
+    """
+    days = max(int(days or 30), 1)
+    limit = max(min(int(limit or 200), 500), 1)
+    
+    # 查询所有物料
+    materials = Material.query.options(
+        joinedload(Material.unit),
+        joinedload(Material.supplier),
+        joinedload(Material.category),
+    ).order_by(Material.code.asc()).all()
+    
+    if not materials:
+        return {
+            'rows': [],
+            'summary': {
+                'total': 0,
+                'healthy': 0,
+                'warning': 0,
+                'critical': 0,
+                'avg_health_score': 0,
+                'total_stock_value': 0,
+                'overstock_value': 0,
+                'stagnant_value': 0,
+                'days': days,
+                'generated_at': datetime.now(),
+            }
+        }
+    
+    material_ids = [m.id for m in materials]
+    
+    # 计算近N天出库量
+    cutoff = datetime.now() - timedelta(days=days)
+    out_qty_rows = db.session.query(
+        StockTransaction.material_id,
+        func.coalesce(func.sum(func.abs(StockTransaction.quantity)), 0),
+    ).filter(
+        StockTransaction.created_at >= cutoff,
+        StockTransaction.quantity < 0,
+    ).group_by(StockTransaction.material_id).all()
+    out_qty_map = {mid: round_to_2_decimals(qty or 0) for mid, qty in out_qty_rows}
+    
+    # 计算近90天出库量（用于呆滞判断）
+    cutoff_90 = datetime.now() - timedelta(days=90)
+    out_qty_90_rows = db.session.query(
+        StockTransaction.material_id,
+        func.coalesce(func.sum(func.abs(StockTransaction.quantity)), 0),
+    ).filter(
+        StockTransaction.created_at >= cutoff_90,
+        StockTransaction.quantity < 0,
+    ).group_by(StockTransaction.material_id).all()
+    out_qty_90_map = {mid: round_to_2_decimals(qty or 0) for mid, qty in out_qty_90_rows}
+    
+    # 计算近60天出库量
+    cutoff_60 = datetime.now() - timedelta(days=60)
+    out_qty_60_rows = db.session.query(
+        StockTransaction.material_id,
+        func.coalesce(func.sum(func.abs(StockTransaction.quantity)), 0),
+    ).filter(
+        StockTransaction.created_at >= cutoff_60,
+        StockTransaction.quantity < 0,
+    ).group_by(StockTransaction.material_id).all()
+    out_qty_60_map = {mid: round_to_2_decimals(qty or 0) for mid, qty in out_qty_60_rows}
+    
+    rows = []
+    total_stock_value = 0
+    overstock_value = 0
+    stagnant_value = 0
+    healthy_count = 0
+    warning_count = 0
+    critical_count = 0
+    total_health_score = 0
+    
+    for material in materials:
+        current_stock = round_to_2_decimals(material.stock or 0)
+        min_stock = round_to_2_decimals(material.min_stock or 0)
+        max_stock = round_to_2_decimals(material.max_stock or 0)
+        reorder_point = round_to_2_decimals(material.reorder_point or 0)
+        price = float(material.price or 0)
+        
+        outbound_qty = out_qty_map.get(material.id, 0)
+        outbound_90 = out_qty_90_map.get(material.id, 0)
+        outbound_60 = out_qty_60_map.get(material.id, 0)
+        
+        avg_daily = round_to_2_decimals(outbound_qty / days) if outbound_qty > 0 else 0
+        
+        # 计算可用天数
+        days_of_supply = None
+        if avg_daily > STOCK_COMPARE_EPSILON:
+            days_of_supply = round_to_2_decimals(current_stock / avg_daily)
+        
+        # 计算健康分数
+        health_score = 100
+        
+        # 可用天数扣分
+        if days_of_supply is not None:
+            if days_of_supply < 7:
+                health_score -= 40
+            elif days_of_supply < 14:
+                health_score -= 20
+        
+        # 超储扣分
+        if max_stock > 0:
+            if current_stock > max_stock * 2:
+                health_score -= 30
+            elif current_stock > max_stock * 1.5:
+                health_score -= 15
+        
+        # 呆滞扣分
+        if outbound_90 <= STOCK_COMPARE_EPSILON and current_stock > STOCK_COMPARE_EPSILON:
+            health_score -= 25
+        elif outbound_60 <= STOCK_COMPARE_EPSILON and current_stock > STOCK_COMPARE_EPSILON:
+            health_score -= 15
+        
+        # 低于最低库存扣分
+        if current_stock < min_stock and min_stock > 0:
+            health_score -= 20
+        
+        # 限制在0-100
+        health_score = max(0, min(100, health_score))
+        
+        # 确定风险类型（优先级顺序）
+        risk_type = 'normal'
+        if days_of_supply is not None and days_of_supply <= 7:
+            risk_type = 'shortage'
+        elif max_stock > 0 and current_stock > max_stock * 2:
+            risk_type = 'overstock'
+        elif outbound_90 <= STOCK_COMPARE_EPSILON and current_stock > STOCK_COMPARE_EPSILON:
+            risk_type = 'stagnant'
+        
+        # 生成AI建议
+        ai_suggestion = ''
+        if risk_type == 'shortage':
+            ai_suggestion = f'库存紧张，建议立即补货至安全库存{min_stock}以上'
+        elif risk_type == 'overstock':
+            ai_suggestion = f'库存超储，建议控制采购节奏，消耗至最大库存{max_stock}以下'
+        elif risk_type == 'stagnant':
+            ai_suggestion = '近90天无出库记录，建议评估是否呆滞，考虑促销或调拨'
+        elif health_score < 60:
+            ai_suggestion = '库存状态不佳，建议关注并及时调整'
+        elif health_score < 80:
+            ai_suggestion = '库存基本健康，建议持续监控'
+        else:
+            ai_suggestion = '库存状态良好'
+        
+        # 统计
+        stock_value = round_to_2_decimals(current_stock * price)
+        total_stock_value += stock_value
+        
+        if risk_type == 'overstock':
+            overstock_value += stock_value
+        if risk_type == 'stagnant':
+            stagnant_value += stock_value
+        
+        if health_score >= 80:
+            healthy_count += 1
+        elif health_score >= 60:
+            warning_count += 1
+        else:
+            critical_count += 1
+        
+        total_health_score += health_score
+        
+        # 根据筛选条件过滤
+        if risk_filter == 'critical' and health_score >= 60:
+            continue
+        if risk_filter == 'warning' and not (60 <= health_score < 80):
+            continue
+        if risk_filter == 'healthy' and health_score < 80:
+            continue
+        
+        rows.append({
+            'material': material,
+            'code': material.code,
+            'name': material.name,
+            'spec': material.spec or '',
+            'unit': material.unit.name if material.unit else '',
+            'category': material.category.name if material.category else '',
+            'supplier': material.supplier.name if material.supplier else '',
+            'current_stock': current_stock,
+            'min_stock': min_stock,
+            'max_stock': max_stock,
+            'reorder_point': reorder_point,
+            'price': price,
+            'outbound_qty': outbound_qty,
+            'avg_daily': avg_daily,
+            'days_of_supply': days_of_supply,
+            'health_score': health_score,
+            'risk_type': risk_type,
+            'ai_suggestion': ai_suggestion,
+            'stock_value': stock_value,
+        })
+    
+    # 按健康分升序排序（风险高的在前）
+    rows.sort(key=lambda row: (row['health_score'], row['code'] or ''))
+    rows = rows[:limit]
+    
+    total_materials = len(rows)
+    avg_health_score = round_to_2_decimals(total_health_score / total_materials) if total_materials > 0 else 0
+    
+    summary = {
+        'total': total_materials,
+        'healthy': healthy_count,
+        'warning': warning_count,
+        'critical': critical_count,
+        'avg_health_score': avg_health_score,
+        'total_stock_value': round_to_2_decimals(total_stock_value),
+        'overstock_value': round_to_2_decimals(overstock_value),
+        'stagnant_value': round_to_2_decimals(stagnant_value),
+        'days': days,
+        'generated_at': datetime.now(),
+    }
+    
+    return {'rows': rows, 'summary': summary}
+
+
+def _ai_analyze_out_order_anomalies(order_id):
+    """出库单异常AI分析：检查出库单中每个物料的异常情况。
+    返回 dict: {order: {...}, anomalies: [...], summary: "..."}
+    """
+    from sqlalchemy import func
+    order = OutOrder.query.options(
+        joinedload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit),
+        joinedload(OutOrder.department),
+        joinedload(OutOrder.operator),
+    ).get(order_id)
+    if not order:
+        return {'order': None, 'anomalies': [], 'summary': '未找到该出库单。'}
+
+    # 计算近30天每个物料的日均出库量
+    cutoff = datetime.now() - timedelta(days=30)
+    avg_rows = db.session.query(
+        StockTransaction.material_id,
+        func.coalesce(func.sum(func.abs(StockTransaction.quantity)), 0),
+    ).filter(
+        StockTransaction.transaction_type == 'out',
+        StockTransaction.created_at >= cutoff,
+    ).group_by(StockTransaction.material_id).all()
+    avg_daily = {mid: float(qty or 0) / 30.0 for mid, qty in avg_rows}
+
+    anomalies = []
+    for item in order.items:
+        m = item.material
+        if not m:
+            continue
+        current_stock = float(m.stock or 0)
+        min_stock = float(m.min_stock or 0)
+        item_qty = float(item.quantity or 0)
+        item_price = float(item.price or 0)
+        std_price = float(m.price or 0)
+        avg_out = avg_daily.get(m.id, 0.0)
+
+        # 1. 出库数量超过当前库存（潜在缺库）
+        if item_qty > current_stock and current_stock >= 0:
+            anomalies.append({
+                'material_code': m.code,
+                'material_name': m.name,
+                'anomaly_type': '超库存出库',
+                'description': f'出库数量 {item_qty:.2f} 超过当前库存 {current_stock:.2f}，缺口 {item_qty - current_stock:.2f}',
+                'severity': 'danger',
+            })
+
+        # 2. 出库数量异常偏大（超过30天日均的3倍且日均>0）
+        if avg_out > 0 and item_qty > avg_out * 3 * 30:
+            anomalies.append({
+                'material_code': m.code,
+                'material_name': m.name,
+                'anomaly_type': '数量异常偏大',
+                'description': f'出库数量 {item_qty:.2f} 远超近30天日均 {avg_out:.2f}（超过日均3倍）',
+                'severity': 'warning',
+            })
+
+        # 3. 物料已处于低库存状态
+        if min_stock > 0 and current_stock <= min_stock:
+            anomalies.append({
+                'material_code': m.code,
+                'material_name': m.name,
+                'anomaly_type': '低库存物料',
+                'description': f'当前库存 {current_stock:.2f} 已低于最低库存 {min_stock:.2f}，继续出库将加剧短缺',
+                'severity': 'warning',
+            })
+
+        # 4. 单价与标准价偏差超过20%
+        if std_price > 0 and abs(item_price - std_price) / std_price > 0.2:
+            deviation = (item_price - std_price) / std_price * 100
+            anomalies.append({
+                'material_code': m.code,
+                'material_name': m.name,
+                'anomaly_type': '单价偏差过大',
+                'description': f'出库单价 ¥{item_price:.2f} 与标准价 ¥{std_price:.2f} 偏差 {deviation:+.1f}%',
+                'severity': 'info' if abs(deviation) < 50 else 'warning',
+            })
+
+    # 生成AI摘要
+    if not anomalies:
+        summary = f'出库单 {order.order_no} 共 {len(order.items)} 项物料，AI分析未发现明显异常。'
+    else:
+        danger_count = sum(1 for a in anomalies if a['severity'] == 'danger')
+        warning_count = sum(1 for a in anomalies if a['severity'] == 'warning')
+        info_count = sum(1 for a in anomalies if a['severity'] == 'info')
+        parts = []
+        if danger_count:
+            parts.append(f'{danger_count} 项严重异常（超库存出库）')
+        if warning_count:
+            parts.append(f'{warning_count} 项警告（数量偏大或低库存）')
+        if info_count:
+            parts.append(f'{info_count} 项提示（单价偏差）')
+        summary = f'出库单 {order.order_no} 共 {len(order.items)} 项物料，AI发现 {"，".join(parts)}。建议核实后再提交。'
+
+    return {
+        'order': {
+            'id': order.id,
+            'order_no': order.order_no,
+            'date': str(order.date) if order.date else '',
+            'status': order.status,
+            'department': order.department.name if order.department else (order.customer or ''),
+            'operator': order.operator.username if order.operator else '',
+            'item_count': len(order.items),
+        },
+        'anomalies': anomalies,
+        'summary': summary,
+    }
+
+
+def _ai_report_mom_insights():
+    """报表仪表盘环比分析洞察"""
+    today = date.today()
+    month_start = today.replace(day=1)
+    last_month_start = _shift_month_start(month_start, -1)
+    next_month_start = _shift_month_start(month_start, 1)
+
+    # 本月数据
+    month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
+        InOrder.date >= month_start,
+        InOrder.date < next_month_start
+    ).scalar() or 0
+    month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
+        OutOrder.date >= month_start,
+        OutOrder.date < next_month_start
+    ).scalar() or 0
+    month_in_count = db.session.query(func.count(InOrder.id)).filter(
+        InOrder.date >= month_start,
+        InOrder.date < next_month_start
+    ).scalar() or 0
+    month_out_count = db.session.query(func.count(OutOrder.id)).filter(
+        OutOrder.date >= month_start,
+        OutOrder.date < next_month_start
+    ).scalar() or 0
+
+    # 上月数据
+    last_month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
+        InOrder.date >= last_month_start,
+        InOrder.date < month_start
+    ).scalar() or 0
+    last_month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
+        OutOrder.date >= last_month_start,
+        OutOrder.date < month_start
+    ).scalar() or 0
+    last_month_in_count = db.session.query(func.count(InOrder.id)).filter(
+        InOrder.date >= last_month_start,
+        InOrder.date < month_start
+    ).scalar() or 0
+    last_month_out_count = db.session.query(func.count(OutOrder.id)).filter(
+        OutOrder.date >= last_month_start,
+        OutOrder.date < month_start
+    ).scalar() or 0
+
+    def _calc_rate(current, last):
+        if last and last > 0:
+            return ((current - last) / last) * 100
+        return None
+
+    def _format_rate(rate):
+        if rate is None:
+            return '无上月数据'
+        return f'{rate:+.1f}%'
+
+    def _highlight_rate(rate):
+        if rate is None:
+            return ''
+        if rate > 20:
+            return ' ⚠️ 显著增长'
+        if rate < -20:
+            return ' ⚠️ 显著下降'
+        return ''
+
+    in_amount_rate = _calc_rate(float(month_in_amount), float(last_month_in_amount))
+    out_amount_rate = _calc_rate(float(month_out_amount), float(last_month_out_amount))
+    in_count_rate = _calc_rate(int(month_in_count), int(last_month_in_count))
+    out_count_rate = _calc_rate(int(month_out_count), int(last_month_out_count))
+
+    lines = [
+        f'**本月 vs 上月环比分析**\n',
+        f'| 指标 | 本月 | 上月 | 环比增长率 |',
+        f'|------|------|------|-----------|',
+        f'| 入库金额 | ¥{float(month_in_amount):,.2f} | ¥{float(last_month_in_amount):,.2f} | {_format_rate(in_amount_rate)}{_highlight_rate(in_amount_rate)} |',
+        f'| 领料金额 | ¥{float(month_out_amount):,.2f} | ¥{float(last_month_out_amount):,.2f} | {_format_rate(out_amount_rate)}{_highlight_rate(out_amount_rate)} |',
+        f'| 入库单数 | {int(month_in_count)} | {int(last_month_in_count)} | {_format_rate(in_count_rate)}{_highlight_rate(in_count_rate)} |',
+        f'| 领料单数 | {int(month_out_count)} | {int(last_month_out_count)} | {_format_rate(out_count_rate)}{_highlight_rate(out_count_rate)} |',
+    ]
+
+    # 添加关键洞察
+    insights = []
+    if in_amount_rate is not None and abs(in_amount_rate) > 20:
+        direction = '增长' if in_amount_rate > 0 else '下降'
+        insights.append(f'入库金额环比{direction} {abs(in_amount_rate):.1f}%，变化显著')
+    if out_amount_rate is not None and abs(out_amount_rate) > 20:
+        direction = '增长' if out_amount_rate > 0 else '下降'
+        insights.append(f'领料金额环比{direction} {abs(out_amount_rate):.1f}%，变化显著')
+
+    if insights:
+        lines.append('\n**关键洞察：**')
+        for insight in insights:
+            lines.append(f'- {insight}')
+    else:
+        lines.append('\n整体出入库指标环比变化平稳，无显著波动。')
+
+    return '\n'.join(lines)
+
+
 def _ai_is_stage4_deep_analysis_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -11906,6 +12325,160 @@ def _ai_replenishment_report(days=30, coverage_days=30, limit=100, only_action=F
     return {'rows': rows, 'summary': summary}
 
 
+def _ai_smart_replenishment_out_qty_by_material(days=30, offset_days=0):
+    """Return outbound qty per material for a period ending `offset_days` ago."""
+    offset_days = max(int(offset_days or 0), 0)
+    days = max(int(days or 30), 1)
+    end_cutoff = datetime.now() - timedelta(days=offset_days)
+    start_cutoff = end_cutoff - timedelta(days=days)
+    rows = db.session.query(
+        StockTransaction.material_id,
+        func.coalesce(func.sum(func.abs(StockTransaction.quantity)), 0),
+    ).filter(
+        StockTransaction.created_at >= start_cutoff,
+        StockTransaction.created_at < end_cutoff,
+        StockTransaction.quantity < 0,
+    ).group_by(StockTransaction.material_id).all()
+    return {material_id: round_to_2_decimals(qty or 0) for material_id, qty in rows}
+
+
+def _ai_smart_replenishment_report(days=30, coverage_days=30, limit=200, only_action=False):
+    """Smart replenishment report with AI suggestions, trend, and priority score."""
+    days = max(int(days or 30), 1)
+    coverage_days = max(int(coverage_days or 30), 1)
+    limit = max(min(int(limit or 200), 300), 1)
+    materials = Material.query.options(
+        joinedload(Material.unit),
+        joinedload(Material.supplier),
+        joinedload(Material.category),
+    ).order_by(Material.code.asc()).all()
+    material_ids = [material.id for material in materials]
+    out_qty = _ai_replenishment_out_qty_by_material(days)
+    recent_out_qty = _ai_smart_replenishment_out_qty_by_material(days=15, offset_days=0)
+    prior_out_qty = _ai_smart_replenishment_out_qty_by_material(days=15, offset_days=15)
+    on_order, pending_request_ids = _ai_replenishment_open_qty(material_ids)
+
+    rows = []
+    for material in materials:
+        outbound_qty = round_to_2_decimals(out_qty.get(material.id, 0))
+        avg_daily = round_to_2_decimals(outbound_qty / days) if outbound_qty else 0
+        current_stock = round_to_2_decimals(material.stock or 0)
+        min_stock = round_to_2_decimals(material.min_stock or 0)
+        reorder_point = round_to_2_decimals(material.reorder_point or 0)
+        max_stock = round_to_2_decimals(material.max_stock or 0)
+        coverage_stock = round_to_2_decimals(avg_daily * coverage_days)
+        safety_line = max(min_stock, reorder_point, coverage_stock)
+        target_stock = max(max_stock, safety_line)
+        available_with_orders = round_to_2_decimals(current_stock + on_order.get(material.id, 0))
+        suggested_qty = round_to_2_decimals(max(target_stock - available_with_orders, 0))
+        days_of_supply = None if avg_daily <= STOCK_COMPARE_EPSILON else round_to_2_decimals(current_stock / avg_daily)
+        projected_stock = round_to_2_decimals(current_stock - coverage_stock + on_order.get(material.id, 0))
+        has_pending_request = material.id in pending_request_ids
+
+        if current_stock <= 0 and avg_daily > 0:
+            risk_level = 'critical'
+            risk_label = '立即处理'
+        elif current_stock < min_stock or projected_stock < 0 or (days_of_supply is not None and days_of_supply <= 7):
+            risk_level = 'high'
+            risk_label = '高风险'
+        elif suggested_qty > STOCK_COMPARE_EPSILON:
+            risk_level = 'medium'
+            risk_label = '建议补货'
+        else:
+            risk_level = 'normal'
+            risk_label = '正常'
+
+        action_required = suggested_qty > STOCK_COMPARE_EPSILON and not has_pending_request
+        if only_action and not action_required:
+            continue
+
+        # Trend calculation: compare recent 15 days vs prior 15 days
+        recent_qty = round_to_2_decimals(recent_out_qty.get(material.id, 0))
+        prior_qty = round_to_2_decimals(prior_out_qty.get(material.id, 0))
+        if recent_qty > prior_qty * 1.15 and recent_qty > STOCK_COMPARE_EPSILON:
+            trend = 'increasing'
+            trend_symbol = '↑'
+        elif recent_qty < prior_qty * 0.85 and prior_qty > STOCK_COMPARE_EPSILON:
+            trend = 'decreasing'
+            trend_symbol = '↓'
+        else:
+            trend = 'stable'
+            trend_symbol = '→'
+
+        # AI suggestion text
+        if current_stock <= 0 and avg_daily > 0:
+            ai_suggestion = '该物料已断货，建议立即紧急补货'
+        elif trend == 'increasing':
+            ai_suggestion = '该物料近期出库波动较大，建议分批次补货'
+        elif trend == 'decreasing':
+            ai_suggestion = '该物料消耗呈下降趋势，可适当减少补货量'
+        elif days_of_supply is not None and days_of_supply <= 7:
+            ai_suggestion = '该物料可用天数紧张，建议尽快补货'
+        elif suggested_qty > STOCK_COMPARE_EPSILON:
+            ai_suggestion = '该物料消耗稳定，可一次性补货'
+        else:
+            ai_suggestion = '库存充足，暂无需补货'
+
+        # Priority score: risk_level + trend + days_of_supply
+        risk_score = {'critical': 100, 'high': 75, 'medium': 50, 'normal': 25}.get(risk_level, 0)
+        trend_score = {'increasing': 15, 'stable': 0, 'decreasing': -10}.get(trend, 0)
+        supply_score = 0
+        if days_of_supply is not None:
+            supply_score = max(0, 30 - days_of_supply)
+        priority_score = round_to_2_decimals(risk_score + trend_score + supply_score)
+
+        rows.append({
+            'material': material,
+            'code': material.code,
+            'name': material.name,
+            'spec': material.spec or '',
+            'unit': material.unit.name if material.unit else '',
+            'category': material.category.name if material.category else '',
+            'supplier': material.supplier.name if material.supplier else '',
+            'current_stock': current_stock,
+            'min_stock': min_stock,
+            'reorder_point': reorder_point,
+            'max_stock': max_stock,
+            'outbound_qty': outbound_qty,
+            'avg_daily': avg_daily,
+            'coverage_stock': coverage_stock,
+            'on_order': on_order.get(material.id, 0),
+            'pending_request': has_pending_request,
+            'projected_stock': projected_stock,
+            'days_of_supply': days_of_supply,
+            'suggested_qty': suggested_qty,
+            'estimated_amount': round_to_2_decimals(suggested_qty * (material.price or 0)),
+            'risk_level': risk_level,
+            'risk_label': risk_label,
+            'action_required': action_required,
+            'trend': trend,
+            'trend_symbol': trend_symbol,
+            'ai_suggestion': ai_suggestion,
+            'priority_score': priority_score,
+        })
+
+    rows.sort(key=lambda row: (
+        -row['priority_score'],
+        999999 if row['days_of_supply'] is None else row['days_of_supply'],
+        -row['suggested_qty'],
+        row['code'] or '',
+    ))
+    rows = rows[:limit]
+    summary = {
+        'total': len(rows),
+        'critical': sum(1 for row in rows if row['risk_level'] == 'critical'),
+        'high': sum(1 for row in rows if row['risk_level'] == 'high'),
+        'medium': sum(1 for row in rows if row['risk_level'] == 'medium'),
+        'action_required': sum(1 for row in rows if row['action_required']),
+        'pending_request': sum(1 for row in rows if row['pending_request']),
+        'suggested_amount': round_to_2_decimals(sum(row['estimated_amount'] for row in rows if row['action_required'])),
+        'days': days,
+        'coverage_days': coverage_days,
+        'generated_at': datetime.now(),
+    }
+    return {'rows': rows, 'summary': summary}
+
+
 def _ai_replenishment_planning_response(message, context=None, force=False):
     if not force and not _ai_replenishment_triggered(message):
         return None
@@ -14118,6 +14691,117 @@ def ai_replenishment_page():
         only_action=only_action,
     )
     return render_template('ai_replenishment.html', report=report, risk=risk)
+
+
+@app.route('/ai/inventory_health')
+@login_required
+@require_role('warehouse', 'purchase')
+def ai_inventory_health_page():
+    if not _ai_capability_allowed('inventory_health'):
+        flash('当前账号没有访问AI库存健康度的权限。', 'danger')
+        return redirect(url_for('index'))
+    days = request.args.get('days', 30, type=int)
+    risk = (request.args.get('risk') or 'all').strip()
+    export = (request.args.get('export') or '').strip().lower()
+    
+    report = _ai_inventory_health_report(
+        days=days,
+        limit=200,
+        risk_filter=risk,
+    )
+    
+    if export == 'csv':
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            '健康分', '物料编码', '名称', '规格', '单位', '当前库存', '最低库存', '最大库存',
+            f'近{days}天出库', '可用天数', '风险类型', 'AI优化建议'
+        ])
+        risk_labels = {
+            'shortage': '缺货风险',
+            'overstock': '积压风险',
+            'stagnant': '呆滞风险',
+            'normal': '正常',
+        }
+        for row in report['rows']:
+            writer.writerow([
+                row['health_score'],
+                row['code'],
+                row['name'],
+                row['spec'],
+                row['unit'],
+                row['current_stock'],
+                row['min_stock'],
+                row['max_stock'],
+                row['outbound_qty'],
+                row['days_of_supply'] if row['days_of_supply'] is not None else '',
+                risk_labels.get(row['risk_type'], '正常'),
+                row['ai_suggestion'],
+            ])
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=inventory_health_report.csv'}
+        )
+    
+    return render_template('ai_inventory_health.html', report=report, risk=risk)
+
+
+@app.route('/ai/replenishment_smart')
+@login_required
+@require_role('warehouse', 'purchase')
+def ai_replenishment_smart_page():
+    if not _ai_capability_allowed('replenishment_smart'):
+        flash('当前账号没有访问智能补货建议的权限。', 'danger')
+        return redirect(url_for('index'))
+    days = request.args.get('days', 30, type=int)
+    coverage_days = request.args.get('coverage_days', 30, type=int)
+    risk = (request.args.get('risk') or 'action').strip()
+    only_action = risk == 'action'
+    export = (request.args.get('export') or '').strip().lower()
+
+    report = _ai_smart_replenishment_report(
+        days=days,
+        coverage_days=coverage_days,
+        limit=200,
+        only_action=only_action,
+    )
+
+    if export == 'csv':
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            '优先级', '物料编码', '名称', '规格', '单位', '当前库存',
+            f'近{days}天出库', '日均消耗', '可用天数', '在途数量', '建议补货量',
+            '趋势', 'AI建议'
+        ])
+        for row in report['rows']:
+            writer.writerow([
+                row['priority_score'],
+                row['code'],
+                row['name'],
+                row['spec'],
+                row['unit'],
+                row['current_stock'],
+                row['outbound_qty'],
+                row['avg_daily'],
+                row['days_of_supply'] if row['days_of_supply'] is not None else '',
+                row['on_order'],
+                row['suggested_qty'],
+                row['trend_symbol'],
+                row['ai_suggestion'],
+            ])
+        csv_content = output.getvalue()
+        output.close()
+        filename = f'智能补货建议_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        return Response(
+            csv_content,
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+        )
+
+    return render_template('ai_replenishment_smart.html', report=report, risk=risk)
 
 
 def _ai_prelaunch_add_check(checks, code, title, status, detail, action_label='', action_url='', severity='medium'):
@@ -25343,6 +26027,15 @@ def delete_out_order(id):
         db.session.rollback()
         return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
 
+@app.route('/api/ai/out_order/<int:id>/anomaly_analysis')
+@login_required
+def api_ai_out_order_anomaly_analysis(id):
+    """出库单异常AI分析接口"""
+    result = _ai_analyze_out_order_anomalies(id)
+    if not result.get('order'):
+        return jsonify({'status': 'error', 'msg': result.get('summary', '未找到该出库单')}), 404
+    return jsonify({'status': 'success', 'data': result})
+
 @app.route('/out_order/batch_delete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -28050,6 +28743,7 @@ def build_report_dashboard_context():
     today = date.today()
     month_start = today.replace(day=1)
     next_month_start = _shift_month_start(month_start, 1)
+    last_month_start = _shift_month_start(month_start, -1)
 
     month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
         InOrder.date >= month_start,
@@ -28068,6 +28762,35 @@ def build_report_dashboard_context():
         OutOrder.date < next_month_start
     ).scalar() or 0
 
+    # 上月数据
+    last_month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
+        InOrder.date >= last_month_start,
+        InOrder.date < month_start
+    ).scalar() or 0
+    last_month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
+        OutOrder.date >= last_month_start,
+        OutOrder.date < month_start
+    ).scalar() or 0
+    last_month_in_count = db.session.query(func.count(InOrder.id)).filter(
+        InOrder.date >= last_month_start,
+        InOrder.date < month_start
+    ).scalar() or 0
+    last_month_out_count = db.session.query(func.count(OutOrder.id)).filter(
+        OutOrder.date >= last_month_start,
+        OutOrder.date < month_start
+    ).scalar() or 0
+
+    # 计算环比增长率
+    def _calc_mom_rate(current, last):
+        if last and last > 0:
+            return ((current - last) / last) * 100
+        return None
+
+    in_amount_mom = _calc_mom_rate(float(month_in_amount), float(last_month_in_amount))
+    out_amount_mom = _calc_mom_rate(float(month_out_amount), float(last_month_out_amount))
+    in_count_mom = _calc_mom_rate(int(month_in_count), int(last_month_in_count))
+    out_count_mom = _calc_mom_rate(int(month_out_count), int(last_month_out_count))
+
     total_stock = db.session.query(func.coalesce(func.sum(Material.stock), 0)).scalar() or 0
     material_count = db.session.query(func.count(Material.id)).scalar() or 0
     stock_value = db.session.query(
@@ -28082,6 +28805,14 @@ def build_report_dashboard_context():
         'total_stock': float(total_stock),
         'material_count': int(material_count),
         'stock_value': float(stock_value),
+        'last_month_in_amount': float(last_month_in_amount),
+        'last_month_out_amount': float(last_month_out_amount),
+        'last_month_in_count': int(last_month_in_count),
+        'last_month_out_count': int(last_month_out_count),
+        'in_amount_mom': in_amount_mom,
+        'out_amount_mom': out_amount_mom,
+        'in_count_mom': in_count_mom,
+        'out_count_mom': out_count_mom,
     }
 
     trend_start = today - timedelta(days=9)
