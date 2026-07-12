@@ -25451,7 +25451,7 @@ def update_out_order_item():
         return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
 
 def _check_out_order_anomalies(order):
-    """检测出库单异常：数量异常、重复单据。返回异常列表。"""
+    """检测出库单异常：数量异常、金额异常、重复单据。返回异常列表。"""
     anomalies = []
     if not order.items:
         return anomalies
@@ -25473,12 +25473,15 @@ def _check_out_order_anomalies(order):
         OutOrderItem.material_id.in_(material_ids)
     ).all()
     
-    # 按物料ID分组数量
+    # 按物料ID分组数据
     qty_by_material = {}
+    price_by_material = {}
     for ri in recent_items:
         mid = ri.material_id
         if ri.quantity:
             qty_by_material.setdefault(mid, []).append(ri.quantity)
+        if ri.price and ri.price > 0:
+            price_by_material.setdefault(mid, []).append(ri.price)
     
     for item in order.items:
         if not item.material:
@@ -25501,8 +25504,26 @@ def _check_out_order_anomalies(order):
                         'deviation': f'{deviation*100:.0f}%',
                         'msg': f'物料 {material_name} 本次出库量 {item.quantity} 是近30天平均 {round(avg_qty, 2)} 的 {deviation*100:.0f}%，请确认是否正确'
                     })
+        
+        # 2. 金额异常检测：与近3次出库单价对比
+        if item.price and item.price > 0:
+            recent_prices = price_by_material.get(item.material_id, [])
+            if recent_prices:
+                recent_prices = sorted(recent_prices, reverse=True)[:3]  # 取最近3次
+                avg_price = sum(recent_prices) / len(recent_prices)
+                if avg_price > 0:
+                    price_deviation = abs(item.price - avg_price) / avg_price
+                    if price_deviation > 0.3:  # 偏离超过30%
+                        anomalies.append({
+                            'type': 'price_deviation',
+                            'material': material_name,
+                            'current': item.price,
+                            'average': round(avg_price, 2),
+                            'deviation': f'{price_deviation*100:.0f}%',
+                            'msg': f'物料 {material_name} 本次单价 {item.price} 与近3次平均 {round(avg_price, 2)} 偏离 {price_deviation*100:.0f}%，请确认'
+                        })
     
-    # 2. 重复单据检测：同一天同物料同客户/部门
+    # 3. 重复单据检测：同一天同物料同客户/部门
     if order.date == today:
         today_orders = OutOrder.query.filter(
             OutOrder.date == today,
@@ -25531,6 +25552,23 @@ def _check_out_order_anomalies(order):
                             })
     
     return anomalies
+
+
+@app.route('/out_order/<int:id>/check_anomalies', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def check_out_order_anomalies(id):
+    """检查出库单异常，返回异常列表供前端确认。"""
+    order = OutOrder.query.get_or_404(id)
+    if order.status != 'pending':
+        return jsonify({'status': 'error', 'msg': '该出库单已提交，不能检查异常'})
+    
+    anomalies = _check_out_order_anomalies(order)
+    return jsonify({
+        'status': 'success',
+        'anomalies': anomalies,
+        'has_anomalies': len(anomalies) > 0
+    })
 
 
 @app.route('/out_order/<int:id>/complete', methods=['POST'])
@@ -29885,7 +29923,7 @@ def report_dashboard_ai_insights():
 请生成3-5条有价值的业务洞察，包括：
 1. 出入库趋势分析（上升/下降/平稳及可能原因）
 2. 库存健康度评估（是否有积压或缺货风险）
-3.  actionable的改进建议
+3. 可执行的改进建议
 要求语言简洁专业，每条不超过80字，用换行分隔。"""
     try:
         insights = _ai_call_llm_chat(prompt)
