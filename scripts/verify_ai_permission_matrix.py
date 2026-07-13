@@ -20,7 +20,7 @@ from ai.tools.registry import AI_TOOL_REGISTRY
 ROLES = ('admin', 'warehouse', 'purchase', 'production', 'user')
 
 EXPECTED = {
-    'out_order_draft': {'admin', 'warehouse', 'production'},
+    'out_order_draft': {'admin', 'warehouse'},
     'sales_out_draft': {'admin', 'warehouse'},
     'in_order_draft': {'admin', 'warehouse'},
     'purchase_receive_draft': {'admin', 'warehouse', 'purchase'},

@@ -458,6 +458,7 @@ def require_role(*roles):
                 flash('当前账号没有权限访问该页面', 'danger')
                 return redirect(url_for('index'))
             return f(*args, **kwargs)
+        decorated_function._required_roles = frozenset(allowed)
         return decorated_function
     return decorator
 

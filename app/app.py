@@ -28,6 +28,7 @@ from pathlib import Path
 # Initialize Flask application
 from config import config_dict
 from ai.policies import (
+    AI_CAPABILITY_BUSINESS_ENDPOINTS,
     AI_CAPABILITY_ROLES,
     is_ai_capability_allowed_for_role,
 )
@@ -7216,7 +7217,20 @@ def _ai_capability_allowed(capability):
     if not current_user.is_authenticated:
         return False
     spec = get_ai_tool_spec(capability)
-    allowed = is_ai_capability_allowed_for_role(capability, current_user.role)
+    business_endpoint = AI_CAPABILITY_BUSINESS_ENDPOINTS.get(capability)
+    if not business_endpoint:
+        _ai_record_capability_audit(capability, False)
+        return False
+    business_view = app.view_functions.get(business_endpoint)
+    if business_view is None:
+        _ai_record_capability_audit(capability, False)
+        return False
+    business_roles = getattr(business_view, '_required_roles', None)
+    allowed = is_ai_capability_allowed_for_role(
+        capability,
+        current_user.role,
+        business_roles=business_roles,
+    )
     if allowed and not _ai_global_enabled():
         allowed = False
     if allowed and not _ai_capability_allowed_by_rollout(capability, current_user.role):
@@ -15437,6 +15451,7 @@ def ai_agent_task_detail(id):
 
 
 @app.route('/ai/agent_tasks/run/warehouse_patrol', methods=['POST'])
+@require_role('warehouse')
 @login_required
 def ai_agent_run_warehouse_patrol():
     task, error = _ai_run_warehouse_patrol_agent()
@@ -15448,6 +15463,7 @@ def ai_agent_run_warehouse_patrol():
 
 
 @app.route('/ai/agent_tasks/run/purchase_followup', methods=['POST'])
+@require_role('purchase')
 @login_required
 def ai_agent_run_purchase_followup():
     task, error = _ai_run_purchase_followup_agent()
@@ -15615,6 +15631,7 @@ def ai_document_job_feedback(id):
 
 
 @app.route('/ai/material_alias')
+@require_role('warehouse', 'purchase')
 @login_required
 def ai_material_alias_list():
     search = (request.args.get('search') or '').strip()
