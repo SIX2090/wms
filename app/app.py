@@ -53,6 +53,7 @@ from utils import (
     sanitize_print_html,
     currency_cn, from_json_filter, to_json_filter, range_filter, add_filter
 )
+from notifications import notification_manager
 
 STOCK_COMPARE_EPSILON = 1e-6
 
