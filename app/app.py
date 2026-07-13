@@ -2193,6 +2193,78 @@ class AIFeedback(db.Model):
 
     user = db.relationship('User', backref='ai_feedbacks')
     ai_run = db.relationship('AIRun', backref='feedbacks')
+class AIPatrolRule(db.Model):
+    """AI巡检规则配置"""
+    __tablename__ = 'ai_patrol_rule'
+    __table_args__ = (
+        db.Index('idx_ai_patrol_rule_enabled', 'enabled'),
+        db.Index('idx_ai_patrol_rule_type', 'rule_type'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.String(500))
+    rule_type = db.Column(db.String(50), nullable=False)  # negative_stock, low_stock, overdue_order, pending_draft, purchase_delay
+    enabled = db.Column(db.Boolean, default=True, nullable=False)
+    threshold_value = db.Column(db.Float)  # 阈值（如低库存数量）
+    threshold_days = db.Column(db.Integer)  # 阈值天数（如逾期天数）
+    severity = db.Column(db.String(20), default='warning')  # info, warning, critical
+    notify_roles = db.Column(db.String(500))  # JSON数组，如 '["admin","warehouse"]'
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    creator = db.relationship('User', backref='ai_patrol_rules')
+
+
+class AIPatrolAlert(db.Model):
+    """AI巡检告警记录"""
+    __tablename__ = 'ai_patrol_alert'
+    __table_args__ = (
+        db.Index('idx_ai_patrol_alert_rule', 'rule_id'),
+        db.Index('idx_ai_patrol_alert_status', 'status'),
+        db.Index('idx_ai_patrol_alert_created', 'created_at'),
+        db.Index('idx_ai_patrol_alert_acknowledged', 'acknowledged_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    rule_id = db.Column(db.Integer, db.ForeignKey('ai_patrol_rule.id'), nullable=False)
+    alert_type = db.Column(db.String(50), nullable=False)  # 与rule.rule_type一致
+    severity = db.Column(db.String(20), nullable=False, default='warning')
+    title = db.Column(db.String(200), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    data_context = db.Column(db.Text)  # JSON格式，存储告警相关数据
+    status = db.Column(db.String(20), nullable=False, default='active')  # active, acknowledged, resolved, dismissed
+    acknowledged_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    acknowledged_at = db.Column(db.DateTime)
+    resolved_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    resolved_at = db.Column(db.DateTime)
+    resolution_note = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    rule = db.relationship('AIPatrolRule', backref=db.backref('alerts', cascade='all, delete-orphan'))
+    acknowledger = db.relationship('User', foreign_keys=[acknowledged_by], backref='acknowledged_alerts')
+    resolver = db.relationship('User', foreign_keys=[resolved_by], backref='resolved_alerts')
+
+
+class AIPatrolSchedule(db.Model):
+    """AI巡检调度配置"""
+    __tablename__ = 'ai_patrol_schedule'
+    __table_args__ = (
+        db.Index('idx_ai_patrol_schedule_enabled', 'enabled'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    cron_expression = db.Column(db.String(50), nullable=False)  # 如 '0 8 * * *' 表示每天8点
+    enabled = db.Column(db.Boolean, default=True, nullable=False)
+    last_run_at = db.Column(db.DateTime)
+    next_run_at = db.Column(db.DateTime)
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    creator = db.relationship('User', backref='ai_patrol_schedules')
 
 
 class OpeningStock(db.Model):
