@@ -18,6 +18,7 @@ SMOKE_SCRIPTS = (
     "verify_ai_platform_boundaries.py",
     "verify_ai_platform_foundations.py",
     "verify_ai_tool_registry.py",
+    "verify_ai_tool_schemas.py",
     "verify_ai_streaming.py",
     "verify_ai_document_evaluation.py",
 )

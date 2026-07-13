@@ -34,7 +34,9 @@ def main() -> int:
         failures.append('schema validator did not report numeric bounds and additional properties')
 
     if not validate_ai_tool_input('warehouse_insights', {'page_url': '/stock', 'page_title': 'Stock'}).valid:
-        failures.append('registered tool input validation rejected default object schema')
+        failures.append('registered tool input validation rejected allowed page context')
+    if validate_ai_tool_input('warehouse_insights', {'unexpected': True}).valid:
+        failures.append('registered tool input validation accepted an additional property')
     if validate_ai_tool_input('missing_tool', {}).valid:
         failures.append('registered tool input validation accepted an unknown tool')
 

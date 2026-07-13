@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import re
 from typing import Any
 
 
@@ -71,6 +72,21 @@ def _validate_node(schema: Mapping[str, Any], value: Any, path: str, errors: lis
             errors.append(f'{path}: below minimum {minimum}')
         if isinstance(maximum, (int, float)) and value > maximum:
             errors.append(f'{path}: above maximum {maximum}')
+
+        exclusive_minimum = schema.get('exclusiveMinimum')
+        if isinstance(exclusive_minimum, (int, float)) and value <= exclusive_minimum:
+            errors.append(f'{path}: must be greater than {exclusive_minimum}')
+
+    if isinstance(value, str):
+        min_length = schema.get('minLength')
+        max_length = schema.get('maxLength')
+        pattern = schema.get('pattern')
+        if isinstance(min_length, int) and len(value) < min_length:
+            errors.append(f'{path}: shorter than minimum length {min_length}')
+        if isinstance(max_length, int) and len(value) > max_length:
+            errors.append(f'{path}: longer than maximum length {max_length}')
+        if isinstance(pattern, str) and re.fullmatch(pattern, value) is None:
+            errors.append(f'{path}: value does not match required pattern')
 
 
 def _matches_type(expected_type: Any, value: Any) -> bool:
