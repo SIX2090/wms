@@ -31,6 +31,8 @@ EXPECTED = {
     'warehouse_insights': {'admin', 'warehouse'},
     'purchase_insights': {'admin', 'purchase'},
     'replenishment_planning': {'admin', 'warehouse', 'purchase'},
+    'replenishment_smart': {'admin', 'warehouse', 'purchase'},
+    'inventory_health': {'admin', 'warehouse', 'purchase'},
     'warehouse_patrol_agent': {'admin', 'warehouse'},
     'purchase_followup_agent': {'admin', 'purchase'},
     'knowledge_base': {'admin', 'warehouse', 'purchase', 'production', 'user'},

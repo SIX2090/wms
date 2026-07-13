@@ -1,0 +1,36 @@
+name: WMS AI Verification
+
+on:
+  push:
+    branches: [main, 'feature/*', 'ai/*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r app/requirements.txt
+
+      - name: Run source encoding check
+        run: python3 scripts/verify_source_encoding.py
+
+      - name: Run AI verification scripts
+        run: |
+          set -e
+          for script in scripts/verify_ai_*.py; do
+            echo "=== Running $script ==="
+            python3 "$script"
+          done
+
+      - name: Run WMS bug regression
+        run: python3 scripts/verify_wms_bugs.py
