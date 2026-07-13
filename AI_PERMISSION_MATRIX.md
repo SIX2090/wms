@@ -21,6 +21,12 @@
 | `purchase_request_draft` | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 草稿 |
 | `warehouse_insights` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 只读 |
 | `purchase_insights` | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 只读 |
+| `warehouse_patrol_agent` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 只读 Agent |
+| `purchase_followup_agent` | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 只读 Agent |
+| `replenishment_planning` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 只读 |
+| `replenishment_smart` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 只读 |
+| `inventory_health` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 只读 |
+| `knowledge_base` | 允许 | 允许 | 允许 | 允许 | 允许 | 只读 |
 | `master_data_insights` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 只读 |
 | `admin_insights` | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 敏感只读 |
 | `alias_management` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 只读/维护入口 |

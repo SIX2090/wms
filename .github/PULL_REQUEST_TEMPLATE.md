@@ -8,11 +8,11 @@ Closes #
 
 ## 验证
 
-- [ ] 所有 `scripts/verify_ai_*.py` 通过
-- [ ] `scripts/verify_wms_bugs.py` 通过
+- [ ] `.\scripts\python.cmd -m compileall -q app scripts` 通过
+- [ ] `.\scripts\python.cmd scripts\verify_ai_all.py --level full` 通过
 - [ ] 权限矩阵已更新（如新增能力）
 - [ ] 工具注册表已更新（如新增工具）
-- [ ] 乱码扫描通过（`scripts/verify_source_encoding.py`）
+- [ ] 未提交数据库、日志、备份、上传文件或密钥
 
 ## 影响范围
 

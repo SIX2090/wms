@@ -210,19 +210,37 @@ C:\wms
 http://127.0.0.1:8080
 ```
 
+## 项目文档
+
+当前有效文档入口：
+
+| 文档 | 用途 |
+|---|---|
+| `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` | AI 功能开发主计划和任务状态，后续任务以此为准 |
+| `AI_PERMISSION_MATRIX.md` | AI 能力角色、风险等级和人工确认边界 |
+| `PRODUCTION_DEPLOYMENT_CHECKLIST.md` | 每次生产发布前重新填写的验收模板 |
+| `WMS_BUG_BASELINE.md` | 已核验 BUG、风险、误报和暂缓项基线 |
+| `WMS_BUG_REPORT.md` | 2026-06-27 原始 BUG 分析历史记录 |
+| `WMS_BUG_VERIFY_REPORT.md` | 2026-06-27 逐项核验历史记录 |
+| `上线部署说明.md` | 腾讯云 Windows 部署和数据保护说明 |
+| `AGENTS.md` | AI 和开发代理必须遵守的项目规则 |
+
+为避免计划冲突，仓库只保留 `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` 作为 AI 开发主计划。
+
 ## 开发校验
 
-提交前可执行基础语法检查：
+统一使用项目 Python 入口执行检查：
 
 ```bat
-python -m compileall app scripts
+.\scripts\python.cmd -m compileall -q app scripts
+.\scripts\python.cmd scripts\verify_ai_all.py --level full
 ```
 
-也可以运行仓库中的验证脚本：
+BUG 基线和候选风险检查：
 
 ```bat
-python scripts\scan_wms_risks.py
-python scripts\verify_wms_bugs.py
+.\scripts\python.cmd scripts\verify_wms_bugs.py
+.\scripts\python.cmd scripts\scan_wms_risks.py
 ```
 
 ## Git 忽略规则
@@ -241,4 +259,3 @@ app/static/uploads/
 secret_key
 wechat_helper_token
 ```
-

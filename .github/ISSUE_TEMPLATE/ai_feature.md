@@ -18,7 +18,7 @@ assignees: ''
 
 - **能力键**: <!-- 例如 `replenishment_smart` -->
 - **允许角色**: <!-- admin / warehouse / purchase / production / user -->
-- **风险等级**: <!-- read / draft / sensitive_read -->
+- **风险等级**: <!-- read / sensitive_read / draft；submit/audit/complete/void/delete/stock_write 禁止注册 -->
 - **是否需要确认**: <!-- 是/否 -->
 
 ## 验收标准
@@ -32,5 +32,5 @@ assignees: ''
 
 ## 关联
 
-- 开发计划阶段: <!-- 阶段0/1/2/3/4/5 -->
+- 开发计划任务: <!-- 例如 P0-06 / P1-01，见 WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md -->
 - 相关Issue: #

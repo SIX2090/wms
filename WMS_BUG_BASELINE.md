@@ -1,6 +1,6 @@
 # WMS BUG 基线
 
-更新时间：2026-06-27
+更新时间：2026-07-13
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。
 
@@ -82,8 +82,8 @@
 ## 每日使用方式
 
 ```powershell
-C:\erp\.venv\Scripts\python.exe scripts\verify_wms_bugs.py
-C:\erp\.venv\Scripts\python.exe scripts\scan_wms_risks.py
+.\scripts\python.cmd scripts\verify_wms_bugs.py
+.\scripts\python.cmd scripts\scan_wms_risks.py
 ```
 
 规则：`verify_wms_bugs.py` 失败才需要立即处理；`scan_wms_risks.py` 输出的是候选风险，必须人工判真后才能进入 BUG 修复。
