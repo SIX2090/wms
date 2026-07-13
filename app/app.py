@@ -503,6 +503,10 @@ login_manager.login_message_category = 'warning'
 login_manager.session_protection = 'basic'
 app.register_blueprint(ai_bp)
 
+# 阶段1：AI v2 兼容层（使用新 Provider + 工具模块）
+from ai.v2_routes import v2_bp
+app.register_blueprint(v2_bp)
+
 MAX_LOGIN_FAILURES = 5
 ACCOUNT_LOCK_MINUTES = 30
 
@@ -2145,6 +2149,47 @@ class AIAgentStep(db.Model):
     completed_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
     task = db.relationship('AIAgentTask', backref=db.backref('steps', cascade='all, delete-orphan'))
+
+
+class AIConversation(db.Model):
+    """阶段1新增：AI对话会话表，持久化用户对话历史。"""
+    __tablename__ = 'ai_conversation'
+    __table_args__ = (
+        db.Index('idx_ai_conversation_user_created', 'user_id', 'created_at'),
+        db.Index('idx_ai_conversation_session', 'session_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    session_id = db.Column(db.String(100), nullable=False)
+    role = db.Column(db.String(20), nullable=False)  # user / assistant / system
+    content = db.Column(db.Text, nullable=False)
+    intent = db.Column(db.String(100))
+    tool_calls_json = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    user = db.relationship('User', backref='ai_conversations')
+
+
+class AIFeedback(db.Model):
+    """阶段1新增：AI回复反馈表，用于收集用户对AI回复的评价。"""
+    __tablename__ = 'ai_feedback'
+    __table_args__ = (
+        db.Index('idx_ai_feedback_run', 'ai_run_id'),
+        db.Index('idx_ai_feedback_user_created', 'user_id', 'created_at'),
+        db.Index('idx_ai_feedback_rating', 'rating'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    ai_run_id = db.Column(db.Integer, db.ForeignKey('ai_run.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    rating = db.Column(db.String(20), nullable=False)  # thumbs_up / thumbs_down
+    reason = db.Column(db.String(500))
+    reply_snapshot = db.Column(db.Text)  # AI回复快照
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    user = db.relationship('User', backref='ai_feedbacks')
+    ai_run = db.relationship('AIRun', backref='feedbacks')
 
 
 class OpeningStock(db.Model):
