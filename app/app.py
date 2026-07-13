@@ -4348,6 +4348,90 @@ def mobile_scan_submit():
     return jsonify({'status': 'error', 'success': False, 'msg': '扫码类型不正确'}), 400
 
 
+@app.route('/mobile/api/recognize_material', methods=['POST'])
+@login_required
+def mobile_recognize_material():
+    if not _ai_llm_configured() or not _ai_llm_vision_enabled():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中启用大模型和图片识别'}), 400
+
+    if 'image' not in request.files:
+        return jsonify({'status': 'error', 'msg': '请上传图片'}), 400
+
+    file = request.files['image']
+    if not file.filename:
+        return jsonify({'status': 'error', 'msg': '请选择图片文件'}), 400
+
+    allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in allowed_ext:
+        return jsonify({'status': 'error', 'msg': '不支持的图片格式'}), 400
+
+    file.seek(0, 2)
+    file_size = file.tell()
+    file.seek(0)
+    if file_size > 10 * 1024 * 1024:
+        return jsonify({'status': 'error', 'msg': '图片大小不能超过10MB'}), 400
+
+    try:
+        import base64
+        img_data = base64.b64encode(file.read()).decode('ascii')
+        data_url = f'data:image/{ext};base64,{img_data}'
+
+        prompt = '''请识别这张图片中的物料。如果是物料标签、物料实物或包装，请提取：
+1. 物料编码（如有）
+2. 物料名称
+3. 规格型号
+4. 数量（如有）
+
+请在回答末尾追加 JSON 代码块，格式如下：
+```json
+{"code": "编码", "name": "名称", "spec": "规格", "quantity": 数量或null, "confidence": 0.8}
+```
+如果无法识别，code和name留空，confidence设为0。'''
+
+        reply, extracted, error = _ai_call_llm_vision(prompt, [{'data_url': data_url}])
+        if error:
+            return jsonify({'status': 'error', 'msg': error}), 500
+
+        matches = []
+        if extracted:
+            code = (extracted.get('code') or '').strip()
+            name = (extracted.get('name') or '').strip()
+            spec = (extracted.get('spec') or '').strip()
+
+            query = Material.query.options(
+                joinedload(Material.unit),
+                joinedload(Material.category),
+                joinedload(Material.supplier)
+            )
+            if code:
+                exact = query.filter_by(code=code).first()
+                if exact:
+                    matches = [exact]
+                else:
+                    search = f'%{code}%'
+                    matches = query.filter(Material.code.like(search)).limit(5).all()
+            if not matches and name:
+                search = f'%{name}%'
+                matches = query.filter(
+                    db.or_(Material.name.like(search), Material.code.like(search))
+                ).limit(5).all()
+            if not matches and spec:
+                search = f'%{spec}%'
+                matches = query.filter(Material.spec.like(search)).limit(5).all()
+
+        return jsonify({
+            'status': 'success',
+            'reply': reply,
+            'extracted': extracted,
+            'matches': [mobile_material_payload(m) for m in matches],
+            'match_count': len(matches)
+        })
+    except Exception as e:
+        app.logger.error(f'拍照识物失败: {e}')
+        return jsonify({'status': 'error', 'msg': '识别失败，请稍后重试'}), 500
+
+
 def _material_alert_enabled_filter():
     if not inventory_alert_enabled():
         return false()
@@ -14900,6 +14984,20 @@ def ai_replenishment_page():
     )
     return render_template('ai_replenishment.html', report=report, risk=risk)
 
+@app.route('/ai/replenishment_live')
+@login_required
+@require_role('warehouse', 'purchase')
+def ai_replenishment_live_page():
+    """智能补货建议页面（新版AI驱动）"""
+    return render_template('ai_replenishment.html')
+
+@app.route('/ai/inventory_health_live')
+@login_required
+@require_role('warehouse')
+def ai_inventory_health_live_page():
+    """库存健康度评分页面"""
+    return render_template('ai_inventory_health.html')
+
 
 @app.route('/ai/inventory_health')
 @login_required
@@ -19352,6 +19450,167 @@ def copy_in_order(id):
         return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
 
 
+def _calc_smart_threshold(values, base_threshold=0.5, min_threshold=0.2, max_threshold=1.0):
+    """基于历史数据计算智能异常阈值。
+    数据稳定（变异系数小）→ 阈值收紧；数据波动大 → 阈值放宽。
+    返回 (threshold, mean, std)。
+    """
+    if not values or len(values) < 2:
+        return base_threshold, (sum(values) / len(values) if values else 0), 0
+    
+    n = len(values)
+    mean = sum(values) / n
+    if mean <= 0:
+        return base_threshold, mean, 0
+    
+    variance = sum((v - mean) ** 2 for v in values) / (n - 1)
+    std = variance ** 0.5
+    cv = std / mean  # 变异系数
+    
+    # 变异系数映射到阈值系数：cv=0 → 0.6倍基础阈值，cv=1 → 1.5倍基础阈值
+    scale = 0.6 + cv * 0.9
+    scale = max(0.6, min(scale, 2.0))
+    threshold = base_threshold * scale
+    threshold = max(min_threshold, min(threshold, max_threshold))
+    
+    return threshold, mean, std
+
+
+def _check_in_order_anomalies(order):
+    """检测入库单异常：数量异常、价格异常、重复单据。返回异常列表。"""
+    anomalies = []
+    if not order.items:
+        return anomalies
+    
+    today = date.today()
+    thirty_days_ago = today - timedelta(days=30)
+    
+    # 收集所有物料ID
+    material_ids = [item.material_id for item in order.items if item.material_id]
+    if not material_ids:
+        return anomalies
+    
+    # 一次性查询近30天所有相关物料的入库明细（性能优化）
+    recent_items = InOrderItem.query.join(InOrder).filter(
+        InOrder.status == 'completed',
+        InOrder.date >= thirty_days_ago,
+        InOrder.date < today,
+        InOrder.id != order.id,
+        InOrderItem.material_id.in_(material_ids)
+    ).all()
+    
+    # 按物料ID分组数据
+    qty_by_material = {}
+    price_by_material = {}
+    for ri in recent_items:
+        mid = ri.material_id
+        if ri.quantity:
+            qty_by_material.setdefault(mid, []).append(ri.quantity)
+        if ri.price and ri.price > 0:
+            price_by_material.setdefault(mid, []).append(ri.price)
+    
+    for item in order.items:
+        if not item.material:
+            continue
+        
+        material_name = item.material.name or item.material.code or '未知物料'
+        
+        # 1. 数量异常检测：与近30天平均入库量对比（智能阈值）
+        recent_quantities = qty_by_material.get(item.material_id, [])
+        if recent_quantities:
+            qty_threshold, avg_qty, _ = _calc_smart_threshold(recent_quantities, base_threshold=0.5)
+            if avg_qty > 0 and item.quantity:
+                deviation = abs(item.quantity - avg_qty) / avg_qty
+                if deviation > qty_threshold:
+                    anomalies.append({
+                        'type': 'quantity_deviation',
+                        'material': material_name,
+                        'current': item.quantity,
+                        'average': round(avg_qty, 2),
+                        'deviation': f'{deviation*100:.0f}%',
+                        'threshold': f'{qty_threshold*100:.0f}%',
+                        'msg': f'物料 {material_name} 本次入库量 {item.quantity} 偏离近30天均值 {round(avg_qty, 2)} 达 {deviation*100:.0f}%（动态阈值 {qty_threshold*100:.0f}%），请确认是否正确'
+                    })
+        
+        # 2. 价格异常检测：与近3次采购价对比（智能阈值）
+        if item.price and item.price > 0:
+            recent_prices = price_by_material.get(item.material_id, [])
+            if recent_prices:
+                recent_prices_sorted = sorted(recent_prices, reverse=True)[:3]  # 取最近3次
+                price_threshold, avg_price, _ = _calc_smart_threshold(recent_prices_sorted, base_threshold=0.3)
+                if avg_price > 0:
+                    price_deviation = abs(item.price - avg_price) / avg_price
+                    if price_deviation > price_threshold:
+                        anomalies.append({
+                            'type': 'price_deviation',
+                            'material': material_name,
+                            'current': item.price,
+                            'average': round(avg_price, 2),
+                            'deviation': f'{price_deviation*100:.0f}%',
+                            'threshold': f'{price_threshold*100:.0f}%',
+                            'msg': f'物料 {material_name} 本次单价 {item.price} 偏离近期均价 {round(avg_price, 2)} 达 {price_deviation*100:.0f}%（动态阈值 {price_threshold*100:.0f}%），请确认'
+                        })
+    
+    # 3. 重复单据检测：同一天同物料同供应商
+    if order.supplier_id and order.date == today:
+        today_orders = InOrder.query.filter(
+            InOrder.date == today,
+            InOrder.supplier_id == order.supplier_id,
+            InOrder.id != order.id
+        ).all()
+        
+        for to in today_orders:
+            for ti in to.items:
+                for oi in order.items:
+                    if ti.material_id == oi.material_id:
+                        material_name = oi.material.name or oi.material.code
+                        anomalies.append({
+                            'type': 'duplicate_order',
+                            'material': material_name,
+                            'existing_order': to.order_no,
+                            'msg': f'物料 {material_name} 今天已在单据 {to.order_no} 中入库，请确认是否为重复操作'
+                        })
+    
+    return anomalies
+
+
+@app.route('/in_order/<int:id>/check_anomalies', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def check_in_order_anomalies(id):
+    """检查入库单异常，返回异常列表供前端确认。"""
+    order = InOrder.query.get_or_404(id)
+    if order.status != 'pending':
+        return jsonify({'status': 'error', 'msg': '该入库单已提交，不能检查异常'})
+    
+    anomalies = _check_in_order_anomalies(order)
+    
+    # 如果有异常且启用了AI，添加AI原因分析
+    if anomalies and _ai_llm_configured():
+        for anomaly in anomalies:
+            # 生成AI分析提示
+            prompt = f"作为仓库管理专家，请分析以下异常情况并给出简短建议（50字内）：\n"
+            prompt += f"异常类型：{anomaly['type']}\n"
+            prompt += f"物料：{anomaly['material']}\n"
+            prompt += f"当前值：{anomaly['current']}\n"
+            prompt += f"历史均值：{anomaly['average']}\n"
+            prompt += f"偏离度：{anomaly['deviation']}\n"
+            prompt += f"可能原因和建议："
+            
+            try:
+                ai_suggestion = _ai_call_llm_chat(prompt)
+                if ai_suggestion:
+                    anomaly['ai_suggestion'] = ai_suggestion.strip()
+            except Exception as e:
+                app.logger.warning(f'AI异常分析失败: {e}')
+    
+    return jsonify({
+        'status': 'success',
+        'anomalies': anomalies,
+        'has_anomalies': len(anomalies) > 0
+    })
+
+
 @app.route('/in_order/<int:id>/complete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -19368,6 +19627,16 @@ def complete_in_order(id):
     valid_source, source_msg = validate_purchase_in_order_source(order)
     if not valid_source:
         return jsonify({'status': 'error', 'msg': source_msg})
+
+    force_submit = request.args.get('force', '').lower() in ('true', '1', 'yes')
+    if not force_submit:
+        anomalies = _check_in_order_anomalies(order)
+        if anomalies:
+            return jsonify({
+                'status': 'warning',
+                'msg': '检测到异常，请确认是否继续提交',
+                'anomalies': anomalies
+            })
 
     try:
         is_recompleted = StockTransaction.query.filter_by(
@@ -26135,6 +26404,149 @@ def update_out_order_item():
         db.session.rollback()
         return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
 
+def _check_out_order_anomalies(order):
+    """检测出库单异常：数量异常、金额异常、重复单据。返回异常列表。"""
+    anomalies = []
+    if not order.items:
+        return anomalies
+    
+    today = date.today()
+    thirty_days_ago = today - timedelta(days=30)
+    
+    # 收集所有物料ID
+    material_ids = [item.material_id for item in order.items if item.material_id]
+    if not material_ids:
+        return anomalies
+    
+    # 一次性查询近30天所有相关物料的出库明细（性能优化）
+    recent_items = OutOrderItem.query.join(OutOrder).filter(
+        OutOrder.status == 'completed',
+        OutOrder.date >= thirty_days_ago,
+        OutOrder.date < today,
+        OutOrder.id != order.id,
+        OutOrderItem.material_id.in_(material_ids)
+    ).all()
+    
+    # 按物料ID分组数据
+    qty_by_material = {}
+    price_by_material = {}
+    for ri in recent_items:
+        mid = ri.material_id
+        if ri.quantity:
+            qty_by_material.setdefault(mid, []).append(ri.quantity)
+        if ri.price and ri.price > 0:
+            price_by_material.setdefault(mid, []).append(ri.price)
+    
+    for item in order.items:
+        if not item.material:
+            continue
+        
+        material_name = item.material.name or item.material.code or '未知物料'
+        
+        # 1. 数量异常检测：与近30天平均出库量对比（智能阈值）
+        recent_quantities = qty_by_material.get(item.material_id, [])
+        if recent_quantities:
+            qty_threshold, avg_qty, _ = _calc_smart_threshold(recent_quantities, base_threshold=0.5)
+            if avg_qty > 0 and item.quantity:
+                deviation = abs(item.quantity - avg_qty) / avg_qty
+                if deviation > qty_threshold:
+                    anomalies.append({
+                        'type': 'quantity_deviation',
+                        'material': material_name,
+                        'current': item.quantity,
+                        'average': round(avg_qty, 2),
+                        'deviation': f'{deviation*100:.0f}%',
+                        'threshold': f'{qty_threshold*100:.0f}%',
+                        'msg': f'物料 {material_name} 本次出库量 {item.quantity} 偏离近30天均值 {round(avg_qty, 2)} 达 {deviation*100:.0f}%（动态阈值 {qty_threshold*100:.0f}%），请确认是否正确'
+                    })
+        
+        # 2. 金额异常检测：与近3次出库单价对比（智能阈值）
+        if item.price and item.price > 0:
+            recent_prices = price_by_material.get(item.material_id, [])
+            if recent_prices:
+                recent_prices_sorted = sorted(recent_prices, reverse=True)[:3]  # 取最近3次
+                price_threshold, avg_price, _ = _calc_smart_threshold(recent_prices_sorted, base_threshold=0.3)
+                if avg_price > 0:
+                    price_deviation = abs(item.price - avg_price) / avg_price
+                    if price_deviation > price_threshold:
+                        anomalies.append({
+                            'type': 'price_deviation',
+                            'material': material_name,
+                            'current': item.price,
+                            'average': round(avg_price, 2),
+                            'deviation': f'{price_deviation*100:.0f}%',
+                            'threshold': f'{price_threshold*100:.0f}%',
+                            'msg': f'物料 {material_name} 本次单价 {item.price} 偏离近期均价 {round(avg_price, 2)} 达 {price_deviation*100:.0f}%（动态阈值 {price_threshold*100:.0f}%），请确认'
+                        })
+    
+    # 3. 重复单据检测：同一天同物料同客户/部门
+    if order.date == today:
+        today_orders = OutOrder.query.filter(
+            OutOrder.date == today,
+            OutOrder.id != order.id
+        )
+        # 按客户或部门过滤
+        if order.customer_id:
+            today_orders = today_orders.filter(OutOrder.customer_id == order.customer_id)
+        elif order.department_id:
+            today_orders = today_orders.filter(OutOrder.department_id == order.department_id)
+        else:
+            today_orders = None  # 无客户/部门信息时不检测重复
+        
+        if today_orders:
+            today_orders = today_orders.all()
+            for to in today_orders:
+                for ti in to.items:
+                    for oi in order.items:
+                        if ti.material_id == oi.material_id:
+                            material_name = oi.material.name or oi.material.code
+                            anomalies.append({
+                                'type': 'duplicate_order',
+                                'material': material_name,
+                                'existing_order': to.order_no,
+                                'msg': f'物料 {material_name} 今天已在单据 {to.order_no} 中出库，请确认是否为重复操作'
+                            })
+    
+    return anomalies
+
+
+@app.route('/out_order/<int:id>/check_anomalies', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def check_out_order_anomalies(id):
+    """检查出库单异常，返回异常列表供前端确认。"""
+    order = OutOrder.query.get_or_404(id)
+    if order.status != 'pending':
+        return jsonify({'status': 'error', 'msg': '该出库单已提交，不能检查异常'})
+    
+    anomalies = _check_out_order_anomalies(order)
+    
+    # 如果有异常且启用了AI，添加AI原因分析
+    if anomalies and _ai_llm_configured():
+        for anomaly in anomalies:
+            # 生成AI分析提示
+            prompt = f"作为仓库管理专家，请分析以下出库异常情况并给出简短建议（50字内）：\n"
+            prompt += f"异常类型：{anomaly['type']}\n"
+            prompt += f"物料：{anomaly['material']}\n"
+            prompt += f"当前值：{anomaly['current']}\n"
+            prompt += f"历史均值：{anomaly['average']}\n"
+            prompt += f"偏离度：{anomaly['deviation']}\n"
+            prompt += f"可能原因和建议："
+            
+            try:
+                ai_suggestion = _ai_call_llm_chat(prompt)
+                if ai_suggestion:
+                    anomaly['ai_suggestion'] = ai_suggestion.strip()
+            except Exception as e:
+                app.logger.warning(f'AI异常分析失败: {e}')
+    
+    return jsonify({
+        'status': 'success',
+        'anomalies': anomalies,
+        'has_anomalies': len(anomalies) > 0
+    })
+
+
 @app.route('/out_order/<int:id>/complete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -26146,6 +26558,17 @@ def complete_out_order(id):
         return jsonify({'status': 'error', 'msg': '请至少添加一条领料明细'})
     if location_management_enabled() and location_required_on_save() and not order.warehouse:
         return jsonify({'status': 'error', 'msg': '启用库位管理后，领料单必须填写仓库/库位'})
+
+    # 异常检测（force=true时跳过）
+    force_submit = request.args.get('force', '').lower() in ('true', '1', 'yes')
+    if not force_submit:
+        anomalies = _check_out_order_anomalies(order)
+        if anomalies:
+            return jsonify({
+                'status': 'warning',
+                'msg': '检测到异常，请确认是否继续提交',
+                'anomalies': anomalies
+            })
 
     use_location = bool(location_management_enabled() and order.warehouse)
 
@@ -28969,6 +29392,25 @@ def build_report_dashboard_context():
         OutOrder.date >= month_start,
         OutOrder.date < next_month_start
     ).scalar() or 0
+    
+    # 上月数据用于环比分析
+    last_month_start = _shift_month_start(month_start, -1)
+    last_month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
+        InOrder.date >= last_month_start,
+        InOrder.date < month_start
+    ).scalar() or 0
+    last_month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
+        OutOrder.date >= last_month_start,
+        OutOrder.date < month_start
+    ).scalar() or 0
+    last_month_in_count = db.session.query(func.count(InOrder.id)).filter(
+        InOrder.date >= last_month_start,
+        InOrder.date < month_start
+    ).scalar() or 0
+    last_month_out_count = db.session.query(func.count(OutOrder.id)).filter(
+        OutOrder.date >= last_month_start,
+        OutOrder.date < month_start
+    ).scalar() or 0
 
     # 上月数据
     last_month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
@@ -30503,6 +30945,884 @@ def purchase_report():
 def report_dashboard():
     stats, chart_data = build_report_dashboard_context()
     return render_template('report_dashboard.html', stats=stats, chart_data=chart_data)
+
+@app.route('/report/dashboard/ai_insights', methods=['POST'])
+@login_required
+def report_dashboard_ai_insights():
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+    stats, chart_data = build_report_dashboard_context()
+    
+    # 计算环比增长率
+    in_amount_mom = ((stats['month_in_amount'] - stats['last_month_in_amount']) / stats['last_month_in_amount'] * 100) if stats['last_month_in_amount'] > 0 else 0
+    out_amount_mom = ((stats['month_out_amount'] - stats['last_month_out_amount']) / stats['last_month_out_amount'] * 100) if stats['last_month_out_amount'] > 0 else 0
+    
+    prompt = f"""你是仓库管理系统的数据分析师，请基于以下仪表盘数据生成简洁的业务洞察：
+
+【核心指标】
+- 本月入库金额：{stats.month_in_amount:.2f} 元，共 {stats.month_in_count} 笔单据
+- 本月领料金额：{stats.month_out_amount:.2f} 元，共 {stats.month_out_count} 笔单据
+- 库存总量：{stats.total_stock:.2f}，共 {stats.material_count} 种物料
+- 库存金额：{stats.stock_value:.2f} 元
+
+【环比分析】
+- 入库金额环比：{in_amount_mom:+.1f}%（上月 {stats.last_month_in_amount:.2f} 元）
+- 领料金额环比：{out_amount_mom:+.1f}%（上月 {stats.last_month_out_amount:.2f} 元）
+
+【趋势数据】近10天出入库数量趋势：{json.dumps(chart_data.get('trend', {}), ensure_ascii=False)[:500]}
+
+请生成4-6条有价值的业务洞察，包括：
+1. 环比分析（本月vs上月，增长/下降原因分析）
+2. 出入库趋势分析（近10天波动情况及可能原因）
+3. 库存健康度评估（是否有积压或缺货风险）
+4. 可执行的改进建议
+要求语言简洁专业，每条不超过80字，用换行分隔。"""
+    try:
+        insights = _ai_call_llm_chat(prompt)
+        if not insights:
+            return jsonify({'status': 'error', 'msg': 'AI生成失败，请稍后重试'})
+        return jsonify({'status': 'success', 'insights': insights})
+    except Exception as e:
+        app.logger.error(f'报表AI解读失败: {e}')
+        return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
+
+@app.route('/api/ai/replenishment_suggestions', methods=['POST'])
+@login_required
+def ai_replenishment_suggestions():
+    """智能补货建议：分析库存低于补货点的物料，结合历史出库数据生成补货建议。"""
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+    
+    # 查询库存低于补货点的物料
+    materials = Material.query.filter(
+        Material.stock < Material.reorder_point,
+        Material.reorder_point > 0
+    ).all()
+    
+    if not materials:
+        return jsonify({'status': 'success', 'suggestions': [], 'msg': '当前所有物料库存充足，无需补货'})
+    
+    # 收集物料信息和历史出库数据
+    suggestions_data = []
+    thirty_days_ago = date.today() - timedelta(days=30)
+    
+    for material in materials[:20]:  # 限制最多20个物料，避免数据过大
+        # 查询近30天出库量
+        recent_out = db.session.query(
+            func.coalesce(func.sum(OutOrderItem.quantity), 0)
+        ).join(OutOrder, OutOrderItem.out_order_id == OutOrder.id).filter(
+            OutOrderItem.material_id == material.id,
+            OutOrder.status == 'completed',
+            OutOrder.date >= thirty_days_ago
+        ).scalar() or 0
+        
+        # 计算日均出库量
+        daily_avg = recent_out / 30 if recent_out > 0 else 0
+        
+        # 计算建议补货量（补到最大库存或满足30天需求）
+        target_stock = max(material.max_stock, material.reorder_point + daily_avg * 30)
+        suggested_qty = max(0, target_stock - material.stock)
+        
+        suggestions_data.append({
+            'material_code': material.code,
+            'material_name': material.name,
+            'current_stock': material.stock,
+            'reorder_point': material.reorder_point,
+            'daily_avg_out': round(daily_avg, 2),
+            'suggested_qty': round(suggested_qty, 2),
+            'supplier': material.supplier.name if material.supplier else '未设置',
+            'unit': material.unit.name if material.unit else '个',
+            'price': material.price or 0
+        })
+    
+    # 构建AI分析提示
+    prompt = f"""作为仓库管理专家，请分析以下需要补货的物料，给出专业的补货建议：
+
+【需要补货的物料】（共{len(suggestions_data)}种）
+"""
+    for i, s in enumerate(suggestions_data[:10], 1):  # 最多分析10个
+        prompt += f"{i}. {s['material_name']}（{s['material_code']}）\n"
+        prompt += f"   当前库存：{s['current_stock']} {s['unit']}，补货点：{s['reorder_point']}\n"
+        prompt += f"   近30天日均出库：{s['daily_avg_out']}，建议补货量：{s['suggested_qty']}\n"
+        prompt += f"   供应商：{s['supplier']}，单价：{s['price']}元\n\n"
+    
+    prompt += """请生成简洁的补货建议（200字内），包括：
+1. 紧急程度排序（哪些物料最急需补货）
+2. 补货策略建议（批量采购还是分批补货）
+3. 风险提示（是否有供应商交期、季节性因素等需要注意）
+要求语言简洁实用，可直接指导采购操作。"""
+    
+    try:
+        ai_analysis = _ai_call_llm_chat(prompt)
+        return jsonify({
+            'status': 'success',
+            'suggestions': suggestions_data,
+            'ai_analysis': ai_analysis or 'AI分析暂不可用，请参考系统建议量进行补货。'
+        })
+    except Exception as e:
+        app.logger.error(f'智能补货建议失败: {e}')
+        return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
+
+@app.route('/api/ai/inventory_health', methods=['POST'])
+@login_required
+def ai_inventory_health():
+    """库存健康度评分：AI评估每个物料的库存健康度（积压/缺货风险）。"""
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+    
+    # 查询所有有库存的物料
+    materials = Material.query.filter(Material.stock > 0).all()
+    
+    if not materials:
+        return jsonify({'status': 'success', 'health_scores': [], 'msg': '当前无库存数据'})
+    
+    # 收集物料健康度数据
+    health_data = []
+    thirty_days_ago = date.today() - timedelta(days=30)
+    ninety_days_ago = date.today() - timedelta(days=90)
+    
+    for material in materials[:50]:  # 限制最多50个物料
+        # 查询近30天出库量
+        recent_out_30 = db.session.query(
+            func.coalesce(func.sum(OutOrderItem.quantity), 0)
+        ).join(OutOrder, OutOrderItem.out_order_id == OutOrder.id).filter(
+            OutOrderItem.material_id == material.id,
+            OutOrder.status == 'completed',
+            OutOrder.date >= thirty_days_ago
+        ).scalar() or 0
+        
+        # 查询近90天出库量
+        recent_out_90 = db.session.query(
+            func.coalesce(func.sum(OutOrderItem.quantity), 0)
+        ).join(OutOrder, OutOrderItem.out_order_id == OutOrder.id).filter(
+            OutOrderItem.material_id == material.id,
+            OutOrder.status == 'completed',
+            OutOrder.date >= ninety_days_ago
+        ).scalar() or 0
+        
+        # 计算日均出库量
+        daily_avg_30 = recent_out_30 / 30 if recent_out_30 > 0 else 0
+        daily_avg_90 = recent_out_90 / 90 if recent_out_90 > 0 else 0
+        
+        # 计算库存可用天数
+        days_of_supply = material.stock / daily_avg_30 if daily_avg_30 > 0 else 999
+        
+        # 判断健康状态
+        health_status = 'healthy'
+        risk_level = 'low'
+        
+        if material.stock < material.min_stock:
+            health_status = 'critical'
+            risk_level = 'high'
+        elif material.stock < material.reorder_point:
+            health_status = 'warning'
+            risk_level = 'medium'
+        elif days_of_supply > 90 and daily_avg_30 > 0:
+            health_status = 'overstock'
+            risk_level = 'medium'
+        elif daily_avg_30 == 0 and daily_avg_90 == 0:
+            health_status = 'dead_stock'
+            risk_level = 'high'
+        
+        health_data.append({
+            'material_code': material.code,
+            'material_name': material.name,
+            'current_stock': material.stock,
+            'min_stock': material.min_stock,
+            'reorder_point': material.reorder_point,
+            'daily_avg_30': round(daily_avg_30, 2),
+            'daily_avg_90': round(daily_avg_90, 2),
+            'days_of_supply': round(days_of_supply, 1) if days_of_supply < 999 else '无出库',
+            'health_status': health_status,
+            'risk_level': risk_level,
+            'unit': material.unit.name if material.unit else '个',
+            'stock_value': round(material.stock * (material.price or 0), 2)
+        })
+    
+    # 按风险等级排序
+    health_data.sort(key=lambda x: {'high': 0, 'medium': 1, 'low': 2}.get(x['risk_level'], 3))
+    
+    # 构建AI分析提示
+    critical_items = [h for h in health_data if h['risk_level'] == 'high'][:5]
+    overstock_items = [h for h in health_data if h['health_status'] == 'overstock'][:5]
+    
+    prompt = f"""作为仓库管理专家，请分析以下库存健康度数据，给出专业的库存优化建议：
+
+【库存概况】共{len(health_data)}种物料有库存
+
+【高风险物料】（需立即关注）
+"""
+    for i, h in enumerate(critical_items, 1):
+        prompt += f"{i}. {h['material_name']}（{h['material_code']}）：库存{h['current_stock']}，状态{h['health_status']}\n"
+    
+    if overstock_items:
+        prompt += "\n【积压风险物料】（库存周转慢）\n"
+        for i, h in enumerate(overstock_items, 1):
+            prompt += f"{i}. {h['material_name']}：库存{h['current_stock']}，可用{h['days_of_supply']}天\n"
+    
+    prompt += """
+
+请生成简洁的库存优化建议（200字内），包括：
+1. 高风险物料处理建议（紧急补货或清理）
+2. 积压物料处理建议（促销、调拨或暂停采购）
+3. 整体库存健康度评估和改进方向
+要求语言简洁实用，可直接指导库存管理决策。"""
+    
+    try:
+        ai_analysis = _ai_call_llm_chat(prompt)
+        return jsonify({
+            'status': 'success',
+            'health_scores': health_data,
+            'ai_analysis': ai_analysis or 'AI分析暂不可用，请参考系统评分进行库存优化。',
+            'summary': {
+                'total': len(health_data),
+                'critical': len([h for h in health_data if h['risk_level'] == 'high']),
+                'warning': len([h for h in health_data if h['risk_level'] == 'medium']),
+                'healthy': len([h for h in health_data if h['risk_level'] == 'low'])
+            }
+        })
+    except Exception as e:
+        app.logger.error(f'库存健康度分析失败: {e}')
+        return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
+
+@app.route('/ai/document_ocr')
+@login_required
+@require_role('warehouse', 'purchase')
+def document_ocr_page():
+    """单据OCR识别页面"""
+    return render_template('document_ocr.html')
+
+@app.route('/api/ai/document_ocr', methods=['POST'])
+@login_required
+def api_document_ocr():
+    """单据OCR识别API：上传图片，AI识别单据内容并生成入库草稿。"""
+    if not _ai_llm_configured() or not _ai_llm_vision_enabled():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中启用大模型和图片识别'}), 400
+    
+    if 'image' not in request.files:
+        return jsonify({'status': 'error', 'msg': '请上传图片'}), 400
+    
+    file = request.files['image']
+    if not file.filename:
+        return jsonify({'status': 'error', 'msg': '请选择图片文件'}), 400
+    
+    allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in allowed_ext:
+        return jsonify({'status': 'error', 'msg': '不支持的图片格式'}), 400
+    
+    file.seek(0, 2)
+    file_size = file.tell()
+    file.seek(0)
+    if file_size > 10 * 1024 * 1024:
+        return jsonify({'status': 'error', 'msg': '图片大小不能超过10MB'}), 400
+    
+    try:
+        import base64
+        img_data = base64.b64encode(file.read()).decode('ascii')
+        data_url = f'data:image/{ext};base64,{img_data}'
+        
+        # 获取用户指定的单据类型和备注
+        doc_type_hint = request.form.get('document_type', 'auto')
+        remarks = request.form.get('remarks', '').strip()
+        
+        # 构建识别提示
+        prompt = '''请仔细识别这张单据图片的内容。这可能是一张送货单、入库单、出库单、领料单、微信聊天截图或手写单据。
+
+请提取以下信息：
+1. 单据类型（入库/出库/调拨/盘点/微信通知）
+2. 供应商/客户名称（如有）
+3. 单据编号（如有）
+4. 物料明细：编码、名称、规格、数量、单价、金额
+5. 日期（如有）
+6. 备注信息
+
+请在回答末尾追加一个JSON代码块，格式如下：
+```json
+{
+  "document_type": "in_order",
+  "supplier": "供应商名称",
+  "order_no": "单据编号",
+  "date": "2024-01-15",
+  "items": [
+    {"code": "A001", "name": "物料名称", "spec": "规格", "quantity": 100, "price": 10.5}
+  ],
+  "remarks": "备注"
+}
+```
+document_type可选：in_order（入库/送货）、out_order（出库/领料）、transfer（调拨）、check（盘点）、wechat（微信通知）。
+无法识别的字段留空或省略。'''
+        
+        if doc_type_hint != 'auto':
+            type_labels = {
+                'in_order': '这是一张入库单/送货单',
+                'out_order': '这是一张出库单/领料单',
+                'wechat': '这是微信聊天截图，可能包含送货通知'
+            }
+            prompt = f'提示：{type_labels.get(doc_type_hint, "")}\n\n' + prompt
+        
+        if remarks:
+            prompt += f'\n\n用户备注：{remarks}'
+        
+        # 调用视觉模型
+        reply, extracted, error = _ai_call_llm_vision(prompt, [{'data_url': data_url}])
+        if error:
+            return jsonify({'status': 'error', 'msg': error}), 500
+        
+        # 尝试创建草稿
+        draft_info = None
+        items_info = []
+        
+        if extracted and isinstance(extracted, dict):
+            items_raw = extracted.get('items', [])
+            
+            # 匹配物料并构建items_info
+            for item in items_raw:
+                if not isinstance(item, dict):
+                    continue
+                code = str(item.get('code') or '').strip()
+                name = str(item.get('name') or '').strip()
+                spec = str(item.get('spec') or '').strip()
+                qty = item.get('quantity')
+                try:
+                    qty = float(qty) if qty is not None else None
+                except (ValueError, TypeError):
+                    qty = None
+                
+                # 尝试匹配物料
+                matched = False
+                if code or name:
+                    material = _ai_material_query(code or name, limit=1)
+                    if material and qty and qty > 0:
+                        items_info.append({
+                            'code': code,
+                            'name': name,
+                            'spec': spec,
+                            'quantity': qty,
+                            'matched': True
+                        })
+                        matched = True
+                
+                if not matched:
+                    items_info.append({
+                        'code': code,
+                        'name': name,
+                        'spec': spec,
+                        'quantity': qty,
+                        'matched': False
+                    })
+            
+            # 尝试创建入库草稿
+            doc_type = str(extracted.get('document_type') or '').strip().lower()
+            if doc_type in ('in_order', 'wechat') and items_info:
+                matched_items = [i for i in items_info if i['matched']]
+                unmatched_items = [i for i in items_info if not i['matched']]
+                
+                if matched_items:
+                    # 构建草稿消息
+                    lines = []
+                    for m in matched_items:
+                        code = m['code'] or m['name']
+                        qty_str = str(int(m['quantity'])) if m['quantity'] == int(m['quantity']) else str(m['quantity'])
+                        lines.append(f'{code} {qty_str}')
+                    draft_message = ' '.join(lines)
+                    
+                    draft, error = _ai_create_in_order_draft(draft_message)
+                    if not error and draft:
+                        draft_info = {
+                            'order_no': draft['order_no'],
+                            'url': draft['url'],
+                            'matched_count': len(matched_items),
+                            'unmatched_count': len(unmatched_items)
+                        }
+        
+        return jsonify({
+            'status': 'success',
+            'reply': reply,
+            'extracted': extracted,
+            'items': items_info,
+            'draft': draft_info
+        })
+        
+    except Exception as e:
+        app.logger.error(f'单据OCR识别失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'识别失败：{str(e)}'}), 500
+
+@app.route('/ai/supplier_evaluation')
+@login_required
+@require_role('warehouse', 'purchase')
+def ai_supplier_evaluation_page():
+    """供应商智能评估页面"""
+    return render_template('ai_supplier_evaluation.html')
+
+@app.route('/api/ai/supplier_evaluation', methods=['POST'])
+@login_required
+def api_supplier_evaluation():
+    """供应商智能评估API：分析供应商交货表现、价格稳定性，生成AI评估报告。"""
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+
+    suppliers = Supplier.query.all()
+    if not suppliers:
+        return jsonify({'status': 'success', 'evaluations': [], 'msg': '暂无供应商数据'})
+
+    ninety_days_ago = date.today() - timedelta(days=90)
+    evaluations = []
+
+    for supplier in suppliers:
+        # 近90天入库单据
+        recent_orders = InOrder.query.filter(
+            InOrder.supplier_id == supplier.id,
+            InOrder.date >= ninety_days_ago
+        ).all()
+
+        order_count = len(recent_orders)
+        if order_count == 0:
+            continue
+
+        # 交货频率（次/月）
+        days_span = max((date.today() - min(o.date for o in recent_orders)).days, 1)
+        delivery_freq = round(order_count / (days_span / 30), 1)
+
+        # 总金额
+        total_amount = sum(o.total_amount or 0 for o in recent_orders)
+
+        # 价格稳定性：同物料多次采购的价格变异系数
+        price_cv_list = []
+        for order in recent_orders:
+            for item in order.items:
+                if item.price and item.price > 0 and item.material_id:
+                    # 查该物料在该供应商的历史价格
+                    hist_prices = InOrderItem.query.join(InOrder).filter(
+                        InOrder.supplier_id == supplier.id,
+                        InOrderItem.material_id == item.material_id,
+                        InOrder.status == 'completed',
+                        InOrder.date >= ninety_days_ago,
+                        InOrderItem.price > 0
+                    ).with_entities(InOrderItem.price).all()
+                    prices = [p[0] for p in hist_prices if p[0] and p[0] > 0]
+                    if len(prices) >= 2:
+                        mean_p = sum(prices) / len(prices)
+                        if mean_p > 0:
+                            std_p = (sum((p - mean_p) ** 2 for p in prices) / (len(prices) - 1)) ** 0.5
+                            cv = std_p / mean_p
+                            price_cv_list.append(cv)
+
+        avg_price_cv = round(sum(price_cv_list) / len(price_cv_list), 3) if price_cv_list else 0
+        price_stability = '稳定' if avg_price_cv < 0.05 else ('波动' if avg_price_cv < 0.15 else '剧烈波动')
+
+        # 物料种类数
+        material_ids = set()
+        for order in recent_orders:
+            for item in order.items:
+                if item.material_id:
+                    material_ids.add(item.material_id)
+        material_count = len(material_ids)
+
+        evaluations.append({
+            'supplier_id': supplier.id,
+            'supplier_name': supplier.name,
+            'supplier_code': supplier.code,
+            'contact': supplier.contact or '-',
+            'phone': supplier.phone or '-',
+            'order_count': order_count,
+            'delivery_freq': delivery_freq,
+            'total_amount': round(total_amount, 2),
+            'material_count': material_count,
+            'avg_price_cv': avg_price_cv,
+            'price_stability': price_stability,
+        })
+
+    # 按交货次数排序
+    evaluations.sort(key=lambda x: x['order_count'], reverse=True)
+
+    # AI分析
+    prompt = f"""作为采购管理专家，请分析以下供应商评估数据，给出专业的供应商管理建议：
+
+【供应商概况】共{len(evaluations)}家供应商在近90天有交货记录
+
+【供应商明细】
+"""
+    for i, e in enumerate(evaluations[:10], 1):
+        prompt += f"{i}. {e['supplier_name']}（{e['supplier_code']}）\n"
+        prompt += f"   交货次数：{e['order_count']}次，月均{e['delivery_freq']}次\n"
+        prompt += f"   采购金额：{e['total_amount']}元，物料种类：{e['material_count']}种\n"
+        prompt += f"   价格稳定性：{e['price_stability']}（变异系数{e['avg_price_cv']}）\n\n"
+
+    prompt += """请生成简洁的供应商评估建议（200字内），包括：
+1. 核心供应商识别（交货频繁、金额大的供应商）
+2. 价格风险提醒（价格波动大的供应商需关注）
+3. 供应商优化建议（是否需引入新供应商、淘汰表现差的）
+要求语言简洁实用，可直接指导采购决策。"""
+
+    try:
+        ai_analysis = _ai_call_llm_chat(prompt)
+        return jsonify({
+            'status': 'success',
+            'evaluations': evaluations,
+            'ai_analysis': ai_analysis or 'AI分析暂不可用，请参考数据进行评估。',
+            'summary': {
+                'total': len(evaluations),
+                'total_amount': round(sum(e['total_amount'] for e in evaluations), 2),
+                'price_unstable': len([e for e in evaluations if e['price_stability'] != '稳定']),
+            }
+        })
+    except Exception as e:
+        app.logger.error(f'供应商评估失败: {e}')
+        return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
+
+
+@app.route('/ai/location_recommendation')
+@login_required
+def ai_location_recommendation():
+    """智能库位推荐页面"""
+    return render_template('ai_location_recommendation.html')
+
+
+@app.route('/api/ai/recommend_location', methods=['POST'])
+@login_required
+def api_recommend_location():
+    """智能库位推荐API：基于物料周转率和库位使用情况，推荐最优库位。"""
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+
+    data = request.get_json() or {}
+    material_id = data.get('material_id')
+    
+    # 获取所有物料供选择
+    materials = Material.query.filter_by(status='active').all()
+    material_options = [{'id': m.id, 'code': m.code, 'name': m.name, 'spec': m.spec or '', 'unit': m.unit or ''} for m in materials]
+    
+    if not material_id:
+        return jsonify({
+            'status': 'success', 
+            'materials': material_options[:100],
+            'msg': '请选择要推荐的物料'
+        })
+    
+    material = Material.query.get(material_id)
+    if not material:
+        return jsonify({'status': 'error', 'msg': '物料不存在'}), 404
+    
+    # 1. 计算物料周转率（近90天出入库次数）
+    ninety_days_ago = date.today() - timedelta(days=90)
+    turnover_in = StockTransaction.query.filter(
+        StockTransaction.material_id == material_id,
+        StockTransaction.transaction_type.in_(['in', 'transfer_in', 'adjustment_in']),
+        StockTransaction.created_at >= ninety_days_ago
+    ).count()
+    
+    turnover_out = StockTransaction.query.filter(
+        StockTransaction.material_id == material_id,
+        StockTransaction.transaction_type.in_(['out', 'transfer_out', 'adjustment_out']),
+        StockTransaction.created_at >= ninety_days_ago
+    ).count()
+    
+    total_turnover = turnover_in + turnover_out
+    
+    # 周转率等级：高/中/低
+    if total_turnover >= 30:
+        turnover_level = '高'
+        turnover_desc = '高频周转物料，建议放置在靠近出入口、易于存取的位置'
+    elif total_turnover >= 10:
+        turnover_level = '中'
+        turnover_desc = '中频周转物料，建议放置在常规库位'
+    else:
+        turnover_level = '低'
+        turnover_desc = '低频周转物料，可放置在偏远或高层库位'
+    
+    # 2. 获取当前库位分布
+    current_locations = LocationInventory.query.filter(
+        LocationInventory.material_id == material_id,
+        LocationInventory.quantity > 0
+    ).all()
+    
+    current_dist = [{
+        'location': loc.location,
+        'quantity': loc.quantity,
+    } for loc in current_locations]
+    
+    # 3. 获取所有库位的使用情况
+    all_location_stats = db.session.query(
+        LocationInventory.location,
+        db.func.count(LocationInventory.material_id).label('material_count'),
+        db.func.sum(LocationInventory.quantity).label('total_qty')
+    ).group_by(LocationInventory.location).all()
+    
+    location_usage = [{
+        'location': stat.location,
+        'material_count': stat.material_count,
+        'total_qty': stat.total_qty or 0,
+    } for stat in all_location_stats]
+    
+    # 4. 库位推荐评分
+    # 高周转物料 → 推荐物料种类少（专区）或总库存低的库位（空间充足）
+    # 低周转物料 → 推荐物料种类多的库位（混放区）
+    recommendations = []
+    
+    for loc in location_usage:
+        score = 50  # 基础分
+        
+        if turnover_level == '高':
+            # 高周转物料：优先推荐物料种类少的库位（专区）
+            if loc['material_count'] <= 5:
+                score += 30  # 专区加分
+            elif loc['material_count'] <= 15:
+                score += 15
+            # 总库存适中的库位（有空间）
+            if 0 < loc['total_qty'] < 1000:
+                score += 20
+        elif turnover_level == '中':
+            # 中周转物料：常规库位即可
+            if 5 < loc['material_count'] <= 20:
+                score += 20
+        else:
+            # 低周转物料：可以放在物料种类多的库位
+            if loc['material_count'] > 15:
+                score += 25  # 混放区加分
+        
+        # 如果该物料已在此库位，加分（保持一致性）
+        if any(cl['location'] == loc['location'] for cl in current_dist):
+            score += 15
+        
+        recommendations.append({
+            'location': loc['location'],
+            'score': min(score, 100),
+            'material_count': loc['material_count'],
+            'total_qty': loc['total_qty'],
+        })
+    
+    # 按评分排序，取前5
+    recommendations.sort(key=lambda x: x['score'], reverse=True)
+    top_recommendations = recommendations[:5]
+    
+    # 5. AI分析
+    prompt = f"""作为仓储管理专家，请为以下物料提供库位优化建议：
+
+【物料信息】
+编码：{material.code}
+名称：{material.name}
+规格：{material.spec or '无'}
+单位：{material.unit or '无'}
+
+【周转情况】
+近90天出入库次数：{total_turnover}次（入库{turnover_in}次，出库{turnover_out}次）
+周转等级：{turnover_level}
+周转特点：{turnover_desc}
+
+【当前库位分布】
+"""
+    if current_dist:
+        for cd in current_dist:
+            prompt += f"- {cd['location']}：{cd['quantity']}{material.unit or ''}\n"
+    else:
+        prompt += "暂无库存分布\n"
+    
+    prompt += f"""
+【推荐库位】（按评分排序）
+"""
+    for i, rec in enumerate(top_recommendations, 1):
+        prompt += f"{i}. {rec['location']}（评分{rec['score']}，当前存放{rec['material_count']}种物料，总库存{rec['total_qty']}）\n"
+    
+    prompt += """
+请生成简洁的库位优化建议（150字内），包括：
+1. 推荐库位及理由
+2. 库位调整建议（如需要）
+3. 仓储效率提升要点
+要求语言简洁实用，可直接指导仓库操作。"""
+
+    try:
+        ai_analysis = _ai_call_llm_chat(prompt)
+        return jsonify({
+            'status': 'success',
+            'material': {
+                'id': material.id,
+                'code': material.code,
+                'name': material.name,
+                'spec': material.spec or '',
+                'unit': material.unit or '',
+            },
+            'turnover': {
+                'total': total_turnover,
+                'in_count': turnover_in,
+                'out_count': turnover_out,
+                'level': turnover_level,
+                'description': turnover_desc,
+            },
+            'current_locations': current_dist,
+            'recommendations': top_recommendations,
+            'ai_analysis': ai_analysis or 'AI分析暂不可用，请参考数据进行库位规划。',
+            'materials': material_options[:100],
+        })
+    except Exception as e:
+        app.logger.error(f'库位推荐失败: {e}')
+        return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
+
+
+@app.route('/ai/demand_forecast')
+@login_required
+def ai_demand_forecast():
+    """需求预测页面"""
+    return render_template('ai_demand_forecast.html')
+
+
+@app.route('/api/ai/demand_forecast', methods=['POST'])
+@login_required
+def api_demand_forecast():
+    """需求预测API：基于历史出库数据预测未来需求，生成补货建议。"""
+    if not _ai_llm_configured():
+        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+
+    data = request.get_json() or {}
+    forecast_days = data.get('forecast_days', 30)  # 预测天数：7/14/30
+    category = data.get('category', '')  # 物料分类筛选
+    
+    # 获取物料列表
+    materials_query = Material.query.filter_by(status='active')
+    if category:
+        materials_query = materials_query.filter_by(category=category)
+    materials = materials_query.limit(100).all()
+    
+    if not materials:
+        return jsonify({'status': 'success', 'forecasts': [], 'msg': '暂无物料数据'})
+    
+    # 获取分类列表
+    categories = db.session.query(Material.category).distinct().filter(Material.category.isnot(None), Material.category != '').all()
+    category_list = [c[0] for c in categories]
+    
+    # 历史数据周期
+    history_days = 180
+    history_start = date.today() - timedelta(days=history_days)
+    
+    forecasts = []
+    
+    for material in materials[:50]:  # 限制处理数量，避免超时
+        # 查询近180天出库记录
+        out_transactions = StockTransaction.query.filter(
+            StockTransaction.material_id == material.id,
+            StockTransaction.transaction_type.in_(['out', 'transfer_out', 'adjustment_out']),
+            StockTransaction.created_at >= history_start
+        ).all()
+        
+        if not out_transactions:
+            continue
+        
+        # 按日统计出库量
+        daily_out = {}
+        for txn in out_transactions:
+            day = txn.created_at.date()
+            daily_out[day] = daily_out.get(day, 0) + abs(txn.quantity)
+        
+        # 计算统计指标
+        days_with_out = len(daily_out)
+        total_out = sum(daily_out.values())
+        avg_daily = total_out / history_days if history_days > 0 else 0
+        
+        # 标准差
+        if days_with_out >= 2:
+            values = list(daily_out.values())
+            mean = sum(values) / len(values)
+            variance = sum((v - mean) ** 2 for v in values) / len(values)
+            std = variance ** 0.5
+        else:
+            std = 0
+        
+        # 变异系数
+        cv = std / avg_daily if avg_daily > 0 else 0
+        
+        # 需求稳定性
+        if cv < 0.3:
+            stability = '稳定'
+        elif cv < 0.7:
+            stability = '波动'
+        else:
+            stability = '剧烈波动'
+        
+        # 预测未来需求量（均值 × 天数）
+        forecast_qty = avg_daily * forecast_days
+        
+        # 当前库存
+        current_stock = material.stock or 0
+        
+        # 预计库存缺口
+        gap = forecast_qty - current_stock
+        
+        # 补货建议
+        if gap > 0:
+            action = '需补货'
+            urgency = '紧急' if gap > current_stock * 0.5 else '常规'
+        elif gap > -current_stock * 0.2:
+            action = '库存充足'
+            urgency = '-'
+        else:
+            action = '库存积压'
+            urgency = '-'
+        
+        forecasts.append({
+            'material_id': material.id,
+            'material_code': material.code,
+            'material_name': material.name,
+            'material_spec': material.spec or '',
+            'category': material.category or '-',
+            'unit': material.unit or '',
+            'current_stock': round(current_stock, 2),
+            'history_days': history_days,
+            'total_out': round(total_out, 2),
+            'avg_daily': round(avg_daily, 2),
+            'std': round(std, 2),
+            'cv': round(cv, 2),
+            'stability': stability,
+            'forecast_days': forecast_days,
+            'forecast_qty': round(forecast_qty, 2),
+            'gap': round(gap, 2),
+            'action': action,
+            'urgency': urgency,
+        })
+    
+    # 按紧急程度排序（需补货 > 库存充足 > 库存积压）
+    priority = {'需补货': 0, '库存充足': 1, '库存积压': 2}
+    forecasts.sort(key=lambda x: (priority.get(x['action'], 9), x['gap']))
+    
+    # AI分析
+    need_restock = [f for f in forecasts if f['action'] == '需补货']
+    prompt = f"""作为库存管理专家，请分析以下需求预测数据，给出专业的库存管理建议：
+
+【预测概况】
+预测周期：未来{forecast_days}天
+分析物料数：{len(forecasts)}种
+需补货物料：{len(need_restock)}种
+
+【需补货物料明细】（前10种）
+"""
+    for i, f in enumerate(need_restock[:10], 1):
+        prompt += f"{i}. {f['material_code']} {f['material_name']}\n"
+        prompt += f"   当前库存：{f['current_stock']}{f['unit']}，预测需求：{f['forecast_qty']}{f['unit']}，缺口：{f['gap']}{f['unit']}\n"
+        prompt += f"   需求稳定性：{f['stability']}（变异系数{f['cv']}），紧急程度：{f['urgency']}\n\n"
+    
+    prompt += """请生成简洁的库存管理建议（200字内），包括：
+1. 紧急补货清单（优先处理缺口大、紧急程度高的物料）
+2. 库存优化建议（针对需求波动大的物料）
+3. 采购策略建议（是否需要调整安全库存或采购周期）
+要求语言简洁实用，可直接指导采购决策。"""
+
+    try:
+        ai_analysis = _ai_call_llm_chat(prompt) if need_restock else '所有物料库存充足，暂无需补货。'
+        return jsonify({
+            'status': 'success',
+            'forecasts': forecasts,
+            'categories': category_list,
+            'ai_analysis': ai_analysis or 'AI分析暂不可用，请参考数据进行库存管理。',
+            'summary': {
+                'total': len(forecasts),
+                'need_restock': len(need_restock),
+                'stock_sufficient': len([f for f in forecasts if f['action'] == '库存充足']),
+                'stock_excess': len([f for f in forecasts if f['action'] == '库存积压']),
+            }
+        })
+    except Exception as e:
+        app.logger.error(f'需求预测失败: {e}')
+        return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
+
 
 @app.route('/report/view/<report_type>')
 @login_required

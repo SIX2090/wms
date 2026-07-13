@@ -70,6 +70,55 @@
     top: auto;
     min-width: 420px;
 }
+.anomaly-modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+.anomaly-modal {
+    background: #fff;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 520px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+}
+.anomaly-modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.anomaly-modal-header h5 {
+    margin: 0;
+    font-weight: 600;
+}
+.anomaly-modal-close {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    color: #666;
+    cursor: pointer;
+}
+.anomaly-modal-body {
+    padding: 16px 20px;
+    overflow-y: auto;
+}
+.anomaly-modal-footer {
+    padding: 12px 20px;
+    border-top: 1px solid #eee;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
 </style>
 {% endblock %}
 
@@ -570,6 +619,23 @@ MAT003,20,10.00"></textarea>
                     <i class="bi bi-check"></i> 确认添加
                 </button>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="anomaly-modal-overlay" id="anomalyModal">
+    <div class="anomaly-modal">
+        <div class="anomaly-modal-header">
+            <h5><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>异常检测提醒</h5>
+            <button class="anomaly-modal-close" onclick="closeAnomalyModal()"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="anomaly-modal-body">
+            <p class="text-muted mb-3">检测到以下异常，请确认是否继续提交：</p>
+            <ul class="list-group list-group-flush" id="anomalyList"></ul>
+        </div>
+        <div class="anomaly-modal-footer">
+            <button class="btn btn-secondary" onclick="closeAnomalyModal()">取消</button>
+            <button class="btn btn-warning" onclick="forceCompleteOrder()">确认提交</button>
         </div>
     </div>
 </div>
@@ -1149,13 +1215,19 @@ function saveHeader() {
 }
 
 // ==================== 完成入库 ====================
-function completeOrder(id) {
+function completeOrder(id, force) {
     showConfirm('确认完成入库？入库后库存将增加。', {title: '完成入库'}).then(function(confirmed) {
         if (!confirmed) return;
-        csrfFetch('/in_order/' + id + '/complete')
+        var url = '/in_order/' + id + '/complete';
+        if (force) {
+            url += '?force=true';
+        }
+        csrfFetch(url)
         .then(r => r.json())
         .then(res => {
-            if (res.status === 'success') {
+            if (res.status === 'warning') {
+                showAnomalyWarning(res.anomalies, id);
+            } else if (res.status === 'success') {
                 showToast(res.msg || '入库完成', 'success');
                 setTimeout(() => location.reload(), 600);
             } else {
@@ -1163,6 +1235,39 @@ function completeOrder(id) {
             }
         });
     });
+}
+
+function showAnomalyWarning(anomalies, orderId) {
+    var modal = document.getElementById('anomalyModal');
+    var list = document.getElementById('anomalyList');
+    if (!modal || !list) return;
+    list.innerHTML = '';
+    anomalies.forEach(function(a) {
+        var li = document.createElement('li');
+        li.className = 'list-group-item list-group-item-warning';
+        var html = '<div class="d-flex align-items-start gap-2"><i class="bi bi-exclamation-triangle-fill text-warning mt-1"></i><div>' + a.msg;
+        if (a.ai_suggestion) {
+            html += '<div class="mt-2 p-2 bg-light rounded small text-muted"><i class="bi bi-stars text-primary me-1"></i><strong>AI建议：</strong>' + a.ai_suggestion + '</div>';
+        }
+        html += '</div></div>';
+        li.innerHTML = html;
+        list.appendChild(li);
+    });
+    modal.dataset.orderId = orderId;
+    modal.style.display = 'flex';
+}
+
+function closeAnomalyModal() {
+    var modal = document.getElementById('anomalyModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function forceCompleteOrder() {
+    var modal = document.getElementById('anomalyModal');
+    if (!modal) return;
+    var orderId = modal.dataset.orderId;
+    closeAnomalyModal();
+    completeOrder(orderId, true);
 }
 
 // ==================== 反提交 ====================
