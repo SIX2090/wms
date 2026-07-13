@@ -32,14 +32,14 @@ def test_data_models():
         assert AIFeedback.__tablename__ == 'ai_feedback'
 
         assert hasattr(AIConversation, 'user_id')
-        assert hasattr(AIConversation, 'session_id')
-        assert hasattr(AIConversation, 'role')
-        assert hasattr(AIConversation, 'content')
-        assert hasattr(AIConversation, 'intent')
+        assert hasattr(AIConversation, 'title')
+        assert hasattr(AIConversation, 'status')
+        assert hasattr(AIConversation, 'last_activity_at')
 
         assert hasattr(AIFeedback, 'user_id')
         assert hasattr(AIFeedback, 'rating')
-        assert hasattr(AIFeedback, 'reason')
+        assert hasattr(AIFeedback, 'note')
+        assert hasattr(AIFeedback, 'error_type')
         assert hasattr(AIFeedback, 'ai_run_id')
 
         print("  PASS: AIConversation 模型正确")

@@ -7,7 +7,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEXT_EXTENSIONS = {'.py', '.html', '.js', '.css', '.md', '.txt', '.bat', '.cmd', '.ps1', '.conf'}
-EXCLUDED_PARTS = {'.git', 'runtime', 'wheelhouse', '__pycache__'}
+EXCLUDED_PARTS = {
+    '.git',
+    '.venv',
+    'venv',
+    'env',
+    'runtime',
+    'wheelhouse',
+    'dist',
+    'build',
+    '__pycache__',
+    'node_modules',
+}
 EXCLUDED_FILES = {
     Path('app/static/js/xlsx.full.min.js'),
     Path('scripts/verify_wms_bugs.py'),

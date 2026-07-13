@@ -6,7 +6,7 @@ import sys
 # 添加 app 目录到路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
 
-from app import app, db, initialize_database
+from app import app, db
 from ai.models import AIConversation, AIMessage, AIFeedback, AIConfirmation
 from ai.audit import (
     create_conversation,
@@ -30,7 +30,7 @@ def test_models():
     with app.app_context():
         # 初始化数据库（创建表）
         print("初始化数据库...")
-        initialize_database()
+        db.create_all()
         print("数据库初始化完成\n")
         # 测试 1: 创建对话
         print("\n[1] 测试创建对话...")

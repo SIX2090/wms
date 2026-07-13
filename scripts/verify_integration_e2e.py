@@ -215,7 +215,7 @@ def test_security_integration():
 def test_upgraded_schemas():
     print("测试数据模型升级...")
     try:
-        from ai.models.upgraded_schemas import (
+        from ai.upgraded_schemas import (
             DocumentStatus, validate_status_transition,
             BatchInfo, SerialNumberLedger, StockQuantity,
             DocumentItemSchema, ExceptionRecord,

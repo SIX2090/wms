@@ -35,7 +35,10 @@ class Config:
     
     # 数据库配置
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    SQLALCHEMY_DATABASE_URI = f'sqlite:///{os.path.join(BASE_DIR, "instance", "inventory.db")}'
+    SQLALCHEMY_DATABASE_URI = os.environ.get(
+        'WMS_DATABASE_URI',
+        f'sqlite:///{os.path.join(BASE_DIR, "instance", "inventory.db")}',
+    )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # 数据库性能优化

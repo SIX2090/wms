@@ -24,13 +24,8 @@ jobs:
       - name: Run source encoding check
         run: python3 scripts/verify_source_encoding.py
 
-      - name: Run AI verification scripts
-        run: |
-          set -e
-          for script in scripts/verify_ai_*.py; do
-            echo "=== Running $script ==="
-            python3 "$script"
-          done
+      - name: Run AI core verification
+        run: python3 scripts/verify_ai_all.py --level core
 
       - name: Run WMS bug regression
         run: python3 scripts/verify_wms_bugs.py
