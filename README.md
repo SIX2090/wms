@@ -216,7 +216,7 @@ http://127.0.0.1:8080
 
 | 文档 | 用途 |
 |---|---|
-| `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` | AI 功能开发主计划和任务状态，后续任务以此为准 |
+| `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` | 唯一 AI 开发台账：已有能力基线、真实待开发任务、依赖、验收和完成记录 |
 | `AI_PERMISSION_MATRIX.md` | AI 能力角色、风险等级和人工确认边界 |
 | `PRODUCTION_DEPLOYMENT_CHECKLIST.md` | 每次生产发布前重新填写的验收模板 |
 | `WMS_BUG_BASELINE.md` | 已核验 BUG、风险、误报和暂缓项基线 |
