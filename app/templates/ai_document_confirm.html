@@ -148,7 +148,7 @@
         <div>
             <h1 class="ai-confirm-title">AI识别结果确认</h1>
             <div class="ai-confirm-summary">
-                <span>单据类型：{{ {'in_order':'采购入库','out_order':'领料单','sales_out_order':'销售出库','transfer':'调拨','check':'盘点','adjustment':'调整'}.get(payload.document_type, payload.document_type) }}</span>
+                <span>单据类型：{{ {'in_order':'采购入库','out_order':'领料单','sales_out_order':'销售出库','transfer':'调拨','check':'盘点','adjustment':'调整','purchase_request':'采购申请'}.get(payload.document_type, payload.document_type) }}</span>
                 <span>识别行数：{{ payload.rows|length }}</span>
                 <span>候选物料：{{ materials|length }} / {{ material_count or materials|length }}</span>
                 {% if payload.source_purchase_order_id %}
@@ -173,6 +173,9 @@
     {% endif %}
 
     {% if payload.source_text %}
+    <div>
+        <strong>人工确认边界：</strong>此页面只会生成草稿，不会提交、审核、完成、作废、删除单据，也不会直接增减库存。点击生成即代表当前登录人员已核对单据类型、物料和数量。
+    </div>
     <div class="ai-source-text">{{ payload.source_text }}</div>
     {% endif %}
 

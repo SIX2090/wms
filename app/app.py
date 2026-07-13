@@ -30,6 +30,8 @@ from config import config_dict
 from ai.policies import (
     AI_CAPABILITY_BUSINESS_ENDPOINTS,
     AI_CAPABILITY_ROLES,
+    ai_capability_requires_manual_confirmation,
+    detect_ai_high_risk_operation,
     is_ai_capability_allowed_for_role,
 )
 from ai.history import AI_CHAT_HISTORY_MAX_TURNS, append_history, clear_history, get_history
@@ -7251,6 +7253,40 @@ def _ai_permission_denied_response(capability):
     return _ai_json_response(_ai_permission_denied_text(capability))
 
 
+def _ai_manual_confirmation_required_text(capability):
+    return f'AI 能力 {capability} 只能在人工确认后创建草稿，不能由模型、工具编排器或 Agent 直接执行。'
+
+
+def _ai_draft_execution_allowed(capability, manual_confirmation=False):
+    if not _ai_capability_allowed(capability):
+        return False, _ai_permission_denied_text(capability)
+    if ai_capability_requires_manual_confirmation(capability) and not manual_confirmation:
+        return False, _ai_manual_confirmation_required_text(capability)
+    return True, None
+
+
+def _ai_high_risk_denied_response(message):
+    operation = detect_ai_high_risk_operation(message)
+    if not operation:
+        return None
+    operation_labels = {
+        'submit': '提交',
+        'audit': '审核/审批/反审',
+        'complete': '完成业务单据',
+        'void': '作废/冲销',
+        'delete': '删除业务单据',
+        'stock_write': '直接修改库存',
+    }
+    label = operation_labels.get(operation, operation)
+    return _ai_json_response(
+        f'已拒绝 AI 执行“{label}”。这类操作会改变单据状态、库存或审计链，必须由有权限的人员进入业务页面手工确认和执行。AI 可以继续协助查询、检查草稿或生成待人工确认的草稿。',
+        actions=[
+            {'label': '打开待处理中心', 'url': url_for('pending_documents')},
+            {'label': '检查当前草稿', 'url': '#', 'prompt': '检查当前草稿'},
+        ],
+    )
+
+
 _ai_idempotency = configure_ai_idempotency_service(
     db=db,
     run_model=AIRun,
@@ -8592,9 +8628,10 @@ def _ai_parse_material_lines(message):
     return parsed
 
 
-def _ai_create_out_order_draft(message):
-    if not _ai_capability_allowed('out_order_draft'):
-        return None, _ai_permission_denied_text('out_order_draft')
+def _ai_create_out_order_draft(message, manual_confirmation=False):
+    allowed, error = _ai_draft_execution_allowed('out_order_draft', manual_confirmation)
+    if not allowed:
+        return None, error
     items = _ai_parse_material_lines(message)
     if not items:
         return None, '没有识别到物料和数量。可以这样说：生成领料单 A001 20 B002 5'
@@ -8628,9 +8665,10 @@ def _ai_create_out_order_draft(message):
     }, None
 
 
-def _ai_create_in_order_draft(message):
-    if not _ai_capability_allowed('in_order_draft'):
-        return None, _ai_permission_denied_text('in_order_draft')
+def _ai_create_in_order_draft(message, manual_confirmation=False):
+    allowed, error = _ai_draft_execution_allowed('in_order_draft', manual_confirmation)
+    if not allowed:
+        return None, error
     if '采购' in (message or '') and purchase_in_order_requires_order():
         return None, '采购入库必须关联采购订单，请从采购订单下推或选单生成。AI 可以先帮你查采购订单。'
     items = _ai_parse_material_lines(message)
@@ -8694,12 +8732,13 @@ def _ai_extract_transfer_locations(message):
     return None, None
 
 
-def _ai_create_transfer_draft(message):
+def _ai_create_transfer_draft(message, manual_confirmation=False):
     """AI 助手生成库存调拨单草稿。
     示例：从A仓库转到B仓库 M001 100 M002 20
     """
-    if not _ai_capability_allowed('transfer_draft'):
-        return None, _ai_permission_denied_text('transfer_draft')
+    allowed, error = _ai_draft_execution_allowed('transfer_draft', manual_confirmation)
+    if not allowed:
+        return None, error
 
     from_loc, to_loc = _ai_extract_transfer_locations(message)
     if not from_loc or not to_loc:
@@ -8746,13 +8785,14 @@ def _ai_create_transfer_draft(message):
     }, None
 
 
-def _ai_create_check_draft(message):
+def _ai_create_check_draft(message, manual_confirmation=False):
     """AI 助手生成盘点单草稿。
     示例：盘点 M001 M002 M003  /  生成盘点单 A001 A002
     物料行的 system_stock 自动填入当前库存，actual_stock 等待用户盘点录入。
     """
-    if not _ai_capability_allowed('check_draft'):
-        return None, _ai_permission_denied_text('check_draft')
+    allowed, error = _ai_draft_execution_allowed('check_draft', manual_confirmation)
+    if not allowed:
+        return None, error
 
     items = _ai_parse_material_lines(message)
     # 盘点单允许只指定物料不指定数量（数量用于辅助识别，实际以系统库存为准）
@@ -8795,15 +8835,16 @@ def _ai_create_check_draft(message):
     }, None
 
 
-def _ai_create_adjustment_draft(message):
+def _ai_create_adjustment_draft(message, manual_confirmation=False):
     """AI 助手生成库存调整单草稿。
     示例：报废 M001 5  /  盘亏 A002 3  /  盘盈 B001 10
     调整类型识别：
       loss（盘亏）：报废、损坏、盘亏、损耗、丢失、少了
       surplus（盘盈）：盘盈、多出、溢余、多了
     """
-    if not _ai_capability_allowed('adjustment_draft'):
-        return None, _ai_permission_denied_text('adjustment_draft')
+    allowed, error = _ai_draft_execution_allowed('adjustment_draft', manual_confirmation)
+    if not allowed:
+        return None, error
 
     text = (message or '')
     loss_keywords = ('报废', '损坏', '盘亏', '损耗', '丢失', '少了', '坏')
@@ -9272,28 +9313,33 @@ def _ai_purchase_order_receive_response(message, context=None):
             '我需要知道是哪一张采购单。请在采购单详情页直接说“把这张采购单生成入库单”，或带上采购单号，例如“把 PO26050001 生成采购入库单”。',
             actions=[{'label': '采购订单', 'url': url_for('purchase_order_list')}],
         )
-
-    try:
-        in_order, error = _create_in_order_from_purchase_order_core(order, remark=f'由AI助手根据采购单 {order.order_no} 下推生成')
-        if error:
-            return _ai_json_response(error, actions=[{'label': '打开采购单', 'url': url_for('purchase_order_detail', id=order.id)}])
-        cards = [{
-            'title': f'采购入库单 {in_order.order_no}',
-            'meta': f'来源采购单 {order.order_no}，状态：草稿，明细 {len(in_order.items)} 行',
-            'url': url_for('in_order_detail', id=in_order.id),
-        }]
+    items = []
+    for item in order.items:
+        remaining = round_to_2_decimals((item.quantity or 0) - (item.received_quantity or 0))
+        if remaining <= 0 or not item.material:
+            continue
+        items.append({
+            'code': item.material.code or '',
+            'name': item.material.name or '',
+            'spec': item.material.spec or '',
+            'quantity': remaining,
+        })
+    if not items:
         return _ai_json_response(
-            f'已根据采购单 {order.order_no} 生成采购入库单草稿 {in_order.order_no}。请打开后核对仓库、数量和明细，再完成入库。',
-            cards,
-            [
-                {'label': '打开入库单', 'url': url_for('in_order_detail', id=in_order.id)},
-                {'label': '打开采购单', 'url': url_for('purchase_order_detail', id=order.id)},
-            ],
+            f'采购单 {order.order_no} 没有可下推的剩余数量。',
+            actions=[{'label': '打开采购单', 'url': url_for('purchase_order_detail', id=order.id)}],
         )
-    except Exception as exc:
-        db.session.rollback()
-        app.logger.exception('AI purchase order receive failed: %s', exc)
-        return _ai_json_response('生成采购入库单失败，请稍后重试，或在采购单详情页点击“生成采购入库单”。')
+    extracted = {
+        'document_type': 'in_order',
+        'source_text': f'人工确认后从采购订单 {order.order_no} 下推采购入库草稿',
+        'supplier': order.supplier.name if order.supplier else '',
+        'items': items,
+    }
+    return _ai_create_draft_from_extracted(
+        extracted,
+        source='purchase_order',
+        context={'page_url': f'/purchase_order/{order.id}', 'page_title': order.order_no},
+    )
 
 
 def _ai_usage_help_response(message):
@@ -10104,6 +10150,7 @@ def _ai_vision_try_create_draft(extracted, message):
 
     if not matched:
         return None
+    return None
 
     # 构建草稿创建消息（复用现有建单逻辑）
     lines = []
@@ -10115,10 +10162,10 @@ def _ai_vision_try_create_draft(extracted, message):
     draft_message = ' '.join(lines)
 
     if doc_type == 'in_order':
-        draft, error = _ai_create_in_order_draft(draft_message)
+        draft, error = _ai_create_in_order_draft(draft_message, manual_confirmation=True)
         type_label = '入库单'
     elif doc_type == 'out_order':
-        draft, error = _ai_create_out_order_draft(draft_message)
+        draft, error = _ai_create_out_order_draft(draft_message, manual_confirmation=True)
         type_label = '领料单'
     elif doc_type == 'transfer':
         draft, error = _ai_create_transfer_draft(draft_message)
@@ -10154,6 +10201,7 @@ AI_DOC_TYPE_LABELS = {
     'transfer': '调拨草稿',
     'check': '盘点草稿',
     'adjustment': '调整草稿',
+    'purchase_request': '采购申请草稿',
 }
 
 
@@ -11029,6 +11077,8 @@ def _ai_document_generated_type(doc_type):
         return 'adjustment'
     if doc_type == 'check':
         return 'check'
+    if doc_type == 'purchase_request':
+        return 'purchase_request'
     return doc_type or ''
 
 
@@ -11170,8 +11220,10 @@ def _ai_generated_document_ref(doc_type, draft):
         'transfer': TransferOrder,
         'adjustment': AdjustmentOrder,
         'check': InventoryCheck,
+        'purchase_request': PurchaseRequest,
     }.get(generated_type)
-    row = model.query.filter_by(order_no=order_no).first() if model and order_no else None
+    number_field = 'request_no' if generated_type == 'purchase_request' else 'order_no'
+    row = model.query.filter_by(**{number_field: order_no}).first() if model and order_no else None
     return generated_type, row.id if row else None, order_no
 
 
@@ -11392,6 +11444,59 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
         return None, '没有可生成草稿的有效物料行'
 
     draft_message = _ai_draft_message_from_matches(matched)
+    if doc_type == 'purchase_request':
+        request_order = PurchaseRequest(
+            request_no=generate_order_no('PR'),
+            date=date.today(),
+            applicant=current_user.username if current_user.is_authenticated else '',
+            department='采购',
+            urgency='urgent' if len(matched) >= 5 else 'normal',
+            expected_date=date.today() + timedelta(days=7),
+            reason='AI 建议经人工确认后生成采购申请草稿',
+            remark=(source_text or 'AI 仅生成草稿，供应商、数量和价格需采购人员复核。')[:500],
+            status='pending',
+            operator_id=current_user.id if current_user.is_authenticated else None,
+            total_amount=0,
+        )
+        db.session.add(request_order)
+        db.session.flush()
+        total_amount = 0
+        for row in matched:
+            material = row['material']
+            quantity = row['quantity']
+            estimated_price = round_to_2_decimals(material.price or 0)
+            estimated_amount = round_to_2_decimals(quantity * estimated_price)
+            total_amount += estimated_amount
+            db.session.add(PurchaseRequestItem(
+                purchase_request_id=request_order.id,
+                material_id=material.id,
+                material_name=material.name,
+                material_code=material.code,
+                spec=material.spec or '',
+                quantity=quantity,
+                unit_id=material.unit_id,
+                estimated_price=estimated_price,
+                estimated_amount=estimated_amount,
+                supplier_id=material.supplier_id,
+                supplier_name=material.supplier.name if material.supplier else None,
+                remark='AI 补货建议，已由当前登录人员在确认页确认。',
+            ))
+        request_order.total_amount = round_to_2_decimals(total_amount)
+        db.session.commit()
+        log_operation(
+            'AI人工确认生成采购申请草稿',
+            f'采购申请单：{request_order.request_no}',
+            'purchase_request',
+            request_order.id,
+        )
+        return {
+            'order_no': request_order.request_no,
+            'url': url_for('purchase_request_detail', id=request_order.id),
+            'items': [
+                {'code': row['material'].code, 'name': row['material'].name, 'quantity': row['quantity']}
+                for row in matched
+            ],
+        }, None
     if doc_type == 'in_order':
         if source_purchase_order_id:
             context_po_result = _ai_try_create_in_order_from_context_purchase_order(
@@ -11406,7 +11511,7 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
             return po_result
         if purchase_in_order_requires_order():
             return None, '采购入库要求关联采购订单。没有找到可下推的采购订单，请先维护或选择采购订单后再入库。'
-        draft, error = _ai_create_in_order_draft(draft_message)
+        draft, error = _ai_create_in_order_draft(draft_message, manual_confirmation=True)
         if draft:
             order = InOrder.query.filter_by(order_no=draft.get('order_no')).first()
             if order:
@@ -11414,7 +11519,7 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
                 order.remark = (source_text or order.remark or '')[:200]
                 db.session.commit()
     elif doc_type in ('out_order', 'sales_out_order'):
-        draft, error = _ai_create_out_order_draft(draft_message)
+        draft, error = _ai_create_out_order_draft(draft_message, manual_confirmation=True)
         if draft:
             order = OutOrder.query.filter_by(order_no=draft.get('order_no')).first()
             if order:
@@ -11425,12 +11530,15 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
                 order.remark = (source_text or order.remark or '')[:200]
                 db.session.commit()
     elif doc_type == 'transfer':
-        draft, error = _ai_create_transfer_draft((source_text or '') + ' ' + draft_message)
+        draft, error = _ai_create_transfer_draft(
+            (source_text or '') + ' ' + draft_message,
+            manual_confirmation=True,
+        )
     elif doc_type == 'adjustment':
         prefix = '盘盈 ' if str(adjustment_type or '').lower() == 'surplus' else '报废 '
-        draft, error = _ai_create_adjustment_draft(prefix + draft_message)
+        draft, error = _ai_create_adjustment_draft(prefix + draft_message, manual_confirmation=True)
     else:
-        draft, error = _ai_create_check_draft(draft_message)
+        draft, error = _ai_create_check_draft(draft_message, manual_confirmation=True)
     if error:
         return None, error
     return draft, None
@@ -11593,6 +11701,7 @@ def _ai_create_draft_from_extracted(extracted, source='text', context=None):
         'transfer': 'transfer_draft',
         'check': 'check_draft',
         'adjustment': 'adjustment_draft',
+        'purchase_request': 'purchase_request_draft',
     }.get(doc_type)
     if not capability or not _ai_capability_allowed(capability):
         return _ai_permission_denied_response(capability or 'document_draft')
@@ -11633,6 +11742,11 @@ def _ai_create_draft_from_extracted(extracted, source='text', context=None):
             cards,
             [_ai_confirmation_action(extracted, context, document_job_id)],
         )
+    return _ai_json_response(
+        f'已识别 {len(matched)} 条物料。AI 不会直接创建业务草稿，请先打开确认页核对单据类型、物料和数量，再由当前登录人员明确点击“生成草稿”。',
+        _ai_match_cards(matched, unmatched),
+        [_ai_confirmation_action(extracted, context, document_job_id)],
+    )
     draft_message = _ai_draft_message_from_matches(matched)
     if doc_type == 'in_order':
         context_po_result = _ai_try_create_in_order_from_context_purchase_order(matched, context, extracted.get('source_text') or '')
@@ -12378,6 +12492,21 @@ def _ai_create_purchase_request_draft_response(message, context=None, force=Fals
                 {'label': '采购申请', 'url': url_for('purchase_request_list')},
             ],
         )
+
+    extracted = {
+        'document_type': 'purchase_request',
+        'source_text': '低库存补货建议，需采购人员人工确认后生成采购申请草稿。',
+        'items': [
+            {
+                'code': row['material'].code or '',
+                'name': row['material'].name or '',
+                'spec': row['material'].spec or '',
+                'quantity': row['suggested_qty'],
+            }
+            for row in candidates
+        ],
+    }
+    return _ai_create_draft_from_extracted(extracted, source='replenishment', context=context)
 
     request_order = PurchaseRequest(
         request_no=generate_order_no('PR'),
@@ -16185,6 +16314,9 @@ def _ai_handle_warehouse_assistant_request(payload):
 
     if not _ai_global_enabled():
         return _ai_json_response('AI功能当前已由管理员关闭。WMS主业务不受影响，请使用对应业务页面手工查询或处理。')
+    high_risk_response = _ai_high_risk_denied_response(message)
+    if high_risk_response:
+        return high_risk_response
 
     user_id = current_user.id if current_user.is_authenticated else 0
     # 拼接最近一轮用户消息到当前 message 前面，让意图识别和草稿解析能感知多轮上下文。
@@ -16392,6 +16524,17 @@ def _ai_handle_chat_stream_request(payload):
 
     if not _ai_global_enabled():
         return jsonify({'status': 'error', 'msg': 'AI功能当前已由管理员关闭。WMS主业务不受影响。'}), 503
+    high_risk_response = _ai_high_risk_denied_response(message)
+    if high_risk_response:
+        def denied_generate():
+            body = high_risk_response.get_json(silent=True) or {}
+            yield from stream_response_payload(body.get('reply'), body.get('cards'), body.get('actions'))
+
+        return Response(
+            stream_with_context(denied_generate()),
+            content_type='text/event-stream; charset=utf-8',
+            headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+        )
 
     context = {'page_url': page_url, 'page_title': page_title}
     intent_payload = _ai_call_llm_intent(message)
@@ -31172,6 +31315,7 @@ def document_ocr_page():
 
 @app.route('/api/ai/document_ocr', methods=['POST'])
 @login_required
+@require_role('warehouse', 'purchase')
 def api_document_ocr():
     """单据OCR识别API：上传图片，AI识别单据内容并生成入库草稿。"""
     if not _ai_llm_configured() or not _ai_llm_vision_enabled():

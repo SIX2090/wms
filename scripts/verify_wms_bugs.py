@@ -265,8 +265,8 @@ def main() -> int:
     checks.append((
         'AI-AUTH-001',
         'AI_CAPABILITY_ROLES' in app_py
-        and '_ai_capability_allowed(\'out_order_draft\')' in function_body(app_py, '_ai_create_out_order_draft')
-        and '_ai_capability_allowed(\'in_order_draft\')' in function_body(app_py, '_ai_create_in_order_draft')
+        and '_ai_draft_execution_allowed(\'out_order_draft\'' in function_body(app_py, '_ai_create_out_order_draft')
+        and '_ai_draft_execution_allowed(\'in_order_draft\'' in function_body(app_py, '_ai_create_in_order_draft')
         and '_ai_capability_allowed(\'purchase_request_draft\')' in function_body(app_py, '_ai_create_purchase_request_draft_response')
         and '_ai_capability_allowed(\'purchase_receive_draft\')' in function_body(app_py, '_ai_purchase_order_receive_response')
         and '_ai_capability_allowed(\'admin_insights\')' in function_body(app_py, '_ai_user_permission_response')

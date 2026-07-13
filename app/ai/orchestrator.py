@@ -15,10 +15,15 @@ def dispatch_registered_tool(
     context: dict[str, Any] | None,
     dispatchers: Mapping[str, ToolHandler],
     logger: Any | None = None,
+    manual_confirmation: bool = False,
 ) -> Any | None:
     spec = get_ai_tool_spec(tool_name)
     handler = dispatchers.get(tool_name)
     if not spec or not handler:
+        return None
+    if spec.confirmation_required and not manual_confirmation:
+        if logger is not None:
+            logger.warning('AI tool requires manual confirmation before dispatch: %s', tool_name)
         return None
     validation = validate_ai_tool_input(tool_name, context or {})
     if not validation.valid:

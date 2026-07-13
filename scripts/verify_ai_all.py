@@ -24,6 +24,7 @@ SMOKE_SCRIPTS = (
 )
 
 CORE_SCRIPTS = SMOKE_SCRIPTS + (
+    'verify_ai_high_risk_boundaries.py',
     'verify_ai_business_permissions.py',
     "verify_ai_permission_matrix.py",
     "verify_ai_security.py",
