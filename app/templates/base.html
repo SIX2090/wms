@@ -424,6 +424,367 @@
             padding: 5px 9px;
             font-size: 13px;
         }
+        /* 数据来源标签 */
+        .ai-data-source {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            margin-top: 6px;
+            margin-right: 4px;
+        }
+        .ai-data-source-realtime {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+        .ai-data-source-rule {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fcd34d;
+        }
+        .ai-data-source-llm {
+            background: #e0e7ff;
+            color: #3730a3;
+            border: 1px solid #a5b4fc;
+        }
+        /* 反馈按钮 */
+        .ai-feedback-buttons {
+            display: flex;
+            gap: 4px;
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px solid #e5e7eb;
+        }
+        .ai-feedback-btn {
+            border: 1px solid #d1d5db;
+            background: #f9fafb;
+            color: #6b7280;
+            border-radius: 4px;
+            padding: 3px 8px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .ai-feedback-btn:hover {
+            background: #f3f4f6;
+            border-color: #9ca3af;
+            color: #374151;
+        }
+        .ai-feedback-btn.active {
+            background: #dbeafe;
+            border-color: #3b82f6;
+            color: #1e40af;
+        }
+        .ai-feedback-btn i {
+            font-size: 13px;
+        }
+        /* 工具状态卡片 */
+        .ai-tool-status {
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            background: #f9fafb;
+        }
+        .ai-tool-status-query {
+            border-left: 3px solid #3b82f6;
+        }
+        .ai-tool-status-executing {
+            border-left: 3px solid #f59e0b;
+        }
+        .ai-tool-status-confirm {
+            border-left: 3px solid #10b981;
+        }
+        .ai-tool-status-failed {
+            border-left: 3px solid #ef4444;
+        }
+        .ai-tool-status-running {
+            border-left: 3px solid #6366f1;
+        }
+        .ai-tool-status-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 500;
+            color: #111827;
+        }
+        .ai-tool-status-header i {
+            font-size: 14px;
+        }
+        .ai-tool-status-label {
+            flex: 1;
+        }
+        .ai-tool-name {
+            color: #6b7280;
+            font-size: 11px;
+        }
+        .ai-tool-status-message {
+            margin-top: 4px;
+            color: #6b7280;
+            font-size: 11px;
+        }
+        .ai-tool-progress {
+            margin-top: 6px;
+            height: 4px;
+            background: #e5e7eb;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .ai-tool-progress .progress-bar {
+            height: 100%;
+            background: #3b82f6;
+            transition: width 0.3s;
+        }
+        /* 确认卡片 */
+        .ai-confirmation-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px;
+            margin: 8px 0;
+            background: #fff;
+            font-size: 13px;
+        }
+        .ai-confirmation-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .ai-confirmation-header i {
+            font-size: 16px;
+            color: #3b82f6;
+        }
+        .ai-confirmation-body {
+            margin-bottom: 8px;
+        }
+        .ai-confirmation-field {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 4px;
+            font-size: 12px;
+        }
+        .ai-confirmation-field label {
+            color: #6b7280;
+            min-width: 60px;
+        }
+        .ai-confirmation-field span {
+            color: #111827;
+            flex: 1;
+        }
+        .ai-confirmation-items {
+            margin-top: 6px;
+            border-top: 1px solid #f3f4f6;
+            padding-top: 6px;
+        }
+        .ai-confirmation-item {
+            display: flex;
+            gap: 8px;
+            padding: 3px 0;
+            font-size: 12px;
+            align-items: center;
+        }
+        .ai-confirmation-item .item-code {
+            color: #6b7280;
+            font-family: monospace;
+            min-width: 80px;
+        }
+        .ai-confirmation-item .item-name {
+            flex: 1;
+            color: #111827;
+        }
+        .ai-confirmation-item .item-qty {
+            color: #059669;
+            font-weight: 500;
+        }
+        .ai-confirmation-actions {
+            display: flex;
+            gap: 6px;
+            justify-content: flex-end;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #f3f4f6;
+        }
+        /* Agent计划视图 */
+        .ai-agent-plan {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            margin: 8px 0;
+            background: #fff;
+            overflow: hidden;
+        }
+        .ai-agent-plan-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .ai-agent-plan-header i {
+            color: #3b82f6;
+        }
+        .ai-agent-plan-close {
+            margin-left: auto;
+            border: none;
+            background: transparent;
+            color: #6b7280;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .ai-agent-plan-close:hover {
+            color: #111827;
+        }
+        .ai-agent-plan-steps {
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .ai-agent-plan-step {
+            display: flex;
+            gap: 8px;
+            padding: 6px 0;
+            font-size: 12px;
+            border-bottom: 1px solid #f3f4f6;
+        }
+        .ai-agent-plan-step:last-child {
+            border-bottom: none;
+        }
+        .ai-agent-plan-step-num {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #e5e7eb;
+            color: #6b7280;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .ai-agent-plan-step.active .ai-agent-plan-step-num {
+            background: #3b82f6;
+            color: #fff;
+        }
+        .ai-agent-plan-step.completed .ai-agent-plan-step-num {
+            background: #10b981;
+            color: #fff;
+        }
+        .ai-agent-plan-step-content {
+            flex: 1;
+            color: #111827;
+        }
+        .ai-agent-plan-step-status {
+            color: #6b7280;
+            font-size: 11px;
+        }
+        .ai-agent-plan-footer {
+            display: flex;
+            gap: 6px;
+            justify-content: flex-end;
+            padding: 8px 10px;
+            background: #f9fafb;
+            border-top: 1px solid #e5e7eb;
+        }
+        /* 文档任务中心 */
+        .ai-document-task-center {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            margin: 8px 0;
+            background: #fff;
+            overflow: hidden;
+        }
+        .ai-document-task-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .ai-document-task-header i {
+            color: #3b82f6;
+        }
+        .ai-document-task-list {
+            padding: 8px;
+            max-height: 250px;
+            overflow-y: auto;
+        }
+        .ai-document-task-item {
+            display: flex;
+            gap: 8px;
+            padding: 6px;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 12px;
+            align-items: center;
+        }
+        .ai-document-task-item:last-child {
+            border-bottom: none;
+        }
+        .ai-document-task-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .ai-document-task-icon.processing {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .ai-document-task-icon.completed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .ai-document-task-icon.failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .ai-document-task-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .ai-document-task-name {
+            color: #111827;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .ai-document-task-status {
+            color: #6b7280;
+            font-size: 11px;
+        }
+        .ai-document-task-action {
+            color: #3b82f6;
+            text-decoration: none;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        .ai-document-task-action:hover {
+            text-decoration: underline;
+        }
         .ai-assistant-input {
             border-top: 1px solid #e5e7eb;
             padding: 10px;
@@ -1561,7 +1922,7 @@
     {% block extra_css %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
-    <script>if(window.self!==window.top){document.body.classList.add('embedded-page');}</script>
+    <script>if(new URLSearchParams(location.search).get('embedded')==='1'){document.body.classList.add('embedded-page');}</script>
     <header class="mobile-topbar no-print">
         <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-controls="appSidebar" aria-expanded="false" onclick="toggleMobileSidebar()">
             <i class="bi bi-list"></i>
@@ -1936,36 +2297,62 @@
             </div>
         </div>
         <div class="ai-assistant-messages" id="aiAssistantMessages">
+            <!-- Agent任务计划视图 -->
+            <div class="ai-agent-plan" id="aiAgentPlan" style="display:none;">
+                <div class="ai-agent-plan-header">
+                    <i class="bi bi-diagram-3"></i>
+                    <span id="aiAgentPlanTitle">Agent任务计划</span>
+                    <button type="button" class="ai-agent-plan-close" id="aiAgentPlanClose">×</button>
+                </div>
+                <div class="ai-agent-plan-steps" id="aiAgentPlanSteps">
+                    <!-- 步骤列表将通过JavaScript动态生成 -->
+                </div>
+                <div class="ai-agent-plan-footer">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="aiAgentPlanCancel">取消任务</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="aiAgentPlanContinue">继续执行</button>
+                </div>
+            </div>
             <div class="ai-welcome">
                 <div class="ai-welcome-title">可以直接处理仓库问题</div>
                 <div class="ai-welcome-text">识别送货单图片、微信/文本内容，生成草稿，检查异常并给出仓库风险处理优先级。扫码入库仍走 PDA，提交或扣库存前需要人工确认。</div>
                 <div class="ai-suggestions" id="aiSuggestions">
-                    <button type="button" class="ai-suggestion" data-prompt="Agent巡检仓库">Agent巡检</button>
-                    <button type="button" class="ai-suggestion" data-prompt="采购工作台">采购工作台</button>
-                    <button type="button" class="ai-suggestion" data-prompt="根据低库存生成采购申请草稿">补货请购</button>
-                    <button type="button" class="ai-suggestion" data-prompt="供应商采购画像">供应商画像</button>
-                    <button type="button" class="ai-suggestion" data-prompt="生成催供应商跟进话术">催交话术</button>
-                    <button type="button" class="ai-suggestion" data-prompt="基础资料AI体检">基础体检</button>
-                    <button type="button" class="ai-suggestion" data-prompt="基础资料修复清单">修复清单</button>
-                    <button type="button" class="ai-suggestion" data-prompt="基础资料导入助手">导入助手</button>
-                    <button type="button" class="ai-suggestion" data-prompt="系统管理AI体检">系统体检</button>
-                    <button type="button" class="ai-suggestion" data-prompt="系统管理修复清单">系统清单</button>
-                    <button type="button" class="ai-suggestion" data-prompt="权限账号助手">权限助手</button>
-                    <button type="button" class="ai-suggestion" data-prompt="操作日志审计">日志审计</button>
-                    <button type="button" class="ai-suggestion" data-prompt="仓库管理软件改进建议">软件建议</button>
-                    <button type="button" class="ai-suggestion" data-prompt="AI能力对标路线图">AI路线图</button>
-                    <button type="button" class="ai-suggestion" data-prompt="AI任务清单">任务清单</button>
-                    <button type="button" class="ai-suggestion" data-prompt="打开操作审计页面">打开功能</button>
-                    <button type="button" class="ai-suggestion" data-prompt="仓库异常工作台">异常工作台</button>
-                    <button type="button" class="ai-suggestion" data-prompt="今天优先处理什么">今日优先级</button>
-                    <button type="button" class="ai-suggestion" data-prompt="识图能力自检">识图自检</button>
-                    <button type="button" class="ai-suggestion" data-prompt="识别送货单图片并生成采购入库单草稿" data-ai-upload="delivery-note">送货单入库</button>
-                    <button type="button" class="ai-suggestion" data-prompt="表格生成领料单&#10;仓库：A仓&#10;物料编码&#9;物料名称&#9;规格&#9;数量&#9;单位&#10;A001&#9;示例物料&#9;规格A&#9;10&#9;个">表格转单</button>
-                    <button type="button" class="ai-suggestion" data-prompt="微信内容生成领料单 A001 20 B002 5">微信成领料</button>
-                    <button type="button" class="ai-suggestion" data-prompt="客户发货 A001 20 B002 5">微信成销售出库</button>
-                    <button type="button" class="ai-suggestion" data-prompt="检查当前草稿">提交前检查</button>
-                    <button type="button" class="ai-suggestion" data-prompt="为什么 A001 库存不对">解释异常</button>
-                    <button type="button" class="ai-suggestion" data-prompt="GPT识别微信：华南客户今天发 A001 两箱，B003 15个，备注加急">GPT识别微信</button>
+                    <!-- 所有角色可用 -->
+                    <button type="button" class="ai-suggestion" data-role="all" data-prompt="Agent巡检仓库">Agent巡检</button>
+                    <button type="button" class="ai-suggestion" data-role="all" data-prompt="今天优先处理什么">今日优先级</button>
+                    <button type="button" class="ai-suggestion" data-role="all" data-prompt="检查当前草稿">提交前检查</button>
+                    <button type="button" class="ai-suggestion" data-role="all" data-prompt="为什么 A001 库存不对">解释异常</button>
+                    
+                    <!-- 仓库角色专属 -->
+                    <button type="button" class="ai-suggestion" data-role="warehouse" data-prompt="识别送货单图片并生成采购入库单草稿" data-ai-upload="delivery-note">送货单入库</button>
+                    <button type="button" class="ai-suggestion" data-role="warehouse" data-prompt="表格生成领料单&#10;仓库：A仓&#10;物料编码&#9;物料名称&#9;规格&#9;数量&#9;单位&#10;A001&#9;示例物料&#9;规格A&#9;10&#9;个">表格转单</button>
+                    <button type="button" class="ai-suggestion" data-role="warehouse" data-prompt="微信内容生成领料单 A001 20 B002 5">微信成领料</button>
+                    <button type="button" class="ai-suggestion" data-role="warehouse" data-prompt="仓库异常工作台">异常工作台</button>
+                    
+                    <!-- 采购角色专属 -->
+                    <button type="button" class="ai-suggestion" data-role="purchase" data-prompt="采购工作台">采购工作台</button>
+                    <button type="button" class="ai-suggestion" data-role="purchase" data-prompt="根据低库存生成采购申请草稿">补货请购</button>
+                    <button type="button" class="ai-suggestion" data-role="purchase" data-prompt="供应商采购画像">供应商画像</button>
+                    <button type="button" class="ai-suggestion" data-role="purchase" data-prompt="生成催供应商跟进话术">催交话术</button>
+                    
+                    <!-- 生产角色专属 -->
+                    <button type="button" class="ai-suggestion" data-role="production" data-prompt="客户发货 A001 20 B002 5">微信成销售出库</button>
+                    <button type="button" class="ai-suggestion" data-role="production" data-prompt="GPT识别微信：华南客户今天发 A001 两箱，B003 15个，备注加急">GPT识别微信</button>
+                    
+                    <!-- 管理员专属 -->
+                    <button type="button" class="ai-suggestion" data-role="admin" data-prompt="基础资料AI体检">基础体检</button>
+                    <button type="button" class="ai-suggestion" data-role="admin" data-prompt="基础资料修复清单">修复清单</button>
+                    <button type="button" class="ai-suggestion" data-role="admin" data-prompt="基础资料导入助手">导入助手</button>
+                    <button type="button" class="ai-suggestion" data-role="admin" data-prompt="系统管理AI体检">系统体检</button>
+                    <button type="button" class="ai-suggestion" data-role="admin" data-prompt="系统管理修复清单">系统清单</button>
+                    <button type="button" class="ai-suggestion" data-role="admin" data-prompt="权限账号助手">权限助手</button>
+                    <button type="button" class="ai-suggestion" data-role="admin" data-prompt="操作日志审计">日志审计</button>
+                    
+                    <!-- 通用功能 -->
+                    <button type="button" class="ai-suggestion" data-role="all" data-prompt="仓库管理软件改进建议">软件建议</button>
+                    <button type="button" class="ai-suggestion" data-role="all" data-prompt="AI能力对标路线图">AI路线图</button>
+                    <button type="button" class="ai-suggestion" data-role="all" data-prompt="AI任务清单">任务清单</button>
+                    <button type="button" class="ai-suggestion" data-role="all" data-prompt="打开操作审计页面">打开功能</button>
+                    <button type="button" class="ai-suggestion" data-role="all" data-prompt="识图能力自检">识图自检</button>
                 </div>
             </div>
         </div>
@@ -2148,9 +2535,16 @@
             }
         }
 
-        function addMessage(text, type, attachments, useMarkdown) {
+        function addMessage(text, type, attachments, useMarkdown, toolStatus, dataSource) {
             const node = document.createElement('div');
             node.className = 'ai-message ' + (type || 'assistant');
+            
+            // 添加工具状态卡片
+            if (toolStatus) {
+                const statusCard = renderToolStatus(toolStatus);
+                node.appendChild(statusCard);
+            }
+            
             const contentEl = document.createElement('div');
             contentEl.className = 'ai-message-content';
             if (type === 'user') {
@@ -2160,6 +2554,12 @@
                 contentEl.innerHTML = useMarkdown === false ? escapeHtml(text) : renderMarkdown(text);
             }
             node.appendChild(contentEl);
+            
+            // 添加数据来源显示
+            if (dataSource && type !== 'user') {
+                const sourceEl = renderDataSource(dataSource);
+                node.appendChild(sourceEl);
+            }
             const copyButton = document.createElement('button');
             copyButton.type = 'button';
             copyButton.className = 'ai-message-copy';
@@ -2188,6 +2588,280 @@
             messages.appendChild(node);
             messages.scrollTop = messages.scrollHeight;
             return node;
+        }
+        
+        // 渲染工具执行状态卡片
+        function renderToolStatus(status) {
+            const card = document.createElement('div');
+            card.className = 'ai-tool-status ai-tool-status-' + (status.state || 'running');
+            
+            const icons = {
+                'query': '<i class="bi bi-search"></i>',
+                'executing': '<i class="bi bi-gear-fill"></i>',
+                'confirm': '<i class="bi bi-check-circle-fill"></i>',
+                'failed': '<i class="bi bi-x-circle-fill"></i>',
+                'running': '<i class="bi bi-arrow-repeat"></i>'
+            };
+            
+            const labels = {
+                'query': '查询中',
+                'executing': '执行中',
+                'confirm': '待确认',
+                'failed': '执行失败',
+                'running': '处理中'
+            };
+            
+            card.innerHTML = `
+                <div class="ai-tool-status-header">
+                    ${icons[status.state] || icons['running']}
+                    <span class="ai-tool-status-label">${labels[status.state] || '处理中'}</span>
+                    ${status.tool_name ? `<span class="ai-tool-name">${escapeHtml(status.tool_name)}</span>` : ''}
+                </div>
+                ${status.message ? `<div class="ai-tool-status-message">${escapeHtml(status.message)}</div>` : ''}
+                ${status.progress ? `<div class="ai-tool-progress"><div class="progress-bar" style="width: ${status.progress}%"></div></div>` : ''}
+            `;
+            
+            return card;
+        }
+        
+        // 渲染确认卡（用于草稿确认）
+        function renderConfirmationCard(draft) {
+            const card = document.createElement('div');
+            card.className = 'ai-confirmation-card';
+            
+            const typeLabels = {
+                'in_order': '入库单',
+                'out_order': '出库单',
+                'transfer': '调拨单',
+                'stocktake': '盘点单',
+                'purchase_request': '采购申请',
+                'adjustment': '调整单'
+            };
+            
+            let itemsHtml = '';
+            if (draft.items && draft.items.length > 0) {
+                itemsHtml = '<div class="ai-confirmation-items">';
+                draft.items.forEach(function(item) {
+                    itemsHtml += `
+                        <div class="ai-confirmation-item">
+                            <span class="item-code">${escapeHtml(item.code || '')}</span>
+                            <span class="item-name">${escapeHtml(item.name || '')}</span>
+                            <span class="item-qty">${item.quantity || 0} ${escapeHtml(item.unit || '')}</span>
+                        </div>
+                    `;
+                });
+                itemsHtml += '</div>';
+            }
+            
+            card.innerHTML = `
+                <div class="ai-confirmation-header">
+                    <i class="bi bi-file-earmark-check"></i>
+                    <span class="ai-confirmation-title">${typeLabels[draft.type] || '草稿'}草稿</span>
+                </div>
+                <div class="ai-confirmation-body">
+                    ${draft.supplier ? `<div class="ai-confirmation-field"><label>供应商：</label><span>${escapeHtml(draft.supplier)}</span></div>` : ''}
+                    ${draft.customer ? `<div class="ai-confirmation-field"><label>客户：</label><span>${escapeHtml(draft.customer)}</span></div>` : ''}
+                    ${draft.warehouse ? `<div class="ai-confirmation-field"><label>仓库：</label><span>${escapeHtml(draft.warehouse)}</span></div>` : ''}
+                    ${itemsHtml}
+                    ${draft.remark ? `<div class="ai-confirmation-field"><label>备注：</label><span>${escapeHtml(draft.remark)}</span></div>` : ''}
+                </div>
+                <div class="ai-confirmation-actions">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-action="edit">编辑</button>
+                    <button type="button" class="btn btn-sm btn-primary" data-action="confirm">确认创建</button>
+                </div>
+            `;
+            
+            // 绑定按钮事件
+            card.querySelector('[data-action="edit"]').addEventListener('click', function() {
+                if (draft.draft_id) {
+                    window.open('/draft/' + draft.draft_id + '/edit', '_blank');
+                }
+            });
+            
+            card.querySelector('[data-action="confirm"]').addEventListener('click', function() {
+                if (draft.draft_id) {
+                    window.location.href = '/draft/' + draft.draft_id;
+                }
+            });
+            
+            return card;
+        }
+        
+        // 渲染数据来源标签
+        function renderDataSource(source) {
+            const badge = document.createElement('span');
+            badge.className = 'ai-data-source ai-data-source-' + (source.type || 'rule');
+            
+            const icons = {
+                'realtime': '<i class="bi bi-database"></i>',
+                'rule': '<i class="bi bi-gear"></i>',
+                'llm': '<i class="bi bi-robot"></i>'
+            };
+            
+            const labels = {
+                'realtime': '实时查询',
+                'rule': '系统规则',
+                'llm': 'AI解释'
+            };
+            
+            badge.innerHTML = `${icons[source.type] || icons['rule']} ${labels[source.type] || '系统规则'}`;
+            
+            if (source.timestamp) {
+                badge.title = '数据时间：' + new Date(source.timestamp).toLocaleString('zh-CN');
+            }
+            
+            return badge;
+        }
+        
+        // 渲染反馈按钮
+        function renderFeedbackButtons(messageId) {
+            const container = document.createElement('div');
+            container.className = 'ai-feedback-buttons';
+            container.innerHTML = `
+                <button type="button" class="ai-feedback-btn" data-feedback="helpful" data-message-id="${messageId}" title="有帮助">
+                    <i class="bi bi-hand-thumbs-up"></i>
+                </button>
+                <button type="button" class="ai-feedback-btn" data-feedback="recognition_error" data-message-id="${messageId}" title="识别错误">
+                    <i class="bi bi-eye-slash"></i>
+                </button>
+                <button type="button" class="ai-feedback-btn" data-feedback="match_error" data-message-id="${messageId}" title="匹配错误">
+                    <i class="bi bi-link-45deg"></i>
+                </button>
+                <button type="button" class="ai-feedback-btn" data-feedback="permission_error" data-message-id="${messageId}" title="权限错误">
+                    <i class="bi bi-shield-x"></i>
+                </button>
+            `;
+            
+            // 绑定反馈事件
+            container.querySelectorAll('.ai-feedback-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    const feedback = this.dataset.feedback;
+                    const msgId = this.dataset.messageId;
+                    submitFeedback(msgId, feedback);
+                    
+                    // 标记已反馈
+                    container.querySelectorAll('.ai-feedback-btn').forEach(function(b) {
+                        b.disabled = true;
+                    });
+                    this.classList.add('active');
+                });
+            });
+            
+            return container;
+        }
+        
+        // 提交反馈
+        function submitFeedback(messageId, feedbackType) {
+            fetch('/api/ai/feedback', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content
+                },
+                body: JSON.stringify({
+                    message_id: messageId,
+                    feedback_type: feedbackType,
+                    timestamp: new Date().toISOString()
+                })
+            }).then(function(response) {
+                return response.json();
+            }).then(function(data) {
+                if (data.success) {
+                    showToast('感谢您的反馈', 'success');
+                }
+            }).catch(function(error) {
+                console.error('反馈提交失败:', error);
+            });
+        }
+        
+        // 渲染文档任务中心
+        function renderDocumentTaskCenter(tasks) {
+            const container = document.createElement('div');
+            container.className = 'ai-document-task-center';
+            
+            if (!tasks || tasks.length === 0) {
+                container.innerHTML = '<div class="ai-task-empty">暂无文档识别任务</div>';
+                return container;
+            }
+            
+            let tasksHtml = '<div class="ai-task-list">';
+            tasks.forEach(function(task) {
+                const statusIcons = {
+                    'pending': '<i class="bi bi-clock"></i>',
+                    'processing': '<i class="bi bi-arrow-repeat"></i>',
+                    'completed': '<i class="bi bi-check-circle"></i>',
+                    'failed': '<i class="bi bi-x-circle"></i>'
+                };
+                
+                const statusLabels = {
+                    'pending': '等待处理',
+                    'processing': '识别中',
+                    'completed': '已完成',
+                    'failed': '识别失败'
+                };
+                
+                tasksHtml += `
+                    <div class="ai-task-item ai-task-${task.status}">
+                        <div class="ai-task-header">
+                            ${statusIcons[task.status] || statusIcons['pending']}
+                            <span class="ai-task-title">${escapeHtml(task.title || '文档识别')}</span>
+                            <span class="ai-task-status">${statusLabels[task.status] || '未知'}</span>
+                        </div>
+                        <div class="ai-task-meta">
+                            <span class="ai-task-time">${new Date(task.created_at).toLocaleString('zh-CN')}</span>
+                            ${task.file_name ? `<span class="ai-task-file">${escapeHtml(task.file_name)}</span>` : ''}
+                        </div>
+                        ${task.status === 'completed' ? `
+                            <div class="ai-task-actions">
+                                <button type="button" class="btn btn-sm btn-outline-primary" data-task-id="${task.id}" data-action="view">查看结果</button>
+                                <button type="button" class="btn btn-sm btn-primary" data-task-id="${task.id}" data-action="create-draft">生成草稿</button>
+                            </div>
+                        ` : ''}
+                        ${task.status === 'failed' ? `
+                            <div class="ai-task-actions">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" data-task-id="${task.id}" data-action="retry">重试</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            tasksHtml += '</div>';
+            
+            container.innerHTML = tasksHtml;
+            
+            // 绑定任务操作事件
+            container.querySelectorAll('[data-action]').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    const taskId = this.dataset.taskId;
+                    const action = this.dataset.action;
+                    handleDocumentTaskAction(taskId, action);
+                });
+            });
+            
+            return container;
+        }
+        
+        // 处理文档任务操作
+        function handleDocumentTaskAction(taskId, action) {
+            if (action === 'view') {
+                window.open('/ai/document/' + taskId, '_blank');
+            } else if (action === 'create-draft') {
+                window.location.href = '/ai/document/' + taskId + '/create-draft';
+            } else if (action === 'retry') {
+                fetch('/api/ai/document/' + taskId + '/retry', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content
+                    }
+                }).then(function(response) {
+                    return response.json();
+                }).then(function(data) {
+                    if (data.success) {
+                        showToast('任务已重新提交', 'success');
+                        loadDocumentTasks(); // 重新加载任务列表
+                    }
+                });
+            }
         }
 
         function renderPendingImages() {
