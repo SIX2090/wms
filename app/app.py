@@ -463,6 +463,9 @@ def guarded_drop_all(*args, **kwargs):
 
 db.drop_all = guarded_drop_all
 
+# 在 db.init_app 之后导入 AI 模型,确保 db 已初始化
+from ai.models import AIConversation, AIMessage, AIFeedback, AIConfirmation
+
 
 def backup_sqlite_on_startup():
     if app.config.get('TESTING'):
