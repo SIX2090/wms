@@ -1561,7 +1561,7 @@
     {% block extra_css %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
-    <script>if(window.self!==window.top){document.body.classList.add('embedded-page');}</script>
+    <script>/* iframe embedded-page detection disabled: sidebar must remain visible in preview panels */</script>
     <header class="mobile-topbar no-print">
         <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-controls="appSidebar" aria-expanded="false" onclick="toggleMobileSidebar()">
             <i class="bi bi-list"></i>
