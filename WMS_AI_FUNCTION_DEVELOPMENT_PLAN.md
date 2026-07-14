@@ -257,7 +257,7 @@
 
 | 任务编号 | 完成日期 | 提交哈希 | 改动模块 | 验证命令 | 验收结果 | 遗留子项 |
 |---|---|---|---|---|---|---|
-| 示例：AI-R01 | YYYY-MM-DD | `abcdef0` | `app/ai/...` | 专项验证、full | 通过 | 无或子项编号 |
+| AI-R01 | 2026-07-14 | `ed8f973` | `app/app.py`（AIDraftIdempotency 模型 + 8 草稿路径接入幂等闭环）、`app/ai/draft_idempotency.py`（服务模块）、`scripts/verify_ai_draft_idempotency.py`（7 组专项测试）、`scripts/verify_ai_all.py`（注册 CORE_SCRIPTS） | `python scripts/verify_ai_draft_idempotency.py`、`python scripts/verify_ai_all.py --level full` | 通过（37 脚本全部 PASS，重复草稿为 0，反查链路完整） | 无 |
 
 ## 9. 任务启动检查
 
