@@ -32,6 +32,7 @@ CORE_SCRIPTS = SMOKE_SCRIPTS + (
     "verify_ai_orchestrator.py",
     "verify_ai_history.py",
     "verify_ai_idempotency.py",
+    "verify_ai_draft_idempotency.py",
     "verify_ai_audit_models.py",
     "verify_ai_audit_routes.py",
     "verify_ai_tools_endpoint.py",

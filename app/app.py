@@ -36,6 +36,10 @@ from ai.policies import (
 )
 from ai.history import AI_CHAT_HISTORY_MAX_TURNS, append_history, clear_history, get_history
 from ai.idempotency import configure_ai_idempotency_service
+from ai.draft_idempotency import (
+    configure_ai_draft_idempotency_service,
+    get_ai_draft_idempotency_service,
+)
 from ai.knowledge import is_knowledge_question, search_knowledge_entries
 from ai.orchestrator import dispatch_registered_tool
 from ai.routes import ai_bp
@@ -1995,6 +1999,47 @@ class AIRequestIdempotency(db.Model):
 
     user = db.relationship('User', backref='ai_idempotent_requests')
     ai_run = db.relationship('AIRun', backref=db.backref('idempotent_request', uselist=False))
+
+
+class AIDraftIdempotency(db.Model):
+    """AI 草稿统一幂等与审计闭环记录 (AI-R01)。
+
+    确保重复上传、重复点击、网络重试、Provider 重试或并发请求均不能创建重复草稿，
+    并关联 AIRun、AIToolCall、确认令牌、文档任务和业务草稿，支持完整反查。
+    """
+    __tablename__ = 'ai_draft_idempotency'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'capability', 'idempotency_key', name='uix_ai_draft_user_cap_key'),
+        db.Index('idx_ai_draft_user_created', 'user_id', 'created_at'),
+        db.Index('idx_ai_draft_status', 'status'),
+        db.Index('idx_ai_draft_lookup', 'draft_type', 'draft_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    ai_run_id = db.Column(db.Integer, db.ForeignKey('ai_run.id'))
+    ai_tool_call_id = db.Column(db.Integer, db.ForeignKey('ai_tool_call.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    capability = db.Column(db.String(60), nullable=False)
+    idempotency_key = db.Column(db.String(64), nullable=False)
+    source = db.Column(db.String(30), nullable=False, default='text')
+    source_hash = db.Column(db.String(64))
+    business_key = db.Column(db.Text)
+    confirmation_token = db.Column(db.String(64))
+    document_job_id = db.Column(db.Integer)
+    draft_type = db.Column(db.String(40))
+    draft_id = db.Column(db.Integer)
+    draft_no = db.Column(db.String(60))
+    status = db.Column(db.String(20), nullable=False, default='processing')
+    error_message = db.Column(db.String(500))
+    request_snapshot = db.Column(db.Text)
+    response_snapshot = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    completed_at = db.Column(db.DateTime)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+    user = db.relationship('User', backref='ai_draft_idempotency_records')
+    ai_run = db.relationship('AIRun', backref=db.backref('draft_idempotency_records', cascade='all, delete-orphan'))
+    ai_tool_call = db.relationship('AIToolCall', backref=db.backref('draft_idempotency_records'))
 
 
 # AI document job status flow: uploading -> recognizing -> recognized -> pending_confirmation -> draft_created / failed
@@ -7298,6 +7343,43 @@ _ai_idempotency_error = _ai_idempotency.error
 _ai_idempotency_replay = _ai_idempotency.replay
 _ai_finish_run = _ai_idempotency.finish_run
 _ai_finish_idempotent_request = _ai_idempotency.finish_request
+
+# AI-R01: 统一草稿幂等与审计闭环服务
+configure_ai_draft_idempotency_service(
+    db=db,
+    draft_model=AIDraftIdempotency,
+    run_model=AIRun,
+    tool_call_model=AIToolCall,
+)
+
+
+def _ai_draft_idempotency():
+    return get_ai_draft_idempotency_service()
+
+
+def _ai_draft_business_key_from_items(items, extra=None):
+    """由解析后的物料明细构造幂等业务关键字段。
+
+    items 为 (material, quantity) 或 (material_id, quantity) 元组列表；
+    extra 用于附加仓库、订单等非明细业务字段。
+    """
+    normalized = []
+    for entry in items or []:
+        if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+            material = entry[0]
+            quantity = entry[1]
+            material_id = getattr(material, 'id', None) or material
+            try:
+                qty = round(float(quantity or 0), 6)
+            except (TypeError, ValueError):
+                qty = 0
+            normalized.append((int(material_id or 0), qty))
+    normalized.sort(key=lambda row: (row[0], row[1]))
+    business = {'items': normalized}
+    if extra:
+        for key in sorted(extra):
+            business[key] = extra[key]
+    return business
 _ai_fail_idempotent_request = _ai_idempotency.fail_request
 
 
@@ -8628,44 +8710,71 @@ def _ai_parse_material_lines(message):
     return parsed
 
 
-def _ai_create_out_order_draft(message, manual_confirmation=False):
+def _ai_create_out_order_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
     allowed, error = _ai_draft_execution_allowed('out_order_draft', manual_confirmation)
     if not allowed:
         return None, error
     items = _ai_parse_material_lines(message)
     if not items:
         return None, '没有识别到物料和数量。可以这样说：生成领料单 A001 20 B002 5'
-    order = OutOrder(
-        order_no=generate_order_no('OU'),
-        date=date.today(),
-        business_type='领料单',
-        purpose='AI助手生成草稿',
-        remark=(message or '')[:200],
-        status='pending',
-        operator_id=current_user.id,
+    business_key = _ai_draft_business_key_from_items(items, extra={'message': (message or '')[:200]})
+    slot = _ai_draft_idempotency().acquire(
+        capability='out_order_draft',
+        source=source,
+        business_fields=business_key,
+        draft_type='out_order',
+        request_snapshot={'message': (message or '')[:500]},
+        confirmation_token=confirmation_token,
+        document_job_id=document_job_id,
     )
-    db.session.add(order)
-    db.session.flush()
-    for material, quantity in items:
-        price = round_to_2_decimals(material.price or 0)
-        db.session.add(OutOrderItem(
-            out_order_id=order.id,
-            material_id=material.id,
-            quantity=quantity,
-            price=price,
-            amount=round_to_2_decimals(quantity * price),
-        ))
-    recalculate_order_total(order)
-    db.session.commit()
-    log_operation('AI生成领料单草稿', f'领料单：{order.order_no}', 'out_order', order.id)
-    return {
-        'order_no': order.order_no,
-        'url': url_for('out_order_detail', id=order.id),
-        'items': [{'code': material.code, 'name': material.name, 'quantity': quantity} for material, quantity in items],
-    }, None
+    if slot.is_replay and slot.replay:
+        return slot.replay, None
+    if not slot.acquired:
+        return None, slot.conflict_reason
+    try:
+        order = OutOrder(
+            order_no=generate_order_no('OU'),
+            date=date.today(),
+            business_type='领料单',
+            purpose='AI助手生成草稿',
+            remark=(message or '')[:200],
+            status='pending',
+            operator_id=current_user.id,
+        )
+        db.session.add(order)
+        db.session.flush()
+        for material, quantity in items:
+            price = round_to_2_decimals(material.price or 0)
+            db.session.add(OutOrderItem(
+                out_order_id=order.id,
+                material_id=material.id,
+                quantity=quantity,
+                price=price,
+                amount=round_to_2_decimals(quantity * price),
+            ))
+        recalculate_order_total(order)
+        db.session.commit()
+        log_operation('AI生成领料单草稿', f'领料单：{order.order_no}', 'out_order', order.id)
+        response = {
+            'order_no': order.order_no,
+            'url': url_for('out_order_detail', id=order.id),
+            'items': [{'code': material.code, 'name': material.name, 'quantity': quantity} for material, quantity in items],
+        }
+        _ai_draft_idempotency().complete(
+            slot.record,
+            draft_type='out_order',
+            draft_id=order.id,
+            draft_no=order.order_no,
+            response=response,
+        )
+        return response, None
+    except Exception as exc:
+        db.session.rollback()
+        _ai_draft_idempotency().fail(slot.record, str(exc))
+        raise
 
 
-def _ai_create_in_order_draft(message, manual_confirmation=False):
+def _ai_create_in_order_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
     allowed, error = _ai_draft_execution_allowed('in_order_draft', manual_confirmation)
     if not allowed:
         return None, error
@@ -8674,34 +8783,61 @@ def _ai_create_in_order_draft(message, manual_confirmation=False):
     items = _ai_parse_material_lines(message)
     if not items:
         return None, '没有识别到物料和数量。可以这样说：生成产品入库单 A001 20 B002 5'
-    order = InOrder(
-        order_no=generate_order_no('PI'),
-        date=date.today(),
-        business_type='产品入库',
-        purpose='AI助手生成草稿',
-        remark=(message or '')[:200],
-        status='pending',
-        operator_id=current_user.id,
+    business_key = _ai_draft_business_key_from_items(items, extra={'message': (message or '')[:200]})
+    slot = _ai_draft_idempotency().acquire(
+        capability='in_order_draft',
+        source=source,
+        business_fields=business_key,
+        draft_type='in_order',
+        request_snapshot={'message': (message or '')[:500]},
+        confirmation_token=confirmation_token,
+        document_job_id=document_job_id,
     )
-    db.session.add(order)
-    db.session.flush()
-    for material, quantity in items:
-        price = round_to_2_decimals(material.price or 0)
-        db.session.add(InOrderItem(
-            in_order_id=order.id,
-            material_id=material.id,
-            quantity=quantity,
-            price=price,
-            amount=round_to_2_decimals(quantity * price),
-        ))
-    recalculate_order_total(order)
-    db.session.commit()
-    log_operation('AI生成入库单草稿', f'入库单：{order.order_no}', 'in_order', order.id)
-    return {
-        'order_no': order.order_no,
-        'url': url_for('in_order_detail', id=order.id),
-        'items': [{'code': material.code, 'name': material.name, 'quantity': quantity} for material, quantity in items],
-    }, None
+    if slot.is_replay and slot.replay:
+        return slot.replay, None
+    if not slot.acquired:
+        return None, slot.conflict_reason
+    try:
+        order = InOrder(
+            order_no=generate_order_no('PI'),
+            date=date.today(),
+            business_type='产品入库',
+            purpose='AI助手生成草稿',
+            remark=(message or '')[:200],
+            status='pending',
+            operator_id=current_user.id,
+        )
+        db.session.add(order)
+        db.session.flush()
+        for material, quantity in items:
+            price = round_to_2_decimals(material.price or 0)
+            db.session.add(InOrderItem(
+                in_order_id=order.id,
+                material_id=material.id,
+                quantity=quantity,
+                price=price,
+                amount=round_to_2_decimals(quantity * price),
+            ))
+        recalculate_order_total(order)
+        db.session.commit()
+        log_operation('AI生成入库单草稿', f'入库单：{order.order_no}', 'in_order', order.id)
+        response = {
+            'order_no': order.order_no,
+            'url': url_for('in_order_detail', id=order.id),
+            'items': [{'code': material.code, 'name': material.name, 'quantity': quantity} for material, quantity in items],
+        }
+        _ai_draft_idempotency().complete(
+            slot.record,
+            draft_type='in_order',
+            draft_id=order.id,
+            draft_no=order.order_no,
+            response=response,
+        )
+        return response, None
+    except Exception as exc:
+        db.session.rollback()
+        _ai_draft_idempotency().fail(slot.record, str(exc))
+        raise
 
 
 def _ai_extract_transfer_locations(message):
@@ -8732,7 +8868,7 @@ def _ai_extract_transfer_locations(message):
     return None, None
 
 
-def _ai_create_transfer_draft(message, manual_confirmation=False):
+def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
     """AI 助手生成库存调拨单草稿。
     示例：从A仓库转到B仓库 M001 100 M002 20
     """
@@ -8747,6 +8883,24 @@ def _ai_create_transfer_draft(message, manual_confirmation=False):
     items = _ai_parse_material_lines(message)
     if not items:
         return None, '没有识别到物料和数量。可以这样说：从A仓库转到B仓库 M001 100 M002 20'
+
+    business_key = _ai_draft_business_key_from_items(
+        items,
+        extra={'from': from_loc, 'to': to_loc, 'message': (message or '')[:200]},
+    )
+    slot = _ai_draft_idempotency().acquire(
+        capability='transfer_draft',
+        source=source,
+        business_fields=business_key,
+        draft_type='transfer',
+        request_snapshot={'message': (message or '')[:500]},
+        confirmation_token=confirmation_token,
+        document_job_id=document_job_id,
+    )
+    if slot.is_replay and slot.replay:
+        return slot.replay, None
+    if not slot.acquired:
+        return None, slot.conflict_reason
 
     order = TransferOrder(
         transfer_no=generate_order_no('TF'),
@@ -8774,18 +8928,27 @@ def _ai_create_transfer_draft(message, manual_confirmation=False):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'AI生成调拨单草稿失败: {e}')
+        _ai_draft_idempotency().fail(slot.record, f'创建调拨单草稿失败: {e}')
         return None, '创建调拨单草稿失败，请稍后重试'
     log_operation('AI生成调拨单草稿', f'调拨单：{order.transfer_no}', 'transfer', order.id)
-    return {
+    response = {
         'order_no': order.transfer_no,
         'url': url_for('transfer_detail', id=order.id),
         'items': [{'code': m.code, 'name': m.name, 'quantity': q} for m, q in items],
         'from_location': from_loc,
         'to_location': to_loc,
-    }, None
+    }
+    _ai_draft_idempotency().complete(
+        slot.record,
+        draft_type='transfer',
+        draft_id=order.id,
+        draft_no=order.transfer_no,
+        response=response,
+    )
+    return response, None
 
 
-def _ai_create_check_draft(message, manual_confirmation=False):
+def _ai_create_check_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
     """AI 助手生成盘点单草稿。
     示例：盘点 M001 M002 M003  /  生成盘点单 A001 A002
     物料行的 system_stock 自动填入当前库存，actual_stock 等待用户盘点录入。
@@ -8802,6 +8965,21 @@ def _ai_create_check_draft(message, manual_confirmation=False):
         items = [(m, normalize_stock_quantity(m.stock or 0)) for m in candidates]
     if not items:
         return None, '没有识别到要盘点的物料。可以这样说：盘点 M001 M002 M003'
+
+    business_key = _ai_draft_business_key_from_items(items, extra={'message': (message or '')[:200]})
+    slot = _ai_draft_idempotency().acquire(
+        capability='check_draft',
+        source=source,
+        business_fields=business_key,
+        draft_type='check',
+        request_snapshot={'message': (message or '')[:500]},
+        confirmation_token=confirmation_token,
+        document_job_id=document_job_id,
+    )
+    if slot.is_replay and slot.replay:
+        return slot.replay, None
+    if not slot.acquired:
+        return None, slot.conflict_reason
 
     order = InventoryCheck(
         check_no=generate_order_no('CK'),
@@ -8826,16 +9004,25 @@ def _ai_create_check_draft(message, manual_confirmation=False):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'AI生成盘点单草稿失败: {e}')
+        _ai_draft_idempotency().fail(slot.record, f'创建盘点单草稿失败: {e}')
         return None, '创建盘点单草稿失败，请稍后重试'
     log_operation('AI生成盘点单草稿', f'盘点单：{order.check_no}', 'check', order.id)
-    return {
+    response = {
         'order_no': order.check_no,
         'url': url_for('check_detail', id=order.id),
         'items': [{'code': m.code, 'name': m.name, 'system_stock': normalize_stock_quantity(m.stock or 0)} for m, _ in items],
-    }, None
+    }
+    _ai_draft_idempotency().complete(
+        slot.record,
+        draft_type='check',
+        draft_id=order.id,
+        draft_no=order.check_no,
+        response=response,
+    )
+    return response, None
 
 
-def _ai_create_adjustment_draft(message, manual_confirmation=False):
+def _ai_create_adjustment_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
     """AI 助手生成库存调整单草稿。
     示例：报废 M001 5  /  盘亏 A002 3  /  盘盈 B001 10
     调整类型识别：
@@ -8864,6 +9051,24 @@ def _ai_create_adjustment_draft(message, manual_confirmation=False):
     if not items:
         return None, '没有识别到物料和数量。可以这样说：报废 M001 5  /  盘盈 A002 10'
 
+    business_key = _ai_draft_business_key_from_items(
+        items,
+        extra={'adjustment_type': adjustment_type, 'message': (message or '')[:200]},
+    )
+    slot = _ai_draft_idempotency().acquire(
+        capability='adjustment_draft',
+        source=source,
+        business_fields=business_key,
+        draft_type='adjustment',
+        request_snapshot={'message': (message or '')[:500], 'adjustment_type': adjustment_type},
+        confirmation_token=confirmation_token,
+        document_job_id=document_job_id,
+    )
+    if slot.is_replay and slot.replay:
+        return slot.replay, None
+    if not slot.acquired:
+        return None, slot.conflict_reason
+
     order = AdjustmentOrder(
         adjustment_no=generate_order_no('ADJ'),
         date=date.today(),
@@ -8891,14 +9096,23 @@ def _ai_create_adjustment_draft(message, manual_confirmation=False):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'AI生成调整单草稿失败: {e}')
+        _ai_draft_idempotency().fail(slot.record, f'创建调整单草稿失败: {e}')
         return None, '创建调整单草稿失败，请稍后重试'
     log_operation('AI生成调整单草稿', f'调整单：{order.adjustment_no}（{type_label}）', 'adjustment', order.id)
-    return {
+    response = {
         'order_no': order.adjustment_no,
         'url': url_for('adjustment_detail', id=order.id),
         'items': [{'code': m.code, 'name': m.name, 'quantity': q} for m, q in items],
         'adjustment_type': type_label,
-    }, None
+    }
+    _ai_draft_idempotency().complete(
+        slot.record,
+        draft_type='adjustment',
+        draft_id=order.id,
+        draft_no=order.adjustment_no,
+        response=response,
+    )
+    return response, None
 
 
 AI_ASSISTANT_INTENTS = {
@@ -11423,7 +11637,7 @@ def _ai_document_job_confirmation_payload(job):
     }
 
 
-def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustment_type='', customer='', source_purchase_order_id=None):
+def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustment_type='', customer='', source_purchase_order_id=None, confirmation_token=None, document_job_id=None):
     doc_type = (doc_type or '').strip()
     if doc_type == 'sales_out':
         doc_type = 'sales_out_order'
@@ -11445,73 +11659,120 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
 
     draft_message = _ai_draft_message_from_matches(matched)
     if doc_type == 'purchase_request':
-        request_order = PurchaseRequest(
-            request_no=generate_order_no('PR'),
-            date=date.today(),
-            applicant=current_user.username if current_user.is_authenticated else '',
-            department='采购',
-            urgency='urgent' if len(matched) >= 5 else 'normal',
-            expected_date=date.today() + timedelta(days=7),
-            reason='AI 建议经人工确认后生成采购申请草稿',
-            remark=(source_text or 'AI 仅生成草稿，供应商、数量和价格需采购人员复核。')[:500],
-            status='pending',
-            operator_id=current_user.id if current_user.is_authenticated else None,
-            total_amount=0,
+        business_items = sorted(
+            ((int(row['material'].id), round(float(row['quantity'] or 0), 6)) for row in matched),
+            key=lambda entry: (entry[0], entry[1]),
         )
-        db.session.add(request_order)
-        db.session.flush()
-        total_amount = 0
-        for row in matched:
-            material = row['material']
-            quantity = row['quantity']
-            estimated_price = round_to_2_decimals(material.price or 0)
-            estimated_amount = round_to_2_decimals(quantity * estimated_price)
-            total_amount += estimated_amount
-            db.session.add(PurchaseRequestItem(
-                purchase_request_id=request_order.id,
-                material_id=material.id,
-                material_name=material.name,
-                material_code=material.code,
-                spec=material.spec or '',
-                quantity=quantity,
-                unit_id=material.unit_id,
-                estimated_price=estimated_price,
-                estimated_amount=estimated_amount,
-                supplier_id=material.supplier_id,
-                supplier_name=material.supplier.name if material.supplier else None,
-                remark='AI 补货建议，已由当前登录人员在确认页确认。',
-            ))
-        request_order.total_amount = round_to_2_decimals(total_amount)
-        db.session.commit()
-        log_operation(
-            'AI人工确认生成采购申请草稿',
-            f'采购申请单：{request_order.request_no}',
-            'purchase_request',
-            request_order.id,
+        business_key = {
+            'items': business_items,
+            'confirmation_token': confirmation_token or '',
+        }
+        slot = _ai_draft_idempotency().acquire(
+            capability='purchase_request_draft',
+            source='confirmation',
+            business_fields=business_key,
+            draft_type='purchase_request',
+            request_snapshot={'source_text': (source_text or '')[:200], 'rows': len(matched)},
+            confirmation_token=confirmation_token,
+            document_job_id=document_job_id,
         )
-        return {
-            'order_no': request_order.request_no,
-            'url': url_for('purchase_request_detail', id=request_order.id),
-            'items': [
-                {'code': row['material'].code, 'name': row['material'].name, 'quantity': row['quantity']}
-                for row in matched
-            ],
-        }, None
+        if slot.is_replay and slot.replay:
+            return slot.replay, None
+        if not slot.acquired:
+            return None, slot.conflict_reason
+        try:
+            request_order = PurchaseRequest(
+                request_no=generate_order_no('PR'),
+                date=date.today(),
+                applicant=current_user.username if current_user.is_authenticated else '',
+                department='采购',
+                urgency='urgent' if len(matched) >= 5 else 'normal',
+                expected_date=date.today() + timedelta(days=7),
+                reason='AI 建议经人工确认后生成采购申请草稿',
+                remark=(source_text or 'AI 仅生成草稿，供应商、数量和价格需采购人员复核。')[:500],
+                status='pending',
+                operator_id=current_user.id if current_user.is_authenticated else None,
+                total_amount=0,
+            )
+            db.session.add(request_order)
+            db.session.flush()
+            total_amount = 0
+            for row in matched:
+                material = row['material']
+                quantity = row['quantity']
+                estimated_price = round_to_2_decimals(material.price or 0)
+                estimated_amount = round_to_2_decimals(quantity * estimated_price)
+                total_amount += estimated_amount
+                db.session.add(PurchaseRequestItem(
+                    purchase_request_id=request_order.id,
+                    material_id=material.id,
+                    material_name=material.name,
+                    material_code=material.code,
+                    spec=material.spec or '',
+                    quantity=quantity,
+                    unit_id=material.unit_id,
+                    estimated_price=estimated_price,
+                    estimated_amount=estimated_amount,
+                    supplier_id=material.supplier_id,
+                    supplier_name=material.supplier.name if material.supplier else None,
+                    remark='AI 补货建议，已由当前登录人员在确认页确认。',
+                ))
+            request_order.total_amount = round_to_2_decimals(total_amount)
+            db.session.commit()
+            log_operation(
+                'AI人工确认生成采购申请草稿',
+                f'采购申请单：{request_order.request_no}',
+                'purchase_request',
+                request_order.id,
+            )
+            response = {
+                'order_no': request_order.request_no,
+                'url': url_for('purchase_request_detail', id=request_order.id),
+                'items': [
+                    {'code': row['material'].code, 'name': row['material'].name, 'quantity': row['quantity']}
+                    for row in matched
+                ],
+            }
+            _ai_draft_idempotency().complete(
+                slot.record,
+                draft_type='purchase_request',
+                draft_id=request_order.id,
+                draft_no=request_order.request_no,
+                response=response,
+            )
+            return response, None
+        except Exception as exc:
+            db.session.rollback()
+            _ai_draft_idempotency().fail(slot.record, str(exc))
+            raise
     if doc_type == 'in_order':
         if source_purchase_order_id:
             context_po_result = _ai_try_create_in_order_from_context_purchase_order(
                 matched,
                 {'page_url': f'/purchase_order/{source_purchase_order_id}'},
                 source_text or 'AI识别结果确认',
+                confirmation_token=confirmation_token,
+                document_job_id=document_job_id,
             )
             if context_po_result:
                 return context_po_result
-        po_result = _ai_try_create_in_order_from_purchase_order_matches(matched, source_text or 'AI识别结果确认')
+        po_result = _ai_try_create_in_order_from_purchase_order_matches(
+            matched,
+            source_text or 'AI识别结果确认',
+            confirmation_token=confirmation_token,
+            document_job_id=document_job_id,
+        )
         if po_result:
             return po_result
         if purchase_in_order_requires_order():
             return None, '采购入库要求关联采购订单。没有找到可下推的采购订单，请先维护或选择采购订单后再入库。'
-        draft, error = _ai_create_in_order_draft(draft_message, manual_confirmation=True)
+        draft, error = _ai_create_in_order_draft(
+            draft_message,
+            manual_confirmation=True,
+            confirmation_token=confirmation_token,
+            document_job_id=document_job_id,
+            source='confirmation',
+        )
         if draft:
             order = InOrder.query.filter_by(order_no=draft.get('order_no')).first()
             if order:
@@ -11519,7 +11780,13 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
                 order.remark = (source_text or order.remark or '')[:200]
                 db.session.commit()
     elif doc_type in ('out_order', 'sales_out_order'):
-        draft, error = _ai_create_out_order_draft(draft_message, manual_confirmation=True)
+        draft, error = _ai_create_out_order_draft(
+            draft_message,
+            manual_confirmation=True,
+            confirmation_token=confirmation_token,
+            document_job_id=document_job_id,
+            source='confirmation',
+        )
         if draft:
             order = OutOrder.query.filter_by(order_no=draft.get('order_no')).first()
             if order:
@@ -11533,12 +11800,27 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
         draft, error = _ai_create_transfer_draft(
             (source_text or '') + ' ' + draft_message,
             manual_confirmation=True,
+            confirmation_token=confirmation_token,
+            document_job_id=document_job_id,
+            source='confirmation',
         )
     elif doc_type == 'adjustment':
         prefix = '盘盈 ' if str(adjustment_type or '').lower() == 'surplus' else '报废 '
-        draft, error = _ai_create_adjustment_draft(prefix + draft_message, manual_confirmation=True)
+        draft, error = _ai_create_adjustment_draft(
+            prefix + draft_message,
+            manual_confirmation=True,
+            confirmation_token=confirmation_token,
+            document_job_id=document_job_id,
+            source='confirmation',
+        )
     else:
-        draft, error = _ai_create_check_draft(draft_message, manual_confirmation=True)
+        draft, error = _ai_create_check_draft(
+            draft_message,
+            manual_confirmation=True,
+            confirmation_token=confirmation_token,
+            document_job_id=document_job_id,
+            source='confirmation',
+        )
     if error:
         return None, error
     return draft, None
@@ -11595,7 +11877,7 @@ def _ai_find_purchase_order_candidates_for_matches(matched, limit=5):
     return candidates[:limit]
 
 
-def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text=''):
+def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='', confirmation_token=None, document_job_id=None):
     if current_user.role not in ('admin', 'warehouse', 'purchase'):
         return None
     candidates = _ai_find_purchase_order_candidates_for_matches(matched, limit=2)
@@ -11603,14 +11885,37 @@ def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='')
         return None
     candidate = candidates[0]
     order = candidate['order']
+    business_items = sorted(
+        ((int(k), round(float(v or 0), 6)) for k, v in candidate['submitted_qty_by_id'].items()),
+        key=lambda row: (row[0], row[1]),
+    )
+    business_key = {
+        'po_id': int(order.id),
+        'po_items': business_items,
+        'confirmation_token': confirmation_token or '',
+    }
+    slot = _ai_draft_idempotency().acquire(
+        capability='purchase_receive_draft',
+        source='purchase_order_match',
+        business_fields=business_key,
+        draft_type='in_order',
+        request_snapshot={'po_id': int(order.id), 'source_text': (source_text or '')[:200]},
+        confirmation_token=confirmation_token,
+        document_job_id=document_job_id,
+    )
+    if slot.is_replay and slot.replay:
+        return slot.replay, None
+    if not slot.acquired:
+        return None, slot.conflict_reason
     in_order, error = _create_in_order_from_purchase_order_core(
         order,
         remark=(source_text or f'AI识别送货单并匹配采购订单 {order.order_no}')[:200],
         submitted_qty_by_id=candidate['submitted_qty_by_id'],
     )
     if error:
+        _ai_draft_idempotency().fail(slot.record, error)
         return None, error
-    return {
+    response = {
         'order_no': in_order.order_no,
         'url': url_for('in_order_detail', id=in_order.id),
         'items': [
@@ -11622,10 +11927,18 @@ def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='')
             for item in in_order.items
         ],
         'source_purchase_order_no': order.order_no,
-    }, None
+    }
+    _ai_draft_idempotency().complete(
+        slot.record,
+        draft_type='in_order',
+        draft_id=in_order.id,
+        draft_no=in_order.order_no,
+        response=response,
+    )
+    return response, None
 
 
-def _ai_try_create_in_order_from_context_purchase_order(matched, context=None, source_text=''):
+def _ai_try_create_in_order_from_context_purchase_order(matched, context=None, source_text='', confirmation_token=None, document_job_id=None):
     page_url = (context or {}).get('page_url') or ''
     po_match = re.search(r'/purchase_order/(\d+)(?:\D|$)', page_url)
     if not po_match or current_user.role not in ('admin', 'warehouse', 'purchase'):
@@ -11665,14 +11978,37 @@ def _ai_try_create_in_order_from_context_purchase_order(matched, context=None, s
             return None, f'送货单物料 {code} 数量 {need_qty} 超过采购订单未入库数量 {normalize_stock_quantity(remain_qty)}'
         submitted[item.id] = need_qty
 
+    business_items = sorted(
+        ((int(k), round(float(v or 0), 6)) for k, v in submitted.items()),
+        key=lambda row: (row[0], row[1]),
+    )
+    business_key = {
+        'po_id': int(order.id),
+        'po_items': business_items,
+        'confirmation_token': confirmation_token or '',
+    }
+    slot = _ai_draft_idempotency().acquire(
+        capability='purchase_receive_draft',
+        source='context_purchase_order',
+        business_fields=business_key,
+        draft_type='in_order',
+        request_snapshot={'po_id': int(order.id), 'source_text': (source_text or '')[:200]},
+        confirmation_token=confirmation_token,
+        document_job_id=document_job_id,
+    )
+    if slot.is_replay and slot.replay:
+        return slot.replay, None
+    if not slot.acquired:
+        return None, slot.conflict_reason
     in_order, error = _create_in_order_from_purchase_order_core(
         order,
         remark=(source_text or f'AI识别送货单并按当前采购订单 {order.order_no} 下推')[:200],
         submitted_qty_by_id=submitted,
     )
     if error:
+        _ai_draft_idempotency().fail(slot.record, error)
         return None, error
-    return {
+    response = {
         'order_no': in_order.order_no,
         'url': url_for('in_order_detail', id=in_order.id),
         'items': [
@@ -11684,7 +12020,15 @@ def _ai_try_create_in_order_from_context_purchase_order(matched, context=None, s
             for item in in_order.items
         ],
         'source_purchase_order_no': order.order_no,
-    }, None
+    }
+    _ai_draft_idempotency().complete(
+        slot.record,
+        draft_type='in_order',
+        draft_id=in_order.id,
+        draft_no=in_order.order_no,
+        response=response,
+    )
+    return response, None
 
 
 def _ai_create_draft_from_extracted(extracted, source='text', context=None):
@@ -15929,6 +16273,8 @@ def ai_document_confirm(token):
             adjustment_type=payload.get('adjustment_type') or '',
             customer=(request.form.get('customer') or payload.get('customer') or '').strip(),
             source_purchase_order_id=payload.get('source_purchase_order_id'),
+            confirmation_token=token,
+            document_job_id=payload.get('document_job_id'),
         )
         if error:
             db.session.rollback()
