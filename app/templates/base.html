@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -1993,6 +1993,20 @@
                 </div>
             </li>
             <li class="nav-item module-menu">
+                <button type="button" class="nav-link module-toggle" onclick="toggleModuleMenu(this)" aria-expanded="false">
+                    <span class="module-title"><i class="bi bi-receipt-cutoff"></i> 销售管理</span>
+                    <i class="bi bi-chevron-right module-arrow"></i>
+                </button>
+                <div class="module-flyout">
+                    <div class="flyout-title">销售管理</div>
+                    <a class="flyout-link" href="/sales/add"><i class="bi bi-plus-square"></i> 新建销售订单</a>
+                    <a class="flyout-link" href="/sales"><i class="bi bi-card-list"></i> 销售订单列表</a>
+                    <a class="flyout-link" href="/out_order/add?type=sale"><i class="bi bi-box-arrow-up"></i> 直接销售出库</a>
+                    <div class="flyout-divider"></div>
+                    <a class="flyout-link" href="/customer"><i class="bi bi-person-vcard"></i> 客户管理</a>
+                    <a class="flyout-link" href="/sales/report"><i class="bi bi-bar-chart-line"></i> 销售报表</a>
+                </div>
+            </li>            <li class="nav-item module-menu">
                 <button type="button" class="nav-link module-toggle" onclick="toggleModuleMenu(this)" aria-expanded="false">
                     <span class="module-title"><i class="bi bi-box-seam"></i> 库存管理</span>
                     <i class="bi bi-chevron-right module-arrow"></i>

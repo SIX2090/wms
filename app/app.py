@@ -3174,6 +3174,50 @@ class PurchaseOrderItem(db.Model):
     material = db.relationship('Material', backref='purchase_order_items')
 
 
+class SalesOrder(db.Model):
+    """Sales order header; shipment completion remains a warehouse action."""
+    __tablename__ = 'sales_order'
+    __table_args__ = (
+        db.Index('idx_sales_order_no', 'order_no'),
+        db.Index('idx_sales_order_date', 'date'),
+        db.Index('idx_sales_order_status', 'status'),
+        db.Index('idx_sales_order_customer', 'customer_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    order_no = db.Column(db.String(50), unique=True, nullable=False)
+    date = db.Column(db.Date, default=date.today)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
+    warehouse = db.Column(db.String(100))
+    delivery_date = db.Column(db.Date)
+    status = db.Column(db.String(20), default='draft')
+    remark = db.Column(db.String(500))
+    operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    total_amount = db.Column(db.Float, default=0)
+    shipment_order_no = db.Column(db.String(50))
+    shipment_status = db.Column(db.String(20), default='pending')  # pending/partial/shipped
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    customer = db.relationship('Customer', backref='sales_orders')
+    operator = db.relationship('User', backref='sales_orders')
+
+
+class SalesOrderItem(db.Model):
+    """Sales order detail row."""
+    __tablename__ = 'sales_order_item'
+
+    id = db.Column(db.Integer, primary_key=True)
+    sales_order_id = db.Column(db.Integer, db.ForeignKey('sales_order.id'), nullable=False)
+    material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)
+    quantity = db.Column(db.Float, nullable=False)
+    shipped_quantity = db.Column(db.Float, default=0)
+    price = db.Column(db.Float, default=0)
+    amount = db.Column(db.Float, default=0)
+    remark = db.Column(db.String(200))
+
+    sales_order = db.relationship('SalesOrder', backref='items')
+    material = db.relationship('Material', backref='sales_order_items')
+
 def purchase_request_item_has_material(item):
     return bool(
         getattr(item, 'material_id', None) or
@@ -27064,6 +27108,7 @@ def complete_out_order(id):
                     db.session.rollback()
                     return jsonify({'status': 'error', 'msg': err2 or '库位库存扣减失败'})
         order.status = 'completed'
+        sync_sales_order_shipment(order, quantity_sign=1)
         recalculate_order_total(order)
         db.session.commit()
         log_operation('完成领料单', f'领料单：{order.order_no}', 'out_order', id)
@@ -27098,6 +27143,7 @@ def revert_out_order(id):
                     db.session.rollback()
                     return jsonify({'status': 'error', 'msg': loc_err or '库位库存还原失败'})
         order.status = 'pending'
+        sync_sales_order_shipment(order, quantity_sign=-1)
         recalculate_order_total(order)
         db.session.commit()
         log_operation('反提交领料单', f'领料单：{order.order_no}', 'out_order', id)
@@ -27211,6 +27257,7 @@ def batch_complete_out_order():
                     if not loc_ok:
                         raise ValueError(loc_err or '库位库存扣减失败')
             order.status = 'completed'
+            sync_sales_order_shipment(order, quantity_sign=1)
             recalculate_order_total(order)
             db.session.commit()
             completed += 1
@@ -34753,6 +34800,220 @@ def print_single_transfer(id):
     ).get_or_404(id)
     return render_template('transfer_print.html', transfer=transfer)
 
+
+# ==================== Sales management ====================
+def generate_sales_order_no():
+    prefix = 'SO'
+    month = datetime.now().strftime('%y%m')
+    last = SalesOrder.query.filter(SalesOrder.order_no.like(f'{prefix}{month}%')).order_by(SalesOrder.id.desc()).first()
+    sequence = 1
+    if last:
+        try:
+            sequence = int(last.order_no[-4:]) + 1
+        except (TypeError, ValueError):
+            sequence = SalesOrder.query.filter(SalesOrder.order_no.like(f'{prefix}{month}%')).count() + 1
+    return f'{prefix}{month}{sequence:04d}'
+
+
+def sales_status_label(status):
+    return {
+        'draft': '草稿',
+        'confirmed': '已确认',
+        'closed': '已完成',
+        'cancelled': '已取消',
+    }.get(status, status or '-')
+
+
+def sales_shipment_status_label(status):
+    return {'pending': '待发货', 'partial': '部分发货', 'shipped': '已发货'}.get(status, status or '-')
+
+
+def recalculate_sales_order(order):
+    total = 0
+    shipped_total = 0
+    for item in order.items:
+        item.amount = round_to_2_decimals((item.quantity or 0) * (item.price or 0))
+        item.shipped_quantity = min(max(item.shipped_quantity or 0, 0), item.quantity or 0)
+        total += item.amount or 0
+        shipped_total += item.shipped_quantity or 0
+    order.total_amount = round_to_2_decimals(total)
+    total_quantity = sum(item.quantity or 0 for item in order.items)
+    if total_quantity <= 0 or shipped_total <= 0:
+        order.shipment_status = 'pending'
+        if order.status not in ('draft', 'cancelled'):
+            order.status = 'confirmed'
+    elif shipped_total + STOCK_COMPARE_EPSILON >= total_quantity:
+        order.shipment_status = 'shipped'
+        order.status = 'closed'
+    else:
+        order.shipment_status = 'partial'
+        order.status = 'confirmed'
+
+
+def sync_sales_order_shipment(outbound, quantity_sign=1):
+    source_match = re.search(r'来源销售订单\s+([^\s]+)', outbound.purpose or '')
+    if not source_match:
+        return None
+    order = SalesOrder.query.filter_by(order_no=source_match.group(1)).first()
+    if not order:
+        return None
+    item_by_material = {item.material_id: item for item in order.items}
+    for outbound_item in outbound.items:
+        sales_item = item_by_material.get(outbound_item.material_id)
+        if not sales_item:
+            continue
+        sales_item.shipped_quantity = max(0, (sales_item.shipped_quantity or 0) + quantity_sign * (outbound_item.quantity or 0))
+    recalculate_sales_order(order)
+    return order
+
+@app.route('/sales')
+@login_required
+def sales_order_list():
+    search = (request.args.get('search') or '').strip()
+    status = (request.args.get('status') or '').strip()
+    customer_id = request.args.get('customer_id', type=int)
+    date_start = request.args.get('date_start') or ''
+    date_end = request.args.get('date_end') or ''
+    query = SalesOrder.query.join(Customer)
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(SalesOrder.order_no.like(like), Customer.name.like(like), Customer.code.like(like)))
+    if status:
+        query = query.filter(SalesOrder.status == status)
+    if customer_id:
+        query = query.filter(SalesOrder.customer_id == customer_id)
+    if date_start:
+        try:
+            query = query.filter(SalesOrder.date >= datetime.strptime(date_start, '%Y-%m-%d').date())
+        except ValueError:
+            date_start = ''
+    if date_end:
+        try:
+            query = query.filter(SalesOrder.date <= datetime.strptime(date_end, '%Y-%m-%d').date())
+        except ValueError:
+            date_end = ''
+    pagination = query.order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).paginate(page=request.args.get('page', 1, type=int), per_page=20, error_out=False)
+    return render_template('sales_order.html', orders=pagination.items, pagination=pagination, customers=Customer.query.order_by(Customer.code.asc()).all(), filters={'search': search, 'status': status, 'customer_id': customer_id, 'date_start': date_start, 'date_end': date_end}, status_label=sales_status_label, shipment_status_label=sales_shipment_status_label)
+
+
+@app.route('/sales/add')
+@login_required
+def sales_order_add_page():
+    return render_template('sales_order_add.html', order_no=generate_sales_order_no(), order_date=date.today().isoformat(), customers=Customer.query.order_by(Customer.code.asc()).all(), warehouses=get_active_warehouses(), materials=[serialize_material(material) for material in Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()])
+
+
+@app.route('/sales/add', methods=['POST'])
+@require_role('warehouse', 'purchase')
+@login_required
+def sales_order_add():
+    payload = request.get_json(silent=True) or request.form
+    try:
+        customer_id = int(payload.get('customer_id') or 0)
+        customer = db.session.get(Customer, customer_id)
+        if not customer:
+            return jsonify({'status': 'error', 'msg': '请选择客户'}), 400
+        items = payload.get('items', [])
+        if isinstance(items, str):
+            items = json.loads(items or '[]')
+        if not items:
+            return jsonify({'status': 'error', 'msg': '请至少添加一条销售明细'}), 400
+        order = SalesOrder(order_no=(payload.get('order_no') or '').strip() or generate_sales_order_no(), customer_id=customer.id, operator_id=current_user.id, date=datetime.strptime(payload.get('date') or date.today().isoformat(), '%Y-%m-%d').date(), delivery_date=datetime.strptime(payload.get('delivery_date'), '%Y-%m-%d').date() if payload.get('delivery_date') else None, warehouse=(payload.get('warehouse') or '').strip(), remark=(payload.get('remark') or '').strip(), status='draft')
+        db.session.add(order)
+        db.session.flush()
+        for data in items:
+            material = Material.query.filter_by(code=(data.get('code') or data.get('material_code') or '').strip()).first()
+            quantity = round_to_2_decimals(parse_float_value(data.get('quantity'), 0))
+            if not material or quantity <= 0:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': '物料编码不存在或数量无效'}), 400
+            price = round_to_2_decimals(parse_float_value(data.get('price'), material.price or 0))
+            db.session.add(SalesOrderItem(sales_order_id=order.id, material_id=material.id, quantity=quantity, price=price, amount=round_to_2_decimals(quantity * price), remark=(data.get('remark') or '').strip() or None))
+        recalculate_sales_order(order)
+        db.session.commit()
+        log_operation('保存销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
+        return jsonify({'status': 'success', 'id': order.id, 'order_no': order.order_no})
+    except (ValueError, TypeError, json.JSONDecodeError):
+        db.session.rollback()
+        return jsonify({'status': 'error', 'msg': '日期或明细格式不正确'}), 400
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('保存销售订单失败')
+        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'}), 500
+
+
+@app.route('/sales/<int:id>')
+@login_required
+def sales_order_detail(id):
+    order = SalesOrder.query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.items).joinedload(SalesOrderItem.material).joinedload(Material.unit)).get_or_404(id)
+    return render_template('sales_order_detail.html', order=order, status_label=sales_status_label, shipment_status_label=sales_shipment_status_label)
+
+
+@app.route('/sales/<int:id>/confirm', methods=['POST'])
+@require_role('warehouse', 'purchase')
+@login_required
+def confirm_sales_order(id):
+    order = SalesOrder.query.get_or_404(id)
+    if order.status != 'draft' or not order.items:
+        return jsonify({'status': 'error', 'msg': '只有有明细的草稿订单可以确认'}), 400
+    order.status = 'confirmed'
+    db.session.commit()
+    log_operation('确认销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
+    return jsonify({'status': 'success', 'msg': '销售订单已确认'})
+
+
+@app.route('/sales/<int:id>/create_outbound', methods=['POST'])
+@require_role('warehouse', 'purchase')
+@login_required
+def create_sales_outbound_draft(id):
+    order = SalesOrder.query.options(joinedload(SalesOrder.items).joinedload(SalesOrderItem.material)).get_or_404(id)
+    if order.status not in ('confirmed', 'closed'):
+        return jsonify({'status': 'error', 'msg': '请先确认销售订单'}), 400
+    pending_draft = OutOrder.query.filter(
+        OutOrder.purpose == f'来源销售订单 {order.order_no}',
+        OutOrder.status == 'pending',
+    ).order_by(OutOrder.id.desc()).first()
+    if pending_draft:
+        return jsonify({'status': 'success', 'id': pending_draft.id, 'order_no': pending_draft.order_no, 'msg': '已存在销售出库草稿'})
+    remaining_items = [item for item in order.items if (item.quantity or 0) - (item.shipped_quantity or 0) > STOCK_COMPARE_EPSILON]
+    if not remaining_items:
+        recalculate_sales_order(order)
+        db.session.commit()
+        return jsonify({'status': 'error', 'msg': '销售订单已全部发货'}), 400
+    outbound = OutOrder(order_no=generate_order_no('OU'), date=order.date, customer=order.customer.name, business_type='销售出库', warehouse=order.warehouse, purpose=f'来源销售订单 {order.order_no}', remark=order.remark, status='pending', operator_id=current_user.id)
+    db.session.add(outbound)
+    db.session.flush()
+    for item in remaining_items:
+        remaining_quantity = round_to_2_decimals((item.quantity or 0) - (item.shipped_quantity or 0))
+        db.session.add(OutOrderItem(out_order_id=outbound.id, material_id=item.material_id, quantity=remaining_quantity, price=item.price, amount=round_to_2_decimals(remaining_quantity * (item.price or 0)), remark=f'来源销售订单 {order.order_no}'))
+    order.shipment_order_no = outbound.order_no
+    order.shipment_status = 'pending'
+    db.session.commit()
+    log_operation('生成销售出库草稿', f'{order.order_no} -> {outbound.order_no}', 'out_order', outbound.id)
+    return jsonify({'status': 'success', 'id': outbound.id, 'order_no': outbound.order_no, 'url': url_for('out_order_detail', id=outbound.id)})
+
+
+@app.route('/sales/report')
+@login_required
+def sales_report():
+    date_start = request.args.get('date_start') or (date.today().replace(day=1).isoformat())
+    date_end = request.args.get('date_end') or date.today().isoformat()
+    start = datetime.strptime(date_start, '%Y-%m-%d').date()
+    end = datetime.strptime(date_end, '%Y-%m-%d').date()
+    orders = SalesOrder.query.filter(SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled').all()
+    by_customer = {}
+    by_material = {}
+    for order in orders:
+        customer_key = order.customer.name if order.customer else '未设置客户'
+        customer_row = by_customer.setdefault(customer_key, {'name': customer_key, 'orders': 0, 'quantity': 0, 'amount': 0})
+        customer_row['orders'] += 1
+        customer_row['amount'] += order.total_amount or 0
+        for item in order.items:
+            customer_row['quantity'] += item.quantity or 0
+            material_key = item.material.code if item.material else '-'
+            material_row = by_material.setdefault(material_key, {'code': material_key, 'name': item.material.name if item.material else '-', 'quantity': 0, 'amount': 0})
+            material_row['quantity'] += item.quantity or 0
+            material_row['amount'] += item.amount or 0
+    return render_template('sales_report.html', date_start=date_start, date_end=date_end, orders=orders, by_customer=sorted(by_customer.values(), key=lambda row: row['amount'], reverse=True), by_material=sorted(by_material.values(), key=lambda row: row['amount'], reverse=True), total_amount=round_to_2_decimals(sum(order.total_amount or 0 for order in orders)), total_orders=len(orders), status_label=sales_status_label)
 
 # ==================== Application entrypoint ====================
 
