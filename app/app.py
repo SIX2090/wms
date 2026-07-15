@@ -34888,6 +34888,95 @@ def build_sales_outbound_draft(order):
     return outbound, 'created'
 
 
+@app.route('/sales/download_template')
+@require_role('warehouse', 'purchase')
+@login_required
+def download_sales_order_template():
+    return _workbook_response(
+        'sales_order_import_template.xlsx',
+        '销售订单导入',
+        ['销售订单号', '订单日期', '客户名称', '交货日期', '发货仓库', '物料编码', '物料名称', '规格', '单位', '数量', '含税单价', '备注'],
+        [['SO240001', date.today().isoformat(), '示例客户', date.today().isoformat(), '', 'A001', '示例物料', '', '', 1, 0, '导入后为草稿']],
+    )
+
+
+@app.route('/sales/import', methods=['POST'])
+@require_role('warehouse', 'purchase')
+@login_required
+def import_sales_orders():
+    file = request.files.get('file')
+    if not file:
+        return jsonify({'status': 'error', 'msg': '请选择销售订单 Excel 文件'}), 400
+    aliases = {
+        'order_no': ['销售订单号', '订单号', '单据编号'],
+        'date': ['订单日期', '日期'],
+        'customer': ['客户名称', '客户'],
+        'delivery_date': ['交货日期', '交期'],
+        'warehouse': ['发货仓库', '仓库'],
+        'material_code': ['物料编码', '物料代码'],
+        'material_name': ['物料名称', '物料'],
+        'spec': ['规格', '规格型号'],
+        'unit': ['单位'],
+        'quantity': ['数量', '订单数量'],
+        'price': ['含税单价', '单价', '价格'],
+        'remark': ['备注'],
+    }
+    try:
+        ws, col_map, header_row = _read_import_sheet(file, aliases)
+        required = {'customer', 'material_code', 'quantity'}
+        if not required.issubset(col_map):
+            return jsonify({'status': 'error', 'msg': f'Excel 缺少必填列：客户名称、物料编码、数量；当前表头：{", ".join(header_row)}'}), 400
+        orders_by_no = {}
+        order_count = 0
+        item_count = 0
+        skip = 0
+        skip_details = []
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            order_no = _order_no_from_row(row, col_map, 'order_no', 'SO')
+            customer_name = _get_excel_cell(row, col_map, 'customer')
+            material_code = _get_excel_cell(row, col_map, 'material_code')
+            quantity = _get_excel_number(row, col_map, 'quantity')
+            if not customer_name or not material_code or quantity <= 0:
+                skip += 1
+                skip_details.append(f'第 {row_idx} 行：客户、物料编码或数量无效')
+                continue
+            order = orders_by_no.get(order_no)
+            if not order:
+                existing = SalesOrder.query.filter_by(order_no=order_no).first()
+                if existing:
+                    skip += 1
+                    skip_details.append(f'第 {row_idx} 行：销售订单号 {order_no} 已存在')
+                    continue
+                customer = _find_or_create_customer(customer_name)
+                if not customer:
+                    skip += 1
+                    skip_details.append(f'第 {row_idx} 行：无法创建客户 {customer_name}')
+                    continue
+                order = SalesOrder(order_no=order_no, date=_parse_excel_date(_get_excel_cell(row, col_map, 'date'), date.today()), delivery_date=_parse_excel_date(_get_excel_cell(row, col_map, 'delivery_date'), None) if _get_excel_cell(row, col_map, 'delivery_date') else None, customer_id=customer.id, warehouse=_get_excel_cell(row, col_map, 'warehouse'), status='draft', shipment_status='pending', remark=_get_excel_cell(row, col_map, 'remark'), operator_id=current_user.id)
+                db.session.add(order)
+                db.session.flush()
+                orders_by_no[order_no] = order
+                order_count += 1
+            material = Material.query.filter_by(code=material_code).first() or _find_or_create_material(material_code, _get_excel_cell(row, col_map, 'material_name'), _get_excel_cell(row, col_map, 'spec'), _get_excel_cell(row, col_map, 'unit'))
+            if not material:
+                skip += 1
+                skip_details.append(f'第 {row_idx} 行：无法创建物料 {material_code}')
+                continue
+            price = _get_excel_number(row, col_map, 'price')
+            db.session.add(SalesOrderItem(sales_order_id=order.id, material_id=material.id, quantity=quantity, price=price, amount=round_to_2_decimals(quantity * price), remark=_get_excel_cell(row, col_map, 'remark')))
+            item_count += 1
+        for order in orders_by_no.values():
+            recalculate_sales_order(order)
+            order.status = 'draft'
+            order.shipment_status = 'pending'
+        db.session.commit()
+        return _import_result('销售订单', order_count, item_count, skip, skip_details, {'draft_only': True})
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('导入销售订单失败')
+        return jsonify({'status': 'error', 'msg': f'导入失败：{exc}'}), 500
+
+
 @app.route('/sales')
 @login_required
 def sales_order_list():
