@@ -34985,10 +34985,10 @@ def sales_order_list():
     customer_id = request.args.get('customer_id', type=int)
     date_start = request.args.get('date_start') or ''
     date_end = request.args.get('date_end') or ''
-    query = SalesOrder.query.join(Customer)
+    query = SalesOrder.query.join(Customer).outerjoin(SalesOrderItem, SalesOrderItem.sales_order_id == SalesOrder.id).outerjoin(Material, SalesOrderItem.material_id == Material.id).distinct()
     if search:
         like = f'%{search}%'
-        query = query.filter(db.or_(SalesOrder.order_no.like(like), Customer.name.like(like), Customer.code.like(like)))
+        query = query.filter(db.or_(SalesOrder.order_no.like(like), Customer.name.like(like), Customer.code.like(like), Material.code.like(like), Material.name.like(like)))
     if status:
         query = query.filter(SalesOrder.status == status)
     if customer_id:
