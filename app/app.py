@@ -34866,6 +34866,28 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
     recalculate_sales_order(order)
     return order
 
+def build_sales_outbound_draft(order):
+    pending_draft = OutOrder.query.filter(
+        OutOrder.purpose == f'来源销售订单 {order.order_no}',
+        OutOrder.status == 'pending',
+    ).order_by(OutOrder.id.desc()).first()
+    if pending_draft:
+        return pending_draft, 'existing'
+    remaining_items = [item for item in order.items if (item.quantity or 0) - (item.shipped_quantity or 0) > STOCK_COMPARE_EPSILON]
+    if not remaining_items:
+        recalculate_sales_order(order)
+        return None, 'completed'
+    outbound = OutOrder(order_no=generate_order_no('OU'), date=order.date, customer=order.customer.name if order.customer else '', business_type='销售出库', warehouse=order.warehouse, purpose=f'来源销售订单 {order.order_no}', remark=order.remark, status='pending', operator_id=current_user.id)
+    db.session.add(outbound)
+    db.session.flush()
+    for item in remaining_items:
+        remaining_quantity = round_to_2_decimals((item.quantity or 0) - (item.shipped_quantity or 0))
+        db.session.add(OutOrderItem(out_order_id=outbound.id, material_id=item.material_id, quantity=remaining_quantity, price=item.price, amount=round_to_2_decimals(remaining_quantity * (item.price or 0)), remark=f'来源销售订单 {order.order_no}'))
+    order.shipment_order_no = outbound.order_no
+    order.shipment_status = 'pending'
+    return outbound, 'created'
+
+
 @app.route('/sales')
 @login_required
 def sales_order_list():
@@ -34968,29 +34990,75 @@ def create_sales_outbound_draft(id):
     order = SalesOrder.query.options(joinedload(SalesOrder.items).joinedload(SalesOrderItem.material)).get_or_404(id)
     if order.status not in ('confirmed', 'closed'):
         return jsonify({'status': 'error', 'msg': '请先确认销售订单'}), 400
-    pending_draft = OutOrder.query.filter(
-        OutOrder.purpose == f'来源销售订单 {order.order_no}',
-        OutOrder.status == 'pending',
-    ).order_by(OutOrder.id.desc()).first()
-    if pending_draft:
-        return jsonify({'status': 'success', 'id': pending_draft.id, 'order_no': pending_draft.order_no, 'msg': '已存在销售出库草稿'})
-    remaining_items = [item for item in order.items if (item.quantity or 0) - (item.shipped_quantity or 0) > STOCK_COMPARE_EPSILON]
-    if not remaining_items:
-        recalculate_sales_order(order)
+    try:
+        outbound, result = build_sales_outbound_draft(order)
+        if result == 'completed':
+            db.session.commit()
+            return jsonify({'status': 'error', 'msg': '销售订单已全部发货'}), 400
         db.session.commit()
-        return jsonify({'status': 'error', 'msg': '销售订单已全部发货'}), 400
-    outbound = OutOrder(order_no=generate_order_no('OU'), date=order.date, customer=order.customer.name, business_type='销售出库', warehouse=order.warehouse, purpose=f'来源销售订单 {order.order_no}', remark=order.remark, status='pending', operator_id=current_user.id)
-    db.session.add(outbound)
-    db.session.flush()
-    for item in remaining_items:
-        remaining_quantity = round_to_2_decimals((item.quantity or 0) - (item.shipped_quantity or 0))
-        db.session.add(OutOrderItem(out_order_id=outbound.id, material_id=item.material_id, quantity=remaining_quantity, price=item.price, amount=round_to_2_decimals(remaining_quantity * (item.price or 0)), remark=f'来源销售订单 {order.order_no}'))
-    order.shipment_order_no = outbound.order_no
-    order.shipment_status = 'pending'
-    db.session.commit()
-    log_operation('生成销售出库草稿', f'{order.order_no} -> {outbound.order_no}', 'out_order', outbound.id)
-    return jsonify({'status': 'success', 'id': outbound.id, 'order_no': outbound.order_no, 'url': url_for('out_order_detail', id=outbound.id)})
+        log_operation('生成销售出库草稿', f'{order.order_no} -> {outbound.order_no}', 'out_order', outbound.id)
+        return jsonify({'status': 'success', 'id': outbound.id, 'order_no': outbound.order_no, 'url': url_for('out_order_detail', id=outbound.id), 'existing': result == 'existing'})
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('生成销售出库草稿失败')
+        return jsonify({'status': 'error', 'msg': '生成销售出库草稿失败，请稍后重试'}), 500
 
+@app.route('/sales/batch_confirm', methods=['POST'])
+@require_role('warehouse', 'purchase')
+@login_required
+def batch_confirm_sales_orders():
+    payload = request.get_json(silent=True) or {}
+    raw_ids = payload.get('ids') or request.form.getlist('ids')
+    ids = [int(value) for value in raw_ids if str(value).isdigit()]
+    if not ids:
+        return jsonify({'status': 'error', 'msg': '请先选择销售订单'}), 400
+    orders = SalesOrder.query.filter(SalesOrder.id.in_(ids)).all()
+    confirmed = 0
+    skipped = []
+    for order in orders:
+        if order.status != 'draft' or not order.items:
+            skipped.append(order.order_no)
+            continue
+        order.status = 'confirmed'
+        order.shipment_status = 'pending'
+        confirmed += 1
+    db.session.commit()
+    for order in orders:
+        if order.status == 'confirmed' and order.order_no not in skipped:
+            log_operation('批量确认销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
+    return jsonify({'status': 'success', 'msg': f'已确认 {confirmed} 张销售订单，跳过 {len(skipped)} 张', 'confirmed': confirmed, 'skipped': skipped})
+
+
+@app.route('/sales/batch_create_outbound', methods=['POST'])
+@require_role('warehouse', 'purchase')
+@login_required
+def batch_create_sales_outbound():
+    payload = request.get_json(silent=True) or {}
+    raw_ids = payload.get('ids') or request.form.getlist('ids')
+    ids = [int(value) for value in raw_ids if str(value).isdigit()]
+    if not ids:
+        return jsonify({'status': 'error', 'msg': '请先选择销售订单'}), 400
+    orders = SalesOrder.query.filter(SalesOrder.id.in_(ids)).all()
+    created = []
+    skipped = []
+    try:
+        for order in orders:
+            if order.status not in ('confirmed', 'closed') or order.shipment_status == 'shipped':
+                skipped.append(f'{order.order_no}(状态不允许)')
+                continue
+            outbound, result = build_sales_outbound_draft(order)
+            if result == 'completed':
+                skipped.append(f'{order.order_no}(已全部发货)')
+                continue
+            created.append({'sales_order_no': order.order_no, 'outbound_id': outbound.id, 'outbound_no': outbound.order_no, 'existing': result == 'existing'})
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('批量生成销售出库草稿失败')
+        return jsonify({'status': 'error', 'msg': '批量生成失败，请稍后重试'}), 500
+    for item in created:
+        log_operation('批量生成销售出库草稿', f"{item['sales_order_no']} -> {item['outbound_no']}", 'out_order', item['outbound_id'])
+    return jsonify({'status': 'success', 'msg': f'生成 {len(created)} 张销售出库草稿，跳过 {len(skipped)} 张', 'created': created, 'skipped': skipped})
 
 @app.route('/sales/dashboard')
 @login_required
