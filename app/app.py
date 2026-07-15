@@ -35149,6 +35149,47 @@ def batch_create_sales_outbound():
         log_operation('批量生成销售出库草稿', f"{item['sales_order_no']} -> {item['outbound_no']}", 'out_order', item['outbound_id'])
     return jsonify({'status': 'success', 'msg': f'生成 {len(created)} 张销售出库草稿，跳过 {len(skipped)} 张', 'created': created, 'skipped': skipped})
 
+@app.route('/sales/<int:id>/print')
+@login_required
+def print_sales_order(id):
+    order = SalesOrder.query.options(
+        joinedload(SalesOrder.customer),
+        joinedload(SalesOrder.operator),
+        selectinload(SalesOrder.items).joinedload(SalesOrderItem.material).joinedload(Material.unit),
+    ).get_or_404(id)
+    rows = [_material_row_common(item) for item in order.items]
+    return _render_generic_document_print({
+        'title': '销售订单',
+        'subtitle': 'SALES ORDER',
+        'number_label': '销售订单号',
+        'number': order.order_no,
+        'date_label': '订单日期',
+        'date': _fmt_date(order.date),
+        'status': order.status,
+        'info': [
+            ('客户名称', order.customer.name if order.customer else ''),
+            ('交货日期', _fmt_date(order.delivery_date)),
+            ('发货仓库', order.warehouse or ''),
+            ('发货状态', sales_shipment_status_label(order.shipment_status)),
+            ('制单人', _operator_name(order)),
+            ('含税金额', f'{order.total_amount or 0:.2f}'),
+        ],
+        'remark': order.remark or '',
+        'columns': [
+            ('code', '物料编码', ''),
+            ('name', '物料名称', ''),
+            ('spec', '规格', ''),
+            ('unit', '单位', 'center'),
+            ('quantity', '订单数量', 'right'),
+            ('price', '含税单价', 'right money'),
+            ('amount', '含税金额', 'right money'),
+            ('remark', '备注', ''),
+        ],
+        'rows': rows,
+        'total_amount': order.total_amount or sum(row.get('amount', 0) or 0 for row in rows),
+        'signatures': ['制单', '销售确认', '仓库', '客户确认'],
+    })
+
 @app.route('/sales/dashboard')
 @login_required
 def sales_dashboard():
