@@ -34992,6 +34992,110 @@ def create_sales_outbound_draft(id):
     return jsonify({'status': 'success', 'id': outbound.id, 'order_no': outbound.order_no, 'url': url_for('out_order_detail', id=outbound.id)})
 
 
+@app.route('/sales/dashboard')
+@login_required
+def sales_dashboard():
+    today = date.today()
+    month_start = today.replace(day=1)
+    active_orders = SalesOrder.query.filter(SalesOrder.status != 'cancelled').all()
+    month_orders = [order for order in active_orders if order.date and order.date >= month_start]
+    pending_orders = [order for order in active_orders if order.shipment_status != 'shipped']
+    overdue_orders = [order for order in pending_orders if order.delivery_date and order.delivery_date < today]
+    customer_summary = {}
+    for order in month_orders:
+        key = order.customer.name if order.customer else '未设置客户'
+        row = customer_summary.setdefault(key, {'name': key, 'orders': 0, 'amount': 0, 'pending_amount': 0})
+        row['orders'] += 1
+        row['amount'] += order.total_amount or 0
+        if order.shipment_status != 'shipped':
+            row['pending_amount'] += order.total_amount or 0
+    return render_template(
+        'sales_dashboard.html',
+        month_orders=month_orders,
+        today=today,
+        pending_orders=sorted(pending_orders, key=lambda order: (order.delivery_date or date.max, order.id))[:12],
+        overdue_orders=overdue_orders,
+        month_amount=round_to_2_decimals(sum(order.total_amount or 0 for order in month_orders)),
+        pending_amount=round_to_2_decimals(sum(order.total_amount or 0 for order in pending_orders)),
+        pending_count=len(pending_orders),
+        overdue_count=len(overdue_orders),
+        customer_summary=sorted(customer_summary.values(), key=lambda row: row['amount'], reverse=True)[:10],
+        status_label=sales_status_label,
+        shipment_status_label=sales_shipment_status_label,
+    )
+
+
+@app.route('/sales/<int:id>/cancel', methods=['POST'])
+@require_role('warehouse', 'purchase')
+@login_required
+def cancel_sales_order(id):
+    order = SalesOrder.query.get_or_404(id)
+    if order.status not in ('draft', 'confirmed') or any((item.shipped_quantity or 0) > STOCK_COMPARE_EPSILON for item in order.items):
+        return jsonify({'status': 'error', 'msg': '已发货或当前状态不允许取消销售订单'}), 400
+    order.status = 'cancelled'
+    order.shipment_status = 'pending'
+    db.session.commit()
+    log_operation('取消销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
+    return jsonify({'status': 'success', 'msg': '销售订单已取消'})
+
+
+@app.route('/sales/<int:id>/delete', methods=['POST'])
+@require_role('warehouse', 'purchase')
+@login_required
+def delete_sales_order(id):
+    order = SalesOrder.query.get_or_404(id)
+    if order.status != 'draft':
+        return jsonify({'status': 'error', 'msg': '只有草稿销售订单可以删除'}), 400
+    for item in list(order.items):
+        db.session.delete(item)
+    db.session.delete(order)
+    db.session.commit()
+    log_operation('删除销售订单', f'销售订单：{order.order_no}', 'sales_order', id)
+    return jsonify({'status': 'success', 'msg': '销售订单已删除'})
+
+
+@app.route('/sales/report/export')
+@login_required
+def export_sales_report():
+    date_start = request.args.get('date_start') or date.today().replace(day=1).isoformat()
+    date_end = request.args.get('date_end') or date.today().isoformat()
+    try:
+        start = datetime.strptime(date_start, '%Y-%m-%d').date()
+        end = datetime.strptime(date_end, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'status': 'error', 'msg': '日期格式不正确'}), 400
+    orders = SalesOrder.query.filter(SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled').order_by(SalesOrder.date.asc(), SalesOrder.id.asc()).all()
+    from openpyxl import Workbook
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = '销售订单执行'
+    sheet.append(['销售订单号', '订单日期', '客户', '仓库', '订单状态', '发货状态', '物料编码', '物料名称', '规格', '单位', '订单数量', '已发货数量', '未发货数量', '含税单价', '含税金额', '备注'])
+    for order in orders:
+        for item in order.items:
+            shipped = item.shipped_quantity or 0
+            sheet.append([
+                order.order_no,
+                order.date.isoformat() if order.date else '',
+                order.customer.name if order.customer else '',
+                order.warehouse or '',
+                sales_status_label(order.status),
+                sales_shipment_status_label(order.shipment_status),
+                item.material.code if item.material else '',
+                item.material.name if item.material else '',
+                item.material.spec if item.material else '',
+                item.material.unit.name if item.material and item.material.unit else '',
+                item.quantity or 0,
+                shipped,
+                round_to_2_decimals((item.quantity or 0) - shipped),
+                item.price or 0,
+                item.amount or 0,
+                item.remark or order.remark or '',
+            ])
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return send_file(output, download_name=f'sales_execution_{start:%Y%m%d}_{end:%Y%m%d}.xlsx', as_attachment=True)
+
 @app.route('/sales/report')
 @login_required
 def sales_report():
@@ -35013,7 +35117,10 @@ def sales_report():
             material_row = by_material.setdefault(material_key, {'code': material_key, 'name': item.material.name if item.material else '-', 'quantity': 0, 'amount': 0})
             material_row['quantity'] += item.quantity or 0
             material_row['amount'] += item.amount or 0
-    return render_template('sales_report.html', date_start=date_start, date_end=date_end, orders=orders, by_customer=sorted(by_customer.values(), key=lambda row: row['amount'], reverse=True), by_material=sorted(by_material.values(), key=lambda row: row['amount'], reverse=True), total_amount=round_to_2_decimals(sum(order.total_amount or 0 for order in orders)), total_orders=len(orders), status_label=sales_status_label)
+    shipped_quantity = round_to_2_decimals(sum(item.shipped_quantity or 0 for order in orders for item in order.items))
+    shipped_amount = round_to_2_decimals(sum((item.shipped_quantity or 0) * (item.price or 0) for order in orders for item in order.items))
+    total_amount = round_to_2_decimals(sum(order.total_amount or 0 for order in orders))
+    return render_template('sales_report.html', date_start=date_start, date_end=date_end, orders=orders, by_customer=sorted(by_customer.values(), key=lambda row: row['amount'], reverse=True), by_material=sorted(by_material.values(), key=lambda row: row['amount'], reverse=True), total_amount=total_amount, shipped_amount=shipped_amount, pending_amount=round_to_2_decimals(total_amount - shipped_amount), shipped_quantity=shipped_quantity, total_orders=len(orders), status_label=sales_status_label)
 
 # ==================== Application entrypoint ====================
 
