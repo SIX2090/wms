@@ -26743,6 +26743,11 @@ def out_order_list():
     )
     query = _apply_status_date_filters(query, OutOrder, status_filter, date_start, date_end)
     query = _apply_out_order_search(query, search)
+    # 领料明细默认排除"销售出库"（销售出库归销售管理，见 /sales/outflow_report），
+    # 避免销售单据混入仓库领料明细。显式传 business_type=销售出库 时仍可查看。
+    explicit_bt = (request.args.get('business_type') or '').strip()
+    if not explicit_bt:
+        query = query.filter(OutOrder.business_type != '销售出库')
     if sort_order == 'asc':
         query = query.order_by(sort_col.asc())
     else:
