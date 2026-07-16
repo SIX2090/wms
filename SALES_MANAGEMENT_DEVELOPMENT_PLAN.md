@@ -1,8 +1,47 @@
 ﻿# WMS 销售管理模块开发计划
 
-> 文档状态：规划稿
+> 文档状态：已实施（首轮闭环）
 > 编制依据：现有采购管理、库存管理、单据、报表、客户资料和销售出库实现
 > 目标：在复用现有库存出库能力的基础上，补齐销售订单与销售执行闭环
+
+## 0. 实施记录（2026-07-16）
+
+基于本计划进行的增量增强已实施并通过验证：
+
+**阶段 3 修复（菜单与工作台）**
+- 修复 `base.html` 销售管理菜单可见性 Bug（多余反引号字符 + `bi-speedometer2` 拼写错误）。
+
+**阶段 1 扩展（销售订单字段）**
+- `SalesOrder` 模型新增：`salesperson_id`、`project_no`、`currency`（默认 CNY）、`settlement_method`、`untaxed_amount`、`tax_amount`、`shipped_amount`、`remaining_amount`。
+- `SalesOrderItem` 模型新增：`tax_rate`（默认 0.13）、`untaxed_price`、`untaxed_amount`、`tax_amount`、`tax_included_amount`、`batch_no`、`serial_no`。
+- `auto_migrate_database()` 增加 `ALTER TABLE ADD COLUMN` 迁移及历史数据回填 SQL（含税/未税/税额自动计算）。
+- `recalculate_sales_order()` 重写为税感知总额计算。
+- 录入页、详情页、列表页、打印页同步展示税额明细与新增字段。
+
+**阶段 4 补齐（销售报表）**
+- `/sales/report` 增加客户/物料/业务员钻取，三张汇总表支持点击钻取，钻取明细联动销售订单详情。
+- 新增 `/sales/outflow_report`（销售出库明细表）+ Excel 导出，基于 `OutOrder(business_type='销售出库')`。
+- 新增 `/sales/trend_report`（销售趋势分析表）+ Excel 导出，按月聚合订单/未税/税额/含税/已发货金额及环比增长。
+
+**阶段 5 扩展（导入模板字段）**
+- `/sales/download_template` 与 `/sales/import` 支持：业务员、项目号、币别、结算方式、税率、批次号、序列号。
+
+**验证结果**
+- `python scripts/verify_wms_bugs.py` 全部通过（含回归检查）。
+- Flask test_client 对 10 个销售路由（含 HTML 与 Excel 导出）均返回 HTTP 200，无 `TemplateNotFound`。
+- 修改文件清单：
+  - `app/app.py`（模型、迁移、路由、导入逻辑）
+  - `app/templates/base.html`（菜单 Bug 修复）
+  - `app/templates/sales_order_add.html`（税额字段录入）
+  - `app/templates/sales_order_detail.html`（税额明细展示）
+  - `app/templates/sales_order.html`（业务员/项目号列与筛选）
+  - `app/templates/sales_report.html`（钻取与汇总）
+  - `app/templates/sales_outflow_report.html`（新增）
+  - `app/templates/sales_trend_report.html`（新增）
+
+后续阶段 6（单元测试与浏览器关键流程验证）建议作为后续任务单独推进。
+
+---
 
 ## 1. 现状结论
 
