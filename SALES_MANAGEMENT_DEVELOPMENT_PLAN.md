@@ -45,8 +45,6 @@
 
 ## 阶段 6 实施记录（2026-07-16）
 
-阶段 6 测试与验收已实施并通过：
-
 **新增验证脚本**
 - `scripts/verify_sales_module.py`：覆盖 6 项静态检查 + 13 项运行时测试，共 19 项全部通过。
 
@@ -77,6 +75,49 @@
 - 修复 `_check_out_order_anomalies` 中 `order.customer_id` 引用不存在属性的预存 Bug（OutOrder 使用 `customer` 字符串字段），改为 `getattr(order, 'customer', None)`，确保销售出库完成流程不再崩溃。
 
 **验证结果**
+- `python scripts/verify_sales_module.py`：19/19 通过
+- `python scripts/verify_wms_bugs.py`：全部通过（含回归检查）
+
+---
+
+## 阶段 7 实施记录（2026-07-16）：四项不完善修复
+
+针对模块评审发现的 4 项最影响数据正确性和日常可用性的不完善，本轮已全部修复：
+
+### #4 出库外键关联（替代 purpose 字符串解析）
+- `OutOrder` 模型新增 `source_sales_order_id` 外键字段指向 `sales_order.id`。
+- `auto_migrate_database()` 新增 `ALTER TABLE out_order ADD COLUMN source_sales_order_id INTEGER` 迁移 + 从 `purpose` 字符串回填历史数据。
+- `sync_sales_order_shipment()` 优先使用外键关联，兜底 `purpose` 字符串解析。
+- `build_sales_outbound_draft()` 创建出库单时同时设置外键与 purpose 字符串（双写兼容），查询待完成草稿时优先外键匹配。
+
+### #1 销售订单修改（仅草稿可改）
+- 新增 `GET/POST /sales/<id>/edit` 路由，`sales_order_edit_page` 渲染编辑页并回填已有明细。
+- 新增 `sales_order_edit.html` 模板，基于 `sales_order_add.html`，支持回填已有明细项、税额自动计算。
+- 详情页 `sales_order_detail.html` 新增"修改订单"按钮（仅草稿状态可见）。
+- 编辑逻辑：删除旧明细重建新明细（草稿状态无出库记录，安全），更新订单头字段，重算税额，记录审计日志。
+- 权限：`require_role('warehouse', 'purchase')`，已确认订单不可改。
+
+### #6 金额字段精度提升（Float → Numeric(18,2)）
+- `SalesOrder` 模型：`total_amount`、`untaxed_amount`、`tax_amount`、`shipped_amount`、`remaining_amount` 改为 `db.Numeric(18, 2)`。
+- `SalesOrderItem` 模型：`amount`、`untaxed_amount`、`tax_amount`、`tax_included_amount` 改为 `db.Numeric(18, 2)`。
+- 消除浮点累加误差，大订单量下报表汇总会精确到分。
+
+### #7 报表筛选维度扩展
+- `/sales/report` 新增筛选维度：订单状态（draft/confirmed/closed/cancelled）、发货状态（pending/partial/shipped）、项目号（模糊匹配）、仓库。
+- `/sales/outflow_report` 新增筛选维度：仓库、客户名称。
+- 销售出库明细表（HTML + Excel 导出）增加未税金额、税额、税率三列，从关联销售订单明细获取税率。
+- 报表与出库明细页样式统一为仓库管理模块风格（`page-header` + `card mb-3` 筛选区 + `table-responsive-wrapper` 表格区 + `btn-sm` + `bi-*` 图标 + `bg-warning/bg-success/bg-secondary` 状态徽章三色规范）。
+
+### 修改文件清单
+- `app/app.py`（OutOrder 模型、迁移、sync/build 函数、sales_report/outflow_report 路由、edit 路由、SalesOrder/SalesOrderItem Numeric 字段）
+- `app/templates/sales_order_detail.html`（新增"修改订单"按钮）
+- `app/templates/sales_order_edit.html`（新增编辑页模板）
+- `app/templates/sales_report.html`（筛选表单扩展为仓库风格）
+- `app/templates/sales_outflow_report.html`（筛选扩展 + 未税/税额列 + 仓库风格统一）
+- `scripts/verify_sales_module.py`（适配 Numeric Decimal 比较）
+- `SALES_MANAGEMENT_DEVELOPMENT_PLAN.md`（阶段 7 实施记录）
+
+### 验证结果
 - `python scripts/verify_sales_module.py`：19/19 通过
 - `python scripts/verify_wms_bugs.py`：全部通过（含回归检查）
 

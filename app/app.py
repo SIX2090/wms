@@ -115,6 +115,23 @@ def auto_migrate_database():
         if 'customer' not in columns:
             cursor.execute("ALTER TABLE out_order ADD COLUMN customer VARCHAR(100)")
             modified = True
+        if 'source_sales_order_id' not in columns:
+            cursor.execute("ALTER TABLE out_order ADD COLUMN source_sales_order_id INTEGER")
+            modified = True
+            # 回填：从 purpose 字符串 '来源销售订单 {order_no}' 解析并关联到 sales_order.id
+            try:
+                cursor.execute("""
+                    UPDATE out_order
+                    SET source_sales_order_id = (
+                        SELECT s.id FROM sales_order s
+                        WHERE s.order_no = REPLACE(REPLACE(out_order.purpose, '来源销售订单 ', ''), '来源销售订单', '')
+                          AND out_order.purpose LIKE '来源销售订单%'
+                    )
+                    WHERE out_order.source_sales_order_id IS NULL
+                      AND out_order.purpose LIKE '来源销售订单%'
+                """)
+            except Exception:
+                pass  # 回填失败不阻塞启动，sync 函数仍有 purpose 字符串兜底
 
         # in_order 字段迁移
         cursor.execute("PRAGMA table_info(in_order)")
@@ -2425,6 +2442,7 @@ class OutOrder(db.Model):
     business_type = db.Column(db.String(50))  # Business type
     warehouse = db.Column(db.String(100))  # Warehouse name
     purpose = db.Column(db.String(200))  # Outbound purpose
+    source_sales_order_id = db.Column(db.Integer, db.ForeignKey('sales_order.id'))  # 关联销售订单ID（外键，替代 purpose 字符串解析）
     remark = db.Column(db.String(200))  # Remark
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
@@ -2433,6 +2451,7 @@ class OutOrder(db.Model):
 
     department = db.relationship('Department', backref='out_orders')  # Related department
     operator = db.relationship('User', backref='out_orders')  # Operator
+    source_sales_order = db.relationship('SalesOrder', backref='outbound_orders', foreign_keys=[source_sales_order_id])  # 关联销售订单
 
 
 class OutOrderItem(db.Model):
@@ -3260,12 +3279,12 @@ class SalesOrder(db.Model):
     status = db.Column(db.String(20), default='draft')
     remark = db.Column(db.String(500))
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    total_amount = db.Column(db.Float, default=0)
+    total_amount = db.Column(db.Numeric(18, 2), default=0)
     # 含税金额合计 = sum(item.tax_included_amount)
-    untaxed_amount = db.Column(db.Float, default=0)
-    tax_amount = db.Column(db.Float, default=0)
-    shipped_amount = db.Column(db.Float, default=0)
-    remaining_amount = db.Column(db.Float, default=0)
+    untaxed_amount = db.Column(db.Numeric(18, 2), default=0)
+    tax_amount = db.Column(db.Numeric(18, 2), default=0)
+    shipped_amount = db.Column(db.Numeric(18, 2), default=0)
+    remaining_amount = db.Column(db.Numeric(18, 2), default=0)
     shipment_order_no = db.Column(db.String(50))
     shipment_status = db.Column(db.String(20), default='pending')  # pending/partial/shipped
     # 扩展字段：业务员、项目号、币别、结算方式
@@ -3290,13 +3309,13 @@ class SalesOrderItem(db.Model):
     quantity = db.Column(db.Float, nullable=False)
     shipped_quantity = db.Column(db.Float, default=0)
     price = db.Column(db.Float, default=0)  # 含税单价
-    amount = db.Column(db.Float, default=0)  # 含税金额（兼容旧逻辑）
+    amount = db.Column(db.Numeric(18, 2), default=0)  # 含税金额（兼容旧逻辑）
     # 税务字段
     tax_rate = db.Column(db.Float, default=0.13)  # 税率，默认 13%
     untaxed_price = db.Column(db.Float, default=0)  # 未税单价
-    untaxed_amount = db.Column(db.Float, default=0)  # 未税金额
-    tax_amount = db.Column(db.Float, default=0)  # 税额
-    tax_included_amount = db.Column(db.Float, default=0)  # 含税金额
+    untaxed_amount = db.Column(db.Numeric(18, 2), default=0)  # 未税金额
+    tax_amount = db.Column(db.Numeric(18, 2), default=0)  # 税额
+    tax_included_amount = db.Column(db.Numeric(18, 2), default=0)  # 含税金额
     # 扩展字段：批次号、序列号
     batch_no = db.Column(db.String(100))
     serial_no = db.Column(db.String(200))
@@ -34970,10 +34989,14 @@ def recalculate_sales_order(order):
 
 
 def sync_sales_order_shipment(outbound, quantity_sign=1):
-    source_match = re.search(r'来源销售订单\s+([^\s]+)', outbound.purpose or '')
-    if not source_match:
-        return None
-    order = SalesOrder.query.filter_by(order_no=source_match.group(1)).first()
+    # 优先使用外键关联，兜底 purpose 字符串解析
+    order = None
+    if outbound.source_sales_order_id:
+        order = SalesOrder.query.get(outbound.source_sales_order_id)
+    if not order:
+        source_match = re.search(r'来源销售订单\s+([^\s]+)', outbound.purpose or '')
+        if source_match:
+            order = SalesOrder.query.filter_by(order_no=source_match.group(1)).first()
     if not order:
         return None
     item_by_material = {item.material_id: item for item in order.items}
@@ -34986,8 +35009,12 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
     return order
 
 def build_sales_outbound_draft(order):
+    # 优先通过外键查找待完成草稿，兜底 purpose 字符串
     pending_draft = OutOrder.query.filter(
-        OutOrder.purpose == f'来源销售订单 {order.order_no}',
+        db.or_(
+            OutOrder.source_sales_order_id == order.id,
+            OutOrder.purpose == f'来源销售订单 {order.order_no}',
+        ),
         OutOrder.status == 'pending',
     ).order_by(OutOrder.id.desc()).first()
     if pending_draft:
@@ -34996,7 +35023,7 @@ def build_sales_outbound_draft(order):
     if not remaining_items:
         recalculate_sales_order(order)
         return None, 'completed'
-    outbound = OutOrder(order_no=generate_order_no('OU'), date=order.date, customer=order.customer.name if order.customer else '', business_type='销售出库', warehouse=order.warehouse, purpose=f'来源销售订单 {order.order_no}', remark=order.remark, status='pending', operator_id=current_user.id)
+    outbound = OutOrder(order_no=generate_order_no('OU'), date=order.date, customer=order.customer.name if order.customer else '', business_type='销售出库', warehouse=order.warehouse, purpose=f'来源销售订单 {order.order_no}', source_sales_order_id=order.id, remark=order.remark, status='pending', operator_id=current_user.id)
     db.session.add(outbound)
     db.session.flush()
     for item in remaining_items:
@@ -35225,6 +35252,92 @@ def sales_order_add():
 def sales_order_detail(id):
     order = SalesOrder.query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.salesperson), joinedload(SalesOrder.operator), joinedload(SalesOrder.items).joinedload(SalesOrderItem.material).joinedload(Material.unit)).get_or_404(id)
     return render_template('sales_order_detail.html', order=order, today=date.today(), status_label=sales_status_label, shipment_status_label=sales_shipment_status_label)
+
+
+@app.route('/sales/<int:id>/edit', methods=['GET'])
+@require_role('warehouse', 'purchase')
+@login_required
+def sales_order_edit_page(id):
+    order = SalesOrder.query.options(joinedload(SalesOrder.items).joinedload(SalesOrderItem.material).joinedload(Material.unit)).get_or_404(id)
+    if order.status != 'draft':
+        flash('仅草稿状态的销售订单可修改，请先反确认或新建订单', 'warning')
+        return redirect(url_for('sales_order_detail', id=id))
+    customers = Customer.query.order_by(Customer.code.asc()).all()
+    employees = Employee.query.order_by(Employee.id.asc()).all()
+    warehouses = Warehouse.query.order_by(Warehouse.id.asc()).all()
+    materials = Material.query.order_by(Material.code.asc()).all()
+    material_list = [{'code': m.code, 'name': m.name, 'spec': m.spec or '', 'unit': m.unit.name if m.unit else '', 'price': float(m.price or 0)} for m in materials]
+    # 已有明细项转 JSON 供前端回填
+    existing_items = [{'code': item.material.code if item.material else '', 'quantity': item.quantity, 'price': item.price, 'tax_rate': item.tax_rate, 'batch_no': item.batch_no or '', 'serial_no': item.serial_no or '', 'remark': item.remark or ''} for item in order.items]
+    return render_template('sales_order_edit.html', order=order, customers=customers, employees=employees, warehouses=warehouses, materials=materials, material_list=material_list, existing_items=existing_items, default_tax_rate=0.13)
+
+
+@app.route('/sales/<int:id>/edit', methods=['POST'])
+@require_role('warehouse', 'purchase')
+@login_required
+def sales_order_edit(id):
+    order = SalesOrder.query.get_or_404(id)
+    if order.status != 'draft':
+        return jsonify({'status': 'error', 'msg': '仅草稿状态的销售订单可修改'}), 400
+    payload = request.get_json(silent=True) or request.form
+    try:
+        customer_id = int(payload.get('customer_id') or 0)
+        customer = db.session.get(Customer, customer_id)
+        if not customer:
+            return jsonify({'status': 'error', 'msg': '请选择客户'}), 400
+        items = payload.get('items', [])
+        if isinstance(items, str):
+            items = json.loads(items or '[]')
+        if not items:
+            return jsonify({'status': 'error', 'msg': '请至少保留一条销售明细'}), 400
+        salesperson_id = int(payload.get('salesperson_id') or 0) if payload.get('salesperson_id') else None
+        if salesperson_id and not db.session.get(Employee, salesperson_id):
+            salesperson_id = None
+        # 更新订单头
+        order.customer_id = customer.id
+        order.date = datetime.strptime(payload.get('date') or date.today().isoformat(), '%Y-%m-%d').date()
+        order.delivery_date = datetime.strptime(payload.get('delivery_date'), '%Y-%m-%d').date() if payload.get('delivery_date') else None
+        order.warehouse = (payload.get('warehouse') or '').strip()
+        order.remark = (payload.get('remark') or '').strip()
+        order.salesperson_id = salesperson_id
+        order.project_no = (payload.get('project_no') or '').strip() or None
+        order.currency = (payload.get('currency') or '').strip() or 'CNY'
+        order.settlement_method = (payload.get('settlement_method') or '').strip() or None
+        # 删除旧明细，重建新明细（草稿状态无出库记录，可安全重建）
+        SalesOrderItem.query.filter_by(sales_order_id=order.id).delete()
+        db.session.flush()
+        for data in items:
+            material = Material.query.filter_by(code=(data.get('code') or data.get('material_code') or '').strip()).first()
+            quantity = round_to_2_decimals(parse_float_value(data.get('quantity'), 0))
+            if not material or quantity <= 0:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': '物料编码不存在或数量无效'}), 400
+            price = round_to_2_decimals(parse_float_value(data.get('price'), material.price or 0))
+            tax_rate = parse_float_value(data.get('tax_rate'), 0.13)
+            if tax_rate < 0:
+                tax_rate = 0
+            db.session.add(SalesOrderItem(
+                sales_order_id=order.id,
+                material_id=material.id,
+                quantity=quantity,
+                price=price,
+                amount=round_to_2_decimals(quantity * price),
+                tax_rate=tax_rate,
+                batch_no=(data.get('batch_no') or '').strip() or None,
+                serial_no=(data.get('serial_no') or '').strip() or None,
+                remark=(data.get('remark') or '').strip() or None,
+            ))
+        recalculate_sales_order(order)
+        db.session.commit()
+        log_operation('修改销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
+        return jsonify({'status': 'success', 'id': order.id, 'order_no': order.order_no})
+    except (ValueError, TypeError, json.JSONDecodeError):
+        db.session.rollback()
+        return jsonify({'status': 'error', 'msg': '日期或明细格式不正确'}), 400
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('修改销售订单失败')
+        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'}), 500
 
 
 @app.route('/sales/<int:id>/confirm', methods=['POST'])
@@ -35492,6 +35605,10 @@ def sales_report():
     drill_customer_id = request.args.get('customer_id', type=int)
     drill_material_code = (request.args.get('material_code') or '').strip()
     salesperson_id = request.args.get('salesperson_id', type=int)
+    status = (request.args.get('status') or '').strip()
+    shipment_status = (request.args.get('shipment_status') or '').strip()
+    project_no = (request.args.get('project_no') or '').strip()
+    warehouse = (request.args.get('warehouse') or '').strip()
     start = datetime.strptime(date_start, '%Y-%m-%d').date()
     end = datetime.strptime(date_end, '%Y-%m-%d').date()
     query = SalesOrder.query.filter(SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled')
@@ -35499,6 +35616,14 @@ def sales_report():
         query = query.filter(SalesOrder.customer_id == drill_customer_id)
     if salesperson_id:
         query = query.filter(SalesOrder.salesperson_id == salesperson_id)
+    if status:
+        query = query.filter(SalesOrder.status == status)
+    if shipment_status:
+        query = query.filter(SalesOrder.shipment_status == shipment_status)
+    if project_no:
+        query = query.filter(SalesOrder.project_no.like(f'%{project_no}%'))
+    if warehouse:
+        query = query.filter(SalesOrder.warehouse == warehouse)
     orders = query.order_by(SalesOrder.date.asc(), SalesOrder.id.asc()).all()
     # 明细钻取：按物料筛选时只显示匹配明细行
     drill_material_id = None
@@ -35557,7 +35682,7 @@ def sales_report():
                         'tax_included_amount': item.tax_included_amount or item.amount or 0,
                         'shipped_quantity': item.shipped_quantity or 0,
                     })
-    return render_template('sales_report.html', date_start=date_start, date_end=date_end, drill_customer_id=drill_customer_id, drill_material_code=drill_material_code, salesperson_id=salesperson_id, drill_material_name=(Material.query.get(drill_material_id).name if drill_material_id else ''), drill_items=drill_items, customers=Customer.query.order_by(Customer.code.asc()).all(), employees=Employee.query.order_by(Employee.id.asc()).all(), orders=orders, by_customer=sorted(by_customer.values(), key=lambda row: row['amount'], reverse=True), by_material=sorted(by_material.values(), key=lambda row: row['amount'], reverse=True), by_salesperson=sorted(by_salesperson.values(), key=lambda row: row['amount'], reverse=True), total_amount=total_amount, total_untaxed=total_untaxed, total_tax=total_tax, shipped_amount=shipped_amount, pending_amount=round_to_2_decimals(total_amount - shipped_amount), shipped_quantity=shipped_quantity, total_orders=len(orders), status_label=sales_status_label)
+    return render_template('sales_report.html', date_start=date_start, date_end=date_end, drill_customer_id=drill_customer_id, drill_material_code=drill_material_code, salesperson_id=salesperson_id, status=status, shipment_status=shipment_status, project_no=project_no, warehouse=warehouse, drill_material_name=(Material.query.get(drill_material_id).name if drill_material_id else ''), drill_items=drill_items, customers=Customer.query.order_by(Customer.code.asc()).all(), employees=Employee.query.order_by(Employee.id.asc()).all(), warehouses=Warehouse.query.order_by(Warehouse.id.asc()).all(), orders=orders, by_customer=sorted(by_customer.values(), key=lambda row: row['amount'], reverse=True), by_material=sorted(by_material.values(), key=lambda row: row['amount'], reverse=True), by_salesperson=sorted(by_salesperson.values(), key=lambda row: row['amount'], reverse=True), total_amount=total_amount, total_untaxed=total_untaxed, total_tax=total_tax, shipped_amount=shipped_amount, pending_amount=round_to_2_decimals(total_amount - shipped_amount), shipped_quantity=shipped_quantity, total_orders=len(orders), status_label=sales_status_label)
 
 
 @app.route('/sales/outflow_report')
@@ -35567,6 +35692,8 @@ def sales_outflow_report():
     date_start = request.args.get('date_start') or (date.today().replace(day=1).isoformat())
     date_end = request.args.get('date_end') or date.today().isoformat()
     search = (request.args.get('search') or '').strip()
+    warehouse = (request.args.get('warehouse') or '').strip()
+    customer_name = (request.args.get('customer') or '').strip()
     try:
         start = datetime.strptime(date_start, '%Y-%m-%d').date()
         end = datetime.strptime(date_end, '%Y-%m-%d').date()
@@ -35580,14 +35707,37 @@ def sales_outflow_report():
     if search:
         like = f'%{search}%'
         query = query.filter(db.or_(OutOrder.order_no.like(like), OutOrder.customer.like(like), OutOrder.purpose.like(like), OutOrder.remark.like(like)))
+    if warehouse:
+        query = query.filter(OutOrder.warehouse == warehouse)
+    if customer_name:
+        query = query.filter(OutOrder.customer.like(f'%{customer_name}%'))
     out_orders = query.order_by(OutOrder.date.desc(), OutOrder.id.desc()).all()
     rows = []
     total_quantity = 0
     total_amount = 0
+    total_untaxed = 0
+    total_tax = 0
     for oo in out_orders:
+        # 通过外键或 purpose 关联销售订单，获取税率信息
+        sales_order = None
+        if oo.source_sales_order_id:
+            sales_order = SalesOrder.query.get(oo.source_sales_order_id)
+        if not sales_order:
+            source_match = re.search(r'来源销售订单\s+([^\s]+)', oo.purpose or '')
+            if source_match:
+                sales_order = SalesOrder.query.filter_by(order_no=source_match.group(1)).first()
+        # 建立 material_id -> sales_item 映射，用于获取税率
+        sales_item_map = {}
+        if sales_order:
+            sales_item_map = {item.material_id: item for item in sales_order.items}
         for item in (oo.items or []):
             material = item.material
             line_amount = item.amount or round_to_2_decimals((item.quantity or 0) * (item.price or 0))
+            # 从销售订单明细获取税率，计算未税/税额
+            sales_item = sales_item_map.get(item.material_id) if sales_item_map else None
+            tax_rate = sales_item.tax_rate if sales_item and sales_item.tax_rate else 0.13
+            untaxed_amount = round_to_2_decimals(line_amount / (1 + tax_rate)) if (1 + tax_rate) > 0 else line_amount
+            tax_amount = round_to_2_decimals(line_amount - untaxed_amount)
             rows.append({
                 'out_date': oo.date,
                 'out_order_no': oo.order_no,
@@ -35601,6 +35751,9 @@ def sales_outflow_report():
                 'unit': material.unit.name if material and material.unit else '',
                 'quantity': item.quantity or 0,
                 'price': item.price or 0,
+                'tax_rate': tax_rate,
+                'untaxed_amount': untaxed_amount,
+                'tax_amount': tax_amount,
                 'amount': line_amount,
                 'purpose': oo.purpose or '',
                 'remark': item.remark or oo.remark or '',
@@ -35608,7 +35761,9 @@ def sales_outflow_report():
             if oo.status == 'completed':
                 total_quantity += item.quantity or 0
                 total_amount += line_amount
-    return render_template('sales_outflow_report.html', date_start=date_start, date_end=date_end, search=search, rows=rows, total_quantity=round_to_2_decimals(total_quantity), total_amount=round_to_2_decimals(total_amount), total_rows=len(rows), status_label=sales_status_label)
+                total_untaxed += untaxed_amount
+                total_tax += tax_amount
+    return render_template('sales_outflow_report.html', date_start=date_start, date_end=date_end, search=search, warehouse=warehouse, customer=customer_name, warehouses=Warehouse.query.order_by(Warehouse.id.asc()).all(), rows=rows, total_quantity=round_to_2_decimals(total_quantity), total_amount=round_to_2_decimals(total_amount), total_untaxed=round_to_2_decimals(total_untaxed), total_tax=round_to_2_decimals(total_tax), total_rows=len(rows), status_label=sales_status_label)
 
 
 @app.route('/sales/outflow_report/export')
@@ -35617,6 +35772,8 @@ def export_sales_outflow_report():
     date_start = request.args.get('date_start') or (date.today().replace(day=1).isoformat())
     date_end = request.args.get('date_end') or date.today().isoformat()
     search = (request.args.get('search') or '').strip()
+    warehouse = (request.args.get('warehouse') or '').strip()
+    customer_name = (request.args.get('customer') or '').strip()
     try:
         start = datetime.strptime(date_start, '%Y-%m-%d').date()
         end = datetime.strptime(date_end, '%Y-%m-%d').date()
@@ -35626,15 +35783,33 @@ def export_sales_outflow_report():
     if search:
         like = f'%{search}%'
         query = query.filter(db.or_(OutOrder.order_no.like(like), OutOrder.customer.like(like), OutOrder.purpose.like(like), OutOrder.remark.like(like)))
+    if warehouse:
+        query = query.filter(OutOrder.warehouse == warehouse)
+    if customer_name:
+        query = query.filter(OutOrder.customer.like(f'%{customer_name}%'))
     out_orders = query.order_by(OutOrder.date.asc(), OutOrder.id.asc()).all()
     from openpyxl import Workbook
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = '销售出库明细'
-    sheet.append(['出库日期', '出库单号', '客户', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态', '来源', '备注'])
+    sheet.append(['出库日期', '出库单号', '客户', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '含税单价', '税率', '未税金额', '税额', '含税金额', '状态', '来源', '备注'])
     for oo in out_orders:
+        # 关联销售订单获取税率
+        sales_order = None
+        if oo.source_sales_order_id:
+            sales_order = SalesOrder.query.get(oo.source_sales_order_id)
+        if not sales_order:
+            source_match = re.search(r'来源销售订单\s+([^\s]+)', oo.purpose or '')
+            if source_match:
+                sales_order = SalesOrder.query.filter_by(order_no=source_match.group(1)).first()
+        sales_item_map = {item.material_id: item for item in sales_order.items} if sales_order else {}
         for item in (oo.items or []):
             material = item.material
+            line_amount = item.amount or round_to_2_decimals((item.quantity or 0) * (item.price or 0))
+            sales_item = sales_item_map.get(item.material_id) if sales_item_map else None
+            tax_rate = sales_item.tax_rate if sales_item and sales_item.tax_rate else 0.13
+            untaxed_amount = round_to_2_decimals(line_amount / (1 + tax_rate)) if (1 + tax_rate) > 0 else line_amount
+            tax_amount = round_to_2_decimals(line_amount - untaxed_amount)
             sheet.append([
                 oo.date.isoformat() if oo.date else '',
                 oo.order_no,
@@ -35646,7 +35821,10 @@ def export_sales_outflow_report():
                 material.unit.name if material and material.unit else '',
                 item.quantity or 0,
                 item.price or 0,
-                item.amount or 0,
+                tax_rate,
+                untaxed_amount,
+                tax_amount,
+                line_amount,
                 '已完成' if oo.status == 'completed' else '待完成',
                 oo.purpose or '',
                 item.remark or oo.remark or '',

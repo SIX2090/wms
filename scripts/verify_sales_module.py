@@ -263,20 +263,26 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                 # 明细1: 10 * 100 = 1000 含税, 未税=1000/1.13=884.96, 税额=115.04
                 # 明细2: 5 * 200 = 1000 含税, 未税=1000/1.13=884.96, 税额=115.04
                 # 合计: 含税=2000, 未税=1769.92, 税额=230.08
+                # Numeric 字段返回 Decimal，需转 float 比较
                 item1 = order.items[0]
                 item2 = order.items[1]
-                tax1_ok = abs(item1.tax_included_amount - 1000.0) < 0.01
-                tax2_ok = abs(item2.tax_included_amount - 1000.0) < 0.01
-                untaxed1_ok = abs(item1.untaxed_amount - 884.96) < 0.02
-                tax_amt1_ok = abs(item1.tax_amount - 115.04) < 0.02
+                tax1 = float(item1.tax_included_amount or 0)
+                tax2 = float(item2.tax_included_amount or 0)
+                untaxed1 = float(item1.untaxed_amount or 0)
+                tax_amt1 = float(item1.tax_amount or 0)
+                total = float(order.total_amount or 0)
+                tax1_ok = abs(tax1 - 1000.0) < 0.01
+                tax2_ok = abs(tax2 - 1000.0) < 0.01
+                untaxed1_ok = abs(untaxed1 - 884.96) < 0.02
+                tax_amt1_ok = abs(tax_amt1 - 115.04) < 0.02
                 batch_ok = item1.batch_no == "B001" and item1.serial_no == "S001"
-                header_ok = order.salesperson_id == employee.id and order.project_no == "PRJ-TEST-001"
-                total_ok = abs(order.total_amount - 2000.0) < 0.01
+                header_ok = order.salesperson_id == eid and order.project_no == "PRJ-TEST-001"
+                total_ok = abs(total - 2000.0) < 0.01
                 ok = tax1_ok and tax2_ok and untaxed1_ok and tax_amt1_ok and batch_ok and header_ok and total_ok
                 results.append(("SALES-RT-002", ok,
-                    f"税额计算: 含税={item1.tax_included_amount:.2f}/{item2.tax_included_amount:.2f}, "
-                    f"未税={item1.untaxed_amount:.2f}, 税额={item1.tax_amount:.2f}, "
-                    f"批次={item1.batch_no}, total={order.total_amount:.2f}"))
+                    f"税额计算: 含税={tax1:.2f}/{tax2:.2f}, "
+                    f"未税={untaxed1:.2f}, 税额={tax_amt1:.2f}, "
+                    f"批次={item1.batch_no}, total={total:.2f}"))
 
             # ---- SALES-RT-003: 确认销售订单 ----
             r = c.post(f"/sales/{order_id}/confirm", content_type="application/json")
@@ -313,14 +319,18 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                 order = db.session.get(SalesOrder, order_id)
                 item1 = order.items[0]
                 item2 = order.items[1]
-                shipped1_ok = abs(item1.shipped_quantity - 10) < 0.01
-                shipped2_ok = abs(item2.shipped_quantity - 5) < 0.01
-                shipped_amount_ok = abs(order.shipped_amount - 2000.0) < 0.01
-                remaining_ok = abs(order.remaining_amount - 0.0) < 0.01
+                shipped1 = float(item1.shipped_quantity or 0)
+                shipped2 = float(item2.shipped_quantity or 0)
+                shipped_amount = float(order.shipped_amount or 0)
+                remaining = float(order.remaining_amount or 0)
+                shipped1_ok = abs(shipped1 - 10) < 0.01
+                shipped2_ok = abs(shipped2 - 5) < 0.01
+                shipped_amount_ok = abs(shipped_amount - 2000.0) < 0.01
+                remaining_ok = abs(remaining - 0.0) < 0.01
                 ok = complete_ok and shipped1_ok and shipped2_ok and shipped_amount_ok and remaining_ok
                 results.append(("SALES-RT-006", ok,
-                    f"完成出库回写已发货: shipped_qty={item1.shipped_quantity}/{item2.shipped_quantity}, "
-                    f"shipped_amount={order.shipped_amount:.2f}, remaining={order.remaining_amount:.2f}"))
+                    f"完成出库回写已发货: shipped_qty={shipped1}/{shipped2}, "
+                    f"shipped_amount={shipped_amount:.2f}, remaining={remaining:.2f}"))
 
             # ---- SALES-RT-007: 订单状态变为已发货/已完成 ----
             with app.app_context():

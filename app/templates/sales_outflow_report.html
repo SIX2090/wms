@@ -1,112 +1,132 @@
 {% extends "base.html" %}
 {% block title %}销售出库明细表{% endblock %}
 {% block content %}
-<div class="container-fluid py-3">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-      <h4 class="mb-0"><i class="bi bi-box-arrow-up"></i> 销售出库明细表</h4>
-      <div class="text-muted small">统计口径：业务类型为"销售出库"的出库单实际出库记录；本页只读，可查询、导出。</div>
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-box-arrow-up"></i> 销售出库明细表</h2>
+        <div class="d-flex gap-2 flex-wrap justify-content-end">
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_dashboard') }}">销售工作台</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_order_list') }}">销售订单</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_report') }}">销售报表</a>
+            <a class="btn btn-outline-info btn-sm" href="{{ url_for('sales_trend_report') }}">销售趋势分析</a>
+            <button type="button" class="btn btn-outline-primary btn-sm" onclick="exportOutflow()"><i class="bi bi-file-earmark-excel"></i> 导出</button>
+        </div>
     </div>
-    <div class="d-flex gap-2">
-      <a class="btn btn-outline-secondary" href="{{ url_for('sales_dashboard') }}">销售工作台</a>
-      <a class="btn btn-outline-secondary" href="{{ url_for('sales_order_list') }}">销售订单</a>
-      <a class="btn btn-outline-secondary" href="{{ url_for('sales_report') }}">销售报表</a>
-      <a class="btn btn-outline-info" href="{{ url_for('sales_trend_report') }}">销售趋势分析</a>
-    </div>
-  </div>
-
-  <form class="card card-body mb-3" id="outflowFilter" method="get">
-    <div class="row g-2 align-items-end">
-      <div class="col-md-2"><label class="form-label">出库日期起</label><input class="form-control" type="date" name="date_start" value="{{ date_start }}"></div>
-      <div class="col-md-2"><label class="form-label">出库日期止</label><input class="form-control" type="date" name="date_end" value="{{ date_end }}"></div>
-      <div class="col-md-5"><label class="form-label">关键词</label><input class="form-control" name="search" value="{{ search }}" placeholder="支持出库单号/客户/来源/备注"></div>
-      <div class="col-md-3 d-flex gap-2">
-        <button class="btn btn-primary">查询</button>
-        <button type="button" class="btn btn-outline-secondary" onclick="exportOutflow()">导出 Excel</button>
-        {% if search or date_start or date_end %}<a class="btn btn-outline-secondary" href="{{ url_for('sales_outflow_report') }}">清除</a>{% endif %}
-      </div>
-    </div>
-  </form>
-
-  <div class="row g-3 mb-3">
-    <div class="col-md-3"><div class="card card-body"><div class="text-muted">明细行数</div><div class="fs-4">{{ total_rows }}</div></div></div>
-    <div class="col-md-3"><div class="card card-body"><div class="text-muted">已完成出库数量</div><div class="fs-4">{{ '%.2f'|format(total_quantity) }}</div></div></div>
-    <div class="col-md-3"><div class="card card-body"><div class="text-muted">已完成出库金额</div><div class="fs-4">¥ {{ '%.2f'|format(total_amount) }}</div></div></div>
-    <div class="col-md-3"><div class="card card-body"><div class="text-muted">查询区间</div><div class="fs-6">{{ date_start }} ~ {{ date_end }}</div></div></div>
-  </div>
-
-  <div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <span>出库明细</span>
-      <span class="text-muted small">共 {{ total_rows }} 条明细</span>
-    </div>
-    <div class="table-responsive">
-      <table class="table table-sm table-hover mb-0">
-        <thead>
-          <tr>
-            <th width="60">序号</th>
-            <th>出库日期</th>
-            <th>出库单号</th>
-            <th>客户</th>
-            <th>仓库</th>
-            <th>物料编码</th>
-            <th>物料名称</th>
-            <th>规格</th>
-            <th>单位</th>
-            <th class="text-end">数量</th>
-            <th class="text-end">单价</th>
-            <th class="text-end">金额</th>
-            <th>状态</th>
-            <th>来源</th>
-            <th>备注</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in rows %}
-          <tr>
-            <td>{{ loop.index }}</td>
-            <td>{{ r.out_date.strftime('%Y-%m-%d') if r.out_date else '-' }}</td>
-            <td><a href="{{ url_for('out_order_detail', id=r.out_order_id) }}">{{ r.out_order_no }}</a></td>
-            <td>{{ r.customer or '-' }}</td>
-            <td>{{ r.warehouse or '-' }}</td>
-            <td>{{ r.material_code or '-' }}</td>
-            <td>{{ r.material_name or '-' }}</td>
-            <td>{{ r.spec or '-' }}</td>
-            <td>{{ r.unit or '-' }}</td>
-            <td class="text-end">{{ '%.2f'|format(r.quantity) }}</td>
-            <td class="text-end">¥ {{ '%.2f'|format(r.price) }}</td>
-            <td class="text-end">¥ {{ '%.2f'|format(r.amount) }}</td>
-            <td>
-              {% if r.out_status == 'completed' %}
-              <span class="badge bg-success">已完成</span>
-              {% elif r.out_status == 'pending' %}
-              <span class="badge bg-warning">待完成</span>
-              {% else %}
-              <span class="badge bg-secondary">{{ r.out_status }}</span>
-              {% endif %}
-            </td>
-            <td>{{ r.purpose or '-' }}</td>
-            <td>{{ r.remark or '-' }}</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="15" class="text-center text-muted">所选区间暂无销售出库明细</td></tr>
-          {% endfor %}
-        </tbody>
-        {% if rows %}
-        <tfoot>
-          <tr class="table-light">
-            <td colspan="9" class="text-end"><strong>合计（仅含已完成）</strong></td>
-            <td class="text-end"><strong>{{ '%.2f'|format(total_quantity) }}</strong></td>
-            <td></td>
-            <td class="text-end"><strong>¥ {{ '%.2f'|format(total_amount) }}</strong></td>
-            <td colspan="3"></td>
-          </tr>
-        </tfoot>
-        {% endif %}
-      </table>
-    </div>
-  </div>
 </div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end" id="outflowFilter">
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">开始日期</label>
+                <input type="date" name="date_start" class="form-control form-control-sm" value="{{ date_start }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">结束日期</label>
+                <input type="date" name="date_end" class="form-control form-control-sm" value="{{ date_end }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">仓库</label>
+                <select name="warehouse" class="form-select form-select-sm">
+                    <option value="">全部仓库</option>
+                    {% for wh in warehouses %}<option value="{{ wh.name }}" {% if warehouse==wh.name %}selected{% endif %}>{{ wh.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">客户</label>
+                <input type="text" name="customer" class="form-control form-control-sm" value="{{ customer }}" placeholder="客户名称">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">关键词</label>
+                <input type="text" name="search" class="form-control form-control-sm" value="{{ search }}" placeholder="单号/来源/备注">
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
+                {% if search or date_start or date_end or warehouse or customer %}<a href="{{ url_for('sales_outflow_report') }}" class="btn btn-outline-secondary btn-sm">清除</a>{% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive-wrapper">
+        <table class="table table-bordered table-hover table-sm mb-0" id="outflowTable">
+            <thead>
+                <tr>
+                    <th width="50">序号</th>
+                    <th>出库日期</th>
+                    <th>出库单号</th>
+                    <th>客户</th>
+                    <th>仓库</th>
+                    <th>物料编码</th>
+                    <th>物料名称</th>
+                    <th>规格</th>
+                    <th>单位</th>
+                    <th class="text-end">数量</th>
+                    <th class="text-end">含税单价</th>
+                    <th class="text-end">税率</th>
+                    <th class="text-end">未税金额</th>
+                    <th class="text-end">税额</th>
+                    <th class="text-end">含税金额</th>
+                    <th>状态</th>
+                    <th>来源</th>
+                    <th>备注</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in rows %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td>{{ r.out_date.strftime('%Y-%m-%d') if r.out_date else '-' }}</td>
+                    <td><a href="{{ url_for('out_order_detail', id=r.out_order_id) }}">{{ r.out_order_no }}</a></td>
+                    <td>{{ r.customer or '-' }}</td>
+                    <td>{{ r.warehouse or '-' }}</td>
+                    <td>{{ r.material_code or '-' }}</td>
+                    <td>{{ r.material_name or '-' }}</td>
+                    <td>{{ r.spec or '-' }}</td>
+                    <td>{{ r.unit or '-' }}</td>
+                    <td class="text-end">{{ '%.2f'|format(r.quantity) }}</td>
+                    <td class="text-end">¥{{ '%.2f'|format(r.price) }}</td>
+                    <td class="text-end">{{ (r.tax_rate * 100)|round(0) }}%</td>
+                    <td class="text-end">¥{{ '%.2f'|format(r.untaxed_amount) }}</td>
+                    <td class="text-end">¥{{ '%.2f'|format(r.tax_amount) }}</td>
+                    <td class="text-end">¥{{ '%.2f'|format(r.amount) }}</td>
+                    <td>
+                        {% if r.out_status == 'completed' %}
+                        <span class="badge bg-success">已完成</span>
+                        {% elif r.out_status == 'pending' %}
+                        <span class="badge bg-warning">待完成</span>
+                        {% else %}
+                        <span class="badge bg-secondary">{{ r.out_status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ r.purpose or '-' }}</td>
+                    <td>{{ r.remark or '-' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="18" class="text-center text-muted">所选区间暂无销售出库明细</td></tr>
+                {% endfor %}
+            </tbody>
+            {% if rows %}
+            <tfoot>
+                <tr class="table-light">
+                    <td colspan="9" class="text-end"><strong>合计（仅含已完成）</strong></td>
+                    <td class="text-end"><strong>{{ '%.2f'|format(total_quantity) }}</strong></td>
+                    <td colspan="2"></td>
+                    <td class="text-end"><strong>¥{{ '%.2f'|format(total_untaxed) }}</strong></td>
+                    <td class="text-end"><strong>¥{{ '%.2f'|format(total_tax) }}</strong></td>
+                    <td class="text-end"><strong>¥{{ '%.2f'|format(total_amount) }}</strong></td>
+                    <td colspan="3"></td>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+        </div>
+    </div>
+</div>
+
 <script>
 function exportOutflow() {
   const params = new URLSearchParams(new FormData(document.getElementById('outflowFilter')));

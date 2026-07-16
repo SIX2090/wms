@@ -13,27 +13,54 @@
   </div>
   <form class="card card-body mb-3" id="reportFilter" method="get">
     <div class="row g-2 align-items-end">
-      <div class="col-md-2"><label class="form-label">日期起</label><input class="form-control" type="date" name="date_start" value="{{ date_start }}"></div>
-      <div class="col-md-2"><label class="form-label">日期止</label><input class="form-control" type="date" name="date_end" value="{{ date_end }}"></div>
-      <div class="col-md-3"><label class="form-label">客户钻取</label>
-        <select class="form-select" name="customer_id">
+      <div class="col-md-2"><label class="form-label small text-muted mb-1">日期起</label><input class="form-control form-control-sm" type="date" name="date_start" value="{{ date_start }}"></div>
+      <div class="col-md-2"><label class="form-label small text-muted mb-1">日期止</label><input class="form-control form-control-sm" type="date" name="date_end" value="{{ date_end }}"></div>
+      <div class="col-md-2"><label class="form-label small text-muted mb-1">客户钻取</label>
+        <select class="form-select form-select-sm" name="customer_id">
           <option value="">全部客户</option>
           {% for customer in customers %}<option value="{{ customer.id }}" {% if drill_customer_id==customer.id %}selected{% endif %}>{{ customer.name }}</option>
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-3"><label class="form-label">物料编码钻取</label><input class="form-control" name="material_code" value="{{ drill_material_code }}" placeholder="留空查看全部"></div>
-      <div class="col-md-2"><label class="form-label">业务员</label>
-        <select class="form-select" name="salesperson_id">
+      <div class="col-md-2"><label class="form-label small text-muted mb-1">物料编码钻取</label><input class="form-control form-control-sm" name="material_code" value="{{ drill_material_code }}" placeholder="留空查看全部"></div>
+      <div class="col-md-2"><label class="form-label small text-muted mb-1">业务员</label>
+        <select class="form-select form-select-sm" name="salesperson_id">
           <option value="">全部业务员</option>
           {% for emp in employees %}<option value="{{ emp.id }}" {% if salesperson_id==emp.id %}selected{% endif %}>{{ emp.name }}</option>
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-12 d-flex gap-2 mt-2">
-        <button class="btn btn-primary">查询</button>
-        <button type="button" class="btn btn-outline-secondary" onclick="exportSalesReport()">导出 Excel</button>
-        {% if drill_customer_id or drill_material_code or salesperson_id %}<a class="btn btn-outline-secondary" href="{{ url_for('sales_report') }}?date_start={{ date_start }}&date_end={{ date_end }}">清除钻取</a>{% endif %}
+      <div class="col-md-2"><label class="form-label small text-muted mb-1">订单状态</label>
+        <select class="form-select form-select-sm" name="status">
+          <option value="">全部状态</option>
+          <option value="draft" {% if status=='draft' %}selected{% endif %}>草稿</option>
+          <option value="confirmed" {% if status=='confirmed' %}selected{% endif %}>已确认</option>
+          <option value="closed" {% if status=='closed' %}selected{% endif %}>已完成</option>
+          <option value="cancelled" {% if status=='cancelled' %}selected{% endif %}>已取消</option>
+        </select>
+      </div>
+    </div>
+    <div class="row g-2 align-items-end mt-1">
+      <div class="col-md-2"><label class="form-label small text-muted mb-1">发货状态</label>
+        <select class="form-select form-select-sm" name="shipment_status">
+          <option value="">全部</option>
+          <option value="pending" {% if shipment_status=='pending' %}selected{% endif %}>未发货</option>
+          <option value="partial" {% if shipment_status=='partial' %}selected{% endif %}>部分发货</option>
+          <option value="shipped" {% if shipment_status=='shipped' %}selected{% endif %}>已发货</option>
+        </select>
+      </div>
+      <div class="col-md-2"><label class="form-label small text-muted mb-1">项目号</label><input class="form-control form-control-sm" name="project_no" value="{{ project_no }}" placeholder="模糊匹配"></div>
+      <div class="col-md-2"><label class="form-label small text-muted mb-1">仓库</label>
+        <select class="form-select form-select-sm" name="warehouse">
+          <option value="">全部仓库</option>
+          {% for wh in warehouses %}<option value="{{ wh.name }}" {% if warehouse==wh.name %}selected{% endif %}>{{ wh.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6 d-flex gap-2 justify-content-end">
+        <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i> 筛选</button>
+        <button type="button" class="btn btn-outline-primary btn-sm" onclick="exportSalesReport()"><i class="bi bi-file-earmark-excel"></i> 导出 Excel</button>
+        {% if drill_customer_id or drill_material_code or salesperson_id or status or shipment_status or project_no or warehouse %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_report') }}">清除筛选</a>{% endif %}
       </div>
     </div>
   </form>
