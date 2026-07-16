@@ -4,6 +4,7 @@
 - AI may create and inspect drafts, but submit/audit/complete/void/delete actions must stay manual unless the user explicitly authorizes a high-risk operation.
 - WeChat text or screenshot shipment notices such as "明天发鑫达 6204轴承 100套，M8螺母 500个" are supplier delivery notices and must generate inbound delivery/purchase receipt drafts, not purchase requests.
 - AI must never modify, reset, or set any user account password (including the admin bootstrap password) unless the user explicitly authorizes the specific operation. Password operations require explicit prior approval.
+- The system must never auto-generate a random password for any account (including the bootstrap admin). When `WMS_BOOTSTRAP_PASSWORD` is not set, the system must use a fixed default password ('admin') with a warning, not `secrets.token_urlsafe` or any random generator. Random password generation hides credentials from the operator and violates password transparency.
 - After completing any task, AI must verify the result (e.g., check service status, test functionality, confirm output correctness) before reporting to the user. Unverified results must not be presented as done.
 - After completing any task, AI must commit and push changes to GitHub unless the user explicitly says not to.
 - `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` is the sole AI development backlog and completion ledger. Before implementing an AI feature, check its unique task ID, current status, existing code, tests, pages, and Git history; never redevelop a completed or equivalent capability.

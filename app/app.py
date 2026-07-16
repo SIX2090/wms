@@ -3625,13 +3625,12 @@ def ensure_bootstrap_admin_user():
         return None
 
     username = (os.environ.get('WMS_BOOTSTRAP_USERNAME') or 'admin').strip() or 'admin'
-    # 出厂默认密码改为随机生成并打印到日志，避免弱默认密码被滥用
-    password = os.environ.get('WMS_BOOTSTRAP_PASSWORD')
-    if not password:
-        password = secrets.token_urlsafe(12)
+    # 禁止系统生成随机密码（AGENTS.md 规则）：未设置环境变量时使用固定默认 'admin' 并警告弱密码
+    password = os.environ.get('WMS_BOOTSTRAP_PASSWORD') or 'admin'
+    if not os.environ.get('WMS_BOOTSTRAP_PASSWORD'):
         app.logger.warning(
-            "WMS_BOOTSTRAP_PASSWORD not set. A random password was generated for the bootstrap admin account. "
-            "Please set the WMS_BOOTSTRAP_PASSWORD environment variable for a known initial password."
+            "WMS_BOOTSTRAP_PASSWORD not set. Using default password 'admin'. "
+            "Please set WMS_BOOTSTRAP_PASSWORD environment variable for a secure password."
         )
     user = User(
         username=username,
@@ -3667,12 +3666,11 @@ def ensure_admin_user_exists():
             app.logger.info("Admin account unlocked (was disabled)")
         return user
 
-    bootstrap_password = os.environ.get('WMS_BOOTSTRAP_PASSWORD')
-    if not bootstrap_password:
-        bootstrap_password = secrets.token_urlsafe(12)
+    bootstrap_password = os.environ.get('WMS_BOOTSTRAP_PASSWORD') or 'admin'
+    if not os.environ.get('WMS_BOOTSTRAP_PASSWORD'):
         app.logger.warning(
-            "WMS_BOOTSTRAP_PASSWORD not set. A random password was generated for the admin account. "
-            "Please set the WMS_BOOTSTRAP_PASSWORD environment variable for a known initial password."
+            "WMS_BOOTSTRAP_PASSWORD not set. Using default password 'admin'. "
+            "Please set WMS_BOOTSTRAP_PASSWORD environment variable for a secure password."
         )
     user = User(
         username='admin',
@@ -3688,7 +3686,7 @@ def ensure_admin_user_exists():
         db.session.rollback()
         app.logger.error(f"Failed to create admin user: {e}")
         raise
-    app.logger.warning("Admin user created with a random password. Please set WMS_BOOTSTRAP_PASSWORD for a known initial password.")
+    app.logger.warning("Admin user created with default password 'admin'. Please set WMS_BOOTSTRAP_PASSWORD for a secure password.")
     return user
 
 
