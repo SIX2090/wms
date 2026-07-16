@@ -86,7 +86,7 @@
 | 顺序 | 任务编号 | 状态 | 任务 | 依赖 | 解锁任务 |
 |---|---|---|---|---|---|
 | 1 | AI-R01 | 已完成 | 全部 AI 草稿统一幂等与审计闭环 | AI-C03～C06 | R08、R11、R13 |
-| 2 | AI-R02 | 下一项 | 强化 CI 门禁与台账一致性检查 | AI-R01 | 所有后续任务 |
+| 2 | AI-R02 | 已完成 | 强化 CI 门禁与台账一致性检查 | AI-R01 | 所有后续任务 |
 | 3 | AI-R03 | 待开发 | 建立真实中文文档黄金样本库 | AI-R02 | R04～R09 |
 | 4 | AI-R04 | 待开发 | 图片预处理与质量门禁 | AI-R03 | R05 |
 | 5 | AI-R05 | 待开发 | OCR/视觉 Provider 真实评测与路由 | R03、R04 | R06～R09 |
@@ -260,6 +260,7 @@
 | AI-R01 | 2026-07-14 | `ed8f973` | `app/app.py`（AIDraftIdempotency 模型 + 8 草稿路径接入幂等闭环）、`app/ai/draft_idempotency.py`（服务模块）、`scripts/verify_ai_draft_idempotency.py`（7 组专项测试）、`scripts/verify_ai_all.py`（注册 CORE_SCRIPTS） | `python scripts/verify_ai_draft_idempotency.py`、`python scripts/verify_ai_all.py --level full` | 通过（37 脚本全部 PASS，重复草稿为 0，反查链路完整） | 无 |
 | AI-SEC-F01 | 2026-07-16 | `2fc51dc` | `app/app.py`（`ensure_bootstrap_admin_user`、`ensure_admin_user_exists` 去除 `secrets.token_urlsafe(12)` 随机密码分支，改为未设置 `WMS_BOOTSTRAP_PASSWORD` 时默认 `admin` + 警告）、`AGENTS.md`（新增规则：禁止系统生成随机密码） | `python -c "check_password_hash(admin.password_hash,'admin')"`、Flask test_client 登录 POST 302→`/` + GET `/sales` 200 | 通过（密码 hash 校验 admin/admin=True、admin/wrong=False；端到端登录跳转正常） | 无 |
 | UX-F01 | 2026-07-16 | `0d21358` | `app/templates/base.html`（库存管理菜单删除"销售单""售后出库"入口，销售管理菜单新增"售后出库"，消除重复入口）、`app/app.py`（`/out_order` 路由默认排除 `business_type='销售出库'`，领料明细不再混销售出库；显式传 `?business_type=销售出库` 仍可查） | Flask test_client + `test_full_flow.db`：20 单销售出库单号在 `/out_order` 列表出现 0 次；显式查询 status=200；菜单源码确认无重复 | 通过（销售出库不再混入领料明细，菜单入口不重复，销售出库明细统一在 `/sales/outflow_report`） | 无 |
+| AI-R02 | 2026-07-16 | `5f1d4e9` | `scripts/verify_ai_tool_compliance.py`（工具权限/风险级别/审计类别合规检查：三表键一致、allowed_roles 合法、risk_level 合法且草稿级强制 confirmation_required、禁止级风险不得注册）、`scripts/verify_ai_ledger_consistency.py`（台账映射检查：代码 `# AI_TASK:` 标记与台账双向校验、防虚假报告、渐进式模式）、`app/ai/policies.py`（补齐 4 个只读工具 warehouse_insights/purchase_insights/master_data_insights/alias_management 的风险级别声明，修复三表键不一致真实缺陷）、`app/ai/tools/registry.py`+`app/ai/draft_idempotency.py`+`app/ai/policies.py`（渐进式标记 AI-R01）、`scripts/verify_ai_all.py`（CORE_SCRIPTS 注册 2 新脚本）、`.github/workflows/verify.yml`（CI 追加 tool_compliance + ledger_consistency 两个检查步骤） | `python3 scripts/verify_ai_tool_compliance.py`、`python3 scripts/verify_ai_ledger_consistency.py`、`python3 scripts/verify_ai_all.py --level core`、破坏性测试（非法 risk_level + 不存在 AI_TASK 标记均退出码 1） | 通过（30 脚本 core 套件全 PASS 含 2 新增、0 回归；破坏 Schema/权限/台账映射时 CI 必失败） | 无 |
 
 ## 9. 任务启动检查
 
@@ -281,6 +282,6 @@
 
 ## 11. 当前下一项
 
-`AI-R02：强化 CI 门禁与台账一致性检查`。
+`AI-R03：建立真实中文文档黄金样本库`。
 
 开始前必须检查所有 AI 路由、工具、模型、迁移和验证脚本是否已关联台账任务编号；破坏 Schema、权限、编码或台账映射时 CI 必须失败。
