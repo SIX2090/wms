@@ -27083,9 +27083,10 @@ def _check_out_order_anomalies(order):
             OutOrder.date == today,
             OutOrder.id != order.id
         )
-        # 按客户或部门过滤
-        if order.customer_id:
-            today_orders = today_orders.filter(OutOrder.customer_id == order.customer_id)
+        # 按客户或部门过滤（OutOrder 使用 customer 字符串字段，非 customer_id 外键）
+        customer_name = getattr(order, 'customer', None)
+        if customer_name:
+            today_orders = today_orders.filter(OutOrder.customer == customer_name)
         elif order.department_id:
             today_orders = today_orders.filter(OutOrder.department_id == order.department_id)
         else:

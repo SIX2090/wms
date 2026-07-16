@@ -43,6 +43,45 @@
 
 ---
 
+## 阶段 6 实施记录（2026-07-16）
+
+阶段 6 测试与验收已实施并通过：
+
+**新增验证脚本**
+- `scripts/verify_sales_module.py`：覆盖 6 项静态检查 + 13 项运行时测试，共 19 项全部通过。
+
+**静态检查（SALES-STC-001 ~ 006）**
+- 数据库迁移含新字段 ALTER TABLE 语句
+- `recalculate_sales_order` 税感知计算逻辑
+- `build_sales_outbound_draft` 重复草稿防护
+- 销售路由 `require_role` 权限装饰器
+- 新增报表模板存在
+- 导入模板含新字段列头
+
+**运行时测试（SALES-RT-001 ~ 013）**
+- 创建销售订单（含税额/批次/序列号字段）
+- 税额计算正确性（含税 1000 → 未税 884.96 + 税额 115.04）
+- 确认销售订单
+- 生成销售出库草稿
+- 重复生成出库草稿返回已存在（防护）
+- 完成出库单后回写已发货数量（一单一出，shipped_qty=10/5，shipped_amount=2000.00）
+- 订单状态变为 closed / shipped
+- 取消未发货订单
+- 删除草稿订单
+- 报表页面渲染（10 个路由全部 HTTP 200）
+- Excel 导出（4 个导出路由全部成功）
+- 权限边界（viewer 角色被拒绝创建订单）
+- 中文页面无乱码
+
+**附带修复**
+- 修复 `_check_out_order_anomalies` 中 `order.customer_id` 引用不存在属性的预存 Bug（OutOrder 使用 `customer` 字符串字段），改为 `getattr(order, 'customer', None)`，确保销售出库完成流程不再崩溃。
+
+**验证结果**
+- `python scripts/verify_sales_module.py`：19/19 通过
+- `python scripts/verify_wms_bugs.py`：全部通过（含回归检查）
+
+---
+
 ## 1. 现状结论
 
 当前 WMS 已具备部分销售能力，但销售功能主要挂在库存出库模块中，并非完整的独立销售管理模块。
