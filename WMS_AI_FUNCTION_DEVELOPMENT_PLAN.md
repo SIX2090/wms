@@ -258,6 +258,7 @@
 | 任务编号 | 完成日期 | 提交哈希 | 改动模块 | 验证命令 | 验收结果 | 遗留子项 |
 |---|---|---|---|---|---|---|
 | AI-R01 | 2026-07-14 | `ed8f973` | `app/app.py`（AIDraftIdempotency 模型 + 8 草稿路径接入幂等闭环）、`app/ai/draft_idempotency.py`（服务模块）、`scripts/verify_ai_draft_idempotency.py`（7 组专项测试）、`scripts/verify_ai_all.py`（注册 CORE_SCRIPTS） | `python scripts/verify_ai_draft_idempotency.py`、`python scripts/verify_ai_all.py --level full` | 通过（37 脚本全部 PASS，重复草稿为 0，反查链路完整） | 无 |
+| AI-SEC-F01 | 2026-07-16 | `2fc51dc` | `app/app.py`（`ensure_bootstrap_admin_user`、`ensure_admin_user_exists` 去除 `secrets.token_urlsafe(12)` 随机密码分支，改为未设置 `WMS_BOOTSTRAP_PASSWORD` 时默认 `admin` + 警告）、`AGENTS.md`（新增规则：禁止系统生成随机密码） | `python -c "check_password_hash(admin.password_hash,'admin')"`、Flask test_client 登录 POST 302→`/` + GET `/sales` 200 | 通过（密码 hash 校验 admin/admin=True、admin/wrong=False；端到端登录跳转正常） | 无 |
 
 ## 9. 任务启动检查
 
