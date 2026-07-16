@@ -259,6 +259,7 @@
 |---|---|---|---|---|---|---|
 | AI-R01 | 2026-07-14 | `ed8f973` | `app/app.py`（AIDraftIdempotency 模型 + 8 草稿路径接入幂等闭环）、`app/ai/draft_idempotency.py`（服务模块）、`scripts/verify_ai_draft_idempotency.py`（7 组专项测试）、`scripts/verify_ai_all.py`（注册 CORE_SCRIPTS） | `python scripts/verify_ai_draft_idempotency.py`、`python scripts/verify_ai_all.py --level full` | 通过（37 脚本全部 PASS，重复草稿为 0，反查链路完整） | 无 |
 | AI-SEC-F01 | 2026-07-16 | `2fc51dc` | `app/app.py`（`ensure_bootstrap_admin_user`、`ensure_admin_user_exists` 去除 `secrets.token_urlsafe(12)` 随机密码分支，改为未设置 `WMS_BOOTSTRAP_PASSWORD` 时默认 `admin` + 警告）、`AGENTS.md`（新增规则：禁止系统生成随机密码） | `python -c "check_password_hash(admin.password_hash,'admin')"`、Flask test_client 登录 POST 302→`/` + GET `/sales` 200 | 通过（密码 hash 校验 admin/admin=True、admin/wrong=False；端到端登录跳转正常） | 无 |
+| UX-F01 | 2026-07-16 | `0d21358` | `app/templates/base.html`（库存管理菜单删除"销售单""售后出库"入口，销售管理菜单新增"售后出库"，消除重复入口）、`app/app.py`（`/out_order` 路由默认排除 `business_type='销售出库'`，领料明细不再混销售出库；显式传 `?business_type=销售出库` 仍可查） | Flask test_client + `test_full_flow.db`：20 单销售出库单号在 `/out_order` 列表出现 0 次；显式查询 status=200；菜单源码确认无重复 | 通过（销售出库不再混入领料明细，菜单入口不重复，销售出库明细统一在 `/sales/outflow_report`） | 无 |
 
 ## 9. 任务启动检查
 
