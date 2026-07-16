@@ -1,4 +1,5 @@
 """AI-R02: AI 工具合规检查
+# AI_TASK: AI-R02
 
 校验 AI_TOOL_REGISTRY 中每个工具的权限、风险级别、审计类别是否齐全且合法。
 扩展 verify_ai_tool_schemas 的 Schema 检查，覆盖权限/风险维度。

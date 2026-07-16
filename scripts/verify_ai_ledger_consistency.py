@@ -1,4 +1,5 @@
 """AI-R02: AI 台账一致性检查
+# AI_TASK: AI-R02
 
 校验代码中的 AI 任务标记与台账 WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md 不脱节。
 
@@ -64,10 +65,11 @@ def parse_ledger_tasks() -> tuple[dict[str, str], set[str]]:
 
 
 def scan_code_markers() -> dict[str, list[str]]:
-    """扫描 app/ 下所有 .py 和 .html，返回 {任务ID: [文件路径列表]}"""
+    """扫描 app/ 和 scripts/verify_ai_*.py，返回 {任务ID: [文件路径列表]}"""
     markers: dict[str, list[str]] = {}
-    extensions = ('*.py', '*.html')
-    for ext in extensions:
+
+    # app/ 下所有 .py 和 .html（业务能力代码）
+    for ext in ('*.py', '*.html'):
         for path in APP_DIR.rglob(ext):
             try:
                 text = path.read_text(encoding='utf-8')
@@ -76,6 +78,18 @@ def scan_code_markers() -> dict[str, list[str]]:
             for match in TASK_MARKER_RE.finditer(text):
                 task_id = match.group(1)
                 markers.setdefault(task_id, []).append(str(path.relative_to(ROOT)))
+
+    # scripts/verify_ai_*.py（验证脚本归属标记）
+    scripts_dir = ROOT / 'scripts'
+    for path in scripts_dir.glob('verify_ai_*.py'):
+        try:
+            text = path.read_text(encoding='utf-8')
+        except (UnicodeDecodeError, OSError):
+            continue
+        for match in TASK_MARKER_RE.finditer(text):
+            task_id = match.group(1)
+            markers.setdefault(task_id, []).append(str(path.relative_to(ROOT)))
+
     return markers
 
 
