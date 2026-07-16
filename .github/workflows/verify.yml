@@ -29,3 +29,9 @@ jobs:
 
       - name: Run WMS bug regression
         run: python3 scripts/verify_wms_bugs.py
+
+      - name: Run AI tool compliance check (AI-R02)
+        run: python3 scripts/verify_ai_tool_compliance.py
+
+      - name: Run AI ledger consistency check (AI-R02)
+        run: python3 scripts/verify_ai_ledger_consistency.py

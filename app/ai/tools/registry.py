@@ -1,3 +1,6 @@
+"""AI 工具注册表：Schema、权限、风险级别、审计类别统一声明。
+# AI_TASK: AI-R01
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass

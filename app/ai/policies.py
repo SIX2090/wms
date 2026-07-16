@@ -1,3 +1,6 @@
+"""AI 能力权限与风险级别策略表。
+# AI_TASK: AI-R01
+"""
 from __future__ import annotations
 
 
@@ -55,13 +58,17 @@ AI_CAPABILITY_RISK_LEVELS = {
     'check_draft': 'draft',
     'adjustment_draft': 'draft',
     'purchase_request_draft': 'draft',
+    'warehouse_insights': 'read',
+    'purchase_insights': 'read',
     'warehouse_patrol_agent': 'read',
     'purchase_followup_agent': 'read',
     'replenishment_planning': 'read',
     'replenishment_smart': 'read',
     'inventory_health': 'read',
     'knowledge_base': 'read',
+    'master_data_insights': 'read',
     'admin_insights': 'sensitive_read',
+    'alias_management': 'read',
 }
 
 AI_AUTONOMOUS_RISK_LEVELS = frozenset({'read', 'sensitive_read'})
