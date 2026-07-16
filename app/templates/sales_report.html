@@ -1,6 +1,161 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}销售报表{% endblock %}
 {% block content %}
-<div class="container-fluid py-3"><div class="d-flex justify-content-between align-items-center mb-3"><div><h4>销售报表</h4><div class="text-muted small">统计口径：销售订单含税金额；本页只读，可查询、导出和打印。</div></div><div class="d-flex gap-2"><a class="btn btn-outline-secondary" href="{{ url_for('sales_dashboard') }}">销售工作台</a><a class="btn btn-outline-secondary" href="{{ url_for('sales_order_list') }}">销售订单</a></div></div><form class="card card-body mb-3" id="reportFilter"><div class="row g-2 align-items-end"><div class="col-md-3"><label class="form-label">日期起</label><input class="form-control" type="date" name="date_start" value="{{ date_start }}"></div><div class="col-md-3"><label class="form-label">日期止</label><input class="form-control" type="date" name="date_end" value="{{ date_end }}"></div><div class="col-md-4 d-flex gap-2"><button class="btn btn-primary">查询</button><button type="button" class="btn btn-outline-secondary" onclick="exportSalesReport()">导出 Excel</button></div></div></form><div class="row g-3 mb-3"><div class="col-md-3"><div class="card card-body"><div class="text-muted">订单数</div><div class="fs-4">{{ total_orders }}</div></div></div><div class="col-md-3"><div class="card card-body"><div class="text-muted">含税销售金额</div><div class="fs-4">¥ {{ '%.2f'|format(total_amount) }}</div></div></div><div class="col-md-3"><div class="card card-body"><div class="text-muted">已发货金额</div><div class="fs-4">¥ {{ '%.2f'|format(shipped_amount) }}</div></div></div><div class="col-md-3"><div class="card card-body"><div class="text-muted">待发货金额</div><div class="fs-4">¥ {{ '%.2f'|format(pending_amount) }}</div></div></div></div><div class="row g-3"><div class="col-lg-6"><div class="card"><div class="card-header">客户销售汇总</div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>客户</th><th>订单数</th><th>数量</th><th class="text-end">含税金额</th></tr></thead><tbody>{% for row in by_customer %}<tr><td>{{ row.name }}</td><td>{{ row.orders }}</td><td>{{ row.quantity }}</td><td class="text-end">{{ '%.2f'|format(row.amount) }}</td></tr>{% else %}<tr><td colspan="4" class="text-center text-muted">暂无数据</td></tr>{% endfor %}</tbody></table></div></div></div><div class="col-lg-6"><div class="card"><div class="card-header">物料销售汇总</div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>编码</th><th>名称</th><th>数量</th><th class="text-end">含税金额</th></tr></thead><tbody>{% for row in by_material %}<tr><td>{{ row.code }}</td><td>{{ row.name }}</td><td>{{ row.quantity }}</td><td class="text-end">{{ '%.2f'|format(row.amount) }}</td></tr>{% else %}<tr><td colspan="4" class="text-center text-muted">暂无数据</td></tr>{% endfor %}</tbody></table></div></div></div></div></div>
-<script>function exportSalesReport(){const params=new URLSearchParams(new FormData(document.getElementById('reportFilter')));window.location.href='{{ url_for("export_sales_report") }}?'+params.toString()}</script>
+<div class="container-fluid py-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div><h4 class="mb-0">销售报表</h4><div class="text-muted small">统计口径：销售订单含税金额；本页只读，可查询、导出和打印。</div></div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="{{ url_for('sales_dashboard') }}">销售工作台</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('sales_order_list') }}">销售订单</a>
+      <a class="btn btn-outline-info" href="{{ url_for('sales_outflow_report') }}">销售出库明细</a>
+      <a class="btn btn-outline-info" href="{{ url_for('sales_trend_report') }}">销售趋势分析</a>
+    </div>
+  </div>
+  <form class="card card-body mb-3" id="reportFilter" method="get">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-2"><label class="form-label">日期起</label><input class="form-control" type="date" name="date_start" value="{{ date_start }}"></div>
+      <div class="col-md-2"><label class="form-label">日期止</label><input class="form-control" type="date" name="date_end" value="{{ date_end }}"></div>
+      <div class="col-md-3"><label class="form-label">客户钻取</label>
+        <select class="form-select" name="customer_id">
+          <option value="">全部客户</option>
+          {% for customer in customers %}<option value="{{ customer.id }}" {% if drill_customer_id==customer.id %}selected{% endif %}>{{ customer.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3"><label class="form-label">物料编码钻取</label><input class="form-control" name="material_code" value="{{ drill_material_code }}" placeholder="留空查看全部"></div>
+      <div class="col-md-2"><label class="form-label">业务员</label>
+        <select class="form-select" name="salesperson_id">
+          <option value="">全部业务员</option>
+          {% for emp in employees %}<option value="{{ emp.id }}" {% if salesperson_id==emp.id %}selected{% endif %}>{{ emp.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-12 d-flex gap-2 mt-2">
+        <button class="btn btn-primary">查询</button>
+        <button type="button" class="btn btn-outline-secondary" onclick="exportSalesReport()">导出 Excel</button>
+        {% if drill_customer_id or drill_material_code or salesperson_id %}<a class="btn btn-outline-secondary" href="{{ url_for('sales_report') }}?date_start={{ date_start }}&date_end={{ date_end }}">清除钻取</a>{% endif %}
+      </div>
+    </div>
+  </form>
+
+  {% if drill_material_code and drill_items %}
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>物料钻取明细：{{ drill_material_name }}（{{ drill_material_code }}）</span>
+      <span class="text-muted small">共 {{ drill_items|length }} 条明细</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead><tr><th>订单号</th><th>日期</th><th>客户</th><th>业务员</th><th class="text-end">数量</th><th class="text-end">已发货</th><th class="text-end">含税单价</th><th class="text-end">税率</th><th class="text-end">未税金额</th><th class="text-end">税额</th><th class="text-end">含税金额</th></tr></thead>
+        <tbody>
+          {% for it in drill_items %}
+          <tr>
+            <td><a href="{{ url_for('sales_order_detail', id=it.order_id) }}">{{ it.order_no }}</a></td>
+            <td>{{ it.date }}</td>
+            <td>{{ it.customer }}</td>
+            <td>{{ it.salesperson }}</td>
+            <td class="text-end">{{ it.quantity }}</td>
+            <td class="text-end">{{ it.shipped_quantity }}</td>
+            <td class="text-end">{{ '%.2f'|format(it.price) }}</td>
+            <td class="text-end">{{ (it.tax_rate * 100)|round(0) }}%</td>
+            <td class="text-end">{{ '%.2f'|format(it.untaxed_amount) }}</td>
+            <td class="text-end">{{ '%.2f'|format(it.tax_amount) }}</td>
+            <td class="text-end">{{ '%.2f'|format(it.tax_included_amount) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-2"><div class="card card-body"><div class="text-muted">订单数</div><div class="fs-4">{{ total_orders }}</div></div></div>
+    <div class="col-md-2"><div class="card card-body"><div class="text-muted">未税金额</div><div class="fs-4">¥ {{ '%.2f'|format(total_untaxed) }}</div></div></div>
+    <div class="col-md-2"><div class="card card-body"><div class="text-muted">税额</div><div class="fs-4">¥ {{ '%.2f'|format(total_tax) }}</div></div></div>
+    <div class="col-md-2"><div class="card card-body"><div class="text-muted">含税金额</div><div class="fs-4">¥ {{ '%.2f'|format(total_amount) }}</div></div></div>
+    <div class="col-md-2"><div class="card card-body"><div class="text-muted">已发货金额</div><div class="fs-4">¥ {{ '%.2f'|format(shipped_amount) }}</div></div></div>
+    <div class="col-md-2"><div class="card card-body"><div class="text-muted">待发货金额</div><div class="fs-4">¥ {{ '%.2f'|format(pending_amount) }}</div></div></div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-4">
+      <div class="card">
+        <div class="card-header">客户销售汇总（点击钻取）</div>
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>客户</th><th>订单数</th><th>数量</th><th class="text-end">未税</th><th class="text-end">税额</th><th class="text-end">含税金额</th></tr></thead>
+            <tbody>
+              {% for row in by_customer %}
+              <tr>
+                <td><a href="{{ url_for('sales_report', date_start=date_start, date_end=date_end, customer_id=row.customer_id) }}&salesperson_id={{ salesperson_id or '' }}">{{ row.name }}</a></td>
+                <td>{{ row.orders }}</td>
+                <td>{{ row.quantity }}</td>
+                <td class="text-end">{{ '%.2f'|format(row.untaxed_amount) }}</td>
+                <td class="text-end">{{ '%.2f'|format(row.tax_amount) }}</td>
+                <td class="text-end">{{ '%.2f'|format(row.amount) }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6" class="text-center text-muted">暂无数据</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card">
+        <div class="card-header">物料销售汇总（点击钻取）</div>
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>编码</th><th>名称</th><th>数量</th><th class="text-end">未税</th><th class="text-end">税额</th><th class="text-end">含税金额</th></tr></thead>
+            <tbody>
+              {% for row in by_material %}
+              <tr>
+                <td><a href="{{ url_for('sales_report', date_start=date_start, date_end=date_end, material_code=row.code) }}&customer_id={{ drill_customer_id or '' }}&salesperson_id={{ salesperson_id or '' }}">{{ row.code }}</a></td>
+                <td>{{ row.name }}</td>
+                <td>{{ row.quantity }}</td>
+                <td class="text-end">{{ '%.2f'|format(row.untaxed_amount) }}</td>
+                <td class="text-end">{{ '%.2f'|format(row.tax_amount) }}</td>
+                <td class="text-end">{{ '%.2f'|format(row.amount) }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6" class="text-center text-muted">暂无数据</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card">
+        <div class="card-header">业务员销售汇总</div>
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>业务员</th><th>订单数</th><th class="text-end">未税</th><th class="text-end">税额</th><th class="text-end">含税金额</th></tr></thead>
+            <tbody>
+              {% for row in by_salesperson %}
+              <tr>
+                <td>{{ row.name }}</td>
+                <td>{{ row.orders }}</td>
+                <td class="text-end">{{ '%.2f'|format(row.untaxed_amount) }}</td>
+                <td class="text-end">{{ '%.2f'|format(row.tax_amount) }}</td>
+                <td class="text-end">{{ '%.2f'|format(row.amount) }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="text-center text-muted">暂无数据</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function exportSalesReport() {
+  const params = new URLSearchParams(new FormData(document.getElementById('reportFilter')));
+  window.location.href = '{{ url_for("export_sales_report") }}?' + params.toString();
+}
+</script>
 {% endblock %}

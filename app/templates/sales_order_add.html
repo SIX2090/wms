@@ -1,6 +1,147 @@
 {% extends "base.html" %}
 {% block title %}新建销售订单{% endblock %}
 {% block content %}
-<div class="container-fluid py-3"><div class="d-flex justify-content-between align-items-center mb-3"><h4>新建销售订单</h4><a href="{{ url_for('sales_order_list') }}" class="btn btn-outline-secondary">返回列表</a></div><form id="salesForm" class="card card-body"><div class="row g-3 mb-3"><div class="col-md-3"><label class="form-label">订单号</label><input class="form-control" name="order_no" value="{{ order_no }}" required></div><div class="col-md-2"><label class="form-label">订单日期</label><input class="form-control" type="date" name="date" value="{{ order_date }}" required></div><div class="col-md-3"><label class="form-label">客户</label><select class="form-select" name="customer_id" required><option value="">请选择客户</option>{% for customer in customers %}<option value="{{ customer.id }}">{{ customer.code }} - {{ customer.name }}</option>{% endfor %}</select></div><div class="col-md-2"><label class="form-label">交货日期</label><input class="form-control" type="date" name="delivery_date"></div><div class="col-md-2"><label class="form-label">发货仓库</label><select class="form-select" name="warehouse"><option value="">请选择</option>{% for warehouse in warehouses %}<option>{{ warehouse.name }}</option>{% endfor %}</select></div></div><div class="table-responsive"><table class="table table-bordered" id="items"><thead><tr><th style="width:24%">物料</th><th>规格</th><th>单位</th><th style="width:110px">数量</th><th style="width:130px">含税单价</th><th>备注</th><th style="width:60px"></th></tr></thead><tbody></tbody></table></div><button type="button" class="btn btn-outline-primary mb-3" onclick="addRow()"><i class="bi bi-plus"></i> 添加明细</button><div class="row"><div class="col-md-8"><label class="form-label">备注</label><textarea class="form-control" name="remark" rows="2"></textarea></div><div class="col-md-4 text-end align-self-end"><strong>含税金额：<span id="total">0.00</span></strong><button class="btn btn-primary ms-3">保存草稿</button></div></div></form></div>
-<script>const materials={{ materials|tojson }};function addRow(){const tr=document.createElement('tr');tr.innerHTML='<td><select class="form-select material"><option value="">请选择物料</option>'+materials.map(m=>`<option value="${m.code}">${m.code} - ${m.name}</option>`).join('')+'</select></td><td class="spec"></td><td class="unit"></td><td><input class="form-control qty" type="number" min="0.01" step="0.01" value="1"></td><td><input class="form-control price" type="number" min="0" step="0.01" value="0"></td><td><input class="form-control remark"></td><td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest(\'tr\').remove();calc()">删除</button></td>';document.querySelector('#items tbody').appendChild(tr);tr.querySelector('.material').onchange=()=>{const m=materials.find(x=>x.code===tr.querySelector('.material').value);tr.querySelector('.spec').textContent=m?.spec||'-';tr.querySelector('.unit').textContent=m?.unit||'-';tr.querySelector('.price').value=m?.price||0;calc()};tr.querySelector('.qty').oninput=calc;tr.querySelector('.price').oninput=calc}function calc(){let total=0;document.querySelectorAll('#items tbody tr').forEach(tr=>total+=(+tr.querySelector('.qty').value||0)*(+tr.querySelector('.price').value||0));document.querySelector('#total').textContent=total.toFixed(2)}addRow();document.querySelector('#salesForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const items=[...document.querySelectorAll('#items tbody tr')].map(tr=>({code:tr.querySelector('.material').value,quantity:tr.querySelector('.qty').value,price:tr.querySelector('.price').value,remark:tr.querySelector('.remark').value}));const r=await fetch('{{ url_for("sales_order_add") }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign(Object.fromEntries(f.entries()),{items}))});const d=await r.json();if(d.status==='success')location.href='/sales/'+d.id;else alert(d.msg||'保存失败')}</script>
+<div class="container-fluid py-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">新建销售订单</h4>
+    <a href="{{ url_for('sales_order_list') }}" class="btn btn-outline-secondary">返回列表</a>
+  </div>
+  <form id="salesForm" class="card card-body">
+    <div class="row g-3 mb-3">
+      <div class="col-md-3"><label class="form-label">订单号</label><input class="form-control" name="order_no" value="{{ order_no }}" required></div>
+      <div class="col-md-2"><label class="form-label">订单日期</label><input class="form-control" type="date" name="date" value="{{ order_date }}" required></div>
+      <div class="col-md-3"><label class="form-label">客户</label><select class="form-select" name="customer_id" required><option value="">请选择客户</option>{% for customer in customers %}<option value="{{ customer.id }}">{{ customer.code }} - {{ customer.name }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label">交货日期</label><input class="form-control" type="date" name="delivery_date"></div>
+      <div class="col-md-2"><label class="form-label">发货仓库</label><select class="form-select" name="warehouse"><option value="">请选择</option>{% for warehouse in warehouses %}<option>{{ warehouse.name }}</option>{% endfor %}</select></div>
+    </div>
+    <div class="row g-3 mb-3">
+      <div class="col-md-3"><label class="form-label">业务员</label><select class="form-select" name="salesperson_id"><option value="">请选择</option>{% for emp in employees %}<option value="{{ emp.id }}">{{ emp.name }}{% if emp.position %}（{{ emp.position }}）{% endif %}</option>{% endfor %}</select></div>
+      <div class="col-md-3"><label class="form-label">项目号</label><input class="form-control" name="project_no" placeholder="可选"></div>
+      <div class="col-md-2"><label class="form-label">币别</label><select class="form-select" name="currency"><option value="CNY" selected>CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="HKD">HKD 港币</option></select></div>
+      <div class="col-md-2"><label class="form-label">结算方式</label><select class="form-select" name="settlement_method"><option value="">请选择</option><option>现结</option><option>月结30天</option><option>月结60天</option><option>月结90天</option><option>预付</option></select></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-bordered" id="items">
+        <thead>
+          <tr>
+            <th style="width:20%">物料</th>
+            <th>规格</th>
+            <th>单位</th>
+            <th style="width:100px">数量</th>
+            <th style="width:120px">含税单价</th>
+            <th style="width:90px">税率</th>
+            <th style="width:110px">未税金额</th>
+            <th style="width:110px">税额</th>
+            <th style="width:110px">含税金额</th>
+            <th>批次号</th>
+            <th>序列号</th>
+            <th>备注</th>
+            <th style="width:60px"></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+        <tfoot>
+          <tr class="table-light">
+            <td colspan="6" class="text-end"><strong>合计</strong></td>
+            <td class="text-end"><strong id="totalUntaxed">0.00</strong></td>
+            <td class="text-end"><strong id="totalTax">0.00</strong></td>
+            <td class="text-end"><strong id="total">0.00</strong></td>
+            <td colspan="4"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <button type="button" class="btn btn-outline-primary mb-3" onclick="addRow()"><i class="bi bi-plus"></i> 添加明细</button>
+    <div class="row">
+      <div class="col-md-8"><label class="form-label">备注</label><textarea class="form-control" name="remark" rows="2"></textarea></div>
+      <div class="col-md-4 text-end align-self-end"><strong>含税金额合计：<span id="totalHeader">0.00</span></strong><button class="btn btn-primary ms-3">保存草稿</button></div>
+    </div>
+  </form>
+</div>
+<script>
+const materials = {{ materials|tojson }};
+const defaultTaxRate = {{ default_tax_rate|default(0.13) }};
+
+function rowTotal(tr) {
+  const qty = parseFloat(tr.querySelector('.qty').value) || 0;
+  const price = parseFloat(tr.querySelector('.price').value) || 0;
+  const taxRate = parseFloat(tr.querySelector('.tax-rate').value) || 0;
+  const included = qty * price;
+  const untaxed = (1 + taxRate) > 0 ? included / (1 + taxRate) : included;
+  const tax = included - untaxed;
+  tr.querySelector('.untaxed-amount').textContent = untaxed.toFixed(2);
+  tr.querySelector('.tax-amount').textContent = tax.toFixed(2);
+  tr.querySelector('.included-amount').textContent = included.toFixed(2);
+  return { included, untaxed, tax };
+}
+
+function calc() {
+  let total = 0, totalUntaxed = 0, totalTax = 0;
+  document.querySelectorAll('#items tbody tr').forEach(tr => {
+    const r = rowTotal(tr);
+    total += r.included;
+    totalUntaxed += r.untaxed;
+    totalTax += r.tax;
+  });
+  document.querySelector('#total').textContent = total.toFixed(2);
+  document.querySelector('#totalHeader').textContent = total.toFixed(2);
+  document.querySelector('#totalUntaxed').textContent = totalUntaxed.toFixed(2);
+  document.querySelector('#totalTax').textContent = totalTax.toFixed(2);
+}
+
+function addRow() {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><select class="form-select material"><option value="">请选择物料</option>${materials.map(m => `<option value="${m.code}">${m.code} - ${m.name}</option>`).join('')}</select></td>
+    <td class="spec">-</td>
+    <td class="unit">-</td>
+    <td><input class="form-control qty" type="number" min="0.01" step="0.01" value="1"></td>
+    <td><input class="form-control price" type="number" min="0" step="0.01" value="0"></td>
+    <td><input class="form-control tax-rate" type="number" min="0" max="1" step="0.01" value="${defaultTaxRate}"></td>
+    <td class="text-end untaxed-amount">0.00</td>
+    <td class="text-end tax-amount">0.00</td>
+    <td class="text-end included-amount">0.00</td>
+    <td><input class="form-control batch-no"></td>
+    <td><input class="form-control serial-no"></td>
+    <td><input class="form-control remark"></td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove();calc()">删除</button></td>
+  `;
+  document.querySelector('#items tbody').appendChild(tr);
+  tr.querySelector('.material').onchange = () => {
+    const m = materials.find(x => x.code === tr.querySelector('.material').value);
+    tr.querySelector('.spec').textContent = m?.spec || '-';
+    tr.querySelector('.unit').textContent = m?.unit || '-';
+    tr.querySelector('.price').value = m?.price || 0;
+    calc();
+  };
+  tr.querySelector('.qty').oninput = calc;
+  tr.querySelector('.price').oninput = calc;
+  tr.querySelector('.tax-rate').oninput = calc;
+  calc();
+}
+
+addRow();
+
+document.querySelector('#salesForm').onsubmit = async e => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const items = [...document.querySelectorAll('#items tbody tr')].map(tr => ({
+    code: tr.querySelector('.material').value,
+    quantity: tr.querySelector('.qty').value,
+    price: tr.querySelector('.price').value,
+    tax_rate: tr.querySelector('.tax-rate').value,
+    batch_no: tr.querySelector('.batch-no').value,
+    serial_no: tr.querySelector('.serial-no').value,
+    remark: tr.querySelector('.remark').value,
+  }));
+  const r = await fetch('{{ url_for("sales_order_add") }}', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign(Object.fromEntries(f.entries()), { items })),
+  });
+  const d = await r.json();
+  if (d.status === 'success') location.href = '/sales/' + d.id;
+  else alert(d.msg || '保存失败');
+};
+</script>
 {% endblock %}

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}销售趋势分析表{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-graph-up-arrow"></i> 销售趋势分析表</h4>
+      <div class="text-muted small">统计口径：按月聚合销售订单含税金额、未税金额、税额、发货金额与订单数；环比增长按月计算。</div>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="{{ url_for('sales_dashboard') }}">销售工作台</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('sales_order_list') }}">销售订单</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('sales_report') }}">销售报表</a>
+      <a class="btn btn-outline-info" href="{{ url_for('sales_outflow_report') }}">销售出库明细</a>
+    </div>
+  </div>
+
+  <form class="card card-body mb-3" id="trendFilter" method="get">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label">统计月份范围</label>
+        <select class="form-select" name="months" onchange="this.form.submit()">
+          <option value="3" {% if months_back == 3 %}selected{% endif %}>近 3 个月</option>
+          <option value="6" {% if months_back == 6 %}selected{% endif %}>近 6 个月</option>
+          <option value="12" {% if months_back == 12 %}selected{% endif %}>近 12 个月（默认）</option>
+          <option value="24" {% if months_back == 24 %}selected{% endif %}>近 24 个月</option>
+          <option value="36" {% if months_back == 36 %}selected{% endif %}>近 36 个月</option>
+          <option value="60" {% if months_back == 60 %}selected{% endif %}>近 60 个月</option>
+        </select>
+      </div>
+      <div class="col-md-3 d-flex gap-2">
+        <button class="btn btn-primary">查询</button>
+        <button type="button" class="btn btn-outline-secondary" onclick="exportTrend()">导出 Excel</button>
+      </div>
+      <div class="col-md-6 text-end text-muted small align-self-end">
+        数据基于销售订单（不含已取消），按订单日期所属月份聚合。
+      </div>
+    </div>
+  </form>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-2"><div class="card card-body"><div class="text-muted">订单总数</div><div class="fs-4">{{ total_orders }}</div></div></div>
+    <div class="col-md-2"><div class="card card-body"><div class="text-muted">未税金额合计</div><div class="fs-4">¥ {{ '%.2f'|format(total_untaxed) }}</div></div></div>
+    <div class="col-md-2"><div class="card card-body"><div class="text-muted">税额合计</div><div class="fs-4">¥ {{ '%.2f'|format(total_tax) }}</div></div></div>
+    <div class="col-md-3"><div class="card card-body"><div class="text-muted">含税金额合计</div><div class="fs-4">¥ {{ '%.2f'|format(total_amount) }}</div></div></div>
+    <div class="col-md-3"><div class="card card-body"><div class="text-muted">已发货金额合计</div><div class="fs-4">¥ {{ '%.2f'|format(total_shipped) }}</div></div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>月度销售趋势</span>
+      <span class="text-muted small">共 {{ rows|length }} 个月</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead>
+          <tr>
+            <th width="60">序号</th>
+            <th>月份</th>
+            <th class="text-end">订单数</th>
+            <th class="text-end">客户数</th>
+            <th class="text-end">数量</th>
+            <th class="text-end">未税金额</th>
+            <th class="text-end">税额</th>
+            <th class="text-end">含税金额</th>
+            <th class="text-end">已发货金额</th>
+            <th class="text-end">发货率</th>
+            <th class="text-end">环比增长</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ r.month }}</td>
+            <td class="text-end">{{ r.orders }}</td>
+            <td class="text-end">{{ r.customers }}</td>
+            <td class="text-end">{{ '%.2f'|format(r.quantity) }}</td>
+            <td class="text-end">¥ {{ '%.2f'|format(r.untaxed_amount) }}</td>
+            <td class="text-end">¥ {{ '%.2f'|format(r.tax_amount) }}</td>
+            <td class="text-end"><strong>¥ {{ '%.2f'|format(r.amount) }}</strong></td>
+            <td class="text-end">¥ {{ '%.2f'|format(r.shipped_amount) }}</td>
+            <td class="text-end">
+              {% if r.amount > 0 %}{{ '%.1f'|format(r.shipped_amount / r.amount * 100) }}%{% else %}-{% endif %}
+            </td>
+            <td class="text-end">
+              {% if r.growth is none %}
+              <span class="text-muted">-</span>
+              {% elif r.growth >= 0 %}
+              <span class="text-success"><i class="bi bi-arrow-up-short"></i>{{ '%.2f'|format(r.growth) }}%</span>
+              {% else %}
+              <span class="text-danger"><i class="bi bi-arrow-down-short"></i>{{ '%.2f'|format(r.growth|abs) }}%</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="11" class="text-center text-muted">所选区间暂无销售订单数据</td></tr>
+          {% endfor %}
+        </tbody>
+        {% if rows %}
+        <tfoot>
+          <tr class="table-light">
+            <td colspan="2" class="text-end"><strong>合计</strong></td>
+            <td class="text-end"><strong>{{ total_orders }}</strong></td>
+            <td></td>
+            <td></td>
+            <td class="text-end"><strong>¥ {{ '%.2f'|format(total_untaxed) }}</strong></td>
+            <td class="text-end"><strong>¥ {{ '%.2f'|format(total_tax) }}</strong></td>
+            <td class="text-end"><strong>¥ {{ '%.2f'|format(total_amount) }}</strong></td>
+            <td class="text-end"><strong>¥ {{ '%.2f'|format(total_shipped) }}</strong></td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+</div>
+<script>
+function exportTrend() {
+  const params = new URLSearchParams(new FormData(document.getElementById('trendFilter')));
+  window.location.href = '{{ url_for("export_sales_trend_report") }}?' + params.toString();
+}
+</script>
+{% endblock %}

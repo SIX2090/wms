@@ -298,6 +298,72 @@ def auto_migrate_database():
             cursor.execute("ALTER TABLE wechat_share_config ADD COLUMN auto_send BOOLEAN DEFAULT 0")
             modified = True
 
+        # sales_order 字段扩展：业务员、项目号、币别、结算方式、未税/税额/已发货/未发货金额
+        cursor.execute("PRAGMA table_info(sales_order)")
+        sales_order_cols = [row[1] for row in cursor.fetchall()]
+        if sales_order_cols:
+            if 'salesperson_id' not in sales_order_cols:
+                cursor.execute("ALTER TABLE sales_order ADD COLUMN salesperson_id INTEGER")
+                modified = True
+            if 'project_no' not in sales_order_cols:
+                cursor.execute("ALTER TABLE sales_order ADD COLUMN project_no VARCHAR(100)")
+                modified = True
+            if 'currency' not in sales_order_cols:
+                cursor.execute("ALTER TABLE sales_order ADD COLUMN currency VARCHAR(20) DEFAULT 'CNY'")
+                modified = True
+            if 'settlement_method' not in sales_order_cols:
+                cursor.execute("ALTER TABLE sales_order ADD COLUMN settlement_method VARCHAR(50)")
+                modified = True
+            if 'untaxed_amount' not in sales_order_cols:
+                cursor.execute("ALTER TABLE sales_order ADD COLUMN untaxed_amount FLOAT DEFAULT 0")
+                modified = True
+            if 'tax_amount' not in sales_order_cols:
+                cursor.execute("ALTER TABLE sales_order ADD COLUMN tax_amount FLOAT DEFAULT 0")
+                modified = True
+            if 'shipped_amount' not in sales_order_cols:
+                cursor.execute("ALTER TABLE sales_order ADD COLUMN shipped_amount FLOAT DEFAULT 0")
+                modified = True
+            if 'remaining_amount' not in sales_order_cols:
+                cursor.execute("ALTER TABLE sales_order ADD COLUMN remaining_amount FLOAT DEFAULT 0")
+                modified = True
+
+        # sales_order_item 字段扩展：税率、未税单价/未税金额/税额/含税金额、批次号、序列号
+        cursor.execute("PRAGMA table_info(sales_order_item)")
+        sales_item_cols = [row[1] for row in cursor.fetchall()]
+        if sales_item_cols:
+            if 'tax_rate' not in sales_item_cols:
+                cursor.execute("ALTER TABLE sales_order_item ADD COLUMN tax_rate FLOAT DEFAULT 0.13")
+                modified = True
+            if 'untaxed_price' not in sales_item_cols:
+                cursor.execute("ALTER TABLE sales_order_item ADD COLUMN untaxed_price FLOAT DEFAULT 0")
+                modified = True
+            if 'untaxed_amount' not in sales_item_cols:
+                cursor.execute("ALTER TABLE sales_order_item ADD COLUMN untaxed_amount FLOAT DEFAULT 0")
+                modified = True
+            if 'tax_amount' not in sales_item_cols:
+                cursor.execute("ALTER TABLE sales_order_item ADD COLUMN tax_amount FLOAT DEFAULT 0")
+                modified = True
+            if 'tax_included_amount' not in sales_item_cols:
+                cursor.execute("ALTER TABLE sales_order_item ADD COLUMN tax_included_amount FLOAT DEFAULT 0")
+                modified = True
+            if 'batch_no' not in sales_item_cols:
+                cursor.execute("ALTER TABLE sales_order_item ADD COLUMN batch_no VARCHAR(100)")
+                modified = True
+            if 'serial_no' not in sales_item_cols:
+                cursor.execute("ALTER TABLE sales_order_item ADD COLUMN serial_no VARCHAR(200)")
+                modified = True
+            # 旧数据补齐：amount 已存在，把 tax_included_amount=amount, tax_rate=0.13, 反推 untaxed_amount/tax_amount
+            cursor.execute("""
+                UPDATE sales_order_item
+                SET tax_included_amount = amount,
+                    untaxed_amount = ROUND(amount / (1 + COALESCE(tax_rate, 0.13)), 2),
+                    tax_amount = ROUND(amount - amount / (1 + COALESCE(tax_rate, 0.13)), 2),
+                    untaxed_price = CASE WHEN quantity > 0 THEN ROUND(amount / (1 + COALESCE(tax_rate, 0.13)) / quantity, 4) ELSE 0 END
+                WHERE tax_included_amount IS NULL OR tax_included_amount = 0
+            """)
+            if cursor.rowcount and cursor.rowcount > 0:
+                modified = True
+
         # 修复物料空分类/单位：设默认值
         default_unit_id = None
         default_cat_id = None
@@ -3182,6 +3248,7 @@ class SalesOrder(db.Model):
         db.Index('idx_sales_order_date', 'date'),
         db.Index('idx_sales_order_status', 'status'),
         db.Index('idx_sales_order_customer', 'customer_id'),
+        db.Index('idx_sales_order_salesperson', 'salesperson_id'),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -3194,12 +3261,23 @@ class SalesOrder(db.Model):
     remark = db.Column(db.String(500))
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     total_amount = db.Column(db.Float, default=0)
+    # 含税金额合计 = sum(item.tax_included_amount)
+    untaxed_amount = db.Column(db.Float, default=0)
+    tax_amount = db.Column(db.Float, default=0)
+    shipped_amount = db.Column(db.Float, default=0)
+    remaining_amount = db.Column(db.Float, default=0)
     shipment_order_no = db.Column(db.String(50))
     shipment_status = db.Column(db.String(20), default='pending')  # pending/partial/shipped
+    # 扩展字段：业务员、项目号、币别、结算方式
+    salesperson_id = db.Column(db.Integer, db.ForeignKey('employee.id'))
+    project_no = db.Column(db.String(100))
+    currency = db.Column(db.String(20), default='CNY')
+    settlement_method = db.Column(db.String(50))
     created_at = db.Column(db.DateTime, default=datetime.now)
 
     customer = db.relationship('Customer', backref='sales_orders')
     operator = db.relationship('User', backref='sales_orders')
+    salesperson = db.relationship('Employee', backref='sales_orders')
 
 
 class SalesOrderItem(db.Model):
@@ -3211,8 +3289,17 @@ class SalesOrderItem(db.Model):
     material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)
     quantity = db.Column(db.Float, nullable=False)
     shipped_quantity = db.Column(db.Float, default=0)
-    price = db.Column(db.Float, default=0)
-    amount = db.Column(db.Float, default=0)
+    price = db.Column(db.Float, default=0)  # 含税单价
+    amount = db.Column(db.Float, default=0)  # 含税金额（兼容旧逻辑）
+    # 税务字段
+    tax_rate = db.Column(db.Float, default=0.13)  # 税率，默认 13%
+    untaxed_price = db.Column(db.Float, default=0)  # 未税单价
+    untaxed_amount = db.Column(db.Float, default=0)  # 未税金额
+    tax_amount = db.Column(db.Float, default=0)  # 税额
+    tax_included_amount = db.Column(db.Float, default=0)  # 含税金额
+    # 扩展字段：批次号、序列号
+    batch_no = db.Column(db.String(100))
+    serial_no = db.Column(db.String(200))
     remark = db.Column(db.String(200))
 
     sales_order = db.relationship('SalesOrder', backref='items')
@@ -34829,20 +34916,51 @@ def sales_shipment_status_label(status):
 
 
 def recalculate_sales_order(order):
-    total = 0
-    shipped_total = 0
+    """重新计算销售订单的金额、税额和发货状态。
+
+    - price 视为含税单价；tax_included_amount = quantity * price
+    - untaxed_price = price / (1 + tax_rate)；untaxed_amount = tax_included_amount / (1 + tax_rate)
+    - tax_amount = tax_included_amount - untaxed_amount
+    - amount 字段保留为含税金额，兼容旧逻辑
+    """
+    total_included = 0
+    total_untaxed = 0
+    total_tax = 0
+    shipped_total_qty = 0
+    total_quantity = 0
+    shipped_amount = 0
     for item in order.items:
-        item.amount = round_to_2_decimals((item.quantity or 0) * (item.price or 0))
-        item.shipped_quantity = min(max(item.shipped_quantity or 0, 0), item.quantity or 0)
-        total += item.amount or 0
-        shipped_total += item.shipped_quantity or 0
-    order.total_amount = round_to_2_decimals(total)
-    total_quantity = sum(item.quantity or 0 for item in order.items)
-    if total_quantity <= 0 or shipped_total <= 0:
+        qty = max(item.quantity or 0, 0)
+        price = item.price or 0
+        tax_rate = item.tax_rate if item.tax_rate is not None else 0.13
+        if tax_rate < 0:
+            tax_rate = 0
+        included = round_to_2_decimals(qty * price)
+        untaxed = round_to_2_decimals(included / (1 + tax_rate)) if (1 + tax_rate) > 0 else included
+        tax = round_to_2_decimals(included - untaxed)
+        untaxed_price = round(price / (1 + tax_rate), 4) if (1 + tax_rate) > 0 and qty > 0 else 0
+        item.untaxed_price = untaxed_price
+        item.untaxed_amount = untaxed
+        item.tax_amount = tax
+        item.tax_included_amount = included
+        item.amount = included  # 兼容旧逻辑：amount = 含税金额
+        item.shipped_quantity = min(max(item.shipped_quantity or 0, 0), qty)
+        total_included += included
+        total_untaxed += untaxed
+        total_tax += tax
+        total_quantity += qty
+        shipped_total_qty += item.shipped_quantity or 0
+        shipped_amount += round_to_2_decimals((item.shipped_quantity or 0) * price)
+    order.total_amount = round_to_2_decimals(total_included)
+    order.untaxed_amount = round_to_2_decimals(total_untaxed)
+    order.tax_amount = round_to_2_decimals(total_tax)
+    order.shipped_amount = round_to_2_decimals(shipped_amount)
+    order.remaining_amount = round_to_2_decimals(total_included - shipped_amount)
+    if total_quantity <= 0 or shipped_total_qty <= 0:
         order.shipment_status = 'pending'
         if order.status not in ('draft', 'cancelled'):
             order.status = 'confirmed'
-    elif shipped_total + STOCK_COMPARE_EPSILON >= total_quantity:
+    elif shipped_total_qty + STOCK_COMPARE_EPSILON >= total_quantity:
         order.shipment_status = 'shipped'
         order.status = 'closed'
     else:
@@ -34895,8 +35013,8 @@ def download_sales_order_template():
     return _workbook_response(
         'sales_order_import_template.xlsx',
         '销售订单导入',
-        ['销售订单号', '订单日期', '客户名称', '交货日期', '发货仓库', '物料编码', '物料名称', '规格', '单位', '数量', '含税单价', '备注'],
-        [['SO240001', date.today().isoformat(), '示例客户', date.today().isoformat(), '', 'A001', '示例物料', '', '', 1, 0, '导入后为草稿']],
+        ['销售订单号', '订单日期', '客户名称', '交货日期', '发货仓库', '业务员', '项目号', '币别', '结算方式', '物料编码', '物料名称', '规格', '单位', '数量', '含税单价', '税率', '批次号', '序列号', '备注'],
+        [['SO240001', date.today().isoformat(), '示例客户', date.today().isoformat(), '', '张三', 'PRJ-001', 'CNY', '月结30天', 'A001', '示例物料', '', '', 1, 100, 0.13, '', '', '导入后为草稿']],
     )
 
 
@@ -34913,12 +35031,19 @@ def import_sales_orders():
         'customer': ['客户名称', '客户'],
         'delivery_date': ['交货日期', '交期'],
         'warehouse': ['发货仓库', '仓库'],
+        'salesperson': ['业务员', '业务员名称'],
+        'project_no': ['项目号', '项目编号'],
+        'currency': ['币别', '币种'],
+        'settlement_method': ['结算方式', '结算'],
         'material_code': ['物料编码', '物料代码'],
         'material_name': ['物料名称', '物料'],
         'spec': ['规格', '规格型号'],
         'unit': ['单位'],
         'quantity': ['数量', '订单数量'],
         'price': ['含税单价', '单价', '价格'],
+        'tax_rate': ['税率'],
+        'batch_no': ['批次号', '批次'],
+        'serial_no': ['序列号', '序列号/批号'],
         'remark': ['备注'],
     }
     try:
@@ -34952,7 +35077,10 @@ def import_sales_orders():
                     skip += 1
                     skip_details.append(f'第 {row_idx} 行：无法创建客户 {customer_name}')
                     continue
-                order = SalesOrder(order_no=order_no, date=_parse_excel_date(_get_excel_cell(row, col_map, 'date'), date.today()), delivery_date=_parse_excel_date(_get_excel_cell(row, col_map, 'delivery_date'), None) if _get_excel_cell(row, col_map, 'delivery_date') else None, customer_id=customer.id, warehouse=_get_excel_cell(row, col_map, 'warehouse'), status='draft', shipment_status='pending', remark=_get_excel_cell(row, col_map, 'remark'), operator_id=current_user.id)
+                salesperson_name = _get_excel_cell(row, col_map, 'salesperson')
+                salesperson = Employee.query.filter_by(name=salesperson_name).first() if salesperson_name else None
+                currency = _get_excel_cell(row, col_map, 'currency') or 'CNY'
+                order = SalesOrder(order_no=order_no, date=_parse_excel_date(_get_excel_cell(row, col_map, 'date'), date.today()), delivery_date=_parse_excel_date(_get_excel_cell(row, col_map, 'delivery_date'), None) if _get_excel_cell(row, col_map, 'delivery_date') else None, customer_id=customer.id, warehouse=_get_excel_cell(row, col_map, 'warehouse'), salesperson_id=salesperson.id if salesperson else None, project_no=_get_excel_cell(row, col_map, 'project_no'), currency=currency, settlement_method=_get_excel_cell(row, col_map, 'settlement_method'), status='draft', shipment_status='pending', remark=_get_excel_cell(row, col_map, 'remark'), operator_id=current_user.id)
                 db.session.add(order)
                 db.session.flush()
                 orders_by_no[order_no] = order
@@ -34963,7 +35091,14 @@ def import_sales_orders():
                 skip_details.append(f'第 {row_idx} 行：无法创建物料 {material_code}')
                 continue
             price = _get_excel_number(row, col_map, 'price')
-            db.session.add(SalesOrderItem(sales_order_id=order.id, material_id=material.id, quantity=quantity, price=price, amount=round_to_2_decimals(quantity * price), remark=_get_excel_cell(row, col_map, 'remark')))
+            tax_rate = _get_excel_number(row, col_map, 'tax_rate') if 'tax_rate' in col_map else 0.13
+            if tax_rate <= 0:
+                tax_rate = 0.13
+            included_amount = round_to_2_decimals(quantity * price)
+            untaxed_amount = round_to_2_decimals(included_amount / (1 + tax_rate)) if (1 + tax_rate) > 0 else included_amount
+            tax_amount = round_to_2_decimals(included_amount - untaxed_amount)
+            untaxed_price = round(price / (1 + tax_rate), 4) if quantity > 0 and (1 + tax_rate) > 0 else 0
+            db.session.add(SalesOrderItem(sales_order_id=order.id, material_id=material.id, quantity=quantity, price=price, tax_rate=tax_rate, untaxed_price=untaxed_price, untaxed_amount=untaxed_amount, tax_amount=tax_amount, tax_included_amount=included_amount, amount=included_amount, batch_no=_get_excel_cell(row, col_map, 'batch_no'), serial_no=_get_excel_cell(row, col_map, 'serial_no'), remark=_get_excel_cell(row, col_map, 'remark')))
             item_count += 1
         for order in orders_by_no.values():
             recalculate_sales_order(order)
@@ -34983,16 +35118,19 @@ def sales_order_list():
     search = (request.args.get('search') or '').strip()
     status = (request.args.get('status') or '').strip()
     customer_id = request.args.get('customer_id', type=int)
+    salesperson_id = request.args.get('salesperson_id', type=int)
     date_start = request.args.get('date_start') or ''
     date_end = request.args.get('date_end') or ''
     query = SalesOrder.query.join(Customer).outerjoin(SalesOrderItem, SalesOrderItem.sales_order_id == SalesOrder.id).outerjoin(Material, SalesOrderItem.material_id == Material.id).distinct()
     if search:
         like = f'%{search}%'
-        query = query.filter(db.or_(SalesOrder.order_no.like(like), Customer.name.like(like), Customer.code.like(like), Material.code.like(like), Material.name.like(like)))
+        query = query.filter(db.or_(SalesOrder.order_no.like(like), Customer.name.like(like), Customer.code.like(like), Material.code.like(like), Material.name.like(like), SalesOrder.project_no.like(like)))
     if status:
         query = query.filter(SalesOrder.status == status)
     if customer_id:
         query = query.filter(SalesOrder.customer_id == customer_id)
+    if salesperson_id:
+        query = query.filter(SalesOrder.salesperson_id == salesperson_id)
     if date_start:
         try:
             query = query.filter(SalesOrder.date >= datetime.strptime(date_start, '%Y-%m-%d').date())
@@ -35003,14 +35141,14 @@ def sales_order_list():
             query = query.filter(SalesOrder.date <= datetime.strptime(date_end, '%Y-%m-%d').date())
         except ValueError:
             date_end = ''
-    pagination = query.order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).paginate(page=request.args.get('page', 1, type=int), per_page=20, error_out=False)
-    return render_template('sales_order.html', orders=pagination.items, pagination=pagination, customers=Customer.query.order_by(Customer.code.asc()).all(), filters={'search': search, 'status': status, 'customer_id': customer_id, 'date_start': date_start, 'date_end': date_end}, status_label=sales_status_label, shipment_status_label=sales_shipment_status_label)
+    pagination = query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.salesperson)).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).paginate(page=request.args.get('page', 1, type=int), per_page=20, error_out=False)
+    return render_template('sales_order.html', orders=pagination.items, pagination=pagination, customers=Customer.query.order_by(Customer.code.asc()).all(), employees=Employee.query.order_by(Employee.id.asc()).all(), filters={'search': search, 'status': status, 'customer_id': customer_id, 'salesperson_id': salesperson_id, 'date_start': date_start, 'date_end': date_end}, status_label=sales_status_label, shipment_status_label=sales_shipment_status_label)
 
 
 @app.route('/sales/add')
 @login_required
 def sales_order_add_page():
-    return render_template('sales_order_add.html', order_no=generate_sales_order_no(), order_date=date.today().isoformat(), customers=Customer.query.order_by(Customer.code.asc()).all(), warehouses=get_active_warehouses(), materials=[serialize_material(material) for material in Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()])
+    return render_template('sales_order_add.html', order_no=generate_sales_order_no(), order_date=date.today().isoformat(), customers=Customer.query.order_by(Customer.code.asc()).all(), warehouses=get_active_warehouses(), materials=[serialize_material(material) for material in Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()], employees=Employee.query.order_by(Employee.id.asc()).all(), default_tax_rate=0.13)
 
 
 @app.route('/sales/add', methods=['POST'])
@@ -35028,7 +35166,23 @@ def sales_order_add():
             items = json.loads(items or '[]')
         if not items:
             return jsonify({'status': 'error', 'msg': '请至少添加一条销售明细'}), 400
-        order = SalesOrder(order_no=(payload.get('order_no') or '').strip() or generate_sales_order_no(), customer_id=customer.id, operator_id=current_user.id, date=datetime.strptime(payload.get('date') or date.today().isoformat(), '%Y-%m-%d').date(), delivery_date=datetime.strptime(payload.get('delivery_date'), '%Y-%m-%d').date() if payload.get('delivery_date') else None, warehouse=(payload.get('warehouse') or '').strip(), remark=(payload.get('remark') or '').strip(), status='draft')
+        salesperson_id = int(payload.get('salesperson_id') or 0) if payload.get('salesperson_id') else None
+        if salesperson_id and not db.session.get(Employee, salesperson_id):
+            salesperson_id = None
+        order = SalesOrder(
+            order_no=(payload.get('order_no') or '').strip() or generate_sales_order_no(),
+            customer_id=customer.id,
+            operator_id=current_user.id,
+            date=datetime.strptime(payload.get('date') or date.today().isoformat(), '%Y-%m-%d').date(),
+            delivery_date=datetime.strptime(payload.get('delivery_date'), '%Y-%m-%d').date() if payload.get('delivery_date') else None,
+            warehouse=(payload.get('warehouse') or '').strip(),
+            remark=(payload.get('remark') or '').strip(),
+            salesperson_id=salesperson_id,
+            project_no=(payload.get('project_no') or '').strip() or None,
+            currency=(payload.get('currency') or '').strip() or 'CNY',
+            settlement_method=(payload.get('settlement_method') or '').strip() or None,
+            status='draft',
+        )
         db.session.add(order)
         db.session.flush()
         for data in items:
@@ -35038,7 +35192,20 @@ def sales_order_add():
                 db.session.rollback()
                 return jsonify({'status': 'error', 'msg': '物料编码不存在或数量无效'}), 400
             price = round_to_2_decimals(parse_float_value(data.get('price'), material.price or 0))
-            db.session.add(SalesOrderItem(sales_order_id=order.id, material_id=material.id, quantity=quantity, price=price, amount=round_to_2_decimals(quantity * price), remark=(data.get('remark') or '').strip() or None))
+            tax_rate = parse_float_value(data.get('tax_rate'), 0.13)
+            if tax_rate < 0:
+                tax_rate = 0
+            db.session.add(SalesOrderItem(
+                sales_order_id=order.id,
+                material_id=material.id,
+                quantity=quantity,
+                price=price,
+                amount=round_to_2_decimals(quantity * price),
+                tax_rate=tax_rate,
+                batch_no=(data.get('batch_no') or '').strip() or None,
+                serial_no=(data.get('serial_no') or '').strip() or None,
+                remark=(data.get('remark') or '').strip() or None,
+            ))
         recalculate_sales_order(order)
         db.session.commit()
         log_operation('保存销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
@@ -35055,8 +35222,8 @@ def sales_order_add():
 @app.route('/sales/<int:id>')
 @login_required
 def sales_order_detail(id):
-    order = SalesOrder.query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.items).joinedload(SalesOrderItem.material).joinedload(Material.unit)).get_or_404(id)
-    return render_template('sales_order_detail.html', order=order, status_label=sales_status_label, shipment_status_label=sales_shipment_status_label)
+    order = SalesOrder.query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.salesperson), joinedload(SalesOrder.operator), joinedload(SalesOrder.items).joinedload(SalesOrderItem.material).joinedload(Material.unit)).get_or_404(id)
+    return render_template('sales_order_detail.html', order=order, today=date.today(), status_label=sales_status_label, shipment_status_label=sales_shipment_status_label)
 
 
 @app.route('/sales/<int:id>/confirm', methods=['POST'])
@@ -35154,10 +35321,21 @@ def batch_create_sales_outbound():
 def print_sales_order(id):
     order = SalesOrder.query.options(
         joinedload(SalesOrder.customer),
+        joinedload(SalesOrder.salesperson),
         joinedload(SalesOrder.operator),
         selectinload(SalesOrder.items).joinedload(SalesOrderItem.material).joinedload(Material.unit),
     ).get_or_404(id)
-    rows = [_material_row_common(item) for item in order.items]
+    rows = [_material_row_common(
+        item,
+        extra={
+            'tax_rate': '{:.0f}%'.format((item.tax_rate or 0) * 100),
+            'untaxed_amount': item.untaxed_amount or 0,
+            'tax_amount': item.tax_amount or 0,
+            'tax_included_amount': item.tax_included_amount or item.amount or 0,
+            'batch_no': item.batch_no or '',
+            'serial_no': item.serial_no or '',
+        },
+    ) for item in order.items]
     return _render_generic_document_print({
         'title': '销售订单',
         'subtitle': 'SALES ORDER',
@@ -35170,8 +35348,14 @@ def print_sales_order(id):
             ('客户名称', order.customer.name if order.customer else ''),
             ('交货日期', _fmt_date(order.delivery_date)),
             ('发货仓库', order.warehouse or ''),
+            ('业务员', order.salesperson.name if order.salesperson else ''),
+            ('项目号', order.project_no or ''),
+            ('币别', order.currency or 'CNY'),
+            ('结算方式', order.settlement_method or ''),
             ('发货状态', sales_shipment_status_label(order.shipment_status)),
             ('制单人', _operator_name(order)),
+            ('未税金额', f'{order.untaxed_amount or 0:.2f}'),
+            ('税额', f'{order.tax_amount or 0:.2f}'),
             ('含税金额', f'{order.total_amount or 0:.2f}'),
         ],
         'remark': order.remark or '',
@@ -35182,11 +35366,16 @@ def print_sales_order(id):
             ('unit', '单位', 'center'),
             ('quantity', '订单数量', 'right'),
             ('price', '含税单价', 'right money'),
-            ('amount', '含税金额', 'right money'),
+            ('tax_rate', '税率', 'center'),
+            ('untaxed_amount', '未税金额', 'right money'),
+            ('tax_amount', '税额', 'right money'),
+            ('tax_included_amount', '含税金额', 'right money'),
+            ('batch_no', '批次号', ''),
+            ('serial_no', '序列号', ''),
             ('remark', '备注', ''),
         ],
         'rows': rows,
-        'total_amount': order.total_amount or sum(row.get('amount', 0) or 0 for row in rows),
+        'total_amount': order.total_amount or sum(row.get('tax_included_amount', 0) or 0 for row in rows),
         'signatures': ['制单', '销售确认', '仓库', '客户确认'],
     })
 
@@ -35299,26 +35488,257 @@ def export_sales_report():
 def sales_report():
     date_start = request.args.get('date_start') or (date.today().replace(day=1).isoformat())
     date_end = request.args.get('date_end') or date.today().isoformat()
+    drill_customer_id = request.args.get('customer_id', type=int)
+    drill_material_code = (request.args.get('material_code') or '').strip()
+    salesperson_id = request.args.get('salesperson_id', type=int)
     start = datetime.strptime(date_start, '%Y-%m-%d').date()
     end = datetime.strptime(date_end, '%Y-%m-%d').date()
-    orders = SalesOrder.query.filter(SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled').all()
+    query = SalesOrder.query.filter(SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled')
+    if drill_customer_id:
+        query = query.filter(SalesOrder.customer_id == drill_customer_id)
+    if salesperson_id:
+        query = query.filter(SalesOrder.salesperson_id == salesperson_id)
+    orders = query.order_by(SalesOrder.date.asc(), SalesOrder.id.asc()).all()
+    # 明细钻取：按物料筛选时只显示匹配明细行
+    drill_material_id = None
+    if drill_material_code:
+        material = Material.query.filter_by(code=drill_material_code).first()
+        if material:
+            drill_material_id = material.id
     by_customer = {}
     by_material = {}
+    by_salesperson = {}
+    total_untaxed = 0
+    total_tax = 0
     for order in orders:
         customer_key = order.customer.name if order.customer else '未设置客户'
-        customer_row = by_customer.setdefault(customer_key, {'name': customer_key, 'orders': 0, 'quantity': 0, 'amount': 0})
+        customer_row = by_customer.setdefault(customer_key, {'name': customer_key, 'customer_id': order.customer_id, 'orders': 0, 'quantity': 0, 'amount': 0, 'untaxed_amount': 0, 'tax_amount': 0})
         customer_row['orders'] += 1
         customer_row['amount'] += order.total_amount or 0
+        customer_row['untaxed_amount'] += order.untaxed_amount or 0
+        customer_row['tax_amount'] += order.tax_amount or 0
+        salesperson_key = order.salesperson.name if order.salesperson else '未设置业务员'
+        salesperson_row = by_salesperson.setdefault(salesperson_key, {'name': salesperson_key, 'orders': 0, 'amount': 0, 'untaxed_amount': 0, 'tax_amount': 0})
+        salesperson_row['orders'] += 1
+        salesperson_row['amount'] += order.total_amount or 0
+        salesperson_row['untaxed_amount'] += order.untaxed_amount or 0
+        salesperson_row['tax_amount'] += order.tax_amount or 0
         for item in order.items:
             customer_row['quantity'] += item.quantity or 0
             material_key = item.material.code if item.material else '-'
-            material_row = by_material.setdefault(material_key, {'code': material_key, 'name': item.material.name if item.material else '-', 'quantity': 0, 'amount': 0})
+            material_row = by_material.setdefault(material_key, {'code': material_key, 'name': item.material.name if item.material else '-', 'quantity': 0, 'amount': 0, 'untaxed_amount': 0, 'tax_amount': 0})
             material_row['quantity'] += item.quantity or 0
-            material_row['amount'] += item.amount or 0
+            material_row['amount'] += item.tax_included_amount or item.amount or 0
+            material_row['untaxed_amount'] += item.untaxed_amount or 0
+            material_row['tax_amount'] += item.tax_amount or 0
     shipped_quantity = round_to_2_decimals(sum(item.shipped_quantity or 0 for order in orders for item in order.items))
     shipped_amount = round_to_2_decimals(sum((item.shipped_quantity or 0) * (item.price or 0) for order in orders for item in order.items))
     total_amount = round_to_2_decimals(sum(order.total_amount or 0 for order in orders))
-    return render_template('sales_report.html', date_start=date_start, date_end=date_end, orders=orders, by_customer=sorted(by_customer.values(), key=lambda row: row['amount'], reverse=True), by_material=sorted(by_material.values(), key=lambda row: row['amount'], reverse=True), total_amount=total_amount, shipped_amount=shipped_amount, pending_amount=round_to_2_decimals(total_amount - shipped_amount), shipped_quantity=shipped_quantity, total_orders=len(orders), status_label=sales_status_label)
+    total_untaxed = round_to_2_decimals(sum(order.untaxed_amount or 0 for order in orders))
+    total_tax = round_to_2_decimals(sum(order.tax_amount or 0 for order in orders))
+    # 钻取明细行
+    drill_items = []
+    if drill_material_id:
+        for order in orders:
+            for item in order.items:
+                if item.material_id == drill_material_id:
+                    drill_items.append({
+                        'order_no': order.order_no,
+                        'order_id': order.id,
+                        'date': order.date,
+                        'customer': order.customer.name if order.customer else '-',
+                        'salesperson': order.salesperson.name if order.salesperson else '-',
+                        'quantity': item.quantity or 0,
+                        'price': item.price or 0,
+                        'tax_rate': item.tax_rate or 0,
+                        'untaxed_amount': item.untaxed_amount or 0,
+                        'tax_amount': item.tax_amount or 0,
+                        'tax_included_amount': item.tax_included_amount or item.amount or 0,
+                        'shipped_quantity': item.shipped_quantity or 0,
+                    })
+    return render_template('sales_report.html', date_start=date_start, date_end=date_end, drill_customer_id=drill_customer_id, drill_material_code=drill_material_code, salesperson_id=salesperson_id, drill_material_name=(Material.query.get(drill_material_id).name if drill_material_id else ''), drill_items=drill_items, customers=Customer.query.order_by(Customer.code.asc()).all(), employees=Employee.query.order_by(Employee.id.asc()).all(), orders=orders, by_customer=sorted(by_customer.values(), key=lambda row: row['amount'], reverse=True), by_material=sorted(by_material.values(), key=lambda row: row['amount'], reverse=True), by_salesperson=sorted(by_salesperson.values(), key=lambda row: row['amount'], reverse=True), total_amount=total_amount, total_untaxed=total_untaxed, total_tax=total_tax, shipped_amount=shipped_amount, pending_amount=round_to_2_decimals(total_amount - shipped_amount), shipped_quantity=shipped_quantity, total_orders=len(orders), status_label=sales_status_label)
+
+
+@app.route('/sales/outflow_report')
+@login_required
+def sales_outflow_report():
+    """销售出库明细表：基于 OutOrder(business_type='销售出库') 的实际出库记录。"""
+    date_start = request.args.get('date_start') or (date.today().replace(day=1).isoformat())
+    date_end = request.args.get('date_end') or date.today().isoformat()
+    search = (request.args.get('search') or '').strip()
+    try:
+        start = datetime.strptime(date_start, '%Y-%m-%d').date()
+        end = datetime.strptime(date_end, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'status': 'error', 'msg': '日期格式不正确'}), 400
+    query = OutOrder.query.filter(
+        OutOrder.business_type == '销售出库',
+        OutOrder.date >= start,
+        OutOrder.date <= end,
+    )
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(OutOrder.order_no.like(like), OutOrder.customer.like(like), OutOrder.purpose.like(like), OutOrder.remark.like(like)))
+    out_orders = query.order_by(OutOrder.date.desc(), OutOrder.id.desc()).all()
+    rows = []
+    total_quantity = 0
+    total_amount = 0
+    for oo in out_orders:
+        for item in (oo.items or []):
+            material = item.material
+            line_amount = item.amount or round_to_2_decimals((item.quantity or 0) * (item.price or 0))
+            rows.append({
+                'out_date': oo.date,
+                'out_order_no': oo.order_no,
+                'out_order_id': oo.id,
+                'out_status': oo.status,
+                'customer': oo.customer or '',
+                'warehouse': oo.warehouse or '',
+                'material_code': material.code if material else '',
+                'material_name': material.name if material else '',
+                'spec': material.spec if material else '',
+                'unit': material.unit.name if material and material.unit else '',
+                'quantity': item.quantity or 0,
+                'price': item.price or 0,
+                'amount': line_amount,
+                'purpose': oo.purpose or '',
+                'remark': item.remark or oo.remark or '',
+            })
+            if oo.status == 'completed':
+                total_quantity += item.quantity or 0
+                total_amount += line_amount
+    return render_template('sales_outflow_report.html', date_start=date_start, date_end=date_end, search=search, rows=rows, total_quantity=round_to_2_decimals(total_quantity), total_amount=round_to_2_decimals(total_amount), total_rows=len(rows), status_label=sales_status_label)
+
+
+@app.route('/sales/outflow_report/export')
+@login_required
+def export_sales_outflow_report():
+    date_start = request.args.get('date_start') or (date.today().replace(day=1).isoformat())
+    date_end = request.args.get('date_end') or date.today().isoformat()
+    search = (request.args.get('search') or '').strip()
+    try:
+        start = datetime.strptime(date_start, '%Y-%m-%d').date()
+        end = datetime.strptime(date_end, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'status': 'error', 'msg': '日期格式不正确'}), 400
+    query = OutOrder.query.filter(OutOrder.business_type == '销售出库', OutOrder.date >= start, OutOrder.date <= end)
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(OutOrder.order_no.like(like), OutOrder.customer.like(like), OutOrder.purpose.like(like), OutOrder.remark.like(like)))
+    out_orders = query.order_by(OutOrder.date.asc(), OutOrder.id.asc()).all()
+    from openpyxl import Workbook
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = '销售出库明细'
+    sheet.append(['出库日期', '出库单号', '客户', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态', '来源', '备注'])
+    for oo in out_orders:
+        for item in (oo.items or []):
+            material = item.material
+            sheet.append([
+                oo.date.isoformat() if oo.date else '',
+                oo.order_no,
+                oo.customer or '',
+                oo.warehouse or '',
+                material.code if material else '',
+                material.name if material else '',
+                material.spec if material else '',
+                material.unit.name if material and material.unit else '',
+                item.quantity or 0,
+                item.price or 0,
+                item.amount or 0,
+                '已完成' if oo.status == 'completed' else '待完成',
+                oo.purpose or '',
+                item.remark or oo.remark or '',
+            ])
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return send_file(output, download_name=f'sales_outflow_{start:%Y%m%d}_{end:%Y%m%d}.xlsx', as_attachment=True)
+
+
+@app.route('/sales/trend_report')
+@login_required
+def sales_trend_report():
+    """销售趋势分析表：按月聚合销售订单金额、数量和发货进度。"""
+    months_back = request.args.get('months', 12, type=int)
+    months_back = max(1, min(months_back, 60))
+    today = date.today()
+    start_month = (today.replace(day=1) - timedelta(days=months_back * 31)).replace(day=1)
+    orders = SalesOrder.query.filter(SalesOrder.date >= start_month, SalesOrder.status != 'cancelled').order_by(SalesOrder.date.asc()).all()
+    by_month = {}
+    for order in orders:
+        if not order.date:
+            continue
+        key = order.date.strftime('%Y-%m')
+        row = by_month.setdefault(key, {'month': key, 'orders': 0, 'untaxed_amount': 0, 'tax_amount': 0, 'amount': 0, 'quantity': 0, 'shipped_amount': 0, 'customers': set()})
+        row['orders'] += 1
+        row['untaxed_amount'] += order.untaxed_amount or 0
+        row['tax_amount'] += order.tax_amount or 0
+        row['amount'] += order.total_amount or 0
+        row['shipped_amount'] += order.shipped_amount or 0
+        if order.customer_id:
+            row['customers'].add(order.customer_id)
+        for item in order.items:
+            row['quantity'] += item.quantity or 0
+    months = sorted(by_month.keys())
+    rows = []
+    prev_amount = None
+    for m in months:
+        row = by_month[m]
+        row['customers'] = len(row['customers'])
+        row['untaxed_amount'] = round_to_2_decimals(row['untaxed_amount'])
+        row['tax_amount'] = round_to_2_decimals(row['tax_amount'])
+        row['amount'] = round_to_2_decimals(row['amount'])
+        row['shipped_amount'] = round_to_2_decimals(row['shipped_amount'])
+        if prev_amount and prev_amount > 0:
+            row['growth'] = round_to_2_decimals((row['amount'] - prev_amount) / prev_amount * 100)
+        else:
+            row['growth'] = None
+        rows.append(row)
+        prev_amount = row['amount']
+    return render_template('sales_trend_report.html', months_back=months_back, rows=rows, total_orders=sum(r['orders'] for r in rows), total_amount=round_to_2_decimals(sum(r['amount'] for r in rows)), total_untaxed=round_to_2_decimals(sum(r['untaxed_amount'] for r in rows)), total_tax=round_to_2_decimals(sum(r['tax_amount'] for r in rows)), total_shipped=round_to_2_decimals(sum(r['shipped_amount'] for r in rows)))
+
+
+@app.route('/sales/trend_report/export')
+@login_required
+def export_sales_trend_report():
+    months_back = request.args.get('months', 12, type=int)
+    months_back = max(1, min(months_back, 60))
+    today = date.today()
+    start_month = (today.replace(day=1) - timedelta(days=months_back * 31)).replace(day=1)
+    orders = SalesOrder.query.filter(SalesOrder.date >= start_month, SalesOrder.status != 'cancelled').all()
+    by_month = {}
+    for order in orders:
+        if not order.date:
+            continue
+        key = order.date.strftime('%Y-%m')
+        row = by_month.setdefault(key, {'month': key, 'orders': 0, 'untaxed_amount': 0, 'tax_amount': 0, 'amount': 0, 'quantity': 0, 'shipped_amount': 0, 'customers': set()})
+        row['orders'] += 1
+        row['untaxed_amount'] += order.untaxed_amount or 0
+        row['tax_amount'] += order.tax_amount or 0
+        row['amount'] += order.total_amount or 0
+        row['shipped_amount'] += order.shipped_amount or 0
+        if order.customer_id:
+            row['customers'].add(order.customer_id)
+        for item in order.items:
+            row['quantity'] += item.quantity or 0
+    from openpyxl import Workbook
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = '销售趋势分析'
+    sheet.append(['月份', '订单数', '客户数', '数量', '未税金额', '税额', '含税金额', '已发货金额', '环比增长%'])
+    prev_amount = None
+    for m in sorted(by_month.keys()):
+        row = by_month[m]
+        growth = ''
+        if prev_amount and prev_amount > 0:
+            growth = round_to_2_decimals((row['amount'] - prev_amount) / prev_amount * 100)
+        sheet.append([m, row['orders'], len(row['customers']), round_to_2_decimals(row['quantity']), round_to_2_decimals(row['untaxed_amount']), round_to_2_decimals(row['tax_amount']), round_to_2_decimals(row['amount']), round_to_2_decimals(row['shipped_amount']), growth])
+        prev_amount = row['amount']
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return send_file(output, download_name=f'sales_trend_{months_back}months.xlsx', as_attachment=True)
 
 # ==================== Application entrypoint ====================
 
