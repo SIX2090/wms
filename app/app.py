@@ -2323,6 +2323,39 @@ class AIAgentHumanConfirmation(db.Model):
     status = db.Column(db.String(20), default='waiting_human', nullable=False)
 
 
+# AI-R14: AI 数据保留、脱敏和清理任务
+AI_CLEANUP_LOG_CATEGORIES = ('conversations', 'images', 'tasks', 'feedback', 'audit')
+
+
+class AICleanupLog(db.Model):
+    """AI 数据清理日志 (AI-R14)。
+
+    记录每次清理操作的统计：类别/删除数/保留数/豁免数/保护数/失败数/截止日期。
+    关键审计豁免；业务草稿和确认记录受保护不得清理。
+    """
+    __tablename__ = 'ai_cleanup_log'
+    __table_args__ = (
+        db.Index('idx_ai_cleanup_executed_at', 'executed_at'),
+        db.Index('idx_ai_cleanup_executed_by', 'executed_by'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    log_id = db.Column(db.String(60), nullable=False, unique=True)
+    executed_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    categories = db.Column(db.String(200), default='', nullable=False)  # 逗号分隔
+    dry_run = db.Column(db.Boolean, default=False, nullable=False)
+    deleted_count = db.Column(db.Integer, default=0, nullable=False)
+    kept_count = db.Column(db.Integer, default=0, nullable=False)
+    exempt_count = db.Column(db.Integer, default=0, nullable=False)
+    protected_count = db.Column(db.Integer, default=0, nullable=False)
+    failed_count = db.Column(db.Integer, default=0, nullable=False)
+    cutoff_date = db.Column(db.String(40), default='', nullable=False)
+    executed_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    notes = db.Column(db.Text, default='')
+
+    executed_by_user = db.relationship('User', backref='ai_cleanup_logs')
+
+
 # AI document job status flow: uploading -> recognizing -> recognized -> pending_confirmation -> draft_created / failed
 AI_DOCUMENT_JOB_STATUSES = ('uploading', 'recognizing', 'recognized', 'pending_confirmation', 'draft_created', 'failed', 'cancelled')
 AI_DOCUMENT_JOB_STATUS_LABELS = {
@@ -13321,6 +13354,192 @@ def _ai_bc_query_human_confirmation(run_id: str):
         )
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R13 查询人工确认请求异常: {exc}')
+        return None
+
+
+# ===== AI-R14 AI 数据保留、脱敏和清理任务 ORM adapter =====
+
+def _ai_dr_query_expired(category: str, cutoff_iso: str):
+    """AI-R14 查询过期记录。返回 list[DataRecord]。
+
+    按类别查询创建时间早于 cutoff 的记录，并判断业务关联和关键标记。
+    验收1：不得误删业务草稿、确认记录和必要审计。
+    """
+    from ai.ops.data_retention import DataRecord
+    try:
+        cutoff = _parse_iso_cutoff(cutoff_iso)
+        if cutoff is None:
+            return []
+        records: list[DataRecord] = []
+
+        if category == 'conversations':
+            # AI 对话/运行记录（AIRun）
+            rows = AIRun.query.filter(AIRun.started_at < cutoff).all()
+            for row in rows:
+                # 业务关联：是否关联已完成的草稿幂等记录
+                has_link = AIDraftIdempotency.query.filter_by(
+                    ai_run_id=row.id, status='completed'
+                ).first() is not None
+                records.append(DataRecord(
+                    id=row.id, category=category,
+                    created_at=row.started_at.isoformat() if row.started_at else '',
+                    is_critical=False,
+                    content_preview=(row.endpoint or '')[:80],
+                    has_business_link=has_link,
+                ))
+        elif category == 'images':
+            # AI 图片识别尝试（AIDocumentAttempt）
+            rows = AIDocumentAttempt.query.filter(AIDocumentAttempt.created_at < cutoff).all()
+            for row in rows:
+                # 业务关联：所属文档任务是否已生成草稿
+                has_link = False
+                if row.job_id:
+                    job = AIDocumentJob.query.get(row.job_id)
+                    if job and job.status == 'draft_created':
+                        has_link = True
+                records.append(DataRecord(
+                    id=row.id, category=category,
+                    created_at=row.created_at.isoformat() if row.created_at else '',
+                    is_critical=False,
+                    content_preview=(row.source or '')[:80],
+                    has_business_link=has_link,
+                ))
+        elif category == 'tasks':
+            # AI 文档任务（AIDocumentJob）
+            rows = AIDocumentJob.query.filter(AIDocumentJob.created_at < cutoff).all()
+            for row in rows:
+                # 业务关联：已生成草稿的任务不清理
+                has_link = row.status == 'draft_created'
+                records.append(DataRecord(
+                    id=row.id, category=category,
+                    created_at=row.created_at.isoformat() if row.created_at else '',
+                    is_critical=False,
+                    content_preview=(row.source or '')[:80],
+                    has_business_link=has_link,
+                ))
+        elif category == 'feedback':
+            # AI 字段反馈（AIFieldFeedback）
+            rows = AIFieldFeedback.query.filter(AIFieldFeedback.created_at < cutoff).all()
+            for row in rows:
+                records.append(DataRecord(
+                    id=row.id, category=category,
+                    created_at=row.created_at.isoformat() if row.created_at else '',
+                    is_critical=False,
+                    content_preview=(row.field_name or '')[:80],
+                    has_business_link=False,
+                ))
+        elif category == 'audit':
+            # AI 审计日志（AIToolCall）
+            rows = AIToolCall.query.filter(AIToolCall.created_at < cutoff).all()
+            for row in rows:
+                # 关键审计：写操作（risk_level != read）或关联草稿幂等记录
+                is_critical = (row.risk_level or 'read') != 'read'
+                if not is_critical and row.ai_run_id:
+                    is_critical = AIDraftIdempotency.query.filter_by(
+                        ai_run_id=row.ai_run_id
+                    ).first() is not None
+                records.append(DataRecord(
+                    id=row.id, category=category,
+                    created_at=row.created_at.isoformat() if row.created_at else '',
+                    is_critical=is_critical,
+                    content_preview=(row.tool_name or '')[:80],
+                    has_business_link=False,
+                ))
+        return records
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R14 查询过期记录异常: {exc}')
+        return []
+
+
+def _ai_dr_delete_records(category: str, ids: list) -> int:
+    """AI-R14 删除记录。返回实际删除数。"""
+    if not ids:
+        return 0
+    try:
+        deleted = 0
+        if category == 'conversations':
+            deleted = AIRun.query.filter(AIRun.id.in_(ids)).delete(synchronize_session=False)
+        elif category == 'images':
+            deleted = AIDocumentAttempt.query.filter(AIDocumentAttempt.id.in_(ids)).delete(synchronize_session=False)
+        elif category == 'tasks':
+            deleted = AIDocumentJob.query.filter(AIDocumentJob.id.in_(ids)).delete(synchronize_session=False)
+        elif category == 'feedback':
+            deleted = AIFieldFeedback.query.filter(AIFieldFeedback.id.in_(ids)).delete(synchronize_session=False)
+        elif category == 'audit':
+            deleted = AIToolCall.query.filter(AIToolCall.id.in_(ids)).delete(synchronize_session=False)
+        db.session.commit()
+        return int(deleted or 0)
+    except Exception as exc:  # noqa: BLE001
+        db.session.rollback()
+        app.logger.warning(f'AI-R14 删除记录异常: {exc}')
+        return 0
+
+
+def _ai_dr_save_log(log_entry) -> 'CleanupLogEntry':
+    """AI-R14 保存清理日志。"""
+    try:
+        row = AICleanupLog(
+            log_id=log_entry.log_id,
+            executed_by=log_entry.executed_by,
+            categories=','.join(log_entry.categories),
+            dry_run=log_entry.dry_run,
+            deleted_count=log_entry.deleted_count,
+            kept_count=log_entry.kept_count,
+            exempt_count=log_entry.exempt_count,
+            protected_count=log_entry.protected_count,
+            failed_count=log_entry.failed_count,
+            cutoff_date=log_entry.cutoff_date,
+            executed_at=datetime.now(),
+            notes=log_entry.notes or '',
+        )
+        db.session.add(row)
+        db.session.commit()
+        return log_entry
+    except Exception as exc:  # noqa: BLE001
+        db.session.rollback()
+        app.logger.warning(f'AI-R14 保存清理日志异常: {exc}')
+        return log_entry
+
+
+def _ai_dr_query_logs(limit: int = 50):
+    """AI-R14 查询清理日志历史。返回 list[CleanupLogEntry]。"""
+    from ai.ops.data_retention import CleanupLogEntry
+    try:
+        rows = AICleanupLog.query.order_by(
+            AICleanupLog.executed_at.desc()
+        ).limit(max(1, min(int(limit or 50), 500))).all()
+        return [
+            CleanupLogEntry(
+                log_id=row.log_id,
+                executed_by=row.executed_by,
+                categories=tuple(c.strip() for c in (row.categories or '').split(',') if c.strip()),
+                dry_run=bool(row.dry_run),
+                deleted_count=row.deleted_count or 0,
+                kept_count=row.kept_count or 0,
+                exempt_count=row.exempt_count or 0,
+                protected_count=row.protected_count or 0,
+                failed_count=row.failed_count or 0,
+                cutoff_date=row.cutoff_date or '',
+                executed_at=row.executed_at.isoformat() if row.executed_at else '',
+                notes=row.notes or '',
+            )
+            for row in rows
+        ]
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R14 查询清理日志异常: {exc}')
+        return []
+
+
+def _parse_iso_cutoff(iso_str: str):
+    """解析截止日期 ISO8601 字符串。"""
+    if not iso_str:
+        return None
+    try:
+        s = iso_str
+        if s.endswith('Z'):
+            s = s[:-1] + '+00:00'
+        return datetime.fromisoformat(s)
+    except (ValueError, TypeError):
         return None
 
 
@@ -34307,6 +34526,233 @@ def api_ai_agent_validate_safety():
         })
     except Exception as e:
         app.logger.error(f'AI-R13 安全校验失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'校验失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/data_cleanup_preview', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_data_cleanup_preview():
+    """AI-R14 数据清理预览端点（dry_run，不实际删除）。
+
+    返回每条记录的 action：delete/keep/exempt/protected。
+    验收1：不得误删业务草稿、确认记录和必要审计。
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        from ai.ops.data_retention import (
+            default_retention_config as _dr_default_config,
+            preview_cleanup as _dr_preview,
+            validate_no_business_data_deleted as _dr_no_biz,
+            validate_critical_audit_exempt as _dr_exempt,
+            ALL_CATEGORIES as _DR_ALL_CATEGORIES,
+        )
+        config = _dr_default_config(dry_run=True)
+        # 支持自定义保留期限覆盖
+        if 'policies' in data:
+            from ai.ops.data_retention import RetentionPolicy, RetentionConfig
+            custom_policies = []
+            for p in data.get('policies') or []:
+                custom_policies.append(RetentionPolicy(
+                    category=p.get('category', ''),
+                    retention_days=int(p.get('retention_days', 0)),
+                    critical_exempt=bool(p.get('critical_exempt', False)),
+                    description=p.get('description', ''),
+                ))
+            config = RetentionConfig(
+                policies=tuple(custom_policies) or config.policies,
+                dry_run=True,
+                enabled=True,
+            )
+        categories = data.get('categories')
+        if categories:
+            categories = tuple(c for c in categories if c in _DR_ALL_CATEGORIES)
+        now_iso = data.get('now_iso') or datetime.now().isoformat()
+        preview = _dr_preview(
+            config,
+            query_expired=_ai_dr_query_expired,
+            categories=categories or None,
+            now_iso=now_iso,
+        )
+        # 验收1：校验不误删业务数据和关键审计豁免
+        ok_biz, msg_biz = _dr_no_biz(preview)
+        ok_exempt, msg_exempt = _dr_exempt(preview)
+        return jsonify({
+            'status': 'success',
+            'preview': preview.to_dict(),
+            'no_business_data_deleted': ok_biz,
+            'no_business_data_msg': msg_biz,
+            'critical_audit_exempt': ok_exempt,
+            'critical_audit_exempt_msg': msg_exempt,
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R14 清理预览失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'预览失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/data_cleanup_execute', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_data_cleanup_execute():
+    """AI-R14 数据清理执行端点（实际删除，仅 admin）。
+
+    验收1：不得误删业务草稿、确认记录和必要审计。
+    执行前先预览，仅删除 action=delete 的记录。
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        from ai.ops.data_retention import (
+            default_retention_config as _dr_default_config,
+            execute_cleanup as _dr_execute,
+            validate_no_business_data_deleted as _dr_no_biz,
+            validate_critical_audit_exempt as _dr_exempt,
+            ALL_CATEGORIES as _DR_ALL_CATEGORIES,
+        )
+        config = _dr_default_config(dry_run=False)
+        categories = data.get('categories')
+        if categories:
+            categories = tuple(c for c in categories if c in _DR_ALL_CATEGORIES)
+        now_iso = data.get('now_iso') or datetime.now().isoformat()
+        # 执行前强制预览校验，确保不误删
+        from ai.ops.data_retention import preview_cleanup as _dr_preview
+        pre_preview = _dr_preview(
+            config, query_expired=_ai_dr_query_expired,
+            categories=categories or None, now_iso=now_iso,
+        )
+        ok_biz, msg_biz = _dr_no_biz(pre_preview)
+        ok_exempt, msg_exempt = _dr_exempt(pre_preview)
+        if not ok_biz or not ok_exempt:
+            app.logger.error(
+                f'AI-R14 清理执行被安全校验拦截：biz={ok_biz} exempt={ok_exempt}'
+            )
+            return jsonify({
+                'status': 'error',
+                'msg': f'安全校验未通过，拒绝执行：{msg_biz}；{msg_exempt}',
+            }), 403
+        result = _dr_execute(
+            config,
+            query_expired=_ai_dr_query_expired,
+            delete_records=_ai_dr_delete_records,
+            executed_by=current_user.id,
+            categories=categories or None,
+            now_iso=now_iso,
+            save_log=_ai_dr_save_log,
+        )
+        return jsonify({
+            'status': 'success' if result.success else 'partial',
+            'result': result.to_dict(),
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R14 清理执行失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'执行失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/data_cleanup_logs', methods=['GET'])
+@login_required
+@require_role('admin')
+def api_ai_data_cleanup_logs():
+    """AI-R14 清理日志查询端点。"""
+    try:
+        limit = int(request.args.get('limit', 50))
+        logs = _ai_dr_query_logs(limit=limit)
+        return jsonify({
+            'status': 'success',
+            'logs': [log.to_dict() for log in logs],
+            'count': len(logs),
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R14 清理日志查询失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/data_retention_config', methods=['GET'])
+@login_required
+@require_role('admin')
+def api_ai_data_retention_config_get():
+    """AI-R14 保留策略配置查询端点。"""
+    try:
+        from ai.ops.data_retention import (
+            default_retention_config as _dr_default_config,
+            DEFAULT_RETENTION_DAYS as _DR_DEFAULT_DAYS,
+            ALL_CATEGORIES as _DR_ALL_CATEGORIES,
+            PROTECTED_BUSINESS_DATA as _DR_PROTECTED,
+            SENSITIVE_FIELDS as _DR_SENSITIVE,
+        )
+        config = _dr_default_config(dry_run=True)
+        return jsonify({
+            'status': 'success',
+            'config': config.to_dict(),
+            'default_retention_days': dict(_DR_DEFAULT_DAYS),
+            'all_categories': list(_DR_ALL_CATEGORIES),
+            'protected_business_data': list(_DR_PROTECTED),
+            'sensitive_fields': list(_DR_SENSITIVE),
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R14 保留配置查询失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/data_retention_validate', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_data_retention_validate():
+    """AI-R14 数据保留安全校验端点（一次性多项验收）。
+
+    验收1：不得误删业务草稿、确认记录和必要审计。
+    验收2：日志和导出不得泄露密钥或完整敏感原文。
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        from ai.ops.data_retention import (
+            default_retention_config as _dr_default_config,
+            preview_cleanup as _dr_preview,
+            validate_no_business_data_deleted as _dr_no_biz,
+            validate_critical_audit_exempt as _dr_exempt,
+            validate_export_sanitized as _dr_export_ok,
+            validate_log_sanitized as _dr_log_ok,
+            sanitize_export_record as _dr_sanitize_export,
+            sanitize_log_text as _dr_sanitize_log,
+            ALL_CATEGORIES as _DR_ALL_CATEGORIES,
+        )
+        config = _dr_default_config(dry_run=True)
+        categories = data.get('categories')
+        if categories:
+            categories = tuple(c for c in categories if c in _DR_ALL_CATEGORIES)
+        now_iso = data.get('now_iso') or datetime.now().isoformat()
+        preview = _dr_preview(
+            config, query_expired=_ai_dr_query_expired,
+            categories=categories or None, now_iso=now_iso,
+        )
+        ok_biz, msg_biz = _dr_no_biz(preview)
+        ok_exempt, msg_exempt = _dr_exempt(preview)
+        # 导出脱敏校验：对预览记录执行脱敏并校验
+        export_records = []
+        for item in preview.items:
+            export_records.append(_dr_sanitize_export(item.record.to_dict()))
+        ok_export, msg_export = _dr_export_ok(export_records)
+        # 日志脱敏校验：对提供的日志文本或默认日志执行脱敏并校验
+        log_text = data.get('log_text') or 'cleanup executed'
+        sanitized_log = _dr_sanitize_log(log_text)
+        ok_log, msg_log = _dr_log_ok(sanitized_log)
+        return jsonify({
+            'status': 'success',
+            'no_business_data_deleted': ok_biz,
+            'no_business_data_msg': msg_biz,
+            'critical_audit_exempt': ok_exempt,
+            'critical_audit_exempt_msg': msg_exempt,
+            'export_sanitized': ok_export,
+            'export_sanitized_msg': msg_export,
+            'log_sanitized': ok_log,
+            'log_sanitized_msg': msg_log,
+            'preview_summary': {
+                'to_delete_count': preview.to_delete_count,
+                'to_keep_count': preview.to_keep_count,
+                'exempt_count': preview.exempt_count,
+                'protected_count': preview.protected_count,
+            },
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R14 安全校验失败: {e}')
         return jsonify({'status': 'error', 'msg': f'校验失败：{str(e)}'}), 500
 
 
