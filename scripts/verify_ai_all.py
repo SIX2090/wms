@@ -57,6 +57,7 @@ CORE_SCRIPTS = SMOKE_SCRIPTS + (
     "verify_ai_warehouse_workbench.py",
     "verify_ai_purchase_followup_workbench.py",
     "verify_ai_knowledge_lifecycle.py",
+    "verify_ai_budget_control.py",
 )
 
 FULL_EXTRA_SCRIPTS = (

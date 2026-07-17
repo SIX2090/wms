@@ -2260,6 +2260,69 @@ def _ai_kv_to_dataclass(kv: 'AIKnowledgeVersion') -> 'KnowledgeVersion':
     )
 
 
+# AI-R13: Agent 预算、取消、熔断和并发控制
+AI_AGENT_LOCK_STATUSES = ('held', 'released', 'expired')
+AI_AGENT_HUMAN_CONFIRM_STATUSES = ('waiting_human', 'confirmed', 'rejected')
+
+
+class AIAgentRunLock(db.Model):
+    """Agent 并发互斥锁 (AI-R13)。
+
+    同 concurrency_key 同时只能有一个 Agent 运行；含 TTL 防死锁。
+    """
+    __tablename__ = 'ai_agent_run_lock'
+    __table_args__ = (
+        db.Index('idx_ai_lock_key', 'concurrency_key'),
+        db.Index('idx_ai_lock_holder', 'holder_run_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    concurrency_key = db.Column(db.String(120), nullable=False)
+    holder_run_id = db.Column(db.String(80), nullable=False)
+    locked_until = db.Column(db.DateTime, nullable=False)
+    acquired_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    released_at = db.Column(db.DateTime)
+    status = db.Column(db.String(20), default='held', nullable=False)
+
+
+class AIAgentRetryRecord(db.Model):
+    """Agent 重试记录 (AI-R13，保留原证据)。"""
+    __tablename__ = 'ai_agent_retry_record'
+    __table_args__ = (
+        db.Index('idx_ai_retry_original', 'original_run_id'),
+        db.Index('idx_ai_retry_run', 'retry_run_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    retry_id = db.Column(db.String(60), nullable=False, unique=True)
+    original_run_id = db.Column(db.String(80), nullable=False)
+    retry_run_id = db.Column(db.String(80), nullable=False)
+    retry_reason = db.Column(db.Text, default='')
+    original_evidence = db.Column(db.Text, default='{}')  # JSON
+    retry_count = db.Column(db.Integer, default=1, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+
+class AIAgentHumanConfirmation(db.Model):
+    """Agent 人工确认请求 (AI-R13，自动提交业务单据次数为 0)。"""
+    __tablename__ = 'ai_agent_human_confirmation'
+    __table_args__ = (
+        db.Index('idx_ai_human_run', 'run_id'),
+        db.Index('idx_ai_human_status', 'status'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    run_id = db.Column(db.String(80), nullable=False)
+    step_no = db.Column(db.Integer, default=0, nullable=False)
+    action = db.Column(db.String(40), nullable=False)
+    target_type = db.Column(db.String(40), default='')
+    target_id = db.Column(db.Integer)
+    reason = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    decided_at = db.Column(db.DateTime)
+    status = db.Column(db.String(20), default='waiting_human', nullable=False)
+
+
 # AI document job status flow: uploading -> recognizing -> recognized -> pending_confirmation -> draft_created / failed
 AI_DOCUMENT_JOB_STATUSES = ('uploading', 'recognizing', 'recognized', 'pending_confirmation', 'draft_created', 'failed', 'cancelled')
 AI_DOCUMENT_JOB_STATUS_LABELS = {
@@ -13055,6 +13118,210 @@ def _ai_kv_next_version_number(knowledge_key: str) -> int:
         return int(max_version) + 1
     except Exception:
         return 1
+
+
+# ===== AI-R13 Agent 预算、取消、熔断和并发控制 ORM adapter =====
+
+def _ai_bc_acquire_lock(concurrency_key: str, run_id: str, locked_until_iso: str) -> bool:
+    """AI-R13 获取并发互斥锁。"""
+    try:
+        from datetime import datetime as _dt
+        locked_until = _dt.fromisoformat(locked_until_iso)
+        # 释放同 key 过期或同 run_id 的旧锁
+        old_locks = AIAgentRunLock.query.filter_by(
+            concurrency_key=concurrency_key, status='held'
+        ).all()
+        now = datetime.now()
+        for old in old_locks:
+            if old.holder_run_id == run_id or (old.locked_until and old.locked_until < now):
+                old.status = 'released'
+                old.released_at = now
+        # 检查是否仍被其他 run 持有
+        active = AIAgentRunLock.query.filter_by(
+            concurrency_key=concurrency_key, status='held'
+        ).filter(AIAgentRunLock.locked_until > now).first()
+        if active is not None and active.holder_run_id != run_id:
+            return False
+        # 插入新锁
+        lock = AIAgentRunLock(
+            concurrency_key=concurrency_key,
+            holder_run_id=run_id,
+            locked_until=locked_until,
+            acquired_at=now,
+            status='held',
+        )
+        db.session.add(lock)
+        db.session.commit()
+        return True
+    except Exception as exc:  # noqa: BLE001
+        db.session.rollback()
+        app.logger.warning(f'AI-R13 获取并发锁异常: {exc}')
+        return False
+
+
+def _ai_bc_release_lock(concurrency_key: str, run_id: str) -> bool:
+    """AI-R13 释放并发互斥锁。"""
+    try:
+        locks = AIAgentRunLock.query.filter_by(
+            concurrency_key=concurrency_key, holder_run_id=run_id, status='held'
+        ).all()
+        now = datetime.now()
+        for lock in locks:
+            lock.status = 'released'
+            lock.released_at = now
+        db.session.commit()
+        return True
+    except Exception as exc:  # noqa: BLE001
+        db.session.rollback()
+        app.logger.warning(f'AI-R13 释放并发锁异常: {exc}')
+        return False
+
+
+def _ai_bc_query_lock(concurrency_key: str):
+    """AI-R13 查询并发锁。返回 ConcurrencyLock 或 None。"""
+    try:
+        from ai.agents.budget_control import ConcurrencyLock
+        now = datetime.now()
+        lock = AIAgentRunLock.query.filter_by(
+            concurrency_key=concurrency_key, status='held'
+        ).filter(AIAgentRunLock.locked_until > now).first()
+        if lock is None:
+            return None
+        return ConcurrencyLock(
+            key=lock.concurrency_key,
+            holder_run_id=lock.holder_run_id,
+            locked_until=lock.locked_until.isoformat() if lock.locked_until else '',
+            acquired_at=lock.acquired_at.isoformat() if lock.acquired_at else '',
+        )
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R13 查询并发锁异常: {exc}')
+        return None
+
+
+def _ai_bc_save_retry_record(record) -> 'RetryRecord':
+    """AI-R13 保存重试记录（保留原证据）。"""
+    import json as _json
+    try:
+        row = AIAgentRetryRecord(
+            retry_id=record.retry_id,
+            original_run_id=record.original_run_id,
+            retry_run_id=record.retry_run_id,
+            retry_reason=record.retry_reason,
+            original_evidence=_json.dumps(record.original_evidence, ensure_ascii=False),
+            retry_count=record.retry_count,
+            created_at=datetime.now(),
+        )
+        db.session.add(row)
+        db.session.commit()
+        return record
+    except Exception as exc:  # noqa: BLE001
+        db.session.rollback()
+        app.logger.warning(f'AI-R13 保存重试记录异常: {exc}')
+        return record
+
+
+def _ai_bc_query_retry_records(original_run_id: str):
+    """AI-R13 查询重试历史。返回 list[RetryRecord]。"""
+    import json as _json
+    from ai.agents.budget_control import RetryRecord
+    try:
+        rows = AIAgentRetryRecord.query.filter_by(
+            original_run_id=original_run_id
+        ).order_by(AIAgentRetryRecord.created_at.desc()).all()
+        records = []
+        for row in rows:
+            try:
+                evidence = _json.loads(row.original_evidence) if row.original_evidence else {}
+            except Exception:
+                evidence = {}
+            records.append(RetryRecord(
+                retry_id=row.retry_id,
+                original_run_id=row.original_run_id,
+                retry_run_id=row.retry_run_id,
+                retry_reason=row.retry_reason or '',
+                original_evidence=evidence,
+                retry_count=row.retry_count or 1,
+                created_at=row.created_at.isoformat() if row.created_at else '',
+            ))
+        return records
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R13 查询重试记录异常: {exc}')
+        return []
+
+
+def _ai_bc_save_human_confirmation(request) -> 'HumanConfirmationRequest':
+    """AI-R13 保存人工确认请求。"""
+    try:
+        row = AIAgentHumanConfirmation(
+            run_id=request.run_id,
+            step_no=request.step_no,
+            action=request.action,
+            target_type=request.target_type,
+            target_id=request.target_id,
+            reason=request.reason,
+            created_at=datetime.now(),
+            status='waiting_human',
+        )
+        db.session.add(row)
+        db.session.commit()
+        return request
+    except Exception as exc:  # noqa: BLE001
+        db.session.rollback()
+        app.logger.warning(f'AI-R13 保存人工确认请求异常: {exc}')
+        return request
+
+
+def _ai_bc_update_human_confirmation(run_id: str, decision: str):
+    """AI-R13 更新人工确认请求状态。返回更新后的 HumanConfirmationRequest 或 None。"""
+    from ai.agents.budget_control import HumanConfirmationRequest, STATUS_WAITING_HUMAN
+    try:
+        rows = AIAgentHumanConfirmation.query.filter_by(
+            run_id=run_id, status='waiting_human'
+        ).order_by(AIAgentHumanConfirmation.created_at.desc()).all()
+        if not rows:
+            return None
+        row = rows[0]
+        row.status = decision  # 'confirmed' 或 'rejected'
+        row.decided_at = datetime.now()
+        db.session.commit()
+        return HumanConfirmationRequest(
+            run_id=row.run_id,
+            step_no=row.step_no,
+            action=row.action,
+            target_type=row.target_type,
+            target_id=row.target_id,
+            reason=row.reason or '',
+            created_at=row.created_at.isoformat() if row.created_at else '',
+            status=decision,
+        )
+    except Exception as exc:  # noqa: BLE001
+        db.session.rollback()
+        app.logger.warning(f'AI-R13 更新人工确认请求异常: {exc}')
+        return None
+
+
+def _ai_bc_query_human_confirmation(run_id: str):
+    """AI-R13 查询人工确认请求。返回 HumanConfirmationRequest 或 None。"""
+    from ai.agents.budget_control import HumanConfirmationRequest
+    try:
+        row = AIAgentHumanConfirmation.query.filter_by(
+            run_id=run_id
+        ).order_by(AIAgentHumanConfirmation.created_at.desc()).first()
+        if row is None:
+            return None
+        return HumanConfirmationRequest(
+            run_id=row.run_id,
+            step_no=row.step_no,
+            action=row.action,
+            target_type=row.target_type,
+            target_id=row.target_id,
+            reason=row.reason or '',
+            created_at=row.created_at.isoformat() if row.created_at else '',
+            status=row.status or 'waiting_human',
+        )
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R13 查询人工确认请求异常: {exc}')
+        return None
 
 
 def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='', confirmation_token=None, document_job_id=None):
@@ -33701,6 +33968,346 @@ def _ai_safe_url_for(endpoint: str) -> str:
         return url_for(endpoint)
     except Exception:
         return ''
+
+
+# ===== AI-R13 Agent 预算、取消、熔断和并发控制 API 端点 =====
+
+@app.route('/api/ai/agent_budget_check', methods=['POST'])
+@login_required
+def api_ai_agent_budget_check():
+    """AI-R13 Agent 预算检查端点。
+
+    校验 max_steps/max_duration/max_tool_calls/deadline；超预算安全停止。
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        from ai.agents.budget_control import (
+            BudgetConfig as _BC_Config,
+            check_budget as _bc_check,
+            validate_no_infinite_loop as _bc_no_loop,
+        )
+        config = _BC_Config(
+            max_steps=int(data.get('max_steps', 20)),
+            max_duration_seconds=int(data.get('max_duration_seconds', 600)),
+            max_tool_calls=int(data.get('max_tool_calls', 50)),
+            deadline_iso=data.get('deadline_iso'),
+            concurrency_key=data.get('concurrency_key'),
+        )
+        started_at_iso = data.get('started_at_iso') or datetime.now().isoformat()
+        current_steps = int(data.get('current_steps', 0))
+        current_tool_calls = int(data.get('current_tool_calls', 0))
+        now_iso = data.get('now_iso') or datetime.now().isoformat()
+        result = _bc_check(
+            config,
+            current_steps=current_steps,
+            started_at_iso=started_at_iso,
+            current_tool_calls=current_tool_calls,
+            now_iso=now_iso,
+        )
+        ok_loop, msg_loop = _bc_no_loop(
+            config, current_steps, started_at_iso, current_tool_calls, now_iso=now_iso
+        )
+        return jsonify({
+            'status': 'success',
+            'budget_check': result.to_dict(),
+            'no_infinite_loop': ok_loop,
+            'no_infinite_loop_msg': msg_loop,
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R13 预算检查失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'检查失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/agent_concurrency_lock', methods=['POST'])
+@login_required
+@require_role('admin', 'warehouse', 'purchase')
+def api_ai_agent_concurrency_lock():
+    """AI-R13 并发互斥锁端点（acquire/release/query）。
+
+    同 concurrency_key 同时只能有一个 Agent 运行；含 TTL 防死锁。
+    """
+    data = request.get_json(silent=True) or {}
+    action = (data.get('action') or 'acquire').lower()
+    concurrency_key = (data.get('concurrency_key') or '').strip()
+    run_id = (data.get('run_id') or '').strip()
+    if not concurrency_key or not run_id:
+        return jsonify({'status': 'error', 'msg': 'concurrency_key 和 run_id 必填'}), 400
+    try:
+        from ai.agents.budget_control import (
+            BudgetConfig as _BC_Config,
+            acquire_concurrency_lock as _bc_acquire,
+            release_concurrency_lock as _bc_release,
+        )
+        config = _BC_Config(concurrency_key=concurrency_key)
+        if action == 'acquire':
+            ok, lock, msg = _bc_acquire(
+                config, run_id,
+                acquire_fn=_ai_bc_acquire_lock,
+                query_fn=_ai_bc_query_lock,
+                lock_ttl_seconds=int(data.get('lock_ttl_seconds', 600)),
+            )
+            return jsonify({
+                'status': 'success' if ok else 'locked',
+                'acquired': ok,
+                'lock': lock.to_dict() if lock else None,
+                'msg': msg,
+            })
+        elif action == 'release':
+            ok = _bc_release(config, run_id, release_fn=_ai_bc_release_lock)
+            return jsonify({'status': 'success', 'released': ok})
+        else:
+            return jsonify({'status': 'error', 'msg': f'未知 action：{action}'}), 400
+    except Exception as e:
+        app.logger.error(f'AI-R13 并发锁操作失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/agent_circuit_breaker', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_agent_circuit_breaker():
+    """AI-R13 Provider 熔断器端点（record/check）。
+
+    连续失败达到阈值触发熔断；冷却期后半开允许试探性调用。
+    """
+    data = request.get_json(silent=True) or {}
+    action = (data.get('action') or 'check').lower()
+    provider_name = (data.get('provider_name') or '').strip()
+    if not provider_name:
+        return jsonify({'status': 'error', 'msg': 'provider_name 必填'}), 400
+    try:
+        from ai.agents.budget_control import (
+            CircuitBreakerState as _BC_Breaker,
+            record_provider_call as _bc_record,
+            check_circuit_breaker as _bc_check_cb,
+        )
+        # 内存级熔断器状态（生产环境应使用 Redis 持久化，此处提供 API 接口）
+        # 通过 provider_name 在 app 全局缓存状态
+        if not hasattr(app, '_ai_circuit_breakers'):
+            app._ai_circuit_breakers = {}
+        breaker = app._ai_circuit_breakers.get(provider_name)
+        if breaker is None:
+            breaker = _BC_Breaker(
+                provider_name=provider_name,
+                threshold=int(data.get('threshold', 5)),
+                cooldown_seconds=int(data.get('cooldown_seconds', 60)),
+            )
+        if action == 'record':
+            success = bool(data.get('success', False))
+            failure_reason = data.get('failure_reason')
+            breaker = _bc_record(
+                breaker,
+                success=success,
+                failure_reason=failure_reason,
+                now_iso=datetime.now().isoformat(),
+            )
+            app._ai_circuit_breakers[provider_name] = breaker
+            return jsonify({
+                'status': 'success',
+                'breaker': breaker.to_dict(),
+            })
+        elif action == 'check':
+            result = _bc_check_cb(breaker, now_iso=datetime.now().isoformat()) if breaker else None
+            return jsonify({
+                'status': 'success',
+                'breaker': breaker.to_dict() if breaker else None,
+                'check': result.to_dict() if result else None,
+            })
+        else:
+            return jsonify({'status': 'error', 'msg': f'未知 action：{action}'}), 400
+    except Exception as e:
+        app.logger.error(f'AI-R13 熔断器操作失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/agent_human_confirmation', methods=['POST'])
+@login_required
+@require_role('admin', 'warehouse', 'purchase')
+def api_ai_agent_human_confirmation():
+    """AI-R13 人工确认请求端点（request/decide/query）。
+
+    自动提交业务单据次数为 0：submit/audit/approve/complete/close/void/delete 必须人工确认。
+    """
+    data = request.get_json(silent=True) or {}
+    action = (data.get('action') or 'request').lower()
+    run_id = (data.get('run_id') or '').strip()
+    if not run_id:
+        return jsonify({'status': 'error', 'msg': 'run_id 必填'}), 400
+    try:
+        from ai.agents.budget_control import (
+            request_human_confirmation as _bc_request,
+            resume_from_human_confirmation as _bc_resume,
+            validate_no_auto_submit as _bc_no_submit,
+            AUTO_SUBMIT_FORBIDDEN_ACTIONS,
+        )
+        if action == 'request':
+            confirm_action = (data.get('confirm_action') or '').strip()
+            if not confirm_action:
+                return jsonify({'status': 'error', 'msg': 'confirm_action 必填'}), 400
+            # 校验动作是否在禁止列表（防止误调用）
+            ok, msg, violations = _bc_no_submit([confirm_action])
+            if ok:
+                return jsonify({
+                    'status': 'error',
+                    'msg': f'动作 {confirm_action} 不在禁止列表，无需人工确认',
+                }), 400
+            req = _bc_request(
+                run_id=run_id,
+                step_no=int(data.get('step_no', 0)),
+                action=confirm_action,
+                target_type=data.get('target_type', ''),
+                target_id=data.get('target_id'),
+                reason=data.get('reason', ''),
+                save_fn=_ai_bc_save_human_confirmation,
+            )
+            return jsonify({
+                'status': 'success',
+                'request': req.to_dict(),
+                'msg': '已发起人工确认请求，等待确认',
+            })
+        elif action == 'decide':
+            decision = (data.get('decision') or '').strip()
+            if decision not in ('confirmed', 'rejected'):
+                return jsonify({'status': 'error', 'msg': 'decision 必须是 confirmed 或 rejected'}), 400
+            ok, msg, updated = _bc_resume(
+                run_id, decision, update_fn=_ai_bc_update_human_confirmation
+            )
+            return jsonify({
+                'status': 'success' if ok else 'rejected',
+                'confirmed': ok,
+                'msg': msg,
+                'request': updated.to_dict() if updated else None,
+            })
+        elif action == 'query':
+            req = _ai_bc_query_human_confirmation(run_id)
+            return jsonify({
+                'status': 'success',
+                'request': req.to_dict() if req else None,
+            })
+        else:
+            return jsonify({'status': 'error', 'msg': f'未知 action：{action}'}), 400
+    except Exception as e:
+        app.logger.error(f'AI-R13 人工确认操作失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/agent_retry_record', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_agent_retry_record():
+    """AI-R13 重试记录端点（create/list）。
+
+    重试保留原证据：原运行步骤结果和工具调用记录必须保留。
+    """
+    data = request.get_json(silent=True) or {}
+    action = (data.get('action') or 'list').lower()
+    try:
+        from ai.agents.budget_control import (
+            create_retry_record as _bc_create_retry,
+            list_retry_history as _bc_list_retry,
+            validate_retry_preserves_evidence as _bc_validate_retry,
+        )
+        if action == 'create':
+            original_run_id = (data.get('original_run_id') or '').strip()
+            retry_run_id = (data.get('retry_run_id') or '').strip()
+            if not original_run_id or not retry_run_id:
+                return jsonify({'status': 'error', 'msg': 'original_run_id 和 retry_run_id 必填'}), 400
+            original_evidence = data.get('original_evidence') or {}
+            record = _bc_create_retry(
+                original_run_id=original_run_id,
+                retry_run_id=retry_run_id,
+                retry_reason=data.get('retry_reason', ''),
+                original_evidence=original_evidence,
+                retry_count=int(data.get('retry_count', 1)),
+                save_fn=_ai_bc_save_retry_record,
+            )
+            # 校验证据保留
+            ok, msg = _bc_validate_retry(record, original_evidence)
+            return jsonify({
+                'status': 'success',
+                'record': record.to_dict(),
+                'evidence_preserved': ok,
+                'evidence_msg': msg,
+            })
+        elif action == 'list':
+            original_run_id = (data.get('original_run_id') or '').strip()
+            if not original_run_id:
+                return jsonify({'status': 'error', 'msg': 'original_run_id 必填'}), 400
+            records = _bc_list_retry(original_run_id, query_fn=_ai_bc_query_retry_records)
+            return jsonify({
+                'status': 'success',
+                'original_run_id': original_run_id,
+                'records': [r.to_dict() for r in records],
+                'count': len(records),
+            })
+        else:
+            return jsonify({'status': 'error', 'msg': f'未知 action：{action}'}), 400
+    except Exception as e:
+        app.logger.error(f'AI-R13 重试记录操作失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/agent_validate_safety', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_agent_validate_safety():
+    """AI-R13 安全停止校验端点（一次性校验多项验收）。"""
+    data = request.get_json(silent=True) or {}
+    try:
+        from ai.agents.budget_control import (
+            BudgetConfig as _BC_Config,
+            BudgetCheckResult as _BC_Result,
+            check_budget as _bc_check,
+            validate_no_infinite_loop as _bc_no_loop,
+            validate_no_auto_submit as _bc_no_submit,
+            validate_safety_stop_on_violation as _bc_safety_stop,
+            validate_permission_boundary as _bc_perm,
+        )
+        config = _BC_Config(
+            max_steps=int(data.get('max_steps', 20)),
+            max_duration_seconds=int(data.get('max_duration_seconds', 600)),
+            max_tool_calls=int(data.get('max_tool_calls', 50)),
+            deadline_iso=data.get('deadline_iso'),
+            concurrency_key=data.get('concurrency_key'),
+        )
+        started_at_iso = data.get('started_at_iso') or datetime.now().isoformat()
+        current_steps = int(data.get('current_steps', 0))
+        current_tool_calls = int(data.get('current_tool_calls', 0))
+        now_iso = data.get('now_iso') or datetime.now().isoformat()
+        budget_result = _bc_check(
+            config,
+            current_steps=current_steps,
+            started_at_iso=started_at_iso,
+            current_tool_calls=current_tool_calls,
+            now_iso=now_iso,
+        )
+        ok_loop, msg_loop = _bc_no_loop(
+            config, current_steps, started_at_iso, current_tool_calls, now_iso=now_iso
+        )
+        actions = data.get('actions') or []
+        ok_submit, msg_submit, violations = _bc_no_submit(actions)
+        was_stopped = bool(data.get('was_stopped', not budget_result.passed))
+        ok_safety, msg_safety = _bc_safety_stop(budget_result, was_stopped)
+        user_role = data.get('user_role', 'admin')
+        action_check = (data.get('action_check') or 'read').strip()
+        allowed_roles = tuple(data.get('allowed_roles', ('admin',)))
+        ok_perm, msg_perm = _bc_perm(user_role, action_check, allowed_roles)
+        return jsonify({
+            'status': 'success',
+            'budget_check': budget_result.to_dict(),
+            'no_infinite_loop': ok_loop,
+            'no_infinite_loop_msg': msg_loop,
+            'no_auto_submit': ok_submit,
+            'no_auto_submit_msg': msg_submit,
+            'auto_submit_violations': violations,
+            'safety_stop': ok_safety,
+            'safety_stop_msg': msg_safety,
+            'permission_boundary': ok_perm,
+            'permission_boundary_msg': msg_perm,
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R13 安全校验失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'校验失败：{str(e)}'}), 500
 
 
 @app.route('/ai/supplier_evaluation')
