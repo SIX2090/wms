@@ -2184,6 +2184,82 @@ class AIFieldFeedback(db.Model):
     ai_run = db.relationship('AIRun', backref=db.backref('field_feedback_records', cascade='all, delete-orphan'))
 
 
+# AI-R12: 知识库版本生命周期状态机
+# draft -> in_review -> published -> deprecated -> archived
+AI_KNOWLEDGE_VERSION_STATUSES = ('draft', 'in_review', 'published', 'deprecated', 'archived')
+AI_KNOWLEDGE_VERSION_STATUS_LABELS = {
+    'draft': '草稿',
+    'in_review': '待审核',
+    'published': '已发布',
+    'deprecated': '已失效',
+    'archived': '已归档',
+}
+AI_KNOWLEDGE_VERSION_SOURCES = ('manual', 'system', 'imported', 'ai_generated')
+
+
+class AIKnowledgeVersion(db.Model):
+    """AI 知识库版本记录 (AI-R12)。
+
+    支持知识草稿、审核、发布、失效、版本、来源、更新时间、发布人、检索权限和回滚。
+    同 knowledge_key 可有多版本，published 状态同 key 唯一。
+    未发布内容不可检索；回答显示来源和更新时间；实时库存问题必须使用实时数据工具。
+    """
+    __tablename__ = 'ai_knowledge_version'
+    __table_args__ = (
+        db.Index('idx_ai_kv_key_version', 'knowledge_key', 'version'),
+        db.Index('idx_ai_kv_status_key', 'status', 'knowledge_key'),
+        db.Index('idx_ai_kv_published_at', 'published_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    knowledge_key = db.Column(db.String(80), nullable=False)
+    version = db.Column(db.Integer, nullable=False, default=1)
+    title = db.Column(db.String(200), nullable=False, default='')
+    summary = db.Column(db.Text, default='')
+    content = db.Column(db.Text, default='')
+    rule = db.Column(db.Text, default='')
+    page_endpoint = db.Column(db.String(80), default='')
+    page_label = db.Column(db.String(80), default='')
+    keywords = db.Column(db.Text, default='')  # 逗号分隔
+    source = db.Column(db.String(20), default='manual')
+    status = db.Column(db.String(20), nullable=False, default='draft')
+    allowed_roles = db.Column(db.Text, default='')  # 逗号分隔，空表示全部可见
+    published_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    published_at = db.Column(db.DateTime)
+    updated_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    superseded_by = db.Column(db.Integer)  # 被哪个版本替代
+
+    published_by_user = db.relationship('User', foreign_keys=[published_by], backref='published_knowledge_versions')
+
+
+def _ai_kv_to_dataclass(kv: 'AIKnowledgeVersion') -> 'KnowledgeVersion':
+    """ORM AIKnowledgeVersion 转纯数据 KnowledgeVersion。"""
+    from ai.knowledge_lifecycle import KnowledgeVersion
+    keywords = tuple(k.strip() for k in (kv.keywords or '').split(',') if k.strip())
+    allowed_roles = tuple(r.strip() for r in (kv.allowed_roles or '').split(',') if r.strip())
+    return KnowledgeVersion(
+        id=kv.id,
+        knowledge_key=kv.knowledge_key,
+        version=kv.version or 1,
+        title=kv.title or '',
+        summary=kv.summary or '',
+        content=kv.content or '',
+        rule=kv.rule or '',
+        page_endpoint=kv.page_endpoint or '',
+        page_label=kv.page_label or '',
+        keywords=keywords,
+        source=kv.source or 'manual',
+        status=kv.status or 'draft',
+        allowed_roles=allowed_roles,
+        published_by=kv.published_by,
+        published_at=kv.published_at.isoformat() if kv.published_at else None,
+        updated_at=kv.updated_at.isoformat() if kv.updated_at else '',
+        created_at=kv.created_at.isoformat() if kv.created_at else '',
+        superseded_by=kv.superseded_by,
+    )
+
+
 # AI document job status flow: uploading -> recognizing -> recognized -> pending_confirmation -> draft_created / failed
 AI_DOCUMENT_JOB_STATUSES = ('uploading', 'recognizing', 'recognized', 'pending_confirmation', 'draft_created', 'failed', 'cancelled')
 AI_DOCUMENT_JOB_STATUS_LABELS = {
@@ -12889,6 +12965,96 @@ def _ai_pf_query_supplier_followup_list():
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'查询供应商跟进清单异常: {exc}')
         return []
+
+
+# ===== AI-R12 知识库版本生命周期 ORM adapter =====
+
+def _ai_kv_query_all_versions():
+    """AI-R12 查询所有知识版本（含未发布）。返回 list[KnowledgeVersion]。"""
+    try:
+        rows = AIKnowledgeVersion.query.order_by(
+            AIKnowledgeVersion.knowledge_key,
+            AIKnowledgeVersion.version.desc(),
+        ).all()
+        return [_ai_kv_to_dataclass(r) for r in rows]
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询知识版本异常: {exc}')
+        return []
+
+
+def _ai_kv_query_published():
+    """AI-R12 查询所有已发布版本（供检索用）。返回 list[KnowledgeVersion]。"""
+    try:
+        rows = (
+            AIKnowledgeVersion.query
+            .filter_by(status='published')
+            .order_by(AIKnowledgeVersion.knowledge_key)
+            .all()
+        )
+        return [_ai_kv_to_dataclass(r) for r in rows]
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询已发布知识异常: {exc}')
+        return []
+
+
+def _ai_kv_query_published_by_key(knowledge_key: str):
+    """AI-R12 按 key 查询已发布版本（唯一）。返回 KnowledgeVersion 或 None。"""
+    try:
+        row = (
+            AIKnowledgeVersion.query
+            .filter_by(knowledge_key=knowledge_key, status='published')
+            .first()
+        )
+        return _ai_kv_to_dataclass(row) if row else None
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'按 key 查询已发布知识异常: {exc}')
+        return None
+
+
+def _ai_kv_query_versions_by_key(knowledge_key: str):
+    """AI-R12 按 key 查询全部版本（含历史）。返回 list[KnowledgeVersion]。"""
+    try:
+        rows = (
+            AIKnowledgeVersion.query
+            .filter_by(knowledge_key=knowledge_key)
+            .order_by(AIKnowledgeVersion.version.desc())
+            .all()
+        )
+        return [_ai_kv_to_dataclass(r) for r in rows]
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'按 key 查询知识版本异常: {exc}')
+        return []
+
+
+def _ai_kv_update_status(version_id: int, status: str, published_by=None, published_at=None, superseded_by=None):
+    """AI-R12 更新版本状态（draft/in_review/published/deprecated/archived）。
+
+    published_by/published_at 仅 published 状态写入；
+    superseded_by 仅 deprecated 状态写入（被哪个版本替代）。
+    """
+    row = AIKnowledgeVersion.query.get(version_id)
+    if row is None:
+        raise ValueError(f'知识版本 {version_id} 不存在')
+    row.status = status
+    row.updated_at = datetime.now()
+    if status == 'published':
+        row.published_by = published_by
+        row.published_at = published_at or datetime.now()
+    elif status == 'deprecated':
+        row.superseded_by = superseded_by
+    db.session.commit()
+    return _ai_kv_to_dataclass(row)
+
+
+def _ai_kv_next_version_number(knowledge_key: str) -> int:
+    """计算同 key 下一版本号。"""
+    try:
+        max_version = db.session.query(db.func.max(AIKnowledgeVersion.version)).filter_by(
+            knowledge_key=knowledge_key
+        ).scalar() or 0
+        return int(max_version) + 1
+    except Exception:
+        return 1
 
 
 def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='', confirmation_token=None, document_job_id=None):
@@ -33293,6 +33459,248 @@ def api_ai_purchase_followup_workbench():
     except Exception as e:
         app.logger.error(f'采购跟进工作台构建失败: {e}')
         return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
+
+
+# ===== AI-R12 知识库版本生命周期 API 端点 =====
+
+@app.route('/api/ai/knowledge_search')
+@login_required
+def api_ai_knowledge_search():
+    """AI-R12 知识库检索端点。
+
+    验收：未发布内容不可检索；回答显示来源和更新时间；实时库存问题必须使用实时数据工具。
+    """
+    message = (request.args.get('message') or request.args.get('q') or '').strip()
+    if not message:
+        return jsonify({'status': 'error', 'msg': '缺少 message 参数'}), 400
+    try:
+        from ai.knowledge_lifecycle import (
+            search_published_knowledge as _kl_search,
+            build_knowledge_answer as _kl_build_answer,
+            is_realtime_question as _kl_is_realtime,
+        )
+        role = current_user.role if current_user.is_authenticated else 'guest'
+        results = _kl_search(
+            message,
+            role=role,
+            query_published=_ai_kv_query_published,
+            limit=4,
+        )
+        answer = _kl_build_answer(
+            results,
+            message=message,
+            page_url_resolver=lambda endpoint: _ai_safe_url_for(endpoint),
+        )
+        return jsonify({
+            'status': 'success',
+            'message': message,
+            'results': [r.to_dict() for r in results],
+            'answer': answer,
+            'needs_realtime_tool': answer.get('needs_realtime_tool', False),
+        })
+    except Exception as e:
+        app.logger.error(f'知识库检索失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'检索失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/knowledge_versions')
+@login_required
+def api_ai_knowledge_versions():
+    """AI-R12 知识版本列表端点（按 key 查询全部版本，含未发布）。
+
+    权限：admin 可见全部；其他角色仅可见 published/deprecated/archived 状态（草稿不可见）。
+    """
+    knowledge_key = (request.args.get('knowledge_key') or '').strip()
+    role = current_user.role if current_user.is_authenticated else 'guest'
+    try:
+        if knowledge_key:
+            versions = _ai_kv_query_versions_by_key(knowledge_key)
+        else:
+            versions = _ai_kv_query_all_versions()
+        # 非 admin 角色仅可见 published/deprecated/archived（草稿和待审核不可见）
+        if role != 'admin':
+            versions = [v for v in versions if v.status in ('published', 'deprecated', 'archived')]
+        return jsonify({
+            'status': 'success',
+            'knowledge_key': knowledge_key,
+            'versions': [v.to_dict() for v in versions],
+            'count': len(versions),
+        })
+    except Exception as e:
+        app.logger.error(f'知识版本列表查询失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/knowledge_draft', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_knowledge_draft():
+    """AI-R12 创建知识草稿端点（仅 admin）。
+
+    创建草稿后状态为 draft，不可检索；需经 submit_for_review → publish 流程。
+    """
+    data = request.get_json(silent=True) or {}
+    knowledge_key = (data.get('knowledge_key') or '').strip()
+    title = (data.get('title') or '').strip()
+    if not knowledge_key or not title:
+        return jsonify({'status': 'error', 'msg': 'knowledge_key 和 title 必填'}), 400
+    try:
+        version_no = _ai_kv_next_version_number(knowledge_key)
+        keywords = data.get('keywords') or []
+        if isinstance(keywords, str):
+            keywords = [k.strip() for k in keywords.split(',') if k.strip()]
+        allowed_roles = data.get('allowed_roles') or []
+        if isinstance(allowed_roles, str):
+            allowed_roles = [r.strip() for r in allowed_roles.split(',') if r.strip()]
+        row = AIKnowledgeVersion(
+            knowledge_key=knowledge_key,
+            version=version_no,
+            title=title,
+            summary=data.get('summary') or '',
+            content=data.get('content') or '',
+            rule=data.get('rule') or '',
+            page_endpoint=data.get('page_endpoint') or '',
+            page_label=data.get('page_label') or '',
+            keywords=','.join(keywords),
+            source=data.get('source') or 'manual',
+            status='draft',
+            allowed_roles=','.join(allowed_roles),
+            updated_at=datetime.now(),
+            created_at=datetime.now(),
+        )
+        db.session.add(row)
+        db.session.commit()
+        return jsonify({
+            'status': 'success',
+            'version': _ai_kv_to_dataclass(row).to_dict(),
+            'msg': '草稿创建成功，需提交审核并发布后才可检索',
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'知识草稿创建失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'创建失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/knowledge_publish', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_knowledge_publish():
+    """AI-R12 发布知识版本端点（仅 admin）。
+
+    将 draft/in_review 版本发布为 published；同 key 旧 published 版本自动标记为 deprecated。
+    验收：未发布内容不可检索——发布后才可检索。
+    """
+    data = request.get_json(silent=True) or {}
+    version_id = data.get('version_id')
+    if not version_id:
+        return jsonify({'status': 'error', 'msg': 'version_id 必填'}), 400
+    try:
+        from ai.knowledge_lifecycle import publish_knowledge_version as _kl_publish
+        row = AIKnowledgeVersion.query.get(version_id)
+        if row is None:
+            return jsonify({'status': 'error', 'msg': f'版本 {version_id} 不存在'}), 404
+        version = _ai_kv_to_dataclass(row)
+        published_at_iso = datetime.now().isoformat()
+        result = _kl_publish(
+            version,
+            published_by=current_user.id,
+            published_at=published_at_iso,
+            update_status=_ai_kv_update_status,
+            query_published_by_key=_ai_kv_query_published_by_key,
+        )
+        if not result.success:
+            return jsonify({'status': 'error', 'msg': result.reason, 'result': result.to_dict()}), 400
+        return jsonify({
+            'status': 'success',
+            'result': result.to_dict(),
+            'msg': '发布成功，旧版本已标记为失效',
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'知识发布失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'发布失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/knowledge_rollback', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_knowledge_rollback():
+    """AI-R12 回滚知识版本端点（仅 admin）。
+
+    将指定版本设为 published，当前 published 版本（若存在且非目标）标记为 deprecated。
+    """
+    data = request.get_json(silent=True) or {}
+    target_version_id = data.get('target_version_id')
+    if not target_version_id:
+        return jsonify({'status': 'error', 'msg': 'target_version_id 必填'}), 400
+    try:
+        from ai.knowledge_lifecycle import rollback_knowledge_version as _kl_rollback
+        target_row = AIKnowledgeVersion.query.get(target_version_id)
+        if target_row is None:
+            return jsonify({'status': 'error', 'msg': f'目标版本 {target_version_id} 不存在'}), 404
+        target_version = _ai_kv_to_dataclass(target_row)
+        current_published = _ai_kv_query_published_by_key(target_version.knowledge_key)
+        rolled_back_at_iso = datetime.now().isoformat()
+        result = _kl_rollback(
+            target_version,
+            current_published=current_published,
+            rolled_back_by=current_user.id,
+            rolled_back_at=rolled_back_at_iso,
+            update_status=_ai_kv_update_status,
+        )
+        if not result.success:
+            return jsonify({'status': 'error', 'msg': result.reason, 'result': result.to_dict()}), 400
+        return jsonify({
+            'status': 'success',
+            'result': result.to_dict(),
+            'msg': '回滚成功，当前已发布版本已标记为失效',
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'知识回滚失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'回滚失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/knowledge_deprecate', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_knowledge_deprecate():
+    """AI-R12 失效知识版本端点（仅 admin）。
+
+    将 published 版本标记为 deprecated，立即不可检索。
+    """
+    data = request.get_json(silent=True) or {}
+    version_id = data.get('version_id')
+    if not version_id:
+        return jsonify({'status': 'error', 'msg': 'version_id 必填'}), 400
+    try:
+        from ai.knowledge_lifecycle import deprecate_knowledge_version as _kl_deprecate
+        row = AIKnowledgeVersion.query.get(version_id)
+        if row is None:
+            return jsonify({'status': 'error', 'msg': f'版本 {version_id} 不存在'}), 404
+        version = _ai_kv_to_dataclass(row)
+        updated = _kl_deprecate(version, update_status=_ai_kv_update_status)
+        return jsonify({
+            'status': 'success',
+            'version': updated.to_dict(),
+            'msg': '已标记为失效，立即不可检索',
+        })
+    except ValueError as ve:
+        return jsonify({'status': 'error', 'msg': str(ve)}), 400
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'知识失效失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'失效失败：{str(e)}'}), 500
+
+
+def _ai_safe_url_for(endpoint: str) -> str:
+    """安全生成 URL，失败返回空串。"""
+    if not endpoint:
+        return ''
+    try:
+        return url_for(endpoint)
+    except Exception:
+        return ''
 
 
 @app.route('/ai/supplier_evaluation')
