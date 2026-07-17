@@ -12245,6 +12245,60 @@ def _ai_mg_query_aliases(alias_keys):
         return []
 
 
+def _ai_dc_query_existing_drafts(source_hash, business_key):
+    """AI-R08 文档确认台注入回调：按 source_hash/business_key 查已存在的草稿。
+
+    用于重复风险检测（验收：重复风险可阻止建单）。
+    返回字典列表：[{draft_type, draft_id, draft_no, status, created_at,
+                    match_reason, similarity}, ...]
+    """
+    if not source_hash and not business_key:
+        return []
+    try:
+        # 查 AIDraftIdempotency 表，按 source_hash 或 business_key（idempotency_key）匹配
+        from sqlalchemy import or_ as sa_or
+        query = AIDraftIdempotency.query
+        conditions = []
+        if source_hash:
+            # source_hash 是 idempotency_key 前 32 位，用 like 匹配
+            conditions.append(AIDraftIdempotency.source_hash.ilike(f'{source_hash}%'))
+        if business_key:
+            conditions.append(AIDraftIdempotency.idempotency_key == business_key)
+        if not conditions:
+            return []
+        records = query.filter(sa_or(*conditions)).order_by(
+            AIDraftIdempotency.created_at.desc()
+        ).limit(10).all()
+
+        result = []
+        for r in records:
+            # 相似度判定：idempotency_key 完全匹配=1.0，source_hash 前缀匹配=0.90
+            similarity = 0.90
+            match_reason = 'source_hash'
+            if business_key and r.idempotency_key == business_key:
+                similarity = 1.0
+                match_reason = 'business_key'
+            elif source_hash and business_key and (
+                r.idempotency_key == business_key
+                and (r.source_hash or '').startswith(source_hash)
+            ):
+                similarity = 1.0
+                match_reason = 'both'
+            result.append({
+                'draft_type': r.draft_type or '',
+                'draft_id': int(r.draft_id or 0),
+                'draft_no': r.draft_no or '',
+                'status': r.status or '',
+                'created_at': r.created_at.isoformat() if r.created_at else '',
+                'match_reason': match_reason,
+                'similarity': similarity,
+            })
+        return result
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询已存在草稿异常: {exc}')
+        return []
+
+
 def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='', confirmation_token=None, document_job_id=None):
     if current_user.role not in ('admin', 'warehouse', 'purchase'):
         return None
@@ -32323,6 +32377,59 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
                     app.logger.warning(f'物料治理匹配异常，降级走原匹配: {_mg_exc}')
                     material_governance_info = None
 
+                # AI_TASK: AI-R08
+                # 文档确认台字段证据与重复风险聚合：
+                # 汇总 OCR extracted/items + AI-R06 delivery_match + AI-R07
+                # material_governance + AI-R01 idempotency 三方证据，产出统一的
+                # DocumentConfirmationEvidence 结构供确认台前端渲染。
+                # 验收：低置信度字段不能静默通过；重复风险可阻止建单；
+                # 仓库人员可在浏览器完成整个流程。
+                document_confirmation_info = None
+                try:
+                    from ai.documents.document_confirmation import (
+                        build_confirmation_evidence as _dc_build,
+                    )
+                    from ai.draft_idempotency import compute_draft_idempotency_key
+                    from flask import g as _g_dc
+
+                    # 计算 source_hash 和 business_key（用于查 AIDraftIdempotency 重复草稿）
+                    _dc_user_id = current_user.id if current_user.is_authenticated else 0
+                    _dc_capability = 'in_order_draft'  # OCR 默认入库草稿能力
+                    _dc_source = 'ocr_upload'
+                    _dc_business = {
+                        'supplier': str(extracted.get('supplier') or ''),
+                        'order_no': str(extracted.get('order_no') or ''),
+                        'items': [
+                            {
+                                'code': str(i.get('code') or ''),
+                                'name': str(i.get('name') or ''),
+                                'quantity': float(i.get('quantity') or 0),
+                            }
+                            for i in items_info
+                        ],
+                    }
+                    _dc_idempotency_key = compute_draft_idempotency_key(
+                        _dc_user_id, _dc_capability, _dc_source, _dc_business,
+                    )
+                    # source_hash 用 idempotency_key 衍生（前 32 位），business_key 用完整 key
+                    _dc_source_hash = _dc_idempotency_key[:32]
+                    _dc_business_key = _dc_idempotency_key
+
+                    _dc_evidence = _dc_build(
+                        extracted=extracted,
+                        items=items_info,
+                        delivery_match=delivery_match_info,
+                        material_governance=material_governance_info,
+                        query_existing_drafts=_ai_dc_query_existing_drafts,
+                        source_hash=_dc_source_hash,
+                        business_key=_dc_business_key,
+                    )
+                    _g_dc.ai_document_confirmation = _dc_evidence.to_dict()
+                    document_confirmation_info = _dc_evidence.to_dict()
+                except Exception as _dc_exc:  # noqa: BLE001 - 证据聚合失败不阻塞草稿创建
+                    app.logger.warning(f'文档确认台证据聚合异常，降级走原草稿流程: {_dc_exc}')
+                    document_confirmation_info = None
+
                 if matched_items:
                     # 构建草稿消息
                     lines = []
@@ -32350,6 +32457,7 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
             'image_warnings': preprocess_result.warnings if preprocess_result else [],
             'delivery_match': delivery_match_info,
             'material_governance': material_governance_info,
+            'document_confirmation': document_confirmation_info,
         })
         
     except Exception as e:
