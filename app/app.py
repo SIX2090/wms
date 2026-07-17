@@ -2151,6 +2151,39 @@ class AIDraftIdempotency(db.Model):
     ai_tool_call = db.relationship('AIToolCall', backref=db.backref('draft_idempotency_records'))
 
 
+class AIFieldFeedback(db.Model):
+    """AI 字段级反馈记录 (AI-R09)。
+
+    记录 OCR 提取字段被用户修正的反馈：字段名/原值/新值/修正原因/是否采纳/
+    模型/提示词/Schema 版本/来源/行号。用于按来源与版本聚合准确率和修正率，
+    定位质量下降的字段和版本。
+    敏感原文经 mask_sensitive_value 脱敏后存储，不保存不必要的敏感原文。
+    """
+    __tablename__ = 'ai_field_feedback'
+    __table_args__ = (
+        db.Index('idx_ai_ff_lookup', 'source', 'model', 'schema_version', 'field_name'),
+        db.Index('idx_ai_ff_user_created', 'user_id', 'created_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    ai_run_id = db.Column(db.Integer, db.ForeignKey('ai_run.id'))
+    field_name = db.Column(db.String(40), nullable=False)
+    line_index = db.Column(db.Integer, default=-1)
+    original_value = db.Column(db.String(500), default='')
+    corrected_value = db.Column(db.String(500), default='')
+    correction_reason = db.Column(db.String(60), default='')
+    adopted = db.Column(db.Boolean, default=False)
+    model = db.Column(db.String(100), default='')
+    prompt_hash = db.Column(db.String(20), default='')
+    schema_version = db.Column(db.String(40), default='')
+    source = db.Column(db.String(30), default='ocr_upload')
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    user = db.relationship('User', backref='ai_field_feedback_records')
+    ai_run = db.relationship('AIRun', backref=db.backref('field_feedback_records', cascade='all, delete-orphan'))
+
+
 # AI document job status flow: uploading -> recognizing -> recognized -> pending_confirmation -> draft_created / failed
 AI_DOCUMENT_JOB_STATUSES = ('uploading', 'recognizing', 'recognized', 'pending_confirmation', 'draft_created', 'failed', 'cancelled')
 AI_DOCUMENT_JOB_STATUS_LABELS = {
@@ -12296,6 +12329,71 @@ def _ai_dc_query_existing_drafts(source_hash, business_key):
         return result
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'查询已存在草稿异常: {exc}')
+        return []
+
+
+def _ai_ff_save_feedback_record(record):
+    """AI-R09 字段反馈注入回调：持久化单条 FieldCorrectionRecord 到 AIFieldFeedback 表。
+
+    用于按来源与版本聚合准确率和修正率，定位质量下降的字段和版本。
+    敏感原文已在 build_field_correction_records 中脱敏，此处直接存储。
+    """
+    try:
+        from flask import g as _g_ff
+        _ff_user_id = current_user.id if current_user.is_authenticated else None
+        _ff_run_id = getattr(_g_ff, 'ai_run_id', None)
+        row = AIFieldFeedback(
+            user_id=_ff_user_id,
+            ai_run_id=_ff_run_id,
+            field_name=(record.field_name or '')[:40],
+            line_index=int(record.line_index or -1),
+            original_value=(record.original_value or '')[:500],
+            corrected_value=(record.corrected_value or '')[:500],
+            correction_reason=(record.correction_reason or '')[:60],
+            adopted=bool(record.adopted),
+            model=(record.model or '')[:100],
+            prompt_hash=(record.prompt_hash or '')[:20],
+            schema_version=(record.schema_version or '')[:40],
+            source=(record.source or 'ocr_upload')[:30],
+        )
+        db.session.add(row)
+        db.session.commit()
+    except Exception as exc:  # noqa: BLE001 - 反馈记录持久化失败不阻塞业务
+        db.session.rollback()
+        app.logger.warning(f'字段反馈记录持久化异常: {exc}')
+
+
+def _ai_ff_query_feedback_records(source='', model='', schema_version='', field_name='', limit=500):
+    """AI-R09 查询字段反馈记录（供聚合质量指标用）。"""
+    try:
+        query = AIFieldFeedback.query
+        if source:
+            query = query.filter_by(source=source)
+        if model:
+            query = query.filter_by(model=model)
+        if schema_version:
+            query = query.filter_by(schema_version=schema_version)
+        if field_name:
+            query = query.filter_by(field_name=field_name)
+        records = query.order_by(AIFieldFeedback.created_at.desc()).limit(limit).all()
+        result = []
+        for r in records:
+            result.append({
+                'field_name': r.field_name or '',
+                'line_index': int(r.line_index or -1),
+                'original_value': r.original_value or '',
+                'corrected_value': r.corrected_value or '',
+                'correction_reason': r.correction_reason or '',
+                'adopted': bool(r.adopted),
+                'model': r.model or '',
+                'prompt_hash': r.prompt_hash or '',
+                'schema_version': r.schema_version or '',
+                'source': r.source or '',
+                'created_at': r.created_at.isoformat() if r.created_at else '',
+            })
+        return result
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询字段反馈记录异常: {exc}')
         return []
 
 
@@ -32430,6 +32528,23 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
                     app.logger.warning(f'文档确认台证据聚合异常，降级走原草稿流程: {_dc_exc}')
                     document_confirmation_info = None
 
+                # AI_TASK: AI-R09
+                # 计算字段反馈元数据（模型/提示词/Schema 版本），供前端提交反馈时回传。
+                # 不在此处记录反馈（反馈在确认台用户修正后由 /api/ai/document_feedback 记录）。
+                _ff_prompt_hash = ''
+                _ff_schema_version = 'document-extraction-v1'
+                try:
+                    from ai.documents.provider_evaluation import (
+                        compute_prompt_hash as _ff_compute_ph,
+                        compute_schema_version as _ff_compute_sv,
+                        SCHEMA_VERSION as _ff_sv_const,
+                    )
+                    _ff_schema_version = _ff_compute_sv() or _ff_sv_const
+                    # 提示词指纹：用当前文档提取提示词（若有），否则用空串占位
+                    _ff_prompt_hash = _ff_compute_ph(getattr(_g_dc, 'ai_extraction_prompt', '') or '')
+                except Exception:
+                    pass
+
                 if matched_items:
                     # 构建草稿消息
                     lines = []
@@ -32458,11 +32573,154 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
             'delivery_match': delivery_match_info,
             'material_governance': material_governance_info,
             'document_confirmation': document_confirmation_info,
+            'field_feedback_meta': {
+                'model': _ai_llm_model()[:100] if _ai_llm_configured() else 'local-rules',
+                'prompt_hash': _ff_prompt_hash,
+                'schema_version': _ff_schema_version,
+                'source': 'ocr_upload',
+                'feedback_url': '/api/ai/document_feedback',
+            },
         })
         
     except Exception as e:
         app.logger.error(f'单据OCR识别失败: {e}')
         return jsonify({'status': 'error', 'msg': f'识别失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/document_feedback', methods=['POST'])
+@login_required
+def api_ai_document_feedback():
+    """AI-R09 字段级反馈记录端点。
+
+    前端在文档确认台用户修正字段后调用，传入 evidence_fields + corrections +
+    model/prompt_hash/schema_version/source，后端调用
+    build_field_correction_records 持久化到 AIFieldFeedback 表。
+    验收：记录字段名/原值/新值/修正原因/是否采纳/模型/提示词/Schema 版本；
+    不保存不必要的敏感原文（脱敏后存储）。
+    """
+    if current_user.role not in ('admin', 'warehouse', 'purchase'):
+        return jsonify({'status': 'error', 'msg': '无权限'}), 403
+    try:
+        payload = request.get_json(silent=True) or {}
+        evidence_fields = payload.get('evidence_fields') or []
+        corrections = payload.get('corrections') or {}
+        model = str(payload.get('model') or (_ai_llm_model() if _ai_llm_configured() else 'local-rules'))[:100]
+        prompt_hash = str(payload.get('prompt_hash') or '')[:20]
+        schema_version = str(payload.get('schema_version') or 'document-extraction-v1')[:40]
+        source = str(payload.get('source') or 'ocr_upload')[:30]
+
+        if not isinstance(evidence_fields, list) or not evidence_fields:
+            return jsonify({'status': 'error', 'msg': 'evidence_fields 不能为空'}), 400
+        if not isinstance(corrections, dict):
+            return jsonify({'status': 'error', 'msg': 'corrections 必须是字典'}), 400
+
+        from ai.documents.field_feedback import (
+            build_field_correction_records as _ff_build,
+        )
+        records = _ff_build(
+            evidence_fields=evidence_fields,
+            corrections=corrections,
+            model=model,
+            prompt_hash=prompt_hash,
+            schema_version=schema_version,
+            source=source,
+            save_feedback_record=_ai_ff_save_feedback_record,
+        )
+        return jsonify({
+            'status': 'success',
+            'recorded_count': len(records),
+            'records': [r.to_dict() for r in records],
+        })
+    except Exception as e:
+        app.logger.error(f'字段反馈记录失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'记录失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/document_quality')
+@login_required
+def api_ai_document_quality():
+    """AI-R09 文档质量指标聚合端点。
+
+    查询 AIFieldFeedback 表，按来源/模型/Schema版本/字段名聚合准确率和修正率，
+    检测质量下降。验收：可定位质量下降的字段和版本。
+    支持查询参数：source/model/schema_version/field_name/baseline_schema_version。
+    """
+    if current_user.role not in ('admin', 'warehouse', 'purchase'):
+        return jsonify({'status': 'error', 'msg': '无权限'}), 403
+    try:
+        source = str(request.args.get('source') or '')
+        model = str(request.args.get('model') or '')
+        schema_version = str(request.args.get('schema_version') or '')
+        field_name = str(request.args.get('field_name') or '')
+        baseline_schema_version = str(request.args.get('baseline_schema_version') or '')
+
+        # 查当前版本记录
+        current_dicts = _ai_ff_query_feedback_records(
+            source=source, model=model, schema_version=schema_version,
+            field_name=field_name, limit=2000,
+        )
+        baseline_dicts: list[dict] = []
+        if baseline_schema_version:
+            baseline_dicts = _ai_ff_query_feedback_records(
+                source=source, model=model, schema_version=baseline_schema_version,
+                field_name=field_name, limit=2000,
+            )
+
+        from ai.documents.field_feedback import (
+            FieldCorrectionRecord,
+            aggregate_quality_metrics as _ff_aggregate,
+        )
+        current_records = [
+            FieldCorrectionRecord(
+                field_name=d.get('field_name', ''),
+                line_index=int(d.get('line_index') or -1),
+                original_value=d.get('original_value', ''),
+                corrected_value=d.get('corrected_value', ''),
+                correction_reason=d.get('correction_reason', ''),
+                adopted=bool(d.get('adopted')),
+                model=d.get('model', ''),
+                prompt_hash=d.get('prompt_hash', ''),
+                schema_version=d.get('schema_version', ''),
+                source=d.get('source', ''),
+                created_at=d.get('created_at', ''),
+            )
+            for d in current_dicts
+        ]
+        baseline_records = [
+            FieldCorrectionRecord(
+                field_name=d.get('field_name', ''),
+                line_index=int(d.get('line_index') or -1),
+                original_value=d.get('original_value', ''),
+                corrected_value=d.get('corrected_value', ''),
+                correction_reason=d.get('correction_reason', ''),
+                adopted=bool(d.get('adopted')),
+                model=d.get('model', ''),
+                prompt_hash=d.get('prompt_hash', ''),
+                schema_version=d.get('schema_version', ''),
+                source=d.get('source', ''),
+                created_at=d.get('created_at', ''),
+            )
+            for d in baseline_dicts
+        ] if baseline_dicts else None
+
+        snapshot = _ff_aggregate(
+            current_records,
+            baseline_records=baseline_records,
+        )
+        return jsonify({
+            'status': 'success',
+            'snapshot': snapshot.to_dict(),
+            'filters': {
+                'source': source, 'model': model,
+                'schema_version': schema_version,
+                'field_name': field_name,
+                'baseline_schema_version': baseline_schema_version,
+            },
+        })
+    except Exception as e:
+        app.logger.error(f'文档质量指标聚合失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'聚合失败：{str(e)}'}), 500
+
 
 @app.route('/ai/supplier_evaluation')
 @login_required

@@ -53,3 +53,6 @@ jobs:
 
       - name: Run AI document confirmation check (AI-R08)
         run: python3 scripts/verify_ai_document_confirmation.py
+
+      - name: Run AI field feedback check (AI-R09)
+        run: python3 scripts/verify_ai_field_feedback.py
