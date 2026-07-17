@@ -65,13 +65,13 @@
 | BUG-007 | 低风险 | 原问题主要是死代码/防御性分支，不是核心业务矛盾 |
 | VULN-002 | 低风险 | `|safe` 使用前已有 sanitize 保护，继续保持净化入口即可 |
 | CONF-003 | 低风险 | 生产配置已修正，环境部署时仍需确认 HTTPS/Cookie 配置 |
-| SQLite 并发能力 | 暂缓 | 已加 WAL 和原子库存更新缓解。高并发生产环境建议迁移 MySQL/PostgreSQL |
+| SQLite 并发能力 | 已修复单机并发边界 | 已启用 WAL、60 秒 busy timeout、外键、原子库存更新；启动迁移使用排他事务串行执行。高并发生产环境仍建议迁移 MySQL/PostgreSQL |
 | BUG-NEW-002 | 暂不按 BUG | `update_completed_in_order()` 的库位增减路径支持正负 `qty_diff`，新增、删除、数量变更均已有库位同步 |
-| BUG-NEW-004 | 业务设计需确认 | 当前 `received_quantity` 更像采购单“已下推/占用数量”，草稿生成即占用以防重复下推；删除/反提交会释放。暂不直接改语义，避免破坏采购链路 |
+| BUG-NEW-004 | 已修复 | 保留 `received_quantity` 作为防重复下推的占用量；采购订单状态改为仅汇总 `completed` 入库单，草稿和待提交入库不再提前把订单标记为已入库 |
 | BUG-NEW-007 | 已修正字段语义 | `api_material_payload()` 不再把 `warehouse_code` 直接复制给 `location_code`，库位启用时取库位库存记录 |
 | BUG-NEW-010 | 低风险体验项 | `makeKey()` 已会规范化 `embedded` 参数；未确认恢复错配。仅提高恢复标签数量上限 |
 | BUG-NEW-012 | 低风险体验项 | 登录页占位链接/勾选框不影响核心业务；初始密码展示必须与 BUG-NEW-005 和 `AGENTS.md` 一致 |
-| BUG-NEW-016 | 暂缓 | 自动迁移并发启动属于部署模式风险，单机启动影响低；多进程部署建议外置迁移步骤 |
+| BUG-NEW-016 | 已修复 | 自动迁移在检查字段前执行 SQLite `BEGIN EXCLUSIVE` 并等待最多 60 秒；迁移失败将阻止进程继续启动，避免多个 worker 重复 DDL 或带不完整结构运行 |
 | BUG-NEW-017 | 误报 | 报告描述为“日志不包含具体 SQL，不利排查”，不是“敏感 SQL 泄露” |
 | BUG-NEW2-005 | 低风险设计项 | `log_operation()` 是独立的 best-effort 日志提交，当前多在业务提交后调用；不按核心数据 BUG 处理 |
 | JS-NEW2-001 | 低风险兜底 | `confirmDialog()` 缺 DOM 时降级 `window.confirm()` 是可用性兜底，不影响数据正确性 |

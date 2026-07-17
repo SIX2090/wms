@@ -142,8 +142,29 @@ def main() -> int:
 
     checks.append((
         "CONF-004",
-        "journal_mode=WAL" in app_py and "busy_timeout" in app_py and "foreign_keys=ON" in app_py,
-        "SQLite 应启用 WAL、busy_timeout 和外键约束",
+        "journal_mode=WAL" in app_py
+        and "busy_timeout" in app_py
+        and "foreign_keys=ON" in app_py
+        and "BEGIN EXCLUSIVE" in app_py,
+        "SQLite 应启用 WAL、busy_timeout、外键约束并串行执行启动迁移",
+    ))
+
+    purchase_status_body = function_body(app_py, "update_purchase_order_status")
+    checks.append((
+        "BUG-NEW-004",
+        "InOrder.status == 'completed'" in purchase_status_body
+        and "completed_by_item.get(item.id, 0)" in purchase_status_body
+        and "received_qty += item.received_quantity" not in purchase_status_body,
+        "采购订单状态必须按已完成入库数量计算，不能把草稿占用量当作已收货量",
+    ))
+
+    migration_body = function_body(app_py, "auto_migrate_database")
+    checks.append((
+        "BUG-NEW-016",
+        "BEGIN EXCLUSIVE" in migration_body
+        and "timeout=60" in migration_body
+        and "raise" in migration_body,
+        "多进程启动迁移必须串行等待，且迁移失败时停止启动",
     ))
 
     delete_in_order_body = function_body(app_py, "delete_in_order")

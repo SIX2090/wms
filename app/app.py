@@ -93,10 +93,14 @@ def auto_migrate_database():
             return
 
         import sqlite3
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=60)
         cursor = conn.cursor()
         cursor.execute('PRAGMA journal_mode=WAL')
-        cursor.execute('PRAGMA busy_timeout=30000')
+        cursor.execute('PRAGMA busy_timeout=60000')
+        # Serialize startup schema inspection and DDL across worker processes.
+        # Without this transaction two workers can both observe a missing column
+        # and then race to execute the same ALTER TABLE statement.
+        cursor.execute('BEGIN EXCLUSIVE')
 
         modified = False
 
@@ -427,6 +431,7 @@ def auto_migrate_database():
             logging.getLogger(__name__).error(f'auto_migrate_database 迁移失败: {e}', exc_info=True)
         except Exception:
             pass
+        raise
     finally:
         # 连接关闭必须放在 finally，避免中途异常导致 sqlite3 连接泄漏（WAL 锁、备份失败）
         if conn is not None:
@@ -3586,11 +3591,25 @@ def update_purchase_order_status(order):
     total_amount = 0
     total_qty = 0
     received_qty = 0
+    completed_by_item = {}
+    item_ids = [item.id for item in items if item.id]
+    if item_ids:
+        completed_rows = db.session.query(
+            InOrderItem.source_purchase_order_item_id,
+            func.coalesce(func.sum(InOrderItem.quantity), 0),
+        ).join(InOrder, InOrderItem.in_order_id == InOrder.id).filter(
+            InOrderItem.source_purchase_order_item_id.in_(item_ids),
+            InOrder.status == 'completed',
+        ).group_by(InOrderItem.source_purchase_order_item_id).all()
+        completed_by_item = {
+            item_id: round_to_2_decimals(quantity or 0)
+            for item_id, quantity in completed_rows
+        }
     for item in items:
         item.amount = round_to_2_decimals((item.quantity or 0) * (item.price or 0))
         total_amount += item.amount or 0
         total_qty += item.quantity or 0
-        received_qty += item.received_quantity or 0
+        received_qty += completed_by_item.get(item.id, 0)
     order.total_amount = round_to_2_decimals(total_amount)
     if received_qty <= 0:
         order.status = 'pending'
