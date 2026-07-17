@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Pre-push hook: enforce main-only branch policy.
+#
+# AGENTS.md mandates that AI/TRAE must work directly on main and is
+# strictly forbidden from creating, switching to, or pushing to any
+# other branch (including feature/*, fix/*, chore/*, or trae/*).
+#
+# This hook blocks:
+#   * git push origin <branch>          (local branch != main)
+#   * git push origin <local>:<remote>  (remote branch != main)
+#   * git push origin <new-branch>      (creating a new remote branch)
+#   * git push origin :<branch>         (deleting any remote branch is also blocked
+#                                       unless it's main, to keep history clean)
+
+set -euo pipefail
+
+ALLOWED_REMOTE_BRANCH="main"
+ALLOWED_LOCAL_BRANCH="main"
+
+abort() {
+    echo "❌ PRE-PUSH BLOCKED: $1" >&2
+    echo "   AGENTS.md rule: Branch policy (hard rule, no exceptions)." >&2
+    echo "   All commits must go to '${ALLOWED_LOCAL_BRANCH}' directly. No new branches." >&2
+    exit 1
+}
+
+blocked=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # Skip empty lines (defensive)
+    [ -z "${local_ref}${remote_ref}" ] && continue
+
+    local_branch=""
+    remote_branch=""
+
+    if [ -n "${local_ref}" ]; then
+        local_branch="${local_ref#refs/heads/}"
+    fi
+    if [ -n "${remote_ref}" ]; then
+        remote_branch="${remote_ref#refs/heads/}"
+    fi
+
+    # Block local branch push when not on main
+    if [ -n "${local_branch}" ] && [ "${local_branch}" != "${ALLOWED_LOCAL_BRANCH}" ]; then
+        echo "❌ PRE-PUSH BLOCKED: pushing local branch '${local_branch}' is not allowed." >&2
+        echo "   Only '${ALLOWED_LOCAL_BRANCH}' may be pushed." >&2
+        blocked=1
+        continue
+    fi
+
+    # Block any remote branch other than main
+    if [ -n "${remote_branch}" ] && [ "${remote_branch}" != "${ALLOWED_REMOTE_BRANCH}" ]; then
+        # Allow deleting main if it ever needs to be replaced (not normal flow)
+        if [ -z "${local_ref}" ] && [ "${remote_branch}" = "${ALLOWED_REMOTE_BRANCH}" ]; then
+            continue
+        fi
+        echo "❌ PRE-PUSH BLOCKED: target remote branch '${remote_branch}' is not allowed." >&2
+        echo "   Only '${ALLOWED_REMOTE_BRANCH}' is permitted on the remote." >&2
+        blocked=1
+        continue
+    fi
+done
+
+if [ "${blocked}" -ne 0 ]; then
+    echo "" >&2
+    echo "👉 To comply: switch to '${ALLOWED_LOCAL_BRANCH}' and re-push, e.g.:" >&2
+    echo "     git checkout ${ALLOWED_LOCAL_BRANCH}" >&2
+    echo "     git push origin ${ALLOWED_LOCAL_BRANCH}" >&2
+    exit 1
+fi
+
+exit 0
