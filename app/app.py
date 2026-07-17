@@ -216,6 +216,16 @@ def auto_migrate_database():
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_material_alias_material ON ai_material_alias(material_id)")
 
+        # AI_TASK: AI-R07 新增：ai_material_alias 软删除字段（修复 revoke_alias bug）
+        cursor.execute("PRAGMA table_info(ai_material_alias)")
+        alias_columns = [row[1] for row in cursor.fetchall()]
+        if 'disabled' not in alias_columns:
+            cursor.execute("ALTER TABLE ai_material_alias ADD COLUMN disabled BOOLEAN DEFAULT 0")
+            modified = True
+        if 'disabled_reason' not in alias_columns:
+            cursor.execute("ALTER TABLE ai_material_alias ADD COLUMN disabled_reason VARCHAR(100) DEFAULT ''")
+            modified = True
+
         cursor.execute("PRAGMA table_info(material_category)")
         cat_columns = [row[1] for row in cursor.fetchall()]
         if 'code' not in cat_columns:
@@ -2018,6 +2028,10 @@ class AIMaterialAlias(db.Model):
     material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)
     source = db.Column(db.String(50))
     use_count = db.Column(db.Integer, default=0)
+    # AI_TASK: AI-R07 新增：别名软删除（修复 revoke_alias bug，原 confirmation.py
+    # 试图设置 disabled/disabled_reason 但模型缺字段导致 AttributeError）
+    disabled = db.Column(db.Boolean, default=False, nullable=False)
+    disabled_reason = db.Column(db.String(100), default='')
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
@@ -10659,7 +10673,7 @@ def _ai_material_match_one(code='', name='', spec='', barcode=''):
         alias_key = _ai_material_alias_key(alias)
         if not alias_key:
             continue
-        learned = AIMaterialAlias.query.options(joinedload(AIMaterialAlias.material).joinedload(Material.unit)).filter_by(alias_key=alias_key).first()
+        learned = AIMaterialAlias.query.options(joinedload(AIMaterialAlias.material).joinedload(Material.unit)).filter_by(alias_key=alias_key, disabled=False).first()
         if learned and learned.material:
             learned.use_count = (learned.use_count or 0) + 1
             learned.updated_at = datetime.now()
@@ -12145,6 +12159,90 @@ def _ai_query_purchase_order_by_no(order_no):
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'按订单号查询采购订单异常: {exc}')
         return None
+
+
+# AI_TASK: AI-R07
+# 物料治理 ORM adapter：把 Material/AIMaterialAlias ORM 对象转成 MaterialInfo
+# 纯数据结构，注入到 match_material_governance 供纯逻辑层调用。
+def _ai_material_to_info(material):
+    """Material ORM 对象转 MaterialInfo（含别名键列表）。"""
+    from ai.documents.material_governance import MaterialInfo as _MG_MaterialInfo
+    if material is None:
+        return None
+    aliases = tuple(
+        a.alias_key for a in (material.ai_aliases or []) if not a.disabled
+    )
+    unit_code = material.unit.code if material.unit else ''
+    return _MG_MaterialInfo(
+        material_id=int(material.id),
+        code=str(material.code or ''),
+        name=str(material.name or ''),
+        spec=str(material.spec or ''),
+        unit_code=str(unit_code or ''),
+        aliases=aliases,
+    )
+
+
+def _ai_mg_query_materials_by_codes(codes):
+    """物料治理注入回调：按编码列表查物料。"""
+    if not codes:
+        return []
+    try:
+        # 归一化后去重，大小写不敏感查询
+        unique_codes = list({c.strip() for c in codes if c and c.strip()})
+        if not unique_codes:
+            return []
+        # 用 OR 条件查多个编码
+        or_filters = [db.func.lower(Material.code) == c.lower() for c in unique_codes]
+        materials = Material.query.options(joinedload(Material.unit)).filter(or_(*or_filters)).limit(20).all()
+        return [m for m in (_ai_material_to_info(mat) for mat in materials) if m]
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'按编码查询物料异常: {exc}')
+        return []
+
+
+def _ai_mg_query_materials_by_name(name, limit=3):
+    """物料治理注入回调：按名称模糊查物料（limit 上限 3）。"""
+    if not name:
+        return []
+    try:
+        like = f'%{name}%'
+        materials = Material.query.options(joinedload(Material.unit)).filter(
+            or_(Material.name.ilike(like), Material.spec.ilike(like))
+        ).limit(min(int(limit), 20)).all()
+        return [m for m in (_ai_material_to_info(mat) for mat in materials) if m]
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'按名称查询物料异常: {exc}')
+        return []
+
+
+def _ai_mg_query_aliases(alias_keys):
+    """物料治理注入回调：按别名键列表查物料（一物多码）。"""
+    if not alias_keys:
+        return []
+    try:
+        unique_keys = list({k.strip() for k in alias_keys if k and k.strip()})
+        if not unique_keys:
+            return []
+        # 通过别名关联物料，过滤已禁用别名
+        rows = AIMaterialAlias.query.options(
+            joinedload(AIMaterialAlias.material).joinedload(Material.unit),
+        ).filter(
+            AIMaterialAlias.alias_key.in_(unique_keys),
+            AIMaterialAlias.disabled == False,  # noqa: E712
+        ).limit(20).all()
+        seen_ids = set()
+        result = []
+        for r in rows:
+            if r.material and r.material.id not in seen_ids:
+                seen_ids.add(r.material.id)
+                info = _ai_material_to_info(r.material)
+                if info:
+                    result.append(info)
+        return result
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'按别名查询物料异常: {exc}')
+        return []
 
 
 def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='', confirmation_token=None, document_job_id=None):
@@ -16378,10 +16476,14 @@ def ai_document_job_feedback(id):
 @login_required
 def ai_material_alias_list():
     search = (request.args.get('search') or '').strip()
+    # AI_TASK: AI-R07：默认仅展示未禁用的别名（disabled=False）
+    show_disabled = request.args.get('show_disabled') == '1'
     query = AIMaterialAlias.query.options(
         joinedload(AIMaterialAlias.material).joinedload(Material.unit),
         joinedload(AIMaterialAlias.creator),
     )
+    if not show_disabled:
+        query = query.filter(AIMaterialAlias.disabled == False)  # noqa: E712
     if search:
         like = f'%{search}%'
         query = query.join(Material).filter(db.or_(
@@ -32184,6 +32286,43 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
                     app.logger.warning(f'送货通知联合匹配异常，降级走原草稿流程: {_dm_exc}')
                     delivery_match_info = None
 
+                # AI_TASK: AI-R07
+                # 物料歧义/别名/单位换算/高风险规则旁路调用：
+                # 对每条 OCR 提取的 item 执行加权评分匹配，结果存 flask.g 供
+                # 前端展示候选清单和证据；不破坏现有 _ai_material_match_one 草稿路径。
+                # 验收：歧义行 100% 人工确认；高风险物料错误自动确认数为 0；
+                # 换算依据可追溯。
+                material_governance_info = None
+                try:
+                    from ai.documents.material_governance import (
+                        match_material_governance as _mg_match,
+                    )
+                    from flask import g as _g_mg
+                    _mg_results = []
+                    for _mg_item in items_info:
+                        _mg_code = str(_mg_item.get('code') or '')
+                        _mg_name = str(_mg_item.get('name') or '')
+                        _mg_spec = str(_mg_item.get('spec') or '')
+                        _mg_qty = float(_mg_item.get('quantity') or 0)
+                        _mg_unit = str(_mg_item.get('unit') or '')
+                        _mg_result = _mg_match(
+                            _mg_code, _mg_name, _mg_spec,
+                            query_materials_by_codes=_ai_mg_query_materials_by_codes,
+                            query_materials_by_name=_ai_mg_query_materials_by_name,
+                            query_aliases=_ai_mg_query_aliases,
+                        )
+                        _mg_dict = _mg_result.to_dict()
+                        _mg_dict['input'] = {
+                            'code': _mg_code, 'name': _mg_name,
+                            'spec': _mg_spec, 'quantity': _mg_qty, 'unit': _mg_unit,
+                        }
+                        _mg_results.append(_mg_dict)
+                    _g_mg.ai_material_governance = _mg_results
+                    material_governance_info = _mg_results
+                except Exception as _mg_exc:  # noqa: BLE001 - 物料治理失败不阻塞草稿创建
+                    app.logger.warning(f'物料治理匹配异常，降级走原匹配: {_mg_exc}')
+                    material_governance_info = None
+
                 if matched_items:
                     # 构建草稿消息
                     lines = []
@@ -32210,6 +32349,7 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
             'draft': draft_info,
             'image_warnings': preprocess_result.warnings if preprocess_result else [],
             'delivery_match': delivery_match_info,
+            'material_governance': material_governance_info,
         })
         
     except Exception as e:
