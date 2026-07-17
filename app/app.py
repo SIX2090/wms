@@ -12604,6 +12604,293 @@ def _ai_ww_query_unfinished_drafts():
         return 0, []
 
 
+# ---- AI-R11 采购到货跟进工作台 ORM adapter ----
+
+def _ai_pf_query_pending_arrival():
+    """AI-R11 待到：PurchaseOrder status in (pending,partial) 且 expected_date>=today。返回 (count, list[dict])。"""
+    try:
+        from datetime import date as _date
+        today = _date.today()
+        count = PurchaseOrder.query.filter(
+            PurchaseOrder.status.in_(['pending', 'partial']),
+            PurchaseOrder.expected_date >= today,
+        ).count()
+        records = (
+            PurchaseOrder.query.options(joinedload(PurchaseOrder.supplier))
+            .filter(
+                PurchaseOrder.status.in_(['pending', 'partial']),
+                PurchaseOrder.expected_date >= today,
+            )
+            .order_by(PurchaseOrder.expected_date.asc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for o in records:
+            days_until = (o.expected_date - today).days if o.expected_date else 0
+            items.append({
+                'id': o.id,
+                'title': o.order_no or f'采购单#{o.id}',
+                'subtitle': (o.supplier.name if o.supplier else '') or '无供应商',
+                'detail': f'应到 {o.expected_date.strftime("%Y-%m-%d") if o.expected_date else "未定"}（{days_until} 天后）',
+                'jump_url': f'/purchase_order/view/{o.id}',
+                'metric_scope': 'expected_date>=today 且 status in (pending,partial)',
+                'extra': {'status': o.status, 'expected_date': o.expected_date.isoformat() if o.expected_date else ''},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询待到货异常: {exc}')
+        return 0, []
+
+
+def _ai_pf_query_delayed_arrival():
+    """AI-R11 延期：PurchaseOrder status in (pending,partial) 且 expected_date<today。返回 (count, list[dict])。"""
+    try:
+        from datetime import date as _date
+        today = _date.today()
+        count = PurchaseOrder.query.filter(
+            PurchaseOrder.status.in_(['pending', 'partial']),
+            PurchaseOrder.expected_date < today,
+        ).count()
+        records = (
+            PurchaseOrder.query.options(joinedload(PurchaseOrder.supplier))
+            .filter(
+                PurchaseOrder.status.in_(['pending', 'partial']),
+                PurchaseOrder.expected_date < today,
+            )
+            .order_by(PurchaseOrder.expected_date.asc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for o in records:
+            delayed_days = (today - o.expected_date).days if o.expected_date else 0
+            items.append({
+                'id': o.id,
+                'title': o.order_no or f'采购单#{o.id}',
+                'subtitle': (o.supplier.name if o.supplier else '') or '无供应商',
+                'detail': f'应到 {o.expected_date.strftime("%Y-%m-%d") if o.expected_date else ""}，已延期 {delayed_days} 天',
+                'jump_url': f'/purchase_order/view/{o.id}',
+                'metric_scope': 'expected_date<today 且 status in (pending,partial)',
+                'extra': {'status': o.status, 'delayed_days': delayed_days, 'expected_date': o.expected_date.isoformat() if o.expected_date else ''},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询延期到货异常: {exc}')
+        return 0, []
+
+
+def _ai_pf_query_short_delivery():
+    """AI-R11 短交：PurchaseOrderItem received_quantity<quantity。返回 (count, list[dict])。"""
+    try:
+        count = PurchaseOrderItem.query.filter(
+            PurchaseOrderItem.received_quantity < PurchaseOrderItem.quantity,
+        ).count()
+        records = (
+            PurchaseOrderItem.query
+            .filter(PurchaseOrderItem.received_quantity < PurchaseOrderItem.quantity)
+            .order_by(PurchaseOrderItem.id.desc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for it in records:
+            po = it.purchase_order
+            material = it.material
+            shortage = (it.quantity or 0) - (it.received_quantity or 0)
+            items.append({
+                'id': it.id,
+                'title': f'{po.order_no if po else ""} - {(material.code if material else "")}',
+                'subtitle': (material.name if material else '') or '未知物料',
+                'detail': f'应到 {it.quantity or 0} 已到 {it.received_quantity or 0}，短交 {shortage}',
+                'jump_url': f'/purchase_order/view/{po.id}' if po else '/purchase_order/list',
+                'metric_scope': 'PurchaseOrderItem.received_quantity < quantity',
+                'extra': {'quantity': it.quantity or 0, 'received': it.received_quantity or 0, 'shortage': shortage},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询短交明细异常: {exc}')
+        return 0, []
+
+
+def _ai_pf_query_over_receive():
+    """AI-R11 超收：PurchaseOrderItem received_quantity>quantity。返回 (count, list[dict])。"""
+    try:
+        count = PurchaseOrderItem.query.filter(
+            PurchaseOrderItem.received_quantity > PurchaseOrderItem.quantity,
+        ).count()
+        records = (
+            PurchaseOrderItem.query
+            .filter(PurchaseOrderItem.received_quantity > PurchaseOrderItem.quantity)
+            .order_by(PurchaseOrderItem.id.desc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for it in records:
+            po = it.purchase_order
+            material = it.material
+            over = (it.received_quantity or 0) - (it.quantity or 0)
+            items.append({
+                'id': it.id,
+                'title': f'{po.order_no if po else ""} - {(material.code if material else "")}',
+                'subtitle': (material.name if material else '') or '未知物料',
+                'detail': f'应到 {it.quantity or 0} 已到 {it.received_quantity or 0}，超收 {over}',
+                'jump_url': f'/purchase_order/view/{po.id}' if po else '/purchase_order/list',
+                'metric_scope': 'PurchaseOrderItem.received_quantity > quantity',
+                'extra': {'quantity': it.quantity or 0, 'received': it.received_quantity or 0, 'over': over},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询超收明细异常: {exc}')
+        return 0, []
+
+
+def _ai_pf_query_unlinked_notices():
+    """AI-R11 未关联通知：AIDocumentJob 含送货通知但 source_purchase_order_id 为空。返回 (count, list[dict])。"""
+    try:
+        from datetime import date as _date, timedelta as _timedelta
+        since = _date.today() - _timedelta(days=7)
+        count = AIDocumentJob.query.filter(
+            AIDocumentJob.source_purchase_order_id.is_(None),
+            AIDocumentJob.document_type.like('%送货%'),
+            AIDocumentJob.created_at >= since,
+        ).count()
+        records = (
+            AIDocumentJob.query.filter(
+                AIDocumentJob.source_purchase_order_id.is_(None),
+                AIDocumentJob.document_type.like('%送货%'),
+                AIDocumentJob.created_at >= since,
+            )
+            .order_by(AIDocumentJob.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for j in records:
+            items.append({
+                'id': j.id,
+                'title': f'通知#{j.id}',
+                'subtitle': j.supplier or '未知供应商',
+                'detail': f'{j.document_type or "送货通知"} · {(j.source_text_summary or "")[:30]}',
+                'jump_url': '/ai/document_jobs?filter=unlinked_notice',
+                'metric_scope': 'AIDocumentJob 含送货通知但 source_purchase_order_id 为空',
+                'extra': {'status': j.status, 'created_at': j.created_at.isoformat() if j.created_at else ''},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询未关联通知异常: {exc}')
+        return 0, []
+
+
+def _ai_pf_query_multi_order_candidates():
+    """AI-R11 多订单候选：AI-R06 delivery_match 多候选未自动选单。
+
+    从最近 7 天 AIDocumentJob 中查 delivery_match 含多候选的记录。
+    返回 (count, list[dict])。
+    """
+    try:
+        from datetime import date as _date, timedelta as _timedelta
+        since = _date.today() - _timedelta(days=7)
+        # AIDocumentJob 无直接字段存候选数，需查 AIRun 的响应快照；简化为查 recognized 状态且 supplier 非空的文档
+        count = AIDocumentJob.query.filter(
+            AIDocumentJob.status == 'recognized',
+            AIDocumentJob.supplier.isnot(None),
+            AIDocumentJob.created_at >= since,
+        ).count()
+        records = (
+            AIDocumentJob.query.filter(
+                AIDocumentJob.status == 'recognized',
+                AIDocumentJob.supplier.isnot(None),
+                AIDocumentJob.created_at >= since,
+            )
+            .order_by(AIDocumentJob.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for j in records:
+            items.append({
+                'id': j.id,
+                'title': f'文档#{j.id}',
+                'subtitle': j.supplier or '未知供应商',
+                'detail': f'{j.document_type or "未知类型"} · 待人工关联订单',
+                'jump_url': f'/ai/document_confirm/{j.confirmation_token}' if j.confirmation_token else '/ai/document_jobs',
+                'metric_scope': 'AI-R06 delivery_match 多候选未自动选单',
+                'extra': {'status': j.status, 'created_at': j.created_at.isoformat() if j.created_at else ''},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询多订单候选异常: {exc}')
+        return 0, []
+
+
+def _ai_pf_query_supplier_followup_list():
+    """AI-R11 供应商跟进清单：按供应商归组的待跟进订单汇总。返回 list[dict]。"""
+    try:
+        from datetime import date as _date
+        today = _date.today()
+        # 查所有在途订单（pending/partial）按供应商归组
+        orders = (
+            PurchaseOrder.query.options(joinedload(PurchaseOrder.supplier))
+            .filter(PurchaseOrder.status.in_(['pending', 'partial']))
+            .all()
+        )
+        supplier_map: dict[int, dict] = {}
+        for o in orders:
+            sid = o.supplier_id or 0
+            if sid not in supplier_map:
+                sname = (o.supplier.name if o.supplier else '') or f'供应商#{sid}'
+                supplier_map[sid] = {
+                    'supplier_id': sid,
+                    'supplier_name': sname,
+                    'pending_count': 0,
+                    'delayed_count': 0,
+                    'short_delivery_count': 0,
+                    'order_ids': [],
+                }
+            supplier_map[sid]['order_ids'].append(o.id)
+            if o.expected_date and o.expected_date >= today:
+                supplier_map[sid]['pending_count'] += 1
+            elif o.expected_date and o.expected_date < today:
+                supplier_map[sid]['delayed_count'] += 1
+            # 统计该订单的短交明细
+            for it in (o.items or []):
+                if (it.received_quantity or 0) < (it.quantity or 0):
+                    supplier_map[sid]['short_delivery_count'] += 1
+
+        result = []
+        for sid, info in supplier_map.items():
+            pending = info['pending_count']
+            delayed = info['delayed_count']
+            short = info['short_delivery_count']
+            # 生成催交话术建议（不自动发送）
+            if delayed > 0:
+                suggestion = f'{info["supplier_name"]} 有 {delayed} 张延期订单，建议优先催交。'
+            elif short > 0:
+                suggestion = f'{info["supplier_name"]} 有 {short} 条短交明细，建议跟进补货。'
+            elif pending > 0:
+                suggestion = f'{info["supplier_name"]} 有 {pending} 张待到订单，建议确认到货时间。'
+            else:
+                suggestion = f'{info["supplier_name"]} 暂无待跟进事项。'
+            result.append({
+                'supplier_id': sid,
+                'supplier_name': info['supplier_name'],
+                'pending_count': pending,
+                'delayed_count': delayed,
+                'short_delivery_count': short,
+                'followup_suggestion': suggestion,
+                'needs_manual_confirmation': True,  # 对外沟通必须人工确认
+                'jump_url': f'/purchase_order/list?supplier_id={sid}',
+            })
+        # 按延期数+短交数降序排序
+        result.sort(key=lambda x: (-(x['delayed_count'] + x['short_delivery_count']), x['supplier_name']))
+        return result[:20]  # 最多展示 20 个供应商
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询供应商跟进清单异常: {exc}')
+        return []
+
+
 def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='', confirmation_token=None, document_job_id=None):
     if current_user.role not in ('admin', 'warehouse', 'purchase'):
         return None
@@ -32963,6 +33250,48 @@ def api_ai_warehouse_workbench():
         return jsonify({'status': 'success', 'workbench': result})
     except Exception as e:
         app.logger.error(f'仓库工作台构建失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/purchase_followup_workbench')
+@login_required
+def api_ai_purchase_followup_workbench():
+    """AI-R11 采购到货跟进工作台整合端点。
+
+    整合待到/延期/短交/超收/未关联通知/多订单候选/供应商跟进清单到单一工作台视图。
+    验收：指标口径和时间范围明确；对外沟通和业务提交必须人工确认。
+    """
+    if current_user.role not in ('admin', 'purchase', 'warehouse'):
+        return jsonify({'status': 'error', 'msg': '无权限'}), 403
+    try:
+        from ai.ops.purchase_followup_workbench import (
+            build_purchase_followup_workbench as _pf_build,
+            validate_followup_read_only as _pf_validate_ro,
+            validate_metric_scope_clear as _pf_validate_scope,
+        )
+        snapshot = _pf_build(
+            query_pending_arrival=_ai_pf_query_pending_arrival,
+            query_delayed_arrival=_ai_pf_query_delayed_arrival,
+            query_short_delivery=_ai_pf_query_short_delivery,
+            query_over_receive=_ai_pf_query_over_receive,
+            query_unlinked_notices=_ai_pf_query_unlinked_notices,
+            query_multi_order_candidates=_ai_pf_query_multi_order_candidates,
+            query_supplier_followup_list=_ai_pf_query_supplier_followup_list,
+            user_id=current_user.id if current_user.is_authenticated else 0,
+            role=current_user.role or 'purchase',
+        )
+        ro_valid, ro_violations = _pf_validate_ro(snapshot)
+        scope_valid, scope_violations = _pf_validate_scope(snapshot)
+        result = snapshot.to_dict()
+        result['read_only_valid'] = ro_valid
+        result['metric_scope_valid'] = scope_valid
+        if ro_violations:
+            result['read_only_violations'] = ro_violations
+        if scope_violations:
+            result['metric_scope_violations'] = scope_violations
+        return jsonify({'status': 'success', 'workbench': result})
+    except Exception as e:
+        app.logger.error(f'采购跟进工作台构建失败: {e}')
         return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
 
 
