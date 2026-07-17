@@ -44,3 +44,6 @@ jobs:
 
       - name: Run AI provider evaluation check (AI-R05)
         run: python3 scripts/verify_ai_provider_evaluation.py
+
+      - name: Run AI delivery matcher check (AI-R06)
+        run: python3 scripts/verify_ai_delivery_matcher.py

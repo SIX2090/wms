@@ -12037,6 +12037,116 @@ def _ai_find_purchase_order_candidates_for_matches(matched, limit=5):
     return candidates[:limit]
 
 
+# AI_TASK: AI-R06
+# ORM adapter：把 PurchaseOrder ORM 查询结果转成 delivery_matcher 的纯数据结构
+def _ai_purchase_order_to_info(order):
+    """把 PurchaseOrder ORM 对象转成 PurchaseOrderInfo 纯数据结构。"""
+    from ai.documents.delivery_matcher import PurchaseOrderInfo, PurchaseOrderLineInfo
+    supplier_name = ''
+    try:
+        if order.supplier:
+            supplier_name = order.supplier.name or ''
+    except Exception:  # noqa: BLE001
+        pass
+    lines = tuple(
+        PurchaseOrderLineInfo(
+            line_id=item.id,
+            material_id=item.material_id or 0,
+            material_code=(item.material.code if item.material else '') or '',
+            material_name=(item.material.name if item.material else '') or '',
+            material_spec=(item.material.spec if item.material else '') or '',
+            quantity=float(item.quantity or 0),
+            received_quantity=float(item.received_quantity or 0),
+        )
+        for item in (order.items or [])
+    )
+    expected_date_str = ''
+    try:
+        if order.expected_date:
+            expected_date_str = order.expected_date.strftime('%Y-%m-%d') if hasattr(order.expected_date, 'strftime') else str(order.expected_date)[:10]
+    except Exception:  # noqa: BLE001
+        pass
+    return PurchaseOrderInfo(
+        order_id=order.id,
+        order_no=order.order_no or '',
+        supplier_id=(order.supplier_id or 0),
+        supplier_name=supplier_name,
+        status=order.status or 'pending',
+        expected_date=expected_date_str,
+        lines=lines,
+    )
+
+
+def _ai_query_open_purchase_orders_for_delivery(supplier_name, material_codes):
+    """联合匹配注入回调：按供应商名称 + 物料编码/名称查开放采购订单。
+
+    Args:
+        supplier_name: 送货通知提取的供应商名称
+        material_codes: 物料编码与名称的合并列表
+    """
+    try:
+        # 先按物料编码查 Material.id 集合
+        material_ids = set()
+        code_or_name_list = [c for c in material_codes if c]
+        if not code_or_name_list:
+            return []
+        materials = Material.query.filter(
+            or_(
+                Material.code.in_(code_or_name_list),
+                Material.name.in_(code_or_name_list),
+            )
+        ).all()
+        for m in materials:
+            material_ids.add(m.id)
+        if not material_ids:
+            return []
+
+        query = PurchaseOrder.query.options(
+            joinedload(PurchaseOrder.supplier),
+            selectinload(PurchaseOrder.items).joinedload(PurchaseOrderItem.material),
+        ).join(PurchaseOrderItem).filter(
+            PurchaseOrder.status.in_(('pending', 'partial', 'open')),
+            PurchaseOrderItem.material_id.in_(material_ids),
+        )
+        # 供应商名称过滤（如果有）
+        if supplier_name:
+            try:
+                query = query.join(Supplier, PurchaseOrder.supplier_id == Supplier.id).filter(
+                    or_(
+                        Supplier.name.like(f'%{supplier_name}%'),
+                        Supplier.name.ilike(f'%{supplier_name}%'),
+                    )
+                )
+            except Exception:  # noqa: BLE001 - 供应商关联查询失败不阻塞
+                pass
+        orders = query.order_by(
+            PurchaseOrder.expected_date.asc().nullslast(),
+            PurchaseOrder.date.asc(),
+            PurchaseOrder.id.asc(),
+        ).limit(20).all()
+        return [_ai_purchase_order_to_info(o) for o in orders]
+    except Exception as exc:  # noqa: BLE001 - 查询失败返回空，不阻塞主流程
+        app.logger.warning(f'查询开放采购订单异常: {exc}')
+        return []
+
+
+def _ai_query_purchase_order_by_no(order_no):
+    """联合匹配注入回调：按订单号精确查采购订单（含关闭订单，用于差异展示）。"""
+    if not order_no:
+        return None
+    try:
+        order = PurchaseOrder.query.options(
+            joinedload(PurchaseOrder.supplier),
+            selectinload(PurchaseOrder.items).joinedload(PurchaseOrderItem.material),
+        ).filter(PurchaseOrder.order_no == order_no).first()
+        if not order:
+            return None
+        return _ai_purchase_order_to_info(order)
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'按订单号查询采购订单异常: {exc}')
+        return None
+
+
 def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='', confirmation_token=None, document_job_id=None):
     if current_user.role not in ('admin', 'warehouse', 'purchase'):
         return None
@@ -31989,6 +32099,7 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
         # 尝试创建草稿
         draft_info = None
         items_info = []
+        delivery_match_info = None
         
         if extracted and isinstance(extracted, dict):
             items_raw = extracted.get('items', [])
@@ -32034,7 +32145,45 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
             if doc_type in ('in_order', 'wechat') and items_info:
                 matched_items = [i for i in items_info if i['matched']]
                 unmatched_items = [i for i in items_info if not i['matched']]
-                
+
+                # AI_TASK: AI-R06
+                # 送货通知与采购订单联合匹配：误建采购申请防护、低置信度不自动选单、
+                # 匹配依据和数量差异可见
+                try:
+                    from ai.documents.delivery_matcher import (
+                        DeliveryMatchInput,
+                        DeliveryMaterialLine,
+                        match_delivery,
+                    )
+                    from flask import g as _g_dm
+                    _dm_lines = tuple(
+                        DeliveryMaterialLine(
+                            code=str(i.get('code') or ''),
+                            name=str(i.get('name') or ''),
+                            spec=str(i.get('spec') or ''),
+                            quantity=float(i.get('quantity') or 0),
+                        )
+                        for i in items_info
+                    )
+                    _dm_input = DeliveryMatchInput(
+                        supplier_name=str(extracted.get('supplier') or ''),
+                        purchase_order_no=str(extracted.get('order_no') or extracted.get('purchase_order_no') or ''),
+                        expected_date=str(extracted.get('date') or ''),
+                        lines=_dm_lines,
+                        source_text=reply or '',
+                        is_delivery_notice=(doc_type == 'wechat' or '送货' in (reply or '') or '发货' in (reply or '')),
+                    )
+                    _dm_result = match_delivery(
+                        _dm_input,
+                        query_open_purchase_orders=_ai_query_open_purchase_orders_for_delivery,
+                        query_purchase_order_by_no=_ai_query_purchase_order_by_no,
+                    )
+                    _g_dm.ai_delivery_match = _dm_result.to_dict()
+                    delivery_match_info = _dm_result.to_dict()
+                except Exception as _dm_exc:  # noqa: BLE001 - 联合匹配失败不阻塞草稿创建
+                    app.logger.warning(f'送货通知联合匹配异常，降级走原草稿流程: {_dm_exc}')
+                    delivery_match_info = None
+
                 if matched_items:
                     # 构建草稿消息
                     lines = []
@@ -32043,7 +32192,7 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
                         qty_str = str(int(m['quantity'])) if m['quantity'] == int(m['quantity']) else str(m['quantity'])
                         lines.append(f'{code} {qty_str}')
                     draft_message = ' '.join(lines)
-                    
+
                     draft, error = _ai_create_in_order_draft(draft_message)
                     if not error and draft:
                         draft_info = {
@@ -32052,7 +32201,7 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
                             'matched_count': len(matched_items),
                             'unmatched_count': len(unmatched_items)
                         }
-        
+
         return jsonify({
             'status': 'success',
             'reply': reply,
@@ -32060,6 +32209,7 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
             'items': items_info,
             'draft': draft_info,
             'image_warnings': preprocess_result.warnings if preprocess_result else [],
+            'delivery_match': delivery_match_info,
         })
         
     except Exception as e:
