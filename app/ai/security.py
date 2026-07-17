@@ -503,11 +503,27 @@ def sanitize_log_message(message: str) -> str:
 
 
 class SafeLogFilter(logging.Filter):
-    """日志安全过滤器：自动过滤敏感信息。"""
+    """日志安全过滤器：自动过滤敏感信息。
+
+    AI-R05 修复：先格式化完整消息再整体脱敏，避免敏感数据跨越
+    record.msg 与 record.args 边界（如 `logger.warning('data:image;base64,%s', b64)`）
+    时无法整体匹配正则导致泄露。
+    """
 
     def filter(self, record):
-        if isinstance(record.msg, str):
-            record.msg = sanitize_log_message(record.msg)
+        try:
+            full_msg = record.getMessage()
+            record.msg = sanitize_log_message(full_msg)
+            record.args = ()
+        except Exception:  # noqa: BLE001 - 异常日志场景兜底，至少脱敏 msg
+            if isinstance(record.msg, str):
+                record.msg = sanitize_log_message(record.msg)
+            if record.args:
+                args = record.args if isinstance(record.args, tuple) else (record.args,)
+                record.args = tuple(
+                    sanitize_log_message(a) if isinstance(a, str) else a
+                    for a in args
+                )
         return True
 
 

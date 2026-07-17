@@ -526,6 +526,18 @@ if log_file and not any(
 app.logger.setLevel(log_level)
 app.logger.propagate = False
 
+# AI_TASK: AI-R05
+# 挂载日志安全过滤器：自动脱敏 API Key / Bearer token / base64 图片 / 完整敏感原文
+# 验收硬性要求：日志不得泄露密钥或完整敏感原文
+try:
+    from ai.security import SafeLogFilter
+    _safe_log_filter = SafeLogFilter()
+    app.logger.addFilter(_safe_log_filter)
+    for _h in app.logger.handlers:
+        _h.addFilter(_safe_log_filter)
+except Exception as _safe_filter_exc:  # noqa: BLE001 - 脱敏过滤器加载失败不阻塞启动
+    app.logger.warning(f'SafeLogFilter 加载失败，日志脱敏未启用: {_safe_filter_exc}')
+
 # Log active configuration
 app.logger.info("Flask config loaded: env=%s, DEBUG=%s", env, app.config.get('DEBUG'))
 
@@ -31925,10 +31937,54 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
         if remarks:
             prompt += f'\n\n用户备注：{remarks}'
         
+        # AI_TASK: AI-R05
+        # 路由决策：可解释、可配置、可回滚
+        try:
+            from ai.documents.provider_router import route_document, call_with_evidence
+            from flask import g as _g_router
+            _blur_score = preprocess_result.metrics.blur_score if (preprocess_result and preprocess_result.metrics) else None
+            _aspect = preprocess_result.metrics.aspect_ratio if (preprocess_result and preprocess_result.metrics) else None
+            _routing_decision = route_document(
+                source_type='image',
+                has_image=True,
+                image_blur_score=_blur_score,
+                image_aspect_ratio=_aspect,
+                vision_available=_ai_llm_configured() and _ai_llm_vision_enabled(),
+            )
+            _g_router.ai_routing_decision = _routing_decision.to_dict()
+        except Exception as _route_exc:  # noqa: BLE001 - 路由决策失败不阻塞主流程
+            app.logger.warning(f'路由决策异常，降级走默认视觉通道: {_route_exc}')
+            _routing_decision = None
+
         # 调用视觉模型
-        reply, extracted, error = _ai_call_llm_vision(prompt, [{'data_url': data_url}])
+        # AI_TASK: AI-R05
+        # 重试证据保留：超时/错误JSON/不可用时可重试，即使全失败也不丢证据
+        try:
+            reply, extracted, error, _call_evidence = call_with_evidence(
+                lambda: _ai_call_llm_vision(prompt, [{'data_url': data_url}]),
+                max_retries=1,
+            )
+            try:
+                from flask import g as _g_ev
+                _g_ev.ai_vision_call_evidence = _call_evidence.to_dict()
+            except Exception:  # noqa: BLE001
+                pass
+        except Exception as _ev_exc:  # noqa: BLE001 - 证据包裹异常降级直接调用
+            app.logger.warning(f'证据包裹异常，降级直接调用: {_ev_exc}')
+            reply, extracted, error = _ai_call_llm_vision(prompt, [{'data_url': data_url}])
+            _call_evidence = None
+
         if error:
-            return jsonify({'status': 'error', 'msg': error}), 500
+            # 不丢证据：返回降级提示 + 路由决策 + 调用证据
+            _err_resp = {
+                'status': 'error',
+                'msg': f'视觉模型调用失败：{error}',
+            }
+            if _routing_decision is not None:
+                _err_resp['routing_decision'] = _routing_decision.to_dict()
+            if _call_evidence is not None:
+                _err_resp['call_evidence'] = _call_evidence.to_dict()
+            return jsonify(_err_resp), 500
         
         # 尝试创建草稿
         draft_info = None
