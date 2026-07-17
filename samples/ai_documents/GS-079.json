@@ -1,0 +1,65 @@
+{
+  "sample_id": "GS-079",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_text",
+  "scenario_tags": [
+    "normal"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 079：微信文字通知 - 标准清晰 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "DB202640995",
+    "warehouse": "电子仓",
+    "items": [
+      {
+        "code": "6204",
+        "name": "轴承",
+        "spec": "6204-2RS",
+        "quantity": 100,
+        "unit": "套"
+      },
+      {
+        "code": "M8-NUT",
+        "name": "螺母",
+        "spec": "M8",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "M8-BOLT",
+        "name": "螺栓",
+        "spec": "M8×30",
+        "quantity": 50,
+        "unit": "个"
+      }
+    ],
+    "supplier": "华强电子"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "6204",
+      "match_method": "exact_code",
+      "material_id": 6345,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-NUT",
+      "match_method": "exact_code",
+      "material_id": 3969,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-BOLT",
+      "match_method": "exact_code",
+      "material_id": 8167,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "【华强电子】明天发货清单：\n6204 轴承 100套\nM8-NUT 螺母 2000个\nM8-BOLT 螺栓 50个"
+}

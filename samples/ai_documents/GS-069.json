@@ -1,0 +1,52 @@
+{
+  "sample_id": "GS-069",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_text",
+  "scenario_tags": [
+    "unit_mixed"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 069：微信文字通知 - 单位混用 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "PD202615522",
+    "warehouse": "原料仓",
+    "items": [
+      {
+        "code": "SW-10A",
+        "name": "开关",
+        "spec": "10A 250V",
+        "quantity": 200,
+        "unit": "个"
+      },
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 200,
+        "unit": "只"
+      }
+    ],
+    "supplier": "华强电子"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "SW-10A",
+      "match_method": "exact_code",
+      "material_id": 2531,
+      "confidence": 0.95
+    },
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "【华强电子】明天发货清单：\nSW-10A 开关 200个\nSOCKET-3 插座 200只"
+}

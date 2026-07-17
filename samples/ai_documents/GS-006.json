@@ -1,0 +1,65 @@
+{
+  "sample_id": "GS-006",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "photo",
+  "scenario_tags": [
+    "multipage"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 006：送货单照片 - 多页 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "PD202653406",
+    "warehouse": "主仓库",
+    "items": [
+      {
+        "code": "LED-R",
+        "name": "LED灯珠",
+        "spec": "红色 0805",
+        "quantity": 500,
+        "unit": "个"
+      },
+      {
+        "code": "WIRE-2.5",
+        "name": "导线",
+        "spec": "2.5mm²",
+        "quantity": 500,
+        "unit": "米"
+      },
+      {
+        "code": "RELAY-12V",
+        "name": "继电器",
+        "spec": "12V 10A",
+        "quantity": 200,
+        "unit": "个"
+      }
+    ],
+    "supplier": "利达轴承"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "LED-R",
+      "match_method": "exact_code",
+      "material_id": 3130,
+      "confidence": 0.95
+    },
+    {
+      "code": "WIRE-2.5",
+      "match_method": "exact_code",
+      "material_id": 6432,
+      "confidence": 0.95
+    },
+    {
+      "code": "RELAY-12V",
+      "match_method": "exact_code",
+      "material_id": 6365,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-006.png",
+  "source_text": ""
+}

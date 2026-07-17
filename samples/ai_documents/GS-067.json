@@ -1,0 +1,52 @@
+{
+  "sample_id": "GS-067",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_text",
+  "scenario_tags": [
+    "merged_cell"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 067：微信文字通知 - 合并单元格 - sales_out_order",
+  "expected": {
+    "document_type": "sales_out_order",
+    "order_no": "XH202675977",
+    "warehouse": "主仓库",
+    "items": [
+      {
+        "code": "RELAY-12V",
+        "name": "继电器",
+        "spec": "12V 10A",
+        "quantity": 500,
+        "unit": "个"
+      },
+      {
+        "code": "6204",
+        "name": "轴承",
+        "spec": "6204-2RS",
+        "quantity": 100,
+        "unit": "套"
+      }
+    ],
+    "customer": "丁制造厂"
+  },
+  "expected_draft_type": "sales_out_draft",
+  "expected_material_matches": [
+    {
+      "code": "RELAY-12V",
+      "match_method": "exact_code",
+      "material_id": 6365,
+      "confidence": 0.95
+    },
+    {
+      "code": "6204",
+      "match_method": "exact_code",
+      "material_id": 6345,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "【供应商】明天发货清单：\nRELAY-12V 继电器 500个\n6204 轴承 100套"
+}

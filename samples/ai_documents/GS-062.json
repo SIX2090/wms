@@ -1,0 +1,52 @@
+{
+  "sample_id": "GS-062",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_text",
+  "scenario_tags": [
+    "blurry"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 062：微信文字通知 - 模糊 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "CK202668583",
+    "warehouse": "主仓库",
+    "items": [
+      {
+        "code": "6204",
+        "name": "轴承",
+        "spec": "6204-2RS",
+        "quantity": 500,
+        "unit": "套"
+      },
+      {
+        "code": "M8-NUT",
+        "name": "螺母",
+        "spec": "M8",
+        "quantity": 1000,
+        "unit": "个"
+      }
+    ],
+    "supplier": "华强电子"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "6204",
+      "match_method": "exact_code",
+      "material_id": 6345,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-NUT",
+      "match_method": "exact_code",
+      "material_id": 3969,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "【华强电子】明天发货清单：\n6204 轴承 500套\nM8-NUT 螺母 1000个"
+}

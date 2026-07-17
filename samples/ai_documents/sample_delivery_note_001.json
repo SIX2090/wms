@@ -1,5 +1,14 @@
 {
-  "description": "送货单识别测试 - 标准表格格式",
+  "sample_id": "LEGACY-001",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "excel",
+  "scenario_tags": ["normal"],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "送货单识别测试 - 标准表格格式（Excel TSV 表示）",
+  "image_path": "",
+  "source_text": "物料编码\t物料名称\t规格\t数量\t单位\n6204\t轴承\t6204-2RS\t100\t套\nM8-NUT\t螺母\tM8\t500\t个\nM8-BOLT\t螺栓\tM8×30\t200\t个",
   "expected": {
     "document_type": "in_order",
     "supplier": "鑫达五金",
@@ -28,6 +37,12 @@
       }
     ]
   },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {"code": "6204", "match_method": "exact_code", "material_id": 1001, "confidence": 0.95},
+    {"code": "M8-NUT", "match_method": "exact_code", "material_id": 1002, "confidence": 0.95},
+    {"code": "M8-BOLT", "match_method": "exact_code", "material_id": 1003, "confidence": 0.95}
+  ],
   "actual": {
     "document_type": "in_order",
     "supplier": "鑫达五金",

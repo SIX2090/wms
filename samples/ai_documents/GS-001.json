@@ -1,0 +1,65 @@
+{
+  "sample_id": "GS-001",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "photo",
+  "scenario_tags": [
+    "normal"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 001：送货单照片 - 标准清晰 - out_order",
+  "expected": {
+    "document_type": "out_order",
+    "order_no": "SH202688547",
+    "warehouse": "成品仓",
+    "items": [
+      {
+        "code": "6204",
+        "name": "轴承",
+        "spec": "6204-2RS",
+        "quantity": 2000,
+        "unit": "套"
+      },
+      {
+        "code": "WIRE-2.5",
+        "name": "导线",
+        "spec": "2.5mm²",
+        "quantity": 1000,
+        "unit": "米"
+      },
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 2000,
+        "unit": "个"
+      }
+    ],
+    "customer": "戊科技"
+  },
+  "expected_draft_type": "out_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "6204",
+      "match_method": "exact_code",
+      "material_id": 6345,
+      "confidence": 0.95
+    },
+    {
+      "code": "WIRE-2.5",
+      "match_method": "exact_code",
+      "material_id": 6432,
+      "confidence": 0.95
+    },
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-001.png",
+  "source_text": ""
+}

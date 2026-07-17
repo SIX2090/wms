@@ -1,0 +1,91 @@
+{
+  "sample_id": "GS-074",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_text",
+  "scenario_tags": [
+    "handwritten"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 074：微信文字通知 - 手写 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "XH202652511",
+    "warehouse": "原料仓",
+    "items": [
+      {
+        "code": "M8-NUT",
+        "name": "螺母",
+        "spec": "M8",
+        "quantity": 200,
+        "unit": "个"
+      },
+      {
+        "code": "WIRE-2.5",
+        "name": "导线",
+        "spec": "2.5mm²",
+        "quantity": 100,
+        "unit": "米"
+      },
+      {
+        "code": "SW-10A",
+        "name": "开关",
+        "spec": "10A 250V",
+        "quantity": 1000,
+        "unit": "个"
+      },
+      {
+        "code": "6204",
+        "name": "轴承",
+        "spec": "6204-2RS",
+        "quantity": 2000,
+        "unit": "套"
+      },
+      {
+        "code": "R10K",
+        "name": "电阻",
+        "spec": "10KΩ 0805",
+        "quantity": 2000,
+        "unit": "个"
+      }
+    ],
+    "supplier": "华强电子"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "M8-NUT",
+      "match_method": "exact_code",
+      "material_id": 3969,
+      "confidence": 0.95
+    },
+    {
+      "code": "WIRE-2.5",
+      "match_method": "exact_code",
+      "material_id": 6432,
+      "confidence": 0.95
+    },
+    {
+      "code": "SW-10A",
+      "match_method": "exact_code",
+      "material_id": 2531,
+      "confidence": 0.95
+    },
+    {
+      "code": "6204",
+      "match_method": "exact_code",
+      "material_id": 6345,
+      "confidence": 0.95
+    },
+    {
+      "code": "R10K",
+      "match_method": "exact_code",
+      "material_id": 5373,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "【华强电子】明天发货清单：\nM8-NUT 螺母 200个\nWIRE-2.5 导线 100米\nSW-10A 开关 1000个\n6204 轴承 2000套\nR10K 电阻 2000个"
+}

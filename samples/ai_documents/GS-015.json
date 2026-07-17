@@ -1,0 +1,52 @@
+{
+  "sample_id": "GS-015",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "photo",
+  "scenario_tags": [
+    "multipage"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 015：送货单照片 - 多页 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "PD202630640",
+    "warehouse": "原料仓",
+    "items": [
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 50,
+        "unit": "个"
+      },
+      {
+        "code": "WIRE-2.5",
+        "name": "导线",
+        "spec": "2.5mm²",
+        "quantity": 2000,
+        "unit": "米"
+      }
+    ],
+    "supplier": "利达轴承"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    },
+    {
+      "code": "WIRE-2.5",
+      "match_method": "exact_code",
+      "material_id": 6432,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-015.png",
+  "source_text": ""
+}

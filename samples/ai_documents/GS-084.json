@@ -1,0 +1,78 @@
+{
+  "sample_id": "GS-084",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "excel",
+  "scenario_tags": [
+    "shadow"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 084：Excel表格 - 阴影 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "XH202612056",
+    "warehouse": "成品仓",
+    "items": [
+      {
+        "code": "WIRE-2.5",
+        "name": "导线",
+        "spec": "2.5mm²",
+        "quantity": 2000,
+        "unit": "米"
+      },
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "SW-10A",
+        "name": "开关",
+        "spec": "10A 250V",
+        "quantity": 1000,
+        "unit": "个"
+      },
+      {
+        "code": "M8-NUT",
+        "name": "螺母",
+        "spec": "M8",
+        "quantity": 500,
+        "unit": "个"
+      }
+    ],
+    "supplier": "鑫达五金"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "WIRE-2.5",
+      "match_method": "exact_code",
+      "material_id": 6432,
+      "confidence": 0.95
+    },
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    },
+    {
+      "code": "SW-10A",
+      "match_method": "exact_code",
+      "material_id": 2531,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-NUT",
+      "match_method": "exact_code",
+      "material_id": 3969,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "物料编码\t物料名称\t规格\t数量\t单位\nWIRE-2.5\t导线\t2.5mm²\t2000\t米\nSOCKET-3\t插座\t三孔 10A\t2000\t个\nSW-10A\t开关\t10A 250V\t1000\t个\nM8-NUT\t螺母\tM8\t500\t个"
+}

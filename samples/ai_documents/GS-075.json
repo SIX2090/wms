@@ -1,0 +1,65 @@
+{
+  "sample_id": "GS-075",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_text",
+  "scenario_tags": [
+    "multipage"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 075：微信文字通知 - 多页 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "DB202625983",
+    "warehouse": "五金仓",
+    "items": [
+      {
+        "code": "R10K",
+        "name": "电阻",
+        "spec": "10KΩ 0805",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "WIRE-2.5",
+        "name": "导线",
+        "spec": "2.5mm²",
+        "quantity": 50,
+        "unit": "米"
+      },
+      {
+        "code": "C100N",
+        "name": "电容",
+        "spec": "100nF 0603",
+        "quantity": 1000,
+        "unit": "个"
+      }
+    ],
+    "supplier": "顺发五金"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "R10K",
+      "match_method": "exact_code",
+      "material_id": 5373,
+      "confidence": 0.95
+    },
+    {
+      "code": "WIRE-2.5",
+      "match_method": "exact_code",
+      "material_id": 6432,
+      "confidence": 0.95
+    },
+    {
+      "code": "C100N",
+      "match_method": "exact_code",
+      "material_id": 1268,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "【顺发五金】明天发货清单：\nR10K 电阻 2000个\nWIRE-2.5 导线 50米\nC100N 电容 1000个"
+}

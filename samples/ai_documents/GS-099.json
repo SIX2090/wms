@@ -1,0 +1,91 @@
+{
+  "sample_id": "GS-099",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "excel",
+  "scenario_tags": [
+    "normal"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 099：Excel表格 - 标准清晰 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "CK202672765",
+    "warehouse": "成品仓",
+    "items": [
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "C100N",
+        "name": "电容",
+        "spec": "100nF 0603",
+        "quantity": 500,
+        "unit": "个"
+      },
+      {
+        "code": "LED-R",
+        "name": "LED灯珠",
+        "spec": "红色 0805",
+        "quantity": 50,
+        "unit": "个"
+      },
+      {
+        "code": "R10K",
+        "name": "电阻",
+        "spec": "10KΩ 0805",
+        "quantity": 500,
+        "unit": "个"
+      },
+      {
+        "code": "6204",
+        "name": "轴承",
+        "spec": "6204-2RS",
+        "quantity": 1000,
+        "unit": "套"
+      }
+    ],
+    "supplier": "鑫达五金"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    },
+    {
+      "code": "C100N",
+      "match_method": "exact_code",
+      "material_id": 1268,
+      "confidence": 0.95
+    },
+    {
+      "code": "LED-R",
+      "match_method": "exact_code",
+      "material_id": 3130,
+      "confidence": 0.95
+    },
+    {
+      "code": "R10K",
+      "match_method": "exact_code",
+      "material_id": 5373,
+      "confidence": 0.95
+    },
+    {
+      "code": "6204",
+      "match_method": "exact_code",
+      "material_id": 6345,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "物料编码\t物料名称\t规格\t数量\t单位\nSOCKET-3\t插座\t三孔 10A\t2000\t个\nC100N\t电容\t100nF 0603\t500\t个\nLED-R\tLED灯珠\t红色 0805\t50\t个\nR10K\t电阻\t10KΩ 0805\t500\t个\n6204\t轴承\t6204-2RS\t1000\t套"
+}

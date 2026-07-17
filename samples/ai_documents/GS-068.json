@@ -1,0 +1,78 @@
+{
+  "sample_id": "GS-068",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_text",
+  "scenario_tags": [
+    "duplicate"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 068：微信文字通知 - 重复行 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "DB202631589",
+    "warehouse": "主仓库",
+    "items": [
+      {
+        "code": "SW-10A",
+        "name": "开关",
+        "spec": "10A 250V",
+        "quantity": 500,
+        "unit": "个"
+      },
+      {
+        "code": "6204",
+        "name": "轴承",
+        "spec": "6204-2RS",
+        "quantity": 50,
+        "unit": "套"
+      },
+      {
+        "code": "RELAY-12V",
+        "name": "继电器",
+        "spec": "12V 10A",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "SW-10A",
+        "name": "开关",
+        "spec": "10A 250V",
+        "quantity": 500,
+        "unit": "个"
+      }
+    ],
+    "supplier": "鑫达五金"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "SW-10A",
+      "match_method": "exact_code",
+      "material_id": 2531,
+      "confidence": 0.95
+    },
+    {
+      "code": "6204",
+      "match_method": "exact_code",
+      "material_id": 6345,
+      "confidence": 0.95
+    },
+    {
+      "code": "RELAY-12V",
+      "match_method": "exact_code",
+      "material_id": 6365,
+      "confidence": 0.95
+    },
+    {
+      "code": "SW-10A",
+      "match_method": "exact_code",
+      "material_id": 2531,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "【鑫达五金】明天发货清单：\nSW-10A 开关 500个\n6204 轴承 50套\nRELAY-12V 继电器 2000个\nSW-10A 开关 500个\n再确认一下 SW-10A 开关 500个"
+}

@@ -1,0 +1,65 @@
+{
+  "sample_id": "GS-098",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "excel",
+  "scenario_tags": [
+    "unit_mixed"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 098：Excel表格 - 单位混用 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "CK202656863",
+    "warehouse": "电子仓",
+    "items": [
+      {
+        "code": "6204",
+        "name": "轴承",
+        "spec": "6204-2RS",
+        "quantity": 200,
+        "unit": "套"
+      },
+      {
+        "code": "SW-10A",
+        "name": "开关",
+        "spec": "10A 250V",
+        "quantity": 500,
+        "unit": "个"
+      },
+      {
+        "code": "M8-BOLT",
+        "name": "螺栓",
+        "spec": "M8×30",
+        "quantity": 500,
+        "unit": "只"
+      }
+    ],
+    "supplier": "鑫达五金"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "6204",
+      "match_method": "exact_code",
+      "material_id": 6345,
+      "confidence": 0.95
+    },
+    {
+      "code": "SW-10A",
+      "match_method": "exact_code",
+      "material_id": 2531,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-BOLT",
+      "match_method": "exact_code",
+      "material_id": 8167,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "物料编码\t物料名称\t规格\t数量\t单位\n6204\t轴承\t6204-2RS\t200\t套\nSW-10A\t开关\t10A 250V\t500\t个\nM8-BOLT\t螺栓\tM8×30\t500\t只"
+}

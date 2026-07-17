@@ -1,0 +1,52 @@
+{
+  "sample_id": "GS-014",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "photo",
+  "scenario_tags": [
+    "handwritten"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 014：送货单照片 - 手写 - out_order",
+  "expected": {
+    "document_type": "out_order",
+    "order_no": "SH202662276",
+    "warehouse": "主仓库",
+    "items": [
+      {
+        "code": "M8-BOLT",
+        "name": "螺栓",
+        "spec": "M8×30",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "RELAY-12V",
+        "name": "继电器",
+        "spec": "12V 10A",
+        "quantity": 2000,
+        "unit": "个"
+      }
+    ],
+    "customer": "戊科技"
+  },
+  "expected_draft_type": "out_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "M8-BOLT",
+      "match_method": "exact_code",
+      "material_id": 8167,
+      "confidence": 0.95
+    },
+    {
+      "code": "RELAY-12V",
+      "match_method": "exact_code",
+      "material_id": 6365,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-014.png",
+  "source_text": ""
+}

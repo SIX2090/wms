@@ -1,0 +1,78 @@
+{
+  "sample_id": "GS-046",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_screenshot",
+  "scenario_tags": [
+    "multipage"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 046：微信截图 - 多页 - transfer",
+  "expected": {
+    "document_type": "transfer",
+    "order_no": "SH202645156",
+    "warehouse": "原料仓",
+    "items": [
+      {
+        "code": "R10K",
+        "name": "电阻",
+        "spec": "10KΩ 0805",
+        "quantity": 1000,
+        "unit": "个"
+      },
+      {
+        "code": "RELAY-12V",
+        "name": "继电器",
+        "spec": "12V 10A",
+        "quantity": 200,
+        "unit": "个"
+      },
+      {
+        "code": "C100N",
+        "name": "电容",
+        "spec": "100nF 0603",
+        "quantity": 200,
+        "unit": "个"
+      },
+      {
+        "code": "LED-R",
+        "name": "LED灯珠",
+        "spec": "红色 0805",
+        "quantity": 50,
+        "unit": "个"
+      }
+    ],
+    "target_warehouse": "五金仓"
+  },
+  "expected_draft_type": "transfer_draft",
+  "expected_material_matches": [
+    {
+      "code": "R10K",
+      "match_method": "exact_code",
+      "material_id": 5373,
+      "confidence": 0.95
+    },
+    {
+      "code": "RELAY-12V",
+      "match_method": "exact_code",
+      "material_id": 6365,
+      "confidence": 0.95
+    },
+    {
+      "code": "C100N",
+      "match_method": "exact_code",
+      "material_id": 1268,
+      "confidence": 0.95
+    },
+    {
+      "code": "LED-R",
+      "match_method": "exact_code",
+      "material_id": 3130,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-046.png",
+  "source_text": ""
+}

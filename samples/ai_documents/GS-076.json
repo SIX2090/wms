@@ -1,0 +1,52 @@
+{
+  "sample_id": "GS-076",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_text",
+  "scenario_tags": [
+    "merged_cell"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 076：微信文字通知 - 合并单元格 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "DB202649639",
+    "warehouse": "原料仓",
+    "items": [
+      {
+        "code": "SW-10A",
+        "name": "开关",
+        "spec": "10A 250V",
+        "quantity": 500,
+        "unit": "个"
+      },
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 1000,
+        "unit": "个"
+      }
+    ],
+    "supplier": "宏达机电"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "SW-10A",
+      "match_method": "exact_code",
+      "material_id": 2531,
+      "confidence": 0.95
+    },
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "【宏达机电】明天发货清单：\nSW-10A 开关 500个\nSOCKET-3 插座 1000个"
+}

@@ -1,0 +1,91 @@
+{
+  "sample_id": "GS-023",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "scanned",
+  "scenario_tags": [
+    "tilted"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 023：扫描件 - 倾斜 - transfer",
+  "expected": {
+    "document_type": "transfer",
+    "order_no": "XH202680378",
+    "warehouse": "五金仓",
+    "items": [
+      {
+        "code": "WIRE-2.5",
+        "name": "导线",
+        "spec": "2.5mm²",
+        "quantity": 500,
+        "unit": "米"
+      },
+      {
+        "code": "M8-BOLT",
+        "name": "螺栓",
+        "spec": "M8×30",
+        "quantity": 500,
+        "unit": "个"
+      },
+      {
+        "code": "C100N",
+        "name": "电容",
+        "spec": "100nF 0603",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "SW-10A",
+        "name": "开关",
+        "spec": "10A 250V",
+        "quantity": 50,
+        "unit": "个"
+      },
+      {
+        "code": "M8-NUT",
+        "name": "螺母",
+        "spec": "M8",
+        "quantity": 50,
+        "unit": "个"
+      }
+    ],
+    "target_warehouse": "电子仓"
+  },
+  "expected_draft_type": "transfer_draft",
+  "expected_material_matches": [
+    {
+      "code": "WIRE-2.5",
+      "match_method": "exact_code",
+      "material_id": 6432,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-BOLT",
+      "match_method": "exact_code",
+      "material_id": 8167,
+      "confidence": 0.95
+    },
+    {
+      "code": "C100N",
+      "match_method": "exact_code",
+      "material_id": 1268,
+      "confidence": 0.95
+    },
+    {
+      "code": "SW-10A",
+      "match_method": "exact_code",
+      "material_id": 2531,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-NUT",
+      "match_method": "exact_code",
+      "material_id": 3969,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-023.png",
+  "source_text": ""
+}

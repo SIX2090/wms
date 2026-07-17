@@ -1,5 +1,14 @@
 {
-  "description": "微信发货通知识别测试",
+  "sample_id": "LEGACY-003",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_text",
+  "scenario_tags": ["normal"],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "微信发货通知识别测试 - 文字类送货通知，应生成入库草稿而非采购申请",
+  "image_path": "",
+  "source_text": "【鑫达】明天发鑫达 6204轴承 100套，M8螺母 500个",
   "expected": {
     "document_type": "in_order",
     "supplier": "鑫达",
@@ -18,6 +27,11 @@
       }
     ]
   },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {"code": "6204", "match_method": "exact_code", "material_id": 1001, "confidence": 0.95},
+    {"code": "M8-NUT", "match_method": "exact_code", "material_id": 1002, "confidence": 0.95}
+  ],
   "actual": {
     "document_type": "in_order",
     "supplier": "鑫达",

@@ -1,0 +1,78 @@
+{
+  "sample_id": "GS-096",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "excel",
+  "scenario_tags": [
+    "merged_cell"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 096：Excel表格 - 合并单元格 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "DB202612918",
+    "warehouse": "主仓库",
+    "items": [
+      {
+        "code": "C100N",
+        "name": "电容",
+        "spec": "100nF 0603",
+        "quantity": 1000,
+        "unit": "个"
+      },
+      {
+        "code": "LED-R",
+        "name": "LED灯珠",
+        "spec": "红色 0805",
+        "quantity": 1000,
+        "unit": "个"
+      },
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 1000,
+        "unit": "个"
+      },
+      {
+        "code": "RELAY-12V",
+        "name": "继电器",
+        "spec": "12V 10A",
+        "quantity": 500,
+        "unit": "个"
+      }
+    ],
+    "supplier": "宏达机电"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "C100N",
+      "match_method": "exact_code",
+      "material_id": 1268,
+      "confidence": 0.95
+    },
+    {
+      "code": "LED-R",
+      "match_method": "exact_code",
+      "material_id": 3130,
+      "confidence": 0.95
+    },
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    },
+    {
+      "code": "RELAY-12V",
+      "match_method": "exact_code",
+      "material_id": 6365,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "物料编码\t物料名称\t规格\t数量\t单位\nC100N\t电容\t100nF 0603\t1000\t个\nLED-R\tLED灯珠\t红色 0805\t1000\t个\nSOCKET-3\t插座\t三孔 10A\t1000\t个\nRELAY-12V\t继电器\t12V 10A\t500\t个"
+}

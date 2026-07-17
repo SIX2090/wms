@@ -1,0 +1,65 @@
+{
+  "sample_id": "GS-040",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "scanned",
+  "scenario_tags": [
+    "blurry"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 040：扫描件 - 模糊 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "SH202611429",
+    "warehouse": "五金仓",
+    "items": [
+      {
+        "code": "SW-10A",
+        "name": "开关",
+        "spec": "10A 250V",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "R10K",
+        "name": "电阻",
+        "spec": "10KΩ 0805",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "M8-NUT",
+        "name": "螺母",
+        "spec": "M8",
+        "quantity": 1000,
+        "unit": "个"
+      }
+    ],
+    "supplier": "顺发五金"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "SW-10A",
+      "match_method": "exact_code",
+      "material_id": 2531,
+      "confidence": 0.95
+    },
+    {
+      "code": "R10K",
+      "match_method": "exact_code",
+      "material_id": 5373,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-NUT",
+      "match_method": "exact_code",
+      "material_id": 3969,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-040.png",
+  "source_text": ""
+}

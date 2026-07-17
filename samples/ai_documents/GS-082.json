@@ -1,0 +1,91 @@
+{
+  "sample_id": "GS-082",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "excel",
+  "scenario_tags": [
+    "blurry"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 082：Excel表格 - 模糊 - sales_out_order",
+  "expected": {
+    "document_type": "sales_out_order",
+    "order_no": "SH202677020",
+    "warehouse": "成品仓",
+    "items": [
+      {
+        "code": "M8-NUT",
+        "name": "螺母",
+        "spec": "M8",
+        "quantity": 100,
+        "unit": "个"
+      },
+      {
+        "code": "SW-10A",
+        "name": "开关",
+        "spec": "10A 250V",
+        "quantity": 1000,
+        "unit": "个"
+      },
+      {
+        "code": "R10K",
+        "name": "电阻",
+        "spec": "10KΩ 0805",
+        "quantity": 100,
+        "unit": "个"
+      },
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "LED-R",
+        "name": "LED灯珠",
+        "spec": "红色 0805",
+        "quantity": 1000,
+        "unit": "个"
+      }
+    ],
+    "customer": "甲机械厂"
+  },
+  "expected_draft_type": "sales_out_draft",
+  "expected_material_matches": [
+    {
+      "code": "M8-NUT",
+      "match_method": "exact_code",
+      "material_id": 3969,
+      "confidence": 0.95
+    },
+    {
+      "code": "SW-10A",
+      "match_method": "exact_code",
+      "material_id": 2531,
+      "confidence": 0.95
+    },
+    {
+      "code": "R10K",
+      "match_method": "exact_code",
+      "material_id": 5373,
+      "confidence": 0.95
+    },
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    },
+    {
+      "code": "LED-R",
+      "match_method": "exact_code",
+      "material_id": 3130,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "物料编码\t物料名称\t规格\t数量\t单位\nM8-NUT\t螺母\tM8\t100\t个\nSW-10A\t开关\t10A 250V\t1000\t个\nR10K\t电阻\t10KΩ 0805\t100\t个\nSOCKET-3\t插座\t三孔 10A\t2000\t个\nLED-R\tLED灯珠\t红色 0805\t1000\t个"
+}

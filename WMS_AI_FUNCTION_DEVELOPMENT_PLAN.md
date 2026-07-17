@@ -87,7 +87,7 @@
 |---|---|---|---|---|---|
 | 1 | AI-R01 | 已完成 | 全部 AI 草稿统一幂等与审计闭环 | AI-C03～C06 | R08、R11、R13 |
 | 2 | AI-R02 | 已完成 | 强化 CI 门禁与台账一致性检查 | AI-R01 | 所有后续任务 |
-| 3 | AI-R03 | 待开发 | 建立真实中文文档黄金样本库 | AI-R02 | R04～R09 |
+| 3 | AI-R03 | 已完成 | 建立真实中文文档黄金样本库 | AI-R02 | R04～R09 |
 | 4 | AI-R04 | 待开发 | 图片预处理与质量门禁 | AI-R03 | R05 |
 | 5 | AI-R05 | 待开发 | OCR/视觉 Provider 真实评测与路由 | R03、R04 | R06～R09 |
 | 6 | AI-R06 | 待开发 | 送货通知与采购订单联合匹配增强 | AI-R05 | R08、R11 |
@@ -261,6 +261,7 @@
 | AI-SEC-F01 | 2026-07-16 | `2fc51dc` | `app/app.py`（`ensure_bootstrap_admin_user`、`ensure_admin_user_exists` 去除 `secrets.token_urlsafe(12)` 随机密码分支，改为未设置 `WMS_BOOTSTRAP_PASSWORD` 时默认 `admin` + 警告）、`AGENTS.md`（新增规则：禁止系统生成随机密码） | `python -c "check_password_hash(admin.password_hash,'admin')"`、Flask test_client 登录 POST 302→`/` + GET `/sales` 200 | 通过（密码 hash 校验 admin/admin=True、admin/wrong=False；端到端登录跳转正常） | 无 |
 | UX-F01 | 2026-07-16 | `0d21358` | `app/templates/base.html`（库存管理菜单删除"销售单""售后出库"入口，销售管理菜单新增"售后出库"，消除重复入口）、`app/app.py`（`/out_order` 路由默认排除 `business_type='销售出库'`，领料明细不再混销售出库；显式传 `?business_type=销售出库` 仍可查） | Flask test_client + `test_full_flow.db`：20 单销售出库单号在 `/out_order` 列表出现 0 次；显式查询 status=200；菜单源码确认无重复 | 通过（销售出库不再混入领料明细，菜单入口不重复，销售出库明细统一在 `/sales/outflow_report`） | 无 |
 | AI-R02 | 2026-07-16 | `5f1d4e9` | `scripts/verify_ai_tool_compliance.py`（工具权限/风险级别/审计类别合规检查：三表键一致、allowed_roles 合法、risk_level 合法且草稿级强制 confirmation_required、禁止级风险不得注册）、`scripts/verify_ai_ledger_consistency.py`（台账映射检查：代码 `# AI_TASK:` 标记与台账双向校验、防虚假报告、渐进式模式）、`app/ai/policies.py`（补齐 4 个只读工具 warehouse_insights/purchase_insights/master_data_insights/alias_management 的风险级别声明，修复三表键不一致真实缺陷）、`app/ai/tools/registry.py`+`app/ai/draft_idempotency.py`+`app/ai/policies.py`（渐进式标记 AI-R01）、`scripts/verify_ai_all.py`（CORE_SCRIPTS 注册 2 新脚本）、`.github/workflows/verify.yml`（CI 追加 tool_compliance + ledger_consistency 两个检查步骤） | `python3 scripts/verify_ai_tool_compliance.py`、`python3 scripts/verify_ai_ledger_consistency.py`、`python3 scripts/verify_ai_all.py --level core`、破坏性测试（非法 risk_level + 不存在 AI_TASK 标记均退出码 1） | 通过（30 脚本 core 套件全 PASS 含 2 新增、0 回归；破坏 Schema/权限/台账映射时 CI 必失败） | 无 |
+| AI-R03 | 2026-07-17 | `33eeef0` | `app/ai/documents/golden_samples.py`（新建：黄金样本 Schema + 来源/场景枚举 + 加载校验 + 旧样本自动升级）、`app/ai/documents/evaluation.py`（扩展：新增场景覆盖率、来源类别覆盖率指标 + 全半角模糊匹配）、`app/ai/security.py`（扩展：mask_address/mask_contact 文本脱敏 + desensitize_image PIL 图像脱敏 + detect_pii_in_text 辅助）、`scripts/generate_ai_golden_samples.py`（新建：确定性种子生成 100 份合成样本覆盖 5 来源×9 场景，PIL 图片介质 + JSON 元数据）、`scripts/verify_ai_golden_samples.py`（新建：Schema/场景/来源覆盖率/图片存在/脱敏标记/评估指标可计算校验，渐进式样本数门槛）、`scripts/evaluate_ai_document_samples.py`（改用 GoldenSample Schema 加载）、`scripts/verify_ai_all.py`（CORE_SCRIPTS 注册 verify_ai_golden_samples.py）、`.github/workflows/verify.yml`（CI 追加 golden_samples 检查步骤）、`samples/ai_documents/`（100 份 GS-* 合成样本 + 3 份升级后的 LEGACY 样本，共 103 份；66 张 PIL 合成图片含模糊/倾斜/阴影/手写/多页场景效果） | `python3 scripts/generate_ai_golden_samples.py --count 100 --clean`、`python3 scripts/verify_ai_golden_samples.py`、`AI_GOLDEN_SAMPLE_ENFORCE=strict python3 scripts/verify_ai_golden_samples.py`、`python3 scripts/verify_ai_document_evaluation.py`、`python3 scripts/verify_ai_security.py`、`python3 scripts/verify_ai_ledger_consistency.py`、破坏性测试（删样本致数量<100 progressive 警告不失败、删场景致覆盖率<100% 失败） | 通过（103 份样本 ≥100 门槛；9/9 场景覆盖；5/5 来源覆盖；0 Schema 校验问题；评估指标可计算；脱敏标记完整；strict 模式通过；security/document_evaluation 回归 0 失败） | 真实脱敏样本扩充：当前 103 份为合成数据，真实送货单照片/微信截图待用户提供后追加替换，合成样本保留作为回归基线 |
 
 ## 9. 任务启动检查
 
@@ -282,6 +283,6 @@
 
 ## 11. 当前下一项
 
-`AI-R03：建立真实中文文档黄金样本库`。
+`AI-R04：图片预处理与质量门禁`。
 
-开始前必须检查所有 AI 路由、工具、模型、迁移和验证脚本是否已关联台账任务编号；破坏 Schema、权限、编码或台账映射时 CI 必须失败。
+开始前必须检查所有 AI 路由、工具、模型、迁移和验证脚本是否已关联台账任务编号；不可用图片提前给出中文提示且不破坏原文件；黄金样本指标不得下降。

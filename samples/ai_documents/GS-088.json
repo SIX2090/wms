@@ -1,0 +1,78 @@
+{
+  "sample_id": "GS-088",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "excel",
+  "scenario_tags": [
+    "duplicate"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 088：Excel表格 - 重复行 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "PD202613503",
+    "warehouse": "成品仓",
+    "items": [
+      {
+        "code": "M8-BOLT",
+        "name": "螺栓",
+        "spec": "M8×30",
+        "quantity": 1000,
+        "unit": "个"
+      },
+      {
+        "code": "LED-R",
+        "name": "LED灯珠",
+        "spec": "红色 0805",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "WIRE-2.5",
+        "name": "导线",
+        "spec": "2.5mm²",
+        "quantity": 1000,
+        "unit": "米"
+      },
+      {
+        "code": "M8-BOLT",
+        "name": "螺栓",
+        "spec": "M8×30",
+        "quantity": 1000,
+        "unit": "个"
+      }
+    ],
+    "supplier": "华强电子"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "M8-BOLT",
+      "match_method": "exact_code",
+      "material_id": 8167,
+      "confidence": 0.95
+    },
+    {
+      "code": "LED-R",
+      "match_method": "exact_code",
+      "material_id": 3130,
+      "confidence": 0.95
+    },
+    {
+      "code": "WIRE-2.5",
+      "match_method": "exact_code",
+      "material_id": 6432,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-BOLT",
+      "match_method": "exact_code",
+      "material_id": 8167,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "物料编码\t物料名称\t规格\t数量\t单位\nM8-BOLT\t螺栓\tM8×30\t1000\t个\nLED-R\tLED灯珠\t红色 0805\t2000\t个\nWIRE-2.5\t导线\t2.5mm²\t1000\t米\nM8-BOLT\t螺栓\tM8×30\t1000\t个"
+}

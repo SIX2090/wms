@@ -1,0 +1,91 @@
+{
+  "sample_id": "GS-064",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_text",
+  "scenario_tags": [
+    "shadow"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 064：微信文字通知 - 阴影 - transfer",
+  "expected": {
+    "document_type": "transfer",
+    "order_no": "SH202652292",
+    "warehouse": "主仓库",
+    "items": [
+      {
+        "code": "RELAY-12V",
+        "name": "继电器",
+        "spec": "12V 10A",
+        "quantity": 500,
+        "unit": "个"
+      },
+      {
+        "code": "R10K",
+        "name": "电阻",
+        "spec": "10KΩ 0805",
+        "quantity": 100,
+        "unit": "个"
+      },
+      {
+        "code": "LED-R",
+        "name": "LED灯珠",
+        "spec": "红色 0805",
+        "quantity": 1000,
+        "unit": "个"
+      },
+      {
+        "code": "C100N",
+        "name": "电容",
+        "spec": "100nF 0603",
+        "quantity": 100,
+        "unit": "个"
+      },
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 200,
+        "unit": "个"
+      }
+    ],
+    "target_warehouse": "电子仓"
+  },
+  "expected_draft_type": "transfer_draft",
+  "expected_material_matches": [
+    {
+      "code": "RELAY-12V",
+      "match_method": "exact_code",
+      "material_id": 6365,
+      "confidence": 0.95
+    },
+    {
+      "code": "R10K",
+      "match_method": "exact_code",
+      "material_id": 5373,
+      "confidence": 0.95
+    },
+    {
+      "code": "LED-R",
+      "match_method": "exact_code",
+      "material_id": 3130,
+      "confidence": 0.95
+    },
+    {
+      "code": "C100N",
+      "match_method": "exact_code",
+      "material_id": 1268,
+      "confidence": 0.95
+    },
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "【供应商】明天发货清单：\nRELAY-12V 继电器 500个\nR10K 电阻 100个\nLED-R LED灯珠 1000个\nC100N 电容 100个\nSOCKET-3 插座 200个"
+}

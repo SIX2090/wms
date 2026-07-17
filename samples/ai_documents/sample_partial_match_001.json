@@ -1,5 +1,14 @@
 {
-  "description": "部分匹配测试 - OCR识别有误差",
+  "sample_id": "LEGACY-002",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "excel",
+  "scenario_tags": ["partial_match"],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "部分匹配测试 - OCR 识别有误差，actual 多识别出一行 LED 灯珠",
+  "image_path": "",
+  "source_text": "物料编码\t物料名称\t规格\t数量\t单位\nR10K\t电阻\t10KΩ 0805\t1000\t个\nC100N\t电容\t100nF 0603\t2000\t个",
   "expected": {
     "document_type": "in_order",
     "supplier": "华强电子",
@@ -20,6 +29,11 @@
       }
     ]
   },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {"code": "R10K", "match_method": "exact_code", "material_id": 2001, "confidence": 0.95},
+    {"code": "C100N", "match_method": "exact_code", "material_id": 2002, "confidence": 0.95}
+  ],
   "actual": {
     "document_type": "in_order",
     "supplier": "华强电子",

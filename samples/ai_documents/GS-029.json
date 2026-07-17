@@ -1,0 +1,52 @@
+{
+  "sample_id": "GS-029",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "scanned",
+  "scenario_tags": [
+    "unit_mixed"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 029：扫描件 - 单位混用 - sales_out_order",
+  "expected": {
+    "document_type": "sales_out_order",
+    "order_no": "PD202662465",
+    "warehouse": "主仓库",
+    "items": [
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "M8-NUT",
+        "name": "螺母",
+        "spec": "M8",
+        "quantity": 1000,
+        "unit": "个"
+      }
+    ],
+    "customer": "戊科技"
+  },
+  "expected_draft_type": "sales_out_draft",
+  "expected_material_matches": [
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-NUT",
+      "match_method": "exact_code",
+      "material_id": 3969,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-029.png",
+  "source_text": ""
+}

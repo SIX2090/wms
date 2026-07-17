@@ -1,0 +1,77 @@
+{
+  "sample_id": "GS-044",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_screenshot",
+  "scenario_tags": [
+    "shadow"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 044：微信截图 - 阴影 - purchase_request",
+  "expected": {
+    "document_type": "purchase_request",
+    "order_no": "PD202618225",
+    "warehouse": "主仓库",
+    "items": [
+      {
+        "code": "RELAY-12V",
+        "name": "继电器",
+        "spec": "12V 10A",
+        "quantity": 200,
+        "unit": "个"
+      },
+      {
+        "code": "C100N",
+        "name": "电容",
+        "spec": "100nF 0603",
+        "quantity": 200,
+        "unit": "个"
+      },
+      {
+        "code": "R10K",
+        "name": "电阻",
+        "spec": "10KΩ 0805",
+        "quantity": 200,
+        "unit": "个"
+      },
+      {
+        "code": "M8-NUT",
+        "name": "螺母",
+        "spec": "M8",
+        "quantity": 500,
+        "unit": "个"
+      }
+    ]
+  },
+  "expected_draft_type": "purchase_request_draft",
+  "expected_material_matches": [
+    {
+      "code": "RELAY-12V",
+      "match_method": "exact_code",
+      "material_id": 6365,
+      "confidence": 0.95
+    },
+    {
+      "code": "C100N",
+      "match_method": "exact_code",
+      "material_id": 1268,
+      "confidence": 0.95
+    },
+    {
+      "code": "R10K",
+      "match_method": "exact_code",
+      "material_id": 5373,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-NUT",
+      "match_method": "exact_code",
+      "material_id": 3969,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-044.png",
+  "source_text": ""
+}

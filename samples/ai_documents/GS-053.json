@@ -1,0 +1,52 @@
+{
+  "sample_id": "GS-053",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_screenshot",
+  "scenario_tags": [
+    "shadow"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 053：微信截图 - 阴影 - out_order",
+  "expected": {
+    "document_type": "out_order",
+    "order_no": "DB202664575",
+    "warehouse": "电子仓",
+    "items": [
+      {
+        "code": "WIRE-2.5",
+        "name": "导线",
+        "spec": "2.5mm²",
+        "quantity": 500,
+        "unit": "米"
+      },
+      {
+        "code": "R10K",
+        "name": "电阻",
+        "spec": "10KΩ 0805",
+        "quantity": 2000,
+        "unit": "个"
+      }
+    ],
+    "customer": "乙装备公司"
+  },
+  "expected_draft_type": "out_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "WIRE-2.5",
+      "match_method": "exact_code",
+      "material_id": 6432,
+      "confidence": 0.95
+    },
+    {
+      "code": "R10K",
+      "match_method": "exact_code",
+      "material_id": 5373,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-053.png",
+  "source_text": ""
+}

@@ -1,0 +1,65 @@
+{
+  "sample_id": "GS-045",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_screenshot",
+  "scenario_tags": [
+    "handwritten"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 045：微信截图 - 手写 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "SH202633456",
+    "warehouse": "成品仓",
+    "items": [
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "RELAY-12V",
+        "name": "继电器",
+        "spec": "12V 10A",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "M8-BOLT",
+        "name": "螺栓",
+        "spec": "M8×30",
+        "quantity": 50,
+        "unit": "个"
+      }
+    ],
+    "supplier": "宏达机电"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    },
+    {
+      "code": "RELAY-12V",
+      "match_method": "exact_code",
+      "material_id": 6365,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-BOLT",
+      "match_method": "exact_code",
+      "material_id": 8167,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-045.png",
+  "source_text": ""
+}

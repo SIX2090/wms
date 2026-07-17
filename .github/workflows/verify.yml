@@ -35,3 +35,6 @@ jobs:
 
       - name: Run AI ledger consistency check (AI-R02)
         run: python3 scripts/verify_ai_ledger_consistency.py
+
+      - name: Run AI golden samples check (AI-R03)
+        run: python3 scripts/verify_ai_golden_samples.py

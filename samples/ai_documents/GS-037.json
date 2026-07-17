@@ -1,0 +1,64 @@
+{
+  "sample_id": "GS-037",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "scanned",
+  "scenario_tags": [
+    "duplicate"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 037：扫描件 - 重复行 - purchase_request",
+  "expected": {
+    "document_type": "purchase_request",
+    "order_no": "PD202668427",
+    "warehouse": "五金仓",
+    "items": [
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 2000,
+        "unit": "个"
+      },
+      {
+        "code": "WIRE-2.5",
+        "name": "导线",
+        "spec": "2.5mm²",
+        "quantity": 50,
+        "unit": "米"
+      },
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 2000,
+        "unit": "个"
+      }
+    ]
+  },
+  "expected_draft_type": "purchase_request_draft",
+  "expected_material_matches": [
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    },
+    {
+      "code": "WIRE-2.5",
+      "match_method": "exact_code",
+      "material_id": 6432,
+      "confidence": 0.95
+    },
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-037.png",
+  "source_text": ""
+}

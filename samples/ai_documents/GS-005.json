@@ -1,0 +1,91 @@
+{
+  "sample_id": "GS-005",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "photo",
+  "scenario_tags": [
+    "handwritten"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 005：送货单照片 - 手写 - sales_out_order",
+  "expected": {
+    "document_type": "sales_out_order",
+    "order_no": "CK202621780",
+    "warehouse": "成品仓",
+    "items": [
+      {
+        "code": "WIRE-2.5",
+        "name": "导线",
+        "spec": "2.5mm²",
+        "quantity": 200,
+        "unit": "米"
+      },
+      {
+        "code": "6204",
+        "name": "轴承",
+        "spec": "6204-2RS",
+        "quantity": 2000,
+        "unit": "套"
+      },
+      {
+        "code": "SW-10A",
+        "name": "开关",
+        "spec": "10A 250V",
+        "quantity": 500,
+        "unit": "个"
+      },
+      {
+        "code": "M8-BOLT",
+        "name": "螺栓",
+        "spec": "M8×30",
+        "quantity": 50,
+        "unit": "个"
+      },
+      {
+        "code": "SOCKET-3",
+        "name": "插座",
+        "spec": "三孔 10A",
+        "quantity": 50,
+        "unit": "个"
+      }
+    ],
+    "customer": "乙装备公司"
+  },
+  "expected_draft_type": "sales_out_draft",
+  "expected_material_matches": [
+    {
+      "code": "WIRE-2.5",
+      "match_method": "exact_code",
+      "material_id": 6432,
+      "confidence": 0.95
+    },
+    {
+      "code": "6204",
+      "match_method": "exact_code",
+      "material_id": 6345,
+      "confidence": 0.95
+    },
+    {
+      "code": "SW-10A",
+      "match_method": "exact_code",
+      "material_id": 2531,
+      "confidence": 0.95
+    },
+    {
+      "code": "M8-BOLT",
+      "match_method": "exact_code",
+      "material_id": 8167,
+      "confidence": 0.95
+    },
+    {
+      "code": "SOCKET-3",
+      "match_method": "exact_code",
+      "material_id": 3970,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-005.png",
+  "source_text": ""
+}

@@ -1,0 +1,52 @@
+{
+  "sample_id": "GS-094",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "excel",
+  "scenario_tags": [
+    "handwritten"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 094：Excel表格 - 手写 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "DB202694880",
+    "warehouse": "成品仓",
+    "items": [
+      {
+        "code": "C100N",
+        "name": "电容",
+        "spec": "100nF 0603",
+        "quantity": 500,
+        "unit": "个"
+      },
+      {
+        "code": "WIRE-2.5",
+        "name": "导线",
+        "spec": "2.5mm²",
+        "quantity": 50,
+        "unit": "米"
+      }
+    ],
+    "supplier": "顺发五金"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "C100N",
+      "match_method": "exact_code",
+      "material_id": 1268,
+      "confidence": 0.95
+    },
+    {
+      "code": "WIRE-2.5",
+      "match_method": "exact_code",
+      "material_id": 6432,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "",
+  "source_text": "物料编码\t物料名称\t规格\t数量\t单位\nC100N\t电容\t100nF 0603\t500\t个\nWIRE-2.5\t导线\t2.5mm²\t50\t米"
+}

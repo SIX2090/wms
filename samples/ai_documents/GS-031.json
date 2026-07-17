@@ -1,0 +1,65 @@
+{
+  "sample_id": "GS-031",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "scanned",
+  "scenario_tags": [
+    "blurry"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 031：扫描件 - 模糊 - in_order",
+  "expected": {
+    "document_type": "in_order",
+    "order_no": "PD202622770",
+    "warehouse": "五金仓",
+    "items": [
+      {
+        "code": "LED-R",
+        "name": "LED灯珠",
+        "spec": "红色 0805",
+        "quantity": 100,
+        "unit": "个"
+      },
+      {
+        "code": "C100N",
+        "name": "电容",
+        "spec": "100nF 0603",
+        "quantity": 50,
+        "unit": "个"
+      },
+      {
+        "code": "6204",
+        "name": "轴承",
+        "spec": "6204-2RS",
+        "quantity": 100,
+        "unit": "套"
+      }
+    ],
+    "supplier": "利达轴承"
+  },
+  "expected_draft_type": "in_order_draft",
+  "expected_material_matches": [
+    {
+      "code": "LED-R",
+      "match_method": "exact_code",
+      "material_id": 3130,
+      "confidence": 0.95
+    },
+    {
+      "code": "C100N",
+      "match_method": "exact_code",
+      "material_id": 1268,
+      "confidence": 0.95
+    },
+    {
+      "code": "6204",
+      "match_method": "exact_code",
+      "material_id": 6345,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-031.png",
+  "source_text": ""
+}

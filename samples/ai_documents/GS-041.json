@@ -1,0 +1,52 @@
+{
+  "sample_id": "GS-041",
+  "sample_version": "1.0",
+  "schema_version": "1.0",
+  "source_category": "wechat_screenshot",
+  "scenario_tags": [
+    "normal"
+  ],
+  "usage_consent": "synthetic",
+  "desensitization_applied": true,
+  "description": "合成样本 041：微信截图 - 标准清晰 - transfer",
+  "expected": {
+    "document_type": "transfer",
+    "order_no": "SH202696552",
+    "warehouse": "原料仓",
+    "items": [
+      {
+        "code": "SW-10A",
+        "name": "开关",
+        "spec": "10A 250V",
+        "quantity": 500,
+        "unit": "个"
+      },
+      {
+        "code": "C100N",
+        "name": "电容",
+        "spec": "100nF 0603",
+        "quantity": 2000,
+        "unit": "个"
+      }
+    ],
+    "target_warehouse": "电子仓"
+  },
+  "expected_draft_type": "transfer_draft",
+  "expected_material_matches": [
+    {
+      "code": "SW-10A",
+      "match_method": "exact_code",
+      "material_id": 2531,
+      "confidence": 0.95
+    },
+    {
+      "code": "C100N",
+      "match_method": "exact_code",
+      "material_id": 1268,
+      "confidence": 0.95
+    }
+  ],
+  "actual": null,
+  "image_path": "images/GS-041.png",
+  "source_text": ""
+}

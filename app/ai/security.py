@@ -1,4 +1,5 @@
 """AI安全治理模块。
+# AI_TASK: AI-R03（图像脱敏 + 地址/联系人脱敏扩展）
 
 实现计划第8节"数据与安全治理"要求：
 - 图片可选脱敏手机号、联系人和地址
@@ -64,8 +65,70 @@ def mask_id_card(text: str) -> str:
     return _ID_CARD_PATTERN.sub(_mask, text)
 
 
+# AI-R03：地址脱敏 - 保留省/市/区/县，后续详细地址打码
+# 匹配 "XX省XX市XX区/县/市" 后跟详细地址，或 "XX市XX路/街XX号"
+_ADDRESS_PATTERN = re.compile(
+    r'([\u4e00-\u9fa5]{2,8}(?:省|自治区)[\u4e00-\u9fa5]{2,15}(?:市|自治州)[\u4e00-\u9fa5]{2,15}(?:区|县|市|旗))'
+    r'([\u4e00-\u9fa5\d]{4,})'
+)
+# 简化地址：仅 "XX市XX区/县" 后跟详细
+_ADDRESS_SIMPLE_PATTERN = re.compile(
+    r'([\u4e00-\u9fa5]{2,15}(?:市|区|县)[\u4e00-\u9fa5]{2,15}(?:路|街|道|镇|乡))'
+    r'([\u4e00-\u9fa5\d号栋幢单元室楼]{3,})'
+)
+
+# AI-R03：联系人脱敏 - 匹配 "联系人：张三" / "联系：李四" / "收货人：王五"
+_CONTACT_PATTERN = re.compile(
+    r'(联系人|收货人|收件人|经办人|联系|收货|收件)[:：\s]*([\u4e00-\u9fa5]{2,4})'
+)
+
+
+def mask_address(text: str) -> str:
+    """AI-R03 地址脱敏：保留省/市/区/县级行政区划，详细地址（路/号/室等）打码。
+
+    例：
+      "广东省深圳市南山区科技园路1001号T3栋8楼" -> "广东省深圳市南山区********"
+      "上海市浦东新区张江路88号" -> "上海市浦东新区****"
+    """
+    if not text:
+        return text
+
+    def _mask_full(m):
+        prefix = m.group(1)
+        return prefix + '*' * max(len(m.group(2)), 4)
+
+    def _mask_simple(m):
+        prefix = m.group(1)
+        return prefix + '*' * max(len(m.group(2)), 4)
+
+    text = _ADDRESS_PATTERN.sub(_mask_full, text)
+    text = _ADDRESS_SIMPLE_PATTERN.sub(_mask_simple, text)
+    return text
+
+
+def mask_contact(text: str) -> str:
+    """AI-R03 联系人姓名脱敏：保留姓氏，名字打码。
+
+    例："联系人：张三" -> "联系人：张*"，"收货人：欧阳娜娜" -> "收货人：欧***"
+    """
+    if not text:
+        return text
+
+    def _mask(m):
+        label = m.group(1)
+        name = m.group(2)
+        if len(name) <= 1:
+            masked = name
+        else:
+            masked = name[0] + '*' * (len(name) - 1)
+        return f'{label}：{masked}'
+
+    return _CONTACT_PATTERN.sub(_mask, text)
+
+
 def desensitize_text(text: str, mask_phones: bool = True, mask_emails: bool = True,
-                     mask_id_cards: bool = True) -> str:
+                     mask_id_cards: bool = True, mask_addresses: bool = False,
+                     mask_contacts: bool = False) -> str:
     """对文本进行敏感信息脱敏。
 
     Args:
@@ -73,6 +136,8 @@ def desensitize_text(text: str, mask_phones: bool = True, mask_emails: bool = Tr
         mask_phones: 是否脱敏手机号
         mask_emails: 是否脱敏邮箱
         mask_id_cards: 是否脱敏身份证号
+        mask_addresses: 是否脱敏详细地址（AI-R03 新增，默认 False 保持向后兼容）
+        mask_contacts: 是否脱敏联系人姓名（AI-R03 新增，默认 False 保持向后兼容）
 
     Returns:
         脱敏后的文本
@@ -87,8 +152,95 @@ def desensitize_text(text: str, mask_phones: bool = True, mask_emails: bool = Tr
         text = mask_phone(text)
     if mask_emails:
         text = mask_email(text)
+    if mask_addresses:
+        text = mask_address(text)
+    if mask_contacts:
+        text = mask_contact(text)
 
     return text
+
+
+# ---- 1b. 图像脱敏 (AI-R03) ----
+
+def desensitize_image(image: Any, mask_regions: list[tuple[int, int, int, int]],
+                      method: str = 'mosaic', block_size: int = 10) -> Any:
+    """AI-R03 图像脱敏：对指定矩形区域打马赛克或纯色填充。
+
+    Args:
+        image: PIL.Image.Image 实例（RGB 或 RGBA）
+        mask_regions: 需要脱敏的矩形列表 [(x, y, w, h), ...]，坐标基于原图左上角
+        method: 脱敏方法，'mosaic'（马赛克，默认）或 'solid'（纯色填充）
+        block_size: 马赛克块大小（像素），仅 method='mosaic' 时生效
+
+    Returns:
+        脱敏后的 PIL.Image.Image 实例（在原图副本上修改，不破坏原文件）
+
+    依赖 Pillow（requirements.txt 已声明 Pillow==12.2.0）。
+    自动检测图像中的 PII 区域需要 OCR + 坐标信息，由调用方提供 mask_regions；
+    本函数只负责对已知区域执行确定性脱敏，避免在沙箱环境引入 Tesseract 依赖。
+    """
+    from PIL import Image, ImageDraw
+
+    if image is None:
+        raise ValueError('desensitize_image: image 不能为 None')
+    if not mask_regions:
+        return image.copy() if hasattr(image, 'copy') else image
+
+    # 在副本上修改，不破坏原文件
+    out = image.copy()
+    draw = ImageDraw.Draw(out)
+
+    for region in mask_regions:
+        if not region or len(region) != 4:
+            continue
+        x, y, w, h = region
+        if w <= 0 or h <= 0:
+            continue
+        # 裁剪到图像边界
+        img_w, img_h = out.size
+        x = max(0, int(x))
+        y = max(0, int(y))
+        x2 = min(img_w, x + int(w))
+        y2 = min(img_h, y + int(h))
+        if x2 <= x or y2 <= y:
+            continue
+        box = (x, y, x2, y2)
+
+        if method == 'solid':
+            # 纯黑填充
+            draw.rectangle(box, fill=(0, 0, 0))
+        else:
+            # 马赛克：缩小再放大
+            crop = out.crop(box)
+            small_w = max(1, (x2 - x) // block_size)
+            small_h = max(1, (y2 - y) // block_size)
+            small = crop.resize((small_w, small_h), Image.BOX)
+            mosaic = small.resize((x2 - x, y2 - y), Image.NEAREST)
+            out.paste(mosaic, box)
+
+    return out
+
+
+def detect_pii_in_text(text: str) -> list[dict[str, str]]:
+    """AI-R03 辅助：从文本中检测 PII（手机/邮箱/身份证/地址/联系人），返回标签+原值清单。
+
+    用于在 OCR 提取文本后，提示哪些字段需要在原图对应区域打码。
+    返回示例：[{'label': 'phone', 'value': '13800138000'}, ...]
+    """
+    if not text:
+        return []
+    findings: list[dict[str, str]] = []
+    for m in _PHONE_PATTERN.finditer(text):
+        findings.append({'label': 'phone', 'value': m.group(0)})
+    for m in _EMAIL_PATTERN.finditer(text):
+        findings.append({'label': 'email', 'value': m.group(0)})
+    for m in _ID_CARD_PATTERN.finditer(text):
+        findings.append({'label': 'id_card', 'value': m.group(0)})
+    for m in _ADDRESS_PATTERN.finditer(text):
+        findings.append({'label': 'address', 'value': m.group(0)})
+    for m in _CONTACT_PATTERN.finditer(text):
+        findings.append({'label': 'contact', 'value': m.group(2)})
+    return findings
 
 
 # ---- 2. 提示词安全检查 ----
