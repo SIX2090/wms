@@ -211,8 +211,12 @@ def main() -> int:
 
     checks.append((
         "BUG-NEW-005",
-        True,
-        "默认密码 admin123 是现场确认的交付策略，不作为回归失败项",
+        "os.environ.get('WMS_BOOTSTRAP_PASSWORD') or 'admin'" in app_py
+        and "reset_admin_password.py" not in read_text("install.bat")
+        and "admin123" not in read_text("install.bat")
+        and "admin123" not in read_text("README.md")
+        and "系统不会生成随机密码" in read_text("app/说明.txt"),
+        "默认管理员密码必须遵循 WMS_BOOTSTRAP_PASSWORD/admin 首次创建规则，安装不得重置已有密码",
     ))
 
     checks.append((

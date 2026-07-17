@@ -27,7 +27,7 @@ if defined IN_PLACE_INSTALL (
   echo Install dir: %INSTALL_DIR%
 )
 echo Default username: admin
-echo Default password: admin123
+echo Initial password: WMS_BOOTSTRAP_PASSWORD, or admin on first creation when unset
 echo ============================================================
 echo.
 
@@ -153,13 +153,6 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-"%PYTHON_EXE%" "%PKG_DIR%\tools\reset_admin_password.py" "%RUN_DIR%\instance\inventory.db" admin admin123
-if errorlevel 1 (
-  echo [ERROR] Admin account setup failed.
-  pause
-  exit /b 1
-)
-
 echo [7/8] Checking startup scripts...
 if defined IN_PLACE_INSTALL (
   set "START_SCRIPT=%PKG_DIR%\start_wms_offline.bat"
@@ -189,7 +182,7 @@ echo [OK] WMS installed
 echo Start: %START_SCRIPT%
 echo Login: http://127.0.0.1:8080/login
 echo Username: admin
-echo Password: admin123
+echo Initial password: WMS_BOOTSTRAP_PASSWORD, or admin on first creation when unset
 echo ============================================================
 echo.
 pause

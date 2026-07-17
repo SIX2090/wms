@@ -62,10 +62,10 @@ http://127.0.0.1:8080/login
 
 ```text
 用户名：admin
-密码：admin123
+初始密码：优先使用 `WMS_BOOTSTRAP_PASSWORD`；未设置且首次创建管理员时为 `admin`
 ```
 
-如果设置了 `WMS_BOOTSTRAP_PASSWORD`，系统初始化时会使用该环境变量作为初始管理员密码。
+如果设置了 `WMS_BOOTSTRAP_PASSWORD`，系统首次创建管理员时会使用该环境变量。安装和启动不会重置已有管理员密码。
 
 ## Windows 离线安装
 
@@ -105,7 +105,7 @@ http://127.0.0.1:8080/login
 
 ```text
 用户名：admin
-密码：admin123
+初始密码：优先使用 `WMS_BOOTSTRAP_PASSWORD`；未设置且首次创建管理员时为 `admin`
 ```
 
 便携包由 `tools\build_portable_dist.ps1` 生成，`dist/` 是构建产物，不提交到 Git。

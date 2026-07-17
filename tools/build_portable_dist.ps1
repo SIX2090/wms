@@ -213,5 +213,5 @@ Write-Host "Start: $dist\$startName"
 Write-Host "Optional: $dist\WMS.exe"
 Write-Host 'Login: http://127.0.0.1:8080/login'
 Write-Host 'Username: admin'
-Write-Host 'Password: admin123'
+Write-Host 'Initial password: WMS_BOOTSTRAP_PASSWORD, or admin on first creation when unset'
 Write-Host '============================================================'

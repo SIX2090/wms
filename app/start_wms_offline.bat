@@ -10,7 +10,7 @@ set "PYTHONPATH=%~dp0;%PYTHONPATH%"
 echo Starting WMS...
 echo URL: http://127.0.0.1:8080/login
 echo Username: admin
-echo Password: admin123
+echo Initial password: WMS_BOOTSTRAP_PASSWORD, or admin on first creation when unset
 echo.
 set "PYTHON_CMD="
 if exist "%APP_ROOT%\python\python.exe" (
