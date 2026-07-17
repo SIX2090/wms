@@ -13700,6 +13700,67 @@ def _ai_bq_query_samples(filter_dict=None):
     return samples
 
 
+def _ai_r17_acceptance_counts(window_hours=168):
+    """AI-R17 ORM adapter：查询上线验收四项指标的绝对计数。
+
+    复用现有检测逻辑（不重复发明）：
+    - 越权成功：AIToolCall permission_allowed=False 且 status in (completed/success/authorized)
+      （与 _ai_ops_metrics 的 unauthorized_success 口径一致）
+    - 重复草稿：AIDraftIdempotency status='replayed' 表示被幂等拦截的重复请求
+      （与 AI-R01 幂等标记一致）
+    - 自动提交：AIToolCall tool_name 命中 AUTO_SUBMIT_FORBIDDEN_ACTIONS 的次数
+      （与 AI-R13 budget_control.validate_no_auto_submit 口径一致）
+    - 低置信度未确认建单：AIDocumentJob status='draft_created' 且存在低置信度未确认字段
+      （与 AI-R08 document_confirmation.has_unconfirmed_low_confidence_fields 口径一致）
+    """
+    from ai.ops.launch_acceptance import AUTO_SUBMIT_FORBIDDEN_ACTIONS
+    cutoff = datetime.now() - timedelta(hours=window_hours)
+    counts = {}
+    try:
+        counts['unauthorized_success'] = AIToolCall.query.filter(
+            AIToolCall.created_at >= cutoff,
+            AIToolCall.permission_allowed.is_(False),
+            AIToolCall.status.in_(('completed', 'success', 'authorized')),
+        ).count()
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17 越权成功计数异常: {exc}')
+        counts['unauthorized_success'] = 0
+    try:
+        counts['duplicate_drafts'] = AIDraftIdempotency.query.filter(
+            AIDraftIdempotency.created_at >= cutoff,
+            AIDraftIdempotency.status == 'replayed',
+        ).count()
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17 重复草稿计数异常: {exc}')
+        counts['duplicate_drafts'] = 0
+    try:
+        counts['auto_submit'] = AIToolCall.query.filter(
+            AIToolCall.created_at >= cutoff,
+            AIToolCall.tool_name.in_(list(AUTO_SUBMIT_FORBIDDEN_ACTIONS)),
+        ).count()
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17 自动提交计数异常: {exc}')
+        counts['auto_submit'] = 0
+    try:
+        # 低置信度未确认建单：草稿已创建但其行项存在低置信度字段
+        # AIDocumentItem.confidence < 0.85 表示低置信度（与 document_confirmation 阈值一致）
+        # 草稿状态 draft_created 且存在低置信度行项即视为未确认建单风险
+        low_conf_job_ids = db.session.query(AIDocumentItem.job_id).filter(
+            AIDocumentItem.created_at >= cutoff,
+            AIDocumentItem.confidence.isnot(None),
+            AIDocumentItem.confidence < 0.85,
+        ).distinct().subquery()
+        counts['low_confidence_unconfirmed'] = AIDocumentJob.query.filter(
+            AIDocumentJob.created_at >= cutoff,
+            AIDocumentJob.status == 'draft_created',
+            AIDocumentJob.id.in_(db.session.query(low_conf_job_ids)),
+        ).count()
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17 低置信度未确认建单计数异常: {exc}')
+        counts['low_confidence_unconfirmed'] = 0
+    return counts
+
+
 def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='', confirmation_token=None, document_job_id=None):
     if current_user.role not in ('admin', 'warehouse', 'purchase'):
         return None
@@ -35055,6 +35116,57 @@ def api_ai_business_quality_metrics():
         })
     except Exception as e:
         app.logger.error(f'AI-R15 指标定义查询失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/launch_acceptance', methods=['GET'])
+# AI_TASK: AI-R17
+@login_required
+@require_role('admin')
+def api_ai_launch_acceptance():
+    """AI-R17 上线验收报告端点：四项指标聚合（7天窗口绝对计数，阈值为0）。
+
+    验收标准：连续一周越权成功0、重复草稿0、自动提交0、低置信度未确认建单0。
+    """
+    from ai.ops.launch_acceptance import compute_acceptance_metrics, validate_zero_violation
+    try:
+        window_hours = int(request.args.get('window_hours', 168))
+        if window_hours <= 0 or window_hours > 24 * 365:
+            window_hours = 168
+        counts = _ai_r17_acceptance_counts(window_hours=window_hours)
+        report = compute_acceptance_metrics(counts, window_hours=window_hours)
+        ok, reason = validate_zero_violation(report)
+        return jsonify({
+            'status': 'ok',
+            'report': report.to_dict(),
+            'all_passed': ok,
+            'reason': reason,
+            'window_hours': window_hours,
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R17 上线验收报告查询失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/launch_acceptance/metrics', methods=['GET'])
+# AI_TASK: AI-R17
+@login_required
+@require_role('admin')
+def api_ai_launch_acceptance_metrics():
+    """AI-R17 四项上线验收指标定义查询端点。"""
+    from ai.ops.launch_acceptance import ALL_ACCEPTANCE_METRICS, METRIC_LABELS
+    try:
+        metrics = [
+            {'metric': m, 'label': METRIC_LABELS.get(m, m), 'threshold': 0}
+            for m in ALL_ACCEPTANCE_METRICS
+        ]
+        return jsonify({
+            'status': 'ok',
+            'metrics': metrics,
+            'count': len(ALL_ACCEPTANCE_METRICS),
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R17 指标定义查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
 
 
