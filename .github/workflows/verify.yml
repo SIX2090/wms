@@ -38,3 +38,6 @@ jobs:
 
       - name: Run AI golden samples check (AI-R03)
         run: python3 scripts/verify_ai_golden_samples.py
+
+      - name: Run AI image preprocessing check (AI-R04)
+        run: python3 scripts/verify_ai_image_preprocessing.py

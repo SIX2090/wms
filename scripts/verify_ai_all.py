@@ -48,6 +48,7 @@ CORE_SCRIPTS = SMOKE_SCRIPTS + (
     "verify_ai_tool_compliance.py",
     "verify_ai_ledger_consistency.py",
     "verify_ai_golden_samples.py",
+    "verify_ai_image_preprocessing.py",
 )
 
 FULL_EXTRA_SCRIPTS = (

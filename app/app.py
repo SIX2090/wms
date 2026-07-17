@@ -31844,8 +31844,44 @@ def api_document_ocr():
     
     try:
         import base64
-        img_data = base64.b64encode(file.read()).decode('ascii')
-        data_url = f'data:image/{ext};base64,{img_data}'
+        # AI_TASK: AI-R04
+        # 上传后先走图片预处理与质量门禁
+        # 不可用图片提前给出中文提示，不破坏原文件（处理在副本上）
+        original_bytes = file.read()
+        try:
+            from ai.documents.image_preprocessing import preprocess_image
+            preprocess_result = preprocess_image(original_bytes, filename=file.filename)
+        except Exception as preprocess_exc:  # noqa: BLE001 - 预处理失败降级走原图
+            app.logger.warning(f'图片预处理异常，降级使用原图: {preprocess_exc}')
+            preprocess_result = None
+
+        if preprocess_result is not None and not preprocess_result.is_usable:
+            # 致命质量问题：提前返回中文提示，不调用视觉模型
+            return jsonify({
+                'status': 'error',
+                'msg': preprocess_result.blocked_reason or '图片质量不满足识别要求',
+                'quality_issues': preprocess_result.errors,
+            }), 400
+
+        if preprocess_result is not None and preprocess_result.is_usable and preprocess_result.processed_bytes:
+            # 使用处理后的图片（已校正方向/裁剪/压缩）
+            img_data = base64.b64encode(preprocess_result.processed_bytes).decode('ascii')
+            ext_normalized = preprocess_result.processed_mime.split('/')[-1]
+            if ext_normalized == 'jpeg':
+                ext_normalized = 'jpg'
+            data_url = f'data:{preprocess_result.processed_mime};base64,{img_data}'
+            # 保存预处理证据到 g 上下文，供审计追溯（不阻塞主流程）
+            try:
+                from flask import g as _g
+                _g.ai_image_preprocess_evidence = preprocess_result.to_evidence_dict()
+                if preprocess_result.warnings:
+                    _g.ai_image_preprocess_warnings = list(preprocess_result.warnings)
+            except Exception:  # noqa: BLE001
+                pass
+        else:
+            # 降级：使用原图
+            img_data = base64.b64encode(original_bytes).decode('ascii')
+            data_url = f'data:image/{ext};base64,{img_data}'
         
         # 获取用户指定的单据类型和备注
         doc_type_hint = request.form.get('document_type', 'auto')
@@ -31966,7 +32002,8 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
             'reply': reply,
             'extracted': extracted,
             'items': items_info,
-            'draft': draft_info
+            'draft': draft_info,
+            'image_warnings': preprocess_result.warnings if preprocess_result else [],
         })
         
     except Exception as e:
