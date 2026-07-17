@@ -12397,6 +12397,213 @@ def _ai_ff_query_feedback_records(source='', model='', schema_version='', field_
         return []
 
 
+# ---- AI-R10 仓库角色工作台 ORM adapter ----
+
+def _ai_ww_query_today_inbound_pending():
+    """AI-R10 今日待收：InOrder status=pending。返回 (count, list[dict])。"""
+    try:
+        count = InOrder.query.filter_by(status='pending').count()
+        records = (
+            InOrder.query.options(joinedload(InOrder.supplier))
+            .filter_by(status='pending')
+            .order_by(InOrder.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for o in records:
+            items.append({
+                'id': o.id,
+                'title': o.order_no or f'入库单#{o.id}',
+                'subtitle': (o.supplier.name if o.supplier else '') or '无供应商',
+                'detail': f'{o.business_type or "采购入库"} · {o.date.strftime("%Y-%m-%d") if o.date else ""}',
+                'jump_url': f'/in_order/view/{o.id}',
+                'extra': {'status': o.status, 'created_at': o.created_at.isoformat() if o.created_at else ''},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询今日待收异常: {exc}')
+        return 0, []
+
+
+def _ai_ww_query_today_outbound_pending():
+    """AI-R10 今日待出：OutOrder status=pending。返回 (count, list[dict])。"""
+    try:
+        count = OutOrder.query.filter_by(status='pending').count()
+        records = (
+            OutOrder.query.options(joinedload(OutOrder.department))
+            .filter_by(status='pending')
+            .order_by(OutOrder.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for o in records:
+            items.append({
+                'id': o.id,
+                'title': o.order_no or f'出库单#{o.id}',
+                'subtitle': (o.department.name if o.department else '') or '无部门',
+                'detail': f'{o.date.strftime("%Y-%m-%d") if o.date else ""}',
+                'jump_url': f'/out_order/view/{o.id}',
+                'extra': {'status': o.status, 'created_at': o.created_at.isoformat() if o.created_at else ''},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询今日待出异常: {exc}')
+        return 0, []
+
+
+def _ai_ww_query_inventory_check_pending():
+    """AI-R10 待盘：InventoryCheck status=pending。返回 (count, list[dict])。"""
+    try:
+        count = InventoryCheck.query.filter_by(status='pending').count()
+        records = (
+            InventoryCheck.query.filter_by(status='pending')
+            .order_by(InventoryCheck.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for o in records:
+            items.append({
+                'id': o.id,
+                'title': o.order_no or f'盘点单#{o.id}',
+                'subtitle': o.warehouse or '',
+                'detail': f'{o.date.strftime("%Y-%m-%d") if o.date else ""}',
+                'jump_url': f'/inventory_check/view/{o.id}',
+                'extra': {'status': o.status, 'created_at': o.created_at.isoformat() if o.created_at else ''},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询待盘异常: {exc}')
+        return 0, []
+
+
+def _ai_ww_query_abnormal_stock():
+    """AI-R10 异常库存：负库存 + 低库存。返回 (count, list[dict])。"""
+    try:
+        items = []
+        # 负库存
+        negative = Material.query.filter(Material.stock < 0).limit(5).all()
+        for m in negative:
+            items.append({
+                'id': m.id,
+                'title': m.code or f'物料#{m.id}',
+                'subtitle': m.name or '',
+                'detail': f'负库存 {m.stock}',
+                'jump_url': f'/material/view/{m.id}',
+                'extra': {'severity': 'high', 'stock': m.stock, 'type': 'negative'},
+            })
+        # 低库存（min_stock 不为空且 stock <= min_stock 且 stock >= 0）
+        low = Material.query.filter(
+            Material.min_stock.isnot(None),
+            Material.stock <= Material.min_stock,
+            Material.stock >= 0,
+        ).limit(5).all()
+        for m in low:
+            items.append({
+                'id': m.id,
+                'title': m.code or f'物料#{m.id}',
+                'subtitle': m.name or '',
+                'detail': f'低库存 {m.stock}/{m.min_stock or 0}',
+                'jump_url': f'/material/view/{m.id}',
+                'extra': {'severity': 'medium', 'stock': m.stock, 'min_stock': m.min_stock or 0, 'type': 'low'},
+            })
+        count = len(negative) + len(low)
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询异常库存异常: {exc}')
+        return 0, []
+
+
+def _ai_ww_query_documents_pending_confirmation():
+    """AI-R10 文档待确认：AIDocumentJob status=pending_confirmation。返回 (count, list[dict])。"""
+    try:
+        count = AIDocumentJob.query.filter_by(status='pending_confirmation').count()
+        records = (
+            AIDocumentJob.query.filter_by(status='pending_confirmation')
+            .order_by(AIDocumentJob.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for j in records:
+            items.append({
+                'id': j.id,
+                'title': f'文档#{j.id}',
+                'subtitle': j.supplier or j.customer or j.order_no or '未知来源',
+                'detail': f'{j.document_type or "未知类型"} · {(j.source_text_summary or "")[:30]}',
+                'jump_url': f'/ai/document_confirm/{j.confirmation_token}' if j.confirmation_token else '/ai/document_jobs',
+                'extra': {'status': j.status, 'created_at': j.created_at.isoformat() if j.created_at else ''},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询文档待确认异常: {exc}')
+        return 0, []
+
+
+def _ai_ww_query_failed_tasks():
+    """AI-R10 失败任务：AIDocumentJob status=failed + AIRun status=failed。返回 (count, list[dict])。"""
+    try:
+        items = []
+        failed_jobs = (
+            AIDocumentJob.query.filter_by(status='failed')
+            .order_by(AIDocumentJob.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        for j in failed_jobs:
+            items.append({
+                'id': j.id,
+                'title': f'文档任务#{j.id}',
+                'subtitle': j.document_type or '未知类型',
+                'detail': f'失败：{(j.error_message or "")[:40]}',
+                'jump_url': '/ai/document_jobs?status=failed',
+                'extra': {'status': 'failed', 'type': 'document_job', 'created_at': j.created_at.isoformat() if j.created_at else ''},
+            })
+        failed_runs = AIRun.query.filter_by(status='failed').limit(5).all()
+        for r in failed_runs:
+            items.append({
+                'id': r.id,
+                'title': f'AI运行#{r.id}',
+                'subtitle': r.capability or r.intent or '未知能力',
+                'detail': f'失败：{(r.error_message or "")[:40]}',
+                'jump_url': '/ai/history',
+                'extra': {'status': 'failed', 'type': 'ai_run', 'created_at': r.created_at.isoformat() if r.created_at else ''},
+            })
+        count = len(failed_jobs) + len(failed_runs)
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询失败任务异常: {exc}')
+        return 0, []
+
+
+def _ai_ww_query_unfinished_drafts():
+    """AI-R10 未完成草稿：AIDraftIdempotency status=processing。返回 (count, list[dict])。"""
+    try:
+        count = AIDraftIdempotency.query.filter_by(status='processing').count()
+        records = (
+            AIDraftIdempotency.query.filter_by(status='processing')
+            .order_by(AIDraftIdempotency.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for d in records:
+            items.append({
+                'id': d.id,
+                'title': f'{d.draft_type or "草稿"}#{d.draft_id or d.id}',
+                'subtitle': d.draft_no or '无单号',
+                'detail': f'{d.capability or ""} · {d.source or ""}',
+                'jump_url': '/ai/drafts?status=processing',
+                'extra': {'status': d.status, 'created_at': d.created_at.isoformat() if d.created_at else ''},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询未完成草稿异常: {exc}')
+        return 0, []
+
+
 def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='', confirmation_token=None, document_job_id=None):
     if current_user.role not in ('admin', 'warehouse', 'purchase'):
         return None
@@ -32720,6 +32927,43 @@ def api_ai_document_quality():
     except Exception as e:
         app.logger.error(f'文档质量指标聚合失败: {e}')
         return jsonify({'status': 'error', 'msg': f'聚合失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/warehouse_workbench')
+@login_required
+def api_ai_warehouse_workbench():
+    """AI-R10 仓库角色工作台整合端点。
+
+    整合今日待收/待出/待盘/异常库存/文档待确认/失败任务/未完成草稿到单一工作台视图。
+    验收：数量与原业务列表一致；工作台只读或跳转对应流程，不直接提交或审核。
+    """
+    if current_user.role not in ('admin', 'warehouse'):
+        return jsonify({'status': 'error', 'msg': '无权限'}), 403
+    try:
+        from ai.ops.warehouse_workbench import (
+            build_warehouse_workbench as _ww_build,
+            validate_workbench_read_only as _ww_validate_ro,
+        )
+        snapshot = _ww_build(
+            query_today_inbound_pending=_ai_ww_query_today_inbound_pending,
+            query_today_outbound_pending=_ai_ww_query_today_outbound_pending,
+            query_inventory_check_pending=_ai_ww_query_inventory_check_pending,
+            query_abnormal_stock=_ai_ww_query_abnormal_stock,
+            query_documents_pending_confirmation=_ai_ww_query_documents_pending_confirmation,
+            query_failed_tasks=_ai_ww_query_failed_tasks,
+            query_unfinished_drafts=_ai_ww_query_unfinished_drafts,
+            user_id=current_user.id if current_user.is_authenticated else 0,
+            role=current_user.role or 'warehouse',
+        )
+        is_valid, violations = _ww_validate_ro(snapshot)
+        result = snapshot.to_dict()
+        result['read_only_valid'] = is_valid
+        if violations:
+            result['read_only_violations'] = violations
+        return jsonify({'status': 'success', 'workbench': result})
+    except Exception as e:
+        app.logger.error(f'仓库工作台构建失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
 
 
 @app.route('/ai/supplier_evaluation')
