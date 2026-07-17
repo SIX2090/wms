@@ -13543,6 +13543,163 @@ def _parse_iso_cutoff(iso_str: str):
         return None
 
 
+# ===== AI-R15 业务质量指标和版本对比 ORM adapter =====
+
+def _ai_bq_query_samples(filter_dict=None):
+    """AI-R15 查询业务质量样本（按天 + 维度聚合）。
+
+    样本聚合单元：(day, role, source, model, prompt_hash, schema_version)
+    - 字段级指标（classification/header/line/material/correction）来自 AIFieldFeedback
+    - 草稿/拦截指标（draft_adoption/duplicate_interception）来自 AIDraftIdempotency
+    - 草稿数据无 model/prompt_hash/schema_version，独立成样本（这些维度为空字符串）
+
+    生产环境由 app.py 提供；CI 无 DB 时不调用（验证脚本直接构造样本测试纯逻辑）。
+    """
+    from ai.ops.business_quality import QualitySample
+
+    filter_dict = filter_dict or {}
+    samples: list[QualitySample] = []
+    try:
+        # ---- 1. 聚合 AIFieldFeedback（字段级指标）----
+        fb_query = AIFieldFeedback.query
+        if filter_dict.get('role'):
+            fb_query = fb_query.join(User, AIFieldFeedback.user_id == User.id).filter(User.role == filter_dict['role'])
+        if filter_dict.get('source'):
+            fb_query = fb_query.filter(AIFieldFeedback.source == filter_dict['source'])
+        if filter_dict.get('model'):
+            fb_query = fb_query.filter(AIFieldFeedback.model == filter_dict['model'])
+        if filter_dict.get('prompt_hash'):
+            fb_query = fb_query.filter(AIFieldFeedback.prompt_hash == filter_dict['prompt_hash'])
+        if filter_dict.get('schema_version'):
+            fb_query = fb_query.filter(AIFieldFeedback.schema_version == filter_dict['schema_version'])
+        if filter_dict.get('time_start'):
+            ts = _parse_iso_cutoff(filter_dict['time_start'])
+            if ts:
+                fb_query = fb_query.filter(AIFieldFeedback.created_at >= ts)
+        if filter_dict.get('time_end'):
+            te = _parse_iso_cutoff(filter_dict['time_end'])
+            if te:
+                fb_query = fb_query.filter(AIFieldFeedback.created_at <= te)
+
+        fb_rows = fb_query.all()
+
+        # 字段分类常量（与 field_feedback.py 对齐）
+        _CLASSIFICATION_FIELDS = ('document_type',)
+        _HEADER_FIELDS = ('supplier', 'customer', 'order_no', 'date')
+        _MATERIAL_FIELDS = ('code', 'name')
+
+        fb_groups: dict[tuple, dict[str, int]] = {}
+        for row in fb_rows:
+            day = row.created_at.strftime('%Y-%m-%d') if row.created_at else 'unknown'
+            role = (row.user.role if row.user else '') or ''
+            key = (day, role, row.source or '', row.model or '', row.prompt_hash or '', row.schema_version or '')
+            g = fb_groups.setdefault(key, {
+                'classification_total': 0, 'classification_correct': 0,
+                'header_total': 0, 'header_correct': 0,
+                'line_expected': 0, 'line_recalled': 0,
+                'material_total': 0, 'material_matched': 0,
+                'field_total': 0, 'field_corrected': 0,
+            })
+            fname = (row.field_name or '').lower()
+            # adopted=False 表示用户未修正（原值正确）；adopted=True 表示被修正（原值错误）
+            is_correct = 0 if row.adopted else 1
+            is_corrected = 1 if row.adopted else 0
+
+            if fname in _CLASSIFICATION_FIELDS:
+                g['classification_total'] += 1
+                g['classification_correct'] += is_correct
+            if fname in _HEADER_FIELDS:
+                g['header_total'] += 1
+                g['header_correct'] += is_correct
+            if row.line_index is not None and row.line_index >= 0:
+                g['line_expected'] += 1
+                g['line_recalled'] += is_correct
+                if fname in _MATERIAL_FIELDS:
+                    g['material_total'] += 1
+                    g['material_matched'] += is_correct
+            g['field_total'] += 1
+            g['field_corrected'] += is_corrected
+
+        for key, g in fb_groups.items():
+            samples.append(QualitySample(
+                sample_id=f'fb-{key[0]}-{key[1]}-{key[2]}-{key[3]}',
+                occurred_at=key[0],
+                role=key[1], source=key[2], model=key[3],
+                prompt_hash=key[4], schema_version=key[5],
+                classification_total=g['classification_total'],
+                classification_correct=g['classification_correct'],
+                header_total=g['header_total'],
+                header_correct=g['header_correct'],
+                line_expected=g['line_expected'],
+                line_recalled=g['line_recalled'],
+                material_total=g['material_total'],
+                material_matched=g['material_matched'],
+                field_total=g['field_total'],
+                field_corrected=g['field_corrected'],
+                draft_total=0, draft_adopted=0,
+                request_total=0, request_intercepted=0,
+            ))
+
+        # ---- 2. 聚合 AIDraftIdempotency（草稿采用 + 重复拦截）----
+        di_query = AIDraftIdempotency.query
+        if filter_dict.get('role'):
+            di_query = di_query.join(User, AIDraftIdempotency.user_id == User.id).filter(User.role == filter_dict['role'])
+        if filter_dict.get('source'):
+            di_query = di_query.filter(AIDraftIdempotency.source == filter_dict['source'])
+        if filter_dict.get('time_start'):
+            ts = _parse_iso_cutoff(filter_dict['time_start'])
+            if ts:
+                di_query = di_query.filter(AIDraftIdempotency.created_at >= ts)
+        if filter_dict.get('time_end'):
+            te = _parse_iso_cutoff(filter_dict['time_end'])
+            if te:
+                di_query = di_query.filter(AIDraftIdempotency.created_at <= te)
+
+        di_rows = di_query.all()
+        di_groups: dict[tuple, dict[str, int]] = {}
+        for row in di_rows:
+            day = row.created_at.strftime('%Y-%m-%d') if row.created_at else 'unknown'
+            role = (row.user.role if row.user else '') or ''
+            # 草稿数据无 model/prompt_hash/schema_version，用空字符串
+            key = (day, role, row.source or '', '', '', '')
+            g = di_groups.setdefault(key, {
+                'draft_total': 0, 'draft_adopted': 0,
+                'request_total': 0, 'request_intercepted': 0,
+            })
+            # request 指标：所有幂等记录都算一次请求
+            g['request_total'] += 1
+            # intercepted：status=replayed 表示命中幂等拦截（重复请求）
+            if row.status == 'replayed':
+                g['request_intercepted'] += 1
+            # draft 指标：仅 completed 状态算有效草稿
+            if row.status == 'completed':
+                g['draft_total'] += 1
+                # adopted：completed 且 draft_id 非空表示草稿被业务采用
+                if row.draft_id:
+                    g['draft_adopted'] += 1
+
+        for key, g in di_groups.items():
+            samples.append(QualitySample(
+                sample_id=f'di-{key[0]}-{key[1]}-{key[2]}',
+                occurred_at=key[0],
+                role=key[1], source=key[2], model='',
+                prompt_hash='', schema_version='',
+                classification_total=0, classification_correct=0,
+                header_total=0, header_correct=0,
+                line_expected=0, line_recalled=0,
+                material_total=0, material_matched=0,
+                field_total=0, field_corrected=0,
+                draft_total=g['draft_total'],
+                draft_adopted=g['draft_adopted'],
+                request_total=g['request_total'],
+                request_intercepted=g['request_intercepted'],
+            ))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R15 查询样本异常: {exc}')
+        return []
+    return samples
+
+
 def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='', confirmation_token=None, document_job_id=None):
     if current_user.role not in ('admin', 'warehouse', 'purchase'):
         return None
@@ -34754,6 +34911,151 @@ def api_ai_data_retention_validate():
     except Exception as e:
         app.logger.error(f'AI-R14 安全校验失败: {e}')
         return jsonify({'status': 'error', 'msg': f'校验失败：{str(e)}'}), 500
+
+
+# ===== AI-R15 业务质量指标和版本对比 API 端点 =====
+
+@app.route('/api/ai/business_quality_snapshot', methods=['POST', 'GET'])
+@login_required
+@require_role('admin')
+def api_ai_business_quality_snapshot():
+    """AI-R15 业务质量快照端点（7 指标聚合 + 多维筛选）。
+
+    支持筛选维度：time_start/time_end/role/source/model/prompt_hash/schema_version。
+    指标可复算（纯函数，相同输入产出相同指标值）。
+    """
+    from ai.ops.business_quality import (
+        QualityFilter, compute_business_quality, validate_metrics_reproducible,
+        validate_all_dimensions_present,
+    )
+    try:
+        data = request.get_json(silent=True) or {}
+        if request.method == 'GET':
+            data = {k: v for k, v in request.args.items()}
+
+        filter_ = QualityFilter(
+            time_start=data.get('time_start') or None,
+            time_end=data.get('time_end') or None,
+            role=data.get('role') or None,
+            source=data.get('source') or None,
+            model=data.get('model') or None,
+            prompt_hash=data.get('prompt_hash') or None,
+            schema_version=data.get('schema_version') or None,
+        )
+
+        samples = _ai_bq_query_samples(filter_.to_dict())
+        snapshot = compute_business_quality(samples, filter_=filter_)
+
+        # 可复算校验
+        ok_reproducible, msg_reproducible = validate_metrics_reproducible(
+            samples, filter_=filter_, now=snapshot.generated_at
+        )
+        # 维度完整性校验
+        ok_dims, msg_dims = validate_all_dimensions_present(snapshot)
+
+        return jsonify({
+            'status': 'ok',
+            'snapshot': snapshot.to_dict(),
+            'validations': {
+                'metrics_reproducible': ok_reproducible,
+                'metrics_reproducible_msg': msg_reproducible,
+                'dimensions_present': ok_dims,
+                'dimensions_present_msg': msg_dims,
+            },
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R15 业务质量快照失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'快照计算失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/business_quality_compare', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_business_quality_compare():
+    """AI-R15 版本对比端点（当前版本 vs 基线版本 7 指标对比）。
+
+    入参：
+        current_version: 当前版本标识（如 schema_version 标签）
+        baseline_version: 基线版本标识
+        current_filter: 当前版本筛选条件 dict
+        baseline_filter: 基线版本筛选条件 dict
+        regression_threshold: 下降阈值（可选，默认 0.05）
+    """
+    from ai.ops.business_quality import (
+        QualityFilter, compare_versions, validate_version_comparison,
+    )
+    try:
+        data = request.get_json(silent=True) or {}
+        current_version = str(data.get('current_version') or 'current')
+        baseline_version = str(data.get('baseline_version') or 'baseline')
+        threshold = float(data.get('regression_threshold') or 0.05)
+
+        current_filter_dict = data.get('current_filter') or {}
+        baseline_filter_dict = data.get('baseline_filter') or {}
+
+        current_filter = QualityFilter(
+            time_start=current_filter_dict.get('time_start') or None,
+            time_end=current_filter_dict.get('time_end') or None,
+            role=current_filter_dict.get('role') or None,
+            source=current_filter_dict.get('source') or None,
+            model=current_filter_dict.get('model') or None,
+            prompt_hash=current_filter_dict.get('prompt_hash') or None,
+            schema_version=current_filter_dict.get('schema_version') or None,
+        )
+        baseline_filter = QualityFilter(
+            time_start=baseline_filter_dict.get('time_start') or None,
+            time_end=baseline_filter_dict.get('time_end') or None,
+            role=baseline_filter_dict.get('role') or None,
+            source=baseline_filter_dict.get('source') or None,
+            model=baseline_filter_dict.get('model') or None,
+            prompt_hash=baseline_filter_dict.get('prompt_hash') or None,
+            schema_version=baseline_filter_dict.get('schema_version') or None,
+        )
+
+        current_samples = _ai_bq_query_samples(current_filter.to_dict())
+        baseline_samples = _ai_bq_query_samples(baseline_filter.to_dict())
+
+        comparison = compare_versions(
+            current_samples, baseline_samples,
+            current_version=current_version,
+            baseline_version=baseline_version,
+            regression_threshold=threshold,
+        )
+
+        ok, msg = validate_version_comparison(comparison)
+
+        return jsonify({
+            'status': 'ok',
+            'comparison': comparison.to_dict(),
+            'validations': {
+                'version_comparison_valid': ok,
+                'validation_msg': msg,
+            },
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R15 版本对比失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'版本对比失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/business_quality_metrics', methods=['GET'])
+@login_required
+@require_role('admin')
+def api_ai_business_quality_metrics():
+    """AI-R15 7 个业务质量指标定义查询端点。"""
+    from ai.ops.business_quality import ALL_METRICS, METRIC_LABELS
+    try:
+        metrics = [
+            {'metric': m, 'label': METRIC_LABELS.get(m, m)}
+            for m in ALL_METRICS
+        ]
+        return jsonify({
+            'status': 'ok',
+            'metrics': metrics,
+            'count': len(ALL_METRICS),
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R15 指标定义查询失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
 
 
 @app.route('/ai/supplier_evaluation')
