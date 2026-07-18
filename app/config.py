@@ -81,7 +81,7 @@ class Config:
     
     # 服务器配置
     HOST = '0.0.0.0'
-    PORT = 8080
+    PORT = int(os.environ.get('PORT', '8080'))
     DEBUG = False  # 生产模式：禁用调试
     
     # 日志配置
