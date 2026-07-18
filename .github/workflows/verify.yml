@@ -48,6 +48,9 @@ jobs:
       - name: Run AI delivery matcher check (AI-R06)
         run: python3 scripts/verify_ai_delivery_matcher.py
 
+      - name: Run AI delivery matcher calibration check (AI-R06-F01)
+        run: python3 scripts/verify_ai_delivery_matcher_calibration.py
+
       - name: Run AI material governance check (AI-R07)
         run: python3 scripts/verify_ai_material_governance.py
 
@@ -77,6 +80,12 @@ jobs:
 
       - name: Run AI business quality dashboard check (AI-R15-F01)
         run: python3 scripts/verify_ai_business_quality_dashboard.py
+
+      - name: Run AI warehouse workbench page check (AI-R10-F01)
+        run: python3 scripts/verify_ai_warehouse_workbench_page.py
+
+      - name: Run AI purchase workbench page check (AI-R11-F01)
+        run: python3 scripts/verify_ai_purchase_workbench_page.py
 
       - name: Run AI browser E2E check (AI-R16)
         run: python3 scripts/verify_ai_browser_e2e.py

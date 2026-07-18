@@ -35161,6 +35161,13 @@ def api_ai_document_quality():
         return jsonify({'status': 'error', 'msg': f'聚合失败：{str(e)}'}), 500
 
 
+@app.route('/ai/warehouse_workbench')
+@login_required
+def ai_warehouse_workbench_page():
+    """AI-R10-F01 仓库 AI 工作台页面。"""
+    return render_template('ai_warehouse_workbench.html')
+
+
 @app.route('/api/ai/warehouse_workbench')
 @login_required
 def api_ai_warehouse_workbench():
@@ -35196,6 +35203,13 @@ def api_ai_warehouse_workbench():
     except Exception as e:
         app.logger.error(f'仓库工作台构建失败: {e}')
         return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
+
+
+@app.route('/ai/purchase_workbench')
+@login_required
+def ai_purchase_workbench_page():
+    """AI-R11-F01 采购到货 AI 工作台页面。"""
+    return render_template('ai_purchase_workbench.html')
 
 
 @app.route('/api/ai/purchase_followup_workbench')
