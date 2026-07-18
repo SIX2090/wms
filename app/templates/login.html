@@ -207,7 +207,12 @@
             color: #6b7280;
             font-weight: 600;
         }
-        .login-tabs span {
+        .login-tabs button {
+            border: 0;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            cursor: pointer;
             position: relative;
             padding-bottom: 10px;
         }
@@ -480,8 +485,8 @@
             </div>
             <div class="login-body">
                 <div class="login-tabs">
-                    <span class="active">普通用户</span>
-                    <span>管理员</span>
+                    <button type="button" class="active" data-login-mode="user" aria-selected="true">普通用户</button>
+                    <button type="button" data-login-mode="admin" aria-selected="false">管理员</button>
                 </div>
 
                 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -495,6 +500,7 @@
                 <form method="POST" autocomplete="on">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="next" value="{{ next }}">
+                    <input type="hidden" name="login_mode" id="loginMode" value="user">
                     <label class="login-field">
                         <i class="bi bi-person"></i>
                         <input type="text" name="username" placeholder="请输入用户名" required autofocus autocomplete="username">
@@ -543,6 +549,17 @@
     </main>
 
     <script>
+        document.querySelectorAll('[data-login-mode]').forEach(function (tab) {
+            tab.addEventListener('click', function () {
+                document.querySelectorAll('[data-login-mode]').forEach(function (item) {
+                    item.classList.toggle('active', item === tab);
+                    item.setAttribute('aria-selected', item === tab ? 'true' : 'false');
+                });
+                document.getElementById('loginMode').value = tab.dataset.loginMode;
+                document.querySelector('input[name="username"]').focus();
+            });
+        });
+
         // 科技粒子动画
         const canvas = document.getElementById('particles-canvas');
         const ctx = canvas.getContext('2d');

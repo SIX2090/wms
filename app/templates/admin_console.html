@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}管理员控制台{% endblock %}
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">管理员控制台</h1>
+            <div class="text-muted small">集中处理用户、系统、审计、备份和 AI 运营事项；业务页面仍按原权限独立校验。</div>
+        </div>
+        <span class="badge text-bg-danger"><i class="bi bi-shield-check"></i> 管理员</span>
+    </div>
+
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">启用用户</div><div class="h5 mb-0">{{ active_users }} / {{ total_users }}</div></div></div>
+        <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">今日登录</div><div class="h5 mb-0">{{ today_logins }}</div></div></div>
+        <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">验收快照</div><div class="h5 mb-0">{{ acceptance_snapshots }}</div></div></div>
+        <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">证据包</div><div class="h5 mb-0">{{ evidence_packages }}</div></div></div>
+    </div>
+
+    <div class="row g-2">
+        {% set links = [
+            ('/user', '用户与角色', '维护账号状态和业务角色', 'bi-people'),
+            ('/system_settings', '系统设置', '配置业务参数、AI开关和灰度', 'bi-sliders'),
+            ('/operation_audit', '操作审计', '查询登录、业务和高风险操作', 'bi-shield-check'),
+            ('/backup', '数据备份', '创建备份并查看恢复入口', 'bi-database'),
+            ('/ai/ops', 'AI运维看板', '查看调用、错误、P95和降级', 'bi-activity'),
+            ('/ai/prelaunch', 'AI上线预检', '检查发布、回滚和配置状态', 'bi-clipboard-check'),
+            ('/ai/acceptance', 'AI七日验收', '采集快照并人工签署 go/no-go', 'bi-calendar2-check'),
+            ('/ai/business_quality', 'AI质量运营', '查看质量指标和版本回归', 'bi-graph-up'),
+            ('/approval', '审批中心', '处理需要人工审批的业务事项', 'bi-check2-square'),
+            ('/wechat_share', '微信分享', '维护分享配置和任务状态', 'bi-wechat')
+        ] %}
+        {% for href, title, detail, icon in links %}
+        <div class="col-12 col-md-6 col-xl-4">
+            <a class="text-decoration-none" href="{{ href }}">
+                <div class="border rounded p-3 h-100 d-flex align-items-center gap-3">
+                    <span class="fs-4 text-primary"><i class="bi {{ icon }}"></i></span>
+                    <span><strong class="d-block text-body">{{ title }}</strong><small class="text-muted">{{ detail }}</small></span>
+                    <i class="bi bi-chevron-right ms-auto text-muted"></i>
+                </div>
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

@@ -5431,6 +5431,9 @@ def login():
 
     username = (request.form.get('username') or '').strip()
     password = request.form.get('password') or ''
+    login_mode = request.form.get('login_mode', 'user')
+    if login_mode not in {'user', 'admin'}:
+        login_mode = 'user'
 
     if not username or not password:
         flash('请输入用户名和密码', 'danger')
@@ -5455,6 +5458,12 @@ def login():
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
         flash('账号已被禁用，请联系管理员', 'danger')
+        return render_template('login.html', next=next_page, current_date=login_date), 403
+
+    if login_mode == 'admin' and user.role != 'admin':
+        add_login_log(status='failed', username=username, user=user, fail_reason='admin_mode_role_mismatch')
+        db.session.commit()
+        flash('管理员模式仅允许管理员账号登录', 'danger')
         return render_template('login.html', next=next_page, current_date=login_date), 403
 
     if user.is_locked:
@@ -5488,6 +5497,8 @@ def login():
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
             return jsonify({'status': 'error', 'msg': '操作失败'}), 500
+        if login_mode == 'admin' and not next_page:
+            return redirect(url_for('admin_console'))
         return redirect(resolve_redirect_target(next_page))
 
     user.increment_failed_count()
@@ -5517,6 +5528,21 @@ def logout():
     return redirect(url_for('login'))
 
 # ==================== User management ====================
+
+@app.route('/admin/console')
+@login_required
+@role_required('admin')
+def admin_console():
+    """管理员统一工作台：只聚合管理入口，不绕过既有权限页面。"""
+    today_start = datetime.combine(date.today(), time.min)
+    return render_template(
+        'admin_console.html',
+        active_users=User.query.filter_by(status='normal').count(),
+        total_users=User.query.count(),
+        today_logins=LoginLog.query.filter(LoginLog.login_time >= today_start).count(),
+        acceptance_snapshots=AIAcceptanceDailySnapshot.query.count(),
+        evidence_packages=AIAcceptanceEvidencePackage.query.count(),
+    )
 
 @app.route('/user')
 @login_required
