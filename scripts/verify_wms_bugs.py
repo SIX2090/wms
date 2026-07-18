@@ -839,7 +839,10 @@ def main() -> int:
         and 'ai_run_id = db.Column' in app_py
         and 'def finish_run(self, run_id: int, status: str, error_message: str = \'\')' in ai_idempotency_py
         and 'self.finish_run(record.ai_run_id' in ai_idempotency_py
-        and '_ai_record_capability_audit(capability, allowed)' in function_body(app_py, '_ai_capability_allowed'),
+        and re.search(
+            r'_ai_record_capability_audit\(capability,\s*allowed(?:\s*,|\s*\))',
+            function_body(app_py, '_ai_capability_allowed'),
+        ),
         'AI 请求必须记录运行状态、模型、耗时，并将能力授权结果写入工具调用审计',
     ))
 
