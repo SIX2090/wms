@@ -52,12 +52,24 @@
                 <button type="button" class="btn btn-outline-primary mobile-scan-camera" id="cameraBtn" title="拍照识物">
                     <i class="bi bi-camera"></i>
                 </button>
+                <button type="button" class="btn btn-outline-success mobile-scan-camera" id="barcodeBtn" title="条码扫描">
+                    <i class="bi bi-upc-scan"></i>
+                </button>
                 <button type="button" class="btn btn-primary mobile-scan-lookup" id="lookupBtn">
                     <i class="bi bi-search"></i>
                 </button>
             </div>
             <input type="file" id="cameraFileInput" accept="image/*" capture="environment" hidden>
             <div class="mobile-scan-status" id="scanStatus"></div>
+        </div>
+
+        <div class="mobile-barcode-scanner" id="barcodeScanner" hidden>
+            <div class="mobile-barcode-scanner-header">
+                <strong>条码扫描</strong>
+                <button type="button" class="btn-close-sm" id="closeBarcodeBtn" title="关闭扫描"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <video id="barcodeVideo" autoplay muted playsinline></video>
+            <div class="mobile-barcode-hint" id="barcodeHint">请将物料条码放入框中</div>
         </div>
 
         <!-- 拍照识物预览区 -->
@@ -182,6 +194,12 @@
     var historyWrap = document.getElementById('scanHistory');
     var historyList = document.getElementById('historyList');
     var selectedMaterial = null;
+    var barcodeScanner = document.getElementById('barcodeScanner');
+    var barcodeVideo = document.getElementById('barcodeVideo');
+    var barcodeBtn = document.getElementById('barcodeBtn');
+    var closeBarcodeBtn = document.getElementById('closeBarcodeBtn');
+    var barcodeStream = null;
+    var barcodeTimer = null;
 
     function csrfHeaders(headers) {
         var result = headers || {};
@@ -300,6 +318,74 @@
                 return null;
             });
     }
+
+    function stopBarcodeScanner() {
+        if (barcodeTimer) {
+            window.cancelAnimationFrame(barcodeTimer);
+            barcodeTimer = null;
+        }
+        if (barcodeStream) {
+            barcodeStream.getTracks().forEach(function(track) { track.stop(); });
+            barcodeStream = null;
+        }
+        if (barcodeVideo) barcodeVideo.srcObject = null;
+        if (barcodeScanner) barcodeScanner.hidden = true;
+    }
+
+    function startBarcodeScanner() {
+        if (!barcodeScanner || !barcodeVideo) return;
+        if (!window.BarcodeDetector || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setStatus('当前浏览器不支持摄像头条码扫描，请使用WMS扫码APP或扫码枪', 'warning');
+            return;
+        }
+        var detector;
+        try {
+            detector = new BarcodeDetector({
+                formats: ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'qr_code']
+            });
+        } catch (error) {
+            setStatus('当前浏览器不支持所需条码格式，请使用WMS扫码APP或扫码枪', 'warning');
+            return;
+        }
+        barcodeScanner.hidden = false;
+        setStatus('正在打开摄像头...', '');
+        navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' } },
+            audio: false
+        }).then(function(stream) {
+            barcodeStream = stream;
+            barcodeVideo.srcObject = stream;
+            return barcodeVideo.play();
+        }).then(function() {
+            setStatus('请将条码放入扫描框', '');
+            var scanFrame = function() {
+                if (!barcodeStream || barcodeScanner.hidden) return;
+                detector.detect(barcodeVideo).then(function(codes) {
+                    if (codes && codes.length && codes[0].rawValue) {
+                        scanCode.value = codes[0].rawValue.trim();
+                        stopBarcodeScanner();
+                        setStatus('已识别条码，正在查询...', 'success');
+                        lookupMaterial();
+                        return;
+                    }
+                    barcodeTimer = window.requestAnimationFrame(scanFrame);
+                }).catch(function() {
+                    barcodeTimer = window.requestAnimationFrame(scanFrame);
+                });
+            };
+            barcodeTimer = window.requestAnimationFrame(scanFrame);
+        }).catch(function() {
+            stopBarcodeScanner();
+            setStatus('无法打开摄像头，请检查权限或使用WMS扫码APP', 'error');
+        });
+    }
+
+    if (barcodeBtn) barcodeBtn.addEventListener('click', startBarcodeScanner);
+    if (closeBarcodeBtn) closeBarcodeBtn.addEventListener('click', function() {
+        stopBarcodeScanner();
+        setStatus('', '');
+    });
+    window.addEventListener('pagehide', stopBarcodeScanner);
 
     function addHistory(message, material) {
         historyWrap.hidden = false;
@@ -515,6 +601,36 @@
     gap: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     font-size: 14px;
+}
+.mobile-barcode-scanner {
+    margin: 16px 0;
+    border: 1px solid #bbf7d0;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #052e16;
+}
+.mobile-barcode-scanner-header {
+    padding: 8px 12px;
+    color: #ecfdf5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.mobile-barcode-scanner-header .btn-close-sm {
+    color: #d1fae5;
+}
+.mobile-barcode-scanner video {
+    display: block;
+    width: 100%;
+    max-height: 320px;
+    object-fit: cover;
+    background: #000;
+}
+.mobile-barcode-hint {
+    padding: 8px 12px;
+    color: #d1fae5;
+    text-align: center;
+    font-size: 13px;
 }
 </style>
 {% endblock %}
