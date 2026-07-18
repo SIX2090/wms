@@ -23264,7 +23264,15 @@ def material_all_api():
 @app.route('/api/material/search', methods=['GET', 'POST'])
 @web_or_api_required
 def material_search_api():
-    keyword = (request.values.get('kw') or request.values.get('keyword') or '').strip()
+    # Native scanners use different query names across released APK builds.
+    # Keep the canonical `kw`/`keyword` names and accept the common aliases.
+    keyword = (
+        request.values.get('kw')
+        or request.values.get('keyword')
+        or request.values.get('q')
+        or request.values.get('code')
+        or ''
+    ).strip()
     query = Material.query
     if keyword:
         query = query.filter(
