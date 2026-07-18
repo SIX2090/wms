@@ -101,3 +101,6 @@ jobs:
 
       - name: Run AI acceptance evidence check (AI-R17-F02)
         run: python3 scripts/verify_ai_acceptance_evidence.py
+
+      - name: Run AI sales draft validation check (AI-SALES-F01)
+        run: python3 scripts/verify_ai_sales_draft_validation.py
