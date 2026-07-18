@@ -1921,8 +1921,7 @@
     </script>
     {% block extra_css %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% endblock %}">
-    <script>if(new URLSearchParams(location.search).get('embedded')==='1'){document.body.classList.add('embedded-page');}</script>
+<body class="{% block body_class %}{% endblock %}{% if request.args.get('embedded') == '1' %} embedded-page{% endif %}">
     <header class="mobile-topbar no-print">
         <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-controls="appSidebar" aria-expanded="false" onclick="toggleMobileSidebar()">
             <i class="bi bi-list"></i>

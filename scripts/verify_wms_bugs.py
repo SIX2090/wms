@@ -849,6 +849,15 @@ def main() -> int:
     ok, message = check_post_forms_have_csrf()
     checks.append(("VULN-003", ok, message))
 
+    checks.append((
+        "BUG-NEW-017",
+        "request.args.get('embedded') == '1'" in base_html
+        and '<body class="{% block body_class %}{% endblock %}{% if request.args.get(\'embedded\') == \'1\' %} embedded-page{% endif %}">' in base_html
+        and "if (document.body.classList.contains('embedded-page')) return;" in app_js
+        and "target.searchParams.set('embedded', '1');" in app_js,
+        'Embedded tab pages must render one shell and keep add-page navigation embedded',
+    ))
+
     failed = [(code, message) for code, ok, message in checks if not ok]
     for code, ok, message in checks:
         status = "PASS" if ok else "FAIL"

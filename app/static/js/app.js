@@ -162,6 +162,10 @@ function toggleSubmenu(toggleEl) {
 
 // 多开菜单支持
 function enableMultiOpenMenus() {
+    // An iframe page belongs to the parent tab workspace. It must keep normal
+    // in-frame navigation and must never create a second tab workspace.
+    if (document.body.classList.contains('embedded-page')) return;
+
     const menuLinks = document.querySelectorAll('.sidebar a[href], .sidebar .dropdown-item[href]');
     menuLinks.forEach(function(link) {
         const href = link.getAttribute('href');
@@ -2816,6 +2820,21 @@ function insertGlobalActionBar() {
 
 // DOM加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
+    if (document.body.classList.contains('embedded-page')) {
+        document.addEventListener('click', function(event) {
+            if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            const link = event.target.closest && event.target.closest('a[href]');
+            if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+            const rawHref = link.getAttribute('href');
+            if (!rawHref || rawHref[0] === '#' || rawHref.startsWith('javascript:')) return;
+            let target;
+            try { target = new URL(rawHref, window.location.href); } catch (error) { return; }
+            if (target.origin !== window.location.origin) return;
+            target.searchParams.set('embedded', '1');
+            link.href = target.pathname + target.search + target.hash;
+        }, true);
+    }
+
     // 确认框事件绑定
     document.getElementById('cbConfirmOk')?.addEventListener('click', function() {
         resolveConfirm(true);
