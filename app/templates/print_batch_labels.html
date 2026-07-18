@@ -125,7 +125,7 @@
     </div>
 
     <script>
-    var MATERIALS = {{ materials_json | safe }};
+    var MATERIALS = {{ materials_json | tojson }};
     var container = document.getElementById('labelsContainer');
     var templateCache = {};
 

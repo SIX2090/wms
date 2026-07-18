@@ -858,6 +858,14 @@ def main() -> int:
         'Embedded tab pages must render one shell and keep add-page navigation embedded',
     ))
 
+    print_labels_html = read_text('app/templates/print_batch_labels.html')
+    checks.append((
+        'VULN-005',
+        'materials_json | tojson' in print_labels_html
+        and 'materials_json | safe' not in print_labels_html,
+        'Batch label JSON must use Jinja tojson instead of raw safe script injection',
+    ))
+
     failed = [(code, message) for code, ok, message in checks if not ok]
     for code, ok, message in checks:
         status = "PASS" if ok else "FAIL"
