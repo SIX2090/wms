@@ -1,147 +1,148 @@
 {% extends "base.html" %}
 {% block title %}新建销售订单{% endblock %}
+{% block extra_css %}
+<style>
+.sales-entry-page { background:#f5f7fa; min-height:calc(100vh - 60px); }
+.sales-entry-toolbar { background:#fff; border:1px solid #e5e7eb; padding:8px 14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.sales-entry-toolbar .btn { height:32px; font-size:12px; display:inline-flex; align-items:center; gap:5px; }
+.sales-entry-header { background:#fff; border:1px solid #e5e7eb; border-top:0; padding:14px; }
+.sales-entry-header .form-label { font-size:12px; color:#64748b; margin-bottom:4px; }
+.sales-entry-header .form-control, .sales-entry-header .form-select { height:30px; font-size:12px; border-radius:3px; }
+.sales-entry-grid { background:#fff; border:1px solid #dbe2ea; border-top:0; overflow:auto; }
+#salesItems { min-width:1500px; margin:0; border-collapse:collapse; table-layout:fixed; }
+#salesItems th { background:#eef3f8; color:#334155; font-size:12px; font-weight:600; height:34px; padding:6px 8px; border-right:1px solid #cbd5e1; white-space:nowrap; }
+#salesItems td { height:32px; padding:2px 4px; border:1px solid #e5e7eb; font-size:12px; vertical-align:middle; }
+#salesItems tbody tr:nth-child(even) td { background:#fafafa; }
+#salesItems input, #salesItems select { width:100%; height:27px; border:1px solid transparent; background:transparent; padding:2px 5px; font-size:12px; border-radius:2px; }
+#salesItems input:focus, #salesItems select:focus { background:#fff; border-color:#3b82f6; outline:0; box-shadow:0 0 0 2px rgba(59,130,246,.12); }
+#salesItems .readonly { color:#475569; }
+#salesItems .money { text-align:right; color:#334155; font-variant-numeric:tabular-nums; }
+.sales-total-row td { background:#fff8dc !important; font-weight:600; }
+.sales-entry-footer { background:#fff; border:1px solid #e5e7eb; border-top:0; padding:12px 14px; display:flex; align-items:end; justify-content:space-between; gap:16px; }
+.sales-entry-footer textarea { min-height:58px; font-size:12px; }
+.sales-summary { white-space:nowrap; font-size:13px; color:#334155; }
+.sales-summary strong { color:#dc2626; font-size:16px; }
+.sales-entry-status { font-size:12px; color:#b45309; min-height:18px; }
+@media (max-width: 768px) { .sales-entry-footer { display:block; } .sales-summary { margin-top:10px; text-align:right; } }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container-fluid py-3">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">新建销售订单</h4>
-    <a href="{{ url_for('sales_order_list') }}" class="btn btn-outline-secondary">返回列表</a>
-  </div>
-  <form id="salesForm" class="card card-body">
-    <div class="row g-3 mb-3">
-      <div class="col-md-3"><label class="form-label">订单号</label><input class="form-control" name="order_no" value="{{ order_no }}" required></div>
-      <div class="col-md-2"><label class="form-label">订单日期</label><input class="form-control" type="date" name="date" value="{{ order_date }}" required></div>
-      <div class="col-md-3"><label class="form-label">客户</label><select class="form-select" name="customer_id" required><option value="">请选择客户</option>{% for customer in customers %}<option value="{{ customer.id }}">{{ customer.code }} - {{ customer.name }}</option>{% endfor %}</select></div>
-      <div class="col-md-2"><label class="form-label">交货日期</label><input class="form-control" type="date" name="delivery_date"></div>
-      <div class="col-md-2"><label class="form-label">发货仓库</label><select class="form-select" name="warehouse"><option value="">请选择</option>{% for warehouse in warehouses %}<option>{{ warehouse.name }}</option>{% endfor %}</select></div>
+<div class="sales-entry-page">
+    <div class="sales-entry-toolbar">
+        <button type="button" class="btn btn-primary" id="saveBtn"><i class="bi bi-save"></i> 保存</button>
+        <button type="button" class="btn btn-success" id="saveNewBtn"><i class="bi bi-plus-square"></i> 保存并新增</button>
+        <button type="button" class="btn btn-outline-primary" id="addRowBtn"><i class="bi bi-plus-lg"></i> 添加物料</button>
+        <button type="button" class="btn btn-outline-secondary" id="copyRowBtn"><i class="bi bi-copy"></i> 复制上一行</button>
+        <button type="button" class="btn btn-outline-secondary" id="pasteBtn"><i class="bi bi-clipboard"></i> 粘贴导入</button>
+        <a class="btn btn-outline-secondary ms-auto" href="{{ url_for('sales_order_list') }}"><i class="bi bi-arrow-left"></i> 返回列表</a>
     </div>
-    <div class="row g-3 mb-3">
-      <div class="col-md-3"><label class="form-label">业务员</label><select class="form-select" name="salesperson_id"><option value="">请选择</option>{% for emp in employees %}<option value="{{ emp.id }}">{{ emp.name }}{% if emp.position %}（{{ emp.position }}）{% endif %}</option>{% endfor %}</select></div>
-      <div class="col-md-3"><label class="form-label">项目号</label><input class="form-control" name="project_no" placeholder="可选"></div>
-      <div class="col-md-2"><label class="form-label">币别</label><select class="form-select" name="currency"><option value="CNY" selected>CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="HKD">HKD 港币</option></select></div>
-      <div class="col-md-2"><label class="form-label">结算方式</label><select class="form-select" name="settlement_method"><option value="">请选择</option><option>现结</option><option>月结30天</option><option>月结60天</option><option>月结90天</option><option>预付</option></select></div>
+    <div class="sales-entry-header">
+        <div class="row g-2">
+            <div class="col-12 col-md-3"><label class="form-label">订单编号</label><input class="form-control" name="order_no" value="{{ order_no }}" readonly></div>
+            <div class="col-6 col-md-2"><label class="form-label">订单日期</label><input class="form-control" type="date" name="date" value="{{ order_date }}"></div>
+            <div class="col-6 col-md-3"><label class="form-label">客户</label><select class="form-select" name="customer_id" required><option value="">请选择客户</option>{% for customer in customers %}<option value="{{ customer.id }}">{{ customer.code }} - {{ customer.name }}</option>{% endfor %}</select></div>
+            <div class="col-6 col-md-2"><label class="form-label">交货日期</label><input class="form-control" type="date" name="delivery_date"></div>
+            <div class="col-6 col-md-2"><label class="form-label">发货仓库</label><select class="form-select" name="warehouse"><option value="">请选择</option>{% for warehouse in warehouses %}<option value="{{ warehouse.name }}">{{ warehouse.name }}</option>{% endfor %}</select></div>
+            <div class="col-6 col-md-3"><label class="form-label">业务员</label><select class="form-select" name="salesperson_id"><option value="">请选择</option>{% for emp in employees %}<option value="{{ emp.id }}">{{ emp.name }}{% if emp.position %} - {{ emp.position }}{% endif %}</option>{% endfor %}</select></div>
+            <div class="col-6 col-md-3"><label class="form-label">项目号</label><input class="form-control" name="project_no" placeholder="可选"></div>
+            <div class="col-6 col-md-2"><label class="form-label">币别</label><select class="form-select" name="currency"><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="HKD">HKD 港币</option></select></div>
+            <div class="col-6 col-md-2"><label class="form-label">结算方式</label><select class="form-select" name="settlement_method"><option value="">请选择</option><option>现结</option><option>月结30天</option><option>月结60天</option><option>月结90天</option><option>预付</option></select></div>
+        </div>
     </div>
-    <div class="table-responsive">
-      <table class="table table-bordered" id="items">
-        <thead>
-          <tr>
-            <th style="width:20%">物料</th>
-            <th>规格</th>
-            <th>单位</th>
-            <th style="width:100px">数量</th>
-            <th style="width:120px">含税单价</th>
-            <th style="width:90px">税率</th>
-            <th style="width:110px">未税金额</th>
-            <th style="width:110px">税额</th>
-            <th style="width:110px">含税金额</th>
-            <th>批次号</th>
-            <th>序列号</th>
-            <th>备注</th>
-            <th style="width:60px"></th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-        <tfoot>
-          <tr class="table-light">
-            <td colspan="6" class="text-end"><strong>合计</strong></td>
-            <td class="text-end"><strong id="totalUntaxed">0.00</strong></td>
-            <td class="text-end"><strong id="totalTax">0.00</strong></td>
-            <td class="text-end"><strong id="total">0.00</strong></td>
-            <td colspan="4"></td>
-          </tr>
-        </tfoot>
-      </table>
+    <div class="px-3 pt-2 sales-entry-status" id="entryStatus"></div>
+    <div class="sales-entry-grid mx-3">
+        <table id="salesItems">
+            <thead><tr>
+                <th style="width:42px">序号</th><th style="width:220px">物料编码</th><th style="width:220px">物料名称</th><th style="width:150px">规格</th><th style="width:75px">单位</th><th style="width:95px">数量</th><th style="width:110px">含税单价</th><th style="width:85px">税率</th><th style="width:110px">未税金额</th><th style="width:110px">税额</th><th style="width:110px">含税金额</th><th style="width:120px">批次号</th><th style="width:140px">序列号</th><th style="width:180px">备注</th><th style="width:70px">操作</th>
+            </tr></thead>
+            <tbody id="salesItemsBody"></tbody>
+            <tfoot><tr class="sales-total-row"><td colspan="8" class="text-end">合计：</td><td class="money" id="totalUntaxed">0.00</td><td class="money" id="totalTax">0.00</td><td class="money" id="totalIncluded">0.00</td><td colspan="4"></td></tr></tfoot>
+        </table>
     </div>
-    <button type="button" class="btn btn-outline-primary mb-3" onclick="addRow()"><i class="bi bi-plus"></i> 添加明细</button>
-    <div class="row">
-      <div class="col-md-8"><label class="form-label">备注</label><textarea class="form-control" name="remark" rows="2"></textarea></div>
-      <div class="col-md-4 text-end align-self-end"><strong>含税金额合计：<span id="totalHeader">0.00</span></strong><button class="btn btn-primary ms-3">保存草稿</button></div>
+    <div class="sales-entry-footer mx-3">
+        <div class="flex-grow-1"><label class="form-label">备注</label><textarea class="form-control" name="remark" rows="2" placeholder="可填写交付或结算说明"></textarea></div>
+        <div class="sales-summary">含税金额合计：<strong id="footerTotal">0.00</strong></div>
     </div>
-  </form>
 </div>
+{% endblock %}
+
+{% block extra_js %}
 <script>
-const materials = {{ materials|tojson }};
-const defaultTaxRate = {{ default_tax_rate|default(0.13) }};
+(function() {
+    var materials = {{ materials|tojson }};
+    var defaultTaxRate = {{ default_tax_rate|default(0.13) }};
+    var body = document.getElementById('salesItemsBody');
+    var formFields = ['order_no', 'date', 'customer_id', 'delivery_date', 'warehouse', 'salesperson_id', 'project_no', 'currency', 'settlement_method', 'remark'];
+    var esc = function(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); };
+    var unitName = function(material) { return material && material.unit && typeof material.unit === 'object' ? material.unit.name : (material && material.unit) || ''; };
+    var findMaterial = function(code) { return materials.find(function(item) { return String(item.code) === String(code); }); };
 
-function rowTotal(tr) {
-  const qty = parseFloat(tr.querySelector('.qty').value) || 0;
-  const price = parseFloat(tr.querySelector('.price').value) || 0;
-  const taxRate = parseFloat(tr.querySelector('.tax-rate').value) || 0;
-  const included = qty * price;
-  const untaxed = (1 + taxRate) > 0 ? included / (1 + taxRate) : included;
-  const tax = included - untaxed;
-  tr.querySelector('.untaxed-amount').textContent = untaxed.toFixed(2);
-  tr.querySelector('.tax-amount').textContent = tax.toFixed(2);
-  tr.querySelector('.included-amount').textContent = included.toFixed(2);
-  return { included, untaxed, tax };
-}
-
-function calc() {
-  let total = 0, totalUntaxed = 0, totalTax = 0;
-  document.querySelectorAll('#items tbody tr').forEach(tr => {
-    const r = rowTotal(tr);
-    total += r.included;
-    totalUntaxed += r.untaxed;
-    totalTax += r.tax;
-  });
-  document.querySelector('#total').textContent = total.toFixed(2);
-  document.querySelector('#totalHeader').textContent = total.toFixed(2);
-  document.querySelector('#totalUntaxed').textContent = totalUntaxed.toFixed(2);
-  document.querySelector('#totalTax').textContent = totalTax.toFixed(2);
-}
-
-function addRow() {
-  const tr = document.createElement('tr');
-  tr.innerHTML = `
-    <td><select class="form-select material"><option value="">请选择物料</option>${materials.map(m => `<option value="${m.code}">${m.code} - ${m.name}</option>`).join('')}</select></td>
-    <td class="spec">-</td>
-    <td class="unit">-</td>
-    <td><input class="form-control qty" type="number" min="0.01" step="0.01" value="1"></td>
-    <td><input class="form-control price" type="number" min="0" step="0.01" value="0"></td>
-    <td><input class="form-control tax-rate" type="number" min="0" max="1" step="0.01" value="${defaultTaxRate}"></td>
-    <td class="text-end untaxed-amount">0.00</td>
-    <td class="text-end tax-amount">0.00</td>
-    <td class="text-end included-amount">0.00</td>
-    <td><input class="form-control batch-no"></td>
-    <td><input class="form-control serial-no"></td>
-    <td><input class="form-control remark"></td>
-    <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove();calc()">删除</button></td>
-  `;
-  document.querySelector('#items tbody').appendChild(tr);
-  tr.querySelector('.material').onchange = () => {
-    const m = materials.find(x => x.code === tr.querySelector('.material').value);
-    tr.querySelector('.spec').textContent = m?.spec || '-';
-    tr.querySelector('.unit').textContent = m?.unit || '-';
-    tr.querySelector('.price').value = m?.price || 0;
-    calc();
-  };
-  tr.querySelector('.qty').oninput = calc;
-  tr.querySelector('.price').oninput = calc;
-  tr.querySelector('.tax-rate').oninput = calc;
-  calc();
-}
-
-addRow();
-
-document.querySelector('#salesForm').onsubmit = async e => {
-  e.preventDefault();
-  const f = new FormData(e.target);
-  const items = [...document.querySelectorAll('#items tbody tr')].map(tr => ({
-    code: tr.querySelector('.material').value,
-    quantity: tr.querySelector('.qty').value,
-    price: tr.querySelector('.price').value,
-    tax_rate: tr.querySelector('.tax-rate').value,
-    batch_no: tr.querySelector('.batch-no').value,
-    serial_no: tr.querySelector('.serial-no').value,
-    remark: tr.querySelector('.remark').value,
-  }));
-  const r = await fetch('{{ url_for("sales_order_add") }}', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(Object.assign(Object.fromEntries(f.entries()), { items })),
-  });
-  const d = await r.json();
-  if (d.status === 'success') location.href = '/sales/' + d.id;
-  else alert(d.msg || '保存失败');
-};
+    function recalcRow(row) {
+        var qty = Number(row.querySelector('.qty').value) || 0;
+        var price = Number(row.querySelector('.price').value) || 0;
+        var rate = Number(row.querySelector('.tax-rate').value) || 0;
+        var included = qty * price;
+        var untaxed = rate >= 0 ? included / (1 + rate) : included;
+        row.querySelector('.untaxed').textContent = untaxed.toFixed(2);
+        row.querySelector('.tax').textContent = (included - untaxed).toFixed(2);
+        row.querySelector('.included').textContent = included.toFixed(2);
+    }
+    function recalc() {
+        var totals = {untaxed:0, tax:0, included:0};
+        body.querySelectorAll('tr').forEach(function(row) {
+            recalcRow(row);
+            totals.untaxed += Number(row.querySelector('.untaxed').textContent) || 0;
+            totals.tax += Number(row.querySelector('.tax').textContent) || 0;
+            totals.included += Number(row.querySelector('.included').textContent) || 0;
+        });
+        document.getElementById('totalUntaxed').textContent = totals.untaxed.toFixed(2);
+        document.getElementById('totalTax').textContent = totals.tax.toFixed(2);
+        document.getElementById('totalIncluded').textContent = totals.included.toFixed(2);
+        document.getElementById('footerTotal').textContent = totals.included.toFixed(2);
+    }
+    function fillRow(row, material) {
+        row.querySelector('.name').value = material ? material.name || '' : '';
+        row.querySelector('.spec').value = material ? material.spec || '' : '';
+        row.querySelector('.unit').value = unitName(material);
+        if (material && (!row.querySelector('.price').value || Number(row.querySelector('.price').value) === 0)) row.querySelector('.price').value = Number(material.price || 0).toFixed(2);
+        recalc();
+    }
+    function addRow(copyFrom) {
+        var row = document.createElement('tr');
+        row.innerHTML = '<td class="row-no text-center"></td><td><select class="material"><option value="">请选择物料</option>' + materials.map(function(m) { return '<option value="' + esc(m.code) + '">' + esc(m.code) + ' - ' + esc(m.name) + '</option>'; }).join('') + '</select></td><td><input class="name readonly" readonly></td><td><input class="spec readonly" readonly></td><td><input class="unit readonly" readonly></td><td><input class="qty" type="number" min="0.01" step="0.01" value="1"></td><td><input class="price" type="number" min="0" step="0.01" value="0"></td><td><input class="tax-rate" type="number" min="0" max="1" step="0.01" value="' + defaultTaxRate + '"></td><td class="money untaxed">0.00</td><td class="money tax">0.00</td><td class="money included">0.00</td><td><input class="batch-no"></td><td><input class="serial-no"></td><td><input class="line-remark"></td><td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger remove" title="删除"><i class="bi bi-trash"></i></button></td>';
+        body.appendChild(row);
+        if (copyFrom) ['material','qty','price','tax-rate','batch-no','serial-no','line-remark'].forEach(function(cls) { row.querySelector('.' + cls).value = copyFrom.querySelector('.' + cls).value; });
+        row.querySelector('.material').addEventListener('change', function() { fillRow(row, findMaterial(this.value)); });
+        row.querySelectorAll('input').forEach(function(input) { input.addEventListener('input', recalc); });
+        row.querySelector('.remove').addEventListener('click', function() { row.remove(); renumber(); recalc(); });
+        if (copyFrom) fillRow(row, findMaterial(row.querySelector('.material').value));
+        renumber(); recalc();
+        return row;
+    }
+    function renumber() { body.querySelectorAll('.row-no').forEach(function(cell, index) { cell.textContent = index + 1; }); }
+    function collect() {
+        var data = {};
+        formFields.forEach(function(name) { var node = document.querySelector('[name="' + name + '"]'); data[name] = node ? node.value : ''; });
+        data.items = Array.from(body.querySelectorAll('tr')).map(function(row) { return {code:row.querySelector('.material').value, quantity:row.querySelector('.qty').value, price:row.querySelector('.price').value, tax_rate:row.querySelector('.tax-rate').value, batch_no:row.querySelector('.batch-no').value, serial_no:row.querySelector('.serial-no').value, remark:row.querySelector('.line-remark').value}; });
+        return data;
+    }
+    async function save(saveAndNew) {
+        var data = collect();
+        if (!data.customer_id) { document.getElementById('entryStatus').textContent = '请选择客户'; return; }
+        if (!data.items.some(function(item) { return item.code && Number(item.quantity) > 0; })) { document.getElementById('entryStatus').textContent = '请至少添加一条有效销售明细'; return; }
+        var token = document.querySelector('meta[name="csrf-token"]');
+        var response = await fetch('{{ url_for("sales_order_add") }}', {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRFToken': token ? token.content : ''}, body:JSON.stringify(data)});
+        var result = await response.json();
+        if (result.status === 'success') window.location.href = saveAndNew ? '{{ url_for("sales_order_add_page") }}' : '/sales/' + result.id;
+        else document.getElementById('entryStatus').textContent = result.msg || '保存失败，请检查明细';
+    }
+    document.getElementById('addRowBtn').addEventListener('click', function() { addRow(); });
+    document.getElementById('copyRowBtn').addEventListener('click', function() { var last = body.querySelector('tr:last-child'); addRow(last); });
+    document.getElementById('pasteBtn').addEventListener('click', function() { document.getElementById('entryStatus').textContent = '请使用明细行下拉框选择物料；批量粘贴导入将在下一版接入。'; });
+    document.getElementById('saveBtn').addEventListener('click', function() { save(false); });
+    document.getElementById('saveNewBtn').addEventListener('click', function() { save(true); });
+    addRow();
+})();
 </script>
 {% endblock %}
