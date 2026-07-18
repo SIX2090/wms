@@ -5631,6 +5631,30 @@ def admin_console():
         evidence_packages=AIAcceptanceEvidencePackage.query.count(),
     )
 
+@app.route('/admin/mobile_tokens')
+@login_required
+@role_required('admin')
+def admin_mobile_tokens():
+    tokens = ApiToken.query.join(User).order_by(ApiToken.created_at.desc()).limit(200).all()
+    return render_template('admin_mobile_tokens.html', tokens=tokens, now=datetime.now())
+
+
+@app.route('/admin/mobile_tokens/<int:token_id>/revoke', methods=['POST'])
+@login_required
+@role_required('admin')
+def revoke_mobile_token(token_id):
+    token = db.session.get(ApiToken, token_id)
+    if not token:
+        flash('移动 Token 不存在', 'warning')
+        return redirect(url_for('admin_mobile_tokens'))
+    if not token.revoked:
+        token.revoked = True
+        db.session.commit()
+        log_operation('撤销移动 Token', f'用户：{token.user.username if token.user else token.user_id}', 'api_token', token.id)
+        flash('移动 Token 已撤销', 'success')
+    return redirect(url_for('admin_mobile_tokens'))
+
+
 @app.route('/user')
 @login_required
 @role_required('admin')

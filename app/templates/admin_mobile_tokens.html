@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}移动设备 Token{% endblock %}
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h1 class="h5 mb-1">移动设备 Token</h1>
+            <div class="text-muted small">仅显示 Token 前缀。撤销后对应手机立即无法调用原生接口。</div>
+        </div>
+        <a class="btn btn-outline-secondary" href="{{ url_for('admin_console') }}"><i class="bi bi-arrow-left"></i> 返回控制台</a>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>账号</th><th>Token 前缀</th><th>创建时间</th><th>到期时间</th><th>状态</th><th class="text-end">操作</th></tr></thead>
+            <tbody>
+            {% for token in tokens %}
+            <tr>
+                <td>{{ token.user.username if token.user else '-' }}</td>
+                <td><code>{{ token.token[:12] }}...</code></td>
+                <td>{{ token.created_at.strftime('%Y-%m-%d %H:%M') if token.created_at else '-' }}</td>
+                <td>{{ token.expires_at.strftime('%Y-%m-%d %H:%M') if token.expires_at else '-' }}</td>
+                <td>
+                    {% if token.revoked %}<span class="badge text-bg-secondary">已撤销</span>
+                    {% elif token.expires_at and token.expires_at < now %}<span class="badge text-bg-warning">已过期</span>
+                    {% else %}<span class="badge text-bg-success">有效</span>{% endif %}
+                </td>
+                <td class="text-end">
+                    {% if not token.revoked %}
+                    <form method="post" action="{{ url_for('revoke_mobile_token', token_id=token.id) }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('确认撤销此移动 Token？')"><i class="bi bi-ban"></i> 撤销</button>
+                    </form>
+                    {% else %}-{% endif %}
+                </td>
+            </tr>
+            {% else %}<tr><td colspan="6" class="text-center text-muted py-4">暂无移动 Token</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
