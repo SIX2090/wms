@@ -75,6 +75,9 @@ jobs:
       - name: Run AI business quality check (AI-R15)
         run: python3 scripts/verify_ai_business_quality.py
 
+      - name: Run AI business quality dashboard check (AI-R15-F01)
+        run: python3 scripts/verify_ai_business_quality_dashboard.py
+
       - name: Run AI browser E2E check (AI-R16)
         run: python3 scripts/verify_ai_browser_e2e.py
 

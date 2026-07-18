@@ -36230,6 +36230,80 @@ def api_ai_business_quality_metrics():
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
 
 
+@app.route('/ai/business_quality')
+@login_required
+@require_role('admin')
+def ai_business_quality_page():
+    """AI-R15-F01 业务质量运营看板页面。"""
+    return render_template('ai_business_quality.html')
+
+
+@app.route('/api/ai/business_quality_drilldown', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_business_quality_drilldown():
+    """AI-R15-F01 低质量样本下钻端点。
+
+    返回指定维度/值范围内的字段反馈记录（敏感信息脱敏）。
+    """
+    from ai.security import mask_text
+    try:
+        data = request.get_json(silent=True) or {}
+        dimension = data.get('dimension')
+        value = data.get('value')
+        threshold = float(data.get('threshold', 0.6))
+        limit = min(int(data.get('limit', 50)), 200)
+
+        if not dimension or not value:
+            return jsonify({'status': 'error', 'msg': '缺少 dimension 或 value'}), 400
+
+        # 查询 AIFieldFeedback 记录
+        query = AIFieldFeedback.query
+
+        # 按维度筛选
+        if dimension == 'role':
+            query = query.join(User, AIFieldFeedback.user_id == User.id).filter(User.role == value)
+        elif dimension == 'source':
+            query = query.filter(AIFieldFeedback.source == value)
+        elif dimension == 'model':
+            query = query.filter(AIFieldFeedback.model == value)
+        elif dimension == 'schema_version':
+            query = query.filter(AIFieldFeedback.schema_version == value)
+        elif dimension == 'prompt_hash':
+            query = query.filter(AIFieldFeedback.prompt_hash == value)
+
+        records = query.order_by(AIFieldFeedback.created_at.desc()).limit(limit).all()
+
+        # 脱敏并格式化
+        samples = []
+        for r in records:
+            samples.append({
+                'id': r.id,
+                'created_at': r.created_at.isoformat() if r.created_at else None,
+                'role': r.user.role if r.user else '',
+                'source': r.source or '',
+                'model': r.model or '',
+                'schema_version': r.schema_version or '',
+                'field_name': r.field_name or '',
+                'original_value': mask_text(r.original_value or '', keep_prefix=4, keep_suffix=0),
+                'confirmed_value': mask_text(r.confirmed_value or '', keep_prefix=4, keep_suffix=0),
+                'adopted': r.adopted,
+                'confidence': r.confidence,
+                'document_job_id': r.document_job_id,
+            })
+
+        return jsonify({
+            'status': 'ok',
+            'samples': samples,
+            'count': len(samples),
+            'dimension': dimension,
+            'value': value,
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R15-F01 样本下钻失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+
+
 @app.route('/api/ai/launch_acceptance', methods=['GET'])
 # AI_TASK: AI-R17
 @login_required

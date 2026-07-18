@@ -1,0 +1,491 @@
+{% extends "base.html" %}
+{% block title %}AI业务质量运营看板{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">AI业务质量运营看板</h1>
+            <div class="text-muted small">七项业务质量指标聚合、多维筛选、版本对比与回归告警。只读分析页，无业务写动作。</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="/ai/ops">返回运维看板</a>
+            <button class="btn btn-outline-primary btn-sm" onclick="loadSnapshot()">
+                <i class="bi bi-arrow-clockwise"></i> 刷新指标
+            </button>
+        </div>
+    </div>
+
+    <!-- 筛选器 -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <form id="filterForm" class="row g-2 align-items-end">
+                <div class="col-md-2">
+                    <label class="form-label small">开始时间</label>
+                    <input type="date" class="form-control form-control-sm" id="time_start">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small">结束时间</label>
+                    <input type="date" class="form-control form-control-sm" id="time_end">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small">角色</label>
+                    <select class="form-select form-select-sm" id="role">
+                        <option value="">全部</option>
+                        <option value="admin">管理员</option>
+                        <option value="warehouse">仓管员</option>
+                        <option value="purchase">采购员</option>
+                        <option value="manager">主管</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small">来源</label>
+                    <select class="form-select form-select-sm" id="source">
+                        <option value="">全部</option>
+                        <option value="ocr_upload">OCR上传</option>
+                        <option value="wechat_text">微信文字</option>
+                        <option value="wechat_screenshot">微信截图</option>
+                        <option value="excel_import">Excel导入</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small">模型</label>
+                    <input type="text" class="form-control form-control-sm" id="model" placeholder="如 qwen-vl-max">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small">Schema版本</label>
+                    <input type="text" class="form-control form-control-sm" id="schema_version" placeholder="如 v1">
+                </div>
+                <div class="col-12 mt-2">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="loadSnapshot()">应用筛选</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearFilters()">清空筛选</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 七项质量指标卡片 -->
+    <div class="row g-2 mb-3" id="metricsCards">
+        <div class="col-12 text-center text-muted py-4">加载中...</div>
+    </div>
+
+    <!-- 版本对比 -->
+    <div class="card mb-3">
+        <div class="card-header py-2">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="fw-semibold">版本对比与回归告警</span>
+                <button class="btn btn-outline-primary btn-sm" onclick="loadVersionComparison()">
+                    <i class="bi bi-graph-up"></i> 执行对比
+                </button>
+            </div>
+        </div>
+        <div class="card-body py-2">
+            <form id="versionForm" class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label small">当前版本</label>
+                    <input type="text" class="form-control form-control-sm" id="current_version" value="current" placeholder="如 v2">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">基线版本</label>
+                    <input type="text" class="form-control form-control-sm" id="baseline_version" value="baseline" placeholder="如 v1">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">当前版本筛选</label>
+                    <input type="text" class="form-control form-control-sm" id="current_filter_schema" placeholder="Schema版本（可选）">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">基线版本筛选</label>
+                    <input type="text" class="form-control form-control-sm" id="baseline_filter_schema" placeholder="Schema版本（可选）">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">回归阈值</label>
+                    <input type="number" class="form-control form-control-sm" id="regression_threshold" value="0.05" step="0.01" min="0" max="1">
+                </div>
+            </form>
+            <div id="versionComparisonResult" class="mt-3"></div>
+        </div>
+    </div>
+
+    <!-- 维度分组 -->
+    <div class="card mb-3">
+        <div class="card-header py-2">
+            <span class="fw-semibold">维度分组（按角色/来源/模型/提示词/Schema版本）</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0" id="dimensionTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th>维度</th>
+                            <th>值</th>
+                            <th class="text-end">分类准确率</th>
+                            <th class="text-end">表头准确率</th>
+                            <th class="text-end">行召回率</th>
+                            <th class="text-end">物料匹配率</th>
+                            <th class="text-end">人工修正率</th>
+                            <th class="text-end">草稿采用率</th>
+                            <th class="text-end">重复拦截率</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="9" class="text-center text-muted py-3">暂无数据</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 低质量样本下钻 -->
+    <div class="card mb-3">
+        <div class="card-header py-2">
+            <span class="fw-semibold">低质量样本下钻（指标低于阈值的样本）</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0" id="lowQualityTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th>样本ID</th>
+                            <th>时间</th>
+                            <th>角色</th>
+                            <th>来源</th>
+                            <th>模型</th>
+                            <th>Schema</th>
+                            <th class="text-end">分类</th>
+                            <th class="text-end">表头</th>
+                            <th class="text-end">行召回</th>
+                            <th class="text-end">物料</th>
+                            <th class="text-end">修正</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="12" class="text-center text-muted py-3">暂无数据</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="text-muted small mt-2" id="footerInfo">
+        生成时间：-。指标来自 AIFieldFeedback、AIDraftIdempotency 和业务单据表。
+    </div>
+</div>
+
+<!-- 样本详情模态框 -->
+<div class="modal fade" id="sampleDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title">样本详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="sampleDetailContent">
+                加载中...
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentSnapshot = null;
+
+// 加载快照
+async function loadSnapshot() {
+    const filters = getFilters();
+    try {
+        const resp = await fetch('/api/ai/business_quality_snapshot', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(filters),
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            currentSnapshot = data.snapshot;
+            renderMetricsCards(data.snapshot.metrics);
+            renderDimensionTable(data.snapshot.by_dimension);
+            renderLowQualitySamples(data.snapshot);
+            document.getElementById('footerInfo').textContent = 
+                `生成时间：${data.snapshot.generated_at}。样本数：${data.snapshot.sample_count}。指标来自 AIFieldFeedback、AIDraftIdempotency 和业务单据表。`;
+        } else {
+            alert('加载失败：' + (data.msg || '未知错误'));
+        }
+    } catch (e) {
+        alert('请求失败：' + e.message);
+    }
+}
+
+// 获取筛选条件
+function getFilters() {
+    return {
+        time_start: document.getElementById('time_start').value || null,
+        time_end: document.getElementById('time_end').value || null,
+        role: document.getElementById('role').value || null,
+        source: document.getElementById('source').value || null,
+        model: document.getElementById('model').value || null,
+        schema_version: document.getElementById('schema_version').value || null,
+    };
+}
+
+// 清空筛选
+function clearFilters() {
+    document.getElementById('filterForm').reset();
+    loadSnapshot();
+}
+
+// 渲染指标卡片
+function renderMetricsCards(metrics) {
+    const container = document.getElementById('metricsCards');
+    const metricOrder = [
+        'classification_accuracy', 'header_accuracy', 'line_recall',
+        'material_match_rate', 'human_correction_rate', 'draft_adoption_rate',
+        'duplicate_interception_rate'
+    ];
+    
+    let html = '';
+    for (const key of metricOrder) {
+        const m = metrics[key];
+        if (!m) continue;
+        const rate = (m.rate * 100).toFixed(2);
+        const color = m.rate >= 0.8 ? 'success' : m.rate >= 0.6 ? 'warning' : 'danger';
+        const textClass = `text-${color}`;
+        const bgClass = `bg-${color}`;
+        html += `
+            <div class="col-6 col-md-3 col-xl">
+                <div class="card h-100">
+                    <div class="card-body p-2">
+                        <div class="text-muted small">${m.label}</div>
+                        <div class="h4 mb-1 ${textClass}">${rate}%</div>
+                        <div class="text-muted small">${m.numerator} / ${m.denominator}</div>
+                        <div class="mt-1"><span class="badge ${bgClass}">${m.label}</span></div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    container.innerHTML = html || '<div class="col-12 text-center text-muted py-4">暂无真实样本</div>';
+}
+
+// 渲染维度分组表
+function renderDimensionTable(byDimension) {
+    const tbody = document.querySelector('#dimensionTable tbody');
+    let html = '';
+    const dimLabels = {
+        'role': '角色', 'source': '来源', 'model': '模型',
+        'prompt_hash': '提示词', 'schema_version': 'Schema版本'
+    };
+    
+    for (const [dim, values] of Object.entries(byDimension)) {
+        for (const [value, metrics] of Object.entries(values)) {
+            html += `<tr>
+                <td>${dimLabels[dim] || dim}</td>
+                <td>${value || '(空)'}</td>
+                <td class="text-end">${(metrics.classification_accuracy * 100).toFixed(1)}%</td>
+                <td class="text-end">${(metrics.header_accuracy * 100).toFixed(1)}%</td>
+                <td class="text-end">${(metrics.line_recall * 100).toFixed(1)}%</td>
+                <td class="text-end">${(metrics.material_match_rate * 100).toFixed(1)}%</td>
+                <td class="text-end">${(metrics.human_correction_rate * 100).toFixed(1)}%</td>
+                <td class="text-end">${(metrics.draft_adoption_rate * 100).toFixed(1)}%</td>
+                <td class="text-end">${(metrics.duplicate_interception_rate * 100).toFixed(1)}%</td>
+            </tr>`;
+        }
+    }
+    tbody.innerHTML = html || '<tr><td colspan="9" class="text-center text-muted py-3">暂无数据</td></tr>';
+}
+
+// 渲染低质量样本
+function renderLowQualitySamples(snapshot) {
+    const tbody = document.querySelector('#lowQualityTable tbody');
+    // 这里简化处理：展示维度分组中质量较低的项
+    let html = '';
+    const threshold = 0.6;
+    
+    for (const [dim, values] of Object.entries(snapshot.by_dimension)) {
+        for (const [value, metrics] of Object.entries(values)) {
+            const avgRate = Object.values(metrics).reduce((a, b) => a + b, 0) / Object.keys(metrics).length;
+            if (avgRate < threshold) {
+                html += `<tr>
+                    <td>${dim}-${value}</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td class="text-end">${(metrics.classification_accuracy * 100).toFixed(1)}%</td>
+                    <td class="text-end">${(metrics.header_accuracy * 100).toFixed(1)}%</td>
+                    <td class="text-end">${(metrics.line_recall * 100).toFixed(1)}%</td>
+                    <td class="text-end">${(metrics.material_match_rate * 100).toFixed(1)}%</td>
+                    <td class="text-end">${(metrics.human_correction_rate * 100).toFixed(1)}%</td>
+                    <td><button class="btn btn-sm btn-outline-primary" onclick="showSampleDetail('${dim}', '${value}')">详情</button></td>
+                </tr>`;
+            }
+        }
+    }
+    tbody.innerHTML = html || '<tr><td colspan="12" class="text-center text-muted py-3">暂无低质量样本</td></tr>';
+}
+
+// 显示样本详情
+async function showSampleDetail(dim, value) {
+    const modal = new bootstrap.Modal(document.getElementById('sampleDetailModal'));
+    const content = document.getElementById('sampleDetailContent');
+    content.innerHTML = '加载中...';
+    modal.show();
+    
+    try {
+        const resp = await fetch('/api/ai/business_quality_drilldown', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                dimension: dim,
+                value: value,
+                threshold: 0.6,
+                limit: 50,
+            }),
+        });
+        const data = await resp.json();
+        
+        if (data.status === 'ok' && data.samples && data.samples.length > 0) {
+            let html = `
+                <div class="mb-3">
+                    <strong>维度：</strong>${dim}<br>
+                    <strong>值：</strong>${value}<br>
+                    <strong>样本数：</strong>${data.count}
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>时间</th>
+                                <th>字段</th>
+                                <th>原值</th>
+                                <th>确认值</th>
+                                <th>采纳</th>
+                                <th>置信度</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            for (const sample of data.samples) {
+                html += `
+                    <tr>
+                        <td>${sample.id}</td>
+                        <td>${sample.created_at || '-'}</td>
+                        <td>${sample.field_name || '-'}</td>
+                        <td>${sample.original_value || '-'}</td>
+                        <td>${sample.confirmed_value || '-'}</td>
+                        <td>${sample.adopted ? '是' : '否'}</td>
+                        <td>${sample.confidence ? sample.confidence.toFixed(2) : '-'}</td>
+                    </tr>
+                `;
+            }
+            
+            html += '</tbody></table></div>';
+            content.innerHTML = html;
+        } else {
+            content.innerHTML = `
+                <div class="mb-3">
+                    <strong>维度：</strong>${dim}<br>
+                    <strong>值：</strong>${value}
+                </div>
+                <div class="alert alert-info">
+                    暂无低质量样本记录。
+                </div>
+            `;
+        }
+    } catch (e) {
+        content.innerHTML = `
+            <div class="alert alert-danger">
+                加载失败：${e.message}
+            </div>
+        `;
+    }
+}
+
+// 加载版本对比
+async function loadVersionComparison() {
+    const currentVersion = document.getElementById('current_version').value;
+    const baselineVersion = document.getElementById('baseline_version').value;
+    const threshold = parseFloat(document.getElementById('regression_threshold').value);
+    const currentFilterSchema = document.getElementById('current_filter_schema').value;
+    const baselineFilterSchema = document.getElementById('baseline_filter_schema').value;
+    
+    const payload = {
+        current_version: currentVersion,
+        baseline_version: baselineVersion,
+        regression_threshold: threshold,
+        current_filter: currentFilterSchema ? {schema_version: currentFilterSchema} : {},
+        baseline_filter: baselineFilterSchema ? {schema_version: baselineFilterSchema} : {},
+    };
+    
+    try {
+        const resp = await fetch('/api/ai/business_quality_compare', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            renderVersionComparison(data.comparison);
+        } else {
+            alert('对比失败：' + (data.msg || '未知错误'));
+        }
+    } catch (e) {
+        alert('请求失败：' + e.message);
+    }
+}
+
+// 渲染版本对比结果
+function renderVersionComparison(comparison) {
+    const container = document.getElementById('versionComparisonResult');
+    let html = `
+        <div class="alert alert-info py-2">
+            <strong>${comparison.baseline_version}</strong> → <strong>${comparison.current_version}</strong>
+            <span class="ms-2">生成时间：${comparison.generated_at}</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>指标</th>
+                        <th class="text-end">基线版本</th>
+                        <th class="text-end">当前版本</th>
+                        <th class="text-end">变化</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    for (const [metric, delta] of Object.entries(comparison.deltas)) {
+        const baseline = comparison.baseline_metrics[metric];
+        const current = comparison.current_metrics[metric];
+        const isRegression = comparison.regressions.includes(metric);
+        const deltaStr = (delta * 100).toFixed(2);
+        const color = isRegression ? 'danger' : delta > 0 ? 'success' : 'secondary';
+        const status = isRegression ? '<span class="badge bg-danger">回归</span>' : 
+                       delta > 0 ? '<span class="badge bg-success">提升</span>' : 
+                       '<span class="badge bg-secondary">持平</span>';
+        
+        html += `
+            <tr>
+                <td>${baseline.label}</td>
+                <td class="text-end">${(baseline.rate * 100).toFixed(2)}%</td>
+                <td class="text-end">${(current.rate * 100).toFixed(2)}%</td>
+                <td class="text-end text-${color}">${deltaStr > 0 ? '+' : ''}${deltaStr}%</td>
+                <td>${status}</td>
+            </tr>
+        `;
+    }
+    
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+}
+
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', () => {
+    loadSnapshot();
+});
+</script>
+{% endblock %}
