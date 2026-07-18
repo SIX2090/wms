@@ -83,3 +83,6 @@ jobs:
 
       - name: Run AI rollout control check (AI-R17-F01)
         run: python3 scripts/verify_ai_rollout_control.py
+
+      - name: Run AI acceptance evidence check (AI-R17-F02)
+        run: python3 scripts/verify_ai_acceptance_evidence.py

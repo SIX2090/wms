@@ -257,6 +257,14 @@ def auto_migrate_database():
                 pass
         # AI_TASK: AI-R17-F01 新表：回滚事件、人工降级任务、灰度审计
         # （SQLAlchemy db.create_all() 会在启动时创建缺失的表，这里只补索引兜底）
+        # AI_TASK: AI-R17-F02 新表：每日验收快照、七天证据包
+        # （SQLAlchemy db.create_all() 会在启动时创建缺失的表，这里只补索引兜底）
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_acceptance_snapshot_created ON ai_acceptance_daily_snapshot(created_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_evidence_package_dates ON ai_acceptance_evidence_package(start_date, end_date)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_evidence_package_decision ON ai_acceptance_evidence_package(go_no_go_decision)")
+        except Exception:
+            pass
 
         cursor.execute("PRAGMA table_info(material_category)")
         cat_columns = [row[1] for row in cursor.fetchall()]
@@ -2217,6 +2225,63 @@ class AIRolloutAudit(db.Model):
     reason = db.Column(db.String(300), nullable=False)
     stage = db.Column(db.String(20), nullable=False)  # global/flag/role/allowlist/risk/confirmation
     source = db.Column(db.String(20), nullable=False)  # api/page/agent/background
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+
+class AIAcceptanceDailySnapshot(db.Model):
+    """AI-R17-F02 每日验收指标快照。
+
+    持久化每日四项绝对指标计数和七项质量指标聚合，
+    以及灰度用户/角色信息，支持连续七天验收证据包构建。
+    """
+    __tablename__ = 'ai_acceptance_daily_snapshot'
+    __table_args__ = (
+        db.UniqueConstraint('snapshot_date', name='uix_ai_acceptance_snapshot_date'),
+        db.Index('idx_ai_acceptance_snapshot_created', 'created_at'),
+    )
+    # AI_TASK: AI-R17-F02
+
+    id = db.Column(db.Integer, primary_key=True)
+    snapshot_date = db.Column(db.String(10), nullable=False)  # YYYY-MM-DD
+    absolute_counts = db.Column(db.Text, nullable=False)  # JSON: 4 项绝对指标
+    quality_metrics = db.Column(db.Text, nullable=False)  # JSON: 7 项质量指标
+    rollout_user_count = db.Column(db.Integer, default=0)
+    rollout_role_count = db.Column(db.Integer, default=0)
+    rollout_roles = db.Column(db.Text)  # JSON: 角色列表
+    window_hours = db.Column(db.Integer, default=24)
+    filter_applied = db.Column(db.Text)  # JSON: 筛选条件追溯
+    generated_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+
+class AIAcceptanceEvidencePackage(db.Model):
+    """AI-R17-F02 七天验收证据包。
+
+    聚合连续七天的每日快照、样本清单、回滚记录和 go/no-go 结论。
+    """
+    __tablename__ = 'ai_acceptance_evidence_package'
+    __table_args__ = (
+        db.Index('idx_ai_evidence_package_dates', 'start_date', 'end_date'),
+        db.Index('idx_ai_evidence_package_decision', 'go_no_go_decision'),
+    )
+    # AI_TASK: AI-R17-F02
+
+    id = db.Column(db.Integer, primary_key=True)
+    package_id = db.Column(db.String(64), unique=True, nullable=False)
+    start_date = db.Column(db.String(10), nullable=False)  # YYYY-MM-DD
+    end_date = db.Column(db.String(10), nullable=False)  # YYYY-MM-DD
+    daily_snapshot_dates = db.Column(db.Text, nullable=False)  # JSON: 日期列表
+    seven_day_summary = db.Column(db.Text, nullable=False)  # JSON: 七天汇总
+    rollout_role_matrix = db.Column(db.Text)  # JSON: 角色矩阵
+    failure_samples = db.Column(db.Text)  # JSON: 失败样本
+    fallback_samples = db.Column(db.Text)  # JSON: 降级样本
+    duplicate_samples = db.Column(db.Text)  # JSON: 重复样本
+    correction_samples = db.Column(db.Text)  # JSON: 人工修正样本
+    rollback_events = db.Column(db.Text)  # JSON: 回滚记录
+    go_no_go_decision = db.Column(db.String(10), nullable=False, default='pending')
+    decision_reason = db.Column(db.Text)
+    decided_by = db.Column(db.Integer)
+    decided_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
 
@@ -14051,6 +14116,265 @@ def _ai_r17_acceptance_counts(window_hours=168):
         app.logger.warning(f'AI-R17 低置信度未确认建单计数异常: {exc}')
         counts['low_confidence_unconfirmed'] = 0
     return counts
+
+
+def _ai_f02_query_daily_counts(target_date):
+    """AI-R17-F02 ORM adapter：查询指定日期的四项绝对指标计数。
+
+    按自然日切分（00:00:00 ~ 23:59:59），用于每日快照持久化。
+    复用 _ai_r17_acceptance_counts 的检测口径，但窗口为单日。
+    """
+    from ai.ops.launch_acceptance import AUTO_SUBMIT_FORBIDDEN_ACTIONS
+    day_start = datetime.strptime(target_date, '%Y-%m-%d')
+    day_end = day_start + timedelta(days=1)
+    counts = {}
+    try:
+        counts['unauthorized_success'] = AIToolCall.query.filter(
+            AIToolCall.created_at >= day_start,
+            AIToolCall.created_at < day_end,
+            AIToolCall.permission_allowed.is_(False),
+            AIToolCall.status.in_(('completed', 'success', 'authorized')),
+        ).count()
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17-F02 越权成功单日计数异常: {exc}')
+        counts['unauthorized_success'] = 0
+    try:
+        counts['duplicate_drafts'] = AIDraftIdempotency.query.filter(
+            AIDraftIdempotency.created_at >= day_start,
+            AIDraftIdempotency.created_at < day_end,
+            AIDraftIdempotency.status == 'replayed',
+        ).count()
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17-F02 重复草稿单日计数异常: {exc}')
+        counts['duplicate_drafts'] = 0
+    try:
+        counts['auto_submit'] = AIToolCall.query.filter(
+            AIToolCall.created_at >= day_start,
+            AIToolCall.created_at < day_end,
+            AIToolCall.tool_name.in_(list(AUTO_SUBMIT_FORBIDDEN_ACTIONS)),
+        ).count()
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17-F02 自动提交单日计数异常: {exc}')
+        counts['auto_submit'] = 0
+    try:
+        low_conf_job_ids = db.session.query(AIDocumentItem.job_id).filter(
+            AIDocumentItem.created_at >= day_start,
+            AIDocumentItem.created_at < day_end,
+            AIDocumentItem.confidence.isnot(None),
+            AIDocumentItem.confidence < 0.85,
+        ).distinct().subquery()
+        counts['low_confidence_unconfirmed'] = AIDocumentJob.query.filter(
+            AIDocumentJob.created_at >= day_start,
+            AIDocumentJob.created_at < day_end,
+            AIDocumentJob.status == 'draft_created',
+            AIDocumentJob.id.in_(db.session.query(low_conf_job_ids)),
+        ).count()
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17-F02 低置信度未确认建单单日计数异常: {exc}')
+        counts['low_confidence_unconfirmed'] = 0
+    return counts
+
+
+def _ai_f02_query_daily_quality(target_date):
+    """AI-R17-F02 ORM adapter：查询指定日期的七项质量指标聚合。
+
+    复用 _ai_bq_query_samples 的口径，但按单日筛选。
+    返回 {metric: {numerator, denominator, rate}}。
+    """
+    from ai.ops.business_quality import ALL_METRICS
+    day_start = datetime.strptime(target_date, '%Y-%m-%d')
+    day_end = day_start + timedelta(days=1)
+    result = {}
+    try:
+        samples = _ai_bq_query_samples({
+            'time_start': day_start.isoformat(),
+            'time_end': day_end.isoformat(),
+        })
+        # 聚合单日样本
+        for metric in ALL_METRICS:
+            total_num = 0
+            total_den = 0
+            for s in samples:
+                entry = s.get(metric, {}) if isinstance(s, dict) else getattr(s, metric, None)
+                if entry is None:
+                    continue
+                if isinstance(entry, dict):
+                    total_num += int(entry.get('numerator', 0))
+                    total_den += int(entry.get('denominator', 0))
+            rate = total_num / total_den if total_den > 0 else 0.0
+            result[metric] = {
+                'numerator': total_num,
+                'denominator': total_den,
+                'rate': round(rate, 6),
+            }
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17-F02 单日质量指标查询异常: {exc}')
+        for metric in ALL_METRICS:
+            result[metric] = {'numerator': 0, 'denominator': 0, 'rate': 0.0}
+    return result
+
+
+def _ai_f02_query_rollout_info():
+    """AI-R17-F02 ORM adapter：查询当前灰度用户/角色信息。"""
+    try:
+        mode = _ai_rollout_mode()
+        allowed_ids = _ai_allowed_user_ids()
+        roles = ('admin', 'warehouse', 'purchase') if mode != 'off' else ()
+        return {
+            'user_count': len(allowed_ids),
+            'role_count': len(roles),
+            'roles': roles,
+        }
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17-F02 灰度信息查询异常: {exc}')
+        return {'user_count': 0, 'role_count': 0, 'roles': ()}
+
+
+def _ai_f02_check_draft_adoption(draft_type, draft_id):
+    """AI-R17-F02 口径修正：反查业务单据状态判定草稿是否被真实采用。
+
+    不再只以 draft_id 非空判断，而是反查 InOrder/OutOrder 等业务单据的 status。
+    """
+    from ai.ops.acceptance_evidence import is_draft_adopted_by_business
+    business_status = None
+    try:
+        if draft_type in ('in_order', 'purchase_receive') and draft_id:
+            doc = InOrder.query.filter_by(id=draft_id).first()
+            if doc:
+                business_status = doc.status
+        elif draft_type == 'out_order' and draft_id:
+            doc = OutOrder.query.filter_by(id=draft_id).first()
+            if doc:
+                business_status = doc.status
+        elif draft_type == 'transfer' and draft_id:
+            doc = TransferOrder.query.filter_by(id=draft_id).first()
+            if doc:
+                business_status = doc.status
+        elif draft_type == 'check' and draft_id:
+            doc = CheckOrder.query.filter_by(id=draft_id).first()
+            if doc:
+                business_status = doc.status
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17-F02 草稿采用率反查异常: {exc}')
+        business_status = None
+    return is_draft_adopted_by_business(draft_type, draft_id, business_status)
+
+
+def _ai_f02_query_sample_lists(start_date, end_date):
+    """AI-R17-F02 ORM adapter：查询七天内的失败/降级/重复/人工修正样本清单。"""
+    from ai.ops.acceptance_evidence import (
+        EvidenceSample, SAMPLE_FAILURE, SAMPLE_FALLBACK, SAMPLE_DUPLICATE, SAMPLE_CORRECTION,
+    )
+    day_start = datetime.strptime(start_date, '%Y-%m-%d')
+    day_end = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+    failures: list[EvidenceSample] = []
+    fallbacks: list[EvidenceSample] = []
+    duplicates: list[EvidenceSample] = []
+    corrections: list[EvidenceSample] = []
+    # 失败样本：AIToolCall status='failed'
+    try:
+        for tc in AIToolCall.query.filter(
+            AIToolCall.created_at >= day_start,
+            AIToolCall.created_at < day_end,
+            AIToolCall.status == 'failed',
+        ).limit(100).all():
+            failures.append(EvidenceSample(
+                sample_type=SAMPLE_FAILURE,
+                sample_id=f'tc-{tc.id}',
+                occurred_at=tc.created_at.isoformat() if tc.created_at else '',
+                role=tc.role or '',
+                source=tc.source or '',
+                detail=f'工具 {tc.tool_name} 执行失败',
+                related_record_type='AIToolCall',
+                related_record_id=str(tc.id),
+            ))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17-F02 失败样本查询异常: {exc}')
+    # 降级样本：AIManualFallbackTask
+    try:
+        for ft in AIManualFallbackTask.query.filter(
+            AIManualFallbackTask.created_at >= day_start,
+            AIManualFallbackTask.created_at < day_end,
+        ).limit(100).all():
+            fallbacks.append(EvidenceSample(
+                sample_type=SAMPLE_FALLBACK,
+                sample_id=ft.task_id,
+                occurred_at=ft.created_at.isoformat() if ft.created_at else '',
+                role='',
+                source='',
+                detail=f'降级原因: {ft.reason}',
+                related_record_type='AIManualFallbackTask',
+                related_record_id=ft.task_id,
+            ))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17-F02 降级样本查询异常: {exc}')
+    # 重复样本：AIDraftIdempotency status='replayed'
+    try:
+        for di in AIDraftIdempotency.query.filter(
+            AIDraftIdempotency.created_at >= day_start,
+            AIDraftIdempotency.created_at < day_end,
+            AIDraftIdempotency.status == 'replayed',
+        ).limit(100).all():
+            duplicates.append(EvidenceSample(
+                sample_type=SAMPLE_DUPLICATE,
+                sample_id=f'di-{di.id}',
+                occurred_at=di.created_at.isoformat() if di.created_at else '',
+                role='',
+                source='',
+                detail=f'重复草稿拦截: {di.draft_type}',
+                related_record_type='AIDraftIdempotency',
+                related_record_id=str(di.id),
+            ))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17-F02 重复样本查询异常: {exc}')
+    # 人工修正样本：AIFieldFeedback adopted=True
+    try:
+        for ff in AIFieldFeedback.query.filter(
+            AIFieldFeedback.created_at >= day_start,
+            AIFieldFeedback.created_at < day_end,
+            AIFieldFeedback.adopted.is_(True),
+        ).limit(100).all():
+            corrections.append(EvidenceSample(
+                sample_type=SAMPLE_CORRECTION,
+                sample_id=f'ff-{ff.id}',
+                occurred_at=ff.created_at.isoformat() if ff.created_at else '',
+                role='',
+                source=ff.source or '',
+                detail=f'字段 {ff.field_name} 被修正',
+                related_record_type='AIFieldFeedback',
+                related_record_id=str(ff.id),
+            ))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17-F02 人工修正样本查询异常: {exc}')
+    return failures, fallbacks, duplicates, corrections
+
+
+def _ai_f02_query_rollback_events(start_date, end_date):
+    """AI-R17-F02 ORM adapter：查询七天内的回滚演练记录。"""
+    from ai.ops.acceptance_evidence import RollbackEvidence
+    day_start = datetime.strptime(start_date, '%Y-%m-%d')
+    day_end = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+    events: list[RollbackEvidence] = []
+    try:
+        for ev in AIRollbackEvent.query.filter(
+            AIRollbackEvent.created_at >= day_start,
+            AIRollbackEvent.created_at < day_end,
+        ).all():
+            duration = 0.0
+            if ev.started_at and ev.completed_at:
+                duration = (ev.completed_at - ev.started_at).total_seconds()
+            events.append(RollbackEvidence(
+                event_id=ev.event_id,
+                action=ev.action,
+                operator_id=ev.operator_id or 0,
+                operator_role=ev.operator_role or '',
+                started_at=ev.started_at.isoformat() if ev.started_at else '',
+                completed_at=ev.completed_at.isoformat() if ev.completed_at else '',
+                duration_seconds=duration,
+            ))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'AI-R17-F02 回滚记录查询异常: {exc}')
+    return events
 
 
 def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='', confirmation_token=None, document_job_id=None):
@@ -35863,6 +36187,314 @@ def api_ai_rollout_fallback_task_handle(task_id):
         db.session.rollback()
         app.logger.error(f'AI-R17-F01 处理降级任务失败: {e}')
         return jsonify({'status': 'error', 'msg': f'处理失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/acceptance/daily_snapshot', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_acceptance_daily_snapshot():
+    """AI-R17-F02：采集当日验收指标快照（持久化到 AIAcceptanceDailySnapshot）。
+
+    采集指定日期（默认今天）的四项绝对指标+七项质量指标+灰度信息，持久化为每日快照。
+    """
+    import json as _json_f02
+    from ai.ops.acceptance_evidence import build_daily_snapshot
+    # AI_TASK: AI-R17-F02
+    try:
+        payload = request.get_json(silent=True) or {}
+        target_date = payload.get('date') or datetime.now().strftime('%Y-%m-%d')
+        # 校验日期格式
+        datetime.strptime(target_date, '%Y-%m-%d')
+        # 采集绝对指标
+        absolute_counts = _ai_f02_query_daily_counts(target_date)
+        # 采集质量指标
+        quality_metrics = _ai_f02_query_daily_quality(target_date)
+        # 采集灰度信息
+        rollout_info = _ai_f02_query_rollout_info()
+        # 构造快照
+        snapshot = build_daily_snapshot(
+            snapshot_date=target_date,
+            absolute_counts=absolute_counts,
+            quality_metrics=quality_metrics,
+            rollout_user_count=rollout_info['user_count'],
+            rollout_role_count=rollout_info['role_count'],
+            rollout_roles=rollout_info['roles'],
+            window_hours=24,
+            filter_applied={'date': target_date, 'source': 'daily_snapshot'},
+            now=datetime.now(),
+        )
+        # 持久化（同一日期覆盖更新）
+        existing = AIAcceptanceDailySnapshot.query.filter_by(snapshot_date=target_date).first()
+        if existing:
+            existing.absolute_counts = _json_f02.dumps(snapshot.absolute_counts)
+            existing.quality_metrics = _json_f02.dumps(snapshot.quality_metrics)
+            existing.rollout_user_count = snapshot.rollout_user_count
+            existing.rollout_role_count = snapshot.rollout_role_count
+            existing.rollout_roles = _json_f02.dumps(list(snapshot.rollout_roles))
+            existing.window_hours = snapshot.window_hours
+            existing.filter_applied = _json_f02.dumps(snapshot.filter_applied)
+            existing.generated_at = datetime.now()
+        else:
+            row = AIAcceptanceDailySnapshot(
+                snapshot_date=target_date,
+                absolute_counts=_json_f02.dumps(snapshot.absolute_counts),
+                quality_metrics=_json_f02.dumps(snapshot.quality_metrics),
+                rollout_user_count=snapshot.rollout_user_count,
+                rollout_role_count=snapshot.rollout_role_count,
+                rollout_roles=_json_f02.dumps(list(snapshot.rollout_roles)),
+                window_hours=snapshot.window_hours,
+                filter_applied=_json_f02.dumps(snapshot.filter_applied),
+                generated_at=datetime.now(),
+            )
+            db.session.add(row)
+        db.session.commit()
+        return jsonify({
+            'status': 'ok',
+            'snapshot': snapshot.to_dict(),
+            'msg': f'已采集 {target_date} 验收快照',
+        })
+    except ValueError as e:
+        return jsonify({'status': 'error', 'msg': f'日期格式错误：{str(e)}'}), 400
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'AI-R17-F02 采集每日快照失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'采集失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/acceptance/daily_snapshots')
+@login_required
+@require_role('admin')
+def api_ai_acceptance_daily_snapshots():
+    """AI-R17-F02：查询每日快照列表。"""
+    import json as _json_f02
+    # AI_TASK: AI-R17-F02
+    try:
+        limit = request.args.get('limit', 30, type=int)
+        query = AIAcceptanceDailySnapshot.query.order_by(
+            AIAcceptanceDailySnapshot.snapshot_date.desc()
+        ).limit(limit)
+        snapshots = []
+        for row in query.all():
+            snapshots.append({
+                'snapshot_date': row.snapshot_date,
+                'absolute_counts': _json_f02.loads(row.absolute_counts),
+                'quality_metrics': _json_f02.loads(row.quality_metrics),
+                'rollout_user_count': row.rollout_user_count,
+                'rollout_role_count': row.rollout_role_count,
+                'rollout_roles': _json_f02.loads(row.rollout_roles) if row.rollout_roles else [],
+                'window_hours': row.window_hours,
+                'filter_applied': _json_f02.loads(row.filter_applied) if row.filter_applied else {},
+                'generated_at': row.generated_at.isoformat() if row.generated_at else '',
+                'all_absolute_zero': all(
+                    v == 0 for v in _json_f02.loads(row.absolute_counts).values()
+                ),
+            })
+        return jsonify({
+            'status': 'ok',
+            'snapshots': snapshots,
+            'count': len(snapshots),
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R17-F02 查询每日快照失败: {e}')
+        return jsonify({'status': 'error', 'msg': str(e)}), 500
+
+
+@app.route('/api/ai/acceptance/evidence_package', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_acceptance_evidence_package():
+    """AI-R17-F02：构建七天验收证据包。
+
+    从已持久化的每日快照中取最近 7 天，聚合为证据包，
+    包含样本清单、回滚记录和 go/no-go 结论（待签字）。
+    """
+    import json as _json_f02
+    from ai.ops.acceptance_evidence import (
+        build_evidence_package, build_daily_snapshot,
+        validate_all_evidence, validate_seven_consecutive_days_zero,
+    )
+    # AI_TASK: AI-R17-F02
+    try:
+        payload = request.get_json(silent=True) or {}
+        end_date = payload.get('end_date') or datetime.now().strftime('%Y-%m-%d')
+        days = int(payload.get('days', 7))
+        if days < 1 or days > 30:
+            days = 7
+        # 从 DB 取最近 days 天的快照
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        start_dt = end_dt - timedelta(days=days - 1)
+        start_date = start_dt.strftime('%Y-%m-%d')
+        rows = AIAcceptanceDailySnapshot.query.filter(
+            AIAcceptanceDailySnapshot.snapshot_date >= start_date,
+            AIAcceptanceDailySnapshot.snapshot_date <= end_date,
+        ).order_by(AIAcceptanceDailySnapshot.snapshot_date.asc()).all()
+        if not rows:
+            return jsonify({'status': 'error', 'msg': f'无 {start_date}~{end_date} 的每日快照，请先采集'}), 404
+        daily_snapshots = []
+        for row in rows:
+            snap = build_daily_snapshot(
+                snapshot_date=row.snapshot_date,
+                absolute_counts=_json_f02.loads(row.absolute_counts),
+                quality_metrics=_json_f02.loads(row.quality_metrics),
+                rollout_user_count=row.rollout_user_count,
+                rollout_role_count=row.rollout_role_count,
+                rollout_roles=tuple(_json_f02.loads(row.rollout_roles) if row.rollout_roles else []),
+                window_hours=row.window_hours,
+                filter_applied=_json_f02.loads(row.filter_applied) if row.filter_applied else {},
+                now=row.generated_at or datetime.now(),
+            )
+            daily_snapshots.append(snap)
+        # 采集样本清单
+        failures, fallbacks, duplicates, corrections = _ai_f02_query_sample_lists(start_date, end_date)
+        # 采集回滚记录
+        rollback_events = _ai_f02_query_rollback_events(start_date, end_date)
+        # 灰度角色矩阵
+        rollout_info = _ai_f02_query_rollout_info()
+        role_matrix = [(r, r in rollout_info['roles']) for r in ('admin', 'warehouse', 'purchase', 'production', 'user')]
+        # 初步判定 go/no-go（待管理员签字）
+        ok_seven, reason_seven = validate_seven_consecutive_days_zero(daily_snapshots, required_days=days)
+        initial_decision = 'pending'
+        if ok_seven and len(daily_snapshots) >= days:
+            initial_decision = 'pending'  # 仍需签字
+        package = build_evidence_package(
+            package_id=f'f02-pkg-{datetime.now().strftime("%Y%m%d%H%M%S")}',
+            daily_snapshots=daily_snapshots,
+            rollout_role_matrix=role_matrix,
+            failure_samples=failures,
+            fallback_samples=fallbacks,
+            duplicate_samples=duplicates,
+            correction_samples=corrections,
+            rollback_events=rollback_events,
+            go_no_go_decision=initial_decision,
+            decision_reason='' if ok_seven else reason_seven,
+            now=datetime.now(),
+        )
+        # 持久化证据包
+        pkg_row = AIAcceptanceEvidencePackage(
+            package_id=package.package_id,
+            start_date=package.start_date,
+            end_date=package.end_date,
+            daily_snapshot_dates=_json_f02.dumps([s.snapshot_date for s in daily_snapshots]),
+            seven_day_summary=_json_f02.dumps(package.seven_day_summary),
+            rollout_role_matrix=_json_f02.dumps([list(r) for r in role_matrix]),
+            failure_samples=_json_f02.dumps([s.to_dict() for s in failures]),
+            fallback_samples=_json_f02.dumps([s.to_dict() for s in fallbacks]),
+            duplicate_samples=_json_f02.dumps([s.to_dict() for s in duplicates]),
+            correction_samples=_json_f02.dumps([s.to_dict() for s in corrections]),
+            rollback_events=_json_f02.dumps([r.to_dict() for r in rollback_events]),
+            go_no_go_decision='pending',
+            decision_reason=package.decision_reason,
+        )
+        db.session.add(pkg_row)
+        db.session.commit()
+        # 综合校验
+        ok_all, failures_all = validate_all_evidence(package)
+        return jsonify({
+            'status': 'ok',
+            'package': package.to_dict(),
+            'package_db_id': pkg_row.id,
+            'validation_passed': ok_all,
+            'validation_failures': failures_all,
+            'seven_days_zero': ok_seven,
+            'msg': f'已构建 {package.start_date}~{package.end_date} 验收证据包',
+        })
+    except ValueError as e:
+        return jsonify({'status': 'error', 'msg': f'日期格式错误：{str(e)}'}), 400
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'AI-R17-F02 构建证据包失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/acceptance/evidence_package/<int:package_id>')
+@login_required
+@require_role('admin')
+def api_ai_acceptance_evidence_package_detail(package_id):
+    """AI-R17-F02：查询证据包详情。"""
+    import json as _json_f02
+    # AI_TASK: AI-R17-F02
+    try:
+        row = AIAcceptanceEvidencePackage.query.filter_by(id=package_id).first()
+        if not row:
+            return jsonify({'status': 'error', 'msg': '证据包不存在'}), 404
+        return jsonify({
+            'status': 'ok',
+            'package': {
+                'id': row.id,
+                'package_id': row.package_id,
+                'start_date': row.start_date,
+                'end_date': row.end_date,
+                'daily_snapshot_dates': _json_f02.loads(row.daily_snapshot_dates),
+                'seven_day_summary': _json_f02.loads(row.seven_day_summary),
+                'rollout_role_matrix': _json_f02.loads(row.rollout_role_matrix) if row.rollout_role_matrix else [],
+                'failure_samples': _json_f02.loads(row.failure_samples) if row.failure_samples else [],
+                'fallback_samples': _json_f02.loads(row.fallback_samples) if row.fallback_samples else [],
+                'duplicate_samples': _json_f02.loads(row.duplicate_samples) if row.duplicate_samples else [],
+                'correction_samples': _json_f02.loads(row.correction_samples) if row.correction_samples else [],
+                'rollback_events': _json_f02.loads(row.rollback_events) if row.rollback_events else [],
+                'go_no_go_decision': row.go_no_go_decision,
+                'decision_reason': row.decision_reason or '',
+                'decided_by': row.decided_by,
+                'decided_at': row.decided_at.isoformat() if row.decided_at else None,
+                'created_at': row.created_at.isoformat() if row.created_at else '',
+            },
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R17-F02 查询证据包失败: {e}')
+        return jsonify({'status': 'error', 'msg': str(e)}), 500
+
+
+@app.route('/api/ai/acceptance/go_no_go', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_acceptance_go_no_go():
+    """AI-R17-F02：管理员签字 go/no-go 结论。
+
+    任一绝对指标非 0 必须 no-go 并建立子修复项。
+    """
+    import json as _json_f02
+    from ai.ops.acceptance_evidence import (
+        GO_DECISION, NO_GO_DECISION, validate_go_no_go, build_evidence_package,
+    )
+    # AI_TASK: AI-R17-F02
+    try:
+        payload = request.get_json(silent=True) or {}
+        package_db_id = payload.get('package_id')
+        decision = payload.get('decision')
+        reason = payload.get('reason', '')
+        if decision not in (GO_DECISION, NO_GO_DECISION):
+            return jsonify({'status': 'error', 'msg': 'decision 必须为 go 或 no_go'}), 400
+        row = AIAcceptanceEvidencePackage.query.filter_by(id=package_db_id).first()
+        if not row:
+            return jsonify({'status': 'error', 'msg': '证据包不存在'}), 404
+        # 从 DB 重建证据包用于校验
+        summary = _json_f02.loads(row.seven_day_summary)
+        all_zero = summary.get('all_absolute_zero', False)
+        # 任一非 0 不得 go
+        if not all_zero and decision == GO_DECISION:
+            return jsonify({
+                'status': 'error',
+                'msg': '绝对指标非 0 时不得 go，必须 no_go 并建立子修复项',
+                'absolute_totals': summary.get('absolute_totals', {}),
+            }), 400
+        # 签字
+        row.go_no_go_decision = decision
+        row.decision_reason = reason
+        row.decided_by = current_user.id
+        row.decided_at = datetime.now()
+        db.session.commit()
+        return jsonify({
+            'status': 'ok',
+            'package_id': row.id,
+            'decision': decision,
+            'decided_by': row.decided_by,
+            'decided_at': row.decided_at.isoformat() if row.decided_at else '',
+            'msg': f'已签字 {decision}',
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'AI-R17-F02 签字 go/no-go 失败: {e}')
+        return jsonify({'status': 'error', 'msg': str(e)}), 500
 
 
 @app.route('/ai/supplier_evaluation')
