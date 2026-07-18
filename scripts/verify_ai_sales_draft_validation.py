@@ -16,9 +16,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+APP_DIR = ROOT / 'app'
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
 
-from app.ai.documents.sales_draft_validation import (
+from ai.documents.sales_draft_validation import (
     SalesLineInfo,
     SalesOrderInfo,
     OutboundDraftInfo,

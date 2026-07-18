@@ -104,3 +104,6 @@ jobs:
 
       - name: Run AI sales draft validation check (AI-SALES-F01)
         run: python3 scripts/verify_ai_sales_draft_validation.py
+
+      - name: Run AI release handover check (AI-R17-F03)
+        run: python3 scripts/verify_ai_release_handover.py
