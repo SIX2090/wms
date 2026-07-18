@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}手机扫码连接{% endblock %}
+{% block mobile_title %}手机扫码连接{% endblock %}
+{% block body_class %}mobile-scan-page{% endblock %}
+
+{% block content %}
+<main class="mobile-connect-shell">
+    <section class="mobile-scan-panel mobile-connect-panel">
+        <div class="mobile-scan-heading">
+            <span class="mobile-scan-heading-icon"><i class="bi bi-phone"></i></span>
+            <div>
+                <h2>手机扫码连接</h2>
+                <p>使用手机扫码 APP 扫描下方二维码，或手动填写服务器地址。</p>
+            </div>
+        </div>
+        <div class="mobile-connect-qr">
+            <img src="{{ qr_url }}" alt="WMS服务器地址二维码">
+        </div>
+        <label class="mobile-scan-label" for="mobileBaseUrl">服务器地址</label>
+        <div class="mobile-connect-url-row">
+            <input id="mobileBaseUrl" class="form-control" value="{{ base_url }}" readonly>
+            <button type="button" class="btn btn-primary" id="copyMobileBaseUrl" title="复制服务器地址">
+                <i class="bi bi-copy"></i>
+            </button>
+        </div>
+        <div class="mobile-scan-status" id="mobileConnectStatus"></div>
+        <div class="mobile-connect-actions">
+            <a class="btn btn-success" href="{{ url_for('mobile_app_download') }}"><i class="bi bi-download"></i> 下载扫码 APP</a>
+            <a class="btn btn-outline-secondary" href="{{ url_for('mobile_scan', mode='query') }}"><i class="bi bi-arrow-left"></i> 返回扫码</a>
+        </div>
+    </section>
+</main>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    var button = document.getElementById('copyMobileBaseUrl');
+    var input = document.getElementById('mobileBaseUrl');
+    var status = document.getElementById('mobileConnectStatus');
+    if (!button || !input) return;
+    button.addEventListener('click', function() {
+        var done = function() {
+            if (status) status.textContent = '服务器地址已复制';
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(input.value).then(done).catch(function() {});
+        }
+        input.focus();
+        input.select();
+        try { document.execCommand('copy'); done(); } catch (error) {}
+    });
+})();
+</script>
+<style>
+.mobile-connect-shell { max-width: 560px; margin: 24px auto; }
+.mobile-connect-panel { text-align: center; }
+.mobile-connect-qr { padding: 12px; }
+.mobile-connect-qr img { width: min(72vw, 300px); height: auto; image-rendering: pixelated; }
+.mobile-connect-url-row { display: flex; gap: 8px; margin-top: 8px; }
+.mobile-connect-url-row input { min-width: 0; text-align: left; }
+.mobile-connect-actions { display: flex; justify-content: center; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.mobile-connect-actions .btn { display: inline-flex; align-items: center; gap: 6px; }
+</style>
+{% endblock %}

@@ -45,6 +45,11 @@
             </a>
         </div>
 
+        <a class="btn btn-outline-primary mobile-app-download" href="{{ url_for('mobile_connect') }}" title="手机连接配置">
+            <i class="bi bi-qr-code"></i>
+            <span>连接二维码</span>
+        </a>
+
         <div class="mobile-scan-codebox">
             <label class="mobile-scan-label" for="scanCode">物料编码</label>
             <div class="mobile-scan-input-row">
@@ -162,7 +167,24 @@
                 <i class="bi {{ mode_config.icon }}"></i>
                 <span>{% if mode == 'query' %}查询库存{% elif mode == 'check' %}保存盘点{% elif mode == 'out' %}确认出库{% else %}确认入库{% endif %}</span>
             </button>
+            {% if mode != 'query' %}
+            <label class="mobile-batch-toggle" for="batchMode">
+                <input type="checkbox" id="batchMode">
+                <span>连续批量扫码</span>
+            </label>
+            {% endif %}
         </form>
+        {% if mode != 'query' %}
+        <section class="mobile-batch-panel" id="batchPanel" hidden>
+            <div class="mobile-batch-header">
+                <strong>待提交明细 <span id="batchCount">0</span></strong>
+                <button type="button" class="btn btn-primary" id="batchSubmitBtn" disabled>
+                    <i class="bi bi-check2-all"></i> 提交待处理明细
+                </button>
+            </div>
+            <div id="batchList"></div>
+        </section>
+        {% endif %}
     </section>
 
     <section class="mobile-scan-history" id="scanHistory" hidden>
@@ -200,6 +222,12 @@
     var closeBarcodeBtn = document.getElementById('closeBarcodeBtn');
     var barcodeStream = null;
     var barcodeTimer = null;
+    var batchMode = document.getElementById('batchMode');
+    var batchPanel = document.getElementById('batchPanel');
+    var batchList = document.getElementById('batchList');
+    var batchCount = document.getElementById('batchCount');
+    var batchSubmitBtn = document.getElementById('batchSubmitBtn');
+    var batchQueue = [];
 
     function csrfHeaders(headers) {
         var result = headers || {};
@@ -208,6 +236,11 @@
             result['X-CSRFToken'] = tokenNode.content;
         }
         return result;
+    }
+
+    function newRequestId() {
+        if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+        return 'mobile-' + Date.now() + '-' + Math.random().toString(16).slice(2);
     }
 
     function setStatus(message, type) {
@@ -397,6 +430,61 @@
         historyList.insertBefore(item, historyList.firstChild);
     }
 
+    function renderBatchQueue() {
+        if (!batchPanel || !batchList || !batchCount) return;
+        batchPanel.hidden = !batchQueue.length;
+        batchCount.textContent = String(batchQueue.length);
+        if (batchSubmitBtn) batchSubmitBtn.disabled = !batchQueue.length;
+        batchList.innerHTML = '';
+        batchQueue.forEach(function(item, index) {
+            var row = document.createElement('div');
+            row.className = 'mobile-batch-row';
+            row.innerHTML = '<span class="mobile-batch-row-index"></span><strong></strong><span></span><button type="button" class="btn-close-sm" title="移除"><i class="bi bi-x-lg"></i></button>';
+            row.querySelector('.mobile-batch-row-index').textContent = String(index + 1);
+            row.querySelector('strong').textContent = item.payload.code || '-';
+            row.querySelector('span:nth-of-type(2)').textContent = '数量 ' + item.payload.quantity;
+            row.querySelector('button').addEventListener('click', function() {
+                batchQueue.splice(index, 1);
+                renderBatchQueue();
+            });
+            batchList.appendChild(row);
+        });
+    }
+
+    function submitBatchQueue() {
+        if (!batchQueue.length || !batchSubmitBtn) return;
+        var item = batchQueue[0];
+        batchSubmitBtn.disabled = true;
+        if (submitBtn) submitBtn.disabled = true;
+        setStatus('正在提交第1/' + batchQueue.length + '条...', '');
+        fetch('/mobile/api/scan_submit', {
+            method: 'POST',
+            headers: csrfHeaders({'Content-Type': 'application/json'}),
+            credentials: 'same-origin',
+            body: JSON.stringify(item.payload)
+        }).then(function(response) {
+            return response.json().then(function(data) {
+                if (!response.ok || data.status !== 'success') throw data;
+                return data;
+            });
+        }).then(function(data) {
+            var returnedMaterial = data.data && data.data.material ? data.data.material : item.material;
+            batchQueue.shift();
+            renderBatchQueue();
+            addHistory(data.msg || '批量扫码提交成功', returnedMaterial);
+            if (batchQueue.length) return submitBatchQueue();
+            setStatus('待提交明细已全部提交', 'success');
+        }).catch(function(error) {
+            setStatus((error && (error.msg || error.message)) || '批量提交中断，未提交明细已保留', 'error');
+            renderBatchQueue();
+        }).finally(function() {
+            if (submitBtn && !batchQueue.length) submitBtn.disabled = false;
+            if (batchSubmitBtn && batchQueue.length) batchSubmitBtn.disabled = false;
+        });
+    }
+
+    if (batchSubmitBtn) batchSubmitBtn.addEventListener('click', submitBatchQueue);
+
     function resetForNextScan(material) {
         if (mode === 'query') return;
         scanCode.value = '';
@@ -432,6 +520,7 @@
             setStatus('提交中...', '');
             var quantity = quantityInput ? quantityInput.value : '';
             var payload = {
+                request_id: newRequestId(),
                 mode: mode,
                 code: material.code,
                 quantity: quantity,
@@ -440,6 +529,14 @@
                 target: targetInput ? targetInput.value : '',
                 remark: remarkInput ? remarkInput.value : ''
             };
+            if (batchMode && batchMode.checked) {
+                batchQueue.push({payload: payload, material: material});
+                renderBatchQueue();
+                setStatus('已加入待提交清单，可继续扫码', 'success');
+                resetForNextScan(material);
+                submitBtn.disabled = false;
+                return;
+            }
             fetch('/mobile/api/scan_submit', {
                 method: 'POST',
                 headers: csrfHeaders({'Content-Type': 'application/json'}),
@@ -632,5 +729,39 @@
     text-align: center;
     font-size: 13px;
 }
+.mobile-batch-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    color: #374151;
+    font-size: 14px;
+}
+.mobile-batch-panel {
+    margin-top: 16px;
+    border-top: 1px solid #e5e7eb;
+    padding-top: 14px;
+}
+.mobile-batch-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.mobile-batch-header strong { color: #111827; }
+.mobile-batch-header strong span { color: #2563eb; }
+.mobile-batch-row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) auto 28px;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 0;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 14px;
+}
+.mobile-batch-row-index { color: #6b7280; }
+.mobile-batch-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-batch-row > span:nth-of-type(2) { color: #6b7280; white-space: nowrap; }
 </style>
 {% endblock %}

@@ -1891,6 +1891,25 @@ class ApiToken(db.Model):
     user = db.relationship('User', backref='api_tokens')
 
 
+class MobileApiRequest(db.Model):
+    """Idempotency records for native mobile warehouse submissions."""
+    __tablename__ = 'mobile_api_request'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'endpoint', 'request_key', name='uix_mobile_api_request_key'),
+        db.Index('idx_mobile_api_request_created', 'created_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    endpoint = db.Column(db.String(40), nullable=False)
+    request_key = db.Column(db.String(120), nullable=False)
+    status_code = db.Column(db.Integer, nullable=False, default=200)
+    response_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    user = db.relationship('User', backref='mobile_api_requests')
+
+
 class OperationAudit(db.Model):
     """Operation audit record."""
     id = db.Column(db.Integer, primary_key=True)
@@ -4339,6 +4358,60 @@ def api_role_required(*roles):
     return decorator
 
 
+def mobile_api_idempotent(endpoint):
+    """Replay a successful native mobile submission when a client retries it."""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(user, *args, **kwargs):
+            payload = request.get_json(silent=True) or {}
+            request_key = (
+                request.headers.get('X-Idempotency-Key')
+                or payload.get('request_id')
+                or ''
+            ).strip()
+            if request_key:
+                if len(request_key) > 120:
+                    return api_json_error('幂等请求号不能超过120个字符', 400)
+                existing = MobileApiRequest.query.filter_by(
+                    user_id=user.id,
+                    endpoint=endpoint,
+                    request_key=request_key,
+                ).first()
+                if existing:
+                    try:
+                        replay_payload = json.loads(existing.response_json)
+                    except (TypeError, ValueError):
+                        replay_payload = {'status': 'error', 'success': False, 'msg': '历史响应无法读取'}
+                    return jsonify(replay_payload), existing.status_code
+
+            response = f(user, *args, **kwargs)
+            if not request_key:
+                return response
+
+            response_obj = response[0] if isinstance(response, tuple) else response
+            status_code = response[1] if isinstance(response, tuple) and len(response) > 1 else response_obj.status_code
+            if not 200 <= status_code < 300:
+                return response
+            response_payload = response_obj.get_json(silent=True) or {}
+            try:
+                db.session.add(MobileApiRequest(
+                    user_id=user.id,
+                    endpoint=endpoint,
+                    request_key=request_key,
+                    status_code=status_code,
+                    response_json=json.dumps(response_payload, ensure_ascii=False),
+                ))
+                db.session.commit()
+            except Exception:
+                # The business transaction has already committed. A failed audit
+                # record must not turn a successful warehouse operation into an error.
+                db.session.rollback()
+                app.logger.exception('Mobile idempotency record failed')
+            return response
+        return decorated_function
+    return decorator
+
+
 def web_or_api_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -4492,6 +4565,7 @@ def native_api_login():
 @app.route('/api/inbound', methods=['POST'])
 @csrf.exempt
 @api_role_required('warehouse')
+@mobile_api_idempotent('inbound')
 def native_api_inbound(user):
     payload = request.get_json(silent=True) or {}
     parsed, error = parse_api_lines(payload)
@@ -4560,6 +4634,7 @@ def native_api_inbound(user):
 @app.route('/api/outbound', methods=['POST'])
 @csrf.exempt
 @api_role_required('warehouse', 'production')
+@mobile_api_idempotent('outbound')
 def native_api_outbound(user):
     payload = request.get_json(silent=True) or {}
     parsed, error = parse_api_lines(payload)
@@ -4627,6 +4702,7 @@ def native_api_outbound(user):
 @app.route('/api/stocktake', methods=['POST'])
 @csrf.exempt
 @api_role_required('warehouse')
+@mobile_api_idempotent('stocktake')
 def native_api_stocktake(user):
     payload = request.get_json(silent=True) or {}
     lines = payload.get('lines') if isinstance(payload, dict) else None
@@ -4702,6 +4778,17 @@ def mobile_app_download():
         mimetype='application/vnd.android.package-archive',
         as_attachment=True,
         download_name='wms-mobile-scan.apk'
+    )
+
+
+@app.route('/mobile/connect')
+@login_required
+def mobile_connect():
+    base_url = request.url_root.rstrip('/')
+    return render_template(
+        'mobile_connect.html',
+        base_url=base_url,
+        qr_url=url_for('api_qrcode_image', data=base_url),
     )
 
 
