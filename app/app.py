@@ -18563,6 +18563,15 @@ def ai_prelaunch_page():
     return render_template('ai_prelaunch.html', report=report)
 
 
+@app.route('/ai/acceptance')
+@login_required
+@require_role('admin')
+def ai_acceptance_page():
+    """AI-R18-F02：管理员只读验收台和人工 go/no-go 签署入口。"""
+    # AI_TASK: AI-R18-F02
+    return render_template('ai_acceptance.html')
+
+
 def _ai_create_agent_task(agent_type, objective):
     task = AIAgentTask(
         ai_run_id=getattr(g, 'ai_run_id', None),

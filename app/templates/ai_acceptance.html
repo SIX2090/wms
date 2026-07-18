@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+<!-- AI_TASK: AI-R18-F02 -->
+{% block title %}AI七日验收{% endblock %}
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">AI七日验收</h1>
+            <div class="text-muted small">只读查看验收数据；采集、构建证据包和 go/no-go 签署均保留管理员人工确认。</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="/ai/prelaunch"><i class="bi bi-arrow-left"></i> 上线预检</a>
+            <button class="btn btn-outline-primary btn-sm" type="button" id="refreshButton"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
+        </div>
+    </div>
+    <div id="message" class="alert d-none" role="alert"></div>
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">快照数量</div><div class="h5 mb-0" id="snapshotCount">-</div></div></div>
+        <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">最近快照</div><div class="h5 mb-0" id="latestSnapshot">-</div></div></div>
+        <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">绝对指标为 0</div><div class="h5 mb-0" id="zeroDays">-</div></div></div>
+        <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">证据包</div><div class="h5 mb-0" id="packageStatus">未构建</div></div></div>
+    </div>
+    <section class="border rounded mb-3">
+        <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
+            <strong>每日验收快照</strong>
+            <div class="d-flex gap-2 align-items-center">
+                <input id="snapshotDate" class="form-control form-control-sm" type="date" style="max-width: 150px;">
+                <button class="btn btn-primary btn-sm" type="button" id="collectButton"><i class="bi bi-plus-circle"></i> 采集今日快照</button>
+            </div>
+        </div>
+        <div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light"><tr><th>日期</th><th>四项绝对指标</th><th>灰度角色</th><th>窗口</th><th>状态</th></tr></thead>
+            <tbody id="snapshotRows"><tr><td colspan="5" class="text-center text-muted py-3">加载中...</td></tr></tbody>
+        </table></div>
+    </section>
+    <section class="border rounded mb-3">
+        <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
+            <strong>七日证据包</strong>
+            <button class="btn btn-primary btn-sm" type="button" id="buildButton"><i class="bi bi-box-seam"></i> 构建最近七日证据</button>
+        </div>
+        <div class="p-3" id="packagePanel"><span class="text-muted">先构建证据包。缺少连续七日数据时必须停留在待处理状态。</span></div>
+    </section>
+    <section class="border rounded mb-3">
+        <div class="p-2 border-bottom"><strong>管理员人工签署</strong></div>
+        <div class="p-3 row g-2 align-items-end">
+            <div class="col-md-2"><label class="form-label small" for="decision">结论</label><select id="decision" class="form-select form-select-sm"><option value="no_go">no-go</option><option value="go">go</option></select></div>
+            <div class="col-md-7"><label class="form-label small" for="reason">签署原因</label><input id="reason" class="form-control form-control-sm" type="text" maxlength="500" placeholder="go 必须确认七日证据；no-go 必须填写原因"></div>
+            <div class="col-md-3"><button class="btn btn-danger btn-sm w-100" type="button" id="signButton" disabled><i class="bi bi-pen"></i> 签署结论</button></div>
+        </div>
+    </section>
+</div>
+<script>
+(() => {
+    const state = {snapshots: [], packageId: null};
+    const $ = (id) => document.getElementById(id);
+    const show = (text, danger = false) => { const node = $('message'); node.textContent = text; node.className = `alert ${danger ? 'alert-danger' : 'alert-success'}`; };
+    const read = async (response) => { const body = await response.json(); if (!response.ok || body.status === 'error') throw new Error(body.msg || '请求失败'); return body; };
+    const render = () => {
+        const rows = $('snapshotRows'); rows.textContent = '';
+        if (!state.snapshots.length) { const row = rows.insertRow(); const cell = row.insertCell(); cell.colSpan = 5; cell.className = 'text-center text-muted py-3'; cell.textContent = '暂无真实验收快照'; return; }
+        state.snapshots.forEach((item) => { const row = rows.insertRow(); [item.snapshot_date, Object.values(item.absolute_counts || {}).join(' / '), (item.rollout_roles || []).join(', '), `${item.window_hours || 0} 小时`, item.all_absolute_zero ? '四项为 0' : '存在异常'].forEach((value) => row.insertCell().textContent = value); row.cells[4].className = item.all_absolute_zero ? 'text-success' : 'text-danger'; });
+        $('snapshotCount').textContent = state.snapshots.length; $('latestSnapshot').textContent = state.snapshots[0]?.snapshot_date || '-'; $('zeroDays').textContent = `${state.snapshots.filter((item) => item.all_absolute_zero).length} / 7`;
+    };
+    const load = async () => { try { state.snapshots = (await read(await fetch('/api/ai/acceptance/daily_snapshots?limit=30'))).snapshots || []; render(); } catch (error) { show(error.message, true); } };
+    $('collectButton').onclick = async () => { try { await read(await fetch('/api/ai/acceptance/daily_snapshot', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({date: $('snapshotDate').value || undefined})})); show('快照已采集，请继续核对每日数据。'); await load(); } catch (error) { show(error.message, true); } };
+    $('buildButton').onclick = async () => { try { const result = await read(await fetch('/api/ai/acceptance/evidence_package', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({days: 7})})); state.packageId = result.package_db_id || null; $('packageStatus').textContent = result.validation_passed ? '可签署' : '待处理'; $('signButton').disabled = !state.packageId; const panel = $('packagePanel'); panel.textContent = `证据范围：${result.package?.start_date || '-'} 至 ${result.package?.end_date || '-'}；七日全 0：${result.seven_days_zero ? '是' : '否'}`; const list = document.createElement('ul'); list.className = 'mb-0 mt-2 text-danger'; (result.validation_failures || []).forEach((item) => { const li = document.createElement('li'); li.textContent = item; list.appendChild(li); }); panel.appendChild(list); show(result.validation_passed ? '证据包校验通过，等待管理员签署。' : '证据包已保存，但存在未处理项。', !result.validation_passed); } catch (error) { show(error.message, true); } };
+    $('signButton').onclick = async () => { if (!state.packageId) return; const decision = $('decision').value; const reason = $('reason').value.trim(); if (decision === 'no_go' && !reason) { show('no-go 必须填写原因。', true); return; } try { await read(await fetch('/api/ai/acceptance/go_no_go', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({package_id: state.packageId, decision, reason})})); show(`已人工签署 ${decision}。`); $('signButton').disabled = true; } catch (error) { show(error.message, true); } };
+    $('refreshButton').onclick = load; $('snapshotDate').value = new Date().toISOString().slice(0, 10); load();
+})();
+</script>
+{% endblock %}
