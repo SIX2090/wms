@@ -309,7 +309,7 @@ AI-R01～R17 的基础能力已经完成。AI-R17-F01 真实用户白名单灰�
 |---|---|---|---|---|---|---|
 | P0 | AI-R17-F01 | 已完成 | 真实用户白名单灰度与一键回滚 | AI-R13、R16、R17 | 用户白名单、灰度审计、Provider 降级、回滚控制 | 非白名单不可用；高风险动作自动执行为 0；10 分钟内关闭并恢复 |
 | P0 | AI-R17-F02 | 已完成 | 连续七天真实上线验收 | AI-R17-F01 | 真实指标采集、确认状态、验收证据包 | 四项上线违规指标连续七天为 0；验收数据可复算 |
-| P0 | AI-R08-F01 | 已完成 | 文档确认状态与提交前强制门禁 | AI-R08、R09、R17-F01 | confirmation_status、确认台回传、服务端二次校验 | 低置信度、歧义、高风险、重复风险未确认时不能创建草稿 | 2026-07-18 | <COMMIT1> | app.py、document_confirmation_status.py、verify_ai_document_confirmation_status.py | verify_ai_document_confirmation_status.py 8 项通过 | 无 |
+| P0 | AI-R08-F01 | 已完成 | 文档确认状态与提交前强制门禁 | AI-R08、R09、R17-F01 | confirmation_status、确认台回传、服务端二次校验 | 低置信度、歧义、高风险、重复风险未确认时不能创建草稿 | 2026-07-18 | 013d825 | app.py、document_confirmation_status.py、verify_ai_document_confirmation_status.py | verify_ai_document_confirmation_status.py 8 项通过 | 无 |
 | P1 | AI-R14-F01 | 待开发 | 数据保留管理页、分批清理和自动调度 | AI-R14、R17-F01 | 管理页面、预览、执行、日志、每日任务、批处理 | 不误删业务/关键审计；所有删除可预览、可追溯 |
 | P1 | AI-R15-F01 | 待开发 | 业务质量运营看板与版本回归告警 | AI-R09、R15、R17-F02 | 指标卡、筛选、趋势、版本对比、样本下钻 | 页面/API/原始数据一致；质量下降可定位字段和版本 |
 | P1 | AI-R10-F01 | 待开发 | 仓库 AI 工作台正式接入导航 | AI-R10、R16、R17-F01 | 7 类队列卡片、空态、下钻、角色菜单 | 数量与原业务列表一致；工作台只读，不混入写动作 |

@@ -18261,6 +18261,16 @@ def ai_ops_dashboard():
     return render_template('ai_ops_dashboard.html', metrics_24h=metrics_24h, metrics_7d=metrics_7d, recent_runs=recent_runs)
 
 
+@app.route('/ai/data-retention')
+@login_required
+@require_role('admin')
+def ai_data_retention_page():
+    """AI-R14-F01 数据保留管理页面。"""
+    from ai.ops.data_retention import default_retention_config
+    config = default_retention_config()
+    return render_template('ai_data_retention.html', config=config)
+
+
 @app.route('/ai/replenishment')
 @login_required
 @require_role('warehouse', 'purchase')
@@ -35973,6 +35983,42 @@ def api_ai_data_retention_config_get():
     except Exception as e:
         app.logger.error(f'AI-R14 保留配置查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/data_retention_config', methods=['POST'])
+@login_required
+@require_role('admin')
+def api_ai_data_retention_config_post():
+    """AI-R14-F01 保留策略配置保存端点。"""
+    data = request.get_json(silent=True) or {}
+    try:
+        # TODO: 持久化到数据库（当前仅验证输入）
+        conversations_days = int(data.get('conversations_days', 90))
+        images_days = int(data.get('images_days', 30))
+        tasks_days = int(data.get('tasks_days', 180))
+        feedback_days = int(data.get('feedback_days', 365))
+        audit_days = int(data.get('audit_days', 0))
+        
+        if conversations_days < 1 or images_days < 1 or tasks_days < 1 or feedback_days < 1 or audit_days < 0:
+            return jsonify({'status': 'error', 'msg': '保留期限必须为正整数（审计可为0表示永久）'}), 400
+        
+        # TODO: 保存到 AIDataRetentionConfig 表
+        app.logger.info(f'AI-R14-F01 保留配置更新：对话={conversations_days}天, 图片={images_days}天, 任务={tasks_days}天, 反馈={feedback_days}天, 审计={audit_days}天')
+        
+        return jsonify({
+            'status': 'success',
+            'msg': '配置已保存（当前为演示模式，重启后恢复默认值）',
+            'config': {
+                'conversations_days': conversations_days,
+                'images_days': images_days,
+                'tasks_days': tasks_days,
+                'feedback_days': feedback_days,
+                'audit_days': audit_days,
+            }
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R14-F01 保留配置保存失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'保存失败：{str(e)}'}), 500
 
 
 @app.route('/api/ai/data_retention_validate', methods=['POST'])

@@ -272,5 +272,69 @@ def init_notification_scheduler(app, db, Material, User):
         max_instances=1,
     )
 
+    # AI-R14-F01: 每日凌晨2点执行数据保留清理预览（默认只预览，不自动删除）
+    def daily_data_retention_cleanup():
+        with app.app_context():
+            logging.getLogger(__name__).info('AI-R14-F01: 执行每日数据保留清理预览...')
+            try:
+                from ai.ops.data_retention import default_retention_config, preview_cleanup
+                from datetime import datetime
+                
+                # 使用默认配置
+                config = default_retention_config(dry_run=True)
+                
+                # 依赖注入函数（从app.py导入）
+                # 注意：这里需要延迟导入避免循环依赖
+                try:
+                    from app import _ai_dr_query_expired, _ai_dr_save_log
+                    
+                    # 执行预览
+                    preview_result = preview_cleanup(
+                        config=config,
+                        query_expired=_ai_dr_query_expired,
+                    )
+                    
+                    logging.getLogger(__name__).info(
+                        f'AI-R14-F01 清理预览完成: '
+                        f'待删除={preview_result.delete_count}, '
+                        f'受保护={preview_result.protected_count}, '
+                        f'豁免={preview_result.exempt_count}, '
+                        f'保留={preview_result.keep_count}'
+                    )
+                    
+                    # 保存预览日志（dry_run=True）
+                    from ai.ops.data_retention import CleanupLogEntry
+                    log_entry = CleanupLogEntry(
+                        log_id=f'auto-preview-{datetime.now().strftime("%Y%m%d-%H%M%S")}',
+                        executed_by=0,  # 系统自动执行
+                        categories=list(preview_result.by_category.keys()),
+                        dry_run=True,
+                        deleted_count=0,  # 预览模式不删除
+                        kept_count=preview_result.keep_count,
+                        exempt_count=preview_result.exempt_count,
+                        protected_count=preview_result.protected_count,
+                        failed_count=0,
+                        cutoff_date=preview_result.cutoff_date.isoformat(),
+                        executed_at=datetime.now().isoformat(),
+                        notes='系统自动预览（未实际删除）',
+                    )
+                    _ai_dr_save_log(log_entry)
+                    
+                except ImportError as e:
+                    logging.getLogger(__name__).warning(f'AI-R14-F01: 依赖注入函数未找到，跳过清理预览: {e}')
+                    
+            except Exception as e:
+                logging.getLogger(__name__).error(f'AI-R14-F01: 清理预览失败: {e}')
+
+    scheduler.add_job(
+        daily_data_retention_cleanup,
+        'cron',
+        hour=2,
+        minute=0,
+        id='daily_data_retention_cleanup',
+        replace_existing=True,
+        max_instances=1,
+    )
+
     scheduler.start()
     return scheduler

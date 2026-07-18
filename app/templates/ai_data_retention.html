@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% block title %}AI数据保留管理{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">AI数据保留管理</h1>
+            <div class="text-muted small">管理AI数据的保留策略、预览清理范围、执行清理任务和查看清理日志。已生成或关联业务单据的记录受保护，不会被删除。</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ai_ops_dashboard') }}">返回运维看板</a>
+        </div>
+    </div>
+
+    {# 保留策略配置 #}
+    <div class="border rounded p-3 mb-3">
+        <div class="fw-semibold mb-2">保留策略配置</div>
+        <form id="retentionConfigForm">
+            <div class="row g-2">
+                <div class="col-md-4">
+                    <label class="form-label small">对话记录（天）</label>
+                    <input type="number" class="form-control form-control-sm" name="conversations_days" value="{{ config.conversations_days }}" min="1">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">图片文件（天）</label>
+                    <input type="number" class="form-control form-control-sm" name="images_days" value="{{ config.images_days }}" min="1">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">文档任务（天）</label>
+                    <input type="number" class="form-control form-control-sm" name="tasks_days" value="{{ config.tasks_days }}" min="1">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">字段反馈（天）</label>
+                    <input type="number" class="form-control form-control-sm" name="feedback_days" value="{{ config.feedback_days }}" min="1">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">关键审计（天，0=永久）</label>
+                    <input type="number" class="form-control form-control-sm" name="audit_days" value="{{ config.audit_days }}" min="0">
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary btn-sm w-100">保存配置</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    {# 清理预览 #}
+    <div class="border rounded p-3 mb-3">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <div class="fw-semibold">清理预览</div>
+            <button type="button" class="btn btn-outline-primary btn-sm" id="previewBtn">预览清理范围</button>
+        </div>
+        <div id="previewResult" class="d-none">
+            <div class="alert alert-info small mb-2">
+                <strong>截止日期：</strong><span id="cutoffDate"></span> | 
+                <strong>待删除：</strong><span id="deleteCount"></span> | 
+                <strong>受保护：</strong><span id="protectedCount"></span> | 
+                <strong>豁免：</strong><span id="exemptCount"></span> | 
+                <strong>保留：</strong><span id="keepCount"></span>
+            </div>
+            <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th style="width: 80px;">动作</th>
+                            <th style="width: 100px;">类别</th>
+                            <th style="width: 120px;">记录ID</th>
+                            <th style="width: 140px;">创建时间</th>
+                            <th>原因</th>
+                        </tr>
+                    </thead>
+                    <tbody id="previewTableBody"></tbody>
+                </table>
+            </div>
+            <div class="mt-2">
+                <button type="button" class="btn btn-danger btn-sm" id="executeBtn" disabled>执行清理（需二次确认）</button>
+                <span class="text-muted small ms-2">预览后启用执行按钮</span>
+            </div>
+        </div>
+    </div>
+
+    {# 清理日志 #}
+    <div class="border rounded p-3">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <div class="fw-semibold">清理日志（最近20条）</div>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="refreshLogsBtn">刷新</button>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 140px;">执行时间</th>
+                        <th style="width: 100px;">执行人</th>
+                        <th style="width: 120px;">类别</th>
+                        <th class="text-end" style="width: 80px;">删除</th>
+                        <th class="text-end" style="width: 80px;">保护</th>
+                        <th class="text-end" style="width: 80px;">豁免</th>
+                        <th class="text-end" style="width: 80px;">保留</th>
+                        <th class="text-end" style="width: 80px;">失败</th>
+                        <th style="width: 120px;">截止日期</th>
+                        <th>备注</th>
+                    </tr>
+                </thead>
+                <tbody id="logsTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const configForm = document.getElementById('retentionConfigForm');
+    const previewBtn = document.getElementById('previewBtn');
+    const executeBtn = document.getElementById('executeBtn');
+    const refreshLogsBtn = document.getElementById('refreshLogsBtn');
+    const previewResult = document.getElementById('previewResult');
+
+    // 保存配置
+    configForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const formData = new FormData(configForm);
+        const data = Object.fromEntries(formData.entries());
+        
+        try {
+            const resp = await fetch('/api/ai/data_retention_config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify(data)
+            });
+            const result = await resp.json();
+            if (result.status === 'success') {
+                alert('配置已保存');
+            } else {
+                alert('保存失败：' + (result.msg || '未知错误'));
+            }
+        } catch (err) {
+            alert('请求失败：' + err.message);
+        }
+    });
+
+    // 预览清理
+    previewBtn.addEventListener('click', async function() {
+        previewBtn.disabled = true;
+        previewBtn.textContent = '预览中...';
+        
+        try {
+            const resp = await fetch('/api/ai/data_cleanup_preview', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({ dry_run: true })
+            });
+            const result = await resp.json();
+            
+            if (result.status === 'success') {
+                const preview = result.preview;
+                document.getElementById('cutoffDate').textContent = preview.cutoff_date;
+                document.getElementById('deleteCount').textContent = preview.delete_count;
+                document.getElementById('protectedCount').textContent = preview.protected_count;
+                document.getElementById('exemptCount').textContent = preview.exempt_count;
+                document.getElementById('keepCount').textContent = preview.keep_count;
+                
+                const tbody = document.getElementById('previewTableBody');
+                tbody.innerHTML = '';
+                preview.items.forEach(function(item) {
+                    const tr = document.createElement('tr');
+                    const actionBadge = {
+                        'delete': 'bg-danger',
+                        'keep': 'bg-secondary',
+                        'protected': 'bg-warning',
+                        'exempt': 'bg-info'
+                    }[item.action] || 'bg-secondary';
+                    
+                    tr.innerHTML = `
+                        <td><span class="badge ${actionBadge}">${item.action}</span></td>
+                        <td>${item.category}</td>
+                        <td>${item.record_id}</td>
+                        <td>${item.created_at || '-'}</td>
+                        <td class="text-truncate" style="max-width: 300px;">${item.reason || '-'}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+                
+                previewResult.classList.remove('d-none');
+                executeBtn.disabled = false;
+            } else {
+                alert('预览失败：' + (result.msg || '未知错误'));
+            }
+        } catch (err) {
+            alert('请求失败：' + err.message);
+        } finally {
+            previewBtn.disabled = false;
+            previewBtn.textContent = '预览清理范围';
+        }
+    });
+
+    // 执行清理
+    executeBtn.addEventListener('click', async function() {
+        if (!confirm('确定要执行清理吗？此操作不可撤销。已生成或关联业务单据的记录受保护，不会被删除。')) {
+            return;
+        }
+        
+        executeBtn.disabled = true;
+        executeBtn.textContent = '执行中...';
+        
+        try {
+            const resp = await fetch('/api/ai/data_cleanup_execute', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({ dry_run: false })
+            });
+            const result = await resp.json();
+            
+            if (result.status === 'success') {
+                const exec = result.execution;
+                alert(`清理完成\n删除：${exec.deleted_count}\n保护：${exec.protected_count}\n豁免：${exec.exempt_count}\n保留：${exec.kept_count}\n失败：${exec.failed_count}`);
+                previewResult.classList.add('d-none');
+                executeBtn.disabled = true;
+                loadLogs();
+            } else {
+                alert('执行失败：' + (result.msg || '未知错误'));
+            }
+        } catch (err) {
+            alert('请求失败：' + err.message);
+        } finally {
+            executeBtn.disabled = false;
+            executeBtn.textContent = '执行清理（需二次确认）';
+        }
+    });
+
+    // 加载日志
+    async function loadLogs() {
+        try {
+            const resp = await fetch('/api/ai/data_cleanup_logs?limit=20');
+            const result = await resp.json();
+            
+            if (result.status === 'success') {
+                const tbody = document.getElementById('logsTableBody');
+                tbody.innerHTML = '';
+                result.logs.forEach(function(log) {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${log.executed_at || '-'}</td>
+                        <td>${log.executed_by || '-'}</td>
+                        <td>${log.categories || '-'}</td>
+                        <td class="text-end">${log.deleted_count || 0}</td>
+                        <td class="text-end">${log.protected_count || 0}</td>
+                        <td class="text-end">${log.exempt_count || 0}</td>
+                        <td class="text-end">${log.kept_count || 0}</td>
+                        <td class="text-end">${log.failed_count || 0}</td>
+                        <td>${log.cutoff_date || '-'}</td>
+                        <td class="text-truncate" style="max-width: 200px;">${log.notes || '-'}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        } catch (err) {
+            console.error('加载日志失败：', err);
+        }
+    }
+
+    refreshLogsBtn.addEventListener('click', loadLogs);
+    loadLogs();
+});
+</script>
+{% endblock %}
