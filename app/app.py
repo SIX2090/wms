@@ -230,6 +230,34 @@ def auto_migrate_database():
             cursor.execute("ALTER TABLE ai_material_alias ADD COLUMN disabled_reason VARCHAR(100) DEFAULT ''")
             modified = True
 
+        # AI_TASK: AI-R17-F01 ai_tool_call 扩展字段（灰度拒绝审计：用户/角色/原因/来源/阶段）
+        cursor.execute("PRAGMA table_info(ai_tool_call)")
+        ai_tc_columns = [row[1] for row in cursor.fetchall()]
+        if ai_tc_columns:
+            if 'user_id' not in ai_tc_columns:
+                cursor.execute("ALTER TABLE ai_tool_call ADD COLUMN user_id INTEGER")
+                modified = True
+            if 'role' not in ai_tc_columns:
+                cursor.execute("ALTER TABLE ai_tool_call ADD COLUMN role VARCHAR(20)")
+                modified = True
+            if 'denied_reason' not in ai_tc_columns:
+                cursor.execute("ALTER TABLE ai_tool_call ADD COLUMN denied_reason VARCHAR(300)")
+                modified = True
+            if 'source' not in ai_tc_columns:
+                cursor.execute("ALTER TABLE ai_tool_call ADD COLUMN source VARCHAR(20)")
+                modified = True
+            if 'denied_stage' not in ai_tc_columns:
+                cursor.execute("ALTER TABLE ai_tool_call ADD COLUMN denied_stage VARCHAR(20)")
+                modified = True
+            # 拒绝审计索引（不阻塞已存在表）
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_tool_call_denied ON ai_tool_call(permission_allowed, created_at)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_tool_call_user_source ON ai_tool_call(user_id, source, created_at)")
+            except Exception:
+                pass
+        # AI_TASK: AI-R17-F01 新表：回滚事件、人工降级任务、灰度审计
+        # （SQLAlchemy db.create_all() 会在启动时创建缺失的表，这里只补索引兜底）
+
         cursor.execute("PRAGMA table_info(material_category)")
         cat_columns = [row[1] for row in cursor.fetchall()]
         if 'code' not in cat_columns:
@@ -1100,14 +1128,34 @@ SYSTEM_SETTING_GROUPS = [
                 'key': 'ai_feature_rollout_mode',
                 'label': 'AI灰度范围',
                 'type': 'select',
-                'default': 'all',
+                'default': 'off',
                 'options': [
-                    {'value': 'admin_only', 'label': '仅管理员'},
-                    {'value': 'read_only', 'label': '业务角色只读'},
-                    {'value': 'read_draft', 'label': '业务角色只读+草稿'},
+                    {'value': 'off', 'label': '关闭（仅管理员）'},
+                    {'value': 'allowlist', 'label': '用户白名单灰度'},
+                    {'value': 'role', 'label': '按角色与风险级别'},
                     {'value': 'all', 'label': '按权限矩阵开放'},
+                    # AI_TASK: AI-R17-F01 兼容旧值（normalize_mode 自动映射为上述 4 个新值）
+                    {'value': 'admin_only', 'label': '（旧）仅管理员'},
+                    {'value': 'read_only', 'label': '（旧）业务角色只读'},
+                    {'value': 'read_draft', 'label': '（旧）业务角色只读+草稿'},
                 ],
-                'remark': '用于分阶段开放 AI 能力。管理员始终按权限矩阵执行。',
+                'remark': 'AI-R17-F01：默认 off；allowlist 仅白名单用户可用；role 按风险级别判定；all 全部按权限矩阵。管理员始终按权限矩阵执行。',
+            },
+            {
+                'key': 'ai_feature_allowed_user_ids',
+                # AI_TASK: AI-R17-F01
+                'label': 'AI灰度用户白名单',
+                'type': 'text',
+                'default': '',
+                'remark': 'allowlist 模式下生效；逗号分隔的用户 ID 列表（不得使用可变的显示名）；移出后立即生效不依赖重启。',
+            },
+            {
+                'key': 'ai_force_fallback',
+                # AI_TASK: AI-R17-F01
+                'label': 'Provider紧急回滚(降级为人工)',
+                'type': 'bool',
+                'default': '0',
+                'remark': 'AI-R17-F01：开启后所有视觉/LLM 调用降级为本地规则+人工流程，保留已上传文件和待确认草稿证据。',
             },
             {
                 'key': 'ai_feature_drafts_enabled',
@@ -2073,6 +2121,9 @@ class AIToolCall(db.Model):
     __table_args__ = (
         db.Index('idx_ai_tool_call_run', 'ai_run_id'),
         db.Index('idx_ai_tool_call_name_created', 'tool_name', 'created_at'),
+        # AI_TASK: AI-R17-F01 灰度拒绝审计索引
+        db.Index('idx_ai_tool_call_denied', 'permission_allowed', 'created_at'),
+        db.Index('idx_ai_tool_call_user_source', 'user_id', 'source', 'created_at'),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -2086,8 +2137,87 @@ class AIToolCall(db.Model):
     error_message = db.Column(db.String(500))
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
     completed_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    # AI_TASK: AI-R17-F01 灰度拒绝审计扩展字段（记录用户/角色/原因/来源，便于反查与统计）
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    role = db.Column(db.String(20))
+    denied_reason = db.Column(db.String(300))
+    source = db.Column(db.String(20))  # api/page/agent/background
+    denied_stage = db.Column(db.String(20))  # global/flag/role/allowlist/risk/confirmation
 
     ai_run = db.relationship('AIRun', backref=db.backref('tool_calls', cascade='all, delete-orphan'))
+
+
+class AIRollbackEvent(db.Model):
+    """AI-R17-F01 回滚事件记录（一键关闭/恢复）。
+
+    记录每次 shutdown/restore 动作的快照前后状态、操作人、时间，用于
+    校验"10 分钟内关闭 AI 并恢复配置"和"不修改业务数据或用户密码"。
+    """
+    __tablename__ = 'ai_rollback_event'
+    __table_args__ = (
+        db.Index('idx_ai_rollback_event_action_created', 'action', 'created_at'),
+    )
+    # AI_TASK: AI-R17-F01
+
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.String(64), unique=True, nullable=False)
+    action = db.Column(db.String(20), nullable=False)  # shutdown/restore
+    operator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    operator_role = db.Column(db.String(20), nullable=False)
+    previous_snapshot = db.Column(db.Text)  # JSON
+    new_snapshot = db.Column(db.Text)  # JSON
+    started_at = db.Column(db.DateTime, nullable=False)
+    completed_at = db.Column(db.DateTime, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+
+class AIManualFallbackTask(db.Model):
+    """AI-R17-F01 人工降级任务（Provider 故障等场景保留证据）。
+
+    Provider 故障/预算耗尽/熔断/取消/低置信度时降级为人工流程，
+    保留已上传文件和待确认草稿证据，由人工处理。
+    """
+    __tablename__ = 'ai_manual_fallback_task'
+    __table_args__ = (
+        db.Index('idx_ai_fallback_task_status_created', 'status', 'created_at'),
+        db.Index('idx_ai_fallback_task_reason', 'reason'),
+    )
+    # AI_TASK: AI-R17-F01
+
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.String(64), unique=True, nullable=False)
+    original_run_id = db.Column(db.Integer)
+    reason = db.Column(db.String(30), nullable=False)  # provider_fault/budget_exhausted/circuit_breaker/cancelled/low_confidence
+    preserved_files = db.Column(db.Text)  # JSON
+    preserved_drafts = db.Column(db.Text)  # JSON
+    status = db.Column(db.String(20), nullable=False, default='pending')  # pending/handled/rejected
+    operator_id = db.Column(db.Integer)
+    handled_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+
+class AIRolloutAudit(db.Model):
+    """AI-R17-F01 灰度拒绝审计记录。
+
+    记录每次灰度判定的拒绝事件：用户/角色/能力/原因/阶段/请求来源/时间，
+    不保存密钥或完整敏感原文。供上线验收统计与反查。
+    """
+    __tablename__ = 'ai_rollout_audit'
+    __table_args__ = (
+        db.Index('idx_ai_rollout_audit_user_created', 'user_id', 'created_at'),
+        db.Index('idx_ai_rollout_audit_capability_stage', 'capability', 'stage'),
+    )
+    # AI_TASK: AI-R17-F01
+
+    id = db.Column(db.Integer, primary_key=True)
+    audit_id = db.Column(db.String(64), unique=True, nullable=False)
+    user_id = db.Column(db.Integer)
+    role = db.Column(db.String(20))
+    capability = db.Column(db.String(100), nullable=False)
+    reason = db.Column(db.String(300), nullable=False)
+    stage = db.Column(db.String(20), nullable=False)  # global/flag/role/allowlist/risk/confirmation
+    source = db.Column(db.String(20), nullable=False)  # api/page/agent/background
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
 
 class AIRequestIdempotency(db.Model):
@@ -7628,7 +7758,12 @@ def api_customers():
     return jsonify([serialize_customer(customer) for customer in customers])
 
 
-def _ai_record_capability_audit(capability, allowed):
+def _ai_record_capability_audit(capability, allowed, *, reason='', source='api', stage=''):
+    """记录 AI 能力权限判定结果到 AIToolCall。
+
+    AI-R17-F01：扩展记录 user_id/role/denied_reason/source/denied_stage，
+    灰度拒绝必须可反查用户/角色/能力/原因/来源/时间，不保存密钥或完整敏感原文。
+    """
     if not has_request_context():
         return
     run_id = getattr(g, 'ai_run_id', None)
@@ -7639,6 +7774,9 @@ def _ai_record_capability_audit(capability, allowed):
         tool_name=capability,
     ).first()
     now_value = datetime.now()
+    # AI_TASK: AI-R17-F01 用户/角色/来源/原因/阶段
+    cur_uid = current_user.id if current_user.is_authenticated else None
+    cur_role = current_user.role if current_user.is_authenticated else None
     if not tool_call:
         tool_spec = get_ai_tool_spec(capability)
         tool_call = AIToolCall(
@@ -7650,25 +7788,100 @@ def _ai_record_capability_audit(capability, allowed):
             permission_allowed=bool(allowed),
             created_at=now_value,
             completed_at=now_value,
+            user_id=cur_uid,
+            role=cur_role,
+            denied_reason=(reason if not allowed else None),
+            source=source or 'api',
+            denied_stage=(stage if not allowed else None),
         )
         db.session.add(tool_call)
         return
     tool_call.status = 'authorized' if allowed else 'denied'
     tool_call.permission_allowed = bool(allowed)
     tool_call.completed_at = now_value
+    tool_call.user_id = cur_uid or tool_call.user_id
+    tool_call.role = cur_role or tool_call.role
+    if not allowed:
+        tool_call.denied_reason = reason or tool_call.denied_reason
+        tool_call.source = source or tool_call.source or 'api'
+        tool_call.denied_stage = stage or tool_call.denied_stage
+    else:
+        tool_call.source = source or tool_call.source or 'api'
 
 
-def _ai_capability_allowed(capability):
+def _ai_record_rollout_denied_audit(decision, source='api'):
+    """AI-R17-F01：灰度拒绝写入 AIRolloutAudit 审计表 + AIToolCall.denied_reason。
+
+    F01 要求：灰度拒绝必须记录用户、角色、能力、原因、请求来源和时间，
+    不保存密钥或完整敏感原文。
+    """
+    # AI_TASK: AI-R17-F01
+    from ai.ops.rollout_control import build_rollout_audit_record, validate_no_sensitive_in_audit
+    import uuid
+    audit_id = f'r17f01-{uuid.uuid4().hex[:16]}'
+    record = build_rollout_audit_record(
+        audit_id=audit_id,
+        user_id=decision.user_id,
+        role=decision.role,
+        capability=decision.capability,
+        reason=decision.reason,
+        stage=decision.stage,
+        source=source,
+    )
+    # 脱敏校验：审计记录不得包含密钥或敏感原文
+    ok, _msg = validate_no_sensitive_in_audit(record)
+    if not ok:
+        # 降级为通用原因，不写入原始 reason
+        record = build_rollout_audit_record(
+            audit_id=audit_id,
+            user_id=decision.user_id,
+            role=decision.role,
+            capability=decision.capability,
+            reason='灰度拒绝（原因已脱敏）',
+            stage=decision.stage,
+            source=source,
+        )
+    audit_row = AIRolloutAudit(
+        audit_id=record.audit_id,
+        user_id=record.user_id,
+        role=record.role,
+        capability=record.capability,
+        reason=record.reason,
+        stage=record.stage,
+        source=record.source,
+        created_at=record.created_at,
+    )
+    db.session.add(audit_row)
+    # 同时回写最新一次 AIToolCall 的拒绝详情（如有）
+    run_id = getattr(g, 'ai_run_id', None)
+    if run_id:
+        tool_call = AIToolCall.query.filter_by(
+            ai_run_id=run_id,
+            tool_name=decision.capability,
+        ).first()
+        if tool_call:
+            tool_call.denied_reason = record.reason
+            tool_call.denied_stage = record.stage
+            tool_call.source = record.source
+            tool_call.user_id = decision.user_id or tool_call.user_id
+            tool_call.role = decision.role or tool_call.role
+
+
+def _ai_capability_allowed(capability, *, source='api'):
+    """AI-R17-F01：能力权限判定主流程。
+
+    权限判定顺序固定为：全局开关 → 功能开关 → 角色权限 → 用户白名单 → 风险级别 → 人工确认边界。
+    """
     if not current_user.is_authenticated:
         return False
     spec = get_ai_tool_spec(capability)
     business_endpoint = AI_CAPABILITY_BUSINESS_ENDPOINTS.get(capability)
     if not business_endpoint:
-        _ai_record_capability_audit(capability, False)
+        _ai_record_capability_audit(capability, False, reason='未配置业务端点', source=source, stage='flag')
         return False
     business_view = app.view_functions.get(business_endpoint)
     if business_view is None:
-        _ai_record_capability_audit(capability, False)
+        _ai_record_capability_audit(capability, False, reason='业务端点视图缺失', source=source, stage='flag')
         return False
     business_roles = getattr(business_view, '_required_roles', None)
     allowed = is_ai_capability_allowed_for_role(
@@ -7678,13 +7891,29 @@ def _ai_capability_allowed(capability):
     )
     if allowed and not _ai_global_enabled():
         allowed = False
-    if allowed and not _ai_capability_allowed_by_rollout(capability, current_user.role):
-        allowed = False
+        _ai_record_capability_audit(capability, False, reason='AI 功能总开关已关闭', source=source, stage='global')
+        return False
+    if allowed:
+        # AI-R17-F01：传 user_id + source，由 rollout_control 按固定顺序判定并写灰度拒绝审计
+        rollout_ok = _ai_capability_allowed_by_rollout(
+            capability,
+            current_user.role,
+            user_id=current_user.id,
+            risk_level=(spec.risk_level if spec else 'read'),
+            source=source,
+        )
+        if not rollout_ok:
+            _ai_record_capability_audit(capability, False, reason='灰度判定拒绝', source=source, stage='allowlist')
+            return False
     if allowed and spec and spec.risk_level == 'draft' and not _ai_feature_enabled('ai_feature_drafts_enabled', True):
         allowed = False
+        _ai_record_capability_audit(capability, False, reason='草稿开关已关闭', source=source, stage='risk')
+        return False
     if allowed and capability.endswith('_agent') and not _ai_feature_enabled('ai_feature_agents_enabled', True):
         allowed = False
-    _ai_record_capability_audit(capability, allowed)
+        _ai_record_capability_audit(capability, False, reason='Agent 开关已关闭', source=source, stage='risk')
+        return False
+    _ai_record_capability_audit(capability, allowed, source=source)
     return allowed
 
 
@@ -10320,23 +10549,67 @@ def _ai_degrade_local_only():
 
 
 def _ai_rollout_mode():
-    mode = get_system_setting('ai_feature_rollout_mode', 'all')
-    return mode if mode in {'admin_only', 'read_only', 'read_draft', 'all'} else 'all'
+    """AI-R17-F01：返回归一化后的灰度模式（off/allowlist/role/all，默认 off）。
+
+    旧值 admin_only/read_only/read_draft 通过 rollout_control.normalize_mode 自动映射：
+    admin_only→off，read_only/read_draft→role，all→all。
+    """
+    # AI_TASK: AI-R17-F01
+    from ai.ops.rollout_control import normalize_mode, DEFAULT_MODE
+    raw_mode = get_system_setting('ai_feature_rollout_mode', DEFAULT_MODE)
+    return normalize_mode(raw_mode)
 
 
-def _ai_capability_allowed_by_rollout(capability, role):
-    if role == 'admin':
-        return True
-    spec = get_ai_tool_spec(capability)
-    risk_level = spec.risk_level if spec else 'read'
-    mode = _ai_rollout_mode()
-    if mode == 'admin_only':
-        return False
-    if mode == 'read_only':
-        return risk_level in {'read', 'sensitive_read'}
-    if mode == 'read_draft':
-        return risk_level in {'read', 'sensitive_read', 'draft'}
-    return True
+def _ai_allowed_user_ids():
+    """AI-R17-F01：从系统设置读取灰度白名单用户 ID 列表。"""
+    # AI_TASK: AI-R17-F01
+    from ai.ops.rollout_control import parse_allowed_user_ids
+    raw = get_system_setting('ai_feature_allowed_user_ids', '')
+    return parse_allowed_user_ids(raw)
+
+
+def _ai_force_fallback():
+    """AI-R17-F01：Provider 紧急回滚（降级为人工流程）是否开启。"""
+    # AI_TASK: AI-R17-F01
+    return _ai_feature_enabled('ai_force_fallback', False)
+
+
+def _ai_capability_allowed_by_rollout(capability, role, user_id=None, risk_level=None, source='api'):
+    """AI-R17-F01：按固定权限判定顺序进行灰度判定。
+
+    权限判定顺序固定为：全局开关 → 功能开关 → 角色权限 → 用户白名单 → 风险级别 → 人工确认边界。
+
+    Args:
+        capability: AI 能力名。
+        role: 用户角色（admin 直通）。
+        user_id: 用户 ID（allowlist 模式必填，None 视为未登录）。
+        risk_level: 风险级别（None 时从工具规范读取）。
+        source: 请求来源（api/page/agent/background），用于审计。
+
+    Returns:
+        bool：是否允许。
+    """
+    # AI_TASK: AI-R17-F01
+    from ai.ops.rollout_control import evaluate_rollout_access
+    if risk_level is None:
+        spec = get_ai_tool_spec(capability)
+        risk_level = spec.risk_level if spec else 'read'
+    decision = evaluate_rollout_access(
+        capability=capability,
+        role=role,
+        user_id=user_id,
+        risk_level=risk_level,
+        mode=_ai_rollout_mode(),
+        allowed_user_ids=_ai_allowed_user_ids(),
+        global_enabled=_ai_global_enabled(),
+    )
+    # 被拒绝时写灰度拒绝审计（不阻塞主流程，仅记录）
+    if not decision.allowed and has_request_context():
+        try:
+            _ai_record_rollout_denied_audit(decision, source)
+        except Exception as exc:  # noqa: BLE001
+            app.logger.warning(f'AI-R17-F01 写灰度拒绝审计失败: {exc}')
+    return decision.allowed
 
 
 def _ai_llm_configured(overrides=None):
@@ -33582,25 +33855,56 @@ def api_document_ocr():
     """单据OCR识别API：上传图片，AI识别单据内容并生成入库草稿。"""
     if not _ai_llm_configured() or not _ai_llm_vision_enabled():
         return jsonify({'status': 'error', 'msg': '请先在系统设置中启用大模型和图片识别'}), 400
-    
+
     if 'image' not in request.files:
         return jsonify({'status': 'error', 'msg': '请上传图片'}), 400
-    
+
     file = request.files['image']
     if not file.filename:
         return jsonify({'status': 'error', 'msg': '请选择图片文件'}), 400
-    
+
     allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
     ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
     if ext not in allowed_ext:
         return jsonify({'status': 'error', 'msg': '不支持的图片格式'}), 400
-    
+
     file.seek(0, 2)
     file_size = file.tell()
     file.seek(0)
     if file_size > 10 * 1024 * 1024:
         return jsonify({'status': 'error', 'msg': '图片大小不能超过10MB'}), 400
-    
+
+    # AI_TASK: AI-R17-F01 Provider 紧急回滚：降级为人工流程，保留文件证据不丢失
+    if _ai_force_fallback():
+        task_id = f'r17f01-fb-{uuid.uuid4().hex[:16]}'
+        preserved_files = [{
+            'filename': file.filename,
+            'size': file_size,
+            'ext': ext,
+            'document_type': request.form.get('document_type', 'auto'),
+            'remarks': (request.form.get('remarks', '') or '')[:200],
+        }]
+        fallback_task = AIManualFallbackTask(
+            task_id=task_id,
+            original_run_id=getattr(g, 'ai_run_id', None),
+            reason='provider_fault',  # 紧急回滚统一归因为 provider_fault（人工处理）
+            preserved_files=json.dumps(preserved_files, ensure_ascii=False),
+            preserved_drafts='[]',
+            status='pending',
+        )
+        db.session.add(fallback_task)
+        try:
+            db.session.commit()
+        except Exception as exc:  # noqa: BLE001
+            db.session.rollback()
+            app.logger.warning(f'AI-R17-F01 写人工降级任务失败: {exc}')
+        return jsonify({
+            'status': 'fallback',
+            'msg': 'AI 视觉识别已紧急回滚，已保留上传文件证据，请转人工处理',
+            'fallback_task_id': task_id,
+            'preserved_files': preserved_files,
+        }), 200
+
     try:
         import base64
         # AI_TASK: AI-R04
@@ -35187,6 +35491,378 @@ def api_ai_launch_acceptance_metrics():
     except Exception as e:
         app.logger.error(f'AI-R17 指标定义查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+
+
+# ===== AI-R17-F01 真实用户白名单灰度与一键回滚闭环 端点 =====
+
+def _ai_r17f01_take_snapshot():
+    """AI-R17-F01：采集当前灰度配置快照（用于一键关闭/恢复）。"""
+    # AI_TASK: AI-R17-F01
+    from ai.ops.rollout_control import snapshot_rollout
+    return snapshot_rollout(
+        mode=_ai_rollout_mode(),
+        allowed_user_ids=_ai_allowed_user_ids(),
+        global_enabled=_ai_global_enabled(),
+        force_fallback=_ai_force_fallback(),
+    )
+
+
+def _ai_r17f01_apply_snapshot(snapshot_dict):
+    """AI-R17-F01：把快照值写回 SystemSetting（恢复用）。"""
+    # AI_TASK: AI-R17-F01
+    set_system_setting('ai_feature_rollout_mode', snapshot_dict.get('mode', 'off'))
+    set_system_setting(
+        'ai_feature_allowed_user_ids',
+        ','.join(str(uid) for uid in snapshot_dict.get('allowed_user_ids', [])),
+    )
+    set_system_setting('ai_feature_global_enabled', '1' if snapshot_dict.get('global_enabled') else '0')
+    set_system_setting('ai_force_fallback', '1' if snapshot_dict.get('force_fallback') else '0')
+
+
+def _ai_r17f01_record_event(action, previous_snapshot, new_snapshot, started_at, completed_at):
+    """AI-R17-F01：写回滚事件到 AIRollbackEvent。"""
+    # AI_TASK: AI-R17-F01
+    from ai.ops.rollout_control import (
+        record_rollback_event,
+        ROLLBACK_ACTION_SHUTDOWN,
+        ROLLBACK_ACTION_RESTORE,
+    )
+    event_id = f'r17f01-{action}-{uuid.uuid4().hex[:16]}'
+    event = record_rollback_event(
+        event_id=event_id,
+        action=action,
+        operator_id=current_user.id,
+        operator_role=current_user.role,
+        previous_snapshot=previous_snapshot,
+        new_snapshot=new_snapshot,
+        started_at=started_at,
+        completed_at=completed_at,
+    )
+    row = AIRollbackEvent(
+        event_id=event.event_id,
+        action=event.action,
+        operator_id=event.operator_id,
+        operator_role=event.operator_role,
+        previous_snapshot=json.dumps(event.previous_snapshot.to_dict(), ensure_ascii=False),
+        new_snapshot=json.dumps(event.new_snapshot.to_dict(), ensure_ascii=False),
+        started_at=event.started_at,
+        completed_at=event.completed_at,
+    )
+    db.session.add(row)
+    return event
+
+
+@app.route('/api/ai/rollout/status', methods=['GET'])
+# AI_TASK: AI-R17-F01
+@login_required
+@require_role('admin')
+def api_ai_rollout_status():
+    """AI-R17-F01：查询当前灰度状态（模式/白名单/全局开关/紧急回滚/最近回滚事件）。"""
+    try:
+        from ai.ops.rollout_control import VALID_MODES
+        recent_shutdown = AIRollbackEvent.query.filter_by(
+            action='shutdown',
+        ).order_by(AIRollbackEvent.created_at.desc()).first()
+        recent_restore = AIRollbackEvent.query.filter_by(
+            action='restore',
+        ).order_by(AIRollbackEvent.created_at.desc()).first()
+        pending_fallback_count = AIManualFallbackTask.query.filter_by(status='pending').count()
+        return jsonify({
+            'status': 'ok',
+            'mode': _ai_rollout_mode(),
+            'valid_modes': list(VALID_MODES),
+            'allowed_user_ids': _ai_allowed_user_ids(),
+            'global_enabled': _ai_global_enabled(),
+            'force_fallback': _ai_force_fallback(),
+            'recent_shutdown': recent_shutdown.created_at.isoformat() if recent_shutdown else None,
+            'recent_restore': recent_restore.created_at.isoformat() if recent_restore else None,
+            'pending_fallback_count': pending_fallback_count,
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R17-F01 灰度状态查询失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/rollout/allowlist', methods=['POST'])
+# AI_TASK: AI-R17-F01
+@login_required
+@require_role('admin')
+def api_ai_rollout_allowlist():
+    """AI-R17-F01：维护灰度白名单（仅管理员）。
+
+    支持设置白名单用户 ID 列表（逗号分隔）和切换模式。用户被移出白名单后立即生效，
+    不依赖重启（_ai_allowed_user_ids 每次实时读取 SystemSetting）。
+    """
+    from ai.ops.rollout_control import (
+        parse_allowed_user_ids,
+        validate_admin_only_maintenance,
+        normalize_mode,
+    )
+    try:
+        payload = request.get_json(silent=True) or {}
+        raw_ids = payload.get('allowed_user_ids', '')
+        # F01 权限边界：只有 admin 可以维护灰度名单（require_role 已保证，再做防御性校验）
+        ok, msg = validate_admin_only_maintenance(current_user.role, 'update_allowlist')
+        if not ok:
+            return jsonify({'status': 'error', 'msg': msg}), 403
+        new_ids = parse_allowed_user_ids(raw_ids)
+        set_system_setting('ai_feature_allowed_user_ids', ','.join(str(i) for i in new_ids))
+        # 可选：同时切换模式
+        new_mode = payload.get('mode')
+        if new_mode is not None:
+            norm = normalize_mode(str(new_mode))
+            set_system_setting('ai_feature_rollout_mode', norm)
+        db.session.commit()
+        return jsonify({
+            'status': 'ok',
+            'allowed_user_ids': new_ids,
+            'mode': _ai_rollout_mode(),
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'AI-R17-F01 维护白名单失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'保存失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/rollout/shutdown', methods=['POST'])
+# AI_TASK: AI-R17-F01
+@login_required
+@require_role('admin')
+def api_ai_rollout_shutdown():
+    """AI-R17-F01：一键关闭 AI（关闭全局开关+开启 force_fallback+清空白名单）。
+
+    F01 要求：关闭不得修改业务数据或用户密码，10 分钟内可一键恢复到关闭前快照。
+    """
+    from ai.ops.rollout_control import (
+        validate_admin_only_maintenance,
+        validate_no_business_data_modified,
+        snapshot_rollout,
+        restore_rollout,
+        record_rollback_event,
+        ROLLBACK_ACTION_SHUTDOWN,
+    )
+    try:
+        ok, msg = validate_admin_only_maintenance(current_user.role, 'shutdown')
+        if not ok:
+            return jsonify({'status': 'error', 'msg': msg}), 403
+        started_at = datetime.now()
+        previous_snapshot = _ai_r17f01_take_snapshot()
+        # 关闭：全局开关=0、force_fallback=1、白名单清空、模式保持原值（恢复时一并还原）
+        set_system_setting('ai_feature_global_enabled', '0')
+        set_system_setting('ai_force_fallback', '1')
+        set_system_setting('ai_feature_allowed_user_ids', '')
+        db.session.commit()
+        completed_at = datetime.now()
+        new_snapshot = _ai_r17f01_take_snapshot()
+        event = _ai_r17f01_record_event(
+            ROLLBACK_ACTION_SHUTDOWN, previous_snapshot, new_snapshot, started_at, completed_at,
+        )
+        # 校验：不修改业务数据（shutdown 只动系统设置）
+        ok_biz, biz_msg = validate_no_business_data_modified(event)
+        db.session.commit()
+        return jsonify({
+            'status': 'ok',
+            'action': 'shutdown',
+            'event_id': event.event_id,
+            'previous_snapshot': previous_snapshot.to_dict(),
+            'new_snapshot': new_snapshot.to_dict(),
+            'duration_seconds': event.duration_seconds,
+            'business_data_safe': ok_biz,
+            'msg': 'AI 已一键关闭，白名单已清空，Provider 紧急回滚已开启',
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'AI-R17-F01 一键关闭失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'关闭失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/rollout/restore', methods=['POST'])
+# AI_TASK: AI-R17-F01
+@login_required
+@require_role('admin')
+def api_ai_rollout_restore():
+    """AI-R17-F01：一键恢复到关闭前灰度配置（最近一次 shutdown 的 previous_snapshot）。
+
+    F01 要求：10 分钟内关闭 AI 并恢复配置；关闭不修改业务数据或用户密码。
+    """
+    from ai.ops.rollout_control import (
+        validate_admin_only_maintenance,
+        validate_rollback_within_minutes,
+        restore_rollout,
+        ROLLBACK_ACTION_RESTORE,
+        DEFAULT_ROLLBACK_MAX_MINUTES,
+    )
+    try:
+        ok, msg = validate_admin_only_maintenance(current_user.role, 'restore')
+        if not ok:
+            return jsonify({'status': 'error', 'msg': msg}), 403
+        # 找到最近一次 shutdown 事件
+        last_shutdown_row = AIRollbackEvent.query.filter_by(
+            action='shutdown',
+        ).order_by(AIRollbackEvent.created_at.desc()).first()
+        if not last_shutdown_row:
+            return jsonify({'status': 'error', 'msg': '没有可恢复的关闭事件'}), 400
+        started_at = datetime.now()
+        previous_snapshot = _ai_r17f01_take_snapshot()
+        # 恢复到 shutdown 前的配置
+        from ai.ops.rollout_control import RolloutSnapshot
+        snap_dict = json.loads(last_shutdown_row.previous_snapshot)
+        restored_snapshot = RolloutSnapshot(
+            mode=snap_dict.get('mode', 'off'),
+            allowed_user_ids=list(snap_dict.get('allowed_user_ids', [])),
+            global_enabled=bool(snap_dict.get('global_enabled', True)),
+            force_fallback=bool(snap_dict.get('force_fallback', False)),
+            taken_at=datetime.fromisoformat(snap_dict['taken_at']) if snap_dict.get('taken_at') else datetime.now(),
+        )
+        _ai_r17f01_apply_snapshot(restore_rollout(restored_snapshot))
+        db.session.commit()
+        completed_at = datetime.now()
+        new_snapshot = _ai_r17f01_take_snapshot()
+        event = _ai_r17f01_record_event(
+            ROLLBACK_ACTION_RESTORE, previous_snapshot, new_snapshot, started_at, completed_at,
+        )
+        # 时间窗校验：shutdown + restore 是否在 10 分钟内
+        from ai.ops.rollout_control import RollbackEvent
+        shutdown_event = RollbackEvent(
+            event_id=last_shutdown_row.event_id,
+            action=last_shutdown_row.action,
+            operator_id=last_shutdown_row.operator_id,
+            operator_role=last_shutdown_row.operator_role,
+            previous_snapshot=restored_snapshot,  # 占位，校验函数不读此字段
+            new_snapshot=restored_snapshot,
+            started_at=last_shutdown_row.started_at,
+            completed_at=last_shutdown_row.completed_at,
+        )
+        within_ok, within_msg = validate_rollback_within_minutes(
+            shutdown_event, event, max_minutes=DEFAULT_ROLLBACK_MAX_MINUTES,
+        )
+        db.session.commit()
+        return jsonify({
+            'status': 'ok',
+            'action': 'restore',
+            'event_id': event.event_id,
+            'restored_snapshot': restored_snapshot.to_dict(),
+            'new_snapshot': new_snapshot.to_dict(),
+            'duration_seconds': event.duration_seconds,
+            'within_10_minutes': within_ok,
+            'rollback_check': within_msg,
+            'msg': 'AI 已恢复到关闭前配置',
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'AI-R17-F01 一键恢复失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'恢复失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/rollout/audit', methods=['GET'])
+# AI_TASK: AI-R17-F01
+@login_required
+@require_role('admin')
+def api_ai_rollout_audit():
+    """AI-R17-F01：查询灰度拒绝审计记录（支持按 user_id/capability/stage 筛选）。"""
+    try:
+        query = AIRolloutAudit.query
+        user_id = request.args.get('user_id', type=int)
+        if user_id:
+            query = query.filter_by(user_id=user_id)
+        capability = request.args.get('capability')
+        if capability:
+            query = query.filter_by(capability=capability)
+        stage = request.args.get('stage')
+        if stage:
+            query = query.filter_by(stage=stage)
+        limit = min(int(request.args.get('limit', 100)), 500)
+        rows = query.order_by(AIRolloutAudit.created_at.desc()).limit(limit).all()
+        return jsonify({
+            'status': 'ok',
+            'count': len(rows),
+            'records': [
+                {
+                    'audit_id': r.audit_id,
+                    'user_id': r.user_id,
+                    'role': r.role,
+                    'capability': r.capability,
+                    'reason': r.reason,
+                    'stage': r.stage,
+                    'source': r.source,
+                    'created_at': r.created_at.isoformat(),
+                }
+                for r in rows
+            ],
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R17-F01 审计查询失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/rollout/fallback_tasks', methods=['GET'])
+# AI_TASK: AI-R17-F01
+@login_required
+@require_role('admin')
+def api_ai_rollout_fallback_tasks():
+    """AI-R17-F01：查询人工降级任务（Provider 故障等场景保留的证据）。"""
+    try:
+        query = AIManualFallbackTask.query
+        status = request.args.get('status')
+        if status:
+            query = query.filter_by(status=status)
+        limit = min(int(request.args.get('limit', 100)), 500)
+        rows = query.order_by(AIManualFallbackTask.created_at.desc()).limit(limit).all()
+        return jsonify({
+            'status': 'ok',
+            'count': len(rows),
+            'tasks': [
+                {
+                    'task_id': r.task_id,
+                    'original_run_id': r.original_run_id,
+                    'reason': r.reason,
+                    'preserved_files': json.loads(r.preserved_files) if r.preserved_files else [],
+                    'preserved_drafts': json.loads(r.preserved_drafts) if r.preserved_drafts else [],
+                    'task_status': r.status,
+                    'operator_id': r.operator_id,
+                    'handled_at': r.handled_at.isoformat() if r.handled_at else None,
+                    'created_at': r.created_at.isoformat(),
+                }
+                for r in rows
+            ],
+        })
+    except Exception as e:
+        app.logger.error(f'AI-R17-F01 降级任务查询失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+
+
+@app.route('/api/ai/rollout/fallback_tasks/<task_id>', methods=['POST'])
+# AI_TASK: AI-R17-F01
+@login_required
+@require_role('admin')
+def api_ai_rollout_fallback_task_handle(task_id):
+    """AI-R17-F01：处理人工降级任务（标记为 handled/rejected）。"""
+    from ai.ops.rollout_control import validate_admin_only_maintenance
+    try:
+        ok, msg = validate_admin_only_maintenance(current_user.role, 'handle_fallback')
+        if not ok:
+            return jsonify({'status': 'error', 'msg': msg}), 403
+        payload = request.get_json(silent=True) or {}
+        new_status = payload.get('status', 'handled')
+        if new_status not in ('handled', 'rejected'):
+            return jsonify({'status': 'error', 'msg': '状态必须为 handled 或 rejected'}), 400
+        row = AIManualFallbackTask.query.filter_by(task_id=task_id).first()
+        if not row:
+            return jsonify({'status': 'error', 'msg': '降级任务不存在'}), 404
+        row.status = new_status
+        row.operator_id = current_user.id
+        row.handled_at = datetime.now()
+        db.session.commit()
+        return jsonify({
+            'status': 'ok',
+            'task_id': task_id,
+            'new_status': new_status,
+            'operator_id': row.operator_id,
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'AI-R17-F01 处理降级任务失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'处理失败：{str(e)}'}), 500
 
 
 @app.route('/ai/supplier_evaluation')

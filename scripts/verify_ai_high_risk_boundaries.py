@@ -94,6 +94,8 @@ def main() -> int:
 
     with app.app_context():
         wms_app.db.create_all()
+        wms_app.set_system_setting('ai_feature_rollout_mode', 'all')
+        wms_app.db.session.commit()
         username = 'verify-ai-high-risk-warehouse'
         wms_app.User.query.filter_by(username=username).delete()
         material_code = 'VERIFY-P005-MAT'

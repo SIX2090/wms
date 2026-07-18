@@ -54,7 +54,16 @@ def allowed_for(role: str, capability: str) -> bool:
         return bool(wms_app._ai_capability_allowed(capability))
 
 
+def _ensure_rollout_all() -> None:
+    """测试默认使用 all 模式以隔离角色权限矩阵检查（F01 默认 off）。"""
+    with wms_app.app.app_context():
+        wms_app.db.create_all()
+        wms_app.set_system_setting('ai_feature_rollout_mode', 'all')
+        wms_app.db.session.commit()
+
+
 def main() -> int:
+    _ensure_rollout_all()
     actual_capabilities = set(wms_app.AI_CAPABILITY_ROLES)
     expected_capabilities = set(EXPECTED)
     registered_capabilities = set(AI_TOOL_REGISTRY)

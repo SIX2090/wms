@@ -62,6 +62,7 @@ CORE_SCRIPTS = SMOKE_SCRIPTS + (
     "verify_ai_business_quality.py",
     "verify_ai_browser_e2e.py",
     "verify_ai_launch_acceptance.py",
+    "verify_ai_rollout_control.py",
 )
 
 FULL_EXTRA_SCRIPTS = (

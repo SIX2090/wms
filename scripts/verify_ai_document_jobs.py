@@ -22,6 +22,8 @@ def main() -> int:
 
     with app.app_context():
         wms_app.db.create_all()
+        wms_app.set_system_setting('ai_feature_rollout_mode', 'all')
+        wms_app.db.session.commit()
         username = 'document-job-verifier'
         wms_app.User.query.filter_by(username=username).delete()
         wms_app.db.session.commit()

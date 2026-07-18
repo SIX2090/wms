@@ -80,3 +80,6 @@ jobs:
 
       - name: Run AI launch acceptance check (AI-R17)
         run: python3 scripts/verify_ai_launch_acceptance.py
+
+      - name: Run AI rollout control check (AI-R17-F01)
+        run: python3 scripts/verify_ai_rollout_control.py

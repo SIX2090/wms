@@ -38,6 +38,8 @@ def main() -> int:
 
     with app.app_context():
         wms_app.db.create_all()
+        wms_app.set_system_setting('ai_feature_rollout_mode', 'all')
+        wms_app.db.session.commit()
         _delete_stage7_materials()
         for username in ('stage7-purchase', 'stage7-warehouse', 'stage7-production'):
             wms_app.User.query.filter_by(username=username).delete()
