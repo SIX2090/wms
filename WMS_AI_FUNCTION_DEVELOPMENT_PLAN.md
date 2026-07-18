@@ -316,7 +316,7 @@ AI-R01～R17 的基础能力已经完成。AI-R17-F01 真实用户白名单灰�
 | P1 | AI-R10-F01 | 已完成 | 仓库 AI 工作台正式接入导航 | AI-R10、R16、R17-F01 | 7 类队列卡片、空态、下钻、角色菜单 | 数量与原业务列表一致；工作台只读，不混入写动作 | 2026-07-18 | [待提交] | app.py、ai_warehouse_workbench.html、verify_ai_warehouse_workbench_page.py | 8项专项测试通过 | 无 |
 | P1 | AI-R11-F01 | 已完成 | 采购到货 AI 工作台正式接入导航 | AI-R06、R11、R16、R17-F01 | 待到/延期/短交/超收/未关联通知/多候选/供应商跟进 | 跟进建议不自动发送；所有候选和差异可人工复核 | 2026-07-18 | [待提交] | app.py、ai_purchase_workbench.html、verify_ai_purchase_workbench_page.py | 8项专项测试通过 | 无 |
 | P2 | AI-R06-F01 | 已完成 | 真实采购订单与送货通知匹配调优 | AI-R17-F02 | 真实样本评测、权重校准、错误样本回灌 | 多候选不自动选；误建采购申请为 0；差异提示可复核 | 2026-07-18 | [待提交] | delivery_matcher_calibration.py、verify_ai_delivery_matcher_calibration.py | 8项专项测试通过 | 无 |
-| P2 | AI-R07-F01 | 已完成 | 真实物料别名、包装换算和高风险规则治理 | AI-R08-F01 | 物料专属换算、别名审批、冲突/停用、高风险规则 | 一物多码可追溯；规格冲突和高风险物料 100% 人工确认 | 2026-07-18 | [待提交] | material_governance_enhanced.py、verify_ai_material_governance_enhanced.py | 8项专项测试通过，52项核心验证通过 | 无 |
+| P2 | AI-R07-F01 | 已完成 | 真实物料别名、包装换算和高风险规则治理 | AI-R08-F01 | 物料专属换算、别名审批、冲突/停用、高风险规则 | 一物多码可追溯；规格冲突和高风险物料 100% 人工确认 | 2026-07-18 | e121af0 | material_governance_enhanced.py、verify_ai_material_governance_enhanced.py | 8项专项测试通过，52项核心验证通过 | 无 |
 | P2 | AI-SALES-F01 | 待开发 | AI 销售订单/销售出库草稿真实闭环验收 | 销售阶段 7、AI-R01、R08、R17-F01 | 销售草稿证据、部分发货、多次发货、库存与报表对账 | AI 只建/检草稿；库存、订单发货量和销售报表一致 |
 | 发布门禁 | AI-R17-F03 | 待开发 | 正式发布、备份恢复和运营交接 | 上述 P0 全部、选定 P1 | 发布清单、备份、恢复演练、监控、回滚、培训 | full 验证通过；真实灰度通过；恢复演练和回滚演练有证据 |
 
