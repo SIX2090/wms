@@ -139,7 +139,30 @@
     }
     document.getElementById('addRowBtn').addEventListener('click', function() { addRow(); });
     document.getElementById('copyRowBtn').addEventListener('click', function() { var last = body.querySelector('tr:last-child'); addRow(last); });
-    document.getElementById('pasteBtn').addEventListener('click', function() { document.getElementById('entryStatus').textContent = '请使用明细行下拉框选择物料；批量粘贴导入将在下一版接入。'; });
+    document.getElementById('pasteBtn').addEventListener('click', function() {
+        var importText = function(text) {
+            var rows = String(text || '').trim().split(/\r?\n/).filter(Boolean);
+            if (!rows.length) return;
+            rows.forEach(function(line, index) {
+                var parts = line.split(/\t|,/).map(function(value) { return value.trim(); });
+                if (!parts[0]) return;
+                var row = index === 0 && !body.querySelector('tr .material').value ? body.querySelector('tr') : addRow();
+                row.querySelector('.material').value = parts[0];
+                row.querySelector('.qty').value = parts[1] || '1';
+                row.querySelector('.price').value = parts[2] || '0';
+                row.querySelector('.tax-rate').value = parts[3] || defaultTaxRate;
+                row.querySelector('.batch-no').value = parts[4] || '';
+                row.querySelector('.serial-no').value = parts[5] || '';
+                row.querySelector('.line-remark').value = parts[6] || '';
+                fillRow(row, findMaterial(parts[0]));
+            });
+            renumber();
+            recalc();
+            document.getElementById('entryStatus').textContent = '已导入 ' + rows.length + ' 行明细，请核对后保存';
+        };
+        if (navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then(importText).catch(function() { document.getElementById('entryStatus').textContent = '无法读取剪贴板，请确认浏览器权限'; });
+        else document.getElementById('entryStatus').textContent = '当前浏览器不支持剪贴板读取';
+    });
     document.getElementById('saveBtn').addEventListener('click', function() { save(false); });
     document.getElementById('saveNewBtn').addEventListener('click', function() { save(true); });
     addRow();
