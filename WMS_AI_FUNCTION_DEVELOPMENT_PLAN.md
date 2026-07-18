@@ -321,6 +321,7 @@ AI-R01～R17 的基础能力已经完成。AI-R17-F01 真实用户白名单灰�
 | P2 | AI-SALES-F01 | 已完成 | AI 销售订单/销售出库草稿真实闭环验收 | 销售阶段 7、AI-R01、R08、R17-F01 | 销售草稿证据、部分发货、多次发货、库存与报表对账 | AI 只建/检草稿；库存、订单发货量和销售报表一致 |
 | 发布门禁 | AI-R17-F03 | 已完成 | 正式发布、备份恢复和运营交接 | 上述 P0 全部、选定 P1 | 发布清单、备份、恢复演练、监控、回滚、培训 | 2026-07-18 | [待提交] | release_handover.py、verify_ai_release_handover.py | 8项专项测试通过 | 无 |
 | P0 修复 | AI-AUDIT-001-F01 | 已完成 | 修复 AI 审计回归检查对关键字参数调用的误报 | AI-R01、AI-R17-F01 | 验证脚本匹配合法的能力审计调用，保持权限和审计逻辑不变 | 回归检查通过且核心/完整套件通过 | 2026-07-18 | 4e79a49 | scripts/verify_wms_bugs.py、WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md | verify_wms_bugs.py、verify_ai_all.py --level full、compileall、严格台账一致性全部通过 | 64/64 full 通过；远程 main 已验证为 4e79a49 | 无 |
+| P0 | AI-R18-F01 | 已完成 | 生产就绪门禁、真实验收证据和 main 克隆恢复流程 | AI-R17-F02、AI-R17-F03 | 生产证据 JSON 校验、默认 no-go、自测、CI 门禁、临时电脑安全克隆 | 缺真实样本/七日指标/签字/生产配置任一项均不得 GO | 2026-07-18 | [待提交] | scripts/verify_production_readiness.py、tools/clone_wms_main.ps1、README.md、PRODUCTION_DEPLOYMENT_CHECKLIST.md、.github/workflows/verify.yml | self-test、py_compile、source encoding 已通过；待 full 和推送 | 真实生产证据仍需现场采集；合成样本不计入 GO |
 
 同一时间只允许一个子项处于“开发中”。P0 未完成前不得开始 P2，不得以页面美化、模型更换或新 Agent 名义绕过生产验收。
 

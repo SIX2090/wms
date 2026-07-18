@@ -34,6 +34,16 @@ app/requirements.txt
 
 ## 快速启动
 
+### Git 工作区恢复
+
+不要使用 GitHub 的 `Download ZIP`，ZIP 不包含 `.git` 历史。临时电脑重启后可执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\clone_wms_main.ps1
+```
+
+脚本只使用 `main`，目标目录存在普通文件时会停止并提示人工备份，不会删除文件。
+
 进入应用目录：
 
 ```bat

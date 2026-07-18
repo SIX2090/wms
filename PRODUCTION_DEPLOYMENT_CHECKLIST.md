@@ -8,12 +8,14 @@
 - [ ] 本次发布范围内代码已提交并推送到GitHub
 - [ ] 本次发布功能和页面交互已完成验收
 - [ ] `scripts\python.cmd scripts\verify_ai_all.py --level full` 全部通过
+- [ ] `scripts\python.cmd scripts\verify_production_readiness.py --evidence <生产证据包.json>` 输出 `GO`
 - [ ] `git status --short` 无本次发布遗漏文件
 
 ### 2. 数据库准备
 - [ ] 执行数据库迁移脚本（新增ai_run、ai_tool_call、ai_feedback等表）
 - [ ] 备份现有数据库
 - [ ] 验证迁移后数据完整性
+- [ ] 备份数据库、上传文件和配置，并完成受控副本恢复演练
 
 ### 3. 配置检查
 - [ ] 配置LLM API密钥（环境变量或配置文件）
