@@ -182,14 +182,34 @@
     <form method="post">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="row_count" value="{{ payload.rows|length }}">
-        {% if payload.document_type in ['sales_out_order', 'out_order'] %}
+        
+        {# AI-R08-F01: 表头字段编辑区域（supplier/order_no/date） #}
         <div class="ai-header-fields">
+            {% if payload.supplier %}
+            <label>
+                供应商
+                <input type="text" name="header_supplier" value="{{ payload.supplier or '' }}" maxlength="100" placeholder="供应商名称">
+            </label>
+            {% endif %}
+            {% if payload.order_no %}
+            <label>
+                订单号
+                <input type="text" name="header_order_no" value="{{ payload.order_no or '' }}" maxlength="100" placeholder="订单号">
+            </label>
+            {% endif %}
+            {% if payload.date %}
+            <label>
+                日期
+                <input type="date" name="header_date" value="{{ payload.date or '' }}">
+            </label>
+            {% endif %}
+            {% if payload.document_type in ['sales_out_order', 'out_order'] %}
             <label>
                 客户
                 <input type="text" name="customer" value="{{ payload.customer or '' }}" maxlength="100" placeholder="客户名称">
             </label>
+            {% endif %}
         </div>
-        {% endif %}
         <div class="table-responsive">
             <table class="ai-confirm-table">
                 <thead>

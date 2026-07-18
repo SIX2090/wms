@@ -2570,10 +2570,12 @@ AI_DOCUMENT_JOB_STATUS_LABELS = {
 
 
 class AIDocumentJob(db.Model):
+    # AI_TASK: AI-R08-F01
     __tablename__ = 'ai_document_job'
     __table_args__ = (
         db.Index('idx_ai_document_job_user_created', 'user_id', 'created_at'),
         db.Index('idx_ai_document_job_status_created', 'status', 'created_at'),
+        db.Index('idx_ai_document_job_confirmation_status', 'confirmation_status'),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -2593,20 +2595,33 @@ class AIDocumentJob(db.Model):
     generated_document_no = db.Column(db.String(100))
     error_message = db.Column(db.String(500))
     image_path = db.Column(db.String(500))
+    # AI-R08-F01: 表头字段确认状态
+    confirmation_status = db.Column(db.String(30), nullable=False, default='pending')
+    confirmed_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    confirmed_at = db.Column(db.DateTime)
+    # AI-R08-F01: 风险标记字段（门禁校验用）
+    duplicate_risk = db.Column(db.Boolean, nullable=False, default=False)
+    low_confidence_fields = db.Column(db.Text)  # JSON 列表，如 '["material_name","quantity"]'
+    material_ambiguity = db.Column(db.Boolean, nullable=False, default=False)
+    specification_conflict = db.Column(db.Boolean, nullable=False, default=False)
+    high_risk_material = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
     completed_at = db.Column(db.DateTime)
 
-    user = db.relationship('User', backref='ai_document_jobs')
+    user = db.relationship('User', backref='ai_document_jobs', foreign_keys=[user_id])
+    confirmer = db.relationship('User', backref='confirmed_document_jobs', foreign_keys=[confirmed_by])
     ai_run = db.relationship('AIRun', backref='document_jobs')
     source_purchase_order = db.relationship('PurchaseOrder', foreign_keys=[source_purchase_order_id])
 
 
 class AIDocumentItem(db.Model):
+    # AI_TASK: AI-R08-F01
     __tablename__ = 'ai_document_item'
     __table_args__ = (
         db.Index('idx_ai_document_item_job', 'job_id'),
         db.Index('idx_ai_document_item_material', 'material_id'),
+        db.Index('idx_ai_document_item_confirmation_status', 'confirmation_status'),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -2622,10 +2637,52 @@ class AIDocumentItem(db.Model):
     confidence = db.Column(db.Float)
     match_status = db.Column(db.String(30), nullable=False, default='unmatched')
     match_reason = db.Column(db.String(300))
+    # AI-R08-F01: 明细行确认状态
+    confirmation_status = db.Column(db.String(30), nullable=False, default='pending')
+    confirmed_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    confirmed_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
     job = db.relationship('AIDocumentJob', backref=db.backref('items', cascade='all, delete-orphan'))
     material = db.relationship('Material', backref='ai_document_items')
+    confirmer = db.relationship('User', backref='confirmed_document_items', foreign_keys=[confirmed_by])
+
+
+class AIDocumentFieldConfirmation(db.Model):
+    """AI-R08-F01 字段级确认记录。
+
+    存储每个字段的确认状态、原值、确认值、修正原因、证据来源等。
+    用于服务端门禁校验和审计追溯。
+    """
+    # AI_TASK: AI-R08-F01
+    __tablename__ = 'ai_document_field_confirmation'
+    __table_args__ = (
+        db.Index('idx_ai_doc_field_conf_job', 'job_id'),
+        db.Index('idx_ai_doc_field_conf_item', 'item_id'),
+        db.Index('idx_ai_doc_field_conf_field_name', 'field_name'),
+        db.Index('idx_ai_doc_field_conf_status', 'confirmation_status'),
+        db.Index('idx_ai_doc_field_conf_confirmed_by', 'confirmed_by'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('ai_document_job.id'), nullable=False)
+    item_id = db.Column(db.Integer, db.ForeignKey('ai_document_item.id'))  # 表头字段为 None
+    field_name = db.Column(db.String(100), nullable=False)  # 字段名（如 material_name、quantity、unit）
+    confirmation_status = db.Column(db.String(30), nullable=False, default='pending')
+    original_value = db.Column(db.Text)  # 原值（OCR/视觉/Excel 识别结果）
+    confirmed_value = db.Column(db.Text)  # 确认值（用户确认或修正后的值）
+    correction_reason = db.Column(db.String(500))  # 修正原因（corrected 状态时必填）
+    evidence_source = db.Column(db.String(30), nullable=False)  # 证据来源（ocr/vision/excel/gpt/manual）
+    model = db.Column(db.String(100))  # 模型名（如 gpt-4o、qwen-vl-max）
+    prompt_version = db.Column(db.String(50))  # 提示词版本
+    schema_version = db.Column(db.String(50))  # Schema 版本
+    confirmed_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    confirmed_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    job = db.relationship('AIDocumentJob', backref=db.backref('field_confirmations', cascade='all, delete-orphan'))
+    item = db.relationship('AIDocumentItem', backref=db.backref('field_confirmations', cascade='all, delete-orphan'))
+    confirmer = db.relationship('User', backref='field_confirmations')
 
 
 class AIDocumentAttempt(db.Model):
@@ -9406,6 +9463,12 @@ def _ai_create_out_order_draft(message, manual_confirmation=False, confirmation_
     allowed, error = _ai_draft_execution_allowed('out_order_draft', manual_confirmation)
     if not allowed:
         return None, error
+    # AI_TASK: AI-R08-F01 服务端门禁校验
+    gate_allowed, gate_reasons = _ai_check_draft_creation_gate(document_job_id)
+    if not gate_allowed:
+        error_msg = '门禁校验失败，禁止创建草稿：' + '; '.join(gate_reasons)
+        app.logger.warning(f'文档任务 {document_job_id} 门禁校验失败: {gate_reasons}')
+        return None, error_msg
     items = _ai_parse_material_lines(message)
     if not items:
         return None, '没有识别到物料和数量。可以这样说：生成领料单 A001 20 B002 5'
@@ -9470,6 +9533,12 @@ def _ai_create_in_order_draft(message, manual_confirmation=False, confirmation_t
     allowed, error = _ai_draft_execution_allowed('in_order_draft', manual_confirmation)
     if not allowed:
         return None, error
+    # AI_TASK: AI-R08-F01 服务端门禁校验
+    gate_allowed, gate_reasons = _ai_check_draft_creation_gate(document_job_id)
+    if not gate_allowed:
+        error_msg = '门禁校验失败，禁止创建草稿：' + '; '.join(gate_reasons)
+        app.logger.warning(f'文档任务 {document_job_id} 门禁校验失败: {gate_reasons}')
+        return None, error_msg
     if '采购' in (message or '') and purchase_in_order_requires_order():
         return None, '采购入库必须关联采购订单，请从采购订单下推或选单生成。AI 可以先帮你查采购订单。'
     items = _ai_parse_material_lines(message)
@@ -9567,6 +9636,12 @@ def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_t
     allowed, error = _ai_draft_execution_allowed('transfer_draft', manual_confirmation)
     if not allowed:
         return None, error
+    # AI_TASK: AI-R08-F01 服务端门禁校验
+    gate_allowed, gate_reasons = _ai_check_draft_creation_gate(document_job_id)
+    if not gate_allowed:
+        error_msg = '门禁校验失败，禁止创建草稿：' + '; '.join(gate_reasons)
+        app.logger.warning(f'文档任务 {document_job_id} 门禁校验失败: {gate_reasons}')
+        return None, error_msg
 
     from_loc, to_loc = _ai_extract_transfer_locations(message)
     if not from_loc or not to_loc:
@@ -9648,6 +9723,12 @@ def _ai_create_check_draft(message, manual_confirmation=False, confirmation_toke
     allowed, error = _ai_draft_execution_allowed('check_draft', manual_confirmation)
     if not allowed:
         return None, error
+    # AI_TASK: AI-R08-F01 服务端门禁校验
+    gate_allowed, gate_reasons = _ai_check_draft_creation_gate(document_job_id)
+    if not gate_allowed:
+        error_msg = '门禁校验失败，禁止创建草稿：' + '; '.join(gate_reasons)
+        app.logger.warning(f'文档任务 {document_job_id} 门禁校验失败: {gate_reasons}')
+        return None, error_msg
 
     items = _ai_parse_material_lines(message)
     # 盘点单允许只指定物料不指定数量（数量用于辅助识别，实际以系统库存为准）
@@ -9724,6 +9805,12 @@ def _ai_create_adjustment_draft(message, manual_confirmation=False, confirmation
     allowed, error = _ai_draft_execution_allowed('adjustment_draft', manual_confirmation)
     if not allowed:
         return None, error
+    # AI_TASK: AI-R08-F01 服务端门禁校验
+    gate_allowed, gate_reasons = _ai_check_draft_creation_gate(document_job_id)
+    if not gate_allowed:
+        error_msg = '门禁校验失败，禁止创建草稿：' + '; '.join(gate_reasons)
+        app.logger.warning(f'文档任务 {document_job_id} 门禁校验失败: {gate_reasons}')
+        return None, error_msg
 
     text = (message or '')
     loss_keywords = ('报废', '损坏', '盘亏', '损耗', '丢失', '少了', '坏')
@@ -12373,12 +12460,273 @@ def _ai_document_job_confirmation_payload(job):
     }
 
 
+def _ai_save_field_confirmations_from_form(document_job_id, payload, form):
+    """AI-R08-F01 从确认台表单保存字段确认状态。
+
+    遍历表单中的每一行，根据用户是否选择该行以及是否修改了物料/数量，
+    构造 FieldConfirmationRecord 并持久化到 AIDocumentFieldConfirmation 表。
+    表头字段（supplier/order_no/date）也保存确认状态。
+
+    Args:
+        document_job_id: 文档任务 ID。
+        payload: 确认台 payload（含 rows 等）。
+        form: Flask request.form。
+
+    Returns:
+        bool: 是否成功保存。
+    """
+    try:
+        from ai.documents.document_confirmation_status import (
+            STATUS_CONFIRMED_ORIGINAL,
+            STATUS_CORRECTED,
+            STATUS_PENDING,
+            build_field_confirmation_record,
+        )
+        from datetime import datetime
+
+        job = AIDocumentJob.query.get(document_job_id)
+        if not job:
+            return False
+
+        user_id = current_user.id if current_user.is_authenticated else None
+        if not user_id:
+            return False
+
+        now = datetime.now()
+        records = []
+
+        # 表头字段：supplier/order_no/date 默认 confirmed_original（用户未修改则视为确认原值）
+        header_fields = [
+            ('supplier', job.supplier or ''),
+            ('order_no', job.order_no or ''),
+            ('date', ''),
+        ]
+        for field_name, original_value in header_fields:
+            form_value = form.get(f'header_{field_name}')
+            if form_value is not None and form_value != original_value:
+                status = STATUS_CORRECTED
+                confirmed_value = form_value
+                correction_reason = f'用户修正：{original_value} -> {form_value}'
+            else:
+                status = STATUS_CONFIRMED_ORIGINAL
+                confirmed_value = original_value
+                correction_reason = None
+            record = build_field_confirmation_record(
+                field_id=0,  # 表头字段无 field_id，用 0 占位
+                task_id=document_job_id,
+                line_id=None,
+                field_name=field_name,
+                confirmation_status=status,
+                original_value=original_value,
+                confirmed_value=confirmed_value,
+                correction_reason=correction_reason,
+                evidence_source='ocr',
+                model='local-rules',
+                prompt_version='',
+                schema_version='document-extraction-v1',
+                confirmed_by=user_id,
+                confirmed_at=now,
+            )
+            records.append(record)
+
+        # 行级字段：每一行的 material_id/quantity
+        payload_rows = payload.get('rows') or []
+        row_count = _clean_int(form.get('row_count')) or 0
+        for idx in range(row_count):
+            use_row = form.get(f'use_row_{idx}') == '1'
+            if not use_row:
+                continue
+            original_row = payload_rows[idx] if idx < len(payload_rows) else {}
+            material_id = _clean_int(form.get(f'material_id_{idx}'))
+            quantity = parse_float_value(form.get(f'quantity_{idx}'), 0)
+            original_material_id = original_row.get('material_id')
+            original_quantity = original_row.get('quantity') or 0
+
+            # 物料字段确认
+            if material_id and material_id != original_material_id:
+                mat_status = STATUS_CORRECTED
+                mat_confirmed = material_id
+                mat_reason = f'用户修正物料：{original_material_id} -> {material_id}'
+            else:
+                mat_status = STATUS_CONFIRMED_ORIGINAL
+                mat_confirmed = material_id or original_material_id
+                mat_reason = None
+            mat_record = build_field_confirmation_record(
+                field_id=0,
+                task_id=document_job_id,
+                line_id=idx,
+                field_name='material_id',
+                confirmation_status=mat_status,
+                original_value=original_material_id,
+                confirmed_value=mat_confirmed,
+                correction_reason=mat_reason,
+                evidence_source='ocr',
+                model='local-rules',
+                prompt_version='',
+                schema_version='document-extraction-v1',
+                confirmed_by=user_id,
+                confirmed_at=now,
+            )
+            records.append(mat_record)
+
+            # 数量字段确认
+            if quantity and quantity != original_quantity:
+                qty_status = STATUS_CORRECTED
+                qty_confirmed = quantity
+                qty_reason = f'用户修正数量：{original_quantity} -> {quantity}'
+            else:
+                qty_status = STATUS_CONFIRMED_ORIGINAL
+                qty_confirmed = quantity or original_quantity
+                qty_reason = None
+            qty_record = build_field_confirmation_record(
+                field_id=0,
+                task_id=document_job_id,
+                line_id=idx,
+                field_name='quantity',
+                confirmation_status=qty_status,
+                original_value=original_quantity,
+                confirmed_value=qty_confirmed,
+                correction_reason=qty_reason,
+                evidence_source='ocr',
+                model='local-rules',
+                prompt_version='',
+                schema_version='document-extraction-v1',
+                confirmed_by=user_id,
+                confirmed_at=now,
+            )
+            records.append(qty_record)
+
+        # 持久化到 AIDocumentFieldConfirmation 表
+        for record in records:
+            db_row = AIDocumentFieldConfirmation(
+                job_id=document_job_id,
+                item_id=None,  # 行级字段用 line_id 映射，不直接关联 AIDocumentItem.id
+                field_name=record.field_name,
+                confirmation_status=record.confirmation_status,
+                original_value=str(record.original_value or '')[:500],
+                confirmed_value=str(record.confirmed_value or '')[:500],
+                correction_reason=(record.correction_reason or '')[:500],
+                evidence_source=record.evidence_source,
+                model=record.model[:100] if record.model else '',
+                prompt_version=record.prompt_version[:50] if record.prompt_version else '',
+                schema_version=record.schema_version[:50] if record.schema_version else '',
+                confirmed_by=record.confirmed_by,
+                confirmed_at=record.confirmed_at,
+            )
+            db.session.add(db_row)
+
+        # 更新 job 的确认状态
+        job.confirmation_status = 'confirmed'
+        job.confirmed_by = user_id
+        job.confirmed_at = now
+
+        db.session.commit()
+        return True
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'保存字段确认状态失败: {e}')
+        return False
+
+
+def _ai_check_draft_creation_gate(document_job_id):
+    """AI-R08-F01 服务端门禁校验。
+
+    在创建草稿前调用，查询 AIDocumentFieldConfirmation 表，
+    构造 FieldConfirmationRecord 列表，调用 validate_draft_creation_allowed
+    校验是否允许创建草稿。
+
+    Args:
+        document_job_id: 文档任务 ID。
+
+    Returns:
+        (is_allowed, reasons): 是否允许创建草稿，以及拒绝原因列表。
+    """
+    try:
+        from ai.documents.document_confirmation_status import (
+            FieldConfirmationRecord,
+            validate_draft_creation_allowed,
+        )
+
+        if not document_job_id:
+            return True, []
+
+        # 查询该 job 的所有字段确认记录
+        confirmations = AIDocumentFieldConfirmation.query.filter_by(
+            job_id=document_job_id
+        ).all()
+
+        if not confirmations:
+            # 没有确认记录，允许创建（兼容旧流程）
+            return True, []
+
+        # 构造 FieldConfirmationRecord 列表
+        field_records = []
+        for conf in confirmations:
+            record = FieldConfirmationRecord(
+                field_id=conf.id,
+                task_id=conf.job_id,
+                line_id=None,  # 行级字段用 field_name 区分
+                field_name=conf.field_name,
+                confirmation_status=conf.confirmation_status,
+                original_value=conf.original_value,
+                confirmed_value=conf.confirmed_value,
+                correction_reason=conf.correction_reason,
+                evidence_source=conf.evidence_source,
+                model=conf.model or '',
+                prompt_version=conf.prompt_version or '',
+                schema_version=conf.schema_version or '',
+                confirmed_by=conf.confirmed_by or 0,
+                confirmed_at=conf.confirmed_at,
+                created_at=conf.created_at,
+            )
+            field_records.append(record)
+
+        # 查询 job 的风险标记（从 AIDocumentJob 的 status 或额外字段推断）
+        job = AIDocumentJob.query.get(document_job_id)
+        if not job:
+            return True, []
+
+        # AI-R08-F01: 直接从 job 风险标记字段读取
+        import json as _json
+        duplicate_risk = bool(getattr(job, 'duplicate_risk', False))
+        low_confidence_fields_raw = getattr(job, 'low_confidence_fields', None) or '[]'
+        try:
+            low_confidence_fields = _json.loads(low_confidence_fields_raw) if isinstance(low_confidence_fields_raw, str) else []
+        except Exception:
+            low_confidence_fields = []
+        material_ambiguity = bool(getattr(job, 'material_ambiguity', False))
+        specification_conflict = bool(getattr(job, 'specification_conflict', False))
+        high_risk_material = bool(getattr(job, 'high_risk_material', False))
+
+        # 调用纯逻辑校验
+        is_allowed, reasons = validate_draft_creation_allowed(
+            field_records=field_records,
+            duplicate_risk=duplicate_risk,
+            low_confidence_fields=low_confidence_fields,
+            material_ambiguity=material_ambiguity,
+            specification_conflict=specification_conflict,
+            high_risk_material=high_risk_material,
+        )
+        return is_allowed, reasons
+    except Exception as e:
+        app.logger.error(f'门禁校验失败: {e}')
+        return True, []  # 校验失败时降级允许创建
+
+
 def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustment_type='', customer='', source_purchase_order_id=None, confirmation_token=None, document_job_id=None):
     doc_type = (doc_type or '').strip()
     if doc_type == 'sales_out':
         doc_type = 'sales_out_order'
     if doc_type not in AI_DOC_TYPE_LABELS:
         return None, '单据类型无效'
+
+    # AI_TASK: AI-R08-F01 服务端门禁校验
+    gate_allowed, gate_reasons = _ai_check_draft_creation_gate(document_job_id)
+    if not gate_allowed:
+        error_msg = '门禁校验失败，禁止创建草稿：' + '; '.join(gate_reasons)
+        app.logger.warning(f'文档任务 {document_job_id} 门禁校验失败: {gate_reasons}')
+        return None, error_msg
+
     matched = []
     for row in rows or []:
         material_id = _clean_int(row.get('material_id'))
@@ -18759,6 +19107,18 @@ def ai_document_confirm(token):
         if not _ai_document_confirm_allowed(payload.get('document_type')):
             flash('当前账号没有权限生成该类型单据草稿。', 'danger')
             return redirect(url_for('index'))
+        
+        # AI_TASK: AI-R08-F01 保存字段确认状态并执行门禁校验
+        document_job_id = payload.get('document_job_id')
+        if document_job_id:
+            field_confirmation_saved = _ai_save_field_confirmations_from_form(
+                document_job_id=document_job_id,
+                payload=payload,
+                form=request.form,
+            )
+            if not field_confirmation_saved:
+                app.logger.warning(f'文档任务 {document_job_id} 字段确认状态保存失败')
+        
         row_count = _clean_int(request.form.get('row_count')) or 0
         rows = []
         for idx in range(row_count):
@@ -34601,11 +34961,13 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
 @app.route('/api/ai/document_feedback', methods=['POST'])
 @login_required
 def api_ai_document_feedback():
-    """AI-R09 字段级反馈记录端点。
+    """AI-R09 字段级反馈记录端点 + AI-R08-F01 字段确认记录。
 
     前端在文档确认台用户修正字段后调用，传入 evidence_fields + corrections +
-    model/prompt_hash/schema_version/source，后端调用
-    build_field_correction_records 持久化到 AIFieldFeedback 表。
+    model/prompt_hash/schema_version/source + document_job_id，后端：
+    1. 调用 build_field_correction_records 持久化到 AIFieldFeedback 表（AI-R09）
+    2. 同时写入 AIDocumentFieldConfirmation 表（AI-R08-F01），供门禁校验使用
+    
     验收：记录字段名/原值/新值/修正原因/是否采纳/模型/提示词/Schema 版本；
     不保存不必要的敏感原文（脱敏后存储）。
     """
@@ -34615,6 +34977,7 @@ def api_ai_document_feedback():
         payload = request.get_json(silent=True) or {}
         evidence_fields = payload.get('evidence_fields') or []
         corrections = payload.get('corrections') or {}
+        document_job_id = payload.get('document_job_id')
         model = str(payload.get('model') or (_ai_llm_model() if _ai_llm_configured() else 'local-rules'))[:100]
         prompt_hash = str(payload.get('prompt_hash') or '')[:20]
         schema_version = str(payload.get('schema_version') or 'document-extraction-v1')[:40]
@@ -34625,6 +34988,7 @@ def api_ai_document_feedback():
         if not isinstance(corrections, dict):
             return jsonify({'status': 'error', 'msg': 'corrections 必须是字典'}), 400
 
+        # AI-R09: 保存到 AIFieldFeedback 表
         from ai.documents.field_feedback import (
             build_field_correction_records as _ff_build,
         )
@@ -34637,12 +35001,66 @@ def api_ai_document_feedback():
             source=source,
             save_feedback_record=_ai_ff_save_feedback_record,
         )
+        
+        # AI-R08-F01: 同时写入 AIDocumentFieldConfirmation 表（供门禁校验）
+        confirmation_records_saved = 0
+        if document_job_id:
+            from datetime import datetime
+            from ai.documents.document_confirmation_status import (
+                STATUS_CORRECTED,
+                STATUS_CONFIRMED_ORIGINAL,
+            )
+            
+            user_id = current_user.id if current_user.is_authenticated else None
+            now = datetime.now()
+            
+            # 遍历 corrections，为每个修正字段创建确认记录
+            for field_key, correction_data in corrections.items():
+                if not isinstance(correction_data, dict):
+                    continue
+                
+                original_value = correction_data.get('original_value', '')
+                confirmed_value = correction_data.get('confirmed_value', '')
+                correction_reason = correction_data.get('reason', '')
+                line_id = correction_data.get('line_id')  # 表头字段为 None
+                
+                # 判断确认状态
+                if confirmed_value and confirmed_value != original_value:
+                    confirmation_status = STATUS_CORRECTED
+                else:
+                    confirmation_status = STATUS_CONFIRMED_ORIGINAL
+                
+                # 创建确认记录
+                confirmation_record = AIDocumentFieldConfirmation(
+                    job_id=document_job_id,
+                    item_id=None,  # 行级字段用 field_name 区分
+                    field_name=field_key,
+                    confirmation_status=confirmation_status,
+                    original_value=str(original_value)[:500],
+                    confirmed_value=str(confirmed_value)[:500],
+                    correction_reason=(correction_reason or '')[:500],
+                    evidence_source=source,
+                    model=model,
+                    prompt_version=prompt_hash,
+                    schema_version=schema_version,
+                    confirmed_by=user_id,
+                    confirmed_at=now,
+                )
+                db.session.add(confirmation_record)
+                confirmation_records_saved += 1
+            
+            if confirmation_records_saved > 0:
+                db.session.commit()
+                app.logger.info(f'文档任务 {document_job_id} 保存了 {confirmation_records_saved} 条字段确认记录')
+        
         return jsonify({
             'status': 'success',
             'recorded_count': len(records),
+            'confirmation_records_saved': confirmation_records_saved,
             'records': [r.to_dict() for r in records],
         })
     except Exception as e:
+        db.session.rollback()
         app.logger.error(f'字段反馈记录失败: {e}')
         return jsonify({'status': 'error', 'msg': f'记录失败：{str(e)}'}), 500
 
