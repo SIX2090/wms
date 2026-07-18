@@ -4681,24 +4681,24 @@ MOBILE_SCAN_MODES = {
     'check': {'title': '手机盘点', 'icon': 'bi-clipboard-check'},
 }
 
-ANDROID_APK_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    'android-native-wms',
-    'app',
-    'build',
-    'outputs',
-    'apk',
-    'debug',
-    'app-debug.apk'
+ANDROID_APK_PATHS = (
+    # Packaged APK shipped beside the repository entrypoints.
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app-debug.apk'),
+    # Backward-compatible Android project build output.
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        'android-native-wms', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk'
+    ),
 )
 
 
 @app.route('/mobile/app')
 def mobile_app_download():
-    if not os.path.exists(ANDROID_APK_PATH):
+    apk_path = next((path for path in ANDROID_APK_PATHS if os.path.isfile(path)), None)
+    if not apk_path:
         abort(404)
     return send_file(
-        ANDROID_APK_PATH,
+        apk_path,
         mimetype='application/vnd.android.package-archive',
         as_attachment=True,
         download_name='wms-mobile-scan.apk'
