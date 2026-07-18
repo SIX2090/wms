@@ -183,6 +183,15 @@
     var historyList = document.getElementById('historyList');
     var selectedMaterial = null;
 
+    function csrfHeaders(headers) {
+        var result = headers || {};
+        var tokenNode = document.querySelector('meta[name="csrf-token"]');
+        if (tokenNode && tokenNode.content) {
+            result['X-CSRFToken'] = tokenNode.content;
+        }
+        return result;
+    }
+
     function setStatus(message, type) {
         scanStatus.textContent = message || '';
         scanStatus.className = 'mobile-scan-status' + (type ? ' ' + type : '');
@@ -347,7 +356,7 @@
             };
             fetch('/mobile/api/scan_submit', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: csrfHeaders({'Content-Type': 'application/json'}),
                 credentials: 'same-origin',
                 body: JSON.stringify(payload)
             })
@@ -417,6 +426,7 @@
 
         fetch('/mobile/api/recognize_material', {
             method: 'POST',
+            headers: csrfHeaders(),
             credentials: 'same-origin',
             body: formData
         })
