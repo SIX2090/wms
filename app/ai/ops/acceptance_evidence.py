@@ -559,7 +559,7 @@ def is_draft_adopted_by_business(
     return False, f'业务单据 {draft_type}#{draft_id} 状态为 {business_status}（未知状态保守判定）'
 
 
-# ===== 低置信度未确认判定辅助（临时口径）=====
+# ===== 低置信度未确认判定辅助（正式口径）=====
 
 def is_low_confidence_unconfirmed(
     confidence: Optional[float],
@@ -571,24 +571,31 @@ def is_low_confidence_unconfirmed(
     口径修正（台账 13.2）：低置信度未确认必须读取明确的 confirmation_status，
     不得只根据置信度猜测。
 
-    临时口径（待 R08-F01 完成）：confidence < 0.85 且 document_job_status == 'draft_created'
-    且 confirmation_status 为 None 或 'pending' 时判定为未确认。
-    R08-F01 完成后切换为 confirmation_status in ('pending', None) 判定。
+    正式口径（AI-R08-F01 已完成）：confirmation_status in ('pending', None) 判定为未确认。
+    当 confirmation_status 为 'confirmed_original'、'corrected' 或 'rejected' 时，
+    表示已处理，不算未确认。
 
     Args:
         confidence: 字段置信度（AIDocumentItem.confidence）。
         document_job_status: 文档任务状态（AIDocumentJob.status）。
-        confirmation_status: 确认状态（R08-F01 完成后由 AIDocumentItem.confirmation_status 提供）。
+        confirmation_status: 确认状态（AIDocumentItem.confirmation_status）。
 
     Returns:
         (是否低置信度未确认, 原因)
     """
-    # 如果 confirmation_status 已实现且已确认，则不算未确认
+    # 正式口径：基于 confirmation_status 判定
+    # 已确认的状态不算未确认
     if confirmation_status in ('confirmed_original', 'corrected', 'rejected'):
         return False, f'confirmation_status={confirmation_status}（已处理）'
-    # 临时口径：confidence < 阈值 且 draft_created 且未确认
-    if confidence is not None and confidence < LOW_CONFIDENCE_THRESHOLD:
-        if document_job_status == 'draft_created':
-            return True, f'confidence={confidence}<{LOW_CONFIDENCE_THRESHOLD} 且 status=draft_created 且 confirmation_status={confirmation_status}（低置信度未确认）'
-        return False, f'confidence={confidence} 但 status={document_job_status}（非 draft_created）'
-    return False, f'confidence={confidence}（未低于阈值 {LOW_CONFIDENCE_THRESHOLD}）'
+    
+    # confirmation_status 为 pending 或 None 表示未确认
+    if confirmation_status in ('pending', None):
+        # 低置信度字段且未确认
+        if confidence is not None and confidence < LOW_CONFIDENCE_THRESHOLD:
+            if document_job_status == 'draft_created':
+                return True, f'confidence={confidence}<{LOW_CONFIDENCE_THRESHOLD} 且 confirmation_status={confirmation_status} 且 status=draft_created（低置信度未确认）'
+            return False, f'confidence={confidence} 但 status={document_job_status}（非 draft_created）'
+        return False, f'confidence={confidence}（未低于阈值 {LOW_CONFIDENCE_THRESHOLD}）'
+    
+    # 其他未知状态保守判定为未确认
+    return False, f'confirmation_status={confirmation_status}（未知状态）'

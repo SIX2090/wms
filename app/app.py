@@ -34682,6 +34682,11 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
         if remarks:
             prompt += f'\n\n用户备注：{remarks}'
         
+        # AI_TASK: AI-R09
+        # 保存提取提示词到flask.g，供后续计算prompt_hash使用
+        from flask import g as _g_prompt
+        _g_prompt.ai_extraction_prompt = prompt
+        
         # AI_TASK: AI-R05
         # 路由决策：可解释、可配置、可回滚
         try:

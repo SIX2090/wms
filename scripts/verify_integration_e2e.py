@@ -28,7 +28,6 @@ def test_purchase_to_inbound_flow():
             DocumentExtraction, DocumentHeader, DocumentLine,
             DocumentType, MatchMethod,
         )
-        from ai.documents.matcher import match_material
         from ai.documents.confirmation import build_confirmation_context
 
         # 模拟采购订单数据

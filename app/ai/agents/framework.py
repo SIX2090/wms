@@ -153,6 +153,27 @@ class AgentExecutor:
         """执行Agent计划。"""
         self.run.status = AgentRunStatus.EXECUTING
 
+        # AI_TASK: AI-R13
+        # 集成预算检查钩子：执行前检查预算约束
+        budget_config = self.run.context.get('budget_config')
+        if budget_config:
+            try:
+                from ai.agents.budget_control import check_budget
+                budget_result = check_budget(
+                    budget_config,
+                    current_steps=self.run.current_step,
+                    started_at_iso=self.run.started_at.isoformat(),
+                    current_tool_calls=len(self.run.plan.steps),
+                )
+                if not budget_result.passed:
+                    logger.warning('预算检查失败，停止执行: %s', budget_result.reason)
+                    self.run.status = AgentRunStatus.FAILED
+                    self.run.error = f'预算检查失败: {budget_result.reason}'
+                    self.run.completed_at = datetime.now()
+                    return self.run
+            except Exception as e:  # noqa: BLE001
+                logger.warning('预算检查异常，继续执行: %s', e)
+
         for i, step in enumerate(self.run.plan.steps):
             if self.is_cancelled():
                 break
@@ -160,6 +181,26 @@ class AgentExecutor:
             # 检查前置步骤是否成功（写操作依赖的只读步骤）
             if step.status != AgentStepStatus.PENDING:
                 continue
+
+            # AI_TASK: AI-R13
+            # 每步执行前再次检查预算（防止执行过程中超限）
+            if budget_config:
+                try:
+                    from ai.agents.budget_control import check_budget
+                    budget_result = check_budget(
+                        budget_config,
+                        current_steps=i + 1,
+                        started_at_iso=self.run.started_at.isoformat(),
+                        current_tool_calls=i + 1,
+                    )
+                    if not budget_result.passed:
+                        logger.warning('步骤 %d 预算检查失败，停止执行: %s', step.step_no, budget_result.reason)
+                        step.status = AgentStepStatus.FAILED
+                        step.error = f'预算检查失败: {budget_result.reason}'
+                        step.completed_at = datetime.now()
+                        break
+                except Exception as e:  # noqa: BLE001
+                    logger.warning('步骤 %d 预算检查异常，继续执行: %s', step.step_no, e)
 
             # 执行步骤
             step.status = AgentStepStatus.RUNNING
