@@ -846,7 +846,7 @@ sales_order 1 ---- n sales_order_item
 - 每条异常保留真实销售订单或销售出库单下钻入口；页面只提供筛选和查看，不自动改库存、不自动修正订单、不替代仓库人工处理。
 - 销售工作台和销售管理菜单增加异常入口，销售模块验证脚本覆盖异常页面渲染。
 
-**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 29/29 通过。真实浏览器验收因当前环境 Playwright CLI 依赖下载超时仍待执行；异常数据需在业务库继续对账。
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 29/29 通过；安装官方 Google Chrome 后使用本机缓存的 Playwright CLI 完成真实浏览器快照验收：登录、销售工作台、销售异常工作台、销售订单列表、销售报表、销售对账均正常。此前失败原因为 8080 端口存在多个旧 `run_server.py` 进程，清理后单实例重启正常。异常数据仍需在业务库继续对账；真实多角色浏览器验收仍待业务账号执行。
 
 ## G. 每阶段交付门槛
 
