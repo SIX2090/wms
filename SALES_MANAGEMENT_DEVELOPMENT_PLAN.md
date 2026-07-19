@@ -811,7 +811,7 @@ sales_order 1 ---- n sales_order_item
 - 页面仓库下拉框使用启用仓库主数据，页面与 Excel 导出复用同一请求参数和筛选口径。
 - 销售报表查询和导出均覆盖仓库筛选回归；销售出库事实仍只统计销售出库单，订单经营报表仍统计销售订单。
 
-**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 26/26 通过。剩余子任务：多进程选单并发锁。
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 26/26 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。提交：`ddff2a0`。剩余子任务：多进程选单并发锁。
 
 ## G. 每阶段交付门槛
 
