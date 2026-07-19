@@ -813,6 +813,15 @@ sales_order 1 ---- n sales_order_item
 
 **验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 26/26 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。提交：`ddff2a0`。剩余子任务：多进程选单并发锁。
 
+## 阶段 15 实施记录（2026-07-19）：销售选单并发保护
+
+- 销售选单生成接口在 SQLite worker 进程中使用 `BEGIN IMMEDIATE` 获取短写锁，并在加锁后重新读取销售明细。
+- 加锁后再次检查来源订单状态、未发货数量和待处理销售出库草稿，避免两个进程同时通过预检查并重复占用同一销售明细。
+- 非 SQLite 数据库使用 `SELECT ... FOR UPDATE` 读取来源明细；异常时事务回滚，库存仍只由人工完成出库触发。
+- 新增重复选单保护回归用例，验证已有待处理草稿时接口拒绝第二次下推。
+
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 28/28 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。待提交后补充最终提交哈希。
+
 ## G. 每阶段交付门槛
 
 每个任务必须同时具备：代码、权限、审计、迁移说明、测试、页面入口、报表口径、运行验证和回滚说明。完成后更新本计划的任务状态、提交哈希、验证命令和剩余风险；提交和推送必须落在 `main`，不得创建工作分支。

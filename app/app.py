@@ -40793,6 +40793,22 @@ def create_sales_outbound_from_selection():
     if len(source_items) != len(selected_qty_by_item_id):
         return jsonify({'status': 'error', 'msg': '部分销售订单明细不存在，请刷新后重试'}), 400
 
+    # SQLite does not honor SELECT ... FOR UPDATE. Acquire a short database
+    # write lock before the final pending-draft check, then reload source rows
+    # so two worker processes cannot both reserve the same sales lines.
+    if db.engine.dialect.name == 'sqlite':
+        db.session.rollback()
+        db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
+        source_items = SalesOrderItem.query.options(
+            joinedload(SalesOrderItem.sales_order).joinedload(SalesOrder.customer),
+            joinedload(SalesOrderItem.material),
+        ).filter(SalesOrderItem.id.in_(selected_qty_by_item_id.keys())).all()
+    else:
+        source_items = SalesOrderItem.query.with_for_update().options(
+            joinedload(SalesOrderItem.sales_order).joinedload(SalesOrder.customer),
+            joinedload(SalesOrderItem.material),
+        ).filter(SalesOrderItem.id.in_(selected_qty_by_item_id.keys())).all()
+
     order_ids = set()
     customer_ids = set()
     warehouses = set()

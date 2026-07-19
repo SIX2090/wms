@@ -13,6 +13,7 @@
     SALES-STC-007  销售出库行级来源外键和安全回写
     SALES-STC-008  销售出库选单入口和接口
     SALES-STC-009  销售订单仓库外键迁移和启用校验
+    SALES-STC-010  销售选单多进程写锁和二次校验
 
   运行时测试（Flask test_client + 临时数据库）：
     SALES-RT-001  创建销售订单（含税额字段）
@@ -124,6 +125,10 @@ def run_static_checks() -> list[tuple[str, bool, str]]:
     has_warehouse_validation = "def validate_sales_warehouse" in app_py and "请选择有效且启用的发货仓库" in app_py
     results.append(static_check("SALES-STC-009", has_warehouse_migration and has_warehouse_fk and has_warehouse_validation,
         "销售订单仓库外键、历史迁移和启用状态校验存在"))
+
+    has_selection_lock = "BEGIN IMMEDIATE" in app_py and "final pending-draft check" in app_py
+    results.append(static_check("SALES-STC-010", has_selection_lock,
+        "销售选单生成包含 SQLite 写锁和加锁后来源重读"))
 
     # SALES-STC-004: 销售路由权限装饰器
     sales_routes_section = app_py[app_py.index("def sales_order_add():"):]
@@ -423,6 +428,19 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                     source_ok = selectable_response.status_code == 200 and len(selectable_items) == 2 and source_ids == duplicate_item_ids and quantities == [2.0, 5.0]
                 results.append(("SALES-RT-007A", source_ok,
                     f"同物料多行来源: source_ids={source_ids}, quantities={quantities}"))
+
+                duplicate_selection_response = c.post(
+                    "/sales/create_outbound_from_selection",
+                    data=json.dumps({"items": [
+                        {"sales_order_item_id": duplicate_item_ids[0], "quantity": 1},
+                        {"sales_order_item_id": duplicate_item_ids[1], "quantity": 1},
+                    ]}),
+                    content_type="application/json",
+                )
+                duplicate_selection_body = duplicate_selection_response.get_json(silent=True) or {}
+                duplicate_guard_ok = duplicate_selection_response.status_code == 400 and '待处理销售出库草稿' in duplicate_selection_body.get('msg', '')
+                results.append(("SALES-RT-007C", duplicate_guard_ok,
+                    f"并发/重复选单保护 -> HTTP {duplicate_selection_response.status_code}"))
 
                 # The test explicitly represents the warehouse user's confirmation
                 # after reviewing the anomaly warning.
