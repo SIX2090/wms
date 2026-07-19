@@ -25,7 +25,7 @@
 - 启动迁移仅对销售订单中“物料唯一对应一行”的历史出库明细自动回填；无来源或同物料多行记录保留为空并写入迁移告警，禁止静默猜测。
 - 销售验证新增同物料多行下推/完成回写场景，验证每行数量和来源 ID 一一对应。
 
-**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 22/22 通过；`python scripts/verify_wms_bugs.py` 通过。待提交后补充最终提交哈希。
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 22/22 通过；`python scripts/verify_wms_bugs.py` 通过。提交：`4159c57`。剩余子任务：销售出库选单工作台及仓库外键约束。
 
 **验证**：`python -m py_compile app/app.py` 通过；新增路由、菜单入口和模板静态检查通过。当前目录缺少 `.git` 元数据，无法执行提交和推送。
 
