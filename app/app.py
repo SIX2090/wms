@@ -17,6 +17,7 @@ import secrets
 import sys
 import uuid
 import io
+import math
 import shutil
 import re
 import sqlite3
@@ -70,6 +71,19 @@ from utils import (
 from notifications import notification_manager
 
 STOCK_COMPARE_EPSILON = 1e-6
+MAX_TRANSACTION_QUANTITY = 1_000_000_000_000
+MAX_TRANSACTION_PRICE = 1_000_000_000_000
+
+
+def parse_bounded_number(value, default=0, *, maximum=MAX_TRANSACTION_QUANTITY):
+    """Parse a finite non-negative business number within database-safe bounds."""
+    parsed = parse_float_value(value, default)
+    if parsed is None or not math.isfinite(float(parsed)):
+        return None
+    parsed = float(parsed)
+    if parsed < 0 or parsed > maximum:
+        return None
+    return parsed
 
 
 # Auto-migrate database on startup
@@ -157,6 +171,15 @@ def auto_migrate_database():
         user_columns = [row[1] for row in cursor.fetchall()]
         if user_columns and 'must_change_password' not in user_columns:
             cursor.execute("ALTER TABLE user ADD COLUMN must_change_password BOOLEAN DEFAULT 0")
+            modified = True
+        if user_columns and 'login_lock_ip' not in user_columns:
+            cursor.execute("ALTER TABLE user ADD COLUMN login_lock_ip VARCHAR(50)")
+            modified = True
+        if user_columns and 'login_ip_failed_count' not in user_columns:
+            cursor.execute("ALTER TABLE user ADD COLUMN login_ip_failed_count INTEGER DEFAULT 0")
+            modified = True
+        if user_columns and 'login_ip_locked_until' not in user_columns:
+            cursor.execute("ALTER TABLE user ADD COLUMN login_ip_locked_until DATETIME")
             modified = True
         if in_columns and 'business_type' not in in_columns:
             cursor.execute("ALTER TABLE in_order ADD COLUMN business_type VARCHAR(50)")
@@ -1960,6 +1983,9 @@ class User(UserMixin, db.Model):
     last_login_at = db.Column(db.DateTime)  # Last login time
     last_login_ip = db.Column(db.String(50))  # Last login IP
     must_change_password = db.Column(db.Boolean, default=False, nullable=False)
+    login_lock_ip = db.Column(db.String(50))
+    login_ip_failed_count = db.Column(db.Integer, default=0)
+    login_ip_locked_until = db.Column(db.DateTime)
 
     # Flask-Login integration
     @property
@@ -1977,14 +2003,43 @@ class User(UserMixin, db.Model):
         """Clear failed login state."""
         self.login_failed_count = 0
         self.locked_until = None
+        self.login_lock_ip = None
+        self.login_ip_failed_count = 0
+        self.login_ip_locked_until = None
 
-    def increment_failed_count(self):
+    def is_locked_for(self, ip_address):
+        """Lock failed-login attempts per account and source IP, avoiding account-wide DoS."""
+        if self.is_locked:
+            return True
+        return bool(
+            ip_address and self.login_lock_ip == ip_address
+            and self.login_ip_locked_until
+            and self.login_ip_locked_until > datetime.now()
+        )
+
+    def login_lock_remaining(self, ip_address):
+        deadline = self.locked_until if self.is_locked else None
+        if not deadline and self.login_lock_ip == ip_address and self.login_ip_locked_until:
+            deadline = self.login_ip_locked_until
+        return max(1, int((deadline - datetime.now()).total_seconds() // 60)) if deadline else 0
+
+    def increment_failed_count(self, ip_address=None):
         """Increase failed login count and lock account if needed."""
         if self.locked_until and self.locked_until <= datetime.now():
             self.login_failed_count = 0
             self.locked_until = None
+        # 保留历史字段用于审计，但新失败锁定按账号+来源 IP 计算，避免任意来源锁死账号。
         self.login_failed_count = (self.login_failed_count or 0) + 1
-        if self.login_failed_count >= max_login_failures():
+        if ip_address:
+            if self.login_lock_ip != ip_address or (
+                    self.login_ip_locked_until and self.login_ip_locked_until <= datetime.now()):
+                self.login_lock_ip = ip_address
+                self.login_ip_failed_count = 0
+                self.login_ip_locked_until = None
+            self.login_ip_failed_count = (self.login_ip_failed_count or 0) + 1
+            if self.login_ip_failed_count >= max_login_failures():
+                self.login_ip_locked_until = datetime.now() + timedelta(minutes=account_lock_minutes())
+        elif self.login_failed_count >= max_login_failures():
             self.locked_until = datetime.now() + timedelta(minutes=account_lock_minutes())
 
 
@@ -4700,9 +4755,9 @@ def parse_api_lines(payload):
         code = (line.get('material_code') or line.get('code') or '').strip()
         if not code:
             return None, f'第 {index} 行缺少物料编码'
-        quantity = parse_float_value(line.get('quantity'), 0)
-        if quantity <= 0:
-            return None, f'第 {index} 行数量必须大于 0'
+        quantity = parse_bounded_number(line.get('quantity'), 0)
+        if quantity is None or quantity <= 0:
+            return None, f'第 {index} 行数量必须是 0 至 1000000000000 的有限数字'
         material = Material.query.filter_by(code=code).first()
         if not material:
             return None, f'物料不存在：{code}'
@@ -4718,11 +4773,14 @@ def native_api_login():
     password = payload.get('password') or ''
     if not username or not password:
         return api_json_error('请输入账号和密码', 400)
+    if len(username) > 80 or len(password) > 128:
+        return api_json_error('用户名或密码长度不正确', 400)
+    request_ip = get_request_ip()
 
     user = User.query.filter_by(username=username).first()
     if not user or not check_password_hash(user.password_hash, password):
         if user and user.is_active:
-            user.increment_failed_count()
+            user.increment_failed_count(request_ip)
         add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
         try:
             db.session.commit()
@@ -4733,8 +4791,8 @@ def native_api_login():
         return api_json_error('账号已被禁用', 403)
     if user.must_change_password:
         return api_json_error('请先通过网页登录修改初始密码', 403)
-    if user.is_locked:
-        return api_json_error('账号已锁定，请稍后再试', 423)
+    if user.is_locked_for(request_ip):
+        return api_json_error(f'账号已锁定，请 {user.login_lock_remaining(request_ip)} 分钟后再试', 423)
 
     token = ApiToken(
         token=secrets.token_urlsafe(48),
@@ -5750,6 +5808,9 @@ def login():
     if not username or not password:
         flash('请输入用户名和密码', 'danger')
         return render_template('login.html', next=next_page, current_date=login_date), 400
+    if len(username) > 80 or len(password) > 128:
+        flash('用户名或密码长度不正确', 'danger')
+        return render_template('login.html', next=next_page, current_date=login_date), 400
 
     user = User.query.filter_by(username=username).first()
     if not user:
@@ -5778,8 +5839,9 @@ def login():
         flash('管理员模式仅允许管理员账号登录', 'danger')
         return render_template('login.html', next=next_page, current_date=login_date), 403
 
-    if user.is_locked:
-        remaining = max(1, int((user.locked_until - datetime.now()).total_seconds() // 60))
+    request_ip = get_request_ip()
+    if user.is_locked_for(request_ip):
+        remaining = user.login_lock_remaining(request_ip)
         add_login_log(
             status='failed',
             username=username,
@@ -5815,9 +5877,9 @@ def login():
             return redirect(url_for('admin_console'))
         return redirect(resolve_redirect_target(next_page))
 
-    user.increment_failed_count()
+    user.increment_failed_count(request_ip)
     fail_reason = ''
-    if user.is_locked:
+    if user.is_locked_for(request_ip):
         fail_reason = f'{account_lock_minutes()}'
     add_login_log(status='failed', username=username, user=user, fail_reason=fail_reason)
     try:
@@ -5826,7 +5888,7 @@ def login():
         db.session.rollback()
         app.logger.error(f'数据库操作失败: {e}')
 
-    if user.is_locked:
+    if user.is_locked_for(request_ip):
         flash(f'密码错误次数过多，账号已锁定 {account_lock_minutes()} 分钟', 'danger')
     else:
         remaining = max(0, max_login_failures() - (user.login_failed_count or 0))
@@ -6165,6 +6227,10 @@ def add_user():
     allowed_roles = {'admin', 'warehouse', 'purchase', 'sales', 'production', 'user', 'viewer'}
     if role not in allowed_roles:
         return jsonify({'status': 'error', 'msg': '用户角色不合法'})
+    if len(username) > 80:
+        return jsonify({'status': 'error', 'msg': '用户名不能超过 80 个字符'}), 400
+    if len(password) > 128:
+        return jsonify({'status': 'error', 'msg': '密码不能超过 128 个字符'}), 400
     if not username or not password:
         return jsonify({'status': 'error', 'msg': '请输入用户名和密码'})
     if User.query.filter_by(username=username).first():
@@ -6557,9 +6623,12 @@ def add_material():
     if material_name_spec_exists(name, spec):
         return jsonify({'status': 'error', 'msg': '物料名称和规格不能同时重复'})
 
-    initial_stock = parse_float_value(request.form.get('stock'), 0)
-    if initial_stock < 0:
-        return jsonify({'status': 'error', 'msg': '初始库存不能小于 0'}), 400
+    initial_stock = parse_bounded_number(request.form.get('stock'), 0)
+    if initial_stock is None:
+        return jsonify({'status': 'error', 'msg': '初始库存必须是 0 至 1000000000000 的有限数字'}), 400
+    initial_price = parse_bounded_number(request.form.get('price'), 0, maximum=MAX_TRANSACTION_PRICE)
+    if initial_price is None:
+        return jsonify({'status': 'error', 'msg': '参考价格必须是 0 至 1000000000000 的有限数字'}), 400
 
     image_file = request.files.get('image')
     image_path = None
@@ -6588,7 +6657,7 @@ def add_material():
         reorder_point=float((request.form.get('reorder_point') or request.form.get('safety_stock') or 0) or 0),
         expiry_date=expiry_date_parsed,
         alert_days=int(request.form.get('alert_days', 30) or 30),
-        price=float(request.form.get('price', 0) or 0),
+        price=initial_price,
         remark=((request.form.get('remark') or '').strip() or None),
         image=image_path
     )
@@ -7759,12 +7828,16 @@ def edit_material(id):
         return jsonify({'status': 'error', 'msg': '请输入物料编码'})
     if not new_name:
         return jsonify({'status': 'error', 'msg': '请输入物料名称'})
+    if len(new_code) > 50 or len(new_name) > 100:
+        return jsonify({'status': 'error', 'msg': '物料编码不能超过 50 个字符，名称不能超过 100 个字符'}), 400
 
     existing = Material.query.filter_by(code=new_code).first()
     if existing and existing.id != id:
         return jsonify({'status': 'error', 'msg': '物料编码已存在'})
 
     new_spec = (request.form.get('spec') or '').strip()
+    if len(new_spec) > 200:
+        return jsonify({'status': 'error', 'msg': '物料规格不能超过 200 个字符'}), 400
     if material_name_spec_exists(new_name, new_spec, exclude_id=id):
         return jsonify({'status': 'error', 'msg': '物料名称和规格不能同时重复'})
 
@@ -7797,7 +7870,10 @@ def edit_material(id):
         material.reorder_point = parse_float_value(request.form.get('reorder_point'), 0)
         material.alert_days = int(request.form.get('alert_days') or 30)
     material.expiry_date = parse_date_value(expiry_date)
-    material.price = parse_float_value(request.form.get('price'), 0)
+    material.price = parse_bounded_number(request.form.get('price'), 0, maximum=MAX_TRANSACTION_PRICE)
+    if material.price is None:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'msg': '参考价格超出有效范围'}), 400
     material.remark = (request.form.get('remark') or '').strip() or None
     material.image = image_path
 
