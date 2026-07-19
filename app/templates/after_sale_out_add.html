@@ -223,6 +223,9 @@
                     <div class="mb-2">
                         <label class="form-label">售后原因</label>
                         <input type="text" class="form-control" name="reason" placeholder="请输入售后原因" value="{{ order.reason if order else '' }}">
+                        <input type="number" class="form-control mt-2" name="source_sales_order_id" placeholder="原销售订单ID（可选）" value="{{ order.source_sales_order_id if order else '' }}">
+                        <input type="number" class="form-control mt-2" name="source_out_order_id" placeholder="原销售出库单ID（可选）" value="{{ order.source_out_order_id if order else '' }}">
+                        <input type="text" class="form-control mt-2" name="responsibility" placeholder="责任归属（可选）" value="{{ order.responsibility if order else '' }}">
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -490,6 +493,9 @@ function submitForm() {
         contact: document.querySelector('[name="contact"]').value,
         phone: document.querySelector('[name="phone"]').value,
         reason: document.querySelector('[name="reason"]').value,
+        source_sales_order_id: document.querySelector('[name="source_sales_order_id"]').value,
+        source_out_order_id: document.querySelector('[name="source_out_order_id"]').value,
+        responsibility: document.querySelector('[name="responsibility"]').value,
         remark: document.querySelector('[name="remark"]').value,
         items: items
     };

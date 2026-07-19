@@ -28,6 +28,7 @@
                     <option value="admin" {% if filters.role == 'admin' %}selected{% endif %}>管理员</option>
                     <option value="warehouse" {% if filters.role == 'warehouse' %}selected{% endif %}>仓管员</option>
                     <option value="purchase" {% if filters.role == 'purchase' %}selected{% endif %}>采购</option>
+                    <option value="sales" {% if filters.role == 'sales' %}selected{% endif %}>销售</option>
                     <option value="production" {% if filters.role == 'production' %}selected{% endif %}>生产</option>
                     <option value="user" {% if filters.role == 'user' %}selected{% endif %}>普通用户</option>
                 </select>
@@ -78,6 +79,8 @@
                         <span class="badge bg-success">仓管员</span>
                         {% elif user.role == 'purchase' %}
                         <span class="badge bg-primary">采购</span>
+                        {% elif user.role == 'sales' %}
+                        <span class="badge bg-info">销售</span>
                         {% elif user.role == 'production' %}
                         <span class="badge bg-warning text-dark">生产</span>
                         {% else %}

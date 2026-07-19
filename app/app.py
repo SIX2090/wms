@@ -45,6 +45,13 @@ from ai.orchestrator import dispatch_registered_tool
 from ai.routes import ai_bp
 from ai.streaming import sse_event, stream_response_payload
 from ai.tools.registry import get_ai_tool_spec
+from ai.documents.sales_draft_validation import (
+    SalesLineInfo,
+    SalesOrderInfo,
+    OutboundDraftInfo,
+    build_sales_draft_evidence,
+    validate_ai_only_draft,
+)
 
 # Import utility functions
 from utils import (
@@ -241,6 +248,19 @@ def auto_migrate_database():
         if aso_item_columns and 'remark' not in aso_item_columns:
             cursor.execute("ALTER TABLE after_sale_out_order_item ADD COLUMN remark VARCHAR(500)")
             modified = True
+
+        cursor.execute("PRAGMA table_info(after_sale_out_order)")
+        after_sale_columns = [row[1] for row in cursor.fetchall()]
+        if after_sale_columns:
+            for column, definition in (
+                ('source_sales_order_id', 'INTEGER'),
+                ('source_out_order_id', 'INTEGER'),
+                ('responsibility', 'VARCHAR(100)'),
+                ('customer_feedback', 'VARCHAR(500)'),
+            ):
+                if column not in after_sale_columns:
+                    cursor.execute(f"ALTER TABLE after_sale_out_order ADD COLUMN {column} {definition}")
+                    modified = True
 
         cursor.execute("PRAGMA table_info(transfer_order_item)")
         tf_item_columns = [row[1] for row in cursor.fetchall()]
@@ -1914,7 +1934,7 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)  # Username
     password_hash = db.Column(db.String(120), nullable=False)  # Password
-    role = db.Column(db.String(20), default='user')  # Role: admin/warehouse/purchase/production/user
+    role = db.Column(db.String(20), default='user')  # Role: admin/warehouse/purchase/sales/production/user
     status = db.Column(db.String(20), default='normal')  # Status
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
@@ -3787,6 +3807,10 @@ class AfterSaleOutOrder(db.Model):
     contact = db.Column(db.String(50))  # Contact
     phone = db.Column(db.String(20))  # Contact phone
     reason = db.Column(db.String(200))  # After sale reason
+    source_sales_order_id = db.Column(db.Integer, db.ForeignKey('sales_order.id'))
+    source_out_order_id = db.Column(db.Integer, db.ForeignKey('out_order.id'))
+    responsibility = db.Column(db.String(100))
+    customer_feedback = db.Column(db.String(500))
     remark = db.Column(db.String(500))  # Remark
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
@@ -3794,6 +3818,8 @@ class AfterSaleOutOrder(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
     operator = db.relationship('User', backref='after_sale_out_orders')
+    source_sales_order = db.relationship('SalesOrder', backref='after_sale_out_orders')
+    source_out_order = db.relationship('OutOrder', backref='after_sale_out_orders')
 
 
 class AfterSaleOutOrderItem(db.Model):
@@ -5801,7 +5827,7 @@ def revoke_mobile_token(token_id):
 def user_list():
     search, status_filter, sort_by, sort_order = _get_master_list_filters('created_at')
     role_filter = (request.args.get('role') or '').strip()
-    allowed_roles = {'admin', 'warehouse', 'purchase', 'production', 'user'}
+    allowed_roles = {'admin', 'warehouse', 'purchase', 'sales', 'production', 'user'}
     allowed_statuses = {'normal', 'disabled', 'inactive'}
     if role_filter not in allowed_roles:
         role_filter = ''
@@ -30646,6 +30672,12 @@ def add_after_sale_out_order():
         phone = (data.get('phone') or '').strip()
         reason = (data.get('reason') or '').strip()
         remark = (data.get('remark') or '').strip()
+        source_sales_order_id = _clean_int(data.get('source_sales_order_id'))
+        source_out_order_id = _clean_int(data.get('source_out_order_id'))
+        if source_sales_order_id and not db.session.get(SalesOrder, source_sales_order_id):
+            return jsonify({'status': 'error', 'msg': '来源销售订单不存在'}), 400
+        if source_out_order_id and not db.session.get(OutOrder, source_out_order_id):
+            return jsonify({'status': 'error', 'msg': '来源销售出库单不存在'}), 400
 
         if order_id:
             order = db.session.get(AfterSaleOutOrder, order_id)
@@ -30674,6 +30706,10 @@ def add_after_sale_out_order():
         order.contact = contact
         order.phone = phone
         order.reason = reason
+        order.source_sales_order_id = source_sales_order_id
+        order.source_out_order_id = source_out_order_id
+        order.responsibility = (data.get('responsibility') or '').strip() or None
+        order.customer_feedback = (data.get('customer_feedback') or '').strip() or None
         order.remark = remark
 
         items_data = []
@@ -40484,7 +40520,7 @@ def build_sales_outbound_draft(order, selected_qty_by_item_id=None):
 
 
 @app.route('/sales/download_template')
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def download_sales_order_template():
     return _workbook_response(
@@ -40496,7 +40532,7 @@ def download_sales_order_template():
 
 
 @app.route('/sales/import', methods=['POST'])
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def import_sales_orders():
     file = request.files.get('file')
@@ -40705,7 +40741,7 @@ def sales_outbound_selection_page():
 
 
 @app.route('/api/sales_order/selectable')
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def api_sales_order_selectable():
     customer_id = request.args.get('customer_id', type=int) or 0
@@ -40770,7 +40806,7 @@ def api_sales_order_selectable():
 
 
 @app.route('/sales/create_outbound_from_selection', methods=['POST'])
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def create_sales_outbound_from_selection():
     payload = request.get_json(silent=True) or {}
@@ -40897,7 +40933,7 @@ def sales_order_add_page():
 
 
 @app.route('/sales/add', methods=['POST'])
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def sales_order_add():
     payload = request.get_json(silent=True) or request.form
@@ -40993,8 +41029,61 @@ def sales_order_detail(id):
     )
 
 
+@app.route('/api/ai/sales/<int:id>/draft_check', methods=['POST'])
+# AI_TASK: AI-SALES-F01-FIX-01
+@require_role('admin', 'warehouse', 'sales')
+@login_required
+def api_ai_sales_draft_check(id):
+    """Read-only AI sales draft check; never confirms, completes, or mutates a document."""
+    order = SalesOrder.query.options(selectinload(SalesOrder.items)).get_or_404(id)
+    lines = tuple(SalesLineInfo(
+        line_id=item.id,
+        material_id=item.material_id,
+        material_code=item.material.code if item.material else '',
+        material_name=item.material.name if item.material else '',
+        quantity=float(item.quantity or 0),
+        shipped_quantity=float(item.shipped_quantity or 0),
+        price=float(item.price or 0),
+        tax_rate=float(item.tax_rate or 0.13),
+    ) for item in order.items)
+    sales_info = SalesOrderInfo(
+        order_id=order.id,
+        order_no=order.order_no,
+        status=order.status,
+        shipment_status=order.shipment_status,
+        customer_name=order.customer.name if order.customer else '',
+        lines=lines,
+        total_amount=float(order.total_amount or 0),
+        shipped_amount=float(order.shipped_amount or 0),
+    )
+    outbound_infos = []
+    for outbound in order.outbound_orders:
+        outbound_infos.append(OutboundDraftInfo(
+            outbound_id=outbound.id,
+            order_no=outbound.order_no,
+            status=outbound.status,
+            source_sales_order_id=outbound.source_sales_order_id or order.id,
+            source_sales_order_no=order.order_no,
+            customer_name=outbound.customer or '',
+            lines=tuple({'material_id': item.material_id, 'quantity': float(item.quantity or 0), 'price': float(item.price or 0)} for item in outbound.items),
+            business_type=outbound.business_type or '',
+        ))
+    evidence = build_sales_draft_evidence(
+        evidence_id=f'sales-check-{order.id}-{uuid.uuid4().hex[:12]}',
+        operation='check_draft', operator_id=str(current_user.id), operator_role=current_user.role,
+        source='ai_assistant', sales_order=sales_info,
+        outbound_draft=outbound_infos[0] if outbound_infos else None,
+        confidence=1.0,
+        created_at=datetime.now().isoformat(),
+    )
+    allowed, message = validate_ai_only_draft(evidence=evidence)
+    if not allowed:
+        return jsonify({'status': 'error', 'msg': message}), 400
+    return jsonify({'status': 'success', 'message': message, 'evidence': evidence.to_dict(), 'sales_order': sales_info.to_dict(), 'outbound_drafts': [item.to_dict() for item in outbound_infos]})
+
+
 @app.route('/sales/<int:id>/edit', methods=['GET'])
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def sales_order_edit_page(id):
     order = SalesOrder.query.options(joinedload(SalesOrder.items).joinedload(SalesOrderItem.material).joinedload(Material.unit)).get_or_404(id)
@@ -41012,7 +41101,7 @@ def sales_order_edit_page(id):
 
 
 @app.route('/sales/<int:id>/edit', methods=['POST'])
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def sales_order_edit(id):
     order = SalesOrder.query.get_or_404(id)
@@ -41086,7 +41175,7 @@ def sales_order_edit(id):
 
 
 @app.route('/sales/<int:id>/confirm', methods=['POST'])
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def confirm_sales_order(id):
     order = SalesOrder.query.get_or_404(id)
@@ -41104,7 +41193,7 @@ def confirm_sales_order(id):
 
 
 @app.route('/sales/<int:id>/create_outbound', methods=['POST'])
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def create_sales_outbound_draft(id):
     order = SalesOrder.query.options(joinedload(SalesOrder.items).joinedload(SalesOrderItem.material)).get_or_404(id)
@@ -41147,7 +41236,7 @@ def create_sales_outbound_draft(id):
         return jsonify({'status': 'error', 'msg': '生成销售出库草稿失败，请稍后重试'}), 500
 
 @app.route('/sales/batch_confirm', methods=['POST'])
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def batch_confirm_sales_orders():
     payload = request.get_json(silent=True) or {}
@@ -41179,7 +41268,7 @@ def batch_confirm_sales_orders():
 
 
 @app.route('/sales/batch_create_outbound', methods=['POST'])
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def batch_create_sales_outbound():
     payload = request.get_json(silent=True) or {}
@@ -41346,7 +41435,7 @@ def sales_dashboard():
 
 
 @app.route('/sales/<int:id>/cancel', methods=['POST'])
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def cancel_sales_order(id):
     order = SalesOrder.query.get_or_404(id)
@@ -41360,7 +41449,7 @@ def cancel_sales_order(id):
 
 
 @app.route('/sales/<int:id>/delete', methods=['POST'])
-@require_role('warehouse', 'purchase')
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def delete_sales_order(id):
     order = SalesOrder.query.get_or_404(id)
@@ -41558,6 +41647,57 @@ def export_sales_report():
     workbook.save(output)
     output.seek(0)
     return send_file(output, download_name=f'sales_execution_{start:%Y%m%d}_{end:%Y%m%d}.xlsx', as_attachment=True)
+
+@app.route('/sales/reconciliation')
+@login_required
+def sales_reconciliation_report():
+    warehouse_id = request.args.get('warehouse_id', type=int)
+    selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else None
+    query = SalesOrder.query.filter(SalesOrder.status != 'cancelled')
+    if selected_warehouse:
+        query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
+    rows = []
+    for order in query.options(selectinload(SalesOrder.items), selectinload(SalesOrder.outbound_orders)).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).all():
+        completed_orders = [outbound for outbound in order.outbound_orders if outbound.status == 'completed']
+        completed_qty = 0
+        completed_amount = 0
+        inventory_qty = 0
+        for outbound in completed_orders:
+            for item in outbound.items:
+                if item.source_sales_order_item_id:
+                    source = db.session.get(SalesOrderItem, item.source_sales_order_item_id)
+                    if not source or source.sales_order_id != order.id:
+                        continue
+                completed_qty += float(item.quantity or 0)
+                completed_amount += float(item.amount or 0)
+                inventory_qty += abs(float(db.session.query(func.coalesce(func.sum(StockTransaction.quantity), 0)).filter(
+                    StockTransaction.reference_type == 'out_order', StockTransaction.reference_id == outbound.id,
+                    StockTransaction.material_id == item.material_id, StockTransaction.transaction_type == 'out'
+                ).scalar() or 0))
+        shipped_qty = sum(float(item.shipped_quantity or 0) for item in order.items)
+        shipped_amount = float(order.shipped_amount or 0)
+        rows.append({'order': order, 'shipped_qty': round_to_2_decimals(shipped_qty), 'completed_qty': round_to_2_decimals(completed_qty), 'inventory_qty': round_to_2_decimals(inventory_qty), 'quantity_diff': round_to_2_decimals(shipped_qty - completed_qty), 'amount_diff': round_to_2_decimals(shipped_amount - completed_amount), 'ok': abs(shipped_qty - completed_qty) <= STOCK_COMPARE_EPSILON and abs(shipped_amount - completed_amount) <= 0.01})
+    return render_template('sales_reconciliation_report.html', rows=rows, warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), warehouse_id=warehouse_id or '')
+
+
+@app.route('/sales/reconciliation/export')
+@login_required
+def export_sales_reconciliation_report():
+    from openpyxl import Workbook
+    warehouse_id = request.args.get('warehouse_id', type=int)
+    selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else None
+    query = SalesOrder.query.filter(SalesOrder.status != 'cancelled')
+    if selected_warehouse:
+        query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
+    workbook = Workbook(); sheet = workbook.active; sheet.title = '销售对账'; sheet.append(['销售订单号', '仓库', '订单已发货数量', '出库完成数量', '订单已发货金额', '对账状态'])
+    for order in query.options(selectinload(SalesOrder.items), selectinload(SalesOrder.outbound_orders)).all():
+        completed_qty = sum(float(item.quantity or 0) for outbound in order.outbound_orders if outbound.status == 'completed' for item in outbound.items if not item.source_sales_order_item_id or (item.source_sales_order_item and item.source_sales_order_item.sales_order_id == order.id))
+        completed_amount = sum(float(item.amount or 0) for outbound in order.outbound_orders if outbound.status == 'completed' for item in outbound.items if not item.source_sales_order_item_id or (item.source_sales_order_item and item.source_sales_order_item.sales_order_id == order.id))
+        ok = abs(float(order.shipped_amount or 0) - completed_amount) <= 0.01 and abs(sum(float(item.shipped_quantity or 0) for item in order.items) - completed_qty) <= STOCK_COMPARE_EPSILON
+        sheet.append([order.order_no, order.warehouse or '', sum(float(item.shipped_quantity or 0) for item in order.items), completed_qty, float(order.shipped_amount or 0), '通过' if ok else '不一致'])
+    output = io.BytesIO(); workbook.save(output); output.seek(0)
+    return send_file(output, download_name='sales_reconciliation.xlsx', as_attachment=True)
+
 
 @app.route('/sales/report')
 @login_required

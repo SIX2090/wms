@@ -9,10 +9,10 @@
 
 ## 当前能力矩阵
 
-| 能力键 | admin | warehouse | purchase | production | user | 风险级别 |
+| 能力键 | admin | warehouse | purchase | sales | production | user | 风险级别 |
 |---|---:|---:|---:|---:|---:|---|
 | `out_order_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 草稿 |
-| `sales_out_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 草稿 |
+| `sales_out_draft` | 允许 | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 草稿 |
 | `in_order_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 草稿 |
 | `purchase_receive_draft` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 草稿 |
 | `transfer_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 草稿 |

@@ -493,6 +493,7 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
             # ---- SALES-RT-010: 报表页面渲染 ----
             report_routes = [
                 ("/sales/report", "销售报表"),
+                ("/sales/reconciliation", "销售对账"),
                 (f"/sales/report?warehouse_id={fixture_ids['warehouse_id']}", "销售报表-仓库筛选"),
                 ("/sales/report?customer_id=" + str(cid), "销售报表-客户钻取"),
                 ("/sales/outflow_report", "销售出库明细表"),
@@ -536,6 +537,7 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                 (f"/sales/outflow_report/export?warehouse_id={fixture_ids['warehouse_id']}", "销售出库仓库筛选导出"),
                 (f"/sales/trend_report/export?warehouse_id={fixture_ids['warehouse_id']}", "销售趋势仓库筛选导出"),
                 ("/sales/download_template", "导入模板下载"),
+                ("/sales/reconciliation/export", "销售对账导出"),
             ]
             export_ok = True
             export_detail = ""
@@ -547,6 +549,12 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                     export_detail += f" {name}[{path}]={r.status_code}/{ct}"
             results.append(("SALES-RT-011", export_ok,
                 "Excel 导出" + ("全部成功" if export_ok else f" 失败:{export_detail}")))
+
+            ai_check = c.post(f"/api/ai/sales/{order_id}/draft_check", content_type="application/json")
+            ai_check_body = ai_check.get_json(silent=True) or {}
+            ai_check_ok = ai_check.status_code == 200 and ai_check_body.get('status') == 'success' and ai_check_body.get('evidence', {}).get('needs_confirmation') is True
+            results.append(("SALES-RT-011A", ai_check_ok,
+                f"AI销售草稿只读检查 -> HTTP {ai_check.status_code}"))
 
             # ---- SALES-RT-012: 权限边界：无权限角色不能创建订单 ----
             # 登出并登录 viewer

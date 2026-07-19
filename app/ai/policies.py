@@ -6,7 +6,7 @@ from __future__ import annotations
 
 AI_CAPABILITY_ROLES = {
     'out_order_draft': frozenset({'warehouse'}),
-    'sales_out_draft': frozenset({'warehouse'}),
+    'sales_out_draft': frozenset({'warehouse', 'sales'}),
     'in_order_draft': frozenset({'warehouse'}),
     'purchase_receive_draft': frozenset({'warehouse', 'purchase'}),
     'transfer_draft': frozenset({'warehouse'}),

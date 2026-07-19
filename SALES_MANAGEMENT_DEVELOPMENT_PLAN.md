@@ -822,6 +822,15 @@ sales_order 1 ---- n sales_order_item
 
 **验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 28/28 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。提交：`d506b23`。
 
+## 阶段 17 实施记录（2026-07-19）：对账、售后来源和 AI 销售检查
+
+- 新增 `/sales/reconciliation` 销售订单/销售出库/库存流水只读对账页及 Excel 导出，草稿不作为库存事实，差异不自动修正。
+- 售后出库新增原销售订单、原销售出库、责任归属和客户反馈字段，支持详情页双向跳转；售后仍是独立库存单据，不用负数销售出库替代退货入库。
+- 新增 `sales` 角色并开放销售订单录入、确认、取消、下推和销售出库选单；仓库完成/反提交仍只允许仓库角色。
+- 新增 `/api/ai/sales/<id>/draft_check` 只读检查接口，复用 AI-SALES-F01 证据链和禁止动作校验，仅返回草稿证据，不执行确认、提交、完成、取消、删除或自动发货。
+
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 29/29 通过；`python scripts/verify_ai_sales_draft_validation.py` 8/8 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。待提交后补充最终提交哈希。
+
 ## 阶段 16 实施记录（2026-07-19）：销售工作台和作业入口（SM-P3-01）
 
 - 销售工作台新增待确认、待出库/部分发货、销售出库草稿、逾期订单和库存不足待核对分组，并提供真实单据下钻。
