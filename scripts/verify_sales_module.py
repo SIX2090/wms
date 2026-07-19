@@ -505,6 +505,7 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                 ("/sales", "销售订单列表"),
                 ("/sales/add", "新建销售订单页"),
                 ("/sales/dashboard", "销售工作台"),
+                ("/sales/outbound", "销售出库列表"),
                 ("/sales/outbound_selection", "销售出库选单"),
                 (f"/sales/{order_id}", "销售订单详情"),
                 (f"/sales/{order_id}/print", "销售订单打印"),

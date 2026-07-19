@@ -155,6 +155,17 @@
         </div>
     </div>
 
+    {% if order.business_type == '销售出库' and source_sales_orders %}
+    <div class="order-info-card mb-3">
+        <div class="card-header-custom"><i class="bi bi-link-45deg"></i> 来源销售订单</div>
+        <div class="card-body-custom d-flex flex-wrap gap-3">
+            {% for source_order in source_sales_orders %}
+            <a href="{{ url_for('sales_order_detail', id=source_order.id) }}">{{ source_order.order_no }}</a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- 工具栏 -->
     {% if order.status == 'pending' %}
     <div class="order-toolbar">

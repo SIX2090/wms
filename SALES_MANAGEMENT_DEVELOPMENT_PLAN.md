@@ -822,6 +822,15 @@ sales_order 1 ---- n sales_order_item
 
 **验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 28/28 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。提交：`d506b23`。
 
+## 阶段 16 实施记录（2026-07-19）：销售工作台和作业入口（SM-P3-01）
+
+- 销售工作台新增待确认、待出库/部分发货、销售出库草稿、逾期订单和库存不足待核对分组，并提供真实单据下钻。
+- 新增 `/sales/outbound` 独立销售出库列表，销售出库不再依赖普通领料列表查看；支持状态和关键词筛选。
+- 销售出库详情显示来源销售订单链接；订单详情保留关联销售出库单清单，形成订单与出库双向跳转。
+- 库存不足仅作为待核对提示，不自动改库存、不自动完成销售出库；异常处理继续保留仓库人工确认边界。
+
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 28/28 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。待提交后补充最终提交哈希。
+
 ## G. 每阶段交付门槛
 
 每个任务必须同时具备：代码、权限、审计、迁移说明、测试、页面入口、报表口径、运行验证和回滚说明。完成后更新本计划的任务状态、提交哈希、验证命令和剩余风险；提交和推送必须落在 `main`，不得创建工作分支。

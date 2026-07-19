@@ -29800,7 +29800,14 @@ def out_order_list():
 @login_required
 def out_order_detail(id):
     order = OutOrder.query.options(joinedload(OutOrder.department), joinedload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit)).get_or_404(id)
-    return render_template('out_order_detail.html', order=order)
+    source_sales_orders = {}
+    if order.source_sales_order:
+        source_sales_orders[order.source_sales_order.id] = order.source_sales_order
+    for item in order.items:
+        if item.source_sales_order_item and item.source_sales_order_item.sales_order:
+            source_order = item.source_sales_order_item.sales_order
+            source_sales_orders[source_order.id] = source_order
+    return render_template('out_order_detail.html', order=order, source_sales_orders=list(source_sales_orders.values()))
 
 @app.route('/out_order/add')
 @login_required
@@ -41271,6 +41278,25 @@ def print_sales_order(id):
         'signatures': ['制单', '销售确认', '仓库', '客户确认'],
     })
 
+@app.route('/sales/outbound')
+@login_required
+def sales_outbound_list():
+    page = max(1, request.args.get('page', 1, type=int))
+    status = (request.args.get('status') or '').strip()
+    search = (request.args.get('search') or '').strip()
+    query = OutOrder.query.filter(OutOrder.business_type == '销售出库')
+    if status in ('pending', 'completed'):
+        query = query.filter(OutOrder.status == status)
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(OutOrder.order_no.like(like), OutOrder.customer.like(like), OutOrder.purpose.like(like)))
+    pagination = query.options(
+        joinedload(OutOrder.source_sales_order),
+        selectinload(OutOrder.items).joinedload(OutOrderItem.material),
+    ).order_by(OutOrder.date.desc(), OutOrder.id.desc()).paginate(page=page, per_page=30, error_out=False)
+    return render_template('sales_outbound_list.html', pagination=pagination, status=status, search=search)
+
+
 @app.route('/sales/dashboard')
 @login_required
 def sales_dashboard():
@@ -41279,7 +41305,18 @@ def sales_dashboard():
     active_orders = SalesOrder.query.filter(SalesOrder.status != 'cancelled').all()
     month_orders = [order for order in active_orders if order.date and order.date >= month_start]
     pending_orders = [order for order in active_orders if order.shipment_status != 'shipped']
+    draft_orders = [order for order in active_orders if order.status == 'draft']
+    ready_orders = [order for order in active_orders if order.status == 'confirmed' and order.shipment_status in ('pending', 'partial')]
     overdue_orders = [order for order in pending_orders if order.delivery_date and order.delivery_date < today]
+    pending_outbounds = OutOrder.query.filter_by(business_type='销售出库', status='pending').order_by(OutOrder.date.asc(), OutOrder.id.asc()).limit(12).all()
+    shortage_items = []
+    for order in ready_orders:
+        for item in order.items:
+            remaining = round_to_2_decimals((item.quantity or 0) - (item.shipped_quantity or 0))
+            stock = float(item.material.stock or 0) if item.material else 0
+            if remaining > STOCK_COMPARE_EPSILON and stock + STOCK_COMPARE_EPSILON < remaining:
+                shortage_items.append({'order': order, 'item': item, 'remaining': remaining, 'stock': round_to_2_decimals(stock)})
+    shortage_items.sort(key=lambda row: (row['stock'] - row['remaining'], row['order'].delivery_date or date.max))
     customer_summary = {}
     for order in month_orders:
         key = order.customer.name if order.customer else '未设置客户'
@@ -41293,7 +41330,11 @@ def sales_dashboard():
         month_orders=month_orders,
         today=today,
         pending_orders=sorted(pending_orders, key=lambda order: (order.delivery_date or date.max, order.id))[:12],
+        draft_orders=sorted(draft_orders, key=lambda order: order.id, reverse=True)[:12],
+        ready_orders=sorted(ready_orders, key=lambda order: (order.delivery_date or date.max, order.id))[:12],
         overdue_orders=overdue_orders,
+        pending_outbounds=pending_outbounds,
+        shortage_items=shortage_items[:12],
         month_amount=round_to_2_decimals(sum(order.total_amount or 0 for order in month_orders)),
         pending_amount=round_to_2_decimals(sum(order.total_amount or 0 for order in pending_orders)),
         pending_count=len(pending_orders),
