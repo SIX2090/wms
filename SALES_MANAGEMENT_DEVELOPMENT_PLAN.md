@@ -795,7 +795,7 @@ sales_order 1 ---- n sales_order_item
 - 新建、编辑、导入、确认、批量确认、订单下推和选单下推统一要求有效且启用的仓库；销售选单按仓库 ID 和名称双重约束，禁止跨仓合并。
 - 仓库删除检查销售订单引用，仓库改名同步已关联销售订单的兼容名称字段。
 
-**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 25/25 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。剩余子任务：跨仓库策略细化、选单并发控制和销售报表仓库外键筛选统一。
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 25/25 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。提交：`66ba42b`。剩余子任务：跨仓库策略细化、选单并发控制和销售报表仓库外键筛选统一。
 
 ## G. 每阶段交付门槛
 
