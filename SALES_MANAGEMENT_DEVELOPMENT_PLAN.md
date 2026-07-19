@@ -820,7 +820,7 @@ sales_order 1 ---- n sales_order_item
 - 非 SQLite 数据库使用 `SELECT ... FOR UPDATE` 读取来源明细；异常时事务回滚，库存仍只由人工完成出库触发。
 - 新增重复选单保护回归用例，验证已有待处理草稿时接口拒绝第二次下推。
 
-**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 28/28 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。待提交后补充最终提交哈希。
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 28/28 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。提交：`d506b23`。
 
 ## G. 每阶段交付门槛
 
