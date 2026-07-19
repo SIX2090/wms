@@ -4359,6 +4359,16 @@ def ensure_admin_user_exists():
     """Ensure admin user exists; create if missing, unlock only if disabled."""
     user = User.query.filter_by(username='admin').first()
     if user:
+        # 不修改现有账号密码；仅识别仍使用固定 bootstrap 密码的账号并强制其自行修改。
+        if (not os.environ.get('WMS_BOOTSTRAP_PASSWORD')
+                and check_password_hash(user.password_hash, 'admin')
+                and not user.must_change_password):
+            user.must_change_password = True
+            try:
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f'Failed to mark default admin password for change: {e}')
         # 仅在账号被显式 disabled 时启动期解锁；is_locked（因登录失败次数过多触发的临时锁定）
         # 应等待 locked_until 自然到期，避免攻击者通过触发重启重置锁定计数绕过暴力破解保护。
         if user.status == 'disabled':
@@ -4721,6 +4731,8 @@ def native_api_login():
         return api_json_error('账号或密码错误', 401)
     if not user.is_active:
         return api_json_error('账号已被禁用', 403)
+    if user.must_change_password:
+        return api_json_error('请先通过网页登录修改初始密码', 403)
     if user.is_locked:
         return api_json_error('账号已锁定，请稍后再试', 423)
 
