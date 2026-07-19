@@ -22,7 +22,10 @@ from datetime import date, timedelta
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))          # .../scripts
 REPO_DIR = os.path.dirname(BASE_DIR)                            # .../workspace
 APP_DIR = os.path.join(REPO_DIR, 'app')                         # .../workspace/app
-TEST_DB_PATH = os.path.join(APP_DIR, 'instance', 'test_full_flow.db')
+TEST_DB_PATH = os.environ.get(
+    'WMS_FULL_FLOW_TEST_DB',
+    os.path.join(APP_DIR, 'instance', 'test_full_flow.db'),
+)
 
 os.environ['SECRET_KEY'] = 'test-full-flow-secret'
 os.environ['WMS_ALLOW_AUTO_SECRET_KEY'] = '1'
@@ -40,7 +43,8 @@ for suffix in ('', '-shm', '-wal'):
 from app import (
     app, db, User, Material, MaterialCategory, Unit, Supplier, Customer,
     Warehouse, Employee, PurchaseOrder, PurchaseOrderItem, InOrder, InOrderItem,
-    OutOrder, SalesOrder, SalesOrderItem, initialize_database,
+    OutOrder, SalesOrder, SalesOrderItem, AfterSaleOutOrder, AfterSaleOutOrderItem,
+    initialize_database,
 )
 from werkzeug.security import generate_password_hash
 
@@ -334,6 +338,8 @@ def run_group(client, idx, g):
             # 部分发货：修改出库单明细数量为 partial 值
             for item in oo.items:
                 item.quantity = g['partial']
+                item.amount = round((item.quantity or 0) * (item.price or 0), 2)
+            oo.total_amount = round(sum((item.amount or 0) for item in oo.items), 2)
             db.session.commit()
 
         code, body = post_json(client, f'/out_order/{out_order_id}/complete?force=true', {})
