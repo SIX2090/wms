@@ -89,13 +89,14 @@ def run_static_checks() -> list[tuple[str, bool, str]]:
 
     # SALES-STC-003: build_sales_outbound_draft 含重复草稿防护
     draft_section = ""
-    if "def build_sales_outbound_draft(order):" in app_py:
-        start = app_py.index("def build_sales_outbound_draft(order):")
+    if "def build_sales_outbound_draft(order" in app_py:
+        start = app_py.index("def build_sales_outbound_draft(order")
         next_def = app_py.find("\ndef ", start + 10)
         draft_section = app_py[start:next_def if next_def > 0 else len(app_py)]
-    has_pending_check = "status == 'pending'" in draft_section and "pending_draft" in draft_section
+    has_pending_check = ("status == 'pending'" in draft_section or "OutOrder.status == 'pending'" in draft_section) and "pending_draft" in draft_section
     has_remaining = "remaining_quantity" in draft_section or "remaining_items" in draft_section
-    ok = has_pending_check and has_remaining
+    has_partial_guard = "selected_qty_by_item_id" in draft_section and "over_quantity" in draft_section
+    ok = has_pending_check and has_remaining and has_partial_guard
     results.append(static_check("SALES-STC-003", ok,
         "build_sales_outbound_draft 含重复草稿防护与未发货数量计算"))
 
