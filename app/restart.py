@@ -26,6 +26,8 @@ def main() -> int:
     env = os.environ.copy()
     env["FLASK_ENV"] = "production"
     env["PYTHONUTF8"] = "1"
+    # Match the controlled local/offline launcher; production deployments must set SECRET_KEY explicitly.
+    env["WMS_ALLOW_AUTO_SECRET_KEY"] = "1"
 
     stdout = open(LOG_DIR / "service_stdout.log", "ab", buffering=0)
     stderr = open(LOG_DIR / "service_stderr.log", "ab", buffering=0)
