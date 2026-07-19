@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}销售出库选单{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div><h4 class="mb-1"><i class="bi bi-ui-checks-grid"></i> 销售出库选单</h4><div class="text-muted small">按客户和发货仓库选择已确认销售订单的待发货明细，生成销售出库草稿。</div></div>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_order_list') }}"><i class="bi bi-arrow-left"></i> 销售订单</a>
+  </div>
+  <div class="card mb-3">
+    <div class="card-body py-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-2"><label class="form-label small">客户</label><select id="customerFilter" class="form-select form-select-sm"><option value="">全部客户</option>{% for customer in customers %}<option value="{{ customer.id }}">{{ customer.code }} - {{ customer.name }}</option>{% endfor %}</select></div>
+        <div class="col-md-2"><label class="form-label small">发货仓库</label><select id="warehouseFilter" class="form-select form-select-sm"><option value="">全部仓库</option>{% for warehouse in warehouses %}<option value="{{ warehouse.name }}">{{ warehouse.code }} - {{ warehouse.name }}</option>{% endfor %}</select></div>
+        <div class="col-md-2"><label class="form-label small">业务员</label><select id="salespersonFilter" class="form-select form-select-sm"><option value="">全部业务员</option>{% for employee in employees %}<option value="{{ employee.id }}">{{ employee.name }}</option>{% endfor %}</select></div>
+        <div class="col-md-3"><label class="form-label small">订单号 / 客户 / 物料</label><input id="searchFilter" class="form-control form-control-sm" placeholder="输入关键字后查询"></div>
+        <div class="col-md-3 d-flex gap-2"><button class="btn btn-primary btn-sm" type="button" onclick="loadSelectable()"><i class="bi bi-search"></i> 查询</button><button class="btn btn-success btn-sm" type="button" onclick="createSelectedOutbound()"><i class="bi bi-box-arrow-up"></i> 生成出库草稿</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center py-2"><strong>待发货销售明细</strong><span id="summary" class="text-muted small">正在加载...</span></div>
+    <div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">
+      <thead><tr><th><input type="checkbox" id="selectAll" onchange="toggleAll(this.checked)"></th><th>销售订单</th><th>客户</th><th>仓库</th><th>交货日期</th><th>物料编码</th><th>物料名称</th><th class="text-end">订单数量</th><th class="text-end">已发货</th><th class="text-end">待发货</th><th class="text-end" style="width:130px">本次出库</th><th class="text-end">单价</th></tr></thead>
+      <tbody id="itemsBody"><tr><td colspan="12" class="text-center text-muted py-4">正在加载...</td></tr></tbody>
+    </table></div>
+  </div>
+</div>
+<script>
+let selectable = new Map();
+function esc(value) { const el = document.createElement('span'); el.textContent = value == null ? '' : String(value); return el.innerHTML; }
+function fmt(value) { const n = Number(value || 0); return Number.isFinite(n) ? n.toFixed(2) : '0.00'; }
+function loadSelectable() {
+  const params = new URLSearchParams();
+  [['customer_id','customerFilter'],['warehouse','warehouseFilter'],['salesperson_id','salespersonFilter'],['search','searchFilter']].forEach(([key,id]) => { const v = document.getElementById(id).value.trim(); if (v) params.set(key,v); });
+  const body = document.getElementById('itemsBody'); body.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">正在加载...</td></tr>';
+  fetch('{{ url_for("api_sales_order_selectable") }}?' + params.toString()).then(r => r.json()).then(data => {
+    selectable = new Map((data.items || []).map(item => [String(item.sales_order_item_id), item]));
+    body.innerHTML = data.items && data.items.length ? data.items.map(item => `<tr data-order="${esc(item.sales_order_no)}" data-customer="${esc(item.customer_id)}" data-warehouse="${esc(item.warehouse)}"><td><input type="checkbox" class="select-row" data-id="${item.sales_order_item_id}" onchange="updateSummary()"></td><td><a href="/sales/${item.sales_order_id}">${esc(item.sales_order_no)}</a></td><td>${esc(item.customer_name)}</td><td>${esc(item.warehouse || '-')}</td><td class="${item.is_overdue ? 'text-danger fw-semibold' : ''}">${esc(item.delivery_date || '-')}</td><td>${esc(item.material_code)}</td><td>${esc(item.material_name)}</td><td class="text-end">${fmt(item.quantity)}</td><td class="text-end">${fmt(item.shipped_quantity)}</td><td class="text-end text-warning">${fmt(item.remaining_quantity)}</td><td><input type="number" class="form-control form-control-sm qty-input text-end" min="0.01" step="0.01" max="${item.remaining_quantity}" value="${fmt(item.remaining_quantity)}" data-id="${item.sales_order_item_id}" oninput="updateSummary()"></td><td class="text-end">¥${fmt(item.price)}</td></tr>`).join('') : '<tr><td colspan="12" class="text-center text-muted py-4">暂无可下推的销售明细</td></tr>';
+    document.getElementById('selectAll').checked = false; updateSummary();
+  }).catch(() => { body.innerHTML = '<tr><td colspan="12" class="text-center text-danger py-4">查询失败，请稍后重试</td></tr>'; });
+}
+function toggleAll(checked) { document.querySelectorAll('.select-row').forEach(input => input.checked = checked); updateSummary(); }
+function updateSummary() { const rows = [...document.querySelectorAll('.select-row:checked')]; let qty = 0; rows.forEach(input => { qty += Number(document.querySelector(`.qty-input[data-id="${input.dataset.id}"]`)?.value || 0); }); document.getElementById('summary').textContent = `已选 ${rows.length} 行，本次出库 ${fmt(qty)}`; }
+function createSelectedOutbound() {
+  const rows = [...document.querySelectorAll('.select-row:checked')]; if (!rows.length) { alert('请选择销售订单明细'); return; }
+  const items = []; for (const input of rows) { const qty = document.querySelector(`.qty-input[data-id="${input.dataset.id}"]`); const value = Number(qty.value); const max = Number(qty.max); if (!Number.isFinite(value) || value <= 0 || value - max > 0.000001) { alert('本次出库数量必须大于 0 且不能超过待发货数量'); qty.focus(); return; } items.push({sales_order_item_id: Number(input.dataset.id), quantity: value}); }
+  fetch('{{ url_for("create_sales_outbound_from_selection") }}', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({items})}).then(r => r.json()).then(data => { if (data.status === 'success') window.location.href = data.redirect_url; else alert(data.msg || '生成失败'); }).catch(() => alert('生成失败，请稍后重试'));
+}
+['customerFilter','warehouseFilter','salespersonFilter'].forEach(id => document.getElementById(id).addEventListener('change', loadSelectable));
+document.getElementById('searchFilter').addEventListener('keydown', e => { if (e.key === 'Enter') loadSelectable(); });
+loadSelectable();
+</script>
+{% endblock %}

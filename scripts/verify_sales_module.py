@@ -11,6 +11,7 @@
     SALES-STC-005  新增报表模板存在
     SALES-STC-006  导入模板含新字段列头
     SALES-STC-007  销售出库行级来源外键和安全回写
+    SALES-STC-008  销售出库选单入口和接口
 
   运行时测试（Flask test_client + 临时数据库）：
     SALES-RT-001  创建销售订单（含税额字段）
@@ -111,6 +112,11 @@ def run_static_checks() -> list[tuple[str, bool, str]]:
     ok = has_source_column and has_source_migration and has_source_write and has_source_sync
     results.append(static_check("SALES-STC-007", ok,
         "销售出库行级来源外键贯穿迁移、下推和完成/反提交回写"))
+
+    has_selection_api = "def api_sales_order_selectable():" in app_py and "def create_sales_outbound_from_selection():" in app_py
+    has_selection_template = (ROOT / "app" / "templates" / "sales_outbound_selection.html").exists()
+    results.append(static_check("SALES-STC-008", has_selection_api and has_selection_template,
+        "销售出库选单页面、查询接口和生成接口存在"))
 
     # SALES-STC-004: 销售路由权限装饰器
     sales_routes_section = app_py[app_py.index("def sales_order_add():"):]
@@ -370,8 +376,10 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                 with app.app_context():
                     duplicate_order = db.session.get(SalesOrder, duplicate_order_id)
                     duplicate_item_ids = [item.id for item in duplicate_order.items]
+                selectable_response = c.get("/api/sales_order/selectable?search=SOTEST-SAME-MATERIAL")
+                selectable_items = (selectable_response.get_json(silent=True) or {}).get("items", [])
                 r = c.post(
-                    f"/sales/{duplicate_order_id}/create_outbound",
+                    "/sales/create_outbound_from_selection",
                     data=json.dumps({"items": [
                         {"sales_order_item_id": duplicate_item_ids[0], "quantity": 2},
                         {"sales_order_item_id": duplicate_item_ids[1], "quantity": 5},
@@ -383,7 +391,7 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                     duplicate_outbound = db.session.get(OutOrder, duplicate_outbound_id)
                     source_ids = [item.source_sales_order_item_id for item in duplicate_outbound.items]
                     quantities = [float(item.quantity or 0) for item in duplicate_outbound.items]
-                    source_ok = source_ids == duplicate_item_ids and quantities == [2.0, 5.0]
+                    source_ok = selectable_response.status_code == 200 and len(selectable_items) == 2 and source_ids == duplicate_item_ids and quantities == [2.0, 5.0]
                 results.append(("SALES-RT-007A", source_ok,
                     f"同物料多行来源: source_ids={source_ids}, quantities={quantities}"))
 
@@ -445,6 +453,7 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                 ("/sales", "销售订单列表"),
                 ("/sales/add", "新建销售订单页"),
                 ("/sales/dashboard", "销售工作台"),
+                ("/sales/outbound_selection", "销售出库选单"),
                 (f"/sales/{order_id}", "销售订单详情"),
                 (f"/sales/{order_id}/print", "销售订单打印"),
             ]

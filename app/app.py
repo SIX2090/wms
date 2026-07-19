@@ -40288,16 +40288,18 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
         source_match = re.search(r'来源销售订单\s+([^\s]+)', outbound.purpose or '')
         if source_match:
             order = SalesOrder.query.filter_by(order_no=source_match.group(1)).first()
-    if not order:
+    if not order and not any(item.source_sales_order_item_id for item in outbound.items):
         return None
     items_by_material = {}
-    for item in order.items:
-        items_by_material.setdefault(item.material_id, []).append(item)
+    if order:
+        for item in order.items:
+            items_by_material.setdefault(item.material_id, []).append(item)
+    affected_orders = {}
     for outbound_item in outbound.items:
         sales_item = None
         if outbound_item.source_sales_order_item_id:
             candidate = db.session.get(SalesOrderItem, outbound_item.source_sales_order_item_id)
-            if candidate and candidate.sales_order_id == order.id and candidate.material_id == outbound_item.material_id:
+            if candidate and candidate.material_id == outbound_item.material_id and (not order or candidate.sales_order_id == order.id):
                 sales_item = candidate
         if sales_item is None:
             candidates = items_by_material.get(outbound_item.material_id, [])
@@ -40308,8 +40310,10 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
         if not sales_item:
             continue
         sales_item.shipped_quantity = max(0, (sales_item.shipped_quantity or 0) + quantity_sign * (outbound_item.quantity or 0))
-    recalculate_sales_order(order)
-    return order
+        affected_orders[sales_item.sales_order_id] = sales_item.sales_order
+    for affected_order in affected_orders.values():
+        recalculate_sales_order(affected_order)
+    return order or next(iter(affected_orders.values()), None)
 
 def build_sales_outbound_draft(order, selected_qty_by_item_id=None):
     # 优先通过外键查找待完成草稿，兜底 purpose 字符串
@@ -40565,6 +40569,180 @@ def sales_order_list():
         sort_order=sort_order,
         today=today
     )
+
+
+@app.route('/sales/outbound_selection')
+@login_required
+def sales_outbound_selection_page():
+    return render_template(
+        'sales_outbound_selection.html',
+        customers=Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all(),
+        employees=Employee.query.order_by(Employee.id.asc()).all(),
+        warehouses=get_active_warehouses(),
+    )
+
+
+@app.route('/api/sales_order/selectable')
+@require_role('warehouse', 'purchase')
+@login_required
+def api_sales_order_selectable():
+    customer_id = request.args.get('customer_id', type=int) or 0
+    salesperson_id = request.args.get('salesperson_id', type=int) or 0
+    warehouse = (request.args.get('warehouse') or '').strip()
+    search = (request.args.get('search') or '').strip().lower()
+    limit = min(max(request.args.get('limit', 150, type=int), 1), 300)
+
+    query = SalesOrder.query.options(
+        joinedload(SalesOrder.customer),
+        joinedload(SalesOrder.items).joinedload(SalesOrderItem.material).joinedload(Material.unit),
+    ).filter(
+        SalesOrder.status == 'confirmed',
+        SalesOrder.shipment_status != 'shipped',
+    )
+    if customer_id:
+        query = query.filter(SalesOrder.customer_id == customer_id)
+    if salesperson_id:
+        query = query.filter(SalesOrder.salesperson_id == salesperson_id)
+    if warehouse:
+        query = query.filter(SalesOrder.warehouse == warehouse)
+    query = query.order_by(SalesOrder.delivery_date.asc().nullslast(), SalesOrder.date.asc(), SalesOrder.id.asc()).limit(limit)
+
+    items = []
+    for order in query:
+        customer_name = order.customer.name if order.customer else ''
+        order_match = not search or search in (order.order_no or '').lower() or search in customer_name.lower()
+        for item in order.items:
+            remaining = round_to_2_decimals((item.quantity or 0) - (item.shipped_quantity or 0))
+            if remaining <= STOCK_COMPARE_EPSILON:
+                continue
+            material = item.material
+            material_code = material.code if material else ''
+            material_name = material.name if material else ''
+            spec = material.spec if material else ''
+            if search and not order_match:
+                if search not in ' '.join((material_code, material_name, spec)).lower():
+                    continue
+            items.append({
+                'sales_order_id': order.id,
+                'sales_order_no': order.order_no,
+                'sales_order_item_id': item.id,
+                'customer_id': order.customer_id,
+                'customer_name': customer_name,
+                'warehouse': order.warehouse or '',
+                'salesperson_id': order.salesperson_id,
+                'date': order.date.strftime('%Y-%m-%d') if order.date else '',
+                'delivery_date': order.delivery_date.strftime('%Y-%m-%d') if order.delivery_date else '',
+                'is_overdue': bool(order.delivery_date and order.delivery_date < date.today()),
+                'material_id': item.material_id,
+                'material_code': material_code,
+                'material_name': material_name,
+                'spec': spec,
+                'unit': material.unit.name if material and material.unit else '',
+                'quantity': round_to_2_decimals(item.quantity or 0),
+                'shipped_quantity': round_to_2_decimals(item.shipped_quantity or 0),
+                'remaining_quantity': remaining,
+                'price': round_to_2_decimals(item.price or 0),
+                'amount': round_to_2_decimals(remaining * (item.price or 0)),
+            })
+    return jsonify({'status': 'success', 'items': items})
+
+
+@app.route('/sales/create_outbound_from_selection', methods=['POST'])
+@require_role('warehouse', 'purchase')
+@login_required
+def create_sales_outbound_from_selection():
+    payload = request.get_json(silent=True) or {}
+    selected_items = payload.get('items') or []
+    if not isinstance(selected_items, list) or not selected_items:
+        return jsonify({'status': 'error', 'msg': '请选择要下推的销售订单明细'}), 400
+
+    selected_qty_by_item_id = {}
+    for row in selected_items:
+        if not isinstance(row, dict):
+            continue
+        item_id = row.get('sales_order_item_id') or row.get('item_id') or row.get('id')
+        try:
+            item_id = int(item_id)
+        except (TypeError, ValueError):
+            continue
+        quantity = round_to_2_decimals(parse_float_value(row.get('quantity'), 0))
+        if quantity > 0:
+            selected_qty_by_item_id[item_id] = round_to_2_decimals(selected_qty_by_item_id.get(item_id, 0) + quantity)
+    if not selected_qty_by_item_id:
+        return jsonify({'status': 'error', 'msg': '请选择大于 0 的下推数量'}), 400
+
+    source_items = SalesOrderItem.query.options(
+        joinedload(SalesOrderItem.sales_order).joinedload(SalesOrder.customer),
+        joinedload(SalesOrderItem.material),
+    ).filter(SalesOrderItem.id.in_(selected_qty_by_item_id.keys())).all()
+    if len(source_items) != len(selected_qty_by_item_id):
+        return jsonify({'status': 'error', 'msg': '部分销售订单明细不存在，请刷新后重试'}), 400
+
+    order_ids = set()
+    customer_ids = set()
+    warehouses = set()
+    conversions = []
+    for item in source_items:
+        order = item.sales_order
+        if not order or order.status != 'confirmed' or order.shipment_status == 'shipped':
+            return jsonify({'status': 'error', 'msg': '只能选择已确认且仍有待发货数量的销售订单明细'}), 400
+        quantity = selected_qty_by_item_id[item.id]
+        remaining = round_to_2_decimals((item.quantity or 0) - (item.shipped_quantity or 0))
+        if quantity - remaining > STOCK_COMPARE_EPSILON:
+            return jsonify({'status': 'error', 'msg': f'销售订单 {order.order_no} 的下推数量不能超过未发货数量'}), 400
+        pending = OutOrder.query.filter(
+            db.or_(OutOrder.source_sales_order_id == order.id, OutOrder.purpose == f'来源销售订单 {order.order_no}'),
+            OutOrder.status == 'pending',
+        ).first()
+        if pending:
+            return jsonify({'status': 'error', 'msg': f'销售订单 {order.order_no} 已存在待处理销售出库草稿，请先处理'}), 400
+        order_ids.add(order.id)
+        customer_ids.add(order.customer_id)
+        warehouses.add((order.warehouse or '').strip())
+        conversions.append((item, order, quantity))
+
+    if len(customer_ids) != 1:
+        return jsonify({'status': 'error', 'msg': '一张销售出库单只能选择同一客户的销售订单明细'}), 400
+    if len(warehouses) != 1:
+        return jsonify({'status': 'error', 'msg': '一张销售出库单只能选择同一发货仓库的销售订单明细'}), 400
+
+    try:
+        order_nos = sorted({order.order_no for _, order, _ in conversions})
+        customer = source_items[0].sales_order.customer
+        outbound = OutOrder(
+            order_no=generate_order_no('OU'),
+            date=date.today(),
+            customer=customer.name if customer else '',
+            business_type='销售出库',
+            warehouse=next(iter(warehouses)),
+            purpose='选单生成销售出库',
+            source_sales_order_id=next(iter(order_ids)) if len(order_ids) == 1 else None,
+            remark=(payload.get('remark') or '').strip() or ('由销售订单选单生成：' + '、'.join(order_nos)),
+            status='pending',
+            operator_id=current_user.id,
+        )
+        db.session.add(outbound)
+        db.session.flush()
+        for item, order, quantity in conversions:
+            price = round_to_2_decimals(item.price or 0)
+            db.session.add(OutOrderItem(
+                out_order_id=outbound.id,
+                material_id=item.material_id,
+                source_sales_order_item_id=item.id,
+                quantity=quantity,
+                price=price,
+                amount=round_to_2_decimals(quantity * price),
+                remark=f'来源销售订单 {order.order_no}',
+            ))
+            order.shipment_order_no = outbound.order_no
+        recalculate_order_total(outbound)
+        db.session.commit()
+        log_operation('销售订单选单生成销售出库单', f'{", ".join(order_nos)} -> {outbound.order_no}', 'out_order', outbound.id)
+        return jsonify({'status': 'success', 'id': outbound.id, 'order_no': outbound.order_no, 'redirect_url': url_for('out_order_detail', id=outbound.id)})
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('销售订单选单生成销售出库单失败')
+        return jsonify({'status': 'error', 'msg': '生成销售出库草稿失败，请稍后重试'}), 500
 
 
 @app.route('/sales/add')
