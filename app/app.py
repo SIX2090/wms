@@ -153,6 +153,11 @@ def auto_migrate_database():
         if in_columns and 'source_purchase_order_id' not in in_columns:
             cursor.execute("ALTER TABLE in_order ADD COLUMN source_purchase_order_id INTEGER")
             modified = True
+        cursor.execute("PRAGMA table_info(user)")
+        user_columns = [row[1] for row in cursor.fetchall()]
+        if user_columns and 'must_change_password' not in user_columns:
+            cursor.execute("ALTER TABLE user ADD COLUMN must_change_password BOOLEAN DEFAULT 0")
+            modified = True
         if in_columns and 'business_type' not in in_columns:
             cursor.execute("ALTER TABLE in_order ADD COLUMN business_type VARCHAR(50)")
             cursor.execute("""
@@ -1570,6 +1575,17 @@ def block_location_modules_when_disabled():
     flash('库位管理尚未启用，请先在系统管理中开启。', 'info')
     return redirect(url_for('stock_query'))
 
+
+@app.before_request
+def enforce_initial_password_change():
+    if request.endpoint in {'static', 'login', 'change_own_password', 'logout'}:
+        return None
+    if current_user.is_authenticated and getattr(current_user, 'must_change_password', False):
+        if request.path.startswith('/api/') or request.is_json:
+            return jsonify({'status': 'error', 'msg': '请先修改初始密码', 'redirect': url_for('change_own_password')}), 403
+        return redirect(url_for('change_own_password'))
+    return None
+
 # Error handlers
 def wants_json_error_response():
     return request.path.startswith('/api/')
@@ -1943,6 +1959,7 @@ class User(UserMixin, db.Model):
     locked_until = db.Column(db.DateTime)  # Lock end time
     last_login_at = db.Column(db.DateTime)  # Last login time
     last_login_ip = db.Column(db.String(50))  # Last login IP
+    must_change_password = db.Column(db.Boolean, default=False, nullable=False)
 
     # Flask-Login integration
     @property
@@ -4325,6 +4342,7 @@ def ensure_bootstrap_admin_user():
         role='admin',
         status='normal',
         created_at=datetime.now(),
+        must_change_password=not bool(os.environ.get('WMS_BOOTSTRAP_PASSWORD')),
     )
     db.session.add(user)
     try:
@@ -4365,6 +4383,7 @@ def ensure_admin_user_exists():
         role='admin',
         status='normal',
         created_at=datetime.now(),
+        must_change_password=not bool(os.environ.get('WMS_BOOTSTRAP_PASSWORD')),
     )
     db.session.add(user)
     try:
@@ -4597,7 +4616,7 @@ def role_required(*roles):
             if not current_user.is_authenticated:
                 flash('请先登录后再继续', 'warning')
                 return redirect(url_for('login', next=get_next_target()))
-            if current_user.role not in roles:
+            if current_user.role != 'admin' and current_user.role not in roles:
                 flash('当前账号没有权限访问该页面', 'danger')
                 return redirect(url_for('index'))
             return f(*args, **kwargs)
@@ -5671,6 +5690,34 @@ def validate_password_strength(password):
     return True, None
 
 
+@app.route('/user/change_password', methods=['GET', 'POST'])
+@login_required
+def change_own_password():
+    if request.method == 'GET':
+        return render_template('change_password.html')
+    current_password = request.form.get('current_password') or ''
+    new_password = request.form.get('new_password') or ''
+    confirm_password = request.form.get('confirm_password') or ''
+    if not check_password_hash(current_user.password_hash, current_password):
+        return jsonify({'status': 'error', 'msg': '当前密码不正确'}), 400
+    if new_password != confirm_password:
+        return jsonify({'status': 'error', 'msg': '两次输入的新密码不一致'}), 400
+    valid, message = validate_password_strength(new_password)
+    if not valid:
+        return jsonify({'status': 'error', 'msg': message}), 400
+    if new_password == current_password:
+        return jsonify({'status': 'error', 'msg': '新密码不能与当前密码相同'}), 400
+    try:
+        current_user.password_hash = generate_password_hash(new_password)
+        current_user.must_change_password = False
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error('用户修改密码失败: %s', e)
+        return jsonify({'status': 'error', 'msg': '密码修改失败，请稍后重试'}), 500
+    return jsonify({'status': 'success', 'msg': '密码修改成功', 'redirect': url_for('index')})
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     next_page = (request.values.get('next') or '').strip()
@@ -5750,6 +5797,8 @@ def login():
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
             return jsonify({'status': 'error', 'msg': '操作失败'}), 500
+        if user.must_change_password:
+            return redirect(url_for('change_own_password'))
         if login_mode == 'admin' and not next_page:
             return redirect(url_for('admin_console'))
         return redirect(resolve_redirect_target(next_page))
@@ -6100,7 +6149,10 @@ def operation_audit_page():
 def add_user():
     username = request.form.get('username', '').strip()
     password = request.form.get('password', '').strip()
-    role = request.form.get('role', 'user')
+    role = (request.form.get('role', 'user') or 'user').strip()
+    allowed_roles = {'admin', 'warehouse', 'purchase', 'sales', 'production', 'user', 'viewer'}
+    if role not in allowed_roles:
+        return jsonify({'status': 'error', 'msg': '用户角色不合法'})
     if not username or not password:
         return jsonify({'status': 'error', 'msg': '请输入用户名和密码'})
     if User.query.filter_by(username=username).first():
@@ -6493,6 +6545,10 @@ def add_material():
     if material_name_spec_exists(name, spec):
         return jsonify({'status': 'error', 'msg': '物料名称和规格不能同时重复'})
 
+    initial_stock = parse_float_value(request.form.get('stock'), 0)
+    if initial_stock < 0:
+        return jsonify({'status': 'error', 'msg': '初始库存不能小于 0'}), 400
+
     image_file = request.files.get('image')
     image_path = None
     if image_file and image_file.filename:
@@ -6513,6 +6569,7 @@ def add_material():
         unit_id=request.form.get('unit_id') or None,
         supplier_id=request.form.get('supplier_id') or None,
         spec=spec,
+        stock=initial_stock,
         purpose=request.form.get('purpose'),
         min_stock=float(request.form.get('min_stock', 0) or 0),
         max_stock=float(request.form.get('max_stock', 0) or 0),
@@ -8164,25 +8221,25 @@ def delete_category():
 # ==================== Unit ====================
 
 @app.route('/api/categories')
-@login_required
+@web_or_api_required
 def api_categories():
     cats = MaterialCategory.query.all()
     return jsonify([{'id': c.id, 'code': c.code, 'name': c.name} for c in cats])
 
 @app.route('/api/units')
-@login_required
+@web_or_api_required
 def api_units():
     units = Unit.query.order_by(Unit.code.asc(), Unit.id.asc()).all()
     return jsonify([serialize_unit(unit) for unit in units])
 
 @app.route('/api/suppliers')
-@login_required
+@web_or_api_required
 def api_suppliers():
     suppliers = Supplier.query.order_by(Supplier.code.asc(), Supplier.id.asc()).all()
     return jsonify([serialize_supplier(supplier) for supplier in suppliers])
 
 @app.route('/api/customers')
-@login_required
+@web_or_api_required
 def api_customers():
     customers = Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all()
     return jsonify([serialize_customer(customer) for customer in customers])
@@ -22580,6 +22637,27 @@ def add_in_order():
         remark = (request.form.get('remark') or '').strip()
         items_data = []
 
+    if request.is_json:
+        if not isinstance(items_data, list) or not items_data:
+            return jsonify({'status': 'error', 'msg': '入库单至少需要一条明细'}), 400
+        for index, item_data in enumerate(items_data, 1):
+            if not isinstance(item_data, dict):
+                return jsonify({'status': 'error', 'msg': f'第 {index} 行入库明细格式不正确'}), 400
+            material_code = (item_data.get('code') or '').strip()
+            if not material_code:
+                return jsonify({'status': 'error', 'msg': f'第 {index} 行请选择物料'}), 400
+            material = Material.query.filter_by(code=material_code).first()
+            if not material:
+                return jsonify({'status': 'error', 'msg': f'第 {index} 行物料 {material_code} 不存在'}), 400
+            try:
+                quantity = round_to_2_decimals(item_data.get('quantity', 0))
+            except (TypeError, ValueError):
+                quantity = 0
+            if quantity <= 0:
+                return jsonify({'status': 'error', 'msg': f'第 {index} 行物料 {material_code} 的数量必须大于0'}), 400
+    elif not order_id:
+        return jsonify({'status': 'error', 'msg': '入库单至少需要一条明细'}), 400
+
     if order_id and order_id not in ('None', '', 'null'):
         try:
             order_id = int(order_id)
@@ -22657,16 +22735,16 @@ def add_in_order():
             for item_data in items_data:
                 material_code = (item_data.get('code') or '').strip()
                 if not material_code:
-                    continue
+                    return jsonify({'status': 'error', 'msg': '请选择物料后再保存'}), 400
                 material = Material.query.filter_by(code=material_code).first()
                 if not material:
-                    continue
+                    return jsonify({'status': 'error', 'msg': f'物料 {material_code} 不存在'}), 400
                 try:
                     quantity = round_to_2_decimals(item_data.get('quantity', 0))
                 except (TypeError, ValueError):
-                    continue
+                    return jsonify({'status': 'error', 'msg': f'物料 {material_code} 的数量格式不正确'}), 400
                 if quantity <= 0:
-                    continue
+                    return jsonify({'status': 'error', 'msg': f'物料 {material_code} 的数量必须大于0'}), 400
                 try:
                     price = round_to_2_decimals(item_data.get('price', 0))
                 except (TypeError, ValueError):
@@ -23297,6 +23375,20 @@ def complete_in_order(id):
             })
 
     try:
+        # SQLite 不支持 SELECT FOR UPDATE，用写事务锁住整张入库单的完成窗口；
+        # 其它数据库使用行锁。锁后必须重新读取状态，避免多 worker 重复入库。
+        if db.engine.dialect.name == 'sqlite':
+            db.session.rollback()
+            db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
+            order = db.session.get(InOrder, id)
+        else:
+            order = InOrder.query.with_for_update().options(selectinload(InOrder.items)).get(id)
+        if not order or order.status != 'pending':
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '该入库单已提交，不能重复操作'})
+        if not order.items:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '请至少添加一条入库明细'})
         is_recompleted = StockTransaction.query.filter_by(
             reference_type='in_order',
             reference_id=order.id,
@@ -23374,6 +23466,7 @@ def update_completed_in_order(id):
                 if not allow_negative_stock():
                     sufficient, current_stock, error_msg = check_stock_sufficient(item.material, item.quantity)
                     if not sufficient:
+                        db.session.rollback()
                         return jsonify({'status': 'error', 'msg': error_msg})
                 # 使用 deduct_stock 写流水+归一化+库位还原，避免直接改 stock
                 ok, err = deduct_stock(item.material, item.quantity or 0,
@@ -23382,9 +23475,13 @@ def update_completed_in_order(id):
                                        reference_id=order.id,
                                        remark=f'删除已完成入库单 {order.order_no} 明细回退库存')
                 if not ok:
+                    db.session.rollback()
                     return jsonify({'status': 'error', 'msg': err or '库存回退失败'})
                 if location_management_enabled() and order.warehouse:
-                    update_location_inventory(item.material, order.warehouse, -(item.quantity or 0))
+                    loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, -(item.quantity or 0))
+                    if not loc_ok:
+                        db.session.rollback()
+                        return jsonify({'status': 'error', 'msg': loc_err or '库位库存回退失败'})
                 if item.source_purchase_order_item:
                     source_item = item.source_purchase_order_item
                     source_item.received_quantity = max(
@@ -28066,8 +28163,12 @@ def revert_transfer(id):
                 quantity = item.quantity or 0
                 ok, error_msg = update_location_inventory(item.material, transfer.to_location, -quantity)
                 if not ok:
+                    db.session.rollback()
                     return jsonify({'status': 'error', 'msg': error_msg})
-                update_location_inventory(item.material, transfer.from_location, quantity)
+                loc_ok, loc_err = update_location_inventory(item.material, transfer.from_location, quantity)
+                if not loc_ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': loc_err or '来源库位库存恢复失败'})
                 add_stock_transaction(
                     item.material, quantity, 'transfer_in',
                     reference_type='transfer',
@@ -29946,6 +30047,10 @@ def add_out_order():
                 submitted_items = json.loads(request.form.get('items', '[]'))
             except json.JSONDecodeError:
                 submitted_items = []
+
+        if not isinstance(submitted_items, list) or not submitted_items:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '出库单至少需要一条明细'}), 400
 
         if submitted_items:
             for existing_item in list(order.items):
