@@ -572,12 +572,13 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 
 ### 子项完成记录格式
 
-#### AI-SALES-F01-FIX-01（进行中）
+#### AI-SALES-F01-FIX-01（自动验证完成，待真实验收）
 
 - 目标：将 AI-SALES-F01 只读销售草稿证据检查接入销售订单详情/确认前接口，并允许 `sales` 角色使用销售草稿能力。
 - 业务边界：仅检查并返回证据链，禁止确认、提交、完成、取消、删除、关闭和自动发货。
 - 改动模块：`app/app.py`、`app/ai/policies.py`、`AI_PERMISSION_MATRIX.md`、`scripts/verify_sales_module.py`。
-- 状态：待专项验证、完整回归、提交推送和真实用户验收后完成。
+- 状态：专项验证、完整回归、提交和推送已完成；真实用户/真实销售数据验收仍需在业务环境执行，暂不标记为最终完成。
+- 提交 SHA：`e7e9342`；专项命令：`python scripts/verify_sales_module.py`（29/29）、`python scripts/verify_ai_sales_draft_validation.py`（8/8）、`python scripts/verify_wms_bugs.py`（通过）。
 
 每个子项完成后必须在本台账追加：
 

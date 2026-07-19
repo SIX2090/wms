@@ -829,7 +829,7 @@ sales_order 1 ---- n sales_order_item
 - 新增 `sales` 角色并开放销售订单录入、确认、取消、下推和销售出库选单；仓库完成/反提交仍只允许仓库角色。
 - 新增 `/api/ai/sales/<id>/draft_check` 只读检查接口，复用 AI-SALES-F01 证据链和禁止动作校验，仅返回草稿证据，不执行确认、提交、完成、取消、删除或自动发货。
 
-**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 29/29 通过；`python scripts/verify_ai_sales_draft_validation.py` 8/8 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。待提交后补充最终提交哈希。
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 29/29 通过；`python scripts/verify_ai_sales_draft_validation.py` 8/8 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。提交：`e7e9342`。剩余风险：真实多角色浏览器验收和真实售后数据对账。
 
 ## 阶段 16 实施记录（2026-07-19）：销售工作台和作业入口（SM-P3-01）
 
