@@ -797,6 +797,14 @@ sales_order 1 ---- n sales_order_item
 
 **验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 25/25 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。提交：`66ba42b`。剩余子任务：跨仓库策略细化、选单并发控制和销售报表仓库外键筛选统一。
 
+## 阶段 13 实施记录（2026-07-19）：销售出库跨仓库边界
+
+- 直接销售出库保存时要求仓库存在且启用；销售出库完成时再次校验单据仓库与来源销售订单/来源明细仓库一致。
+- 销售选单继续按仓库 ID 和名称双重约束，禁止跨仓库合并；普通领料和其他出库保持原有仓库处理逻辑。
+- 新增无效销售订单仓库、无效销售出库仓库的接口验收；单事务内的重复草稿检查继续生效。
+
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 26/26 通过。剩余子任务：多进程选单并发锁、销售报表仓库外键筛选统一。
+
 ## G. 每阶段交付门槛
 
 每个任务必须同时具备：代码、权限、审计、迁移说明、测试、页面入口、报表口径、运行验证和回滚说明。完成后更新本计划的任务状态、提交哈希、验证命令和剩余风险；提交和推送必须落在 `main`，不得创建工作分支。

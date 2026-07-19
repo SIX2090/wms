@@ -286,6 +286,14 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
             invalid_response = c.post("/sales/add", data=json.dumps(invalid_payload), content_type="application/json")
             results.append(("SALES-RT-000", invalid_response.status_code == 400,
                 f"无效仓库拒绝 -> HTTP {invalid_response.status_code}"))
+            invalid_outbound_response = c.post("/out_order/add", data=json.dumps({
+                "business_type": "销售出库",
+                "warehouse": "不存在的仓库",
+                "customer": "测试客户有限公司",
+                "items": [],
+            }), content_type="application/json")
+            results.append(("SALES-RT-000B", invalid_outbound_response.status_code == 400,
+                f"销售出库无效仓库拒绝 -> HTTP {invalid_outbound_response.status_code}"))
             r = c.post("/sales/add", data=json.dumps(order_payload),
                        content_type="application/json")
             resp = r.get_json(silent=True) or {}

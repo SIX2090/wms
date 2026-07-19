@@ -2129,6 +2129,24 @@ def validate_sales_warehouse(value=None, warehouse_id=None):
     return warehouse, None
 
 
+def validate_sales_outbound_warehouse(outbound):
+    """Validate the canonical warehouse and every linked sales source row."""
+    warehouse, error = validate_sales_warehouse(outbound.warehouse)
+    if error:
+        return None, error
+    if outbound.source_sales_order_id:
+        source_order = db.session.get(SalesOrder, outbound.source_sales_order_id)
+        if source_order and source_order.warehouse_id and source_order.warehouse_id != warehouse.id:
+            return None, '销售出库仓库必须与来源销售订单一致'
+    for item in outbound.items:
+        source_item = item.source_sales_order_item
+        source_order = source_item.sales_order if source_item else None
+        if source_order and source_order.warehouse_id and source_order.warehouse_id != warehouse.id:
+            return None, '销售出库明细包含跨仓库来源，不能完成出库'
+    outbound.warehouse = warehouse.name
+    return warehouse, None
+
+
 def ensure_default_warehouses():
     """Keep legacy document warehouse choices available in warehouse master data."""
     changed = False
@@ -29839,6 +29857,15 @@ def add_out_order():
         warehouse = (data.get('warehouse') or '').strip()
         remark = (data.get('remark') or '').strip()
 
+        sales_warehouse = None
+        if business_type == '销售出库':
+            sales_warehouse, warehouse_error = validate_sales_warehouse(
+                warehouse, data.get('warehouse_id')
+            )
+            if warehouse_error:
+                return jsonify({'status': 'error', 'msg': warehouse_error}), 400
+            warehouse = sales_warehouse.name
+
         # 转换department_id
         if department_id:
             try:
@@ -29852,6 +29879,10 @@ def add_out_order():
                 return jsonify({'status': 'error', 'msg': '领料单不存在，请刷新后重试'})
             if order.status != 'pending':
                 return jsonify({'status': 'error', 'msg': '已完成的领料单不能修改'})
+            if business_type == '销售出库' and order.source_sales_order_id:
+                source_order = db.session.get(SalesOrder, order.source_sales_order_id)
+                if source_order and source_order.warehouse_id and source_order.warehouse_id != sales_warehouse.id:
+                    return jsonify({'status': 'error', 'msg': '销售出库仓库必须与来源销售订单一致'}), 400
         else:
             order = OutOrder.query.filter_by(order_no=order_no).first()
             if order:
@@ -30184,6 +30215,10 @@ def complete_out_order(id):
         return jsonify({'status': 'error', 'msg': '该领料单已提交，不能重复操作'})
     if not order.items:
         return jsonify({'status': 'error', 'msg': '请至少添加一条领料明细'})
+    if order.business_type == '销售出库':
+        _, warehouse_error = validate_sales_outbound_warehouse(order)
+        if warehouse_error:
+            return jsonify({'status': 'error', 'msg': warehouse_error}), 400
     if location_management_enabled() and location_required_on_save() and not order.warehouse:
         return jsonify({'status': 'error', 'msg': '启用库位管理后，领料单必须填写仓库/库位'})
 
