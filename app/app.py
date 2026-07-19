@@ -40246,7 +40246,7 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
     recalculate_sales_order(order)
     return order
 
-def build_sales_outbound_draft(order):
+def build_sales_outbound_draft(order, selected_qty_by_item_id=None):
     # 优先通过外键查找待完成草稿，兜底 purpose 字符串
     pending_draft = OutOrder.query.filter(
         db.or_(
@@ -40257,15 +40257,33 @@ def build_sales_outbound_draft(order):
     ).order_by(OutOrder.id.desc()).first()
     if pending_draft:
         return pending_draft, 'existing'
-    remaining_items = [item for item in order.items if (item.quantity or 0) - (item.shipped_quantity or 0) > STOCK_COMPARE_EPSILON]
-    if not remaining_items:
+    remaining_by_id = {
+        item.id: round_to_2_decimals((item.quantity or 0) - (item.shipped_quantity or 0))
+        for item in order.items
+        if (item.quantity or 0) - (item.shipped_quantity or 0) > STOCK_COMPARE_EPSILON
+    }
+    if not remaining_by_id:
         recalculate_sales_order(order)
         return None, 'completed'
+    if selected_qty_by_item_id is None:
+        selected_qty_by_item_id = remaining_by_id
+    else:
+        selected_qty_by_item_id = {
+            item_id: round_to_2_decimals(quantity)
+            for item_id, quantity in selected_qty_by_item_id.items()
+            if item_id in remaining_by_id and quantity > STOCK_COMPARE_EPSILON
+        }
+        if not selected_qty_by_item_id:
+            return None, 'invalid_selection'
+        for item_id, quantity in selected_qty_by_item_id.items():
+            if quantity - remaining_by_id[item_id] > STOCK_COMPARE_EPSILON:
+                return None, 'over_quantity'
+    remaining_items = [item for item in order.items if item.id in selected_qty_by_item_id]
     outbound = OutOrder(order_no=generate_order_no('OU'), date=order.date, customer=order.customer.name if order.customer else '', business_type='销售出库', warehouse=order.warehouse, purpose=f'来源销售订单 {order.order_no}', source_sales_order_id=order.id, remark=order.remark, status='pending', operator_id=current_user.id)
     db.session.add(outbound)
     db.session.flush()
     for item in remaining_items:
-        remaining_quantity = round_to_2_decimals((item.quantity or 0) - (item.shipped_quantity or 0))
+        remaining_quantity = selected_qty_by_item_id[item.id]
         db.session.add(OutOrderItem(out_order_id=outbound.id, material_id=item.material_id, quantity=remaining_quantity, price=item.price, amount=round_to_2_decimals(remaining_quantity * (item.price or 0)), remark=f'来源销售订单 {order.order_no}'))
     order.shipment_order_no = outbound.order_no
     order.shipment_status = 'pending'
@@ -40554,7 +40572,23 @@ def sales_order_add():
 @login_required
 def sales_order_detail(id):
     order = SalesOrder.query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.salesperson), joinedload(SalesOrder.operator), joinedload(SalesOrder.items).joinedload(SalesOrderItem.material).joinedload(Material.unit)).get_or_404(id)
-    return render_template('sales_order_detail.html', order=order, today=date.today(), status_label=sales_status_label, shipment_status_label=sales_shipment_status_label)
+    related_sales_out_orders = OutOrder.query.options(
+        joinedload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit),
+    ).filter(
+        db.or_(
+            OutOrder.source_sales_order_id == order.id,
+            OutOrder.purpose == f'来源销售订单 {order.order_no}',
+        ),
+        OutOrder.business_type == '销售出库',
+    ).order_by(OutOrder.date.desc(), OutOrder.id.desc()).all()
+    return render_template(
+        'sales_order_detail.html',
+        order=order,
+        related_sales_out_orders=related_sales_out_orders,
+        today=date.today(),
+        status_label=sales_status_label,
+        shipment_status_label=sales_shipment_status_label,
+    )
 
 
 @app.route('/sales/<int:id>/edit', methods=['GET'])
@@ -40664,7 +40698,25 @@ def create_sales_outbound_draft(id):
     if order.status not in ('confirmed', 'closed'):
         return jsonify({'status': 'error', 'msg': '请先确认销售订单'}), 400
     try:
-        outbound, result = build_sales_outbound_draft(order)
+        payload = request.get_json(silent=True) or {}
+        selected_qty_by_item_id = None
+        if isinstance(payload.get('items'), list):
+            selected_qty_by_item_id = {}
+            for row in payload['items']:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    item_id = int(row.get('sales_order_item_id') or row.get('item_id'))
+                except (TypeError, ValueError):
+                    continue
+                quantity = round_to_2_decimals(parse_float_value(row.get('quantity'), 0))
+                if quantity > STOCK_COMPARE_EPSILON:
+                    selected_qty_by_item_id[item_id] = round_to_2_decimals(selected_qty_by_item_id.get(item_id, 0) + quantity)
+        outbound, result = build_sales_outbound_draft(order, selected_qty_by_item_id)
+        if result == 'invalid_selection':
+            return jsonify({'status': 'error', 'msg': '请至少选择一条大于 0 的未发货明细'}), 400
+        if result == 'over_quantity':
+            return jsonify({'status': 'error', 'msg': '出库数量不能超过销售订单未发货数量'}), 400
         if result == 'completed':
             db.session.commit()
             return jsonify({'status': 'error', 'msg': '销售订单已全部发货'}), 400
@@ -41358,6 +41410,177 @@ def export_sales_trend_report():
     workbook.save(output)
     output.seek(0)
     return send_file(output, download_name=f'sales_trend_{months_back}months.xlsx', as_attachment=True)
+
+
+def _sales_report_orders():
+    """Return the common filtered order set used by sales execution reports."""
+    query = SalesOrder.query.filter(SalesOrder.status != 'cancelled')
+    date_start = request.args.get('date_start') or ''
+    date_end = request.args.get('date_end') or ''
+    customer_id = request.args.get('customer_id', type=int)
+    material_code = (request.args.get('material_code') or '').strip()
+    if date_start:
+        parsed = parse_date_value(date_start)
+        if parsed:
+            query = query.filter(SalesOrder.date >= parsed)
+    if date_end:
+        parsed = parse_date_value(date_end)
+        if parsed:
+            query = query.filter(SalesOrder.date <= parsed)
+    if customer_id:
+        query = query.filter(SalesOrder.customer_id == customer_id)
+    if material_code:
+        query = query.join(SalesOrderItem).join(Material).filter(
+            db.or_(Material.code.ilike(f'%{material_code}%'), Material.name.ilike(f'%{material_code}%'))
+        ).distinct()
+    return query.options(
+        joinedload(SalesOrder.customer),
+        selectinload(SalesOrder.items).joinedload(SalesOrderItem.material),
+    ).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).all()
+
+
+def _sales_report_filters_context():
+    return {
+        'date_start': request.args.get('date_start') or '',
+        'date_end': request.args.get('date_end') or '',
+        'customer_id': request.args.get('customer_id', type=int) or '',
+        'material_code': request.args.get('material_code') or '',
+    }
+
+
+@app.route('/sales/execution_report')
+@login_required
+def sales_execution_report():
+    orders = _sales_report_orders()
+    rows = []
+    for order in orders:
+        total_qty = sum((item.quantity or 0) for item in order.items)
+        shipped_qty = sum((item.shipped_quantity or 0) for item in order.items)
+        remaining_qty = max(total_qty - shipped_qty, 0)
+        amount = float(order.total_amount or 0)
+        shipped_amount = float(order.shipped_amount or 0)
+        rows.append({
+            'order': order,
+            'quantity': round_to_2_decimals(total_qty),
+            'shipped_quantity': round_to_2_decimals(shipped_qty),
+            'remaining_quantity': round_to_2_decimals(remaining_qty),
+            'amount': round_to_2_decimals(amount),
+            'shipped_amount': round_to_2_decimals(shipped_amount),
+            'remaining_amount': round_to_2_decimals(max(amount - shipped_amount, 0)),
+            'execution_rate': round_to_2_decimals(shipped_amount / amount * 100) if amount else 0,
+        })
+    return render_template(
+        'sales_execution_report.html',
+        rows=rows,
+        filters=_sales_report_filters_context(),
+        customers=Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all(),
+        status_label=sales_status_label,
+        total_orders=len(rows),
+        total_amount=round_to_2_decimals(sum(row['amount'] for row in rows)),
+        shipped_amount=round_to_2_decimals(sum(row['shipped_amount'] for row in rows)),
+        remaining_amount=round_to_2_decimals(sum(row['remaining_amount'] for row in rows)),
+    )
+
+
+@app.route('/sales/execution_report/export')
+@login_required
+def export_sales_execution_report():
+    from openpyxl import Workbook
+    rows = []
+    for order in _sales_report_orders():
+        total_qty = sum((item.quantity or 0) for item in order.items)
+        shipped_qty = sum((item.shipped_quantity or 0) for item in order.items)
+        amount = float(order.total_amount or 0)
+        shipped_amount = float(order.shipped_amount or 0)
+        rows.append([
+            order.order_no, order.date.strftime('%Y-%m-%d') if order.date else '',
+            order.customer.name if order.customer else '', order.status,
+            round_to_2_decimals(total_qty), round_to_2_decimals(shipped_qty),
+            round_to_2_decimals(max(total_qty - shipped_qty, 0)),
+            round_to_2_decimals(amount), round_to_2_decimals(shipped_amount),
+            round_to_2_decimals(max(amount - shipped_amount, 0)),
+            round_to_2_decimals(shipped_amount / amount * 100) if amount else 0,
+        ])
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = '销售订单执行'
+    sheet.append(['销售订单号', '订单日期', '客户', '状态', '订单数量', '已发货数量', '待发货数量', '订单金额', '已发货金额', '待发货金额', '金额执行率%'])
+    for row in rows:
+        sheet.append(row)
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return send_file(output, download_name='sales_execution_report.xlsx', as_attachment=True)
+
+
+@app.route('/sales/price_analysis')
+@login_required
+def sales_price_analysis():
+    aggregates = {}
+    for order in _sales_report_orders():
+        customer_id = order.customer_id
+        for item in order.items:
+            material = item.material
+            if not material:
+                continue
+            key = material.id
+            row = aggregates.setdefault(key, {
+                'code': material.code, 'name': material.name, 'spec': material.spec or '',
+                'quantity': 0, 'amount': 0, 'prices': [], 'customers': set(), 'lines': 0,
+            })
+            quantity = float(item.quantity or 0)
+            price = float(item.price or 0)
+            row['quantity'] += quantity
+            row['amount'] += float(item.tax_included_amount or item.amount or 0)
+            row['prices'].append(price)
+            row['customers'].add(customer_id)
+            row['lines'] += 1
+    rows = []
+    for row in aggregates.values():
+        prices = row.pop('prices')
+        row['avg_price'] = round_to_2_decimals(sum(prices) / len(prices)) if prices else 0
+        row['min_price'] = round_to_2_decimals(min(prices)) if prices else 0
+        row['max_price'] = round_to_2_decimals(max(prices)) if prices else 0
+        row['quantity'] = round_to_2_decimals(row['quantity'])
+        row['amount'] = round_to_2_decimals(row['amount'])
+        row['customers'] = len({value for value in row['customers'] if value})
+        rows.append(row)
+    rows.sort(key=lambda row: row['amount'], reverse=True)
+    return render_template(
+        'sales_price_analysis.html', rows=rows, filters=_sales_report_filters_context(),
+        customers=Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all(),
+        total_quantity=round_to_2_decimals(sum(row['quantity'] for row in rows)),
+        total_amount=round_to_2_decimals(sum(row['amount'] for row in rows)),
+    )
+
+
+@app.route('/sales/price_analysis/export')
+@login_required
+def export_sales_price_analysis():
+    from openpyxl import Workbook
+    rows = []
+    for order in _sales_report_orders():
+        for item in order.items:
+            material = item.material
+            if material:
+                rows.append((material.code, material.name, material.spec or '', float(item.quantity or 0), float(item.price or 0), float(item.tax_included_amount or item.amount or 0)))
+    grouped = {}
+    for code, name, spec, quantity, price, amount in rows:
+        row = grouped.setdefault(code, {'code': code, 'name': name, 'spec': spec, 'quantity': 0, 'amount': 0, 'prices': []})
+        row['quantity'] += quantity
+        row['amount'] += amount
+        row['prices'].append(price)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = '销售价格分析'
+    sheet.append(['物料编码', '物料名称', '规格', '销售数量', '平均成交价', '最低成交价', '最高成交价', '含税金额'])
+    for row in sorted(grouped.values(), key=lambda value: value['amount'], reverse=True):
+        prices = row['prices']
+        sheet.append([row['code'], row['name'], row['spec'], round_to_2_decimals(row['quantity']), round_to_2_decimals(sum(prices) / len(prices)), round_to_2_decimals(min(prices)), round_to_2_decimals(max(prices)), round_to_2_decimals(row['amount'])])
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return send_file(output, download_name='sales_price_analysis.xlsx', as_attachment=True)
 
 # ==================== Application entrypoint ====================
 

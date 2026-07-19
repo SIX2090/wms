@@ -18,6 +18,7 @@
         <button class="btn btn-outline-danger" onclick="postAction('{{ url_for('delete_sales_order', id=order.id) }}','删除草稿销售订单？')">删除草稿</button>
       {% elif order.status=='confirmed' and order.shipment_status != 'shipped' %}
         <button class="btn btn-success" onclick="createOutbound()">生成销售出库草稿</button>
+        <button class="btn btn-outline-success" onclick="createSelectedOutbound()"><i class="bi bi-check2-square"></i> 按选定数量下推</button>
         <button class="btn btn-outline-danger" onclick="postAction('{{ url_for('cancel_sales_order', id=order.id) }}','取消销售订单？')">取消订单</button>
       {% endif %}
     </div>
@@ -65,6 +66,7 @@
             <th>批次号</th>
             <th>序列号</th>
             <th>备注</th>
+            {% if order.status=='confirmed' and order.shipment_status != 'shipped' %}<th class="text-end">本次出库</th>{% endif %}
           </tr>
         </thead>
         <tbody>
@@ -85,6 +87,7 @@
             <td>{{ item.batch_no or '-' }}</td>
             <td>{{ item.serial_no or '-' }}</td>
             <td>{{ item.remark or '' }}</td>
+            {% if order.status=='confirmed' and order.shipment_status != 'shipped' %}<td class="text-end"><input class="form-control form-control-sm selected-outbound-quantity" data-item-id="{{ item.id }}" type="number" min="0" max="{{ ((item.quantity or 0) - (item.shipped_quantity or 0))|round(2) }}" step="0.01" placeholder="未选"></td>{% endif %}
           </tr>
           {% endfor %}
           <tr class="table-light">
@@ -92,8 +95,35 @@
             <td class="text-end"><strong>{{ '%.2f'|format(order.untaxed_amount or 0) }}</strong></td>
             <td class="text-end"><strong>{{ '%.2f'|format(order.tax_amount or 0) }}</strong></td>
             <td class="text-end"><strong>{{ '%.2f'|format(order.total_amount or 0) }}</strong></td>
-            <td colspan="3"></td>
+            <td colspan="{% if order.status=='confirmed' and order.shipment_status != 'shipped' %}4{% else %}3{% endif %}"></td>
           </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card mt-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong>关联销售出库单</strong>
+      <span class="text-muted small">共 {{ related_sales_out_orders|length }} 张，库存以已完成出库单为准</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0 align-middle">
+        <thead><tr><th>出库单号</th><th>日期</th><th>仓库</th><th>状态</th><th class="text-end">明细数量</th><th class="text-end">金额</th><th>备注</th></tr></thead>
+        <tbody>
+        {% for outbound in related_sales_out_orders %}
+          <tr>
+            <td><a href="{{ url_for('out_order_detail', id=outbound.id) }}">{{ outbound.order_no }}</a></td>
+            <td>{{ outbound.date or '-' }}</td>
+            <td>{{ outbound.warehouse or '-' }}</td>
+            <td><span class="badge {% if outbound.status == 'completed' %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ '已完成' if outbound.status == 'completed' else '待处理' }}</span></td>
+            <td class="text-end">{{ outbound.items|sum(attribute='quantity')|round(2) }}</td>
+            <td class="text-end">¥ {{ '%.2f'|format(outbound.total_amount or 0) }}</td>
+            <td>{{ outbound.remark or '-' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-3">尚未生成销售出库单</td></tr>
+        {% endfor %}
         </tbody>
       </table>
     </div>
@@ -117,6 +147,17 @@ async function postAction(url, msg) {
 }
 function createOutbound() {
   postAction('{{ url_for('create_sales_outbound_draft', id=order.id) }}', '生成销售出库草稿？生成后仍需仓库人工完成出库。');
+}
+async function createSelectedOutbound() {
+  const items = Array.from(document.querySelectorAll('.selected-outbound-quantity')).map(function(input) {
+    return {sales_order_item_id: Number(input.dataset.itemId), quantity: Number(input.value || 0)};
+  }).filter(function(row) { return row.quantity > 0; });
+  if (!items.length) { alert('请先填写至少一条本次出库数量'); return; }
+  if (!confirm('按选定数量生成销售出库草稿？生成后仍需仓库人工完成出库。')) return;
+  const response = await fetch('{{ url_for('create_sales_outbound_draft', id=order.id) }}', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({items: items})});
+  const result = await response.json();
+  if (result.status === 'success') window.location.href = result.url;
+  else alert(result.msg || '操作失败');
 }
 </script>
 {% endblock %}
