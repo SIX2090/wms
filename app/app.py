@@ -40387,6 +40387,16 @@ def sales_order_list():
     salesperson_id = request.args.get('salesperson_id', type=int)
     date_start = request.args.get('date_start') or ''
     date_end = request.args.get('date_end') or ''
+    sort_by = request.args.get('sort', 'date')
+    sort_order = request.args.get('order', 'desc')
+    
+    # 排序字段白名单
+    allowed_sorts = {'order_no', 'date', 'delivery_date', 'status', 'total_amount', 'created_at'}
+    if sort_by not in allowed_sorts:
+        sort_by = 'date'
+    if sort_order not in ['asc', 'desc']:
+        sort_order = 'desc'
+    
     query = SalesOrder.query.join(Customer).outerjoin(SalesOrderItem, SalesOrderItem.sales_order_id == SalesOrder.id).outerjoin(Material, SalesOrderItem.material_id == Material.id).distinct()
     if search:
         like = f'%{search}%'
@@ -40407,8 +40417,63 @@ def sales_order_list():
             query = query.filter(SalesOrder.date <= datetime.strptime(date_end, '%Y-%m-%d').date())
         except ValueError:
             date_end = ''
-    pagination = query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.salesperson)).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).paginate(page=request.args.get('page', 1, type=int), per_page=20, error_out=False)
-    return render_template('sales_order.html', orders=pagination.items, pagination=pagination, customers=Customer.query.order_by(Customer.code.asc()).all(), employees=Employee.query.order_by(Employee.id.asc()).all(), filters={'search': search, 'status': status, 'customer_id': customer_id, 'salesperson_id': salesperson_id, 'date_start': date_start, 'date_end': date_end}, status_label=sales_status_label, shipment_status_label=sales_shipment_status_label)
+    
+    # 排序
+    sort_col = getattr(SalesOrder, sort_by, SalesOrder.date)
+    query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc())
+    
+    pagination = query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.salesperson)).paginate(page=request.args.get('page', 1, type=int), per_page=20, error_out=False)
+    
+    # 计算汇总数据
+    summary = {
+        'pending_count': 0,
+        'partial_count': 0,
+        'pending_amount': 0,
+        'partial_amount': 0,
+        'overdue_count': 0,
+        'month_amount': 0
+    }
+    
+    # 统计待发货单据和金额
+    pending_orders = SalesOrder.query.filter(SalesOrder.status.in_(['draft', 'confirmed']), SalesOrder.shipment_status == 'pending').all()
+    summary['pending_count'] = len(pending_orders)
+    summary['pending_amount'] = sum(float(order.remaining_amount or 0) for order in pending_orders)
+    
+    # 统计部分发货
+    partial_orders = SalesOrder.query.filter(SalesOrder.status.in_(['draft', 'confirmed']), SalesOrder.shipment_status == 'partial').all()
+    summary['partial_count'] = len(partial_orders)
+    summary['partial_amount'] = sum(float(order.remaining_amount or 0) for order in partial_orders)
+    
+    # 统计逾期未发货
+    today = date.today()
+    overdue_orders = SalesOrder.query.filter(
+        SalesOrder.status.in_(['draft', 'confirmed']),
+        SalesOrder.shipment_status != 'shipped',
+        SalesOrder.delivery_date < today,
+        SalesOrder.delivery_date.isnot(None)
+    ).all()
+    summary['overdue_count'] = len(overdue_orders)
+    
+    # 统计本月销售金额
+    month_start = today.replace(day=1)
+    month_orders = SalesOrder.query.filter(
+        SalesOrder.date >= month_start,
+        SalesOrder.status != 'cancelled'
+    ).all()
+    summary['month_amount'] = sum(float(order.total_amount or 0) for order in month_orders)
+    
+    return render_template('sales_order.html', 
+        pagination=pagination, 
+        customers=Customer.query.order_by(Customer.code.asc()).all(), 
+        employees=Employee.query.order_by(Employee.id.asc()).all(), 
+        filters={'search': search, 'status': status, 'customer_id': customer_id, 'salesperson_id': salesperson_id, 'date_start': date_start, 'date_end': date_end}, 
+        status_label=sales_status_label, 
+        shipment_status_label=sales_shipment_status_label,
+        summary=summary,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        today=today
+    )
 
 
 @app.route('/sales/add')
@@ -40791,6 +40856,143 @@ def delete_sales_order(id):
     db.session.commit()
     log_operation('删除销售订单', f'销售订单：{order.order_no}', 'sales_order', id)
     return jsonify({'status': 'success', 'msg': '销售订单已删除'})
+
+
+@app.route('/sales/<int:id>/copy', methods=['POST'])
+@login_required
+def copy_sales_order(id):
+    order = SalesOrder.query.get_or_404(id)
+    try:
+        new_order = SalesOrder(
+            order_no=generate_sales_order_no(),
+            customer_id=order.customer_id,
+            operator_id=current_user.id,
+            date=date.today(),
+            delivery_date=order.delivery_date,
+            warehouse=order.warehouse,
+            remark=order.remark,
+            salesperson_id=order.salesperson_id,
+            project_no=order.project_no,
+            currency=order.currency,
+            settlement_method=order.settlement_method,
+            status='draft',
+            shipment_status='pending',
+        )
+        db.session.add(new_order)
+        db.session.flush()
+        for item in order.items:
+            new_item = SalesOrderItem(
+                sales_order_id=new_order.id,
+                material_id=item.material_id,
+                quantity=item.quantity,
+                price=item.price,
+                tax_rate=item.tax_rate,
+                batch_no=item.batch_no,
+                serial_no=item.serial_no,
+                remark=item.remark,
+            )
+            db.session.add(new_item)
+        db.session.commit()
+        recalculate_sales_order(new_order)
+        db.session.commit()
+        log_operation('复制销售订单', f'从 {order.order_no} 复制到 {new_order.order_no}', 'sales_order', new_order.id)
+        return jsonify({'status': 'success', 'msg': f'已复制为新销售订单 {new_order.order_no}', 'id': new_order.id})
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('复制销售订单失败')
+        return jsonify({'status': 'error', 'msg': f'复制失败：{exc}'}), 500
+
+
+@app.route('/sales/batch_delete', methods=['POST'])
+@login_required
+def batch_delete_sales_orders():
+    payload = request.get_json(silent=True) or {}
+    ids = payload.get('ids', [])
+    if not ids:
+        return jsonify({'status': 'error', 'msg': '请选择要删除的销售订单'}), 400
+    deleted = 0
+    errors = []
+    for order_id in ids:
+        order = SalesOrder.query.get(order_id)
+        if not order:
+            continue
+        if order.status != 'draft':
+            errors.append(f'{order.order_no} 不是草稿状态，无法删除')
+            continue
+        order_no = order.order_no
+        for item in list(order.items):
+            db.session.delete(item)
+        db.session.delete(order)
+        deleted += 1
+        log_operation('批量删除销售订单', f'删除草稿销售订单：{order_no}', 'sales_order', order_id)
+    db.session.commit()
+    msg = f'成功删除 {deleted} 张销售订单'
+    if errors:
+        msg += '；' + '；'.join(errors)
+    return jsonify({'status': 'success', 'msg': msg})
+
+
+@app.route('/sales/export')
+@login_required
+def export_sales_orders():
+    search = (request.args.get('search') or '').strip()
+    status = (request.args.get('status') or '').strip()
+    customer_id = request.args.get('customer_id', type=int)
+    salesperson_id = request.args.get('salesperson_id', type=int)
+    date_start = request.args.get('date_start') or ''
+    date_end = request.args.get('date_end') or ''
+    query = SalesOrder.query.join(Customer).outerjoin(SalesOrderItem, SalesOrderItem.sales_order_id == SalesOrder.id).outerjoin(Material, SalesOrderItem.material_id == Material.id).distinct()
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(SalesOrder.order_no.like(like), Customer.name.like(like), Customer.code.like(like), Material.code.like(like), Material.name.like(like), SalesOrder.project_no.like(like)))
+    if status:
+        query = query.filter(SalesOrder.status == status)
+    if customer_id:
+        query = query.filter(SalesOrder.customer_id == customer_id)
+    if salesperson_id:
+        query = query.filter(SalesOrder.salesperson_id == salesperson_id)
+    if date_start:
+        try:
+            query = query.filter(SalesOrder.date >= datetime.strptime(date_start, '%Y-%m-%d').date())
+        except ValueError:
+            pass
+    if date_end:
+        try:
+            query = query.filter(SalesOrder.date <= datetime.strptime(date_end, '%Y-%m-%d').date())
+        except ValueError:
+            pass
+    orders = query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.salesperson), joinedload(SalesOrder.items).joinedload(SalesOrderItem.material)).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).all()
+    from openpyxl import Workbook
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = '销售订单'
+    sheet.append(['订单号', '订单日期', '客户', '业务员', '项目号', '仓库', '交货日期', '未税金额', '税额', '含税金额', '已发货金额', '待发货金额', '订单状态', '发货状态', '币别', '结算方式', '备注'])
+    for order in orders:
+        sheet.append([
+            order.order_no,
+            order.date.isoformat() if order.date else '',
+            order.customer.name if order.customer else '',
+            order.salesperson.name if order.salesperson else '',
+            order.project_no or '',
+            order.warehouse or '',
+            order.delivery_date.isoformat() if order.delivery_date else '',
+            float(order.untaxed_amount or 0),
+            float(order.tax_amount or 0),
+            float(order.total_amount or 0),
+            float(order.shipped_amount or 0),
+            float(order.remaining_amount or 0),
+            sales_status_label(order.status),
+            sales_shipment_status_label(order.shipment_status),
+            order.currency or 'CNY',
+            order.settlement_method or '',
+            order.remark or '',
+        ])
+    from flask import Response
+    import io
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return Response(output.read(), headers={'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': 'attachment; filename=sales_orders.xlsx'}), 200
 
 
 @app.route('/sales/report/export')

@@ -1,131 +1,406 @@
 {% extends "base.html" %}
-{% block title %}销售订单{% endblock %}
+{% block title %}销售订单管理{% endblock %}
+
 {% block content %}
-<div class="container-fluid py-3">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <div><h4 class="mb-1">销售订单</h4><div class="text-muted small">订单 → 销售出库草稿 → 仓库人工完成</div></div>
-    <div class="d-flex gap-2">
-      <a class="btn btn-outline-primary" href="{{ url_for('sales_dashboard') }}">销售工作台</a>
-      <a class="btn btn-outline-secondary" href="{{ url_for('sales_report') }}">销售报表</a>
-      <a class="btn btn-outline-success" href="{{ url_for('download_sales_order_template') }}">下载导入模板</a>
-      <button class="btn btn-outline-success" type="button" onclick="document.getElementById('salesImportFile').click()">导入销售订单</button>
-      <a class="btn btn-primary" href="{{ url_for('sales_order_add_page') }}"><i class="bi bi-plus-lg"></i> 新建销售订单</a>
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-bag-check"></i> 销售订单管理</h2>
+        <div class="d-flex gap-2 flex-wrap wms-entry-toolbar">
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchDeleteSalesOrders()">
+                <i class="bi bi-trash"></i> 删除已选
+            </button>
+            <a href="/sales/download_template" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
+            <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('importFile').click()">
+                <i class="bi bi-upload"></i> 导入
+            </button>
+            <a href="/sales/export?status={{ filters.status }}&customer_id={{ filters.customer_id }}&salesperson_id={{ filters.salesperson_id }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-file-earmark-excel"></i> 导出
+            </a>
+            <a href="/sales/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增销售单</a>
+            <form id="importForm" action="/sales/import" method="post" enctype="multipart/form-data" class="d-none">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="file" id="importFile" name="file" accept=".xlsx,.xls" onchange="submitImportForm()">
+            </form>
+        </div>
     </div>
-  </div>
-  <form id="salesImportForm" class="d-none" method="post" action="{{ url_for('import_sales_orders') }}" enctype="multipart/form-data">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input id="salesImportFile" type="file" name="file" accept=".xlsx,.xls">
-  </form>
-  <form class="card card-body mb-3" method="get">
-    <div class="row g-2 align-items-end">
-      <div class="col-md-3"><label class="form-label">订单号 / 客户 / 物料 / 项目号</label><input class="form-control" name="search" value="{{ filters.search }}"></div>
-      <div class="col-md-2"><label class="form-label">状态</label>
-        <select class="form-select" name="status">
-          <option value="">全部</option>
-          {% for key,label in [('draft','草稿'),('confirmed','已确认'),('closed','已完成'),('cancelled','已取消')] %}
-          <option value="{{ key }}" {% if filters.status==key %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2"><label class="form-label">客户</label>
-        <select class="form-select" name="customer_id">
-          <option value="">全部客户</option>
-          {% for customer in customers %}<option value="{{ customer.id }}" {% if filters.customer_id==customer.id %}selected{% endif %}>{{ customer.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2"><label class="form-label">业务员</label>
-        <select class="form-select" name="salesperson_id">
-          <option value="">全部业务员</option>
-          {% for emp in employees %}<option value="{{ emp.id }}" {% if filters.salesperson_id==emp.id %}selected{% endif %}>{{ emp.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-1"><label class="form-label">日期起</label><input class="form-control" type="date" name="date_start" value="{{ filters.date_start }}"></div>
-      <div class="col-md-1"><label class="form-label">日期止</label><input class="form-control" type="date" name="date_end" value="{{ filters.date_end }}"></div>
-      <div class="col-md-1"><button class="btn btn-outline-primary w-100">查询</button></div>
-    </div>
-  </form>
-  <div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <div class="d-flex gap-2">
-        <button type="button" class="btn btn-sm btn-outline-primary" onclick="batchAction('/sales/batch_confirm','确认选中的草稿订单？')">批量确认</button>
-        <button type="button" class="btn btn-sm btn-outline-success" onclick="batchAction('/sales/batch_create_outbound','为选中订单生成出库草稿？')">批量生成出库草稿</button>
-      </div>
-      <span class="text-muted small">批量操作不会自动完成库存出库</span>
-    </div>
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
-        <thead>
-          <tr>
-            <th><input type="checkbox" id="checkAll"></th>
-            <th>订单号</th>
-            <th>日期</th>
-            <th>客户</th>
-            <th>业务员</th>
-            <th>项目号</th>
-            <th>仓库</th>
-            <th class="text-end">未税金额</th>
-            <th class="text-end">税额</th>
-            <th class="text-end">含税金额</th>
-            <th class="text-end">已发货</th>
-            <th>订单状态</th>
-            <th>发货状态</th>
-            <th>出库草稿</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for order in orders %}
-          <tr>
-            <td><input class="order-check" type="checkbox" value="{{ order.id }}"></td>
-            <td><a href="{{ url_for('sales_order_detail', id=order.id) }}">{{ order.order_no }}</a></td>
-            <td>{{ order.date }}</td>
-            <td>{{ order.customer.name if order.customer else '-' }}</td>
-            <td>{{ order.salesperson.name if order.salesperson else '-' }}</td>
-            <td>{{ order.project_no or '-' }}</td>
-            <td>{{ order.warehouse or '-' }}</td>
-            <td class="text-end">{{ '%.2f'|format(order.untaxed_amount or 0) }}</td>
-            <td class="text-end">{{ '%.2f'|format(order.tax_amount or 0) }}</td>
-            <td class="text-end">{{ '%.2f'|format(order.total_amount or 0) }}</td>
-            <td class="text-end">{{ '%.2f'|format(order.shipped_amount or 0) }}</td>
-            <td><span class="badge text-bg-{% if order.status=='confirmed' %}primary{% elif order.status=='closed' %}success{% elif order.status=='cancelled' %}secondary{% else %}warning{% endif %}">{{ status_label(order.status) }}</span></td>
-            <td><span class="badge text-bg-light">{{ shipment_status_label(order.shipment_status) }}</span></td>
-            <td>{% if order.shipment_order_no %}<a href="{{ url_for('out_order_list', search=order.shipment_order_no) }}">{{ order.shipment_order_no }}</a>{% else %}<span class="text-muted">未生成</span>{% endif %}</td>
-            <td><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('sales_order_detail', id=order.id) }}">查看</a></td>
-          </tr>
-          {% else %}
-          <tr><td colspan="15" class="text-center text-muted py-5">暂无销售订单</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  {% if pagination.pages > 1 %}
-  <nav class="mt-3">
-    <ul class="pagination">
-      {% for page in pagination.iter_pages() %}
-      {% if page %}
-      <li class="page-item {% if page==pagination.page %}active{% endif %}">
-        <a class="page-link" href="{{ url_for('sales_order_list', page=page, search=filters.search, status=filters.status, customer_id=filters.customer_id, salesperson_id=filters.salesperson_id, date_start=filters.date_start, date_end=filters.date_end) }}">{{ page }}</a>
-      </li>
-      {% endif %}
-      {% endfor %}
-    </ul>
-  </nav>
-  {% endif %}
 </div>
+
+<div class="row g-2 mb-3">
+    <div class="col-md-3">
+        <div class="border rounded p-2 bg-light">
+            <div class="small text-muted">待发货单据</div>
+            <div class="fs-5 fw-semibold">{{ summary.pending_count + summary.partial_count }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="border rounded p-2 bg-light">
+            <div class="small text-muted">待发货金额</div>
+            <div class="fs-5 fw-semibold">¥{{ "%.2f"|format(summary.pending_amount + summary.partial_amount) }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="border rounded p-2 {% if summary.overdue_count > 0 %}border-danger bg-danger-subtle{% else %}bg-light{% endif %}">
+            <div class="small text-muted">逾期未发货</div>
+            <div class="fs-5 fw-semibold {% if summary.overdue_count > 0 %}text-danger{% endif %}">{{ summary.overdue_count }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="border rounded p-2 bg-light">
+            <div class="small text-muted">本月销售金额</div>
+            <div class="fs-5 fw-semibold">¥{{ "%.2f"|format(summary.month_amount) }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            {% if request.args.get('embedded') == '1' %}
+            <input type="hidden" name="embedded" value="1">
+            {% endif %}
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">状态</label>
+                <select name="status" class="form-select form-select-sm">
+                    <option value="" {% if not filters.status %}selected{% endif %}>全部状态</option>
+                    <option value="draft" {% if filters.status == 'draft' %}selected{% endif %}>草稿</option>
+                    <option value="confirmed" {% if filters.status == 'confirmed' %}selected{% endif %}>已确认</option>
+                    <option value="closed" {% if filters.status == 'closed' %}selected{% endif %}>已完成</option>
+                    <option value="cancelled" {% if filters.status == 'cancelled' %}selected{% endif %}>已取消</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">客户</label>
+                <select name="customer_id" class="form-select form-select-sm">
+                    <option value="" {% if not filters.customer_id %}selected{% endif %}>全部客户</option>
+                    {% for customer in customers %}
+                    <option value="{{ customer.id }}" {% if filters.customer_id == customer.id %}selected{% endif %}>{{ customer.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">业务员</label>
+                <select name="salesperson_id" class="form-select form-select-sm">
+                    <option value="" {% if not filters.salesperson_id %}selected{% endif %}>全部业务员</option>
+                    {% for emp in employees %}
+                    <option value="{{ emp.id }}" {% if filters.salesperson_id == emp.id %}selected{% endif %}>{{ emp.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">开始日期</label>
+                <input type="date" name="date_start" class="form-control form-control-sm" value="{{ filters.date_start }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">结束日期</label>
+                <input type="date" name="date_end" class="form-control form-control-sm" value="{{ filters.date_end }}">
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
+                {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.customer_id or filters.salesperson_id %}
+                <a href="/sales{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive-wrapper">
+            <table class="table table-bordered table-hover table-sm mb-0" id="salesOrderTable">
+                <thead>
+                    <tr>
+                        <th width="56" class="text-center">选择<br><input type="checkbox" id="checkAllSalesOrders" onclick="toggleAllSalesOrders()" title="全选当前页"></th>
+                        <th width="70">序号</th>
+                        <th data-sortable="order_no" class="sortable-header">订单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                        <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                        <th>客户</th>
+                        <th>业务员</th>
+                        <th>项目号</th>
+                        <th data-sortable="delivery_date" class="sortable-header">交货日期 {% if sort_by=='delivery_date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                        <th class="text-end">未税金额</th>
+                        <th class="text-end">税额</th>
+                        <th class="text-end">含税金额</th>
+                        <th class="text-end">已发货</th>
+                        <th class="text-end">待发货</th>
+                        <th>发货状态</th>
+                        <th data-sortable="status" class="sortable-header">订单状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                        <th width="120">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in pagination.items %}
+                    <tr>
+                        <td><input type="checkbox" class="sales-order-check check-item" value="{{ order.id }}"></td>
+                        <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
+                        <td><a href="{{ url_for('sales_order_detail', id=order.id) }}">{{ order.order_no }}</a></td>
+                        <td>{{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</td>
+                        <td>{{ order.customer.name if order.customer else '-' }}</td>
+                        <td>{{ order.salesperson.name if order.salesperson else '-' }}</td>
+                        <td>{{ order.project_no or '-' }}</td>
+                        <td>
+                            {{ order.delivery_date.strftime('%Y-%m-%d') if order.delivery_date else '-' }}
+                            {% if order.delivery_date and order.delivery_date < today and order.status in ['draft', 'confirmed'] and order.shipment_status != 'shipped' %}
+                            <span class="badge bg-danger ms-1">逾期</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">¥{{ "%.2f"|format(order.untaxed_amount or 0) }}</td>
+                        <td class="text-end">¥{{ "%.2f"|format(order.tax_amount or 0) }}</td>
+                        <td class="text-end">¥{{ "%.2f"|format(order.total_amount or 0) }}</td>
+                        <td class="text-end">¥{{ "%.2f"|format(order.shipped_amount or 0) }}</td>
+                        <td class="text-end {% if (order.remaining_amount or 0) > 0 %}text-warning fw-semibold{% endif %}">¥{{ "%.2f"|format(order.remaining_amount or 0) }}</td>
+                        <td>
+                            {% if order.shipment_status == 'shipped' %}
+                            <span class="badge bg-success">已发货</span>
+                            {% elif order.shipment_status == 'partial' %}
+                            <span class="badge bg-info text-dark">部分发货</span>
+                            {% elif order.shipment_status == 'pending' %}
+                            <span class="badge bg-warning text-dark">待发货</span>
+                            {% else %}
+                            <span class="badge bg-light text-dark border">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if order.status == 'confirmed' %}
+                            <span class="badge bg-primary">{{ status_label(order.status) }}</span>
+                            {% elif order.status == 'closed' %}
+                            <span class="badge bg-success">{{ status_label(order.status) }}</span>
+                            {% elif order.status == 'cancelled' %}
+                            <span class="badge bg-secondary">{{ status_label(order.status) }}</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">{{ status_label(order.status) }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('sales_order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            <button type="button" class="btn btn-sm btn-outline-info" title="复制" onclick="copySalesOrder({{ order.id }})">
+                                <i class="bi bi-files"></i>
+                            </button>
+                            {% if order.status == 'draft' %}
+                            <a href="{{ url_for('sales_order_edit_page', id=order.id) }}" class="btn btn-sm btn-outline-secondary" title="编辑">
+                                <i class="bi bi-pencil-square"></i>
+                            </a>
+                            <button type="button" class="btn btn-sm btn-outline-danger" title="删除" onclick="deleteSalesOrder({{ order.id }})">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                            {% endif %}
+                            {% if order.status == 'draft' %}
+                            <button type="button" class="btn btn-sm btn-outline-success" title="确认" onclick="confirmSalesOrder({{ order.id }})">
+                                <i class="bi bi-check-lg"></i>
+                            </button>
+                            {% endif %}
+                            {% if order.status == 'confirmed' and order.shipment_status != 'shipped' %}
+                            <button type="button" class="btn btn-sm btn-outline-success" title="生成出库草稿" onclick="createOutbound({{ order.id }})">
+                                <i class="bi bi-box-arrow-up"></i>
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="16" class="text-center text-muted">暂无销售订单</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if pagination.pages > 1 %}
+<nav class="mt-3">
+    <ul class="pagination justify-content-center">
+        {% if pagination.has_prev %}
+        <li class="page-item">
+            <a class="page-link" href="{{ url_for('sales_order_list', page=pagination.prev_num, search=filters.search, status=filters.status, customer_id=filters.customer_id, salesperson_id=filters.salesperson_id, date_start=filters.date_start, date_end=filters.date_end, sort=sort_by, order=sort_order) }}">上一页</a>
+        </li>
+        {% endif %}
+        {% for page in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+        {% if page %}
+        <li class="page-item {% if page==pagination.page %}active{% endif %}">
+            <a class="page-link" href="{{ url_for('sales_order_list', page=page, search=filters.search, status=filters.status, customer_id=filters.customer_id, salesperson_id=filters.salesperson_id, date_start=filters.date_start, date_end=filters.date_end, sort=sort_by, order=sort_order) }}">{{ page }}</a>
+        </li>
+        {% else %}
+        <li class="page-item disabled"><span class="page-link">...</span></li>
+        {% endif %}
+        {% endfor %}
+        {% if pagination.has_next %}
+        <li class="page-item">
+            <a class="page-link" href="{{ url_for('sales_order_list', page=pagination.next_num, search=filters.search, status=filters.status, customer_id=filters.customer_id, salesperson_id=filters.salesperson_id, date_start=filters.date_start, date_end=filters.date_end, sort=sort_by, order=sort_order) }}">下一页</a>
+        </li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
 <script>
-document.getElementById('checkAll').addEventListener('change', e => document.querySelectorAll('.order-check').forEach(c => c.checked = e.target.checked));
-document.getElementById('salesImportFile').addEventListener('change', () => { if (document.getElementById('salesImportFile').files.length) document.getElementById('salesImportForm').submit(); });
-async function batchAction(url, msg) {
-  const ids = [...document.querySelectorAll('.order-check:checked')].map(c => Number(c.value));
-  if (!ids.length) { alert('请先选择销售订单'); return; }
-  if (!confirm(msg)) return;
-  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
-  const data = await response.json();
-  alert(data.msg || '操作完成');
-  if (data.status === 'success') location.reload();
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.sortable-header').forEach(function(th) {
+        th.addEventListener('click', function() {
+            var sortField = this.dataset.sortable;
+            if (!sortField) return;
+            var currentSort = '{{ sort_by }}';
+            var currentOrder = '{{ sort_order }}';
+            var newOrder = (currentSort === sortField && currentOrder === 'asc') ? 'desc' : 'asc';
+            var url = new URL(window.location.href);
+            url.searchParams.set('sort', sortField);
+            url.searchParams.set('order', newOrder);
+            url.searchParams.set('page', '1');
+            window.location.href = url.toString();
+        });
+    });
+});
+
+function submitImportForm() {
+    const form = document.getElementById('importForm');
+    const file = document.getElementById('importFile').files[0];
+    if (!file) return;
+    const data = new FormData(form);
+    fetch('/sales/import', {
+        method: 'POST',
+        body: data
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showToast(data.msg || '导入成功', 'success', 3600);
+            setTimeout(() => location.reload(), 900);
+        } else {
+            showToast(data.msg || '导入失败', 'danger', 5000);
+        }
+    })
+    .catch(error => showToast('导入失败：' + error.message, 'danger', 5000))
+    .finally(() => {
+        document.getElementById('importFile').value = '';
+    });
+}
+
+function toggleAllSalesOrders() {
+    const master = document.getElementById('checkAllSalesOrders');
+    const checked = master ? master.checked : false;
+    document.querySelectorAll('.sales-order-check').forEach(function(item) {
+        item.checked = checked;
+    });
+}
+
+function selectedSalesOrderIds() {
+    return Array.from(document.querySelectorAll('.sales-order-check:checked')).map(function(item) {
+        return item.value;
+    });
+}
+
+function deleteSalesOrder(id) {
+    showConfirm('确定删除该销售订单吗？此操作不可恢复。', { title: '删除销售订单' }).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/sales/' + id + '/delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '删除成功', 'success');
+                setTimeout(function() { location.reload(); }, 500);
+            } else {
+                showToast(data.msg || '删除失败', 'danger', 3600);
+            }
+        })
+        .catch(error => showToast('删除失败：' + error.message, 'danger', 3600));
+    });
+}
+
+function copySalesOrder(id) {
+    showConfirm('确定复制该销售订单吗？系统会生成一张新的草稿销售订单。', { title: '复制销售订单' }).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/sales/' + id + '/copy', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '复制成功', 'success');
+                setTimeout(function() {
+                    window.location.href = '/sales/' + data.id + '/edit';
+                }, 500);
+            } else {
+                showToast(data.msg || '复制失败', 'danger', 3600);
+            }
+        })
+        .catch(error => showToast('复制失败：' + error.message, 'danger', 3600));
+    });
+}
+
+function confirmSalesOrder(id) {
+    showConfirm('确定确认该销售订单吗？确认后订单将进入待发货状态。', { title: '确认销售订单' }).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/sales/' + id + '/confirm', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '确认成功', 'success');
+                setTimeout(function() { location.reload(); }, 500);
+            } else {
+                showToast(data.msg || '确认失败', 'danger', 3600);
+            }
+        })
+        .catch(error => showToast('确认失败：' + error.message, 'danger', 3600));
+    });
+}
+
+function createOutbound(id) {
+    showConfirm('确定生成销售出库草稿吗？生成后仍需仓库人工完成出库。', { title: '生成出库草稿' }).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/sales/' + id + '/create_outbound', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '生成成功', 'success');
+                setTimeout(function() { location.reload(); }, 500);
+            } else {
+                showToast(data.msg || '生成失败', 'danger', 3600);
+            }
+        })
+        .catch(error => showToast('生成失败：' + error.message, 'danger', 3600));
+    });
+}
+
+function batchDeleteSalesOrders() {
+    const ids = selectedSalesOrderIds();
+    if (!ids.length) {
+        showToast('请先选择要删除的销售订单', 'warning');
+        return;
+    }
+    showConfirm('确定删除选中的 ' + ids.length + ' 张销售订单吗？只有草稿状态的订单可以删除。', { title: '批量删除销售订单' }).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/sales/batch_delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ids: ids})
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '删除成功', 'success');
+                setTimeout(function() { location.reload(); }, 500);
+            } else {
+                showToast(data.msg || '删除失败', 'danger', 5000);
+            }
+        })
+        .catch(error => showToast('删除失败：' + error.message, 'danger', 3600));
+    });
 }
 </script>
 {% endblock %}
