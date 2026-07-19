@@ -829,7 +829,7 @@ sales_order 1 ---- n sales_order_item
 - 销售出库详情显示来源销售订单链接；订单详情保留关联销售出库单清单，形成订单与出库双向跳转。
 - 库存不足仅作为待核对提示，不自动改库存、不自动完成销售出库；异常处理继续保留仓库人工确认边界。
 
-**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 28/28 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。待提交后补充最终提交哈希。
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 28/28 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。提交：`652c3bb`。
 
 ## G. 每阶段交付门槛
 
