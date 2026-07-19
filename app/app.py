@@ -41460,12 +41460,17 @@ def export_sales_orders():
 def export_sales_report():
     date_start = request.args.get('date_start') or date.today().replace(day=1).isoformat()
     date_end = request.args.get('date_end') or date.today().isoformat()
+    warehouse_id = request.args.get('warehouse_id', type=int)
     try:
         start = datetime.strptime(date_start, '%Y-%m-%d').date()
         end = datetime.strptime(date_end, '%Y-%m-%d').date()
     except ValueError:
         return jsonify({'status': 'error', 'msg': '日期格式不正确'}), 400
     orders = SalesOrder.query.filter(SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled').order_by(SalesOrder.date.asc(), SalesOrder.id.asc()).all()
+    if warehouse_id:
+        selected_warehouse = db.session.get(Warehouse, warehouse_id)
+        if selected_warehouse:
+            orders = [order for order in orders if order.warehouse_id == selected_warehouse.id or (not order.warehouse_id and order.warehouse == selected_warehouse.name)]
     from openpyxl import Workbook
     workbook = Workbook()
     sheet = workbook.active
@@ -41508,7 +41513,12 @@ def sales_report():
     status = (request.args.get('status') or '').strip()
     shipment_status = (request.args.get('shipment_status') or '').strip()
     project_no = (request.args.get('project_no') or '').strip()
+    warehouse_id = request.args.get('warehouse_id', type=int)
     warehouse = (request.args.get('warehouse') or '').strip()
+    selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(warehouse)
+    if selected_warehouse:
+        warehouse_id = selected_warehouse.id
+        warehouse = selected_warehouse.name
     start = datetime.strptime(date_start, '%Y-%m-%d').date()
     end = datetime.strptime(date_end, '%Y-%m-%d').date()
     query = SalesOrder.query.filter(SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled')
@@ -41522,8 +41532,8 @@ def sales_report():
         query = query.filter(SalesOrder.shipment_status == shipment_status)
     if project_no:
         query = query.filter(SalesOrder.project_no.like(f'%{project_no}%'))
-    if warehouse:
-        query = query.filter(SalesOrder.warehouse == warehouse)
+    if selected_warehouse:
+        query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
     orders = query.order_by(SalesOrder.date.asc(), SalesOrder.id.asc()).all()
     # 明细钻取：按物料筛选时只显示匹配明细行
     drill_material_id = None
@@ -41582,7 +41592,7 @@ def sales_report():
                         'tax_included_amount': item.tax_included_amount or item.amount or 0,
                         'shipped_quantity': item.shipped_quantity or 0,
                     })
-    return render_template('sales_report.html', date_start=date_start, date_end=date_end, drill_customer_id=drill_customer_id, drill_material_code=drill_material_code, salesperson_id=salesperson_id, status=status, shipment_status=shipment_status, project_no=project_no, warehouse=warehouse, drill_material_name=(Material.query.get(drill_material_id).name if drill_material_id else ''), drill_items=drill_items, customers=Customer.query.order_by(Customer.code.asc()).all(), employees=Employee.query.order_by(Employee.id.asc()).all(), warehouses=Warehouse.query.order_by(Warehouse.id.asc()).all(), orders=orders, by_customer=sorted(by_customer.values(), key=lambda row: row['amount'], reverse=True), by_material=sorted(by_material.values(), key=lambda row: row['amount'], reverse=True), by_salesperson=sorted(by_salesperson.values(), key=lambda row: row['amount'], reverse=True), total_amount=total_amount, total_untaxed=total_untaxed, total_tax=total_tax, shipped_amount=shipped_amount, pending_amount=round_to_2_decimals(total_amount - shipped_amount), shipped_quantity=shipped_quantity, total_orders=len(orders), status_label=sales_status_label)
+    return render_template('sales_report.html', date_start=date_start, date_end=date_end, drill_customer_id=drill_customer_id, drill_material_code=drill_material_code, salesperson_id=salesperson_id, status=status, shipment_status=shipment_status, project_no=project_no, warehouse=warehouse, warehouse_id=warehouse_id or '', drill_material_name=(Material.query.get(drill_material_id).name if drill_material_id else ''), drill_items=drill_items, customers=Customer.query.order_by(Customer.code.asc()).all(), employees=Employee.query.order_by(Employee.id.asc()).all(), warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), orders=orders, by_customer=sorted(by_customer.values(), key=lambda row: row['amount'], reverse=True), by_material=sorted(by_material.values(), key=lambda row: row['amount'], reverse=True), by_salesperson=sorted(by_salesperson.values(), key=lambda row: row['amount'], reverse=True), total_amount=total_amount, total_untaxed=total_untaxed, total_tax=total_tax, shipped_amount=shipped_amount, pending_amount=round_to_2_decimals(total_amount - shipped_amount), shipped_quantity=shipped_quantity, total_orders=len(orders), status_label=sales_status_label)
 
 
 @app.route('/sales/outflow_report')
@@ -41592,7 +41602,12 @@ def sales_outflow_report():
     date_start = request.args.get('date_start') or (date.today().replace(day=1).isoformat())
     date_end = request.args.get('date_end') or date.today().isoformat()
     search = (request.args.get('search') or '').strip()
+    warehouse_id = request.args.get('warehouse_id', type=int)
     warehouse = (request.args.get('warehouse') or '').strip()
+    selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(warehouse)
+    if selected_warehouse:
+        warehouse_id = selected_warehouse.id
+        warehouse = selected_warehouse.name
     customer_name = (request.args.get('customer') or '').strip()
     try:
         start = datetime.strptime(date_start, '%Y-%m-%d').date()
@@ -41607,7 +41622,7 @@ def sales_outflow_report():
     if search:
         like = f'%{search}%'
         query = query.filter(db.or_(OutOrder.order_no.like(like), OutOrder.customer.like(like), OutOrder.purpose.like(like), OutOrder.remark.like(like)))
-    if warehouse:
+    if selected_warehouse:
         query = query.filter(OutOrder.warehouse == warehouse)
     if customer_name:
         query = query.filter(OutOrder.customer.like(f'%{customer_name}%'))
@@ -41663,7 +41678,7 @@ def sales_outflow_report():
                 total_amount += line_amount
                 total_untaxed += untaxed_amount
                 total_tax += tax_amount
-    return render_template('sales_outflow_report.html', date_start=date_start, date_end=date_end, search=search, warehouse=warehouse, customer=customer_name, warehouses=Warehouse.query.order_by(Warehouse.id.asc()).all(), rows=rows, total_quantity=round_to_2_decimals(total_quantity), total_amount=round_to_2_decimals(total_amount), total_untaxed=round_to_2_decimals(total_untaxed), total_tax=round_to_2_decimals(total_tax), total_rows=len(rows), status_label=sales_status_label)
+    return render_template('sales_outflow_report.html', date_start=date_start, date_end=date_end, search=search, warehouse=warehouse, warehouse_id=warehouse_id or '', customer=customer_name, warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), rows=rows, total_quantity=round_to_2_decimals(total_quantity), total_amount=round_to_2_decimals(total_amount), total_untaxed=round_to_2_decimals(total_untaxed), total_tax=round_to_2_decimals(total_tax), total_rows=len(rows), status_label=sales_status_label)
 
 
 @app.route('/sales/outflow_report/export')
@@ -41672,7 +41687,11 @@ def export_sales_outflow_report():
     date_start = request.args.get('date_start') or (date.today().replace(day=1).isoformat())
     date_end = request.args.get('date_end') or date.today().isoformat()
     search = (request.args.get('search') or '').strip()
+    warehouse_id = request.args.get('warehouse_id', type=int)
     warehouse = (request.args.get('warehouse') or '').strip()
+    selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(warehouse)
+    if selected_warehouse:
+        warehouse = selected_warehouse.name
     customer_name = (request.args.get('customer') or '').strip()
     try:
         start = datetime.strptime(date_start, '%Y-%m-%d').date()
@@ -41683,7 +41702,7 @@ def export_sales_outflow_report():
     if search:
         like = f'%{search}%'
         query = query.filter(db.or_(OutOrder.order_no.like(like), OutOrder.customer.like(like), OutOrder.purpose.like(like), OutOrder.remark.like(like)))
-    if warehouse:
+    if selected_warehouse:
         query = query.filter(OutOrder.warehouse == warehouse)
     if customer_name:
         query = query.filter(OutOrder.customer.like(f'%{customer_name}%'))
@@ -41741,9 +41760,13 @@ def sales_trend_report():
     """销售趋势分析表：按月聚合销售订单金额、数量和发货进度。"""
     months_back = request.args.get('months', 12, type=int)
     months_back = max(1, min(months_back, 60))
+    warehouse_id = request.args.get('warehouse_id', type=int)
+    selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(request.args.get('warehouse'))
     today = date.today()
     start_month = (today.replace(day=1) - timedelta(days=months_back * 31)).replace(day=1)
     orders = SalesOrder.query.filter(SalesOrder.date >= start_month, SalesOrder.status != 'cancelled').order_by(SalesOrder.date.asc()).all()
+    if selected_warehouse:
+        orders = [order for order in orders if order.warehouse_id == selected_warehouse.id or (not order.warehouse_id and order.warehouse == selected_warehouse.name)]
     by_month = {}
     for order in orders:
         if not order.date:
@@ -41775,7 +41798,7 @@ def sales_trend_report():
             row['growth'] = None
         rows.append(row)
         prev_amount = row['amount']
-    return render_template('sales_trend_report.html', months_back=months_back, rows=rows, total_orders=sum(r['orders'] for r in rows), total_amount=round_to_2_decimals(sum(r['amount'] for r in rows)), total_untaxed=round_to_2_decimals(sum(r['untaxed_amount'] for r in rows)), total_tax=round_to_2_decimals(sum(r['tax_amount'] for r in rows)), total_shipped=round_to_2_decimals(sum(r['shipped_amount'] for r in rows)))
+    return render_template('sales_trend_report.html', months_back=months_back, warehouse_id=selected_warehouse.id if selected_warehouse else '', warehouse=selected_warehouse.name if selected_warehouse else '', warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), rows=rows, total_orders=sum(r['orders'] for r in rows), total_amount=round_to_2_decimals(sum(r['amount'] for r in rows)), total_untaxed=round_to_2_decimals(sum(r['untaxed_amount'] for r in rows)), total_tax=round_to_2_decimals(sum(r['tax_amount'] for r in rows)), total_shipped=round_to_2_decimals(sum(r['shipped_amount'] for r in rows)))
 
 
 @app.route('/sales/trend_report/export')
@@ -41783,9 +41806,13 @@ def sales_trend_report():
 def export_sales_trend_report():
     months_back = request.args.get('months', 12, type=int)
     months_back = max(1, min(months_back, 60))
+    warehouse_id = request.args.get('warehouse_id', type=int)
+    selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(request.args.get('warehouse'))
     today = date.today()
     start_month = (today.replace(day=1) - timedelta(days=months_back * 31)).replace(day=1)
     orders = SalesOrder.query.filter(SalesOrder.date >= start_month, SalesOrder.status != 'cancelled').all()
+    if selected_warehouse:
+        orders = [order for order in orders if order.warehouse_id == selected_warehouse.id or (not order.warehouse_id and order.warehouse == selected_warehouse.name)]
     by_month = {}
     for order in orders:
         if not order.date:
@@ -41826,6 +41853,7 @@ def _sales_report_orders():
     date_start = request.args.get('date_start') or ''
     date_end = request.args.get('date_end') or ''
     customer_id = request.args.get('customer_id', type=int)
+    warehouse_id = request.args.get('warehouse_id', type=int)
     material_code = (request.args.get('material_code') or '').strip()
     if date_start:
         parsed = parse_date_value(date_start)
@@ -41837,6 +41865,9 @@ def _sales_report_orders():
             query = query.filter(SalesOrder.date <= parsed)
     if customer_id:
         query = query.filter(SalesOrder.customer_id == customer_id)
+    selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(request.args.get('warehouse'))
+    if selected_warehouse:
+        query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
     if material_code:
         query = query.join(SalesOrderItem).join(Material).filter(
             db.or_(Material.code.ilike(f'%{material_code}%'), Material.name.ilike(f'%{material_code}%'))
@@ -41848,11 +41879,15 @@ def _sales_report_orders():
 
 
 def _sales_report_filters_context():
+    warehouse_id = request.args.get('warehouse_id', type=int)
+    selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(request.args.get('warehouse'))
     return {
         'date_start': request.args.get('date_start') or '',
         'date_end': request.args.get('date_end') or '',
         'customer_id': request.args.get('customer_id', type=int) or '',
         'material_code': request.args.get('material_code') or '',
+        'warehouse_id': selected_warehouse.id if selected_warehouse else '',
+        'warehouse': selected_warehouse.name if selected_warehouse else '',
     }
 
 
@@ -41882,6 +41917,7 @@ def sales_execution_report():
         rows=rows,
         filters=_sales_report_filters_context(),
         customers=Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all(),
+        warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(),
         status_label=sales_status_label,
         total_orders=len(rows),
         total_amount=round_to_2_decimals(sum(row['amount'] for row in rows)),
@@ -41957,6 +41993,7 @@ def sales_price_analysis():
     return render_template(
         'sales_price_analysis.html', rows=rows, filters=_sales_report_filters_context(),
         customers=Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all(),
+        warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(),
         total_quantity=round_to_2_decimals(sum(row['quantity'] for row in rows)),
         total_amount=round_to_2_decimals(sum(row['amount'] for row in rows)),
     )

@@ -805,6 +805,14 @@ sales_order 1 ---- n sales_order_item
 
 **验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 26/26 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。提交：`a1a12ee`。剩余子任务：多进程选单并发锁、销售报表仓库外键筛选统一。
 
+## 阶段 14 实施记录（2026-07-19）：销售报表仓库筛选统一
+
+- 销售汇总、订单执行、价格分析、销售出库明细和趋势分析统一使用 `warehouse_id` 筛选；历史未回填订单/出库单保留名称兜底。
+- 页面仓库下拉框使用启用仓库主数据，页面与 Excel 导出复用同一请求参数和筛选口径。
+- 销售报表查询和导出均覆盖仓库筛选回归；销售出库事实仍只统计销售出库单，订单经营报表仍统计销售订单。
+
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 26/26 通过。剩余子任务：多进程选单并发锁。
+
 ## G. 每阶段交付门槛
 
 每个任务必须同时具备：代码、权限、审计、迁移说明、测试、页面入口、报表口径、运行验证和回滚说明。完成后更新本计划的任务状态、提交哈希、验证命令和剩余风险；提交和推送必须落在 `main`，不得创建工作分支。

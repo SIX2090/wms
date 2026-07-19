@@ -27,9 +27,9 @@
             </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">仓库</label>
-                <select name="warehouse" class="form-select form-select-sm">
+                <select name="warehouse_id" class="form-select form-select-sm">
                     <option value="">全部仓库</option>
-                    {% for wh in warehouses %}<option value="{{ wh.name }}" {% if warehouse==wh.name %}selected{% endif %}>{{ wh.name }}</option>
+                    {% for wh in warehouses %}<option value="{{ wh.id }}" {% if warehouse_id==wh.id %}selected{% endif %}>{{ wh.name }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -43,7 +43,7 @@
             </div>
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
-                {% if search or date_start or date_end or warehouse or customer %}<a href="{{ url_for('sales_outflow_report') }}" class="btn btn-outline-secondary btn-sm">清除</a>{% endif %}
+                {% if search or date_start or date_end or warehouse_id or customer %}<a href="{{ url_for('sales_outflow_report') }}" class="btn btn-outline-secondary btn-sm">清除</a>{% endif %}
             </div>
         </form>
     </div>

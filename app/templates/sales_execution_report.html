@@ -10,7 +10,8 @@
     <div class="row g-2 align-items-end">
       <div class="col-md-2"><label class="form-label small">开始日期</label><input class="form-control form-control-sm" type="date" name="date_start" value="{{ filters.date_start }}"></div>
       <div class="col-md-2"><label class="form-label small">结束日期</label><input class="form-control form-control-sm" type="date" name="date_end" value="{{ filters.date_end }}"></div>
-      <div class="col-md-3"><label class="form-label small">客户</label><select class="form-select form-select-sm" name="customer_id"><option value="">全部客户</option>{% for customer in customers %}<option value="{{ customer.id }}" {% if filters.customer_id == customer.id %}selected{% endif %}>{{ customer.name }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label small">客户</label><select class="form-select form-select-sm" name="customer_id"><option value="">全部客户</option>{% for customer in customers %}<option value="{{ customer.id }}" {% if filters.customer_id == customer.id %}selected{% endif %}>{{ customer.name }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label small">仓库</label><select class="form-select form-select-sm" name="warehouse_id"><option value="">全部仓库</option>{% for wh in warehouses %}<option value="{{ wh.id }}" {% if filters.warehouse_id == wh.id %}selected{% endif %}>{{ wh.name }}</option>{% endfor %}</select></div>
       <div class="col-md-3"><label class="form-label small">物料编码/名称</label><input class="form-control form-control-sm" name="material_code" value="{{ filters.material_code }}"></div>
       <div class="col-md-2 d-flex gap-2"><button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-search"></i> 查询</button><button class="btn btn-outline-success btn-sm" type="button" onclick="exportReport()"><i class="bi bi-file-earmark-excel"></i></button></div>
     </div>

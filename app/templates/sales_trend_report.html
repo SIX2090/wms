@@ -28,6 +28,13 @@
           <option value="60" {% if months_back == 60 %}selected{% endif %}>近 60 个月</option>
         </select>
       </div>
+      <div class="col-md-3">
+        <label class="form-label">仓库</label>
+        <select class="form-select" name="warehouse_id">
+          <option value="">全部仓库</option>
+          {% for wh in warehouses %}<option value="{{ wh.id }}" {% if warehouse_id == wh.id %}selected{% endif %}>{{ wh.name }}</option>{% endfor %}
+        </select>
+      </div>
       <div class="col-md-3 d-flex gap-2">
         <button class="btn btn-primary">查询</button>
         <button type="button" class="btn btn-outline-secondary" onclick="exportTrend()">导出 Excel</button>

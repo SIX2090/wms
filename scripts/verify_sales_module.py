@@ -475,10 +475,15 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
             # ---- SALES-RT-010: 报表页面渲染 ----
             report_routes = [
                 ("/sales/report", "销售报表"),
+                (f"/sales/report?warehouse_id={fixture_ids['warehouse_id']}", "销售报表-仓库筛选"),
                 ("/sales/report?customer_id=" + str(cid), "销售报表-客户钻取"),
                 ("/sales/outflow_report", "销售出库明细表"),
                 ("/sales/trend_report", "销售趋势分析表"),
                 ("/sales/trend_report?months=6", "销售趋势分析表-6月"),
+                (f"/sales/trend_report?months=6&warehouse_id={fixture_ids['warehouse_id']}", "销售趋势分析表-仓库筛选"),
+                (f"/sales/execution_report?warehouse_id={fixture_ids['warehouse_id']}", "销售订单执行-仓库筛选"),
+                (f"/sales/price_analysis?warehouse_id={fixture_ids['warehouse_id']}", "销售价格分析-仓库筛选"),
+                (f"/sales/outflow_report?warehouse_id={fixture_ids['warehouse_id']}", "销售出库明细-仓库筛选"),
                 ("/sales", "销售订单列表"),
                 ("/sales/add", "新建销售订单页"),
                 ("/sales/dashboard", "销售工作台"),
@@ -506,6 +511,11 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                 ("/sales/report/export", "销售报表导出"),
                 ("/sales/outflow_report/export", "销售出库明细导出"),
                 ("/sales/trend_report/export", "销售趋势分析导出"),
+                (f"/sales/report/export?warehouse_id={fixture_ids['warehouse_id']}", "销售报表仓库筛选导出"),
+                (f"/sales/execution_report/export?warehouse_id={fixture_ids['warehouse_id']}", "销售执行仓库筛选导出"),
+                (f"/sales/price_analysis/export?warehouse_id={fixture_ids['warehouse_id']}", "销售价格仓库筛选导出"),
+                (f"/sales/outflow_report/export?warehouse_id={fixture_ids['warehouse_id']}", "销售出库仓库筛选导出"),
+                (f"/sales/trend_report/export?warehouse_id={fixture_ids['warehouse_id']}", "销售趋势仓库筛选导出"),
                 ("/sales/download_template", "导入模板下载"),
             ]
             export_ok = True

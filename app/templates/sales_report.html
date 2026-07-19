@@ -53,16 +53,16 @@
       </div>
       <div class="col-md-2"><label class="form-label small text-muted mb-1">项目号</label><input class="form-control form-control-sm" name="project_no" value="{{ project_no }}" placeholder="模糊匹配"></div>
       <div class="col-md-2"><label class="form-label small text-muted mb-1">仓库</label>
-        <select class="form-select form-select-sm" name="warehouse">
+        <select class="form-select form-select-sm" name="warehouse_id">
           <option value="">全部仓库</option>
-          {% for wh in warehouses %}<option value="{{ wh.name }}" {% if warehouse==wh.name %}selected{% endif %}>{{ wh.name }}</option>
+          {% for wh in warehouses %}<option value="{{ wh.id }}" {% if warehouse_id==wh.id %}selected{% endif %}>{{ wh.name }}</option>
           {% endfor %}
         </select>
       </div>
       <div class="col-md-6 d-flex gap-2 justify-content-end">
         <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i> 筛选</button>
         <button type="button" class="btn btn-outline-primary btn-sm" onclick="exportSalesReport()"><i class="bi bi-file-earmark-excel"></i> 导出 Excel</button>
-        {% if drill_customer_id or drill_material_code or salesperson_id or status or shipment_status or project_no or warehouse %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_report') }}">清除筛选</a>{% endif %}
+        {% if drill_customer_id or drill_material_code or salesperson_id or status or shipment_status or project_no or warehouse_id %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_report') }}">清除筛选</a>{% endif %}
       </div>
     </div>
   </form>
