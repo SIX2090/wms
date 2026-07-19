@@ -181,9 +181,60 @@ def auto_migrate_database():
         # out_order_item / after_sale_out_order_item / transfer_order_item 新增行备注
         cursor.execute("PRAGMA table_info(out_order_item)")
         out_item_columns = [row[1] for row in cursor.fetchall()]
+        if out_item_columns and 'source_sales_order_item_id' not in out_item_columns:
+            cursor.execute("ALTER TABLE out_order_item ADD COLUMN source_sales_order_item_id INTEGER")
+            modified = True
         if out_item_columns and 'remark' not in out_item_columns:
             cursor.execute("ALTER TABLE out_order_item ADD COLUMN remark VARCHAR(500)")
             modified = True
+        if out_item_columns:
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_out_order_item_sales_source "
+                "ON out_order_item(source_sales_order_item_id)"
+            )
+            # Only backfill a source row when the sales order has exactly one
+            # line for the material. Ambiguous historical rows remain visible
+            # for manual reconciliation instead of being guessed.
+            cursor.execute("""
+                SELECT oi.id, oi.material_id, oo.source_sales_order_id, oo.purpose
+                FROM out_order_item oi
+                JOIN out_order oo ON oo.id = oi.out_order_id
+                WHERE oi.source_sales_order_item_id IS NULL
+                  AND oo.business_type = '销售出库'
+            """)
+            unresolved = 0
+            backfilled = 0
+            for item_id, material_id, source_order_id, purpose in cursor.fetchall():
+                if not source_order_id:
+                    match = re.search(r'来源销售订单\s+([^\s]+)', purpose or '')
+                    if match:
+                        row = cursor.execute(
+                            "SELECT id FROM sales_order WHERE order_no = ?",
+                            (match.group(1),),
+                        ).fetchone()
+                        source_order_id = row[0] if row else None
+                if not source_order_id:
+                    unresolved += 1
+                    continue
+                candidates = cursor.execute(
+                    "SELECT id FROM sales_order_item "
+                    "WHERE sales_order_id = ? AND material_id = ? ORDER BY id",
+                    (source_order_id, material_id),
+                ).fetchall()
+                if len(candidates) == 1:
+                    cursor.execute(
+                        "UPDATE out_order_item SET source_sales_order_item_id = ? WHERE id = ?",
+                        (candidates[0][0], item_id),
+                    )
+                    backfilled += 1
+                else:
+                    unresolved += 1
+            if backfilled or unresolved:
+                modified = True if backfilled else modified
+                logging.getLogger(__name__).warning(
+                    '销售出库行级来源迁移：已回填 %s 行，%s 行因无来源或多行同物料未自动绑定',
+                    backfilled, unresolved,
+                )
 
         cursor.execute("PRAGMA table_info(after_sale_out_order_item)")
         aso_item_columns = [row[1] for row in cursor.fetchall()]
@@ -2966,6 +3017,7 @@ class OutOrderItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     out_order_id = db.Column(db.Integer, db.ForeignKey('out_order.id'), nullable=False)  # Outbound order ID
     material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)  # Material ID
+    source_sales_order_item_id = db.Column(db.Integer, db.ForeignKey('sales_order_item.id'))  # 来源销售订单明细
     quantity = db.Column(db.Float, nullable=False)  # Quantity
     price = db.Column(db.Float, nullable=False)  # Unit price
     amount = db.Column(db.Float, nullable=False)  # Amount
@@ -2973,6 +3025,7 @@ class OutOrderItem(db.Model):
 
     out_order = db.relationship('OutOrder', backref='items')  # Related out order
     material = db.relationship('Material', backref='out_order_items')  # Related material
+    source_sales_order_item = db.relationship('SalesOrderItem', backref='sales_out_order_items')
 
 
 class InventoryCheck(db.Model):
@@ -40237,9 +40290,21 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
             order = SalesOrder.query.filter_by(order_no=source_match.group(1)).first()
     if not order:
         return None
-    item_by_material = {item.material_id: item for item in order.items}
+    items_by_material = {}
+    for item in order.items:
+        items_by_material.setdefault(item.material_id, []).append(item)
     for outbound_item in outbound.items:
-        sales_item = item_by_material.get(outbound_item.material_id)
+        sales_item = None
+        if outbound_item.source_sales_order_item_id:
+            candidate = db.session.get(SalesOrderItem, outbound_item.source_sales_order_item_id)
+            if candidate and candidate.sales_order_id == order.id and candidate.material_id == outbound_item.material_id:
+                sales_item = candidate
+        if sales_item is None:
+            candidates = items_by_material.get(outbound_item.material_id, [])
+            # Legacy rows without a source line are safe only when the
+            # material identifies one and only one sales order line.
+            if len(candidates) == 1:
+                sales_item = candidates[0]
         if not sales_item:
             continue
         sales_item.shipped_quantity = max(0, (sales_item.shipped_quantity or 0) + quantity_sign * (outbound_item.quantity or 0))
@@ -40284,7 +40349,15 @@ def build_sales_outbound_draft(order, selected_qty_by_item_id=None):
     db.session.flush()
     for item in remaining_items:
         remaining_quantity = selected_qty_by_item_id[item.id]
-        db.session.add(OutOrderItem(out_order_id=outbound.id, material_id=item.material_id, quantity=remaining_quantity, price=item.price, amount=round_to_2_decimals(remaining_quantity * (item.price or 0)), remark=f'来源销售订单 {order.order_no}'))
+        db.session.add(OutOrderItem(
+            out_order_id=outbound.id,
+            material_id=item.material_id,
+            source_sales_order_item_id=item.id,
+            quantity=remaining_quantity,
+            price=item.price,
+            amount=round_to_2_decimals(remaining_quantity * (item.price or 0)),
+            remark=f'来源销售订单 {order.order_no}',
+        ))
     order.shipment_order_no = outbound.order_no
     order.shipment_status = 'pending'
     return outbound, 'created'

@@ -10,6 +10,7 @@
     SALES-STC-004  销售路由 require_role 权限装饰器
     SALES-STC-005  新增报表模板存在
     SALES-STC-006  导入模板含新字段列头
+    SALES-STC-007  销售出库行级来源外键和安全回写
 
   运行时测试（Flask test_client + 临时数据库）：
     SALES-RT-001  创建销售订单（含税额字段）
@@ -19,6 +20,8 @@
     SALES-RT-005  重复生成出库草稿返回已存在
     SALES-RT-006  完成出库单后回写已发货数量（一单一出）
     SALES-RT-007  订单状态变为已发货/已完成
+    SALES-RT-007A 同物料多行下推保留各自来源行
+    SALES-RT-007B 同物料多行完成后按来源行回写
     SALES-RT-008  取消未发货订单
     SALES-RT-009  删除草稿订单
     SALES-RT-010  报表页面渲染（销售报表/出库明细/趋势分析）
@@ -99,6 +102,15 @@ def run_static_checks() -> list[tuple[str, bool, str]]:
     ok = has_pending_check and has_remaining and has_partial_guard
     results.append(static_check("SALES-STC-003", ok,
         "build_sales_outbound_draft 含重复草稿防护与未发货数量计算"))
+
+    # SALES-STC-007: 行级来源必须贯穿模型、迁移、下推和回写
+    has_source_column = "source_sales_order_item_id" in app_py
+    has_source_migration = "ALTER TABLE out_order_item ADD COLUMN source_sales_order_item_id" in app_py
+    has_source_write = "source_sales_order_item_id=item.id" in app_py
+    has_source_sync = "outbound_item.source_sales_order_item_id" in app_py
+    ok = has_source_column and has_source_migration and has_source_write and has_source_sync
+    results.append(static_check("SALES-STC-007", ok,
+        "销售出库行级来源外键贯穿迁移、下推和完成/反提交回写"))
 
     # SALES-STC-004: 销售路由权限装饰器
     sales_routes_section = app_py[app_py.index("def sales_order_add():"):]
@@ -341,6 +353,52 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                 ok = status_ok and ship_status_ok
                 results.append(("SALES-RT-007", ok,
                     f"订单状态: status={order.status}, shipment_status={order.shipment_status}"))
+
+            # ---- SALES-RT-007A/007B: 同物料多行必须按来源行下推和回写 ----
+            duplicate_payload = dict(order_payload)
+            duplicate_payload["order_no"] = "SOTEST-SAME-MATERIAL"
+            duplicate_payload["items"] = [
+                {"code": "TEST-MAT-001", "quantity": 4, "price": 100, "tax_rate": 0.13},
+                {"code": "TEST-MAT-001", "quantity": 6, "price": 100, "tax_rate": 0.13},
+            ]
+            r = c.post("/sales/add", data=json.dumps(duplicate_payload), content_type="application/json")
+            duplicate_order_id = (r.get_json(silent=True) or {}).get("id")
+            duplicate_ok = bool(duplicate_order_id)
+            duplicate_item_ids = []
+            if duplicate_ok:
+                c.post(f"/sales/{duplicate_order_id}/confirm", content_type="application/json")
+                with app.app_context():
+                    duplicate_order = db.session.get(SalesOrder, duplicate_order_id)
+                    duplicate_item_ids = [item.id for item in duplicate_order.items]
+                r = c.post(
+                    f"/sales/{duplicate_order_id}/create_outbound",
+                    data=json.dumps({"items": [
+                        {"sales_order_item_id": duplicate_item_ids[0], "quantity": 2},
+                        {"sales_order_item_id": duplicate_item_ids[1], "quantity": 5},
+                    ]}),
+                    content_type="application/json",
+                )
+                duplicate_outbound_id = (r.get_json(silent=True) or {}).get("id")
+                with app.app_context():
+                    duplicate_outbound = db.session.get(OutOrder, duplicate_outbound_id)
+                    source_ids = [item.source_sales_order_item_id for item in duplicate_outbound.items]
+                    quantities = [float(item.quantity or 0) for item in duplicate_outbound.items]
+                    source_ok = source_ids == duplicate_item_ids and quantities == [2.0, 5.0]
+                results.append(("SALES-RT-007A", source_ok,
+                    f"同物料多行来源: source_ids={source_ids}, quantities={quantities}"))
+
+                # The test explicitly represents the warehouse user's confirmation
+                # after reviewing the anomaly warning.
+                r = c.post(f"/out_order/{duplicate_outbound_id}/complete?force=true", content_type="application/json")
+                with app.app_context():
+                    duplicate_order = db.session.get(SalesOrder, duplicate_order_id)
+                    shipped_quantities = [float(item.shipped_quantity or 0) for item in duplicate_order.items]
+                    row_sync_ok = shipped_quantities == [2.0, 5.0]
+                results.append(("SALES-RT-007B", r.status_code == 200 and row_sync_ok,
+                    f"同物料多行回写: shipped_quantities={shipped_quantities}"))
+            else:
+                results.append(("SALES-RT-007A", False, "无法创建同物料多行订单"))
+                results.append(("SALES-RT-007B", False, "无法创建同物料多行订单"))
 
             # ---- SALES-RT-008: 取消未发货订单 ----
             # 创建新订单并取消

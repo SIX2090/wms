@@ -18,6 +18,15 @@
 - 销售订单仍只能由确认状态下推，库存扣减仍由仓库完成销售出库单触发，销售模块不自动完成库存动作。
 - 销售订单详情页新增“按选定数量下推”入口，默认整单下推行为保留。
 
+## 阶段 10 实施记录（2026-07-19）：销售出库行级来源关联（SM-P1-01）
+
+- 对齐采购入库 `source_purchase_order_item_id` 模式，为 `OutOrderItem` 增加 `source_sales_order_item_id` 外键和索引。
+- 销售订单下推出库草稿时逐行写入来源销售订单明细；完成、反提交回写时优先按来源行处理，同一物料多行不再串行。
+- 启动迁移仅对销售订单中“物料唯一对应一行”的历史出库明细自动回填；无来源或同物料多行记录保留为空并写入迁移告警，禁止静默猜测。
+- 销售验证新增同物料多行下推/完成回写场景，验证每行数量和来源 ID 一一对应。
+
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 22/22 通过；`python scripts/verify_wms_bugs.py` 通过。待提交后补充最终提交哈希。
+
 **验证**：`python -m py_compile app/app.py` 通过；新增路由、菜单入口和模板静态检查通过。当前目录缺少 `.git` 元数据，无法执行提交和推送。
 
 ## 0. 实施记录（2026-07-16）
@@ -762,7 +771,7 @@ sales_order 1 ---- n sales_order_item
 
 1. `SM-P0-01` 固化销售订单、销售出库、库存流水和售后字段数据字典。
 2. `SM-P0-02` 增加销售订单/出库/库存三方对账脚本，先只读发现问题。
-3. `SM-P1-01` 增加 `OutOrderItem.source_sales_order_item_id` 及历史匹配迁移。
+3. `SM-P1-01` 增加 `OutOrderItem.source_sales_order_item_id` 及历史匹配迁移。**已完成：阶段 10。**
 4. `SM-P2-01` 建设销售出库选单工作台，接入行级数量校验和幂等。
 5. `SM-P3-01` 完善销售待办、销售出库草稿入口和双向来源跳转。
 6. `SM-P4-01` 统一报表查询服务，补销售对账和售后独立口径。
