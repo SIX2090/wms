@@ -803,7 +803,7 @@ sales_order 1 ---- n sales_order_item
 - 销售选单继续按仓库 ID 和名称双重约束，禁止跨仓库合并；普通领料和其他出库保持原有仓库处理逻辑。
 - 新增无效销售订单仓库、无效销售出库仓库的接口验收；单事务内的重复草稿检查继续生效。
 
-**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 26/26 通过。剩余子任务：多进程选单并发锁、销售报表仓库外键筛选统一。
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 26/26 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。提交：`a1a12ee`。剩余子任务：多进程选单并发锁、销售报表仓库外键筛选统一。
 
 ## G. 每阶段交付门槛
 
