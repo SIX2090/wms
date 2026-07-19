@@ -12,6 +12,7 @@
     SALES-STC-006  导入模板含新字段列头
     SALES-STC-007  销售出库行级来源外键和安全回写
     SALES-STC-008  销售出库选单入口和接口
+    SALES-STC-009  销售订单仓库外键迁移和启用校验
 
   运行时测试（Flask test_client + 临时数据库）：
     SALES-RT-001  创建销售订单（含税额字段）
@@ -117,6 +118,12 @@ def run_static_checks() -> list[tuple[str, bool, str]]:
     has_selection_template = (ROOT / "app" / "templates" / "sales_outbound_selection.html").exists()
     results.append(static_check("SALES-STC-008", has_selection_api and has_selection_template,
         "销售出库选单页面、查询接口和生成接口存在"))
+
+    has_warehouse_migration = "ALTER TABLE sales_order ADD COLUMN warehouse_id INTEGER" in app_py
+    has_warehouse_fk = "warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))" in app_py
+    has_warehouse_validation = "def validate_sales_warehouse" in app_py and "请选择有效且启用的发货仓库" in app_py
+    results.append(static_check("SALES-STC-009", has_warehouse_migration and has_warehouse_fk and has_warehouse_validation,
+        "销售订单仓库外键、历史迁移和启用状态校验存在"))
 
     # SALES-STC-004: 销售路由权限装饰器
     sales_routes_section = app_py[app_py.index("def sales_order_add():"):]
@@ -228,12 +235,20 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                 db.session.add(material2)
                 db.session.flush()
 
+            warehouse = Warehouse.query.filter_by(code="TEST-WH-001").first()
+            if not warehouse:
+                warehouse = Warehouse(code="TEST-WH-001", name="测试仓库", type="原料仓", status="active")
+                db.session.add(warehouse)
+                db.session.flush()
+
             db.session.commit()
 
             # 保存 fixture ID 供 test_client 使用（避免 ORM 对象脱离 session）
             fixture_ids = {
                 "customer_id": customer.id,
                 "employee_id": employee.id,
+                "warehouse_id": warehouse.id,
+                "warehouse_name": warehouse.name,
                 "material_id": material.id,
                 "material2_id": material2.id,
             }
@@ -253,7 +268,7 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                 "order_no": "SOTEST-001",
                 "date": "2026-07-16",
                 "customer_id": cid,
-                "warehouse": "测试仓库",
+                "warehouse": fixture_ids["warehouse_name"],
                 "salesperson_id": eid,
                 "project_no": "PRJ-TEST-001",
                 "currency": "CNY",
@@ -265,6 +280,12 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                     {"code": "TEST-MAT-002", "quantity": 5, "price": 200, "tax_rate": 0.13},
                 ],
             }
+            invalid_payload = dict(order_payload)
+            invalid_payload["order_no"] = "SOTEST-INVALID-WAREHOUSE"
+            invalid_payload["warehouse"] = "不存在的仓库"
+            invalid_response = c.post("/sales/add", data=json.dumps(invalid_payload), content_type="application/json")
+            results.append(("SALES-RT-000", invalid_response.status_code == 400,
+                f"无效仓库拒绝 -> HTTP {invalid_response.status_code}"))
             r = c.post("/sales/add", data=json.dumps(order_payload),
                        content_type="application/json")
             resp = r.get_json(silent=True) or {}

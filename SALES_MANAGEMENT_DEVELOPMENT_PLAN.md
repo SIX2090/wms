@@ -788,6 +788,15 @@ sales_order 1 ---- n sales_order_item
 
 **验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 23/23 通过；WMS 回归通过。剩余子任务：销售订单仓库外键约束、跨仓库策略和选单并发控制。
 
+## 阶段 12 实施记录（2026-07-19）：销售订单仓库主数据约束
+
+- `SalesOrder` 新增 `warehouse_id` 外键和索引，保留 `warehouse` 字符串用于历史单据和库存报表兼容。
+- 启动迁移会先补齐旧 `warehouse` 字段，再按仓库名称、仓库编码分两步回填 `warehouse_id`；未匹配历史数据保留人工处理，不静默绑定。
+- 新建、编辑、导入、确认、批量确认、订单下推和选单下推统一要求有效且启用的仓库；销售选单按仓库 ID 和名称双重约束，禁止跨仓合并。
+- 仓库删除检查销售订单引用，仓库改名同步已关联销售订单的兼容名称字段。
+
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 25/25 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。剩余子任务：跨仓库策略细化、选单并发控制和销售报表仓库外键筛选统一。
+
 ## G. 每阶段交付门槛
 
 每个任务必须同时具备：代码、权限、审计、迁移说明、测试、页面入口、报表口径、运行验证和回滚说明。完成后更新本计划的任务状态、提交哈希、验证命令和剩余风险；提交和推送必须落在 `main`，不得创建工作分支。

@@ -420,6 +420,41 @@ def auto_migrate_database():
         cursor.execute("PRAGMA table_info(sales_order)")
         sales_order_cols = [row[1] for row in cursor.fetchall()]
         if sales_order_cols:
+            if 'warehouse' not in sales_order_cols:
+                cursor.execute("ALTER TABLE sales_order ADD COLUMN warehouse VARCHAR(100)")
+                sales_order_cols.append('warehouse')
+                modified = True
+            if 'warehouse_id' not in sales_order_cols:
+                cursor.execute("ALTER TABLE sales_order ADD COLUMN warehouse_id INTEGER")
+                modified = True
+                # Legacy values are copied only when they uniquely identify a
+                # warehouse name/code. Unmatched values remain for manual review.
+                warehouse_table = cursor.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='warehouse'"
+                ).fetchone()
+                if warehouse_table:
+                    cursor.execute("""
+                        UPDATE sales_order
+                        SET warehouse_id = (SELECT w.id FROM warehouse w WHERE w.name = sales_order.warehouse LIMIT 1)
+                        WHERE sales_order.warehouse_id IS NULL
+                          AND sales_order.warehouse IS NOT NULL
+                          AND TRIM(sales_order.warehouse) <> ''
+                    """)
+                    cursor.execute("""
+                        UPDATE sales_order
+                        SET warehouse_id = (SELECT w.id FROM warehouse w WHERE w.code = sales_order.warehouse LIMIT 1)
+                        WHERE sales_order.warehouse_id IS NULL
+                          AND sales_order.warehouse IS NOT NULL
+                          AND TRIM(sales_order.warehouse) <> ''
+                    """)
+                    unresolved = cursor.execute(
+                        "SELECT COUNT(*) FROM sales_order WHERE warehouse_id IS NULL "
+                        "AND warehouse IS NOT NULL AND TRIM(warehouse) <> ''"
+                    ).fetchone()[0]
+                    if unresolved:
+                        logging.getLogger(__name__).warning(
+                            '销售订单仓库来源迁移：%s 条历史记录未能按名称/编码匹配仓库，保留人工处理', unresolved
+                        )
             if 'salesperson_id' not in sales_order_cols:
                 cursor.execute("ALTER TABLE sales_order ADD COLUMN salesperson_id INTEGER")
                 modified = True
@@ -2061,6 +2096,37 @@ DEFAULT_WAREHOUSES = (
 def get_active_warehouses():
     """Return selectable warehouses from warehouse master data."""
     return Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc(), Warehouse.id.asc()).all()
+
+
+def resolve_active_sales_warehouse(value=None, warehouse_id=None):
+    """Resolve a sales warehouse from its ID, name, or code.
+
+    New sales documents must resolve to an active master record. The legacy
+    warehouse name is still written for compatibility with existing stock
+    documents and reports.
+    """
+    if warehouse_id:
+        try:
+            warehouse = db.session.get(Warehouse, int(warehouse_id))
+        except (TypeError, ValueError):
+            warehouse = None
+        if warehouse and warehouse.status == 'active':
+            return warehouse
+        return None
+    normalized = (value or '').strip()
+    if not normalized:
+        return None
+    return Warehouse.query.filter(
+        Warehouse.status == 'active',
+        db.or_(Warehouse.name == normalized, Warehouse.code == normalized),
+    ).order_by(Warehouse.id.asc()).first()
+
+
+def validate_sales_warehouse(value=None, warehouse_id=None):
+    warehouse = resolve_active_sales_warehouse(value, warehouse_id)
+    if not warehouse:
+        return None, '请选择有效且启用的发货仓库'
+    return warehouse, None
 
 
 def ensure_default_warehouses():
@@ -3827,6 +3893,7 @@ class SalesOrder(db.Model):
         db.Index('idx_sales_order_date', 'date'),
         db.Index('idx_sales_order_status', 'status'),
         db.Index('idx_sales_order_customer', 'customer_id'),
+        db.Index('idx_sales_order_warehouse', 'warehouse_id'),
         db.Index('idx_sales_order_salesperson', 'salesperson_id'),
     )
 
@@ -3835,6 +3902,7 @@ class SalesOrder(db.Model):
     date = db.Column(db.Date, default=date.today)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     warehouse = db.Column(db.String(100))
+    warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))
     delivery_date = db.Column(db.Date)
     status = db.Column(db.String(20), default='draft')
     remark = db.Column(db.String(500))
@@ -3857,6 +3925,7 @@ class SalesOrder(db.Model):
     customer = db.relationship('Customer', backref='sales_orders')
     operator = db.relationship('User', backref='sales_orders')
     salesperson = db.relationship('Employee', backref='sales_orders')
+    warehouse_ref = db.relationship('Warehouse', backref='sales_orders_by_warehouse', foreign_keys=[warehouse_id])
 
 
 class SalesOrderItem(db.Model):
@@ -6981,6 +7050,7 @@ def _warehouse_delete_blockers(warehouse):
     checks = [
         ('入库单', InOrder.query.filter(InOrder.warehouse.in_(values)).count()),
         ('领料单', OutOrder.query.filter(OutOrder.warehouse.in_(values)).count()),
+        ('销售订单', SalesOrder.query.filter(SalesOrder.warehouse_id == warehouse.id).count()),
         ('调拨单', TransferOrder.query.filter(db.or_(TransferOrder.from_location.in_(values), TransferOrder.to_location.in_(values))).count()),
         ('库存调整明细', AdjustmentOrderItem.query.filter(AdjustmentOrderItem.location.in_(values)).count()),
         ('库位库存', LocationInventory.query.filter(LocationInventory.location.in_(values)).count()),
@@ -7109,6 +7179,10 @@ def edit_warehouse(id):
     warehouse.remark = request.form.get('remark', '').strip() or None
 
     try:
+        # Keep the legacy display name synchronized with the canonical FK.
+        SalesOrder.query.filter_by(warehouse_id=id).update(
+            {SalesOrder.warehouse: name}, synchronize_session=False
+        )
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -40441,7 +40515,13 @@ def import_sales_orders():
                 salesperson_name = _get_excel_cell(row, col_map, 'salesperson')
                 salesperson = Employee.query.filter_by(name=salesperson_name).first() if salesperson_name else None
                 currency = _get_excel_cell(row, col_map, 'currency') or 'CNY'
-                order = SalesOrder(order_no=order_no, date=_parse_excel_date(_get_excel_cell(row, col_map, 'date'), date.today()), delivery_date=_parse_excel_date(_get_excel_cell(row, col_map, 'delivery_date'), None) if _get_excel_cell(row, col_map, 'delivery_date') else None, customer_id=customer.id, warehouse=_get_excel_cell(row, col_map, 'warehouse'), salesperson_id=salesperson.id if salesperson else None, project_no=_get_excel_cell(row, col_map, 'project_no'), currency=currency, settlement_method=_get_excel_cell(row, col_map, 'settlement_method'), status='draft', shipment_status='pending', remark=_get_excel_cell(row, col_map, 'remark'), operator_id=current_user.id)
+                warehouse_value = _get_excel_cell(row, col_map, 'warehouse')
+                warehouse, warehouse_error = validate_sales_warehouse(warehouse_value)
+                if warehouse_error:
+                    skip += 1
+                    skip_details.append(f'第 {row_idx} 行：{warehouse_error}')
+                    continue
+                order = SalesOrder(order_no=order_no, date=_parse_excel_date(_get_excel_cell(row, col_map, 'date'), date.today()), delivery_date=_parse_excel_date(_get_excel_cell(row, col_map, 'delivery_date'), None) if _get_excel_cell(row, col_map, 'delivery_date') else None, customer_id=customer.id, warehouse=warehouse.name, warehouse_id=warehouse.id, salesperson_id=salesperson.id if salesperson else None, project_no=_get_excel_cell(row, col_map, 'project_no'), currency=currency, settlement_method=_get_excel_cell(row, col_map, 'settlement_method'), status='draft', shipment_status='pending', remark=_get_excel_cell(row, col_map, 'remark'), operator_id=current_user.id)
                 db.session.add(order)
                 db.session.flush()
                 orders_by_no[order_no] = order
@@ -40681,11 +40761,17 @@ def create_sales_outbound_from_selection():
     order_ids = set()
     customer_ids = set()
     warehouses = set()
+    warehouse_ids = set()
     conversions = []
     for item in source_items:
         order = item.sales_order
         if not order or order.status != 'confirmed' or order.shipment_status == 'shipped':
             return jsonify({'status': 'error', 'msg': '只能选择已确认且仍有待发货数量的销售订单明细'}), 400
+        warehouse, warehouse_error = validate_sales_warehouse(order.warehouse, order.warehouse_id)
+        if warehouse_error:
+            return jsonify({'status': 'error', 'msg': f'销售订单 {order.order_no} {warehouse_error}'}), 400
+        order.warehouse = warehouse.name
+        order.warehouse_id = warehouse.id
         quantity = selected_qty_by_item_id[item.id]
         remaining = round_to_2_decimals((item.quantity or 0) - (item.shipped_quantity or 0))
         if quantity - remaining > STOCK_COMPARE_EPSILON:
@@ -40698,12 +40784,13 @@ def create_sales_outbound_from_selection():
             return jsonify({'status': 'error', 'msg': f'销售订单 {order.order_no} 已存在待处理销售出库草稿，请先处理'}), 400
         order_ids.add(order.id)
         customer_ids.add(order.customer_id)
-        warehouses.add((order.warehouse or '').strip())
+        warehouses.add(warehouse.name)
+        warehouse_ids.add(warehouse.id)
         conversions.append((item, order, quantity))
 
     if len(customer_ids) != 1:
         return jsonify({'status': 'error', 'msg': '一张销售出库单只能选择同一客户的销售订单明细'}), 400
-    if len(warehouses) != 1:
+    if len(warehouses) != 1 or len(warehouse_ids) != 1:
         return jsonify({'status': 'error', 'msg': '一张销售出库单只能选择同一发货仓库的销售订单明细'}), 400
 
     try:
@@ -40769,13 +40856,19 @@ def sales_order_add():
         salesperson_id = int(payload.get('salesperson_id') or 0) if payload.get('salesperson_id') else None
         if salesperson_id and not db.session.get(Employee, salesperson_id):
             salesperson_id = None
+        warehouse, warehouse_error = validate_sales_warehouse(
+            payload.get('warehouse'), payload.get('warehouse_id')
+        )
+        if warehouse_error:
+            return jsonify({'status': 'error', 'msg': warehouse_error}), 400
         order = SalesOrder(
             order_no=(payload.get('order_no') or '').strip() or generate_sales_order_no(),
             customer_id=customer.id,
             operator_id=current_user.id,
             date=datetime.strptime(payload.get('date') or date.today().isoformat(), '%Y-%m-%d').date(),
             delivery_date=datetime.strptime(payload.get('delivery_date'), '%Y-%m-%d').date() if payload.get('delivery_date') else None,
-            warehouse=(payload.get('warehouse') or '').strip(),
+            warehouse=warehouse.name,
+            warehouse_id=warehouse.id,
             remark=(payload.get('remark') or '').strip(),
             salesperson_id=salesperson_id,
             project_no=(payload.get('project_no') or '').strip() or None,
@@ -40881,11 +40974,17 @@ def sales_order_edit(id):
         salesperson_id = int(payload.get('salesperson_id') or 0) if payload.get('salesperson_id') else None
         if salesperson_id and not db.session.get(Employee, salesperson_id):
             salesperson_id = None
+        warehouse, warehouse_error = validate_sales_warehouse(
+            payload.get('warehouse'), payload.get('warehouse_id')
+        )
+        if warehouse_error:
+            return jsonify({'status': 'error', 'msg': warehouse_error}), 400
         # 更新订单头
         order.customer_id = customer.id
         order.date = datetime.strptime(payload.get('date') or date.today().isoformat(), '%Y-%m-%d').date()
         order.delivery_date = datetime.strptime(payload.get('delivery_date'), '%Y-%m-%d').date() if payload.get('delivery_date') else None
-        order.warehouse = (payload.get('warehouse') or '').strip()
+        order.warehouse = warehouse.name
+        order.warehouse_id = warehouse.id
         order.remark = (payload.get('remark') or '').strip()
         order.salesperson_id = salesperson_id
         order.project_no = (payload.get('project_no') or '').strip() or None
@@ -40935,6 +41034,11 @@ def confirm_sales_order(id):
     order = SalesOrder.query.get_or_404(id)
     if order.status != 'draft' or not order.items:
         return jsonify({'status': 'error', 'msg': '只有有明细的草稿订单可以确认'}), 400
+    warehouse, warehouse_error = validate_sales_warehouse(order.warehouse, order.warehouse_id)
+    if warehouse_error:
+        return jsonify({'status': 'error', 'msg': warehouse_error}), 400
+    order.warehouse = warehouse.name
+    order.warehouse_id = warehouse.id
     order.status = 'confirmed'
     db.session.commit()
     log_operation('确认销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
@@ -40948,6 +41052,11 @@ def create_sales_outbound_draft(id):
     order = SalesOrder.query.options(joinedload(SalesOrder.items).joinedload(SalesOrderItem.material)).get_or_404(id)
     if order.status not in ('confirmed', 'closed'):
         return jsonify({'status': 'error', 'msg': '请先确认销售订单'}), 400
+    warehouse, warehouse_error = validate_sales_warehouse(order.warehouse, order.warehouse_id)
+    if warehouse_error:
+        return jsonify({'status': 'error', 'msg': warehouse_error}), 400
+    order.warehouse = warehouse.name
+    order.warehouse_id = warehouse.id
     try:
         payload = request.get_json(silent=True) or {}
         selected_qty_by_item_id = None
@@ -40995,6 +41104,12 @@ def batch_confirm_sales_orders():
         if order.status != 'draft' or not order.items:
             skipped.append(order.order_no)
             continue
+        warehouse, warehouse_error = validate_sales_warehouse(order.warehouse, order.warehouse_id)
+        if warehouse_error:
+            skipped.append(f'{order.order_no}(仓库无效)')
+            continue
+        order.warehouse = warehouse.name
+        order.warehouse_id = warehouse.id
         order.status = 'confirmed'
         order.shipment_status = 'pending'
         confirmed += 1
@@ -41022,6 +41137,12 @@ def batch_create_sales_outbound():
             if order.status not in ('confirmed', 'closed') or order.shipment_status == 'shipped':
                 skipped.append(f'{order.order_no}(状态不允许)')
                 continue
+            warehouse, warehouse_error = validate_sales_warehouse(order.warehouse, order.warehouse_id)
+            if warehouse_error:
+                skipped.append(f'{order.order_no}(仓库无效)')
+                continue
+            order.warehouse = warehouse.name
+            order.warehouse_id = warehouse.id
             outbound, result = build_sales_outbound_draft(order)
             if result == 'completed':
                 skipped.append(f'{order.order_no}(已全部发货)')
@@ -41173,6 +41294,7 @@ def copy_sales_order(id):
             date=date.today(),
             delivery_date=order.delivery_date,
             warehouse=order.warehouse,
+            warehouse_id=order.warehouse_id,
             remark=order.remark,
             salesperson_id=order.salesperson_id,
             project_no=order.project_no,
