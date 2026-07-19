@@ -498,6 +498,7 @@ def run_runtime_tests() -> list[tuple[str, bool, str]]:
                 ("/sales/report?customer_id=" + str(cid), "销售报表-客户钻取"),
                 ("/sales/outflow_report", "销售出库明细表"),
                 ("/sales/trend_report", "销售趋势分析表"),
+                ("/sales/exceptions", "销售异常工作台"),
                 ("/sales/trend_report?months=6", "销售趋势分析表-6月"),
                 (f"/sales/trend_report?months=6&warehouse_id={fixture_ids['warehouse_id']}", "销售趋势分析表-仓库筛选"),
                 (f"/sales/execution_report?warehouse_id={fixture_ids['warehouse_id']}", "销售订单执行-仓库筛选"),

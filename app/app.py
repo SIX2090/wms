@@ -41434,6 +41434,70 @@ def sales_dashboard():
     )
 
 
+@app.route('/sales/exceptions')
+@login_required
+def sales_exceptions():
+    """Read-only sales exception workbench; every row drills into a source document."""
+    kind = (request.args.get('kind') or '').strip()
+    today = date.today()
+    exceptions = []
+    orders = SalesOrder.query.filter(SalesOrder.status != 'cancelled').options(
+        joinedload(SalesOrder.customer),
+        selectinload(SalesOrder.items).joinedload(SalesOrderItem.material),
+    ).order_by(SalesOrder.delivery_date.asc(), SalesOrder.id.asc()).all()
+    for order in orders:
+        if order.delivery_date and order.delivery_date < today and order.shipment_status != 'shipped':
+            exceptions.append({
+                'kind': 'overdue', 'label': '逾期未发货', 'severity': '高', 'order': order,
+                'item': None, 'outbound': None, 'detail': f'交货日期 {order.delivery_date}',
+            })
+        for item in order.items:
+            quantity = float(item.quantity or 0)
+            shipped = float(item.shipped_quantity or 0)
+            remaining = max(quantity - shipped, 0)
+            if shipped > quantity + STOCK_COMPARE_EPSILON:
+                exceptions.append({
+                    'kind': 'over_shipped', 'label': '超发数量', 'severity': '高', 'order': order,
+                    'item': item, 'outbound': None,
+                    'detail': f'订单 {quantity:g}，已发货 {shipped:g}',
+                })
+            if remaining > STOCK_COMPARE_EPSILON and item.material and float(item.material.stock or 0) + STOCK_COMPARE_EPSILON < remaining:
+                exceptions.append({
+                    'kind': 'shortage', 'label': '库存不足', 'severity': '高', 'order': order,
+                    'item': item, 'outbound': None,
+                    'detail': f'待发 {remaining:g}，现存 {float(item.material.stock or 0):g}',
+                })
+            if float(item.price or 0) <= 0:
+                exceptions.append({
+                    'kind': 'price', 'label': '销售价异常', 'severity': '中', 'order': order,
+                    'item': item, 'outbound': None, 'detail': '含税单价为 0 或负数',
+                })
+
+    outbound_items = OutOrderItem.query.join(OutOrder).filter(
+        OutOrder.business_type == '销售出库',
+        OutOrder.status.in_(('pending', 'completed')),
+    ).options(
+        joinedload(OutOrderItem.out_order).joinedload(OutOrder.source_sales_order),
+        joinedload(OutOrderItem.material),
+        joinedload(OutOrderItem.source_sales_order_item).joinedload(SalesOrderItem.sales_order),
+    ).all()
+    for item in outbound_items:
+        if not item.source_sales_order_item_id and not item.out_order.source_sales_order_id:
+            exceptions.append({
+                'kind': 'missing_source', 'label': '缺少销售来源', 'severity': '中', 'order': None,
+                'item': item, 'outbound': item.out_order, 'detail': '出库明细未关联销售订单或销售订单行',
+            })
+
+    if kind:
+        exceptions = [row for row in exceptions if row['kind'] == kind]
+    severity_order = {'高': 0, '中': 1, '低': 2}
+    exceptions.sort(key=lambda row: (severity_order.get(row['severity'], 9), row['order'].delivery_date if row['order'] else date.max, row['detail']))
+    return render_template(
+        'sales_exceptions.html', exceptions=exceptions, kind=kind,
+        counts={value: sum(1 for row in exceptions if row['kind'] == value) for value in ('overdue', 'shortage', 'over_shipped', 'missing_source', 'price')},
+    )
+
+
 @app.route('/sales/<int:id>/cancel', methods=['POST'])
 @require_role('warehouse', 'purchase', 'sales')
 @login_required

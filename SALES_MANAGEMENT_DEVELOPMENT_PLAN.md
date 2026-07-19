@@ -840,6 +840,14 @@ sales_order 1 ---- n sales_order_item
 
 **验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 28/28 通过；`python scripts/verify_wms_bugs.py` 通过；服务重启后 `/login` 返回 200。提交：`652c3bb`。
 
+## 阶段 18 实施记录（2026-07-19）：销售异常统一工作台（SM-P5-01）
+
+- 新增只读 `/sales/exceptions` 异常工作台，统一展示逾期未发货、库存不足、超发数量、缺少销售来源和销售价异常。
+- 每条异常保留真实销售订单或销售出库单下钻入口；页面只提供筛选和查看，不自动改库存、不自动修正订单、不替代仓库人工处理。
+- 销售工作台和销售管理菜单增加异常入口，销售模块验证脚本覆盖异常页面渲染。
+
+**验证**：`python -m py_compile app/app.py scripts/verify_sales_module.py` 通过；`python scripts/verify_sales_module.py` 29/29 通过。真实浏览器验收因当前环境 Playwright CLI 依赖下载超时仍待执行；异常数据需在业务库继续对账。
+
 ## G. 每阶段交付门槛
 
 每个任务必须同时具备：代码、权限、审计、迁移说明、测试、页面入口、报表口径、运行验证和回滚说明。完成后更新本计划的任务状态、提交哈希、验证命令和剩余风险；提交和推送必须落在 `main`，不得创建工作分支。
