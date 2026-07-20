@@ -9,8 +9,7 @@
 #   * git push origin <branch>          (local branch != main)
 #   * git push origin <local>:<remote>  (remote branch != main)
 #   * git push origin <new-branch>      (creating a new remote branch)
-#   * git push origin :<branch>         (deleting any remote branch is also blocked
-#                                       unless it's main, to keep history clean)
+#   * git push origin :<branch>         (deleting ANY remote branch, including main)
 
 set -euo pipefail
 
@@ -40,6 +39,15 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         remote_branch="${remote_ref#refs/heads/}"
     fi
 
+    # Block branch deletion (local_ref 为空表示删除远程分支)。
+    # 任何远程分支删除（包括 main）都禁止，防止误删 main 丢失全部历史。
+    if [ -z "${local_ref}" ] && [ -n "${remote_ref}" ] && [ "${remote_sha}" = "0000000000000000000000000000000000000000" ]; then
+        echo "❌ PRE-PUSH BLOCKED: deleting remote branch '${remote_branch}' is not allowed." >&2
+        echo "   AGENTS.md 禁止删除任何远程分支（包括 main），请通过 revert/rebase 修复历史。" >&2
+        blocked=1
+        continue
+    fi
+
     # Block local branch push when not on main
     if [ -n "${local_branch}" ] && [ "${local_branch}" != "${ALLOWED_LOCAL_BRANCH}" ]; then
         echo "❌ PRE-PUSH BLOCKED: pushing local branch '${local_branch}' is not allowed." >&2
@@ -50,10 +58,6 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
     # Block any remote branch other than main
     if [ -n "${remote_branch}" ] && [ "${remote_branch}" != "${ALLOWED_REMOTE_BRANCH}" ]; then
-        # Allow deleting main if it ever needs to be replaced (not normal flow)
-        if [ -z "${local_ref}" ] && [ "${remote_branch}" = "${ALLOWED_REMOTE_BRANCH}" ]; then
-            continue
-        fi
         echo "❌ PRE-PUSH BLOCKED: target remote branch '${remote_branch}' is not allowed." >&2
         echo "   Only '${ALLOWED_REMOTE_BRANCH}' is permitted on the remote." >&2
         blocked=1

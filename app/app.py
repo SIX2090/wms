@@ -40058,7 +40058,22 @@ def backup_page():
                 'size_bytes': stat.st_size,
                 'url': url_for('download_backup', filename=os.path.basename(f))
             })
-    backups.sort(key=lambda item: item.get(sort_by) or '', reverse=(sort_order == 'desc'))
+    # 排序键需稳定支持 datetime/int/str 混合类型；
+    # 旧实现 `item.get(sort_by) or ''` 在 created_at 为 None 时会退化为 ''，
+    # 与 datetime 比较抛 TypeError；这里为 None 字段提供类型一致的默认值。
+    _SORT_DEFAULTS = {
+        'created_at': datetime.min,
+        'size_bytes': 0,
+        'filename': '',
+    }
+
+    def _backup_sort_key(item):
+        value = item.get(sort_by)
+        if value is None:
+            return _SORT_DEFAULTS.get(sort_by, '')
+        return value
+
+    backups.sort(key=_backup_sort_key, reverse=(sort_order == 'desc'))
     return render_template('backup.html', backups=backups, filters={'search': search}, sort_by=sort_by, sort_order=sort_order)
 
 def format_file_size(size):
