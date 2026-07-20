@@ -1837,7 +1837,11 @@ def add_stock(material, quantity, transaction_type=None, reference_type=None, re
 
 
 def update_location_inventory(material, location, quantity_delta):
-    """Update per-location inventory without changing total material stock."""
+    """Update per-location inventory without changing total material stock.
+
+    正负 delta 都通过原子条件 UPDATE 修改库位库存，避免 read-modify-write
+    并发丢失更新。新增库位记录仍由本函数在原子 UPDATE 失败后补建。
+    """
     location = (location or '').strip()
     if not material or not location or not quantity_delta:
         return True, ''
@@ -1856,24 +1860,67 @@ def update_location_inventory(material, location, quantity_delta):
             material_code_hint=material.code,
         )
 
-    inventory = LocationInventory.query.filter_by(
-        material_id=material.id,
-        location=location
+    return add_location_inventory_atomic(
+        material.id,
+        location,
+        quantity_delta,
+        material_code_hint=material.code,
+    )
+
+
+def add_location_inventory_atomic(material_id, location, quantity, material_code_hint=None):
+    """原子增加库位库存：用条件 UPDATE 避免并发丢失更新。
+
+    若库位记录不存在，先用 INSERT 建立基线再 UPDATE；
+    若已存在，直接执行原子增量 UPDATE。
+    返回 (是否成功, 错误信息)。
+    """
+    location = (location or '').strip()
+    qty = normalize_stock_quantity(quantity or 0)
+    if not location:
+        return True, ''
+    if qty == 0:
+        return True, ''
+    if qty < 0:
+        return False, 'add_location_inventory_atomic 仅支持非负增量'
+
+    existing = LocationInventory.query.filter_by(
+        material_id=material_id,
+        location=location,
     ).first()
-    if not inventory:
-        inventory = LocationInventory(
-            material_id=material.id,
-            location=location,
-            quantity=0
+    if not existing:
+        # 并发下两个事务可能同时进入此分支，但 SQLite BEGIN IMMEDIATE
+        # 已串行化写事务；MySQL/PG 依赖 UNIQUE 约束兜底。
+        try:
+            db.session.add(LocationInventory(
+                material_id=material_id,
+                location=location,
+                quantity=normalize_stock_quantity(qty),
+                updated_at=datetime.now(),
+            ))
+            db.session.flush()
+            return True, ''
+        except Exception as e:
+            db.session.rollback()
+            # 并发插入冲突，退回 UPDATE 路径
+            app.logger.warning(
+                'add_location_inventory_atomic 建账冲突，转 UPDATE: %s', e
+            )
+
+    rowcount = db.session.execute(
+        sa_update(LocationInventory)
+        .where(db.and_(
+            LocationInventory.material_id == material_id,
+            LocationInventory.location == location,
+        ))
+        .values(
+            quantity=LocationInventory.quantity + qty,
+            updated_at=datetime.now(),
         )
-        db.session.add(inventory)
-
-    new_quantity = (inventory.quantity or 0) + quantity_delta
-    if new_quantity < -1e-9 and not allow_negative_location_stock():
-        return False, f'物料 {material.code} 在 {location} 库存不足'
-
-    inventory.quantity = normalize_stock_quantity(new_quantity if allow_negative_location_stock() else max(0, new_quantity))
-    inventory.updated_at = datetime.now()
+    ).rowcount
+    if not rowcount:
+        code = material_code_hint or str(material_id)
+        return False, f'物料 {code} 在 {location} 库位库存更新失败或并发冲突'
     return True, ''
 
 
@@ -23435,6 +23482,45 @@ def check_in_order_anomalies(id):
     })
 
 
+def _acquire_order_write_lock(model_cls, record_id, expected_status, eager_load=None):
+    """获取单据写锁并重新读取状态，避免多 worker 并发重复处理同一张单据。
+
+    SQLite 用 BEGIN IMMEDIATE 串行化写事务；其它数据库用 SELECT ... FOR UPDATE 行锁。
+    必须在已通过外层 status 检查后调用，本函数再次确认 status 未被并发请求修改。
+
+    expected_status 可为单个字符串或字符串序列（如 ('pending', 'completed')），
+    用于允许在多种状态间执行（例如 delete_in_order）。
+
+    返回 (order, ok)：
+    - ok=True：调用方继续在已加锁的事务中执行库存操作。
+    - ok=False：单据已被删除、状态已被修改或锁获取失败；session 已 rollback，调用方应直接返回错误。
+    """
+    if isinstance(expected_status, (list, tuple, set)):
+        expected_set = set(expected_status)
+    else:
+        expected_set = {expected_status}
+    try:
+        if db.engine.dialect.name == 'sqlite':
+            db.session.rollback()
+            db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
+            order = db.session.get(model_cls, record_id)
+        else:
+            query = model_cls.query.with_for_update()
+            if eager_load is not None:
+                query = query.options(eager_load)
+            order = query.get(record_id)
+        if not order:
+            db.session.rollback()
+            return None, False
+        if order.status not in expected_set:
+            db.session.rollback()
+            return order, False
+        return order, True
+    except Exception:
+        db.session.rollback()
+        return None, False
+
+
 @app.route('/in_order/<int:id>/complete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -23463,17 +23549,11 @@ def complete_in_order(id):
             })
 
     try:
-        # SQLite 不支持 SELECT FOR UPDATE，用写事务锁住整张入库单的完成窗口；
-        # 其它数据库使用行锁。锁后必须重新读取状态，避免多 worker 重复入库。
-        if db.engine.dialect.name == 'sqlite':
-            db.session.rollback()
-            db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
-            order = db.session.get(InOrder, id)
-        else:
-            order = InOrder.query.with_for_update().options(selectinload(InOrder.items)).get(id)
-        if not order or order.status != 'pending':
-            db.session.rollback()
+        # 加写锁并重新读取状态，避免多 worker 并发重复入库
+        locked, ok = _acquire_order_write_lock(InOrder, id, 'pending', selectinload(InOrder.items))
+        if not ok:
             return jsonify({'status': 'error', 'msg': '该入库单已提交，不能重复操作'})
+        order = locked
         if not order.items:
             db.session.rollback()
             return jsonify({'status': 'error', 'msg': '请至少添加一条入库明细'})
@@ -23933,6 +24013,11 @@ def delete_in_order(id):
                 })
 
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发删除同一张已完成入库单导致库存重复回退
+        locked, ok = _acquire_order_write_lock(InOrder, id, ('pending', 'completed'), selectinload(InOrder.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该入库单状态已变更，不能删除'})
+        order = locked
         if order.status == 'completed':
             for item in order.items:
                 ok, error_msg = deduct_stock(
@@ -23995,6 +24080,11 @@ def revert_in_order(id):
             })
 
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复回退
+        locked, ok = _acquire_order_write_lock(InOrder, id, 'completed', selectinload(InOrder.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该入库单已反提交，不能重复操作'})
+        order = locked
         affected_purchase_order_ids = set()
         for item in order.items:
             ok, error_msg = deduct_stock(item.material, item.quantity or 0,
@@ -25948,20 +26038,30 @@ def complete_requisition(id):
     requisition = ProductionRequisition.query.get_or_404(id)
     if requisition.status != 'pending':
         return jsonify({'status': 'error', 'msg': '当前工单领料单状态不可完结'})
-    for item in requisition.items:
-        ok, error_msg = deduct_stock(item.material, item.quantity or 0,
-                                     transaction_type='requisition',
-                                     reference_type='requisition',
-                                     reference_id=requisition.id)
-        if not ok:
-            db.session.rollback()
-            return jsonify({'status': 'error', 'msg': error_msg or f'物料 {item.material.code} 库存不足'})
-    requisition.status = 'completed'
     try:
-        db.session.commit()
+        # 加写锁并重新读取状态，避免多 worker 并发重复扣库存
+        locked, ok = _acquire_order_write_lock(ProductionRequisition, id, 'pending', selectinload(ProductionRequisition.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '当前工单领料单状态不可完结'})
+        requisition = locked
+        for item in requisition.items:
+            ok, error_msg = deduct_stock(item.material, item.quantity or 0,
+                                         transaction_type='requisition',
+                                         reference_type='requisition',
+                                         reference_id=requisition.id)
+            if not ok:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': error_msg or f'物料 {item.material.code} 库存不足'})
+        requisition.status = 'completed'
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'数据库操作失败: {e}')
+            return jsonify({'status': 'error', 'msg': '提交失败，请稍后重试'})
     except Exception as e:
         db.session.rollback()
-        app.logger.error(f'数据库操作失败: {e}')
+        app.logger.error(f'工单领料完成失败: {e}')
         return jsonify({'status': 'error', 'msg': '提交失败，请稍后重试'})
     log_operation('工单领料完成', f'工单领料单：{requisition.req_no}', 'requisition', id)
     return jsonify({'status': 'success'})
@@ -25977,6 +26077,11 @@ def revert_requisition(id):
         return jsonify({'status': 'error', 'msg': '只有已完成的工单领料单可以撤销'})
 
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复恢复
+        locked, ok = _acquire_order_write_lock(ProductionRequisition, id, 'completed', selectinload(ProductionRequisition.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该工单领料单已撤销，不能重复操作'})
+        requisition = locked
         # 恢复库存（走 add_stock 写流水+归一化，与 complete_requisition 对称）
         for item in requisition.items:
             if item.material:
@@ -27057,17 +27162,26 @@ def complete_subcontract_issue(id):
     issue = SubcontractIssue.query.get_or_404(id)
     if issue.status != 'pending':
         return jsonify({'status': 'error', 'msg': '只有待发料状态可以完成发料'})
-    
+
     if not issue.items:
         return jsonify({'status': 'error', 'msg': '发料单没有明细，无法完成'})
-    
+
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发重复扣库存
+        locked, ok = _acquire_order_write_lock(SubcontractIssue, id, 'pending', selectinload(SubcontractIssue.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该委外发料单已提交，不能重复操作'})
+        issue = locked
+        if not issue.items:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '发料单没有明细，无法完成'})
         # 先检查库存是否充足
         for item in issue.items:
             if item.material:
                 current_stock = normalize_stock_quantity(item.material.stock or 0)
                 quantity = normalize_stock_quantity(item.quantity or 0)
                 if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
+                    db.session.rollback()
                     return jsonify({
                         'status': 'error',
                         'msg': f'物料 {item.material.code} 库存不足，当前库存：{current_stock:.2f}'
@@ -27109,6 +27223,11 @@ def revert_subcontract_issue(id):
     if issue.status != 'completed':
         return jsonify({'status': 'error', 'msg': '只有已发料的委外发料单可以反提交'})
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复恢复
+        locked, ok = _acquire_order_write_lock(SubcontractIssue, id, 'completed', selectinload(SubcontractIssue.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该委外发料单已反提交，不能重复操作'})
+        issue = locked
         for item in issue.items:
             if item.material:
                 ok, err = add_stock(item.material, item.quantity or 0,
@@ -27582,11 +27701,19 @@ def complete_subcontract_receive(id):
     receive = SubcontractReceive.query.get_or_404(id)
     if receive.status != 'pending':
         return jsonify({'status': 'error', 'msg': '只有待收货状态可以完成收货'})
-    
+
     if not receive.items:
         return jsonify({'status': 'error', 'msg': '收货单没有明细，无法完成'})
-    
+
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发重复入库
+        locked, ok = _acquire_order_write_lock(SubcontractReceive, id, 'pending', selectinload(SubcontractReceive.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该委外收货单已提交，不能重复操作'})
+        receive = locked
+        if not receive.items:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '收货单没有明细，无法完成'})
         # 增加库存
         total_quantity = 0
         total_scrap = 0
@@ -27603,7 +27730,7 @@ def complete_subcontract_receive(id):
                     return jsonify({'status': 'error', 'msg': err or '库存增加失败'})
                 total_quantity += item.quantity or 0
                 total_scrap += item.scrap_quantity or 0
-        
+
         receive.status = 'completed'
         receive.total_quantity = total_quantity
         receive.total_scrap = total_scrap
@@ -27613,7 +27740,7 @@ def complete_subcontract_receive(id):
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
             return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'}), 500
-        
+
         log_operation('完成委外收货', f'收货单：{receive.receive_no}', 'subcontract_receive', id)
         return jsonify({'status': 'success', 'msg': '委外收货完成，库存已增加'})
     except Exception as e:
@@ -27631,6 +27758,11 @@ def revert_subcontract_receive(id):
     if receive.status != 'completed':
         return jsonify({'status': 'error', 'msg': '只有已入库的委外收货单可以反提交'})
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复回退
+        locked, ok = _acquire_order_write_lock(SubcontractReceive, id, 'completed', selectinload(SubcontractReceive.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该委外收货单已反提交，不能重复操作'})
+        receive = locked
         for item in receive.items:
             if item.material:
                 ok, error_msg = deduct_stock(
@@ -28193,6 +28325,14 @@ def complete_transfer(id):
         return jsonify({'status': 'error', 'msg': '调拨单没有明细，无法完成'})
 
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发重复扣库位库存
+        locked, ok = _acquire_order_write_lock(TransferOrder, id, 'pending', selectinload(TransferOrder.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该调拨单已提交，不能重复操作'})
+        transfer = locked
+        if not transfer.items:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '调拨单没有明细，无法完成'})
         # 调拨不改变总库存：只在 from_location 原子扣减、在 to_location 累加，并记录双向流水
         for item in transfer.items:
             if not item.material_id:
@@ -28246,6 +28386,11 @@ def revert_transfer(id):
         return jsonify({'status': 'error', 'msg': '只有已完成的调拨单可以反提交'})
 
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发反提交导致库位库存重复回退
+        locked, ok = _acquire_order_write_lock(TransferOrder, id, 'completed', selectinload(TransferOrder.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该调拨单已反提交，不能重复操作'})
+        transfer = locked
         for item in transfer.items:
             if item.material:
                 quantity = item.quantity or 0
@@ -28951,6 +29096,14 @@ def complete_adjustment(id):
         return jsonify({'status': 'error', 'msg': '调整单没有明细，无法完成'})
 
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发重复调整库存
+        locked, ok = _acquire_order_write_lock(AdjustmentOrder, id, 'pending', selectinload(AdjustmentOrder.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该调整单已提交，不能重复操作'})
+        adjustment = locked
+        if not adjustment.items:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '调整单没有明细，无法完成'})
         for item in adjustment.items:
             if not item.material_id:
                 continue
@@ -28998,6 +29151,11 @@ def revert_adjustment(id):
     if adjustment.status != 'completed':
         return jsonify({'status': 'error', 'msg': '只有已完成的调整单可以反提交'})
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复回退
+        locked, ok = _acquire_order_write_lock(AdjustmentOrder, id, 'completed', selectinload(AdjustmentOrder.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该调整单已反提交，不能重复操作'})
+        adjustment = locked
         for item in adjustment.items:
             if not item.material_id:
                 continue
@@ -29497,6 +29655,14 @@ def complete_check(id):
         return jsonify({'status': 'error', 'msg': '盘点单没有明细，无法完成'})
 
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发重复生成调整草稿
+        locked, ok = _acquire_order_write_lock(InventoryCheck, id, 'pending', selectinload(InventoryCheck.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该盘点单已提交，不能重复操作'})
+        check = locked
+        if not check.items:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '盘点单没有明细，无法完成'})
         drafts, error = _create_adjustment_drafts_from_check(check)
         if error:
             db.session.rollback()
@@ -29530,9 +29696,15 @@ def revert_check(id):
     if check.status != 'completed':
         return jsonify({'status': 'error', 'msg': '只有已完成的盘点单可以反提交'})
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复回退
+        locked, ok = _acquire_order_write_lock(InventoryCheck, id, 'completed', selectinload(InventoryCheck.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该盘点单已反提交，不能重复操作'})
+        check = locked
         linked_adjustments = AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).all()
         completed_adjustments = [order.adjustment_no for order in linked_adjustments if order.status == 'completed']
         if completed_adjustments:
+            db.session.rollback()
             return jsonify({'status': 'error', 'msg': '该盘点单生成的调整单已提交，不能直接反提交盘点单：' + ', '.join(completed_adjustments)})
 
         transactions = StockTransaction.query.filter(
@@ -30462,6 +30634,14 @@ def complete_out_order(id):
     use_location = bool(location_management_enabled() and order.warehouse)
 
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发重复扣库存
+        locked, ok = _acquire_order_write_lock(OutOrder, id, 'pending', selectinload(OutOrder.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该领料单已提交，不能重复操作'})
+        order = locked
+        if not order.items:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '请至少添加一条领料明细'})
         for item in order.items:
             if not item.material_id:
                 continue
@@ -30506,6 +30686,11 @@ def revert_out_order(id):
         return jsonify({'status': 'error', 'msg': '只有已完成的领料单可以反提交'})
 
     try:
+        # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复恢复
+        locked, ok = _acquire_order_write_lock(OutOrder, id, 'completed', selectinload(OutOrder.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该领料单已反提交，不能重复操作'})
+        order = locked
         for item in order.items:
             ok, err = add_stock(item.material, item.quantity or 0,
                                 transaction_type='revert_out',
