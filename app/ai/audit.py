@@ -98,8 +98,21 @@ def create_message(
     return msg
 
 
-def list_messages(conversation_id: int, limit: int = 100) -> list[AIMessage]:
-    """列出对话消息，按创建时间升序。"""
+def list_messages(
+    conversation_id: int,
+    limit: int = 100,
+    user_id: int | None = None,
+) -> list[AIMessage]:
+    """列出对话消息，按创建时间升序。
+
+    传入 user_id 时，会先校验对话归属当前用户，避免越权读取他人对话消息。
+    """
+    if user_id is not None:
+        conv = AIConversation.query.filter_by(
+            id=conversation_id, user_id=user_id
+        ).first()
+        if not conv:
+            return []
     return (
         AIMessage.query
         .filter_by(conversation_id=conversation_id)
@@ -109,9 +122,19 @@ def list_messages(conversation_id: int, limit: int = 100) -> list[AIMessage]:
     )
 
 
-def get_message(message_id: int) -> AIMessage | None:
-    """获取单条消息。"""
-    return AIMessage.query.get(message_id)
+def get_message(message_id: int, user_id: int | None = None) -> AIMessage | None:
+    """获取单条消息。
+
+    传入 user_id 时，会校验消息所属对话的 user_id 与之一致，避免越权读取。
+    """
+    msg = AIMessage.query.get(message_id)
+    if not msg:
+        return None
+    if user_id is not None:
+        conv = AIConversation.query.get(msg.conversation_id)
+        if not conv or conv.user_id != user_id:
+            return None
+    return msg
 
 
 # ──────────────────────────────────────────────

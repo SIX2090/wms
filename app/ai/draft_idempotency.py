@@ -121,8 +121,9 @@ class AIDraftIdempotencyService:
         ).first()
         if existing:
             if existing.status == DRAFT_STATUS_COMPLETED:
+                # 不修改历史状态：保持 completed 不变，避免丢失"已完成"语义。
+                # 仅更新 updated_at 以记录本次 replay 活动。
                 replay = self._decode(existing.response_snapshot)
-                existing.status = DRAFT_STATUS_REPLAYED
                 existing.updated_at = datetime.now()
                 self.db.session.commit()
                 return DraftIdempotencySlot(
@@ -138,7 +139,7 @@ class AIDraftIdempotencyService:
                     record=existing,
                     conflict_reason='该草稿请求正在处理中，请勿重复提交',
                 )
-            # failed -> 允许重试，复用原记录保留历史证据
+            # failed -> 允许重试，复用原记录；清除上次错误以进入新一轮处理
             existing.status = DRAFT_STATUS_PROCESSING
             existing.error_message = None
             existing.ai_tool_call_id = ai_tool_call_id or existing.ai_tool_call_id

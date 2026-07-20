@@ -42,7 +42,11 @@ class AIIdempotencyService:
         completed_at = datetime.now()
         run.status = status
         run.completed_at = completed_at
-        run.duration_ms = max(0, int((completed_at - run.started_at).total_seconds() * 1000))
+        # 防御 started_at 为 None（历史数据或异常写入）导致 TypeError
+        if run.started_at:
+            run.duration_ms = max(0, int((completed_at - run.started_at).total_seconds() * 1000))
+        else:
+            run.duration_ms = None
         run.error_message = (error_message or '')[:500] or None
 
     def finish_request(self, record_id: int, response_status: int, content_type: str, response_body: str) -> None:

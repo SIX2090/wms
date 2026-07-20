@@ -41,7 +41,7 @@ VALID_RISK_LEVELS = (
     | AI_FORBIDDEN_RISK_LEVELS
 )
 
-VALID_ROLES = frozenset({'admin', 'warehouse', 'purchase', 'production', 'user'})
+VALID_ROLES = frozenset({'admin', 'warehouse', 'purchase', 'sales', 'production', 'user'})
 
 
 def main() -> int:

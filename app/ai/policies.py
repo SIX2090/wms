@@ -147,6 +147,11 @@ def is_ai_capability_allowed_for_role(
     business_roles: frozenset[str] | None = None,
 ) -> bool:
     """Return whether a business role may use a declared AI capability."""
-    if capability not in AI_CAPABILITY_ROLES:
+    declared_roles = AI_CAPABILITY_ROLES.get(capability)
+    if not declared_roles:
+        # 能力未声明或角色集为空，一律拒绝（包括 admin），避免 admin 短路绕过空声明
         return False
-    return role == 'admin' or role in effective_ai_capability_roles(capability, business_roles)
+    if role == 'admin':
+        # admin 可使用任何已声明且角色集非空的能力，但仍受 declared_roles 非空校验
+        return True
+    return role in effective_ai_capability_roles(capability, business_roles)

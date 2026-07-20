@@ -398,8 +398,21 @@ class TokenStore:
                      token.token_id[:8], user_id, purpose)
         return token
 
-    def validate(self, token_id: str, user_id: int, purpose: str) -> tuple[bool, str]:
+    def validate(
+        self,
+        token_id: str,
+        user_id: int,
+        purpose: str,
+        payload: Any = None,
+    ) -> tuple[bool, str]:
         """验证确认令牌。
+
+        Args:
+            token_id: 令牌 ID
+            user_id: 当前用户 ID
+            purpose: 期望用途
+            payload: 操作内容，用于校验 payload_hash，防止令牌重放执行不同操作。
+                     传 None 时跳过 payload_hash 校验（仅向后兼容场景使用）。
 
         Returns:
             (is_valid, error_message)
@@ -415,6 +428,12 @@ class TokenStore:
             return False, '令牌已使用'
         if token.is_expired:
             return False, '令牌已过期'
+        # 校验 payload_hash：相同令牌只能执行相同操作，防止重放攻击
+        if payload is not None:
+            payload_str = str(payload) if payload else ''
+            expected_hash = hashlib.sha256(payload_str.encode()).hexdigest()[:16]
+            if expected_hash != token.payload_hash:
+                return False, '令牌操作内容不匹配'
         return True, ''
 
     def mark_used(self, token_id: str) -> None:

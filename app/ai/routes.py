@@ -15,6 +15,7 @@ from ai.audit import (
     archive_conversation,
     create_message,
     list_messages,
+    get_message,
     create_feedback,
     list_feedbacks,
     create_confirmation,
@@ -25,6 +26,38 @@ from ai.audit import (
 
 
 ai_bp = Blueprint('ai', __name__, url_prefix='/api/ai')
+
+
+def _validate_ai_run_owner(ai_run_id, user_id: int) -> bool:
+    """校验 ai_run_id 归属当前用户，防止越权引用他人 AI 运行记录。
+
+    使用延迟导入避免 ai.routes 与 app 模块之间的循环依赖。
+    """
+    if not ai_run_id:
+        return True
+    try:
+        ai_run_id_int = int(ai_run_id)
+    except (TypeError, ValueError):
+        return False
+    try:
+        # 延迟导入：app.py 在加载 ai.routes 时尚未定义 AIRun
+        from app import AIRun
+    except ImportError:
+        return False
+    run = AIRun.query.get(ai_run_id_int)
+    return run is not None and run.user_id == user_id
+
+
+def _validate_ai_message_owner(ai_message_id, user_id: int) -> bool:
+    """校验 ai_message_id 所属对话归属当前用户。"""
+    if not ai_message_id:
+        return True
+    try:
+        ai_message_id_int = int(ai_message_id)
+    except (TypeError, ValueError):
+        return False
+    msg = get_message(ai_message_id_int, user_id=user_id)
+    return msg is not None
 
 
 @ai_bp.get('/tools')
@@ -109,7 +142,7 @@ def conversation_detail(conversation_id):
         return jsonify({'status': 'error', 'msg': '对话不存在'}), 404
 
     limit = request.args.get('limit', 100, type=int)
-    messages = list_messages(conversation_id, limit=limit)
+    messages = list_messages(conversation_id, limit=limit, user_id=user_id)
 
     return jsonify({
         'status': 'success',
@@ -202,11 +235,16 @@ def message_create(conversation_id):
     if not role or not content:
         return jsonify({'status': 'error', 'msg': '角色和内容不能为空'}), 400
 
+    # 校验 ai_run_id 归属当前用户，防止越权引用他人运行记录
+    ai_run_id = payload.get('ai_run_id')
+    if ai_run_id and not _validate_ai_run_owner(ai_run_id, user_id):
+        return jsonify({'status': 'error', 'msg': 'AI 运行记录不存在或无权限引用'}), 403
+
     msg = create_message(
         conversation_id=conversation_id,
         role=role,
         content=content,
-        ai_run_id=payload.get('ai_run_id'),
+        ai_run_id=ai_run_id,
         attachment_summary=payload.get('attachment_summary'),
         model=payload.get('model'),
         prompt_version=payload.get('prompt_version'),
@@ -239,11 +277,19 @@ def feedback_create():
     if not rating:
         return jsonify({'status': 'error', 'msg': '评价不能为空'}), 400
 
+    # 校验 ai_run_id / ai_message_id 归属当前用户，防止越权引用他人记录
+    ai_run_id = payload.get('ai_run_id')
+    if ai_run_id and not _validate_ai_run_owner(ai_run_id, user_id):
+        return jsonify({'status': 'error', 'msg': 'AI 运行记录不存在或无权限引用'}), 403
+    ai_message_id = payload.get('ai_message_id')
+    if ai_message_id and not _validate_ai_message_owner(ai_message_id, user_id):
+        return jsonify({'status': 'error', 'msg': 'AI 消息不存在或无权限引用'}), 403
+
     fb = create_feedback(
         user_id=user_id,
         rating=rating,
-        ai_run_id=payload.get('ai_run_id'),
-        ai_message_id=payload.get('ai_message_id'),
+        ai_run_id=ai_run_id,
+        ai_message_id=ai_message_id,
         error_type=payload.get('error_type'),
         note=payload.get('note'),
     )
