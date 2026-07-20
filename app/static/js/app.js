@@ -27,10 +27,16 @@ function toast(message, type, duration) {
 
     const item = document.createElement('div');
     item.className = 'cb-toast cb-toast-' + type;
+    // XSS 防护：使用 DOM API 构建，message 通过 textContent 设置，避免 innerHTML 注入
     item.innerHTML =
         '<div class="cb-toast-icon"><i class="bi ' + getToastIcon(type) + '"></i></div>' +
-        '<div class="cb-toast-body">' + message + '</div>' +
+        '<div class="cb-toast-body"></div>' +
         '<button type="button" class="cb-toast-close" aria-label="关闭"><i class="bi bi-x-lg"></i></button>';
+    // 消息内容通过 textContent 写入，确保任何字符串都被当作纯文本渲染
+    var bodyNode = item.querySelector('.cb-toast-body');
+    if (bodyNode) {
+        bodyNode.textContent = message == null ? '' : String(message);
+    }
 
     const remove = function() {
         item.classList.remove('show');
@@ -2639,7 +2645,11 @@ function initMobileListCards() {
             if (statusCell) {
                 var status = document.createElement('div');
                 status.className = 'wms-mobile-list-card-status';
-                status.innerHTML = statusCell.innerHTML;
+                // XSS 防护：使用 cloneNode(true) 复制子节点而非重新解析 innerHTML，
+                // 避免对原始 HTML 字符串再次执行解析（保留服务端 Jinja 转义结果，不重新评估脚本）
+                Array.from(statusCell.childNodes).forEach(function(node) {
+                    status.appendChild(node.cloneNode(true));
+                });
                 header.appendChild(status);
             }
             card.appendChild(header);
@@ -2695,7 +2705,8 @@ function cloneCellControlsForMobile(row, card) {
     var title = document.createElement('div');
     title.className = 'wms-mobile-line-title';
     var rowNo = textFromCell(cells[0]) || String(Array.from(row.parentNode.children).indexOf(row) + 1);
-    title.innerHTML = '<span>明细 ' + rowNo + '</span><button type="button" class="wms-mobile-line-toggle" aria-expanded="true">收起</button>';
+    // XSS 防护：rowNo 来自表格单元格文本，转义后再插入 innerHTML
+    title.innerHTML = '<span>明细 ' + escapeHtml(rowNo) + '</span><button type="button" class="wms-mobile-line-toggle" aria-expanded="true">收起</button>';
     card.appendChild(title);
 
     var fields = document.createElement('div');

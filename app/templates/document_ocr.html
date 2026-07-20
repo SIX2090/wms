@@ -136,6 +136,30 @@
 <script>
 let currentFile = null;
 
+// HTML 转义工具：所有来自后端/AI 的字符串字段必须经此处理后再插入 innerHTML
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// 安全 URL 校验：仅允许 http/https/相对路径，拒绝 javascript:/data: 等危险协议
+function safeUrl(url) {
+    if (!url || typeof url !== 'string') return '';
+    var trimmed = url.trim();
+    if (/^javascript:/i.test(trimmed) || /^data:/i.test(trimmed) || /^vbscript:/i.test(trimmed)) {
+        return '';
+    }
+    if (/^(https?:\/\/|\/|\.\/|\.\.\/|#)/i.test(trimmed)) {
+        return trimmed;
+    }
+    return '';
+}
+
 // 上传区域点击
 document.getElementById('uploadArea').addEventListener('click', function(e) {
     if (e.target.id !== 'clearImageBtn' && !e.target.closest('#clearImageBtn')) {
@@ -238,13 +262,15 @@ document.getElementById('recognizeBtn').addEventListener('click', function() {
         if (res.status === 'success') {
             renderResult(res);
         } else {
-            resultContent.innerHTML = '<div class="alert alert-warning mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + (res.msg || '识别失败') + '</div>';
+            // XSS 防护：转义后端返回的错误消息后再插入 DOM
+            resultContent.innerHTML = '<div class="alert alert-warning mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + escapeHtml(res.msg || '识别失败') + '</div>';
         }
     })
     .catch(function(err) {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-stars"></i> 开始识别';
-        resultContent.innerHTML = '<div class="alert alert-danger mb-0">请求失败：' + err.message + '</div>';
+        // XSS 防护：转义异常 message 后再插入 DOM
+        resultContent.innerHTML = '<div class="alert alert-danger mb-0">请求失败：' + escapeHtml(err && err.message ? err.message : String(err)) + '</div>';
     });
 });
 
@@ -252,63 +278,72 @@ document.getElementById('recognizeBtn').addEventListener('click', function() {
 function renderResult(res) {
     const resultContent = document.getElementById('resultContent');
     let html = '';
-    
+
     // AI分析
     if (res.reply) {
         html += '<div class="alert alert-info mb-3">';
         html += '<div class="d-flex gap-2">';
         html += '<i class="bi bi-stars text-primary mt-1"></i>';
-        html += '<div style="white-space:pre-wrap">' + res.reply + '</div>';
+        // XSS 防护：转义 AI reply 后再插入 DOM
+        html += '<div style="white-space:pre-wrap">' + escapeHtml(res.reply) + '</div>';
         html += '</div>';
         html += '</div>';
     }
-    
+
     // 识别到的物料
     if (res.items && res.items.length > 0) {
-        html += '<h6 class="mb-2"><i class="bi bi-list-check"></i> 识别到的物料（' + res.items.length + '项）</h6>';
+        // length 为数字，仍走 escapeHtml 防御性转义
+        html += '<h6 class="mb-2"><i class="bi bi-list-check"></i> 识别到的物料（' + escapeHtml(res.items.length) + '项）</h6>';
         html += '<div class="table-responsive">';
         html += '<table class="table table-sm table-bordered mb-3">';
         html += '<thead class="table-light"><tr>';
         html += '<th>物料编码</th><th>物料名称</th><th>规格</th><th class="text-end">数量</th><th>状态</th>';
         html += '</tr></thead><tbody>';
-        
+
         res.items.forEach(function(item) {
-            var statusBadge = item.matched 
+            var statusBadge = item.matched
                 ? '<span class="badge bg-success">已匹配</span>'
                 : '<span class="badge bg-warning text-dark">未匹配</span>';
             html += '<tr>';
-            html += '<td><code>' + (item.code || '-') + '</code></td>';
-            html += '<td>' + (item.name || '-') + '</td>';
-            html += '<td>' + (item.spec || '-') + '</td>';
-            html += '<td class="text-end">' + (item.quantity || '-') + '</td>';
+            // XSS 防护：所有物料字段经 escapeHtml 转义
+            html += '<td><code>' + escapeHtml(item.code || '-') + '</code></td>';
+            html += '<td>' + escapeHtml(item.name || '-') + '</td>';
+            html += '<td>' + escapeHtml(item.spec || '-') + '</td>';
+            html += '<td class="text-end">' + escapeHtml(item.quantity || '-') + '</td>';
             html += '<td>' + statusBadge + '</td>';
             html += '</tr>';
         });
-        
+
         html += '</tbody></table></div>';
     }
-    
+
     // 草稿信息
     if (res.draft) {
         html += '<div class="alert alert-success mb-3">';
         html += '<div class="d-flex justify-content-between align-items-center">';
         html += '<div>';
-        html += '<strong><i class="bi bi-check-circle-fill me-2"></i>已生成草稿：' + res.draft.order_no + '</strong>';
+        // XSS 防护：转义草稿单号
+        html += '<strong><i class="bi bi-check-circle-fill me-2"></i>已生成草稿：' + escapeHtml(res.draft.order_no) + '</strong>';
         if (res.draft.unmatched_count > 0) {
-            html += '<div class="small mt-1">另有 ' + res.draft.unmatched_count + ' 个物料未匹配，需手工补录</div>';
+            // unmatched_count 为数字，防御性转义
+            html += '<div class="small mt-1">另有 ' + escapeHtml(res.draft.unmatched_count) + ' 个物料未匹配，需手工补录</div>';
         }
         html += '</div>';
-        html += '<a href="' + res.draft.url + '" class="btn btn-success btn-sm">';
-        html += '<i class="bi bi-box-arrow-up-right"></i> 打开草稿';
-        html += '</a>';
+        // XSS 防护：URL 经 safeUrl 校验，拒绝 javascript:/data: 等危险协议
+        var draftUrl = safeUrl(res.draft.url);
+        if (draftUrl) {
+            html += '<a href="' + escapeHtml(draftUrl) + '" class="btn btn-success btn-sm">';
+            html += '<i class="bi bi-box-arrow-up-right"></i> 打开草稿';
+            html += '</a>';
+        }
         html += '</div>';
         html += '</div>';
     }
-    
+
     if (!html) {
         html = '<div class="alert alert-warning mb-0">未能识别到有效的单据信息，请检查图片质量或尝试手动录入。</div>';
     }
-    
+
     resultContent.innerHTML = html;
 }
 </script>
