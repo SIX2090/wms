@@ -1,9 +1,205 @@
 {% extends "base.html" %}
+{% import "_list_macros.html" as list_macros %}
 {% block title %}销售出库列表{% endblock %}
+
 {% block content %}
-<div class="container-fluid py-3">
-  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3"><div><h4 class="mb-1"><i class="bi bi-box-arrow-up"></i> 销售出库列表</h4><div class="text-muted small">销售出库独立于普通领料列表；库存只在仓库完成单据时扣减。</div></div><div class="d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_dashboard') }}">销售工作台</a><a class="btn btn-primary btn-sm" href="{{ url_for('sales_outbound_selection_page') }}"><i class="bi bi-ui-checks-grid"></i> 销售出库选单</a></div></div>
-  <form class="card card-body mb-3" method="get"><div class="row g-2 align-items-end"><div class="col-md-3"><label class="form-label small">状态</label><select class="form-select form-select-sm" name="status"><option value="">全部</option><option value="pending" {% if status=='pending' %}selected{% endif %}>草稿</option><option value="completed" {% if status=='completed' %}selected{% endif %}>已完成</option></select></div><div class="col-md-5"><label class="form-label small">单号 / 客户 / 来源</label><input class="form-control form-control-sm" name="search" value="{{ search }}"></div><div class="col-md-4 d-flex gap-2"><button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-search"></i> 查询</button><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_outbound_list') }}">清除</a></div></div></form>
-  <div class="card"><div class="table-responsive"><table class="table table-hover table-sm align-middle mb-0"><thead><tr><th>出库单号</th><th>日期</th><th>客户</th><th>仓库</th><th>状态</th><th>来源销售订单</th><th class="text-end">数量</th><th class="text-end">金额</th></tr></thead><tbody>{% for order in pagination.items %}<tr><td><a href="{{ url_for('out_order_detail', id=order.id) }}">{{ order.order_no }}</a></td><td>{{ order.date or '-' }}</td><td>{{ order.customer or '-' }}</td><td>{{ order.warehouse or '-' }}</td><td><span class="badge {% if order.status=='completed' %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ '已完成' if order.status=='completed' else '草稿' }}</span></td><td>{% if order.source_sales_order %}<a href="{{ url_for('sales_order_detail', id=order.source_sales_order.id) }}">{{ order.source_sales_order.order_no }}</a>{% else %}多订单/明细来源{% endif %}</td><td class="text-end">{{ order.items|sum(attribute='quantity')|round(2) }}</td><td class="text-end">¥ {{ '%.2f'|format(order.total_amount or 0) }}</td></tr>{% else %}<tr><td colspan="8" class="text-center text-muted py-4">暂无销售出库单</td></tr>{% endfor %}</tbody></table></div><div class="card-footer">共 {{ pagination.total }} 张</div></div>
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h2 class="mb-0"><i class="bi bi-box-arrow-up"></i> 销售出库列表</h2>
+            <div class="text-muted small">销售出库独立于普通领料列表；库存只在仓库完成单据时扣减。</div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap wms-entry-toolbar">
+            {% if current_user.role in ['admin', 'warehouse'] %}
+            <button type="button" class="btn btn-outline-danger btn-sm" data-batch-action="batchDelete">
+                <i class="bi bi-trash"></i> 删除已选
+            </button>
+            <button type="button" class="btn btn-outline-success btn-sm" data-batch-action="batchComplete">
+                <i class="bi bi-check2-circle"></i> 完成已选
+            </button>
+            {% endif %}
+            <a href="{{ url_for('sales_dashboard') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-layout-dashboard"></i> 销售工作台</a>
+            <a href="{{ url_for('sales_outbound_selection_page') }}" class="btn btn-primary btn-sm"><i class="bi bi-ui-checks-grid"></i> 销售出库选单</a>
+        </div>
+    </div>
 </div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">状态</label>
+                <select name="status" class="form-select form-select-sm" aria-label="出库单状态筛选">
+                    <option value="" {% if not status %}selected{% endif %}>全部状态</option>
+                    <option value="pending" {% if status=='pending' %}selected{% endif %}>草稿</option>
+                    <option value="completed" {% if status=='completed' %}selected{% endif %}>已完成</option>
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small text-muted mb-1">单号 / 客户 / 来源</label>
+                <input type="text" name="search" class="form-control form-control-sm" value="{{ search }}" placeholder="输入单号、客户名称或来源订单" aria-label="搜索">
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 查询</button>
+                {% if status or search %}
+                <a href="{{ url_for('sales_outbound_list') }}" class="btn btn-outline-secondary btn-sm">清除</a>
+                {% endif %}
+            </div>
+            <div class="col-md-2">
+                <a href="{{ url_for('export_sales_outbound', status=status or '', search=search or '') }}" class="btn btn-outline-info btn-sm w-100"><i class="bi bi-file-earmark-excel"></i> 导出</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive-wrapper">
+            <table class="table table-bordered table-hover table-sm mb-0" id="salesOutboundTable" aria-describedby="salesOutboundTableCaption">
+                <caption id="salesOutboundTableCaption" class="visually-hidden">销售出库列表</caption>
+                <thead>
+                    <tr>
+                        <th width="56" class="text-center" scope="col">选择<br><input type="checkbox" id="checkAllSalesOutbound" title="全选当前页"></th>
+                        <th width="50" scope="col">序号</th>
+                        <th data-sortable="order_no" class="sortable-header" scope="col">出库单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                        <th data-sortable="date" class="sortable-header" scope="col">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                        <th scope="col">客户</th>
+                        <th scope="col">仓库</th>
+                        <th scope="col">来源销售订单</th>
+                        <th class="text-end" scope="col">数量</th>
+                        <th class="text-end" scope="col">金额</th>
+                        <th data-sortable="status" class="sortable-header" scope="col">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                        <th width="120" scope="col">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in pagination.items %}
+                    <tr>
+                        <td><input type="checkbox" class="sales-outbound-check check-item" value="{{ order.id }}" {% if order.status != 'pending' %}disabled{% endif %}></td>
+                        <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
+                        <td><a href="{{ url_for('out_order_detail', id=order.id) }}">{{ order.order_no }}</a></td>
+                        <td>{{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</td>
+                        <td>{{ order.customer or '-' }}</td>
+                        <td>{{ order.warehouse or '-' }}</td>
+                        <td>
+                            {% if order.source_sales_order %}
+                            <a href="{{ url_for('sales_order_detail', id=order.source_sales_order.id) }}">{{ order.source_sales_order.order_no }}</a>
+                            {% else %}多订单/明细来源{% endif %}
+                        </td>
+                        <td class="text-end">{{ "%.2f"|format(order.items|sum(attribute='quantity')) }}</td>
+                        <td class="text-end">¥{{ "%.2f"|format(order.total_amount or 0) }}</td>
+                        <td>{{ list_macros.status_badge(order.status, 'outbound') }}</td>
+                        <td>
+                            <a href="{{ url_for('out_order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情" aria-label="查看出库单详情">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            {% if order.status == 'pending' and current_user.role in ['admin', 'warehouse'] %}
+                            <button type="button" class="btn btn-sm btn-outline-success" title="完成" data-action="complete" data-id="{{ order.id }}">
+                                <i class="bi bi-check-circle"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" title="删除" data-action="deleteOne" data-id="{{ order.id }}">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                            {% elif order.status == 'completed' and current_user.role in ['admin', 'warehouse'] %}
+                            <button type="button" class="btn btn-sm btn-outline-warning" title="反提交" data-action="revert" data-id="{{ order.id }}">
+                                <i class="bi bi-arrow-counterclockwise"></i>
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="11" class="text-center text-muted">暂无销售出库单</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if pagination.pages > 1 %}
+<nav class="mt-3 d-flex flex-wrap justify-content-between align-items-center gap-2" aria-label="销售出库分页">
+    <div class="text-muted small d-flex align-items-center gap-2">
+        <span>共 {{ pagination.total }} 条，每页</span>
+        <select id="salesOutboundPageSize" class="form-select form-select-sm d-inline-block" style="width:auto;"
+                data-base-url="{{ url_for('sales_outbound_list', status=status, search=search) }}">
+            <option value="20" {% if pagination.per_page == 20 %}selected{% endif %}>20</option>
+            <option value="50" {% if pagination.per_page == 50 %}selected{% endif %}>50</option>
+            <option value="100" {% if pagination.per_page == 100 %}selected{% endif %}>100</option>
+            <option value="200" {% if pagination.per_page == 200 %}selected{% endif %}>200</option>
+        </select>
+        <span>条</span>
+    </div>
+    <ul class="pagination justify-content-center mb-0">
+        {% if pagination.has_prev %}
+        <li class="page-item"><a class="page-link" href="{{ url_for('sales_outbound_list', page=pagination.prev_num, per_page=pagination.per_page, status=status, search=search) }}">上一页</a></li>
+        {% endif %}
+        {% for page in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+        {% if page %}
+        <li class="page-item {% if page==pagination.page %}active{% endif %}"><a class="page-link" href="{{ url_for('sales_outbound_list', page=page, per_page=pagination.per_page, status=status, search=search) }}">{{ page }}</a></li>
+        {% else %}
+        <li class="page-item disabled"><span class="page-link">...</span></li>
+        {% endif %}
+        {% endfor %}
+        {% if pagination.has_next %}
+        <li class="page-item"><a class="page-link" href="{{ url_for('sales_outbound_list', page=pagination.next_num, per_page=pagination.per_page, status=status, search=search) }}">下一页</a></li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // SM-P6-03-2: 可调整列宽表格
+    if (typeof setupResizableTable === 'function') {
+        setupResizableTable({
+            tableSelector: '.table-responsive-wrapper table',
+            tableId: 'sales-outbound-list',
+            minWidth: 70
+        });
+    }
+    // SM-P6-03-2: 每页条数选择器
+    var pageSizeSelect = document.getElementById('salesOutboundPageSize');
+    if (pageSizeSelect) {
+        pageSizeSelect.addEventListener('change', function() {
+            var size = this.value;
+            var url = new URL(this.dataset.baseUrl || window.location.href, window.location.origin);
+            url.searchParams.set('per_page', size);
+            url.searchParams.set('page', '1');
+            window.location.href = url.toString();
+        });
+    }
+    // 排序列头
+    document.querySelectorAll('.sortable-header').forEach(function(th) {
+        th.addEventListener('click', function() {
+            var sortField = this.dataset.sortable;
+            if (!sortField) return;
+            var currentSort = '{{ sort_by or "" }}';
+            var currentOrder = '{{ sort_order or "desc" }}';
+            var newOrder = (currentSort === sortField && currentOrder === 'asc') ? 'desc' : 'asc';
+            var url = new URL(window.location.href);
+            url.searchParams.set('sort', sortField);
+            url.searchParams.set('order', newOrder);
+            url.searchParams.set('page', '1');
+            window.location.href = url.toString();
+        });
+    });
+    // SM-P6-03-3: 通用列表动作绑定
+    bindListActions({
+        tableId: 'salesOutboundTable',
+        checkSelector: '.sales-outbound-check',
+        masterCheckbox: '#checkAllSalesOutbound',
+        toolbar: '.wms-entry-toolbar',
+        title: '销售出库操作',
+        endpoints: {
+            batchDelete: { url: '/out_order/batch_delete', confirm: '确认删除选中的出库单？删除后无法恢复。' },
+            batchComplete: { url: '/out_order/batch_complete', confirm: '确认完成选中的出库单？完成后会扣减库存。' },
+            complete: { url: '/out_order/{id}/complete', confirm: '确认完成该出库单？完成后会扣减库存。' },
+            deleteOne: { url: '/out_order/{id}/delete', confirm: '确认删除该出库单？删除后无法恢复。' },
+            revert: { url: '/out_order/{id}/revert', confirm: '确认反提交该出库单？将恢复库存。' }
+        }
+    });
+});
+</script>
 {% endblock %}

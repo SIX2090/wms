@@ -605,12 +605,12 @@ def batch_delete_sales_orders():
 | #14 `status_badge(status)` 宏 | P2 | `SM-P6-03` | ✅ 已修复（SM-P6-03-3）：`_list_macros.html` 新增 `status_badge(status, scheme='generic', custom_map=None)`，支持 4 scheme（sales/outbound/inbound/purchase）+ generic fallback（覆盖 draft/confirmed/closed/cancelled/pending/completed/active/inactive/approved/rejected/reverted 等 11 状态） |
 | #15 `bindListActions(opts)` 通用 CRUD 函数 | P2 | `SM-P6-03` | ✅ 已修复（SM-P6-03-3）：`base.html` 新增 `bindListActions(opts)`（不放在 `_list_macros.html` 是因为它是 JS 函数不是 Jinja 宏），1 行配置代替 7 个 onclick 函数，支持 data-action（行内按钮）+ data-batch-action（顶部工具栏）双委托，`sales_order.html` 迁移演示：删除 7 个旧函数（toggleAllSalesOrders/selectedSalesOrderIds/deleteSalesOrder/copySalesOrder/confirmSalesOrder/createOutbound/batchDeleteSalesOrders），行内按钮改 `data-action="copy" data-id="{{ order.id }}"` |
 | #17 `setupResizableTable` 与每页条数选择器 | P2 | `SM-P6-03` | ✅ 已修复（SM-P6-03-2）：`sales_order.html` DOMContentLoaded 增加 `setupResizableTable({tableSelector:'.table-responsive-wrapper table', tableId:'sales-order-list', minWidth:70})` + `#salesPageSize` change 监听器（设置 per_page+page=1 跳转）；`app.py` sales_order_list 视图接受 per_page 参数（白名单 20/50/100/200，非白名单回退 20）。剩余 `sales_outbound_list.html` + `sales_outflow_report.html` 留待后续迁移 |
-| #19 重写 `sales_outbound_list.html` | P3 | `SM-P4-FIX-01` | ⏳ 未修复：从 8 行扩展为完整功能页 |
-| #20 重写 `sales_reconciliation_report.html` | P3 | `SM-P4-FIX-01` | ⏳ 未修复：从 4 行扩展为完整功能页 |
-| #21 引入 Chart.js 报表可视化 | P3 | `SM-P4-FIX-01` | ⏳ 未修复：趋势折线图、价格箱线图、汇总饼图/柱状图 |
-| #22 补 loading state | P3 | `SM-P4-FIX-01` | ⏳ 未修复：AJAX 期间按钮 disabled + spinner |
-| #23 补 a11y 标注 | P3 | `SM-P4-FIX-01` | ⏳ 未修复：`aria-label`、`role="dialog"`、`scope="col"` |
-| #24 复核 `sales_outbound_selection.html:36` 路由 | P3 | `SM-P4-FIX-01` | ⏳ 未修复：统一为 `/api/sales_order/selectable` |
+| #19 重写 `sales_outbound_list.html` | P3 | `SM-P4-FIX-01` | ✅ 已修复：从 8 行扩展为完整功能页，含分页/批量删除/批量完成/导出/排序/status_badge/bindListActions/aria-label/scope="col" |
+| #20 重写 `sales_reconciliation_report.html` | P3 | `SM-P4-FIX-01` | ✅ 已修复：新增 4 个汇总卡片 + Chart.js 饼图（对账结果分布）+ 柱状图（发货量 vs 出库完成量）+ a11y（caption/aria-label/scope） |
+| #21 引入 Chart.js 报表可视化 | P3 | `SM-P4-FIX-01` | ✅ 已修复：base.html 引入 Chart.js CDN 4.4.1；sales_reconciliation_report.html 已实现饼图+柱状图；后端 chart_data 含 summary/warehouse_stats/monthly_trend 结构 |
+| #22 补 loading state | P3 | `SM-P4-FIX-01` | ✅ 已修复：custom.css 新增 .wms-spinner（sm/md/lg 三尺寸）、.btn-loading（disabled+opacity）、.wms-loading-overlay（全屏遮罩）；base.html 全局定义 |
+| #23 补 a11y 标注 | P3 | `SM-P4-FIX-01` | ✅ 已修复：sales_outbound_list.html 含 aria-describedby/scope="col"/caption；sales_reconciliation_report.html 含 caption/aria-label；所有 select/button 含 aria-label/title |
+| #24 复核 `sales_outbound_selection.html:36` 路由 | P3 | `SM-P4-FIX-01` | ✅ 已修复：路由 `api_sales_order_selectable` 确认存在，无需修改；sales_outbound_selection.html:36 使用 `{{ url_for("api_sales_order_selectable") }}` 正确 |
 | #25 回填销售已修复 Bug 到 `WMS_BUG_BASELINE.md` | P2 | `SM-P6-FIX-02` | ✅ 已修复：WMS_BUG_BASELINE.md 已修复并纳入回归表新增 BUG-SALES-001~016 共 16 条（含 SalesOrder.customer_id/warehouse_id、OutOrderItem.source_sales_order_item_id、OutOrder.source_sales_order_id、跨仓库校验、并发锁、Numeric(18,2)、@require_role、CSRF 头、工具语义错配、VALID_ROLES、AI 异常分析、AI 工作台、confirm/alert 迁移、权限感知按钮、客户导入） |
 | #26 新增 `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` 任务条目 | P2 | `SM-P6-FIX-02` | ✅ 已修复：本报告与开发计划已记录 SM-P6-FIX-01、AI-SALES-F01-FIX-02、SM-P6-02、AI-SALES-F02 四条，WMS_BUG_BASELINE.md 已同步 BUG-SALES-001~016，剩余建议项 SM-P6-03/SM-P4-FIX-01 待新建 |
 

@@ -2807,3 +2807,76 @@ body.cb-form-actionbar .wms-entry-header.page-header {
         height: 40px !important;
     }
 }
+
+/* ==================== Loading Spinner (SM-P4-FIX-01) ==================== */
+.wms-spinner {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.wms-spinner-sm {
+    width: 16px;
+    height: 16px;
+    border-width: 2px;
+}
+.wms-spinner-md {
+    width: 20px;
+    height: 20px;
+    border-width: 2px;
+}
+.wms-spinner-lg {
+    width: 28px;
+    height: 28px;
+    border-width: 3px;
+}
+.wms-spinner::after {
+    content: '';
+    width: 100%;
+    height: 100%;
+    border-style: solid;
+    border-color: #4F46E5 transparent #4F46E5 transparent;
+    border-radius: 50%;
+    animation: wms-spin 0.75s linear infinite;
+}
+@keyframes wms-spin {
+    to { transform: rotate(360deg); }
+}
+.btn-loading {
+    pointer-events: none;
+    opacity: 0.7;
+}
+.btn-loading .wms-spinner {
+    margin-right: 6px;
+}
+.btn-loading:disabled {
+    cursor: not-allowed;
+}
+
+/* ==================== Loading Mask (SM-P4-FIX-01) ==================== */
+.wms-loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.85);
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+}
+.wms-loading-overlay.show {
+    display: flex;
+}
+.wms-loading-overlay .wms-spinner-lg {
+    width: 48px;
+    height: 48px;
+    border-width: 4px;
+}
+.wms-loading-overlay .loading-text {
+    font-size: 14px;
+    color: #4F46E5;
+    font-weight: 500;
+}

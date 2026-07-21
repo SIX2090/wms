@@ -42513,6 +42513,40 @@ def print_sales_order(id):
 @login_required
 def sales_outbound_list():
     page = max(1, request.args.get('page', 1, type=int))
+    requested_per_page = request.args.get('per_page', 30, type=int)
+    per_page = requested_per_page if requested_per_page in (20, 50, 100, 200) else 30
+    status = (request.args.get('status') or '').strip()
+    search = (request.args.get('search') or '').strip()
+    sort_by = request.args.get('sort', 'date')
+    sort_order = request.args.get('order', 'desc')
+    query = OutOrder.query.filter(OutOrder.business_type == '销售出库')
+    if status in ('pending', 'completed'):
+        query = query.filter(OutOrder.status == status)
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(OutOrder.order_no.like(like), OutOrder.customer.like(like), OutOrder.purpose.like(like)))
+    if sort_by == 'order_no':
+        query = query.order_by(OutOrder.order_no.desc() if sort_order == 'desc' else OutOrder.order_no.asc())
+    elif sort_by == 'status':
+        query = query.order_by(OutOrder.status.desc() if sort_order == 'desc' else OutOrder.status.asc())
+    else:
+        query = query.order_by(OutOrder.date.desc() if sort_order == 'desc' else OutOrder.date.asc())
+    query = query.order_by(OutOrder.id.desc())
+    pagination = query.options(
+        joinedload(OutOrder.source_sales_order),
+        selectinload(OutOrder.items).joinedload(OutOrderItem.material),
+    ).paginate(page=page, per_page=per_page, error_out=False)
+    return render_template('sales_outbound_list.html', pagination=pagination, status=status, search=search, sort_by=sort_by, sort_order=sort_order)
+
+
+@app.route('/sales/outbound/export')
+@login_required
+def export_sales_outbound():
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '销售出库'
+    ws.append(['出库单号', '日期', '客户', '仓库', '来源销售订单', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态'])
     status = (request.args.get('status') or '').strip()
     search = (request.args.get('search') or '').strip()
     query = OutOrder.query.filter(OutOrder.business_type == '销售出库')
@@ -42521,11 +42555,34 @@ def sales_outbound_list():
     if search:
         like = f'%{search}%'
         query = query.filter(db.or_(OutOrder.order_no.like(like), OutOrder.customer.like(like), OutOrder.purpose.like(like)))
-    pagination = query.options(
+    orders = query.options(
         joinedload(OutOrder.source_sales_order),
-        selectinload(OutOrder.items).joinedload(OutOrderItem.material),
-    ).order_by(OutOrder.date.desc(), OutOrder.id.desc()).paginate(page=page, per_page=30, error_out=False)
-    return render_template('sales_outbound_list.html', pagination=pagination, status=status, search=search)
+        selectinload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit),
+    ).order_by(OutOrder.date.desc(), OutOrder.id.desc()).all()
+    for order in orders:
+        if order.items:
+            for item in order.items:
+                ws.append([
+                    order.order_no,
+                    order.date.strftime('%Y-%m-%d') if order.date else '',
+                    order.customer or '',
+                    order.warehouse or '',
+                    order.source_sales_order.order_no if order.source_sales_order else '',
+                    item.material.code if item.material else '',
+                    item.material.name if item.material else '',
+                    item.material.spec if item.material else '',
+                    item.material.unit.name if item.material and item.material.unit else '',
+                    item.quantity or 0,
+                    item.price or 0,
+                    item.amount or 0,
+                    '已完成' if order.status == 'completed' else '草稿'
+                ])
+        else:
+            ws.append([order.order_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.customer or '', order.warehouse or '', '', '', '', '', '', '', '', '', '已完成' if order.status == 'completed' else '草稿'])
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='销售出库_' + datetime.now().strftime('%Y%m%d_%H%M%S') + '.xlsx')
 
 
 @app.route('/sales/dashboard')
@@ -42885,7 +42942,26 @@ def sales_reconciliation_report():
         shipped_qty = sum(float(item.shipped_quantity or 0) for item in order.items)
         shipped_amount = float(order.shipped_amount or 0)
         rows.append({'order': order, 'shipped_qty': round_to_2_decimals(shipped_qty), 'completed_qty': round_to_2_decimals(completed_qty), 'inventory_qty': round_to_2_decimals(inventory_qty), 'quantity_diff': round_to_2_decimals(shipped_qty - completed_qty), 'amount_diff': round_to_2_decimals(shipped_amount - completed_amount), 'ok': abs(shipped_qty - completed_qty) <= STOCK_COMPARE_EPSILON and abs(shipped_amount - completed_amount) <= 0.01})
-    return render_template('sales_reconciliation_report.html', rows=rows, warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), warehouse_id=warehouse_id or '')
+    total_orders = len(rows)
+    passed_orders = sum(1 for r in rows if r['ok'])
+    failed_orders = total_orders - passed_orders
+    total_shipped = sum(r['shipped_qty'] for r in rows)
+    total_completed = sum(r['completed_qty'] for r in rows)
+    total_diff = sum(abs(r['quantity_diff']) for r in rows)
+    chart_data = {
+        'summary': {
+            'total': total_orders,
+            'passed': passed_orders,
+            'failed': failed_orders,
+            'passed_pct': round(passed_orders / total_orders * 100, 1) if total_orders > 0 else 0,
+            'total_shipped': round(total_shipped, 2),
+            'total_completed': round(total_completed, 2),
+            'total_diff': round(total_diff, 2),
+        },
+        'warehouse_stats': {},
+        'monthly_trend': []
+    }
+    return render_template('sales_reconciliation_report.html', rows=rows, warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), warehouse_id=warehouse_id or '', chart_data=chart_data)
 
 
 @app.route('/sales/reconciliation/export')

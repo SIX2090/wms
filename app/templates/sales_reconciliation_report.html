@@ -1,5 +1,208 @@
 {% extends "base.html" %}
 {% block title %}销售对账{% endblock %}
+
 {% block content %}
-<div class="container-fluid py-3"><div class="d-flex justify-content-between align-items-center mb-3"><div><h4>销售订单/出库/库存对账</h4><div class="text-muted small">只读核对订单已发货量、已完成销售出库量和库存流水；不自动修正任何数据。</div></div><a class="btn btn-outline-success btn-sm" href="{{ url_for('export_sales_reconciliation_report', warehouse_id=warehouse_id) }}"><i class="bi bi-file-earmark-excel"></i> 导出</a></div><form class="card card-body mb-3" method="get"><div class="row g-2 align-items-end"><div class="col-md-3"><label class="form-label small">仓库</label><select class="form-select form-select-sm" name="warehouse_id"><option value="">全部仓库</option>{% for wh in warehouses %}<option value="{{ wh.id }}" {% if warehouse_id==wh.id %}selected{% endif %}>{{ wh.name }}</option>{% endfor %}</select></div><div class="col-md-3"><button class="btn btn-primary btn-sm">查询</button></div></div></form><div class="card"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>销售订单</th><th>仓库</th><th class="text-end">订单已发货</th><th class="text-end">出库已完成</th><th class="text-end">数量差异</th><th class="text-end">金额差异</th><th>状态</th></tr></thead><tbody>{% for row in rows %}<tr><td><a href="{{ url_for('sales_order_detail', id=row.order.id) }}">{{ row.order.order_no }}</a></td><td>{{ row.order.warehouse or '-' }}</td><td class="text-end">{{ row.shipped_qty }}</td><td class="text-end">{{ row.completed_qty }}</td><td class="text-end">{{ row.quantity_diff }}</td><td class="text-end">¥{{ '%.2f'|format(row.amount_diff) }}</td><td>{% if row.ok %}<span class="badge bg-success">通过</span>{% else %}<span class="badge bg-danger">不一致</span>{% endif %}</td></tr>{% else %}<tr><td colspan="7" class="text-center text-muted py-4">暂无对账数据</td></tr>{% endfor %}</tbody></table></div></div></div>
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h2 class="mb-0"><i class="bi bi-shield-check"></i> 销售订单/出库/库存对账</h2>
+            <div class="text-muted small">只读核对订单已发货量、已完成销售出库量和库存流水；不自动修正任何数据。</div>
+        </div>
+        <a href="{{ url_for('export_sales_reconciliation_report', warehouse_id=warehouse_id) }}" class="btn btn-outline-success btn-sm"><i class="bi bi-file-earmark-excel"></i> 导出</a>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label small text-muted mb-1">仓库</label>
+                <select name="warehouse_id" class="form-select form-select-sm" aria-label="选择仓库">
+                    <option value="" {% if not warehouse_id %}selected{% endif %}>全部仓库</option>
+                    {% for wh in warehouses %}
+                    <option value="{{ wh.id }}" {% if warehouse_id==wh.id %}selected{% endif %}>{{ wh.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary btn-sm w-100"><i class="bi bi-search"></i> 查询</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if chart_data %}
+<div class="row g-3 mb-3">
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center">
+                <div class="text-muted small">对账订单总数</div>
+                <div class="fs-3 fw-bold text-primary">{{ chart_data.summary.total }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center">
+                <div class="text-muted small">对账通过</div>
+                <div class="fs-3 fw-bold text-success">{{ chart_data.summary.passed }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center">
+                <div class="text-muted small">对账不一致</div>
+                <div class="fs-3 fw-bold text-danger">{{ chart_data.summary.failed }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center">
+                <div class="text-muted small">通过率</div>
+                <div class="fs-3 fw-bold text-info">{{ chart_data.summary.passed_pct }}%</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0"><i class="bi bi-pie-chart"></i> 对账结果分布</h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container" style="height:220px;">
+                    <canvas id="reconPieChart" aria-label="对账结果分布图"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0"><i class="bi bi-bar-chart"></i> 发货量 vs 出库完成量</h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container" style="height:220px;">
+                    <canvas id="reconBarChart" aria-label="发货量与出库完成量对比图"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom">
+        <h5 class="mb-0"><i class="bi bi-table"></i> 对账明细</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive-wrapper">
+            <table class="table table-hover table-sm align-middle mb-0" id="reconTable" aria-describedby="reconTableCaption">
+                <caption id="reconTableCaption" class="visually-hidden">销售对账明细列表</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">销售订单</th>
+                        <th scope="col">仓库</th>
+                        <th class="text-end" scope="col">订单已发货</th>
+                        <th class="text-end" scope="col">出库已完成</th>
+                        <th class="text-end" scope="col">数量差异</th>
+                        <th class="text-end" scope="col">金额差异</th>
+                        <th scope="col">对账状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr {% if not row.ok %}class="table-danger table-danger-subtle"{% endif %}>
+                        <td><a href="{{ url_for('sales_order_detail', id=row.order.id) }}">{{ row.order.order_no }}</a></td>
+                        <td>{{ row.order.warehouse or '-' }}</td>
+                        <td class="text-end">{{ row.shipped_qty }}</td>
+                        <td class="text-end">{{ row.completed_qty }}</td>
+                        <td class="text-end {% if row.quantity_diff != 0 %}text-danger fw-semibold{% endif %}">{{ row.quantity_diff }}</td>
+                        <td class="text-end {% if row.amount_diff != 0 %}text-danger fw-semibold{% endif %}">¥{{ "%.2f"|format(row.amount_diff) }}</td>
+                        <td>
+                            {% if row.ok %}
+                            <span class="badge bg-success">通过</span>
+                            {% else %}
+                            <span class="badge bg-danger">不一致</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="text-center text-muted py-4">暂无对账数据</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var chartData = {{ chart_data|tojson|safe }};
+
+    if (chartData && chartData.summary) {
+        // Pie chart: 对账结果分布
+        var pieCtx = document.getElementById('reconPieChart');
+        if (pieCtx && typeof Chart !== 'undefined') {
+            new Chart(pieCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['通过', '不一致'],
+                    datasets: [{
+                        data: [chartData.summary.passed, chartData.summary.failed],
+                        backgroundColor: ['#22C55E', '#EF4444'],
+                        borderWidth: 0,
+                        hoverOffset: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true } },
+                        tooltip: { callbacks: { label: function(ctx) { return ctx.label + ': ' + ctx.raw + ' (' + Math.round(ctx.raw / (chartData.summary.total || 1) * 100) + '%)'; } } }
+                    },
+                    cutout: '65%'
+                }
+            });
+        }
+
+        // Bar chart: 发货量 vs 出库完成量
+        var barCtx = document.getElementById('reconBarChart');
+        if (barCtx && typeof Chart !== 'undefined') {
+            new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['已发货', '已完成', '差异'],
+                    datasets: [{
+                        label: '数量',
+                        data: [chartData.summary.total_shipped, chartData.summary.total_completed, chartData.summary.total_diff],
+                        backgroundColor: ['#3B82F6', '#22C55E', '#F59E0B'],
+                        borderRadius: 6,
+                        borderSkipped: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: function(ctx) { return ctx.label + ': ' + ctx.raw.toFixed(2); } } }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#F3F4F6' }, ticks: { font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { font: { size: 11 } } }
+                    }
+                }
+            });
+        }
+    }
+});
+</script>
 {% endblock %}
