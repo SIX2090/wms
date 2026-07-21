@@ -679,6 +679,37 @@ def batch_delete_sales_orders():
 - `document_table_form.html` 的 `doc-page` 旧 CSS 未迁移到 `_tplus_form_styles.html`（向后兼容，不强制）
 - 真实浏览器 E2E 验证 `bindListActions` 的 confirm 流和数据回流需业务环境
 
+### 9.7 SM-P4-FIX-01 完成记录（2026-07-21）
+
+**重写极简模板 + Chart.js 可视化 + loading state + a11y + 路由复核**：
+
+1. **引入 Chart.js**：[base.html](file:///workspace/app/templates/base.html) 增加 `<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>`。
+2. **loading 样式**：[custom.css](file:///workspace/app/static/css/custom.css) 新增 `.wms-spinner`（sm/md/lg）、`.btn-loading`、`.wms-loading-overlay` 等。
+3. **重写 sales_outbound_list.html**（158 → 230 行）：
+   - 分页 nav + `#salesOutboundPageSize`（白名单 20/50/100/200）
+   - 批量删除/批量完成按钮（`data-batch-action`）
+   - 排序列头（sortable-header）+ 状态徽标（`status_badge(order.status, 'outbound')`）
+   - 导出按钮 + bindListActions + a11y（`aria-describedby`/`scope="col"`/`caption`）
+4. **重写 sales_reconciliation_report.html**（35 → 145 行）：
+   - 4 个汇总卡片（总数/通过/不一致/通过率）
+   - Chart.js 饼图（对账结果分布）+ 柱状图（发货量 vs 出库完成量）
+   - a11y（`caption`/`aria-label`/`scope="col"`）
+5. **后端**：
+   - [app.py](file:///workspace/app/app.py) `sales_outbound_list` 支持 `per_page`（白名单 20/50/100/200）+ `sort_by` + `sort_order`
+   - 新增 `export_sales_outbound` 导出视图（Excel）
+   - `sales_reconciliation_report` 返回 `chart_data`（summary/warehouse_stats/monthly_trend）
+6. **路由复核**：确认 `api_sales_order_selectable` 已存在，`sales_outbound_selection.html:36` 路由正确。
+
+**验收结果**：
+
+- `python3 -m py_compile app/app.py` PASS
+- 6 项 Python 静态校验全 PASS（Chart.js 引入/loading 样式/sales_outbound_list 重写/sales_reconciliation_report Chart.js/app.py 新视图/路由确认）
+
+**剩余风险**：
+
+- `sales_outflow_report.html` 的 Chart.js 迁移未完成（影响小，留待后续）
+- 真实浏览器 E2E 验证 Chart.js 渲染需业务环境
+
 
 ---
 
