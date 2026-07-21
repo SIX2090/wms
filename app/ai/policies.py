@@ -18,6 +18,9 @@ AI_CAPABILITY_ROLES = {
     'purchase_request_draft': frozenset({'purchase'}),
     'warehouse_insights': frozenset({'warehouse'}),
     'purchase_insights': frozenset({'purchase'}),
+    # 新增（AI-SALES-F02）：销售侧只读洞察与跟进 Agent
+    'sales_insights': frozenset({'sales'}),
+    'sales_followup_agent': frozenset({'sales'}),
     'warehouse_patrol_agent': frozenset({'warehouse'}),
     'purchase_followup_agent': frozenset({'purchase'}),
     'replenishment_planning': frozenset({'warehouse', 'purchase'}),
@@ -43,6 +46,9 @@ AI_CAPABILITY_BUSINESS_ENDPOINTS = {
     'purchase_request_draft': 'add_purchase_request',
     'warehouse_insights': 'stock_query',
     'purchase_insights': 'purchase_order_list',
+    # 新增（AI-SALES-F02）：销售侧只读洞察与跟进 Agent
+    'sales_insights': 'sales_order_list',
+    'sales_followup_agent': 'ai_agent_run_sales_followup',
     'warehouse_patrol_agent': 'ai_agent_run_warehouse_patrol',
     'purchase_followup_agent': 'ai_agent_run_purchase_followup',
     'replenishment_planning': 'ai_replenishment_page',
@@ -69,6 +75,9 @@ AI_CAPABILITY_RISK_LEVELS = {
     'purchase_request_draft': 'draft',
     'warehouse_insights': 'read',
     'purchase_insights': 'read',
+    # 新增（AI-SALES-F02）：销售侧只读洞察与跟进 Agent
+    'sales_insights': 'read',
+    'sales_followup_agent': 'read',
     'warehouse_patrol_agent': 'read',
     'purchase_followup_agent': 'read',
     'replenishment_planning': 'read',

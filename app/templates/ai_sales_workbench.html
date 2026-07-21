@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}销售履约 AI 工作台{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">销售履约 AI 工作台</h1>
+            <div class="text-muted small">7 类销售履约跟进队列整合：待发货、逾期未发货、部分停滞、缺货待核对、客户催发货话术、合并发货候选、客户跟进清单。只读展示，不自动发送催发货话术或执行写操作。</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="/ai/ops">返回运维看板</a>
+            <button class="btn btn-outline-primary btn-sm" onclick="loadWorkbench()">
+                <i class="bi bi-arrow-clockwise"></i> 刷新
+            </button>
+        </div>
+    </div>
+
+    <!-- 汇总卡片 -->
+    <div class="row g-2 mb-3" id="summaryCards">
+        <div class="col-12 text-center text-muted py-4">加载中...</div>
+    </div>
+
+    <!-- 7 类业务队列 -->
+    <div id="sectionsContainer">
+        <div class="text-center text-muted py-4">加载中...</div>
+    </div>
+
+    <div class="text-muted small mt-2" id="footerInfo">
+        生成时间：-。工作台只读，所有操作需跳转到对应业务流程页面人工执行。催发货话术需人工确认后发送。
+    </div>
+</div>
+
+<script>
+const SECTION_ICONS = {
+    'pending_shipment': 'bi-clock',
+    'overdue_shipment': 'bi-exclamation-circle',
+    'partial_stalled': 'bi-pause-circle',
+    'short_stock': 'bi-dash-circle',
+    'customer_urgency': 'bi-megaphone',
+    'merge_candidates': 'bi-diagram-3',
+    'customer_followup_list': 'bi-people',
+};
+
+const SECTION_COLORS = {
+    'pending_shipment': 'info',
+    'overdue_shipment': 'danger',
+    'partial_stalled': 'warning',
+    'short_stock': 'dark',
+    'customer_urgency': 'primary',
+    'merge_candidates': 'secondary',
+    'customer_followup_list': 'success',
+};
+
+async function loadWorkbench() {
+    const container = document.getElementById('sectionsContainer');
+    const summary = document.getElementById('summaryCards');
+    container.innerHTML = '<div class="text-center text-muted py-4">加载中...</div>';
+    summary.innerHTML = '<div class="col-12 text-center text-muted py-2">加载中...</div>';
+
+    try {
+        const resp = await fetch('/api/ai/sales_followup_workbench');
+        const data = await resp.json();
+
+        if (data.status !== 'success' || !data.workbench) {
+            container.innerHTML = '<div class="alert alert-danger">加载失败：' + (data.msg || '未知错误') + '</div>';
+            summary.innerHTML = '';
+            return;
+        }
+
+        const wb = data.workbench;
+
+        // 渲染汇总卡片
+        summary.innerHTML = `
+            <div class="col-6 col-md-3">
+                <div class="card h-100 border-primary">
+                    <div class="card-body p-2 text-center">
+                        <div class="text-muted small">需关注总数</div>
+                        <div class="h4 mb-0 text-primary">${wb.total_attention_count}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card h-100 border-success">
+                    <div class="card-body p-2 text-center">
+                        <div class="text-muted small">待跟进客户</div>
+                        <div class="h4 mb-0 text-success">${(wb.customer_followup_list || []).length}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card h-100 border-secondary">
+                    <div class="card-body p-2 text-center">
+                        <div class="text-muted small">业务队列</div>
+                        <div class="h4 mb-0 text-secondary">${wb.sections.length}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card h-100 border-success">
+                    <div class="card-body p-2 text-center">
+                        <div class="text-muted small">只读校验</div>
+                        <div class="h4 mb-0 text-success">${wb.read_only_valid !== false ? '通过' : '异常'}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // 渲染 7 类业务队列
+        let html = '';
+        for (const section of wb.sections) {
+            const icon = SECTION_ICONS[section.key] || 'bi-list';
+            const color = SECTION_COLORS[section.key] || 'secondary';
+            const badgeClass = section.count > 0 ? `bg-${color}` : 'bg-secondary';
+
+            html += `
+                <div class="card mb-3">
+                    <div class="card-header py-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <i class="bi ${icon}"></i>
+                                <span class="fw-semibold ms-1">${section.title}</span>
+                                <span class="badge ${badgeClass} ms-2">${section.count}</span>
+                            </div>
+                            <a class="btn btn-outline-secondary btn-sm" href="${section.jump_url}" target="_blank">
+                                <i class="bi bi-arrow-up-right-square"></i> 查看全部
+                            </a>
+                        </div>
+                        ${section.metric_scope ? '<div class="text-muted small mt-1"><i class="bi bi-info-circle"></i> 口径：' + section.metric_scope + ' | 范围：' + (section.time_range || '') + '</div>' : ''}
+                    </div>
+                    <div class="card-body p-0">
+            `;
+
+            if (section.items && section.items.length > 0) {
+                html += `
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle mb-0">
+                            <tbody>
+                `;
+                for (const item of section.items) {
+                    const severity = item.extra && item.extra.severity ? item.extra.severity : '';
+                    const rowClass = severity === 'high' ? 'table-danger' : severity === 'medium' ? 'table-warning' : '';
+                    html += `
+                        <tr class="${rowClass}">
+                            <td>
+                                <a href="${item.jump_url}" class="text-decoration-none fw-semibold">${item.title}</a>
+                            </td>
+                            <td class="text-muted small">${item.subtitle}</td>
+                            <td class="text-muted small">${item.detail}</td>
+                            <td class="text-end">
+                                <a href="${item.jump_url}" class="btn btn-outline-primary btn-sm py-0 px-1" style="font-size:0.75rem">
+                                    查看
+                                </a>
+                            </td>
+                        </tr>
+                    `;
+                }
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="text-center text-muted py-3">${section.empty_hint || '暂无数据'}</div>
+                `;
+            }
+
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+
+        container.innerHTML = html;
+        document.getElementById('footerInfo').textContent =
+            '生成时间：' + wb.generated_at + '。工作台只读，所有操作需跳转到对应业务流程页面人工执行。催发货话术需人工确认后发送。';
+    } catch (e) {
+        container.innerHTML = '<div class="alert alert-danger">加载失败：' + e.message + '</div>';
+        summary.innerHTML = '';
+    }
+}
+
+// 页面加载时自动刷新
+document.addEventListener('DOMContentLoaded', loadWorkbench);
+</script>
+{% endblock %}

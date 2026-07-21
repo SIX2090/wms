@@ -238,6 +238,26 @@ PURCHASE_FOLLOWUP_SCHEMA = _object_schema({
     'max_steps': {'type': 'integer', 'minimum': 1, 'maximum': 50},
 })
 
+# 新增（AI-SALES-F02）：销售侧只读洞察 schema
+SALES_INSIGHTS_SCHEMA = _object_schema({
+    **PAGE_CONTEXT_PROPERTIES,
+    'query': QUERY_TEXT,
+    'customer_id': POSITIVE_ID,
+    'sales_order_id': POSITIVE_ID,
+    'status': {'type': 'string', 'enum': ['all', 'pending', 'overdue', 'partial', 'shipped']},
+    'days': {'type': 'integer', 'minimum': 1, 'maximum': 365},
+    'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200},
+})
+
+# 新增（AI-SALES-F02）：销售履约跟进 Agent schema
+SALES_FOLLOWUP_SCHEMA = _object_schema({
+    **PAGE_CONTEXT_PROPERTIES,
+    'customer_id': POSITIVE_ID,
+    'sales_order_id': POSITIVE_ID,
+    'days': {'type': 'integer', 'minimum': 1, 'maximum': 365},
+    'max_steps': {'type': 'integer', 'minimum': 1, 'maximum': 50},
+})
+
 KNOWLEDGE_SCHEMA = _object_schema({
     **PAGE_CONTEXT_PROPERTIES,
     'topic': {'type': 'string', 'maxLength': 200},
@@ -332,11 +352,15 @@ AI_TOOL_REGISTRY = MappingProxyType({
     'purchase_request_draft': _tool('purchase_request_draft', 'Create a purchase request draft for manual review.', 'purchase_draft', PURCHASE_REQUEST_DRAFT_SCHEMA, confirmation_required=True),
     'warehouse_insights': _tool('warehouse_insights', 'Read warehouse exceptions, stock status, pending documents, and warehouse summaries.', 'warehouse_read', WAREHOUSE_INSIGHTS_SCHEMA, handler_name='_ai_warehouse_insights_response'),
     'purchase_insights': _tool('purchase_insights', 'Read purchase workbench, supplier follow-up, and purchase exception summaries.', 'purchase_read', PURCHASE_INSIGHTS_SCHEMA, handler_name='_ai_purchase_insights_response'),
+    # 新增（AI-SALES-F02）：销售侧只读洞察
+    'sales_insights': _tool('sales_insights', 'Read sales workbench, customer follow-up, and sales exception summaries.', 'sales_read', SALES_INSIGHTS_SCHEMA, handler_name='_ai_sales_insights_response'),
     'replenishment_planning': _tool('replenishment_planning', 'Read projected shortages, stock coverage, on-order quantity, and replenishment suggestions.', 'purchase_read', REPLENISHMENT_SCHEMA, handler_name='_ai_replenishment_planning_response'),
     'replenishment_smart': _tool('replenishment_smart', 'Read smart replenishment suggestions with AI analysis, trend indicators, priority scores, and CSV export.', 'purchase_read', REPLENISHMENT_SCHEMA),
     'inventory_health': _tool('inventory_health', 'Read inventory health scores, shortage/overstock/stagnant risks, and optimization suggestions.', 'warehouse_read', INVENTORY_HEALTH_SCHEMA),
     'warehouse_patrol_agent': _tool('warehouse_patrol_agent', 'Run a controlled warehouse patrol agent and persist auditable task steps.', 'agent_task', WAREHOUSE_PATROL_SCHEMA, handler_name='_ai_run_warehouse_patrol_agent'),
     'purchase_followup_agent': _tool('purchase_followup_agent', 'Run a controlled purchase follow-up agent and persist read-only auditable task steps.', 'agent_task', PURCHASE_FOLLOWUP_SCHEMA, handler_name='_ai_run_purchase_followup_agent'),
+    # 新增（AI-SALES-F02）：销售履约跟进 Agent
+    'sales_followup_agent': _tool('sales_followup_agent', 'Run a controlled sales follow-up agent and persist read-only auditable task steps. Customer messages are never sent automatically.', 'agent_task', SALES_FOLLOWUP_SCHEMA, handler_name='_ai_run_sales_followup_agent'),
     'knowledge_base': _tool('knowledge_base', 'Explain WMS SOPs, page locations, status rules, fields, and report basis without replacing live data queries.', 'knowledge_read', KNOWLEDGE_SCHEMA, handler_name='_ai_knowledge_response'),
     'master_data_insights': _tool('master_data_insights', 'Read material and master-data quality checks.', 'master_data_read', MASTER_DATA_SCHEMA, handler_name='_ai_master_data_insights_response'),
     'admin_insights': _tool('admin_insights', 'Read sensitive system, audit, permission, and health-check summaries.', 'admin_read', ADMIN_INSIGHTS_SCHEMA, handler_name='_ai_admin_insights_response'),

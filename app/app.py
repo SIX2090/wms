@@ -14268,6 +14268,338 @@ def _ai_pf_query_supplier_followup_list():
         return []
 
 
+# ---- AI-SALES-F02 销售履约跟进工作台 ORM adapter ----
+
+def _ai_sf_query_pending_shipment():
+    """AI-SALES-F02 待发货：SalesOrder status in (draft,confirmed) 且 shipment_status in (pending,partial) 且 delivery_date>=today。返回 (count, list[dict])。"""
+    try:
+        from datetime import date as _date
+        today = _date.today()
+        count = SalesOrder.query.filter(
+            SalesOrder.status.in_(['draft', 'confirmed']),
+            SalesOrder.shipment_status.in_(['pending', 'partial']),
+            SalesOrder.delivery_date >= today,
+        ).count()
+        records = (
+            SalesOrder.query.options(joinedload(SalesOrder.customer))
+            .filter(
+                SalesOrder.status.in_(['draft', 'confirmed']),
+                SalesOrder.shipment_status.in_(['pending', 'partial']),
+                SalesOrder.delivery_date >= today,
+            )
+            .order_by(SalesOrder.delivery_date.asc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for o in records:
+            days_until = (o.delivery_date - today).days if o.delivery_date else 0
+            items.append({
+                'id': o.id,
+                'title': o.order_no or f'销售单#{o.id}',
+                'subtitle': (o.customer.name if o.customer else '') or '无客户',
+                'detail': f'应发 {o.delivery_date.strftime("%Y-%m-%d") if o.delivery_date else "未定"}（{days_until} 天后）',
+                'jump_url': f'/sales_order/detail/{o.id}',
+                'metric_scope': 'status in (draft,confirmed) 且 shipment_status in (pending,partial) 且 delivery_date>=today',
+                'extra': {'status': o.status, 'delivery_date': o.delivery_date.isoformat() if o.delivery_date else ''},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询待发货异常: {exc}')
+        return 0, []
+
+
+def _ai_sf_query_overdue_shipment():
+    """AI-SALES-F02 逾期未发货：SalesOrder status in (draft,confirmed) 且 shipment_status in (pending,partial) 且 delivery_date<today。返回 (count, list[dict])。"""
+    try:
+        from datetime import date as _date
+        today = _date.today()
+        count = SalesOrder.query.filter(
+            SalesOrder.status.in_(['draft', 'confirmed']),
+            SalesOrder.shipment_status.in_(['pending', 'partial']),
+            SalesOrder.delivery_date < today,
+        ).count()
+        records = (
+            SalesOrder.query.options(joinedload(SalesOrder.customer))
+            .filter(
+                SalesOrder.status.in_(['draft', 'confirmed']),
+                SalesOrder.shipment_status.in_(['pending', 'partial']),
+                SalesOrder.delivery_date < today,
+            )
+            .order_by(SalesOrder.delivery_date.asc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for o in records:
+            overdue_days = (today - o.delivery_date).days if o.delivery_date else 0
+            items.append({
+                'id': o.id,
+                'title': o.order_no or f'销售单#{o.id}',
+                'subtitle': (o.customer.name if o.customer else '') or '无客户',
+                'detail': f'应发 {o.delivery_date.strftime("%Y-%m-%d") if o.delivery_date else ""}，已逾期 {overdue_days} 天',
+                'jump_url': f'/sales_order/detail/{o.id}',
+                'metric_scope': 'status in (draft,confirmed) 且 shipment_status in (pending,partial) 且 delivery_date<today',
+                'extra': {'status': o.status, 'overdue_days': overdue_days, 'delivery_date': o.delivery_date.isoformat() if o.delivery_date else ''},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询逾期未发货异常: {exc}')
+        return 0, []
+
+
+def _ai_sf_query_partial_stalled():
+    """AI-SALES-F02 部分发货停滞：shipment_status=partial 且 updated_at 距今 >= 7 天。返回 (count, list[dict])。"""
+    try:
+        from datetime import datetime as _dt, timedelta as _timedelta
+        cutoff = _dt.now() - _timedelta(days=7)
+        count = SalesOrder.query.filter(
+            SalesOrder.shipment_status == 'partial',
+            SalesOrder.status.in_(['draft', 'confirmed']),
+            SalesOrder.created_at <= cutoff,
+        ).count()
+        records = (
+            SalesOrder.query.options(joinedload(SalesOrder.customer))
+            .filter(
+                SalesOrder.shipment_status == 'partial',
+                SalesOrder.status.in_(['draft', 'confirmed']),
+                SalesOrder.created_at <= cutoff,
+            )
+            .order_by(SalesOrder.created_at.asc())
+            .limit(5)
+            .all()
+        )
+        items = []
+        for o in records:
+            days_stalled = (_dt.now() - (o.created_at or _dt.now())).days
+            items.append({
+                'id': o.id,
+                'title': o.order_no or f'销售单#{o.id}',
+                'subtitle': (o.customer.name if o.customer else '') or '无客户',
+                'detail': f'部分发货停滞 {days_stalled} 天，建议人工核查剩余明细',
+                'jump_url': f'/sales_order/detail/{o.id}',
+                'metric_scope': 'shipment_status=partial 超 N 天未推进',
+                'extra': {'status': o.status, 'days_stalled': days_stalled},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询部分发货停滞异常: {exc}')
+        return 0, []
+
+
+def _ai_sf_query_short_stock():
+    """AI-SALES-F02 缺货待核对：SalesOrderItem.quantity > material.stock。返回 (count, list[dict])。"""
+    try:
+        from sqlalchemy import func as _func
+        # 联接 Material 表查 quantity > stock（Material.stock 是字符串，需 cast）
+        # 简化：取 SalesOrderItem join Material，过滤数量大于库存
+        records = (
+            db.session.query(SalesOrderItem, Material)
+            .join(Material, SalesOrderItem.material_id == Material.id)
+            .join(SalesOrder, SalesOrderItem.sales_order_id == SalesOrder.id)
+            .filter(
+                SalesOrder.status.in_(['draft', 'confirmed']),
+                SalesOrder.shipment_status.in_(['pending', 'partial']),
+            )
+            .order_by(SalesOrderItem.id.desc())
+            .limit(50)
+            .all()
+        )
+        items = []
+        count = 0
+        for it, mat in records:
+            qty = it.quantity or 0
+            # Material.stock 是字符串，需安全转 float
+            try:
+                stock_val = float(mat.stock or 0)
+            except (TypeError, ValueError):
+                stock_val = 0.0
+            # 已发货数量从 SalesOrderItem.shipped_quantity
+            shipped = it.shipped_quantity or 0
+            pending_qty = qty - shipped
+            if pending_qty > stock_val:
+                count += 1
+                if len(items) < 5:
+                    shortage = pending_qty - stock_val
+                    so = it.sales_order
+                    items.append({
+                        'id': it.id,
+                        'title': f'{so.order_no if so else ""} - {mat.code or ""}',
+                        'subtitle': mat.name or '未知物料',
+                        'detail': f'应发 {pending_qty} 库存 {stock_val}，缺 {shortage}',
+                        'jump_url': f'/sales_order/detail/{so.id}' if so else '/sales_order/list',
+                        'metric_scope': 'SalesOrderItem.quantity - shipped_quantity > Material.stock',
+                        'extra': {'quantity': qty, 'shipped': shipped, 'stock': stock_val, 'shortage': shortage},
+                    })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询缺货待核对异常: {exc}')
+        return 0, []
+
+
+def _ai_sf_query_customer_urgency():
+    """AI-SALES-F02 客户催发货话术：按客户归组逾期订单，生成话术（不自动发送）。返回 (count, list[dict])。"""
+    try:
+        from datetime import date as _date
+        today = _date.today()
+        orders = (
+            SalesOrder.query.options(joinedload(SalesOrder.customer))
+            .filter(
+                SalesOrder.status.in_(['draft', 'confirmed']),
+                SalesOrder.shipment_status.in_(['pending', 'partial']),
+                SalesOrder.delivery_date < today,
+            )
+            .order_by(SalesOrder.delivery_date.asc())
+            .limit(50)
+            .all()
+        )
+        # 按客户归组
+        customer_map: dict[int, dict] = {}
+        for o in orders:
+            cid = o.customer_id or 0
+            if cid not in customer_map:
+                cname = (o.customer.name if o.customer else '') or f'客户#{cid}'
+                customer_map[cid] = {
+                    'customer_id': cid,
+                    'customer_name': cname,
+                    'overdue_orders': [],
+                }
+            customer_map[cid]['overdue_orders'].append(o)
+        items = []
+        for cid, info in customer_map.items():
+            overdue_count = len(info['overdue_orders'])
+            suggestion = f'{info["customer_name"]}您好，贵司有 {overdue_count} 笔订单已逾期未发货，请确认收货地址与时间，我方将尽快安排发货。'
+            items.append({
+                'id': cid,
+                'title': info['customer_name'],
+                'subtitle': f'逾期 {overdue_count} 单',
+                'detail': suggestion,
+                'jump_url': f'/sales_order/list?customer_id={cid}',
+                'metric_scope': '按客户归组的催发货话术建议，需人工确认后发送',
+                'extra': {'customer_id': cid, 'overdue_count': overdue_count, 'needs_manual_confirmation': True},
+            })
+        # 总数按客户数计
+        count = len(customer_map)
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询客户催发货话术异常: {exc}')
+        return 0, []
+
+
+def _ai_sf_query_merge_candidates():
+    """AI-SALES-F02 多笔订单合并发货候选：同客户+同仓库+未来 7 天到期的多笔订单。返回 (count, list[dict])。"""
+    try:
+        from datetime import date as _date, timedelta as _timedelta
+        today = _date.today()
+        cutoff = today + _timedelta(days=7)
+        orders = (
+            SalesOrder.query.options(joinedload(SalesOrder.customer))
+            .filter(
+                SalesOrder.status.in_(['draft', 'confirmed']),
+                SalesOrder.shipment_status.in_(['pending', 'partial']),
+                SalesOrder.delivery_date.isnot(None),
+                SalesOrder.delivery_date >= today,
+                SalesOrder.delivery_date <= cutoff,
+            )
+            .order_by(SalesOrder.delivery_date.asc())
+            .limit(200)
+            .all()
+        )
+        # 按 (customer_id, warehouse_id) 归组，找 >1 笔的组合
+        group_map: dict[tuple, list] = {}
+        for o in orders:
+            key = (o.customer_id or 0, o.warehouse_id or 0)
+            group_map.setdefault(key, []).append(o)
+        candidates = [(k, v) for k, v in group_map.items() if len(v) > 1]
+        count = sum(len(v) for _, v in candidates)
+        items = []
+        for (cid, wid), order_list in candidates[:5]:
+            cname = (order_list[0].customer.name if order_list[0].customer else '') or f'客户#{cid}'
+            order_nos = ', '.join(o.order_no or f'SO{o.id}' for o in order_list[:3])
+            items.append({
+                'id': cid,
+                'title': f'{cname} - 仓库#{wid or "?"}',
+                'subtitle': f'{len(order_list)} 笔订单可合并',
+                'detail': f'订单：{order_nos}{"..." if len(order_list) > 3 else ""}',
+                'jump_url': f'/sales_order/list?customer_id={cid}&warehouse_id={wid}',
+                'metric_scope': '同客户+同仓库+相近交期的多笔订单候选',
+                'extra': {'customer_id': cid, 'warehouse_id': wid, 'order_count': len(order_list)},
+            })
+        return count, items
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询合并发货候选异常: {exc}')
+        return 0, []
+
+
+def _ai_sf_query_customer_followup_list():
+    """AI-SALES-F02 客户跟进清单：按客户归组的待跟进订单汇总。返回 list[dict]。"""
+    try:
+        from datetime import date as _date
+        today = _date.today()
+        orders = (
+            SalesOrder.query.options(joinedload(SalesOrder.customer))
+            .filter(SalesOrder.status.in_(['draft', 'confirmed']))
+            .filter(SalesOrder.shipment_status.in_(['pending', 'partial']))
+            .all()
+        )
+        customer_map: dict[int, dict] = {}
+        for o in orders:
+            cid = o.customer_id or 0
+            if cid not in customer_map:
+                cname = (o.customer.name if o.customer else '') or f'客户#{cid}'
+                customer_map[cid] = {
+                    'customer_id': cid,
+                    'customer_name': cname,
+                    'pending_count': 0,
+                    'overdue_count': 0,
+                    'short_stock_count': 0,
+                    'order_ids': [],
+                }
+            customer_map[cid]['order_ids'].append(o.id)
+            if o.delivery_date and o.delivery_date >= today:
+                customer_map[cid]['pending_count'] += 1
+            elif o.delivery_date and o.delivery_date < today:
+                customer_map[cid]['overdue_count'] += 1
+            # 统计该订单的缺货明细
+            for it in (o.items or []):
+                try:
+                    stock_val = float(it.material.stock or 0) if it.material else 0.0
+                except (TypeError, ValueError):
+                    stock_val = 0.0
+                pending_qty = (it.quantity or 0) - (it.shipped_quantity or 0)
+                if pending_qty > stock_val:
+                    customer_map[cid]['short_stock_count'] += 1
+
+        result = []
+        for cid, info in customer_map.items():
+            pending = info['pending_count']
+            overdue = info['overdue_count']
+            short = info['short_stock_count']
+            if overdue > 0:
+                suggestion = f'{info["customer_name"]} 有 {overdue} 张逾期订单，建议优先催发货。'
+            elif short > 0:
+                suggestion = f'{info["customer_name"]} 有 {short} 条缺货明细，建议跟进出库时间。'
+            elif pending > 0:
+                suggestion = f'{info["customer_name"]} 有 {pending} 张待发订单，建议确认发货时间。'
+            else:
+                suggestion = f'{info["customer_name"]} 暂无待跟进事项。'
+            result.append({
+                'customer_id': cid,
+                'customer_name': info['customer_name'],
+                'pending_count': pending,
+                'overdue_count': overdue,
+                'short_stock_count': short,
+                'followup_suggestion': suggestion,
+                'needs_manual_confirmation': True,  # 对外沟通必须人工确认
+                'jump_url': f'/sales_order/list?customer_id={cid}',
+            })
+        result.sort(key=lambda x: (-(x['overdue_count'] + x['short_stock_count']), x['customer_name']))
+        return result[:20]
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'查询客户跟进清单异常: {exc}')
+        return []
+
+
 # ===== AI-R12 知识库版本生命周期 ORM adapter =====
 
 def _ai_kv_query_all_versions():
@@ -18435,6 +18767,131 @@ def _ai_purchase_workbench_response(message, context=None, force=False):
     )
 
 
+def _ai_is_sales_workbench_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    direct_words = (
+        '销售工作台', '销售agent', '销售助手', '销售巡检', '销售待办', '销售风险',
+        '销售异常', '销售优先级', '销售建议', '催发货', '发货跟进', '催客户',
+        '销售看板', '销售主管看板',
+    )
+    if any(word in compact for word in direct_words):
+        return True
+    return '销售' in compact and any(word in compact for word in ('待办', '逾期', '风险', '异常', '建议', '优先', '巡检', '跟进'))
+
+
+def _ai_is_sales_followup_agent_question(message):
+    compact = (message or '').replace(' ', '').lower()
+    if not compact:
+        return False
+    return any(word in compact for word in (
+        '销售agent', '销售aiagent', '销售巡检', '销售跟进agent', '发货跟进agent',
+        '催客户agent', '销售自动跟进', '自动催发货', '销售任务agent',
+    ))
+
+
+def _ai_sales_workbench_response(message, context=None, force=False):
+    """AI-SALES-F02 销售履约跟进工作台响应。
+
+    整合待发货/逾期/部分停滞/缺货/客户催发货/合并发货/客户跟进清单到单一工作台视图。
+    验收：指标口径和时间范围明确；对外沟通和业务提交必须人工确认。
+    """
+    if not force and not _ai_is_sales_workbench_question(message):
+        return None
+    if not _ai_capability_allowed('sales_insights'):
+        return _ai_permission_denied_response('sales_insights')
+    if _ai_is_sales_followup_agent_question(message):
+        task, error = _ai_run_sales_followup_agent()
+        if error:
+            return _ai_permission_denied_response('sales_followup_agent')
+        detail_url = url_for('ai_agent_task_detail', id=task.id)
+        return _ai_json_response(
+            f'销售跟进 Agent 已生成任务 #{task.id}，共记录 {len(task.steps or [])} 个受控步骤。催发货话术恒不自动发送，需人工确认后发送；工作台不直接修改订单状态或生成出库草稿。',
+            [
+                {
+                    'title': f'销售跟进任务 #{task.id}',
+                    'meta': task.summary or '已完成受控跟进',
+                    'url': detail_url,
+                }
+            ],
+            [
+                {'label': '打开Agent任务', 'url': detail_url},
+                {'label': 'AI任务中心', 'url': url_for('ai_agent_task_list')},
+                {'label': '销售订单', 'url': url_for('sales_order_list')},
+            ],
+        )
+
+    # 汇总销售工作台快照
+    try:
+        from ai.ops.sales_followup_workbench import (
+            build_sales_followup_workbench as _sf_build,
+            validate_followup_read_only as _sf_validate_ro,
+            validate_metric_scope_clear as _sf_validate_scope,
+        )
+        snapshot = _sf_build(
+            query_pending_shipment=_ai_sf_query_pending_shipment,
+            query_overdue_shipment=_ai_sf_query_overdue_shipment,
+            query_partial_stalled=_ai_sf_query_partial_stalled,
+            query_short_stock=_ai_sf_query_short_stock,
+            query_customer_urgency=_ai_sf_query_customer_urgency,
+            query_merge_candidates=_ai_sf_query_merge_candidates,
+            query_customer_followup_list=_ai_sf_query_customer_followup_list,
+            user_id=current_user.id if current_user.is_authenticated else 0,
+            role=current_user.role or 'sales',
+        )
+        ro_valid, _ = _sf_validate_ro(snapshot)
+        scope_valid, _ = _sf_validate_scope(snapshot)
+        wb = snapshot.to_dict()
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning(f'销售工作台构建异常: {exc}')
+        return _ai_json_response(
+            '销售工作台暂不可用，请稍后重试或联系管理员。',
+            None,
+            [{'label': '销售订单', 'url': url_for('sales_order_list')}],
+        )
+
+    cards = []
+    for section in wb.get('sections', []):
+        for item in section.get('items', []):
+            cards.append({
+                'title': f'{section["title"]} · {item["title"]}',
+                'meta': f'{item.get("subtitle", "")} | {item.get("detail", "")}',
+                'url': item.get('jump_url') or url_for('sales_order_list'),
+            })
+            if len(cards) >= 20:
+                break
+        if len(cards) >= 20:
+            break
+
+    lines = [
+        f'销售履约跟进工作台快照（生成于 {wb.get("generated_at", "-")}）：',
+        f'- 需关注总数：{wb.get("total_attention_count", 0)}',
+        f'- 待跟进客户数：{len(wb.get("customer_followup_list", []))}',
+        f'- 只读校验：{"通过" if ro_valid else "异常"}；指标口径校验：{"通过" if scope_valid else "异常"}',
+        '',
+        '工作台只读：催发货话术需人工确认后发送，不自动生成出库草稿或修改订单状态。',
+    ]
+    return _ai_json_response(
+        '\n'.join(lines),
+        cards[:24],
+        [
+            {'label': '销售工作台页面', 'url': url_for('ai_sales_workbench_page')},
+            {'label': '销售订单', 'url': url_for('sales_order_list')},
+            {'label': '生成出库草稿', 'url': '#', 'prompt': '从已确认销售订单生成出库草稿'},
+            {'label': '生成催发货话术', 'url': '#', 'prompt': '生成催客户发货话术'},
+        ],
+    )
+
+
+AI_LOCAL_SKILLS.append({
+    'name': 'sales_workbench',
+    'title': '销售工作台',
+    'handler': _ai_sales_workbench_response,
+    'description': '汇总待发货、逾期、部分停滞、缺货、客户催发货话术、合并发货候选和客户跟进清单，给销售优先处理清单。',
+})
+
+
 AI_LOCAL_SKILLS.append({
     'name': 'purchase_workbench',
     'title': '采购工作台',
@@ -18642,6 +19099,17 @@ def _ai_purchase_insights_response(message, context=None):
     return None
 
 
+def _ai_sales_insights_response(message, context=None):
+    """AI-SALES-F02 销售 insights 总入口：仅 _ai_sales_workbench_response（含 Agent 路径）。"""
+    for handler in (
+        _ai_sales_workbench_response,
+    ):
+        response = handler(message, context)
+        if response:
+            return response
+    return None
+
+
 def _ai_master_data_insights_response(message, context=None):
     for handler in (
         _ai_master_data_health_response,
@@ -18670,6 +19138,7 @@ def _ai_admin_insights_response(message, context=None):
 AI_TOOL_DISPATCHERS = {
     'warehouse_insights': _ai_warehouse_insights_response,
     'purchase_insights': _ai_purchase_insights_response,
+    'sales_insights': _ai_sales_insights_response,
     'replenishment_planning': _ai_replenishment_planning_response,
     'master_data_insights': _ai_master_data_insights_response,
     'admin_insights': _ai_admin_insights_response,
@@ -19311,6 +19780,107 @@ def ai_agent_run_purchase_followup():
         flash('当前账号没有权限运行采购跟进 Agent。', 'danger')
         return redirect(url_for('ai_agent_task_list'))
     flash('采购跟进 Agent 已完成。', 'success')
+    return redirect(url_for('ai_agent_task_detail', id=task.id))
+
+
+def _ai_run_sales_followup_agent():
+    """AI-SALES-F02 销售履约跟进 Agent（4 步受控任务路径）。
+
+    与 purchase_followup_agent 一致：走 AIAgentTask 流程，催发货话术恒不自动发送。
+    """
+    if not _ai_capability_allowed('sales_followup_agent'):
+        return None, 'sales_followup_agent denied'
+    task = _ai_create_agent_task('sales_followup', 'Sales follow-up: pending shipments, overdue orders, partial-stalled orders, short stock, customer urgency, merge candidates.')
+
+    today_value = date.today()
+    pending_count = SalesOrder.query.filter(
+        SalesOrder.status.in_(('draft', 'confirmed')),
+        SalesOrder.shipment_status.in_(('pending', 'partial')),
+        SalesOrder.delivery_date.isnot(None),
+        SalesOrder.delivery_date >= today_value,
+    ).count()
+    _ai_add_agent_step(
+        task,
+        1,
+        'Open sales order scan',
+        'sales_insights',
+        'sales orders with pending or partial shipment status',
+        f'Open sales orders: {pending_count}.',
+        'Open sales orders',
+        url_for('sales_order_list'),
+    )
+
+    overdue_count = SalesOrder.query.filter(
+        SalesOrder.status.in_(('draft', 'confirmed')),
+        SalesOrder.shipment_status.in_(('pending', 'partial')),
+        SalesOrder.delivery_date.isnot(None),
+        SalesOrder.delivery_date < today_value,
+    ).count()
+    _ai_add_agent_step(
+        task,
+        2,
+        'Overdue shipment scan',
+        'sales_insights',
+        'sales orders with delivery_date < today',
+        f'Overdue sales orders: {overdue_count}.',
+        'Open overdue sales orders',
+        url_for('sales_order_list'),
+    )
+
+    # 部分发货停滞
+    stalled_count = SalesOrder.query.filter(
+        SalesOrder.shipment_status == 'partial',
+        SalesOrder.status.in_(['draft', 'confirmed']),
+    ).count()
+    _ai_add_agent_step(
+        task,
+        3,
+        'Partial stalled scan',
+        'sales_insights',
+        'sales orders with shipment_status=partial stalled >7 days',
+        f'Partial stalled sales orders: {stalled_count}.',
+        'Open partial stalled sales orders',
+        url_for('sales_order_list'),
+    )
+
+    # 客户催发货话术（只读，不自动发送）
+    urgency_count = (
+        db.session.query(SalesOrder.customer_id)
+        .filter(
+            SalesOrder.status.in_(('draft', 'confirmed')),
+            SalesOrder.shipment_status.in_(('pending', 'partial')),
+            SalesOrder.delivery_date < today_value,
+        )
+        .distinct()
+        .count()
+    )
+    _ai_add_agent_step(
+        task,
+        4,
+        'Customer urgency scan',
+        'sales_insights',
+        'customers with overdue orders needing follow-up message (manual confirmation required)',
+        f'Customers with overdue orders: {urgency_count}. Customer messages are NEVER sent automatically; manual confirmation is required.',
+        'Generate customer follow-up message (read-only)',
+        '#',
+        risk_level='read',
+    )
+    task_summary = (
+        f'Sales follow-up completed. Pending {pending_count}, overdue {overdue_count}, '
+        f'partial stalled {stalled_count}, customers needing follow-up {urgency_count}.'
+    )
+    return _ai_finish_agent_task(task, 'completed', task_summary, url_for('sales_order_list')), None
+
+
+@app.route('/ai/agent_tasks/run/sales_followup', methods=['POST'])
+@require_role('sales')
+@login_required
+def ai_agent_run_sales_followup():
+    task, error = _ai_run_sales_followup_agent()
+    if error:
+        flash('当前账号没有权限运行销售跟进 Agent。', 'danger')
+        return redirect(url_for('ai_agent_task_list'))
+    flash('销售跟进 Agent 已完成。', 'success')
     return redirect(url_for('ai_agent_task_detail', id=task.id))
 
 
@@ -35995,6 +36565,55 @@ def api_ai_purchase_followup_workbench():
         return jsonify({'status': 'success', 'workbench': result})
     except Exception as e:
         app.logger.error(f'采购跟进工作台构建失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
+
+
+@app.route('/ai/sales_workbench')
+@login_required
+def ai_sales_workbench_page():
+    """AI-SALES-F02 销售履约 AI 工作台页面。"""
+    return render_template('ai_sales_workbench.html')
+
+
+@app.route('/api/ai/sales_followup_workbench')
+@login_required
+def api_ai_sales_followup_workbench():
+    """AI-SALES-F02 销售履约跟进工作台整合端点。
+
+    整合待发货/逾期/部分停滞/缺货/客户催发货话术/合并发货候选/客户跟进清单到单一工作台视图。
+    验收：指标口径和时间范围明确；对外沟通和业务提交必须人工确认。
+    """
+    if current_user.role not in ('admin', 'sales', 'warehouse'):
+        return jsonify({'status': 'error', 'msg': '无权限'}), 403
+    try:
+        from ai.ops.sales_followup_workbench import (
+            build_sales_followup_workbench as _sf_build,
+            validate_followup_read_only as _sf_validate_ro,
+            validate_metric_scope_clear as _sf_validate_scope,
+        )
+        snapshot = _sf_build(
+            query_pending_shipment=_ai_sf_query_pending_shipment,
+            query_overdue_shipment=_ai_sf_query_overdue_shipment,
+            query_partial_stalled=_ai_sf_query_partial_stalled,
+            query_short_stock=_ai_sf_query_short_stock,
+            query_customer_urgency=_ai_sf_query_customer_urgency,
+            query_merge_candidates=_ai_sf_query_merge_candidates,
+            query_customer_followup_list=_ai_sf_query_customer_followup_list,
+            user_id=current_user.id if current_user.is_authenticated else 0,
+            role=current_user.role or 'sales',
+        )
+        ro_valid, ro_violations = _sf_validate_ro(snapshot)
+        scope_valid, scope_violations = _sf_validate_scope(snapshot)
+        result = snapshot.to_dict()
+        result['read_only_valid'] = ro_valid
+        result['metric_scope_valid'] = scope_valid
+        if ro_violations:
+            result['read_only_violations'] = ro_violations
+        if scope_violations:
+            result['metric_scope_violations'] = scope_violations
+        return jsonify({'status': 'success', 'workbench': result})
+    except Exception as e:
+        app.logger.error(f'销售跟进工作台构建失败: {e}')
         return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
 
 

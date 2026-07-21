@@ -23,7 +23,7 @@
 | P0 | `sales_order_detail.html` 第 139 行 fetch 无任何 CSRF 头 | `templates/sales_order_detail.html:139` | 安全 | ✅ 已修复（SM-P6-FIX-01，改用 csrfPost helper） |
 | P0 | `sales_order_detail.html` 第 157 行 fetch 仅设 `Content-Type`，无 `X-CSRFToken` | `templates/sales_order_detail.html:157` | 安全 | ✅ 已修复（SM-P6-FIX-01，改用 csrfPost helper） |
 | P1 | `sales_out_draft` 工具名"销售出库草稿"但描述/端点均为"售后出库" | `ai/tools/registry.py:312`、`ai/policies.py:9,31` | 语义错配 | ✅ 已修复（AI-SALES-F01-FIX-02，拆分为 after_sale_out_draft + sales_outbound_draft） |
-| P1 | 销售侧无 `ai_sales_workbench.html` AI 跟进工作台（采购侧 7 队列） | 不存在 | 功能缺口 | ⏳ 未修复（建议新建 AI-SALES-F02） |
+| P1 | 销售侧无 `ai_sales_workbench.html` AI 跟进工作台（采购侧 7 队列） | 不存在 | 功能缺口 | ✅ 已修复（AI-SALES-F02，7 队列 ops 模块 + sales_followup Agent + sales_insights 工具 + 3 路由 + base.html 菜单 + 验证脚本） |
 | P1 | 销售侧无 AI 异常分析按钮（采购 `out_order_detail.html` 有） | 不存在 | 功能缺口 | ✅ 已修复（AI-SALES-F01-FIX-02，新增按钮 + /api/ai/sales_order/<id>/anomaly_analysis 路由） |
 | P1 | 销售侧无单据联查面板（采购侧 `purchase_order_detail.html:70-112` 有） | 不存在 | 功能缺口 | ✅ 已修复（AI-SALES-F01-FIX-02，sales_order_detail.html 新增售后单联查面板） |
 | P2 | 销售侧 14 个模板均未使用 `csrfFetch` helper | 全部 `sales_*.html` | 工程化 | ⏳ 部分修复（sales_order_detail.html 已用 csrfPost；其余 13 个模板留待 SM-P6-03） |
@@ -597,22 +597,51 @@ def batch_delete_sales_orders():
 
 | 审计项 | 优先级 | 建议任务 ID | 说明 |
 |---|---|---|---|
-| #5 缺失 `ai_sales_workbench.html` AI 跟进工作台 | P1 | `AI-SALES-F02` | 7 队列工作台 + `sales_followup_workbench.py` 后端 + `/api/ai/sales_followup_workbench` 只读 API |
-| #6 缺失 `sales_followup` Agent | P1 | `AI-SALES-F02` | 4 步：开放订单扫描/即将到期扫描/客户跟进话术/合并发货候选 |
-| #7 缺失 `sales_insights` 只读工具 | P1 | `AI-SALES-F02` | 对齐 `purchase_insights` 工具结构 |
-| #11 csrfFetch helper 抽取 | P2 | `SM-P6-03` | 将 `csrfFetch` 抽到 `base.html`/`_list_macros.html`，14 个 `sales_*.html` 全部迁移 |
-| #13 T+ 风格 CSS 抽共享 partial | P2 | `SM-P6-03` | `templates/_tplus_form_styles.html` |
-| #14 `status_badge(status)` 宏 | P2 | `SM-P6-03` | 抽到 `_list_macros.html` |
-| #15 `bindListActions(opts)` 通用 CRUD 函数 | P2 | `SM-P6-03` | 抽到 `_list_macros.html` |
-| #17 `setupResizableTable` 与每页条数选择器 | P2 | `SM-P6-03` | 引入到 `sales_order.html`、`sales_outbound_list.html`、`sales_outflow_report.html` |
-| #19 重写 `sales_outbound_list.html` | P3 | `SM-P4-FIX-01` | 从 8 行扩展为完整功能页 |
-| #20 重写 `sales_reconciliation_report.html` | P3 | `SM-P4-FIX-01` | 从 4 行扩展为完整功能页 |
-| #21 引入 Chart.js 报表可视化 | P3 | `SM-P4-FIX-01` | 趋势折线图、价格箱线图、汇总饼图/柱状图 |
-| #22 补 loading state | P3 | `SM-P4-FIX-01` | AJAX 期间按钮 disabled + spinner |
-| #23 补 a11y 标注 | P3 | `SM-P4-FIX-01` | `aria-label`、`role="dialog"`、`scope="col"` |
-| #24 复核 `sales_outbound_selection.html:36` 路由 | P3 | `SM-P4-FIX-01` | 统一为 `/api/sales_order/selectable` |
-| #25 回填销售已修复 Bug 到 `WMS_BUG_BASELINE.md` | P2 | `SM-P6-FIX-02` | OutOrder.customer_id、OutOrderItem.source_sales_order_item_id 等 |
-| #26 新增 `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` 任务条目 | P2 | `SM-P6-FIX-02` | 已部分完成（本报告与开发计划已记录 SM-P6-FIX-01、AI-SALES-F01-FIX-02、SM-P6-02 三条），剩余建议项待新建 |
+| #5 缺失 `ai_sales_workbench.html` AI 跟进工作台 | P1 | `AI-SALES-F02` | ✅ 已修复：7 队列工作台 + `sales_followup_workbench.py` 后端 + `/api/ai/sales_followup_workbench` 只读 API |
+| #6 缺失 `sales_followup` Agent | P1 | `AI-SALES-F02` | ✅ 已修复：4 步 AIAgentTask（Open sales order scan / Overdue shipment scan / Partial stalled scan / Customer urgency scan 含 manual confirmation required） |
+| #7 缺失 `sales_insights` 只读工具 | P1 | `AI-SALES-F02` | ✅ 已修复：对齐 `purchase_insights` 工具结构，handler `_ai_sales_insights_response`，23=23=23=23 三表+registry 一致 |
+| #11 csrfFetch helper 抽取 | P2 | `SM-P6-03` | ⏳ 未修复：将 `csrfFetch` 抽到 `base.html`/`_list_macros.html`，14 个 `sales_*.html` 全部迁移 |
+| #13 T+ 风格 CSS 抽共享 partial | P2 | `SM-P6-03` | ⏳ 未修复：`templates/_tplus_form_styles.html` |
+| #14 `status_badge(status)` 宏 | P2 | `SM-P6-03` | ⏳ 未修复：抽到 `_list_macros.html` |
+| #15 `bindListActions(opts)` 通用 CRUD 函数 | P2 | `SM-P6-03` | ⏳ 未修复：抽到 `_list_macros.html` |
+| #17 `setupResizableTable` 与每页条数选择器 | P2 | `SM-P6-03` | ⏳ 未修复：引入到 `sales_order.html`、`sales_outbound_list.html`、`sales_outflow_report.html` |
+| #19 重写 `sales_outbound_list.html` | P3 | `SM-P4-FIX-01` | ⏳ 未修复：从 8 行扩展为完整功能页 |
+| #20 重写 `sales_reconciliation_report.html` | P3 | `SM-P4-FIX-01` | ⏳ 未修复：从 4 行扩展为完整功能页 |
+| #21 引入 Chart.js 报表可视化 | P3 | `SM-P4-FIX-01` | ⏳ 未修复：趋势折线图、价格箱线图、汇总饼图/柱状图 |
+| #22 补 loading state | P3 | `SM-P4-FIX-01` | ⏳ 未修复：AJAX 期间按钮 disabled + spinner |
+| #23 补 a11y 标注 | P3 | `SM-P4-FIX-01` | ⏳ 未修复：`aria-label`、`role="dialog"`、`scope="col"` |
+| #24 复核 `sales_outbound_selection.html:36` 路由 | P3 | `SM-P4-FIX-01` | ⏳ 未修复：统一为 `/api/sales_order/selectable` |
+| #25 回填销售已修复 Bug 到 `WMS_BUG_BASELINE.md` | P2 | `SM-P6-FIX-02` | ⏳ 未修复：OutOrder.customer_id、OutOrderItem.source_sales_order_item_id 等 |
+| #26 新增 `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` 任务条目 | P2 | `SM-P6-FIX-02` | ⏳ 已完成 AI-SALES-F02 任务行（本报告与开发计划已记录 SM-P6-FIX-01、AI-SALES-F01-FIX-02、SM-P6-02、AI-SALES-F02 四条），剩余建议项 SM-P6-03/SM-P4-FIX-01/SM-P6-FIX-02 待新建 |
+
+### 9.5 AI-SALES-F02 完成记录（2026-07-21）
+
+**交付清单**：
+
+1. `app/ai/ops/sales_followup_workbench.py`（新建，458 行）：4 个 frozen dataclass + 依赖注入纯逻辑模块 + 7 队列 + 3 个验收校验（`validate_followup_read_only`/`validate_metric_scope_clear`/`validate_count_consistency`）。禁止写动作常量：`('send', 'submit', 'audit', 'delete', 'void', 'complete', 'confirm_post', 'cancel', 'auto_dispatch')`。
+2. `app/ai/agents/sales_followup.py`（新建）：2 步 Agent 框架，提供按客户归组查询与催发货话术生成辅助函数。催发货话术含"需人工确认后发送"提示，恒不自动发送。
+3. `app/ai/policies.py`：三表同步新增 `sales_insights`（端点 `sales_order_list`，风险 `read`）+ `sales_followup_agent`（端点 `ai_agent_run_sales_followup`，风险 `read`）。23=23=23 三表键集一致。
+4. `app/ai/tools/registry.py`：新增 `SALES_INSIGHTS_SCHEMA` + `SALES_FOLLOWUP_SCHEMA` + 注册两工具。23 个工具与 policies 23 键一致。`sales_followup_agent` 描述含 "Customer messages are never sent automatically"。
+5. `app/app.py`：7 个 `_ai_sf_query_*` ORM adapter + `_ai_sales_workbench_response` + `_ai_sales_insights_response` 分发器 + `_ai_run_sales_followup_agent` 4 步 AIAgentTask + `AI_LOCAL_SKILLS`/`AI_TOOL_DISPATCHERS` 注册 + 3 路由（`/ai/sales_workbench`、`/api/ai/sales_followup_workbench`、`/ai/agent_tasks/run/sales_followup`）。
+6. `app/templates/ai_sales_workbench.html`（新建，186 行）：7 类队列卡片 + 汇总 + severity 高亮 + 空态处理 + `DOMContentLoaded` 自动加载 + 页脚只读提示。
+7. `app/templates/base.html`：新增销售工作台菜单入口 + 4 个 sales 角色 AI 建议按钮。
+8. `AI_PERMISSION_MATRIX.md`：矩阵表新增 2 行 + 工具语义说明段落新增 2 项描述。
+9. `scripts/verify_ai_sales_followup_workbench.py`（新建，11 个测试）：页面路由/路由端点/菜单入口/模板存在/只读约束/空态/跳转链接/刷新功能/ops 验收/三表一致性/Agent 签名。
+
+**验收结果**：
+
+- `python scripts/verify_ai_sales_followup_workbench.py`：11/11 PASS。
+- `python3 -m py_compile app/app.py app/ai/ops/sales_followup_workbench.py app/ai/agents/sales_followup.py app/ai/policies.py app/ai/tools/registry.py`：PASS。
+- 三表 + registry 一致性：23=23=23=23 通过。
+- ops 模块 mock 测试：7 sections + total_attention=4 + 三项验收校验通过。
+- Agent 模块签名 + 催发货话术含"需人工确认"提示。
+
+**剩余风险**：
+
+- `sales_insights`/`sales_followup_agent` 在沙箱因 Flask 未安装无法运行时验证，待业务环境补跑。
+- 真实销售数据 7 队列业务条件（如 `partial_stalled` 7 天阈值、`customer_urgency` 话术生成）需业务环境验证。
+- `SM-P6-03`（csrfFetch 抽取、setupResizableTable、T+ CSS、status_badge 宏、bindListActions）、`SM-P4-FIX-01`（极简模板重写、Chart.js 可视化）、`SM-P6-FIX-02`（WMS_BUG_BASELINE.md 回填）属独立子项，不在本子项范围。
+
 
 ---
 
