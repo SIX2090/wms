@@ -16,6 +16,21 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 
+def _escape_like_pattern(pattern: str) -> str:
+    """转义 SQL LIKE 模式中的通配符。
+
+    用户输入的关键字会直接拼到 ``ilike('%{keyword}%')`` 中，如果关键字包含
+    ``%`` 或 ``_``，会被 SQL 当作通配符匹配意外范围（如 ``100%`` 会匹配
+    ``1000``/``1009`` 等），属于数据泄露风险。这里把 ``%`` 和 ``_`` 转义为
+    字面量，并使用 ``escape='\\'`` 让 SQLAlchemy 生成 ``ILIKE ... ESCAPE '\\'``
+    子句识别转义。
+    """
+    if not pattern:
+        return ''
+    # 反斜杠必须先转义，否则会被当作 SQL 转义字符
+    return pattern.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
 def material_query(keyword: str, limit: int = 8) -> list[dict[str, Any]]:
     """查询物料库存信息。
 
@@ -31,10 +46,12 @@ def material_query(keyword: str, limit: int = 8) -> list[dict[str, Any]]:
     results = []
     try:
         # 按编码或名称模糊匹配
+        # 关键字中的 %/_ 必须转义为字面量，避免被 SQL LIKE 当作通配符
+        escaped = _escape_like_pattern(keyword)
         materials = Material.query.filter(
             db.or_(
-                Material.code.ilike(f'%{keyword}%'),
-                Material.name.ilike(f'%{keyword}%'),
+                Material.code.ilike(f'%{escaped}%', escape='\\'),
+                Material.name.ilike(f'%{escaped}%', escape='\\'),
             )
         ).limit(limit).all()
 

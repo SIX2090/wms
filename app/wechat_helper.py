@@ -481,24 +481,49 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _check_auth(self) -> bool:
+        """校验请求方是否持有正确的 helper token。
+
+        /send 端点会触发本机微信发送图片，必须与 WMS 主服务→helper 的出站
+        请求使用同一 token，避免本机任意进程（包括恶意软件）直接 POST 即可
+        借助本助手向任意微信联系人发送图片。token 未配置时一律拒绝。
+        """
+        if not WMS_HELPER_TOKEN:
+            return False
+        incoming = self.headers.get("X-Wechat-Helper-Token", "")
+        if not incoming:
+            return False
+        # 使用 hmac.compare_digest 避免时序攻击
+        import hmac
+        return hmac.compare_digest(incoming, WMS_HELPER_TOKEN)
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path != "/health":
-            self._json(404, {"status": "error", "msg": "not found"})
+        if parsed.path == "/health":
+            # /health 不触发发送，可放行无认证访问以便本地探活
+            self._json(200, {
+                "status": "ok",
+                "wechat_window_found": bool(find_wechat_window()),
+                "auto_send_default": False,
+                "poll_enabled": POLL_ENABLED,
+                "wms_base_url": WMS_BASE_URL,
+                "poll_interval": POLL_INTERVAL,
+            })
             return
-        self._json(200, {
-            "status": "ok",
-            "wechat_window_found": bool(find_wechat_window()),
-            "auto_send_default": False,
-            "poll_enabled": POLL_ENABLED,
-            "wms_base_url": WMS_BASE_URL,
-            "poll_interval": POLL_INTERVAL,
-        })
+        # 其它 GET 路径要求认证（与 POST /send 一致）
+        if not self._check_auth():
+            self._json(403, {"status": "error", "msg": "forbidden: missing or invalid X-Wechat-Helper-Token"})
+            return
+        self._json(404, {"status": "error", "msg": "not found"})
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path != "/send":
             self._json(404, {"status": "error", "msg": "not found"})
+            return
+        # /send 会真实触发本机微信发送图片，必须校验 helper token
+        if not self._check_auth():
+            self._json(403, {"status": "error", "msg": "forbidden: missing or invalid X-Wechat-Helper-Token"})
             return
         try:
             fields, image_bytes = parse_multipart(self)
@@ -534,6 +559,12 @@ def main() -> None:
         thread = threading.Thread(target=poll_loop, name="wechat-task-poller", daemon=True)
         thread.start()
         print(f"Polling WMS tasks from {WMS_BASE_URL} every {POLL_INTERVAL}s", flush=True)
+    else:
+        # 非轮询模式下，/send 端点也会校验 X-Wechat-Helper-Token；
+        # 未配置 token 时 /send 一律 403，避免本机任意进程可触发发送
+        if not WMS_HELPER_TOKEN:
+            print("[WARNING] 未配置 WECHAT_HELPER_TOKEN，/send 端点将拒绝所有请求。", flush=True)
+            print("          请设置 WECHAT_HELPER_TOKEN 后重启，或在 WMS 主服务启用轮询模式由其主动推送任务。", flush=True)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"WMS WeChat helper listening on http://{HOST}:{PORT}", flush=True)
     print("Default mode: use already-open WeChat, paste image, and wait for manual confirmation.", flush=True)

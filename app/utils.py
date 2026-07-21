@@ -409,7 +409,12 @@ ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp'}
 
 
 def save_upload_image(file_storage, subfolder='', upload_folder=None):
-    """Validate and save an uploaded image under the configured upload folder."""
+    """Validate and save an uploaded image under the configured upload folder.
+
+    除了扩展名白名单，还要校验文件实际内容是否为图片：
+    - 用 Pillow 打开并 ``verify()``，失败则拒绝（防 .html/.svg 伪装成 .png）。
+    - 读取首部 magic bytes 兜底，避免 Pillow 未安装时仍能挡掉明显非图片。
+    """
     if not file_storage or not file_storage.filename:
         return None, None
 
@@ -417,19 +422,74 @@ def save_upload_image(file_storage, subfolder='', upload_folder=None):
     if ext not in ALLOWED_IMAGE_EXTENSIONS:
         return None, '仅支持 JPG、PNG、GIF、WEBP 格式图片'
 
+    # 读取内容做实际校验；file_storage.stream 在 save() 后会指向末尾，必须先读出来
+    file_bytes = file_storage.read()
+    if not file_bytes:
+        return None, '上传文件为空'
+
+    # 1) magic bytes 兜底校验：挡掉完全不是图片的内容
+    if not _looks_like_image(file_bytes):
+        return None, '文件内容不是有效图片'
+
+    # 2) Pillow verify()：内容确实是可解码图片，防止伪装上传
+    try:
+        from PIL import Image as _PILImage
+    except Exception:
+        # Pillow 未安装时回退到 magic bytes 校验（已在上面完成）
+        _PILImage = None
+    if _PILImage is not None:
+        import io as _io
+        try:
+            image = _PILImage.open(_io.BytesIO(file_bytes))
+            image.verify()
+        except Exception as exc:
+            return None, f'图片内容校验失败：{exc}'
+        # verify() 后再次打开用于保存（verify 会破坏文件对象状态）
+        try:
+            image = _PILImage.open(_io.BytesIO(file_bytes))
+            image.load()
+        except Exception as exc:
+            return None, f'图片解码失败：{exc}'
+
     upload_root = upload_folder or current_app.config.get('UPLOAD_FOLDER', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads'))
     save_dir = os.path.join(upload_root, subfolder) if subfolder else upload_root
     os.makedirs(save_dir, exist_ok=True)
 
     filename = f"{uuid.uuid4().hex}.{ext}"
     save_path = os.path.join(save_dir, filename)
-    file_storage.save(save_path)
+    # 此时 file_storage 的指针已被 read() 推到末尾，直接 save() 会写出空文件；
+    # 改为把已读取的字节写回去，确保落盘内容与校验通过的内容一致。
+    with open(save_path, 'wb') as f:
+        f.write(file_bytes)
 
     relative_parts = ['uploads']
     if subfolder:
         relative_parts.append(subfolder.replace('\\', '/').strip('/'))
     relative_parts.append(filename)
     return '/'.join(relative_parts), None
+
+
+# 常见图片格式的 magic bytes 前缀，用于在不依赖 Pillow 时也能挡掉伪装上传
+_IMAGE_MAGIC_PREFIXES = (
+    b'\xff\xd8\xff',              # JPEG: SOI + marker
+    b'\x89PNG\r\n\x1a\n',         # PNG
+    b'GIF87a',                    # GIF87a
+    b'GIF89a',                    # GIF89a
+    b'RIFF',                      # WEBP 以 RIFF 开头，后面跟长度和 WEBP 标识
+)
+
+
+def _looks_like_image(data: bytes) -> bool:
+    """检查字节流首部是否匹配已知图片格式 magic bytes。"""
+    if not data:
+        return False
+    for prefix in _IMAGE_MAGIC_PREFIXES:
+        if data.startswith(prefix):
+            # WEBP 需进一步确认 'WEBP' 标识在偏移 8 处
+            if prefix == b'RIFF':
+                return data[8:12] == b'WEBP'
+            return True
+    return False
 
 
 # ==================== 权限装饰器 ====================

@@ -33,6 +33,12 @@ class NotificationManager:
         self.smtp_password = app.config.get('SMTP_PASSWORD', os.environ.get('SMTP_PASSWORD', ''))
         self.smtp_from = app.config.get('SMTP_FROM', os.environ.get('SMTP_FROM', self.smtp_user))
         self.notification_enabled = app.config.get('NOTIFICATION_ENABLED', True)
+        # SMTP 连接/读写超时（秒）。未配置时默认 30 秒，避免后台定时任务
+        # 因 SMTP 服务器无响应而永久阻塞线程。
+        self.smtp_timeout = app.config.get(
+            'SMTP_TIMEOUT',
+            int(os.environ.get('SMTP_TIMEOUT', '30') or '30'),
+        )
     
     def send_email(self, to_email, subject, html_content, text_content=None):
         """发送邮件通知"""
@@ -54,7 +60,9 @@ class NotificationManager:
             msg.attach(MIMEText(html_content, 'html', 'utf-8'))
             
             # 发送邮件
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+            # 显式传入 timeout，避免 SMTP 服务器无响应时后台定时任务线程永久阻塞
+            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=self.smtp_timeout) as server:
+                # starttls/login/sendmail 同样受 timeout 保护
                 server.starttls()
                 server.login(self.smtp_user, self.smtp_password)
                 server.sendmail(self.smtp_from, to_email, msg.as_string())

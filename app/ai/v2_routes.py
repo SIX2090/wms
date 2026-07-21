@@ -42,6 +42,27 @@ logger = logging.getLogger(__name__)
 v2_bp = Blueprint('ai_v2', __name__, url_prefix='/api/ai/v2')
 
 
+def _safe_int(value, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
+    """安全解析整型参数。
+
+    系统设置或 query string 中的数字字段可能传入空串、非数字字符串或 None，
+    直接 ``int()`` 会抛 ``ValueError``/``TypeError`` 导致 500。这里统一兜底，
+    解析失败或越界时回落到 ``default``，并对 ``minimum``/``maximum`` 做夹紧。
+    """
+    try:
+        if value is None or value == '':
+            parsed = default
+        else:
+            parsed = int(str(value))
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None and parsed < minimum:
+        parsed = minimum
+    if maximum is not None and parsed > maximum:
+        parsed = maximum
+    return parsed
+
+
 def _get_llm_config() -> OpenAICompatibleConfig:
     """从系统设置构建 LLM 配置。"""
     from app import SystemSetting
@@ -55,8 +76,9 @@ def _get_llm_config() -> OpenAICompatibleConfig:
         endpoint=_get('ai_llm_base_url', ''),
         model=_get('ai_llm_model', ''),
         api_key=_get('ai_llm_api_key', ''),
-        timeout_seconds=int(_get('ai_llm_timeout', '30') or '30'),
-        max_tokens=int(_get('ai_llm_max_tokens', '512') or '512'),
+        # 系统设置中可能填入非数字字符串（如 "abc"），用 _safe_int 兜底避免 500
+        timeout_seconds=_safe_int(_get('ai_llm_timeout', '30'), 30, minimum=1, maximum=600),
+        max_tokens=_safe_int(_get('ai_llm_max_tokens', '512'), 512, minimum=1, maximum=8192),
         vision_enabled=_get('ai_llm_vision_enabled', '0') == '1',
     )
 
@@ -68,7 +90,7 @@ def _get_llm_config() -> OpenAICompatibleConfig:
 def v2_material_query():
     """物料库存查询。"""
     keyword = request.args.get('keyword', '')
-    limit = min(int(request.args.get('limit', '8') or '8'), 50)
+    limit = _safe_int(request.args.get('limit', '8'), 8, minimum=1, maximum=50)
     if not keyword:
         return jsonify({'status': 'error', 'msg': 'keyword is required'}), 400
     results = material_query(keyword, limit)
@@ -80,7 +102,7 @@ def v2_material_query():
 def v2_stock_transactions():
     """物料流水查询。"""
     material_id = request.args.get('material_id', type=int)
-    limit = min(int(request.args.get('limit', '8') or '8'), 50)
+    limit = _safe_int(request.args.get('limit', '8'), 8, minimum=1, maximum=50)
     if not material_id:
         return jsonify({'status': 'error', 'msg': 'material_id is required'}), 400
     results = stock_transactions(material_id, limit)
@@ -91,8 +113,8 @@ def v2_stock_transactions():
 @login_required
 def v2_inventory_health():
     """库存健康分析。"""
-    days = min(int(request.args.get('days', '30') or '30'), 365)
-    limit = min(int(request.args.get('limit', '200') or '200'), 1000)
+    days = _safe_int(request.args.get('days', '30'), 30, minimum=1, maximum=365)
+    limit = _safe_int(request.args.get('limit', '200'), 200, minimum=1, maximum=1000)
     result = inventory_health(days, limit)
     return jsonify({'status': 'success', 'data': result})
 
@@ -118,7 +140,7 @@ def v2_stock_value():
 @login_required
 def v2_purchase_insights():
     """采购工作台概览。"""
-    days = min(int(request.args.get('days', '30') or '30'), 365)
+    days = _safe_int(request.args.get('days', '30'), 30, minimum=1, maximum=365)
     result = purchase_insights(days)
     return jsonify({'status': 'success', 'data': result})
 
@@ -127,8 +149,8 @@ def v2_purchase_insights():
 @login_required
 def v2_supplier_analysis():
     """供应商分析。"""
-    days = min(int(request.args.get('days', '90') or '90'), 365)
-    limit = min(int(request.args.get('limit', '12') or '12'), 50)
+    days = _safe_int(request.args.get('days', '90'), 90, minimum=1, maximum=365)
+    limit = _safe_int(request.args.get('limit', '12'), 12, minimum=1, maximum=50)
     results = supplier_analysis(days, limit)
     return jsonify({'status': 'success', 'data': results, 'count': len(results)})
 
@@ -137,7 +159,7 @@ def v2_supplier_analysis():
 @login_required
 def v2_pending_purchase_orders():
     """待处理采购单。"""
-    limit = min(int(request.args.get('limit', '12') or '12'), 50)
+    limit = _safe_int(request.args.get('limit', '12'), 12, minimum=1, maximum=50)
     results = pending_purchase_orders(limit)
     return jsonify({'status': 'success', 'data': results, 'count': len(results)})
 
@@ -265,7 +287,7 @@ def v2_conversations():
     from app import db, AIConversation
 
     session_id = request.args.get('session_id', '')
-    limit = min(int(request.args.get('limit', '50') or '50'), 200)
+    limit = _safe_int(request.args.get('limit', '50'), 50, minimum=1, maximum=200)
 
     query = AIConversation.query.filter_by(user_id=current_user.id)
     if session_id:

@@ -29,6 +29,10 @@ class ExcelTable {
     }
 
     init() {
+        // _boundListeners 收集所有由本实例注册到外部 DOM 节点（table/cell/document）
+        // 的事件监听器，destroy() 时统一 removeEventListener，避免实例销毁后仍残留
+        // 监听器导致内存泄漏和重复触发（多次 init 时旧实例的 handler 还在）。
+        this._boundListeners = [];
         this.setupEditableCells();
         if (this.options.enableKeyboard) {
             this.setupKeyboardNavigation();
@@ -37,6 +41,14 @@ class ExcelTable {
             this.setupCopyPaste();
         }
         this.setupCellSelection();
+    }
+
+    /**
+     * 注册事件监听器并记录到 _boundListeners，便于 destroy() 时统一移除。
+     */
+    _on(target, event, handler, options) {
+        target.addEventListener(event, handler, options);
+        this._boundListeners.push({ target, event, handler, options });
     }
 
     /**
@@ -68,9 +80,10 @@ class ExcelTable {
                 }
             };
             cell._excelTableHandlers = handlers;
-            cell.addEventListener('dblclick', handlers.dblclick);
-            cell.addEventListener('click', handlers.click);
-            cell.addEventListener('keydown', handlers.keydown);
+            // 走 _on 以便 destroy() 时统一回收
+            this._on(cell, 'dblclick', handlers.dblclick);
+            this._on(cell, 'click', handlers.click);
+            this._on(cell, 'keydown', handlers.keydown);
         });
     }
 
@@ -345,7 +358,7 @@ class ExcelTable {
      * 键盘导航
      */
     setupKeyboardNavigation() {
-        this.table.addEventListener('keydown', (e) => {
+        this._on(this.table, 'keydown', (e) => {
             if (this.isEditing) return;
             if (!this.currentCell) return;
 
@@ -457,7 +470,10 @@ class ExcelTable {
      */
     setupCellSelection() {
         // 点击表格外取消选中
-        document.addEventListener('click', (e) => {
+        // 必须用 _on 注册到 document，destroy() 时才能正确 removeEventListener，
+        // 否则实例销毁后 document 上仍残留 click handler，每次点击页面都会
+        // 触发对已销毁实例 table 的访问，导致报错或内存泄漏。
+        this._on(document, 'click', (e) => {
             if (!this.table.contains(e.target)) {
                 const selected = this.table.querySelector('.cell-selected');
                 if (selected) {
@@ -472,7 +488,7 @@ class ExcelTable {
      * 复制粘贴支持
      */
     setupCopyPaste() {
-        this.table.addEventListener('keydown', (e) => {
+        this._on(this.table, 'keydown', (e) => {
             if (this.isEditing) return;
 
             // Ctrl+C 复制
@@ -529,9 +545,34 @@ class ExcelTable {
 
     /**
      * 销毁实例
+     *
+     * 必须真正 removeEventListener，否则：
+     * - table 上的 keydown handler 残留，导致后续实例的 keydown 被旧实例吞掉；
+     * - document 上的 click handler 残留，每次点击页面都会访问已销毁实例的 table；
+     * - cell 上的 dblclick/click/keydown 残留，造成内存泄漏。
      */
     destroy() {
-        // 清理事件监听器
+        // 移除所有由 _on 注册的事件监听器
+        if (Array.isArray(this._boundListeners)) {
+            this._boundListeners.forEach(({ target, event, handler, options }) => {
+                try {
+                    target.removeEventListener(event, handler, options);
+                } catch (err) {
+                    // removeEventListener 不应抛异常，但 target 可能已被外部移除
+                    console.warn('ExcelTable.destroy removeEventListener failed:', err);
+                }
+            });
+            this._boundListeners = [];
+        }
+        // 清理 cell._excelTableHandlers 引用，避免下次 init 时重复 remove
+        const cells = this.table ? this.table.querySelectorAll('.editable-cell') : [];
+        cells.forEach(cell => {
+            try {
+                delete cell._excelTableHandlers;
+            } catch (err) {
+                cell._excelTableHandlers = undefined;
+            }
+        });
         this.currentCell = null;
         this.isEditing = false;
     }
