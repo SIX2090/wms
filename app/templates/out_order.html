@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_list_macros.html" as list_macros %}
 {% block title %}领料明细{% endblock %}
 
 {% block content %}
@@ -106,13 +107,7 @@
                     <td>{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
                     <td>{{ item.out_order.business_type or item.out_order.purpose or '-' }}</td>
                     <td>
-                        {% if item.out_order.status == 'pending' %}
-                        <span class="badge bg-warning">未审核/待完成</span>
-                        {% elif item.out_order.status == 'completed' %}
-                        <span class="badge bg-success">已完成</span>
-                        {% else %}
-                        <span class="badge bg-secondary">{{ item.out_order.status }}</span>
-                        {% endif %}
+                        {{ list_macros.status_badge(item.out_order.status, 'outbound') }}
                     </td>
                     <td>
                         <a href="{{ url_for('out_order_detail', id=item.out_order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情">

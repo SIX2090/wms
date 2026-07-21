@@ -70,6 +70,135 @@
     }
     // Deprecated alias kept for backward compatibility with sales_order_detail.html.
     function csrfPost(url, options) { return csrfFetch(url, options); }
+    // SM-P6-03-3: 通用列表动作绑定（替代每个 sales_*.html 重复定义 batchDelete / copy / confirm / createOutbound / toggleAll）。
+    // 用法示例（业务模板只需一行）：
+    //   bindListActions({
+    //       tableId: 'salesOrderTable',
+    //       checkSelector: '.sales-order-check',
+    //       masterCheckbox: '#checkAllSalesOrders',
+    //       endpoints: {
+    //           batchDelete: '/sales/batch_delete',
+    //           copy:        { url: '/sales/{id}/copy',  confirm: '确认复制该销售订单？' },
+    //           deleteOne:   { url: '/sales/{id}/delete',confirm: '确认删除该销售订单？' },
+    //           confirm:     { url: '/sales/{id}/confirm',confirm: '确认该销售订单？' },
+    //           createOut:   { url: '/sales/{id}/create_outbound', confirm: '生成出库草稿？' },
+    //       }
+    //   });
+    function bindListActions(opts) {
+        if (!opts || !opts.tableId) { console.warn('bindListActions: tableId 必填'); return; }
+        var $table = document.getElementById(opts.tableId);
+        if (!$table) { console.warn('bindListActions: 找不到 #' + opts.tableId); return; }
+        var checkSel = opts.checkSelector || '.check-item';
+        var masterSel = opts.masterCheckbox || (opts.tableId === 'salesOrderTable' ? '#checkAllSalesOrders' : null);
+
+        // 1) 全选/反选
+        if (masterSel) {
+            var master = document.querySelector(masterSel);
+            if (master) {
+                master.addEventListener('change', function() {
+                    $table.querySelectorAll(checkSel + ':not(:disabled)').forEach(function(cb) { cb.checked = master.checked; });
+                });
+            }
+        }
+
+        function selectedIds() {
+            return Array.from($table.querySelectorAll(checkSel + ':checked')).map(function(cb) { return cb.value; }).filter(Boolean);
+        }
+
+        function runOne(ep, id, extraMsg) {
+            if (!ep) return;
+            var url = (typeof ep === 'string') ? ep : ep.url;
+            var msg = (typeof ep === 'object' && ep.confirm) ? ep.confirm : (extraMsg || '确认执行该操作？');
+            url = url.replace('{id}', encodeURIComponent(id));
+            var cb = (typeof ep === 'object' && ep.onSuccess) ? ep.onSuccess : function(d) {
+                if (d && d.status === 'success') {
+                    showToast(d.msg || '操作成功', 'success', 2400);
+                    setTimeout(function() { window.location.reload(); }, 600);
+                } else {
+                    showToast((d && d.msg) || '操作失败', 'danger', 3600);
+                }
+            };
+            showConfirm(msg, { title: opts.title || '操作确认' }).then(function(ok) {
+                if (!ok) return;
+                csrfFetch(url, { method: 'POST' }).then(function(r) { return r.json(); }).then(cb).catch(function(err) {
+                    showToast('操作失败：' + err.message, 'danger', 3600);
+                });
+            });
+        }
+
+        function runBatch(ep) {
+            if (!ep) return;
+            var ids = selectedIds();
+            if (!ids.length) { showToast('请先选择要操作的记录', 'warning'); return; }
+            var url = (typeof ep === 'string') ? ep : ep.url;
+            var msg = (typeof ep === 'object' && ep.confirm) ? ep.confirm : ('确认对选中的 ' + ids.length + ' 条记录执行该操作？');
+            showConfirm(msg, { title: opts.title || '操作确认' }).then(function(ok) {
+                if (!ok) return;
+                csrfFetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: ids })
+                }).then(function(r) { return r.json(); }).then(function(d) {
+                    if (d && (d.status === 'success' || d.status === 'partial')) {
+                        showToast(d.msg || '操作成功', 'success', 2400);
+                        setTimeout(function() { window.location.reload(); }, 600);
+                    } else {
+                        showToast((d && d.msg) || '操作失败', 'danger', 3600);
+                    }
+                }).catch(function(err) { showToast('操作失败：' + err.message, 'danger', 3600); });
+            });
+        }
+
+        // 2) data-action 委托：所有带 data-action 的元素（行内按钮）自动绑定
+        // 格式: <button data-action="copy" data-id="{{ order.id }}">复制</button>
+        $table.addEventListener('click', function(ev) {
+            var btn = ev.target.closest('[data-action]');
+            if (!btn || !$table.contains(btn)) return;
+            var key = btn.dataset.action;
+            var id = btn.dataset.id;
+            var ep = opts.endpoints && opts.endpoints[key];
+            if (!ep) { console.warn('bindListActions: 未配置 endpoints.' + key); return; }
+            ev.preventDefault();
+            runOne(ep, id, btn.dataset.confirm);
+        });
+
+        // 3) 顶部批量按钮 data-batch-action
+        // 格式: <button data-batch-action="batchDelete">删除已选</button>
+        if (opts.toolbar) {
+            var tb = typeof opts.toolbar === 'string' ? document.querySelector(opts.toolbar) : opts.toolbar;
+            if (tb) {
+                tb.addEventListener('click', function(ev) {
+                    var btn = ev.target.closest('[data-batch-action]');
+                    if (!btn) return;
+                    var key = btn.dataset.batchAction;
+                    var ep = opts.endpoints && opts.endpoints[key];
+                    if (!ep) { console.warn('bindListActions: 未配置 endpoints.' + key); return; }
+                    ev.preventDefault();
+                    runBatch(ep);
+                });
+            }
+        }
+
+        // 暴露选中 id 给外部（如需要在按钮 onclick 内调用）
+        return { selectedIds: selectedIds, runOne: runOne, runBatch: runBatch };
+    }
+    // SM-P6-03-3: 通用分页每页条数选择器（配合 _list_macros.html#pager 使用）
+    function bindPagerSelect(selectId) {
+        document.addEventListener('change', function(ev) {
+            var t = ev.target;
+            if (!t || t.id !== selectId) return;
+            var size = t.value;
+            var bk;
+            try { bk = JSON.parse(t.dataset.baseKwargs || '{}'); } catch (e) { bk = {}; }
+            var url = new URL(window.location.href, window.location.origin);
+            url.searchParams.set('per_page', size);
+            url.searchParams.set('page', '1');
+            Object.keys(bk).forEach(function(k) {
+                if (bk[k] !== null && bk[k] !== undefined && bk[k] !== '') url.searchParams.set(k, bk[k]);
+            });
+            window.location.href = url.toString();
+        });
+    }
     </script>
     <style>
         :root {

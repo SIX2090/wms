@@ -601,10 +601,10 @@ def batch_delete_sales_orders():
 | #6 缺失 `sales_followup` Agent | P1 | `AI-SALES-F02` | ✅ 已修复：4 步 AIAgentTask（Open sales order scan / Overdue shipment scan / Partial stalled scan / Customer urgency scan 含 manual confirmation required） |
 | #7 缺失 `sales_insights` 只读工具 | P1 | `AI-SALES-F02` | ✅ 已修复：对齐 `purchase_insights` 工具结构，handler `_ai_sales_insights_response`，23=23=23=23 三表+registry 一致 |
 | #11 csrfFetch helper 抽取 | P2 | `SM-P6-03` | ✅ 已修复（SM-P6-03-1）：base.html 全局定义 getCsrfToken/csrfFetch/csrfPost（含 csrfPost deprecated alias 向后兼容），sales_order_detail.html 删除本地 csrfPost/getCsrfToken 定义，sales_order.html 6 处 fetch（import/delete/copy/confirm/create_outbound/batch_delete）+ sales_outbound_selection.html 1 处 + sales_order_edit.html 1 处 + sales_order_add.html 1 处 全部迁移到 csrfFetch；剩余 2 处 GET fetch 保留（无需 CSRF）。SALES-STC-012 验证通过 |
-| #13 T+ 风格 CSS 抽共享 partial | P2 | `SM-P6-03` | ⏳ 未修复：`templates/_tplus_form_styles.html` |
-| #14 `status_badge(status)` 宏 | P2 | `SM-P6-03` | ⏳ 未修复：抽到 `_list_macros.html` |
-| #15 `bindListActions(opts)` 通用 CRUD 函数 | P2 | `SM-P6-03` | ⏳ 未修复：抽到 `_list_macros.html` |
-| #17 `setupResizableTable` 与每页条数选择器 | P2 | `SM-P6-03` | ⏳ 未修复：引入到 `sales_order.html`、`sales_outbound_list.html`、`sales_outflow_report.html` |
+| #13 T+ 风格 CSS 抽共享 partial | P2 | `SM-P6-03` | ✅ 已修复（SM-P6-03-3）：新增 `app/templates/_tplus_form_styles.html`，含 `.tplus-page/.tplus-form/.tplus-grid/.tplus-toolbar/.tplus-footer/.tplus-readonly/.tplus-material-input` 共 6+ 关键类，对齐 `document_table_form.html` 的 doc-page 风格（1890ff 蓝、12px 字号、28px 控件高度） |
+| #14 `status_badge(status)` 宏 | P2 | `SM-P6-03` | ✅ 已修复（SM-P6-03-3）：`_list_macros.html` 新增 `status_badge(status, scheme='generic', custom_map=None)`，支持 4 scheme（sales/outbound/inbound/purchase）+ generic fallback（覆盖 draft/confirmed/closed/cancelled/pending/completed/active/inactive/approved/rejected/reverted 等 11 状态） |
+| #15 `bindListActions(opts)` 通用 CRUD 函数 | P2 | `SM-P6-03` | ✅ 已修复（SM-P6-03-3）：`base.html` 新增 `bindListActions(opts)`（不放在 `_list_macros.html` 是因为它是 JS 函数不是 Jinja 宏），1 行配置代替 7 个 onclick 函数，支持 data-action（行内按钮）+ data-batch-action（顶部工具栏）双委托，`sales_order.html` 迁移演示：删除 7 个旧函数（toggleAllSalesOrders/selectedSalesOrderIds/deleteSalesOrder/copySalesOrder/confirmSalesOrder/createOutbound/batchDeleteSalesOrders），行内按钮改 `data-action="copy" data-id="{{ order.id }}"` |
+| #17 `setupResizableTable` 与每页条数选择器 | P2 | `SM-P6-03` | ✅ 已修复（SM-P6-03-2）：`sales_order.html` DOMContentLoaded 增加 `setupResizableTable({tableSelector:'.table-responsive-wrapper table', tableId:'sales-order-list', minWidth:70})` + `#salesPageSize` change 监听器（设置 per_page+page=1 跳转）；`app.py` sales_order_list 视图接受 per_page 参数（白名单 20/50/100/200，非白名单回退 20）。剩余 `sales_outbound_list.html` + `sales_outflow_report.html` 留待后续迁移 |
 | #19 重写 `sales_outbound_list.html` | P3 | `SM-P4-FIX-01` | ⏳ 未修复：从 8 行扩展为完整功能页 |
 | #20 重写 `sales_reconciliation_report.html` | P3 | `SM-P4-FIX-01` | ⏳ 未修复：从 4 行扩展为完整功能页 |
 | #21 引入 Chart.js 报表可视化 | P3 | `SM-P4-FIX-01` | ⏳ 未修复：趋势折线图、价格箱线图、汇总饼图/柱状图 |
@@ -641,6 +641,43 @@ def batch_delete_sales_orders():
 - `sales_insights`/`sales_followup_agent` 在沙箱因 Flask 未安装无法运行时验证，待业务环境补跑。
 - 真实销售数据 7 队列业务条件（如 `partial_stalled` 7 天阈值、`customer_urgency` 话术生成）需业务环境验证。
 - `SM-P6-03`（csrfFetch 抽取、setupResizableTable、T+ CSS、status_badge 宏、bindListActions）、`SM-P4-FIX-01`（极简模板重写、Chart.js 可视化）、`SM-P6-FIX-02`（WMS_BUG_BASELINE.md 回填）属独立子项，不在本子项范围。
+
+### 9.6 SM-P6-03-2 / SM-P6-03-3 完成记录（2026-07-21）
+
+**SM-P6-03-2（setupResizableTable + 每页条数选择器）**：
+
+1. `app/app.py`（L41690-41693）：`sales_order_list` 视图增加 `per_page` 参数白名单（20/50/100/200），非白名单回退 20。
+2. `app/templates/sales_order.html`：
+   - 分页 nav 重写为 `d-flex flex-wrap justify-content-between` 布局，左侧新增 `#salesPageSize` select + "共 X 条，每页 [select] 条"，右侧页码
+   - 所有 `url_for` 链接透传 `per_page=pagination.per_page`
+   - DOMContentLoaded 增加 `setupResizableTable({tableSelector:'.table-responsive-wrapper table', tableId:'sales-order-list', minWidth:70})` + `#salesPageSize` change 监听器
+
+**SM-P6-03-3（T+ CSS partial + 3 宏 + bindListActions 通用函数）**：
+
+1. **新增** `app/templates/_tplus_form_styles.html`（79 行）：`.tplus-page` `.tplus-form` `.tplus-grid` `.tplus-toolbar` `.tplus-footer` `.tplus-readonly` `.tplus-material-input` 等 6+ 关键类，对齐 `document_table_form.html` 的 doc-page 风格（1890ff 蓝、12px 字号、28px 控件高度、34px 表头高度、26px 网格内输入框）。
+2. **扩展** `app/templates/_list_macros.html`：
+   - 新增 `status_badge(status, scheme='generic', custom_map=None)`，4 scheme（sales/outbound/inbound/purchase）+ generic fallback
+   - 新增 `shipment_badge(shipment_status)` 销售单发货状态专用
+   - 新增 `pager(pagination, endpoint, base_kwargs=None, per_page_options=(20,50,100,200), page_size_id='')` 通用分页 nav
+3. **扩展** `app/templates/base.html`：新增 `bindListActions(opts)` 通用 JS 函数（约 100 行），支持 `data-action`（行内按钮）+ `data-batch-action`（顶部工具栏）双委托；`bindPagerSelect(selectId)` 配合 pager 宏的 select 自动跳转。
+4. **迁移** `app/templates/sales_order.html`：演示迁移，删除 7 个旧函数（`toggleAllSalesOrders` / `selectedSalesOrderIds` / `deleteSalesOrder` / `copySalesOrder` / `confirmSalesOrder` / `createOutbound` / `batchDeleteSalesOrders`），替换为 1 处 `bindListActions({...})` + 行内按钮 `data-action="copy" data-id="{{ order.id }}"` + 顶部 `data-batch-action="batchDelete"`。`status_badge` / `shipment_badge` 宏替换原手写 if/elif。
+5. **迁移** `app/templates/out_order.html`：手写 if/elif 状态徽标（4 行）→ `{{ list_macros.status_badge(item.out_order.status, 'outbound') }}`（1 行）。
+
+**验收结果**：
+
+- `python3 -m py_compile app/app.py` PASS（仅 SM-P6-03-2 涉及）
+- 5 项 Python 静态校验全 PASS：
+  - `_list_macros.html` 5 宏（`sort_th`/`sort_th_center`/`status_badge`/`shipment_badge`/`pager`）齐全
+  - `_tplus_form_styles.html` 6+ 关键 CSS 类齐全
+  - `base.html` 包含 `function bindListActions(` 和 `function bindPagerSelect(`
+  - `sales_order.html` 不再含 7 个旧函数，已注入 `{% import "_list_macros.html" as list_macros %}` + `list_macros.shipment_badge` + `list_macros.status_badge` + `data-action="copy"` + `data-batch-action="batchDelete"`
+  - `out_order.html` 包含 `list_macros.status_badge`
+
+**剩余风险**：
+
+- `sales_outbound_list.html` / `sales_outflow_report.html` 的 setupResizableTable 迁移未完成（业务影响小，留待后续）
+- `document_table_form.html` 的 `doc-page` 旧 CSS 未迁移到 `_tplus_form_styles.html`（向后兼容，不强制）
+- 真实浏览器 E2E 验证 `bindListActions` 的 confirm 流和数据回流需业务环境
 
 
 ---

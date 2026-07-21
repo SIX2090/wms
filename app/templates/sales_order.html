@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_list_macros.html" as list_macros %}
 {% block title %}销售订单管理{% endblock %}
 
 {% block content %}
@@ -7,7 +8,7 @@
         <h2 class="mb-0"><i class="bi bi-bag-check"></i> 销售订单管理</h2>
         <div class="d-flex gap-2 flex-wrap wms-entry-toolbar">
             {% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}
-            <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchDeleteSalesOrders()">
+            <button type="button" class="btn btn-outline-danger btn-sm" data-batch-action="batchDelete">
                 <i class="bi bi-trash"></i> 删除已选
             </button>
             {% endif %}
@@ -156,50 +157,34 @@
                         <td class="text-end">¥{{ "%.2f"|format(order.shipped_amount or 0) }}</td>
                         <td class="text-end {% if (order.remaining_amount or 0) > 0 %}text-warning fw-semibold{% endif %}">¥{{ "%.2f"|format(order.remaining_amount or 0) }}</td>
                         <td>
-                            {% if order.shipment_status == 'shipped' %}
-                            <span class="badge bg-success">已发货</span>
-                            {% elif order.shipment_status == 'partial' %}
-                            <span class="badge bg-info text-dark">部分发货</span>
-                            {% elif order.shipment_status == 'pending' %}
-                            <span class="badge bg-warning text-dark">待发货</span>
-                            {% else %}
-                            <span class="badge bg-light text-dark border">-</span>
-                            {% endif %}
+                            {{ list_macros.shipment_badge(order.shipment_status) }}
                         </td>
                         <td>
-                            {% if order.status == 'confirmed' %}
-                            <span class="badge bg-primary">{{ status_label(order.status) }}</span>
-                            {% elif order.status == 'closed' %}
-                            <span class="badge bg-success">{{ status_label(order.status) }}</span>
-                            {% elif order.status == 'cancelled' %}
-                            <span class="badge bg-secondary">{{ status_label(order.status) }}</span>
-                            {% else %}
-                            <span class="badge bg-warning text-dark">{{ status_label(order.status) }}</span>
-                            {% endif %}
+                            {{ list_macros.status_badge(order.status, 'sales') }}
                         </td>
                         <td>
                             <a href="{{ url_for('sales_order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情">
                                 <i class="bi bi-eye"></i>
                             </a>
                             {% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}
-                            <button type="button" class="btn btn-sm btn-outline-info" title="复制" onclick="copySalesOrder({{ order.id }})">
+                            <button type="button" class="btn btn-sm btn-outline-info" title="复制" data-action="copy" data-id="{{ order.id }}">
                                 <i class="bi bi-files"></i>
                             </button>
                             {% if order.status == 'draft' %}
                             <a href="{{ url_for('sales_order_edit_page', id=order.id) }}" class="btn btn-sm btn-outline-secondary" title="编辑">
                                 <i class="bi bi-pencil-square"></i>
                             </a>
-                            <button type="button" class="btn btn-sm btn-outline-danger" title="删除" onclick="deleteSalesOrder({{ order.id }})">
+                            <button type="button" class="btn btn-sm btn-outline-danger" title="删除" data-action="deleteOne" data-id="{{ order.id }}">
                                 <i class="bi bi-trash"></i>
                             </button>
                             {% endif %}
                             {% if order.status == 'draft' %}
-                            <button type="button" class="btn btn-sm btn-outline-success" title="确认" onclick="confirmSalesOrder({{ order.id }})">
+                            <button type="button" class="btn btn-sm btn-outline-success" title="确认" data-action="confirm" data-id="{{ order.id }}">
                                 <i class="bi bi-check-lg"></i>
                             </button>
                             {% endif %}
                             {% if order.status == 'confirmed' and order.shipment_status != 'shipped' %}
-                            <button type="button" class="btn btn-sm btn-outline-success" title="生成出库草稿" onclick="createOutbound({{ order.id }})">
+                            <button type="button" class="btn btn-sm btn-outline-success" title="生成出库草稿" data-action="createOut" data-id="{{ order.id }}">
                                 <i class="bi bi-box-arrow-up"></i>
                             </button>
                             {% endif %}
@@ -255,7 +240,7 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // SM-P6-03-2: 可调整列宽表格 + 每页条数选择器
+    // SM-P6-03-2: 可调整列宽表格
     if (typeof setupResizableTable === 'function') {
         setupResizableTable({
             tableSelector: '.table-responsive-wrapper table',
@@ -263,6 +248,7 @@ document.addEventListener('DOMContentLoaded', function() {
             minWidth: 70
         });
     }
+    // SM-P6-03-2: 每页条数选择器
     var pageSizeSelect = document.getElementById('salesPageSize');
     if (pageSizeSelect) {
         pageSizeSelect.addEventListener('change', function() {
@@ -273,6 +259,7 @@ document.addEventListener('DOMContentLoaded', function() {
             window.location.href = url.toString();
         });
     }
+    // 排序列头点击
     document.querySelectorAll('.sortable-header').forEach(function(th) {
         th.addEventListener('click', function() {
             var sortField = this.dataset.sortable;
@@ -286,6 +273,27 @@ document.addEventListener('DOMContentLoaded', function() {
             url.searchParams.set('page', '1');
             window.location.href = url.toString();
         });
+    });
+    // SM-P6-03-3: 通用列表动作绑定（data-action / data-batch-action 委托）
+    bindListActions({
+        tableId: 'salesOrderTable',
+        checkSelector: '.sales-order-check',
+        masterCheckbox: '#checkAllSalesOrders',
+        toolbar: '.wms-entry-toolbar',
+        title: '销售订单操作',
+        endpoints: {
+            batchDelete: { url: '/sales/batch_delete', confirm: '确定删除选中的销售订单？只有草稿状态可删除。' },
+            copy:        { url: '/sales/{id}/copy', confirm: '确定复制该销售订单？系统会生成一张新的草稿销售订单。',
+                            onSuccess: function(d) {
+                                if (d && d.status === 'success') {
+                                    showToast(d.msg || '复制成功', 'success');
+                                    setTimeout(function() { window.location.href = '/sales/' + d.id + '/edit'; }, 500);
+                                } else { showToast((d && d.msg) || '复制失败', 'danger', 3600); }
+                            } },
+            deleteOne:   { url: '/sales/{id}/delete', confirm: '确定删除该销售订单？此操作不可恢复。' },
+            confirm:     { url: '/sales/{id}/confirm', confirm: '确定确认该销售订单？确认后订单将进入待发货状态。' },
+            createOut:   { url: '/sales/{id}/create_outbound', confirm: '确定生成销售出库草稿？生成后仍需仓库人工完成出库。' }
+        }
     });
 });
 
@@ -313,130 +321,8 @@ function submitImportForm() {
     });
 }
 
-function toggleAllSalesOrders() {
-    const master = document.getElementById('checkAllSalesOrders');
-    const checked = master ? master.checked : false;
-    document.querySelectorAll('.sales-order-check').forEach(function(item) {
-        item.checked = checked;
-    });
-}
-
-function selectedSalesOrderIds() {
-    return Array.from(document.querySelectorAll('.sales-order-check:checked')).map(function(item) {
-        return item.value;
-    });
-}
-
-function deleteSalesOrder(id) {
-    showConfirm('确定删除该销售订单吗？此操作不可恢复。', { title: '删除销售订单' }).then(function(confirmed) {
-        if (!confirmed) return;
-        csrfFetch('/sales/' + id + '/delete', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showToast(data.msg || '删除成功', 'success');
-                setTimeout(function() { location.reload(); }, 500);
-            } else {
-                showToast(data.msg || '删除失败', 'danger', 3600);
-            }
-        })
-        .catch(error => showToast('删除失败：' + error.message, 'danger', 3600));
-    });
-}
-
-function copySalesOrder(id) {
-    showConfirm('确定复制该销售订单吗？系统会生成一张新的草稿销售订单。', { title: '复制销售订单' }).then(function(confirmed) {
-        if (!confirmed) return;
-        csrfFetch('/sales/' + id + '/copy', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showToast(data.msg || '复制成功', 'success');
-                setTimeout(function() {
-                    window.location.href = '/sales/' + data.id + '/edit';
-                }, 500);
-            } else {
-                showToast(data.msg || '复制失败', 'danger', 3600);
-            }
-        })
-        .catch(error => showToast('复制失败：' + error.message, 'danger', 3600));
-    });
-}
-
-function confirmSalesOrder(id) {
-    showConfirm('确定确认该销售订单吗？确认后订单将进入待发货状态。', { title: '确认销售订单' }).then(function(confirmed) {
-        if (!confirmed) return;
-        csrfFetch('/sales/' + id + '/confirm', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showToast(data.msg || '确认成功', 'success');
-                setTimeout(function() { location.reload(); }, 500);
-            } else {
-                showToast(data.msg || '确认失败', 'danger', 3600);
-            }
-        })
-        .catch(error => showToast('确认失败：' + error.message, 'danger', 3600));
-    });
-}
-
-function createOutbound(id) {
-    showConfirm('确定生成销售出库草稿吗？生成后仍需仓库人工完成出库。', { title: '生成出库草稿' }).then(function(confirmed) {
-        if (!confirmed) return;
-        csrfFetch('/sales/' + id + '/create_outbound', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showToast(data.msg || '生成成功', 'success');
-                setTimeout(function() { location.reload(); }, 500);
-            } else {
-                showToast(data.msg || '生成失败', 'danger', 3600);
-            }
-        })
-        .catch(error => showToast('生成失败：' + error.message, 'danger', 3600));
-    });
-}
-
-function batchDeleteSalesOrders() {
-    const ids = selectedSalesOrderIds();
-    if (!ids.length) {
-        showToast('请先选择要删除的销售订单', 'warning');
-        return;
-    }
-    showConfirm('确定删除选中的 ' + ids.length + ' 张销售订单吗？只有草稿状态的订单可以删除。', { title: '批量删除销售订单' }).then(function(confirmed) {
-        if (!confirmed) return;
-        csrfFetch('/sales/batch_delete', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ids: ids})
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showToast(data.msg || '删除成功', 'success');
-                setTimeout(function() { location.reload(); }, 500);
-            } else {
-                showToast(data.msg || '删除失败', 'danger', 5000);
-            }
-        })
-        .catch(error => showToast('删除失败：' + error.message, 'danger', 3600));
-    });
-}
+// SM-P6-03-3: toggleAllSalesOrders / selectedSalesOrderIds / deleteSalesOrder / copySalesOrder /
+// confirmSalesOrder / createOutbound / batchDeleteSalesOrders 已迁移到 base.html#bindListActions，
+// 行内按钮改用 data-action / data-batch-action 委托，无需在此重复定义。
 </script>
 {% endblock %}

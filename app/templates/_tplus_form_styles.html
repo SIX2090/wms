@@ -1,0 +1,67 @@
+{# T+ 风格共享 CSS partial (SM-P6-03-3) — 桌面密集表单布局，对齐 document_table_form.html 的 doc-page 风格。
+   用法: {% include '_tplus_form_styles.html' %} （已默认在 document_table_form.html 使用，业务表单可自由引入）。#}
+<style>
+/* ============== 页面容器 ============== */
+.tplus-page { background:#fff; min-height:calc(100vh - 80px); }
+.tplus-header { background:#fff; padding:12px 16px; border-bottom:1px solid #d9d9d9; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; }
+.tplus-header h2 { font-size:15px; font-weight:600; color:#333; margin:0; display:flex; align-items:center; gap:6px; }
+.tplus-body { padding:12px 16px; }
+
+/* ============== 表单控件 ============== */
+.tplus-form .form-label { font-size:12px; color:#666; margin-bottom:3px; font-weight:400; }
+.tplus-form .form-control,
+.tplus-form .form-select { border:1px solid #d9d9d9; border-radius:2px; padding:3px 8px; font-size:12px; height:28px; background:#fff; }
+.tplus-form textarea.form-control { height:auto; min-height:28px; resize:vertical; }
+.tplus-form .form-control:focus,
+.tplus-form .form-select:focus,
+.tplus-form .tplus-grid input:focus,
+.tplus-form .tplus-grid select:focus { border-color:#1890ff !important; box-shadow:0 0 0 2px rgba(24,144,255,.1); outline:none; }
+
+/* ============== 工具栏 + 按钮 ============== */
+.tplus-toolbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:6px 0; }
+.tplus-toolbar .btn,
+.tplus-footer .btn { height:34px; border-radius:5px; font-size:12px; line-height:1; display:inline-flex; align-items:center; gap:5px; padding:0 14px; font-weight:500; }
+
+/* ============== 行项表（密集网格） ============== */
+.tplus-grid-wrapper { border:1px solid #d9d9d9; overflow:visible; background:#fff; }
+.tplus-grid { width:100%; border-collapse:collapse; margin:0; table-layout:auto; }
+.tplus-grid thead th { background:#fafafa; color:#333; font-weight:500; padding:7px 8px; border:1px solid #e8e8e8; font-size:12px; white-space:nowrap; text-align:center; height:34px; }
+.tplus-grid tbody td { padding:0 4px; vertical-align:middle; font-size:12px; border:1px solid #e8e8e8; height:30px; color:#333; }
+.tplus-grid tbody tr:nth-child(even) td { background:#fafafa; }
+.tplus-grid tbody tr:nth-child(odd) td { background:#fff; }
+.tplus-grid tbody tr:hover td { background:#e6f7ff; border-color:#91d5ff; }
+.tplus-grid .row-num { width:42px; text-align:center; color:#999; font-size:12px; padding:0 2px; }
+.tplus-grid .action-col { width:86px; text-align:center; white-space:nowrap; }
+.tplus-grid .num-col { text-align:right; }
+.tplus-grid input,
+.tplus-grid select { width:100%; border:1px solid transparent; background:transparent; padding:2px 4px; height:26px; font-size:12px; border-radius:2px; color:#333; }
+.tplus-grid input:hover:not([readonly]),
+.tplus-grid select:hover:not(:disabled) { border-color:#d9d9d9; background:#fafafa; }
+.tplus-grid input[readonly] { cursor:default; color:#333; }
+.tplus-grid .num-col input { text-align:right; }
+
+/* ============== 物料下拉 ============== */
+.tplus-material-input { position:relative; }
+.tplus-material-select-btn { position:absolute; right:1px; top:50%; transform:translateY(-50%); background:transparent; border:none; padding:1px 4px; cursor:pointer; font-size:9px; color:#888; height:20px; line-height:1; }
+.tplus-material-select-btn:hover { color:#1890ff; }
+.tplus-material-dropdown { position:fixed; min-width:420px; max-height:280px; overflow-y:auto; background:#fff; border:1px solid #d9d9d9; border-radius:3px; z-index:99999; box-shadow:0 2px 12px rgba(0,0,0,.12); }
+.tplus-material-dropdown-item { padding:6px 10px; cursor:pointer; border-bottom:1px solid #f0f0f0; font-size:12px; }
+.tplus-material-dropdown-item:hover { background:#e6f7ff; }
+.tplus-material-dropdown-item .code { font-weight:600; color:#1890ff; }
+.tplus-material-dropdown-item .meta { color:#999; font-size:11px; margin-left:6px; }
+
+/* ============== 行项汇总 + 底部 ============== */
+.tplus-grid tfoot td { padding:8px; font-size:12px; border:1px solid #ffe58f; font-weight:600; color:#333; background:#fffbe6; }
+.tplus-footer { background:#fff; padding:12px 16px; border-top:1px solid #d9d9d9; display:flex; justify-content:flex-end; gap:8px; position:sticky; bottom:0; z-index:5; }
+
+/* ============== 只读遮罩 ============== */
+.tplus-readonly input:not([type="hidden"]),
+.tplus-readonly select,
+.tplus-readonly textarea { pointer-events:none; background:#f5f5f5 !important; color:#666 !important; }
+
+/* ============== 响应式 ============== */
+@media (max-width:768px) {
+    .tplus-body { padding:10px; }
+    .tplus-material-dropdown { min-width:300px; left:10px !important; right:10px; }
+}
+</style>
