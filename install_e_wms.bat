@@ -9,6 +9,8 @@ set "WHEELHOUSE=%PKG_DIR%\wheelhouse"
 set "PY_INSTALLER=%PKG_DIR%\runtime\python-3.11.9-amd64.exe"
 set "INSTALL_DIR=E:\wms"
 set "RUN_DIR=%INSTALL_DIR%"
+set "PYTHON_DIR=%INSTALL_DIR%\python"
+set "PYTHON_EXE=%PYTHON_DIR%\python.exe"
 set "IN_PLACE_INSTALL="
 
 for %%I in ("%PKG_DIR%") do set "PKG_DIR_FULL=%%~fI"
@@ -43,6 +45,8 @@ if not exist "%WHEELHOUSE%" (
   exit /b 1
 )
 
+if exist "%PYTHON_EXE%" goto :python_found
+
 set "PYTHON_EXE="
 if exist "%LocalAppData%\Programs\Python\Python311\python.exe" (
   set "PYTHON_EXE=%LocalAppData%\Programs\Python\Python311\python.exe"
@@ -67,16 +71,17 @@ if not defined PYTHON_EXE (
     pause
     exit /b 1
   )
-  echo [1/8] Python not found. Installing Python 3.11...
-  "%PY_INSTALLER%" /quiet InstallAllUsers=0 PrependPath=1 Include_pip=1 Include_test=0
+  echo [1/8] Python not found. Installing portable Python to %PYTHON_DIR%...
+  echo          Python will NOT be added to system PATH.
+  if not exist "%PYTHON_DIR%" mkdir "%PYTHON_DIR%"
+  "%PY_INSTALLER%" /quiet InstallAllUsers=0 TargetDir="%PYTHON_DIR%" PrependPath=0 Include_pip=1 Include_test=0
   if errorlevel 1 (
     echo [ERROR] Python installer failed.
-    echo Try right-clicking install_e_wms.bat and choose "Run as administrator", or install Python 3.11 x64 manually.
+    echo Try right-clicking install_e_wms.bat and choose "Run as administrator".
     pause
     exit /b 1
   )
-  set "PYTHON_EXE=%LocalAppData%\Programs\Python\Python311\python.exe"
-  if not exist "!PYTHON_EXE!" set "PYTHON_EXE=%ProgramFiles%\Python311\python.exe"
+  set "PYTHON_EXE=%PYTHON_DIR%\python.exe"
 )
 
 if defined PYTHON_EXE if exist "%PYTHON_EXE%" goto :python_found
@@ -179,6 +184,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 echo.
 echo ============================================================
 echo [OK] WMS installed to E:\wms
+echo Python: %PYTHON_DIR% (portable, not in system PATH)
 echo Start: %START_SCRIPT%
 echo Login: http://127.0.0.1:8080/login
 echo Username: admin
