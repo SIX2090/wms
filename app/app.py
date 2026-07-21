@@ -41687,7 +41687,10 @@ def sales_order_list():
     sort_col = getattr(SalesOrder, sort_by, SalesOrder.date)
     query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc())
     
-    pagination = query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.salesperson)).paginate(page=request.args.get('page', 1, type=int), per_page=20, error_out=False)
+    # SM-P6-03-2: 每页条数选择器（白名单 20/50/100/200，默认 20，避免极端值导致性能问题）
+    requested_per_page = request.args.get('per_page', 20, type=int)
+    per_page = requested_per_page if requested_per_page in (20, 50, 100, 200) else 20
+    pagination = query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.salesperson)).paginate(page=request.args.get('page', 1, type=int), per_page=per_page, error_out=False)
     
     # 计算汇总数据
     summary = {
