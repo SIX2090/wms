@@ -44,7 +44,7 @@ function updateSummary() { const rows = [...document.querySelectorAll('.select-r
 function createSelectedOutbound() {
   const rows = [...document.querySelectorAll('.select-row:checked')]; if (!rows.length) { showToast('请选择销售订单明细', 'warning'); return; }
   const items = []; for (const input of rows) { const qty = document.querySelector(`.qty-input[data-id="${input.dataset.id}"]`); const value = Number(qty.value); const max = Number(qty.max); if (!Number.isFinite(value) || value <= 0 || value - max > 0.000001) { showToast('本次出库数量必须大于 0 且不能超过待发货数量', 'warning'); qty.focus(); return; } items.push({sales_order_item_id: Number(input.dataset.id), quantity: value}); }
-  fetch('{{ url_for("create_sales_outbound_from_selection") }}', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({items})}).then(r => r.json()).then(data => { if (data.status === 'success') window.location.href = data.redirect_url; else showToast(data.msg || '生成失败', 'danger'); }).catch(() => showToast('生成失败，请稍后重试', 'danger'));
+  csrfFetch('{{ url_for("create_sales_outbound_from_selection") }}', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({items})}).then(r => r.json()).then(data => { if (data.status === 'success') window.location.href = data.redirect_url; else showToast(data.msg || '生成失败', 'danger'); }).catch(() => showToast('生成失败，请稍后重试', 'danger'));
 }
 ['customerFilter','warehouseFilter','salespersonFilter'].forEach(id => document.getElementById(id).addEventListener('change', loadSelectable));
 document.getElementById('searchFilter').addEventListener('keydown', e => { if (e.key === 'Enter') loadSelectable(); });

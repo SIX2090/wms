@@ -266,7 +266,7 @@ function submitImportForm() {
     const file = document.getElementById('importFile').files[0];
     if (!file) return;
     const data = new FormData(form);
-    fetch('/sales/import', {
+    csrfFetch('/sales/import', {
         method: 'POST',
         body: data
     })
@@ -302,7 +302,7 @@ function selectedSalesOrderIds() {
 function deleteSalesOrder(id) {
     showConfirm('确定删除该销售订单吗？此操作不可恢复。', { title: '删除销售订单' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/sales/' + id + '/delete', {
+        csrfFetch('/sales/' + id + '/delete', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({})
@@ -323,7 +323,7 @@ function deleteSalesOrder(id) {
 function copySalesOrder(id) {
     showConfirm('确定复制该销售订单吗？系统会生成一张新的草稿销售订单。', { title: '复制销售订单' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/sales/' + id + '/copy', {
+        csrfFetch('/sales/' + id + '/copy', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({})
@@ -346,7 +346,7 @@ function copySalesOrder(id) {
 function confirmSalesOrder(id) {
     showConfirm('确定确认该销售订单吗？确认后订单将进入待发货状态。', { title: '确认销售订单' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/sales/' + id + '/confirm', {
+        csrfFetch('/sales/' + id + '/confirm', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({})
@@ -367,7 +367,7 @@ function confirmSalesOrder(id) {
 function createOutbound(id) {
     showConfirm('确定生成销售出库草稿吗？生成后仍需仓库人工完成出库。', { title: '生成出库草稿' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/sales/' + id + '/create_outbound', {
+        csrfFetch('/sales/' + id + '/create_outbound', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({})
@@ -393,7 +393,7 @@ function batchDeleteSalesOrders() {
     }
     showConfirm('确定删除选中的 ' + ids.length + ' 张销售订单吗？只有草稿状态的订单可以删除。', { title: '批量删除销售订单' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/sales/batch_delete', {
+        csrfFetch('/sales/batch_delete', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ids: ids})

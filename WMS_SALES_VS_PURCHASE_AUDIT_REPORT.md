@@ -600,7 +600,7 @@ def batch_delete_sales_orders():
 | #5 缺失 `ai_sales_workbench.html` AI 跟进工作台 | P1 | `AI-SALES-F02` | ✅ 已修复：7 队列工作台 + `sales_followup_workbench.py` 后端 + `/api/ai/sales_followup_workbench` 只读 API |
 | #6 缺失 `sales_followup` Agent | P1 | `AI-SALES-F02` | ✅ 已修复：4 步 AIAgentTask（Open sales order scan / Overdue shipment scan / Partial stalled scan / Customer urgency scan 含 manual confirmation required） |
 | #7 缺失 `sales_insights` 只读工具 | P1 | `AI-SALES-F02` | ✅ 已修复：对齐 `purchase_insights` 工具结构，handler `_ai_sales_insights_response`，23=23=23=23 三表+registry 一致 |
-| #11 csrfFetch helper 抽取 | P2 | `SM-P6-03` | ⏳ 未修复：将 `csrfFetch` 抽到 `base.html`/`_list_macros.html`，14 个 `sales_*.html` 全部迁移 |
+| #11 csrfFetch helper 抽取 | P2 | `SM-P6-03` | ✅ 已修复（SM-P6-03-1）：base.html 全局定义 getCsrfToken/csrfFetch/csrfPost（含 csrfPost deprecated alias 向后兼容），sales_order_detail.html 删除本地 csrfPost/getCsrfToken 定义，sales_order.html 6 处 fetch（import/delete/copy/confirm/create_outbound/batch_delete）+ sales_outbound_selection.html 1 处 + sales_order_edit.html 1 处 + sales_order_add.html 1 处 全部迁移到 csrfFetch；剩余 2 处 GET fetch 保留（无需 CSRF）。SALES-STC-012 验证通过 |
 | #13 T+ 风格 CSS 抽共享 partial | P2 | `SM-P6-03` | ⏳ 未修复：`templates/_tplus_form_styles.html` |
 | #14 `status_badge(status)` 宏 | P2 | `SM-P6-03` | ⏳ 未修复：抽到 `_list_macros.html` |
 | #15 `bindListActions(opts)` 通用 CRUD 函数 | P2 | `SM-P6-03` | ⏳ 未修复：抽到 `_list_macros.html` |

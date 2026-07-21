@@ -132,7 +132,7 @@
         if (!data.customer_id) { document.getElementById('entryStatus').textContent = '请选择客户'; return; }
         if (!data.items.some(function(item) { return item.code && Number(item.quantity) > 0; })) { document.getElementById('entryStatus').textContent = '请至少添加一条有效销售明细'; return; }
         var token = document.querySelector('meta[name="csrf-token"]');
-        var response = await fetch('{{ url_for("sales_order_add") }}', {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRFToken': token ? token.content : ''}, body:JSON.stringify(data)});
+        var response = await csrfFetch('{{ url_for("sales_order_add") }}', {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRFToken': token ? token.content : ''}, body:JSON.stringify(data)});
         var result = await response.json();
         if (result.status === 'success') window.location.href = saveAndNew ? '{{ url_for("sales_order_add_page") }}' : '/sales/' + result.id;
         else document.getElementById('entryStatus').textContent = result.msg || '保存失败，请检查明细';

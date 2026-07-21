@@ -183,21 +183,8 @@
   {% endif %}
 </div>
 <script>
-function getCsrfToken() {
-  const meta = document.querySelector('meta[name="csrf-token"]');
-  if (meta) return meta.getAttribute('content');
-  const hidden = document.querySelector('input[name="csrf_token"]');
-  return hidden ? hidden.value : '';
-}
-function csrfPost(url, options) {
-  options = Object.assign({method: 'POST'}, options || {});
-  const headers = new Headers(options.headers || {});
-  const token = getCsrfToken();
-  if (token && !headers.has('X-CSRFToken')) headers.set('X-CSRFToken', token);
-  options.headers = headers;
-  options.credentials = options.credentials || 'same-origin';
-  return fetch(url, options);
-}
+// getCsrfToken / csrfPost / csrfFetch are defined globally in base.html (SM-P6-03-1).
+// Local re-declarations removed to avoid shadowing the global helpers.
 function postAction(url, msg) {
   showConfirm(msg, { title: '销售订单操作' }).then(function(confirmed) {
     if (!confirmed) return;

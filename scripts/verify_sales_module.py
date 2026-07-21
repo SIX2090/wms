@@ -15,6 +15,7 @@
     SALES-STC-009  销售订单仓库外键迁移和启用校验
     SALES-STC-010  销售选单多进程写锁和二次校验
     SALES-STC-011  销售模板 POST fetch 调用携带 CSRF 头/Token（AI-SALES-F01-FIX-02）
+    SALES-STC-012  base.html 提供全局 csrfFetch/getCsrfToken/csrfPost helper（SM-P6-03-1）
 
   运行时测试（Flask test_client + 临时数据库）：
     SALES-RT-001  创建销售订单（含税额字段）
@@ -202,6 +203,41 @@ def run_static_checks() -> list[tuple[str, bool, str]]:
         "销售模板 POST fetch 调用携带 CSRF 头/Token"
         + (f"（base.html 全局包装器自动注入）" if has_global_csrf_wrapper else "")
         + ("" if ok_stc011 else f" 缺失位置: {csrf_missing}")))
+
+    # SALES-STC-012: 销售模板使用全局 csrfFetch / csrfPost helper，不重复定义
+    # 修复任务 SM-P6-03-1：抽 csrfFetch helper 到 base.html，迁移 14 个 sales_*.html
+    # 规则：base.html 必须提供全局 csrfFetch/getCsrfToken/csrfPost；sales_*.html 不应再
+    #       重复定义本地 function csrfFetch / function csrfPost / function getCsrfToken。
+    sales_templates_for_stc012 = [
+        "sales_order.html", "sales_order_add.html", "sales_order_edit.html",
+        "sales_order_detail.html", "sales_outbound_selection.html",
+        "sales_outbound_list.html", "sales_report.html", "sales_dashboard.html",
+        "sales_exceptions.html", "sales_price_analysis.html",
+        "sales_reconciliation_report.html", "sales_trend_report.html",
+        "sales_execution_report.html", "sales_outflow_report.html",
+    ]
+    base_provides_global = (
+        "function csrfFetch" in base_html
+        and "function getCsrfToken" in base_html
+        and "function csrfPost" in base_html
+    )
+    local_redefs = []
+    for tpl_name in sales_templates_for_stc012:
+        tpl_path = ROOT / "app" / "templates" / tpl_name
+        if not tpl_path.exists():
+            continue
+        tpl_text = tpl_path.read_text(encoding="utf-8", errors="ignore")
+        for marker in (
+            "function csrfFetch", "function csrfPost", "function getCsrfToken",
+        ):
+            if marker in tpl_text:
+                local_redefs.append(f"{tpl_name}:{marker}")
+    ok_stc012 = base_provides_global and not local_redefs
+    results.append(static_check("SALES-STC-012", ok_stc012,
+        "base.html 提供全局 csrfFetch/getCsrfToken/csrfPost helper，sales_*.html 不重复定义"
+        + ("" if ok_stc012 else (
+            " base.html 全局 helper: " + ("YES" if base_provides_global else "MISSING")
+            + f"  本地重复定义: {local_redefs or 'NONE'}"))))
 
     # SALES-STC-005: 新增报表模板存在
     templates_dir = ROOT / "app" / "templates"

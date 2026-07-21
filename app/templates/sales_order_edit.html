@@ -146,7 +146,7 @@ document.querySelector('#salesForm').onsubmit = async e => {
     serial_no: tr.querySelector('.serial-no').value,
     remark: tr.querySelector('.remark').value,
   }));
-  const r = await fetch(editUrl, {
+  const r = await csrfFetch(editUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(Object.assign(Object.fromEntries(f.entries()), { items })),

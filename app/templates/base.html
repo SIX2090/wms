@@ -49,6 +49,27 @@
             };
         }
     })();
+    // Global CSRF helpers (SM-P6-03-1): sales_*.html / purchase_*.html / out_order_detail.html
+    // reuse these instead of redefining per template.
+    function getCsrfToken() {
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        if (meta && meta.content) return meta.content;
+        var hidden = document.querySelector('input[name="csrf_token"]');
+        return hidden ? hidden.value : '';
+    }
+    function csrfFetch(url, options) {
+        options = Object.assign({method: 'POST'}, options || {});
+        var headers = new Headers(options.headers || {});
+        var token = getCsrfToken();
+        if (token && !headers.has('X-CSRFToken')) {
+            headers.set('X-CSRFToken', token);
+        }
+        options.headers = headers;
+        options.credentials = options.credentials || 'same-origin';
+        return fetch(url, options);
+    }
+    // Deprecated alias kept for backward compatibility with sales_order_detail.html.
+    function csrfPost(url, options) { return csrfFetch(url, options); }
     </script>
     <style>
         :root {
