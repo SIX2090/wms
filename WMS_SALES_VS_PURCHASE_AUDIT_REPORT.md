@@ -611,8 +611,8 @@ def batch_delete_sales_orders():
 | #22 补 loading state | P3 | `SM-P4-FIX-01` | ⏳ 未修复：AJAX 期间按钮 disabled + spinner |
 | #23 补 a11y 标注 | P3 | `SM-P4-FIX-01` | ⏳ 未修复：`aria-label`、`role="dialog"`、`scope="col"` |
 | #24 复核 `sales_outbound_selection.html:36` 路由 | P3 | `SM-P4-FIX-01` | ⏳ 未修复：统一为 `/api/sales_order/selectable` |
-| #25 回填销售已修复 Bug 到 `WMS_BUG_BASELINE.md` | P2 | `SM-P6-FIX-02` | ⏳ 未修复：OutOrder.customer_id、OutOrderItem.source_sales_order_item_id 等 |
-| #26 新增 `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` 任务条目 | P2 | `SM-P6-FIX-02` | ⏳ 已完成 AI-SALES-F02 任务行（本报告与开发计划已记录 SM-P6-FIX-01、AI-SALES-F01-FIX-02、SM-P6-02、AI-SALES-F02 四条），剩余建议项 SM-P6-03/SM-P4-FIX-01/SM-P6-FIX-02 待新建 |
+| #25 回填销售已修复 Bug 到 `WMS_BUG_BASELINE.md` | P2 | `SM-P6-FIX-02` | ✅ 已修复：WMS_BUG_BASELINE.md 已修复并纳入回归表新增 BUG-SALES-001~016 共 16 条（含 SalesOrder.customer_id/warehouse_id、OutOrderItem.source_sales_order_item_id、OutOrder.source_sales_order_id、跨仓库校验、并发锁、Numeric(18,2)、@require_role、CSRF 头、工具语义错配、VALID_ROLES、AI 异常分析、AI 工作台、confirm/alert 迁移、权限感知按钮、客户导入） |
+| #26 新增 `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` 任务条目 | P2 | `SM-P6-FIX-02` | ✅ 已修复：本报告与开发计划已记录 SM-P6-FIX-01、AI-SALES-F01-FIX-02、SM-P6-02、AI-SALES-F02 四条，WMS_BUG_BASELINE.md 已同步 BUG-SALES-001~016，剩余建议项 SM-P6-03/SM-P4-FIX-01 待新建 |
 
 ### 9.5 AI-SALES-F02 完成记录（2026-07-21）
 

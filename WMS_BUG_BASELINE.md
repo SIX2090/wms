@@ -1,6 +1,6 @@
 # WMS BUG 基线
 
-更新时间：2026-07-13
+更新时间：2026-07-21
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。
 
@@ -50,6 +50,22 @@
 | AI-IDEMPOTENCY-001 | AI 重复点击、网络重试或 SSE 重连可能重复生成草稿 | 检查普通响应和 SSE 使用持久化 `request_id`，重复请求只执行一次并重放结果 |
 | AI-ENCODING-001 | AI 采购入库业务类型和确认框存在历史乱码 | 检查已知乱码常量不得重新出现 |
 | AI-AUDIT-001 | AI 请求和能力授权缺少持久化审计，无法复盘模型、耗时和权限结果 | 检查每个首次请求创建 `AIRun`，能力校验写入 `AIToolCall`，幂等重放不重复创建运行记录 |
+| BUG-SALES-001 | `SalesOrder` 缺 `customer_id` 外键，依赖 customer 字符串文本，无法关联客户主数据 | 检查 `SalesOrder.customer_id` 为 `nullable=False` 外键到 `customer.id` |
+| BUG-SALES-002 | `SalesOrder` 缺 `warehouse_id` 外键，依赖 warehouse 字符串，报表仓库筛选无法关联 Warehouse 表 | 检查 `SalesOrder.warehouse_id` 为外键到 `warehouse.id`，历史数据已回填 |
+| BUG-SALES-003 | `OutOrderItem` 缺行级来源外键，无法追溯到销售订单明细 | 检查 `OutOrderItem.source_sales_order_item_id` 为外键到 `sales_order_item.id` |
+| BUG-SALES-004 | `OutOrder` 缺头级来源外键，依赖 `purpose` 字符串解析 | 检查 `OutOrder.source_sales_order_id` 为外键到 `sales_order.id`，`source_sales_order` relationship 已建立 |
+| BUG-SALES-005 | 销售出库缺跨仓库边界校验，可能扣错仓库库存 | 检查出库时 `material.stock` 减扣后不为负，且按 `SalesOrder.warehouse_id` 校验仓库一致性 |
+| BUG-SALES-006 | 销售选单接口 `/api/sales_order/selectable` 无并发保护，高并发可能重复生成出库草稿 | 检查选单接口使用 `BEGIN IMMEDIATE` 串行化 |
+| BUG-SALES-007 | `SalesOrder` 金额字段使用 `Float` 类型，精度不足导致对账偏差 | 检查 `SalesOrder.total_amount`/`untaxed_amount`/`tax_amount`/`shipped_amount`/`remaining_amount` 均为 `Numeric(18,2)` |
+| BUG-SALES-008 | `/sales/<id>/copy` 和 `/sales/batch_delete` 缺 `@require_role`，仅 `@login_required` 越权风险 | 检查 12 个 `/sales/*` POST 路由全部含 `@require_role('warehouse','purchase','sales')`（SM-P6-FIX-01） |
+| BUG-SALES-009 | `sales_order_detail.html` 两处 fetch 调用缺 `X-CSRFToken` 头，存在 CSRF 漏洞 | 检查模板 fetch 调用使用 `csrfPost` helper 或继承 `base.html` 全局 `window.fetch` wrapper（SM-P6-FIX-01） |
+| BUG-SALES-010 | `sales_out_draft` AI 工具语义错配：工具名"销售出库草稿"但描述/端点均为"售后出库" | 检查 `sales_out_draft` 标记为 deprecated alias，新增 `after_sale_out_draft`（端点 `add_after_sale_out_order`）+ `sales_outbound_draft`（端点 `create_sales_outbound_draft`）（AI-SALES-F01-FIX-02） |
+| BUG-SALES-011 | `VALID_ROLES` 缺 `'sales'` 角色，导致 `sales_out_draft` 工具合规检查失败 | 检查 `VALID_ROLES` 包含 `'sales'`（AI-BUG-F02 / `b374565`） |
+| BUG-SALES-012 | 销售模块无 AI 异常分析与单据联查能力，对比采购侧 `out_order_detail.html` 缺失 | 检查 `sales_order_detail.html` 含 AI 异常分析按钮 + `/api/ai/sales_order/<id>/anomaly_analysis` 只读路由 + 售后单联查面板（AI-SALES-F01-FIX-02） |
+| BUG-SALES-013 | 销售模块无 AI 履约跟进工作台，对比采购侧 `AI-R11-F01` 7 队列结构缺失 | 检查 `ai_sales_workbench.html` + `sales_followup_workbench.py` 7 队列 + `sales_followup` Agent + `sales_insights` 工具 + 3 路由（AI-SALES-F02） |
+| BUG-SALES-014 | 销售模板散用 `confirm()`/`alert()` 原生 API，与系统级 `showConfirm`/`showToast` 不一致 | 检查 5 个销售模板（`sales_outbound_selection.html`/`customer.html`/`after_sale_out.html`/`after_sale_out_add.html`/`after_sale_out_detail.html`）不再含 `confirm(`/`alert(` 调用（SM-P6-02） |
+| BUG-SALES-015 | `sales_order.html` 工具栏 + 行内写按钮无角色权限感知隐藏，`user`/`production` 角色可见写操作入口 | 检查写按钮包裹 `{% if current_user.role in ['admin','warehouse','purchase','sales'] %}`，后端 `@require_role` 仍二次校验（SM-P6-02） |
+| BUG-SALES-016 | `customer.html` 完全无客户导入入口，与 `supplier.html` 结构不一致 | 检查 `customer.html` 含 `importModal` 模态框 + AJAX 提交 + `csrf_token` + `notifyMasterDataChanged('customer_updated')` 广播（SM-P6-02） |
 
 ## 已确认误报
 

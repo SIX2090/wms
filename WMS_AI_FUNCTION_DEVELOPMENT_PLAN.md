@@ -330,6 +330,7 @@ AI-R01～R17 的基础能力已经完成。AI-R17-F01 真实用户白名单灰�
 | P1 修复 | AI-SALES-F01-FIX-02 | 已完成 | 销售工具语义错配修复 + AI 异常分析按钮 + 单据联查面板 | AI-SALES-F01-FIX-01 | sales_out_draft 拆分为 after_sale_out_draft（端点 add_after_sale_out_order）+ sales_outbound_draft（端点 create_sales_outbound_draft），原工具保留为 deprecated alias；sales_order_detail.html 新增 AI 异常分析按钮 + /api/ai/sales_order/&lt;id&gt;/anomaly_analysis 只读路由 + 售后单联查面板 | 三表（registry/policies/golden_samples）键一致；新增工具均 confirmation_required=True；sales 角色可调用 after_sale_out_draft/sales_outbound_draft | 2026-07-21 | [待提交] | app/ai/tools/registry.py、app/ai/policies.py、app/ai/documents/golden_samples.py、scripts/verify_ai_tool_schemas.py、scripts/verify_ai_permission_matrix.py、scripts/verify_ai_business_permissions.py、AI_PERMISSION_MATRIX.md、app/app.py、app/templates/sales_order_detail.html | verify_ai_tool_schemas.py PASS；21 工具 registry==roles==endpoints==risk_levels；verify_sales_module.py 11/11 PASS | 真实 AI 工具调用仍需业务环境验证；sales_outbound_draft 业务端点 create_sales_outbound_draft 已存在（app.py create_sales_outbound_draft 路由） |
 | P2 修复 | SM-P6-02 | 已完成 | 销售前端工程化迁移（confirm/alert→showConfirm/showToast + customer 导入模态框 + sales_order.html 权限感知按钮隐藏） | SM-P6-FIX-01、AI-SALES-F01-FIX-02 | 5 个销售模板（sales_outbound_selection.html、customer.html、after_sale_out.html、after_sale_out_add.html、after_sale_out_detail.html）confirm()/alert() 全部迁移到 showConfirm()/showToast()；customer.html 增加 importModal 对齐 supplier.html 结构；sales_order.html 工具栏 + 行内写操作按钮包裹 {% if current_user.role in ['admin','warehouse','purchase','sales'] %} | 5 模板不再含 confirm(/alert( 调用；customer.html 含 importModal + AJAX + csrf_token；sales_order.html 写按钮按角色隐藏（user/production 角色不可见） | 2026-07-21 | [待提交] | app/templates/sales_outbound_selection.html、app/templates/customer.html、app/templates/after_sale_out.html、app/templates/after_sale_out_add.html、app/templates/after_sale_out_detail.html、app/templates/sales_order.html | grep -E "(alert\(|confirm\()" app/templates/{sales_outbound_selection,customer,after_sale_out,after_sale_out_add,after_sale_out_detail}.html 无命中；sales_order.html jinja2 if/endif 配对平衡 | csrfFetch helper 抽取与 setupResizableTable 引入留待 SM-P6-03；T+ CSS partial 抽取与 status_badge 宏留待 SM-P6-03 |
 | P1 修复 | AI-SALES-F02 | 已完成 | 销售履约跟进 AI 工作台（对齐采购侧 7 队列结构） | AI-SALES-F01-FIX-02、SM-P6-02 | 7 类队列（待发货/逾期发货/部分发货停滞/缺货风险/客户紧急/合并发货候选/客户跟进清单）+ 4 个 frozen dataclass + 依赖注入纯逻辑模块 + 4 步 AIAgentTask + sales_insights 只读工具 + 3 路由（/ai/sales_workbench、/api/ai/sales_followup_workbench、/ai/agent_tasks/run/sales_followup）+ base.html 菜单入口 + 4 个 sales 角色 AI 建议按钮 + 验证脚本 | 工作台恒只读，催发货话术恒不自动发送，需人工确认；7 队列不允许任何 send/submit/audit/delete/void/complete/confirm_post/cancel/auto_dispatch 写动作常量；三表（policies/registry/permission_matrix）+ AI_TOOL_REGISTRY 23=23=23=23 一致 | 2026-07-21 | [待提交] | app/ai/ops/sales_followup_workbench.py、app/ai/agents/sales_followup.py、app/ai/policies.py、app/ai/tools/registry.py、app/app.py、app/templates/ai_sales_workbench.html、app/templates/base.html、AI_PERMISSION_MATRIX.md、scripts/verify_ai_sales_followup_workbench.py | verify_ai_sales_followup_workbench.py 11/11 PASS（页面路由/路由端点/菜单入口/模板存在/只读约束/空态/跳转链接/刷新功能/ops 验收/三表一致性/Agent 签名）；ops mock 测试 7 sections + total_attention=4 + 三项验收校验通过；app.py py_compile 通过 | 真实销售数据验收与浏览器 E2E 仍需业务环境执行；sales_insights/sales_followup_agent 在沙箱因 Flask 未安装无法运行时验证，待业务环境补跑 |
+| P2 修复 | SM-P6-FIX-02 | 已完成 | 销售已修复 Bug 回填 WMS_BUG_BASELINE.md + 审计报告 9.4 表 #25/#26 状态更新 | AI-SALES-F02、SM-P6-02、AI-SALES-F01-FIX-02、SM-P6-FIX-01 | WMS_BUG_BASELINE.md "已修复并纳入回归" 表新增 BUG-SALES-001~016 共 16 条销售模块已修复 Bug；审计报告 9.4 表 #25/#26 状态由 ⏳ 未修复 改为 ✅ 已修复；更新时间 2026-07-13 → 2026-07-21 | BUG-SALES-001~016 覆盖 SalesOrder/OutOrder/OutOrderItem 外键、Numeric 精度、@require_role、CSRF 头、AI 工具语义、VALID_ROLES、AI 异常分析、AI 工作台、confirm/alert 迁移、权限感知按钮、客户导入；后续 scan_wms_risks.py 不再重复报告 | 2026-07-21 | [待提交] | WMS_BUG_BASELINE.md、WMS_SALES_VS_PURCHASE_AUDIT_REPORT.md | grep -c "BUG-SALES-" WMS_BUG_BASELINE.md（≥16）；WMS_SALES_VS_PURCHASE_AUDIT_REPORT.md #25/#26 标记 ✅ 已修复 | SM-P6-03（csrfFetch 抽取/setupResizableTable/T+ CSS/status_badge 宏/bindListActions）、SM-P4-FIX-01（极简模板重写/Chart.js 可视化）属独立子项，不在本子项范围 |
 | 发布门禁 | AI-R17-F03 | 已完成 | 正式发布、备份恢复和运营交接 | 上述 P0 全部、选定 P1 | 发布清单、备份、恢复演练、监控、回滚、培训 | 2026-07-18 | [待提交] | release_handover.py、verify_ai_release_handover.py | 8项专项测试通过 | 无 |
 | P0 修复 | AI-AUDIT-001-F01 | 已完成 | 修复 AI 审计回归检查对关键字参数调用的误报 | AI-R01、AI-R17-F01 | 验证脚本匹配合法的能力审计调用，保持权限和审计逻辑不变 | 回归检查通过且核心/完整套件通过 | 2026-07-18 | 4e79a49 | scripts/verify_wms_bugs.py、WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md | verify_wms_bugs.py、verify_ai_all.py --level full、compileall、严格台账一致性全部通过 | 64/64 full 通过；远程 main 已验证为 4e79a49 | 无 |
 | P0 | AI-R18-F01 | 已完成 | 生产就绪门禁、真实验收证据和 main 克隆恢复流程 | AI-R17-F02、AI-R17-F03 | 生产证据 JSON 校验、默认 no-go、自测、CI 门禁、临时电脑安全克隆 | 缺真实样本/七日指标/签字/生产配置任一项均不得 GO | 2026-07-18 | 881020f | scripts/verify_production_readiness.py、tools/clone_wms_main.ps1、README.md、PRODUCTION_DEPLOYMENT_CHECKLIST.md、.github/workflows/verify.yml | self-test、py_compile、source encoding、verify_ai_all.py --level full、严格台账一致性均通过 | full 64/64；已推送 main；真实生产证据仍需现场采集，合成样本不计入 GO |
@@ -640,6 +641,35 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 - 状态：专项验证已完成；真实销售数据验收与浏览器 E2E 仍需业务环境执行。
 - 提交 SHA：[待提交]；专项命令：`python scripts/verify_ai_sales_followup_workbench.py`（11/11 PASS）；`python3 -m py_compile app/app.py app/ai/ops/sales_followup_workbench.py app/ai/agents/sales_followup.py app/ai/policies.py app/ai/tools/registry.py`（PASS）；`PYTHONPATH=app python3 -c "from ai.policies import AI_CAPABILITY_ROLES, AI_CAPABILITY_BUSINESS_ENDPOINTS, AI_CAPABILITY_RISK_LEVELS; from ai.tools.registry import AI_TOOL_REGISTRY; assert set(AI_TOOL_REGISTRY)==set(AI_CAPABILITY_ROLES)==set(AI_CAPABILITY_BUSINESS_ENDPOINTS)==set(AI_CAPABILITY_RISK_LEVELS); print(len(AI_TOOL_REGISTRY), 'tools consistent')"`（23 tools consistent）；ops mock 测试（7 sections + total_attention=4 + 三项验收校验通过）。
 - 剩余风险：`sales_insights`/`sales_followup_agent` 在沙箱因 Flask 未安装无法运行时验证，待业务环境补跑；真实销售数据 7 队列业务条件（如 partial_stalled 7 天阈值、customer_urgency 话术生成）需业务环境验证；`SM-P6-03`（csrfFetch 抽取、setupResizableTable、T+ CSS、status_badge 宏、bindListActions）、`SM-P4-FIX-01`（极简模板重写、Chart.js 可视化）、`SM-P6-FIX-02`（WMS_BUG_BASELINE.md 回填）属独立子项，不在本子项范围。
+
+#### SM-P6-FIX-02（已完成）
+
+- 目标：回填销售模块已修复 Bug 到 `WMS_BUG_BASELINE.md`，避免不同 AI 模型重复扫描已修复项；同步更新审计报告 `WMS_SALES_VS_PURCHASE_AUDIT_REPORT.md` 9.4 表 #25/#26 状态。
+- 业务边界：仅追加文档基线条目，不修改任何代码；新增条目覆盖历史已修复 Bug（来自 `SALES_MANAGEMENT_DEVELOPMENT_PLAN.md` 阶段 7/10/12/13/14/15/16/17 + 本轮 SM-P6-FIX-01/SM-P6-02/AI-SALES-F01-FIX-02/AI-SALES-F02）。
+- 改动模块：
+  - `WMS_BUG_BASELINE.md`：
+    - 更新时间 `2026-07-13` → `2026-07-21`。
+    - "已修复并纳入回归"表新增 `BUG-SALES-001`~`BUG-SALES-016` 共 16 条：
+      - `BUG-SALES-001`：`SalesOrder.customer_id` 外键（nullable=False → customer.id）。
+      - `BUG-SALES-002`：`SalesOrder.warehouse_id` 外键（→ warehouse.id，历史数据已回填）。
+      - `BUG-SALES-003`：`OutOrderItem.source_sales_order_item_id` 行级来源外键。
+      - `BUG-SALES-004`：`OutOrder.source_sales_order_id` 头级来源外键 + `source_sales_order` relationship。
+      - `BUG-SALES-005`：销售出库跨仓库边界校验（material.stock 减扣后不为负 + 按 warehouse_id 一致性）。
+      - `BUG-SALES-006`：销售选单并发保护（`/api/sales_order/selectable` 使用 `BEGIN IMMEDIATE` 串行化）。
+      - `BUG-SALES-007`：`SalesOrder` 金额字段 `Float` → `Numeric(18,2)`（5 个字段：total/untaxed/tax/shipped/remaining）。
+      - `BUG-SALES-008`：`/sales/<id>/copy` + `/sales/batch_delete` 补 `@require_role('warehouse','purchase','sales')`（SM-P6-FIX-01）。
+      - `BUG-SALES-009`：`sales_order_detail.html` 两处 fetch 改用 `csrfPost` helper（SM-P6-FIX-01）。
+      - `BUG-SALES-010`：`sales_out_draft` 拆分为 `after_sale_out_draft` + `sales_outbound_draft`，原工具 deprecated alias（AI-SALES-F01-FIX-02）。
+      - `BUG-SALES-011`：`VALID_ROLES` 新增 `'sales'` 角色（AI-BUG-F02 / `b374565`）。
+      - `BUG-SALES-012`：销售 AI 异常分析按钮 + `/api/ai/sales_order/<id>/anomaly_analysis` 路由 + 售后单联查面板（AI-SALES-F01-FIX-02）。
+      - `BUG-SALES-013`：销售 AI 履约跟进工作台 7 队列 + Agent + 工具 + 3 路由（AI-SALES-F02）。
+      - `BUG-SALES-014`：5 个销售模板 `confirm()`/`alert()` → `showConfirm()`/`showToast()`（SM-P6-02）。
+      - `BUG-SALES-015`：`sales_order.html` 写按钮按 `current_user.role` 隐藏（SM-P6-02）。
+      - `BUG-SALES-016`：`customer.html` 新增 `importModal` 客户导入入口（SM-P6-02）。
+  - `WMS_SALES_VS_PURCHASE_AUDIT_REPORT.md`：9.4 表 #25 状态由 ⏳ 未修复 改为 ✅ 已修复；#26 状态由 ⏳ 部分完成 改为 ✅ 已修复。
+- 状态：专项验证已完成；台账一致性已对齐。
+- 提交 SHA：[待提交]；专项命令：`grep -c "BUG-SALES-" WMS_BUG_BASELINE.md`（≥16）；`grep "BUG-SALES-016" WMS_BUG_BASELINE.md`（命中）；`grep "✅ 已修复" WMS_SALES_VS_PURCHASE_AUDIT_REPORT.md`（#25/#26 行命中）。
+- 剩余风险：`SM-P6-03`（csrfFetch 抽取、setupResizableTable、T+ CSS、status_badge 宏、bindListActions）、`SM-P4-FIX-01`（极简模板重写、Chart.js 可视化）属独立子项，不在本子项范围。
 
 每个子项完成后必须在本台账追加：
 
