@@ -55,6 +55,28 @@ def parse_float_value(value, default=0):
         return float(default)
 
 
+def parse_int_value(value, default=0, minimum=None, maximum=None):
+    """安全地解析整型数值。
+
+    系统设置或表单中的整型字段（如 ``alert_days``、``limit``、``window_hours``、
+    标签模板的 ``cols``/``rows`` 等）可能传入空串、非数字字符串或 None，
+    直接 ``int()`` 会抛 ``ValueError``/``TypeError`` 导致 500。这里统一兜底，
+    解析失败或越界时回落到 ``default``，并对 ``minimum``/``maximum`` 做夹紧。
+    """
+    try:
+        if value is None or value == '':
+            parsed = int(default)
+        else:
+            parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    if minimum is not None and parsed < minimum:
+        parsed = minimum
+    if maximum is not None and parsed > maximum:
+        parsed = maximum
+    return parsed
+
+
 def parse_date_value(value, default=None):
     """安全地解析日期值"""
     if not value:

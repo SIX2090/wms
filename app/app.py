@@ -56,7 +56,7 @@ from ai.documents.sales_draft_validation import (
 
 # Import utility functions
 from utils import (
-    round_to_2_decimals, parse_float_value, parse_date_value,
+    round_to_2_decimals, parse_float_value, parse_int_value, parse_date_value,
     normalize_stock_quantity, is_stock_sufficient,
     serialize_unit, serialize_supplier, serialize_customer, serialize_material, serialize_material_legacy,
     serialize_bom_item, serialize_bom,
@@ -6699,11 +6699,11 @@ def add_material():
         spec=spec,
         stock=initial_stock,
         purpose=request.form.get('purpose'),
-        min_stock=float(request.form.get('min_stock', 0) or 0),
-        max_stock=float(request.form.get('max_stock', 0) or 0),
-        reorder_point=float((request.form.get('reorder_point') or request.form.get('safety_stock') or 0) or 0),
+        min_stock=parse_float_value(request.form.get('min_stock'), 0),
+        max_stock=parse_float_value(request.form.get('max_stock'), 0),
+        reorder_point=parse_float_value(request.form.get('reorder_point') or request.form.get('safety_stock'), 0),
         expiry_date=expiry_date_parsed,
-        alert_days=int(request.form.get('alert_days', 30) or 30),
+        alert_days=parse_int_value(request.form.get('alert_days'), 30, minimum=1, maximum=3650),
         price=initial_price,
         remark=((request.form.get('remark') or '').strip() or None),
         image=image_path
@@ -7915,7 +7915,7 @@ def edit_material(id):
     if inventory_alert_enabled():
         material.min_stock = parse_float_value(request.form.get('min_stock'), 0)
         material.reorder_point = parse_float_value(request.form.get('reorder_point'), 0)
-        material.alert_days = int(request.form.get('alert_days') or 30)
+        material.alert_days = parse_int_value(request.form.get('alert_days'), 30, minimum=1, maximum=3650)
     material.expiry_date = parse_date_value(expiry_date)
     material.price = parse_bounded_number(request.form.get('price'), 0, maximum=MAX_TRANSACTION_PRICE)
     if material.price is None:
@@ -24566,7 +24566,9 @@ def add_bom_item(id):
     bom = BOM.query.get_or_404(id)
     try:
         material_code = (request.form.get('material_code') or '').strip()
-        quantity = float(request.form.get('quantity', 1))
+        # 用 parse_float_value 兜底：传入 "abc" 或负数时回落到 0，
+        # 触发下方 quantity <= 0 检查返回明确错误，避免 ValueError 500
+        quantity = parse_float_value(request.form.get('quantity'), 0)
         unit_id = request.form.get('unit_id')
         usage = (request.form.get('usage') or '').strip()
         remark = (request.form.get('remark') or '').strip()
@@ -25476,10 +25478,10 @@ def label_template_list():
 def add_label_template():
     try:
         name = (request.form.get('name') or '').strip()
-        width = float(request.form.get('width', 100))
-        height = float(request.form.get('height', 60))
-        cols = int(request.form.get('cols', 5))
-        rows = int(request.form.get('rows', 6))
+        width = parse_float_value(request.form.get('width'), 100)
+        height = parse_float_value(request.form.get('height'), 60)
+        cols = parse_int_value(request.form.get('cols'), 5, minimum=1, maximum=100)
+        rows = parse_int_value(request.form.get('rows'), 6, minimum=1, maximum=100)
         is_default = request.form.get('is_default') == 'on'
         layout = request.form.get('layout', '{}')
 
@@ -26469,7 +26471,7 @@ def add_subcontract_item(id):
         return jsonify({'status': 'error', 'msg': '只有草稿状态的委外单可以添加明细'})
     try:
         material_code = (request.form.get('material_code') or '').strip()
-        quantity = float(request.form.get('quantity', 1))
+        quantity = parse_float_value(request.form.get('quantity'), 0)
         unit_id = request.form.get('unit_id')
 
         material = Material.query.filter_by(code=material_code).first()
@@ -27117,17 +27119,17 @@ def add_subcontract_issue_item(id):
     
     try:
         material_code = (request.form.get('material_code') or '').strip()
-        quantity = float(request.form.get('quantity', 0))
-        
+        quantity = parse_float_value(request.form.get('quantity'), 0)
+
         if not material_code:
             return jsonify({'status': 'error', 'msg': '请选择物料'})
         if quantity <= 0:
             return jsonify({'status': 'error', 'msg': '数量必须大于0'})
-        
+
         material = Material.query.filter_by(code=material_code).first()
         if not material:
             return jsonify({'status': 'error', 'msg': f'物料 {material_code} 不存在'})
-        
+
         # 检查库存是否充足
         current_stock = normalize_stock_quantity(material.stock or 0)
         if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
@@ -27659,9 +27661,9 @@ def add_subcontract_receive_item(id):
     
     try:
         material_code = (request.form.get('material_code') or '').strip()
-        quantity = float(request.form.get('quantity', 0))
-        scrap_quantity = float(request.form.get('scrap_quantity', 0))
-        
+        quantity = parse_float_value(request.form.get('quantity'), 0)
+        scrap_quantity = parse_float_value(request.form.get('scrap_quantity'), 0)
+
         if not material_code:
             return jsonify({'status': 'error', 'msg': '请选择物料'})
         if quantity <= 0:
@@ -28184,9 +28186,9 @@ def add_transfer_item(id):
     
     try:
         material_code = (request.form.get('material_code') or '').strip()
-        quantity = float(request.form.get('quantity', 0))
+        quantity = parse_float_value(request.form.get('quantity'), 0)
         price = round_to_2_decimals(parse_float_value(request.form.get('price'), 0))
-        
+
         if not material_code:
             return jsonify({'status': 'error', 'msg': '请选择物料'})
         if quantity <= 0:
@@ -36702,7 +36704,7 @@ def api_ai_data_cleanup_execute():
 def api_ai_data_cleanup_logs():
     """AI-R14 清理日志查询端点。"""
     try:
-        limit = int(request.args.get('limit', 50))
+        limit = parse_int_value(request.args.get('limit'), 50, minimum=1, maximum=500)
         logs = _ai_dr_query_logs(limit=limit)
         return jsonify({
             'status': 'success',
@@ -37071,9 +37073,7 @@ def api_ai_launch_acceptance():
     """
     from ai.ops.launch_acceptance import compute_acceptance_metrics, validate_zero_violation
     try:
-        window_hours = int(request.args.get('window_hours', 168))
-        if window_hours <= 0 or window_hours > 24 * 365:
-            window_hours = 168
+        window_hours = parse_int_value(request.args.get('window_hours'), 168, minimum=1, maximum=24 * 365)
         counts = _ai_r17_acceptance_counts(window_hours=window_hours)
         report = compute_acceptance_metrics(counts, window_hours=window_hours)
         ok, reason = validate_zero_violation(report)
@@ -37389,7 +37389,7 @@ def api_ai_rollout_audit():
         stage = request.args.get('stage')
         if stage:
             query = query.filter_by(stage=stage)
-        limit = min(int(request.args.get('limit', 100)), 500)
+        limit = parse_int_value(request.args.get('limit'), 100, minimum=1, maximum=500)
         rows = query.order_by(AIRolloutAudit.created_at.desc()).limit(limit).all()
         return jsonify({
             'status': 'ok',
@@ -37424,7 +37424,7 @@ def api_ai_rollout_fallback_tasks():
         status = request.args.get('status')
         if status:
             query = query.filter_by(status=status)
-        limit = min(int(request.args.get('limit', 100)), 500)
+        limit = parse_int_value(request.args.get('limit'), 100, minimum=1, maximum=500)
         rows = query.order_by(AIManualFallbackTask.created_at.desc()).limit(limit).all()
         return jsonify({
             'status': 'ok',
