@@ -152,7 +152,7 @@
         }
 
         // 2) data-action 委托：所有带 data-action 的元素（行内按钮）自动绑定
-        // 格式: <button data-action="copy" data-id="{{ order.id }}">复制</button>
+        // 格式: <button data-action="copy" data-id="{order.id}">复制</button>
         $table.addEventListener('click', function(ev) {
             var btn = ev.target.closest('[data-action]');
             if (!btn || !$table.contains(btn)) return;
