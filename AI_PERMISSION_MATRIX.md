@@ -10,26 +10,34 @@
 ## 当前能力矩阵
 
 | 能力键 | admin | warehouse | purchase | sales | production | user | 风险级别 |
-|---|---:|---:|---:|---:|---:|---|
-| `out_order_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 草稿 |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `out_order_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 草稿 |
 | `sales_out_draft` | 允许 | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 草稿 |
-| `in_order_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 草稿 |
-| `purchase_receive_draft` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 草稿 |
-| `transfer_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 草稿 |
-| `check_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 草稿 |
-| `adjustment_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 草稿 |
-| `purchase_request_draft` | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 草稿 |
-| `warehouse_insights` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 只读 |
-| `purchase_insights` | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 只读 |
-| `warehouse_patrol_agent` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 只读 Agent |
-| `purchase_followup_agent` | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 只读 Agent |
-| `replenishment_planning` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 只读 |
-| `replenishment_smart` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 只读 |
-| `inventory_health` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 只读 |
-| `knowledge_base` | 允许 | 允许 | 允许 | 允许 | 允许 | 只读 |
-| `master_data_insights` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 只读 |
-| `admin_insights` | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 敏感只读 |
-| `alias_management` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 只读/维护入口 |
+| `after_sale_out_draft` | 允许 | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 草稿 |
+| `sales_outbound_draft` | 允许 | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 草稿 |
+| `in_order_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 草稿 |
+| `purchase_receive_draft` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 草稿 |
+| `transfer_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 草稿 |
+| `check_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 草稿 |
+| `adjustment_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 草稿 |
+| `purchase_request_draft` | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 禁止 | 草稿 |
+| `warehouse_insights` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 只读 |
+| `purchase_insights` | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 禁止 | 只读 |
+| `warehouse_patrol_agent` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 只读 Agent |
+| `purchase_followup_agent` | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 禁止 | 只读 Agent |
+| `replenishment_planning` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 只读 |
+| `replenishment_smart` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 只读 |
+| `inventory_health` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 只读 |
+| `knowledge_base` | 允许 | 允许 | 允许 | 允许 | 允许 | 允许 | 只读 |
+| `master_data_insights` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 只读 |
+| `admin_insights` | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 | 敏感只读 |
+| `alias_management` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 只读/维护入口 |
+
+## 工具语义说明（AI-SALES-F01-FIX-02）
+
+- `sales_out_draft`：**已废弃别名**，行为等同 `after_sale_out_draft`，仅为向后兼容保留。新增 AI 调用应使用 `after_sale_out_draft` 或 `sales_outbound_draft`。
+- `after_sale_out_draft`：售后出库草稿，对应业务端点 `add_after_sale_out_order`，创建 `AfterSaleOutOrder`（客户退货、换货、保修发货等场景）。
+- `sales_outbound_draft`：销售出库草稿，对应业务端点 `create_sales_outbound_draft`，从已确认销售订单生成 `OutOrder`（按订单未发货数量自动生成明细）。
 
 ## 高风险动作
 

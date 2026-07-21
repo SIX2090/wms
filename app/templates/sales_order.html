@@ -6,21 +6,27 @@
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h2 class="mb-0"><i class="bi bi-bag-check"></i> 销售订单管理</h2>
         <div class="d-flex gap-2 flex-wrap wms-entry-toolbar">
+            {% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}
             <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchDeleteSalesOrders()">
                 <i class="bi bi-trash"></i> 删除已选
             </button>
+            {% endif %}
             <a href="/sales/download_template" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
+            {% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}
             <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('importFile').click()">
                 <i class="bi bi-upload"></i> 导入
             </button>
+            {% endif %}
             <a href="/sales/export?status={{ filters.status }}&customer_id={{ filters.customer_id }}&salesperson_id={{ filters.salesperson_id }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
                 <i class="bi bi-file-earmark-excel"></i> 导出
             </a>
+            {% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}
             <a href="/sales/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增销售单</a>
             <form id="importForm" action="/sales/import" method="post" enctype="multipart/form-data" class="d-none">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="file" id="importFile" name="file" accept=".xlsx,.xls" onchange="submitImportForm()">
             </form>
+            {% endif %}
         </div>
     </div>
 </div>
@@ -175,6 +181,7 @@
                             <a href="{{ url_for('sales_order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情">
                                 <i class="bi bi-eye"></i>
                             </a>
+                            {% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}
                             <button type="button" class="btn btn-sm btn-outline-info" title="复制" onclick="copySalesOrder({{ order.id }})">
                                 <i class="bi bi-files"></i>
                             </button>
@@ -195,6 +202,7 @@
                             <button type="button" class="btn btn-sm btn-outline-success" title="生成出库草稿" onclick="createOutbound({{ order.id }})">
                                 <i class="bi bi-box-arrow-up"></i>
                             </button>
+                            {% endif %}
                             {% endif %}
                         </td>
                     </tr>

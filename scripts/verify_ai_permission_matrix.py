@@ -22,6 +22,9 @@ ROLES = ('admin', 'warehouse', 'purchase', 'production', 'user')
 EXPECTED = {
     'out_order_draft': {'admin', 'warehouse'},
     'sales_out_draft': {'admin', 'warehouse'},
+    # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft
+    'after_sale_out_draft': {'admin', 'warehouse'},
+    'sales_outbound_draft': {'admin', 'warehouse'},
     'in_order_draft': {'admin', 'warehouse'},
     'purchase_receive_draft': {'admin', 'warehouse', 'purchase'},
     'transfer_draft': {'admin', 'warehouse'},

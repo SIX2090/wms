@@ -41412,14 +41412,141 @@ def sales_order_detail(id):
         ),
         OutOrder.business_type == '销售出库',
     ).order_by(OutOrder.date.desc(), OutOrder.id.desc()).all()
+    related_after_sale_orders = AfterSaleOutOrder.query.filter(
+        AfterSaleOutOrder.source_sales_order_id == order.id,
+    ).order_by(AfterSaleOutOrder.date.desc(), AfterSaleOutOrder.id.desc()).all()
     return render_template(
         'sales_order_detail.html',
         order=order,
         related_sales_out_orders=related_sales_out_orders,
+        related_after_sale_orders=related_after_sale_orders,
         today=date.today(),
         status_label=sales_status_label,
         shipment_status_label=sales_shipment_status_label,
     )
+
+
+@app.route('/api/ai/sales_order/<int:id>/anomaly_analysis')
+# AI_TASK: AI-SALES-F01-FIX-03
+@login_required
+def api_ai_sales_order_anomaly_analysis(id):
+    """Read-only AI sales order anomaly analysis; never mutates any document.
+
+    Covers: overdue shipment, shortage of inbound material, over-shipped quantity,
+    missing sales source linkage, abnormal sales price, partial-shipment stall.
+    Aligned with /api/ai/out_order/<id>/anomaly_analysis read-only contract.
+    """
+    order = SalesOrder.query.options(
+        joinedload(SalesOrder.customer),
+        joinedload(SalesOrder.items).joinedload(SalesOrderItem.material).joinedload(Material.unit),
+    ).get_or_404(id)
+    anomalies: list[dict] = []
+    summary_parts: list[str] = []
+
+    # 1. 逾期未发货
+    if order.delivery_date and order.delivery_date < date.today() and order.status in ('draft', 'confirmed') and order.shipment_status != 'shipped':
+        anomalies.append({
+            'kind': '逾期未发货',
+            'severity': 'high',
+            'message': f'交货日期 {order.delivery_date} 已过，当前发货状态：{order.shipment_status}',
+        })
+        summary_parts.append('逾期未发货')
+
+    # 2. 行级超发检查
+    over_shipped_items = []
+    for item in order.items:
+        shipped = float(item.shipped_quantity or 0)
+        qty = float(item.quantity or 0)
+        if shipped > qty + 1e-6:
+            over_shipped_items.append(f'{item.material.code if item.material else item.material_id}: 已发 {shipped} > 订单 {qty}')
+    if over_shipped_items:
+        anomalies.append({
+            'kind': '行级超发',
+            'severity': 'high',
+            'message': '; '.join(over_shipped_items),
+        })
+        summary_parts.append('行级超发')
+
+    # 3. 部分发货停滞（部分发货但近 7 天无新出库）
+    if order.shipment_status == 'partial':
+        last_outbound = OutOrder.query.filter(
+            OutOrder.source_sales_order_id == order.id,
+            OutOrder.business_type == '销售出库',
+        ).order_by(OutOrder.date.desc()).first()
+        if last_outbound and last_outbound.date:
+            days_stall = (date.today() - last_outbound.date).days
+            if days_stall > 7:
+                anomalies.append({
+                    'kind': '部分发货停滞',
+                    'severity': 'medium',
+                    'message': f'最近一次出库 {last_outbound.date}，已停滞 {days_stall} 天',
+                })
+                summary_parts.append(f'部分发货停滞 {days_stall} 天')
+
+    # 4. 价格异常（行含税单价 ≤ 0 或与同物料历史均值偏离 50%）
+    abnormal_price_items = []
+    for item in order.items:
+        if not item.material:
+            continue
+        price = float(item.price or 0)
+        if price <= 0:
+            abnormal_price_items.append(f'{item.material.code}: 单价 {price} 异常')
+            continue
+        # 同物料历史均价（不含当前订单）
+        historical_avg = db.session.query(db.func.avg(SalesOrderItem.price)).join(
+            SalesOrder, SalesOrderItem.sales_order_id == SalesOrder.id
+        ).filter(
+            SalesOrderItem.material_id == item.material_id,
+            SalesOrder.id != order.id,
+            SalesOrder.status.in_(['confirmed', 'closed']),
+        ).scalar()
+        if historical_avg and abs(price - float(historical_avg)) / float(historical_avg) > 0.5:
+            abnormal_price_items.append(
+                f'{item.material.code}: 当前 {price:.2f} vs 历史 {float(historical_avg):.2f}（偏离 {(abs(price - float(historical_avg)) / float(historical_avg) * 100):.0f}%）'
+            )
+    if abnormal_price_items:
+        anomalies.append({
+            'kind': '价格异常',
+            'severity': 'medium',
+            'message': '; '.join(abnormal_price_items),
+        })
+        summary_parts.append('价格异常')
+
+    # 5. 缺货风险（订单已确认但库存不足）
+    if order.status == 'confirmed' and order.shipment_status != 'shipped':
+        shortage_items = []
+        for item in order.items:
+            if not item.material:
+                continue
+            remaining = float(item.quantity or 0) - float(item.shipped_quantity or 0)
+            if remaining <= 0:
+                continue
+            current_stock = float(item.material.stock or 0)
+            if current_stock < remaining:
+                shortage_items.append(f'{item.material.code}: 待发 {remaining} vs 库存 {current_stock}')
+        if shortage_items:
+            anomalies.append({
+                'kind': '缺货风险',
+                'severity': 'high',
+                'message': '; '.join(shortage_items),
+            })
+            summary_parts.append('缺货风险')
+
+    summary = '；'.join(summary_parts) if summary_parts else '未检测到异常'
+    return jsonify({
+        'status': 'success',
+        'data': {
+            'order': {
+                'id': order.id,
+                'order_no': order.order_no,
+                'status': order.status,
+                'shipment_status': order.shipment_status,
+                'customer_name': order.customer.name if order.customer else '',
+            },
+            'anomalies': anomalies,
+            'summary': summary,
+        },
+    })
 
 
 @app.route('/api/ai/sales/<int:id>/draft_check', methods=['POST'])
@@ -41921,6 +42048,7 @@ def delete_sales_order(id):
 
 
 @app.route('/sales/<int:id>/copy', methods=['POST'])
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def copy_sales_order(id):
     order = SalesOrder.query.get_or_404(id)
@@ -41967,6 +42095,7 @@ def copy_sales_order(id):
 
 
 @app.route('/sales/batch_delete', methods=['POST'])
+@require_role('warehouse', 'purchase', 'sales')
 @login_required
 def batch_delete_sales_orders():
     payload = request.get_json(silent=True) or {}

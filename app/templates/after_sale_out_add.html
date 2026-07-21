@@ -474,14 +474,14 @@ function submitForm() {
         const price = parseFloat(row.querySelector('.material-price').value);
         if (!code) continue;
         if (!qty || qty <= 0) {
-            alert('请填写完整的物料信息');
+            showToast('请填写完整的物料信息', 'warning');
             return;
         }
         items.push({ code, quantity: qty, price: price || 0, remark: (row.querySelector('.material-remark')?.value || '').trim() });
     }
 
     if (items.length === 0) {
-        alert('请至少添加一条物料');
+        showToast('请至少添加一条物料', 'warning');
         return;
     }
 
@@ -508,14 +508,14 @@ function submitForm() {
     .then(res => res.json())
     .then(data => {
         if (data.status === 'success') {
-            alert('保存成功');
-            window.location.href = `/after_sale_out/${data.id}`;
+            showToast('保存成功', 'success');
+            setTimeout(function() { window.location.href = `/after_sale_out/${data.id}`; }, 400);
         } else {
-            alert('保存失败：' + data.msg);
+            showToast('保存失败：' + data.msg, 'danger');
         }
     })
     .catch(error => {
-        alert('保存失败：' + error.message);
+        showToast('保存失败：' + error.message, 'danger');
     });
 }
 

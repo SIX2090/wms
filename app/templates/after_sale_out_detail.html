@@ -162,36 +162,40 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function completeOrder(id) {
-    if (!confirm('确认完成此售后出库单？完成后将扣减库存。')) return;
-    fetch(`/after_sale_out/${id}/complete`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            alert('操作成功');
-            location.reload();
-        } else {
-            alert('操作失败：' + data.msg);
-        }
+    showConfirm('确认完成此售后出库单？完成后将扣减库存。').then(function(ok) {
+        if (!ok) return;
+        fetch(`/after_sale_out/${id}/complete`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast('操作成功', 'success');
+                location.reload();
+            } else {
+                showToast('操作失败：' + data.msg, 'danger');
+            }
+        });
     });
 }
 
 function revertOrder(id) {
-    if (!confirm('确认反提交该售后出库单？反提交后库存将恢复。')) return;
-    fetch(`/after_sale_out/${id}/revert`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            alert(data.msg || '反提交成功');
-            location.reload();
-        } else {
-            alert('反提交失败：' + (data.msg || '未知错误'));
-        }
+    showConfirm('确认反提交该售后出库单？反提交后库存将恢复。').then(function(ok) {
+        if (!ok) return;
+        fetch(`/after_sale_out/${id}/revert`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '反提交成功', 'success');
+                location.reload();
+            } else {
+                showToast('反提交失败：' + (data.msg || '未知错误'), 'danger');
+            }
+        });
     });
 }
 </script>

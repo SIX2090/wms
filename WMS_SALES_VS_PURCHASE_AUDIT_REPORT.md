@@ -4,29 +4,32 @@
 - 审计范围：`/workspace/app/app.py`（约 42720 行）、`/workspace/app/templates/`（销售/采购相关模板）、`/workspace/app/ai/`、`/workspace/scripts/verify_sales_module.py`、`/workspace/SALES_MANAGEMENT_DEVELOPMENT_PLAN.md`、`/workspace/WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md`、`/workspace/AI_PERMISSION_MATRIX.md`
 - 分支策略：本审计严格落在 `main` 分支，未创建任何 `feature/*`、`fix/*`、`trae/*` 工作分支
 - 验证方法：所有结论均通过直接读取源码确认（行号引用见各节），未做主观推测
+- 修复状态：本报告 4 处 P0 安全问题、1 处 P1 语义错配、3 处 P2 前端工程化问题已修复并提交 `main`，详见第九节"修复状态记录"
 
 ---
 
 ## 一、执行摘要
 
-销售模块相对采购模块在**主流程闭环、金额精度、行级来源外键、选单并发锁**等核心点已对齐采购侧；但在 **AI 能力、前端工程化、权限分权、安全防护、报表可视化**五个维度明显落后于采购模块，存在 **2 处权限遗漏、1 处 CSRF 缺失、1 处 AI 工具语义错配**，需在 `AI-SALES-F01` 修复子项下闭环。
+销售模块相对采购模块在**主流程闭环、金额精度、行级来源外键、选单并发锁**等核心点已对齐采购侧；但在 **AI 能力、前端工程化、权限分权、安全防护、报表可视化**五个维度明显落后于采购模块，存在 **2 处权限遗漏、1 处 CSRF 缺失、1 处 AI 工具语义错配**。
+
+**截至 2026-07-21 修复进展**：4 处 P0 安全问题全部修复（`SM-P6-FIX-01`）；1 处 P1 语义错配已修复（`AI-SALES-F01-F02` 拆分 `sales_out_draft` 为 `after_sale_out_draft` + `sales_outbound_draft`）；P1 AI 异常分析按钮与单据联查面板已补齐（`AI-SALES-F01-FIX-02`）；P2 前端工程化迁移（`confirm/alert` → `showConfirm/showToast`、`customer.html` 导入模态框、`sales_order.html` 权限感知按钮隐藏）已完成（`SM-P6-02`）。剩余 P1 AI 跟进工作台、P2 csrfFetch 抽取与 setupResizableTable 引入、P3 报表可视化与极简模板重写留待 `AI-SALES-F02`、`SM-P6-03`、`SM-P4-FIX-01` 后续子项。
 
 ### 关键问题一览
 
-| 级别 | 问题 | 位置 | 类型 |
-|---|---|---|---|
-| P0 | `/sales/<id>/copy` 写操作仅 `@login_required`，缺 `@require_role` | `app.py:41923-41924` | 权限 |
-| P0 | `/sales/batch_delete` 删操作仅 `@login_required`，缺 `@require_role` | `app.py:41969-41970` | 权限 |
-| P0 | `sales_order_detail.html` 第 139 行 fetch 无任何 CSRF 头 | `templates/sales_order_detail.html:139` | 安全 |
-| P0 | `sales_order_detail.html` 第 157 行 fetch 仅设 `Content-Type`，无 `X-CSRFToken` | `templates/sales_order_detail.html:157` | 安全 |
-| P1 | `sales_out_draft` 工具名"销售出库草稿"但描述/端点均为"售后出库" | `ai/tools/registry.py:312`、`ai/policies.py:9,31` | 语义错配 |
-| P1 | 销售侧无 `ai_sales_workbench.html` AI 跟进工作台（采购侧 7 队列） | 不存在 | 功能缺口 |
-| P1 | 销售侧无 AI 异常分析按钮（采购 `out_order_detail.html` 有） | 不存在 | 功能缺口 |
-| P1 | 销售侧无单据联查面板（采购侧 `purchase_order_detail.html:70-112` 有） | 不存在 | 功能缺口 |
-| P2 | 销售侧 14 个模板均未使用 `csrfFetch` helper | 全部 `sales_*.html` | 工程化 |
-| P2 | 销售侧表格无 `setupResizableTable`、无每页条数选择器 | 全部 `sales_*.html` | UX |
-| P2 | `sales_outbound_list.html`(8 行)、`sales_reconciliation_report.html`(4 行) 功能过于简陋 | 模板 | UX |
-| P3 | 销售报表全无图表（趋势/价格/汇总均适合可视化） | 全部 `sales_*_report.html` | UX |
+| 级别 | 问题 | 位置 | 类型 | 修复状态 |
+|---|---|---|---|---|
+| P0 | `/sales/<id>/copy` 写操作仅 `@login_required`，缺 `@require_role` | `app.py:41923-41924` | 权限 | ✅ 已修复（SM-P6-FIX-01） |
+| P0 | `/sales/batch_delete` 删操作仅 `@login_required`，缺 `@require_role` | `app.py:41969-41970` | 权限 | ✅ 已修复（SM-P6-FIX-01） |
+| P0 | `sales_order_detail.html` 第 139 行 fetch 无任何 CSRF 头 | `templates/sales_order_detail.html:139` | 安全 | ✅ 已修复（SM-P6-FIX-01，改用 csrfPost helper） |
+| P0 | `sales_order_detail.html` 第 157 行 fetch 仅设 `Content-Type`，无 `X-CSRFToken` | `templates/sales_order_detail.html:157` | 安全 | ✅ 已修复（SM-P6-FIX-01，改用 csrfPost helper） |
+| P1 | `sales_out_draft` 工具名"销售出库草稿"但描述/端点均为"售后出库" | `ai/tools/registry.py:312`、`ai/policies.py:9,31` | 语义错配 | ✅ 已修复（AI-SALES-F01-FIX-02，拆分为 after_sale_out_draft + sales_outbound_draft） |
+| P1 | 销售侧无 `ai_sales_workbench.html` AI 跟进工作台（采购侧 7 队列） | 不存在 | 功能缺口 | ⏳ 未修复（建议新建 AI-SALES-F02） |
+| P1 | 销售侧无 AI 异常分析按钮（采购 `out_order_detail.html` 有） | 不存在 | 功能缺口 | ✅ 已修复（AI-SALES-F01-FIX-02，新增按钮 + /api/ai/sales_order/<id>/anomaly_analysis 路由） |
+| P1 | 销售侧无单据联查面板（采购侧 `purchase_order_detail.html:70-112` 有） | 不存在 | 功能缺口 | ✅ 已修复（AI-SALES-F01-FIX-02，sales_order_detail.html 新增售后单联查面板） |
+| P2 | 销售侧 14 个模板均未使用 `csrfFetch` helper | 全部 `sales_*.html` | 工程化 | ⏳ 部分修复（sales_order_detail.html 已用 csrfPost；其余 13 个模板留待 SM-P6-03） |
+| P2 | 销售侧表格无 `setupResizableTable`、无每页条数选择器 | 全部 `sales_*.html` | UX | ⏳ 未修复（建议 SM-P6-03） |
+| P2 | `sales_outbound_list.html`(8 行)、`sales_reconciliation_report.html`(4 行) 功能过于简陋 | 模板 | UX | ⏳ 未修复（建议 SM-P4-FIX-01） |
+| P3 | 销售报表全无图表（趋势/价格/汇总均适合可视化） | 全部 `sales_*_report.html` | UX | ⏳ 未修复（建议 SM-P4-FIX-01） |
 
 ---
 
@@ -549,6 +552,67 @@ def batch_delete_sales_orders():
 **AI 能力补齐**是销售模块相对采购模块最大的结构性差距，建议新建 `AI-SALES-F02`（销售跟进工作台 + Agent）和 `AI-SALES-F03`（销售异常分析 + 单据联查）两个独立任务，对齐采购侧的 `AI-R06`/`AI-R11` 矩阵。
 
 本审计所有结论均通过直接读取 `/workspace` 工作区源码确认，未做主观推测。行号引用可在审计时逐行复核。
+
+---
+
+## 九、修复状态记录（2026-07-21）
+
+本节记录审计报告识别问题的修复进展，按修复批次与挂靠任务 ID 组织。所有修复均严格落在 `main` 分支，未创建任何 `feature/*`/`fix/*`/`trae/*` 工作分支。
+
+### 9.1 SM-P6-FIX-01：销售模块 P0 安全与权限修复（已完成）
+
+**修复范围**：审计报告 4.1.1 节权限遗漏 + 4.1.2 节 CSRF 头缺失 + 5.1 节 P0 改进建议项 #1-#4
+
+| 审计项 | 审计位置 | 修复内容 | 验证 |
+|---|---|---|---|
+| #1 `/sales/<id>/copy` 缺 `@require_role` | `app.py:41923-41925` | 补 `@require_role('warehouse','purchase','sales')` 装饰器（位于 `@login_required` 之上） | `verify_sales_module.py` SALES-STC-004 检出 12 路由全 PASS |
+| #2 `/sales/batch_delete` 缺 `@require_role` | `app.py:41969-41971` | 同上 | 同上 |
+| #3 `sales_order_detail.html:139` fetch 无 CSRF 头 | `templates/sales_order_detail.html:139` | `postAction` 函数改用 `csrfPost` helper，自动注入 `X-CSRFToken` | SALES-STC-011 PASS（base.html 全局 wrapper 兜底） |
+| #4 `sales_order_detail.html:157` fetch 仅 `Content-Type` | `templates/sales_order_detail.html:157` | `createSelectedOutbound` 改用 `csrfPost` helper | 同上 |
+| 验证脚本盲区 | `verify_sales_module.py:133-137` | SALES-STC-004 由单函数 5000 字符扫描扩展为正则扫描全部 `/sales/*` POST 路由的 `@require_role` 存在性；新增 SALES-STC-011 CSRF 头检查（识别 `base.html` 全局 `window.fetch` wrapper 作为合规依据） | 11/11 PASS |
+
+### 9.2 AI-SALES-F01-FIX-02：销售工具语义错配修复 + AI 异常分析 + 单据联查（已完成）
+
+**修复范围**：审计报告 4.2.1 节语义错配 + 4.2.3 节 AI 异常分析按钮 + 4.2.4 节单据联查面板 + 5.2 节 P1 改进建议项 #8-#10
+
+| 审计项 | 审计位置 | 修复内容 | 验证 |
+|---|---|---|---|
+| #8 `sales_out_draft` 工具语义错配 | `ai/tools/registry.py:312`、`ai/policies.py:9,31` | 拆分为 `after_sale_out_draft`（端点 `add_after_sale_out_order`）+ `sales_outbound_draft`（端点 `create_sales_outbound_draft`），原 `sales_out_draft` 描述加 `[Deprecated alias of after_sale_out_draft]` 前缀保留向后兼容 | `verify_ai_tool_schemas.py` PASS；21 工具三表键集一致 |
+| #9 缺失 AI 异常分析按钮 | `sales_order_detail.html`、`after_sale_out_detail.html` | `sales_order_detail.html` 新增 AI 异常分析按钮 + 模态框；`app.py` 新增 `/api/ai/sales_order/<int:id>/anomaly_analysis` 只读路由 | 路由注册校验通过 |
+| #10 缺失单据联查面板 | `sales_order_detail.html` | `sales_order_detail.html` 新增售后单联查面板；`sales_order_detail` 视图新增 `related_after_sale_orders` 上下文 | 模板渲染校验通过 |
+
+**同步更新文件**：`AI_PERMISSION_MATRIX.md`（矩阵表新增两行 + 工具语义说明段落）、`app/ai/documents/golden_samples.py`（`VALID_DRAFT_TYPES` 新增两键）、`scripts/verify_ai_tool_schemas.py`（`VALID_PAYLOADS` + `DRAFT_TOOLS`）、`scripts/verify_ai_permission_matrix.py`（`EXPECTED`）、`scripts/verify_ai_business_permissions.py`（`EXPECTED_RESTRICTED_ROLES`）
+
+### 9.3 SM-P6-02：销售前端工程化迁移（已完成）
+
+**修复范围**：审计报告 4.3.3 节 `confirm()`/`alert()` 散用 + 4.2.5 节缺失客户导入模态框 + 4.4.3 节无权限感知按钮隐藏 + 5.3 节 P2 改进建议项 #12、#16、#18
+
+| 审计项 | 审计位置 | 修复内容 | 验证 |
+|---|---|---|---|
+| #12 `confirm()`/`alert()` 散用 | `sales_outbound_selection.html:45-46`、`customer.html`、`after_sale_out.html:177-248`、`after_sale_out_detail.html:164-196`、`after_sale_out_add.html` | 5 模板全部迁移：`confirm()` → `showConfirm().then()` Promise 模式；`alert()` → `showToast()` 含 type（success/danger/warning） | `grep -E "(alert\(|confirm\()"` 5 模板无命中 |
+| #16 缺失客户导入模态框 | `customer.html` 完全无导入入口 | 新增 `importModal` 对齐 `supplier.html:145-198` 结构，含 CSRF token、文件输入、模板下载链接、AJAX 提交、`notifyMasterDataChanged('customer_updated')` 广播 | 模板结构对比 supplier.html 一致 |
+| #18 工具栏无权限感知按钮隐藏 | `sales_order.html` 工具栏 + 行内按钮 | 工具栏「删除已选/导入/新增销售单」3 个写按钮 + 行内「复制/编辑/删除/确认/生成出库草稿」5 个写按钮全部包裹 `{% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}`；只读的「下载模板/导出/查看详情」保持对所有角色可见 | Jinja2 `{% if %}/{% endif %}` 配对平衡手动校验通过 |
+
+### 9.4 待修复项（建议新建任务）
+
+| 审计项 | 优先级 | 建议任务 ID | 说明 |
+|---|---|---|---|
+| #5 缺失 `ai_sales_workbench.html` AI 跟进工作台 | P1 | `AI-SALES-F02` | 7 队列工作台 + `sales_followup_workbench.py` 后端 + `/api/ai/sales_followup_workbench` 只读 API |
+| #6 缺失 `sales_followup` Agent | P1 | `AI-SALES-F02` | 4 步：开放订单扫描/即将到期扫描/客户跟进话术/合并发货候选 |
+| #7 缺失 `sales_insights` 只读工具 | P1 | `AI-SALES-F02` | 对齐 `purchase_insights` 工具结构 |
+| #11 csrfFetch helper 抽取 | P2 | `SM-P6-03` | 将 `csrfFetch` 抽到 `base.html`/`_list_macros.html`，14 个 `sales_*.html` 全部迁移 |
+| #13 T+ 风格 CSS 抽共享 partial | P2 | `SM-P6-03` | `templates/_tplus_form_styles.html` |
+| #14 `status_badge(status)` 宏 | P2 | `SM-P6-03` | 抽到 `_list_macros.html` |
+| #15 `bindListActions(opts)` 通用 CRUD 函数 | P2 | `SM-P6-03` | 抽到 `_list_macros.html` |
+| #17 `setupResizableTable` 与每页条数选择器 | P2 | `SM-P6-03` | 引入到 `sales_order.html`、`sales_outbound_list.html`、`sales_outflow_report.html` |
+| #19 重写 `sales_outbound_list.html` | P3 | `SM-P4-FIX-01` | 从 8 行扩展为完整功能页 |
+| #20 重写 `sales_reconciliation_report.html` | P3 | `SM-P4-FIX-01` | 从 4 行扩展为完整功能页 |
+| #21 引入 Chart.js 报表可视化 | P3 | `SM-P4-FIX-01` | 趋势折线图、价格箱线图、汇总饼图/柱状图 |
+| #22 补 loading state | P3 | `SM-P4-FIX-01` | AJAX 期间按钮 disabled + spinner |
+| #23 补 a11y 标注 | P3 | `SM-P4-FIX-01` | `aria-label`、`role="dialog"`、`scope="col"` |
+| #24 复核 `sales_outbound_selection.html:36` 路由 | P3 | `SM-P4-FIX-01` | 统一为 `/api/sales_order/selectable` |
+| #25 回填销售已修复 Bug 到 `WMS_BUG_BASELINE.md` | P2 | `SM-P6-FIX-02` | OutOrder.customer_id、OutOrderItem.source_sales_order_item_id 等 |
+| #26 新增 `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` 任务条目 | P2 | `SM-P6-FIX-02` | 已部分完成（本报告与开发计划已记录 SM-P6-FIX-01、AI-SALES-F01-FIX-02、SM-P6-02 三条），剩余建议项待新建 |
 
 ---
 

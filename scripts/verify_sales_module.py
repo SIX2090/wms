@@ -7,13 +7,14 @@
     SALES-STC-001  auto_migrate_database 含销售订单新字段 ALTER TABLE 迁移
     SALES-STC-002  recalculate_sales_order 实现税感知总额计算
     SALES-STC-003  build_sales_outbound_draft 含重复草稿防护
-    SALES-STC-004  销售路由 require_role 权限装饰器
+    SALES-STC-004  销售路由 require_role 权限装饰器（全 POST 路由扫描，AI-SALES-F01-FIX-02）
     SALES-STC-005  新增报表模板存在
     SALES-STC-006  导入模板含新字段列头
     SALES-STC-007  销售出库行级来源外键和安全回写
     SALES-STC-008  销售出库选单入口和接口
     SALES-STC-009  销售订单仓库外键迁移和启用校验
     SALES-STC-010  销售选单多进程写锁和二次校验
+    SALES-STC-011  销售模板 POST fetch 调用携带 CSRF 头/Token（AI-SALES-F01-FIX-02）
 
   运行时测试（Flask test_client + 临时数据库）：
     SALES-RT-001  创建销售订单（含税额字段）
@@ -130,11 +131,77 @@ def run_static_checks() -> list[tuple[str, bool, str]]:
     results.append(static_check("SALES-STC-010", has_selection_lock,
         "销售选单生成包含 SQLite 写锁和加锁后来源重读"))
 
-    # SALES-STC-004: 销售路由权限装饰器
-    sales_routes_section = app_py[app_py.index("def sales_order_add():"):]
-    has_require_role = "@require_role" in sales_routes_section[:5000]
-    results.append(static_check("SALES-STC-004", has_require_role,
-        "销售订单写入路由使用 require_role 权限装饰器"))
+    # SALES-STC-004: 销售路由权限装饰器（扫描全部 /sales/* POST 路由）
+    # 修复任务 AI-SALES-F01-FIX-02：从仅检查 sales_order_add 扩展到全部 POST 写入路由
+    sales_post_route_pattern = re.compile(
+        r"(@app\.route\(['\"]/sales[^'\"]*['\"],\s*methods=\[(?:'|\")[^\]]*POST[^\]]*(?:'|\")\])\)"
+        r"(?:\s*\n(?:@[a-z_][^\n]*\n){0,5})\s*def\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+        re.MULTILINE,
+    )
+    sales_post_matches = list(sales_post_route_pattern.finditer(app_py))
+    sales_missing_role = []
+    for m in sales_post_matches:
+        decorator_block = m.group(0)
+        route_line = m.group(1)
+        func_name = m.group(2)
+        if "@require_role" not in decorator_block:
+            sales_missing_role.append(f"{func_name}({route_line})")
+    ok_stc004 = bool(sales_post_matches) and not sales_missing_role
+    detail_stc004 = ""
+    if not sales_post_matches:
+        detail_stc004 = " 未匹配到任何 /sales POST 路由（正则失效）"
+    elif sales_missing_role:
+        detail_stc004 = f" 缺少 @require_role: {sales_missing_role}"
+    results.append(static_check("SALES-STC-004", ok_stc004,
+        f"全部 /sales/* POST 路由使用 @require_role 权限装饰器"
+        f"（共 {len(sales_post_matches)} 个路由）" + detail_stc004))
+
+    # SALES-STC-011: 销售详情模板 POST fetch 调用必须携带 CSRF 头
+    # 修复任务 AI-SALES-F01-FIX-02：审计报告 P0-3 要求增加 CSRF 头静态检查
+    # 注意：base.html 中有全局 fetch 包装器，自动为所有非 GET 请求注入 X-CSRFToken
+    # 头。继承自 base.html 的模板自动获得 CSRF 保护，无需在每个 fetch 中显式注入。
+    sales_detail_templates = [
+        "sales_order_detail.html",
+        "sales_outbound_selection.html",
+        "sales_order.html",
+        "sales_order_edit.html",
+        "sales_order_add.html",
+        "after_sale_out.html",
+        "after_sale_out_add.html",
+        "after_sale_out_detail.html",
+    ]
+    # 检查 base.html 是否提供全局 CSRF 自动注入
+    base_html = read_text("app/templates/base.html") if (ROOT / "app" / "templates" / "base.html").exists() else ""
+    has_global_csrf_wrapper = ("window.fetch = function" in base_html
+                              and "X-CSRFToken" in base_html
+                              and "csrf-token" in base_html)
+    csrf_missing = []
+    for tpl_name in sales_detail_templates:
+        tpl_path = ROOT / "app" / "templates" / tpl_name
+        if not tpl_path.exists():
+            continue
+        tpl_text = tpl_path.read_text(encoding="utf-8", errors="ignore")
+        extends_base = "{% extends" in tpl_text and "base.html" in tpl_text[:200]
+        # 提取 method: 'POST' 或 method: "POST" 的 fetch 调用片段
+        for fm in re.finditer(
+            r"fetch\([^)]*method:\s*['\"]POST['\"][^)]*\)",
+            tpl_text,
+            re.IGNORECASE | re.DOTALL,
+        ):
+            snippet = fm.group(0)
+            # 视为通过：含 X-CSRFToken / csrfFetch / csrfPost / csrf_token 任意一种
+            if ("X-CSRFToken" in snippet or "csrfFetch" in snippet
+                    or "csrfPost" in snippet or "csrf_token" in snippet):
+                continue
+            # 否则：若模板继承 base.html 且 base.html 提供全局 CSRF 包装，则视为合规
+            if extends_base and has_global_csrf_wrapper:
+                continue
+            csrf_missing.append(f"{tpl_name}:{fm.start()}")
+    ok_stc011 = not csrf_missing
+    results.append(static_check("SALES-STC-011", ok_stc011,
+        "销售模板 POST fetch 调用携带 CSRF 头/Token"
+        + (f"（base.html 全局包装器自动注入）" if has_global_csrf_wrapper else "")
+        + ("" if ok_stc011 else f" 缺失位置: {csrf_missing}")))
 
     # SALES-STC-005: 新增报表模板存在
     templates_dir = ROOT / "app" / "templates"

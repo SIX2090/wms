@@ -42,9 +42,9 @@ function loadSelectable() {
 function toggleAll(checked) { document.querySelectorAll('.select-row').forEach(input => input.checked = checked); updateSummary(); }
 function updateSummary() { const rows = [...document.querySelectorAll('.select-row:checked')]; let qty = 0; rows.forEach(input => { qty += Number(document.querySelector(`.qty-input[data-id="${input.dataset.id}"]`)?.value || 0); }); document.getElementById('summary').textContent = `已选 ${rows.length} 行，本次出库 ${fmt(qty)}`; }
 function createSelectedOutbound() {
-  const rows = [...document.querySelectorAll('.select-row:checked')]; if (!rows.length) { alert('请选择销售订单明细'); return; }
-  const items = []; for (const input of rows) { const qty = document.querySelector(`.qty-input[data-id="${input.dataset.id}"]`); const value = Number(qty.value); const max = Number(qty.max); if (!Number.isFinite(value) || value <= 0 || value - max > 0.000001) { alert('本次出库数量必须大于 0 且不能超过待发货数量'); qty.focus(); return; } items.push({sales_order_item_id: Number(input.dataset.id), quantity: value}); }
-  fetch('{{ url_for("create_sales_outbound_from_selection") }}', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({items})}).then(r => r.json()).then(data => { if (data.status === 'success') window.location.href = data.redirect_url; else alert(data.msg || '生成失败'); }).catch(() => alert('生成失败，请稍后重试'));
+  const rows = [...document.querySelectorAll('.select-row:checked')]; if (!rows.length) { showToast('请选择销售订单明细', 'warning'); return; }
+  const items = []; for (const input of rows) { const qty = document.querySelector(`.qty-input[data-id="${input.dataset.id}"]`); const value = Number(qty.value); const max = Number(qty.max); if (!Number.isFinite(value) || value <= 0 || value - max > 0.000001) { showToast('本次出库数量必须大于 0 且不能超过待发货数量', 'warning'); qty.focus(); return; } items.push({sales_order_item_id: Number(input.dataset.id), quantity: value}); }
+  fetch('{{ url_for("create_sales_outbound_from_selection") }}', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({items})}).then(r => r.json()).then(data => { if (data.status === 'success') window.location.href = data.redirect_url; else showToast(data.msg || '生成失败', 'danger'); }).catch(() => showToast('生成失败，请稍后重试', 'danger'));
 }
 ['customerFilter','warehouseFilter','salespersonFilter'].forEach(id => document.getElementById(id).addEventListener('change', loadSelectable));
 document.getElementById('searchFilter').addEventListener('keydown', e => { if (e.key === 'Enter') loadSelectable(); });

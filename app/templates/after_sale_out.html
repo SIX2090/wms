@@ -175,74 +175,82 @@ function toggleAll() {
 }
 
 function completeOrder(id) {
-    if (!confirm('确认完成此售后出库单？完成后将扣减库存。')) return;
-    fetch(`/after_sale_out/${id}/complete`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            alert('操作成功');
-            location.reload();
-        } else {
-            alert('操作失败：' + data.msg);
-        }
+    showConfirm('确认完成此售后出库单？完成后将扣减库存。').then(function(ok) {
+        if (!ok) return;
+        fetch(`/after_sale_out/${id}/complete`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast('操作成功', 'success');
+                location.reload();
+            } else {
+                showToast('操作失败：' + data.msg, 'danger');
+            }
+        });
     });
 }
 
 function revertOrder(id) {
-    if (!confirm('确认反提交该售后出库单？反提交后库存将恢复。')) return;
-    fetch(`/after_sale_out/${id}/revert`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            alert(data.msg || '反提交成功');
-            location.reload();
-        } else {
-            alert('反提交失败：' + (data.msg || '未知错误'));
-        }
+    showConfirm('确认反提交该售后出库单？反提交后库存将恢复。').then(function(ok) {
+        if (!ok) return;
+        fetch(`/after_sale_out/${id}/revert`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '反提交成功', 'success');
+                location.reload();
+            } else {
+                showToast('反提交失败：' + (data.msg || '未知错误'), 'danger');
+            }
+        });
     });
 }
 
 function deleteOrder(id) {
-    if (!confirm('确认删除此售后出库单？')) return;
-    fetch(`/after_sale_out/${id}/delete`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            alert('删除成功');
-            location.reload();
-        } else {
-            alert('删除失败：' + data.msg);
-        }
+    showConfirm('确认删除此售后出库单？').then(function(ok) {
+        if (!ok) return;
+        fetch(`/after_sale_out/${id}/delete`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast('删除成功', 'success');
+                location.reload();
+            } else {
+                showToast('删除失败：' + data.msg, 'danger');
+            }
+        });
     });
 }
 
 function batchDelete() {
     const checked = document.querySelectorAll('.order-check:checked');
     if (checked.length === 0) {
-        alert('请选择要删除的单据');
+        showToast('请选择要删除的单据', 'warning');
         return;
     }
-    if (!confirm(`确认删除选中的 ${checked.length} 条记录？`)) return;
-    const ids = Array.from(checked).map(cb => cb.value);
-    let completed = 0;
-    ids.forEach(id => {
-        fetch(`/after_sale_out/${id}/delete`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        }).finally(() => {
-            completed++;
-            if (completed === ids.length) {
-                location.reload();
-            }
+    showConfirm(`确认删除选中的 ${checked.length} 条记录？`).then(function(ok) {
+        if (!ok) return;
+        const ids = Array.from(checked).map(cb => cb.value);
+        let completed = 0;
+        ids.forEach(id => {
+            fetch(`/after_sale_out/${id}/delete`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            }).finally(() => {
+                completed++;
+                if (completed === ids.length) {
+                    location.reload();
+                }
+            });
         });
     });
 }

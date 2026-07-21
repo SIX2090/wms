@@ -15,6 +15,9 @@ from ai.tools.registry import AI_TOOL_REGISTRY, validate_ai_tool_input
 VALID_PAYLOADS = {
     'out_order_draft': {'warehouse_id': 1, 'items': [{'material_id': 1, 'quantity': 2}]},
     'sales_out_draft': {'customer_id': 1, 'warehouse_id': 1, 'items': [{'material_id': 1, 'quantity': 2}]},
+    # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft
+    'after_sale_out_draft': {'customer_id': 1, 'warehouse_id': 1, 'items': [{'material_id': 1, 'quantity': 2}]},
+    'sales_outbound_draft': {'sales_order_id': 1},
     'in_order_draft': {'warehouse_id': 1, 'items': [{'material_id': 1, 'quantity': 2}]},
     'purchase_receive_draft': {'purchase_order_id': 1, 'warehouse_id': 1, 'items': [{'material_id': 1, 'quantity': 2}]},
     'transfer_draft': {'source_warehouse_id': 1, 'target_warehouse_id': 2, 'items': [{'material_id': 1, 'quantity': 2}]},
@@ -41,6 +44,8 @@ VALID_PAYLOADS = {
 DRAFT_TOOLS = {
     'out_order_draft',
     'sales_out_draft',
+    # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft
+    'after_sale_out_draft',
     'in_order_draft',
     'purchase_receive_draft',
     'transfer_draft',

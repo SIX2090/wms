@@ -7,6 +7,9 @@ from __future__ import annotations
 AI_CAPABILITY_ROLES = {
     'out_order_draft': frozenset({'warehouse'}),
     'sales_out_draft': frozenset({'warehouse', 'sales'}),
+    # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft
+    'after_sale_out_draft': frozenset({'warehouse', 'sales'}),
+    'sales_outbound_draft': frozenset({'warehouse', 'sales'}),
     'in_order_draft': frozenset({'warehouse'}),
     'purchase_receive_draft': frozenset({'warehouse', 'purchase'}),
     'transfer_draft': frozenset({'warehouse'}),
@@ -29,6 +32,9 @@ AI_CAPABILITY_ROLES = {
 AI_CAPABILITY_BUSINESS_ENDPOINTS = {
     'out_order_draft': 'add_out_order',
     'sales_out_draft': 'add_after_sale_out_order',
+    # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft
+    'after_sale_out_draft': 'add_after_sale_out_order',
+    'sales_outbound_draft': 'create_sales_outbound_draft',
     'in_order_draft': 'add_in_order',
     'purchase_receive_draft': 'create_in_order_from_purchase_order',
     'transfer_draft': 'add_transfer',
@@ -52,6 +58,9 @@ AI_CAPABILITY_BUSINESS_ENDPOINTS = {
 AI_CAPABILITY_RISK_LEVELS = {
     'out_order_draft': 'draft',
     'sales_out_draft': 'draft',
+    # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft
+    'after_sale_out_draft': 'draft',
+    'sales_outbound_draft': 'draft',
     'in_order_draft': 'draft',
     'purchase_receive_draft': 'draft',
     'transfer_draft': 'draft',

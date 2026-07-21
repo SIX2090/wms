@@ -20,6 +20,9 @@ from ai.policies import AI_CAPABILITY_BUSINESS_ENDPOINTS, effective_ai_capabilit
 EXPECTED_RESTRICTED_ROLES = {
     'out_order_draft': frozenset({'warehouse'}),
     'sales_out_draft': frozenset({'warehouse'}),
+    # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft
+    'after_sale_out_draft': frozenset({'warehouse'}),
+    'sales_outbound_draft': frozenset({'warehouse', 'purchase', 'sales'}),
     'in_order_draft': frozenset({'warehouse'}),
     'purchase_receive_draft': frozenset({'warehouse', 'purchase'}),
     'transfer_draft': frozenset({'warehouse'}),

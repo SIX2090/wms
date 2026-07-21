@@ -122,10 +122,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 notifyMasterDataChanged('customer_updated');
                 location.reload();
             } else {
-                alert(res.msg || '保存失败');
+                showToast(res.msg || '保存失败', 'danger');
             }
         })
-        .catch(function(err){ alert('保存失败: ' + err.message); });
+        .catch(function(err){ showToast('保存失败: ' + err.message, 'danger'); });
     });
 });
 
@@ -138,5 +138,61 @@ function notifyMasterDataChanged(type) {
         }
     } catch(e) {}
 }
+</script>
+
+<!-- 导入弹窗（AI-SALES-F01-FIX-02：对齐 supplier.html） -->
+<div class="modal fade" id="importModal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-upload"></i> 导入客户</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="importCustomerForm" action="{{ url_for('import_customer') }}" method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        请下载模板参考格式，表头：客户编号、客户名称、联系人、电话、地址
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">选择 Excel 文件</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <a href="{{ url_for('download_customer_template') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">导入</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var importForm = document.getElementById('importCustomerForm');
+    if (!importForm) return;
+    importForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var formData = new FormData(this);
+        fetch(this.action, {
+            method: 'POST',
+            headers: {'X-Requested-With': 'XMLHttpRequest'},
+            body: formData
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(res) {
+            if (res.status === 'success') {
+                notifyMasterDataChanged('customer_updated');
+                showToast(res.msg || '导入成功', 'success');
+                setTimeout(function() { location.reload(); }, 600);
+            } else {
+                showToast(res.msg || '导入失败', 'danger');
+            }
+        })
+        .catch(function(err){ showToast('导入失败: ' + err.message, 'danger'); });
+    });
+});
 </script>
 {% endblock %}

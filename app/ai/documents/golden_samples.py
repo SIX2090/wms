@@ -68,6 +68,9 @@ VALID_DRAFT_TYPES: frozenset[str] = frozenset({
     'purchase_receive_draft',
     'out_order_draft',
     'sales_out_draft',
+    # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft
+    'after_sale_out_draft',
+    'sales_outbound_draft',
     'transfer_draft',
     'check_draft',
     'adjustment_draft',

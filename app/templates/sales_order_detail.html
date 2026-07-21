@@ -11,6 +11,9 @@
     </div>
     <div class="d-flex gap-2">
       <a class="btn btn-outline-secondary" href="{{ url_for('print_sales_order', id=order.id) }}" target="_blank">打印订单</a>
+      <button type="button" class="btn btn-outline-info" onclick="showAiAnomalyAnalysis()" title="AI 异常分析">
+        <i class="bi bi-robot"></i> AI 异常分析
+      </button>
       <a class="btn btn-outline-secondary" href="{{ url_for('sales_order_list') }}">返回列表</a>
       {% if order.status=='draft' %}
         <a class="btn btn-outline-primary" href="{{ url_for('sales_order_edit_page', id=order.id) }}"><i class="bi bi-pencil-square"></i> 修改订单</a>
@@ -129,35 +132,124 @@
     </div>
   </div>
 
+  {% if related_after_sale_orders is defined %}
+  <div class="card mt-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong>关联售后出库单</strong>
+      <span class="text-muted small">共 {{ related_after_sale_orders|length }} 张</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0 align-middle">
+        <thead><tr><th>售后单号</th><th>日期</th><th>客户</th><th>原因</th><th>责任归属</th><th>状态</th><th class="text-end">金额</th></tr></thead>
+        <tbody>
+        {% for after_sale in related_after_sale_orders %}
+          <tr>
+            <td><a href="{{ url_for('after_sale_out_detail', id=after_sale.id) }}">{{ after_sale.order_no }}</a></td>
+            <td>{{ after_sale.date or '-' }}</td>
+            <td>{{ after_sale.customer or '-' }}</td>
+            <td>{{ after_sale.reason or '-' }}</td>
+            <td>{{ after_sale.responsibility or '-' }}</td>
+            <td><span class="badge {% if after_sale.status == 'completed' %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ '已完成' if after_sale.status == 'completed' else '待处理' }}</span></td>
+            <td class="text-end">¥ {{ '%.2f'|format(after_sale.total_amount or 0) }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-3">无关联售后出库单</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="modal fade" id="aiAnomalyModal" tabindex="-1" aria-labelledby="aiAnomalyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="aiAnomalyModalLabel"><i class="bi bi-robot"></i> AI 销售订单异常分析</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        </div>
+        <div class="modal-body" id="aiAnomalyBody">
+          <div class="text-center text-muted py-4">点击下方"开始分析"运行 AI 异常检测</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   {% if order.remark %}
   <div class="card card-body mt-3"><strong>备注</strong><div class="mt-2">{{ order.remark }}</div></div>
   {% endif %}
 </div>
 <script>
-async function postAction(url, msg) {
-  if (!confirm(msg)) return;
-  const r = await fetch(url, { method: 'POST' });
-  const d = await r.json();
-  if (d.status === 'success') {
-    if (d.msg && d.msg.indexOf('删除') >= 0) location.href = '{{ url_for('sales_order_list') }}';
-    else location.reload();
-  } else {
-    alert(d.msg || '操作失败');
-  }
+function getCsrfToken() {
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  if (meta) return meta.getAttribute('content');
+  const hidden = document.querySelector('input[name="csrf_token"]');
+  return hidden ? hidden.value : '';
+}
+function csrfPost(url, options) {
+  options = Object.assign({method: 'POST'}, options || {});
+  const headers = new Headers(options.headers || {});
+  const token = getCsrfToken();
+  if (token && !headers.has('X-CSRFToken')) headers.set('X-CSRFToken', token);
+  options.headers = headers;
+  options.credentials = options.credentials || 'same-origin';
+  return fetch(url, options);
+}
+function postAction(url, msg) {
+  showConfirm(msg, { title: '销售订单操作' }).then(function(confirmed) {
+    if (!confirmed) return;
+    csrfPost(url).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.status === 'success') {
+        if (d.msg && d.msg.indexOf('删除') >= 0) location.href = '{{ url_for('sales_order_list') }}';
+        else { showToast(d.msg || '操作成功', 'success'); setTimeout(function() { location.reload(); }, 400); }
+      } else {
+        showToast(d.msg || '操作失败', 'danger', 4000);
+      }
+    }).catch(function(err) { showToast('操作失败：' + err.message, 'danger', 4000); });
+  });
 }
 function createOutbound() {
   postAction('{{ url_for('create_sales_outbound_draft', id=order.id) }}', '生成销售出库草稿？生成后仍需仓库人工完成出库。');
 }
-async function createSelectedOutbound() {
+function createSelectedOutbound() {
   const items = Array.from(document.querySelectorAll('.selected-outbound-quantity')).map(function(input) {
     return {sales_order_item_id: Number(input.dataset.itemId), quantity: Number(input.value || 0)};
   }).filter(function(row) { return row.quantity > 0; });
-  if (!items.length) { alert('请先填写至少一条本次出库数量'); return; }
-  if (!confirm('按选定数量生成销售出库草稿？生成后仍需仓库人工完成出库。')) return;
-  const response = await fetch('{{ url_for('create_sales_outbound_draft', id=order.id) }}', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({items: items})});
-  const result = await response.json();
-  if (result.status === 'success') window.location.href = result.url;
-  else alert(result.msg || '操作失败');
+  if (!items.length) { showToast('请先填写至少一条本次出库数量', 'warning', 3000); return; }
+  showConfirm('按选定数量生成销售出库草稿？生成后仍需仓库人工完成出库。', { title: '生成出库草稿' }).then(function(confirmed) {
+    if (!confirmed) return;
+    csrfPost('{{ url_for('create_sales_outbound_draft', id=order.id) }}', {
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({items: items})
+    }).then(function(r) { return r.json(); }).then(function(result) {
+      if (result.status === 'success') {
+        showToast(result.msg || '生成成功', 'success');
+        setTimeout(function() { window.location.href = result.url; }, 400);
+      } else { showToast(result.msg || '操作失败', 'danger', 4000); }
+    }).catch(function(err) { showToast('生成失败：' + err.message, 'danger', 4000); });
+  });
+}
+function showAiAnomalyAnalysis() {
+  const modal = new bootstrap.Modal(document.getElementById('aiAnomalyModal'));
+  const body = document.getElementById('aiAnomalyBody');
+  body.innerHTML = '<div class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm"></div> AI 正在分析销售订单异常...</div>';
+  modal.show();
+  fetch('{{ url_for("api_ai_sales_order_anomaly_analysis", id=order.id) }}').then(function(r) { return r.json(); }).then(function(res) {
+    if (res.status === 'success' && res.data) {
+      const d = res.data;
+      const items = (d.anomalies || []).map(function(a) {
+        return '<div class="alert alert-' + (a.severity === 'high' ? 'danger' : a.severity === 'medium' ? 'warning' : 'info') + ' py-2 mb-2"><strong>' + a.kind + '</strong>：' + a.message + '</div>';
+      }).join('');
+      body.innerHTML = '<div class="mb-2 small text-muted">订单：' + (d.order && d.order.order_no || '') + ' · 状态：' + (d.order && d.order.status || '') + '</div>' +
+        '<div class="mb-2"><strong>总结：</strong>' + (d.summary || '无异常') + '</div>' +
+        (items || '<div class="text-muted">未检测到异常</div>');
+    } else {
+      body.innerHTML = '<div class="alert alert-danger">' + (res.msg || '分析失败') + '</div>';
+    }
+  }).catch(function(err) { body.innerHTML = '<div class="alert alert-danger">分析失败：' + err.message + '</div>'; });
 }
 </script>
 {% endblock %}

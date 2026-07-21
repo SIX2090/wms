@@ -118,6 +118,17 @@ SALES_OUT_DRAFT_SCHEMA = _object_schema({
     'items': _items_schema(STANDARD_ITEM_SCHEMA),
 }, required=('customer_id', 'warehouse_id', 'items'))
 
+# 新增（AI-SALES-F01-FIX-02）：售后出库草稿 schema，与原 SALES_OUT_DRAFT_SCHEMA 字段一致
+AFTER_SALE_OUT_DRAFT_SCHEMA = SALES_OUT_DRAFT_SCHEMA
+
+# 新增（AI-SALES-F01-FIX-02）：销售出库草稿 schema
+# 与 /sales/<int:id>/create_outbound 路由对齐：以已确认销售订单为来源生成 OutOrder
+# 不需要 items（系统按销售订单未发货数量自动生成），仅需订单 ID 和可选备注
+SALES_OUTBOUND_DRAFT_SCHEMA = _object_schema({
+    'sales_order_id': POSITIVE_ID,
+    'remark': REMARK_TEXT,
+}, required=('sales_order_id',))
+
 IN_ORDER_DRAFT_SCHEMA = _object_schema({
     'supplier_id': POSITIVE_ID,
     'warehouse_id': POSITIVE_ID,
@@ -309,7 +320,10 @@ def _tool(
 
 AI_TOOL_REGISTRY = MappingProxyType({
     'out_order_draft': _tool('out_order_draft', 'Create an outbound material issue draft for manual review.', 'warehouse_draft', OUT_ORDER_DRAFT_SCHEMA, confirmation_required=True),
-    'sales_out_draft': _tool('sales_out_draft', 'Create an after-sales outbound draft for manual review.', 'warehouse_draft', SALES_OUT_DRAFT_SCHEMA, confirmation_required=True),
+    'sales_out_draft': _tool('sales_out_draft', '[Deprecated alias of after_sale_out_draft] Create an after-sales outbound draft for manual review.', 'warehouse_draft', SALES_OUT_DRAFT_SCHEMA, confirmation_required=True),
+    # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft 解决语义错配
+    'after_sale_out_draft': _tool('after_sale_out_draft', 'Create an after-sales outbound draft (AfterSaleOutOrder) for manual review. Use this for customer returns, replacements, and warranty shipments.', 'warehouse_draft', AFTER_SALE_OUT_DRAFT_SCHEMA, confirmation_required=True),
+    'sales_outbound_draft': _tool('sales_outbound_draft', 'Create a sales outbound draft (OutOrder) from a confirmed sales order for manual review. The system auto-fills items from the order\'s unshipped quantities.', 'warehouse_draft', SALES_OUTBOUND_DRAFT_SCHEMA, confirmation_required=True),
     'in_order_draft': _tool('in_order_draft', 'Create a general inbound draft for manual review.', 'warehouse_draft', IN_ORDER_DRAFT_SCHEMA, confirmation_required=True),
     'purchase_receive_draft': _tool('purchase_receive_draft', 'Create a purchase receiving draft linked to a purchase order.', 'purchase_receive_draft', PURCHASE_RECEIVE_DRAFT_SCHEMA, confirmation_required=True),
     'transfer_draft': _tool('transfer_draft', 'Create an internal stock transfer draft for manual review.', 'warehouse_draft', TRANSFER_DRAFT_SCHEMA, confirmation_required=True),
