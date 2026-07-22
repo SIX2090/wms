@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -24,32 +25,39 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CircuitBreaker:
-    """简单熔断器：连续失败达到阈值后自动打开，冷却期后尝试半开。"""
+    """简单熔断器：连续失败达到阈值后自动打开，冷却期后尝试半开。
+
+    线程安全：所有状态读写都通过 _lock 保护。
+    """
 
     failure_threshold: int = 3
     cooldown_seconds: int = 60
     _failures: int = field(default=0, repr=False)
     _last_failure_time: float = field(default=0.0, repr=False)
     _state: str = field(default='closed', repr=False)  # closed / open / half_open
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     @property
     def state(self) -> str:
-        if self._state == 'open':
-            if time.time() - self._last_failure_time >= self.cooldown_seconds:
-                self._state = 'half_open'
-                self._failures = 0
-        return self._state
+        with self._lock:
+            if self._state == 'open':
+                if time.time() - self._last_failure_time >= self.cooldown_seconds:
+                    self._state = 'half_open'
+                    self._failures = 0
+            return self._state
 
     def record_success(self) -> None:
-        self._failures = 0
-        self._state = 'closed'
+        with self._lock:
+            self._failures = 0
+            self._state = 'closed'
 
     def record_failure(self) -> None:
-        self._failures += 1
-        self._last_failure_time = time.time()
-        if self._failures >= self.failure_threshold:
-            self._state = 'open'
-            logger.warning('LLM circuit breaker OPEN after %d failures', self._failures)
+        with self._lock:
+            self._failures += 1
+            self._last_failure_time = time.time()
+            if self._failures >= self.failure_threshold:
+                self._state = 'open'
+                logger.warning('LLM circuit breaker OPEN after %d failures', self._failures)
 
     def allow_request(self) -> bool:
         return self.state != 'open'

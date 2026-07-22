@@ -5,6 +5,9 @@ cd /d "%~dp0" || exit /b 1
 for %%I in ("%~dp0..") do set "APP_ROOT=%%~fI"
 set "FLASK_ENV=production"
 set "PYTHONUTF8=1"
+REM WMS_ALLOW_AUTO_SECRET_KEY=1 enables controlled offline deployment: SECRET_KEY is auto-generated once
+REM and persisted to instance/secret_key (not regenerated each restart). For production servers with
+REM explicit SECRET_KEY env var, this flag has no effect.
 set "WMS_ALLOW_AUTO_SECRET_KEY=1"
 set "PYTHONPATH=%~dp0;%PYTHONPATH%"
 echo Starting WMS...

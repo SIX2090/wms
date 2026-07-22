@@ -723,11 +723,11 @@ function showDropdown(row, showAll = false) {
     }
 
     dropdown.innerHTML = filtered.map(m => `
-        <div class="material-dropdown-item" data-code="${m.code}">
-            <span class="code">${m.code}</span> - <span class="name">${m.name}</span>
-            <span class="spec">${m.spec || ''}</span>
-            <span class="unit">${getMaterialUnit(m)}</span>
-            <span class="stock">库存 ${formatStock(m.stock)}</span>
+        <div class="material-dropdown-item" data-code="${escapeHtml(m.code)}">
+            <span class="code">${escapeHtml(m.code)}</span> - <span class="name">${escapeHtml(m.name)}</span>
+            <span class="spec">${escapeHtml(m.spec || '')}</span>
+            <span class="unit">${escapeHtml(getMaterialUnit(m))}</span>
+            <span class="stock">库存 ${escapeHtml(formatStock(m.stock))}</span>
         </div>
     `).join('');
 
@@ -1413,12 +1413,13 @@ function showRecentMaterials() {
     recent.forEach(code => {
         const m = materials.find(mat => mat.code === code);
         if (m) {
+            const safeCode = escapeHtml(m.code);
             html += `<tr>
-                <td>${m.code}</td>
-                <td>${m.name}</td>
-                <td>${m.spec || ''}</td>
-                <td>${getMaterialUnit(m)}</td>
-                <td><button type="button" class="btn btn-sm btn-primary" onclick="addMaterialByCode('${m.code}');document.getElementById('recentModal').remove();">添加</button></td>
+                <td>${safeCode}</td>
+                <td>${escapeHtml(m.name)}</td>
+                <td>${escapeHtml(m.spec || '')}</td>
+                <td>${escapeHtml(getMaterialUnit(m))}</td>
+                <td><button type="button" class="btn btn-sm btn-primary" onclick="addMaterialByCode('${safeCode}');document.getElementById('recentModal').remove();">添加</button></td>
             </tr>`;
         }
     });

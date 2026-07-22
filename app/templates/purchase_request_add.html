@@ -449,6 +449,10 @@ let rowCounter = 0;
 let activeMaterialDropdown = null;
 let activeMaterialIndex = -1;
 
+function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 function normalizeSearchValue(value) {
     return String(value || '').trim().toLowerCase();
 }
@@ -643,10 +647,10 @@ function showDropdown(row, showAll = false) {
         dropdown.innerHTML = '<div class="material-dropdown-item" style="color:#999;cursor:default;">无匹配物料</div>';
     } else {
         dropdown.innerHTML = filtered.map(m => `
-            <div class="material-dropdown-item" data-code="${m.code}" data-material-id="${m.id || ''}">
-                <span class="code">${m.code}</span> - <span class="name">${m.name}</span>
-                ${m.spec ? `<span class="spec"> | ${m.spec}</span>` : ''}
-                ${m.unit ? `<span class="unit"> | ${m.unit.name}</span>` : ''}
+            <div class="material-dropdown-item" data-code="${escapeHtml(m.code)}" data-material-id="${escapeHtml(m.id || '')}">
+                <span class="code">${escapeHtml(m.code)}</span> - <span class="name">${escapeHtml(m.name)}</span>
+                ${m.spec ? `<span class="spec"> | ${escapeHtml(m.spec)}</span>` : ''}
+                ${m.unit ? `<span class="unit"> | ${escapeHtml(m.unit.name)}</span>` : ''}
             </div>
         `).join('');
     }
@@ -748,10 +752,10 @@ function showSupplierDropdown(row, showAll = false) {
         dropdown.innerHTML = '<div class="supplier-dropdown-item" data-empty="1" style="color:#999;cursor:default;">无匹配供应商，可直接手工输入</div>';
     } else {
         dropdown.innerHTML = filtered.map(s => `
-            <div class="supplier-dropdown-item" data-id="${s.id}">
-                ${s.code ? `<span class="code">${s.code}</span> - ` : ''}
-                <span class="name">${s.name || ''}</span>
-                ${s.contact || s.phone ? `<span class="meta"> | ${s.contact || ''} ${s.phone || ''}</span>` : ''}
+            <div class="supplier-dropdown-item" data-id="${escapeHtml(s.id)}">
+                ${s.code ? `<span class="code">${escapeHtml(s.code)}</span> - ` : ''}
+                <span class="name">${escapeHtml(s.name || '')}</span>
+                ${s.contact || s.phone ? `<span class="meta"> | ${escapeHtml(s.contact || '')} ${escapeHtml(s.phone || '')}</span>` : ''}
             </div>
         `).join('');
     }

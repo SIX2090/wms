@@ -31,25 +31,38 @@
     });
     (function() {
         var csrfToken = document.querySelector('meta[name="csrf-token"]');
-        if (csrfToken) {
-            var originalFetch = window.fetch;
-            window.fetch = function(input, init) {
-                init = init || {};
-                if (init.method && !/^(GET|HEAD|OPTIONS|TRACE)$/i.test(init.method)) {
-                    init.headers = init.headers || {};
-                    if (init.headers instanceof Headers) {
-                        if (!init.headers.has('X-CSRFToken')) {
-                            init.headers.set('X-CSRFToken', csrfToken.content);
-                        }
-                    } else if (typeof init.headers === 'object') {
-                        if (!init.headers['X-CSRFToken']) {
-                            init.headers['X-CSRFToken'] = csrfToken.content;
-                        }
+        var originalFetch = window.fetch;
+        window.fetch = function(input, init) {
+            init = init || {};
+            if (init.method && !/^(GET|HEAD|OPTIONS|TRACE)$/i.test(init.method)) {
+                init.headers = init.headers || {};
+                if (init.headers instanceof Headers) {
+                    if (!init.headers.has('X-CSRFToken') && csrfToken) {
+                        init.headers.set('X-CSRFToken', csrfToken.content);
+                    }
+                } else if (typeof init.headers === 'object') {
+                    if (!init.headers['X-CSRFToken'] && csrfToken) {
+                        init.headers['X-CSRFToken'] = csrfToken.content;
                     }
                 }
-                return originalFetch.call(this, input, init);
-            };
-        }
+            }
+            var promise = originalFetch.call(this, input, init);
+            // Global 401/419 handler: session expired → prompt re-login once
+            if (promise && typeof promise.then === 'function') {
+                promise.then(function(resp) {
+                    if ((resp.status === 401 || resp.status === 419) && !window.__wmsSessionExpiredShown) {
+                        window.__wmsSessionExpiredShown = true;
+                        if (window.confirm('登录已过期或会话失效，请重新登录。点击确定跳转到登录页面。')) {
+                            window.location.href = '/login';
+                        } else {
+                            // Allow showing the prompt again on the next request
+                            setTimeout(function() { window.__wmsSessionExpiredShown = false; }, 5000);
+                        }
+                    }
+                }).catch(function() { /* swallow to avoid unhandled rejection */ });
+            }
+            return promise;
+        };
     })();
     // Global CSRF helpers (SM-P6-03-1): sales_*.html / purchase_*.html / out_order_detail.html
     // reuse these instead of redefining per template.

@@ -109,6 +109,9 @@
 </div>
 
 <script>
+function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 document.addEventListener('DOMContentLoaded', function() {
     const configForm = document.getElementById('retentionConfigForm');
     const previewBtn = document.getElementById('previewBtn');
@@ -178,11 +181,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     }[item.action] || 'bg-secondary';
                     
                     tr.innerHTML = `
-                        <td><span class="badge ${actionBadge}">${item.action}</span></td>
-                        <td>${item.category}</td>
-                        <td>${item.record_id}</td>
-                        <td>${item.created_at || '-'}</td>
-                        <td class="text-truncate" style="max-width: 300px;">${item.reason || '-'}</td>
+                        <td><span class="badge ${actionBadge}">${escapeHtml(item.action)}</span></td>
+                        <td>${escapeHtml(item.category)}</td>
+                        <td>${escapeHtml(item.record_id)}</td>
+                        <td>${escapeHtml(item.created_at || '-')}</td>
+                        <td class="text-truncate" style="max-width: 300px;">${escapeHtml(item.reason || '-')}</td>
                     `;
                     tbody.appendChild(tr);
                 });
@@ -249,16 +252,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 result.logs.forEach(function(log) {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td>${log.executed_at || '-'}</td>
-                        <td>${log.executed_by || '-'}</td>
-                        <td>${log.categories || '-'}</td>
-                        <td class="text-end">${log.deleted_count || 0}</td>
-                        <td class="text-end">${log.protected_count || 0}</td>
-                        <td class="text-end">${log.exempt_count || 0}</td>
-                        <td class="text-end">${log.kept_count || 0}</td>
-                        <td class="text-end">${log.failed_count || 0}</td>
-                        <td>${log.cutoff_date || '-'}</td>
-                        <td class="text-truncate" style="max-width: 200px;">${log.notes || '-'}</td>
+                        <td>${escapeHtml(log.executed_at || '-')}</td>
+                        <td>${escapeHtml(log.executed_by || '-')}</td>
+                        <td>${escapeHtml(log.categories || '-')}</td>
+                        <td class="text-end">${escapeHtml(log.deleted_count || 0)}</td>
+                        <td class="text-end">${escapeHtml(log.protected_count || 0)}</td>
+                        <td class="text-end">${escapeHtml(log.exempt_count || 0)}</td>
+                        <td class="text-end">${escapeHtml(log.kept_count || 0)}</td>
+                        <td class="text-end">${escapeHtml(log.failed_count || 0)}</td>
+                        <td>${escapeHtml(log.cutoff_date || '-')}</td>
+                        <td class="text-truncate" style="max-width: 200px;">${escapeHtml(log.notes || '-')}</td>
                     `;
                     tbody.appendChild(tr);
                 });

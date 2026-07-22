@@ -1,5 +1,7 @@
+import atexit
 import logging
 import os
+import signal
 import sys
 from datetime import datetime
 
@@ -20,6 +22,9 @@ from notifications import init_notification_scheduler
 
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+
+# Module-level scheduler reference for graceful shutdown.
+_scheduler = None
 
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -49,6 +54,19 @@ def _configure_console_logging():
         logger.addHandler(handler)
 
 
+def _shutdown_scheduler(signum=None, frame=None):
+    """Gracefully shut down the background scheduler on SIGTERM/SIGINT/exit."""
+    global _scheduler
+    if _scheduler is not None:
+        try:
+            if _scheduler.running:
+                _scheduler.shutdown(wait=False)
+                app.logger.info("Notification scheduler shut down (signal=%s)", signum)
+        except Exception:
+            app.logger.exception("Error shutting down scheduler")
+        _scheduler = None
+
+
 def main():
     _configure_console_logging()
 
@@ -73,9 +91,10 @@ def main():
         app.logger.exception("Database initialization failed")
         raise
 
+    global _scheduler
     try:
-        scheduler = init_notification_scheduler(app, db, Material, User)
-        scheduler.add_job(
+        _scheduler = init_notification_scheduler(app, db, Material, User)
+        _scheduler.add_job(
             lambda: run_due_wechat_share_jobs(),
             "interval",
             minutes=1,
@@ -87,6 +106,16 @@ def main():
     except Exception:
         app.logger.exception("Notification scheduler failed to start")
         raise
+
+    # Register graceful shutdown handlers: SIGTERM (container/service stop),
+    # SIGINT (Ctrl+C), and atexit (normal interpreter exit).
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _shutdown_scheduler)
+        except (ValueError, OSError):
+            # signal.signal can fail when not in the main thread
+            pass
+    atexit.register(_shutdown_scheduler)
 
     try:
         app.logger.info("Starting Waitress on %s:%s with %s threads", host, port, threads)

@@ -601,6 +601,12 @@ def auto_migrate_database():
             logging.getLogger(__name__).error(f'auto_migrate_database 迁移失败: {e}', exc_info=True)
         except Exception:
             pass
+        # Explicitly rollback any partial transaction before closing.
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         raise
     finally:
         # 连接关闭必须放在 finally，避免中途异常导致 sqlite3 连接泄漏（WAL 锁、备份失败）
@@ -703,7 +709,14 @@ if log_file and not any(
     and os.path.abspath(getattr(handler, 'baseFilename', '')) == os.path.abspath(log_file)
     for handler in app.logger.handlers
 ):
-    handler = logging.FileHandler(log_file, encoding='utf-8')
+    # Use RotatingFileHandler so logs don't grow without bound (max 10MB x 5 backups).
+    from logging.handlers import RotatingFileHandler
+    handler = RotatingFileHandler(
+        log_file,
+        maxBytes=app.config.get('LOG_MAX_BYTES', 10 * 1024 * 1024),
+        backupCount=app.config.get('LOG_BACKUP_COUNT', 5),
+        encoding='utf-8',
+    )
     handler.setFormatter(log_formatter)
     handler.setLevel(log_level)
     app.logger.addHandler(handler)
@@ -1619,7 +1632,8 @@ def not_found(e):
     """404错误处理"""
     if wants_json_error_response():
         return jsonify({'status': 'error', 'msg': '请求的资源不存在'}), 404
-    return render_template('404.html') if os.path.exists('templates/404.html') else ('页面不存在', 404)
+    _404_path = os.path.join(app.template_folder, '404.html')
+    return render_template('404.html') if os.path.exists(_404_path) else ('页面不存在', 404)
 
 @app.errorhandler(CSRFError)
 def handle_csrf_error(e):
@@ -6637,7 +6651,7 @@ def material_api_all():
     """返回所有物料的完整数据（用于单据页面刷新）"""
     materials = Material.query.options(
         joinedload(Material.unit)
-    ).all()
+    ).order_by(Material.code.asc()).limit(2000).all()
     return jsonify({
         'status': 'success',
         'materials': [serialize_material(m) for m in materials]

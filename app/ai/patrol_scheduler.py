@@ -219,7 +219,11 @@ def _create_alert(rule, alert_data: dict[str, Any]):
         status='active',
     )
     db.session.add(alert)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
     return alert
 
 

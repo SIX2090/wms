@@ -11,7 +11,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, date
-from flask import render_template_string
+from flask import render_template_string, current_app
 import json
 
 
@@ -43,22 +43,22 @@ class NotificationManager:
     def send_email(self, to_email, subject, html_content, text_content=None):
         """发送邮件通知"""
         if not self.notification_enabled or not self.smtp_host:
-            print(f"[邮件通知已禁用] 收件人: {to_email}, 主题: {subject}")
+            self._log('邮件通知已禁用', subject=subject)
             return False
-        
+
         try:
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
             msg['From'] = self.smtp_from
             msg['To'] = to_email
-            
+
             # 纯文本内容
             if text_content:
                 msg.attach(MIMEText(text_content, 'plain', 'utf-8'))
-            
+
             # HTML内容
             msg.attach(MIMEText(html_content, 'html', 'utf-8'))
-            
+
             # 发送邮件
             # 显式传入 timeout，避免 SMTP 服务器无响应时后台定时任务线程永久阻塞
             with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=self.smtp_timeout) as server:
@@ -66,14 +66,27 @@ class NotificationManager:
                 server.starttls()
                 server.login(self.smtp_user, self.smtp_password)
                 server.sendmail(self.smtp_from, to_email, msg.as_string())
-            
-            print(f"[邮件发送成功] 收件人: {to_email}, 主题: {subject}")
+
+            self._log('邮件发送成功', subject=subject)
             return True
-            
+
         except Exception as e:
-            print(f"[邮件发送失败] 错误: {e}")
+            self._log('邮件发送失败', error=str(e))
             return False
-    
+
+    def _log(self, message, *, subject=None, error=None):
+        """Log notification events via the Flask app logger (no email addresses in logs)."""
+        parts = [f'[通知] {message}']
+        if subject:
+            parts.append(f'主题={subject}')
+        if error:
+            parts.append(f'错误={error}')
+        try:
+            current_app.logger.info(' '.join(parts))
+        except Exception:
+            # Fallback: print without email/PIM details if app context is unavailable
+            print(' '.join(parts))
+
     def check_low_stock(self, db, Material, User):
         """检查低库存物料并发送通知"""
         from app import Notification
