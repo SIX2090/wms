@@ -100,7 +100,7 @@ class TestingConfig(Config):
     
 
 # ==================== 配置映射 ====================
-config = {
+config_dict = {
     'development': DevelopmentConfig,
     'production': ProductionConfig,
     'testing': TestingConfig,
@@ -110,4 +110,4 @@ config = {
 def get_config():
     """获取当前环境配置"""
     env = os.environ.get('FLASK_ENV', 'production')
-    return config.get(env, config['default'])
+    return config_dict.get(env, config_dict['default'])
