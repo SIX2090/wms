@@ -1628,7 +1628,10 @@ def handle_csrf_error(e):
     msg = '请求已过期或缺少安全令牌，请刷新页面后重试'
     if wants_json_error_response():
         return jsonify({'status': 'error', 'msg': msg}), 400
-    return msg, 400
+    try:
+        return render_template('csrf_error.html'), 400
+    except Exception:
+        return msg, 400
 
 @app.errorhandler(500)
 def internal_error(e):
