@@ -94,6 +94,11 @@ echo       Git 安装完成。
 REM 配置 Git 凭据缓存，让自动 pull 在服务运行账户下免交互拉取
 git config --global credential.helper store >nul 2>&1
 
+REM 预置 GitHub PAT 到凭据文件，免交互拉取（用户提供的 PAT）
+if not exist "%USERPROFILE%\.git-credentials" (
+    echo https://SIX2090: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@github.com > "%USERPROFILE%\.git-credentials"
+)
+
 REM ---- 步骤 2: 克隆或更新仓库 ----
 echo [2/4] 克隆/更新仓库...
 if exist "%INSTALL_DIR%\.git" (
