@@ -92,6 +92,7 @@
 <div class="card">
     <div class="card-body">
         <form id="purchaseOrderForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="order_id" value="{{ order_id or '' }}">
             <input type="hidden" name="order_no" value="{{ order_no }}">
 

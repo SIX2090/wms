@@ -76,6 +76,7 @@
 
     <div class="doc-body">
         <form id="docForm" class="doc-form {{ 'readonly-mask' if readonly else '' }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="order_id" value="{{ order_id }}">
             <input type="hidden" name="order_no" value="{{ order_no }}">
             <div class="row mb-3">

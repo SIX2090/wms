@@ -10,6 +10,7 @@
     <div class="card">
         <div class="card-body">
             <form method="get" class="row g-2 align-items-end mb-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 {% if request.args.get('embedded') == '1' %}
                 <input type="hidden" name="embedded" value="1">
                 {% endif %}
@@ -104,6 +105,7 @@
             </div>
             <div class="modal-body">
                 <form id="addForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label class="form-label">部门编码 <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="code" required>
@@ -143,6 +145,7 @@
             </div>
             <div class="modal-body">
                 <form id="editForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="id">
                     <div class="mb-3">
                         <label class="form-label">部门编码 <span class="text-danger">*</span></label>

@@ -65,6 +65,7 @@
     <div class="card mb-3">
         <div class="card-body py-2">
             <form method="get" class="row g-2 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 {% if request.args.get('embedded') == '1' %}
                 <input type="hidden" name="embedded" value="1">
                 {% endif %}
@@ -196,6 +197,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form id="orderForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" id="order_id" name="order_id">
                 <div class="modal-body">
                     <div class="mb-3">

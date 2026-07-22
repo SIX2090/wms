@@ -9,6 +9,7 @@
     <div class="card mb-3">
         <div class="card-body py-2">
             <form method="get" class="row g-2 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 {% if request.args.get('embedded') == '1' %}
                 <input type="hidden" name="embedded" value="1">
                 {% endif %}
@@ -138,6 +139,7 @@
             </div>
             <div class="modal-body">
                 <form id="addForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="form-group">
                         <label for="supplier_id">加工厂商</label>
                         <select class="form-control" id="supplier_id" name="supplier_id">

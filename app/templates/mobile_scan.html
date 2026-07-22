@@ -127,6 +127,7 @@
         </article>
 
         <form class="mobile-scan-form" id="scanForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mobile-scan-field quantity-field {% if mode == 'query' %}d-none{% endif %}">
                 <label class="mobile-scan-label" for="quantityInput">
                     {% if mode == 'check' %}盘点数量{% elif mode == 'out' %}出库数量{% else %}入库数量{% endif %}

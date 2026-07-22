@@ -529,6 +529,7 @@ textarea.form-control {
 <div class="card">
     <div class="card-body">
         <form id="addForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="order_id" value="{{ order_id }}">
             <input type="hidden" name="order_no" value="{{ order_no }}">
             <input type="hidden" name="business_type" value="{{ business_type or ('产品入库' if is_product_in else '采购入库') }}">

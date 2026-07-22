@@ -7,6 +7,7 @@
     <a href="{{ url_for('sales_order_detail', id=order.id) }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> 返回详情</a>
   </div>
   <form id="salesForm" class="card card-body">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="row g-3 mb-3">
       <div class="col-md-3"><label class="form-label">订单号</label><input class="form-control" name="order_no" value="{{ order.order_no }}" readonly></div>
       <div class="col-md-2"><label class="form-label">订单日期</label><input class="form-control" type="date" name="date" value="{{ order.date.isoformat() if order.date else '' }}" required></div>

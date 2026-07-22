@@ -118,6 +118,7 @@
 {% endfor %}
 
 <form id="systemSettingsForm" class="settings-layout">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="settings-summary">
         <div class="settings-summary-item">
             <div class="settings-summary-value">{{ setting_groups|length }}</div>

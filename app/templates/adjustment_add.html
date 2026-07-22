@@ -280,6 +280,7 @@
 
     <div class="adjust-body">
         <form id="adjustmentForm" class="adjust-form {{ 'readonly-mask' if readonly else '' }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="order_id" value="{{ order_id }}">
             <input type="hidden" name="adjustment_no" value="{{ adjustment_no }}">
 

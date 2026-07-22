@@ -9,6 +9,7 @@
 <div class="card">
     <div class="card-body">
         <form id="addMaterialForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row">
                 <div class="col-md-4">
                     <div class="mb-3">
@@ -324,6 +325,7 @@ function showAddUnitModal() {
         <div style="background:white;border-radius:8px;padding:24px;width:400px;max-width:90%;">
             <h5 style="margin:0 0 16px 0;font-size:16px;font-weight:600;">新增计量单位</h5>
             <form id="addUnitForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="mb-3">
                     <label class="form-label">单位编号 <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" name="code" required placeholder="如：PCS、KG">

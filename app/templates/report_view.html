@@ -31,6 +31,7 @@
     </div>
     <div class="card-body">
         <form id="filterForm" class="row g-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             {% if filters_config.date %}
             <div class="col-md-3">
                 <label for="start_date" class="form-label">开始日期</label>

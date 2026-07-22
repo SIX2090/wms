@@ -19238,8 +19238,17 @@ def ai_ops_dashboard():
 @require_role('admin')
 def ai_data_retention_page():
     """AI-R14-F01 数据保留管理页面。"""
-    from ai.ops.data_retention import default_retention_config
-    config = default_retention_config()
+    from ai.ops.data_retention import default_retention_config, CATEGORY_CONVERSATIONS, CATEGORY_IMAGES, CATEGORY_TASKS, CATEGORY_FEEDBACK, CATEGORY_AUDIT
+    config_obj = default_retention_config()
+    config = {
+        'conversations_days': (config_obj.get_policy(CATEGORY_CONVERSATIONS) or type('X', (), {'retention_days': 90})()).retention_days,
+        'images_days': (config_obj.get_policy(CATEGORY_IMAGES) or type('X', (), {'retention_days': 30})()).retention_days,
+        'tasks_days': (config_obj.get_policy(CATEGORY_TASKS) or type('X', (), {'retention_days': 180})()).retention_days,
+        'feedback_days': (config_obj.get_policy(CATEGORY_FEEDBACK) or type('X', (), {'retention_days': 365})()).retention_days,
+        'audit_days': (config_obj.get_policy(CATEGORY_AUDIT) or type('X', (), {'retention_days': 0})()).retention_days,
+        'dry_run': config_obj.dry_run,
+        'enabled': config_obj.enabled,
+    }
     return render_template('ai_data_retention.html', config=config)
 
 

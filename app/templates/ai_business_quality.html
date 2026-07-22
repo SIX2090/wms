@@ -20,6 +20,7 @@
     <div class="card mb-3">
         <div class="card-body py-2">
             <form id="filterForm" class="row g-2 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="col-md-2">
                     <label class="form-label small">开始时间</label>
                     <input type="date" class="form-control form-control-sm" id="time_start">
@@ -81,6 +82,7 @@
         </div>
         <div class="card-body py-2">
             <form id="versionForm" class="row g-2 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="col-md-3">
                     <label class="form-label small">当前版本</label>
                     <input type="text" class="form-control form-control-sm" id="current_version" value="current" placeholder="如 v2">

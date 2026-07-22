@@ -54,6 +54,7 @@
             </div>
             <div class="card-body">
                 <form id="wechatShareForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label">发送人名称</label>
@@ -221,6 +222,7 @@
             <div class="text-muted small">当前显示 {{ logs|length }} / {{ log_total_count }} 条</div>
         </div>
         <form method="get" class="d-flex flex-wrap align-items-center gap-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <select name="status" class="form-select form-select-sm" style="width: 110px;">
                 <option value="" {% if not log_filters.status %}selected{% endif %}>全部状态</option>
                 <option value="pending" {% if log_filters.status == 'pending' %}selected{% endif %}>待发送</option>
