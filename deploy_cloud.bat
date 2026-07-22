@@ -91,6 +91,9 @@ echo       Git 安装完成。
 
 :git_ready
 
+REM 配置 Git 凭据缓存，让自动 pull 在服务运行账户下免交互拉取
+git config --global credential.helper store >nul 2>&1
+
 REM ---- 步骤 2: 克隆或更新仓库 ----
 echo [2/4] 克隆/更新仓库...
 if exist "%INSTALL_DIR%\.git" (
