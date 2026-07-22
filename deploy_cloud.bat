@@ -9,9 +9,8 @@ REM
 REM 功能：
 REM   1. 克隆/更新 WMS 仓库到 C:\wms
 REM   2. 部署绿色版 Python 3.11（不污染系统 PATH）
-REM   3. 检查并提示设置环境变量
-REM   4. 用 nssm 注册 Windows 服务（开机自启 + 崩溃自恢复）
-REM   5. 每次服务启动自动从 GitHub main 拉取最新代码
+REM   3. 用 nssm 注册 Windows 服务（开机自启 + 崩溃自恢复）
+REM   4. 每次服务启动自动从 GitHub main 拉取最新代码
 REM
 REM 使用方式：管理员身份运行本脚本
 REM ============================================================
@@ -42,7 +41,7 @@ if errorlevel 1 (
 )
 
 REM ---- 步骤 1: Git 检查 ----
-echo [1/5] 检查 Git...
+echo [1/4] 检查 Git...
 where git.exe >nul 2>nul
 if errorlevel 1 (
     echo [ERROR] 未安装 Git。
@@ -54,7 +53,7 @@ if errorlevel 1 (
 echo       Git 可用。
 
 REM ---- 步骤 2: 克隆或更新仓库 ----
-echo [2/5] 克隆/更新仓库...
+echo [2/4] 克隆/更新仓库...
 if exist "%INSTALL_DIR%\.git" (
     echo        仓库已存在，拉取最新代码...
     cd /d "%INSTALL_DIR%"
@@ -77,7 +76,7 @@ if exist "%INSTALL_DIR%\.git" (
 echo       仓库就绪。
 
 REM ---- 步骤 3: 部署绿色版 Python ----
-echo [3/5] 部署绿色版 Python 3.11...
+echo [3/4] 部署绿色版 Python 3.11...
 call "%INSTALL_DIR%\install_portable_python.bat"
 if errorlevel 1 (
     echo [ERROR] 绿色版 Python 部署失败。
@@ -85,46 +84,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM ---- 步骤 4: 环境变量检查 ----
-echo [4/5] 检查环境变量...
-set "NEED_ENV=0"
-if not defined WMS_BOOTSTRAP_PASSWORD (
-    echo   [警告] WMS_BOOTSTRAP_PASSWORD 未设置
-    set "NEED_ENV=1"
-)
-if not defined SECRET_KEY (
-    echo   [警告] SECRET_KEY 未设置
-    set "NEED_ENV=1"
-)
-if not defined FLASK_ENV (
-    echo   [警告] FLASK_ENV 未设置，将默认 production
-)
-
-if "!NEED_ENV!"=="1" (
-    echo.
-    echo ============================================================
-    echo [重要] 请先设置以下环境变量（管理员 CMD 执行）：
-    echo.
-    echo   setx WMS_BOOTSTRAP_PASSWORD "你的强口令" /M
-    echo   setx SECRET_KEY "随机64位字符串" /M
-    echo   setx FLASK_ENV production /M
-    echo   setx SESSION_COOKIE_SECURE true /M
-    echo.
-    echo 生成随机 SECRET_KEY:
-    echo   powershell -Command "[System.Web.Security.Membership]::GeneratePassword(64,10)"
-    echo   或: certutil -decode 任意文件 nul ^| findstr .  （随机性较差）
-    echo.
-    echo 设置完成后，重新打开 CMD 窗口，再运行：
-    echo   cd /d %INSTALL_DIR%
-    echo   deploy_cloud.bat
-    echo ============================================================
-    pause
-    exit /b 1
-)
-echo       环境变量已配置。
-
-REM ---- 步骤 5: 注册 Windows 服务 ----
-echo [5/5] 注册 Windows 服务...
+REM ---- 步骤 4: 注册 Windows 服务 ----
+echo [4/4] 注册 Windows 服务...
 
 set "NSSM_EXE=%NSSM_DIR%\win64\nssm.exe"
 if not exist "%NSSM_EXE%" (
