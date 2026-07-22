@@ -6,7 +6,8 @@
 1. run_server.py 在 main() 启动 serve() 之前调用 auto_update.main()
 2. WMS_SKIP_AUTO_UPDATE=1 环境变量可跳过自动更新（用于测试/安装/特殊运维）
 3. auto_update.main() 异常不阻断 WMS 启动（兜底用现有代码启动）
-4. start_wms_auto.bat 委托给 start_wms_offline.bat，不重复触发 auto_update
+4. start_wms_auto.bat 作为 nssm 服务入口，直接启动 run_server.py，
+   不重复触发 auto_update.py，不含 pause（适配无交互终端的服务模式）
 5. auto_update.py 保留安全属性：ff-only / 不切分支 / 工作区脏跳过 / 失败不阻断
 6. AI-DEPLOY-F01 任务标记存在于 auto_update.py / run_server.py / 本脚本
 
@@ -136,19 +137,30 @@ def test_skip_env_var(failures: list[str]) -> None:
 
 
 def test_start_wms_auto_delegates(failures: list[str]) -> None:
-    """start_wms_auto.bat 委托给 start_wms_offline.bat，避免重复触发 auto_update"""
-    print("\n[Test 3] start_wms_auto.bat 委托给 start_wms_offline.bat（不重复触发）")
+    """start_wms_auto.bat 作为 nssm 服务入口，直接启动 run_server.py，不重复触发 auto_update，不含 pause"""
+    print("\n[Test 3] start_wms_auto.bat 服务入口（无 pause / 不重复触发 auto_update / 直接 run_server.py）")
     if not START_WMS_AUTO_PATH.exists():
         check(False, f"{START_WMS_AUTO_PATH.name} 不存在", failures)
         return
 
     text = _read(START_WMS_AUTO_PATH)
-    delegates = "start_wms_offline.bat" in text and ("call " in text.lower())
-    check(delegates, "start_wms_auto.bat 调用 start_wms_offline.bat", failures)
+
+    # 必须直接启动 run_server.py（由 run_server.py 内置 _run_startup_auto_update 触发 auto_update）
+    uses_run_server = "run_server.py" in text
+    check(uses_run_server, "start_wms_auto.bat 直接启动 run_server.py（间接触发 auto_update）", failures)
 
     # 不再直接调用 auto_update.py（避免与 run_server.py 重复触发）
     direct_call = "auto_update.py" in text and ('"%PYTHON_CMD%" "%~dp0auto_update.py"' in text)
     check(not direct_call, "start_wms_auto.bat 不再直接执行 auto_update.py（避免重复触发）", failures)
+
+    # 服务模式不得含 pause 命令（pause 会卡死 nssm 服务进程）。
+    # 仅检测行首或 call 之后的独立 pause 命令，忽略 REM 注释中的 "pause" 文字。
+    pause_cmd = re.search(r'(?im)^\s*(?:call\s+)?pause\b', text)
+    check(pause_cmd is None, "start_wms_auto.bat 不含 pause 命令（适配 nssm 服务无交互终端）", failures)
+
+    # 必须含 Python 查找逻辑（与 start_wms_offline.bat 一致）
+    has_python_lookup = "PYTHON_CMD" in text and "python.exe" in text
+    check(has_python_lookup, "start_wms_auto.bat 含 Python 查找逻辑（优先绿色版）", failures)
 
 
 def test_auto_update_safety_properties(failures: list[str]) -> None:
