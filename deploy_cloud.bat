@@ -43,14 +43,53 @@ if errorlevel 1 (
 REM ---- 步骤 1: Git 检查 ----
 echo [1/4] 检查 Git...
 where git.exe >nul 2>nul
+if not errorlevel 1 (
+    echo       Git 可用。
+    goto :git_ready
+)
+
+echo       Git 未安装，开始静默安装...
+set "GIT_VER=2.47.1"
+set "GIT_INSTALLER=%TEMP%\Git-%GIT_VER%-64-bit.exe"
+set "GIT_URL=https://github.com/git-for-windows/git/releases/download/v%GIT_VER%.windows.1/Git-%GIT_VER%-64-bit.exe"
+
+REM 下载 Git 安装包
+if not exist "%GIT_INSTALLER%" (
+    echo        下载 Git for Windows %GIT_VER% ...
+    powershell -NoProfile -Command ^
+        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;" ^
+        "try { Invoke-WebRequest -Uri '%GIT_URL%' -OutFile '%GIT_INSTALLER%' -UseBasicParsing }" ^
+        "catch { Write-Host '[ERROR]' $_.Exception.Message; exit 1 }"
+    if errorlevel 1 (
+        echo [ERROR] Git 下载失败。
+        echo        请手动安装 Git for Windows 后重试。
+        pause
+        exit /b 1
+    )
+)
+
+REM 静默安装（/VERYSILENT 不弹窗，/NORESTART 不重启，/NOCANCEL 不可取消）
+echo        静默安装 Git...
+"%GIT_INSTALLER%" /VERYSILENT /NORESTART /NOCANCEL /SP-
 if errorlevel 1 (
-    echo [ERROR] 未安装 Git。
-    echo        请从 https://git-scm.com/download/win 下载安装 Git for Windows。
-    echo        安装时保持默认选项即可。
+    echo [ERROR] Git 安装失败。
+    echo        请手动安装 Git for Windows 后重试。
     pause
     exit /b 1
 )
-echo       Git 可用。
+
+REM 刷新当前会话 PATH，让 git.exe 立即可用（默认装到 C:\Program Files\Git）
+set "PATH=%ProgramFiles%\Git\cmd;%ProgramFiles(x86)%\Git\cmd;%PATH%"
+where git.exe >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] Git 安装后仍找不到 git.exe。
+    echo        请重新打开 CMD 窗口再运行本脚本。
+    pause
+    exit /b 1
+)
+echo       Git 安装完成。
+
+:git_ready
 
 REM ---- 步骤 2: 克隆或更新仓库 ----
 echo [2/4] 克隆/更新仓库...
