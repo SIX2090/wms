@@ -1,0 +1,17 @@
+WMS E2E 真实浏览器测试报告
+==================================================
+登录密码: Admin@123
+截图数量: 11
+
+页面访问结果:
+  01_login_page: 200
+  02_login_ok_Admin@123: 200
+  user_info_snippet: 仓库管理 |             首页
+  04_purchase_request: 404
+  05_supplier_list: 200
+  06_product_list: 404
+  07_warehouse_list: 200
+  08_stock_list: 404
+  09_inbound_order: 404
+  10_outbound_order: 404
+  11_ai_dashboard: 404
