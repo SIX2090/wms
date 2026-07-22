@@ -240,6 +240,13 @@ def test_extractor():
 
 
 def test_confirmation():
+    # 已移除：依赖 legacy confirmation.py（已被 document_confirmation.py AI-R08 取代）
+    # 新 API 验证见 verify_ai_document_confirmation.py
+    print("测试确认模块... [SKIP: legacy confirmation.py 已移除]")
+    return True
+
+
+def _test_confirmation_legacy():
     print("测试确认模块...")
     try:
         from ai.documents.confirmation import (

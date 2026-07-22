@@ -265,6 +265,12 @@ def test_role_rollout():
 
 
 def test_evaluation_framework():
+    # 已移除：依赖 legacy ops/evaluation.py（Stage 5 未启用的评估框架，与 documents/evaluation.py 命名冲突）
+    print("测试AI效果评估框架... [SKIP: legacy ops/evaluation.py 已移除]")
+    return True
+
+
+def _test_evaluation_framework_legacy():
     print("测试AI效果评估框架...")
     try:
         from ai.ops.evaluation import (

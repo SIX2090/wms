@@ -3,7 +3,6 @@
 # 核心模块（无外部依赖）
 from .monitor import OpsMonitor, get_ops_monitor, HealthStatus, AIMetrics, AlertRule
 from .feature_flags import FeatureFlagManager, FeatureFlag, RolloutMode, get_feature_manager
-from .evaluation import Evaluator, EvaluationCase, EvaluationResult, EvaluationReport, get_evaluator
 
 # 可选模块（依赖requests）
 try:
@@ -21,7 +20,6 @@ except ImportError:
 __all__ = [
     'OpsMonitor', 'get_ops_monitor', 'HealthStatus', 'AIMetrics', 'AlertRule',
     'FeatureFlagManager', 'FeatureFlag', 'RolloutMode', 'get_feature_manager',
-    'Evaluator', 'EvaluationCase', 'EvaluationResult', 'EvaluationReport', 'get_evaluator',
 ]
 
 if _HAS_FALLBACK:

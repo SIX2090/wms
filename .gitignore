@@ -60,3 +60,6 @@ test-results/
 app/_tmp*
 app/WMS_NO_DB_TOUCH.flag
 WMS_NO_DB_TOUCH.flag
+
+# ===== 外部工具（非项目代码）=====
+codex.cmd
