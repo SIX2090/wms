@@ -113,3 +113,6 @@ jobs:
 
       - name: Run production readiness gate self-test (AI-R18-F01)
         run: python3 scripts/verify_production_readiness.py --self-test
+
+      - name: Run startup auto-update check (AI-DEPLOY-F01)
+        run: python3 scripts/verify_startup_auto_update.py

@@ -1,11 +1,21 @@
 """WMS 启动前自动从 GitHub main 分支更新代码和依赖。
 
+AI-DEPLOY-F01: 本模块由 run_server.py 在每次 WMS 启动时调用一次，
+确保 WMS 每次启动都自动从 GitHub main 分支拉取最新代码和依赖。
+通过环境变量 WMS_SKIP_AUTO_UPDATE=1 可跳过（用于测试、安装、特殊运维场景）。
+历史调用入口 start_wms_auto.bat 现已委托给 start_wms_offline.bat，
+由 run_server.py 统一触发，避免重复执行。
+
 设计原则：
 - 任何步骤失败都不阻断 WMS 启动，用现有代码启动保证可用性。
 - 仅做 git fetch + pull --ff-only，不做 force、不切分支。
 - 数据库迁移由 app.py 启动逻辑 + WMS_NO_DB_TOUCH.flag 控制，本脚本不干预。
 - 工作区不干净时跳过 pull，避免冲突，记录警告。
+- 拉取的新代码在下一次 Python 进程启动时生效（Python 模块已加载到内存，
+  当前进程仍运行旧代码）。这是 in-process 自动更新的标准行为，
+  保证每次 WMS 重启后都运行 GitHub main 上的最新代码。
 """
+# AI_TASK: AI-DEPLOY-F01
 from __future__ import annotations
 
 import datetime

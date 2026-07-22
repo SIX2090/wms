@@ -20,6 +20,11 @@ from app import (
 )
 from notifications import init_notification_scheduler
 
+# AI_TASK: AI-DEPLOY-F01
+# WMS 每次启动前自动从 GitHub main 分支更新代码和依赖。
+# 通过环境变量 WMS_SKIP_AUTO_UPDATE=1 可跳过（用于测试、安装、特殊运维场景）。
+import auto_update  # noqa: E402
+
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
 
@@ -67,8 +72,31 @@ def _shutdown_scheduler(signum=None, frame=None):
         _scheduler = None
 
 
+def _run_startup_auto_update():
+    """AI-DEPLOY-F01: 启动前自动从 GitHub main 分支更新代码和依赖。
+
+    任何步骤失败都不阻断 WMS 启动，用现有代码启动保证可用性。
+    通过环境变量 WMS_SKIP_AUTO_UPDATE=1 可跳过整个更新流程。
+    """
+    if os.environ.get("WMS_SKIP_AUTO_UPDATE", "").strip().lower() in ("1", "true", "yes", "on"):
+        print("[AUTO_UPDATE] WMS_SKIP_AUTO_UPDATE=1, 跳过启动前自动更新", flush=True)
+        return
+    print("=" * 60, flush=True)
+    print("WMS 启动前自动更新检查（AI-DEPLOY-F01）", flush=True)
+    print("=" * 60, flush=True)
+    try:
+        auto_update.main()
+    except Exception as e:  # noqa: BLE001
+        # 自动更新失败不阻断 WMS 启动，用现有代码启动保证可用性
+        print(f"[AUTO_UPDATE][警告] 自动更新异常（不阻断启动）: {e}", flush=True)
+    print("=" * 60, flush=True)
+
+
 def main():
     _configure_console_logging()
+
+    # AI-DEPLOY-F01: 启动前自动从 GitHub 更新代码和依赖（失败不阻断启动）
+    _run_startup_auto_update()
 
     host = app.config.get("HOST", "0.0.0.0")
     port = int(app.config.get("PORT", 8080))
