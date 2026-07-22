@@ -154,9 +154,8 @@ echo   Python: %PY_EXE%
 echo   不在系统 PATH 中，WMS 启动脚本会自动找到它。
 echo.
 echo 下一步:
-echo   1. 设置环境变量（见 deploy_cloud.bat 提示）
-echo   2. 运行 start_wms_auto.bat 启动 WMS
-echo   3. 用 nssm 注册为 Windows 服务实现开机自启
+echo   1. 运行 start_wms_auto.bat 启动 WMS
+echo   2. 用 nssm 注册为 Windows 服务实现开机自启
 echo.
 pause
 exit /b 0

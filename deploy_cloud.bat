@@ -91,12 +91,14 @@ echo       Git 安装完成。
 
 :git_ready
 
-REM 配置 Git 凭据缓存，让自动 pull 在服务运行账户下免交互拉取
-git config --global credential.helper store >nul 2>&1
-
-REM 预置 GitHub PAT 到凭据文件，免交互拉取（用户提供的 PAT）
-if not exist "%USERPROFILE%\.git-credentials" (
-    echo https://SIX2090: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@github.com > "%USERPROFILE%\.git-credentials"
+REM 配置 Git 凭据，使用固定路径，确保服务账户（LocalSystem）也能读取
+REM nssm 服务默认以 LocalSystem 运行，其 home 不是管理员 USERPROFILE，
+REM 所以用 --system 写到系统级 gitconfig，凭据文件放固定路径。
+set "GIT_CRED_FILE=%INSTALL_DIR%\runtime\.git-credentials"
+git config --system credential.helper "store --file=%GIT_CRED_FILE%"
+if not exist "%GIT_CRED_FILE%" (
+    if not exist "%INSTALL_DIR%\runtime" mkdir "%INSTALL_DIR%\runtime"
+    echo https://SIX2090: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@github.com > "%GIT_CRED_FILE%"
 )
 
 REM ---- 步骤 2: 克隆或更新仓库 ----
@@ -189,7 +191,7 @@ echo [验证] 服务状态:
 "%NSSM_EXE%" status %SERVICE_NAME%
 echo.
 echo [验证] 本机访问:
-curl -I --max-time 10 http://127.0.0.1:8080/login 2>nul
+powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8080/login' -TimeoutSec 10 -UseBasicParsing; Write-Host ('HTTP ' + $r.StatusCode) } catch { Write-Host $_.Exception.Message }"
 echo.
 echo ============================================================
 echo.
