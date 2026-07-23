@@ -17,7 +17,7 @@
             <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('inOrderImportFile').click()">
                 <i class="bi bi-upload"></i> 导入
             </button>
-            <a href="/in_order/export?status={{ filters.status }}&search={{ filters.search|urlencode }}&business_type={{ filters.business_type|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
+            <a href="/in_order/export?status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
                 <i class="bi bi-file-earmark-excel"></i> 导出
             </a>
             {% if filters.business_type == '产品入库' %}
@@ -43,8 +43,8 @@
             {% if request.args.get('embedded') == '1' %}
             <input type="hidden" name="embedded" value="1">
             {% endif %}
-            {% if filters.business_type %}
-            <input type="hidden" name="business_type" value="{{ filters.business_type }}">
+            {% if filters.type_param %}
+            <input type="hidden" name="type" value="{{ filters.type_param }}">
             {% endif %}
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">状态</label>
@@ -69,7 +69,7 @@
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
                 {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.business_type %}
-                <a href="{{ url_for('in_order_list', business_type=filters.business_type, embedded=request.args.get('embedded')) }}" class="btn btn-outline-secondary btn-sm">清除</a>
+                <a href="{{ url_for('in_order_list', type=filters.type_param, embedded=request.args.get('embedded')) }}" class="btn btn-outline-secondary btn-sm">清除</a>
                 {% endif %}
             </div>
         </form>
@@ -187,7 +187,7 @@
             <ul class="pagination justify-content-center mb-0">
                 {% if pagination.has_prev %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('in_order_list', page=pagination.prev_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, business_type=filters.business_type, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">上一页</a>
+                    <a class="page-link" href="{{ url_for('in_order_list', page=pagination.prev_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, type=filters.type_param, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">上一页</a>
                 </li>
                 {% else %}
                 <li class="page-item disabled">
@@ -203,7 +203,7 @@
                         </li>
                         {% else %}
                         <li class="page-item">
-                            <a class="page-link" href="{{ url_for('in_order_list', page=page_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, business_type=filters.business_type, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
+                            <a class="page-link" href="{{ url_for('in_order_list', page=page_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, type=filters.type_param, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
                         </li>
                         {% endif %}
                     {% else %}
@@ -215,7 +215,7 @@
 
                 {% if pagination.has_next %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('in_order_list', page=pagination.next_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, business_type=filters.business_type, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">下一页</a>
+                    <a class="page-link" href="{{ url_for('in_order_list', page=pagination.next_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, type=filters.type_param, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">下一页</a>
                 </li>
                 {% else %}
                 <li class="page-item disabled">

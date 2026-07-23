@@ -23178,9 +23178,21 @@ def in_order_list():
     per_page = max(1, per_page)
     if per_page not in [20, 50, 100, 200]:
         per_page = 20
-    business_type_filter = (request.args.get('business_type') or '').strip()
-    if business_type_filter not in ('采购入库', '产品入库'):
-        business_type_filter = ''
+    # 支持 ?type=purchase_in / ?type=product_in 英文简写参数，
+    # 避免中文参数在 URL 中未经编码导致 Waitress Bad Request。
+    # 同时向后兼容 ?business_type=采购入库（经正确编码的请求）。
+    _type_alias = {
+        'purchase_in': '采购入库',
+        'product_in': '产品入库',
+    }
+    business_type_filter = ''
+    raw_type = (request.args.get('type') or '').strip()
+    if raw_type in _type_alias:
+        business_type_filter = _type_alias[raw_type]
+    else:
+        business_type_filter = (request.args.get('business_type') or '').strip()
+        if business_type_filter not in ('采购入库', '产品入库'):
+            business_type_filter = ''
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
     allowed_sorts = {'order_no', 'date', 'supplier_id', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
     if sort_by not in allowed_sorts:
@@ -23218,10 +23230,13 @@ def in_order_list():
         for order, item in pagination.items
     ]
     suppliers = Supplier.query.all()
+    # 反向映射：中文业务类型 -> 英文 URL 参数，供模板生成分页/清除链接
+    _type_reverse = {'采购入库': 'purchase_in', '产品入库': 'product_in'}
     filters = {
         'status': status_filter,
         'search': search,
         'business_type': business_type_filter,
+        'type_param': _type_reverse.get(business_type_filter, ''),
         'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
         'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
     }
