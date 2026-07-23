@@ -2,6 +2,15 @@
 setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
+REM === 管理员权限校验（AI-SEC-F01）===
+net session >nul 2>&1
+if errorlevel 1 (
+  echo [ERROR] 请以管理员身份运行此脚本（右键 → 以管理员身份运行）。
+  echo         安装 Python、写入系统路径需要管理员权限。
+  pause
+  exit /b 1
+)
+
 set "PKG_DIR=%~dp0"
 set "PKG_DIR=%PKG_DIR:~0,-1%"
 set "APP_SRC=%PKG_DIR%\app"
@@ -18,6 +27,40 @@ if /i "%PKG_DIR_FULL%"=="%INSTALL_DIR_FULL%" (
   set "RUN_DIR=%APP_SRC%"
 )
 
+goto :main
+
+REM ==================== 日志函数（AI-SEC-F01）====================
+:log
+echo [%date% %time%] %~1
+echo [%date% %time%] %~1>>"%INSTALL_LOG%"
+goto :eof
+
+:logerr
+echo [%date% %time%] [ERROR] %~1 1>&2
+echo [%date% %time%] [ERROR] %~1>>"%INSTALL_LOG%"
+goto :eof
+
+REM ==================== 回滚函数（AI-SEC-F01）====================
+:do_rollback
+call :log "===== 开始回滚 ====="
+if defined COPIED_FILES (
+  if not defined IN_PLACE_INSTALL (
+    if exist "%INSTALL_DIR%\app.py" (
+      rd /s /q "%INSTALL_DIR%" >nul 2>nul
+      call :log "已清理安装目录: %INSTALL_DIR%"
+    )
+  )
+)
+if exist "%USERPROFILE%\Desktop\WMS.lnk" (
+  del /q "%USERPROFILE%\Desktop\WMS.lnk" >nul 2>nul
+  call :log "已删除桌面快捷方式"
+)
+call :log "===== 回滚完成 ====="
+call :logerr "部署失败，已回滚。详见日志: %INSTALL_LOG%"
+pause
+goto :eof
+
+:main
 echo ============================================================
 echo WMS offline installer
 if defined IN_PLACE_INSTALL (
@@ -43,6 +86,45 @@ if not exist "%WHEELHOUSE%" (
   exit /b 1
 )
 
+REM === 文件日志初始化（AI-SEC-F01）===
+if not exist "%RUN_DIR%\logs" mkdir "%RUN_DIR%\logs"
+for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "STAMP=%%i"
+set "INSTALL_LOG=%RUN_DIR%\logs\install_%STAMP%.log"
+call :log "WMS offline installer started"
+call :log "INSTALL_DIR=%INSTALL_DIR%  RUN_DIR=%RUN_DIR%"
+
+REM === PowerShell 版本预检（AI-SEC-F01）===
+for /f "delims=" %%v in ('powershell -NoProfile -Command "$PSVersionTable.PSVersion.Major" 2^>nul') do set "PS_MAJOR=%%v"
+if not defined PS_MAJOR (
+  call :logerr "PowerShell 未找到。请安装 WMF 5.1。"
+  echo         下载: https://www.microsoft.com/download/details.aspx?id=54616
+  pause
+  exit /b 1
+)
+if !PS_MAJOR! LSS 5 (
+  call :logerr "PowerShell 版本 !PS_MAJOR! 过低，需要 5.0+。"
+  echo         请安装 WMF 5.1: https://www.microsoft.com/download/details.aspx?id=54616
+  pause
+  exit /b 1
+)
+call :log "PowerShell !PS_MAJOR! OK"
+
+REM === 端口预检（AI-SEC-F01）===
+powershell -NoProfile -Command "$c=Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue; if($c){exit 1} else {exit 0}"
+if errorlevel 1 (
+  call :logerr "端口 8080 已被占用，部署中止。请先停止占用该端口的进程。"
+  pause
+  exit /b 1
+)
+call :log "端口 8080 空闲"
+
+REM === 幂等性检查（AI-SEC-F01）===
+if exist "%RUN_DIR%\.installed.flag" (
+  call :log "检测到已安装标记，跳过重复安装。如需重新安装，请先删除 .installed.flag 并卸载旧版本。"
+  pause
+  exit /b 0
+)
+
 set "PYTHON_EXE="
 if exist "%LocalAppData%\Programs\Python\Python311\python.exe" (
   set "PYTHON_EXE=%LocalAppData%\Programs\Python\Python311\python.exe"
@@ -62,17 +144,19 @@ if not defined PYTHON_EXE (
 
 if not defined PYTHON_EXE (
   if not exist "%PY_INSTALLER%" (
-    echo [ERROR] Python not found and bundled installer is missing.
+    call :logerr "Python not found and bundled installer is missing."
     echo Install Python 3.11 x64 first, then run this script again.
     pause
     exit /b 1
   )
   echo [1/8] Python not found. Installing Python 3.11...
+  call :log "[1/8] Installing Python 3.11..."
   "%PY_INSTALLER%" /quiet InstallAllUsers=0 PrependPath=1 Include_pip=1 Include_test=0
   if errorlevel 1 (
-    echo [ERROR] Python installer failed.
+    call :logerr "Python installer failed."
     echo Try right-clicking install.bat and choose "Run as administrator", or install Python 3.11 x64 manually.
-    pause
+    set "ROLLBACK_NEEDED=1"
+    call :do_rollback
     exit /b 1
   )
   set "PYTHON_EXE=%LocalAppData%\Programs\Python\Python311\python.exe"
@@ -83,13 +167,15 @@ if defined PYTHON_EXE if exist "%PYTHON_EXE%" goto :python_found
 
 :python_found
 if not exist "%PYTHON_EXE%" (
-  echo [ERROR] python.exe was not found.
+  call :logerr "python.exe was not found."
   pause
   exit /b 1
 )
 echo [1/8] Python: %PYTHON_EXE%
+call :log "[1/8] Python resolved: %PYTHON_EXE%"
 
 echo [2/8] Stopping old WMS process...
+call :log "[2/8] Stopping old WMS process..."
 if exist "%INSTALL_DIR%\stop_wms_offline.bat" (
   call "%INSTALL_DIR%\stop_wms_offline.bat" >nul 2>nul
 ) else if exist "%INSTALL_DIR%\stop_wms.bat" (
@@ -99,29 +185,35 @@ if exist "%INSTALL_DIR%\stop_wms_offline.bat" (
 )
 
 echo [3/8] Copying WMS files...
+call :log "[3/8] Copying WMS files..."
 if defined IN_PLACE_INSTALL (
   echo Source package is already in %INSTALL_DIR%. Skipping file copy.
+  call :log "In-place install, skipping file copy."
 ) else (
   if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
   if not exist "%INSTALL_DIR%\backups" mkdir "%INSTALL_DIR%\backups"
 )
-for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "STAMP=%%i"
 if not exist "%RUN_DIR%\backups" mkdir "%RUN_DIR%\backups"
 if exist "%RUN_DIR%\instance\inventory.db" (
   copy /Y "%RUN_DIR%\instance\inventory.db" "%RUN_DIR%\backups\before_offline_install_%STAMP%_inventory.db" >nul
+  call :log "Backed up existing inventory.db"
 )
 if not defined IN_PLACE_INSTALL if exist "%APP_SRC%\instance\inventory.db" (
-  echo [ERROR] Package contains a business database and will not install.
+  call :logerr "Package contains a business database and will not install."
   pause
   exit /b 1
 )
 if not defined IN_PLACE_INSTALL (
   robocopy "%APP_SRC%" "%INSTALL_DIR%" /E /XD __pycache__ /XF *.pyc >nul
   if !ERRORLEVEL! GEQ 8 (
-    echo [ERROR] File copy failed.
-    pause
+    call :logerr "File copy failed."
+    set "ROLLBACK_NEEDED=1"
+    set "COPIED_FILES=1"
+    call :do_rollback
     exit /b 1
   )
+  set "COPIED_FILES=1"
+  call :log "File copy completed."
 )
 
 if not exist "%RUN_DIR%\logs" mkdir "%RUN_DIR%\logs"
@@ -129,31 +221,49 @@ if not exist "%RUN_DIR%\backups" mkdir "%RUN_DIR%\backups"
 if not exist "%RUN_DIR%\instance" mkdir "%RUN_DIR%\instance"
 
 echo [4/8] Installing dependencies into system Python...
-cd /d "%RUN_DIR%" || exit /b 1
+call :log "[4/8] Installing dependencies into system Python..."
+cd /d "%RUN_DIR%" || (
+  call :logerr "Cannot enter RUN_DIR."
+  set "ROLLBACK_NEEDED=1"
+  call :do_rollback
+  exit /b 1
+)
 echo [5/8] Installing dependencies from local wheelhouse...
+call :log "[5/8] Installing dependencies from local wheelhouse..."
 "%PYTHON_EXE%" -m pip install --no-index --find-links "%WHEELHOUSE%" --upgrade pip setuptools wheel
 if errorlevel 1 (
-  echo [ERROR] Offline pip bootstrap failed.
-  pause
+  call :logerr "Offline pip bootstrap failed."
+  set "ROLLBACK_NEEDED=1"
+  call :do_rollback
   exit /b 1
 )
 "%PYTHON_EXE%" -m pip install --no-index --find-links "%WHEELHOUSE%" -r "%RUN_DIR%\requirements.txt"
 if errorlevel 1 (
-  echo [ERROR] Offline dependency installation failed.
-  pause
+  call :logerr "Offline dependency installation failed."
+  set "ROLLBACK_NEEDED=1"
+  set "DEPS_INSTALLED=1"
+  call :do_rollback
   exit /b 1
 )
+set "DEPS_INSTALLED=1"
+call :log "Dependencies installed."
 
 echo [6/8] Creating empty database and default admin account...
+call :log "[6/8] Creating empty database and default admin account..."
 set "WMS_ALLOW_AUTO_SECRET_KEY=1"
 set "WMS_INIT_SAMPLE_DATA=0"
 "%PYTHON_EXE%" -c "from app import app, initialize_database; ctx=app.app_context(); ctx.push(); initialize_database(); ctx.pop()"
 if errorlevel 1 (
-  echo [ERROR] Empty database initialization failed.
-  pause
+  call :logerr "Empty database initialization failed."
+  set "ROLLBACK_NEEDED=1"
+  set "DB_INITIALIZED=1"
+  call :do_rollback
   exit /b 1
 )
+set "DB_INITIALIZED=1"
+call :log "Database initialized."
 echo [7/8] Checking startup scripts...
+call :log "[7/8] Checking startup scripts..."
 if defined IN_PLACE_INSTALL (
   set "START_SCRIPT=%PKG_DIR%\start_wms_offline.bat"
   set "START_WORKDIR=%PKG_DIR%"
@@ -162,12 +272,13 @@ if defined IN_PLACE_INSTALL (
   set "START_WORKDIR=%INSTALL_DIR%"
 )
 if not exist "%START_SCRIPT%" (
-  echo [ERROR] start_wms_offline.bat not found.
+  call :logerr "start_wms_offline.bat not found."
   pause
   exit /b 1
 )
 
 echo [8/8] Creating desktop shortcuts...
+call :log "[8/8] Creating desktop shortcuts..."
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$desktop=[Environment]::GetFolderPath('Desktop');" ^
   "$ws=New-Object -ComObject WScript.Shell;" ^
@@ -175,6 +286,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$s.TargetPath='%START_SCRIPT%';" ^
   "$s.WorkingDirectory='%START_WORKDIR%';" ^
   "$s.Save();"
+if errorlevel 1 (
+  call :logerr "Desktop shortcut creation failed (non-fatal)."
+) else (
+  set "SHORTCUT_CREATED=1"
+  call :log "Desktop shortcut created."
+)
+
+REM === 写入安装标记（AI-SEC-F01 幂等性）===
+echo installed > "%RUN_DIR%\.installed.flag"
+call :log "Installation flag written."
 
 echo.
 echo ============================================================
@@ -184,6 +305,7 @@ echo Login: http://127.0.0.1:8080/login
 echo Username: admin
 echo Initial password: WMS_BOOTSTRAP_PASSWORD, or admin on first creation when unset
 echo ============================================================
+call :log "WMS installation completed successfully."
 echo.
 pause
 exit /b 0

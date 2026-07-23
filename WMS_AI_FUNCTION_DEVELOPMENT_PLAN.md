@@ -341,6 +341,7 @@ AI-R01～R17 的基础能力已经完成。AI-R17-F01 真实用户白名单灰�
 | P0 | AI-R18-F01 | 已完成 | 生产就绪门禁、真实验收证据和 main 克隆恢复流程 | AI-R17-F02、AI-R17-F03 | 生产证据 JSON 校验、默认 no-go、自测、CI 门禁、临时电脑安全克隆 | 缺真实样本/七日指标/签字/生产配置任一项均不得 GO | 2026-07-18 | 881020f | scripts/verify_production_readiness.py、tools/clone_wms_main.ps1、README.md、PRODUCTION_DEPLOYMENT_CHECKLIST.md、.github/workflows/verify.yml | self-test、py_compile、source encoding、verify_ai_all.py --level full、严格台账一致性均通过 | full 64/64；已推送 main；真实生产证据仍需现场采集，合成样本不计入 GO |
 | P1 | AI-R18-F02 | 已完成 | 管理员 AI 七日验收台 | AI-R17-F02、AI-R17-F03 | 快照采集、证据包构建、异常展示、管理员 go/no-go 签署、角色导航 | 仅 admin；页面和 API 权限一致；不执行业务写动作；浏览器流程可完成 | 2026-07-18 | 72d00ab | app.py、ai_acceptance.html、verify_ai_acceptance_page.py、base.html、verify_ai_all.py、verify.yml | 页面专项 7 项、compile、source encoding、verify_ai_all.py --level full 已通过 | full 65/65；已推送 main；真实七日数据和真实管理员签署仍需生产环境完成；页面不自动提交业务单据 |
 | P1 | AI-DEPLOY-F01 | 已完成 | WMS 每次启动后自动从 GitHub main 分支更新代码和依赖 | 无 | run_server.py 启动时调用 auto_update.main()、WMS_SKIP_AUTO_UPDATE 跳过机制、try/except 失败兜底、start_wms_auto.bat 作为 nssm 服务入口（无 pause、直接 run_server.py、不重复触发 auto_update）、6 项专项验证 | 任何启动路径都触发 auto_update；失败不阻断启动用现有代码启动；不 force 不切分支；工作区脏跳过 pull；非 git 仓库跳过；备份数据库；nssm 服务入口无 pause | 2026-07-22 | [待提交] | run_server.py、auto_update.py、start_wms_auto.bat、verify_startup_auto_update.py、verify_ai_all.py、verify.yml | verify_startup_auto_update.py 6 项 PASS、verify_ai_all.py --level core PASS、严格台账一致性 PASS | 真实 Windows 生产环境需观察 logs/auto_update.log 确认每次启动 fetch + pull 行为；进程内更新语义：拉取的新代码在下一次 Python 进程启动时生效 |
+| P0 安全 | AI-SEC-F01 | 已完成 | SESSION_COOKIE_SECURE 修复 + 4 项 CVE 依赖升级 + 部署脚本 6 项安全加固 + 4 份审计报告 + 健康检查脚本 | AGENTS.md 密码透明性约束、AI-DEPLOY-F01 | config.py SESSION_COOKIE_SECURE=False→True（HTTPS 加密传输）+ TestingConfig 显式关闭 Secure；requirements.txt Flask 2.3.3→3.0.3（CVE-2023-30861）、cryptography 41.0.4→42.0.4（CVE-2023-50782）、urllib3 2.0.4→2.0.7（CVE-2023-43804）、Werkzeug 2.3.7→3.0.1（CVE-2023-46136）；install.bat/install_e_wms.bat 6 项加固（管理员权限校验 net session、文件日志 install_$(stamp).log、回滚机制 :do_rollback、端口 8080 预检 Get-NetTCPConnection、幂等性 .installed.flag、errorlevel 错误捕获）；docs/环境兼容性检查报告.md、docs/部署脚本审计报告.md、docs/安全基线检查报告.md、docs/部署验证与回滚手册.md、scripts/health_check.ps1 | SESSION_COOKIE_SECURE 仅 HTTPS 传输；4 项 CVE 依赖满足最低版本；install.bat/install_e_wms.bat 保留全部 37 项黄金测试断言（INSTALL_DIR/PrependPath/TargetDir/8步标记/wheelhouse/IN_PLACE_INSTALL/业务数据库保护/停止旧进程/初始化命令/WMS_ALLOW_AUTO_SECRET_KEY/密码透明性/快捷方式/exit码/包完整性/备份/运行时目录）；admin 校验缺失则 exit /b 1；端口占用则退出；关键步骤 errorlevel 失败触发回滚；密码仍走 WMS_BOOTSTRAP_PASSWORD/admin 固定默认，无随机生成器 | 2026-07-23 | [待提交] | app/config.py、app/requirements.txt、install.bat、install_e_wms.bat、docs/环境兼容性检查报告.md、docs/部署脚本审计报告.md、docs/安全基线检查报告.md、docs/部署验证与回滚手册.md、scripts/health_check.ps1 | tests/test_install_scripts_golden.py 37/37 PASS、tests/ 全套 90/90 PASS（WMS_ALLOW_AUTO_SECRET_KEY=1）| 腾讯云测试环境真实执行部署/健康检查/回滚全流程与新 PAT 加密归档属生产环境任务，沙箱无法完成，待业务环境补跑 |
 
 同一时间只允许一个子项处于“开发中”。P0 未完成前不得开始 P2，不得以页面美化、模型更换或新 Agent 名义绕过生产验收。
 
@@ -564,6 +565,50 @@ AI-R01～R17 的基础能力已经完成。AI-R17-F01 真实用户白名单灰�
 - 不 force、不切分支、不重置工作区、不修改密码、不修改业务数据。
 - 工作区脏跳过 pull，非 git 仓库跳过，备份数据库。
 - 6 项专项验证全 PASS，AI core 套件含新增 `verify_startup_auto_update.py`，严格台账一致性通过。
+
+### 13.10 AI-SEC-F01：SESSION_COOKIE_SECURE 修复 + CVE 依赖升级 + 部署脚本安全加固
+
+**业务目标**：满足等保 2.0 安全基线要求，修复 Session Cookie 明文传输风险，消除 4 项已公开 CVE 依赖漏洞，并为离线部署脚本补齐管理员权限校验、文件日志、回滚机制、端口预检、幂等性和错误捕获 6 项加固，使腾讯云生产部署可审计、可回滚、可重入。
+
+**开发范围**：
+
+- `app/config.py`：`SESSION_COOKIE_SECURE = False` → `True`（基线 Config，HTTPS 环境下 Cookie 仅通过加密连接传输）；`ProductionConfig` 默认值由 `'false'` 改为 `'true'`；`TestingConfig` 显式 `SESSION_COOKIE_SECURE = False`（测试环境走 HTTP，关闭 Secure 标志避免会话丢失）。
+- `app/requirements.txt`：4 项 CVE 依赖升级至安全版本——Flask 2.3.3→3.0.3（CVE-2023-30861 Cookie 注入）、cryptography 41.0.4→42.0.4（CVE-2023-50782 椭圆曲线 DoS）、urllib3 2.0.4→2.0.7（CVE-2023-43804 Cookie 重定向泄漏）、Werkzeug 2.3.7→3.0.1（CVE-2023-46136 multipart DoS）。
+- `install.bat` / `install_e_wms.bat`：6 项加固（详见下方“部署脚本 6 项加固”），保留全部 37 项黄金测试断言不变（`INSTALL_DIR=C:\WMS` vs `E:\wms`、`PrependPath=1` vs `0`、`TargetDir=` 差异、`[1/8]`-`[8/8]` 8 步标记、`--no-index --find-links "%WHEELHOUSE%"`、`IN_PLACE_INSTALL`/`PKG_DIR_FULL`、`instance\inventory.db` 业务数据库保护、`LocalPort 8080` 停止旧进程、`initialize_database` 一行命令、`WMS_ALLOW_AUTO_SECRET_KEY=1`/`WMS_INIT_SAMPLE_DATA=0`、`admin` 固定默认密码且无随机生成器、`WMS.lnk`+`WScript.Shell` 快捷方式、`exit /b 1`/`exit /b 0` 退出码、`app\app.py not found`/`wheelhouse not found` 完整性检查、`before_offline_install_` 备份、`logs`/`backups`/`instance` 运行时目录）。
+- `docs/环境兼容性检查报告.md`：22 项依赖兼容性 + 9 项配置项 + TLS 1.2 注册表配置。
+- `docs/部署脚本审计报告.md`：19 项检查 + 6 段高风险修复代码（A-F）。
+- `docs/安全基线检查报告.md`：31 项安全检查（凭据/服务账户/防火墙/日志/会话 Cookie/组件 CVE）。
+- `docs/部署验证与回滚手册.md`：20 项验证 + 17 步回滚 + 回滚决策树。
+- `scripts/health_check.ps1`：PowerShell 健康检查脚本，10 项检查（服务/端口/HTTP/DB/日志/SECRET_KEY/auto_update/防火墙），输出 PASS/FAIL/WARN 表格并返回退出码。
+
+**部署脚本 6 项加固**：
+
+1. **管理员权限校验**：脚本开头 `net session >nul 2>&1` + `if errorlevel 1 ( echo 请以管理员身份运行 & pause & exit /b 1 )`。
+2. **文件日志**：`:log` / `:logerr` 函数写入 `%RUN_DIR%\logs\install_%STAMP%.log`（时间戳由 `Get-Date -Format yyyyMMdd_HHmmss` 生成），所有关键操作带时间戳与操作结果。
+3. **回滚机制**：`:do_rollback` 函数——部署失败时清理已创建的安装目录（仅 `COPIED_FILES` 且非 IN_PLACE_INSTALL 时）与桌面快捷方式，输出回滚日志。
+4. **端口预检**：部署前 `Get-NetTCPConnection -LocalPort 8080 -State Listen`，占用则提示并 `exit /b 1`。
+5. **幂等性**：`.installed.flag` 标记存在则跳过重复安装 `exit /b 0`；服务创建/防火墙规则等操作存在性检查。
+6. **错误捕获**：关键步骤 `if errorlevel 1` / `if !ERRORLEVEL! GEQ 8` 检查，失败时 `call :logerr` + `set ROLLBACK_NEEDED=1` + `call :do_rollback` + `exit /b 1`。
+
+**权限与人工确认边界**：
+
+- 密码仍走 `WMS_BOOTSTRAP_PASSWORD` 环境变量或固定默认 `admin`，**不引入任何随机密码生成器**（`secrets.token_urlsafe`/`os.urandom`/`random.` 全部禁止），符合 AGENTS.md 密码透明性约束。
+- 不直接在脚本中 `set "WMS_BOOTSTRAP_PASSWORD="`、不传 `--password`、不设 `ADMIN_PASSWORD`，避免脚本内固化密码。
+- 部署脚本只做安装/回滚，不修改用户密码、不修改业务数据、不提交推送任何本地改动。
+- 健康检查脚本只读，不执行业务写动作。
+
+**专项验证**：`tests/test_install_scripts_golden.py` 37 项 + `tests/` 全套 90 项黄金测试：
+
+- 37 项安装脚本断言全 PASS：`INSTALL_DIR` 差异、`PrependPath`/`TargetDir` 差异、`PYTHON_EXE` 解析差异、8 步标记 ×2、`--no-index --find-links` 离线安装、`IN_PLACE_INSTALL` 判定、业务数据库保护、停止旧进程、数据库初始化命令、初始化环境变量、无随机密码生成器、默认密码 `admin` 提示、不直接设密码、`start_wms_offline.bat` 依赖、`START_SCRIPT` 路径分支、桌面快捷方式、退出码、包完整性、备份、运行时目录。
+- 全套 90 项 PASS（含物料治理黄金测试 20 项），`WMS_ALLOW_AUTO_SECRET_KEY=1 python -m pytest tests/ -v --tb=short`。
+
+**生产完成门槛**：
+
+- `SESSION_COOKIE_SECURE=True` 在生产生效，HTTPS 环境下 Cookie 仅通过加密连接传输。
+- 4 项 CVE 依赖版本满足最低要求（Flask ≥ 3.0.3、cryptography ≥ 42.0.4、urllib3 ≥ 2.0.7、Werkzeug ≥ 3.0.1）。
+- `install.bat` / `install_e_wms.bat` 6 项加固全部到位，37 项黄金测试断言不变。
+- 90/90 黄金测试 PASS，无回归。
+- 待业务环境补跑：腾讯云测试环境真实执行部署/健康检查/回滚全流程；新 PAT 加密存储归档作为上线审批依据（沙箱无法访问生产凭据）。
 
 ## 14. 批次与里程碑
 
