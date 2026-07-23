@@ -2,35 +2,39 @@
 {% block title %}采购单详情{% endblock %}
 
 {% block content %}
-<div class="page-header d-flex justify-content-between align-items-center">
-    <h2 class="mb-0"><i class="bi bi-bag-check"></i> 采购单详情</h2>
-    <div class="d-flex gap-2">
-        <a href="/purchase_order" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> 返回列表</a>
-        <a href="{{ url_for('print_purchase_order', id=order.id) }}" target="_blank" class="btn btn-outline-primary">
-            <i class="bi bi-printer"></i> 打印
-        </a>
-        <button class="btn btn-outline-info" onclick="copyPurchaseOrder({{ order.id }})">
-            <i class="bi bi-files"></i> 复制
-        </button>
-        {% if order.status == 'pending' %}
-        <a href="{{ url_for('purchase_order_edit_page', id=order.id) }}" class="btn btn-outline-secondary">
-            <i class="bi bi-pencil-square"></i> 编辑
-        </a>
-        <button class="btn btn-outline-danger" onclick="deletePurchaseOrder({{ order.id }})">
-            <i class="bi bi-trash"></i> 删除
-        </button>
-        {% endif %}
-        {% if order.status in ['pending', 'partial'] %}
-        <button class="btn btn-primary" onclick="createInOrder({{ order.id }})">
-            <i class="bi bi-box-arrow-in-down"></i> 生成采购入库单
-        </button>
-        <button class="btn btn-outline-danger" onclick="closePurchaseOrder({{ order.id }})">
-            <i class="bi bi-stop-circle"></i> 关闭
-        </button>
-        {% elif order.status == 'closed' %}
-        <button class="btn btn-outline-primary" onclick="reopenPurchaseOrder({{ order.id }})">
-            <i class="bi bi-arrow-counterclockwise"></i> 重新打开
-        </button>
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-bag-check"></i> 采购单详情</h2>
+        {% if current_user.role in ['admin', 'warehouse'] %}
+        <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+            <a href="/purchase_order" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回列表</a>
+            <a href="{{ url_for('print_purchase_order', id=order.id) }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-printer"></i> 打印
+            </a>
+            <button class="btn btn-sm btn-outline-info" onclick="copyPurchaseOrder({{ order.id }})">
+                <i class="bi bi-files"></i> 复制
+            </button>
+            {% if order.status == 'pending' %}
+            <a href="{{ url_for('purchase_order_edit_page', id=order.id) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-pencil-square"></i> 编辑
+            </a>
+            <button class="btn btn-sm btn-outline-danger" onclick="deletePurchaseOrder({{ order.id }})">
+                <i class="bi bi-trash"></i> 删除
+            </button>
+            {% endif %}
+            {% if order.status in ['pending', 'partial'] %}
+            <button class="btn btn-sm btn-primary" onclick="createInOrder({{ order.id }})">
+                <i class="bi bi-box-arrow-in-down"></i> 生成采购入库单
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="closePurchaseOrder({{ order.id }})">
+                <i class="bi bi-stop-circle"></i> 关闭
+            </button>
+            {% elif order.status == 'closed' %}
+            <button class="btn btn-sm btn-outline-primary" onclick="reopenPurchaseOrder({{ order.id }})">
+                <i class="bi bi-arrow-counterclockwise"></i> 重新打开
+            </button>
+            {% endif %}
+        </div>
         {% endif %}
     </div>
 </div>

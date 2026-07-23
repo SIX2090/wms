@@ -788,6 +788,21 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 - 提交 SHA：[待提交]；专项命令：`python scripts/verify_sales_module.py`（12/13 PASS，唯一失败为运行时 Flask 未安装）；`grep "function csrfFetch" app/templates/sales_*.html`（无命中）；`grep "function csrfPost" app/templates/sales_*.html`（无命中）；`grep "function getCsrfToken" app/templates/sales_*.html`（无命中）。
 - 剩余风险：`SM-P6-03-2`（setupResizableTable + 每页条数选择器）、`SM-P6-03-3`（T+ CSS partial + status_badge 宏 + bindListActions）、`SM-P4-FIX-01`（极简模板重写、Chart.js 可视化）属独立子项，不在本子项范围。
 
+#### SM-P6-03-4（已完成）
+
+- 目标：统一 4 个列表页 + 4 个详情页工具栏/明细表样式，消除 `toolbar-btn`/`order-header`/`page-header`/`h2`/`h4` 三套风格分裂，所有 8 个单据模板使用统一 Bootstrap 标准风格（`.page-header` + `btn btn-sm` + 整体 role gate 包裹）。
+- 业务边界：仅统一样式容器与按钮 class，不补/删功能按钮（不补"完成已选"、不补"复制"、不补 AI 异常分析）；不修改筛选表单字段、表头列数、明细行操作逻辑；后端 `@require_role` 二次校验未受影响。
+- 改动模块：
+  - `app/templates/purchase_order.html`：toolbar div 补 `justify-content-end`、整体包 `{% if current_user.role in ['admin', 'warehouse'] %}`（原本无 gate）。
+  - `app/templates/sales_order.html`：toolbar div 补 `justify-content-end`；原本每按钮单独 gate 改为整体 toolbar gate；角色集 `['admin', 'warehouse', 'purchase', 'sales']` 保留。
+  - `app/templates/in_order_detail.html`：`.order-header` → `.page-header`；`.toolbar-btn*` → `btn btn-sm btn-outline-*`；toolbar 整体包 `{% if current_user.role in ['admin', 'warehouse'] %}`（原本只 gate 复制按钮）。
+  - `app/templates/out_order_detail.html`：同上 `.order-header`→`.page-header`、`.toolbar-btn*`→`btn btn-sm btn-outline-*`；toolbar 整体包 `{% if current_user.role in ['admin', 'warehouse'] %}`（原本无 gate）。
+  - `app/templates/purchase_order_detail.html`：所有按钮补 `btn-sm`；toolbar 整体包 `{% if current_user.role in ['admin', 'warehouse'] %}`（原本无 gate）。
+  - `app/templates/sales_order_detail.html`：`container-fluid py-3` → `.page-header`；`h4` → `h2`；所有按钮补 `btn-sm`；toolbar 整体包 `{% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}`（原本无 gate）。
+- 状态：专项验证已完成；真实浏览器 E2E 仍需业务环境执行。
+- 提交 SHA：[待提交]；专项命令：`grep -c "justify-content-end wms-entry-toolbar" app/templates/{in_order,out_order,purchase_order,sales_order}.html`（4 命中）；`grep "toolbar-btn" app/templates/{in_order_detail,out_order_detail}.html`（无命中，旧自定义类已清除）；`grep "<h4" app/templates/sales_order_detail.html`（无命中）；`grep "btn btn-sm" app/templates/{in_order_detail,out_order_detail,purchase_order_detail,sales_order_detail}.html`（4 文件均有命中）。
+- 剩余风险：缺失按钮补齐（purchase_order/sales_order 无"完成已选"、out_order 行内无"复制"、out_order_detail/sales_order_detail 无"复制单据"按钮）属独立子项，不在本子项范围；筛选表单字段差异（sales_order 无关键词框）属独立子项。
+
 每个子项完成后必须在本台账追加：
 
 ```text
