@@ -54,25 +54,25 @@
 
   <div class="card">
     <div class="table-responsive">
-      <table class="table table-bordered mb-0">
+      <table class="table order-table mb-0" id="itemTable">
         <thead>
           <tr>
-            <th>物料编码</th>
-            <th>物料名称</th>
-            <th>规格</th>
-            <th>单位</th>
-            <th class="text-end">订单数量</th>
-            <th class="text-end">已发货</th>
-            <th class="text-end">未发货</th>
-            <th class="text-end">含税单价</th>
-            <th class="text-end">税率</th>
-            <th class="text-end">未税金额</th>
-            <th class="text-end">税额</th>
-            <th class="text-end">含税金额</th>
-            <th>批次号</th>
-            <th>序列号</th>
-            <th>备注</th>
-            {% if order.status=='confirmed' and order.shipment_status != 'shipped' %}<th class="text-end">本次出库</th>{% endif %}
+            <th class="resizable-th" data-col="colCode">物料编码<div class="resize-handle"></div></th>
+            <th class="resizable-th" data-col="colName">物料名称<div class="resize-handle"></div></th>
+            <th class="resizable-th" data-col="colSpec">规格<div class="resize-handle"></div></th>
+            <th class="text-center resizable-th" data-col="colUnit">单位<div class="resize-handle"></div></th>
+            <th class="text-end resizable-th" data-col="colQty">订单数量<div class="resize-handle"></div></th>
+            <th class="text-end resizable-th" data-col="colShipped">已发货<div class="resize-handle"></div></th>
+            <th class="text-end resizable-th" data-col="colUnshipped">未发货<div class="resize-handle"></div></th>
+            <th class="text-end resizable-th" data-col="colPrice">含税单价<div class="resize-handle"></div></th>
+            <th class="text-end resizable-th" data-col="colTaxRate">税率<div class="resize-handle"></div></th>
+            <th class="text-end resizable-th" data-col="colNetAmount">未税金额<div class="resize-handle"></div></th>
+            <th class="text-end resizable-th" data-col="colTax">税额<div class="resize-handle"></div></th>
+            <th class="text-end resizable-th" data-col="colAmount">含税金额<div class="resize-handle"></div></th>
+            <th class="resizable-th" data-col="colBatch">批次号<div class="resize-handle"></div></th>
+            <th class="resizable-th" data-col="colSerial">序列号<div class="resize-handle"></div></th>
+            <th class="resizable-th" data-col="colRemark">备注<div class="resize-handle"></div></th>
+            {% if order.status=='confirmed' and order.shipment_status != 'shipped' %}<th class="text-end resizable-th" data-col="colOutbound">本次出库<div class="resize-handle"></div></th>{% endif %}
           </tr>
         </thead>
         <tbody>

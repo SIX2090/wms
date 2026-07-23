@@ -51,8 +51,8 @@
         <table class="table table-bordered table-hover table-sm mb-0" id="afterSaleOutTable">
             <thead>
                 <tr>
-                    <th width="50"><input type="checkbox" id="checkAll" onclick="toggleAll()"></th>
-                    <th width="80">序号</th>
+                    <th width="56" class="text-center"><input type="checkbox" id="checkAll" onclick="toggleAll()" title="全选当前页"></th>
+                    <th width="70">序号</th>
                     <th data-sortable="order_no" class="sortable-header">单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="customer" class="sortable-header">客户 {% if sort_by=='customer' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
@@ -60,7 +60,7 @@
                     <th data-sortable="reason" class="sortable-header">售后原因 {% if sort_by=='reason' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="total_amount" class="sortable-header">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th>操作</th>
+                    <th width="90">操作</th>
                 </tr>
             </thead>
             <tbody>

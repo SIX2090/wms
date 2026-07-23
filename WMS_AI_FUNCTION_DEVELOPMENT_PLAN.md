@@ -800,8 +800,24 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
   - `app/templates/purchase_order_detail.html`：所有按钮补 `btn-sm`；toolbar 整体包 `{% if current_user.role in ['admin', 'warehouse'] %}`（原本无 gate）。
   - `app/templates/sales_order_detail.html`：`container-fluid py-3` → `.page-header`；`h4` → `h2`；所有按钮补 `btn-sm`；toolbar 整体包 `{% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}`（原本无 gate）。
 - 状态：专项验证已完成；真实浏览器 E2E 仍需业务环境执行。
-- 提交 SHA：[待提交]；专项命令：`grep -c "justify-content-end wms-entry-toolbar" app/templates/{in_order,out_order,purchase_order,sales_order}.html`（4 命中）；`grep "toolbar-btn" app/templates/{in_order_detail,out_order_detail}.html`（无命中，旧自定义类已清除）；`grep "<h4" app/templates/sales_order_detail.html`（无命中）；`grep "btn btn-sm" app/templates/{in_order_detail,out_order_detail,purchase_order_detail,sales_order_detail}.html`（4 文件均有命中）。
-- 剩余风险：缺失按钮补齐（purchase_order/sales_order 无"完成已选"、out_order 行内无"复制"、out_order_detail/sales_order_detail 无"复制单据"按钮）属独立子项，不在本子项范围；筛选表单字段差异（sales_order 无关键词框）属独立子项。
+- 提交 SHA：5ec9757；专项命令：`grep -c "justify-content-end wms-entry-toolbar" app/templates/{in_order,out_order,purchase_order,sales_order}.html`（4 命中）；`grep "toolbar-btn" app/templates/{in_order_detail,out_order_detail}.html`（无命中，旧自定义类已清除）；`grep "<h4" app/templates/sales_order_detail.html`（无命中）；`grep "btn btn-sm" app/templates/{in_order_detail,out_order_detail,purchase_order_detail,sales_order_detail}.html`（4 文件均有命中）。
+- 剩余风险：缺失按钮补齐（purchase_order/sales_order 无"完成已选"、out_order 行内无"复制"、out_order_detail/sales_order_detail 无"复制单据"按钮）属独立子项，不在本子项范围；筛选表单字段差异（sales_order 无关键词框）属独立子项；明细表 table class 与列宽未统一（详情页 table-bordered vs order-table、列表页 序号/操作 列宽不一）由 SM-P6-03-5 解决。
+
+#### SM-P6-03-5（已完成）
+
+- 目标：按用户指令"单据样式按采购入库单样式来做，列表按采购订单列表来做，全系统要统一样式，不要搞五花八门"，统一全部单据明细表与列表表样式：详情页明细表统一 `table order-table` + `resizable-th` + `data-col` + `resize-handle`（基准 `in_order_detail.html`）；列表页统一序号列 `width="70"`、操作列 `width="90"`（基准 `purchase_order.html`）。
+- 业务边界：仅统一明细表 table class 与列宽属性、列表页序号/操作列宽；不修改列定义、列顺序、数据绑定、筛选表单、行内操作逻辑、后端路由；不改按钮与 role gate（沿用 SM-P6-03-4）。
+- 改动模块：
+  - `app/templates/purchase_order_detail.html`：明细表 `table table-bordered table-hover table-sm` + `thead class="table-light"` + 裸 `<th>` → `table order-table` + 全列补 `resizable-th`/`data-col`/`resize-handle`（对齐 in_order_detail）。
+  - `app/templates/sales_order_detail.html`：明细表 `table table-bordered mb-0` + 裸 `<th>` → `table order-table` + 全列补 `resizable-th`/`data-col`/`resize-handle`。
+  - `app/templates/in_order.html`：序号列 `width="50"`→`"70"`、操作列无 width→`width="90"`。
+  - `app/templates/out_order.html`：序号列 `width="50"`→`"70"`、操作列无 width→`width="90"`。
+  - `app/templates/sales_order.html`：操作列 `width="120"`→`width="90"`（序号已 70）。
+  - `app/templates/purchase_request.html`：序号列 `width="80"`→`"70"`、操作列无 width→`width="90"`。
+  - `app/templates/after_sale_out.html`：选择列 `width="50"`→`"56"`+`text-center`、序号列 `width="80"`→`"70"`、操作列无 width→`width="90"`。
+- 状态：专项验证已完成（Jinja 语法 10 模板全 OK；6 列表页 test_client 渲染 200 且 seq70/op90 命中；详情页明细表 order-table/resizable-th/resize-handle 命中）；真实浏览器 E2E 仍需业务环境执行。
+- 提交 SHA：b70fb83；专项命令：`grep -l 'table order-table mb-0' app/templates/{in_order,out_order,purchase_order,sales_order,purchase_request,after_sale_out}_detail.html`（详情页 4 命中，out_order_detail 沿用既有 order-table）；`grep -c 'width="70">序号' app/templates/{in_order,out_order,sales_order,purchase_order,purchase_request,after_sale_out}.html`（列表页 6 命中）；`grep -c 'width="90">操作' app/templates/{in_order,out_order,sales_order,purchase_order,purchase_request,after_sale_out}.html`（6 命中）。
+- 剩余风险：非单据类列表页（主数据 department/employee/customer/supplier/unit/category/warehouse、报告 sales_outflow_report/sales_trend_report、审批 approval 等）操作列未统一 width=90，属不同场景列宽需求，不在本子项范围；`_disabled_unused_20260506/*` 已禁用模板不动。
 
 每个子项完成后必须在本台账追加：
 

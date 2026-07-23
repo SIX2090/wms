@@ -70,7 +70,7 @@
             <thead>
                 <tr>
                     <th width="56" class="text-center">选择<br><input type="checkbox" id="checkAll" onclick="toggleAll()" title="全选当前页"></th>
-                    <th width="80">序号</th>
+                    <th width="70">序号</th>
                     <th data-sortable="request_no" class="sortable-header">单号 {% if sort_by=='request_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="applicant" class="sortable-header">申请人 {% if sort_by=='applicant' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
@@ -84,7 +84,7 @@
                     <th>执行状态</th>
                     <th data-sortable="total_amount" class="sortable-header">预估金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th>操作</th>
+                    <th width="90">操作</th>
                 </tr>
             </thead>
             <tbody>

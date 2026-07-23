@@ -150,29 +150,29 @@
     <div class="card-header py-2"><i class="bi bi-list-ul"></i> 物料明细</div>
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-bordered table-hover table-sm mb-0" id="itemTable">
-                <thead class="table-light">
+            <table class="table order-table mb-0" id="itemTable">
+                <thead>
                     <tr>
                         {% if order.status in ['pending', 'partial'] %}
-                        <th width="40"><input type="checkbox" id="selectAllReceiveItems" onchange="toggleReceiveItemSelection(this.checked)"></th>
+                        <th width="40" data-col="chk"><input type="checkbox" id="selectAllReceiveItems" onchange="toggleReceiveItemSelection(this.checked)"></th>
                         {% endif %}
-                        <th width="60">序号</th>
-                        <th>物料编码</th>
-                        <th>物料名称</th>
-                        <th>规格</th>
-                        <th>单位</th>
-                        <th class="text-end">采购数量</th>
-                        <th class="text-end">已下推</th>
-                        <th class="text-end">已入库</th>
-                        <th class="text-end">待入库</th>
-                        <th class="text-end">未下推</th>
-                        <th>执行状态</th>
+                        <th width="50" class="text-center resizable-th" data-col="seq">序<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colCode">物料编码<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colName">物料名称<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colSpec">规格<div class="resize-handle"></div></th>
+                        <th class="text-center resizable-th" data-col="colUnit">单位<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colQty">采购数量<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colPushed">已下推<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colReceived">已入库<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colPending">待入库<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colUnpushed">未下推<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colExecStatus">执行状态<div class="resize-handle"></div></th>
                         {% if order.status in ['pending', 'partial'] %}
-                        <th class="text-end">本次入库</th>
+                        <th class="text-end resizable-th" data-col="colReceive">本次入库<div class="resize-handle"></div></th>
                         {% endif %}
-                        <th class="text-end">单价</th>
-                        <th class="text-end">金额</th>
-                        <th>备注</th>
+                        <th class="text-end resizable-th" data-col="colPrice">单价<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colAmount">金额<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colRemark">备注<div class="resize-handle"></div></th>
                     </tr>
                 </thead>
                 <tbody>

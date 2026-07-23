@@ -74,7 +74,7 @@
             <thead>
                 <tr>
                     <th width="56" class="text-center">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
-                    <th width="50">序号</th>
+                    <th width="70">序号</th>
                     <th data-sortable="order_no" class="sortable-header">领料单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="customer" class="sortable-header">领料部门 {% if sort_by=='customer' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
@@ -87,7 +87,7 @@
                     <th data-sortable="total_amount" class="sortable-header">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="business_type" class="sortable-header">业务类型 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th>操作</th>
+                    <th width="90">操作</th>
                 </tr>
             </thead>
             <tbody>
