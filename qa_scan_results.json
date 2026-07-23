@@ -1,0 +1,515 @@
+{
+  "scan_time": "2026-07-23T08:28:13.142449",
+  "total": 63,
+  "ok": 62,
+  "redirect": 1,
+  "client_errors": 0,
+  "server_errors": 0,
+  "results": [
+    {
+      "url": "/",
+      "name": "首页",
+      "group": "首页",
+      "status": 200,
+      "title": "首页",
+      "result": "OK"
+    },
+    {
+      "url": "/purchase_request",
+      "name": "采购申请列表",
+      "group": "采购管理",
+      "status": 200,
+      "title": "采购申请管理",
+      "result": "OK"
+    },
+    {
+      "url": "/purchase_order?view=list",
+      "name": "采购订单列表",
+      "group": "采购管理",
+      "status": 200,
+      "title": "采购单管理",
+      "result": "OK"
+    },
+    {
+      "url": "/in_order",
+      "name": "入库明细",
+      "group": "采购/库存",
+      "status": 200,
+      "title": "入库明细",
+      "result": "OK"
+    },
+    {
+      "url": "/supplier",
+      "name": "供应商管理",
+      "group": "采购/基础资料",
+      "status": 200,
+      "title": "供应商管理",
+      "result": "OK"
+    },
+    {
+      "url": "/purchase_report",
+      "name": "采购报表",
+      "group": "采购管理",
+      "status": 200,
+      "title": "采购报表",
+      "result": "OK"
+    },
+    {
+      "url": "/ai/replenishment",
+      "name": "AI补货建议",
+      "group": "采购管理",
+      "status": 200,
+      "title": "AI补货建议",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/purchase_order_execution",
+      "name": "采购订单执行统计表",
+      "group": "采购报表",
+      "status": 200,
+      "title": "采购订单执行统计表",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/supplier_purchase_summary",
+      "name": "供应商采购汇总表",
+      "group": "采购报表",
+      "status": 200,
+      "title": "供应商采购汇总表",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/material_purchase_summary",
+      "name": "物料采购汇总表",
+      "group": "采购报表",
+      "status": 200,
+      "title": "物料采购汇总表",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/purchase_price_analysis",
+      "name": "采购价格分析表",
+      "group": "采购报表",
+      "status": 200,
+      "title": "采购价格分析表",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/in_detail",
+      "name": "采购入库明细报表",
+      "group": "采购报表",
+      "status": 200,
+      "title": "入库明细报表",
+      "result": "OK"
+    },
+    {
+      "url": "/sales/dashboard",
+      "name": "销售工作台",
+      "group": "销售管理",
+      "status": 200,
+      "title": "销售工作台",
+      "result": "OK"
+    },
+    {
+      "url": "/sales/exceptions",
+      "name": "销售异常工作台",
+      "group": "销售管理",
+      "status": 200,
+      "title": "销售异常工作台",
+      "result": "OK"
+    },
+    {
+      "url": "/sales",
+      "name": "销售订单列表",
+      "group": "销售管理",
+      "status": 200,
+      "title": "销售订单管理",
+      "result": "OK"
+    },
+    {
+      "url": "/sales/outbound_selection",
+      "name": "销售出库选单",
+      "group": "销售管理",
+      "status": 200,
+      "title": "销售出库选单",
+      "result": "OK"
+    },
+    {
+      "url": "/sales/outbound",
+      "name": "销售出库列表",
+      "group": "销售管理",
+      "status": 200,
+      "title": "销售出库列表",
+      "result": "OK"
+    },
+    {
+      "url": "/customer",
+      "name": "客户管理",
+      "group": "销售/基础资料",
+      "status": 200,
+      "title": "客户管理",
+      "result": "OK"
+    },
+    {
+      "url": "/sales/report",
+      "name": "销售报表",
+      "group": "销售管理",
+      "status": 200,
+      "title": "销售报表",
+      "result": "OK"
+    },
+    {
+      "url": "/sales/execution_report",
+      "name": "销售订单执行",
+      "group": "销售管理",
+      "status": 200,
+      "title": "销售订单执行",
+      "result": "OK"
+    },
+    {
+      "url": "/sales/price_analysis",
+      "name": "销售价格分析",
+      "group": "销售管理",
+      "status": 200,
+      "title": "销售价格分析",
+      "result": "OK"
+    },
+    {
+      "url": "/sales/reconciliation",
+      "name": "销售对账",
+      "group": "销售管理",
+      "status": 200,
+      "title": "销售对账",
+      "result": "OK"
+    },
+    {
+      "url": "/transfer",
+      "name": "库存调拨",
+      "group": "库存管理",
+      "status": 302,
+      "title": "-> /stock_query",
+      "result": "REDIRECT"
+    },
+    {
+      "url": "/check",
+      "name": "库存盘点",
+      "group": "库存管理",
+      "status": 200,
+      "title": "库存盘点",
+      "result": "OK"
+    },
+    {
+      "url": "/out_order",
+      "name": "领料明细",
+      "group": "库存管理",
+      "status": 200,
+      "title": "领料明细",
+      "result": "OK"
+    },
+    {
+      "url": "/bom",
+      "name": "BOM管理",
+      "group": "库存管理",
+      "status": 200,
+      "title": "BOM清单管理",
+      "result": "OK"
+    },
+    {
+      "url": "/requisition",
+      "name": "工单领料",
+      "group": "库存管理",
+      "status": 200,
+      "title": "工单领料管理",
+      "result": "OK"
+    },
+    {
+      "url": "/subcontract",
+      "name": "委外管理",
+      "group": "库存管理",
+      "status": 200,
+      "title": "委外加工单",
+      "result": "OK"
+    },
+    {
+      "url": "/report/dashboard",
+      "name": "数据仪表盘",
+      "group": "库存管理",
+      "status": 200,
+      "title": "数据仪表盘",
+      "result": "OK"
+    },
+    {
+      "url": "/ai/replenishment_smart",
+      "name": "智能补货建议",
+      "group": "库存-AI",
+      "status": 200,
+      "title": "智能补货建议",
+      "result": "OK"
+    },
+    {
+      "url": "/ai/inventory_health",
+      "name": "库存健康度",
+      "group": "库存-AI",
+      "status": 200,
+      "title": "AI库存健康度",
+      "result": "OK"
+    },
+    {
+      "url": "/ai/document_ocr",
+      "name": "单据OCR识别",
+      "group": "库存-AI",
+      "status": 200,
+      "title": "单据OCR识别",
+      "result": "OK"
+    },
+    {
+      "url": "/ai/supplier_evaluation",
+      "name": "供应商智能评估",
+      "group": "库存-AI",
+      "status": 200,
+      "title": "供应商智能评估",
+      "result": "OK"
+    },
+    {
+      "url": "/ai/location_recommendation",
+      "name": "智能库位推荐",
+      "group": "库存-AI",
+      "status": 200,
+      "title": "智能库位推荐",
+      "result": "OK"
+    },
+    {
+      "url": "/ai/demand_forecast",
+      "name": "需求预测",
+      "group": "库存-AI",
+      "status": 200,
+      "title": "需求预测",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/inventory",
+      "name": "库存报表",
+      "group": "库存报表",
+      "status": 200,
+      "title": "库存报表",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/out_detail",
+      "name": "领料明细报表",
+      "group": "库存报表",
+      "status": 200,
+      "title": "领料明细报表",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/summary",
+      "name": "出入库汇总报表",
+      "group": "库存报表",
+      "status": 200,
+      "title": "出入库汇总报表",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/check",
+      "name": "盘点报表",
+      "group": "库存报表",
+      "status": 200,
+      "title": "盘点报表",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/ledger",
+      "name": "库存台账",
+      "group": "库存报表",
+      "status": 200,
+      "title": "库存台账",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/warehouse_monthly",
+      "name": "仓库月报表",
+      "group": "库存报表",
+      "status": 200,
+      "title": "仓库月报表",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/requisition",
+      "name": "工单领料报表",
+      "group": "库存报表",
+      "status": 200,
+      "title": "工单领料报表",
+      "result": "OK"
+    },
+    {
+      "url": "/report/view/subcontract",
+      "name": "委外加工报表",
+      "group": "库存报表",
+      "status": 200,
+      "title": "委外加工报表",
+      "result": "OK"
+    },
+    {
+      "url": "/material",
+      "name": "物料管理",
+      "group": "基础资料",
+      "status": 200,
+      "title": "物料档案",
+      "result": "OK"
+    },
+    {
+      "url": "/opening_stock",
+      "name": "期初库存",
+      "group": "基础资料",
+      "status": 200,
+      "title": "期初库存单据",
+      "result": "OK"
+    },
+    {
+      "url": "/category",
+      "name": "物料分类",
+      "group": "基础资料",
+      "status": 200,
+      "title": "物料分类",
+      "result": "OK"
+    },
+    {
+      "url": "/unit",
+      "name": "计量单位",
+      "group": "基础资料",
+      "status": 200,
+      "title": "计量单位",
+      "result": "OK"
+    },
+    {
+      "url": "/warehouse",
+      "name": "仓库档案",
+      "group": "基础资料",
+      "status": 200,
+      "title": "仓库档案",
+      "result": "OK"
+    },
+    {
+      "url": "/department",
+      "name": "部门档案",
+      "group": "基础资料",
+      "status": 200,
+      "title": "部门档案",
+      "result": "OK"
+    },
+    {
+      "url": "/employee",
+      "name": "员工管理",
+      "group": "基础资料",
+      "status": 200,
+      "title": "员工管理",
+      "result": "OK"
+    },
+    {
+      "url": "/system_settings",
+      "name": "系统设置",
+      "group": "系统管理",
+      "status": 200,
+      "title": "系统参数",
+      "result": "OK"
+    },
+    {
+      "url": "/ai/ops",
+      "name": "AI运维看板",
+      "group": "系统管理",
+      "status": 200,
+      "title": "AI运维看板",
+      "result": "OK"
+    },
+    {
+      "url": "/ai/business_quality",
+      "name": "AI质量运营",
+      "group": "系统管理",
+      "status": 200,
+      "title": "AI业务质量运营看板",
+      "result": "OK"
+    },
+    {
+      "url": "/ai/prelaunch",
+      "name": "AI上线预检",
+      "group": "系统管理",
+      "status": 200,
+      "title": "AI上线预检",
+      "result": "OK"
+    },
+    {
+      "url": "/ai/acceptance",
+      "name": "AI七日验收",
+      "group": "系统管理",
+      "status": 200,
+      "title": "AI七日验收",
+      "result": "OK"
+    },
+    {
+      "url": "/user",
+      "name": "用户管理",
+      "group": "系统管理",
+      "status": 200,
+      "title": "用户管理",
+      "result": "OK"
+    },
+    {
+      "url": "/approval",
+      "name": "审批中心",
+      "group": "系统管理",
+      "status": 200,
+      "title": "审批中心",
+      "result": "OK"
+    },
+    {
+      "url": "/operation_audit",
+      "name": "操作审计",
+      "group": "系统管理",
+      "status": 200,
+      "title": "操作审计",
+      "result": "OK"
+    },
+    {
+      "url": "/mobile/app",
+      "name": "下载扫码APP",
+      "group": "手机扫码",
+      "status": 200,
+      "title": "(no title)",
+      "result": "OK"
+    },
+    {
+      "url": "/mobile/scan?mode=in",
+      "name": "手工入库",
+      "group": "手机扫码",
+      "status": 200,
+      "title": "手机入库",
+      "result": "OK"
+    },
+    {
+      "url": "/mobile/scan?mode=out",
+      "name": "手工出库",
+      "group": "手机扫码",
+      "status": 200,
+      "title": "手机出库",
+      "result": "OK"
+    },
+    {
+      "url": "/mobile/scan?mode=check",
+      "name": "手工盘点",
+      "group": "手机扫码",
+      "status": 200,
+      "title": "手机盘点",
+      "result": "OK"
+    },
+    {
+      "url": "/mobile/scan?mode=query",
+      "name": "手工查询",
+      "group": "手机扫码",
+      "status": 200,
+      "title": "手机查询",
+      "result": "OK"
+    }
+  ],
+  "errors": []
+}
