@@ -816,7 +816,7 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
   - `app/templates/purchase_request.html`：序号列 `width="80"`→`"70"`、操作列无 width→`width="90"`。
   - `app/templates/after_sale_out.html`：选择列 `width="50"`→`"56"`+`text-center`、序号列 `width="80"`→`"70"`、操作列无 width→`width="90"`。
 - 状态：专项验证已完成（Jinja 语法 10 模板全 OK；6 列表页 test_client 渲染 200 且 seq70/op90 命中；详情页明细表 order-table/resizable-th/resize-handle 命中）；真实浏览器 E2E 仍需业务环境执行。
-- 提交 SHA：b70fb83；专项命令：`grep -l 'table order-table mb-0' app/templates/{in_order,out_order,purchase_order,sales_order,purchase_request,after_sale_out}_detail.html`（详情页 4 命中，out_order_detail 沿用既有 order-table）；`grep -c 'width="70">序号' app/templates/{in_order,out_order,sales_order,purchase_order,purchase_request,after_sale_out}.html`（列表页 6 命中）；`grep -c 'width="90">操作' app/templates/{in_order,out_order,sales_order,purchase_order,purchase_request,after_sale_out}.html`（6 命中）。
+- 提交 SHA：2490244；专项命令：`grep -l 'table order-table mb-0' app/templates/{in_order,out_order,purchase_order,sales_order,purchase_request,after_sale_out}_detail.html`（详情页 4 命中，out_order_detail 沿用既有 order-table）；`grep -c 'width="70">序号' app/templates/{in_order,out_order,sales_order,purchase_order,purchase_request,after_sale_out}.html`（列表页 6 命中）；`grep -c 'width="90">操作' app/templates/{in_order,out_order,sales_order,purchase_order,purchase_request,after_sale_out}.html`（6 命中）。
 - 剩余风险：非单据类列表页（主数据 department/employee/customer/supplier/unit/category/warehouse、报告 sales_outflow_report/sales_trend_report、审批 approval 等）操作列未统一 width=90，属不同场景列宽需求，不在本子项范围；`_disabled_unused_20260506/*` 已禁用模板不动。
 
 每个子项完成后必须在本台账追加：
