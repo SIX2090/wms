@@ -19,9 +19,13 @@ config.TestingConfig.SESSION_COOKIE_SECURE = False
 from app import app, db, initialize_database
 
 app.config['WTF_CSRF_ENABLED'] = False
-app.config['SESSION_COOKIE_SECURE'] = False
+# Trae 预览浏览器走 HTTPS 代理域名（remote-agent.svc.cluster.local），
+# 浏览器把 127.0.0.1 视为第三方站点，默认 SameSite=Lax 会拒绝回传 session cookie，
+# 表现为"点登录没反应"。SameSite 必须显式设为字符串 'None' 并启用 Secure，
+# 浏览器才会接受跨站 cookie。
+app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'
 
 with app.app_context():
     initialize_database()
@@ -34,4 +38,4 @@ print('WMS QA server starting on http://127.0.0.1:8080', flush=True)
 print('Login: admin / admin', flush=True)
 print('=' * 60, flush=True)
 
-serve(app, host='127.0.0.1', port=8080, threads=4)
+serve(app, host='0.0.0.0', port=8080, threads=4)
