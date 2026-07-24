@@ -627,11 +627,6 @@ else:
 # Use config.py settings uniformly
 env = os.environ.get('FLASK_ENV', 'production')
 app.config.from_object(config_dict.get(env, config_dict['default']))
-if env == 'production' and not os.environ.get('SECRET_KEY') and not _env_flag('WMS_ALLOW_AUTO_SECRET_KEY'):
-    raise RuntimeError(
-        'SECRET_KEY is required in production. Set the SECRET_KEY environment variable, '
-        'or set WMS_ALLOW_AUTO_SECRET_KEY=1 only for a controlled local/offline deployment.'
-    )
 if not app.config.get('SECRET_KEY'):
     # 未显式配置 SECRET_KEY 时，尝试从 instance/secret_key 文件读取持久化密钥；
     # 文件不存在则随机生成并写入，避免每次重启 session 失效，同时不依赖硬编码默认值。
@@ -644,20 +639,33 @@ if not app.config.get('SECRET_KEY'):
         _persisted_key = None
     if _persisted_key and len(_persisted_key) >= 32:
         app.config['SECRET_KEY'] = _persisted_key
+        app.logger.info('SECRET_KEY loaded from persistent storage')
     else:
         _new_key = secrets.token_hex(32)
         app.config['SECRET_KEY'] = _new_key
+        _instance_dir = os.path.dirname(_secret_key_file)
+        _persisted_ok = False
         try:
-            os.makedirs(os.path.dirname(_secret_key_file), exist_ok=True)
-            with open(_secret_key_file, 'w', encoding='utf-8') as _sk_f:
-                _sk_f.write(_new_key)
-            try:
-                os.chmod(_secret_key_file, 0o600)
-            except OSError:
-                pass
+            os.makedirs(_instance_dir, exist_ok=True)
+            if os.access(_instance_dir, os.W_OK):
+                with open(_secret_key_file, 'w', encoding='utf-8') as _sk_f:
+                    _sk_f.write(_new_key)
+                try:
+                    os.chmod(_secret_key_file, 0o600)
+                except OSError:
+                    pass
+                _persisted_ok = True
+                app.logger.warning('SECRET_KEY not set. A random key was generated and persisted to instance/secret_key. Set the SECRET_KEY environment variable for explicit control.')
+            else:
+                app.logger.error(f'Instance directory {_instance_dir} is not writable. SECRET_KEY will not persist across restarts.')
         except OSError as _sk_err:
             app.logger.error(f'无法持久化 SECRET_KEY: {_sk_err}')
-        app.logger.warning('SECRET_KEY not set. A random key was generated and persisted to instance/secret_key. Set the SECRET_KEY environment variable for explicit control.')
+        if env == 'production' and not _persisted_ok and not _env_flag('WMS_ALLOW_AUTO_SECRET_KEY'):
+            raise RuntimeError(
+                'SECRET_KEY is required in production. Set the SECRET_KEY environment variable, '
+                'or ensure the instance/ directory is writable for auto-persistence, '
+                'or set WMS_ALLOW_AUTO_SECRET_KEY=1 only for a controlled local/offline deployment.'
+            )
 
 # WECHAT_HELPER_TOKEN 未显式配置时，同样从 instance/wechat_helper_token 读取或随机生成并持久化，
 # 避免使用公开默认值导致微信助手接口可被任意访问
