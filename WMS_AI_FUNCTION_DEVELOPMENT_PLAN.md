@@ -830,6 +830,27 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 - 提交 SHA：0b0e6ce；专项命令：`grep -l 'order-title.*status-badge' app/templates/{in_order,out_order,purchase_order,sales_order}_detail.html`（4 命中）；`grep -l 'order-info-card' app/templates/{in_order,out_order,purchase_order,sales_order}_detail.html`（4 命中）。
 - 剩余风险：关联出库单/售后单卡片（sales_order_detail 下方）仍用 `card`+`card-header` Bootstrap 样式，属次要附属信息块，非主单据信息卡片，不在本子项范围；真实浏览器 E2E 仍需业务环境执行。
 
+#### SM-P6-03-6-1（已完成，SM-P6-03-6 子项）
+
+- 目标：用户指出"新建销售订单页面与采购入库单面是一样的？"——要求新建/编辑表单页统一为 T+ 风格，与采购入库单新建页 `in_order_add.html` 保持一致。本子项将销售订单、采购订单、请购单的新建/编辑表单页整体对齐 `in_order_add.html` 的 T+ 全网格密集表单基准。
+- 业务边界：仅改新建/编辑表单页的页面头部（`page-header`）、表单信息区（`card`/`card-body`）、明细表（`tplus-table-wrapper` + `#materialTable` 全网格）、表脚合计（`total-row`）、工具栏（`tplus-toolbar`）DOM 结构与内联 CSS；不修改后端路由、role gate、字段定义、提交接口；物料选择控件由原生 `<select>` 统一为 input + 自动补全下拉（对齐 `in_order_add.html`）。
+- 改动模块：
+  - `app/templates/sales_order_add.html`：从自定义 `sales-entry-*` 风格重构为 T+ 风格，复制 `in_order_add.html` 全套 CSS；明细表 `#salesItems`→`#materialTable` 全网格（`data-column-key` + `col-resize` + `row-num`/`amount-col`/`num-col`/`action-col`），表脚 `total-row`，工具栏 `tplus-toolbar`；JS 选择器 `#salesItemsBody`→`#materialTableBody`；物料选择由原生 `<select>` 改为 input + 自动补全下拉。
+  - `app/templates/sales_order_edit.html`：从纯 Bootstrap 重构为 T+ 风格，结构与新建页对齐；回填已有明细数据；实现物料搜索下拉、金额计算、表单提交。
+  - `app/templates/purchase_order_add.html`：补全 T+ 网格 CSS，明细表去 Bootstrap 类改 `#materialTable` 全网格，工具栏改 `tplus-toolbar`，`addNewRow` 生成的行补 T+ 类名。
+  - `app/templates/purchase_request_add.html`：工具栏补 `tplus-toolbar` 类并补充对应 CSS 定义。
+- 迁移与备份：无数据库迁移；纯前端模板/CSS 改动。
+- 权限与人工确认：无权限变更；保存/提交仍走原有后端 role gate（`warehouse`/`purchase`/`sales`），人工确认边界不变。
+- 专项验证命令及结果：
+  - Jinja2 直接编译三页：`python -c "from jinja2 import Environment, FileSystemLoader; [Environment(loader=FileSystemLoader('app/templates')).get_template(t) for t in ['sales_order_add.html','sales_order_edit.html','in_order_add.html']]"` → 三页全 OK 无 TemplateSyntaxError。
+  - Flask test_client 全渲染（登录 admin 后）：`/sales/add`→200(171147B)、`/sales/1/edit`→200(170272B)、`/in_order/add`→200(223450B)，三页均命中 `page-header`/`tplus-table-wrapper`/`materialTable`/`tplus-toolbar` 四项结构标记，无 `TemplateSyntaxError`/`jinja2`/`Internal Server Error`。
+  - CSS 选择器对比：`in_order_add.html`(79选择器,11458B) ≈ `sales_order_add.html`(79选择器,11457B，差1字节)；核心 T+ 选择器（`.page-header`/`.tplus-table-wrapper`/`#materialTable`/`.tplus-toolbar`/`.material-input`/`.material-dropdown`/`.col-resize`/`.total-amount`/`.footer-bar`/`.row-num`/`.action-col`/`.amount-col`/`.num-col`）三页全部一致。`sales_order_edit.html`(67选择器)少 `.supplier-input`/`.wms-validation-panel`，因其用标准 `<select>` 选客户、未启用校验面板，属合理差异。
+- full 验证结果：本子项为前端样式统一，无后端逻辑变更；test_client 渲染全 200 即证明模板解析与变量引用无误。
+- 真实用户/数据验收证据：待业务环境浏览器 E2E 人工确认视觉一致性。
+- 破坏性测试：无（纯样式变更，不影响数据写入路径）。
+- 剩余风险：`sales_order_edit.html` 客户字段仍用标准 `<select>`（与新建页一致，均非 supplier-input 搜索），若后续需要客户搜索下拉需另开子项；真实浏览器视觉 E2E 仍需业务环境执行。
+- 提交 SHA：2fff7bd；推送：`a722304..2fff7bd main -> main`。
+
 每个子项完成后必须在本台账追加：
 
 ```text
