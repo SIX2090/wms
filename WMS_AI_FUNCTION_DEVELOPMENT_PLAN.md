@@ -827,7 +827,7 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
   - `app/templates/purchase_order_detail.html`：新增 `extra_css` 引入 `order-detail.css`/`excel-table.css`；`page-header` 内 h2 标题→`order-title`+`status-badge`+`order-meta`；`card mb-3` 基本信息→`order-info-card`+`info-grid`/`info-item`；`card` 联查/下推入库/物料明细→`order-info-card`/`order-table-container`+`order-toolbar`+`table-header-custom`；外层包 `container-fluid px-3 order-animate`。
   - `app/templates/sales_order_detail.html`：同上结构重写；`card card-body` 信息块+`row` 统计行→合并进 `order-info-card` 的 `info-grid`（金额项用 `amount` 样式）；`card` 明细→`order-table-container`+`order-toolbar`+`table-header-custom`；外层包 `container-fluid px-3 order-animate`。
 - 状态：专项验证已完成（Jinja 语法 4 详情页模板全 OK；test_client 渲染 4 详情页全 404 无 500——QA 库无对应记录但证明模板解析与变量引用无误）。
-- 提交 SHA：（待提交）；专项命令：`grep -l 'order-title.*status-badge' app/templates/{in_order,out_order,purchase_order,sales_order}_detail.html`（4 命中）；`grep -l 'order-info-card' app/templates/{in_order,out_order,purchase_order,sales_order}_detail.html`（4 命中）。
+- 提交 SHA：0b0e6ce；专项命令：`grep -l 'order-title.*status-badge' app/templates/{in_order,out_order,purchase_order,sales_order}_detail.html`（4 命中）；`grep -l 'order-info-card' app/templates/{in_order,out_order,purchase_order,sales_order}_detail.html`（4 命中）。
 - 剩余风险：关联出库单/售后单卡片（sales_order_detail 下方）仍用 `card`+`card-header` Bootstrap 样式，属次要附属信息块，非主单据信息卡片，不在本子项范围；真实浏览器 E2E 仍需业务环境执行。
 
 每个子项完成后必须在本台账追加：
