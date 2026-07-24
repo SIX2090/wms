@@ -1,15 +1,16 @@
-"""AI-DEPLOY-F01: WMS 启动时自动从 GitHub 更新功能 - 专项验证脚本
+"""AI-DEPLOY-F01 / AI-DEPLOY-F01-FIX-01: 启动时 GitHub 自动更新 - 专项验证脚本
 # AI_TASK: AI-DEPLOY-F01
+# AI_TASK: AI-DEPLOY-F01-FIX-01
 
-验证 WMS 每次启动都自动从 GitHub main 分支更新代码和依赖的闭环：
+验证启动前可选从 GitHub main 更新的闭环：
 
-1. run_server.py 在 main() 启动 serve() 之前调用 auto_update.main()
-2. WMS_SKIP_AUTO_UPDATE=1 环境变量可跳过自动更新（用于测试/安装/特殊运维）
-3. auto_update.main() 异常不阻断 WMS 启动（兜底用现有代码启动）
-4. start_wms_auto.bat 作为 nssm 服务入口，直接启动 run_server.py，
-   不重复触发 auto_update.py，不含 pause（适配无交互终端的服务模式）
-5. auto_update.py 保留安全属性：ff-only / 不切分支 / 工作区脏跳过 / 失败不阻断
-6. AI-DEPLOY-F01 任务标记存在于 auto_update.py / run_server.py / 本脚本
+1. run_server.py 在 main() 启动 serve() 之前经 _run_startup_auto_update 调用 auto_update.main()
+2. 系统设置 github_auto_update_enabled 默认关闭；未开启时不拉取
+3. WMS_SKIP_AUTO_UPDATE=1 环境变量可强制跳过自动更新
+4. auto_update.main() 异常不阻断 WMS 启动
+5. start_wms_auto.bat 作为 nssm 服务入口，直接启动 run_server.py，不重复触发、无 pause
+6. auto_update.py 保留安全属性：ff-only / 不切分支 / 工作区脏跳过 / 失败不阻断
+7. 任务标记存在于 auto_update.py / run_server.py / 本脚本
 
 退出码 0=通过，1=失败。
 """
@@ -26,6 +27,7 @@ SCRIPTS_DIR = ROOT / "scripts"
 
 RUN_SERVER_PATH = APP_DIR / "run_server.py"
 AUTO_UPDATE_PATH = APP_DIR / "auto_update.py"
+APP_PY_PATH = APP_DIR / "app.py"
 START_WMS_AUTO_PATH = APP_DIR / "start_wms_auto.bat"
 START_WMS_OFFLINE_PATH = APP_DIR / "start_wms_offline.bat"
 
@@ -49,7 +51,6 @@ def test_run_server_wires_auto_update(failures: list[str]) -> None:
     has_import = "import auto_update" in text
     check(has_import, "run_server.py 导入 auto_update 模块", failures)
 
-    # _run_startup_auto_update 调用 auto_update.main()
     has_call = re.search(
         r"def\s+_run_startup_auto_update\b.*?auto_update\.main\(\)",
         text,
@@ -57,7 +58,6 @@ def test_run_server_wires_auto_update(failures: list[str]) -> None:
     ) is not None
     check(has_call, "_run_startup_auto_update() 内调用 auto_update.main()", failures)
 
-    # main() 在 serve() 之前调用 _run_startup_auto_update()
     main_match = re.search(r"def\s+main\(\).*?(?=\ndef\s|\Z)", text, re.DOTALL)
     if main_match:
         main_body = main_match.group(0)
@@ -68,7 +68,6 @@ def test_run_server_wires_auto_update(failures: list[str]) -> None:
     else:
         check(False, "未找到 run_server.py main() 函数", failures)
 
-    # 异常兜底：auto_update.main() 调用包裹在 try/except 中
     try_block = re.search(
         r"try:\s*\n\s*auto_update\.main\(\)\s*\n\s*except\s+Exception",
         text,
@@ -76,15 +75,30 @@ def test_run_server_wires_auto_update(failures: list[str]) -> None:
     check(try_block is not None, "auto_update.main() 调用包裹在 try/except 中（不阻断启动）", failures)
 
 
-def test_skip_env_var(failures: list[str]) -> None:
-    """WMS_SKIP_AUTO_UPDATE=1 可跳过自动更新"""
-    print("\n[Test 2] WMS_SKIP_AUTO_UPDATE 环境变量可跳过自动更新")
+def test_setting_default_off_and_skip_env(failures: list[str]) -> None:
+    """系统设置默认关闭 + WMS_SKIP_AUTO_UPDATE 可强制跳过"""
+    print("\n[Test 2] github_auto_update_enabled 默认关闭 + WMS_SKIP_AUTO_UPDATE 跳过")
+    app_text = _read(APP_PY_PATH)
     text = _read(RUN_SERVER_PATH)
+
+    has_setting = "github_auto_update_enabled" in app_text and "运维更新" in app_text
+    check(has_setting, "app.py 系统设置含 github_auto_update_enabled（运维更新）", failures)
+
+    default_off = re.search(
+        r"github_auto_update_enabled[\s\S]{0,200}?'default'\s*:\s*'0'",
+        app_text,
+    ) is not None
+    check(default_off, "github_auto_update_enabled 默认值为 '0'（关闭）", failures)
+
+    has_helper = "def github_auto_update_enabled(" in app_text
+    check(has_helper, "app.py 提供 github_auto_update_enabled() 读取函数", failures)
+
+    has_gate = "_github_auto_update_setting_enabled" in text and "github_auto_update_enabled" in text
+    check(has_gate, "run_server.py 启动更新前检查系统设置开关", failures)
 
     has_env_check = "WMS_SKIP_AUTO_UPDATE" in text
     check(has_env_check, "run_server.py 引用 WMS_SKIP_AUTO_UPDATE 环境变量", failures)
 
-    # 静态校验：_run_startup_auto_update 函数体中包含环境变量跳过逻辑
     skip_logic = re.search(
         r"def\s+_run_startup_auto_update\b.*?WMS_SKIP_AUTO_UPDATE.*?return",
         text,
@@ -92,11 +106,7 @@ def test_skip_env_var(failures: list[str]) -> None:
     )
     check(skip_logic is not None, "_run_startup_auto_update() 内含 WMS_SKIP_AUTO_UPDATE 跳过逻辑", failures)
 
-    # 真实运行时测试：设置环境变量后 _run_startup_auto_update 不调用 auto_update.main()
-    # 通过 sys.modules 注入 mock auto_update 模块，避免触发真实 git 操作
-    # 注意：run_server.py 依赖 Flask/waitress/app 等模块，CI 环境 pip install -r requirements.txt 后可用；
-    # 若依赖缺失（如最小化沙箱），跳过运行时测试，静态检查已覆盖逻辑。
-    mock_called = []
+    mock_called: list[bool] = []
 
     class _MockAutoUpdate:
         @staticmethod
@@ -106,18 +116,15 @@ def test_skip_env_var(failures: list[str]) -> None:
     original = sys.modules.get("auto_update")
     sys.modules["auto_update"] = _MockAutoUpdate  # type: ignore[assignment]
     try:
-        # 重新导入 run_server 以使 mock 生效
         if "run_server" in sys.modules:
             del sys.modules["run_server"]
         sys.path.insert(0, str(APP_DIR))
         try:
             import run_server  # type: ignore[import-not-found]
         except Exception as e:  # noqa: BLE001
-            # 依赖缺失（Flask/waitress 等），跳过运行时测试；静态检查已覆盖逻辑
             print(f"  [SKIP] 运行时测试依赖缺失（{e}），静态检查已覆盖，跳过运行时验证")
             return
 
-        # 设置跳过环境变量
         os.environ["WMS_SKIP_AUTO_UPDATE"] = "1"
         try:
             run_server._run_startup_auto_update()
@@ -125,15 +132,25 @@ def test_skip_env_var(failures: list[str]) -> None:
         finally:
             os.environ.pop("WMS_SKIP_AUTO_UPDATE", None)
 
-        # 不设置跳过环境变量时应调用 auto_update.main()
+        mock_called.clear()
         run_server._run_startup_auto_update()
-        check(len(mock_called) == 1, "未设置 WMS_SKIP_AUTO_UPDATE 时调用 auto_update.main() 一次", failures)
+        check(len(mock_called) == 0, "系统设置默认关闭时不调用 auto_update.main()", failures)
+
+        mock_called.clear()
+        original_gate = run_server._github_auto_update_setting_enabled
+        run_server._github_auto_update_setting_enabled = lambda: True  # type: ignore[assignment]
+        try:
+            run_server._run_startup_auto_update()
+            check(len(mock_called) == 1, "系统设置开启时调用 auto_update.main() 一次", failures)
+        finally:
+            run_server._github_auto_update_setting_enabled = original_gate  # type: ignore[assignment]
     finally:
         if original is not None:
             sys.modules["auto_update"] = original
         else:
             sys.modules.pop("auto_update", None)
-        sys.path.remove(str(APP_DIR))
+        if str(APP_DIR) in sys.path:
+            sys.path.remove(str(APP_DIR))
 
 
 def test_start_wms_auto_delegates(failures: list[str]) -> None:
@@ -145,20 +162,15 @@ def test_start_wms_auto_delegates(failures: list[str]) -> None:
 
     text = _read(START_WMS_AUTO_PATH)
 
-    # 必须直接启动 run_server.py（由 run_server.py 内置 _run_startup_auto_update 触发 auto_update）
     uses_run_server = "run_server.py" in text
     check(uses_run_server, "start_wms_auto.bat 直接启动 run_server.py（间接触发 auto_update）", failures)
 
-    # 不再直接调用 auto_update.py（避免与 run_server.py 重复触发）
     direct_call = "auto_update.py" in text and ('"%PYTHON_CMD%" "%~dp0auto_update.py"' in text)
     check(not direct_call, "start_wms_auto.bat 不再直接执行 auto_update.py（避免重复触发）", failures)
 
-    # 服务模式不得含 pause 命令（pause 会卡死 nssm 服务进程）。
-    # 仅检测行首或 call 之后的独立 pause 命令，忽略 REM 注释中的 "pause" 文字。
     pause_cmd = re.search(r'(?im)^\s*(?:call\s+)?pause\b', text)
     check(pause_cmd is None, "start_wms_auto.bat 不含 pause 命令（适配 nssm 服务无交互终端）", failures)
 
-    # 必须含 Python 查找逻辑（与 start_wms_offline.bat 一致）
     has_python_lookup = "PYTHON_CMD" in text and "python.exe" in text
     check(has_python_lookup, "start_wms_auto.bat 含 Python 查找逻辑（优先绿色版）", failures)
 
@@ -172,42 +184,38 @@ def test_auto_update_safety_properties(failures: list[str]) -> None:
 
     text = _read(AUTO_UPDATE_PATH)
 
-    # 仅 ff-only，不做 force
     has_ff_only = "pull" in text and "--ff-only" in text
     check(has_ff_only, "使用 git pull --ff-only", failures)
 
     has_no_force = "--force" not in text and " --force" not in text
     check(has_no_force, "不使用 git --force", failures)
 
-    # 检查分支必须为 main，避免切分支
     has_branch_check = "branch" in text and "BRANCH" in text and "main" in text
     check(has_branch_check, "检查当前分支必须为 main（避免切分支）", failures)
 
-    # 工作区脏时跳过 pull
     has_dirty_check = "status" in text and "--porcelain" in text
     check(has_dirty_check, "工作区脏时跳过 pull（git status --porcelain 检查）", failures)
 
-    # 任何步骤失败都不阻断（return 0）
     has_non_blocking = "不阻断" in text or "不阻断启动" in text
     check(has_non_blocking, "docstring 声明失败不阻断启动", failures)
 
-    # 非 git 仓库时跳过（首次安装场景）
     has_git_check = ".git" in text and "git_dir" in text.lower()
     check(has_git_check, "非 git 仓库时跳过自动更新", failures)
 
-    # 备份数据库
     has_backup = "backup_database" in text or "备份" in text
     check(has_backup, "更新前备份数据库", failures)
 
 
 def test_task_marker_present(failures: list[str]) -> None:
-    """AI-DEPLOY-F01 任务标记存在于关键文件"""
-    print("\n[Test 5] AI-DEPLOY-F01 任务标记存在")
+    """AI-DEPLOY-F01 / FIX-01 任务标记存在于关键文件"""
+    print("\n[Test 5] AI-DEPLOY-F01 / AI-DEPLOY-F01-FIX-01 任务标记存在")
     marker = "AI-DEPLOY-F01"
+    fix_marker = "AI-DEPLOY-F01-FIX-01"
 
     for path in (AUTO_UPDATE_PATH, RUN_SERVER_PATH, Path(__file__)):
         text = _read(path)
         check(marker in text, f"{path.relative_to(ROOT)} 含 AI-DEPLOY-F01 标记", failures)
+        check(fix_marker in text, f"{path.relative_to(ROOT)} 含 AI-DEPLOY-F01-FIX-01 标记", failures)
 
 
 def test_start_wms_offline_uses_run_server(failures: list[str]) -> None:
@@ -224,13 +232,13 @@ def test_start_wms_offline_uses_run_server(failures: list[str]) -> None:
 
 def main() -> int:
     print("=" * 60)
-    print("AI-DEPLOY-F01: WMS 启动时自动从 GitHub 更新 - 专项验证")
+    print("AI-DEPLOY-F01-FIX-01: 启动自动更新开关（默认关）- 专项验证")
     print("=" * 60)
 
     failures: list[str] = []
 
     test_run_server_wires_auto_update(failures)
-    test_skip_env_var(failures)
+    test_setting_default_off_and_skip_env(failures)
     test_start_wms_auto_delegates(failures)
     test_auto_update_safety_properties(failures)
     test_task_marker_present(failures)
@@ -238,11 +246,11 @@ def main() -> int:
 
     print("\n" + "=" * 60)
     if failures:
-        print(f"FAIL AI-DEPLOY-F01: {len(failures)} 项失败")
+        print(f"FAIL AI-DEPLOY-F01-FIX-01: {len(failures)} 项失败")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS AI-DEPLOY-F01: WMS 启动时自动从 GitHub 更新闭环验证通过")
+    print("PASS AI-DEPLOY-F01-FIX-01: 启动自动更新开关（默认关）闭环验证通过")
     print("=" * 60)
     return 0
 

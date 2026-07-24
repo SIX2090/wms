@@ -1416,6 +1416,21 @@ SYSTEM_SETTING_GROUPS = [
             },
         ],
     },
+    {
+        'key': 'deployment',
+        'title': '运维更新',
+        'icon': 'bi-cloud-download',
+        'description': '控制 WMS 启动时是否自动从 GitHub 拉取代码。',
+        'settings': [
+            {
+                'key': 'github_auto_update_enabled',
+                'label': '启动时自动从 GitHub 更新',
+                'type': 'bool',
+                'default': '0',
+                'remark': '默认关闭。开启后，每次重启 WMS 会在启动服务前尝试从 GitHub main 分支拉取最新代码和依赖；关闭时重启不自动更新。运维仍可用环境变量 WMS_SKIP_AUTO_UPDATE=1 强制跳过。',
+            },
+        ],
+    },
 ]
 
 SYSTEM_SETTING_DEFINITIONS = {
@@ -1462,6 +1477,11 @@ def set_system_setting(key, value):
 
 def location_management_enabled():
     return get_system_setting('location_management_enabled', '0') == '1'
+
+
+def github_auto_update_enabled():
+    """Whether startup should pull from GitHub. Default off (AI-DEPLOY-F01-FIX-01)."""
+    return get_system_setting_bool('github_auto_update_enabled', False)
 
 
 def get_system_setting_bool(key, default=False):

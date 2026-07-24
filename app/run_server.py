@@ -21,8 +21,9 @@ from app import (
 from notifications import init_notification_scheduler
 
 # AI_TASK: AI-DEPLOY-F01
-# WMS 每次启动前自动从 GitHub main 分支更新代码和依赖。
-# 通过环境变量 WMS_SKIP_AUTO_UPDATE=1 可跳过（用于测试、安装、特殊运维场景）。
+# AI_TASK: AI-DEPLOY-F01-FIX-01
+# 启动前可选从 GitHub main 更新：仅当系统设置 github_auto_update_enabled 开启时执行（默认关闭）。
+# 环境变量 WMS_SKIP_AUTO_UPDATE=1 可强制跳过（测试、安装、特殊运维）。
 import auto_update  # noqa: E402
 
 
@@ -72,14 +73,31 @@ def _shutdown_scheduler(signum=None, frame=None):
         _scheduler = None
 
 
-def _run_startup_auto_update():
-    """AI-DEPLOY-F01: 启动前自动从 GitHub main 分支更新代码和依赖。
+def _github_auto_update_setting_enabled() -> bool:
+    """Read system setting github_auto_update_enabled; default False if unavailable."""
+    try:
+        with app.app_context():
+            from app import github_auto_update_enabled
+            return bool(github_auto_update_enabled())
+    except Exception as e:  # noqa: BLE001
+        print(f"[AUTO_UPDATE] 读取自动更新开关失败，默认关闭: {e}", flush=True)
+        return False
 
-    任何步骤失败都不阻断 WMS 启动，用现有代码启动保证可用性。
-    通过环境变量 WMS_SKIP_AUTO_UPDATE=1 可跳过整个更新流程。
+
+def _run_startup_auto_update():
+    """AI-DEPLOY-F01 / AI-DEPLOY-F01-FIX-01: 可选的启动前 GitHub 更新。
+
+    默认关闭；仅当系统设置「启动时自动从 GitHub 更新」开启时执行。
+    任何步骤失败都不阻断 WMS 启动。WMS_SKIP_AUTO_UPDATE=1 可强制跳过。
     """
     if os.environ.get("WMS_SKIP_AUTO_UPDATE", "").strip().lower() in ("1", "true", "yes", "on"):
         print("[AUTO_UPDATE] WMS_SKIP_AUTO_UPDATE=1, 跳过启动前自动更新", flush=True)
+        return
+    if not _github_auto_update_setting_enabled():
+        print(
+            "[AUTO_UPDATE] 系统设置「启动时自动从 GitHub 更新」未开启（默认关闭），跳过自动更新",
+            flush=True,
+        )
         return
     print("=" * 60, flush=True)
     print("WMS 启动前自动更新检查（AI-DEPLOY-F01）", flush=True)
