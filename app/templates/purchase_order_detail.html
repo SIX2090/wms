@@ -1,79 +1,138 @@
 {% extends "base.html" %}
 {% block title %}采购单详情{% endblock %}
 
-{% block content %}
-<div class="page-header">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <h2 class="mb-0"><i class="bi bi-bag-check"></i> 采购单详情</h2>
-        {% if current_user.role in ['admin', 'warehouse'] %}
-        <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
-            <a href="/purchase_order" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回列表</a>
-            <a href="{{ url_for('print_purchase_order', id=order.id) }}" target="_blank" class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-printer"></i> 打印
-            </a>
-            <button class="btn btn-sm btn-outline-info" onclick="copyPurchaseOrder({{ order.id }})">
-                <i class="bi bi-files"></i> 复制
-            </button>
-            {% if order.status == 'pending' %}
-            <a href="{{ url_for('purchase_order_edit_page', id=order.id) }}" class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-pencil-square"></i> 编辑
-            </a>
-            <button class="btn btn-sm btn-outline-danger" onclick="deletePurchaseOrder({{ order.id }})">
-                <i class="bi bi-trash"></i> 删除
-            </button>
-            {% endif %}
-            {% if order.status in ['pending', 'partial'] %}
-            <button class="btn btn-sm btn-primary" onclick="createInOrder({{ order.id }})">
-                <i class="bi bi-box-arrow-in-down"></i> 生成采购入库单
-            </button>
-            <button class="btn btn-sm btn-outline-danger" onclick="closePurchaseOrder({{ order.id }})">
-                <i class="bi bi-stop-circle"></i> 关闭
-            </button>
-            {% elif order.status == 'closed' %}
-            <button class="btn btn-sm btn-outline-primary" onclick="reopenPurchaseOrder({{ order.id }})">
-                <i class="bi bi-arrow-counterclockwise"></i> 重新打开
-            </button>
-            {% endif %}
-        </div>
-        {% endif %}
-    </div>
-</div>
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/excel-table.css') }}" rel="stylesheet">
+{% endblock %}
 
-<div class="card mb-3" id="documentInfo">
-    <div class="card-header py-2"><i class="bi bi-info-circle"></i> 基本信息</div>
-    <div class="card-body">
-        <div class="row g-3">
-            <div class="col-md-3"><strong>采购单号：</strong>{{ order.order_no }}</div>
-            <div class="col-md-3"><strong>日期：</strong>{{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</div>
-            <div class="col-md-3"><strong>供应商：</strong>{{ order.supplier.name if order.supplier else '-' }}</div>
-            <div class="col-md-3"><strong>预计到货：</strong>{{ order.expected_date.strftime('%Y-%m-%d') if order.expected_date else '-' }}</div>
-            <div class="col-md-3">
-                <strong>状态：</strong>
-                {% if order.status == 'completed' %}
-                <span class="badge bg-success">{{ status_label(order.status) }}</span>
+{% block content %}
+<div class="container-fluid px-3 order-animate">
+    <!-- 单据头部 -->
+    <div class="page-header">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+            <div>
+                <div class="order-title">
+                    <i class="bi bi-bag-check"></i>
+                    采购单：{{ order.order_no }}
+                    <span class="status-badge {{ order.status }}">
+                        <i class="bi bi-circle-fill" style="font-size:0.5rem"></i>
+                        {% if order.status == 'pending' %}待处理
+                        {% elif order.status == 'partial' %}部分入库
+                        {% elif order.status == 'completed' %}已完成
+                        {% elif order.status == 'closed' %}已关闭
+                        {% else %}{{ order.status }}{% endif %}
+                    </span>
+                </div>
+                <div class="order-meta">
+                    <span><i class="bi bi-calendar3"></i> {{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</span>
+                    <span><i class="bi bi-truck"></i> {{ order.supplier.name if order.supplier else '-' }}</span>
+                    <span><i class="bi bi-clock-history"></i> 预计到货：{{ order.expected_date.strftime('%Y-%m-%d') if order.expected_date else '-' }}</span>
+                    <span><i class="bi bi-person"></i> {{ order.operator.username if order.operator else '-' }}</span>
+                </div>
+            </div>
+            {% if current_user.role in ['admin', 'warehouse'] %}
+            <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+                <a href="/purchase_order" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回列表</a>
+                <a href="{{ url_for('print_purchase_order', id=order.id) }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-printer"></i> 打印
+                </a>
+                <button class="btn btn-sm btn-outline-info" onclick="copyPurchaseOrder({{ order.id }})">
+                    <i class="bi bi-files"></i> 复制
+                </button>
+                {% if order.status == 'pending' %}
+                <a href="{{ url_for('purchase_order_edit_page', id=order.id) }}" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-pencil-square"></i> 编辑
+                </a>
+                <button class="btn btn-sm btn-outline-danger" onclick="deletePurchaseOrder({{ order.id }})">
+                    <i class="bi bi-trash"></i> 删除
+                </button>
+                {% endif %}
+                {% if order.status in ['pending', 'partial'] %}
+                <button class="btn btn-sm btn-primary" onclick="createInOrder({{ order.id }})">
+                    <i class="bi bi-box-arrow-in-down"></i> 生成采购入库单
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="closePurchaseOrder({{ order.id }})">
+                    <i class="bi bi-stop-circle"></i> 关闭
+                </button>
                 {% elif order.status == 'closed' %}
-                <span class="badge bg-secondary">{{ status_label(order.status) }}</span>
-                {% elif order.status == 'partial' %}
-                <span class="badge bg-info text-dark">{{ status_label(order.status) }}</span>
-                {% else %}
-                <span class="badge bg-warning text-dark">{{ status_label(order.status) }}</span>
+                <button class="btn btn-sm btn-outline-primary" onclick="reopenPurchaseOrder({{ order.id }})">
+                    <i class="bi bi-arrow-counterclockwise"></i> 重新打开
+                </button>
                 {% endif %}
             </div>
-            <div class="col-md-3"><strong>金额：</strong>¥{{ "%.2f"|format(order.total_amount or 0) }}</div>
-            <div class="col-md-3">
-                <strong>来源申请：</strong>
-                {% if order.purchase_request %}
-                <a href="{{ url_for('purchase_request_detail', id=order.purchase_request.id) }}">{{ order.purchase_request.request_no }}</a>
-                {% else %}-{% endif %}
-            </div>
-            <div class="col-md-12"><strong>备注：</strong>{{ order.remark or '' }}</div>
+            {% endif %}
         </div>
     </div>
-</div>
 
-<div class="card mb-3 trace-panel" id="documentTrace">
-    <div class="card-header py-2"><i class="bi bi-diagram-3"></i> 单据联查</div>
-    <div class="card-body p-0">
+    <!-- 单据信息 -->
+    <div class="order-info-card" id="documentInfo">
+        <div class="card-header-custom">
+            <i class="bi bi-info-circle"></i> 单据信息
+        </div>
+        <div class="card-body-custom">
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">单据编号</span>
+                    <span class="info-value">{{ order.order_no }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">采购日期</span>
+                    <span class="info-value">{{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">供应商</span>
+                    <span class="info-value">{{ order.supplier.name if order.supplier else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">预计到货</span>
+                    <span class="info-value">{{ order.expected_date.strftime('%Y-%m-%d') if order.expected_date else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">状态</span>
+                    <span class="info-value">
+                        {% if order.status == 'completed' %}
+                        <span class="badge bg-success">{{ status_label(order.status) }}</span>
+                        {% elif order.status == 'closed' %}
+                        <span class="badge bg-secondary">{{ status_label(order.status) }}</span>
+                        {% elif order.status == 'partial' %}
+                        <span class="badge bg-info text-dark">{{ status_label(order.status) }}</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark">{{ status_label(order.status) }}</span>
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">金额</span>
+                    <span class="info-value amount">¥{{ "%.2f"|format(order.total_amount or 0) }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">来源申请</span>
+                    <span class="info-value">
+                        {% if order.purchase_request %}
+                        <a href="{{ url_for('purchase_request_detail', id=order.purchase_request.id) }}">{{ order.purchase_request.request_no }}</a>
+                        {% else %}-{% endif %}
+                    </span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">操作人</span>
+                    <span class="info-value">{{ order.operator.username if order.operator else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">备注</span>
+                    <span class="info-value">{{ order.remark or '' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">创建时间</span>
+                    <span class="info-value">{{ order.created_at.strftime('%Y-%m-%d %H:%M') if order.created_at else '-' }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<div class="order-info-card trace-panel mb-3" id="documentTrace">
+    <div class="card-header-custom"><i class="bi bi-diagram-3"></i> 单据联查</div>
+    <div class="card-body-custom p-0">
         <div class="table-responsive">
             <table class="table table-bordered table-hover table-sm mb-0 trace-table">
                 <thead class="table-light">
@@ -116,9 +175,9 @@
 </div>
 
 {% if order.status in ['pending', 'partial'] %}
-<div class="card mb-3">
-    <div class="card-header py-2"><i class="bi bi-box-arrow-in-down"></i> 下推入库</div>
-    <div class="card-body">
+<div class="order-info-card mb-3">
+    <div class="card-header-custom"><i class="bi bi-box-arrow-in-down"></i> 下推入库</div>
+    <div class="card-body-custom">
         <div class="row g-2 align-items-end">
             <div class="col-md-3">
                 <label class="form-label small text-muted mb-1">入库仓库</label>
@@ -146,9 +205,13 @@
 </div>
 {% endif %}
 
-<div class="card">
-    <div class="card-header py-2"><i class="bi bi-list-ul"></i> 物料明细</div>
-    <div class="card-body p-0">
+<div class="order-table-container">
+    <div class="order-toolbar">
+        <div class="table-header-custom">
+            <span><i class="bi bi-list-ul"></i> 物料明细</span>
+            <span class="badge bg-light text-dark">共 {{ order.items|length }} 项</span>
+        </div>
+    </div>
         <div class="table-responsive">
             <table class="table order-table mb-0" id="itemTable">
                 <thead>
@@ -235,6 +298,8 @@
             </table>
         </div>
     </div>
+</div>
+
 </div>
 {% endblock %}
 

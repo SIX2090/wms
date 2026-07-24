@@ -1,58 +1,148 @@
 {% extends "base.html" %}
 {% block title %}销售订单 {{ order.order_no }}{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/excel-table.css') }}" rel="stylesheet">
+{% endblock %}
+
 {% block content %}
-<div class="page-header">
-  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <div>
-      <h2 class="mb-1"><i class="bi bi-bag-check"></i> 销售订单 {{ order.order_no }}</h2>
-      <span class="badge text-bg-{% if order.status=='confirmed' %}primary{% elif order.status=='closed' %}success{% elif order.status=='cancelled' %}secondary{% else %}warning{% endif %}">{{ status_label(order.status) }}</span>
-      <span class="badge text-bg-light ms-2">{{ shipment_status_label(order.shipment_status) }}</span>
-      {% if order.project_no %}<span class="badge text-bg-info ms-2">项目：{{ order.project_no }}</span>{% endif %}
+<div class="container-fluid px-3 order-animate">
+    <!-- 单据头部 -->
+    <div class="page-header">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+            <div>
+                <div class="order-title">
+                    <i class="bi bi-bag-check"></i>
+                    销售订单：{{ order.order_no }}
+                    <span class="status-badge {{ order.status }}">
+                        <i class="bi bi-circle-fill" style="font-size:0.5rem"></i>
+                        {% if order.status == 'draft' %}草稿
+                        {% elif order.status == 'confirmed' %}已确认
+                        {% elif order.status == 'closed' %}已关闭
+                        {% elif order.status == 'cancelled' %}已取消
+                        {% else %}{{ order.status }}{% endif %}
+                    </span>
+                </div>
+                <div class="order-meta">
+                    <span><i class="bi bi-calendar3"></i> {{ order.date or '-' }}</span>
+                    <span><i class="bi bi-person-badge"></i> {{ order.customer.name if order.customer else '-' }}</span>
+                    <span><i class="bi bi-truck"></i> 发货：{{ shipment_status_label(order.shipment_status) }}</span>
+                    <span><i class="bi bi-person"></i> {{ order.salesperson.name if order.salesperson else '-' }}</span>
+                </div>
+            </div>
+            {% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}
+            <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('print_sales_order', id=order.id) }}" target="_blank"><i class="bi bi-printer"></i> 打印订单</a>
+                <button type="button" class="btn btn-sm btn-outline-info" onclick="showAiAnomalyAnalysis()" title="AI 异常分析">
+                    <i class="bi bi-robot"></i> AI 异常分析
+                </button>
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('sales_order_list') }}"><i class="bi bi-arrow-left"></i> 返回列表</a>
+                {% if order.status=='draft' %}
+                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('sales_order_edit_page', id=order.id) }}"><i class="bi bi-pencil-square"></i> 修改订单</a>
+                <button class="btn btn-sm btn-primary" onclick="postAction('{{ url_for('confirm_sales_order', id=order.id) }}','确认销售订单？')">确认订单</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="postAction('{{ url_for('delete_sales_order', id=order.id) }}','删除草稿销售订单？')">删除草稿</button>
+                {% elif order.status=='confirmed' and order.shipment_status != 'shipped' %}
+                <button class="btn btn-sm btn-success" onclick="createOutbound()"><i class="bi bi-box-arrow-up"></i> 生成销售出库草稿</button>
+                <button class="btn btn-sm btn-outline-success" onclick="createSelectedOutbound()"><i class="bi bi-check2-square"></i> 按选定数量下推</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="postAction('{{ url_for('cancel_sales_order', id=order.id) }}','取消销售订单？')">取消订单</button>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
     </div>
-    {% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}
-    <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('print_sales_order', id=order.id) }}" target="_blank">打印订单</a>
-      <button type="button" class="btn btn-sm btn-outline-info" onclick="showAiAnomalyAnalysis()" title="AI 异常分析">
-        <i class="bi bi-robot"></i> AI 异常分析
-      </button>
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('sales_order_list') }}">返回列表</a>
-      {% if order.status=='draft' %}
-        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('sales_order_edit_page', id=order.id) }}"><i class="bi bi-pencil-square"></i> 修改订单</a>
-        <button class="btn btn-sm btn-primary" onclick="postAction('{{ url_for('confirm_sales_order', id=order.id) }}','确认销售订单？')">确认订单</button>
-        <button class="btn btn-sm btn-outline-danger" onclick="postAction('{{ url_for('delete_sales_order', id=order.id) }}','删除草稿销售订单？')">删除草稿</button>
-      {% elif order.status=='confirmed' and order.shipment_status != 'shipped' %}
-        <button class="btn btn-sm btn-success" onclick="createOutbound()">生成销售出库草稿</button>
-        <button class="btn btn-sm btn-outline-success" onclick="createSelectedOutbound()"><i class="bi bi-check2-square"></i> 按选定数量下推</button>
-        <button class="btn btn-sm btn-outline-danger" onclick="postAction('{{ url_for('cancel_sales_order', id=order.id) }}','取消销售订单？')">取消订单</button>
-      {% endif %}
+
+    <!-- 单据信息 -->
+    <div class="order-info-card">
+        <div class="card-header-custom">
+            <i class="bi bi-info-circle"></i> 单据信息
+        </div>
+        <div class="card-body-custom">
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">单据编号</span>
+                    <span class="info-value">{{ order.order_no }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">订单日期</span>
+                    <span class="info-value">{{ order.date or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">客户</span>
+                    <span class="info-value">{{ order.customer.name if order.customer else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">交货日期</span>
+                    <span class="info-value {% if order.delivery_date and order.delivery_date < today %}text-danger{% endif %}">{{ order.delivery_date or '-' }}{% if order.delivery_date and order.delivery_date < today and order.status in ['draft', 'confirmed'] and order.shipment_status != 'shipped' %} <span class="badge bg-danger ms-1">逾期</span>{% endif %}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">发货仓库</span>
+                    <span class="info-value">{{ order.warehouse or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">发货状态</span>
+                    <span class="info-value">{{ shipment_status_label(order.shipment_status) }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">业务员</span>
+                    <span class="info-value">{{ order.salesperson.name if order.salesperson else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">项目号</span>
+                    <span class="info-value">{{ order.project_no or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">币别</span>
+                    <span class="info-value">{{ order.currency or 'CNY' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">结算方式</span>
+                    <span class="info-value">{{ order.settlement_method or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">制单人</span>
+                    <span class="info-value">{{ order.operator.username if order.operator else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">最近出库草稿</span>
+                    <span class="info-value">{% if order.shipment_order_no %}<a href="{{ url_for('out_order_list', search=order.shipment_order_no) }}">{{ order.shipment_order_no }}</a>{% else %}未生成{% endif %}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">未税金额</span>
+                    <span class="info-value amount">¥{{ '%.2f'|format(order.untaxed_amount or 0) }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">税额</span>
+                    <span class="info-value amount">¥{{ '%.2f'|format(order.tax_amount or 0) }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">含税金额</span>
+                    <span class="info-value amount">¥{{ '%.2f'|format(order.total_amount or 0) }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">已发货金额</span>
+                    <span class="info-value amount">¥{{ '%.2f'|format(order.shipped_amount or 0) }}<br><small class="text-muted">未发货：¥ {{ '%.2f'|format(order.remaining_amount or 0) }}</small></span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">备注</span>
+                    <span class="info-value">{{ order.remark or '' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">创建时间</span>
+                    <span class="info-value">{{ order.created_at.strftime('%Y-%m-%d %H:%M') if order.created_at else '-' }}</span>
+                </div>
+            </div>
+        </div>
     </div>
-    {% endif %}
-  </div>
-</div>
 
-  <div class="card card-body mb-3">
-    <div class="row g-3">
-      <div class="col-md-3"><small class="text-muted">客户</small><div>{{ order.customer.name if order.customer else '-' }}</div></div>
-      <div class="col-md-2"><small class="text-muted">订单日期</small><div>{{ order.date }}</div></div>
-      <div class="col-md-2"><small class="text-muted">交货日期</small><div class="{% if order.delivery_date and order.delivery_date < today %}text-danger{% endif %}">{{ order.delivery_date or '-' }}</div></div>
-      <div class="col-md-2"><small class="text-muted">发货仓库</small><div>{{ order.warehouse or '-' }}</div></div>
-      <div class="col-md-2"><small class="text-muted">发货状态</small><div>{{ shipment_status_label(order.shipment_status) }}</div></div>
-      <div class="col-md-3"><small class="text-muted">业务员</small><div>{{ order.salesperson.name if order.salesperson else '-' }}</div></div>
-      <div class="col-md-2"><small class="text-muted">币别</small><div>{{ order.currency or 'CNY' }}</div></div>
-      <div class="col-md-2"><small class="text-muted">结算方式</small><div>{{ order.settlement_method or '-' }}</div></div>
-      <div class="col-md-2"><small class="text-muted">制单人</small><div>{{ order.operator.username if order.operator else '-' }}</div></div>
-      <div class="col-md-3"><small class="text-muted">最近出库草稿</small><div>{% if order.shipment_order_no %}<a href="{{ url_for('out_order_list', search=order.shipment_order_no) }}">{{ order.shipment_order_no }}</a>{% else %}未生成{% endif %}</div></div>
+  <!-- 明细表格 -->
+  <div class="order-table-container">
+    <div class="order-toolbar">
+        <div class="table-header-custom">
+            <span><i class="bi bi-list-ul"></i> 销售订单明细</span>
+            <span class="badge bg-light text-dark">共 {{ order.items|length }} 项</span>
+        </div>
     </div>
-  </div>
-
-  <div class="row g-3 mb-3">
-    <div class="col-md-3"><div class="card card-body"><small class="text-muted">未税金额</small><div class="fs-5">¥ {{ '%.2f'|format(order.untaxed_amount or 0) }}</div></div></div>
-    <div class="col-md-3"><div class="card card-body"><small class="text-muted">税额</small><div class="fs-5">¥ {{ '%.2f'|format(order.tax_amount or 0) }}</div></div></div>
-    <div class="col-md-3"><div class="card card-body"><small class="text-muted">含税金额</small><div class="fs-5">¥ {{ '%.2f'|format(order.total_amount or 0) }}</div></div></div>
-    <div class="col-md-3"><div class="card card-body"><small class="text-muted">已发货金额</small><div class="fs-5">¥ {{ '%.2f'|format(order.shipped_amount or 0) }}</div><small class="text-muted">未发货：¥ {{ '%.2f'|format(order.remaining_amount or 0) }}</small></div></div>
-  </div>
-
-  <div class="card">
     <div class="table-responsive">
       <table class="table order-table mb-0" id="itemTable">
         <thead>
@@ -184,6 +274,8 @@
   {% if order.remark %}
   <div class="card card-body mt-3"><strong>备注</strong><div class="mt-2">{{ order.remark }}</div></div>
   {% endif %}
+
+</div>
 </div>
 <script>
 // getCsrfToken / csrfPost / csrfFetch are defined globally in base.html (SM-P6-03-1).

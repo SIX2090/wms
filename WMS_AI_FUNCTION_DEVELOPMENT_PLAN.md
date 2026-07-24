@@ -819,6 +819,17 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 - 提交 SHA：2490244；专项命令：`grep -l 'table order-table mb-0' app/templates/{in_order,out_order,purchase_order,sales_order,purchase_request,after_sale_out}_detail.html`（详情页 4 命中，out_order_detail 沿用既有 order-table）；`grep -c 'width="70">序号' app/templates/{in_order,out_order,sales_order,purchase_order,purchase_request,after_sale_out}.html`（列表页 6 命中）；`grep -c 'width="90">操作' app/templates/{in_order,out_order,sales_order,purchase_order,purchase_request,after_sale_out}.html`（6 命中）。
 - 剩余风险：非单据类列表页（主数据 department/employee/customer/supplier/unit/category/warehouse、报告 sales_outflow_report/sales_trend_report、审批 approval 等）操作列未统一 width=90，属不同场景列宽需求，不在本子项范围；`_disabled_unused_20260506/*` 已禁用模板不动。
 
+#### SM-P6-03-6（已完成）
+
+- 目标：用户指出"销售订单工具栏不是按采购入库单样式"——SM-P6-03-5 只统一了明细表 table class，未统一页面头部与单据信息卡片结构。本子项将详情页整体容器与头部结构对齐 `in_order_detail.html` 基准：`container-fluid px-3 order-animate` 外层 + `.page-header` 内含 `.order-title`（图标+单据号+`.status-badge` 状态徽章）+ `.order-meta`（日期/往来方/业务类型/操作人元数据行）+ `.wms-entry-toolbar`（操作按钮）；单据信息块统一 `.order-info-card` + `.card-header-custom` + `.card-body-custom` + `.info-grid` + `.info-item`（label/value 对）；明细表区统一 `.order-table-container` + `.order-toolbar` + `.table-header-custom`（标题+计数徽章）包裹。
+- 业务边界：仅改详情页头部容器与信息卡片 DOM 结构与 CSS class；不修改按钮、role gate、列定义、数据绑定、后端路由；明细表内部 `<th>`/`<td>` 列结构沿用 SM-P6-03-5。`in_order_detail.html`/`out_order_detail.html` 已是基准结构不动。
+- 改动模块：
+  - `app/templates/purchase_order_detail.html`：新增 `extra_css` 引入 `order-detail.css`/`excel-table.css`；`page-header` 内 h2 标题→`order-title`+`status-badge`+`order-meta`；`card mb-3` 基本信息→`order-info-card`+`info-grid`/`info-item`；`card` 联查/下推入库/物料明细→`order-info-card`/`order-table-container`+`order-toolbar`+`table-header-custom`；外层包 `container-fluid px-3 order-animate`。
+  - `app/templates/sales_order_detail.html`：同上结构重写；`card card-body` 信息块+`row` 统计行→合并进 `order-info-card` 的 `info-grid`（金额项用 `amount` 样式）；`card` 明细→`order-table-container`+`order-toolbar`+`table-header-custom`；外层包 `container-fluid px-3 order-animate`。
+- 状态：专项验证已完成（Jinja 语法 4 详情页模板全 OK；test_client 渲染 4 详情页全 404 无 500——QA 库无对应记录但证明模板解析与变量引用无误）。
+- 提交 SHA：（待提交）；专项命令：`grep -l 'order-title.*status-badge' app/templates/{in_order,out_order,purchase_order,sales_order}_detail.html`（4 命中）；`grep -l 'order-info-card' app/templates/{in_order,out_order,purchase_order,sales_order}_detail.html`（4 命中）。
+- 剩余风险：关联出库单/售后单卡片（sales_order_detail 下方）仍用 `card`+`card-header` Bootstrap 样式，属次要附属信息块，非主单据信息卡片，不在本子项范围；真实浏览器 E2E 仍需业务环境执行。
+
 每个子项完成后必须在本台账追加：
 
 ```text
