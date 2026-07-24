@@ -28,7 +28,6 @@
             <thead>
                 <tr>
                     <th width="50"><input type="checkbox" id="checkAll"></th>
-                    {{ sort_th('ID', 'id', sort_by, sort_order) }}
                     {{ sort_th('供应商编号', 'code', sort_by, sort_order) }}
                     {{ sort_th('供应商名称', 'name', sort_by, sort_order) }}
                     {{ sort_th('联系人', 'contact', sort_by, sort_order) }}
@@ -42,7 +41,6 @@
                 {% for sup in suppliers %}
                 <tr>
                     <td><input type="checkbox" class="check-item" value="{{ sup.id }}"></td>
-                    <td>{{ sup.id }}</td>
                     <td>{{ sup.code }}</td>
                     <td>{{ sup.name }}</td>
                     <td>{{ sup.contact or '-' }}</td>
@@ -56,7 +54,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="9" class="text-center text-muted">暂无数据，请添加供应商</td></tr>
+                <tr><td colspan="8" class="text-center text-muted">暂无数据，请添加供应商</td></tr>
                 {% endfor %}
             </tbody>
         </table>
