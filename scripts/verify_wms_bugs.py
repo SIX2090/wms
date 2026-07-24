@@ -59,6 +59,80 @@ def check_add_stock_results_checked() -> tuple[bool, str]:
     return True, "所有 add_stock 调用均检查返回值"
 
 
+def check_web_login_csrf() -> tuple[bool, str]:
+    """LOGIN-CSRF-001: Web /login 必须校验 CSRF，原生 /api/login 可继续豁免。"""
+    app_py = read_text("app/app.py")
+    login_html = read_text("app/templates/login.html")
+
+    web_login = re.search(
+        r"@app\.route\('/login',\s*methods=\['GET',\s*'POST'\]\)(?P<body>.*?)\ndef login\(",
+        app_py,
+        re.S,
+    )
+    if not web_login:
+        return False, "找不到 Web /login 路由"
+    if "@csrf.exempt" in web_login.group("body"):
+        return False, "Web /login 不得使用 @csrf.exempt"
+
+    api_login = re.search(
+        r"@app\.route\('/api/login',\s*methods=\['POST'\]\)(?P<body>.*?)\ndef native_api_login\(",
+        app_py,
+        re.S,
+    )
+    if not api_login or "@csrf.exempt" not in api_login.group("body"):
+        return False, "原生 /api/login 必须保持 @csrf.exempt（SEC-NEW2-001）"
+
+    if 'method="POST"' not in login_html or "csrf_token" not in login_html:
+        return False, "login.html 登录表单必须包含 csrf_token"
+
+    import os
+    import sys
+
+    app_dir = str(ROOT / "app")
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
+    os.environ.setdefault("FLASK_ENV", "testing")
+    os.environ.setdefault("WMS_SKIP_DB_UPGRADE", "1")
+
+    from werkzeug.security import generate_password_hash
+
+    import app as wms_app
+
+    wms_app.app.config["WTF_CSRF_ENABLED"] = True
+    wms_app.app.config["TESTING"] = False
+    with wms_app.app.app_context():
+        wms_app.db.create_all()
+        username = "login_csrf_verify_user"
+        user = wms_app.User.query.filter_by(username=username).first()
+        if not user:
+            user = wms_app.User(
+                username=username,
+                password_hash=generate_password_hash("Password123!"),
+                role="warehouse",
+                status="normal",
+            )
+            wms_app.db.session.add(user)
+            wms_app.db.session.commit()
+
+        if "app.login" in wms_app.csrf._exempt_views:
+            return False, "运行时 app.login 不应在 csrf._exempt_views"
+        if "app.native_api_login" not in wms_app.csrf._exempt_views:
+            return False, "运行时 app.native_api_login 必须在 csrf._exempt_views"
+
+        client = wms_app.app.test_client()
+        resp = client.post(
+            "/login",
+            data={"username": username, "password": "Password123!"},
+            follow_redirects=False,
+        )
+        location = resp.headers.get("Location") or ""
+        if resp.status_code in (302, 303) and "/login" not in location:
+            return False, f"无 CSRF token 的 POST /login 不应登录成功（status={resp.status_code}）"
+        if resp.status_code != 400:
+            return False, f"无 CSRF token 的 POST /login 应返回 400，实际 {resp.status_code}"
+    return True, "Web /login 强制 CSRF；/api/login 保持豁免；无 token 登录被拒绝"
+
+
 def main() -> int:
     app_py = read_text("app/app.py")
     config_py = read_text("app/config.py")
@@ -191,6 +265,9 @@ def main() -> int:
     ))
     ok, message = check_add_stock_results_checked()
     checks.append(("BUG-NEW3-001", ok, message))
+
+    ok, message = check_web_login_csrf()
+    checks.append(("LOGIN-CSRF-001", ok, message))
 
     mobile_scan_body = function_body(app_py, "mobile_scan_submit")
     checks.append((

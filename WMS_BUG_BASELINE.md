@@ -1,6 +1,6 @@
 # WMS BUG 基线
 
-更新时间：2026-07-21
+更新时间：2026-07-25
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。
 
@@ -67,6 +67,7 @@
 | BUG-SALES-014 | 销售模板散用 `confirm()`/`alert()` 原生 API，与系统级 `showConfirm`/`showToast` 不一致 | 检查 5 个销售模板（`sales_outbound_selection.html`/`customer.html`/`after_sale_out.html`/`after_sale_out_add.html`/`after_sale_out_detail.html`）不再含 `confirm(`/`alert(` 调用（SM-P6-02） |
 | BUG-SALES-015 | `sales_order.html` 工具栏 + 行内写按钮无角色权限感知隐藏，`user`/`production` 角色可见写操作入口 | 检查写按钮包裹 `{% if current_user.role in ['admin','warehouse','purchase','sales'] %}`，后端 `@require_role` 仍二次校验（SM-P6-02） |
 | BUG-SALES-016 | `customer.html` 完全无客户导入入口，与 `supplier.html` 结构不一致 | 检查 `customer.html` 含 `importModal` 模态框 + AJAX 提交 + `csrf_token` + `notifyMasterDataChanged('customer_updated')` 广播（SM-P6-02） |
+| LOGIN-CSRF-001 | Web `/login` 被 `@csrf.exempt` 豁免，无 CSRF token 的 POST 仍可建立会话 | 检查 `app.login` 不在 `csrf._exempt_views`，`app.native_api_login` 仍豁免，`login.html` 含 `csrf_token`，无 token POST `/login` 返回 400 |
 
 ## 已确认误报
 

@@ -5888,7 +5888,6 @@ def change_own_password():
 
 
 @app.route('/login', methods=['GET', 'POST'])
-@csrf.exempt
 def login():
     next_page = (request.values.get('next') or '').strip()
     login_date = date.today().strftime('%Y-%m-%d')
