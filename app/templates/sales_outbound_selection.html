@@ -1,53 +1,381 @@
 {% extends "base.html" %}
 {% block title %}销售出库选单{% endblock %}
+
+{% block extra_css %}
+<style>
+.page-header {
+    background: #fff;
+    padding: 12px 16px;
+    border-bottom: 1px solid #D9D9D9;
+    margin-bottom: 0;
+}
+.page-header h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+}
+.page-header .sub {
+    font-size: 12px;
+    color: #888;
+    margin-top: 4px;
+}
+.card {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    margin-bottom: 0;
+}
+.card-body {
+    padding: 10px 16px;
+}
+.form-label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 3px;
+    font-weight: 400;
+}
+.form-control, .form-select {
+    border: 1px solid #D9D9D9;
+    border-radius: 2px;
+    padding: 3px 8px;
+    font-size: 12px;
+    height: 28px;
+    transition: border-color 0.15s;
+    background: #fff;
+}
+.form-control:focus, .form-select:focus {
+    border-color: #1890FF;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+    outline: none;
+}
+.tplus-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 0;
+}
+.tplus-toolbar .btn {
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 2px;
+    height: 28px;
+    line-height: 1.2;
+}
+.tplus-filter-row {
+    background: #FAFAFA;
+    border-bottom: 1px solid #F0F0F0;
+    padding: 10px 16px;
+}
+#selectionTable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+#selectionTable thead th {
+    background: #FAFAFA;
+    border: 1px solid #E8E8E8;
+    padding: 6px 8px;
+    font-weight: 600;
+    color: #333;
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+#selectionTable tbody td {
+    border: 1px solid #E8E8E8;
+    padding: 4px 8px;
+    vertical-align: middle;
+}
+#selectionTable tbody tr:hover td {
+    background: #E6F7FF;
+}
+#selectionTable .qty-input {
+    height: 26px;
+    font-size: 12px;
+    padding: 2px 6px;
+}
+.wms-validation-panel {
+    display: none;
+    margin: 0 16px 10px 16px;
+    padding: 10px 12px;
+    border: 1px solid #fca5a5;
+    border-left: 4px solid #dc2626;
+    background: #fef2f2;
+    color: #7f1d1d;
+    font-size: 13px;
+}
+.wms-validation-panel.show {
+    display: block;
+}
+.wms-validation-panel-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+.wms-validation-list {
+    margin: 0;
+    padding-left: 18px;
+}
+.table-wrap {
+    max-height: calc(100vh - 280px);
+    overflow: auto;
+    border-top: 1px solid #E8E8E8;
+}
+.footer-bar {
+    background: #fff;
+    border-top: 1px solid #D9D9D9;
+    padding: 10px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+}
+.footer-bar .total {
+    color: #1890FF;
+    font-weight: 600;
+}
+.text-overdue {
+    color: #dc2626;
+    font-weight: 600;
+}
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container-fluid py-3">
-  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-    <div><h4 class="mb-1"><i class="bi bi-ui-checks-grid"></i> 销售出库选单</h4><div class="text-muted small">按客户和发货仓库选择已确认销售订单的待发货明细，生成销售出库草稿。</div></div>
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_order_list') }}"><i class="bi bi-arrow-left"></i> 销售订单</a>
-  </div>
-  <div class="card mb-3">
-    <div class="card-body py-2">
-      <div class="row g-2 align-items-end">
-        <div class="col-md-2"><label class="form-label small">客户</label><select id="customerFilter" class="form-select form-select-sm"><option value="">全部客户</option>{% for customer in customers %}<option value="{{ customer.id }}">{{ customer.code }} - {{ customer.name }}</option>{% endfor %}</select></div>
-        <div class="col-md-2"><label class="form-label small">发货仓库</label><select id="warehouseFilter" class="form-select form-select-sm"><option value="">全部仓库</option>{% for warehouse in warehouses %}<option value="{{ warehouse.name }}">{{ warehouse.code }} - {{ warehouse.name }}</option>{% endfor %}</select></div>
-        <div class="col-md-2"><label class="form-label small">业务员</label><select id="salespersonFilter" class="form-select form-select-sm"><option value="">全部业务员</option>{% for employee in employees %}<option value="{{ employee.id }}">{{ employee.name }}</option>{% endfor %}</select></div>
-        <div class="col-md-3"><label class="form-label small">订单号 / 客户 / 物料</label><input id="searchFilter" class="form-control form-control-sm" placeholder="输入关键字后查询"></div>
-        <div class="col-md-3 d-flex gap-2"><button class="btn btn-primary btn-sm" type="button" onclick="loadSelectable()"><i class="bi bi-search"></i> 查询</button><button class="btn btn-success btn-sm" type="button" onclick="createSelectedOutbound()"><i class="bi bi-box-arrow-up"></i> 生成出库草稿</button></div>
-      </div>
+<div class="page-header d-flex justify-content-between align-items-start">
+    <div>
+        <h2><i class="bi bi-ui-checks-grid"></i> 销售出库选单</h2>
+        <div class="sub">按客户和发货仓库选择已确认销售订单的待发货明细，生成销售出库草稿。</div>
     </div>
-  </div>
-  <div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center py-2"><strong>待发货销售明细</strong><span id="summary" class="text-muted small">正在加载...</span></div>
-    <div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">
-      <thead><tr><th><input type="checkbox" id="selectAll" onchange="toggleAll(this.checked)"></th><th>销售订单</th><th>客户</th><th>仓库</th><th>交货日期</th><th>物料编码</th><th>物料名称</th><th class="text-end">订单数量</th><th class="text-end">已发货</th><th class="text-end">待发货</th><th class="text-end" style="width:130px">本次出库</th><th class="text-end">单价</th></tr></thead>
-      <tbody id="itemsBody"><tr><td colspan="12" class="text-center text-muted py-4">正在加载...</td></tr></tbody>
-    </table></div>
-  </div>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-success btn-sm" onclick="createSelectedOutbound()">
+            <i class="bi bi-box-arrow-up"></i> 生成出库草稿
+        </button>
+        <a class="btn btn-secondary btn-sm" href="{{ url_for('sales_order_list') }}">
+            <i class="bi bi-x-lg"></i> 返回
+        </a>
+    </div>
 </div>
+
+<div class="card">
+    <div class="tplus-filter-row">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label">客户</label>
+                <select id="customerFilter" class="form-select">
+                    <option value="">全部客户</option>
+                    {% for customer in customers %}
+                    <option value="{{ customer.id }}">{{ customer.code }} - {{ customer.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">发货仓库</label>
+                <select id="warehouseFilter" class="form-select">
+                    <option value="">全部仓库</option>
+                    {% for warehouse in warehouses %}
+                    <option value="{{ warehouse.name }}">{{ warehouse.code }} - {{ warehouse.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">业务员</label>
+                <select id="salespersonFilter" class="form-select">
+                    <option value="">全部业务员</option>
+                    {% for employee in employees %}
+                    <option value="{{ employee.id }}">{{ employee.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">订单号 / 客户 / 物料</label>
+                <input id="searchFilter" class="form-control" placeholder="输入关键字后查询">
+            </div>
+            <div class="col-md-3">
+                <div class="tplus-toolbar mb-0">
+                    <button class="btn btn-primary" type="button" onclick="loadSelectable()">
+                        <i class="bi bi-search"></i> 查询
+                    </button>
+                    <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('selectAll').click()">
+                        <i class="bi bi-check2-square"></i> 全选/取消
+                    </button>
+                    <button class="btn btn-success" type="button" onclick="createSelectedOutbound()">
+                        <i class="bi bi-box-arrow-up"></i> 生成出库草稿
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="selectionValidationPanel" class="wms-validation-panel" role="alert" aria-live="polite">
+        <div class="wms-validation-panel-title">请先处理以下问题</div>
+        <ol id="selectionValidationList" class="wms-validation-list"></ol>
+    </div>
+
+    <div class="card-body py-2 d-flex justify-content-between align-items-center">
+        <strong style="font-size:13px;">待发货销售明细</strong>
+        <span id="summary" class="text-muted" style="font-size:12px;">正在加载...</span>
+    </div>
+
+    <div class="table-wrap">
+        <table id="selectionTable">
+            <thead>
+                <tr>
+                    <th style="width:40px;"><input type="checkbox" id="selectAll" onchange="toggleAll(this.checked)"></th>
+                    <th>销售订单</th>
+                    <th>客户</th>
+                    <th>仓库</th>
+                    <th>交货日期</th>
+                    <th>物料编码</th>
+                    <th>物料名称</th>
+                    <th class="text-end">订单数量</th>
+                    <th class="text-end">已发货</th>
+                    <th class="text-end">待发货</th>
+                    <th class="text-end" style="width:130px">本次出库</th>
+                    <th class="text-end">单价</th>
+                </tr>
+            </thead>
+            <tbody id="itemsBody">
+                <tr><td colspan="12" class="text-center text-muted py-4">正在加载...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="footer-bar">
+        <div id="entryStatus" style="color:#b45309;min-height:18px;"></div>
+        <div>已选 <span id="footerCount" class="total">0</span> 行，本次出库 <span id="footerQty" class="total">0.00</span></div>
+    </div>
+</div>
+
 <script>
 let selectable = new Map();
-function esc(value) { const el = document.createElement('span'); el.textContent = value == null ? '' : String(value); return el.innerHTML; }
-function fmt(value) { const n = Number(value || 0); return Number.isFinite(n) ? n.toFixed(2) : '0.00'; }
+function esc(value) {
+    const el = document.createElement('span');
+    el.textContent = value == null ? '' : String(value);
+    return el.innerHTML;
+}
+function fmt(value) {
+    const n = Number(value || 0);
+    return Number.isFinite(n) ? n.toFixed(2) : '0.00';
+}
+function showValidation(messages) {
+    const panel = document.getElementById('selectionValidationPanel');
+    const list = document.getElementById('selectionValidationList');
+    if (!messages || !messages.length) {
+        panel.classList.remove('show');
+        list.innerHTML = '';
+        return;
+    }
+    list.innerHTML = messages.map(function(msg) { return '<li>' + esc(msg) + '</li>'; }).join('');
+    panel.classList.add('show');
+}
 function loadSelectable() {
-  const params = new URLSearchParams();
-  [['customer_id','customerFilter'],['warehouse','warehouseFilter'],['salesperson_id','salespersonFilter'],['search','searchFilter']].forEach(([key,id]) => { const v = document.getElementById(id).value.trim(); if (v) params.set(key,v); });
-  const body = document.getElementById('itemsBody'); body.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">正在加载...</td></tr>';
-  fetch('{{ url_for("api_sales_order_selectable") }}?' + params.toString()).then(r => r.json()).then(data => {
-    selectable = new Map((data.items || []).map(item => [String(item.sales_order_item_id), item]));
-    body.innerHTML = data.items && data.items.length ? data.items.map(item => `<tr data-order="${esc(item.sales_order_no)}" data-customer="${esc(item.customer_id)}" data-warehouse="${esc(item.warehouse)}"><td><input type="checkbox" class="select-row" data-id="${item.sales_order_item_id}" onchange="updateSummary()"></td><td><a href="/sales/${item.sales_order_id}">${esc(item.sales_order_no)}</a></td><td>${esc(item.customer_name)}</td><td>${esc(item.warehouse || '-')}</td><td class="${item.is_overdue ? 'text-danger fw-semibold' : ''}">${esc(item.delivery_date || '-')}</td><td>${esc(item.material_code)}</td><td>${esc(item.material_name)}</td><td class="text-end">${fmt(item.quantity)}</td><td class="text-end">${fmt(item.shipped_quantity)}</td><td class="text-end text-warning">${fmt(item.remaining_quantity)}</td><td><input type="number" class="form-control form-control-sm qty-input text-end" min="0.01" step="0.01" max="${item.remaining_quantity}" value="${fmt(item.remaining_quantity)}" data-id="${item.sales_order_item_id}" oninput="updateSummary()"></td><td class="text-end">¥${fmt(item.price)}</td></tr>`).join('') : '<tr><td colspan="12" class="text-center text-muted py-4">暂无可下推的销售明细</td></tr>';
-    document.getElementById('selectAll').checked = false; updateSummary();
-  }).catch(() => { body.innerHTML = '<tr><td colspan="12" class="text-center text-danger py-4">查询失败，请稍后重试</td></tr>'; });
+    showValidation([]);
+    const params = new URLSearchParams();
+    [['customer_id','customerFilter'],['warehouse','warehouseFilter'],['salesperson_id','salespersonFilter'],['search','searchFilter']].forEach(function(pair) {
+        const v = document.getElementById(pair[1]).value.trim();
+        if (v) params.set(pair[0], v);
+    });
+    const body = document.getElementById('itemsBody');
+    body.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">正在加载...</td></tr>';
+    fetch('{{ url_for("api_sales_order_selectable") }}?' + params.toString())
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            selectable = new Map((data.items || []).map(function(item) {
+                return [String(item.sales_order_item_id), item];
+            }));
+            body.innerHTML = data.items && data.items.length
+                ? data.items.map(function(item) {
+                    return '<tr data-order="' + esc(item.sales_order_no) + '" data-customer="' + esc(item.customer_id) + '" data-warehouse="' + esc(item.warehouse) + '">' +
+                        '<td><input type="checkbox" class="select-row" data-id="' + item.sales_order_item_id + '" onchange="updateSummary()"></td>' +
+                        '<td><a href="/sales/' + item.sales_order_id + '">' + esc(item.sales_order_no) + '</a></td>' +
+                        '<td>' + esc(item.customer_name) + '</td>' +
+                        '<td>' + esc(item.warehouse || '-') + '</td>' +
+                        '<td class="' + (item.is_overdue ? 'text-overdue' : '') + '">' + esc(item.delivery_date || '-') + '</td>' +
+                        '<td>' + esc(item.material_code) + '</td>' +
+                        '<td>' + esc(item.material_name) + '</td>' +
+                        '<td class="text-end">' + fmt(item.quantity) + '</td>' +
+                        '<td class="text-end">' + fmt(item.shipped_quantity) + '</td>' +
+                        '<td class="text-end text-warning">' + fmt(item.remaining_quantity) + '</td>' +
+                        '<td><input type="number" class="form-control form-control-sm qty-input text-end" min="0.01" step="0.01" max="' + item.remaining_quantity + '" value="' + fmt(item.remaining_quantity) + '" data-id="' + item.sales_order_item_id + '" oninput="updateSummary()"></td>' +
+                        '<td class="text-end">¥' + fmt(item.price) + '</td>' +
+                        '</tr>';
+                }).join('')
+                : '<tr><td colspan="12" class="text-center text-muted py-4">暂无可下推的销售明细</td></tr>';
+            document.getElementById('selectAll').checked = false;
+            updateSummary();
+        })
+        .catch(function() {
+            body.innerHTML = '<tr><td colspan="12" class="text-center text-danger py-4">查询失败，请稍后重试</td></tr>';
+            document.getElementById('entryStatus').textContent = '查询失败，请稍后重试';
+        });
 }
-function toggleAll(checked) { document.querySelectorAll('.select-row').forEach(input => input.checked = checked); updateSummary(); }
-function updateSummary() { const rows = [...document.querySelectorAll('.select-row:checked')]; let qty = 0; rows.forEach(input => { qty += Number(document.querySelector(`.qty-input[data-id="${input.dataset.id}"]`)?.value || 0); }); document.getElementById('summary').textContent = `已选 ${rows.length} 行，本次出库 ${fmt(qty)}`; }
+function toggleAll(checked) {
+    document.querySelectorAll('.select-row').forEach(function(input) { input.checked = checked; });
+    updateSummary();
+}
+function updateSummary() {
+    const rows = Array.from(document.querySelectorAll('.select-row:checked'));
+    let qty = 0;
+    rows.forEach(function(input) {
+        qty += Number(document.querySelector('.qty-input[data-id="' + input.dataset.id + '"]')?.value || 0);
+    });
+    document.getElementById('summary').textContent = '已选 ' + rows.length + ' 行，本次出库 ' + fmt(qty);
+    document.getElementById('footerCount').textContent = String(rows.length);
+    document.getElementById('footerQty').textContent = fmt(qty);
+}
 function createSelectedOutbound() {
-  const rows = [...document.querySelectorAll('.select-row:checked')]; if (!rows.length) { showToast('请选择销售订单明细', 'warning'); return; }
-  const items = []; for (const input of rows) { const qty = document.querySelector(`.qty-input[data-id="${input.dataset.id}"]`); const value = Number(qty.value); const max = Number(qty.max); if (!Number.isFinite(value) || value <= 0 || value - max > 0.000001) { showToast('本次出库数量必须大于 0 且不能超过待发货数量', 'warning'); qty.focus(); return; } items.push({sales_order_item_id: Number(input.dataset.id), quantity: value}); }
-  csrfFetch('{{ url_for("create_sales_outbound_from_selection") }}', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({items})}).then(r => r.json()).then(data => { if (data.status === 'success') window.location.href = data.redirect_url; else showToast(data.msg || '生成失败', 'danger'); }).catch(() => showToast('生成失败，请稍后重试', 'danger'));
+    showValidation([]);
+    const rows = Array.from(document.querySelectorAll('.select-row:checked'));
+    if (!rows.length) {
+        showValidation(['请选择销售订单明细']);
+        document.getElementById('entryStatus').textContent = '请选择销售订单明细';
+        if (typeof showToast === 'function') showToast('请选择销售订单明细', 'warning');
+        return;
+    }
+    const items = [];
+    for (const input of rows) {
+        const qty = document.querySelector('.qty-input[data-id="' + input.dataset.id + '"]');
+        const value = Number(qty.value);
+        const max = Number(qty.max);
+        if (!Number.isFinite(value) || value <= 0 || value - max > 0.000001) {
+            showValidation(['本次出库数量必须大于 0 且不能超过待发货数量']);
+            document.getElementById('entryStatus').textContent = '本次出库数量必须大于 0 且不能超过待发货数量';
+            if (typeof showToast === 'function') showToast('本次出库数量必须大于 0 且不能超过待发货数量', 'warning');
+            qty.focus();
+            return;
+        }
+        items.push({ sales_order_item_id: Number(input.dataset.id), quantity: value });
+    }
+    document.getElementById('entryStatus').textContent = '正在生成出库草稿...';
+    csrfFetch('{{ url_for("create_sales_outbound_from_selection") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: items })
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.status === 'success') {
+            window.location.href = data.redirect_url;
+        } else {
+            const msg = data.msg || '生成失败';
+            showValidation([msg]);
+            document.getElementById('entryStatus').textContent = msg;
+            if (typeof showToast === 'function') showToast(msg, 'danger');
+        }
+    }).catch(function() {
+        showValidation(['生成失败，请稍后重试']);
+        document.getElementById('entryStatus').textContent = '生成失败，请稍后重试';
+        if (typeof showToast === 'function') showToast('生成失败，请稍后重试', 'danger');
+    });
 }
-['customerFilter','warehouseFilter','salespersonFilter'].forEach(id => document.getElementById(id).addEventListener('change', loadSelectable));
-document.getElementById('searchFilter').addEventListener('keydown', e => { if (e.key === 'Enter') loadSelectable(); });
+['customerFilter', 'warehouseFilter', 'salespersonFilter'].forEach(function(id) {
+    document.getElementById(id).addEventListener('change', loadSelectable);
+});
+document.getElementById('searchFilter').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') loadSelectable();
+});
+window.submitForm = function() { createSelectedOutbound(); };
 loadSelectable();
 </script>
 {% endblock %}

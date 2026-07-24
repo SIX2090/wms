@@ -1550,7 +1550,21 @@ const WMS_ACTION_MODULES = {
     customer: { match: /^\/customer\/?$/, addTarget: '#addModal', listUrl: '/customer', tableId: 'customerTable', deleteUrl: '/customer/delete', exportUrl: '/customer/export', importUrl: '/customer/import', templateUrl: '/customer/download_template' },
     warehouse: { match: /^\/warehouse\/?$/, addTarget: '#addModal', listUrl: '/warehouse', tableId: 'warehouseTable', deleteUrl: '/warehouse/delete', exportUrl: '/warehouse/export', importUrl: '/warehouse/import', templateUrl: '/warehouse/download_template' },
     department: { match: /^\/department\/?$/, addTarget: '#addModal', listUrl: '/department', tableId: 'departmentTable', deleteUrl: '/department/delete', exportUrl: '/department/export', importUrl: '/department/import', templateUrl: '/department/download_template' },
-    employee: { match: /^\/employee\/?$/, addTarget: '#addModal', listUrl: '/employee', tableId: 'employeeTable', deleteUrl: '/employee/delete', exportUrl: '/employee/export', importUrl: '/employee/import', templateUrl: '/employee/download_template' }
+    employee: { match: /^\/employee\/?$/, addTarget: '#addModal', listUrl: '/employee', tableId: 'employeeTable', deleteUrl: '/employee/delete', exportUrl: '/employee/export', importUrl: '/employee/import', templateUrl: '/employee/download_template' },
+    sales: {
+        match: /^\/sales(\/?$|\/add|\/\d+(?:\/edit)?|\/outbound_selection|\/outbound)/,
+        navigator: true,
+        detailUrl: '/sales/{id}',
+        addUrl: '/sales/add',
+        listUrl: '/sales',
+        tableId: 'salesOrderTable',
+        deleteUrl: '/sales/batch_delete',
+        detailDeleteUrl: '/sales/{id}/delete',
+        detailPrintUrl: '/sales/{id}/print',
+        exportUrl: '/sales/export',
+        importUrl: '/sales/import',
+        templateUrl: '/sales/download_template'
+    }
 };
 
 function getWmsActionModule() {
@@ -1633,18 +1647,23 @@ function openAdd(module) {
 }
 
 function saveCurrentPage() {
-    if (typeof submitForm === 'function') {
+    if (typeof window.submitForm === 'function') {
         try {
-            if (submitForm.length >= 1) submitForm(false);
-            else submitForm();
+            if (window.submitForm.length >= 1) window.submitForm(false);
+            else window.submitForm();
             return true;
         } catch (e) {
             showToast('保存失败：' + e.message, 'danger', 3600);
             return true;
         }
     }
-    if (typeof submitAdd === 'function') {
-        submitAdd();
+    if (typeof window.submitAdd === 'function') {
+        window.submitAdd();
+        return true;
+    }
+    var saveBtn = document.getElementById('saveBtn');
+    if (saveBtn) {
+        saveBtn.click();
         return true;
     }
     var form = document.querySelector('#addForm, #docForm, form');
@@ -2437,6 +2456,9 @@ function initDocumentEntryMode() {
     var documentPathPatterns = [
         /^\/in_order\/add$/,
         /^\/in_order\/\d+(\/edit)?$/,
+        /^\/sales\/add$/,
+        /^\/sales\/\d+(\/edit)?$/,
+        /^\/sales\/outbound_selection$/,
         /^\/out_order\/add$/,
         /^\/out_order\/\d+(\/edit)?$/,
         /^\/purchase_order\/add$/,

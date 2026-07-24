@@ -21189,6 +21189,18 @@ DOCUMENT_NAVIGATION_MODULES = {
         'title': lambda item: _document_nav_related(item, 'supplier') or _document_nav_related(item, 'subcontract_order', 'order_no') or '',
         'search': ['receive_no', 'remark', lambda item: _document_nav_related(item, 'supplier'), lambda item: _document_nav_related(item, 'subcontract_order', 'order_no')],
     },
+    'sales': {
+        'model': SalesOrder,
+        'number': 'order_no',
+        'date': 'date',
+        'detail_url': '/sales/{id}',
+        'title': lambda item: _document_nav_related(item, 'customer') or item.warehouse or item.project_no or '',
+        'search': [
+            'order_no', 'warehouse', 'project_no', 'currency', 'settlement_method', 'remark',
+            lambda item: _document_nav_related(item, 'customer'),
+            lambda item: _document_nav_related(item, 'salesperson', 'name'),
+        ],
+    },
 }
 
 

@@ -419,6 +419,35 @@ textarea.form-control {
     background-color: #BAE7FF !important;
     border-color: #69C0FF !important;
 }
+.wms-validation-panel {
+    display: none;
+    margin: 0 0 10px 0;
+    padding: 10px 12px;
+    border: 1px solid #fca5a5;
+    border-left: 4px solid #dc2626;
+    background: #fef2f2;
+    color: #7f1d1d;
+    font-size: 13px;
+}
+.wms-validation-panel.show {
+    display: block;
+}
+.wms-validation-panel-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+.wms-validation-list {
+    margin: 0;
+    padding-left: 18px;
+}
+#materialTable tbody tr.wms-row-error td {
+    background: #fff1f2 !important;
+    border-color: #fca5a5 !important;
+}
+#materialTable .wms-cell-error {
+    border-color: #dc2626 !important;
+    background: #fff7f7 !important;
+}
 </style>
 {% endblock %}
 
@@ -527,6 +556,10 @@ textarea.form-control {
                 </div>
             </div>
 
+            <div id="salesOrderValidationPanel" class="wms-validation-panel" role="alert" aria-live="polite">
+                <div class="wms-validation-panel-title">请先处理以下问题</div>
+                <ol id="salesOrderValidationList" class="wms-validation-list"></ol>
+            </div>
             <div id="entryStatus" style="font-size:12px;color:#b45309;min-height:18px;margin-bottom:8px;"></div>
 
             <div class="tplus-toolbar mb-3">
@@ -538,6 +571,24 @@ textarea.form-control {
                 </button>
                 <button type="button" class="btn btn-outline-success" id="pasteBtn">
                     <i class="bi bi-clipboard"></i> 粘贴导入
+                </button>
+                <button type="button" class="btn btn-outline-info" id="recentBtn">
+                    <i class="bi bi-clock-history"></i> 最近使用
+                </button>
+                <button type="button" class="btn btn-outline-warning" id="saveTemplateBtn">
+                    <i class="bi bi-bookmark"></i> 存为模板
+                </button>
+                <select id="templateSelect" class="form-select" style="width:auto;min-width:140px;">
+                    <option value="">选择模板...</option>
+                </select>
+                <button type="button" class="btn btn-outline-secondary" id="refreshMaterialsBtn" title="刷新物料列表">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新物料
+                </button>
+                <button type="button" class="btn btn-outline-dark" id="batchUpdateBtn">
+                    <i class="bi bi-pencil-square"></i> 批量修改
+                </button>
+                <button type="button" class="btn btn-outline-secondary" id="columnSettingsBtn">
+                    <i class="bi bi-layout-three-columns"></i> 字段设置
                 </button>
             </div>
 
@@ -850,8 +901,6 @@ textarea.form-control {
         if (navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then(importText).catch(function() { document.getElementById('entryStatus').textContent = '无法读取剪贴板，请确认浏览器权限'; });
         else document.getElementById('entryStatus').textContent = '当前浏览器不支持剪贴板读取';
     });
-    document.getElementById('saveBtn').addEventListener('click', save);
-
     document.addEventListener('click', function(e) {
         if (activeDropdown && !e.target.closest('.material-input')) {
             activeDropdown.style.display = 'none';
@@ -859,12 +908,203 @@ textarea.form-control {
         }
     });
 
-    // 回填已有明细
+    var SALES_RECENT_KEY = 'wms_sales_recent_materials';
+    var SALES_TEMPLATE_KEY = 'wms_sales_order_templates';
+    var SALES_COLUMN_KEY = 'wms_sales_order_columns';
+
+    function showValidation(messages) {
+        var panel = document.getElementById('salesOrderValidationPanel');
+        var list = document.getElementById('salesOrderValidationList');
+        if (!panel || !list) return;
+        if (!messages || !messages.length) {
+            panel.classList.remove('show');
+            list.innerHTML = '';
+            return;
+        }
+        list.innerHTML = messages.map(function(msg) { return '<li>' + esc(msg) + '</li>'; }).join('');
+        panel.classList.add('show');
+    }
+
+    function ensureBlankRows(minCount) {
+        minCount = minCount || 15;
+        while (body.querySelectorAll('tr').length < minCount) addRow();
+        renumber();
+    }
+
+    function rememberRecent(code) {
+        if (!code) return;
+        try {
+            var list = JSON.parse(localStorage.getItem(SALES_RECENT_KEY) || '[]');
+            list = [code].concat(list.filter(function(item) { return item !== code; })).slice(0, 20);
+            localStorage.setItem(SALES_RECENT_KEY, JSON.stringify(list));
+        } catch (e) {}
+    }
+
+    function loadTemplates() {
+        var select = document.getElementById('templateSelect');
+        if (!select) return;
+        var templates = [];
+        try { templates = JSON.parse(localStorage.getItem(SALES_TEMPLATE_KEY) || '[]'); } catch (e) { templates = []; }
+        select.innerHTML = '<option value="">选择模板...</option>' + templates.map(function(item, index) {
+            return '<option value="' + index + '">' + esc(item.name || ('模板' + (index + 1))) + '</option>';
+        }).join('');
+    }
+
+    function applyColumnSettings() {
+        var hidden = {};
+        try { hidden = JSON.parse(localStorage.getItem(SALES_COLUMN_KEY) || '{}'); } catch (e) { hidden = {}; }
+        Object.keys(hidden).forEach(function(key) {
+            document.querySelectorAll('[data-column-key="' + key + '"]').forEach(function(cell) {
+                cell.style.display = hidden[key] ? 'none' : '';
+            });
+        });
+    }
+
+    document.getElementById('recentBtn').addEventListener('click', function() {
+        var codes = [];
+        try { codes = JSON.parse(localStorage.getItem(SALES_RECENT_KEY) || '[]'); } catch (e) { codes = []; }
+        if (!codes.length) {
+            document.getElementById('entryStatus').textContent = '暂无最近使用的物料';
+            return;
+        }
+        codes.slice(0, 10).forEach(function(code) {
+            var material = findMaterial(code);
+            if (!material) return;
+            var empty = Array.from(body.querySelectorAll('tr')).find(function(row) {
+                return !row.querySelector('.material-code').value.trim();
+            });
+            var row = empty || addRow();
+            row.querySelector('.material-code').value = material.code;
+            fillRow(row, material);
+        });
+        renumber();
+        recalc();
+        document.getElementById('entryStatus').textContent = '已填入最近使用物料，请核对数量后保存';
+    });
+
+    document.getElementById('saveTemplateBtn').addEventListener('click', function() {
+        var items = collect().items.filter(function(item) { return item.code; });
+        if (!items.length) {
+            document.getElementById('entryStatus').textContent = '单据为空，无法保存模板';
+            return;
+        }
+        var name = window.prompt('请输入模板名称', '销售模板 ' + new Date().toLocaleDateString());
+        if (!name) return;
+        var templates = [];
+        try { templates = JSON.parse(localStorage.getItem(SALES_TEMPLATE_KEY) || '[]'); } catch (e) { templates = []; }
+        templates.unshift({ name: name, items: items, saved_at: new Date().toISOString() });
+        localStorage.setItem(SALES_TEMPLATE_KEY, JSON.stringify(templates.slice(0, 20)));
+        loadTemplates();
+        document.getElementById('entryStatus').textContent = '模板已保存';
+    });
+
+    document.getElementById('templateSelect').addEventListener('change', function() {
+        var index = this.value;
+        if (index === '') return;
+        var templates = [];
+        try { templates = JSON.parse(localStorage.getItem(SALES_TEMPLATE_KEY) || '[]'); } catch (e) { templates = []; }
+        var template = templates[Number(index)];
+        if (!template || !template.items) return;
+        body.innerHTML = '';
+        template.items.forEach(function(item) {
+            addRow({
+                code: item.code || '',
+                quantity: item.quantity || 1,
+                price: item.price || 0,
+                tax_rate: item.tax_rate != null ? item.tax_rate : defaultTaxRate,
+                batch_no: item.batch_no || '',
+                serial_no: item.serial_no || '',
+                remark: item.remark || ''
+            });
+        });
+        ensureBlankRows(15);
+        renumber();
+        recalc();
+        this.value = '';
+        document.getElementById('entryStatus').textContent = '已加载模板，请核对后保存';
+    });
+
+    document.getElementById('refreshMaterialsBtn').addEventListener('click', function() {
+        fetch('/api/materials?limit=5000', { headers: { 'Accept': 'application/json' } })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (Array.isArray(data)) materials = data;
+                else if (data && Array.isArray(data.items)) materials = data.items;
+                else if (data && Array.isArray(data.data)) materials = data.data;
+                document.getElementById('entryStatus').textContent = '物料列表已刷新（' + materials.length + '）';
+            })
+            .catch(function() {
+                document.getElementById('entryStatus').textContent = '刷新物料失败，请稍后重试';
+            });
+    });
+
+    document.getElementById('batchUpdateBtn').addEventListener('click', function() {
+        var field = window.prompt('批量修改字段：qty / price / tax_rate', 'price');
+        if (!field) return;
+        field = String(field).trim().toLowerCase();
+        var map = { qty: '.qty', quantity: '.qty', price: '.price', tax_rate: '.tax-rate', tax: '.tax-rate' };
+        var selector = map[field];
+        if (!selector) {
+            document.getElementById('entryStatus').textContent = '仅支持 qty / price / tax_rate';
+            return;
+        }
+        var value = window.prompt('请输入要写入的值');
+        if (value == null || value === '') return;
+        body.querySelectorAll('tr').forEach(function(row) {
+            if (!row.querySelector('.material-code').value.trim()) return;
+            var input = row.querySelector(selector);
+            if (input) input.value = value;
+        });
+        recalc();
+        document.getElementById('entryStatus').textContent = '批量修改完成';
+    });
+
+    document.getElementById('columnSettingsBtn').addEventListener('click', function() {
+        var keys = ['batch_no', 'serial_no', 'remark'];
+        var labels = { batch_no: '批次号', serial_no: '序列号', remark: '备注' };
+        var hidden = {};
+        try { hidden = JSON.parse(localStorage.getItem(SALES_COLUMN_KEY) || '{}'); } catch (e) { hidden = {}; }
+        keys.forEach(function(key) {
+            var visible = !hidden[key];
+            var next = window.confirm((visible ? '当前显示' : '当前隐藏') + '「' + labels[key] + '」，是否切换显示状态？');
+            if (next) hidden[key] = visible;
+        });
+        localStorage.setItem(SALES_COLUMN_KEY, JSON.stringify(hidden));
+        applyColumnSettings();
+    });
+
+    var originalSelectMaterial = selectMaterial;
+    selectMaterial = function(row, code) {
+        originalSelectMaterial(row, code);
+        rememberRecent(code);
+    };
+
+    var originalSave = save;
+    save = async function() {
+        var data = collect();
+        var messages = [];
+        if (!data.customer_id) messages.push('请选择客户');
+        if (!data.items.some(function(item) { return item.code && Number(item.quantity) > 0; })) messages.push('请至少保留一条有效销售明细');
+        showValidation(messages);
+        if (messages.length) {
+            document.getElementById('entryStatus').textContent = messages[0];
+            return;
+        }
+        data.items.forEach(function(item) { if (item.code) rememberRecent(item.code); });
+        return originalSave();
+    };
+    document.getElementById('saveBtn').addEventListener('click', function() { save(); });
+    window.submitForm = function() { return save(); };
+
+    loadTemplates();
+    applyColumnSettings();
+
     if (existingItems && existingItems.length) {
         existingItems.forEach(function(item) { addRow(item); });
     } else {
         addRow();
     }
+    ensureBlankRows(15);
 })();
 </script>
 {% endblock %}
