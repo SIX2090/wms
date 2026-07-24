@@ -321,6 +321,57 @@ textarea.form-control {
 #materialTable th {
     position: relative;
 }
+/* 添加按钮区域 */
+.tplus-toolbar {
+    display: flex;
+    gap: 6px;
+    padding: 4px 0;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.tplus-toolbar .btn,
+.tplus-toolbar .form-select {
+    height: 34px;
+    border-radius: 5px;
+    font-size: 12px;
+    line-height: 1;
+}
+.tplus-toolbar .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 14px;
+    font-weight: 500;
+    box-shadow: none;
+}
+.tplus-toolbar .btn i {
+    font-size: 13px;
+}
+.tplus-toolbar .btn-primary {
+    background: #2563EB;
+    border-color: #2563EB;
+    color: #fff;
+}
+.tplus-toolbar .btn-outline-primary,
+.tplus-toolbar .btn-outline-success,
+.tplus-toolbar .btn-outline-info,
+.tplus-toolbar .btn-outline-warning,
+.tplus-toolbar .btn-outline-secondary,
+.tplus-toolbar .btn-outline-dark {
+    background: #fff;
+    border-color: #CBD5E1;
+    color: #1F2937;
+}
+.tplus-toolbar .btn-outline-primary:hover,
+.tplus-toolbar .btn-outline-success:hover,
+.tplus-toolbar .btn-outline-info:hover,
+.tplus-toolbar .btn-outline-warning:hover,
+.tplus-toolbar .btn-outline-secondary:hover,
+.tplus-toolbar .btn-outline-dark:hover {
+    background: #F1F5F9;
+    border-color: #64748B;
+    color: #111827;
+}
 </style>
 {% endblock %}
 
@@ -399,7 +450,7 @@ textarea.form-control {
                 </div>
             </div>
 
-            <div class="mb-3 d-flex gap-2 flex-wrap">
+            <div class="tplus-toolbar mb-3">
                 <button type="button" class="btn btn-primary" onclick="addNewRow()">
                     <i class="bi bi-plus"></i> 添加物料
                 </button>

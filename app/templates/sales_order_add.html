@@ -1,69 +1,685 @@
 {% extends "base.html" %}
+
 {% block title %}新建销售订单{% endblock %}
+
 {% block extra_css %}
 <style>
-.sales-entry-page { background:#f5f7fa; min-height:calc(100vh - 60px); }
-.sales-entry-toolbar { background:#fff; border:1px solid #e5e7eb; padding:8px 14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-.sales-entry-toolbar .btn { height:32px; font-size:12px; display:inline-flex; align-items:center; gap:5px; }
-.sales-entry-header { background:#fff; border:1px solid #e5e7eb; border-top:0; padding:14px; }
-.sales-entry-header .form-label { font-size:12px; color:#64748b; margin-bottom:4px; }
-.sales-entry-header .form-control, .sales-entry-header .form-select { height:30px; font-size:12px; border-radius:3px; }
-.sales-entry-grid { background:#fff; border:1px solid #dbe2ea; border-top:0; overflow:auto; }
-#salesItems { min-width:1500px; margin:0; border-collapse:collapse; table-layout:fixed; }
-#salesItems th { background:#eef3f8; color:#334155; font-size:12px; font-weight:600; height:34px; padding:6px 8px; border-right:1px solid #cbd5e1; white-space:nowrap; }
-#salesItems td { height:32px; padding:2px 4px; border:1px solid #e5e7eb; font-size:12px; vertical-align:middle; }
-#salesItems tbody tr:nth-child(even) td { background:#fafafa; }
-#salesItems input, #salesItems select { width:100%; height:27px; border:1px solid transparent; background:transparent; padding:2px 5px; font-size:12px; border-radius:2px; }
-#salesItems input:focus, #salesItems select:focus { background:#fff; border-color:#3b82f6; outline:0; box-shadow:0 0 0 2px rgba(59,130,246,.12); }
-#salesItems .readonly { color:#475569; }
-#salesItems .money { text-align:right; color:#334155; font-variant-numeric:tabular-nums; }
-.sales-total-row td { background:#fff8dc !important; font-weight:600; }
-.sales-entry-footer { background:#fff; border:1px solid #e5e7eb; border-top:0; padding:12px 14px; display:flex; align-items:end; justify-content:space-between; gap:16px; }
-.sales-entry-footer textarea { min-height:58px; font-size:12px; }
-.sales-summary { white-space:nowrap; font-size:13px; color:#334155; }
-.sales-summary strong { color:#dc2626; font-size:16px; }
-.sales-entry-status { font-size:12px; color:#b45309; min-height:18px; }
-@media (max-width: 768px) { .sales-entry-footer { display:block; } .sales-summary { margin-top:10px; text-align:right; } }
+/* ==================== Changjet T+ 风格 - 销售订单 ==================== */
+.page-header {
+    background: #fff;
+    padding: 12px 16px;
+    border-bottom: 1px solid #D9D9D9;
+    margin-bottom: 0;
+}
+.page-header h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+}
+.card {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    margin-bottom: 0;
+}
+.card-body {
+    padding: 10px 16px;
+}
+.form-label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 3px;
+    font-weight: 400;
+}
+.form-control, .form-select {
+    border: 1px solid #D9D9D9;
+    border-radius: 2px;
+    padding: 3px 8px;
+    font-size: 12px;
+    height: 28px;
+    transition: border-color 0.15s;
+    background: #fff;
+}
+.form-control:focus, .form-select:focus {
+    border-color: #1890FF;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+    outline: none;
+}
+.form-control[readonly] {
+    background-color: #F5F5F5;
+    color: #666;
+}
+textarea.form-control {
+    height: auto;
+    resize: vertical;
+}
+
+/* 物料搜索下拉 */
+.material-input {
+    position: relative;
+}
+.material-input input {
+    width: 100%;
+    border: 1px solid transparent;
+    padding: 3px 18px 3px 4px;
+    border-radius: 2px;
+    font-size: 12px;
+    height: 26px;
+    background: transparent;
+    color: #333;
+}
+.material-input input:focus {
+    border-color: #1890FF;
+    outline: none;
+    background: #fff;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+}
+.material-input input:hover {
+    border-color: #D9D9D9;
+    background: #FAFAFA;
+}
+.material-dropdown {
+    position: fixed;
+    min-width: 380px;
+    max-height: 280px;
+    overflow-y: auto;
+    background: white;
+    border: 1px solid #D9D9D9;
+    border-radius: 3px;
+    z-index: 99999;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+}
+.material-dropdown-item {
+    padding: 9px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #F0F0F0;
+    transition: background-color 0.12s;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #1f2937;
+}
+.material-dropdown-item:hover,
+.material-dropdown-item.active {
+    background-color: #E6F7FF;
+}
+.material-dropdown-item.active {
+    background-color: #BAE7FF;
+    outline: 1px solid #1890FF;
+    outline-offset: -1px;
+}
+.material-dropdown-item:last-child {
+    border-bottom: none;
+}
+.material-dropdown-item .code {
+    font-weight: 600;
+    color: #0052cc;
+}
+.material-dropdown-item .name {
+    color: #111827;
+    font-weight: 500;
+}
+.material-dropdown-item .spec,
+.material-dropdown-item .unit,
+.material-dropdown-item .stock {
+    color: #4b5563;
+    font-size: 13px;
+}
+.material-select-btn {
+    position: absolute;
+    right: 1px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    padding: 1px 4px;
+    cursor: pointer;
+    font-size: 9px;
+    color: #BFBFBF;
+    z-index: 10;
+    transition: color 0.15s;
+    height: 20px;
+    line-height: 1;
+}
+.material-select-btn:hover {
+    color: #1890FF;
+}
+
+/* ==================== T+ 网格线表格 ==================== */
+.tplus-table-wrapper {
+    border: 1px solid #D9D9D9;
+    overflow: hidden;
+    background: #fff;
+    margin-top: 6px;
+}
+#materialTable {
+    margin-bottom: 0 !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+    table-layout: auto !important;
+}
+/* 表头 - T+ 风格 */
+#materialTable thead th {
+    background: #FAFAFA !important;
+    color: #333 !important;
+    font-weight: 500 !important;
+    padding: 7px 8px !important;
+    border: 1px solid #E8E8E8 !important;
+    font-size: 12px !important;
+    white-space: nowrap !important;
+    text-align: center !important;
+    height: 34px !important;
+    line-height: 1.4 !important;
+}
+/* 表体单元格 - 全网格线 */
+#materialTable tbody td {
+    padding: 0 4px !important;
+    vertical-align: middle !important;
+    font-size: 12px !important;
+    border: 1px solid #E8E8E8 !important;
+    height: 30px !important;
+    color: #333 !important;
+    transition: background-color 0.1s !important;
+}
+/* 隔行变色 */
+#materialTable tbody tr:nth-child(even) td {
+    background-color: #FAFAFA !important;
+}
+#materialTable tbody tr:nth-child(odd) td {
+    background-color: #fff !important;
+}
+/* 行悬停 */
+#materialTable tbody tr:hover td {
+    background-color: #E6F7FF !important;
+    border-color: #91D5FF !important;
+}
+/* 当前活动行高亮 */
+#materialTable tbody tr.row-active td {
+    background-color: #BAE7FF !important;
+    border-color: #69C0FF !important;
+}
+/* 序号列 */
+#materialTable .row-num {
+    width: 42px;
+    text-align: center;
+    color: #999;
+    font-size: 12px;
+    padding: 0 2px !important;
+}
+/* 操作列 */
+#materialTable .action-col {
+    width: 92px !important;
+    min-width: 92px !important;
+    text-align: center;
+    white-space: nowrap;
+}
+#materialTable .action-col .btn {
+    width: 26px;
+    height: 22px;
+    padding: 0 !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+/* 金额列 - 右对齐 */
+#materialTable .amount-col {
+    text-align: right;
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    font-variant-numeric: tabular-nums;
+    padding-right: 8px !important;
+}
+/* 数量/单价列 - 右对齐 */
+#materialTable .num-col {
+    text-align: right;
+    padding-right: 6px !important;
+}
+
+/* 单元格内输入框 - T+ 无边框风格 */
+#materialTable tbody td input.form-control,
+#materialTable tbody td select.form-select {
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    padding: 2px 4px !important;
+    height: 26px !important;
+    font-size: 12px !important;
+    width: 100% !important;
+    border-radius: 2px !important;
+    color: #333 !important;
+    text-align: inherit !important;
+}
+#materialTable tbody td .num-col input.form-control,
+#materialTable tbody td.num-col input.form-control {
+    text-align: right !important;
+}
+#materialTable tbody td input.form-control:hover {
+    border-color: #D9D9D9 !important;
+    background: #FAFAFA !important;
+}
+#materialTable tbody td input.form-control:focus {
+    background: #fff !important;
+    border-color: #1890FF !important;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1) !important;
+    outline: none !important;
+}
+#materialTable tbody td input.form-control[readonly] {
+    background: #fff !important;
+    cursor: default !important;
+    color: #333 !important;
+    border-color: transparent !important;
+}
+
+/* 表脚 - 合计行 T+ 金色风格 */
+#materialTable tfoot td {
+    padding: 8px !important;
+    font-size: 12px !important;
+    border: 1px solid #E8E8E8 !important;
+    font-weight: 600 !important;
+    color: #333 !important;
+    background: #FFFBE6 !important;
+}
+#materialTable .total-row td {
+    background: #FFFBE6 !important;
+    border-color: #FFE58F !important;
+    border-top: 1px solid #FFE58F !important;
+}
+.total-amount {
+    color: #F5222D;
+    font-weight: 700;
+    font-size: 13px;
+}
+/* 表脚空白单元格 */
+#materialTable tfoot td.empty-foot {
+    background: #FFFBE6 !important;
+}
+
+/* 底部按钮区 */
+.footer-bar {
+    background: #fff;
+    padding: 12px 16px;
+    border-top: 1px solid #D9D9D9;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+/* 列宽拖拽 - T+ 风格 */
+.col-resize {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    cursor: col-resize;
+    user-select: none;
+    z-index: 5;
+}
+.col-resize:hover,
+.col-resize.active {
+    background: #1890FF;
+}
+#materialTable th {
+    position: relative;
+}
+/* 添加按钮区域 */
+.tplus-toolbar {
+    display: flex;
+    gap: 6px;
+    padding: 4px 0;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.tplus-toolbar .btn,
+.tplus-toolbar .form-select {
+    height: 34px;
+    border-radius: 5px;
+    font-size: 12px;
+    line-height: 1;
+}
+.tplus-toolbar .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 14px;
+    font-weight: 500;
+    box-shadow: none;
+}
+.tplus-toolbar .btn i {
+    font-size: 13px;
+}
+
+@media (max-width: 768px) {
+    .material-dropdown {
+        left: 8px !important;
+        right: 8px !important;
+        width: auto !important;
+        min-width: 0 !important;
+        max-width: calc(100vw - 16px) !important;
+        max-height: min(320px, 55vh);
+        z-index: 2300;
+    }
+
+    .material-dropdown-item {
+        min-height: 44px;
+        padding: 10px 12px;
+        font-size: 14px;
+    }
+
+    .material-select-btn {
+        width: 34px;
+        height: 30px;
+        font-size: 12px;
+    }
+
+    .tplus-table-wrapper {
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    #materialTable {
+        min-width: 1040px;
+    }
+
+    #materialTable thead th,
+    #materialTable tbody td {
+        height: 40px !important;
+    }
+
+    #materialTable tbody td input.form-control,
+    #materialTable tbody td select.form-select,
+    .material-input input {
+        height: 34px !important;
+        min-height: 34px !important;
+        font-size: 14px !important;
+    }
+
+    .footer-bar {
+        position: sticky;
+        bottom: 0;
+        z-index: 90;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        padding: 10px;
+        margin: 8px -10px -10px;
+        box-shadow: 0 -2px 10px rgba(15, 23, 42, .08);
+    }
+
+    .footer-bar .btn {
+        width: 100%;
+        min-height: 40px;
+    }
+}
+.tplus-toolbar .form-select {
+    width: auto;
+    min-width: 150px;
+    padding: 0 32px 0 10px;
+}
+.tplus-toolbar .btn-primary {
+    background: #2563EB;
+    border-color: #2563EB;
+    color: #fff;
+}
+.tplus-toolbar .btn-outline-primary,
+.tplus-toolbar .btn-outline-success,
+.tplus-toolbar .btn-outline-info,
+.tplus-toolbar .btn-outline-warning,
+.tplus-toolbar .btn-outline-secondary,
+.tplus-toolbar .btn-outline-dark {
+    background: #fff;
+    border-color: #CBD5E1;
+    color: #1F2937;
+}
+.tplus-toolbar .btn-outline-primary:hover,
+.tplus-toolbar .btn-outline-success:hover,
+.tplus-toolbar .btn-outline-info:hover,
+.tplus-toolbar .btn-outline-warning:hover,
+.tplus-toolbar .btn-outline-secondary:hover,
+.tplus-toolbar .btn-outline-dark:hover {
+    background: #F1F5F9;
+    border-color: #64748B;
+    color: #111827;
+}
+
+/* 供应商搜索 T+ 风格 */
+.supplier-input input {
+    border: 1px solid #D9D9D9;
+    border-radius: 2px;
+    padding: 3px 8px;
+    font-size: 12px;
+    height: 28px;
+}
+.supplier-input input:focus {
+    border-color: #1890FF;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+    outline: none;
+}
+#supplierDropdown {
+    border: 1px solid #D9D9D9;
+    border-radius: 3px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+}
+#supplierDropdown .supplier-item {
+    font-size: 12px;
+    padding: 6px 10px;
+}
+#supplierDropdown .supplier-item:hover {
+    background-color: #E6F7FF;
+}
+
+/* 选择行的高亮 */
+#materialTable tbody tr.selected td {
+    background-color: #BAE7FF !important;
+    border-color: #69C0FF !important;
+}
+.wms-validation-panel {
+    display: none;
+    margin: 0 0 10px 0;
+    padding: 10px 12px;
+    border: 1px solid #fca5a5;
+    border-left: 4px solid #dc2626;
+    background: #fef2f2;
+    color: #7f1d1d;
+    font-size: 13px;
+}
+.wms-validation-panel.show {
+    display: block;
+}
+.wms-validation-panel-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+.wms-validation-list {
+    margin: 0;
+    padding-left: 18px;
+}
+.wms-validation-list a {
+    color: #991b1b;
+    text-decoration: underline;
+    cursor: pointer;
+}
+#materialTable tbody tr.wms-row-error td {
+    background: #fff1f2 !important;
+    border-color: #fca5a5 !important;
+}
+#materialTable .wms-cell-error {
+    border-color: #dc2626 !important;
+    background: #fff7f7 !important;
+}
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="sales-entry-page">
-    <div class="sales-entry-toolbar">
-        <button type="button" class="btn btn-primary" id="saveBtn"><i class="bi bi-save"></i> 保存</button>
-        <button type="button" class="btn btn-success" id="saveNewBtn"><i class="bi bi-plus-square"></i> 保存并新增</button>
-        <button type="button" class="btn btn-outline-primary" id="addRowBtn"><i class="bi bi-plus-lg"></i> 添加物料</button>
-        <button type="button" class="btn btn-outline-secondary" id="copyRowBtn"><i class="bi bi-copy"></i> 复制上一行</button>
-        <button type="button" class="btn btn-outline-secondary" id="pasteBtn"><i class="bi bi-clipboard"></i> 粘贴导入</button>
-        <a class="btn btn-outline-secondary ms-auto" href="{{ url_for('sales_order_list') }}"><i class="bi bi-arrow-left"></i> 返回列表</a>
+<div class="page-header d-flex justify-content-between align-items-center">
+    <h2><i class="bi bi-file-earmark-text"></i> 新建销售订单</h2>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-primary" id="saveBtn">
+            <i class="bi bi-save"></i> 保存
+        </button>
+        <a href="{{ url_for('sales_order_list') }}" class="btn btn-secondary">
+            <i class="bi bi-x-lg"></i> 取消
+        </a>
+        <button type="button" class="btn btn-outline-primary" id="saveNewBtn">
+            <i class="bi bi-plus-square"></i> 保存并新增
+        </button>
     </div>
-    <div class="sales-entry-header">
-        <div class="row g-2">
-            <div class="col-12 col-md-3"><label class="form-label">订单编号</label><input class="form-control" name="order_no" value="{{ order_no }}" readonly></div>
-            <div class="col-6 col-md-2"><label class="form-label">订单日期</label><input class="form-control" type="date" name="date" value="{{ order_date }}"></div>
-            <div class="col-6 col-md-3"><label class="form-label">客户</label><select class="form-select" name="customer_id" required><option value="">请选择客户</option>{% for customer in customers %}<option value="{{ customer.id }}">{{ customer.code }} - {{ customer.name }}</option>{% endfor %}</select></div>
-            <div class="col-6 col-md-2"><label class="form-label">交货日期</label><input class="form-control" type="date" name="delivery_date"></div>
-            <div class="col-6 col-md-2"><label class="form-label">发货仓库</label><select class="form-select" name="warehouse"><option value="">请选择</option>{% for warehouse in warehouses %}<option value="{{ warehouse.name }}">{{ warehouse.name }}</option>{% endfor %}</select></div>
-            <div class="col-6 col-md-3"><label class="form-label">业务员</label><select class="form-select" name="salesperson_id"><option value="">请选择</option>{% for emp in employees %}<option value="{{ emp.id }}">{{ emp.name }}{% if emp.position %} - {{ emp.position }}{% endif %}</option>{% endfor %}</select></div>
-            <div class="col-6 col-md-3"><label class="form-label">项目号</label><input class="form-control" name="project_no" placeholder="可选"></div>
-            <div class="col-6 col-md-2"><label class="form-label">币别</label><select class="form-select" name="currency"><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="HKD">HKD 港币</option></select></div>
-            <div class="col-6 col-md-2"><label class="form-label">结算方式</label><select class="form-select" name="settlement_method"><option value="">请选择</option><option>现结</option><option>月结30天</option><option>月结60天</option><option>月结90天</option><option>预付</option></select></div>
-        </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <form id="addForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">订单编号</label>
+                        <input type="text" class="form-control" name="order_no" value="{{ order_no }}" readonly>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">订单日期</label>
+                        <input type="date" class="form-control" name="date" value="{{ order_date }}">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">客户</label>
+                        <select class="form-select" name="customer_id" required>
+                            <option value="">请选择客户</option>
+                            {% for customer in customers %}
+                            <option value="{{ customer.id }}">{{ customer.code }} - {{ customer.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">交货日期</label>
+                        <input type="date" class="form-control" name="delivery_date">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">发货仓库</label>
+                        <select class="form-select" name="warehouse">
+                            <option value="">请选择</option>
+                            {% for warehouse in warehouses %}
+                            <option value="{{ warehouse.name }}">{{ warehouse.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">业务员</label>
+                        <select class="form-select" name="salesperson_id">
+                            <option value="">请选择</option>
+                            {% for emp in employees %}
+                            <option value="{{ emp.id }}">{{ emp.name }}{% if emp.position %} - {{ emp.position }}{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">项目号</label>
+                        <input type="text" class="form-control" name="project_no" placeholder="可选">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">币别</label>
+                        <select class="form-select" name="currency">
+                            <option value="CNY">CNY 人民币</option>
+                            <option value="USD">USD 美元</option>
+                            <option value="EUR">EUR 欧元</option>
+                            <option value="HKD">HKD 港币</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">结算方式</label>
+                        <select class="form-select" name="settlement_method">
+                            <option value="">请选择</option>
+                            <option>现结</option>
+                            <option>月结30天</option>
+                            <option>月结60天</option>
+                            <option>月结90天</option>
+                            <option>预付</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-9">
+                    <div class="mb-2">
+                        <label class="form-label">备注</label>
+                        <textarea class="form-control" name="remark" rows="2" placeholder="可填写交付或结算说明"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div id="entryStatus" style="font-size:12px;color:#b45309;min-height:18px;margin-bottom:8px;"></div>
+
+            <div class="tplus-toolbar mb-3">
+                <button type="button" class="btn btn-primary" id="addRowBtn">
+                    <i class="bi bi-plus"></i> 添加物料
+                </button>
+                <button type="button" class="btn btn-outline-primary" id="copyRowBtn">
+                    <i class="bi bi-copy"></i> 复制上一行
+                </button>
+                <button type="button" class="btn btn-outline-success" id="pasteBtn">
+                    <i class="bi bi-clipboard"></i> 粘贴导入
+                </button>
+            </div>
+
+            <div class="table-responsive">
+                <table id="materialTable">
+                    <thead>
+                        <tr>
+                            <th data-column-key="row_no" class="row-num">序号<span class="col-resize"></span></th>
+                            <th data-column-key="material_code" style="width: 150px;">物料编码<span class="col-resize"></span></th>
+                            <th data-column-key="material_name">物料名称<span class="col-resize"></span></th>
+                            <th data-column-key="spec" style="width:150px;">规格<span class="col-resize"></span></th>
+                            <th data-column-key="unit" style="width:75px;">单位<span class="col-resize"></span></th>
+                            <th data-column-key="quantity" style="width:95px;">数量<span class="col-resize"></span></th>
+                            <th data-column-key="price" style="width:110px;">含税单价<span class="col-resize"></span></th>
+                            <th data-column-key="tax_rate" style="width:85px;">税率<span class="col-resize"></span></th>
+                            <th data-column-key="untaxed" style="width:110px;" class="amount-col">未税金额<span class="col-resize"></span></th>
+                            <th data-column-key="tax" style="width:110px;" class="amount-col">税额<span class="col-resize"></span></th>
+                            <th data-column-key="included" style="width:110px;" class="amount-col">含税金额<span class="col-resize"></span></th>
+                            <th data-column-key="batch_no" style="width:120px;">批次号<span class="col-resize"></span></th>
+                            <th data-column-key="serial_no" style="width:140px;">序列号<span class="col-resize"></span></th>
+                            <th data-column-key="remark" style="width:180px;">备注<span class="col-resize"></span></th>
+                            <th data-column-key="actions" class="action-col">操作<span class="col-resize"></span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="materialTableBody"></tbody>
+                    <tfoot>
+                        <tr class="total-row" data-total-row="true">
+                            <td data-column-key="row_no" class="row-num"></td>
+                            <td data-column-key="material_code"></td>
+                            <td data-column-key="material_name"></td>
+                            <td data-column-key="spec"></td>
+                            <td data-column-key="unit"></td>
+                            <td data-column-key="quantity"></td>
+                            <td data-column-key="price"></td>
+                            <td data-column-key="tax_rate" class="text-end"><strong>合计：</strong></td>
+                            <td data-column-key="untaxed" class="amount-col"><strong id="totalUntaxed" class="total-amount">0.00</strong></td>
+                            <td data-column-key="tax" class="amount-col"><strong id="totalTax" class="total-amount">0.00</strong></td>
+                            <td data-column-key="included" class="amount-col"><strong id="totalIncluded" class="total-amount">0.00</strong></td>
+                            <td data-column-key="batch_no"></td>
+                            <td data-column-key="serial_no"></td>
+                            <td data-column-key="remark"></td>
+                            <td data-column-key="actions"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </form>
     </div>
-    <div class="px-3 pt-2 sales-entry-status" id="entryStatus"></div>
-    <div class="sales-entry-grid mx-3">
-        <table id="salesItems">
-            <thead><tr>
-                <th style="width:42px">序号</th><th style="width:220px">物料编码</th><th style="width:220px">物料名称</th><th style="width:150px">规格</th><th style="width:75px">单位</th><th style="width:95px">数量</th><th style="width:110px">含税单价</th><th style="width:85px">税率</th><th style="width:110px">未税金额</th><th style="width:110px">税额</th><th style="width:110px">含税金额</th><th style="width:120px">批次号</th><th style="width:140px">序列号</th><th style="width:180px">备注</th><th style="width:70px">操作</th>
-            </tr></thead>
-            <tbody id="salesItemsBody"></tbody>
-            <tfoot><tr class="sales-total-row"><td colspan="8" class="text-end">合计：</td><td class="money" id="totalUntaxed">0.00</td><td class="money" id="totalTax">0.00</td><td class="money" id="totalIncluded">0.00</td><td colspan="4"></td></tr></tfoot>
-        </table>
-    </div>
-    <div class="sales-entry-footer mx-3">
-        <div class="flex-grow-1"><label class="form-label">备注</label><textarea class="form-control" name="remark" rows="2" placeholder="可填写交付或结算说明"></textarea></div>
-        <div class="sales-summary">含税金额合计：<strong id="footerTotal">0.00</strong></div>
-    </div>
+</div>
+
+<div class="footer-bar">
+    <div style="font-size:13px;color:#334155;">含税金额合计：<strong id="footerTotal" style="color:#dc2626;font-size:16px;">0.00</strong></div>
 </div>
 {% endblock %}
 
@@ -72,11 +688,20 @@
 (function() {
     var materials = {{ materials|tojson }};
     var defaultTaxRate = {{ default_tax_rate|default(0.13) }};
-    var body = document.getElementById('salesItemsBody');
+    var body = document.getElementById('materialTableBody');
     var formFields = ['order_no', 'date', 'customer_id', 'delivery_date', 'warehouse', 'salesperson_id', 'project_no', 'currency', 'settlement_method', 'remark'];
     var esc = function(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); };
+    var escAttr = function(value) { return esc(value).replace(/`/g, '&#96;'); };
     var unitName = function(material) { return material && material.unit && typeof material.unit === 'object' ? material.unit.name : (material && material.unit) || ''; };
-    var findMaterial = function(code) { return materials.find(function(item) { return String(item.code) === String(code); }); };
+    var findMaterial = function(code) {
+        var normalized = String(code || '').trim().toLowerCase();
+        if (!normalized) return null;
+        return materials.find(function(item) { return String(item.code || '').toLowerCase() === normalized; }) || null;
+    };
+    var formatStock = function(value) { var stock = parseFloat(value); return Number.isFinite(stock) ? stock.toFixed(2) : '0.00'; };
+
+    var activeDropdown = null;
+    var activeIndex = -1;
 
     function recalcRow(row) {
         var qty = Number(row.querySelector('.qty').value) || 0;
@@ -108,15 +733,139 @@
         if (material && (!row.querySelector('.price').value || Number(row.querySelector('.price').value) === 0)) row.querySelector('.price').value = Number(material.price || 0).toFixed(2);
         recalc();
     }
+
+    function showDropdown(row, showAll) {
+        var input = row.querySelector('.material-code');
+        var dropdown = row.querySelector('.material-dropdown');
+        var keyword = String(input.value || '').toLowerCase().trim();
+
+        if (activeDropdown && activeDropdown !== dropdown) { activeDropdown.style.display = 'none'; }
+
+        var filtered = materials.filter(function(m) {
+            return showAll ||
+                String(m.code || '').toLowerCase().indexOf(keyword) !== -1 ||
+                String(m.name || '').toLowerCase().indexOf(keyword) !== -1 ||
+                String(m.spec || '').toLowerCase().indexOf(keyword) !== -1;
+        });
+
+        if (filtered.length === 0) { dropdown.style.display = 'none'; return; }
+
+        dropdown.innerHTML = filtered.map(function(m) {
+            return '<div class="material-dropdown-item" data-code="' + escAttr(m.code) + '">' +
+                '<span class="code">' + esc(m.code) + '</span> - <span class="name">' + esc(m.name) + '</span> ' +
+                '<span class="spec">' + esc(m.spec || '') + '</span> ' +
+                '<span class="unit">' + esc(unitName(m)) + '</span> ' +
+                '<span class="stock">库存 ' + formatStock(m.stock) + '</span>' +
+                '</div>';
+        }).join('');
+
+        dropdown.querySelectorAll('.material-dropdown-item').forEach(function(item) {
+            item.addEventListener('click', function() { selectMaterial(row, this.dataset.code); });
+        });
+
+        dropdown.style.display = 'block';
+        activeDropdown = dropdown;
+
+        var rect = input.getBoundingClientRect();
+        dropdown.style.top = (rect.bottom + 5) + 'px';
+        dropdown.style.left = rect.left + 'px';
+    }
+
+    function selectMaterial(row, code) {
+        var material = findMaterial(code);
+        if (!material) return;
+        row.querySelector('.material-code').value = material.code;
+        fillRow(row, material);
+        var dropdown = row.querySelector('.material-dropdown');
+        if (dropdown) { dropdown.style.display = 'none'; }
+        activeDropdown = null;
+        recalc();
+        var qtyInput = row.querySelector('.qty');
+        if (qtyInput) { qtyInput.focus(); qtyInput.select(); }
+    }
+
+    function handleKeydown(event, row) {
+        var dropdown = row.querySelector('.material-dropdown');
+        var isCodeInput = event.target.classList.contains('material-code');
+        var dropdownOpen = dropdown && dropdown.style.display !== 'none';
+
+        if (isCodeInput && dropdownOpen && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+            event.preventDefault();
+            var items = Array.from(dropdown.querySelectorAll('.material-dropdown-item'));
+            if (!items.length) return;
+            var idx = items.findIndex(function(el) { return el.classList.contains('active'); });
+            if (idx < 0) idx = event.key === 'ArrowDown' ? -1 : items.length;
+            var nextIdx = event.key === 'ArrowDown' ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
+            items.forEach(function(el) { el.classList.remove('active'); });
+            items[nextIdx].classList.add('active');
+            items[nextIdx].scrollIntoView({ block: 'nearest' });
+            return;
+        }
+
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            var activeItem = dropdownOpen
+                ? (dropdown.querySelector('.material-dropdown-item.active') || dropdown.querySelector('.material-dropdown-item'))
+                : null;
+            if (activeItem && isCodeInput) { selectMaterial(row, activeItem.dataset.code); return; }
+            var fields = Array.from(document.querySelectorAll('#addForm input:not([type="hidden"]):not([readonly]), #addForm select, #addForm textarea'));
+            var index = fields.indexOf(event.target);
+            var next = fields[index + 1];
+            if (next) { next.focus(); if (next.select) next.select(); return; }
+            addRow();
+            var lastRow = body.querySelector('tr:last-child');
+            if (lastRow) { var codeInput = lastRow.querySelector('.material-code'); if (codeInput) { codeInput.focus(); codeInput.select(); } }
+            return;
+        }
+        if (event.key === 'Escape') {
+            if (dropdown) dropdown.style.display = 'none';
+            activeDropdown = null;
+        }
+    }
+
     function addRow(copyFrom) {
         var row = document.createElement('tr');
-        row.innerHTML = '<td class="row-no text-center"></td><td><select class="material"><option value="">请选择物料</option>' + materials.map(function(m) { return '<option value="' + esc(m.code) + '">' + esc(m.code) + ' - ' + esc(m.name) + '</option>'; }).join('') + '</select></td><td><input class="name readonly" readonly></td><td><input class="spec readonly" readonly></td><td><input class="unit readonly" readonly></td><td><input class="qty" type="number" min="0.01" step="0.01" value="1"></td><td><input class="price" type="number" min="0" step="0.01" value="0"></td><td><input class="tax-rate" type="number" min="0" max="1" step="0.01" value="' + defaultTaxRate + '"></td><td class="money untaxed">0.00</td><td class="money tax">0.00</td><td class="money included">0.00</td><td><input class="batch-no"></td><td><input class="serial-no"></td><td><input class="line-remark"></td><td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger remove" title="删除"><i class="bi bi-trash"></i></button></td>';
+        row.innerHTML =
+            '<td data-column-key="row_no" class="row-num row-no"></td>' +
+            '<td data-column-key="material_code">' +
+                '<div class="material-input">' +
+                    '<input type="text" class="form-control material-code" placeholder="" autocomplete="off">' +
+                    '<button type="button" class="material-select-btn">▼</button>' +
+                    '<div class="material-dropdown" style="display:none;"></div>' +
+                '</div>' +
+            '</td>' +
+            '<td data-column-key="material_name"><input class="form-control name" readonly></td>' +
+            '<td data-column-key="spec"><input class="form-control spec" readonly></td>' +
+            '<td data-column-key="unit"><input class="form-control unit" readonly></td>' +
+            '<td data-column-key="quantity" class="num-col"><input class="form-control qty" type="number" min="0.01" step="0.01" value="1"></td>' +
+            '<td data-column-key="price" class="num-col"><input class="form-control price" type="number" min="0" step="0.01" value="0"></td>' +
+            '<td data-column-key="tax_rate" class="num-col"><input class="form-control tax-rate" type="number" min="0" max="1" step="0.01" value="' + defaultTaxRate + '"></td>' +
+            '<td data-column-key="untaxed" class="amount-col untaxed">0.00</td>' +
+            '<td data-column-key="tax" class="amount-col tax">0.00</td>' +
+            '<td data-column-key="included" class="amount-col included">0.00</td>' +
+            '<td data-column-key="batch_no"><input class="form-control batch-no"></td>' +
+            '<td data-column-key="serial_no"><input class="form-control serial-no"></td>' +
+            '<td data-column-key="remark"><input class="form-control line-remark"></td>' +
+            '<td data-column-key="actions" class="action-col"><button type="button" class="btn btn-sm btn-outline-danger remove" title="删除"><i class="bi bi-trash"></i></button></td>';
         body.appendChild(row);
-        if (copyFrom) ['material','qty','price','tax-rate','batch-no','serial-no','line-remark'].forEach(function(cls) { row.querySelector('.' + cls).value = copyFrom.querySelector('.' + cls).value; });
-        row.querySelector('.material').addEventListener('change', function() { fillRow(row, findMaterial(this.value)); });
+
+        var codeInput = row.querySelector('.material-code');
+        codeInput.addEventListener('input', function() {
+            var material = findMaterial(codeInput.value);
+            if (material) { fillRow(row, material); } else { row.querySelector('.name').value = ''; row.querySelector('.spec').value = ''; row.querySelector('.unit').value = ''; }
+            showDropdown(row);
+            recalc();
+        });
+        codeInput.addEventListener('keydown', function(event) { handleKeydown(event, row); });
+        row.querySelector('.material-select-btn').addEventListener('click', function() { showDropdown(row, true); codeInput.focus(); });
         row.querySelectorAll('input').forEach(function(input) { input.addEventListener('input', recalc); });
         row.querySelector('.remove').addEventListener('click', function() { row.remove(); renumber(); recalc(); });
-        if (copyFrom) fillRow(row, findMaterial(row.querySelector('.material').value));
+
+        if (copyFrom) {
+            codeInput.value = copyFrom.querySelector('.material-code').value;
+            ['qty','price','tax-rate','batch-no','serial-no','line-remark'].forEach(function(cls) { row.querySelector('.' + cls).value = copyFrom.querySelector('.' + cls).value; });
+            fillRow(row, findMaterial(codeInput.value));
+        }
         renumber(); recalc();
         return row;
     }
@@ -124,7 +873,17 @@
     function collect() {
         var data = {};
         formFields.forEach(function(name) { var node = document.querySelector('[name="' + name + '"]'); data[name] = node ? node.value : ''; });
-        data.items = Array.from(body.querySelectorAll('tr')).map(function(row) { return {code:row.querySelector('.material').value, quantity:row.querySelector('.qty').value, price:row.querySelector('.price').value, tax_rate:row.querySelector('.tax-rate').value, batch_no:row.querySelector('.batch-no').value, serial_no:row.querySelector('.serial-no').value, remark:row.querySelector('.line-remark').value}; });
+        data.items = Array.from(body.querySelectorAll('tr')).map(function(row) {
+            return {
+                code: row.querySelector('.material-code').value.trim(),
+                quantity: row.querySelector('.qty').value,
+                price: row.querySelector('.price').value,
+                tax_rate: row.querySelector('.tax-rate').value,
+                batch_no: row.querySelector('.batch-no').value,
+                serial_no: row.querySelector('.serial-no').value,
+                remark: row.querySelector('.line-remark').value
+            };
+        });
         return data;
     }
     async function save(saveAndNew) {
@@ -153,8 +912,8 @@
             rows.forEach(function(line, index) {
                 var parts = line.split(/\t|,/).map(function(value) { return value.trim(); });
                 if (!parts[0]) return;
-                var row = index === 0 && !body.querySelector('tr .material').value ? body.querySelector('tr') : addRow();
-                row.querySelector('.material').value = parts[0];
+                var row = index === 0 && !body.querySelector('tr .material-code').value ? body.querySelector('tr') : addRow();
+                row.querySelector('.material-code').value = parts[0];
                 row.querySelector('.qty').value = parts[1] || '1';
                 row.querySelector('.price').value = parts[2] || '0';
                 row.querySelector('.tax-rate').value = parts[3] || defaultTaxRate;
@@ -172,6 +931,14 @@
     });
     document.getElementById('saveBtn').addEventListener('click', function() { save(false); });
     document.getElementById('saveNewBtn').addEventListener('click', function() { save(true); });
+
+    document.addEventListener('click', function(e) {
+        if (activeDropdown && !e.target.closest('.material-input')) {
+            activeDropdown.style.display = 'none';
+            activeDropdown = null;
+        }
+    });
+
     addRow();
 })();
 </script>

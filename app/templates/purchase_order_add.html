@@ -2,6 +2,58 @@
 {% block title %}{{ page_title or '新增采购单' }}{% endblock %}
 {% block extra_css %}
 <style>
+/* ==================== Changjet T+ 风格 - 采购订单 ==================== */
+.page-header {
+    background: #fff;
+    padding: 12px 16px;
+    border-bottom: 1px solid #D9D9D9;
+    margin-bottom: 0;
+}
+.page-header h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+}
+.card {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    margin-bottom: 0;
+}
+.card-body {
+    padding: 10px 16px;
+}
+.form-label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 3px;
+    font-weight: 400;
+}
+.form-control, .form-select {
+    border: 1px solid #D9D9D9;
+    border-radius: 2px;
+    padding: 3px 8px;
+    font-size: 12px;
+    height: 28px;
+    transition: border-color 0.15s;
+    background: #fff;
+}
+.form-control:focus, .form-select:focus {
+    border-color: #1890FF;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+    outline: none;
+}
+.form-control[readonly] {
+    background-color: #F5F5F5;
+    color: #666;
+}
+textarea.form-control {
+    height: auto;
+    resize: vertical;
+}
+
+/* 物料/供应商搜索下拉组件 - 采购订单特有 */
 .material-input-wrap { position: relative; display: flex; gap: 4px; }
 .material-select-btn { flex: 0 0 28px; border: 1px solid #ced4da; background: #fff; border-radius: 4px; }
 .material-dropdown {
@@ -22,6 +74,237 @@
 .supplier-dropdown-item { padding: 8px 10px; cursor: pointer; border-bottom: 1px solid #f1f3f5; font-size: 13px; }
 .supplier-dropdown-item:hover, .supplier-dropdown-item.active { background: #eef6ff; }
 .supplier-dropdown-item .code { color: #6c757d; margin-left: 8px; }
+
+/* ==================== T+ 网格线表格 ==================== */
+.tplus-table-wrapper {
+    border: 1px solid #D9D9D9;
+    overflow: hidden;
+    background: #fff;
+    margin-top: 6px;
+}
+#materialTable {
+    margin-bottom: 0 !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+    table-layout: auto !important;
+}
+/* 表头 - T+ 风格 */
+#materialTable thead th {
+    background: #FAFAFA !important;
+    color: #333 !important;
+    font-weight: 500 !important;
+    padding: 7px 8px !important;
+    border: 1px solid #E8E8E8 !important;
+    font-size: 12px !important;
+    white-space: nowrap !important;
+    text-align: center !important;
+    height: 34px !important;
+    line-height: 1.4 !important;
+}
+/* 表体单元格 - 全网格线 */
+#materialTable tbody td {
+    padding: 0 4px !important;
+    vertical-align: middle !important;
+    font-size: 12px !important;
+    border: 1px solid #E8E8E8 !important;
+    height: 30px !important;
+    color: #333 !important;
+    transition: background-color 0.1s !important;
+}
+/* 隔行变色 */
+#materialTable tbody tr:nth-child(even) td {
+    background-color: #FAFAFA !important;
+}
+#materialTable tbody tr:nth-child(odd) td {
+    background-color: #fff !important;
+}
+/* 行悬停 */
+#materialTable tbody tr:hover td {
+    background-color: #E6F7FF !important;
+    border-color: #91D5FF !important;
+}
+/* 当前活动行高亮 */
+#materialTable tbody tr.row-active td {
+    background-color: #BAE7FF !important;
+    border-color: #69C0FF !important;
+}
+/* 序号列 */
+#materialTable .row-num {
+    width: 42px;
+    text-align: center;
+    color: #999;
+    font-size: 12px;
+    padding: 0 2px !important;
+}
+/* 操作列 */
+#materialTable .action-col {
+    width: 92px !important;
+    min-width: 92px !important;
+    text-align: center;
+    white-space: nowrap;
+}
+#materialTable .action-col .btn {
+    width: 26px;
+    height: 22px;
+    padding: 0 !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+/* 金额列 - 右对齐 */
+#materialTable .amount-col {
+    text-align: right;
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    font-variant-numeric: tabular-nums;
+    padding-right: 8px !important;
+}
+/* 数量/单价列 - 右对齐 */
+#materialTable .num-col {
+    text-align: right;
+    padding-right: 6px !important;
+}
+
+/* 单元格内输入框 - T+ 无边框风格 */
+#materialTable tbody td input.form-control,
+#materialTable tbody td select.form-select {
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    padding: 2px 4px !important;
+    height: 26px !important;
+    font-size: 12px !important;
+    width: 100% !important;
+    border-radius: 2px !important;
+    color: #333 !important;
+    text-align: inherit !important;
+}
+#materialTable tbody td .num-col input.form-control,
+#materialTable tbody td.num-col input.form-control {
+    text-align: right !important;
+}
+#materialTable tbody td input.form-control:hover {
+    border-color: #D9D9D9 !important;
+    background: #FAFAFA !important;
+}
+#materialTable tbody td input.form-control:focus {
+    background: #fff !important;
+    border-color: #1890FF !important;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1) !important;
+    outline: none !important;
+}
+#materialTable tbody td input.form-control[readonly] {
+    background: #fff !important;
+    cursor: default !important;
+    color: #333 !important;
+    border-color: transparent !important;
+}
+
+/* 表脚 - 合计行 T+ 金色风格 */
+#materialTable tfoot td {
+    padding: 8px !important;
+    font-size: 12px !important;
+    border: 1px solid #E8E8E8 !important;
+    font-weight: 600 !important;
+    color: #333 !important;
+    background: #FFFBE6 !important;
+}
+#materialTable .total-row td {
+    background: #FFFBE6 !important;
+    border-color: #FFE58F !important;
+    border-top: 1px solid #FFE58F !important;
+}
+.total-amount {
+    color: #F5222D;
+    font-weight: 700;
+    font-size: 13px;
+}
+/* 表脚空白单元格 */
+#materialTable tfoot td.empty-foot {
+    background: #FFFBE6 !important;
+}
+
+/* 底部按钮区 */
+.footer-bar {
+    background: #fff;
+    padding: 12px 16px;
+    border-top: 1px solid #D9D9D9;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+/* 列宽拖拽 - T+ 风格 */
+.col-resize {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    cursor: col-resize;
+    user-select: none;
+    z-index: 5;
+}
+.col-resize:hover,
+.col-resize.active {
+    background: #1890FF;
+}
+#materialTable th {
+    position: relative;
+}
+/* 添加按钮区域 */
+.tplus-toolbar {
+    display: flex;
+    gap: 6px;
+    padding: 4px 0;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.tplus-toolbar .btn,
+.tplus-toolbar .form-select {
+    height: 34px;
+    border-radius: 5px;
+    font-size: 12px;
+    line-height: 1;
+}
+.tplus-toolbar .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 14px;
+    font-weight: 500;
+    box-shadow: none;
+}
+.tplus-toolbar .btn i {
+    font-size: 13px;
+}
+.tplus-toolbar .form-select {
+    width: auto;
+    min-width: 150px;
+    padding: 0 32px 0 10px;
+}
+.tplus-toolbar .btn-primary {
+    background: #2563EB;
+    border-color: #2563EB;
+    color: #fff;
+}
+.tplus-toolbar .btn-outline-primary,
+.tplus-toolbar .btn-outline-success,
+.tplus-toolbar .btn-outline-info,
+.tplus-toolbar .btn-outline-warning,
+.tplus-toolbar .btn-outline-secondary,
+.tplus-toolbar .btn-outline-dark {
+    background: #fff;
+    border-color: #CBD5E1;
+    color: #1F2937;
+}
+.tplus-toolbar .btn-outline-primary:hover,
+.tplus-toolbar .btn-outline-success:hover,
+.tplus-toolbar .btn-outline-info:hover,
+.tplus-toolbar .btn-outline-warning:hover,
+.tplus-toolbar .btn-outline-secondary:hover,
+.tplus-toolbar .btn-outline-dark:hover {
+    background: #F1F5F9;
+    border-color: #64748B;
+    color: #111827;
+}
 
 @media (max-width: 768px) {
     .material-input-wrap {
@@ -51,29 +334,49 @@
         font-size: 14px;
     }
 
+    .tplus-table-wrapper {
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
     #materialTable {
-        min-width: 940px;
+        min-width: 1040px;
     }
 
-    #materialTable td:nth-child(2),
-    #materialTable th:nth-child(2) {
-        min-width: 170px;
+    #materialTable thead th,
+    #materialTable tbody td {
+        height: 40px !important;
     }
 
-    #materialTable td:nth-child(3),
-    #materialTable th:nth-child(3) {
-        min-width: 160px;
+    #materialTable tbody td input.form-control,
+    #materialTable tbody td select.form-select {
+        height: 34px !important;
+        min-height: 34px !important;
+        font-size: 14px !important;
     }
 
-    .mt-3.d-flex.justify-content-end.gap-2 {
-        display: grid !important;
+    .footer-bar {
+        position: sticky;
+        bottom: 0;
+        z-index: 90;
+        display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px !important;
+        gap: 8px;
+        padding: 10px;
+        margin: 8px -10px -10px;
+        box-shadow: 0 -2px 10px rgba(15, 23, 42, .08);
     }
 
-    .mt-3.d-flex.justify-content-end.gap-2 .btn {
+    .footer-bar .btn {
         width: 100%;
+        min-height: 40px;
     }
+}
+
+/* 选择行的高亮 */
+#materialTable tbody tr.selected td {
+    background-color: #BAE7FF !important;
+    border-color: #69C0FF !important;
 }
 </style>
 {% endblock %}
@@ -96,63 +399,73 @@
             <input type="hidden" name="order_id" value="{{ order_id or '' }}">
             <input type="hidden" name="order_no" value="{{ order_no }}">
 
-            <div class="row g-2 mb-3">
+            <div class="row mb-3">
                 <div class="col-md-3">
-                    <label class="form-label small text-muted mb-1">采购单号</label>
-                    <input class="form-control form-control-sm" value="{{ order_no }}" readonly>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label small text-muted mb-1">采购日期</label>
-                    <input type="date" class="form-control form-control-sm" name="date" value="{{ order_date }}">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label small text-muted mb-1">供应商</label>
-                    <div class="supplier-input-wrap">
-                        <input type="text" class="form-control form-control-sm" id="supplierName" name="supplier_name" value="{{ order.supplier.name if order and order.supplier else '' }}" placeholder="可选择或手工输入" autocomplete="off">
-                        <input type="hidden" id="supplierId" name="supplier_id" value="{{ order.supplier_id if order and order.supplier_id else '' }}">
-                        <div class="supplier-dropdown" id="supplierDropdown" style="display:none;"></div>
+                    <div class="mb-2">
+                        <label class="form-label">采购单号</label>
+                        <input type="text" class="form-control" value="{{ order_no }}" readonly>
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label small text-muted mb-1">预计到货</label>
-                    <input type="date" class="form-control form-control-sm" name="expected_date" value="{{ expected_date }}">
+                    <div class="mb-2">
+                        <label class="form-label">采购日期</label>
+                        <input type="date" class="form-control" name="date" value="{{ order_date }}">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">供应商</label>
+                        <div class="supplier-input-wrap">
+                            <input type="text" class="form-control" id="supplierName" name="supplier_name" value="{{ order.supplier.name if order and order.supplier else '' }}" placeholder="可选择或手工输入" autocomplete="off">
+                            <input type="hidden" id="supplierId" name="supplier_id" value="{{ order.supplier_id if order and order.supplier_id else '' }}">
+                            <div class="supplier-dropdown" id="supplierDropdown" style="display:none;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">预计到货</label>
+                        <input type="date" class="form-control" name="expected_date" value="{{ expected_date }}">
+                    </div>
                 </div>
                 <div class="col-md-12">
-                    <label class="form-label small text-muted mb-1">备注</label>
-                    <input class="form-control form-control-sm" name="remark" value="{{ order.remark if order else '' }}">
+                    <div class="mb-2">
+                        <label class="form-label">备注</label>
+                        <input type="text" class="form-control" name="remark" value="{{ order.remark if order else '' }}">
+                    </div>
                 </div>
             </div>
 
-            <div class="mb-2 d-flex gap-2 flex-wrap wms-entry-toolbar">
-                <button type="button" class="btn btn-primary btn-sm" onclick="addNewRow()">
+            <div class="tplus-toolbar mb-3">
+                <button type="button" class="btn btn-primary" onclick="addNewRow()">
                     <i class="bi bi-plus"></i> 添加物料
                 </button>
-                <button type="button" class="btn btn-outline-primary btn-sm" onclick="copyPreviousRow()">
+                <button type="button" class="btn btn-outline-primary" onclick="copyPreviousRow()">
                     <i class="bi bi-copy"></i> 复制上一行
                 </button>
             </div>
 
-            <div class="table-responsive">
-                <table class="table table-bordered table-hover table-sm mb-0" id="materialTable">
-                    <thead class="table-light">
+            <div class="tplus-table-wrapper">
+                <table id="materialTable">
+                    <thead>
                         <tr>
-                            <th width="50">序号</th>
-                            <th style="width: 160px;">物料编码</th>
-                            <th>物料名称</th>
-                            <th style="width: 120px;">规格</th>
-                            <th style="width: 80px;">单位</th>
-                            <th style="width: 100px;" class="text-end">数量</th>
-                            <th style="width: 100px;" class="text-end">单价</th>
-                            <th style="width: 110px;" class="text-end">金额</th>
-                            <th style="width: 140px;">备注</th>
-                            <th style="width: 90px;">操作</th>
+                            <th class="row-num">序号<span class="col-resize"></span></th>
+                            <th style="width: 160px;">物料编码<span class="col-resize"></span></th>
+                            <th>物料名称<span class="col-resize"></span></th>
+                            <th style="width: 120px;">规格<span class="col-resize"></span></th>
+                            <th style="width: 80px;">单位<span class="col-resize"></span></th>
+                            <th style="width: 100px;" class="num-col">数量<span class="col-resize"></span></th>
+                            <th style="width: 100px;" class="num-col">单价<span class="col-resize"></span></th>
+                            <th style="width: 110px;" class="amount-col">金额<span class="col-resize"></span></th>
+                            <th style="width: 140px;">备注<span class="col-resize"></span></th>
+                            <th style="width: 90px;" class="action-col">操作<span class="col-resize"></span></th>
                         </tr>
                     </thead>
                     <tbody id="materialTableBody"></tbody>
                     <tfoot>
-                        <tr class="table-warning">
+                        <tr class="total-row">
                             <td colspan="7" class="text-end"><strong>合计：</strong></td>
-                            <td class="text-end"><strong id="totalAmount">¥0.00</strong></td>
+                            <td class="amount-col"><strong id="totalAmount" class="total-amount">¥0.00</strong></td>
                             <td></td>
                             <td></td>
                         </tr>
@@ -345,19 +658,19 @@ function addNewRow(data = {}, insertBeforeRow = null) {
         <td class="row-num"></td>
         <td>
             <div class="material-input-wrap">
-                <input class="form-control form-control-sm material-code" value="${escapeHtml(data.material_code || '')}" autocomplete="off">
+                <input class="form-control material-code" value="${escapeHtml(data.material_code || '')}" autocomplete="off">
                 <button type="button" class="material-select-btn" title="选择物料">▼</button>
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
-        <td><input class="form-control form-control-sm material-name" value="${escapeHtml(data.material_name || '')}" readonly></td>
-        <td><input class="form-control form-control-sm material-spec" value="${escapeHtml(data.spec || '')}" readonly></td>
-        <td><input class="form-control form-control-sm material-unit" value="${escapeHtml(data.unit_name || '')}" readonly></td>
-        <td><input type="number" class="form-control form-control-sm text-end material-qty" min="0" step="0.01" value="${escapeHtml(data.quantity || '')}"></td>
-        <td><input type="number" class="form-control form-control-sm text-end material-price" min="0" step="0.01" value="${escapeHtml(data.price || '')}"></td>
-        <td><input class="form-control form-control-sm text-end material-amount" readonly></td>
-        <td><input type="text" class="form-control form-control-sm material-remark" maxlength="500" value="${escapeHtml(data.remark || '')}"></td>
-        <td class="text-center">
+        <td><input class="form-control material-name" value="${escapeHtml(data.material_name || '')}" readonly></td>
+        <td><input class="form-control material-spec" value="${escapeHtml(data.spec || '')}" readonly></td>
+        <td><input class="form-control material-unit" value="${escapeHtml(data.unit_name || '')}" readonly></td>
+        <td class="num-col"><input type="number" class="form-control material-qty" min="0" step="0.01" value="${escapeHtml(data.quantity || '')}"></td>
+        <td class="num-col"><input type="number" class="form-control material-price" min="0" step="0.01" value="${escapeHtml(data.price || '')}"></td>
+        <td class="amount-col"><input class="form-control material-amount" readonly></td>
+        <td><input type="text" class="form-control material-remark" maxlength="500" value="${escapeHtml(data.remark || '')}"></td>
+        <td class="action-col">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入"><i class="bi bi-plus-circle"></i></button>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除"><i class="bi bi-trash"></i></button>
         </td>
