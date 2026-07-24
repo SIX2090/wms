@@ -59,7 +59,7 @@ class Config:
     # 会话配置
     PERMANENT_SESSION_LIFETIME = 28800  # 会话有效期8小时
     WTF_CSRF_TIME_LIMIT = 28800  # CSRF令牌有效期与会话一致，避免页面停留过久导致操作失败
-    SESSION_COOKIE_SECURE = True  # HTTPS环境下Cookie仅通过加密连接传输（AI-SEC-F01）
+    SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() in ('true', '1', 'yes')  # HTTPS环境下Cookie仅通过加密连接传输（AI-SEC-F01）
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
 
@@ -77,7 +77,7 @@ class ProductionConfig(Config):
     """生产环境配置"""
     DEBUG = False
     SQLALCHEMY_ECHO = False
-    SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'true').lower() in ('true', '1', 'yes')
+    SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() in ('true', '1', 'yes')
     # 本地 HTTP 调试时可设 WMS_DISABLE_CSRF=1 临时关闭 CSRF，避免浏览器缓存旧令牌导致登录失败
     WTF_CSRF_ENABLED = os.environ.get('WMS_DISABLE_CSRF', 'false').lower() not in ('true', '1', 'yes')
     SEND_FILE_MAX_AGE_DEFAULT = 31536000  # 静态文件缓存1年
