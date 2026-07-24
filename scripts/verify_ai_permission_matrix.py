@@ -17,14 +17,16 @@ import app as wms_app
 from ai.tools.registry import AI_TOOL_REGISTRY
 
 
-ROLES = ('admin', 'warehouse', 'purchase', 'production', 'user')
+ROLES = ('admin', 'warehouse', 'purchase', 'sales', 'production', 'user')
 
 EXPECTED = {
     'out_order_draft': {'admin', 'warehouse'},
+    # sales_out_draft / after_sale_out_draft 策略含 sales，但业务路由 add_after_sale_out_order 仅 warehouse，运行时收窄后 sales 不可用
     'sales_out_draft': {'admin', 'warehouse'},
     # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft
     'after_sale_out_draft': {'admin', 'warehouse'},
-    'sales_outbound_draft': {'admin', 'warehouse'},
+    # create_sales_outbound_draft 业务路由含 sales，与策略交集后 sales 可用
+    'sales_outbound_draft': {'admin', 'warehouse', 'sales'},
     'in_order_draft': {'admin', 'warehouse'},
     'purchase_receive_draft': {'admin', 'warehouse', 'purchase'},
     'transfer_draft': {'admin', 'warehouse'},
@@ -33,6 +35,9 @@ EXPECTED = {
     'purchase_request_draft': {'admin', 'purchase'},
     'warehouse_insights': {'admin', 'warehouse'},
     'purchase_insights': {'admin', 'purchase'},
+    # 新增（AI-SALES-F02 / AI-AUTH-002）：销售只读洞察与跟进 Agent 必须纳入自动化覆盖
+    'sales_insights': {'admin', 'sales'},
+    'sales_followup_agent': {'admin', 'sales'},
     'replenishment_planning': {'admin', 'warehouse', 'purchase'},
     'replenishment_smart': {'admin', 'warehouse', 'purchase'},
     'inventory_health': {'admin', 'warehouse', 'purchase'},

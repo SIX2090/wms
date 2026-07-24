@@ -47,6 +47,7 @@
 | BUG-NEW2-004 | 盘点完成直接改库存或不生成调整单 | 检查普通盘点和扫码盘点完成后生成库存调整草稿，库存变化由调整单提交执行 |
 | BUG-NEW3-001 | `add_stock()` 返回值未检查导致流水和库存可能不一致 | 检查所有 `add_stock()` 调用必须接收并处理返回值 |
 | AI-AUTH-001 | AI 草稿和敏感分析权限校验分散，存在能力扩展后越权风险 | 检查 AI 草稿、文档确认和敏感分析统一通过 `AI_CAPABILITY_ROLES` 校验 |
+| AI-AUTH-002 | 销售 AI 能力 `sales_insights` / `sales_followup_agent` 上线后未纳入权限矩阵自动化覆盖 | 检查 `scripts/verify_ai_permission_matrix.py` 的 `EXPECTED` 含上述能力，且 `ROLES` 含 `sales` |
 | AI-IDEMPOTENCY-001 | AI 重复点击、网络重试或 SSE 重连可能重复生成草稿 | 检查普通响应和 SSE 使用持久化 `request_id`，重复请求只执行一次并重放结果 |
 | AI-ENCODING-001 | AI 采购入库业务类型和确认框存在历史乱码 | 检查已知乱码常量不得重新出现 |
 | AI-AUDIT-001 | AI 请求和能力授权缺少持久化审计，无法复盘模型、耗时和权限结果 | 检查每个首次请求创建 `AIRun`，能力校验写入 `AIToolCall`，幂等重放不重复创建运行记录 |
