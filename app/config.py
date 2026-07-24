@@ -78,6 +78,8 @@ class ProductionConfig(Config):
     DEBUG = False
     SQLALCHEMY_ECHO = False
     SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'true').lower() in ('true', '1', 'yes')
+    # 本地 HTTP 调试时可设 WMS_DISABLE_CSRF=1 临时关闭 CSRF，避免浏览器缓存旧令牌导致登录失败
+    WTF_CSRF_ENABLED = os.environ.get('WMS_DISABLE_CSRF', 'false').lower() not in ('true', '1', 'yes')
     SEND_FILE_MAX_AGE_DEFAULT = 31536000  # 静态文件缓存1年
     PERMANENT_SESSION_LIFETIME = 28800  # 会话8小时过期
     
