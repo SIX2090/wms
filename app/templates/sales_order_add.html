@@ -726,11 +726,20 @@ textarea.form-control {
     var activeIndex = -1;
 
     function recalcRow(row) {
-        var qty = Number(row.querySelector('.qty').value) || 0;
-        var price = Number(row.querySelector('.price').value) || 0;
-        var rate = Number(row.querySelector('.tax-rate').value) || 0;
+        var qtyValue = String(row.querySelector('.qty').value || '').trim();
+        var priceValue = String(row.querySelector('.price').value || '').trim();
+        var rateValue = String(row.querySelector('.tax-rate').value || '').trim();
+        if (!qtyValue && !priceValue) {
+            row.querySelector('.untaxed').textContent = '';
+            row.querySelector('.tax').textContent = '';
+            row.querySelector('.included').textContent = '';
+            return;
+        }
+        var qty = Number(qtyValue) || 0;
+        var price = Number(priceValue) || 0;
+        var rate = Number(rateValue) || 0;
         var included = qty * price;
-        var untaxed = rate >= 0 ? included / (1 + rate) : included;
+        var untaxed = rate > 0 ? included / (1 + rate) : included;
         row.querySelector('.untaxed').textContent = untaxed.toFixed(2);
         row.querySelector('.tax').textContent = (included - untaxed).toFixed(2);
         row.querySelector('.included').textContent = included.toFixed(2);
@@ -752,7 +761,8 @@ textarea.form-control {
         row.querySelector('.name').value = material ? material.name || '' : '';
         row.querySelector('.spec').value = material ? material.spec || '' : '';
         row.querySelector('.unit').value = unitName(material);
-        if (material && (!row.querySelector('.price').value || Number(row.querySelector('.price').value) === 0)) row.querySelector('.price').value = Number(material.price || 0).toFixed(2);
+        if (material && !row.querySelector('.price').value) row.querySelector('.price').value = Number(material.price || 0).toFixed(2);
+        if (material && !row.querySelector('.tax-rate').value && defaultTaxRate != null && defaultTaxRate !== '') row.querySelector('.tax-rate').value = defaultTaxRate;
         recalc();
     }
 
@@ -859,12 +869,12 @@ textarea.form-control {
             '<td data-column-key="material_name"><input class="form-control name" readonly></td>' +
             '<td data-column-key="spec"><input class="form-control spec" readonly></td>' +
             '<td data-column-key="unit"><input class="form-control unit" readonly></td>' +
-            '<td data-column-key="quantity" class="num-col"><input class="form-control qty" type="number" min="0.01" step="0.01" value="1"></td>' +
-            '<td data-column-key="price" class="num-col"><input class="form-control price" type="number" min="0" step="0.01" value="0"></td>' +
-            '<td data-column-key="tax_rate" class="num-col"><input class="form-control tax-rate" type="number" min="0" max="1" step="0.01" value="' + defaultTaxRate + '"></td>' +
-            '<td data-column-key="untaxed" class="amount-col untaxed">0.00</td>' +
-            '<td data-column-key="tax" class="amount-col tax">0.00</td>' +
-            '<td data-column-key="included" class="amount-col included">0.00</td>' +
+            '<td data-column-key="quantity" class="num-col"><input class="form-control qty" type="number" min="0.01" step="0.01"></td>' +
+            '<td data-column-key="price" class="num-col"><input class="form-control price" type="number" min="0" step="0.01"></td>' +
+            '<td data-column-key="tax_rate" class="num-col"><input class="form-control tax-rate" type="number" min="0" max="1" step="0.01"></td>' +
+            '<td data-column-key="untaxed" class="amount-col untaxed"></td>' +
+            '<td data-column-key="tax" class="amount-col tax"></td>' +
+            '<td data-column-key="included" class="amount-col included"></td>' +
             '<td data-column-key="batch_no"><input class="form-control batch-no"></td>' +
             '<td data-column-key="serial_no"><input class="form-control serial-no"></td>' +
             '<td data-column-key="remark"><input class="form-control line-remark"></td>' +
