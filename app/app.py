@@ -1621,6 +1621,13 @@ def block_location_modules_when_disabled():
 
 
 @app.before_request
+def refresh_session_lifetime():
+    """滑动会话过期时间：每次请求时刷新会话，避免用户活跃期间突然过期"""
+    if current_user.is_authenticated and session.permanent:
+        session.permanent = True  # 触发 Flask 重新计算过期时间
+
+
+@app.before_request
 def enforce_initial_password_change():
     if request.endpoint in {'static', 'login', 'change_own_password', 'logout'}:
         return None
