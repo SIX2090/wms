@@ -91,15 +91,10 @@ echo       Git 安装完成。
 
 :git_ready
 
-REM 配置 Git 凭据，使用固定路径，确保服务账户（LocalSystem）也能读取
-REM nssm 服务默认以 LocalSystem 运行，其 home 不是管理员 USERPROFILE，
-REM 所以用 --system 写到系统级 gitconfig，凭据文件放固定路径。
-set "GIT_CRED_FILE=%INSTALL_DIR%\runtime\.git-credentials"
-git config --system credential.helper "store --file=%GIT_CRED_FILE%"
-if not exist "%GIT_CRED_FILE%" (
-    if not exist "%INSTALL_DIR%\runtime" mkdir "%INSTALL_DIR%\runtime"
-    echo https://SIX2090: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@github.com > "%GIT_CRED_FILE%"
-)
+REM AI_TASK: AI-DEPLOY-F01-FIX-03
+REM 禁止在脚本或 .git-credentials 中写入明文 PAT。
+REM 私有仓库部署前，请由管理员为实际运行 WMS 服务的 Windows 账号
+REM 配置 Git Credential Manager；凭据缺失时 clone/fetch 会明确失败。
 
 REM ---- 步骤 2: 克隆或更新仓库 ----
 echo [2/4] 克隆/更新仓库...

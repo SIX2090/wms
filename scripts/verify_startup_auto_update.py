@@ -2,6 +2,7 @@
 # AI_TASK: AI-DEPLOY-F01
 # AI_TASK: AI-DEPLOY-F01-FIX-01
 # AI_TASK: AI-DEPLOY-F01-FIX-02
+# AI_TASK: AI-DEPLOY-F01-FIX-03
 
 验证启动前可选从 GitHub main 更新的闭环：
 
@@ -31,6 +32,7 @@ AUTO_UPDATE_PATH = APP_DIR / "auto_update.py"
 APP_PY_PATH = APP_DIR / "app.py"
 START_WMS_AUTO_PATH = APP_DIR / "start_wms_auto.bat"
 START_WMS_OFFLINE_PATH = APP_DIR / "start_wms_offline.bat"
+DEPLOY_CLOUD_PATH = ROOT / "deploy_cloud.bat"
 
 
 def _read(path: Path) -> str:
@@ -252,6 +254,19 @@ def test_start_wms_offline_uses_run_server(failures: list[str]) -> None:
     check(uses_run_server, "start_wms_offline.bat 调用 run_server.py（间接触发 auto_update）", failures)
 
 
+def test_deploy_script_has_no_embedded_credentials(failures: list[str]) -> None:
+    """Deployment scripts must never embed or write plaintext GitHub tokens."""
+    print("\n[Test 7] deploy_cloud.bat 不包含明文 GitHub 凭据")
+    text = _read(DEPLOY_CLOUD_PATH)
+    lowered = text.lower()
+    check("github_pat_" not in lowered and "ghp_" not in lowered,
+          "deploy_cloud.bat 不包含 GitHub PAT 字面量", failures)
+    check(not ("echo https://" in lowered and ".git-credentials" in lowered),
+          "deploy_cloud.bat 不向 .git-credentials 写入凭据", failures)
+    check("AI-DEPLOY-F01-FIX-03" in text,
+          "deploy_cloud.bat 包含凭据移除任务标记", failures)
+
+
 def main() -> int:
     print("=" * 60)
     print("AI-DEPLOY-F01-FIX-02: 启动自动更新（默认关 + 正确 behind）- 专项验证")
@@ -265,6 +280,7 @@ def main() -> int:
     test_auto_update_safety_properties(failures)
     test_task_marker_present(failures)
     test_start_wms_offline_uses_run_server(failures)
+    test_deploy_script_has_no_embedded_credentials(failures)
 
     print("\n" + "=" * 60)
     if failures:
