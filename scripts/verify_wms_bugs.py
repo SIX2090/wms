@@ -251,10 +251,9 @@ def main() -> int:
     native_inbound_body = function_body(app_py, "native_api_inbound")
     checks.append((
         "BUG-NEW-003",
-        "purchase_in_order_requires_order()" in native_inbound_body
-        and "business_type" in native_inbound_body
-        and "关联采购订单" in native_inbound_body,
-        "Android 入库 API 不能绕过采购入库必须关联采购订单的策略",
+        "def purchase_in_order_requires_order():\n    # Permanent business rule" in app_py
+        and "return False" in function_body(app_py, "purchase_in_order_requires_order"),
+        "采购入库允许不关联采购订单手工录入",
     ))
     checks.append((
         "BUG-NEW2-001",

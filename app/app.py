@@ -1148,10 +1148,10 @@ SYSTEM_SETTING_GROUPS = [
         'settings': [
             {
                 'key': 'purchase_in_order_requires_order',
-                'label': '采购入库必须关联采购订单',
+                'label': '采购入库必须关联采购订单（已停用）',
                 'type': 'bool',
-                'default': '1',
-                'remark': '开启后，采购入库单必须由采购订单下推或选单生成，不能手工无来源入库。',
+                'default': '0',
+                'remark': '采购订单现为可选来源；采购入库单允许手工录入。有关联订单时仍执行来源和数量跟踪。',
             },
             {
                 'key': 'purchase_return_requires_order',
@@ -1674,7 +1674,8 @@ def location_required_on_save():
 
 
 def purchase_in_order_requires_order():
-    return get_system_setting_bool('purchase_in_order_requires_order', True)
+    # Permanent business rule: purchase orders are an optional receipt source.
+    return False
 
 
 def purchase_receipt_strict_order():

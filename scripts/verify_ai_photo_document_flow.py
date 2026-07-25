@@ -85,17 +85,41 @@ def main() -> int:
                 'row_count': '1', 'use_row_0': '1', 'create_material_0': '1',
                 'new_material_code_0': 'AI-TEST-COPPER', 'new_material_name_0': '铜排',
                 'new_material_spec_0': 'TMY-30x3', 'new_material_unit_id_0': str(unit_id),
-                'quantity_0': '2', 'inbound_business_type': 'other_in',
+                'quantity_0': '2', 'inbound_business_type': 'purchase_in',
             }, follow_redirects=False)
             if inbound.status_code != 302 or '/in_order/' not in (inbound.headers.get('Location') or ''):
                 failures.append('confirmed photo did not create an inbound draft')
             with wms.app.app_context():
                 inbound_order = wms.InOrder.query.order_by(wms.InOrder.id.desc()).first()
                 copper = wms.Material.query.filter_by(code='AI-TEST-COPPER').first()
-                if not inbound_order or inbound_order.status != 'pending' or inbound_order.business_type != '其他入库':
-                    failures.append('photo inbound was not saved as an other-inbound draft')
+                copper_id = copper.id if copper else None
+                if not inbound_order or inbound_order.status != 'pending' or inbound_order.business_type != '采购入库':
+                    failures.append('photo inbound was not saved as a manual purchase receipt draft')
                 if not copper or copper.stock != 0:
                     failures.append('new inbound material changed stock before manual completion')
+
+            other_token = 'TEST-PHOTO-OTHER-INBOUND'
+            other_payload = {
+                'document_type': 'in_order', 'source_text': 'TEST/E2E other inbound',
+                'rows': [{'raw': 'AI-TEST-COPPER 1', 'code': 'AI-TEST-COPPER', 'name': 'Copper',
+                          'spec': 'TMY-30x3', 'unit': 'PCS', 'quantity': 1,
+                          'material_id': copper_id, 'match_status': 'matched', 'reason': ''}],
+            }
+            with client.session_transaction() as session:
+                session['_ai_document_confirmations'] = {other_token: other_payload}
+            other = client.post(f'/ai/document_confirm/{other_token}', data={
+                'row_count': '1', 'use_row_0': '1', 'material_id_0': str(copper_id),
+                'quantity_0': '1', 'inbound_business_type': 'other_in',
+            }, follow_redirects=False)
+            if other.status_code != 302 or '/in_order/' not in (other.headers.get('Location') or ''):
+                failures.append('confirmed photo did not create an other-inbound draft')
+            with wms.app.app_context():
+                other_order = wms.InOrder.query.order_by(wms.InOrder.id.desc()).first()
+                copper = wms.db.session.get(wms.Material, copper_id)
+                if not other_order or other_order.status != 'pending' or other_order.business_type != '其他入库':
+                    failures.append('photo inbound was not saved as an other-inbound draft')
+                if copper.stock != 0:
+                    failures.append('other-inbound draft changed stock before manual completion')
 
         app_source = (ROOT / 'app' / 'app.py').read_text(encoding='utf-8')
         route_start = app_source.index('def api_document_ocr():')
