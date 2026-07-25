@@ -68,7 +68,8 @@ wms-main/
 ├── AI_PERMISSION_MATRIX.md      # ★ AI 能力权限矩阵
 ├── WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md  # ★ AI 开发唯一台账（216KB，16 章节）
 ├── PRODUCTION_DEPLOYMENT_CHECKLIST.md   # 生产发布验收模板
-├── WMS_BUG_BASELINE.md / WMS_BUG_REPORT.md / WMS_BUG_VERIFY_REPORT.md
+├── WMS_BUG_BASELINE.md             # 当前 BUG 回归基线
+├── docs/archive/                   # 已结束的历史报告，仅供追溯
 ├── SALES_MANAGEMENT_DEVELOPMENT_PLAN.md
 ├── README.md / 上线部署说明.md
 └── install.bat / wms.bat / start_wms_offline.bat / build_portable_dist.bat
@@ -84,7 +85,7 @@ wms-main/
 
 ## 五、业务模块地图
 
-基础资料（物料/分类/单位/供应商/客户/仓库/库位/员工/部门） · 库存管理（查询/库位/流水/预警/期初） · 入库（采购入库/普通入库/打印模板） · 出库（领料/售后/销售出库/打印模板） · 盘点（库存/扫码/差异） · 库内（调拨/调整/扣减/增加流水） · 采购（申请/订单/到货跟踪） · 生产与外协（BOM/生产领料/外协发料/外协收货/外协进度） · 移动端（扫码/物料查询/提交） · 系统管理（用户/登录日志/操作审计/参数/通知） · 数据导入导出（Excel）
+基础资料（物料/分类/单位/供应商/客户/仓库/库位/员工/部门） · 库存管理（查询/库位/流水/预警/期初） · 入库（采购入库/产品入库/其他入库/打印模板） · 出库（领料/其他出库/售后/销售出库/打印模板） · 盘点（库存/扫码/差异） · 库内（调拨/调整/扣减/增加流水） · 采购（申请/订单/到货跟踪） · 生产与外协（BOM/生产领料/外协发料/外协收货/外协进度） · 移动端（扫码/物料查询/提交） · 系统管理（用户/登录日志/操作审计/参数/通知） · 数据导入导出（Excel）
 
 ## 六、AI 子系统能力清单（来自权限矩阵）
 

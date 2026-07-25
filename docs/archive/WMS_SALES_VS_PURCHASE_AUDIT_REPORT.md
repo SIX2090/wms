@@ -1,6 +1,9 @@
 # WMS 销售模块 vs 采购模块对比与销售模块审计报告
 
 - 编制日期：2026-07-21
+- 状态：历史归档
+
+> 本报告保留审计证据和修复过程。当前功能与未完成事项以 `SALES_MANAGEMENT_DEVELOPMENT_PLAN.md`、`WMS_BUG_BASELINE.md` 和实际代码为准。
 - 审计范围：`/workspace/app/app.py`（约 42720 行）、`/workspace/app/templates/`（销售/采购相关模板）、`/workspace/app/ai/`、`/workspace/scripts/verify_sales_module.py`、`/workspace/SALES_MANAGEMENT_DEVELOPMENT_PLAN.md`、`/workspace/WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md`、`/workspace/AI_PERMISSION_MATRIX.md`
 - 分支策略：本审计严格落在 `main` 分支，未创建任何 `feature/*`、`fix/*`、`trae/*` 工作分支
 - 验证方法：所有结论均通过直接读取源码确认（行号引用见各节），未做主观推测
@@ -683,8 +686,8 @@ def batch_delete_sales_orders():
 
 **重写极简模板 + Chart.js 可视化 + loading state + a11y + 路由复核**：
 
-1. **引入 Chart.js**：[base.html](file:///workspace/app/templates/base.html) 增加 `<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>`。
-2. **loading 样式**：[custom.css](file:///workspace/app/static/css/custom.css) 新增 `.wms-spinner`（sm/md/lg）、`.btn-loading`、`.wms-loading-overlay` 等。
+1. **引入 Chart.js**：`app/templates/base.html` 增加 `<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>`。
+2. **loading 样式**：`app/static/css/custom.css` 新增 `.wms-spinner`（sm/md/lg）、`.btn-loading`、`.wms-loading-overlay` 等。
 3. **重写 sales_outbound_list.html**（158 → 230 行）：
    - 分页 nav + `#salesOutboundPageSize`（白名单 20/50/100/200）
    - 批量删除/批量完成按钮（`data-batch-action`）
@@ -695,7 +698,7 @@ def batch_delete_sales_orders():
    - Chart.js 饼图（对账结果分布）+ 柱状图（发货量 vs 出库完成量）
    - a11y（`caption`/`aria-label`/`scope="col"`）
 5. **后端**：
-   - [app.py](file:///workspace/app/app.py) `sales_outbound_list` 支持 `per_page`（白名单 20/50/100/200）+ `sort_by` + `sort_order`
+   - `app/app.py` 的 `sales_outbound_list` 支持 `per_page`（白名单 20/50/100/200）+ `sort_by` + `sort_order`
    - 新增 `export_sales_outbound` 导出视图（Excel）
    - `sales_reconciliation_report` 返回 `chart_data`（summary/warehouse_stats/monthly_trend）
 6. **路由复核**：确认 `api_sales_order_selectable` 已存在，`sales_outbound_selection.html:36` 路由正确。
