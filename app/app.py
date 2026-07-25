@@ -1561,7 +1561,7 @@ SYSTEM_SETTING_GROUPS = [
                 'label': '启动时自动从 GitHub 更新',
                 'type': 'bool',
                 'default': '0',
-                'remark': '默认关闭。开启后，每次重启 WMS 会在启动服务前尝试从 GitHub main 分支拉取最新代码和依赖；关闭时重启不自动更新。运维仍可用环境变量 WMS_SKIP_AUTO_UPDATE=1 强制跳过。',
+                'remark': '默认关闭。开启后，每次重启 WMS（如 nssm restart WMS）会在启动前尝试 git fetch/pull main。需已安装 Git、目录为 git 仓库、已跟踪文件无本地改动、能访问 GitHub；仅有 runtime 等未跟踪文件不拦截。关闭时重启不自动更新。可用 WMS_SKIP_AUTO_UPDATE=1 强制跳过。日志见 app/logs/auto_update.log。',
             },
         ],
     },

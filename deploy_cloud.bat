@@ -212,9 +212,12 @@ echo 访问地址:
 echo   本机: http://127.0.0.1:8080/login
 echo   公网: 配置 Nginx 反代后 https://gd2026.top/login
 echo.
-echo 自动更新机制:
-echo   每次服务启动会自动从 GitHub main 分支拉取最新代码。
-echo   日志见 %INSTALL_DIR%\app\logs\auto_update.log
+echo 自动更新机制（AI-DEPLOY-F01-FIX-02）:
+echo   默认关闭。在系统设置 → 运维更新 中打开「启动时自动从 GitHub 更新」后，
+echo   再 nssm restart WMS（或重启服务器）才会从 GitHub main 拉取代码。
+echo   需要已安装 Git、目录为 git 仓库、已跟踪文件无本地改动、能访问 GitHub。
+echo   日志: %INSTALL_DIR%\app\logs\auto_update.log
+echo   手动更新: %INSTALL_DIR%\update_from_github.bat
 echo.
 echo 下一步:
 echo   1. 安装 Nginx，配置 HTTPS 反代到 127.0.0.1:8080

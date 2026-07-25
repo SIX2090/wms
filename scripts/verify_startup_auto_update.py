@@ -1,6 +1,7 @@
 """AI-DEPLOY-F01 / AI-DEPLOY-F01-FIX-01: 启动时 GitHub 自动更新 - 专项验证脚本
 # AI_TASK: AI-DEPLOY-F01
 # AI_TASK: AI-DEPLOY-F01-FIX-01
+# AI_TASK: AI-DEPLOY-F01-FIX-02
 
 验证启动前可选从 GitHub main 更新的闭环：
 
@@ -132,9 +133,15 @@ def test_setting_default_off_and_skip_env(failures: list[str]) -> None:
         finally:
             os.environ.pop("WMS_SKIP_AUTO_UPDATE", None)
 
+        # AI-DEPLOY-F01-FIX-02: mock 固定关闭，避免本机 DB 曾开启导致误报
         mock_called.clear()
-        run_server._run_startup_auto_update()
-        check(len(mock_called) == 0, "系统设置默认关闭时不调用 auto_update.main()", failures)
+        original_gate = run_server._github_auto_update_setting_enabled
+        run_server._github_auto_update_setting_enabled = lambda: False  # type: ignore[assignment]
+        try:
+            run_server._run_startup_auto_update()
+            check(len(mock_called) == 0, "系统设置关闭时不调用 auto_update.main()", failures)
+        finally:
+            run_server._github_auto_update_setting_enabled = original_gate  # type: ignore[assignment]
 
         mock_called.clear()
         original_gate = run_server._github_auto_update_setting_enabled
@@ -196,6 +203,17 @@ def test_auto_update_safety_properties(failures: list[str]) -> None:
     has_dirty_check = "status" in text and "--porcelain" in text
     check(has_dirty_check, "工作区脏时跳过 pull（git status --porcelain 检查）", failures)
 
+    # AI-DEPLOY-F01-FIX-02
+    has_correct_behind = "HEAD.." in text and "rev-list" in text
+    has_wrong_union = (
+        'rev-list", "--count", "HEAD", f"{REMOTE}/{BRANCH}"' in text
+        or 'rev-list", "--count", "HEAD", f"{REMOTE}' in text
+    )
+    check(has_correct_behind, "落后提交使用 HEAD..remote/branch（真正 behind）", failures)
+    check(not has_wrong_union, "不再使用 HEAD 与 remote 两 tip 并集计数", failures)
+    check("--untracked-files=no" in text, "脏工作区仅检查已跟踪文件（忽略 runtime 等未跟踪）", failures)
+    check("find_git" in text, "find_git 可在服务 PATH 不全时定位 git.exe", failures)
+
     has_non_blocking = "不阻断" in text or "不阻断启动" in text
     check(has_non_blocking, "docstring 声明失败不阻断启动", failures)
 
@@ -207,15 +225,19 @@ def test_auto_update_safety_properties(failures: list[str]) -> None:
 
 
 def test_task_marker_present(failures: list[str]) -> None:
-    """AI-DEPLOY-F01 / FIX-01 任务标记存在于关键文件"""
-    print("\n[Test 5] AI-DEPLOY-F01 / AI-DEPLOY-F01-FIX-01 任务标记存在")
+    """AI-DEPLOY-F01 / FIX-01 / FIX-02 任务标记存在于关键文件"""
+    print("\n[Test 5] AI-DEPLOY-F01 / FIX-01 / FIX-02 任务标记存在")
     marker = "AI-DEPLOY-F01"
     fix_marker = "AI-DEPLOY-F01-FIX-01"
+    fix2_marker = "AI-DEPLOY-F01-FIX-02"
 
     for path in (AUTO_UPDATE_PATH, RUN_SERVER_PATH, Path(__file__)):
         text = _read(path)
         check(marker in text, f"{path.relative_to(ROOT)} 含 AI-DEPLOY-F01 标记", failures)
         check(fix_marker in text, f"{path.relative_to(ROOT)} 含 AI-DEPLOY-F01-FIX-01 标记", failures)
+    for path in (AUTO_UPDATE_PATH, Path(__file__)):
+        text = _read(path)
+        check(fix2_marker in text, f"{path.relative_to(ROOT)} 含 AI-DEPLOY-F01-FIX-02 标记", failures)
 
 
 def test_start_wms_offline_uses_run_server(failures: list[str]) -> None:
@@ -232,7 +254,7 @@ def test_start_wms_offline_uses_run_server(failures: list[str]) -> None:
 
 def main() -> int:
     print("=" * 60)
-    print("AI-DEPLOY-F01-FIX-01: 启动自动更新开关（默认关）- 专项验证")
+    print("AI-DEPLOY-F01-FIX-02: 启动自动更新（默认关 + 正确 behind）- 专项验证")
     print("=" * 60)
 
     failures: list[str] = []
@@ -246,11 +268,11 @@ def main() -> int:
 
     print("\n" + "=" * 60)
     if failures:
-        print(f"FAIL AI-DEPLOY-F01-FIX-01: {len(failures)} 项失败")
+        print(f"FAIL AI-DEPLOY-F01-FIX-02: {len(failures)} 项失败")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS AI-DEPLOY-F01-FIX-01: 启动自动更新开关（默认关）闭环验证通过")
+    print("PASS AI-DEPLOY-F01-FIX-02: 启动自动更新（默认关 + 正确 behind）闭环验证通过")
     print("=" * 60)
     return 0
 
