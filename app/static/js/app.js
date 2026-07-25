@@ -2962,3 +2962,203 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!isMobileViewport()) closeMobileSidebar();
     });
 });
+
+// Unified document-grid field settings, modelled after mainstream Chinese ERP column settings.
+(function() {
+    'use strict';
+    var activeController = null;
+
+    function storageKey(table) {
+        return 'wms:field-settings:v2:' + location.pathname + ':' + (table.id || 'document-grid');
+    }
+
+    function prepareTable(table) {
+        if (!table || !table.tHead || !table.tHead.rows.length) return false;
+        var headers = Array.from(table.tHead.rows[table.tHead.rows.length - 1].cells);
+        if (!headers.length) return false;
+        headers.forEach(function(th, index) {
+            if (!th.dataset.columnKey) th.dataset.columnKey = 'column_' + index;
+        });
+        Array.from(table.rows).forEach(function(row) {
+            if (row.cells.length !== headers.length) return;
+            Array.from(row.cells).forEach(function(cell, index) {
+                if (!cell.dataset.columnKey) cell.dataset.columnKey = headers[index].dataset.columnKey;
+            });
+        });
+        return true;
+    }
+
+    function columnsOf(table) {
+        var headers = Array.from(table.querySelectorAll('thead th[data-column-key]'));
+        return headers.map(function(th, index) {
+            var key = th.dataset.columnKey;
+            var label = th.dataset.defaultLabel || Array.from(th.childNodes).filter(function(n) { return n.nodeType === 3; }).map(function(n) { return n.textContent; }).join('').trim() || key;
+            th.dataset.defaultLabel = label;
+            return { key: key, label: label, defaultLabel: label, defaultIndex: index, locked: ['row_no','material_code','quantity','actions'].indexOf(key) !== -1 };
+        });
+    }
+
+    function readState(table, columns) {
+        var fallback = { order: columns.map(function(c) { return c.key; }), hidden: [], labels: {} };
+        try {
+            var saved = JSON.parse(localStorage.getItem(storageKey(table)) || 'null');
+            if (!saved || !Array.isArray(saved.order)) return fallback;
+            columns.forEach(function(c) { if (saved.order.indexOf(c.key) === -1) saved.order.push(c.key); });
+            saved.order = saved.order.filter(function(key) { return columns.some(function(c) { return c.key === key; }); });
+            saved.hidden = Array.isArray(saved.hidden) ? saved.hidden : [];
+            saved.labels = saved.labels && typeof saved.labels === 'object' ? saved.labels : {};
+            return saved;
+        } catch (e) { return fallback; }
+    }
+
+    function setHeaderLabel(th, label) {
+        var textNode = Array.from(th.childNodes).find(function(node) { return node.nodeType === 3; });
+        if (textNode) textNode.textContent = label;
+        else th.insertBefore(document.createTextNode(label), th.firstChild);
+    }
+
+    function applyState(controller) {
+        var table = controller.table;
+        var state = controller.state;
+        Array.from(table.rows).forEach(function(row) {
+            var keyedCells = Array.from(row.children).filter(function(item) { return item.dataset && item.dataset.columnKey; });
+            var current = keyedCells.map(function(item) { return item.dataset.columnKey; }).join('|');
+            var desired = state.order.filter(function(key) { return keyedCells.some(function(item) { return item.dataset.columnKey === key; }); }).join('|');
+            if (current !== desired) {
+                state.order.forEach(function(key) {
+                    var cell = keyedCells.find(function(item) { return item.dataset.columnKey === key; });
+                    if (cell) row.appendChild(cell);
+                });
+            }
+        });
+        controller.columns.forEach(function(column) {
+            var hidden = state.hidden.indexOf(column.key) !== -1;
+            table.querySelectorAll('[data-column-key="' + CSS.escape(column.key) + '"]').forEach(function(cell) {
+                cell.classList.toggle('wms-field-column-hidden', hidden);
+            });
+            var th = table.querySelector('thead th[data-column-key="' + CSS.escape(column.key) + '"]');
+            if (th) setHeaderLabel(th, state.labels[column.key] || column.defaultLabel);
+        });
+    }
+
+    function save(controller) {
+        localStorage.setItem(storageKey(controller.table), JSON.stringify(controller.state));
+        applyState(controller);
+    }
+
+    function findGrid(button) {
+        var scope = button.closest('form,.card,.content-card,.main-content') || document;
+        var tables = Array.from(scope.querySelectorAll('table')).filter(prepareTable);
+        return tables.find(function(table) { return table.querySelector('tbody'); }) || tables[0] || null;
+    }
+
+    function ensureModal() {
+        var existing = document.getElementById('wmsFieldSettingsBackdrop');
+        if (existing) return existing;
+        var host = document.createElement('div');
+        host.id = 'wmsFieldSettingsBackdrop';
+        host.className = 'wms-field-settings-backdrop';
+        host.hidden = true;
+        host.innerHTML = '<section class="wms-field-settings" role="dialog" aria-modal="true" aria-labelledby="wmsFieldSettingsTitle">' +
+            '<header class="wms-field-settings__title"><span id="wmsFieldSettingsTitle">栏目设置</span><button type="button" class="wms-field-settings__icon-btn" data-fs-close aria-label="关闭">&times;</button></header>' +
+            '<nav class="wms-field-settings__tabs"><button type="button" class="wms-field-settings__tab" data-fs-tab="header">表头</button><button type="button" class="wms-field-settings__tab active" data-fs-tab="detail">明细</button><button type="button" class="wms-field-settings__tab" data-fs-tab="summary">汇总</button><button type="button" class="wms-field-settings__tab" data-fs-tab="footer">表尾</button></nav>' +
+            '<div class="wms-field-settings__tools"><input class="wms-field-settings__search" data-fs-search placeholder="请输入字段名称"><button class="wms-field-settings__btn" type="button" data-fs-locate>定位</button></div>' +
+            '<div class="wms-field-settings__content"><div class="wms-field-settings__table-wrap"><table class="wms-field-settings__table"><thead><tr><th style="width:52px">序号</th><th>字段名称</th><th>显示名称</th><th style="width:66px">显示</th></tr></thead><tbody data-fs-body></tbody></table><div class="wms-field-settings__empty" data-fs-empty hidden>当前区域暂无可设置字段</div></div>' +
+            '<div class="wms-field-settings__move"><button type="button" data-fs-move="top" title="置顶">⇈</button><button type="button" data-fs-move="up" title="上移">↑</button><button type="button" data-fs-move="down" title="下移">↓</button><button type="button" data-fs-move="bottom" title="置底">⇊</button></div></div>' +
+            '<div class="wms-field-settings__hint">调整内容将保存在当前浏览器，并应用于当前单据页面。</div>' +
+            '<footer class="wms-field-settings__footer"><button type="button" class="wms-field-settings__btn" data-fs-reset>恢复默认</button><div class="wms-field-settings__footer-right"><button type="button" class="wms-field-settings__btn primary" data-fs-ok>确定</button><button type="button" class="wms-field-settings__btn" data-fs-close>取消</button></div></footer></section>';
+        document.body.appendChild(host);
+        host.querySelectorAll('[data-fs-close]').forEach(function(btn) { btn.addEventListener('click', function() { host.hidden = true; }); });
+        host.addEventListener('click', function(e) { if (e.target === host) host.hidden = true; });
+        host.querySelector('[data-fs-ok]').addEventListener('click', function() { if (activeController) save(activeController); host.hidden = true; });
+        host.querySelector('[data-fs-reset]').addEventListener('click', function() {
+            if (!activeController) return;
+            activeController.state = { order: activeController.columns.map(function(c) { return c.key; }), hidden: [], labels: {} };
+            localStorage.removeItem(storageKey(activeController.table));
+            renderRows(host, activeController);
+            applyState(activeController);
+        });
+        host.querySelectorAll('[data-fs-tab]').forEach(function(tab) { tab.addEventListener('click', function() {
+            host.querySelectorAll('[data-fs-tab]').forEach(function(item) { item.classList.toggle('active', item === tab); });
+            var detail = tab.dataset.fsTab === 'detail';
+            host.querySelector('[data-fs-body]').parentElement.hidden = !detail;
+            host.querySelector('[data-fs-empty]').hidden = detail;
+            host.querySelector('.wms-field-settings__move').style.visibility = detail ? 'visible' : 'hidden';
+        }); });
+        host.querySelector('[data-fs-search]').addEventListener('input', function() { if (activeController) renderRows(host, activeController); });
+        host.querySelector('[data-fs-locate]').addEventListener('click', function() { var row = host.querySelector('[data-fs-body] tr:not([hidden])'); if (row) { row.click(); row.scrollIntoView({block:'nearest'}); } });
+        host.querySelectorAll('[data-fs-move]').forEach(function(btn) { btn.addEventListener('click', function() { moveSelected(host, btn.dataset.fsMove); }); });
+        return host;
+    }
+
+    function renderRows(modal, controller) {
+        var tbody = modal.querySelector('[data-fs-body]');
+        var keyword = modal.querySelector('[data-fs-search]').value.trim().toLowerCase();
+        tbody.innerHTML = '';
+        controller.state.order.forEach(function(key, index) {
+            var column = controller.columns.find(function(c) { return c.key === key; });
+            if (!column) return;
+            var label = controller.state.labels[key] || column.defaultLabel;
+            var row = document.createElement('tr');
+            row.dataset.key = key;
+            row.hidden = !!keyword && (column.defaultLabel + ' ' + label).toLowerCase().indexOf(keyword) === -1;
+            row.innerHTML = '<td>' + (index + 1) + '</td><td>' + column.defaultLabel + '</td><td><input type="text" maxlength="30"></td><td><input type="checkbox"' + (column.locked ? ' disabled title="系统必显字段"' : '') + '></td>';
+            row.querySelector('input[type=text]').value = label;
+            row.querySelector('input[type=text]').addEventListener('input', function() { controller.state.labels[key] = this.value.trim() || column.defaultLabel; });
+            var checkbox = row.querySelector('input[type=checkbox]');
+            checkbox.checked = controller.state.hidden.indexOf(key) === -1;
+            checkbox.addEventListener('change', function() { controller.state.hidden = this.checked ? controller.state.hidden.filter(function(item) { return item !== key; }) : controller.state.hidden.concat(key).filter(function(item, i, arr) { return arr.indexOf(item) === i; }); });
+            row.addEventListener('click', function(e) { if (e.target.tagName !== 'INPUT') { tbody.querySelectorAll('tr').forEach(function(r) { r.classList.remove('selected'); }); row.classList.add('selected'); } });
+            tbody.appendChild(row);
+        });
+    }
+
+    function moveSelected(modal, direction) {
+        if (!activeController) return;
+        var selected = modal.querySelector('[data-fs-body] tr.selected');
+        if (!selected) return;
+        var order = activeController.state.order;
+        var from = order.indexOf(selected.dataset.key);
+        var to = direction === 'top' ? 0 : direction === 'bottom' ? order.length - 1 : direction === 'up' ? Math.max(0, from - 1) : Math.min(order.length - 1, from + 1);
+        if (from === to) return;
+        order.splice(to, 0, order.splice(from, 1)[0]);
+        renderRows(modal, activeController);
+        var next = modal.querySelector('[data-fs-body] tr[data-key="' + CSS.escape(selected.dataset.key) + '"]');
+        if (next) next.classList.add('selected');
+    }
+
+    function open(button) {
+        var table = findGrid(button);
+        if (!table) { if (window.showToast) showToast('当前页面没有可设置的明细栏目', 'warning'); return; }
+        var columns = columnsOf(table);
+        activeController = { table: table, columns: columns, state: readState(table, columns) };
+        var modal = ensureModal();
+        modal.querySelector('[data-fs-search]').value = '';
+        modal.querySelector('[data-fs-tab="detail"]').click();
+        renderRows(modal, activeController);
+        modal.hidden = false;
+    }
+
+    function initializeTables() {
+        document.querySelectorAll('table').forEach(function(table) {
+            if (!prepareTable(table) || table.dataset.fieldSettingsReady) return;
+            table.dataset.fieldSettingsReady = '1';
+            var columns = columnsOf(table);
+            var controller = { table: table, columns: columns, state: readState(table, columns) };
+            applyState(controller);
+            new MutationObserver(function() { applyState(controller); }).observe(table.tBodies[0] || table, { childList: true, subtree: true });
+        });
+    }
+
+    document.addEventListener('click', function(event) {
+        var button = event.target.closest('button,a');
+        if (!button || button.closest('#wmsFieldSettingsBackdrop')) return;
+        var text = (button.textContent || '').replace(/\s+/g, '');
+        if (text !== '字段设置' && text !== '栏目设置' && button.id !== 'columnSettingsBtn') return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        open(button);
+    }, true);
+    document.addEventListener('DOMContentLoaded', initializeTables);
+    window.WmsFieldSettings = { open: open, refresh: initializeTables };
+})();
