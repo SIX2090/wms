@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
-"""AI-R07-F02：未建档物料按名称/规格建议分类，并按分类生成可编辑料号。
+"""AI-R07-F02 / AI-R07-F02-FIX-01：未建档物料建议分类，并按「分类三位数字+流水」编料号。
 
-# AI_TASK: AI-R07-F02
+# AI_TASK: AI-R07-F02-FIX-01
 
-纯逻辑 + 依赖注入：不写库、不自动建档。生产由 app.py 注入分类列表与已有编码。
-人工确认后才创建物料；库存仍为 0。
+编码规则（业务约定）：
+- 分类编码用三位数字，如 100=电线、101=螺丝
+- 物料编号 = 分类三位 + 流水三位，共 6 位数字
+- 例：分类 100 下第一种料 → 100001；第二种 → 100002
+- 规格/名称（如 2.5平方、螺丝8*5）写在名称/规格字段，不编进料号
+
+纯逻辑 + 依赖注入：不写库、不自动建档。人工确认后才创建；库存仍为 0。
 """
 from __future__ import annotations
 
@@ -33,6 +38,11 @@ CATEGORY_KEYWORD_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ('按钮', ('按钮',)),
     ('变频器', ('变频器', '变频')),
 )
+
+# 流水号位数（分类 3 位 + 流水 3 位 = 6 位料号）
+CATEGORY_CODE_DIGITS = 3
+SERIAL_DIGITS = 3
+SERIAL_MAX = 10 ** SERIAL_DIGITS - 1  # 999
 
 
 @dataclass(frozen=True)
@@ -63,7 +73,7 @@ def normalize_text(value: Any) -> str:
 
 
 def normalize_spec_token(spec: Any) -> str:
-    """规格压缩为料号可用片段，如 8*5 / 8×5 → 8X5。"""
+    """规格规范化（仅用于展示/匹配辅助，不写入料号）。"""
     raw = str(spec or '').strip().upper()
     if not raw:
         return ''
@@ -74,12 +84,77 @@ def normalize_spec_token(spec: Any) -> str:
     return raw[:24]
 
 
-def sanitize_code_prefix(code: Any, fallback: str = 'MAT') -> str:
-    text = re.sub(r'[^A-Za-z0-9]+', '', str(code or '').upper())
-    if text:
-        return text[:12]
-    fb = re.sub(r'[^A-Za-z0-9]+', '', str(fallback or 'MAT').upper()) or 'MAT'
-    return fb[:12]
+def category_digit_prefix(code: Any, fallback_id: Optional[int] = None) -> Optional[str]:
+    """从分类编码提取三位数字前缀。
+
+    - '100' / '100电线' → '100'
+    - 不足三位的纯数字左侧补零：'7' → '007'
+    - 超过三位取前三位：'1001' → '100'
+    - 无数字时：若有 fallback_id，用 id 模 1000 补成三位（尽量不中断建议）
+    """
+    digits = re.sub(r'\D', '', str(code or ''))
+    if digits:
+        if len(digits) >= CATEGORY_CODE_DIGITS:
+            return digits[:CATEGORY_CODE_DIGITS]
+        return digits.zfill(CATEGORY_CODE_DIGITS)
+    if fallback_id is not None:
+        try:
+            n = abs(int(fallback_id)) % (10 ** CATEGORY_CODE_DIGITS)
+            return f'{n:0{CATEGORY_CODE_DIGITS}d}'
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def next_category_serial_code(
+    category_prefix: str,
+    existing_codes: Iterable[str],
+    offset: int = 0,
+) -> str:
+    """在指定三位分类下取下一流水号：100001、100002…"""
+    prefix = re.sub(r'\D', '', str(category_prefix or ''))
+    if len(prefix) != CATEGORY_CODE_DIGITS:
+        raise ValueError(f'分类前缀必须是 {CATEGORY_CODE_DIGITS} 位数字，收到: {category_prefix!r}')
+    existing = {str(c or '').strip().upper() for c in existing_codes if c}
+    pattern = re.compile(rf'^{prefix}(\d{{{SERIAL_DIGITS}}})$')
+    highest = 0
+    for code in existing:
+        m = pattern.fullmatch(str(code).strip())
+        if m:
+            highest = max(highest, int(m.group(1)))
+    seq = highest + 1 + max(0, int(offset or 0))
+    if seq < 1:
+        seq = 1
+    if seq > SERIAL_MAX:
+        # 流水用尽时扩展为更多位，仍以前缀开头，避免硬失败
+        candidate = f'{prefix}{seq}'
+    else:
+        candidate = f'{prefix}{seq:0{SERIAL_DIGITS}d}'
+    guard = 0
+    while candidate.upper() in existing and guard < 10000:
+        seq += 1
+        candidate = f'{prefix}{seq:0{SERIAL_DIGITS}d}' if seq <= SERIAL_MAX else f'{prefix}{seq}'
+        guard += 1
+    return candidate
+
+
+def build_suggested_code(
+    *,
+    category: Optional[CategoryInfo],
+    spec: Any = '',  # 规格不进入料号，保留参数兼容调用方
+    existing_codes: Iterable[str],
+    offset: int = 0,
+    fallback_code: str = '',
+) -> str:
+    """有分类：分类三位+流水；无分类：回退 fallback（如 AIyyMMdd###）。"""
+    del spec  # 明确不使用规格拼料号
+    existing_list = list(existing_codes)
+    if not category:
+        return str(fallback_code or '').strip() or next_category_serial_code('999', existing_list, offset)
+    prefix = category_digit_prefix(category.code, fallback_id=category.id)
+    if not prefix:
+        return str(fallback_code or '').strip() or next_category_serial_code('999', existing_list, offset)
+    return next_category_serial_code(prefix, existing_list, offset)
 
 
 def _category_hit_score(category: CategoryInfo, blob: str) -> tuple[float, str]:
@@ -99,7 +174,6 @@ def _category_hit_score(category: CategoryInfo, blob: str) -> tuple[float, str]:
     for label, hints in CATEGORY_KEYWORD_HINTS:
         if not any(normalize_text(h) in blob for h in hints):
             continue
-        # 分类名或编码能对上提示词
         label_n = normalize_text(label)
         if label_n and (label_n in cname or label_n in ccode or any(normalize_text(h) in cname for h in hints)):
             score = 0.88
@@ -125,54 +199,6 @@ def rank_categories(
             ranked.append((cat, score, reason))
     ranked.sort(key=lambda item: (-item[1], item[0].code or '', item[0].id))
     return ranked[: max(1, int(limit or 5))]
-
-
-def next_code_with_prefix(base: str, existing_codes: Iterable[str], offset: int = 0) -> str:
-    """在 base / base-001 形式上找空号。base 可含分类前缀与规格，如 LS-8X5。"""
-    raw = str(base or '').strip().upper()
-    raw = re.sub(r'[^A-Z0-9._-]+', '-', raw)
-    raw = re.sub(r'-{2,}', '-', raw).strip('-._')
-    if not raw:
-        raw = 'MAT'
-    existing = {str(c or '').strip().upper() for c in existing_codes if c}
-    off = max(0, int(offset or 0))
-    if raw not in existing and off <= 0:
-        return raw
-    highest = 0
-    pattern = re.compile(rf'^{re.escape(raw)}-(\d+)$')
-    for code in existing:
-        m = pattern.fullmatch(code)
-        if m:
-            highest = max(highest, int(m.group(1)))
-        elif code == raw:
-            highest = max(highest, 0)
-    seq = max(1, highest + 1 + off)
-    candidate = f'{raw}-{seq:03d}'
-    # 极端冲突时继续递增
-    guard = 0
-    while candidate in existing and guard < 1000:
-        seq += 1
-        candidate = f'{raw}-{seq:03d}'
-        guard += 1
-    return candidate
-
-
-def build_suggested_code(
-    *,
-    category: Optional[CategoryInfo],
-    spec: Any = '',
-    existing_codes: Iterable[str],
-    offset: int = 0,
-    fallback_code: str = '',
-) -> str:
-    existing_list = list(existing_codes)
-    if not category:
-        return str(fallback_code or '').strip() or next_code_with_prefix('AI', existing_list, offset)
-    prefix = sanitize_code_prefix(category.code, fallback=f'C{category.id}')
-    spec_part = normalize_spec_token(spec)
-    base = f'{prefix}-{spec_part}' if spec_part else prefix
-    # next_code_with_prefix 把整段当 prefix 扫描 -NNN
-    return next_code_with_prefix(base, existing_list, offset)
 
 
 def suggest_category_and_code(
@@ -217,12 +243,14 @@ def suggest_category_and_code(
         offset=offset,
         fallback_code=fallback_code,
     )
+    prefix = category_digit_prefix(cat.code, fallback_id=cat.id) or ''
+    detail = f'{reason}；编号规则：分类{prefix}+流水 → {code}'
     return CategoryCodeSuggestion(
         category_id=cat.id,
         category_code=cat.code or '',
         category_name=cat.name or '',
         suggested_code=code,
         confidence=float(score),
-        reason=reason,
+        reason=detail,
         candidates=candidates,
     )

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""AI-R07-F02：物料分类识别与按分类建议编号专项验证。"""
+"""AI-R07-F02 / FIX-01：分类三位数字 + 流水号 物料编码专项验证。"""
 from __future__ import annotations
 
 import os
@@ -15,50 +15,66 @@ sys.path.insert(0, str(ROOT / 'app'))
 def test_pure_logic() -> None:
     from ai.documents.material_category_coding import (
         CategoryInfo,
+        category_digit_prefix,
+        next_category_serial_code,
         suggest_category_and_code,
-        normalize_spec_token,
     )
 
-    assert normalize_spec_token('8*5') == '8X5'
-    assert normalize_spec_token('8×5') == '8X5'
+    assert category_digit_prefix('100') == '100'
+    assert category_digit_prefix('100电线') == '100'
+    assert category_digit_prefix('7') == '007'
+    assert next_category_serial_code('100', []) == '100001'
+    assert next_category_serial_code('100', ['100001']) == '100002'
+    assert next_category_serial_code('100', ['100001', '100009'], offset=0) == '100010'
 
     cats = [
-        CategoryInfo(id=1, code='LS', name='螺丝'),
-        CategoryInfo(id=2, code='DX', name='电线'),
-        CategoryInfo(id=3, code='QT', name='其他'),
+        CategoryInfo(id=1, code='101', name='螺丝'),
+        CategoryInfo(id=2, code='100', name='电线'),
+        CategoryInfo(id=3, code='199', name='其他'),
     ]
+    # 电线 2.5平方 → 分类 100 → 100001（规格不进料号）
     s = suggest_category_and_code(
-        name='螺丝',
-        spec='8*5',
-        raw_text='螺丝8*5 100个',
+        name='电线',
+        spec='2.5平方',
+        raw_text='电线 2.5平方 100米',
         categories=cats,
         existing_codes=[],
         fallback_code='AI260726001',
     )
-    assert s.category_id == 1, s
-    assert s.suggested_code.startswith('LS'), s
-    assert s.suggested_code == 'LS-8X5' or s.suggested_code.startswith('LS-8X5'), s
-    assert '8X5' in s.suggested_code, s
-    assert s.confidence >= 0.5, s
+    assert s.category_id == 2, s
+    assert s.suggested_code == '100001', s
+    assert '2.5' not in s.suggested_code
 
     s2 = suggest_category_and_code(
-        name='螺丝',
-        spec='8*5',
+        name='电线',
+        spec='4平方',
         categories=cats,
-        existing_codes=[s.suggested_code],
+        existing_codes=['100001'],
         fallback_code='AI260726001',
     )
-    assert s2.suggested_code != s.suggested_code, (s.suggested_code, s2.suggested_code)
+    assert s2.suggested_code == '100002', s2
 
+    # 螺丝 8*5 → 分类 101 → 101001
     s3 = suggest_category_and_code(
+        name='螺丝',
+        spec='8*5',
+        raw_text='螺丝8*5',
+        categories=cats,
+        existing_codes=[],
+        fallback_code='AI260726001',
+    )
+    assert s3.category_id == 1, s3
+    assert s3.suggested_code == '101001', s3
+
+    s4 = suggest_category_and_code(
         name='未知奇奇怪怪',
         spec='',
         categories=cats,
         existing_codes=[],
         fallback_code='AI260726099',
     )
-    assert s3.category_id is None
-    assert s3.suggested_code == 'AI260726099'
+    assert s4.category_id is None
+    assert s4.suggested_code == 'AI260726099'
     print('pure logic OK')
 
 
@@ -85,8 +101,8 @@ def test_confirm_flow() -> None:
                 role='admin',
                 status='normal',
             )
-            unit = wms.Unit(code='PCS', name='个')
-            cat = wms.MaterialCategory(code='LS', name='螺丝')
+            unit = wms.Unit(code='M', name='米')
+            cat = wms.MaterialCategory(code='100', name='电线')
             wms.db.session.add_all([admin, unit, cat])
             wms.db.session.commit()
             unit_id = unit.id
@@ -94,14 +110,14 @@ def test_confirm_flow() -> None:
 
             payload = {
                 'document_type': 'in_order',
-                'source_text': 'TEST/E2E 螺丝8*5 10个',
+                'source_text': 'TEST/E2E 电线 2.5平方 10米',
                 'rows': [{
-                    'raw': '螺丝8*5 10个',
-                    'raw_text': '螺丝8*5 10个',
+                    'raw': '电线 2.5平方 10米',
+                    'raw_text': '电线 2.5平方 10米',
                     'code': '',
-                    'name': '螺丝',
-                    'spec': '8*5',
-                    'unit': '个',
+                    'name': '电线',
+                    'spec': '2.5平方',
+                    'unit': '米',
                     'quantity': 10,
                     'material_id': None,
                     'match_status': 'unmatched',
@@ -112,8 +128,8 @@ def test_confirm_flow() -> None:
             row = payload['rows'][0]
             if row.get('suggested_category_id') != cat_id:
                 failures.append(f'category not suggested: {row}')
-            if not str(row.get('suggested_material_code') or '').startswith('LS'):
-                failures.append(f'code not category-based: {row.get("suggested_material_code")}')
+            if row.get('suggested_material_code') != '100001':
+                failures.append(f'expected 100001 got {row.get("suggested_material_code")}')
 
         token = 'TEST-CAT-CODE'
         with wms.app.test_client() as client:
@@ -126,10 +142,10 @@ def test_confirm_flow() -> None:
             body = page.data.decode('utf-8', errors='replace')
             if 'new_material_category_id_0' not in body:
                 failures.append('category select missing on confirm page')
-            if 'LS' not in body and '螺丝' not in body:
+            if '100' not in body and '电线' not in body:
                 failures.append('category options missing')
 
-            code = payload['rows'][0].get('suggested_material_code') or 'LS-8X5'
+            code = payload['rows'][0].get('suggested_material_code') or '100001'
             resp = client.post(
                 f'/ai/document_confirm/{token}',
                 data={
@@ -137,8 +153,8 @@ def test_confirm_flow() -> None:
                     'use_row_0': '1',
                     'create_material_0': '1',
                     'new_material_code_0': code,
-                    'new_material_name_0': '螺丝',
-                    'new_material_spec_0': '8*5',
+                    'new_material_name_0': '电线',
+                    'new_material_spec_0': '2.5平方',
                     'new_material_category_id_0': str(cat_id),
                     'new_material_unit_id_0': str(unit_id),
                     'quantity_0': '10',
@@ -150,9 +166,11 @@ def test_confirm_flow() -> None:
                 failures.append(f'draft not created: {resp.status_code} {resp.headers.get("Location")}')
 
             with wms.app.app_context():
-                mat = wms.Material.query.filter_by(code=code).first()
+                mat = wms.Material.query.filter_by(code='100001').first()
                 if not mat or mat.category_id != cat_id or mat.stock != 0:
                     failures.append(f'material not saved with category/zero stock: {mat}')
+                if mat and mat.spec != '2.5平方':
+                    failures.append(f'spec not saved: {mat.spec}')
     finally:
         try:
             os.remove(db_path)
@@ -167,7 +185,7 @@ def test_confirm_flow() -> None:
 def main() -> int:
     test_pure_logic()
     test_confirm_flow()
-    print('PASS AI-R07-F02 material category coding')
+    print('PASS AI-R07-F02-FIX-01 category+serial material coding')
     return 0
 
 
