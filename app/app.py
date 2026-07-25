@@ -299,6 +299,9 @@ def auto_migrate_database():
         # material 新增 remark 字段
         cursor.execute("PRAGMA table_info(material)")
         material_columns = [row[1] for row in cursor.fetchall()]
+        if material_columns and 'brand' not in material_columns:
+            cursor.execute("ALTER TABLE material ADD COLUMN brand VARCHAR(100)")
+            modified = True
         if material_columns and 'remark' not in material_columns:
             cursor.execute("ALTER TABLE material ADD COLUMN remark VARCHAR(500)")
             modified = True
@@ -2558,6 +2561,7 @@ class Material(db.Model):
     category_id = db.Column(db.Integer, db.ForeignKey('material_category.id'))  # CategoryID
     unit_id = db.Column(db.Integer, db.ForeignKey('unit.id'))  # UnitID
     supplier_id = db.Column(db.Integer, db.ForeignKey('supplier.id'))  # Supplier ID
+    brand = db.Column(db.String(100))  # Brand
     spec = db.Column(db.String(100))  # Specification
     purpose = db.Column(db.String(200))  # Purpose
     image = db.Column(db.String(200))  # Image path
@@ -6866,6 +6870,7 @@ def material_list():
             db.or_(
                 Material.code.like(f'%{search}%'),
                 Material.name.like(f'%{search}%'),
+                Material.brand.like(f'%{search}%'),
                 Material.spec.like(f'%{search}%')
             )
         )
@@ -6902,6 +6907,7 @@ def material_api_list():
             'id': m.id,
             'code': m.code,
             'name': m.name,
+            'brand': m.brand or '',
             'spec': m.spec
         } for m in pagination.items],
         'total': pagination.total,
@@ -6949,6 +6955,9 @@ def add_material():
         return jsonify({'status': 'error', 'msg': '物料编码已存在'})
 
     spec = (request.form.get('spec') or '').strip()
+    brand = (request.form.get('brand') or '').strip()
+    if len(brand) > 100:
+        return jsonify({'status': 'error', 'msg': '品牌不能超过 100 个字符'}), 400
     if material_name_spec_exists(name, spec):
         return jsonify({'status': 'error', 'msg': '物料名称和规格不能同时重复'})
 
@@ -6978,6 +6987,7 @@ def add_material():
         category_id=request.form.get('category_id') or None,
         unit_id=request.form.get('unit_id') or None,
         supplier_id=request.form.get('supplier_id') or None,
+        brand=brand or None,
         spec=spec,
         stock=initial_stock,
         purpose=request.form.get('purpose'),
@@ -7299,6 +7309,7 @@ def get_material(id):
             'category_id': material.category_id,
             'unit_id': material.unit_id,
             'supplier_id': material.supplier_id,
+            'brand': material.brand or '',
             'spec': material.spec or '',
             'purpose': material.purpose or '',
             'min_stock': material.min_stock or 0,
@@ -7315,6 +7326,7 @@ def get_material(id):
 
 def _material_image_search_terms(material):
     parts = [
+        material.brand or '',
         material.name or '',
         material.spec or '',
         material.purpose or '',
@@ -8394,6 +8406,7 @@ def copy_material(id):
                 'category_id': source.category_id,
                 'unit_id': source.unit_id,
                 'supplier_id': source.supplier_id,
+                'brand': source.brand or '',
                 'spec': source.spec or '',
                 'purpose': source.purpose or '',
                 'min_stock': source.min_stock or 0,
@@ -8432,6 +8445,9 @@ def edit_material(id):
         return jsonify({'status': 'error', 'msg': '物料编码已存在'})
 
     new_spec = (request.form.get('spec') or '').strip()
+    new_brand = (request.form.get('brand') or '').strip()
+    if len(new_brand) > 100:
+        return jsonify({'status': 'error', 'msg': '品牌不能超过 100 个字符'}), 400
     if len(new_spec) > 200:
         return jsonify({'status': 'error', 'msg': '物料规格不能超过 200 个字符'}), 400
     if material_name_spec_exists(new_name, new_spec, exclude_id=id):
@@ -8458,6 +8474,7 @@ def edit_material(id):
     material.category_id = request.form.get('category_id') or None
     material.unit_id = request.form.get('unit_id') or None
     material.supplier_id = request.form.get('supplier_id') or None
+    material.brand = new_brand or None
     material.spec = new_spec
     material.purpose = request.form.get('purpose')
     material.max_stock = parse_float_value(request.form.get('max_stock'), 0)
@@ -40512,8 +40529,8 @@ def download_material_template():
     wb = Workbook()
     ws = wb.active
     ws.title = '物料导入模板'
-    headers = ['物料编码', '物料名称', '规格', '单位', '分类', '供应商', '单价']
-    example = ['MAT-001', '示例物料', '示例规格', '个', '原材料', '默认供应商', 0]
+    headers = ['物料编码', '物料名称', '品牌', '规格', '单位', '分类', '供应商', '单价']
+    example = ['MAT-001', '示例物料', 'ABB', '示例规格', '个', '原材料', '默认供应商', 0]
     if inventory_alert_enabled():
         headers.extend(['最低库存', '安全库存'])
         example.extend([0, 0])
@@ -40531,7 +40548,7 @@ def export_material():
     wb = Workbook()
     ws = wb.active
     ws.title = '物料数据'
-    headers = ['物料编码', '物料名称', '规格', '单位', '分类', '供应商', '当前库存', '单价']
+    headers = ['物料编码', '物料名称', '品牌', '规格', '单位', '分类', '供应商', '当前库存', '单价']
     if inventory_alert_enabled():
         headers.extend(['最低库存', '安全库存'])
     ws.append(headers)
@@ -40541,7 +40558,7 @@ def export_material():
         stock_filter = ''
     sort_by = request.args.get('sort', 'created_at')
     sort_order = request.args.get('order', 'desc')
-    allowed_sorts = {'code', 'name', 'spec', 'category_id', 'supplier_id', 'stock', 'price', 'created_at'}
+    allowed_sorts = {'code', 'name', 'brand', 'spec', 'category_id', 'supplier_id', 'stock', 'price', 'created_at'}
     if sort_by not in allowed_sorts:
         sort_by = 'created_at'
     if sort_order not in ('asc', 'desc'):
@@ -40552,6 +40569,7 @@ def export_material():
             db.or_(
                 Material.code.like(f'%{search}%'),
                 Material.name.like(f'%{search}%'),
+                Material.brand.like(f'%{search}%'),
                 Material.spec.like(f'%{search}%')
             )
         )
@@ -40565,7 +40583,7 @@ def export_material():
         flash(f'当前筛选结果 {total_rows} 条，超过系统参数设置的导出上限 {max_rows} 条，请缩小筛选范围后再导出。', 'warning')
         return redirect(url_for('material_list', search=search, stock_filter=stock_filter, sort=sort_by, order=sort_order))
     for m in query.all():
-        row = [m.code, m.name, m.spec or '', m.unit.name if m.unit else '', m.category.name if m.category else '', m.supplier.name if m.supplier else '', m.stock or 0, m.price or 0]
+        row = [m.code, m.name, m.brand or '', m.spec or '', m.unit.name if m.unit else '', m.category.name if m.category else '', m.supplier.name if m.supplier else '', m.stock or 0, m.price or 0]
         if inventory_alert_enabled():
             safety_stock = max(m.reorder_point or 0, m.min_stock or 0)
             row.extend([m.min_stock or 0, safety_stock])
@@ -40604,6 +40622,8 @@ def import_material():
                 col_map['code'] = idx
             elif '名称' in h or '名字' in h:
                 col_map['name'] = idx
+            elif '品牌' in h or h.lower() == 'brand':
+                col_map['brand'] = idx
             elif h == '规格' or '规格' in h:
                 col_map['spec'] = idx
             elif h == '单位' or '单位' in h:
@@ -40647,6 +40667,11 @@ def import_material():
                 skip_details.append(f'第{row_idx}行：编码{code}已存在')
                 continue
             spec = str(row[col_map['spec']]).strip() if 'spec' in col_map and len(row) > col_map['spec'] and row[col_map['spec']] else ''
+            brand = str(row[col_map['brand']]).strip() if 'brand' in col_map and len(row) > col_map['brand'] and row[col_map['brand']] else ''
+            if len(brand) > 100:
+                skip += 1
+                skip_details.append(f'第{row_idx}行：品牌不能超过100个字符')
+                continue
             unit_name = str(row[col_map['unit']]).strip() if 'unit' in col_map and len(row) > col_map['unit'] and row[col_map['unit']] else ''
             unit = None
             if unit_name:
@@ -40712,6 +40737,7 @@ def import_material():
             material = Material(
                 code=code,
                 name=name,
+                brand=brand or None,
                 spec=spec,
                 stock=0,
                 price=price_val,
@@ -42385,8 +42411,8 @@ def export_material_template():
     wb = Workbook()
     ws = wb.active
     ws.title = '物料导入模板'
-    headers = ['物料编码', '物料名称', '规格', '单位', '分类', '供应商', '单价']
-    example = ['MAT001', '示例物料', '规格A', '个', '原材料', '示例供应商', 0]
+    headers = ['物料编码', '物料名称', '品牌', '规格', '单位', '分类', '供应商', '单价']
+    example = ['MAT001', '示例物料', 'ABB', '规格A', '个', '原材料', '示例供应商', 0]
     if inventory_alert_enabled():
         headers.extend(['最低库存', '安全库存'])
         example.extend([0, 0])

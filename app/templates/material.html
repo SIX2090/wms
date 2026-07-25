@@ -29,7 +29,7 @@
             </select>
             {% endif %}
             <input type="hidden" name="category_id" value="{{ category_id or '' }}" id="materialCategoryFilter">
-            <input type="text" name="search" class="form-control flex-grow-1" style="min-width: 260px;" placeholder="搜索物料编码/名称/规格..." value="{{ request.args.get('search', '') }}">
+            <input type="text" name="search" class="form-control flex-grow-1" style="min-width: 260px;" placeholder="搜索物料编码/名称/品牌/规格..." value="{{ request.args.get('search', '') }}">
             <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> 搜索</button>
             {% if request.args.get('search') or stock_filter or category_id %}
             <a href="/material{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary">清除</a>
@@ -72,6 +72,7 @@
                     <th width="50" data-column-key="select"><input type="checkbox" id="checkAll"></th>
                     <th data-column-key="code" data-sortable="code" class="sortable-header">物料编码 {% if sort_by=='code' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
                     <th data-column-key="name" data-sortable="name" class="sortable-header">物料名称 {% if sort_by=='name' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="brand" data-sortable="brand" class="sortable-header">品牌 {% if sort_by=='brand' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
                     <th data-column-key="spec" data-sortable="spec" class="sortable-header">规格 {% if sort_by=='spec' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
                     <th data-column-key="unit">单位<span class="col-resize"></span></th>
                     <th data-column-key="category" data-sortable="category_id" class="sortable-header">分类 {% if sort_by=='category_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
@@ -94,6 +95,7 @@
                     <td data-column-key="select"><input type="checkbox" class="check-item" value="{{ mat.id }}"></td>
                     <td data-column-key="code">{{ mat.code }}</td>
                     <td data-column-key="name">{{ mat.name }}</td>
+                    <td data-column-key="brand">{{ mat.brand or '-' }}</td>
                     <td data-column-key="spec">{{ mat.spec or '-' }}</td>
                     <td data-column-key="unit">{{ mat.unit.name if mat.unit else '-' }}</td>
                     <td data-column-key="category">{{ mat.category.name if mat.category else '-' }}</td>
@@ -288,19 +290,25 @@
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <div class="mb-3">
                                 <label class="form-label">规格</label>
                                 <input type="text" class="form-control" name="spec" id="add_spec">
                             </div>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">品牌</label>
+                                <input type="text" class="form-control" name="brand" id="add_brand" maxlength="100" placeholder="如 ABB、施耐德">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
                             <div class="mb-3">
                                 <label class="form-label">用途</label>
                                 <input type="text" class="form-control" name="purpose" id="add_purpose">
                             </div>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <div class="mb-3">
                                 <label class="form-label">单价</label>
                                 <input type="number" class="form-control" name="price" id="add_price" value="0" step="0.01">
@@ -424,19 +432,25 @@
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <div class="mb-3">
                                 <label class="form-label">规格</label>
                                 <input type="text" class="form-control" name="spec" id="edit_spec">
                             </div>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">品牌</label>
+                                <input type="text" class="form-control" name="brand" id="edit_brand" maxlength="100" placeholder="如 ABB、施耐德">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
                             <div class="mb-3">
                                 <label class="form-label">用途</label>
                                 <input type="text" class="form-control" name="purpose" id="edit_purpose">
                             </div>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <div class="mb-3">
                                 <label class="form-label">单价</label>
                                 <input type="number" class="form-control" name="price" id="edit_price" value="0" step="0.01">
@@ -750,7 +764,7 @@
                 <div class="modal-body">
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle"></i>
-                        请上传 Excel 文件（.xlsx），表头需包含：物料编码、物料名称、规格、单位、分类、供应商、单价。请先下载模板参考格式。导入时按表头名称自动匹配列，列顺序不限。
+                        请上传 Excel 文件（.xlsx），表头需包含：物料编码、物料名称、品牌、规格、单位、分类、供应商、单价。请先下载模板参考格式。导入时按表头名称自动匹配列，列顺序不限。
                     </div>
                     <div class="mb-3">
                         <label class="form-label">选择文件 *</label>
@@ -1379,6 +1393,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     setQuickSelectValue('edit_unit_id', mat.unit_id || '');
                     setQuickSelectValue('edit_supplier_id', mat.supplier_id || '');
                     document.getElementById('edit_spec').value = mat.spec || '';
+                    document.getElementById('edit_brand').value = mat.brand || '';
                     document.getElementById('edit_purpose').value = mat.purpose || '';
                     document.getElementById('edit_price').value = mat.price || 0;
                     setInputValueIfExists('edit_min_stock', mat.min_stock || 0);
@@ -1421,6 +1436,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         setQuickSelectValue('add_unit_id', mat.unit_id || '');
                         setQuickSelectValue('add_supplier_id', mat.supplier_id || '');
                         document.getElementById('add_spec').value = mat.spec || '';
+                        document.getElementById('add_brand').value = mat.brand || '';
                         document.getElementById('add_purpose').value = mat.purpose || '';
                         document.getElementById('add_price').value = mat.price || 0;
                         setInputValueIfExists('add_min_stock', mat.min_stock || 0);
@@ -1786,7 +1802,7 @@ if (cellFieldSelect) {
     cellFieldSelect.addEventListener('change', function() {
         if (selectedCell && this.value) {
             var labels = {
-                code: '物料编码', name: '物料名称', spec: '规格', unit_name: '单位',
+                code: '物料编码', name: '物料名称', brand: '品牌', spec: '规格', unit_name: '单位',
                 category_name: '分类', stock: '库存', price: '单价', barcode: '条码',
                 date: '日期', supplier_name: '供应商'
             };

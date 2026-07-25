@@ -11,22 +11,28 @@
         <form id="addMaterialForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row">
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <div class="mb-3">
                         <label class="form-label">物料编码 <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="code" required>
                     </div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <div class="mb-3">
                         <label class="form-label">物料名称 <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="name" required>
                     </div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <div class="mb-3">
                         <label class="form-label">规格型号</label>
                         <input type="text" class="form-control" name="spec">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-3">
+                        <label class="form-label">品牌</label>
+                        <input type="text" class="form-control" name="brand" maxlength="100" placeholder="如 ABB、施耐德">
                     </div>
                 </div>
             </div>
