@@ -548,6 +548,22 @@ textarea.form-control {
                         </select>
                     </div>
                 </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">合同编号</label>
+                        <div class="contract-input" style="position:relative;">
+                            <input type="text" id="contractSearch" name="contract_no" placeholder="搜索合同编号/工程..." autocomplete="off" style="width:100%;border:1px solid #d9d9d9;padding:6px 10px;border-radius:4px;font-size:13px;" value="{{ order.contract_no if order and order.contract_no else '' }}">
+                            <input type="hidden" name="contract_id" id="contractIdHidden" value="{{ order.contract_id if order and order.contract_id else '' }}">
+                            <div id="contractDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;min-width:100%;max-height:220px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">工程名称</label>
+                        <input type="text" class="form-control" id="projectNameInput" name="project_name" value="{{ order.project_name if order and order.project_name else '' }}" placeholder="选中合同自动填充，也可手填">
+                    </div>
+                </div>
                 <div class="col-md-9">
                     <div class="mb-2">
                         <label class="form-label">备注</label>
@@ -1105,6 +1121,104 @@ textarea.form-control {
         addRow();
     }
     ensureBlankRows(15);
+})();
+</script>
+
+<script>
+// ==================== 合同搜索 + 工程名称向下填充 ====================
+(function() {
+    const contracts = [];
+    let activeIdx = -1;
+    const searchInput = document.getElementById('contractSearch');
+    const dropdown = document.getElementById('contractDropdown');
+    const idHidden = document.getElementById('contractIdHidden');
+    const projectNameInput = document.getElementById('projectNameInput');
+    if (!searchInput || !dropdown) return;
+
+    function esc(s) {
+        if (s === null || s === undefined) return '';
+        return String(s).replace(/[&<>"']/g, function(ch) {
+            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+        });
+    }
+
+    function render(list) {
+        if (!list.length) { dropdown.style.display = 'none'; return; }
+        dropdown.innerHTML = list.map(function(c, i) {
+            return '<div class="contract-item" data-idx="' + i + '" data-id="' + esc(c.id) + '" ' +
+                'style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;">' +
+                '<span style="font-weight:bold;color:#0052cc;">' + esc(c.contract_no) + '</span>' +
+                ' <span style="color:#666;">— ' + esc(c.project_name) + '</span>' +
+                '</div>';
+        }).join('');
+        dropdown.style.display = 'block';
+        activeIdx = -1;
+        dropdown.querySelectorAll('.contract-item').forEach(function(item) {
+            item.addEventListener('click', function() {
+                const idx = parseInt(this.dataset.idx);
+                const c = list[idx];
+                searchInput.value = c.contract_no || '';
+                idHidden.value = c.id || '';
+                if (projectNameInput) projectNameInput.value = c.project_name || '';
+                dropdown.style.display = 'none';
+            });
+            item.addEventListener('mouseenter', function() {
+                dropdown.querySelectorAll('.contract-item').forEach(function(el) { el.style.backgroundColor = ''; });
+                this.style.backgroundColor = '#e6f7ff';
+                activeIdx = parseInt(this.dataset.idx);
+            });
+        });
+    }
+
+    function filterContracts(keyword) {
+        const kw = keyword.toLowerCase();
+        return contracts.filter(function(c) {
+            return (c.contract_no || '').toLowerCase().indexOf(kw) !== -1 ||
+                   (c.project_name || '').toLowerCase().indexOf(kw) !== -1;
+        });
+    }
+
+    searchInput.addEventListener('input', function() {
+        const kw = this.value.trim();
+        idHidden.value = '';
+        if (!kw) { dropdown.style.display = 'none'; return; }
+        render(filterContracts(kw));
+    });
+
+    searchInput.addEventListener('focus', function() {
+        if (this.value.trim()) {
+            this.dispatchEvent(new Event('input'));
+        } else {
+            render(contracts);
+        }
+    });
+
+    searchInput.addEventListener('keydown', function(e) {
+        const items = dropdown.querySelectorAll('.contract-item');
+        if (!items.length) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIdx = Math.min(activeIdx + 1, items.length - 1);
+            items.forEach(function(el, i) { el.style.backgroundColor = i === activeIdx ? '#e6f7ff' : ''; });
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIdx = Math.max(activeIdx - 1, 0);
+            items.forEach(function(el, i) { el.style.backgroundColor = i === activeIdx ? '#e6f7ff' : ''; });
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (activeIdx >= 0 && items[activeIdx]) items[activeIdx].click();
+        } else if (e.key === 'Escape') {
+            dropdown.style.display = 'none';
+        }
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.contract-input')) dropdown.style.display = 'none';
+    });
+
+    fetch('/api/contracts').then(function(r) { return r.json(); }).then(function(list) {
+        if (Array.isArray(list)) { list.forEach(function(c) { contracts.push(c); }); }
+    }).catch(function(err) { console.warn('合同列表加载失败:', err); });
 })();
 </script>
 {% endblock %}

@@ -97,6 +97,8 @@
                     <th>单价</th>
                     <th data-sortable="total_amount" class="sortable-header">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="purpose" class="sortable-header">用途 {% if sort_by=='purpose' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th>合同编号</th>
+                    <th>工程名称</th>
                     <th>来源状态</th>
                     <th data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th width="90">操作</th>
@@ -124,6 +126,8 @@
                     <td>{% if item.material %}¥{{ "%.2f"|format(item.price) }}{% else %}-{% endif %}</td>
                     <td>{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
                     <td>{{ item.in_order.purpose or '-' }}</td>
+                    <td>{{ item.in_order.contract_no or '-' }}</td>
+                    <td>{{ item.in_order.project_name or '-' }}</td>
                     <td data-source-status="{{ item.source_purchase_order.status if item.source_purchase_order else '' }}">
                         {% if item.source_purchase_order %}
                             {% if item.source_purchase_order.status == 'completed' %}

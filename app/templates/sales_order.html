@@ -120,6 +120,8 @@
                         <th>客户</th>
                         <th>业务员</th>
                         <th>项目号</th>
+                        <th>合同编号</th>
+                        <th>工程名称</th>
                         <th data-sortable="delivery_date" class="sortable-header">交货日期 {% if sort_by=='delivery_date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                         <th class="text-end">未税金额</th>
                         <th class="text-end">税额</th>
@@ -141,6 +143,8 @@
                         <td>{{ order.customer.name if order.customer else '-' }}</td>
                         <td>{{ order.salesperson.name if order.salesperson else '-' }}</td>
                         <td>{{ order.project_no or '-' }}</td>
+                        <td>{{ order.contract_no or '-' }}</td>
+                        <td>{{ order.project_name or '-' }}</td>
                         <td>
                             {{ order.delivery_date.strftime('%Y-%m-%d') if order.delivery_date else '-' }}
                             {% if order.delivery_date and order.delivery_date < today and order.status in ['draft', 'confirmed'] and order.shipment_status != 'shipped' %}

@@ -86,6 +86,8 @@
                     <th>单价</th>
                     <th data-sortable="total_amount" class="sortable-header">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="business_type" class="sortable-header">业务类型 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th>合同编号</th>
+                    <th>工程名称</th>
                     <th data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th width="90">操作</th>
                 </tr>
@@ -106,6 +108,8 @@
                     <td>{% if item.material %}¥{{ "%.2f"|format(item.price) }}{% else %}-{% endif %}</td>
                     <td>{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
                     <td>{{ item.out_order.business_type or item.out_order.purpose or '-' }}</td>
+                    <td>{{ item.out_order.contract_no or '-' }}</td>
+                    <td>{{ item.out_order.project_name or '-' }}</td>
                     <td>
                         {{ list_macros.status_badge(item.out_order.status, 'outbound') }}
                     </td>

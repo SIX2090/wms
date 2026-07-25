@@ -593,6 +593,40 @@ def auto_migrate_database():
             cursor.execute("UPDATE material SET category_id = ? WHERE category_id IS NULL OR category_id = 0", (default_cat_id,))
             modified = True
 
+        # ===== 合同/工程档案主数据 + 4 类单据合同字段迁移 =====
+        # 1. 创建 contract 表（精简档案：合同编号 + 工程名称 + 状态 + 备注）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS contract (
+                id INTEGER PRIMARY KEY,
+                contract_no VARCHAR(50) NOT NULL UNIQUE,
+                project_name VARCHAR(200) NOT NULL,
+                status VARCHAR(20) DEFAULT 'active',
+                remark VARCHAR(500),
+                created_at DATETIME
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_contract_no ON contract(contract_no)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_contract_status ON contract(status)")
+        # 2. 给 4 类订单表加 contract_id / contract_no / project_name 字段
+        # 冗余文本字段保证合同档案后续编辑或停用时历史单据保留原始值
+        for _tbl in ('in_order', 'out_order', 'purchase_order', 'sales_order'):
+            cursor.execute(f"PRAGMA table_info({_tbl})")
+            _existing = [row[1] for row in cursor.fetchall()]
+            if not _existing:
+                continue
+            if 'contract_id' not in _existing:
+                cursor.execute(f"ALTER TABLE {_tbl} ADD COLUMN contract_id INTEGER")
+                modified = True
+            if 'contract_no' not in _existing:
+                cursor.execute(f"ALTER TABLE {_tbl} ADD COLUMN contract_no VARCHAR(50)")
+                modified = True
+            if 'project_name' not in _existing:
+                cursor.execute(f"ALTER TABLE {_tbl} ADD COLUMN project_name VARCHAR(200)")
+                modified = True
+            cursor.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{_tbl}_contract_id ON {_tbl}(contract_id)"
+            )
+
         if modified:
             conn.commit()
     except Exception as e:
@@ -2389,6 +2423,26 @@ class Department(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
 
+class Contract(db.Model):
+    """合同/工程档案主数据（精简版）。
+
+    用于在采购入库单、领料出库单、采购订单、销售订单头上标记所属合同与工程，
+    便于按合同/工程维度归集与筛选。订单表同时冗余 contract_no/project_name 文本，
+    合同档案后续编辑或停用时历史单据保留原始值。
+    """
+    __tablename__ = 'contract'
+    __table_args__ = (
+        db.Index('idx_contract_no', 'contract_no'),
+        db.Index('idx_contract_status', 'status'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    contract_no = db.Column(db.String(50), unique=True, nullable=False)  # 合同编号（如 HD260713）
+    project_name = db.Column(db.String(200), nullable=False)  # 工程名称
+    status = db.Column(db.String(20), default='active')  # active/inactive
+    remark = db.Column(db.String(500))  # 备注（可记订货单位、型号等自由文本）
+    created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
+
+
 class Material(db.Model):
     """Material master data."""
     __tablename__ = 'material'
@@ -3232,6 +3286,9 @@ class InOrder(db.Model):
     warehouse = db.Column(db.String(100))  # Warehouse name
     source_purchase_order_id = db.Column(db.Integer, db.ForeignKey('purchase_order.id'))
     remark = db.Column(db.String(200))  # Remark
+    contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
+    contract_no = db.Column(db.String(50))  # 冗余合同编号（合同变更后历史单据不变）
+    project_name = db.Column(db.String(200))  # 冗余工程名称
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     total_amount = db.Column(db.Float, default=0)  # Amount
@@ -3240,6 +3297,7 @@ class InOrder(db.Model):
     supplier = db.relationship('Supplier', backref='in_orders')  # Related supplier
     operator = db.relationship('User', backref='in_orders')  # Operator
     source_purchase_order = db.relationship('PurchaseOrder', backref='in_orders')
+    contract = db.relationship('Contract', backref='in_orders')  # 关联合同档案
 
 
 class InOrderItem(db.Model):
@@ -3277,6 +3335,9 @@ class OutOrder(db.Model):
     purpose = db.Column(db.String(200))  # Outbound purpose
     source_sales_order_id = db.Column(db.Integer, db.ForeignKey('sales_order.id'))  # 关联销售订单ID（外键，替代 purpose 字符串解析）
     remark = db.Column(db.String(200))  # Remark
+    contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
+    contract_no = db.Column(db.String(50))  # 冗余合同编号（合同变更后历史单据不变）
+    project_name = db.Column(db.String(200))  # 冗余工程名称
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     total_amount = db.Column(db.Float, default=0)  # Amount
@@ -3285,6 +3346,7 @@ class OutOrder(db.Model):
     department = db.relationship('Department', backref='out_orders')  # Related department
     operator = db.relationship('User', backref='out_orders')  # Operator
     source_sales_order = db.relationship('SalesOrder', backref='outbound_orders', foreign_keys=[source_sales_order_id])  # 关联销售订单
+    contract = db.relationship('Contract', backref='out_orders')  # 关联合同档案
 
 
 class OutOrderItem(db.Model):
@@ -4072,6 +4134,9 @@ class PurchaseOrder(db.Model):
     expected_date = db.Column(db.Date)
     status = db.Column(db.String(20), default='pending')  # pending/partial/completed
     remark = db.Column(db.String(500))
+    contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
+    contract_no = db.Column(db.String(50))  # 冗余合同编号（合同变更后历史单据不变）
+    project_name = db.Column(db.String(200))  # 冗余工程名称
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     total_amount = db.Column(db.Float, default=0)
     created_at = db.Column(db.DateTime, default=datetime.now)
@@ -4079,6 +4144,7 @@ class PurchaseOrder(db.Model):
     supplier = db.relationship('Supplier', backref='purchase_orders')
     purchase_request = db.relationship('PurchaseRequest', backref='purchase_orders')
     operator = db.relationship('User', backref='purchase_orders')
+    contract = db.relationship('Contract', backref='purchase_orders')  # 关联合同档案
 
 
 class PurchaseOrderItem(db.Model):
@@ -4135,12 +4201,16 @@ class SalesOrder(db.Model):
     project_no = db.Column(db.String(100))
     currency = db.Column(db.String(20), default='CNY')
     settlement_method = db.Column(db.String(50))
+    contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
+    contract_no = db.Column(db.String(50))  # 冗余合同编号（合同变更后历史单据不变）
+    project_name = db.Column(db.String(200))  # 冗余工程名称（与 project_no 自由文本字段独立）
     created_at = db.Column(db.DateTime, default=datetime.now)
 
     customer = db.relationship('Customer', backref='sales_orders')
     operator = db.relationship('User', backref='sales_orders')
     salesperson = db.relationship('Employee', backref='sales_orders')
     warehouse_ref = db.relationship('Warehouse', backref='sales_orders_by_warehouse', foreign_keys=[warehouse_id])
+    contract = db.relationship('Contract', backref='sales_orders')  # 关联合同档案
 
 
 class SalesOrderItem(db.Model):
@@ -7866,6 +7936,273 @@ def import_department():
     except Exception:
         db.session.rollback()
         return jsonify({'status': 'error', 'msg': '部门导入失败'})
+
+
+# ==================== 合同/工程档案 ====================
+
+def _contract_delete_blockers(contract):
+    """检查合同是否被业务单据引用，返回阻断原因列表。"""
+    blockers = []
+    refs = []
+    if InOrder.query.filter_by(contract_id=contract.id).count() > 0:
+        refs.append('采购入库单')
+    if OutOrder.query.filter_by(contract_id=contract.id).count() > 0:
+        refs.append('领料出库单')
+    if PurchaseOrder.query.filter_by(contract_id=contract.id).count() > 0:
+        refs.append('采购订单')
+    if SalesOrder.query.filter_by(contract_id=contract.id).count() > 0:
+        refs.append('销售订单')
+    if refs:
+        blockers.append('已被' + '、'.join(refs) + '引用')
+    return blockers
+
+
+@app.route('/contract')
+@login_required
+def contract_list():
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    per_page = max(1, per_page)
+    if per_page not in [20, 50, 100, 200]:
+        per_page = 20
+    search = (request.args.get('search') or '').strip()
+    status = (request.args.get('status') or '').strip()
+    sort_by = (request.args.get('sort') or 'created_at').strip()
+    sort_order = (request.args.get('order') or 'desc').strip()
+    query = Contract.query
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(
+            Contract.contract_no.ilike(like),
+            Contract.project_name.ilike(like),
+            Contract.remark.ilike(like),
+        ))
+    if status in ('active', 'inactive'):
+        query = query.filter(Contract.status == status)
+    sort_map = {
+        'contract_no': Contract.contract_no,
+        'project_name': Contract.project_name,
+        'status': Contract.status,
+        'created_at': Contract.created_at,
+    }
+    sort_col = sort_map.get(sort_by, Contract.created_at)
+    query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc())
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return render_template('contract.html', contracts=pagination.items, pagination=pagination,
+                           filters={'search': search, 'status': status},
+                           sort_by=sort_by, sort_order=sort_order, per_page=per_page)
+
+
+@app.route('/contract/add', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def add_contract():
+    contract_no = request.form.get('contract_no', '').strip()
+    if not contract_no:
+        return jsonify({'status': 'error', 'msg': '请输入合同编号'})
+    project_name = request.form.get('project_name', '').strip()
+    if not project_name:
+        return jsonify({'status': 'error', 'msg': '请输入工程名称'})
+    if Contract.query.filter_by(contract_no=contract_no).first():
+        return jsonify({'status': 'error', 'msg': '合同编号已存在'})
+    contract = Contract(
+        contract_no=contract_no,
+        project_name=project_name,
+        status=request.form.get('status', 'active'),
+        remark=request.form.get('remark', '').strip() or None
+    )
+    try:
+        db.session.add(contract)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'新增合同失败: {e}')
+        return jsonify({'status': 'error', 'msg': '新增失败，请稍后重试'}), 500
+    return jsonify({'status': 'success', 'msg': '新增成功'})
+
+
+@app.route('/contract/<int:id>')
+@login_required
+def get_contract(id):
+    contract = db.session.get(Contract, id)
+    if not contract:
+        return jsonify({'status': 'error', 'msg': '合同不存在'}), 404
+    return jsonify({
+        'status': 'success',
+        'contract': {
+            'id': contract.id,
+            'contract_no': contract.contract_no,
+            'project_name': contract.project_name,
+            'status': contract.status,
+            'remark': contract.remark
+        }
+    })
+
+
+@app.route('/contract/<int:id>/edit', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def edit_contract(id):
+    contract = db.session.get(Contract, id)
+    if not contract:
+        return jsonify({'status': 'error', 'msg': '合同不存在'}), 404
+    contract_no = request.form.get('contract_no', '').strip()
+    if not contract_no:
+        return jsonify({'status': 'error', 'msg': '请输入合同编号'})
+    project_name = request.form.get('project_name', '').strip()
+    if not project_name:
+        return jsonify({'status': 'error', 'msg': '请输入工程名称'})
+    existing = Contract.query.filter(Contract.contract_no == contract_no, Contract.id != id).first()
+    if existing:
+        return jsonify({'status': 'error', 'msg': '合同编号已存在'})
+    contract.contract_no = contract_no
+    contract.project_name = project_name
+    contract.status = request.form.get('status', 'active')
+    contract.remark = request.form.get('remark', '').strip() or None
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'编辑合同失败: {e}')
+        return jsonify({'status': 'error', 'msg': '编辑失败，请稍后重试'}), 500
+    return jsonify({'status': 'success', 'msg': '编辑成功'})
+
+
+@app.route('/contract/<int:id>/delete', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def delete_contract(id):
+    contract = db.session.get(Contract, id)
+    if not contract:
+        return jsonify({'status': 'error', 'msg': '合同不存在'}), 404
+    blockers = _contract_delete_blockers(contract)
+    if blockers:
+        return jsonify({'status': 'error', 'msg': '该合同已有业务数据，不能删除：' + _format_delete_blockers(blockers)})
+    try:
+        db.session.delete(contract)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'删除合同失败: {e}')
+        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
+    return jsonify({'status': 'success', 'msg': '删除成功'})
+
+
+@app.route('/contract/delete', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def batch_delete_contract_master():
+    ids = (request.get_json(silent=True) or {}).get('ids', [])
+    deleted = 0
+    blocked = []
+    for item_id in ids:
+        contract = db.session.get(Contract, int(item_id)) if str(item_id).isdigit() else None
+        if contract:
+            blockers = _contract_delete_blockers(contract)
+            if blockers:
+                blocked.append(f'{contract.contract_no}（{_format_delete_blockers(blockers)}）')
+                continue
+            db.session.delete(contract)
+            deleted += 1
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'批量删除合同失败: {e}')
+        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
+    if blocked:
+        return jsonify({
+            'status': 'error' if deleted == 0 else 'success',
+            'msg': f'已删除 {deleted} 个合同，以下合同有关联数据未删除：' + '；'.join(blocked)
+        })
+    return jsonify({'status': 'success', 'msg': f'已删除 {deleted} 个合同'})
+
+
+@app.route('/contract/api/list')
+@login_required
+def contract_api_list():
+    """合同列表API - 只返回启用的合同（给下拉用）"""
+    contracts = Contract.query.filter_by(status='active').order_by(Contract.contract_no).all()
+    return jsonify({
+        'contracts': [{
+            'id': c.id,
+            'contract_no': c.contract_no,
+            'project_name': c.project_name
+        } for c in contracts]
+    })
+
+
+@app.route('/api/contracts')
+@login_required
+def api_contracts_search():
+    """合同搜索API - 给单据头合同搜索框用，支持 keyword 模糊匹配 contract_no 或 project_name"""
+    keyword = (request.args.get('keyword') or request.args.get('q') or '').strip()
+    query = Contract.query
+    if keyword:
+        like = f'%{keyword}%'
+        query = query.filter(db.or_(
+            Contract.contract_no.ilike(like),
+            Contract.project_name.ilike(like),
+        ))
+    contracts = query.order_by(Contract.contract_no).limit(50).all()
+    return jsonify({
+        'contracts': [{
+            'id': c.id,
+            'contract_no': c.contract_no,
+            'project_name': c.project_name,
+            'remark': c.remark or ''
+        } for c in contracts]
+    })
+
+
+@app.route('/contract/download_template')
+@login_required
+def download_contract_template():
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '合同档案导入模板'
+    ws.append(['合同编号', '工程名称', '状态', '备注'])
+    ws.append(['HD260713', '厚街医院新医疗综合大楼变配电工程', 'active', ''])
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, download_name='contract_template.xlsx', as_attachment=True)
+
+
+@app.route('/contract/export')
+@login_required
+def export_contract():
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '合同档案数据'
+    ws.append(['合同编号', '工程名称', '状态', '备注', '创建时间'])
+    search = (request.args.get('search') or '').strip()
+    status = (request.args.get('status') or '').strip()
+    query = Contract.query
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(
+            Contract.contract_no.ilike(like),
+            Contract.project_name.ilike(like),
+            Contract.remark.ilike(like),
+        ))
+    if status in ('active', 'inactive'):
+        query = query.filter(Contract.status == status)
+    for contract in query.order_by(Contract.created_at.desc()).all():
+        status_label = '启用' if contract.status == 'active' else ('停用' if contract.status == 'inactive' else (contract.status or ''))
+        ws.append([
+            contract.contract_no,
+            contract.project_name,
+            status_label,
+            contract.remark or '',
+            contract.created_at.strftime('%Y-%m-%d %H:%M') if contract.created_at else ''
+        ])
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, download_name='contracts.xlsx', as_attachment=True)
 
 
 @app.route('/material/<int:id>/copy', methods=['POST'])
@@ -23256,6 +23593,9 @@ def in_order_list():
     if business_type_filter:
         query = query.filter(InOrder.business_type == business_type_filter)
     query = _apply_in_order_search(query, search)
+    contract_no_filter = (request.args.get('contract_no') or '').strip()
+    if contract_no_filter:
+        query = query.filter(InOrder.contract_no.like(f'%{contract_no_filter}%'))
     if sort_order == 'asc':
         query = query.order_by(sort_col.asc())
     else:
@@ -23430,6 +23770,11 @@ def add_in_order():
         remark = (request.form.get('remark') or '').strip()
         items_data = []
 
+    # 合同/工程字段（JSON 与表单两种模式统一提取）
+    contract_id = (data.get('contract_id') if request.is_json else request.form.get('contract_id'))
+    contract_no = ((data.get('contract_no') if request.is_json else request.form.get('contract_no')) or '').strip()
+    project_name = ((data.get('project_name') if request.is_json else request.form.get('project_name')) or '').strip()
+
     if request.is_json:
         if not isinstance(items_data, list) or not items_data:
             return jsonify({'status': 'error', 'msg': '入库单至少需要一条明细'}), 400
@@ -23505,6 +23850,9 @@ def add_in_order():
         order.purpose = purpose
         order.warehouse = warehouse
         order.remark = remark
+        order.contract_id = int(contract_id) if contract_id else None
+        order.contract_no = contract_no or None
+        order.project_name = project_name or None
 
         source_item_updates = []
         source_purchase_order_ids = set()
@@ -30815,6 +31163,9 @@ def out_order_list():
     )
     query = _apply_status_date_filters(query, OutOrder, status_filter, date_start, date_end)
     query = _apply_out_order_search(query, search)
+    contract_no_filter = (request.args.get('contract_no') or '').strip()
+    if contract_no_filter:
+        query = query.filter(OutOrder.contract_no.like(f'%{contract_no_filter}%'))
     # 领料明细默认排除"销售出库"（销售出库归销售管理，见 /sales/outflow_report），
     # 避免销售单据混入仓库领料明细。显式传 business_type=销售出库 时仍可查看。
     explicit_bt = (request.args.get('business_type') or '').strip()
@@ -30910,6 +31261,9 @@ def add_out_order():
         customer = (data.get('customer') or '').strip()
         warehouse = (data.get('warehouse') or '').strip()
         remark = (data.get('remark') or '').strip()
+        contract_id = data.get('contract_id')
+        contract_no = (data.get('contract_no') or '').strip()
+        project_name = (data.get('project_name') or '').strip()
 
         sales_warehouse = None
         if business_type == '销售出库':
@@ -30958,6 +31312,9 @@ def add_out_order():
         order.customer = customer
         order.warehouse = warehouse
         order.remark = remark
+        order.contract_id = int(contract_id) if contract_id else None
+        order.contract_no = contract_no or None
+        order.project_name = project_name or None
 
         submitted_items = []
         if isinstance(payload, dict):
@@ -32847,6 +33204,9 @@ def purchase_order_list():
             Supplier.name.like(search_like),
             PurchaseRequest.request_no.like(search_like),
         ))
+    contract_no_filter = (request.args.get('contract_no') or '').strip()
+    if contract_no_filter:
+        query = query.filter(PurchaseOrder.contract_no.like(f'%{contract_no_filter}%'))
 
     sort_col = getattr(PurchaseOrder, sort_by, PurchaseOrder.created_at)
     query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc())
@@ -33142,6 +33502,9 @@ def save_purchase_order():
             supplier = _find_or_create_supplier(supplier_name)
             supplier_id = supplier.id if supplier else None
         remark = (data.get('remark') or '').strip()
+        contract_id = data.get('contract_id')
+        contract_no = (data.get('contract_no') or '').strip()
+        project_name = (data.get('project_name') or '').strip()
 
         if order_id:
             order = db.session.get(PurchaseOrder, order_id)
@@ -33184,6 +33547,9 @@ def save_purchase_order():
         order.expected_date = expected_date
         order.supplier_id = supplier_id
         order.remark = remark
+        order.contract_id = int(contract_id) if contract_id else None
+        order.contract_no = contract_no or None
+        order.project_name = project_name or None
 
         order_total = 0
         for item_data in valid_items:
@@ -41754,6 +42120,9 @@ def sales_order_list():
     if search:
         like = f'%{search}%'
         query = query.filter(db.or_(SalesOrder.order_no.like(like), Customer.name.like(like), Customer.code.like(like), Material.code.like(like), Material.name.like(like), SalesOrder.project_no.like(like)))
+    contract_no_filter = (request.args.get('contract_no') or '').strip()
+    if contract_no_filter:
+        query = query.filter(SalesOrder.contract_no.like(f'%{contract_no_filter}%'))
     if status:
         query = query.filter(SalesOrder.status == status)
     if customer_id:
@@ -42058,6 +42427,7 @@ def sales_order_add():
         )
         if warehouse_error:
             return jsonify({'status': 'error', 'msg': warehouse_error}), 400
+        _contract_id_raw = (payload.get('contract_id') or '').strip()
         order = SalesOrder(
             order_no=(payload.get('order_no') or '').strip() or generate_sales_order_no(),
             customer_id=customer.id,
@@ -42071,6 +42441,9 @@ def sales_order_add():
             project_no=(payload.get('project_no') or '').strip() or None,
             currency=(payload.get('currency') or '').strip() or 'CNY',
             settlement_method=(payload.get('settlement_method') or '').strip() or None,
+            contract_id=int(_contract_id_raw) if _contract_id_raw else None,
+            contract_no=(payload.get('contract_no') or '').strip() or None,
+            project_name=(payload.get('project_name') or '').strip() or None,
             status='draft',
         )
         db.session.add(order)
@@ -42367,6 +42740,10 @@ def sales_order_edit(id):
         order.project_no = (payload.get('project_no') or '').strip() or None
         order.currency = (payload.get('currency') or '').strip() or 'CNY'
         order.settlement_method = (payload.get('settlement_method') or '').strip() or None
+        _edit_contract_id = (payload.get('contract_id') or '').strip()
+        order.contract_id = int(_edit_contract_id) if _edit_contract_id else None
+        order.contract_no = (payload.get('contract_no') or '').strip() or None
+        order.project_name = (payload.get('project_name') or '').strip() or None
         # 删除旧明细，重建新明细（草稿状态无出库记录，可安全重建）
         SalesOrderItem.query.filter_by(sales_order_id=order.id).delete()
         db.session.flush()
@@ -42904,6 +43281,9 @@ def export_sales_orders():
     if search:
         like = f'%{search}%'
         query = query.filter(db.or_(SalesOrder.order_no.like(like), Customer.name.like(like), Customer.code.like(like), Material.code.like(like), Material.name.like(like), SalesOrder.project_no.like(like)))
+    contract_no_filter = (request.args.get('contract_no') or '').strip()
+    if contract_no_filter:
+        query = query.filter(SalesOrder.contract_no.like(f'%{contract_no_filter}%'))
     if status:
         query = query.filter(SalesOrder.status == status)
     if customer_id:

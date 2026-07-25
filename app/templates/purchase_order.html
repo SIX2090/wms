@@ -114,6 +114,8 @@
                         <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                         <th>供应商</th>
                         <th>来源申请</th>
+                        <th>合同编号</th>
+                        <th>工程名称</th>
                         <th data-sortable="expected_date" class="sortable-header">预计到货 {% if sort_by=='expected_date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                         <th class="text-end">采购数量</th>
                         <th class="text-end">已下推</th>
@@ -139,6 +141,8 @@
                             <a href="{{ url_for('purchase_request_detail', id=order.purchase_request.id) }}">{{ order.purchase_request.request_no }}</a>
                             {% else %}-{% endif %}
                         </td>
+                        <td>{{ order.contract_no or '-' }}</td>
+                        <td>{{ order.project_name or '-' }}</td>
                         <td>
                             {{ order.expected_date.strftime('%Y-%m-%d') if order.expected_date else '-' }}
                             {% if order.expected_date and order.expected_date < today and order.status in ['pending', 'partial'] %}

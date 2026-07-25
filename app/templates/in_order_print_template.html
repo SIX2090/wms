@@ -501,6 +501,10 @@
         &lt;td&gt;单号：{{ '{{ order.order_no }}' }}&lt;/td&gt;
         &lt;td&gt;日期：{{ '{{ order.date }}' }}&lt;/td&gt;
     &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;合同编号：{{ '{{ order.contract_no }}' }}&lt;/td&gt;
+        &lt;td&gt;工程名称：{{ '{{ order.project_name }}' }}&lt;/td&gt;
+    &lt;/tr&gt;
     {% raw %}{% for item in order.items %}{% endraw %}
     &lt;tr&gt;
         &lt;td&gt;{{ '{{ item.material.name }}' }}&lt;/td&gt;
