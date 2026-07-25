@@ -393,6 +393,7 @@
                         <th class="resizable-th" data-col="colCode">物料编码<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colName">物料名称<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colSpec">规格<div class="resize-handle"></div></th>
+                        {% if order.business_type == '其他入库' %}<th class="text-center" data-col="colCustomerSupplied">客供</th>{% endif %}
                         <th>合同编号</th>
                         <th>工程名称</th>
                         <th class="text-center resizable-th" data-col="colUnit">单位<div class="resize-handle"></div></th>
@@ -425,6 +426,9 @@
                         <td class="fw-medium">{{ item.material.code }}</td>
                         <td>{{ item.material.name }}</td>
                         <td>{{ item.material.spec or '-' }}</td>
+                        {% if order.business_type == '其他入库' %}
+                        <td class="text-center">{% if item.is_customer_supplied %}<span class="badge bg-info text-dark">客供</span>{% else %}<span class="text-muted">否</span>{% endif %}</td>
+                        {% endif %}
                         <td>{{ item.contract_no or order.contract_no or '-' }}</td>
                         <td>{{ item.project_name or order.project_name or '-' }}</td>
                         <td class="text-center">{{ item.material.unit.name if item.material.unit else '-' }}</td>

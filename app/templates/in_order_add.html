@@ -636,6 +636,7 @@ textarea.form-control {
                             <th data-column-key="price" style="width: 100px;">单价<span class="col-resize"></span></th>
                             <th data-column-key="amount" style="width: 100px;" class="amount-col">金额<span class="col-resize"></span></th>
                             <th data-column-key="stock" style="width: 90px;">当前库存<span class="col-resize"></span></th>
+                            {% if is_other_in %}<th data-column-key="is_customer_supplied" style="width: 72px;" class="text-center">客供<span class="col-resize"></span></th>{% endif %}
                             <th data-column-key="contract_no" style="width: 140px;">合同编号<span class="col-resize"></span></th>
                             <th data-column-key="project_name" style="width: 180px;">工程名称<span class="col-resize"></span></th>
                             <th data-column-key="remark" style="width: 180px;">备注<span class="col-resize"></span></th>
@@ -655,6 +656,7 @@ textarea.form-control {
                             <td data-column-key="price" class="text-end" data-total-label-cell="true"><strong>合计：</strong></td>
                             <td data-column-key="amount" class="amount-col"><strong id="totalAmount" class="total-amount">¥0.00</strong></td>
                             <td data-column-key="stock"></td>
+                            {% if is_other_in %}<td data-column-key="is_customer_supplied"></td>{% endif %}
                             <td data-column-key="contract_no"></td>
                             <td data-column-key="project_name"></td>
                             <td data-column-key="remark"></td>
@@ -676,6 +678,7 @@ const suppliers = {{ suppliers | tojson }};
 const supplierRequired = {{ supplier_required|tojson }};
 const partyField = {{ (party_field or 'supplier_id')|tojson }};
 const partyLabel = {{ (party_label or '供应商')|tojson }};
+const isOtherIn = {{ is_other_in|tojson }};
 const returnAddUrl = {{ (return_add_url or '/in_order/add')|tojson }};
 const sourcePurchaseOrderId = {{ source_purchase_order_id|tojson }};
 let activeDropdown = null;
@@ -769,6 +772,7 @@ function addNewRow() {
         <td data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01"></td>
         <td data-column-key="amount" class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
         <td data-column-key="stock" class="num-col"><input type="text" class="form-control material-stock" readonly></td>
+        ${isOtherIn ? '<td data-column-key="is_customer_supplied" class="text-center"><input type="checkbox" class="form-check-input line-customer-supplied" title="该行物料所有权属于客户"></td>' : ''}
         <td data-column-key="contract_no"><input type="text" class="form-control line-contract-no" maxlength="50"></td>
         <td data-column-key="project_name"><input type="text" class="form-control line-project-name" maxlength="200"></td>
         <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
@@ -992,6 +996,9 @@ function copyValuesToRow(source, target) {
     ['material-code', 'material-qty', 'material-price'].forEach(cls => {
         target.querySelector('.' + cls).value = source.querySelector('.' + cls).value;
     });
+    const sourceCustomerSupplied = source.querySelector('.line-customer-supplied');
+    const targetCustomerSupplied = target.querySelector('.line-customer-supplied');
+    if (sourceCustomerSupplied && targetCustomerSupplied) targetCustomerSupplied.checked = sourceCustomerSupplied.checked;
     const material = findMaterialByCode(target.querySelector('.material-code').value);
     if (material) fillMaterialFields(target, material, { forcePrice: true });
     calcAmount(target);
@@ -1055,6 +1062,7 @@ function insertRowBefore(btn) {
         <td data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01"></td>
         <td data-column-key="amount" class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
         <td data-column-key="stock" class="num-col"><input type="text" class="form-control material-stock" readonly></td>
+        ${isOtherIn ? '<td data-column-key="is_customer_supplied" class="text-center"><input type="checkbox" class="form-check-input line-customer-supplied" title="该行物料所有权属于客户"></td>' : ''}
         <td data-column-key="contract_no"><input type="text" class="form-control line-contract-no" maxlength="50"></td>
         <td data-column-key="project_name"><input type="text" class="form-control line-project-name" maxlength="200"></td>
         <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
@@ -1169,7 +1177,7 @@ function submitFormLegacy(saveAndNew = false) {
             largeQtyCount++;
         }
         
-        items.push({ code, quantity: qty, price: price || 0, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() });
+        items.push({ code, quantity: qty, price: price || 0, is_customer_supplied: !!row.querySelector('.line-customer-supplied')?.checked, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() });
         const sourceItemId = row.dataset.sourcePurchaseOrderItemId;
         if (sourceItemId) {
             items[items.length - 1].source_purchase_order_item_id = sourceItemId;
@@ -1336,7 +1344,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         }
         if (qty > 10000) largeQtyCount += 1;
 
-        const item = { code, quantity: qty, price: Number.isFinite(price) ? price : 0, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() };
+        const item = { code, quantity: qty, price: Number.isFinite(price) ? price : 0, is_customer_supplied: !!row.querySelector('.line-customer-supplied')?.checked, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() };
         const sourceItemId = row.dataset.sourcePurchaseOrderItemId;
         if (sourceItemId) item.source_purchase_order_item_id = sourceItemId;
         items.push(item);
@@ -2160,7 +2168,8 @@ function saveAsTemplate() {
             items.push({
                 code: code,
                 qty: row.querySelector('.material-qty').value,
-                price: row.querySelector('.material-price').value
+                price: row.querySelector('.material-price').value,
+                is_customer_supplied: !!row.querySelector('.line-customer-supplied')?.checked
             });
         }
     });
@@ -2214,6 +2223,8 @@ function loadTemplate(name) {
             fillMaterialFields(row, material, { forcePrice: true });
             row.querySelector('.material-qty').value = item.qty ? parseFloat(item.qty).toFixed(2) : '0.00';
             row.querySelector('.material-price').value = item.price ? parseFloat(item.price).toFixed(2) : (material.price || 0).toFixed(2);
+            const customerSupplied = row.querySelector('.line-customer-supplied');
+            if (customerSupplied) customerSupplied.checked = !!item.is_customer_supplied;
             calcAmount(row);
         }
     });

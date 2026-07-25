@@ -646,6 +646,21 @@ def auto_migrate_database():
                     cursor.execute(f"ALTER TABLE {_tbl} ADD COLUMN {_column} {_definition}")
                     modified = True
             cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_{_tbl}_contract_id ON {_tbl}(contract_id)")
+        cursor.execute("PRAGMA table_info(in_order_item)")
+        _in_order_item_columns = [row[1] for row in cursor.fetchall()]
+        if _in_order_item_columns and 'is_customer_supplied' not in _in_order_item_columns:
+            cursor.execute("ALTER TABLE in_order_item ADD COLUMN is_customer_supplied BOOLEAN NOT NULL DEFAULT 0")
+            # Before line-level ownership existed, an other-inbound document
+            # with a customer represented customer-supplied material in full.
+            cursor.execute("""
+                UPDATE in_order_item
+                   SET is_customer_supplied = 1
+                 WHERE in_order_id IN (
+                       SELECT id FROM in_order
+                        WHERE business_type = '其他入库' AND customer_id IS NOT NULL
+                 )
+            """)
+            modified = True
         # Existing documents had one header-level contract. Copy it to every line once.
         for _header, _item, _fk in (
             ('in_order', 'in_order_item', 'in_order_id'),
@@ -3400,6 +3415,7 @@ class InOrderItem(db.Model):
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))
     contract_no = db.Column(db.String(50))
     project_name = db.Column(db.String(200))
+    is_customer_supplied = db.Column(db.Boolean, nullable=False, default=False)
 
     in_order = db.relationship('InOrder', backref='items')  # Related in order
     material = db.relationship('Material', backref='in_order_items')  # Related material
@@ -23916,18 +23932,17 @@ def in_order_push_page(id):
     if not _in_order_push_source_type(order):
         flash('当前入库业务类型不支持下推出库类单据。', 'warning')
         return redirect(url_for('in_order_detail', id=id))
-    if order.business_type == '其他入库' and order.customer_id:
-        flash('当前系统尚未完成客供料所有权库存隔离，不能下推为普通出库单。', 'danger')
-        return redirect(url_for('in_order_detail', id=id))
     pushed = _in_order_push_quantities(order)
     lines = []
     for item in order.items:
         pushed_quantity = pushed.get(item.id, 0)
+        is_customer_supplied = bool(item.is_customer_supplied)
         lines.append({
             'item': item,
             'in_quantity': normalize_stock_quantity(item.quantity or 0),
             'pushed_quantity': pushed_quantity,
-            'available_quantity': max(0, normalize_stock_quantity((item.quantity or 0) - pushed_quantity)),
+            'available_quantity': 0 if is_customer_supplied else max(0, normalize_stock_quantity((item.quantity or 0) - pushed_quantity)),
+            'is_customer_supplied': is_customer_supplied,
         })
     return render_template(
         'in_order_push.html', order=order, lines=lines,
@@ -23986,10 +24001,6 @@ def create_in_order_push(id):
         if not source_type:
             db.session.rollback()
             return jsonify({'status': 'error', 'msg': '仅采购入库单和其他入库单允许下推'}), 400
-        if source_type == 'other_in_order' and order.customer_id:
-            db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '当前系统尚未完成客供料所有权库存隔离，不能下推为普通出库单。'}), 409
-
         duplicate = DocumentPushLine.query.filter_by(
             created_by=current_user.id, source_document_type=source_type,
             source_document_id=id, request_id=request_id,
@@ -24011,6 +24022,10 @@ def create_in_order_push(id):
             if not item:
                 db.session.rollback()
                 return jsonify({'status': 'error', 'msg': f'来源明细 {item_id} 不属于当前入库单'}), 400
+            if item.is_customer_supplied:
+                code = item.material.code if item.material else str(item.material_id)
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': f'物料 {code} 为客供料；当前系统尚未完成客供料所有权库存隔离，不能下推为普通出库单。'}), 409
             source_quantity = normalize_stock_quantity(item.quantity or 0)
             used_quantity = pushed.get(item_id, 0)
             available = max(0, normalize_stock_quantity(source_quantity - used_quantity))
@@ -24359,6 +24374,11 @@ def add_in_order():
                 except (TypeError, ValueError):
                     price = 0
                 amount = round_to_2_decimals(quantity * price)
+                is_customer_supplied = item_data.get('is_customer_supplied') in (True, 1, '1', 'true', 'True', 'yes', 'on')
+                if is_customer_supplied and business_type != '其他入库':
+                    return jsonify({'status': 'error', 'msg': f'物料 {material.code} 只有其他入库单可以标记为客供料'}), 400
+                if is_customer_supplied and not order.customer_id:
+                    return jsonify({'status': 'error', 'msg': f'物料 {material.code} 已勾选客供，请先选择客户'}), 400
                 source_purchase_order_item_id = None
                 source_item_id = item_data.get('source_purchase_order_item_id')
                 if source_item_id:
@@ -24379,7 +24399,7 @@ def add_in_order():
                     source_purchase_order_ids.add(source_order.id)
                 elif business_type == '采购入库' and purchase_in_order_requires_order():
                     return jsonify({'status': 'error', 'msg': f'采购入库物料 {material.code} 必须关联采购订单明细'})
-                duplicate_key = (material.id, source_purchase_order_item_id)
+                duplicate_key = (material.id, source_purchase_order_item_id, is_customer_supplied)
                 duplicate_mode = in_order_duplicate_material_mode()
                 existing_item = pending_in_order_items.get(duplicate_key)
                 if existing_item:
@@ -24400,6 +24420,7 @@ def add_in_order():
                     contract_id=int(item_data.get('contract_id')) if item_data.get('contract_id') else None,
                     contract_no=(item_data.get('contract_no') or '').strip() or None,
                     project_name=(item_data.get('project_name') or '').strip() or None,
+                    is_customer_supplied=is_customer_supplied,
                 )
                 db.session.add(item)
                 pending_in_order_items[duplicate_key] = item

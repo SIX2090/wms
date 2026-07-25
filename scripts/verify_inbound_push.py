@@ -49,7 +49,7 @@ def main() -> int:
             customer_supply = wms.InOrder(order_no='TEST-E2E-CUSTOMER-SUPPLY', business_type='其他入库', warehouse='TEST-E2E-WH', customer_id=customer.id, status='completed', operator_id=admin.id)
             wms.db.session.add(customer_supply)
             wms.db.session.flush()
-            wms.db.session.add(wms.InOrderItem(in_order_id=customer_supply.id, material_id=material.id, quantity=5, price=0, amount=0))
+            wms.db.session.add(wms.InOrderItem(in_order_id=customer_supply.id, material_id=material.id, quantity=5, price=0, amount=0, is_customer_supplied=True))
             draft_source = wms.InOrder(order_no='TEST-E2E-DRAFT-SOURCE', business_type='采购入库', warehouse='TEST-E2E-WH', status='pending', operator_id=admin.id)
             wms.db.session.add(draft_source)
             wms.db.session.flush()
