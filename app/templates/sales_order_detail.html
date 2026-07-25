@@ -92,6 +92,14 @@
                     <span class="info-value">{{ order.project_no or '-' }}</span>
                 </div>
                 <div class="info-item">
+                    <span class="info-label">合同编号</span>
+                    <span class="info-value">{{ order.contract_no or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">工程名称</span>
+                    <span class="info-value">{{ order.project_name or '-' }}</span>
+                </div>
+                <div class="info-item">
                     <span class="info-label">币别</span>
                     <span class="info-value">{{ order.currency or 'CNY' }}</span>
                 </div>
@@ -150,8 +158,6 @@
             <th class="resizable-th" data-col="colCode">物料编码<div class="resize-handle"></div></th>
             <th class="resizable-th" data-col="colName">物料名称<div class="resize-handle"></div></th>
             <th class="resizable-th" data-col="colSpec">规格<div class="resize-handle"></div></th>
-            <th>合同编号</th>
-            <th>工程名称</th>
             <th class="text-center resizable-th" data-col="colUnit">单位<div class="resize-handle"></div></th>
             <th class="text-end resizable-th" data-col="colQty">订单数量<div class="resize-handle"></div></th>
             <th class="text-end resizable-th" data-col="colShipped">已发货<div class="resize-handle"></div></th>
@@ -184,8 +190,6 @@
             <td class="text-end">{{ '%.2f'|format(item.tax_included_amount or item.amount or 0) }}</td>
             <td>{{ item.batch_no or '-' }}</td>
             <td>{{ item.serial_no or '-' }}</td>
-            <td>{{ item.contract_no or order.contract_no or '-' }}</td>
-            <td>{{ item.project_name or order.project_name or '-' }}</td>
             <td>{{ item.remark or '' }}</td>
             {% if order.status=='confirmed' and order.shipment_status != 'shipped' %}<td class="text-end"><input class="form-control form-control-sm selected-outbound-quantity" data-item-id="{{ item.id }}" type="number" min="0" max="{{ ((item.quantity or 0) - (item.shipped_quantity or 0))|round(2) }}" step="0.01" placeholder="未选"></td>{% endif %}
           </tr>

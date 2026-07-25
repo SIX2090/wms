@@ -115,6 +115,14 @@
                     </span>
                 </div>
                 <div class="info-item">
+                    <span class="info-label">合同编号</span>
+                    <span class="info-value">{{ order.contract_no or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">工程名称</span>
+                    <span class="info-value">{{ order.project_name or '-' }}</span>
+                </div>
+                <div class="info-item">
                     <span class="info-label">操作人</span>
                     <span class="info-value">{{ order.operator.username if order.operator else '-' }}</span>
                 </div>
@@ -223,8 +231,6 @@
                         <th class="resizable-th" data-col="colCode">物料编码<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colName">物料名称<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colSpec">规格<div class="resize-handle"></div></th>
-                        <th>合同编号</th>
-                        <th>工程名称</th>
                         <th class="text-center resizable-th" data-col="colUnit">单位<div class="resize-handle"></div></th>
                         <th class="text-end resizable-th" data-col="colQty">采购数量<div class="resize-handle"></div></th>
                         <th class="text-end resizable-th" data-col="colPushed">已下推<div class="resize-handle"></div></th>
@@ -284,8 +290,6 @@
                         {% endif %}
                         <td class="text-end">¥{{ "%.2f"|format(item.price or 0) }}</td>
                         <td class="text-end">¥{{ "%.2f"|format(item.amount or 0) }}</td>
-                        <td>{{ item.contract_no or order.contract_no or '-' }}</td>
-                        <td>{{ item.project_name or order.project_name or '-' }}</td>
                         <td>{{ item.remark or '' }}</td>
                     </tr>
                     {% else %}

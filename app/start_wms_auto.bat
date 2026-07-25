@@ -9,7 +9,7 @@ REM
 REM 交互式启动请用 start_wms_offline.bat（含错误提示 pause）；
 REM 服务自启用本脚本（无 pause，适配 nssm）。
 setlocal EnableExtensions EnableDelayedExpansion
-chcp 65001 >nul
+REM 部分腾讯云控制台对 chcp 65001 会写设备失败，这里不强制切代码页
 cd /d "%~dp0" || exit /b 1
 for %%I in ("%~dp0..") do set "APP_ROOT=%%~fI"
 set "FLASK_ENV=production"

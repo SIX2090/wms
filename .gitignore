@@ -69,3 +69,7 @@ runtime/
 .trae/
 .superpowers/
 .codex/
+
+# local audit/test artifacts
+output/
+
