@@ -43,13 +43,27 @@
         white-space: nowrap;
     }
     .ai-confirm-table select,
-    .ai-confirm-table input[type="number"] {
+    .ai-confirm-table input[type="number"],
+    .ai-confirm-table input[type="text"] {
         width: 100%;
         min-height: 32px;
         border: 1px solid #d1d5db;
         border-radius: 6px;
         padding: 4px 8px;
         font-size: 13px;
+    }
+    .ai-new-material {
+        margin-top: 7px;
+        padding: 8px;
+        border: 1px solid #bfdbfe;
+        background: #eff6ff;
+        border-radius: 6px;
+    }
+    .ai-new-material-fields {
+        display: grid;
+        grid-template-columns: minmax(120px, .8fr) minmax(150px, 1fr) minmax(120px, .8fr) minmax(90px, .6fr);
+        gap: 6px;
+        margin-top: 6px;
     }
     .ai-status {
         display: inline-flex;
@@ -131,7 +145,8 @@
         font-size: 13px;
         font-weight: 600;
     }
-    .ai-header-fields input {
+    .ai-header-fields input,
+    .ai-header-fields select {
         min-height: 34px;
         border: 1px solid #d1d5db;
         border-radius: 6px;
@@ -185,6 +200,15 @@
         
         {# AI-R08-F01: 表头字段编辑区域（supplier/order_no/date） #}
         <div class="ai-header-fields">
+            {% if payload.document_type == 'in_order' %}
+            <label>
+                入库类型
+                <select name="inbound_business_type">
+                    <option value="other_in" selected>其他入库（直接登记）</option>
+                    <option value="purchase_in">采购入库（需要采购订单）</option>
+                </select>
+            </label>
+            {% endif %}
             {% if payload.supplier %}
             <label>
                 供应商
@@ -269,6 +293,23 @@
                                 </option>
                                 {% endfor %}
                             </select>
+                            {% if not row.material_id %}
+                            <div class="ai-new-material">
+                                <label class="d-flex align-items-center gap-2 mb-0">
+                                    <input type="checkbox" class="ai-create-material" name="create_material_{{ loop.index0 }}" value="1" data-row-index="{{ loop.index0 }}">
+                                    <span>新建物料</span>
+                                </label>
+                                <div class="ai-new-material-fields" data-new-fields="{{ loop.index0 }}" hidden>
+                                    <input type="text" name="new_material_code_{{ loop.index0 }}" value="{{ row.suggested_material_code or '' }}" maxlength="50" placeholder="物料编号">
+                                    <input type="text" name="new_material_name_{{ loop.index0 }}" value="{{ row.suggested_material_name or '' }}" maxlength="100" placeholder="物料名称">
+                                    <input type="text" name="new_material_spec_{{ loop.index0 }}" value="{{ row.suggested_material_spec or '' }}" maxlength="100" placeholder="规格型号">
+                                    <select name="new_material_unit_id_{{ loop.index0 }}">
+                                        <option value="">单位</option>
+                                        {% for unit in units or [] %}<option value="{{ unit.id }}" {% if row.suggested_unit_id == unit.id %}selected{% endif %}>{{ unit.name }}</option>{% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            {% endif %}
                         </td>
                         <td>
                             <input type="number" name="quantity_{{ loop.index0 }}" value="{{ row.quantity or '' }}" min="0" step="0.01">
@@ -291,13 +332,10 @@
                 <i class="bi bi-tags"></i> 管理别名
             </a>
             <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">取消</a>
-            <button type="submit" class="btn btn-primary btn-sm" {% if not material_count %}disabled{% endif %}>
+            <button type="submit" class="btn btn-primary btn-sm">
                 <i class="bi bi-check2-circle"></i> 生成草稿
             </button>
         </div>
-        {% if not material_count %}
-        <div class="alert alert-warning mt-3 mb-0">当前没有物料档案，无法生成草稿。请先维护物料档案，再重新确认。</div>
-        {% endif %}
     </form>
 </div>
 {% endblock %}
@@ -307,6 +345,19 @@
 (function() {
     const filter = document.getElementById('materialFilter');
     const selects = Array.from(document.querySelectorAll('.ai-material-select'));
+    document.querySelectorAll('.ai-create-material').forEach(function(toggle) {
+        toggle.addEventListener('change', function() {
+            const index = this.dataset.rowIndex;
+            const fields = document.querySelector('[data-new-fields="' + index + '"]');
+            const materialSelect = document.querySelector('select[name="material_id_' + index + '"]');
+            const useRow = document.querySelector('input[name="use_row_' + index + '"]');
+            if (fields) fields.hidden = !this.checked;
+            if (this.checked) {
+                if (materialSelect) materialSelect.value = '';
+                if (useRow) useRow.checked = true;
+            }
+        });
+    });
     if (!filter || !selects.length) return;
     const rowFilters = Array.from(document.querySelectorAll('.ai-row-filter'));
     const fetcher = window.csrfFetch || fetch;

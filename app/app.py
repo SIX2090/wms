@@ -13793,7 +13793,7 @@ def _ai_check_draft_creation_gate(document_job_id):
         return True, []  # 校验失败时降级允许创建
 
 
-def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustment_type='', customer='', source_purchase_order_id=None, confirmation_token=None, document_job_id=None):
+def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustment_type='', customer='', source_purchase_order_id=None, confirmation_token=None, document_job_id=None, inbound_business_type='other_in'):
     doc_type = (doc_type or '').strip()
     if doc_type == 'sales_out':
         doc_type = 'sales_out_order'
@@ -13928,8 +13928,45 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
         )
         if po_result:
             return po_result
-        if purchase_in_order_requires_order():
+        if inbound_business_type == 'purchase_in' and purchase_in_order_requires_order():
             return None, '采购入库要求关联采购订单。没有找到可下推的采购订单，请先维护或选择采购订单后再入库。'
+        if inbound_business_type != 'purchase_in':
+            try:
+                order = InOrder(
+                    order_no=generate_order_no('IN'), date=date.today(),
+                    business_type='其他入库', purpose='AI拍照识别入库',
+                    status='pending', operator_id=current_user.id,
+                    remark=(source_text or 'AI拍照识别，经人工确认生成草稿')[:200],
+                )
+                db.session.add(order)
+                db.session.flush()
+                total_amount = 0
+                for row in matched:
+                    material = row['material']
+                    quantity = row['quantity']
+                    price = round_to_2_decimals(material.price or 0)
+                    amount = round_to_2_decimals(quantity * price)
+                    total_amount += amount
+                    db.session.add(InOrderItem(
+                        in_order_id=order.id, material_id=material.id,
+                        quantity=quantity, price=price, amount=amount,
+                        remark='AI拍照识别，经人工确认',
+                    ))
+                order.total_amount = round_to_2_decimals(total_amount)
+                db.session.commit()
+                log_operation('AI人工确认生成其他入库草稿', f'入库单：{order.order_no}', 'in_order', order.id)
+                return {
+                    'order_no': order.order_no,
+                    'url': url_for('in_order_detail', id=order.id),
+                    'items': [
+                        {'code': row['material'].code, 'name': row['material'].name, 'quantity': row['quantity']}
+                        for row in matched
+                    ],
+                }, None
+            except Exception as exc:
+                db.session.rollback()
+                app.logger.exception('AI confirmed other inbound draft failed: %s', exc)
+                return None, '其他入库草稿创建失败，请稍后重试。'
         draft, error = _ai_create_in_order_draft(
             draft_message,
             manual_confirmation=True,
@@ -20851,6 +20888,7 @@ def ai_document_confirm(token):
             source_purchase_order_id=payload.get('source_purchase_order_id'),
             confirmation_token=token,
             document_job_id=payload.get('document_job_id'),
+            inbound_business_type=(request.form.get('inbound_business_type') or 'other_in').strip(),
         )
         if error:
             db.session.rollback()
