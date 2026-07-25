@@ -375,8 +375,6 @@
                         <th class="text-end resizable-th" data-col="colAmount">金额<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colRemark">备注<div class="resize-handle"></div></th>
                         <th class="text-center" width="80" data-col="label">标签</th>
-                        <td>{{ item.contract_no or order.contract_no or '-' }}</td>
-                        <td>{{ item.project_name or order.project_name or '-' }}</td>
                         {% if order.status == 'pending' %}
                         <th class="text-center" width="120" data-col="action">操作</th>
                         {% endif %}
@@ -395,6 +393,8 @@
                         <td class="fw-medium">{{ item.material.code }}</td>
                         <td>{{ item.material.name }}</td>
                         <td>{{ item.material.spec or '-' }}</td>
+                        <td>{{ item.contract_no or order.contract_no or '-' }}</td>
+                        <td>{{ item.project_name or order.project_name or '-' }}</td>
                         <td class="text-center">{{ item.material.unit.name if item.material.unit else '-' }}</td>
                         <td class="text-end">{{ "%.2f"|format(item.material.stock or 0) }}</td>
                         <td class="text-end fw-medium editable-cell" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
@@ -445,7 +445,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="{{ 18 if order.status == 'pending' else 16 }}" class="empty-state">
+                        <td colspan="{{ 20 if order.status == 'pending' else 18 }}" class="empty-state">
                             <i class="bi bi-inbox"></i>
                             <p>暂无明细，请添加物料</p>
                         </td>
