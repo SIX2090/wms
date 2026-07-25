@@ -97,9 +97,17 @@
                 <label class="form-label small text-muted mb-1">结束日期</label>
                 <input type="date" name="date_end" class="form-control form-control-sm" value="{{ filters.date_end }}">
             </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">合同编号</label>
+                <input type="text" name="contract_no" class="form-control form-control-sm" placeholder="合同编号" value="{{ filters.contract_no or '' }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">工程名称</label>
+                <input type="text" name="project_name" class="form-control form-control-sm" placeholder="工程名称" value="{{ filters.project_name or '' }}">
+            </div>
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
-                {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.customer_id or filters.salesperson_id %}
+                {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.customer_id or filters.salesperson_id or filters.contract_no or filters.project_name %}
                 <a href="/sales{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
                 {% endif %}
             </div>

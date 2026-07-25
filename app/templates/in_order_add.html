@@ -575,10 +575,26 @@ textarea.form-control {
                         </select>
                     </div>
                 </div>
-                <div class="col-md-9">
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">合同编号</label>
+                        <div class="contract-input" style="position:relative;">
+                            <input type="text" id="contractSearch" name="contract_no" placeholder="搜索合同编号/工程..." autocomplete="off" style="width:100%;border:1px solid #d9d9d9;padding:6px 10px;border-radius:4px;font-size:13px;" value="{{ prefill.contract_no if prefill and prefill.contract_no else '' }}">
+                            <input type="hidden" name="contract_id" id="contractIdHidden" value="{{ prefill.contract_id if prefill and prefill.contract_id else '' }}">
+                            <div id="contractDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;min-width:100%;max-height:220px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">工程名称</label>
+                        <input type="text" class="form-control" id="projectNameInput" name="project_name" value="{{ prefill.project_name if prefill and prefill.project_name else '' }}" placeholder="选中合同自动填充，也可手填">
+                    </div>
+                </div>
+                <div class="col-md-6">
                     <div class="mb-2">
                         <label class="form-label">备注</label>
-                        <textarea class="form-control" name="remark" rows="2"></textarea>
+                        <textarea class="form-control" name="remark" rows="2">{{ prefill.remark if prefill and prefill.remark else '' }}</textarea>
                     </div>
                 </div>
             </div>

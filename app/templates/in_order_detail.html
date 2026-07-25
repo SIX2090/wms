@@ -151,6 +151,9 @@
                 <button class="btn btn-sm btn-outline-info" onclick="copyOrder({{ order.id }})">
                     <i class="bi bi-files"></i> 复制单据
                 </button>
+                <a class="btn btn-sm btn-outline-primary" href="{% if order.business_type == '其他入库' %}/other_in_order/add?{% elif order.business_type == '产品入库' %}/in_order/add?type=product&{% else %}/in_order/add?{% endif %}warehouse={{ (order.warehouse or '')|urlencode }}&contract_id={{ order.contract_id or '' }}&contract_no={{ (order.contract_no or '')|urlencode }}&project_name={{ (order.project_name or '')|urlencode }}&purpose={{ (order.purpose or '')|urlencode }}&supplier_id={{ order.supplier_id or '' }}&customer_id={{ order.customer_id or '' }}">
+                    <i class="bi bi-plus-square"></i> 再建一张
+                </a>
                 {% if order.status == 'pending' %}
                 <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editHeaderModal">
                     <i class="bi bi-pencil-square"></i> 编辑单据

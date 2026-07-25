@@ -1862,7 +1862,7 @@ def generate_order_no(prefix='NO'):
         try:
             if prefix in ('IN', 'PI'):
                 last_order = InOrder.query.filter(InOrder.order_no.like(f'{prefix}{year_month}%')).order_by(InOrder.id.desc()).with_for_update().first()
-            elif prefix in ('OU', 'SO'):
+            elif prefix in ('OU', 'SO', 'OO'):
                 last_order = OutOrder.query.filter(OutOrder.order_no.like(f'{prefix}{year_month}%')).order_by(OutOrder.id.desc()).with_for_update().first()
             elif prefix == 'CK':
                 last_order = InventoryCheck.query.filter(InventoryCheck.check_no.like(f'{prefix}{year_month}%')).order_by(InventoryCheck.id.desc()).with_for_update().first()
@@ -13448,6 +13448,38 @@ def _ai_confirmation_payload(extracted, context=None, document_job_id=None):
     }
 
 
+def _ai_suggest_material_code(offset=0):
+    """Return a short operator-editable code for an OCR-unmatched material."""
+    prefix = f'AI{date.today():%y%m%d}'
+    existing = Material.query.filter(Material.code.like(f'{prefix}%')).with_entities(Material.code).all()
+    highest = 0
+    for (code,) in existing:
+        match = re.fullmatch(rf'{re.escape(prefix)}(\d+)', code or '')
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return f'{prefix}{highest + 1 + max(0, int(offset or 0)):03d}'
+
+
+def _ai_prepare_new_material_suggestions(payload):
+    offset = 0
+    units = Unit.query.order_by(Unit.code.asc(), Unit.id.asc()).all()
+    unit_by_name = {
+        str(value or '').strip().lower(): unit.id
+        for unit in units
+        for value in (unit.name, unit.code)
+        if value
+    }
+    for row in (payload or {}).get('rows') or []:
+        if row.get('material_id'):
+            continue
+        row.setdefault('suggested_material_code', _ai_suggest_material_code(offset))
+        row.setdefault('suggested_material_name', row.get('name') or row.get('raw') or row.get('code') or '')
+        row.setdefault('suggested_material_spec', row.get('spec') or '')
+        row.setdefault('suggested_unit_id', unit_by_name.get(str(row.get('unit') or '').strip().lower()))
+        offset += 1
+    return units
+
+
 def _ai_store_document_confirmation(extracted, context=None, document_job_id=None):
     payload = _ai_confirmation_payload(extracted, context, document_job_id)
     token = secrets.token_urlsafe(12)
@@ -20747,6 +20779,7 @@ def ai_document_confirm(token):
         flash('AI识别结果已过期，请重新识别。', 'warning')
         return redirect(url_for('index'))
 
+    units = _ai_prepare_new_material_suggestions(payload)
     materials = _ai_confirmation_material_candidates(payload)
     material_count = Material.query.count()
     if request.method == 'POST':
@@ -20771,8 +20804,41 @@ def ai_document_confirm(token):
             if request.form.get(f'use_row_{idx}') != '1':
                 continue
             original_row = (payload.get('rows') or [{}])[idx] if idx < len(payload.get('rows') or []) else {}
+            material_id = _clean_int(request.form.get(f'material_id_{idx}'))
+            if not material_id and request.form.get(f'create_material_{idx}') == '1':
+                code = (request.form.get(f'new_material_code_{idx}') or '').strip().upper()
+                name = (request.form.get(f'new_material_name_{idx}') or '').strip()
+                spec = (request.form.get(f'new_material_spec_{idx}') or '').strip()
+                unit_id = _clean_int(request.form.get(f'new_material_unit_id_{idx}'))
+                if not code or not re.fullmatch(r'[A-Z0-9._-]{2,50}', code):
+                    flash(f'第 {idx + 1} 行新物料编号只能使用字母、数字、点、横线或下划线。', 'danger')
+                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
+                if not name:
+                    flash(f'第 {idx + 1} 行新物料名称不能为空。', 'danger')
+                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
+                if not unit_id or not db.session.get(Unit, unit_id):
+                    flash(f'第 {idx + 1} 行请选择新物料单位。', 'danger')
+                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
+                if Material.query.filter_by(code=code).first():
+                    flash(f'第 {idx + 1} 行物料编号 {code} 已存在，请直接选择已有物料。', 'danger')
+                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
+                same_material = Material.query.filter(
+                    Material.name == name,
+                    db.func.coalesce(Material.spec, '') == spec,
+                ).first()
+                if same_material:
+                    flash(f'第 {idx + 1} 行已有同名同规格物料 {same_material.code}，请直接选择，避免重复建档。', 'danger')
+                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
+                material = Material(
+                    code=code, name=name[:100], spec=spec[:100] or None,
+                    unit_id=unit_id, stock=0, price=0,
+                    remark=f'AI单据识别后由 {current_user.username} 人工确认创建',
+                )
+                db.session.add(material)
+                db.session.flush()
+                material_id = material.id
             rows.append({
-                'material_id': request.form.get(f'material_id_{idx}'),
+                'material_id': material_id,
                 'quantity': request.form.get(f'quantity_{idx}'),
                 'raw': original_row.get('raw') or original_row.get('code') or '',
             })
@@ -20790,7 +20856,7 @@ def ai_document_confirm(token):
             db.session.rollback()
             _ai_update_document_job(payload.get('document_job_id'), 'failed', error_message=error)
             flash(error, 'danger')
-            return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count)
+            return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
         pending.pop(token, None)
         session['_ai_document_confirmations'] = pending
         session.modified = True
@@ -20802,7 +20868,7 @@ def ai_document_confirm(token):
         flash(f'已生成草稿 {draft["order_no"]}，请核对后再提交。', 'success')
         return redirect(draft['url'])
 
-    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count)
+    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
 
 
 def _ai_test_llm_vision(overrides=None):
@@ -23835,8 +23901,12 @@ def in_order_list():
         query = query.filter(InOrder.business_type == business_type_filter)
     query = _apply_in_order_search(query, search)
     contract_no_filter = (request.args.get('contract_no') or '').strip()
-    if contract_no_filter:
-        query = query.filter(InOrder.contract_no.like(f'%{contract_no_filter}%'))
+    project_name_filter = (request.args.get('project_name') or '').strip()
+    query = _apply_header_or_item_contract_filters(
+        query, InOrder, InOrderItem, 'in_order_id',
+        contract_no_filter=contract_no_filter,
+        project_name_filter=project_name_filter,
+    )
     if sort_order == 'asc':
         query = query.order_by(sort_col.asc())
     else:
@@ -23869,6 +23939,8 @@ def in_order_list():
         'type_param': _type_reverse.get(business_type_filter, ''),
         'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
         'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
+        'contract_no': contract_no_filter,
+        'project_name': project_name_filter,
     }
     page_title = f'{business_type_filter}明细' if business_type_filter else '入库明细'
     return render_template(
@@ -24210,6 +24282,18 @@ def in_order_add_page():
                          return_list_url='/other_in_order' if is_other_in else '/in_order',
                          return_add_url='/other_in_order/add' if is_other_in else ('/in_order/add?type=product' if is_product_in else '/in_order/add'),
                          source_purchase_order_id=source_purchase_order_id,
+                         prefill={
+                             'warehouse': (request.args.get('warehouse') or '').strip(),
+                             'purpose': (request.args.get('purpose') or '').strip(),
+                             'contract_id': (request.args.get('contract_id') or '').strip(),
+                             'contract_no': (request.args.get('contract_no') or '').strip(),
+                             'project_name': (request.args.get('project_name') or '').strip(),
+                             'remark': (request.args.get('remark') or '').strip(),
+                             'customer': (request.args.get('customer') or '').strip(),
+                             'department_id': (request.args.get('department_id') or '').strip(),
+                             'supplier_id': (request.args.get('supplier_id') or '').strip(),
+                             'customer_id': (request.args.get('customer_id') or '').strip(),
+                         },
                          order_id=None, 
                          order_no=order_no, 
                          order_date=order_date)
@@ -24727,6 +24811,32 @@ def copy_in_order_to_out(id):
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success', 'msg': '操作完成', 'out_order_id': out_order.id})
 
+
+def _apply_header_or_item_contract_filters(query, header_model, item_model, order_fk_name,
+                                           contract_no_filter='', project_name_filter=''):
+    """表头或任一明细匹配合同编号/工程名称（避免仅明细有值时列表漏查）。"""
+    contract_no_filter = (contract_no_filter or '').strip()
+    project_name_filter = (project_name_filter or '').strip()
+    if not contract_no_filter and not project_name_filter:
+        return query
+    fk_col = getattr(item_model, order_fk_name)
+    if contract_no_filter:
+        like = f'%{contract_no_filter}%'
+        item_exists = db.session.query(item_model.id).filter(
+            fk_col == header_model.id,
+            item_model.contract_no.like(like),
+        ).exists()
+        query = query.filter(db.or_(header_model.contract_no.like(like), item_exists))
+    if project_name_filter:
+        like = f'%{project_name_filter}%'
+        item_exists = db.session.query(item_model.id).filter(
+            fk_col == header_model.id,
+            item_model.project_name.like(like),
+        ).exists()
+        query = query.filter(db.or_(header_model.project_name.like(like), item_exists))
+    return query
+
+
 @app.route('/in_order/<int:id>/copy', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -24766,10 +24876,14 @@ def copy_in_order(id):
             order_no=generate_order_no(prefix),
             date=date.today(),
             supplier_id=source.supplier_id,
+            customer_id=getattr(source, 'customer_id', None),
             business_type=business_type,
             purpose=source.purpose or business_type,
             warehouse=source.warehouse or '',
             source_purchase_order_id=source.source_purchase_order_id if source_item_updates else None,
+            contract_id=source.contract_id,
+            contract_no=source.contract_no,
+            project_name=source.project_name,
             remark=f'由入库单 {source.order_no} 复制生成' + (f'；原备注：{source.remark}' if source.remark else ''),
             status='pending',
             operator_id=current_user.id,
@@ -24787,11 +24901,15 @@ def copy_in_order(id):
             db.session.add(InOrderItem(
                 in_order_id=new_order.id,
                 material_id=item.material_id,
-                source_purchase_order_item_id=item.source_purchase_order_item_id,
+                source_purchase_order_item_id=item.source_purchase_order_item_id if source_item_updates else None,
                 quantity=quantity,
                 price=price,
                 amount=round_to_2_decimals(quantity * price),
                 remark=item.remark,
+                contract_id=item.contract_id,
+                contract_no=item.contract_no,
+                project_name=item.project_name,
+                is_customer_supplied=bool(getattr(item, 'is_customer_supplied', False)),
             ))
             copied_count += 1
 
@@ -24816,6 +24934,94 @@ def copy_in_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'复制入库单失败: {e}')
+        return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
+
+
+
+
+@app.route('/out_order/<int:id>/copy', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def copy_out_order(id):
+    """复制领料/出库单为新草稿（不带销售来源关联，避免半关联脏数据）。"""
+    source = OutOrder.query.options(
+        joinedload(OutOrder.items).joinedload(OutOrderItem.material),
+        joinedload(OutOrder.department),
+    ).get_or_404(id)
+    if not source.items:
+        return jsonify({'status': 'error', 'msg': '原出库单没有明细，不能复制'})
+
+    business_type = source.business_type or '领料单'
+    if business_type == '其他出库':
+        prefix = 'OO'
+    elif business_type == '销售出库':
+        prefix = 'SO'
+    else:
+        prefix = 'OUT'
+
+    try:
+        remark_parts = [f'由出库单 {source.order_no} 复制生成']
+        if source.remark:
+            remark_parts.append(f'原备注：{source.remark}')
+        if source.source_sales_order_id:
+            remark_parts.append('已剥离销售订单来源，可按普通草稿继续编辑')
+        new_order = OutOrder(
+            order_no=generate_order_no(prefix),
+            date=date.today(),
+            department_id=source.department_id,
+            customer=source.customer,
+            business_type=business_type,
+            warehouse=source.warehouse or '',
+            purpose=source.purpose,
+            source_sales_order_id=None,
+            remark='；'.join(remark_parts)[:200],
+            contract_id=source.contract_id,
+            contract_no=source.contract_no,
+            project_name=source.project_name,
+            status='pending',
+            operator_id=current_user.id,
+            total_amount=0,
+        )
+        db.session.add(new_order)
+        db.session.flush()
+
+        copied_count = 0
+        for item in source.items:
+            quantity = round_to_2_decimals(item.quantity or 0)
+            if quantity <= 0:
+                continue
+            price = round_to_2_decimals(item.price or 0)
+            db.session.add(OutOrderItem(
+                out_order_id=new_order.id,
+                material_id=item.material_id,
+                source_sales_order_item_id=None,
+                quantity=quantity,
+                price=price,
+                amount=round_to_2_decimals(quantity * price),
+                remark=item.remark,
+                contract_id=item.contract_id,
+                contract_no=item.contract_no,
+                project_name=item.project_name,
+            ))
+            copied_count += 1
+
+        if copied_count <= 0:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '原出库单没有有效数量，不能复制'})
+
+        recalculate_order_total(new_order)
+        db.session.commit()
+        log_operation('复制出库单', f'{source.order_no} -> {new_order.order_no}', 'out_order', new_order.id)
+        return jsonify({
+            'status': 'success',
+            'msg': '复制成功，已生成新的出库草稿',
+            'id': new_order.id,
+            'order_no': new_order.order_no,
+            'redirect_url': url_for('out_order_detail', id=new_order.id),
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'复制出库单失败: {e}')
         return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
 
 
@@ -31661,8 +31867,12 @@ def out_order_list():
     query = _apply_status_date_filters(query, OutOrder, status_filter, date_start, date_end)
     query = _apply_out_order_search(query, search)
     contract_no_filter = (request.args.get('contract_no') or '').strip()
-    if contract_no_filter:
-        query = query.filter(OutOrder.contract_no.like(f'%{contract_no_filter}%'))
+    project_name_filter = (request.args.get('project_name') or '').strip()
+    query = _apply_header_or_item_contract_filters(
+        query, OutOrder, OutOrderItem, 'out_order_id',
+        contract_no_filter=contract_no_filter,
+        project_name_filter=project_name_filter,
+    )
     # 领料明细默认排除"销售出库"（销售出库归销售管理，见 /sales/outflow_report），
     # 避免销售单据混入仓库领料明细。显式传 business_type=销售出库 时仍可查看。
     explicit_bt = '其他出库' if request.path == '/other_out_order' else (request.args.get('business_type') or '').strip()
@@ -31693,6 +31903,8 @@ def out_order_list():
         'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
         'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
         'business_type': explicit_bt,
+        'contract_no': contract_no_filter,
+        'project_name': project_name_filter,
     }
     page_title = '其他出库明细' if explicit_bt == '其他出库' else '领料明细'
     return render_template('out_order.html', items=items, pagination=pagination, sort_by=sort_by, sort_order=sort_order, per_page=per_page, filters=filters, page_title=page_title)
@@ -31741,6 +31953,17 @@ def out_order_add_page():
                          party_required=not is_other_out,
                          return_list_url='/other_out_order' if is_other_out else '/out_order',
                          return_add_url='/other_out_order/add' if is_other_out else '/out_order/add',
+                         prefill={
+                             'warehouse': (request.args.get('warehouse') or '').strip(),
+                             'purpose': (request.args.get('purpose') or '').strip(),
+                             'contract_id': (request.args.get('contract_id') or '').strip(),
+                             'contract_no': (request.args.get('contract_no') or '').strip(),
+                             'project_name': (request.args.get('project_name') or '').strip(),
+                             'remark': (request.args.get('remark') or '').strip(),
+                             'customer': (request.args.get('customer') or '').strip(),
+                             'department_id': (request.args.get('department_id') or '').strip(),
+                             'business_type': (request.args.get('business_type') or '').strip(),
+                         },
                          order_id=None, order_no=order_no, order_date=order_date)
 
 @app.route('/out_order/add', methods=['POST'])
@@ -33755,8 +33978,12 @@ def purchase_order_list():
             PurchaseRequest.request_no.like(search_like),
         ))
     contract_no_filter = (request.args.get('contract_no') or '').strip()
-    if contract_no_filter:
-        query = query.filter(PurchaseOrder.contract_no.like(f'%{contract_no_filter}%'))
+    project_name_filter = (request.args.get('project_name') or '').strip()
+    query = _apply_header_or_item_contract_filters(
+        query, PurchaseOrder, PurchaseOrderItem, 'purchase_order_id',
+        contract_no_filter=contract_no_filter,
+        project_name_filter=project_name_filter,
+    )
 
     sort_col = getattr(PurchaseOrder, sort_by, PurchaseOrder.created_at)
     query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc())
@@ -33797,6 +34024,8 @@ def purchase_order_list():
         'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
         'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
         'supplier_id': supplier_id,
+        'contract_no': contract_no_filter,
+        'project_name': project_name_filter,
     }
     return render_template(
         'purchase_order.html',
@@ -37056,6 +37285,11 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
         draft_info = None
         items_info = []
         delivery_match_info = None
+        material_governance_info = None
+        document_confirmation_info = None
+        confirmation_action = None
+        _ff_prompt_hash = ''
+        _ff_schema_version = 'document-extraction-v1'
         
         if extracted and isinstance(extracted, dict):
             items_raw = extracted.get('items', [])
@@ -37247,23 +37481,17 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
                 except Exception:
                     pass
 
-                if matched_items:
-                    # 构建草稿消息
-                    lines = []
-                    for m in matched_items:
-                        code = m['code'] or m['name']
-                        qty_str = str(int(m['quantity'])) if m['quantity'] == int(m['quantity']) else str(m['quantity'])
-                        lines.append(f'{code} {qty_str}')
-                    draft_message = ' '.join(lines)
-
-                    draft, error = _ai_create_in_order_draft(draft_message)
-                    if not error and draft:
-                        draft_info = {
-                            'order_no': draft['order_no'],
-                            'url': draft['url'],
-                            'matched_count': len(matched_items),
-                            'unmatched_count': len(unmatched_items)
-                        }
+            if extracted.get('document_type') == 'wechat':
+                extracted['document_type'] = 'in_order'
+            matched_rows, unmatched_rows = _ai_match_extracted_items(extracted.get('items') or [])
+            job_status = 'pending_confirmation'
+            document_job = _ai_record_document_job(
+                extracted, 'ocr_upload', job_status,
+                matched=matched_rows, unmatched=unmatched_rows,
+            )
+            confirmation_action = _ai_confirmation_action(
+                extracted, document_job_id=document_job.id if document_job else None,
+            )
 
         return jsonify({
             'status': 'success',
@@ -37271,6 +37499,7 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
             'extracted': extracted,
             'items': items_info,
             'draft': draft_info,
+            'confirmation': confirmation_action,
             'image_warnings': preprocess_result.warnings if preprocess_result else [],
             'delivery_match': delivery_match_info,
             'material_governance': material_governance_info,
@@ -42674,8 +42903,12 @@ def sales_order_list():
         like = f'%{search}%'
         query = query.filter(db.or_(SalesOrder.order_no.like(like), Customer.name.like(like), Customer.code.like(like), Material.code.like(like), Material.name.like(like), SalesOrder.project_no.like(like)))
     contract_no_filter = (request.args.get('contract_no') or '').strip()
-    if contract_no_filter:
-        query = query.filter(SalesOrder.contract_no.like(f'%{contract_no_filter}%'))
+    project_name_filter = (request.args.get('project_name') or '').strip()
+    query = _apply_header_or_item_contract_filters(
+        query, SalesOrder, SalesOrderItem, 'sales_order_id',
+        contract_no_filter=contract_no_filter,
+        project_name_filter=project_name_filter,
+    )
     if status:
         query = query.filter(SalesOrder.status == status)
     if customer_id:
@@ -42744,7 +42977,16 @@ def sales_order_list():
         pagination=pagination, 
         customers=Customer.query.order_by(Customer.code.asc()).all(), 
         employees=Employee.query.order_by(Employee.id.asc()).all(), 
-        filters={'search': search, 'status': status, 'customer_id': customer_id, 'salesperson_id': salesperson_id, 'date_start': date_start, 'date_end': date_end}, 
+        filters={
+            'search': search,
+            'status': status,
+            'customer_id': customer_id,
+            'salesperson_id': salesperson_id,
+            'date_start': date_start,
+            'date_end': date_end,
+            'contract_no': contract_no_filter,
+            'project_name': project_name_filter,
+        }, 
         status_label=sales_status_label, 
         shipment_status_label=sales_shipment_status_label,
         summary=summary,

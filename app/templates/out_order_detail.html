@@ -90,6 +90,12 @@
             </div>
             {% if current_user.role in ['admin', 'warehouse'] %}
             <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+                <button class="btn btn-sm btn-outline-info" onclick="copyOrder({{ order.id }})">
+                    <i class="bi bi-files"></i> 复制单据
+                </button>
+                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('out_order_add_page') }}?{% if order.business_type == '其他出库' %}type=other_out&{% elif order.business_type == '销售出库' %}type=sale&{% endif %}warehouse={{ (order.warehouse or '')|urlencode }}&department_id={{ order.department_id or '' }}&customer={{ (order.customer or '')|urlencode }}&contract_id={{ order.contract_id or '' }}&contract_no={{ (order.contract_no or '')|urlencode }}&project_name={{ (order.project_name or '')|urlencode }}&purpose={{ (order.purpose or '')|urlencode }}&business_type={{ (order.business_type or '')|urlencode }}">
+                    <i class="bi bi-plus-square"></i> 再建一张
+                </a>
                 {% if order.status == 'pending' %}
                 <button class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})">
                     <i class="bi bi-check-circle"></i> 完成领料
@@ -992,6 +998,40 @@ function deleteOrder(id) {
         })
         .catch(function(err) {
             _showToast('删除失败：' + err.message, 'danger');
+        });
+    });
+}
+
+// ==================== 复制单据 ====================
+function copyOrder(id) {
+    _showConfirm('确定复制该出库/领料单吗？系统会生成一张新的草稿，不会直接扣减库存。', {title: '复制出库单'}).then(function(confirmed) {
+        if (!confirmed) return;
+        csrfFetch('/out_order/' + id + '/copy', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
+        .then(function(res) {
+            if (res.status === 'success') {
+                _showToast(res.msg || '复制成功', 'success');
+                setTimeout(function() {
+                    var url = res.redirect_url || ('/out_order/' + res.id);
+                    if (window.parent && window.parent.WmsTabs) {
+                        window.parent.WmsTabs.open(url, '出库草稿 ' + (res.order_no || ''));
+                    } else {
+                        location.href = url;
+                    }
+                }, 500);
+            } else {
+                _showToast(res.msg || '复制失败', 'danger');
+            }
+        })
+        .catch(function(err) {
+            _showToast('复制失败：' + err.message, 'danger');
         });
     });
 }
