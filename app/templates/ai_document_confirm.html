@@ -300,13 +300,22 @@
                                     <span>新建物料</span>
                                 </label>
                                 <div class="ai-new-material-fields" data-new-fields="{{ loop.index0 }}" hidden>
-                                    <input type="text" name="new_material_code_{{ loop.index0 }}" value="{{ row.suggested_material_code or '' }}" maxlength="50" placeholder="物料编号">
+                                    <input type="text" name="new_material_code_{{ loop.index0 }}" value="{{ row.suggested_material_code or '' }}" maxlength="50" placeholder="物料编号（可改）" title="{{ row.suggested_category_reason or 'AI 建议编号，可手工修改' }}">
                                     <input type="text" name="new_material_name_{{ loop.index0 }}" value="{{ row.suggested_material_name or '' }}" maxlength="100" placeholder="物料名称">
                                     <input type="text" name="new_material_spec_{{ loop.index0 }}" value="{{ row.suggested_material_spec or '' }}" maxlength="100" placeholder="规格型号">
+                                    <select name="new_material_category_id_{{ loop.index0 }}" title="{{ row.suggested_category_reason or 'AI 建议分类，可改' }}">
+                                        <option value="">分类（可选）</option>
+                                        {% for cat in categories or [] %}
+                                        <option value="{{ cat.id }}" {% if row.suggested_category_id == cat.id %}selected{% endif %}>{{ cat.code }} - {{ cat.name }}</option>
+                                        {% endfor %}
+                                    </select>
                                     <select name="new_material_unit_id_{{ loop.index0 }}">
                                         <option value="">单位</option>
                                         {% for unit in units or [] %}<option value="{{ unit.id }}" {% if row.suggested_unit_id == unit.id %}selected{% endif %}>{{ unit.name }}</option>{% endfor %}
                                     </select>
+                                    {% if row.suggested_category_name or row.suggested_category_reason %}
+                                    <div class="small text-muted w-100">建议：{{ row.suggested_category_name or '未识别分类' }}{% if row.suggested_category_reason %} · {{ row.suggested_category_reason }}{% endif %} · 编号 {{ row.suggested_material_code or '' }}（可改）</div>
+                                    {% endif %}
                                 </div>
                             </div>
                             {% endif %}

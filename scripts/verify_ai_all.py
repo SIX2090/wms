@@ -54,6 +54,7 @@ CORE_SCRIPTS = SMOKE_SCRIPTS + (
     "verify_ai_delivery_matcher_calibration.py",
     "verify_ai_material_governance.py",
     "verify_ai_material_governance_enhanced.py",
+    "verify_ai_material_category_coding.py",
     "verify_ai_document_confirmation.py",
     "verify_ai_document_confirmation_status.py",
     "verify_ai_field_feedback.py",

@@ -13468,6 +13468,7 @@ def _ai_confirmation_payload(extracted, context=None, document_job_id=None):
 
 def _ai_suggest_material_code(offset=0):
     """Return a short operator-editable code for an OCR-unmatched material."""
+    # AI_TASK: AI-R07-F02 — 无分类时的通用流水号兜底
     prefix = f'AI{date.today():%y%m%d}'
     existing = Material.query.filter(Material.code.like(f'{prefix}%')).with_entities(Material.code).all()
     highest = 0
@@ -13478,7 +13479,23 @@ def _ai_suggest_material_code(offset=0):
     return f'{prefix}{highest + 1 + max(0, int(offset or 0)):03d}'
 
 
+def _ai_load_category_infos():
+    """Load material categories for AI-R07-F02 coding suggestions."""
+    from ai.documents.material_category_coding import CategoryInfo
+    rows = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.id.asc()).all()
+    return [
+        CategoryInfo(id=int(c.id), code=str(c.code or ''), name=str(c.name or ''))
+        for c in rows
+    ]
+
+
 def _ai_prepare_new_material_suggestions(payload):
+    """Fill unmatched rows with category + code suggestions (AI-R07-F02).
+
+    # AI_TASK: AI-R07-F02
+    """
+    from ai.documents.material_category_coding import suggest_category_and_code
+
     offset = 0
     units = Unit.query.order_by(Unit.code.asc(), Unit.id.asc()).all()
     unit_by_name = {
@@ -13487,13 +13504,49 @@ def _ai_prepare_new_material_suggestions(payload):
         for value in (unit.name, unit.code)
         if value
     }
+    categories = _ai_load_category_infos()
+    existing_codes = [c for (c,) in Material.query.with_entities(Material.code).all() if c]
+    reserved = set()
     for row in (payload or {}).get('rows') or []:
         if row.get('material_id'):
             continue
-        row.setdefault('suggested_material_code', _ai_suggest_material_code(offset))
+        fallback = _ai_suggest_material_code(offset)
+        suggestion = suggest_category_and_code(
+            name=row.get('name') or row.get('raw') or row.get('code') or '',
+            spec=row.get('spec') or '',
+            raw_text=row.get('raw_text') or row.get('raw') or '',
+            categories=categories,
+            existing_codes=list(existing_codes) + list(reserved),
+            offset=0,
+            fallback_code=fallback,
+        )
+        code = suggestion.suggested_code
+        n = 0
+        base_codes = list(existing_codes) + list(reserved)
+        occupied = {str(x).upper() for x in base_codes if x}
+        while code.upper() in occupied and n < 50:
+            n += 1
+            suggestion = suggest_category_and_code(
+                name=row.get('name') or row.get('raw') or row.get('code') or '',
+                spec=row.get('spec') or '',
+                raw_text=row.get('raw_text') or row.get('raw') or '',
+                categories=categories,
+                existing_codes=base_codes,
+                offset=n,
+                fallback_code=fallback,
+            )
+            code = suggestion.suggested_code
+        reserved.add(code)
+        row.setdefault('suggested_material_code', code)
         row.setdefault('suggested_material_name', row.get('name') or row.get('raw') or row.get('code') or '')
         row.setdefault('suggested_material_spec', row.get('spec') or '')
         row.setdefault('suggested_unit_id', unit_by_name.get(str(row.get('unit') or '').strip().lower()))
+        row.setdefault('suggested_category_id', suggestion.category_id)
+        row.setdefault('suggested_category_code', suggestion.category_code)
+        row.setdefault('suggested_category_name', suggestion.category_name)
+        row.setdefault('suggested_category_reason', suggestion.reason)
+        row.setdefault('suggested_category_confidence', suggestion.confidence)
+        row.setdefault('suggested_category_candidates', list(suggestion.candidates))
         offset += 1
     return units
 
@@ -20837,6 +20890,7 @@ def ai_document_confirm(token):
     units = _ai_prepare_new_material_suggestions(payload)
     materials = _ai_confirmation_material_candidates(payload)
     material_count = Material.query.count()
+    categories = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.id.asc()).all()
     if request.method == 'POST':
         if not _ai_document_confirm_allowed(payload.get('document_type')):
             flash('当前账号没有权限生成该类型单据草稿。', 'danger')
@@ -20867,25 +20921,34 @@ def ai_document_confirm(token):
                 unit_id = _clean_int(request.form.get(f'new_material_unit_id_{idx}'))
                 if not code or not re.fullmatch(r'[A-Z0-9._-]{2,50}', code):
                     flash(f'第 {idx + 1} 行新物料编号只能使用字母、数字、点、横线或下划线。', 'danger')
-                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
+                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units, categories=categories)
                 if not name:
                     flash(f'第 {idx + 1} 行新物料名称不能为空。', 'danger')
-                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
+                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units, categories=categories)
                 if not unit_id or not db.session.get(Unit, unit_id):
                     flash(f'第 {idx + 1} 行请选择新物料单位。', 'danger')
-                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
+                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units, categories=categories)
                 if Material.query.filter_by(code=code).first():
                     flash(f'第 {idx + 1} 行物料编号 {code} 已存在，请直接选择已有物料。', 'danger')
-                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
+                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units, categories=categories)
                 same_material = Material.query.filter(
                     Material.name == name,
                     db.func.coalesce(Material.spec, '') == spec,
                 ).first()
                 if same_material:
                     flash(f'第 {idx + 1} 行已有同名同规格物料 {same_material.code}，请直接选择，避免重复建档。', 'danger')
-                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
+                    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units, categories=categories)
+                category_id = _clean_int(request.form.get(f'new_material_category_id_{idx}'))
+                if category_id and not db.session.get(MaterialCategory, category_id):
+                    flash(f'第 {idx + 1} 行所选物料分类不存在。', 'danger')
+                    return render_template(
+                        'ai_document_confirm.html', token=token, payload=payload,
+                        materials=materials, material_count=material_count, units=units,
+                        categories=categories,
+                    )
                 material = Material(
                     code=code, name=name[:100], spec=spec[:100] or None,
+                    category_id=category_id or None,
                     unit_id=unit_id, stock=0, price=0,
                     remark=f'AI单据识别后由 {current_user.username} 人工确认创建',
                 )
@@ -20912,7 +20975,7 @@ def ai_document_confirm(token):
             db.session.rollback()
             _ai_update_document_job(payload.get('document_job_id'), 'failed', error_message=error)
             flash(error, 'danger')
-            return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
+            return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units, categories=categories)
         pending.pop(token, None)
         session['_ai_document_confirmations'] = pending
         session.modified = True
@@ -20924,7 +20987,7 @@ def ai_document_confirm(token):
         flash(f'已生成草稿 {draft["order_no"]}，请核对后再提交。', 'success')
         return redirect(draft['url'])
 
-    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units)
+    return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units, categories=categories)
 
 
 def _ai_test_llm_vision(overrides=None):
