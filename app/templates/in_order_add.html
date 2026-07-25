@@ -575,22 +575,6 @@ textarea.form-control {
                         </select>
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <div class="mb-2">
-                        <label class="form-label">合同编号</label>
-                        <div class="contract-input" style="position:relative;">
-                            <input type="text" id="contractSearch" name="contract_no" placeholder="搜索合同编号/工程..." autocomplete="off" style="width:100%;border:1px solid #d9d9d9;padding:6px 10px;border-radius:4px;font-size:13px;" value="{{ order.contract_no if order and order.contract_no else '' }}">
-                            <input type="hidden" name="contract_id" id="contractIdHidden" value="{{ order.contract_id if order and order.contract_id else '' }}">
-                            <div id="contractDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;min-width:100%;max-height:220px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="mb-2">
-                        <label class="form-label">工程名称</label>
-                        <input type="text" class="form-control" id="projectNameInput" name="project_name" value="{{ order.project_name if order and order.project_name else '' }}" placeholder="选中合同自动填充，也可手填">
-                    </div>
-                </div>
                 <div class="col-md-9">
                     <div class="mb-2">
                         <label class="form-label">备注</label>
@@ -652,6 +636,8 @@ textarea.form-control {
                             <th data-column-key="price" style="width: 100px;">单价<span class="col-resize"></span></th>
                             <th data-column-key="amount" style="width: 100px;" class="amount-col">金额<span class="col-resize"></span></th>
                             <th data-column-key="stock" style="width: 90px;">当前库存<span class="col-resize"></span></th>
+                            <th data-column-key="contract_no" style="width: 140px;">合同编号<span class="col-resize"></span></th>
+                            <th data-column-key="project_name" style="width: 180px;">工程名称<span class="col-resize"></span></th>
                             <th data-column-key="remark" style="width: 180px;">备注<span class="col-resize"></span></th>
                             <th data-column-key="actions" class="action-col">操作<span class="col-resize"></span></th>
                         </tr>
@@ -778,6 +764,8 @@ function addNewRow() {
         <td data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01"></td>
         <td data-column-key="amount" class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
         <td data-column-key="stock" class="num-col"><input type="text" class="form-control material-stock" readonly></td>
+        <td data-column-key="contract_no"><input type="text" class="form-control line-contract-no" maxlength="50"></td>
+        <td data-column-key="project_name"><input type="text" class="form-control line-project-name" maxlength="200"></td>
         <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
         <td data-column-key="actions" class="action-col">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
@@ -1062,6 +1050,8 @@ function insertRowBefore(btn) {
         <td data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01"></td>
         <td data-column-key="amount" class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
         <td data-column-key="stock" class="num-col"><input type="text" class="form-control material-stock" readonly></td>
+        <td data-column-key="contract_no"><input type="text" class="form-control line-contract-no" maxlength="50"></td>
+        <td data-column-key="project_name"><input type="text" class="form-control line-project-name" maxlength="200"></td>
         <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
         <td data-column-key="actions" class="action-col">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
@@ -1174,7 +1164,7 @@ function submitFormLegacy(saveAndNew = false) {
             largeQtyCount++;
         }
         
-        items.push({ code, quantity: qty, price: price || 0, remark: (row.querySelector('.material-remark')?.value || '').trim() });
+        items.push({ code, quantity: qty, price: price || 0, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() });
         const sourceItemId = row.dataset.sourcePurchaseOrderItemId;
         if (sourceItemId) {
             items[items.length - 1].source_purchase_order_item_id = sourceItemId;
@@ -1341,7 +1331,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         }
         if (qty > 10000) largeQtyCount += 1;
 
-        const item = { code, quantity: qty, price: Number.isFinite(price) ? price : 0, remark: (row.querySelector('.material-remark')?.value || '').trim() };
+        const item = { code, quantity: qty, price: Number.isFinite(price) ? price : 0, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() };
         const sourceItemId = row.dataset.sourcePurchaseOrderItemId;
         if (sourceItemId) item.source_purchase_order_item_id = sourceItemId;
         items.push(item);

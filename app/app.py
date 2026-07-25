@@ -607,7 +607,7 @@ def auto_migrate_database():
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_contract_no ON contract(contract_no)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_contract_status ON contract(status)")
-        # 2. 给 4 类订单表加 contract_id / contract_no / project_name 字段
+        # 2. 合同/工程属于单据明细行；表头字段仅保留用于兼容旧数据。
         # 冗余文本字段保证合同档案后续编辑或停用时历史单据保留原始值
         for _tbl in ('in_order', 'out_order', 'purchase_order', 'sales_order'):
             cursor.execute(f"PRAGMA table_info({_tbl})")
@@ -626,6 +626,36 @@ def auto_migrate_database():
             cursor.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_{_tbl}_contract_id ON {_tbl}(contract_id)"
             )
+        for _tbl in ('in_order_item', 'out_order_item', 'purchase_order_item', 'sales_order_item'):
+            cursor.execute(f"PRAGMA table_info({_tbl})")
+            _existing = [row[1] for row in cursor.fetchall()]
+            if not _existing:
+                continue
+            for _column, _definition in (
+                ('contract_id', 'INTEGER'),
+                ('contract_no', 'VARCHAR(50)'),
+                ('project_name', 'VARCHAR(200)'),
+            ):
+                if _column not in _existing:
+                    cursor.execute(f"ALTER TABLE {_tbl} ADD COLUMN {_column} {_definition}")
+                    modified = True
+            cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_{_tbl}_contract_id ON {_tbl}(contract_id)")
+        # Existing documents had one header-level contract. Copy it to every line once.
+        for _header, _item, _fk in (
+            ('in_order', 'in_order_item', 'in_order_id'),
+            ('out_order', 'out_order_item', 'out_order_id'),
+            ('purchase_order', 'purchase_order_item', 'purchase_order_id'),
+            ('sales_order', 'sales_order_item', 'sales_order_id'),
+        ):
+            cursor.execute(f"""
+                UPDATE {_item}
+                   SET contract_id = (SELECT contract_id FROM {_header} WHERE {_header}.id = {_item}.{_fk}),
+                       contract_no = (SELECT contract_no FROM {_header} WHERE {_header}.id = {_item}.{_fk}),
+                       project_name = (SELECT project_name FROM {_header} WHERE {_header}.id = {_item}.{_fk})
+                 WHERE contract_id IS NULL AND (contract_no IS NULL OR contract_no = '')
+                   AND EXISTS (SELECT 1 FROM {_header} WHERE {_header}.id = {_item}.{_fk}
+                               AND ({_header}.contract_id IS NOT NULL OR {_header}.contract_no IS NOT NULL))
+            """)
 
         if modified:
             conn.commit()
@@ -3310,10 +3340,14 @@ class InOrderItem(db.Model):
     price = db.Column(db.Float, nullable=False)  # Unit price
     amount = db.Column(db.Float, nullable=False)  # Amount
     remark = db.Column(db.String(500))  # Row-level remark
+    contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))
+    contract_no = db.Column(db.String(50))
+    project_name = db.Column(db.String(200))
 
     in_order = db.relationship('InOrder', backref='items')  # Related in order
     material = db.relationship('Material', backref='in_order_items')  # Related material
     source_purchase_order_item = db.relationship('PurchaseOrderItem', backref='in_order_items')
+    contract = db.relationship('Contract', foreign_keys=[contract_id])
 
 
 class OutOrder(db.Model):
@@ -3359,10 +3393,14 @@ class OutOrderItem(db.Model):
     price = db.Column(db.Float, nullable=False)  # Unit price
     amount = db.Column(db.Float, nullable=False)  # Amount
     remark = db.Column(db.String(500))  # Row remark
+    contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))
+    contract_no = db.Column(db.String(50))
+    project_name = db.Column(db.String(200))
 
     out_order = db.relationship('OutOrder', backref='items')  # Related out order
     material = db.relationship('Material', backref='out_order_items')  # Related material
     source_sales_order_item = db.relationship('SalesOrderItem', backref='sales_out_order_items')
+    contract = db.relationship('Contract', foreign_keys=[contract_id])
 
 
 class InventoryCheck(db.Model):
@@ -4160,10 +4198,14 @@ class PurchaseOrderItem(db.Model):
     price = db.Column(db.Float, default=0)
     amount = db.Column(db.Float, default=0)
     remark = db.Column(db.String(200))
+    contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))
+    contract_no = db.Column(db.String(50))
+    project_name = db.Column(db.String(200))
 
     purchase_order = db.relationship('PurchaseOrder', backref='items')
     purchase_request_item = db.relationship('PurchaseRequestItem', backref='purchase_order_items')
     material = db.relationship('Material', backref='purchase_order_items')
+    contract = db.relationship('Contract', foreign_keys=[contract_id])
 
 
 class SalesOrder(db.Model):
@@ -4234,9 +4276,13 @@ class SalesOrderItem(db.Model):
     batch_no = db.Column(db.String(100))
     serial_no = db.Column(db.String(200))
     remark = db.Column(db.String(200))
+    contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))
+    contract_no = db.Column(db.String(50))
+    project_name = db.Column(db.String(200))
 
     sales_order = db.relationship('SalesOrder', backref='items')
     material = db.relationship('Material', backref='sales_order_items')
+    contract = db.relationship('Contract', foreign_keys=[contract_id])
 
 def purchase_request_item_has_material(item):
     return bool(
@@ -23928,7 +23974,10 @@ def add_in_order():
                     quantity=quantity,
                     price=price,
                     amount=amount,
-                    remark=(item_data.get('remark') or '').strip() or None
+                    remark=(item_data.get('remark') or '').strip() or None,
+                    contract_id=int(item_data.get('contract_id')) if item_data.get('contract_id') else None,
+                    contract_no=(item_data.get('contract_no') or '').strip() or None,
+                    project_name=(item_data.get('project_name') or '').strip() or None,
                 )
                 db.session.add(item)
                 pending_in_order_items[duplicate_key] = item
@@ -31353,7 +31402,10 @@ def add_out_order():
                 quantity=quantity,
                 price=price,
                 amount=round_to_2_decimals(quantity * price),
-                remark=(submitted_item.get('remark') or '').strip() or None
+                remark=(submitted_item.get('remark') or '').strip() or None,
+                contract_id=int(submitted_item.get('contract_id')) if submitted_item.get('contract_id') else None,
+                contract_no=(submitted_item.get('contract_no') or '').strip() or None,
+                project_name=(submitted_item.get('project_name') or '').strip() or None,
             ))
 
         recalculate_order_total(order)
@@ -33581,7 +33633,10 @@ def save_purchase_order():
                 received_quantity=0,
                 price=price,
                 amount=amount,
-                remark=(item_data.get('remark') or '').strip()
+                remark=(item_data.get('remark') or '').strip(),
+                contract_id=int(item_data.get('contract_id')) if item_data.get('contract_id') else None,
+                contract_no=(item_data.get('contract_no') or '').strip() or None,
+                project_name=(item_data.get('project_name') or '').strip() or None,
             ))
 
         order.total_amount = round_to_2_decimals(order_total)
@@ -42468,6 +42523,9 @@ def sales_order_add():
                 batch_no=(data.get('batch_no') or '').strip() or None,
                 serial_no=(data.get('serial_no') or '').strip() or None,
                 remark=(data.get('remark') or '').strip() or None,
+                contract_id=int(data.get('contract_id')) if data.get('contract_id') else None,
+                contract_no=(data.get('contract_no') or '').strip() or None,
+                project_name=(data.get('project_name') or '').strip() or None,
             ))
         recalculate_sales_order(order)
         db.session.commit()
@@ -42699,7 +42757,7 @@ def sales_order_edit_page(id):
     materials = Material.query.order_by(Material.code.asc()).all()
     material_list = [{'code': m.code, 'name': m.name, 'spec': m.spec or '', 'unit': m.unit.name if m.unit else '', 'price': float(m.price or 0)} for m in materials]
     # 已有明细项转 JSON 供前端回填
-    existing_items = [{'code': item.material.code if item.material else '', 'quantity': item.quantity, 'price': item.price, 'tax_rate': item.tax_rate, 'batch_no': item.batch_no or '', 'serial_no': item.serial_no or '', 'remark': item.remark or ''} for item in order.items]
+    existing_items = [{'code': item.material.code if item.material else '', 'quantity': item.quantity, 'price': item.price, 'tax_rate': item.tax_rate, 'batch_no': item.batch_no or '', 'serial_no': item.serial_no or '', 'remark': item.remark or '', 'contract_id': item.contract_id, 'contract_no': item.contract_no or order.contract_no or '', 'project_name': item.project_name or order.project_name or ''} for item in order.items]
     return render_template('sales_order_edit.html', order=order, customers=customers, employees=employees, warehouses=warehouses, materials=materials, material_list=material_list, existing_items=existing_items, default_tax_rate=0.13)
 
 
@@ -42767,6 +42825,9 @@ def sales_order_edit(id):
                 batch_no=(data.get('batch_no') or '').strip() or None,
                 serial_no=(data.get('serial_no') or '').strip() or None,
                 remark=(data.get('remark') or '').strip() or None,
+                contract_id=int(data.get('contract_id')) if data.get('contract_id') else None,
+                contract_no=(data.get('contract_no') or '').strip() or None,
+                project_name=(data.get('project_name') or '').strip() or None,
             ))
         recalculate_sales_order(order)
         db.session.commit()

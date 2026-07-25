@@ -686,6 +686,8 @@ textarea.form-control {
                             <th data-column-key="included" style="width:110px;" class="amount-col">含税金额<span class="col-resize"></span></th>
                             <th data-column-key="batch_no" style="width:120px;">批次号<span class="col-resize"></span></th>
                             <th data-column-key="serial_no" style="width:140px;">序列号<span class="col-resize"></span></th>
+                            <th data-column-key="contract_no" style="width:140px;">合同编号<span class="col-resize"></span></th>
+                            <th data-column-key="project_name" style="width:180px;">工程名称<span class="col-resize"></span></th>
                             <th data-column-key="remark" style="width:180px;">备注<span class="col-resize"></span></th>
                             <th data-column-key="actions" class="action-col">操作<span class="col-resize"></span></th>
                         </tr>
@@ -722,6 +724,7 @@ textarea.form-control {
 {% endblock %}
 
 {% block extra_js %}
+<style>.row > [class*="col-"]:has(#contractSearch),.row > [class*="col-"]:has(#projectNameInput){display:none!important}</style>
 <script>
 (function() {
     var materials = {{ materials|tojson }};
@@ -893,6 +896,8 @@ textarea.form-control {
             '<td data-column-key="included" class="amount-col included"></td>' +
             '<td data-column-key="batch_no"><input class="form-control batch-no"></td>' +
             '<td data-column-key="serial_no"><input class="form-control serial-no"></td>' +
+            '<td data-column-key="contract_no"><input class="form-control line-contract-no" maxlength="50"></td>' +
+            '<td data-column-key="project_name"><input class="form-control line-project-name" maxlength="200"></td>' +
             '<td data-column-key="remark"><input class="form-control line-remark"></td>' +
             '<td data-column-key="actions" class="action-col"><button type="button" class="btn btn-sm btn-outline-danger remove" title="删除"><i class="bi bi-trash"></i></button></td>';
         body.appendChild(row);
@@ -929,6 +934,8 @@ textarea.form-control {
                 tax_rate: row.querySelector('.tax-rate').value,
                 batch_no: row.querySelector('.batch-no').value,
                 serial_no: row.querySelector('.serial-no').value,
+                contract_no: row.querySelector('.line-contract-no').value.trim(),
+                project_name: row.querySelector('.line-project-name').value.trim(),
                 remark: row.querySelector('.line-remark').value
             };
         }).filter(function(item) { return item.code; });

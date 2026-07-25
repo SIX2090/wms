@@ -473,6 +473,8 @@ textarea.form-control {
                             <th style="width: 100px;" class="num-col">数量<span class="col-resize"></span></th>
                             <th style="width: 100px;" class="num-col">单价<span class="col-resize"></span></th>
                             <th style="width: 110px;" class="amount-col">金额<span class="col-resize"></span></th>
+                            <th style="width: 140px;">合同编号<span class="col-resize"></span></th>
+                            <th style="width: 180px;">工程名称<span class="col-resize"></span></th>
                             <th style="width: 140px;">备注<span class="col-resize"></span></th>
                             <th style="width: 90px;" class="action-col">操作<span class="col-resize"></span></th>
                         </tr>
@@ -495,6 +497,7 @@ textarea.form-control {
 {% endblock %}
 
 {% block extra_js %}
+<style>.row > [class*="col-"]:has(#contractSearch),.row > [class*="col-"]:has(#projectNameInput){display:none!important}</style>
 <script>
 const materials = {{ materials|tojson }};
 const suppliers = {{ suppliers|tojson }};
@@ -511,6 +514,8 @@ const initialItems = [
         unit_name: {{ item.material.unit.name|tojson if item.material and item.material.unit else '""' }},
         quantity: {{ item.quantity or 0 }},
         price: {{ item.price or 0 }},
+        contract_no: {{ (item.contract_no or order.contract_no or '')|tojson }},
+        project_name: {{ (item.project_name or order.project_name or '')|tojson }},
         remark: {{ (item.remark or '')|tojson }}
     }{{ "," if not loop.last else "" }}
 {% endfor %}
@@ -685,6 +690,8 @@ function addNewRow(data = {}, insertBeforeRow = null) {
         <td class="num-col"><input type="number" class="form-control material-qty" min="0" step="0.01" value="${escapeHtml(data.quantity || '')}"></td>
         <td class="num-col"><input type="number" class="form-control material-price" min="0" step="0.01" value="${escapeHtml(data.price || '')}"></td>
         <td class="amount-col"><input class="form-control material-amount" readonly></td>
+        <td><input class="form-control line-contract-no" maxlength="50" value="${escapeHtml(data.contract_no || '')}"></td>
+        <td><input class="form-control line-project-name" maxlength="200" value="${escapeHtml(data.project_name || '')}"></td>
         <td><input type="text" class="form-control material-remark" maxlength="500" value="${escapeHtml(data.remark || '')}"></td>
         <td class="action-col">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入"><i class="bi bi-plus-circle"></i></button>
@@ -918,6 +925,8 @@ function collectItems() {
         material_code: findMaterialByKeyword(row.querySelector('.material-code').value)?.code || row.querySelector('.material-code').value.trim(),
         quantity: row.querySelector('.material-qty').value,
         price: row.querySelector('.material-price').value,
+        contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(),
+        project_name: (row.querySelector('.line-project-name')?.value || '').trim(),
         remark: (row.querySelector('.material-remark')?.value || '').trim()
     })).filter(item => item.material_id || item.material_code);
 }

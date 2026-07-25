@@ -526,6 +526,8 @@ textarea.form-control {
                             <th data-column-key="price" style="width: 100px;">单价<span class="col-resize"></span></th>
                             <th data-column-key="amount" style="width: 100px;" class="amount-col">金额<span class="col-resize"></span></th>
                             <th data-column-key="stock" style="width: 90px;">当前库存<span class="col-resize"></span></th>
+                            <th data-column-key="contract_no" style="width: 140px;">合同编号<span class="col-resize"></span></th>
+                            <th data-column-key="project_name" style="width: 180px;">工程名称<span class="col-resize"></span></th>
                             <th data-column-key="remark" style="width: 140px;">备注<span class="col-resize"></span></th>
                             <th data-column-key="actions" class="action-col">操作<span class="col-resize"></span></th>
                         </tr>
@@ -555,6 +557,7 @@ textarea.form-control {
 {% endblock %}
 
 {% block extra_js %}
+<style>.row > [class*="col-"]:has(#contractSearch),.row > [class*="col-"]:has(#projectNameInput){display:none!important}</style>
 <script>
 const materials = {{ materials|tojson }};
 const units = {{ units|tojson }};
@@ -639,6 +642,8 @@ function addNewRow() {
         <td data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01"></td>
         <td data-column-key="amount" class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
         <td data-column-key="stock" class="num-col"><input type="text" class="form-control material-stock" readonly></td>
+        <td data-column-key="contract_no"><input type="text" class="form-control line-contract-no" maxlength="50"></td>
+        <td data-column-key="project_name"><input type="text" class="form-control line-project-name" maxlength="200"></td>
         <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
         <td data-column-key="actions" class="action-col">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
@@ -899,6 +904,8 @@ function insertRowBefore(btn) {
         <td data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01"></td>
         <td data-column-key="amount" class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
         <td data-column-key="stock" class="num-col"><input type="text" class="form-control material-stock" readonly></td>
+        <td data-column-key="contract_no"><input type="text" class="form-control line-contract-no" maxlength="50"></td>
+        <td data-column-key="project_name"><input type="text" class="form-control line-project-name" maxlength="200"></td>
         <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
         <td data-column-key="actions" class="action-col">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
@@ -1029,7 +1036,7 @@ function submitForm(saveAndNew = false) {
             }
         }
         
-        items.push({ code, quantity: qty, price: price || 0, remark: (row.querySelector('.material-remark')?.value || '').trim() });
+        items.push({ code, quantity: qty, price: price || 0, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() });
     }
     
     if (emptyQtyCount > 0) {
