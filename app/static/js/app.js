@@ -3166,3 +3166,120 @@ document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('DOMContentLoaded', initializeTables);
     window.WmsFieldSettings = { open: open, refresh: initializeTables };
 })();
+
+// Global fill-down controls for editable document detail columns.
+(function() {
+    'use strict';
+    var excludedKeys = new Set(['row_no', 'material_code', 'material_name', 'spec', 'unit', 'amount', 'stock', 'actions']);
+
+    function editableControl(cell) {
+        if (!cell) return null;
+        return Array.from(cell.querySelectorAll('input,select,textarea')).find(function(control) {
+            var type = (control.type || '').toLowerCase();
+            return !control.disabled && !control.readOnly && type !== 'hidden' && type !== 'button' && type !== 'submit' && type !== 'file';
+        }) || null;
+    }
+
+    function cellFor(row, key) {
+        return Array.from(row.children).find(function(cell) { return cell.dataset && cell.dataset.columnKey === key; }) || null;
+    }
+
+    function valueOf(control) {
+        if (!control) return '';
+        if (control.type === 'checkbox' || control.type === 'radio') return control.checked;
+        return control.value;
+    }
+
+    function hasValue(control) {
+        var value = valueOf(control);
+        return typeof value === 'boolean' ? value : String(value == null ? '' : value).trim() !== '';
+    }
+
+    function assignValue(control, value) {
+        if (control.type === 'checkbox' || control.type === 'radio') control.checked = !!value;
+        else control.value = value;
+        control.dispatchEvent(new Event('input', { bubbles: true }));
+        control.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function rowsOf(table) {
+        return Array.from(table.tBodies).flatMap(function(tbody) { return Array.from(tbody.rows); });
+    }
+
+    function showFillResult(message, type) {
+        if (typeof window.showToast === 'function') window.showToast(message, type || 'success', 1800);
+        else if (type === 'warning') window.alert(message);
+    }
+
+    function fillDown(table, key) {
+        var rows = rowsOf(table);
+        var sourceRow = table._wmsFillSource && table._wmsFillSource.key === key ? table._wmsFillSource.row : null;
+        var sourceIndex = sourceRow ? rows.indexOf(sourceRow) : -1;
+        if (sourceIndex < 0) {
+            sourceIndex = rows.findIndex(function(row) { return hasValue(editableControl(cellFor(row, key))); });
+            sourceRow = sourceIndex >= 0 ? rows[sourceIndex] : null;
+        }
+        var sourceControl = sourceRow ? editableControl(cellFor(sourceRow, key)) : null;
+        if (!sourceControl || !hasValue(sourceControl)) {
+            showFillResult('请先在该字段中填写一个值，再执行向下填充', 'warning');
+            return;
+        }
+        var value = valueOf(sourceControl);
+        var count = 0;
+        rows.slice(sourceIndex + 1).forEach(function(row) {
+            var target = editableControl(cellFor(row, key));
+            if (!target) return;
+            assignValue(target, value);
+            count += 1;
+        });
+        if (!count) {
+            showFillResult('当前行下面没有可填充的明细行', 'warning');
+            return;
+        }
+        showFillResult('已向下填充 ' + count + ' 行');
+    }
+
+    function updateButtons(table) {
+        if (!table.tHead) return;
+        Array.from(table.querySelectorAll('thead th[data-column-key]')).forEach(function(th) {
+            var key = th.dataset.columnKey;
+            var existing = th.querySelector('.wms-fill-down-btn');
+            var supports = !excludedKeys.has(key) && rowsOf(table).some(function(row) { return !!editableControl(cellFor(row, key)); });
+            if (!supports) { if (existing) existing.remove(); return; }
+            if (existing) return;
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'wms-fill-down-btn';
+            button.title = '从当前行向下填充';
+            button.setAttribute('aria-label', (th.dataset.defaultLabel || th.textContent.trim()) + '向下填充');
+            button.innerHTML = '<i class="bi bi-arrow-down"></i>';
+            button.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                fillDown(table, key);
+            });
+            th.appendChild(button);
+        });
+    }
+
+    function initialize(table) {
+        if (!table.tBodies.length || table.dataset.fillDownReady === '1') return;
+        if (!table.querySelector('thead th[data-column-key]')) return;
+        table.dataset.fillDownReady = '1';
+        table.addEventListener('focusin', function(event) {
+            var control = event.target.closest('input,select,textarea');
+            var cell = control && control.closest('td[data-column-key]');
+            var row = cell && cell.closest('tr');
+            if (row && cell) table._wmsFillSource = { row: row, key: cell.dataset.columnKey };
+        });
+        updateButtons(table);
+        new MutationObserver(function() { updateButtons(table); }).observe(table.tBodies[0], { childList: true, subtree: true });
+    }
+
+    function initializeAll() {
+        document.querySelectorAll('table').forEach(initialize);
+    }
+
+    document.addEventListener('DOMContentLoaded', initializeAll);
+    window.WmsFillDown = { refresh: initializeAll, fill: fillDown };
+})();
