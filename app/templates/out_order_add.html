@@ -521,6 +521,7 @@ textarea.form-control {
                         <tr>
                             <th data-column-key="row_no" class="row-num">序号<span class="col-resize"></span></th>
                             <th data-column-key="material_code" style="width: 150px;">物料编码<span class="col-resize"></span></th>
+                            <th data-column-key="brand" style="width: 100px;">品牌<span class="col-resize"></span></th>
                             <th data-column-key="material_name">物料名称<span class="col-resize"></span></th>
                             <th data-column-key="spec" style="width: 100px;">规格<span class="col-resize"></span></th>
                             <th data-column-key="unit" style="width: 70px;">单位<span class="col-resize"></span></th>
@@ -540,6 +541,7 @@ textarea.form-control {
                         <tr class="total-row" data-total-row="true">
                             <td data-column-key="row_no"></td>
                             <td data-column-key="material_code"></td>
+                            <td data-column-key="brand"></td>
                             <td data-column-key="material_name"></td>
                             <td data-column-key="spec"></td>
                             <td data-column-key="unit"></td>
@@ -595,6 +597,7 @@ function escapeHtml(value) {
 
 function fillMaterialFields(row, material, options = {}) {
     row.querySelector('.material-code').value = material.code;
+    row.querySelector('.material-brand').value = material.brand || '';
     row.querySelector('.material-name').value = material.name;
     row.querySelector('.material-spec').value = material.spec || '';
     row.querySelector('.material-unit').value = getMaterialUnit(material);
@@ -608,6 +611,7 @@ function fillMaterialFields(row, material, options = {}) {
 }
 
 function clearMaterialFields(row) {
+    row.querySelector('.material-brand').value = '';
     row.querySelector('.material-name').value = '';
     row.querySelector('.material-spec').value = '';
     row.querySelector('.material-unit').value = '';
@@ -642,6 +646,7 @@ function addNewRow() {
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
+        <td data-column-key="brand"><input type="text" class="form-control material-brand" readonly></td>
         <td data-column-key="material_name"><input type="text" class="form-control material-name" readonly></td>
         <td data-column-key="spec"><input type="text" class="form-control material-spec" readonly></td>
         <td data-column-key="unit"><input type="text" class="form-control material-unit" readonly></td>
@@ -742,6 +747,7 @@ function showDropdown(row, showAll = false) {
         showAll ||
         m.code.toLowerCase().includes(keyword) ||
         m.name.toLowerCase().includes(keyword) ||
+        (m.brand && m.brand.toLowerCase().includes(keyword)) ||
         (m.spec && m.spec.toLowerCase().includes(keyword))
     );
 
@@ -753,6 +759,7 @@ function showDropdown(row, showAll = false) {
     dropdown.innerHTML = filtered.map(m => `
         <div class="material-dropdown-item" data-code="${escapeHtml(m.code)}">
             <span class="code">${escapeHtml(m.code)}</span> - <span class="name">${escapeHtml(m.name)}</span>
+            <span class="spec">${escapeHtml(m.brand || '')}</span>
             <span class="spec">${escapeHtml(m.spec || '')}</span>
             <span class="unit">${escapeHtml(getMaterialUnit(m))}</span>
             <span class="stock">库存 ${escapeHtml(formatStock(m.stock))}</span>
@@ -904,6 +911,7 @@ function insertRowBefore(btn) {
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
+        <td data-column-key="brand"><input type="text" class="form-control material-brand" readonly></td>
         <td data-column-key="material_name"><input type="text" class="form-control material-name" readonly></td>
         <td data-column-key="spec"><input type="text" class="form-control material-spec" readonly></td>
         <td data-column-key="unit"><input type="text" class="form-control material-unit" readonly></td>
@@ -1150,6 +1158,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 row_no: 42,
                 actions: 92,
                 material_code: 120,
+                brand: 90,
                 material_name: 140,
                 spec: 80,
                 unit: 60,
@@ -1644,7 +1653,7 @@ function showColumnSettings() {
     }
     const choice = prompt('明细字段设置：\n1. 当前库存放到金额后面\n2. 恢复默认字段位置和列宽\n\n表头也可以直接拖动调整位置，拖动右侧边线调整宽度。');
     if (choice === '1') {
-        controller.setOrder(['row_no', 'material_code', 'material_name', 'spec', 'unit', 'quantity', 'price', 'amount', 'stock', 'actions']);
+        controller.setOrder(['row_no', 'material_code', 'brand', 'material_name', 'spec', 'unit', 'quantity', 'price', 'amount', 'stock', 'actions']);
         alert('已把当前库存放到金额后面');
     } else if (choice === '2') {
         controller.reset();

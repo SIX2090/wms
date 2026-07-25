@@ -337,6 +337,10 @@
                         <label class="form-check-label" for="chkCode">物料编码</label>
                     </div>
                     <div class="form-check">
+                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colBrand')" id="chkBrand">
+                        <label class="form-check-label" for="chkBrand">品牌</label>
+                    </div>
+                    <div class="form-check">
                         <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colName')" id="chkName">
                         <label class="form-check-label" for="chkName">物料名称</label>
                     </div>
@@ -391,6 +395,7 @@
                         <th width="40" data-col="chk"><input type="checkbox" id="selectAll"></th>
                         {% endif %}
                         <th class="resizable-th" data-col="colCode">物料编码<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colBrand">品牌<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colName">物料名称<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colSpec">规格<div class="resize-handle"></div></th>
                         {% if order.business_type == '其他入库' %}<th class="text-center" data-col="colCustomerSupplied">客供</th>{% endif %}
@@ -424,6 +429,7 @@
                         <td><input type="checkbox" class="itemCheck" value="{{ item.id }}"></td>
                         {% endif %}
                         <td class="fw-medium">{{ item.material.code }}</td>
+                        <td>{{ item.material.brand or '-' }}</td>
                         <td>{{ item.material.name }}</td>
                         <td>{{ item.material.spec or '-' }}</td>
                         {% if order.business_type == '其他入库' %}
@@ -726,6 +732,7 @@ function fillAddMaterialInfo(material, row) {
         const input = scope.querySelector(selector);
         if (input) input.value = value;
     };
+    setValue('.material-brand-field, #brand', material.brand || '');
     setValue('.material-name-field, #name', material.name || '');
     setValue('.material-spec-field, #spec', material.spec || '');
     setValue('.material-unit-field, #unit', getMaterialUnit(material));
@@ -741,7 +748,7 @@ function fillAddMaterialInfo(material, row) {
 
 function clearAddMaterialInfo(row) {
     const scope = row || document;
-    ['.material-name-field, #name', '.material-spec-field, #spec', '.material-unit-field, #unit', '.material-stock-field, #stock', '.material-id-field'].forEach(function(selector) {
+    ['.material-brand-field, #brand', '.material-name-field, #name', '.material-spec-field, #spec', '.material-unit-field, #unit', '.material-stock-field, #stock', '.material-id-field'].forEach(function(selector) {
         const input = scope.querySelector(selector);
         if (input) input.value = '';
     });
@@ -1039,6 +1046,7 @@ function addInlineMaterialRow(beforeRow) {
                 <div class="material-quick-dropdown" style="display:none;"></div>
             </div>
         </td>
+        <td><input class="form-control material-brand-field" readonly></td>
         <td><input class="form-control material-name-field" readonly></td>
         <td><input class="form-control material-spec-field" readonly></td>
         <td><input class="form-control material-unit-field text-center" readonly></td>
@@ -1091,16 +1099,18 @@ function copyDetailMaterialRow(row) {
     target.querySelector('.material-qty-field').value = qty || '';
     target.querySelector('.material-price-field').value = price || '';
     if (row.classList.contains('new-item-row')) {
+        target.querySelector('.material-brand-field').value = row.querySelector('.material-brand-field')?.value || '';
         target.querySelector('.material-name-field').value = row.querySelector('.material-name-field')?.value || '';
         target.querySelector('.material-spec-field').value = row.querySelector('.material-spec-field')?.value || '';
         target.querySelector('.material-unit-field').value = row.querySelector('.material-unit-field')?.value || '';
         target.querySelector('.material-stock-field').value = row.querySelector('.material-stock-field')?.value || '';
         target.querySelector('.material-id-field').value = row.querySelector('.material-id-field')?.value || '';
     } else {
-        target.querySelector('.material-name-field').value = cells[3]?.textContent.trim() || '';
-        target.querySelector('.material-spec-field').value = cells[4]?.textContent.trim() || '';
-        target.querySelector('.material-unit-field').value = cells[5]?.textContent.trim() || '';
-        target.querySelector('.material-stock-field').value = cells[6]?.textContent.trim() || '';
+        target.querySelector('.material-brand-field').value = cells[3]?.textContent.trim() || '';
+        target.querySelector('.material-name-field').value = cells[4]?.textContent.trim() || '';
+        target.querySelector('.material-spec-field').value = cells[5]?.textContent.trim() || '';
+        target.querySelector('.material-unit-field').value = cells[6]?.textContent.trim() || '';
+        target.querySelector('.material-stock-field').value = cells[7]?.textContent.trim() || '';
         target.querySelector('.material-id-field').value = row.dataset.materialId || '';
     }
     calcInlineRowAmount(target);

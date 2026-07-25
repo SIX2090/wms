@@ -103,6 +103,7 @@
                         <tr>
                             <th>序号</th>
                             <th>物料编码</th>
+                            <th>品牌</th>
                             <th>物料名称</th>
                             <th>规格</th>
                             <th>单位</th>
@@ -118,6 +119,7 @@
                         <tr>
                             <td>{{ loop.index }}</td>
                             <td>{{ item.material.code if item.material else '-' }}</td>
+                            <td>{{ item.material.brand if item.material and item.material.brand else '-' }}</td>
                             <td>{{ item.material.name if item.material else '-' }}</td>
                             <td>{{ item.material.spec if item.material else '-' }}</td>
                             <td>{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>

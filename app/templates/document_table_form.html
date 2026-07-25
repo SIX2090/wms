@@ -194,6 +194,7 @@
                         <tr>
                             <th class="row-num">序号</th>
                             <th style="width:150px;">物料编码</th>
+                            {% if doc_type == 'requisition' %}<th style="width:100px;">品牌</th>{% endif %}
                             <th>物料名称</th>
                             <th style="width:110px;">规格</th>
                             <th style="width:75px;">单位</th>
@@ -234,7 +235,7 @@
                             <td class="text-end" id="totalQty">0.00</td>
                             <td colspan="{{ 4 if can_save else 3 }}"></td>
                             {% elif doc_type == 'requisition' %}
-                            <td colspan="6" class="text-end">合计：</td>
+                            <td colspan="7" class="text-end">合计：</td>
                             <td class="text-end" id="totalQty">0.00</td>
                             <td colspan="{{ 2 if can_save else 1 }}"></td>
                             {% else %}
@@ -303,6 +304,7 @@ function trimDecimalInput(input) {
 function fillMaterialFields(row, material) {
     row.dataset.materialId = material.id || '';
     row.querySelector('.material-code').value = material.code || '';
+    row.querySelector('.material-brand') && (row.querySelector('.material-brand').value = material.brand || '');
     row.querySelector('.material-name').value = material.name || '';
     row.querySelector('.material-spec').value = material.spec || '';
     row.querySelector('.material-unit').value = getMaterialUnit(material);
@@ -327,6 +329,7 @@ function fillMaterialFields(row, material) {
 }
 function clearMaterialFields(row) {
     row.dataset.materialId = '';
+    row.querySelector('.material-brand') && (row.querySelector('.material-brand').value = '');
     row.querySelector('.material-name').value = '';
     row.querySelector('.material-spec').value = '';
     row.querySelector('.material-unit').value = '';
@@ -344,6 +347,7 @@ function rowCells(item) {
                 ${readonly ? '' : '<button type="button" class="material-select-btn">▼</button><div class="material-dropdown" style="display:none;"></div>'}
             </div>
         </td>
+        ${docType === 'requisition' ? '<td><input type="text" class="material-brand" readonly></td>' : ''}
         <td><input type="text" class="material-name" readonly></td>
         <td><input type="text" class="material-spec" readonly></td>
         <td><input type="text" class="material-unit" readonly><select class="unit-id d-none" ${disabledAttr}>${unitOptions(unitId)}</select></td>`;
@@ -385,6 +389,8 @@ function createRow(item) {
     row.innerHTML = rowCells(item);
     if (item) {
         row.querySelector('.material-code').value = item.code || '';
+        const itemMaterial = findMaterialByCode(item.code);
+        row.querySelector('.material-brand') && (row.querySelector('.material-brand').value = item.brand || (itemMaterial && itemMaterial.brand) || '');
         row.querySelector('.material-name').value = item.name || '';
         row.querySelector('.material-spec').value = item.spec || '';
         row.querySelector('.material-unit').value = item.unit || '';
@@ -464,6 +470,7 @@ function copyRowAfter(row) {
     }
     target.dataset.materialId = row.dataset.materialId || '';
     target.querySelector('.material-code').value = row.querySelector('.material-code').value;
+    target.querySelector('.material-brand') && (target.querySelector('.material-brand').value = row.querySelector('.material-brand')?.value || '');
     target.querySelector('.material-name').value = row.querySelector('.material-name').value;
     target.querySelector('.material-spec').value = row.querySelector('.material-spec').value;
     target.querySelector('.material-unit').value = row.querySelector('.material-unit').value;
@@ -520,11 +527,11 @@ function showDropdown(row, showAll) {
     const keyword = input.value.toLowerCase().trim();
     if (activeDropdown && activeDropdown !== dropdown) activeDropdown.style.display = 'none';
     const filtered = materials.filter(function(m) {
-        return showAll || String(m.code||'').toLowerCase().includes(keyword) || String(m.name||'').toLowerCase().includes(keyword) || String(m.spec||'').toLowerCase().includes(keyword);
+        return showAll || String(m.code||'').toLowerCase().includes(keyword) || String(m.brand||'').toLowerCase().includes(keyword) || String(m.name||'').toLowerCase().includes(keyword) || String(m.spec||'').toLowerCase().includes(keyword);
     }).slice(0, 80);
     if (!filtered.length) { dropdown.style.display = 'none'; return; }
     dropdown.innerHTML = filtered.map(function(m) {
-        return `<div class="material-dropdown-item" data-code="${escapeHtml(m.code)}"><span class="code">${escapeHtml(m.code)}</span> - ${escapeHtml(m.name)}<span class="meta">${escapeHtml(m.spec || '')}</span><span class="meta">${escapeHtml(getMaterialUnit(m))}</span><span class="meta">库存 ${formatQty(m.stock)}</span></div>`;
+        return `<div class="material-dropdown-item" data-code="${escapeHtml(m.code)}"><span class="code">${escapeHtml(m.code)}</span><span class="meta">${escapeHtml(m.brand || '')}</span> - ${escapeHtml(m.name)}<span class="meta">${escapeHtml(m.spec || '')}</span><span class="meta">${escapeHtml(getMaterialUnit(m))}</span><span class="meta">库存 ${formatQty(m.stock)}</span></div>`;
     }).join('');
     dropdown.querySelectorAll('.material-dropdown-item').forEach(function(item) {
         item.addEventListener('click', function() {
