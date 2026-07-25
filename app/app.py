@@ -663,6 +663,55 @@ def auto_migrate_database():
                                AND ({_header}.contract_id IS NOT NULL OR {_header}.contract_no IS NOT NULL))
             """)
 
+        # Generic inbound-to-outbound push trace. One row represents one
+        # source line allocation and remains as audit evidence after release.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS document_push_line (
+                id INTEGER PRIMARY KEY,
+                source_document_type VARCHAR(30) NOT NULL,
+                source_document_id INTEGER NOT NULL,
+                source_document_no VARCHAR(50) NOT NULL,
+                source_item_id INTEGER NOT NULL,
+                target_document_type VARCHAR(30) NOT NULL,
+                target_document_id INTEGER NOT NULL,
+                target_document_no VARCHAR(50) NOT NULL,
+                target_item_id INTEGER,
+                pushed_quantity FLOAT NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'active',
+                request_id VARCHAR(100) NOT NULL,
+                created_by INTEGER NOT NULL,
+                created_at DATETIME,
+                released_at DATETIME,
+                release_reason VARCHAR(200),
+                UNIQUE(created_by, source_document_type, source_document_id, request_id, source_item_id)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_push_source_item_status ON document_push_line(source_document_type, source_document_id, source_item_id, status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_push_target_status ON document_push_line(target_document_type, target_document_id, status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_push_request ON document_push_line(created_by, source_document_type, source_document_id, request_id)")
+
+        cursor.execute("PRAGMA table_info(after_sale_out_order)")
+        _after_sale_cols = [row[1] for row in cursor.fetchall()]
+        if _after_sale_cols:
+            for _column, _definition in (
+                ('customer_id', 'INTEGER'),
+                ('warehouse', 'VARCHAR(100)'),
+            ):
+                if _column not in _after_sale_cols:
+                    cursor.execute(f"ALTER TABLE after_sale_out_order ADD COLUMN {_column} {_definition}")
+                    modified = True
+        cursor.execute("PRAGMA table_info(after_sale_out_order_item)")
+        _after_sale_item_cols = [row[1] for row in cursor.fetchall()]
+        if _after_sale_item_cols:
+            for _column, _definition in (
+                ('contract_id', 'INTEGER'),
+                ('contract_no', 'VARCHAR(50)'),
+                ('project_name', 'VARCHAR(200)'),
+            ):
+                if _column not in _after_sale_item_cols:
+                    cursor.execute(f"ALTER TABLE after_sale_out_order_item ADD COLUMN {_column} {_definition}")
+                    modified = True
+
         if modified:
             conn.commit()
     except Exception as e:
@@ -4003,6 +4052,39 @@ class StockTransaction(db.Model):
     operator = db.relationship('User', backref='stock_transactions')
 
 
+class DocumentPushLine(db.Model):
+    """Auditable source-line allocation created by a document push."""
+    __tablename__ = 'document_push_line'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'created_by', 'source_document_type', 'source_document_id',
+            'request_id', 'source_item_id', name='uix_document_push_request_line'
+        ),
+        db.Index('idx_push_source_item_status', 'source_document_type', 'source_document_id', 'source_item_id', 'status'),
+        db.Index('idx_push_target_status', 'target_document_type', 'target_document_id', 'status'),
+        db.Index('idx_push_request', 'created_by', 'source_document_type', 'source_document_id', 'request_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    source_document_type = db.Column(db.String(30), nullable=False)
+    source_document_id = db.Column(db.Integer, nullable=False)
+    source_document_no = db.Column(db.String(50), nullable=False)
+    source_item_id = db.Column(db.Integer, nullable=False)
+    target_document_type = db.Column(db.String(30), nullable=False)
+    target_document_id = db.Column(db.Integer, nullable=False)
+    target_document_no = db.Column(db.String(50), nullable=False)
+    target_item_id = db.Column(db.Integer)
+    pushed_quantity = db.Column(db.Float, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='active')
+    request_id = db.Column(db.String(100), nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    released_at = db.Column(db.DateTime)
+    release_reason = db.Column(db.String(200))
+
+    creator = db.relationship('User', foreign_keys=[created_by])
+
+
 class TransferOrder(db.Model):
     """Inventory transfer order."""
     __tablename__ = 'transfer_order'
@@ -4083,6 +4165,8 @@ class AfterSaleOutOrder(db.Model):
     order_no = db.Column(db.String(50), unique=True, nullable=False)  # After sale out order number
     date = db.Column(db.Date, default=date.today)  # Out date
     customer = db.Column(db.String(100))  # Customer name
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'))
+    warehouse = db.Column(db.String(100))
     contact = db.Column(db.String(50))  # Contact
     phone = db.Column(db.String(20))  # Contact phone
     reason = db.Column(db.String(200))  # After sale reason
@@ -4099,6 +4183,7 @@ class AfterSaleOutOrder(db.Model):
     operator = db.relationship('User', backref='after_sale_out_orders')
     source_sales_order = db.relationship('SalesOrder', backref='after_sale_out_orders')
     source_out_order = db.relationship('OutOrder', backref='after_sale_out_orders')
+    customer_master = db.relationship('Customer', foreign_keys=[customer_id])
 
 
 class AfterSaleOutOrderItem(db.Model):
@@ -4112,9 +4197,13 @@ class AfterSaleOutOrderItem(db.Model):
     price = db.Column(db.Float, nullable=False)  # Unit price
     amount = db.Column(db.Float, nullable=False)  # Amount
     remark = db.Column(db.String(500))  # Row remark
+    contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))
+    contract_no = db.Column(db.String(50))
+    project_name = db.Column(db.String(200))
 
     after_sale_out_order = db.relationship('AfterSaleOutOrder', backref='items')
     material = db.relationship('Material', backref='after_sale_out_order_items')
+    contract = db.relationship('Contract', foreign_keys=[contract_id])
 
 
 class PurchaseRequest(db.Model):
@@ -23607,6 +23696,85 @@ def delete_employee():
 
 # ==================== In order management ====================
 
+INBOUND_PUSH_TARGETS = {
+    'requisition': {'label': '领料单', 'business_type': '领料单'},
+    'other_out': {'label': '其他出库单', 'business_type': '其他出库'},
+    'after_sale_out': {'label': '售后出库单', 'business_type': None},
+}
+
+
+def _in_order_push_source_type(order):
+    if order.business_type == '采购入库':
+        return 'purchase_in_order'
+    if order.business_type == '其他入库':
+        return 'other_in_order'
+    return None
+
+
+def _active_in_order_push_lines(order_id):
+    return DocumentPushLine.query.filter_by(
+        source_document_id=order_id, status='active'
+    ).filter(DocumentPushLine.source_document_type.in_(('purchase_in_order', 'other_in_order')))
+
+
+def _in_order_push_quantities(order):
+    rows = _active_in_order_push_lines(order.id).with_entities(
+        DocumentPushLine.source_item_id,
+        db.func.coalesce(db.func.sum(DocumentPushLine.pushed_quantity), 0),
+    ).group_by(DocumentPushLine.source_item_id).all()
+    return {item_id: normalize_stock_quantity(quantity) for item_id, quantity in rows}
+
+
+def _push_target_url(target_type, target_id):
+    if target_type in ('requisition', 'other_out'):
+        return url_for('out_order_detail', id=target_id)
+    return url_for('after_sale_out_detail', id=target_id)
+
+
+def _in_order_push_history(order):
+    rows = DocumentPushLine.query.filter_by(source_document_id=order.id).filter(
+        DocumentPushLine.source_document_type.in_(('purchase_in_order', 'other_in_order'))
+    ).order_by(DocumentPushLine.created_at.desc(), DocumentPushLine.id.desc()).all()
+    grouped = {}
+    for row in rows:
+        key = (row.target_document_type, row.target_document_id)
+        if key not in grouped:
+            target = (db.session.get(OutOrder, row.target_document_id)
+                      if row.target_document_type in ('requisition', 'other_out')
+                      else db.session.get(AfterSaleOutOrder, row.target_document_id))
+            grouped[key] = {
+                'target_type': row.target_document_type,
+                'target_label': INBOUND_PUSH_TARGETS.get(row.target_document_type, {}).get('label', row.target_document_type),
+                'target_id': row.target_document_id,
+                'target_no': row.target_document_no,
+                'status': target.status if target else ('released' if row.status == 'released' else 'missing'),
+                'link_status': row.status,
+                'creator': row.creator,
+                'created_at': row.created_at,
+                'quantity': 0,
+                'url': _push_target_url(row.target_document_type, row.target_document_id) if target else None,
+            }
+        grouped[key]['quantity'] += row.pushed_quantity or 0
+    return list(grouped.values())
+
+
+def _release_document_push_lines(target_type, target_id, reason):
+    now = datetime.now()
+    rows = DocumentPushLine.query.filter_by(
+        target_document_type=target_type,
+        target_document_id=target_id,
+        status='active',
+    ).all()
+    for row in rows:
+        row.status = 'released'
+        row.released_at = now
+        row.release_reason = reason
+    return len(rows)
+
+
+def _source_has_active_push(order_id):
+    return _active_in_order_push_lines(order_id).first() is not None
+
 @app.route('/in_order')
 @app.route('/other_in_order')
 @login_required
@@ -23726,11 +23894,223 @@ def in_order_detail(id):
         'in_order_detail.html',
         order=order,
         suppliers=suppliers,
+        push_history=_in_order_push_history(order),
+        can_push=order.status == 'completed' and _in_order_push_source_type(order) is not None,
         customers=customers,
         warehouses=warehouses,
         warehouse_names=warehouse_names,
         purchase_order_execution=purchase_order_execution,
     )
+
+
+@app.route('/in_order/<int:id>/push')
+@require_role('warehouse')
+@login_required
+def in_order_push_page(id):
+    order = InOrder.query.options(
+        joinedload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit)
+    ).get_or_404(id)
+    if order.status != 'completed':
+        flash('仅已完成的采购入库单或其他入库单允许下推。', 'warning')
+        return redirect(url_for('in_order_detail', id=id))
+    if not _in_order_push_source_type(order):
+        flash('当前入库业务类型不支持下推出库类单据。', 'warning')
+        return redirect(url_for('in_order_detail', id=id))
+    if order.business_type == '其他入库' and order.customer_id:
+        flash('当前系统尚未完成客供料所有权库存隔离，不能下推为普通出库单。', 'danger')
+        return redirect(url_for('in_order_detail', id=id))
+    pushed = _in_order_push_quantities(order)
+    lines = []
+    for item in order.items:
+        pushed_quantity = pushed.get(item.id, 0)
+        lines.append({
+            'item': item,
+            'in_quantity': normalize_stock_quantity(item.quantity or 0),
+            'pushed_quantity': pushed_quantity,
+            'available_quantity': max(0, normalize_stock_quantity((item.quantity or 0) - pushed_quantity)),
+        })
+    return render_template(
+        'in_order_push.html', order=order, lines=lines,
+        target_types=INBOUND_PUSH_TARGETS, customers=Customer.query.order_by(Customer.code.asc()).all(),
+    )
+
+
+@app.route('/in_order/<int:id>/push', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def create_in_order_push(id):
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'status': 'error', 'msg': '请求数据格式不正确'}), 400
+    target_type = (payload.get('target_type') or '').strip()
+    request_id = (payload.get('request_id') or '').strip()
+    if target_type not in INBOUND_PUSH_TARGETS:
+        return jsonify({'status': 'error', 'msg': '请选择有效的下推目标单据'}), 400
+    if not request_id or len(request_id) > 100:
+        return jsonify({'status': 'error', 'msg': '请求编号不能为空或过长'}), 400
+
+    existing = DocumentPushLine.query.filter_by(
+        created_by=current_user.id, source_document_id=id, request_id=request_id
+    ).filter(DocumentPushLine.source_document_type.in_(('purchase_in_order', 'other_in_order'))).first()
+    if existing:
+        return jsonify({
+            'status': 'success', 'msg': '该请求已处理，未重复创建草稿',
+            'id': existing.target_document_id,
+            'order_no': existing.target_document_no,
+            'url': _push_target_url(existing.target_document_type, existing.target_document_id),
+            'replayed': True,
+        })
+
+    raw_items = payload.get('items')
+    if not isinstance(raw_items, list) or not raw_items:
+        return jsonify({'status': 'error', 'msg': '请至少选择一条可下推明细'}), 400
+    try:
+        requested = {}
+        for raw in raw_items:
+            item_id = int(raw.get('source_item_id'))
+            quantity = float(raw.get('quantity'))
+            if not math.isfinite(quantity) or quantity <= 0:
+                raise ValueError
+            if item_id in requested:
+                return jsonify({'status': 'error', 'msg': f'来源明细 {item_id} 重复提交'}), 400
+            requested[item_id] = normalize_stock_quantity(quantity)
+    except (TypeError, ValueError, OverflowError):
+        return jsonify({'status': 'error', 'msg': '下推数量必须是大于 0 的有效数字'}), 400
+
+    try:
+        locked, ok = _acquire_order_write_lock(InOrder, id, 'completed', selectinload(InOrder.items))
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '来源单状态已变化，仅已完成单据允许下推'}), 409
+        order = locked
+        source_type = _in_order_push_source_type(order)
+        if not source_type:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '仅采购入库单和其他入库单允许下推'}), 400
+        if source_type == 'other_in_order' and order.customer_id:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '当前系统尚未完成客供料所有权库存隔离，不能下推为普通出库单。'}), 409
+
+        duplicate = DocumentPushLine.query.filter_by(
+            created_by=current_user.id, source_document_type=source_type,
+            source_document_id=id, request_id=request_id,
+        ).first()
+        if duplicate:
+            db.session.rollback()
+            return jsonify({
+                'status': 'success', 'msg': '该请求已处理，未重复创建草稿',
+                'id': duplicate.target_document_id, 'order_no': duplicate.target_document_no,
+                'url': _push_target_url(duplicate.target_document_type, duplicate.target_document_id),
+                'replayed': True,
+            })
+
+        source_items = {item.id: item for item in order.items}
+        pushed = _in_order_push_quantities(order)
+        selected = []
+        for item_id, quantity in requested.items():
+            item = source_items.get(item_id)
+            if not item:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': f'来源明细 {item_id} 不属于当前入库单'}), 400
+            source_quantity = normalize_stock_quantity(item.quantity or 0)
+            used_quantity = pushed.get(item_id, 0)
+            available = max(0, normalize_stock_quantity(source_quantity - used_quantity))
+            if quantity > available + 1e-6:
+                code = item.material.code if item.material else str(item.material_id)
+                db.session.rollback()
+                return jsonify({
+                    'status': 'error',
+                    'msg': f'物料 {code} 超出可下推数量：入库 {source_quantity:g}，已下推 {used_quantity:g}，可下推 {available:g}，本次 {quantity:g}',
+                }), 409
+            selected.append((item, quantity))
+
+        target_definition = INBOUND_PUSH_TARGETS[target_type]
+        source_label = '采购入库单' if source_type == 'purchase_in_order' else '其他入库单'
+        remark = f'由{source_label} {order.order_no} 下推生成'
+        target_items = []
+        if target_type in ('requisition', 'other_out'):
+            target = OutOrder(
+                # Both outbound business types share the proven OU sequence;
+                # business_type, not an untracked prefix, distinguishes them.
+                order_no=generate_order_no('OUT'),
+                date=date.today(), business_type=target_definition['business_type'],
+                warehouse=order.warehouse, purpose=(payload.get('purpose') or '').strip() or None,
+                customer=(payload.get('party') or '').strip() or None,
+                status='pending', operator_id=current_user.id, remark=remark,
+            )
+            if target_type == 'other_out' and not target.purpose:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': '下推其他出库单必须填写出库原因或用途'}), 400
+            db.session.add(target)
+            db.session.flush()
+            for source_item, quantity in selected:
+                price = round_to_2_decimals(source_item.material.price or 0) if source_item.material else 0
+                target_item = OutOrderItem(
+                    out_order_id=target.id, material_id=source_item.material_id,
+                    quantity=quantity, price=price,
+                    amount=round_to_2_decimals(quantity * price),
+                    contract_id=source_item.contract_id, contract_no=source_item.contract_no,
+                    project_name=source_item.project_name, remark=source_item.remark,
+                )
+                db.session.add(target_item)
+                db.session.flush()
+                target_items.append((source_item, quantity, target_item.id))
+            target.total_amount = round_to_2_decimals(sum(quantity * (source_item.material.price or 0) for source_item, quantity in selected))
+        else:
+            customer_id = _clean_int(payload.get('customer_id'))
+            customer = db.session.get(Customer, customer_id) if customer_id else None
+            if not customer:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': '下推售后出库单必须选择有效客户'}), 400
+            reason = (payload.get('reason') or '').strip()
+            if not reason:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': '下推售后出库单必须填写售后原因'}), 400
+            target = AfterSaleOutOrder(
+                order_no=generate_order_no('ASO'), date=date.today(), customer_id=customer.id,
+                customer=customer.name, contact=customer.contact, phone=customer.phone,
+                warehouse=order.warehouse, reason=reason, remark=remark,
+                status='pending', operator_id=current_user.id,
+            )
+            db.session.add(target)
+            db.session.flush()
+            for source_item, quantity in selected:
+                price = round_to_2_decimals(source_item.material.price or 0) if source_item.material else 0
+                target_item = AfterSaleOutOrderItem(
+                    after_sale_out_order_id=target.id, material_id=source_item.material_id,
+                    quantity=quantity, price=price,
+                    amount=round_to_2_decimals(quantity * price),
+                    contract_id=source_item.contract_id, contract_no=source_item.contract_no,
+                    project_name=source_item.project_name, remark=source_item.remark,
+                )
+                db.session.add(target_item)
+                db.session.flush()
+                target_items.append((source_item, quantity, target_item.id))
+            target.total_amount = round_to_2_decimals(sum(quantity * (source_item.material.price or 0) for source_item, quantity in selected))
+
+        for source_item, quantity, target_item_id in target_items:
+            db.session.add(DocumentPushLine(
+                source_document_type=source_type, source_document_id=order.id,
+                source_document_no=order.order_no, source_item_id=source_item.id,
+                target_document_type=target_type, target_document_id=target.id,
+                target_document_no=target.order_no, target_item_id=target_item_id,
+                pushed_quantity=quantity, status='active', request_id=request_id,
+                created_by=current_user.id,
+            ))
+        db.session.add(OperationLog(
+            user_id=current_user.id, operation_type='单据下推',
+            operation_content=f'{source_label} {order.order_no} 下推{target_definition["label"]} {target.order_no}（草稿）',
+            target_type=target_type, target_id=target.id, ip_address=request.remote_addr,
+        ))
+        db.session.commit()
+        return jsonify({
+            'status': 'success', 'msg': f'{target_definition["label"]}草稿创建成功，库存未发生变化',
+            'id': target.id, 'order_no': target.order_no,
+            'url': _push_target_url(target_type, target.id), 'replayed': False,
+        })
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('入库单下推失败: %s', exc)
+        return jsonify({'status': 'error', 'msg': '下推失败，请稍后重试'}), 500
 
 @app.route('/in_order/<int:id>/update', methods=['POST'])
 @require_role('warehouse')
@@ -25096,6 +25476,8 @@ def save_field_config_api(page_type):
 @login_required
 def delete_in_order(id):
     order = InOrder.query.get_or_404(id)
+    if _source_has_active_push(id):
+        return jsonify({'status': 'error', 'msg': '该入库单存在有效下推单据，不能删除；请先处理下游草稿。'}), 409
     if order.status not in ('pending', 'completed'):
         return jsonify({'status': 'error', 'msg': '只有待处理或已完成的入库单可以删除'})
 
@@ -25164,6 +25546,8 @@ def delete_in_order(id):
 @login_required
 def revert_in_order(id):
     order = InOrder.query.get_or_404(id)
+    if _source_has_active_push(id):
+        return jsonify({'status': 'error', 'msg': '该入库单存在有效下推单据，不能反提交；请先处理下游单据。'}), 409
     if order.status != 'completed':
         return jsonify({'status': 'error', 'msg': '只有已完成的入库单可以反提交'})
 
@@ -31303,7 +31687,10 @@ def out_order_detail(id):
         if item.source_sales_order_item and item.source_sales_order_item.sales_order:
             source_order = item.source_sales_order_item.sales_order
             source_sales_orders[source_order.id] = source_order
-    return render_template('out_order_detail.html', order=order, source_sales_orders=list(source_sales_orders.values()))
+    push_source = DocumentPushLine.query.filter_by(
+        target_document_id=order.id, status='active'
+    ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out'))).first()
+    return render_template('out_order_detail.html', order=order, source_sales_orders=list(source_sales_orders.values()), push_source=push_source)
 
 @app.route('/out_order/add')
 @app.route('/other_out_order/add')
@@ -31390,6 +31777,10 @@ def add_out_order():
                 return jsonify({'status': 'error', 'msg': '领料单不存在，请刷新后重试'})
             if order.status != 'pending':
                 return jsonify({'status': 'error', 'msg': '已完成的领料单不能修改'})
+            if DocumentPushLine.query.filter_by(
+                target_document_id=order.id, status='active'
+            ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out'))).first():
+                return jsonify({'status': 'error', 'msg': '下推生成的目标草稿必须从来源单重新选择明细，不能通过普通编辑接口重建明细。'}), 409
             if business_type == '销售出库' and order.source_sales_order_id:
                 source_order = db.session.get(SalesOrder, order.source_sales_order_id)
                 if source_order and source_order.warehouse_id and source_order.warehouse_id != sales_warehouse.id:
@@ -31847,6 +32238,10 @@ def delete_out_order(id):
         return jsonify({'status': 'error', 'msg': '只有待处理的领料单可以删除'})
 
     try:
+        _release_document_push_lines(
+            'other_out' if order.business_type == '其他出库' else 'requisition',
+            order.id, f'目标草稿 {order.order_no} 已删除'
+        )
         for item in list(order.items):
             db.session.delete(item)
         db.session.delete(order)
@@ -31884,6 +32279,10 @@ def batch_delete_out_order():
     try:
         deleted_count = 0
         for order in orders:
+            _release_document_push_lines(
+                'other_out' if order.business_type == '其他出库' else 'requisition',
+                order.id, f'目标草稿 {order.order_no} 已批量删除'
+            )
             for item in list(order.items):
                 db.session.delete(item)
             db.session.delete(order)
@@ -32049,7 +32448,10 @@ def after_sale_out_list():
 @login_required
 def after_sale_out_detail(id):
     order = AfterSaleOutOrder.query.get_or_404(id)
-    return render_template('after_sale_out_detail.html', order=order)
+    push_source = DocumentPushLine.query.filter_by(
+        target_document_type='after_sale_out', target_document_id=order.id, status='active'
+    ).first()
+    return render_template('after_sale_out_detail.html', order=order, push_source=push_source)
 
 
 @app.route('/after_sale_out/<int:id>/print')
@@ -32186,6 +32588,10 @@ def add_after_sale_out_order():
                 return jsonify({'status': 'error', 'msg': '售后出库单不存在，请刷新后重试'})
             if order.status != 'pending':
                 return jsonify({'status': 'error', 'msg': '已完成的售后出库单不能修改'})
+            if DocumentPushLine.query.filter_by(
+                target_document_type='after_sale_out', target_document_id=order.id, status='active'
+            ).first():
+                return jsonify({'status': 'error', 'msg': '下推生成的售后出库草稿必须从来源单重新选择明细，不能通过普通编辑接口重建明细。'}), 409
         else:
             order = AfterSaleOutOrder.query.filter_by(order_no=order_no).first()
             if order:
@@ -32275,6 +32681,13 @@ def complete_after_sale_out_order(id):
         if not order.items:
             return jsonify({'status': 'error', 'msg': '请至少添加一条售后出库明细'})
 
+        locked, ok = _acquire_order_write_lock(
+            AfterSaleOutOrder, id, 'pending', selectinload(AfterSaleOutOrder.items)
+        )
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该售后出库单状态已变化，不能重复完成'}), 409
+        order = locked
+
         for item in order.items:
             material = db.session.get(Material, item.material_id)
             if material:
@@ -32319,6 +32732,13 @@ def revert_after_sale_out_order(id):
         if order.status != 'completed':
             return jsonify({'status': 'error', 'msg': '只有已完成的售后出库单可以反提交'})
 
+        locked, ok = _acquire_order_write_lock(
+            AfterSaleOutOrder, id, 'completed', selectinload(AfterSaleOutOrder.items)
+        )
+        if not ok:
+            return jsonify({'status': 'error', 'msg': '该售后出库单状态已变化，不能重复反提交'}), 409
+        order = locked
+
         for item in order.items:
             if item.material:
                 ok, err = add_stock(
@@ -32351,6 +32771,7 @@ def delete_after_sale_out_order(id):
         order = AfterSaleOutOrder.query.get_or_404(id)
         if order.status == 'completed':
             return jsonify({'status': 'error', 'msg': '已完成的售后出库单不能删除'})
+        _release_document_push_lines('after_sale_out', order.id, f'目标草稿 {order.order_no} 已删除')
         for item in list(order.items):
             db.session.delete(item)
         db.session.delete(order)
@@ -32383,6 +32804,8 @@ def batch_delete_after_sale_out():
         return jsonify({'status': 'error', 'msg': '以下售后出库单已完成，不能删除：' + '、'.join(blocked)})
 
     try:
+        for order in orders:
+            _release_document_push_lines('after_sale_out', order.id, f'目标草稿 {order.order_no} 已批量删除')
         AfterSaleOutOrderItem.query.filter(AfterSaleOutOrderItem.after_sale_out_order_id.in_(ids)).delete(synchronize_session=False)
         deleted = AfterSaleOutOrder.query.filter(AfterSaleOutOrder.id.in_(ids)).delete(synchronize_session=False)
         db.session.commit()

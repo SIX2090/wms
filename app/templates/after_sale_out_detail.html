@@ -7,6 +7,12 @@
 {% endblock %}
 
 {% block content %}
+{% if push_source %}
+<div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-diagram-3"></i> 来源入库单：{{ push_source.source_document_no }}（下推生成草稿）</span>
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('in_order_detail', id=push_source.source_document_id) }}">查看来源单</a>
+</div>
+{% endif %}
 <div class="page-header d-flex justify-content-between align-items-center">
     <h2><i class="bi bi-box-arrow-up"></i> 售后出库单详情</h2>
     <div>
