@@ -626,6 +626,12 @@ def auto_migrate_database():
             cursor.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_{_tbl}_contract_id ON {_tbl}(contract_id)"
             )
+        cursor.execute("PRAGMA table_info(in_order)")
+        _in_order_columns = [row[1] for row in cursor.fetchall()]
+        if _in_order_columns and 'customer_id' not in _in_order_columns:
+            cursor.execute("ALTER TABLE in_order ADD COLUMN customer_id INTEGER")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_in_order_customer_id ON in_order(customer_id)")
+            modified = True
         for _tbl in ('in_order_item', 'out_order_item', 'purchase_order_item', 'sales_order_item'):
             cursor.execute(f"PRAGMA table_info({_tbl})")
             _existing = [row[1] for row in cursor.fetchall()]
@@ -3311,6 +3317,7 @@ class InOrder(db.Model):
     order_no = db.Column(db.String(50), unique=True, nullable=False)  # Inbound order number
     date = db.Column(db.Date, default=date.today)  # Inbound date
     supplier_id = db.Column(db.Integer, db.ForeignKey('supplier.id'))  # Supplier ID
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'))  # Other inbound / customer-supplied material owner
     business_type = db.Column(db.String(50), default='采购入库')  # Business type: purchase/product inbound
     purpose = db.Column(db.String(200))  # Inbound purpose
     warehouse = db.Column(db.String(100))  # Warehouse name
@@ -3325,6 +3332,7 @@ class InOrder(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
     supplier = db.relationship('Supplier', backref='in_orders')  # Related supplier
+    customer = db.relationship('Customer', backref='other_in_orders')
     operator = db.relationship('User', backref='in_orders')  # Operator
     source_purchase_order = db.relationship('PurchaseOrder', backref='in_orders')
     contract = db.relationship('Contract', backref='in_orders')  # 关联合同档案
@@ -23600,6 +23608,7 @@ def delete_employee():
 # ==================== In order management ====================
 
 @app.route('/in_order')
+@app.route('/other_in_order')
 @login_required
 def in_order_list():
     page = request.args.get('page', 1, type=int)
@@ -23614,14 +23623,15 @@ def in_order_list():
     _type_alias = {
         'purchase_in': '采购入库',
         'product_in': '产品入库',
+        'other_in': '其他入库',
     }
     business_type_filter = ''
-    raw_type = (request.args.get('type') or '').strip()
+    raw_type = 'other_in' if request.path == '/other_in_order' else (request.args.get('type') or '').strip()
     if raw_type in _type_alias:
         business_type_filter = _type_alias[raw_type]
     else:
         business_type_filter = (request.args.get('business_type') or '').strip()
-        if business_type_filter not in ('采购入库', '产品入库'):
+        if business_type_filter not in ('采购入库', '产品入库', '其他入库'):
             business_type_filter = ''
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
     allowed_sorts = {'order_no', 'date', 'supplier_id', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
@@ -23631,6 +23641,7 @@ def in_order_list():
     # 按单据左连接明细展示，待完成但没有明细的单据也能查到。
     query = db.session.query(InOrder, InOrderItem).outerjoin(InOrderItem, InOrderItem.in_order_id == InOrder.id).options(
         joinedload(InOrder.supplier),
+        joinedload(InOrder.customer),
         joinedload(InOrder.source_purchase_order),
         joinedload(InOrderItem.material).joinedload(Material.unit),
         joinedload(InOrderItem.source_purchase_order_item).joinedload(PurchaseOrderItem.purchase_order),
@@ -23659,12 +23670,14 @@ def in_order_list():
             'quantity': item.quantity if item else 0,
             'price': item.price if item else 0,
             'amount': item.amount if item else 0,
+            'contract_no': item.contract_no if item else '',
+            'project_name': item.project_name if item else '',
         })()
         for order, item in pagination.items
     ]
     suppliers = Supplier.query.all()
     # 反向映射：中文业务类型 -> 英文 URL 参数，供模板生成分页/清除链接
-    _type_reverse = {'采购入库': 'purchase_in', '产品入库': 'product_in'}
+    _type_reverse = {'采购入库': 'purchase_in', '产品入库': 'product_in', '其他入库': 'other_in'}
     filters = {
         'status': status_filter,
         'search': search,
@@ -23706,12 +23719,14 @@ def in_order_detail(id):
         for purchase_order_id, purchase_order in source_purchase_orders.items()
     }
     suppliers = Supplier.query.order_by(Supplier.name.asc(), Supplier.id.asc()).all()
+    customers = Customer.query.order_by(Customer.name.asc(), Customer.id.asc()).all()
     warehouses = get_active_warehouses()
     warehouse_names = [warehouse.name for warehouse in warehouses]
     return render_template(
         'in_order_detail.html',
         order=order,
         suppliers=suppliers,
+        customers=customers,
         warehouses=warehouses,
         warehouse_names=warehouse_names,
         purchase_order_execution=purchase_order_execution,
@@ -23741,9 +23756,17 @@ def update_in_order(id):
         order.supplier_id = supplier.id
     else:
         order.supplier_id = None
+    customer_id = _clean_int(data.get('customer_id'))
+    if customer_id:
+        customer = db.session.get(Customer, customer_id)
+        if not customer:
+            return jsonify({'status': 'error', 'msg': '请选择有效的客户'})
+        order.customer_id = customer.id
+    else:
+        order.customer_id = None
 
     business_type = (data.get('business_type') or order.business_type or '').strip()
-    if business_type in ('采购入库', '产品入库'):
+    if business_type in ('采购入库', '产品入库', '其他入库'):
         order.business_type = business_type
 
     order.date = order_date
@@ -23762,28 +23785,35 @@ def update_in_order(id):
         return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
 
 @app.route('/in_order/add')
+@app.route('/other_in_order/add')
 @login_required
 def in_order_add_page():
     materials = Material.query.options(joinedload(Material.unit)).all()
     units = Unit.query.all()
-    order_type = (request.args.get('type') or '').strip().lower()
+    order_type = 'other_in' if request.path == '/other_in_order/add' else (request.args.get('type') or '').strip().lower()
     source_purchase_order_id = request.args.get('source_purchase_order_id', type=int) or None
     is_product_in = order_type in ('product', 'product_in')
-    business_type = '产品入库' if is_product_in else '采购入库'
-    order_no = generate_order_no('PI' if is_product_in else 'IN')
-    suppliers = Supplier.query.all()
+    is_other_in = order_type in ('other', 'other_in')
+    business_type = '其他入库' if is_other_in else ('产品入库' if is_product_in else '采购入库')
+    order_no = generate_order_no('OI' if is_other_in else ('PI' if is_product_in else 'IN'))
+    parties = Customer.query.order_by(Customer.code.asc()).all() if is_other_in else Supplier.query.all()
     warehouses = get_active_warehouses()
     order_date = datetime.now().strftime('%Y-%m-%d')
     return render_template('in_order_add.html', 
                          materials=[serialize_material(material) for material in materials],
                          units=[serialize_unit(unit) for unit in units],
-                         suppliers=[serialize_supplier(s) for s in suppliers], 
+                         suppliers=[serialize_customer(p) if is_other_in else serialize_supplier(p) for p in parties],
                          warehouses=warehouses,
                          is_product_in=is_product_in,
+                         is_other_in=is_other_in,
                          business_type=business_type,
-                         default_purpose='生产完工入库' if is_product_in else '采购到货入库',
+                         default_purpose='客供料入库' if is_other_in else ('生产完工入库' if is_product_in else '采购到货入库'),
                          page_title=f'新增{business_type}单',
                          supplier_required=not is_product_in,
+                         party_field='customer_id' if is_other_in else 'supplier_id',
+                         party_label='客户' if is_other_in else ('生产来源' if is_product_in else '供应商'),
+                         return_list_url='/other_in_order' if is_other_in else '/in_order',
+                         return_add_url='/other_in_order/add' if is_other_in else ('/in_order/add?type=product' if is_product_in else '/in_order/add'),
                          source_purchase_order_id=source_purchase_order_id,
                          order_id=None, 
                          order_no=order_no, 
@@ -23799,6 +23829,7 @@ def add_in_order():
         order_id = data.get('order_id')
         order_no = (data.get('order_no') or '').strip()
         supplier_id = data.get('supplier_id')
+        customer_id = data.get('customer_id')
         date_str = (data.get('date') or '').strip()
         business_type = (data.get('business_type') or '').strip()
         purpose = (data.get('purpose') or data.get('business_type') or '').strip()
@@ -23809,6 +23840,7 @@ def add_in_order():
         order_id = request.form.get('order_id')
         order_no = (request.form.get('order_no') or '').strip()
         supplier_id = request.form.get('supplier_id')
+        customer_id = request.form.get('customer_id')
         date_str = (request.form.get('date') or '').strip()
         business_type = (request.form.get('business_type') or '').strip()
         purpose = (request.form.get('purpose') or '').strip()
@@ -23850,7 +23882,7 @@ def add_in_order():
     else:
         order_id = None
 
-    if business_type not in ('采购入库', '产品入库'):
+    if business_type not in ('采购入库', '产品入库', '其他入库'):
         business_type = '产品入库' if order_no.startswith('PI') or purpose == '产品入库' else '采购入库'
 
     try:
@@ -23885,6 +23917,16 @@ def add_in_order():
                 return jsonify({'status': 'error', 'msg': '请选择有效的供应商'})
         else:
             order.supplier_id = None
+        if customer_id:
+            try:
+                customer = db.session.get(Customer, int(customer_id))
+            except (TypeError, ValueError):
+                customer = None
+            if not customer:
+                return jsonify({'status': 'error', 'msg': '请选择有效的客户'})
+            order.customer_id = customer.id
+        else:
+            order.customer_id = None
 
         if date_str:
             try:
@@ -31192,6 +31234,7 @@ def import_check():
 # ==================== Outbound order management ====================
 
 @app.route('/out_order')
+@app.route('/other_out_order')
 @login_required
 def out_order_list():
     page = request.args.get('page', 1, type=int)
@@ -31217,9 +31260,11 @@ def out_order_list():
         query = query.filter(OutOrder.contract_no.like(f'%{contract_no_filter}%'))
     # 领料明细默认排除"销售出库"（销售出库归销售管理，见 /sales/outflow_report），
     # 避免销售单据混入仓库领料明细。显式传 business_type=销售出库 时仍可查看。
-    explicit_bt = (request.args.get('business_type') or '').strip()
+    explicit_bt = '其他出库' if request.path == '/other_out_order' else (request.args.get('business_type') or '').strip()
     if not explicit_bt:
-        query = query.filter(OutOrder.business_type != '销售出库')
+        query = query.filter(db.or_(OutOrder.business_type == '领料单', OutOrder.business_type.is_(None)))
+    else:
+        query = query.filter(OutOrder.business_type == explicit_bt)
     if sort_order == 'asc':
         query = query.order_by(sort_col.asc())
     else:
@@ -31232,6 +31277,8 @@ def out_order_list():
             'quantity': item.quantity if item else 0,
             'price': item.price if item else 0,
             'amount': item.amount if item else 0,
+            'contract_no': item.contract_no if item else '',
+            'project_name': item.project_name if item else '',
         })()
         for order, item in pagination.items
     ]
@@ -31240,8 +31287,10 @@ def out_order_list():
         'search': search,
         'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
         'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
+        'business_type': explicit_bt,
     }
-    return render_template('out_order.html', items=items, pagination=pagination, sort_by=sort_by, sort_order=sort_order, per_page=per_page, filters=filters)
+    page_title = '其他出库明细' if explicit_bt == '其他出库' else '领料明细'
+    return render_template('out_order.html', items=items, pagination=pagination, sort_by=sort_by, sort_order=sort_order, per_page=per_page, filters=filters, page_title=page_title)
 
 @app.route('/out_order/<int:id>')
 @login_required
@@ -31257,16 +31306,18 @@ def out_order_detail(id):
     return render_template('out_order_detail.html', order=order, source_sales_orders=list(source_sales_orders.values()))
 
 @app.route('/out_order/add')
+@app.route('/other_out_order/add')
 @login_required
 def out_order_add_page():
     materials = Material.query.options(joinedload(Material.unit)).all()
     units = Unit.query.all()
     customers = Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all()
-    order_type = (request.args.get('type') or '').strip().lower()
+    order_type = 'other_out' if request.path == '/other_out_order/add' else (request.args.get('type') or '').strip().lower()
     is_sale_order = order_type in ('sale', 'sales')
+    is_other_out = order_type in ('other', 'other_out')
     departments = Department.query.filter_by(status='active').all()
     warehouses = get_active_warehouses()
-    order_no = generate_order_no('SO' if is_sale_order else 'OUT')
+    order_no = generate_order_no('OO' if is_other_out else ('SO' if is_sale_order else 'OUT'))
     order_date = datetime.now().strftime('%Y-%m-%d')
     return render_template('out_order_add.html',
                          materials=[serialize_material(material) for material in materials],
@@ -31275,10 +31326,13 @@ def out_order_add_page():
                          departments=departments,
                          warehouses=warehouses,
                          is_sale_order=is_sale_order,
-                         default_business_type='销售出库' if is_sale_order else '领料单',
-                         page_title='新增销售单' if is_sale_order else '新增领料单',
-                         party_label='客户名称' if is_sale_order else '领料部门',
-                         party_required=True,
+                         is_other_out=is_other_out,
+                         default_business_type='其他出库' if is_other_out else ('销售出库' if is_sale_order else '领料单'),
+                         page_title='新增其他出库单' if is_other_out else ('新增销售单' if is_sale_order else '新增领料单'),
+                         party_label='客户/领用单位' if is_other_out else ('客户名称' if is_sale_order else '领料部门'),
+                         party_required=not is_other_out,
+                         return_list_url='/other_out_order' if is_other_out else '/out_order',
+                         return_add_url='/other_out_order/add' if is_other_out else '/out_order/add',
                          order_id=None, order_no=order_no, order_date=order_date)
 
 @app.route('/out_order/add', methods=['POST'])

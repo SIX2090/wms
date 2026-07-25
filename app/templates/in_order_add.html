@@ -517,7 +517,7 @@ textarea.form-control {
         <button type="button" class="btn btn-success" onclick="submitForm(false, true)">
             <i class="bi bi-check-circle"></i> 完成入库
         </button>
-        <a href="/in_order" class="btn btn-secondary">
+        <a href="{{ return_list_url or '/in_order' }}" class="btn btn-secondary">
             <i class="bi bi-x-lg"></i> 取消
         </a>
         <button type="button" class="btn btn-outline-primary" onclick="submitForm(true, false)">
@@ -556,10 +556,10 @@ textarea.form-control {
                 </div>
                 <div class="col-md-3">
                     <div class="mb-2">
-                        <label class="form-label">{% if is_product_in %}生产来源{% else %}供应商{% endif %}{% if not supplier_required %}<span class="text-muted">（可选）</span>{% endif %}</label>
+                        <label class="form-label">{{ party_label or ('生产来源' if is_product_in else '供应商') }}{% if not supplier_required %}<span class="text-muted">（可选）</span>{% endif %}</label>
                         <div class="supplier-input" style="position:relative;">
-                            <input type="text" id="supplierSearch" placeholder="搜索供应商..." autocomplete="off" style="width:100%;border:1px solid #d9d9d9;padding:6px 10px;border-radius:4px;font-size:13px;">
-                            <input type="hidden" name="supplier_id" id="supplierIdHidden">
+                            <input type="text" id="supplierSearch" placeholder="搜索{{ party_label or '供应商' }}..." autocomplete="off" style="width:100%;border:1px solid #d9d9d9;padding:6px 10px;border-radius:4px;font-size:13px;">
+                            <input type="hidden" name="{{ party_field or 'supplier_id' }}" id="supplierIdHidden">
                             <div id="supplierDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;min-width:100%;max-height:200px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
                         </div>
                     </div>
@@ -592,7 +592,7 @@ textarea.form-control {
                 <button type="button" class="btn btn-primary" onclick="addNewRow()">
                     <i class="bi bi-plus"></i> 添加物料
                 </button>
-                {% if not is_product_in %}
+                {% if not is_product_in and not is_other_in %}
                 <button type="button" class="btn btn-outline-primary" id="selectPurchaseOrderBtn" onclick="showPurchaseOrderSelectModal()">
                     <i class="bi bi-list-check"></i> 选采购单
                 </button>
@@ -655,6 +655,8 @@ textarea.form-control {
                             <td data-column-key="price" class="text-end" data-total-label-cell="true"><strong>合计：</strong></td>
                             <td data-column-key="amount" class="amount-col"><strong id="totalAmount" class="total-amount">¥0.00</strong></td>
                             <td data-column-key="stock"></td>
+                            <td data-column-key="contract_no"></td>
+                            <td data-column-key="project_name"></td>
                             <td data-column-key="remark"></td>
                             <td data-column-key="actions"></td>
                         </tr>
@@ -672,6 +674,9 @@ const materials = {{ materials|tojson }};
 const units = {{ units|tojson }};
 const suppliers = {{ suppliers | tojson }};
 const supplierRequired = {{ supplier_required|tojson }};
+const partyField = {{ (party_field or 'supplier_id')|tojson }};
+const partyLabel = {{ (party_label or '供应商')|tojson }};
+const returnAddUrl = {{ (return_add_url or '/in_order/add')|tojson }};
 const sourcePurchaseOrderId = {{ source_purchase_order_id|tojson }};
 let activeDropdown = null;
 let activeIndex = -1;
@@ -1134,9 +1139,9 @@ function submitFormLegacy(saveAndNew = false) {
         return;
     }
 
-    const supplierId = document.querySelector('[name="supplier_id"]').value;
+    const supplierId = document.querySelector('[name="' + partyField + '"]').value;
     if (supplierRequired && !supplierId) {
-        alert('请选择供应商');
+        alert('请选择' + partyLabel);
         document.getElementById('supplierSearch').focus();
         return;
     }
@@ -1194,7 +1199,7 @@ function submitFormLegacy(saveAndNew = false) {
         date: date,
         business_type: document.querySelector('[name="business_type"]').value,
         purpose: document.querySelector('[name="purpose"]').value.trim(),
-        supplier_id: supplierId,
+        [partyField]: supplierId,
         warehouse: document.querySelector('[name="warehouse"]').value,
         remark: document.querySelector('[name="remark"]').value,
         items: items
@@ -1227,7 +1232,7 @@ function submitFormLegacy(saveAndNew = false) {
                 } else {
                     alert('单据已保存但入库失败：' + (completeRes.msg || '未知错误'));
                 }
-                window.location.href = saveAndNew ? '/in_order/add' : `/in_order/${data.id}`;
+                window.location.href = saveAndNew ? returnAddUrl : `/in_order/${data.id}`;
             });
         } else {
             alert('保存失败：' + data.msg);
@@ -1299,7 +1304,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
     clearInOrderValidation();
 
     const date = document.querySelector('[name="date"]').value;
-    const supplierId = document.querySelector('[name="supplier_id"]').value;
+    const supplierId = document.querySelector('[name="' + partyField + '"]').value;
     const warehouse = document.querySelector('[name="warehouse"]').value;
     const errors = [];
     const items = [];
@@ -1307,7 +1312,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
     let validLineCount = 0;
 
     if (!date) errors.push({ message: '日期不能为空，请填写单据日期。' });
-    if (supplierRequired && !supplierId) errors.push({ message: '供应商不能为空，请选择供应商。' });
+    if (supplierRequired && !supplierId) errors.push({ message: partyLabel + '不能为空，请选择' + partyLabel + '。' });
     if (completeAfterSave && !warehouse) errors.push({ message: '完成入库前必须选择仓库。' });
 
     rows.forEach((row, rowIndex) => {
@@ -1353,7 +1358,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         date: date,
         business_type: document.querySelector('[name="business_type"]').value,
         purpose: document.querySelector('[name="purpose"]').value.trim(),
-        supplier_id: supplierId,
+        [partyField]: supplierId,
         warehouse: warehouse,
         remark: document.querySelector('[name="remark"]').value,
         items: items
@@ -1379,7 +1384,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         if (!completeAfterSave) {
             if (window.showToast) window.showToast('草稿保存成功', 'success');
             else alert('草稿保存成功');
-            window.location.href = saveAndNew ? '/in_order/add' : `/in_order/${data.id}`;
+            window.location.href = saveAndNew ? returnAddUrl : `/in_order/${data.id}`;
             return;
         }
 
@@ -1391,7 +1396,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
                 } else {
                     alert('单据已保存，但完成入库失败：' + (completeRes.msg || '未知错误'));
                 }
-                window.location.href = saveAndNew ? '/in_order/add' : `/in_order/${data.id}`;
+                window.location.href = saveAndNew ? returnAddUrl : `/in_order/${data.id}`;
             });
     })
     .catch(error => {

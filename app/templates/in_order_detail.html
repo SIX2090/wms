@@ -203,8 +203,8 @@
                     <span class="info-value">{{ order.business_type or '采购入库' }}</span>
                 </div>
                 <div class="info-item">
-                    <span class="info-label">供应商/生产来源</span>
-                    <span class="info-value">{{ order.supplier.name if order.supplier else '-' }}</span>
+                    <span class="info-label">{{ '客户/客供方' if order.business_type == '其他入库' else '供应商/生产来源' }}</span>
+                    <span class="info-value">{{ order.customer.name if order.customer else (order.supplier.name if order.supplier else '-') }}</span>
                 </div>
                 <div class="info-item">
                     <span class="info-label">用途</span>
@@ -502,11 +502,11 @@
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-medium">供应商/生产来源</label>
-                            <select class="form-select" name="supplier_id">
-                                <option value="">请选择供应商</option>
-                                {% for supplier in suppliers %}
-                                <option value="{{ supplier.id }}" {% if order.supplier_id == supplier.id %}selected{% endif %}>{{ supplier.name }}</option>
+                            <label class="form-label fw-medium">{{ '客户/客供方' if order.business_type == '其他入库' else '供应商/生产来源' }}</label>
+                            <select class="form-select" name="{{ 'customer_id' if order.business_type == '其他入库' else 'supplier_id' }}">
+                                <option value="">请选择</option>
+                                {% for party in (customers if order.business_type == '其他入库' else suppliers) %}
+                                <option value="{{ party.id }}" {% if (order.customer_id if order.business_type == '其他入库' else order.supplier_id) == party.id %}selected{% endif %}>{{ party.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>

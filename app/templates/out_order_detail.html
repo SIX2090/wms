@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}领料单详情 - {{ order.order_no }}{% endblock %}
+{% block title %}{{ order.business_type or '领料单' }}详情 - {{ order.order_no }}{% endblock %}
 
 {% block extra_css %}
 <link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
@@ -67,7 +67,7 @@
             <div>
                 <div class="order-title">
                     <i class="bi bi-box-arrow-up"></i>
-                    领料单：{{ order.order_no }}
+                    {{ order.business_type or '领料单' }}：{{ order.order_no }}
                     <span class="status-badge {{ order.status }}">
                         <i class="bi bi-circle-fill" style="font-size:0.5rem"></i>
                         {% if order.status == 'pending' %}草稿
@@ -126,7 +126,7 @@
                     <span class="info-value">{{ order.date }}</span>
                 </div>
                 <div class="info-item">
-                    <span class="info-label">领料部门</span>
+                    <span class="info-label">{{ '客户/领用单位' if order.business_type == '其他出库' else '领料部门' }}</span>
                     <span class="info-value">{{ order.customer or (order.department.name if order.department else '-') }}</span>
                 </div>
                 <div class="info-item">

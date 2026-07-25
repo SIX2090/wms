@@ -24,6 +24,8 @@
             <a href="/in_order/add?type=product" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增产品入库</a>
             {% elif filters.business_type == '采购入库' %}
             <a href="/in_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增采购入库</a>
+            {% elif filters.business_type == '其他入库' %}
+            <a href="/other_in_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增其他入库</a>
             {% else %}
             <a href="/in_order/add" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-lg"></i> 采购入库</a>
             <a href="/in_order/add?type=product" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 产品入库</a>
@@ -88,7 +90,7 @@
                     <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="business_type" class="sortable-header">入库来源 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th>来源采购单</th>
-                    <th data-sortable="supplier_id" class="sortable-header">供应商/生产来源 {% if sort_by=='supplier_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="supplier_id" class="sortable-header">往来/生产来源 {% if sort_by=='supplier_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th>物料编号</th>
                     <th>物料名称</th>
                     <th>规格</th>
@@ -117,7 +119,7 @@
                         <a href="{{ url_for('purchase_order_detail', id=item.source_purchase_order.id) }}">{{ item.source_purchase_order.order_no }}</a>
                         {% else %}-{% endif %}
                     </td>
-                    <td>{{ item.in_order.supplier.name if item.in_order.supplier else '-' }}</td>
+                    <td>{{ item.in_order.customer.name if item.in_order.customer else (item.in_order.supplier.name if item.in_order.supplier else '-') }}</td>
                     <td>{{ item.material.code if item.material else '-' }}</td>
                     <td>{{ item.material.name if item.material else '-' }}</td>
                     <td>{{ item.material.spec if item.material else '-' }}</td>
@@ -126,8 +128,8 @@
                     <td>{% if item.material %}¥{{ "%.2f"|format(item.price) }}{% else %}-{% endif %}</td>
                     <td>{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
                     <td>{{ item.in_order.purpose or '-' }}</td>
-                    <td>{{ item.in_order.contract_no or '-' }}</td>
-                    <td>{{ item.in_order.project_name or '-' }}</td>
+                    <td>{{ item.contract_no or item.in_order.contract_no or '-' }}</td>
+                    <td>{{ item.project_name or item.in_order.project_name or '-' }}</td>
                     <td data-source-status="{{ item.source_purchase_order.status if item.source_purchase_order else '' }}">
                         {% if item.source_purchase_order %}
                             {% if item.source_purchase_order.status == 'completed' %}
@@ -169,7 +171,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="18" class="text-center text-muted">暂无入库明细</td></tr>
+                <tr><td colspan="20" class="text-center text-muted">暂无入库明细</td></tr>
                 {% endfor %}
             </tbody>
         </table>

@@ -388,7 +388,7 @@ textarea.form-control {
         <button type="button" class="btn btn-success" onclick="submitForm(true)">
             <i class="bi bi-plus-square"></i> 保存并新增
         </button>
-        <a href="/out_order" class="btn btn-secondary">
+        <a href="{{ return_list_url or '/out_order' }}" class="btn btn-secondary">
             <i class="bi bi-arrow-left"></i> 返回列表
         </a>
     </div>
@@ -418,7 +418,9 @@ textarea.form-control {
                     <div class="mb-2">
                         <label class="form-label">业务类型</label>
                         <select class="form-select" name="business_type">
-                            {% if is_sale_order %}
+                            {% if is_other_out %}
+                            <option value="其他出库" selected>其他出库</option>
+                            {% elif is_sale_order %}
                             <option value="销售出库" selected>销售出库</option>
                             <option value="其他出库">其他出库</option>
                             {% else %}
@@ -431,7 +433,7 @@ textarea.form-control {
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">{{ party_label or '领料部门' }}</label>
-                        {% if is_sale_order %}
+                        {% if is_sale_order or is_other_out %}
                         <div class="customer-input" style="position:relative;">
                             <input type="text" class="form-control" id="customerSearch" name="customer" placeholder="请选择或输入客户名称" autocomplete="off">
                             <div id="customerDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;min-width:100%;max-height:200px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
@@ -545,6 +547,9 @@ textarea.form-control {
                             <td data-column-key="price" class="text-end" data-total-label-cell="true"><strong>合计：</strong></td>
                             <td data-column-key="amount" class="amount-col"><strong id="totalAmount" class="total-amount">¥0.00</strong></td>
                             <td data-column-key="stock"></td>
+                            <td data-column-key="contract_no"></td>
+                            <td data-column-key="project_name"></td>
+                            <td data-column-key="remark"></td>
                             <td data-column-key="actions"></td>
                         </tr>
                     </tfoot>
@@ -563,6 +568,8 @@ const materials = {{ materials|tojson }};
 const units = {{ units|tojson }};
 const customers = {{ customers|tojson }};
 const isSaleOrder = {{ is_sale_order|tojson }};
+const isOtherOut = {{ is_other_out|default(false)|tojson }};
+const returnAddUrl = {{ (return_add_url or '/out_order/add')|tojson }};
 let activeDropdown = null;
 let activeIndex = -1;
 
@@ -997,7 +1004,7 @@ function submitForm(saveAndNew = false) {
             customerInput.focus();
             return;
         }
-    } else if (!departmentId) {
+    } else if (!isOtherOut && !departmentId) {
             alert('请选择部门');
             document.querySelector('[name="department_id"]').focus();
             return;
@@ -1101,7 +1108,7 @@ function submitForm(saveAndNew = false) {
                 } else {
                     alert('单据已保存但领料提交失败：' + (completeRes.msg || '未知错误'));
                 }
-                window.location.href = saveAndNew ? '/out_order/add' : `/out_order/${data.id}`;
+                window.location.href = saveAndNew ? returnAddUrl : `/out_order/${data.id}`;
             });
         } else {
             alert('保存失败：' + data.msg);
