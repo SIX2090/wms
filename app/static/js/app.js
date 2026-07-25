@@ -2969,7 +2969,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var activeController = null;
 
     function storageKey(table) {
-        return 'wms:field-settings:v2:' + location.pathname + ':' + (table.id || 'document-grid');
+        return 'wms:field-settings:v3:' + location.pathname + ':' + (table.id || 'document-grid');
     }
 
     function prepareTable(table) {
@@ -2994,7 +2994,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var key = th.dataset.columnKey;
             var label = th.dataset.defaultLabel || Array.from(th.childNodes).filter(function(n) { return n.nodeType === 3; }).map(function(n) { return n.textContent; }).join('').trim() || key;
             th.dataset.defaultLabel = label;
-            return { key: key, label: label, defaultLabel: label, defaultIndex: index, locked: ['row_no','material_code','quantity','actions'].indexOf(key) !== -1 };
+            return { key: key, label: label, defaultLabel: label, defaultIndex: index, locked: ['row_no','material_code','quantity','contract_no','project_name','actions'].indexOf(key) !== -1 };
         });
     }
 
@@ -3006,6 +3006,10 @@ document.addEventListener('DOMContentLoaded', function() {
             columns.forEach(function(c) { if (saved.order.indexOf(c.key) === -1) saved.order.push(c.key); });
             saved.order = saved.order.filter(function(key) { return columns.some(function(c) { return c.key === key; }); });
             saved.hidden = Array.isArray(saved.hidden) ? saved.hidden : [];
+            saved.hidden = saved.hidden.filter(function(key) {
+                var column = columns.find(function(item) { return item.key === key; });
+                return column && !column.locked;
+            });
             saved.labels = saved.labels && typeof saved.labels === 'object' ? saved.labels : {};
             return saved;
         } catch (e) { return fallback; }
