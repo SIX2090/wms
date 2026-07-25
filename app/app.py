@@ -25744,43 +25744,18 @@ def delete_in_order(id):
     order = InOrder.query.get_or_404(id)
     if _source_has_active_push(id):
         return jsonify({'status': 'error', 'msg': '该入库单存在有效下推单据，不能删除；请先处理下游草稿。'}), 409
-    if order.status not in ('pending', 'completed'):
-        return jsonify({'status': 'error', 'msg': '只有待处理或已完成的入库单可以删除'})
-
-    if order.status == 'completed':
-        for item in order.items:
-            current_stock = normalize_stock_quantity(item.material.stock or 0)
-            quantity = normalize_stock_quantity(item.quantity or 0)
-            if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-                return jsonify({
-                    'status': 'error',
-                    'msg': f'物料 {item.material.code if item.material else "-"} 库存不足，不能删除'
-                })
+    if order.status != 'pending':
+        return jsonify({
+            'status': 'error',
+            'msg': '已完成入库单不能直接删除，请先反提交回到草稿后再删除'
+        }), 409
 
     try:
-        # 加写锁并重新读取状态，避免多 worker 并发删除同一张已完成入库单导致库存重复回退
-        locked, ok = _acquire_order_write_lock(InOrder, id, ('pending', 'completed'), selectinload(InOrder.items))
+        # 重新锁定并校验草稿状态，防止并发完成后仍被物理删除。
+        locked, ok = _acquire_order_write_lock(InOrder, id, 'pending', selectinload(InOrder.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该入库单状态已变更，不能删除'})
+            return jsonify({'status': 'error', 'msg': '该入库单状态已变更；已完成单请先反提交后再删除'}), 409
         order = locked
-        if order.status == 'completed':
-            for item in order.items:
-                ok, error_msg = deduct_stock(
-                    item.material,
-                    item.quantity or 0,
-                    transaction_type='delete_in',
-                    reference_type='in_order',
-                    reference_id=order.id,
-                    remark=f'删除入库单 {order.order_no} 回退库存'
-                )
-                if not ok:
-                    db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': error_msg or '库存回退失败'})
-                if location_management_enabled() and order.warehouse:
-                    loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, -(item.quantity or 0))
-                    if not loc_ok:
-                        db.session.rollback()
-                        return jsonify({'status': 'error', 'msg': loc_err or '库位库存回退失败'})
 
         affected_purchase_order_ids = set()
         for item in order.items:

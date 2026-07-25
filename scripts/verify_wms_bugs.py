@@ -244,8 +244,11 @@ def main() -> int:
     delete_in_order_body = function_body(app_py, "delete_in_order")
     checks.append((
         "BUG-NEW-001",
-        "update_location_inventory" in delete_in_order_body and "delete_in" in delete_in_order_body,
-        "删除已完成入库单时必须同步回退库位库存",
+        "order.status != 'pending'" in delete_in_order_body
+        and "请先反提交回到草稿后再删除" in delete_in_order_body
+        and "('pending', 'completed')" not in delete_in_order_body
+        and "transaction_type='delete_in'" not in delete_in_order_body,
+        "已完成入库单必须先反提交，后端只允许物理删除草稿",
     ))
 
     native_inbound_body = function_body(app_py, "native_api_inbound")

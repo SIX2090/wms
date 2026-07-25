@@ -33,7 +33,7 @@
 | CONF-004 | SQLite 并发限制 | 检查启用 WAL、busy_timeout、外键 |
 | VULN-003 | 部分 POST 表单缺 CSRF 字段 | 检查模板中普通 POST 表单含 `csrf_token` |
 | VULN-004 | 密码强度不一致 | 检查新增用户和重置密码复用同一强度校验 |
-| BUG-NEW-001 | 删除已完成入库单遗漏库位库存回退 | 检查 `delete_in_order()` 删除 completed 单据时调用 `update_location_inventory()` |
+| BUG-NEW-001-FIX-01 | 已完成入库单可被详情页或接口直接物理删除 | 后端只允许删除 `pending`；已完成单必须先反提交回退库存，详情页不显示完成单删除按钮 |
 | BUG-NEW-003 | 采购入库来源规则不一致 | 采购入库允许手工录入，采购订单仅为可选来源；有关联订单时继续校验来源和数量 |
 | BUG-NEW-005 | 默认密码策略不一致 | 已统一为优先使用 `WMS_BOOTSTRAP_PASSWORD`，未设置且首次创建管理员时使用 `admin`；安装和启动不得重置已有密码 |
 | BUG-NEW-008 | 微信分享默认配置硬编码私人信息 | 检查源码不含私人姓名/微信号默认值 |
