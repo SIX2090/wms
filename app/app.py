@@ -24652,6 +24652,7 @@ def add_in_order():
         return jsonify({'status': 'success', 'msg': '保存成功', 'id': order.id, 'order_no': order.order_no})
     except Exception as e:
         db.session.rollback()
+        app.logger.exception(f'保存入库单失败: {e}')
         return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
 
 # Inbound detail operations
@@ -25617,6 +25618,7 @@ def update_completed_in_order(id):
 
     except Exception as e:
         db.session.rollback()
+        app.logger.exception(f'更新入库单失败: {e}')
         return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
 
 
@@ -32086,6 +32088,8 @@ def add_out_order():
         if business_type not in ('领料单', '销售出库', '其他出库'):
             business_type = '领料单'
         department_id = data.get('department_id')
+        if department_id is None or str(department_id).strip().lower() in ('', 'none', 'null'):
+            department_id = None
         customer = (data.get('customer') or '').strip()
         warehouse = (data.get('warehouse') or '').strip()
         remark = (data.get('remark') or '').strip()
@@ -32204,6 +32208,7 @@ def add_out_order():
         return jsonify({'status': 'success', 'msg': '保存成功', 'id': order.id, 'order_no': order.order_no})
     except Exception as e:
         db.session.rollback()
+        app.logger.exception(f'保存出库单失败: {e}')
         return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
 
 @app.route('/out_order/<int:id>/item/add', methods=['POST'])
