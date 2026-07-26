@@ -472,7 +472,6 @@ MAT003,20,10.00"></textarea>
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/excel-table.js') }}"></script>
 <script>
 // 从父窗口获取全局函数（iframe环境兼容）
 var _showConfirm = window.showConfirm || (window.parent && window.parent.showConfirm) || function(msg) { return window.confirm(msg) ? Promise.resolve(true) : Promise.resolve(false); };

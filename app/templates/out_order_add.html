@@ -1021,7 +1021,6 @@ function submitForm(saveAndNew = false) {
     const items = [];
     let emptyQtyCount = 0;
     let largeQtyCount = 0;
-    let stockErrors = [];
     
     for (const row of rows) {
         const code = row.querySelector('.material-code').value.trim();
@@ -1042,15 +1041,6 @@ function submitForm(saveAndNew = false) {
             largeQtyCount++;
         }
         
-        // 库存不足检查
-        const material = materials.find(m => m.code === code);
-        if (material && qty > 0) {
-            const stock = parseFloat(material.stock) || 0;
-            if (stock < qty) {
-                stockErrors.push(material.name + '（编码：' + code + '）库存不足，当前库存：' + stock.toFixed(2) + '，需要：' + qty.toFixed(2));
-            }
-        }
-        
         items.push({ code, quantity: qty, price: price || 0, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() });
     }
     
@@ -1064,13 +1054,7 @@ function submitForm(saveAndNew = false) {
         return;
     }
     
-    // 库存不足阻止提交
-    if (stockErrors.length > 0) {
-        alert('库存不足，无法提交：\n\n' + stockErrors.join('\n'));
-        return;
-    }
-    
-    // 数量异常大时二次确认
+    // 数量异常大时二次确认；库存只在完成单据时校验。
     if (largeQtyCount > 0) {
         if (!confirm('有 ' + largeQtyCount + ' 行物料数量超过10000，是否确认提交？')) {
             return;
@@ -1106,18 +1090,8 @@ function submitForm(saveAndNew = false) {
                 orderNoInput.value = data.order_no;
             }
 
-            return fetch(`/out_order/${data.id}/complete`, {
-                method: 'POST'
-            })
-            .then(res => res.json())
-            .then(completeRes => {
-                if (completeRes.status === 'success') {
-                    alert('保存成功');
-                } else {
-                    alert('单据已保存但领料提交失败：' + (completeRes.msg || '未知错误'));
-                }
-                window.location.href = saveAndNew ? returnAddUrl : `/out_order/${data.id}`;
-            });
+            alert('草稿保存成功');
+            window.location.href = saveAndNew ? returnAddUrl : `/out_order/${data.id}`;
         } else {
             alert('保存失败：' + data.msg);
         }
