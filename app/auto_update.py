@@ -10,7 +10,7 @@ AI-DEPLOY-F01 / AI-DEPLOY-F01-FIX-01 / AI-DEPLOY-F01-FIX-02:
 - 任何步骤失败都不阻断 WMS 启动，用现有代码启动保证可用性。
 - 仅做 git fetch + pull --ff-only，不做 force、不切分支。
 - 数据库迁移由 app.py 启动逻辑 + WMS_NO_DB_TOUCH.flag 控制，本脚本不干预。
-- 已跟踪文件有未提交改动时跳过 pull，避免冲突；仅有未跟踪本地文件（如 runtime）不拦截。
+- 已跟踪文件有未提交改动时默认先放入 Git stash，再继续 pull；可用 WMS_AUTO_UPDATE_DIRTY=skip 保守地跳过更新。
 - 落后提交数使用 HEAD..remote/branch（真正 behind），不是两 tip 并集计数。
 - 拉取的新代码在同一次启动、import 业务模块之前生效；若进程已加载旧模块，
   需再重启一次才能用全新代码（标准 in-process 行为）。
@@ -213,6 +213,17 @@ def count_commits(rev_range: str) -> tuple[bool, int, str]:
         return False, 0, f"无法解析提交数: {out!r}"
 
 
+def stash_tracked_changes() -> tuple[bool, str]:
+    """将已跟踪本地改动安全保存到 stash，避免启动更新覆盖现场修改。"""
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    code, out, err = run_git(
+        "stash", "push", "-m", f"WMS auto-update backup {stamp}"
+    )
+    if code != 0:
+        return False, err or out or f"git stash failed ({code})"
+    return True, out or "(no changes stashed)"
+
+
 def main() -> int:
     log("=" * 60)
     log("WMS 启动前自动更新检查（AI-DEPLOY-F01-FIX-02）")
@@ -267,27 +278,50 @@ def main() -> int:
     if code != 0:
         log(f"[警告] 无法检查工作区: {err or status}")
         return 0
+    stashed_local_changes = False
     if status.strip():
-        log(
-            "[警告] 已跟踪文件有未提交改动，跳过 pull 以避免冲突。\n"
-            f"{status}\n"
-            "处理: 在服务器提交/还原这些文件后重启；"
-            "或临时关闭自动更新、用 update_from_github.bat 手动处理。"
-        )
+        log(f"检测到已跟踪文件有未提交改动:\n{status}")
+        if os.environ.get("WMS_AUTO_UPDATE_DIRTY", "stash").strip().lower() in (
+            "skip", "false", "0", "no"
+        ):
+            log(
+                "[警告] WMS_AUTO_UPDATE_DIRTY=skip，跳过 pull 以保留本地改动。"
+            )
+            return 0
+        ok_stash, stash_result = stash_tracked_changes()
+        if not ok_stash:
+            log(f"[警告] 无法 stash 本地改动，跳过 pull: {stash_result}")
+            return 0
+        stashed_local_changes = True
+        log(f"本地已跟踪改动已保存到 Git stash，继续更新: {stash_result}")
         code_u, untracked, _ = run_git("status", "--porcelain", "--untracked-files=normal")
-        if code_u == 0 and untracked.strip() and untracked.strip() != status.strip():
+        if code_u == 0 and untracked.strip():
             log("（另有未跟踪文件，已忽略，不单独拦截 pull）")
-        return 0
 
     backup_database()
 
     code, out, err = run_git("pull", "--ff-only", REMOTE, BRANCH)
     if code != 0:
         log(f"[警告] git pull --ff-only 失败（不阻断启动）: {err or out}")
+        if stashed_local_changes:
+            restore_code, restore_out, restore_err = run_git("stash", "pop")
+            if restore_code == 0:
+                log(f"更新失败，已恢复本地 stash 改动: {restore_out or '(restored)'}")
+            else:
+                log(
+                    "[严重警告] 更新失败且无法恢复本地 stash，请立即执行 git stash list/pop: "
+                    f"{restore_err or restore_out}"
+                )
         if ahead > 0:
             log("提示: 本地超前远端时快进合并可能失败，需在服务器对齐历史后再更新。")
         return 0
-    log(f"代码已更新:\n{out or '(fast-forward)'}")
+    if stashed_local_changes:
+        log(
+            "代码已更新；本地旧改动保留在 Git stash，未自动重新应用。"
+            "如需取回请先确认与远程代码的差异后执行 git stash list / git stash pop。"
+        )
+    else:
+        log(f"代码已更新:\n{out or '(fast-forward)'}")
 
     python_exe = find_python()
     if python_exe:

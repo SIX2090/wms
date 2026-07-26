@@ -186,7 +186,7 @@ def test_start_wms_auto_delegates(failures: list[str]) -> None:
 
 def test_auto_update_safety_properties(failures: list[str]) -> None:
     """auto_update.py 保留安全属性"""
-    print("\n[Test 4] auto_update.py 安全属性（ff-only / 不切分支 / 脏工作区跳过 / 失败不阻断）")
+    print("\n[Test 4] auto_update.py 安全属性（ff-only / 不切分支 / 脏工作区先 stash / 失败不阻断）")
     if not AUTO_UPDATE_PATH.exists():
         check(False, f"{AUTO_UPDATE_PATH.name} 不存在", failures)
         return
@@ -203,7 +203,10 @@ def test_auto_update_safety_properties(failures: list[str]) -> None:
     check(has_branch_check, "检查当前分支必须为 main（避免切分支）", failures)
 
     has_dirty_check = "status" in text and "--porcelain" in text
-    check(has_dirty_check, "工作区脏时跳过 pull（git status --porcelain 检查）", failures)
+    check(has_dirty_check, "工作区脏时先处理再 pull（git status --porcelain 检查）", failures)
+
+    has_stash = "stash" in text and "WMS_AUTO_UPDATE_DIRTY" in text
+    check(has_stash, "工作区脏时默认保存到 stash，支持 skip 保守模式", failures)
 
     # AI-DEPLOY-F01-FIX-02
     has_correct_behind = "HEAD.." in text and "rev-list" in text
