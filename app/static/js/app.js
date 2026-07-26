@@ -123,7 +123,17 @@ function showConfirm(message, options) {
     return confirmDialog(message, options);
 }
 
-// 嵌入参数处理
+// 嵌入参数处理：iframe 内页面不得再次创建标签工作区。
+function isWmsEmbeddedPage() {
+    return document.body.classList.contains('embedded-page') ||
+        window.self !== window.top ||
+        new URLSearchParams(window.location.search).get('embedded') === '1';
+}
+
+if (window.self !== window.top && document.body) {
+    document.body.classList.add('embedded-page');
+}
+
 function withEmbeddedParam(url) {
     try {
         const parsed = new URL(url, window.location.origin);
@@ -171,6 +181,7 @@ function enableMultiOpenMenus() {
     // An iframe page belongs to the parent tab workspace. It must keep normal
     // in-frame navigation and must never create a second tab workspace.
     if (document.body.classList.contains('embedded-page')) return;
+    if (isWmsEmbeddedPage()) return;
 
     const menuLinks = document.querySelectorAll('.sidebar a[href], .sidebar .dropdown-item[href]');
     menuLinks.forEach(function(link) {
@@ -455,7 +466,7 @@ function setupResizableTable(config) {
     };
 
     const columns = headerCells.map(function(th, index) {
-        const key = th.dataset.columnKey || th.textContent.trim() || 'column_' + index;
+        const key = th.dataset.columnKey || th.dataset.col || th.textContent.trim() || 'column_' + index;
         th.dataset.columnKey = key;
         return { index: index, key: key, th: th, excluded: excludedColumns.has(key) };
     });
@@ -1086,7 +1097,7 @@ function setupDetailTable(config) {
     const resetBtn = toolbar.querySelector('.cb-reset-table-btn');
 
     const columns = headerCells.map(function(th, index) {
-        const key = th.dataset.columnKey || th.textContent.trim() || 'column_' + index;
+        const key = th.dataset.columnKey || th.dataset.col || th.textContent.trim() || 'column_' + index;
         th.dataset.columnKey = key;
         return {
             index: index,
@@ -2853,7 +2864,7 @@ function insertGlobalActionBar() {
 
 // DOM加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
-    if (document.body.classList.contains('embedded-page')) {
+    if (isWmsEmbeddedPage()) {
         document.addEventListener('click', function(event) {
             if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
             const link = event.target.closest && event.target.closest('a[href]');
@@ -2882,7 +2893,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // 嵌入页面链接处理
-    if (document.body.classList.contains('embedded-page')) {
+    if (isWmsEmbeddedPage()) {
         document.addEventListener('click', function(event) {
             const link = event.target.closest('a[href]');
             if (!link || link.target || link.hasAttribute('download')) return;
@@ -2927,7 +2938,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    if (!document.body.classList.contains('embedded-page')) {
+    if (!isWmsEmbeddedPage()) {
         // 启用多开菜单
         if (!isMobileViewport()) enableMultiOpenMenus();
 
@@ -2977,7 +2988,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var headers = Array.from(table.tHead.rows[table.tHead.rows.length - 1].cells);
         if (!headers.length) return false;
         headers.forEach(function(th, index) {
-            if (!th.dataset.columnKey) th.dataset.columnKey = 'column_' + index;
+            if (!th.dataset.columnKey) th.dataset.columnKey = th.dataset.col || 'column_' + index;
         });
         Array.from(table.rows).forEach(function(row) {
             if (row.cells.length !== headers.length) return;
