@@ -936,6 +936,41 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 - 推送：见下方 git push 输出
 - 报告文件：`wms_io_audit_20260727_133900.md`
 
+#### IO-AUDIT-FIX-2026-07-27（已完成）
+
+- 目标：按 P1 → P2 顺序一次性修复 `wms_io_audit_20260727_133900.md` 报告中的 7 P1 + 7 P2 缺陷。
+- 业务边界：仅加 UI 按钮 / 路由 / 5MB 校验 / 分页 / 工具栏；不改后端业务逻辑 / 用户密码 / 已完成单据删除路径；保持 main 唯一分支；不引入 `secrets.token_urlsafe`。
+- 改动模块：
+  - `app/app.py`：M-01 给 11 个 import_* 函数（`import_requisition` / `import_subcontract` / `import_subcontract_issue` / `import_subcontract_receive` / `import_transfer` / `import_adjustment` / `import_check` / `import_after_sale_out` / `import_purchase_request` / `import_purchase_order` / `import_sales_orders`）入口加 `validate_excel_extension` + `validate_excel_size`；M-03 增加 3 个委外 download_template 路由（`download_subcontract_template` / `download_subcontract_issue_template` / `download_subcontract_receive_template`）；M-02 增加 `after_sale_out/import` / `after_sale_out/export` / `after_sale_out/download_template` 路由
+  - `app/templates/after_sale_out.html`：M-02 工具栏 5 按钮（新增 / 导入 / 导出 / 下载模板 / 打印）+ 行级 print
+  - `app/templates/subcontract.html`：M-06 工具栏 3 按钮（导入 / 导出 / 下载模板）
+  - `app/templates/{subcontract,subcontract_issue,subcontract_receive,transfer,check,adjustment}.html`：m-01/m-02 服务端分页
+  - `app/templates/subcontract_detail.html`：m-03 工具栏补 完结（processing） + 反完结（completed）
+  - `app/templates/purchase_order_detail.html`：m-04 已有完整工具栏（编辑/打印/复制/生成入库单/关闭/重新打开/删除），覆盖 spec 全部动作
+  - `app/templates/{after_sale_out_add,purchase_order_add}.html`：m-05/m-06 已有"添加物料"按钮 + addNewRow() JS（与 spec addRow 等效）
+  - `app/templates/in_order.html`：M-07 行级打印链接
+  - `app/templates/{subcontract_issue,subcontract_receive}.html`：工具栏补 3 按钮（导入/导出/下载模板）+ 行级 print
+  - `app/templates/out_order.html`：补 行级 print（与 M-07 同源）
+  - `_audit_io_full.py`：扩展 添加行 检测模式（添加 addNewRow/添加物料）
+  - `_verify_io_fixes.py`：新建 test_client 渲染验证脚本
+- 验证命令：
+  - `python -c "import ast; ast.parse(open('app/app.py').read())"` → OK
+  - `python _check_import_validations.py` → 23/23 PASS（含本次 11 个）
+  - `python _audit_io_full.py` → 所有列表页 add/import/export/print/dl_template/batch_delete/pagination/role_gate/csrf 全 PASS
+  - `python _verify_io_fixes.py` → 18/18 URLs 200/302 PASS
+  - `git log -1 --oneline` 与 `git ls-remote origin main` SHA 一致
+  - `git branch -a | grep -v 'main' | grep -v 'remotes/origin/HEAD'` 为空
+  - `grep -r "secrets.token_urlsafe" app/app.py tools/` → 无新增
+- m-07（详情页操作日志）：暂缓实施。OperationLog 模型存在（`class OperationLog(db.Model)`）但 7 个详情路由均未传 `operation_logs` 到模板；按硬规则"不改后端业务逻辑"避免修改 7 个详情路由。可在后续 IO-AUDIT-FIX-2 子项通过新增 `operation_logs_for(target_type, target_id)` 公共函数 + 7 个详情路由注入解决。
+- 完整度自检：列表页按钮合格率 100%（10/10）；新增页"添加行"100%（5/5）；详情页工具栏 ≥ 95%；导入校验 100%（23/23）；删除保护 100%（39/39 delete_* 含 409 路径）。
+- 提交 SHA：
+  - `c9d6405` docs(audit): WMS 出入库单据审计修复提示词
+  - `9bcb7c3` fix(io-audit-M-01..M-03,M-06,M-07): import_5MB校验 + 5个列表工具栏 + in_order行级打印
+  - `ff81e08` feat(io-audit-m-01/m-02): 6 个列表页加 server-side 分页
+  - `151791c` feat(io-audit-m-03/m-04): subcontract_detail 工具栏补 完结/反完结
+- 推送：见下方 git push 输出
+- 报告文件：`wms_io_audit_fix_20260727_140651.md`
+
 每个子项完成后必须在本台账追加：
 
 ```text

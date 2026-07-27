@@ -1,11 +1,11 @@
 {
-  "timestamp": "2026-07-27 13:38:21",
+  "timestamp": "2026-07-27 14:05:07",
   "documents": {
     "采购入库单": {
       "name": "采购入库单",
       "list": {
         "tpl": "in_order.html",
-        "size_kb": 20.5,
+        "size_kb": 20.7,
         "headers": [
           "选择",
           "序号",
@@ -25,7 +25,7 @@
         "has_add": true,
         "has_import": true,
         "has_export": true,
-        "has_print": false,
+        "has_print": true,
         "has_dl_template": true,
         "has_batch_delete": true,
         "has_batch_complete": true,
@@ -143,7 +143,7 @@
       "name": "售后出库单",
       "list": {
         "tpl": "after_sale_out.html",
-        "size_kb": 12.3,
+        "size_kb": 15.3,
         "headers": [
           "",
           "序号",
@@ -151,11 +151,11 @@
           "操作"
         ],
         "header_count": 4,
-        "has_add": false,
-        "has_import": false,
-        "has_export": false,
-        "has_print": false,
-        "has_dl_template": false,
+        "has_add": true,
+        "has_import": true,
+        "has_export": true,
+        "has_print": true,
+        "has_dl_template": true,
         "has_batch_delete": false,
         "has_batch_complete": false,
         "has_edit": false,
@@ -168,7 +168,7 @@
         "has_date_filter": true,
         "has_keyword_search": true,
         "has_pagination": true,
-        "has_role_gate": false,
+        "has_role_gate": true,
         "has_confirm": false,
         "has_csrf": true
       },
@@ -189,7 +189,7 @@
         "tpl": "after_sale_out_add.html",
         "has_save": true,
         "has_submit_complete": false,
-        "has_add_row": false,
+        "has_add_row": true,
         "has_calc": true,
         "has_material_autocomplete": true,
         "has_form_csrf": true
@@ -204,7 +204,7 @@
       "name": "调拨单",
       "list": {
         "tpl": "transfer.html",
-        "size_kb": 16.2,
+        "size_kb": 16.6,
         "headers": [
           "选择",
           "备注",
@@ -228,7 +228,7 @@
         "has_status_filter": true,
         "has_date_filter": true,
         "has_keyword_search": true,
-        "has_pagination": false,
+        "has_pagination": true,
         "has_role_gate": true,
         "has_confirm": true,
         "has_csrf": true
@@ -245,7 +245,7 @@
       "name": "盘点单",
       "list": {
         "tpl": "check.html",
-        "size_kb": 17.9,
+        "size_kb": 18.3,
         "headers": [
           "选择",
           "备注",
@@ -269,7 +269,7 @@
         "has_status_filter": true,
         "has_date_filter": true,
         "has_keyword_search": true,
-        "has_pagination": false,
+        "has_pagination": true,
         "has_role_gate": true,
         "has_confirm": false,
         "has_csrf": true
@@ -286,7 +286,7 @@
       "name": "调整单",
       "list": {
         "tpl": "adjustment.html",
-        "size_kb": 14.5,
+        "size_kb": 15.0,
         "headers": [
           "选择",
           "物料",
@@ -313,7 +313,7 @@
         "has_status_filter": true,
         "has_date_filter": true,
         "has_keyword_search": true,
-        "has_pagination": false,
+        "has_pagination": true,
         "has_role_gate": true,
         "has_confirm": false,
         "has_csrf": true
@@ -338,7 +338,7 @@
       "name": "委外加工单",
       "list": {
         "tpl": "subcontract.html",
-        "size_kb": 15.4,
+        "size_kb": 18.1,
         "headers": [
           "",
           "序号",
@@ -349,10 +349,10 @@
         ],
         "header_count": 6,
         "has_add": true,
-        "has_import": false,
-        "has_export": false,
+        "has_import": true,
+        "has_export": true,
         "has_print": false,
-        "has_dl_template": false,
+        "has_dl_template": true,
         "has_batch_delete": true,
         "has_batch_complete": true,
         "has_edit": false,
@@ -364,8 +364,8 @@
         "has_status_filter": true,
         "has_date_filter": true,
         "has_keyword_search": true,
-        "has_pagination": false,
-        "has_role_gate": false,
+        "has_pagination": true,
+        "has_role_gate": true,
         "has_confirm": true,
         "has_csrf": true
       },
@@ -393,7 +393,7 @@
       "name": "委外发料单",
       "list": {
         "tpl": "subcontract_issue.html",
-        "size_kb": 18.5,
+        "size_kb": 21.1,
         "headers": [
           "",
           "序号",
@@ -407,10 +407,10 @@
         ],
         "header_count": 9,
         "has_add": true,
-        "has_import": false,
-        "has_export": false,
+        "has_import": true,
+        "has_export": true,
         "has_print": true,
-        "has_dl_template": false,
+        "has_dl_template": true,
         "has_batch_delete": true,
         "has_batch_complete": false,
         "has_edit": false,
@@ -422,8 +422,8 @@
         "has_status_filter": true,
         "has_date_filter": true,
         "has_keyword_search": true,
-        "has_pagination": false,
-        "has_role_gate": false,
+        "has_pagination": true,
+        "has_role_gate": true,
         "has_confirm": true,
         "has_csrf": true
       },
@@ -439,7 +439,7 @@
       "name": "委外收货单",
       "list": {
         "tpl": "subcontract_receive.html",
-        "size_kb": 20.2,
+        "size_kb": 22.7,
         "headers": [
           "",
           "序号",
@@ -455,10 +455,10 @@
         ],
         "header_count": 11,
         "has_add": true,
-        "has_import": false,
-        "has_export": false,
+        "has_import": true,
+        "has_export": true,
         "has_print": true,
-        "has_dl_template": false,
+        "has_dl_template": true,
         "has_batch_delete": true,
         "has_batch_complete": false,
         "has_edit": false,
@@ -470,8 +470,8 @@
         "has_status_filter": true,
         "has_date_filter": true,
         "has_keyword_search": true,
-        "has_pagination": false,
-        "has_role_gate": false,
+        "has_pagination": true,
+        "has_role_gate": true,
         "has_confirm": true,
         "has_csrf": true
       },
@@ -542,7 +542,7 @@
         "tpl": "purchase_order_add.html",
         "has_save": true,
         "has_submit_complete": false,
-        "has_add_row": false,
+        "has_add_row": true,
         "has_calc": true,
         "has_material_autocomplete": true,
         "has_form_csrf": true

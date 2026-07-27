@@ -207,7 +207,7 @@ for doc in DOC_CONFIGS:
                 content = f.read()
             has_save = bool(re.search(r'(保存|submit|保存草稿)', content))
             has_submit_complete = bool(re.search(r'(保存并提交|保存并新增)', content))
-            has_add_row = bool(re.search(r'(addRow|add_row|addItem|添加行|新增行)', content))
+            has_add_row = bool(re.search(r'(addRow|add_row|addItem|addNewRow|添加行|新增行|添加物料|新增物料)', content))
             has_calc = bool(re.search(r'(金额|amount|total|calc|sum|计算)', content))
             has_material_autocomplete = bool(re.search(r'(autocomplete|datalist|material.*select|物料.*下拉)', content, re.I))
             has_form_csrf = bool(re.search(r'csrf_token', content))
