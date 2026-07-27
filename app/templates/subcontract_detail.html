@@ -44,6 +44,19 @@
                 <button class="btn-order btn-order-success btn-order-sm" onclick="receiveProduct()">
                     <i class="bi bi-box-arrow-in-down"></i> 收货
                 </button>
+                <form action="{{ url_for('complete_subcontract_order', id=order.id) }}" method="post" class="d-inline" onsubmit="return confirm('确认完结该委外单？');">
+                    {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+                    <button type="submit" class="btn-order btn-order-primary btn-order-sm">
+                        <i class="bi bi-check2-circle"></i> 完结
+                    </button>
+                </form>
+                {% elif order.status == 'completed' %}
+                <form action="{{ url_for('revert_subcontract_order', id=order.id) }}" method="post" class="d-inline" onsubmit="return confirm('确认反完结该委外单？反完结后单据将回到加工中或草稿状态。');">
+                    {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+                    <button type="submit" class="btn-order btn-order-warning btn-order-sm">
+                        <i class="bi bi-arrow-counterclockwise"></i> 反完结
+                    </button>
+                </form>
                 {% endif %}
                 <a href="/subcontract" class="btn-order btn-order-secondary btn-order-sm">
                     <i class="bi bi-arrow-left"></i> 返回
