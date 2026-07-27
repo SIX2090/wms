@@ -1,785 +1,331 @@
 {
-  "timestamp": "2026-07-27 14:05:07",
-  "documents": {
-    "采购入库单": {
-      "name": "采购入库单",
-      "list": {
-        "tpl": "in_order.html",
-        "size_kb": 20.7,
-        "headers": [
-          "选择",
-          "序号",
-          "来源采购单",
-          "物料编号",
-          "物料名称",
-          "规格",
-          "单位",
-          "数量",
-          "单价",
-          "合同编号",
-          "工程名称",
-          "来源状态",
-          "操作"
-        ],
-        "header_count": 13,
-        "has_add": true,
-        "has_import": true,
-        "has_export": true,
-        "has_print": true,
-        "has_dl_template": true,
-        "has_batch_delete": true,
-        "has_batch_complete": true,
-        "has_edit": false,
-        "has_delete": false,
-        "has_complete": false,
-        "has_copy": true,
-        "has_revert": false,
-        "has_filter": true,
-        "has_status_filter": true,
-        "has_date_filter": true,
-        "has_keyword_search": true,
-        "has_pagination": true,
-        "has_role_gate": true,
-        "has_confirm": false,
-        "has_csrf": true
-      },
-      "detail": {
-        "tpl": "in_order_detail.html",
-        "has_edit": false,
-        "has_print": true,
-        "has_copy": true,
-        "has_complete": true,
-        "has_revert": true,
-        "has_delete": true,
-        "has_status_badge": true,
-        "has_metadata": true,
-        "has_log": false,
-        "has_back": true
-      },
-      "add": {
-        "tpl": "in_order_add.html",
-        "has_save": true,
-        "has_submit_complete": true,
-        "has_add_row": true,
-        "has_calc": true,
-        "has_material_autocomplete": true,
-        "has_form_csrf": true
-      },
-      "route_check": {
-        "signature_excerpt": "@app.route('/in_order')\n@app.route('/other_in_order')\n@login_required\ndef in_order_list(",
-        "has_login_required": true,
-        "has_require_role": false
-      }
+  "audit_time": "2026-07-27 14:36",
+  "branch": "main",
+  "head_sha": "d873e0b9fd1a486d9411335e701b1f98eaf7eece",
+  "head_short": "d873e0b",
+  "remote_sha": "",
+  "hard_rules": {
+    "main_branch_consistent": true,
+    "no_new_branches": true,
+    "no_secrets_token_urlsafe": true,
+    "csrf_protect_init": true,
+    "completed_order_protected": true,
+    "admin_password_from_env": true
+  },
+  "delete_protection": {
+    "delete_in_order": "if order.status != 'pending'",
+    "delete_out_order": "if order.status != 'pending'",
+    "delete_purchase_order": "if order.status != 'pending'",
+    "delete_after_sale_out_order": "if order.status == 'completed'",
+    "delete_transfer": "if transfer.status != 'pending'",
+    "delete_check": "if check.status != 'pending'",
+    "delete_adjustment": "if adjustment.status != 'pending'",
+    "delete_subcontract": "if order.status != 'pending'",
+    "delete_subcontract_issue": "if issue.status != 'pending'",
+    "delete_subcontract_receive": "if receive.status != 'pending'"
+  },
+  "list_pages": {
+    "in_order": {
+      "new": true,
+      "import": true,
+      "export": true,
+      "dl_template": true,
+      "print": true,
+      "batch_delete": false,
+      "batch_complete": false,
+      "row_print": true
     },
-    "领料/销售出库单": {
-      "name": "领料/销售出库单",
-      "list": {
-        "tpl": "out_order.html",
-        "size_kb": 19.1,
-        "headers": [
-          "选择",
-          "序号",
-          "物料编号",
-          "物料名称",
-          "规格",
-          "单位",
-          "数量",
-          "单价",
-          "合同编号",
-          "工程名称",
-          "操作"
-        ],
-        "header_count": 11,
-        "has_add": true,
-        "has_import": true,
-        "has_export": true,
-        "has_print": true,
-        "has_dl_template": true,
-        "has_batch_delete": true,
-        "has_batch_complete": true,
-        "has_edit": false,
-        "has_delete": true,
-        "has_complete": true,
-        "has_copy": true,
-        "has_revert": true,
-        "has_filter": true,
-        "has_status_filter": true,
-        "has_date_filter": true,
-        "has_keyword_search": true,
-        "has_pagination": true,
-        "has_role_gate": true,
-        "has_confirm": false,
-        "has_csrf": true
-      },
-      "detail": {
-        "tpl": "out_order_detail.html",
-        "has_edit": false,
-        "has_print": true,
-        "has_copy": true,
-        "has_complete": true,
-        "has_revert": true,
-        "has_delete": true,
-        "has_status_badge": true,
-        "has_metadata": true,
-        "has_log": false,
-        "has_back": true
-      },
-      "add": {
-        "tpl": "out_order_add.html",
-        "has_save": true,
-        "has_submit_complete": true,
-        "has_add_row": true,
-        "has_calc": true,
-        "has_material_autocomplete": true,
-        "has_form_csrf": true
-      },
-      "route_check": {
-        "signature_excerpt": "@app.route('/out_order')\n@app.route('/other_out_order')\n@login_required\ndef out_order_list(",
-        "has_login_required": true,
-        "has_require_role": false
-      }
+    "out_order": {
+      "new": true,
+      "import": true,
+      "export": true,
+      "dl_template": true,
+      "print": true,
+      "batch_delete": false,
+      "batch_complete": false,
+      "row_print": true
     },
-    "售后出库单": {
-      "name": "售后出库单",
-      "list": {
-        "tpl": "after_sale_out.html",
-        "size_kb": 15.3,
-        "headers": [
-          "",
-          "序号",
-          "联系人",
-          "操作"
-        ],
-        "header_count": 4,
-        "has_add": true,
-        "has_import": true,
-        "has_export": true,
-        "has_print": true,
-        "has_dl_template": true,
-        "has_batch_delete": false,
-        "has_batch_complete": false,
-        "has_edit": false,
-        "has_delete": true,
-        "has_complete": true,
-        "has_copy": false,
-        "has_revert": true,
-        "has_filter": true,
-        "has_status_filter": true,
-        "has_date_filter": true,
-        "has_keyword_search": true,
-        "has_pagination": true,
-        "has_role_gate": true,
-        "has_confirm": false,
-        "has_csrf": true
-      },
-      "detail": {
-        "tpl": "after_sale_out_detail.html",
-        "has_edit": false,
-        "has_print": false,
-        "has_copy": false,
-        "has_complete": true,
-        "has_revert": true,
-        "has_delete": false,
-        "has_status_badge": true,
-        "has_metadata": true,
-        "has_log": false,
-        "has_back": true
-      },
-      "add": {
-        "tpl": "after_sale_out_add.html",
-        "has_save": true,
-        "has_submit_complete": false,
-        "has_add_row": true,
-        "has_calc": true,
-        "has_material_autocomplete": true,
-        "has_form_csrf": true
-      },
-      "route_check": {
-        "signature_excerpt": "@app.route('/after_sale_out')\n@login_required\ndef after_sale_out_list(",
-        "has_login_required": true,
-        "has_require_role": false
-      }
+    "after_sale_out": {
+      "new": true,
+      "import": true,
+      "export": true,
+      "dl_template": true,
+      "print": true,
+      "batch_delete": false,
+      "batch_complete": false,
+      "row_print": true
     },
-    "调拨单": {
-      "name": "调拨单",
-      "list": {
-        "tpl": "transfer.html",
-        "size_kb": 16.6,
-        "headers": [
-          "选择",
-          "备注",
-          "操作人",
-          "操作"
-        ],
-        "header_count": 4,
-        "has_add": true,
-        "has_import": true,
-        "has_export": true,
-        "has_print": false,
-        "has_dl_template": true,
-        "has_batch_delete": true,
-        "has_batch_complete": false,
-        "has_edit": false,
-        "has_delete": true,
-        "has_complete": true,
-        "has_copy": true,
-        "has_revert": true,
-        "has_filter": true,
-        "has_status_filter": true,
-        "has_date_filter": true,
-        "has_keyword_search": true,
-        "has_pagination": true,
-        "has_role_gate": true,
-        "has_confirm": true,
-        "has_csrf": true
-      },
-      "detail": {},
-      "add": {},
-      "route_check": {
-        "signature_excerpt": "@app.route('/transfer')\n@login_required\ndef transfer_list(",
-        "has_login_required": true,
-        "has_require_role": false
-      }
+    "transfer": {
+      "new": true,
+      "import": true,
+      "export": true,
+      "dl_template": true,
+      "print": false,
+      "batch_delete": true,
+      "batch_complete": false,
+      "row_print": false
     },
-    "盘点单": {
-      "name": "盘点单",
-      "list": {
-        "tpl": "check.html",
-        "size_kb": 18.3,
-        "headers": [
-          "选择",
-          "备注",
-          "操作人",
-          "操作"
-        ],
-        "header_count": 4,
-        "has_add": true,
-        "has_import": true,
-        "has_export": true,
-        "has_print": false,
-        "has_dl_template": true,
-        "has_batch_delete": true,
-        "has_batch_complete": false,
-        "has_edit": false,
-        "has_delete": true,
-        "has_complete": true,
-        "has_copy": true,
-        "has_revert": true,
-        "has_filter": true,
-        "has_status_filter": true,
-        "has_date_filter": true,
-        "has_keyword_search": true,
-        "has_pagination": true,
-        "has_role_gate": true,
-        "has_confirm": false,
-        "has_csrf": true
-      },
-      "detail": {},
-      "add": {},
-      "route_check": {
-        "signature_excerpt": "@app.route('/check')\n@login_required\ndef check_list(",
-        "has_login_required": true,
-        "has_require_role": false
-      }
+    "check": {
+      "new": true,
+      "import": true,
+      "export": true,
+      "dl_template": true,
+      "print": false,
+      "batch_delete": true,
+      "batch_complete": false,
+      "row_print": false
     },
-    "调整单": {
-      "name": "调整单",
-      "list": {
-        "tpl": "adjustment.html",
-        "size_kb": 15.0,
-        "headers": [
-          "选择",
-          "物料",
-          "数量",
-          "明细数",
-          "原因",
-          "操作人",
-          "操作"
-        ],
-        "header_count": 7,
-        "has_add": true,
-        "has_import": true,
-        "has_export": true,
-        "has_print": false,
-        "has_dl_template": true,
-        "has_batch_delete": true,
-        "has_batch_complete": false,
-        "has_edit": true,
-        "has_delete": true,
-        "has_complete": true,
-        "has_copy": false,
-        "has_revert": true,
-        "has_filter": true,
-        "has_status_filter": true,
-        "has_date_filter": true,
-        "has_keyword_search": true,
-        "has_pagination": true,
-        "has_role_gate": true,
-        "has_confirm": false,
-        "has_csrf": true
-      },
-      "detail": {},
-      "add": {
-        "tpl": "adjustment_add.html",
-        "has_save": true,
-        "has_submit_complete": false,
-        "has_add_row": true,
-        "has_calc": true,
-        "has_material_autocomplete": true,
-        "has_form_csrf": true
-      },
-      "route_check": {
-        "signature_excerpt": "@app.route('/adjustment')\n@login_required\ndef adjustment_list(",
-        "has_login_required": true,
-        "has_require_role": false
-      }
+    "adjustment": {
+      "new": true,
+      "import": true,
+      "export": true,
+      "dl_template": true,
+      "print": false,
+      "batch_delete": true,
+      "batch_complete": false,
+      "row_print": false
     },
-    "委外加工单": {
-      "name": "委外加工单",
-      "list": {
-        "tpl": "subcontract.html",
-        "size_kb": 18.1,
-        "headers": [
-          "",
-          "序号",
-          "联系人",
-          "联系电话",
-          "操作人",
-          "操作"
-        ],
-        "header_count": 6,
-        "has_add": true,
-        "has_import": true,
-        "has_export": true,
-        "has_print": false,
-        "has_dl_template": true,
-        "has_batch_delete": true,
-        "has_batch_complete": true,
-        "has_edit": false,
-        "has_delete": false,
-        "has_complete": true,
-        "has_copy": false,
-        "has_revert": true,
-        "has_filter": true,
-        "has_status_filter": true,
-        "has_date_filter": true,
-        "has_keyword_search": true,
-        "has_pagination": true,
-        "has_role_gate": true,
-        "has_confirm": true,
-        "has_csrf": true
-      },
-      "detail": {
-        "tpl": "subcontract_detail.html",
-        "has_edit": false,
-        "has_print": false,
-        "has_copy": false,
-        "has_complete": false,
-        "has_revert": false,
-        "has_delete": true,
-        "has_status_badge": true,
-        "has_metadata": true,
-        "has_log": false,
-        "has_back": true
-      },
-      "add": {},
-      "route_check": {
-        "signature_excerpt": "@app.route('/subcontract')\n@login_required\ndef subcontract_list(",
-        "has_login_required": true,
-        "has_require_role": false
-      }
+    "subcontract": {
+      "new": true,
+      "import": true,
+      "export": true,
+      "dl_template": true,
+      "print": false,
+      "batch_delete": true,
+      "batch_complete": true,
+      "row_print": false
     },
-    "委外发料单": {
-      "name": "委外发料单",
-      "list": {
-        "tpl": "subcontract_issue.html",
-        "size_kb": 21.1,
-        "headers": [
-          "",
-          "序号",
-          "操作人",
-          "操作",
-          "物料编码/名称",
-          "数量",
-          "单位",
-          "备注",
-          "操作"
-        ],
-        "header_count": 9,
-        "has_add": true,
-        "has_import": true,
-        "has_export": true,
-        "has_print": true,
-        "has_dl_template": true,
-        "has_batch_delete": true,
-        "has_batch_complete": false,
-        "has_edit": false,
-        "has_delete": true,
-        "has_complete": true,
-        "has_copy": false,
-        "has_revert": true,
-        "has_filter": true,
-        "has_status_filter": true,
-        "has_date_filter": true,
-        "has_keyword_search": true,
-        "has_pagination": true,
-        "has_role_gate": true,
-        "has_confirm": true,
-        "has_csrf": true
-      },
-      "detail": {},
-      "add": {},
-      "route_check": {
-        "signature_excerpt": "@app.route('/subcontract_issue')\n@app.route('/subcontract/issue')\n@login_required\ndef subcontract_issue_list(",
-        "has_login_required": true,
-        "has_require_role": false
-      }
+    "subcontract_issue": {
+      "new": true,
+      "import": true,
+      "export": true,
+      "dl_template": true,
+      "print": true,
+      "batch_delete": true,
+      "batch_complete": false,
+      "row_print": true
     },
-    "委外收货单": {
-      "name": "委外收货单",
-      "list": {
-        "tpl": "subcontract_receive.html",
-        "size_kb": 22.7,
-        "headers": [
-          "",
-          "序号",
-          "操作人",
-          "操作",
-          "物料编码/名称",
-          "收货数量",
-          "报废数量",
-          "单位",
-          "单价",
-          "备注",
-          "操作"
-        ],
-        "header_count": 11,
-        "has_add": true,
-        "has_import": true,
-        "has_export": true,
-        "has_print": true,
-        "has_dl_template": true,
-        "has_batch_delete": true,
-        "has_batch_complete": false,
-        "has_edit": false,
-        "has_delete": true,
-        "has_complete": true,
-        "has_copy": false,
-        "has_revert": true,
-        "has_filter": true,
-        "has_status_filter": true,
-        "has_date_filter": true,
-        "has_keyword_search": true,
-        "has_pagination": true,
-        "has_role_gate": true,
-        "has_confirm": true,
-        "has_csrf": true
-      },
-      "detail": {},
-      "add": {},
-      "route_check": {
-        "signature_excerpt": "@app.route('/subcontract_receive')\n@app.route('/subcontract/receive')\n@login_required\ndef subcontract_receive_list(",
-        "has_login_required": true,
-        "has_require_role": false
-      }
-    },
-    "采购订单": {
-      "name": "采购订单",
-      "list": {
-        "tpl": "purchase_order.html",
-        "size_kb": 19.2,
-        "headers": [
-          "选择",
-          "序号",
-          "供应商",
-          "来源申请",
-          "合同编号",
-          "工程名称",
-          "采购数量",
-          "已下推",
-          "已入库",
-          "待入库",
-          "未下推",
-          "执行状态",
-          "操作"
-        ],
-        "header_count": 13,
-        "has_add": true,
-        "has_import": true,
-        "has_export": true,
-        "has_print": false,
-        "has_dl_template": true,
-        "has_batch_delete": true,
-        "has_batch_complete": false,
-        "has_edit": true,
-        "has_delete": true,
-        "has_complete": false,
-        "has_copy": true,
-        "has_revert": false,
-        "has_filter": true,
-        "has_status_filter": true,
-        "has_date_filter": true,
-        "has_keyword_search": true,
-        "has_pagination": true,
-        "has_role_gate": true,
-        "has_confirm": false,
-        "has_csrf": true
-      },
-      "detail": {
-        "tpl": "purchase_order_detail.html",
-        "has_edit": true,
-        "has_print": false,
-        "has_copy": true,
-        "has_complete": false,
-        "has_revert": false,
-        "has_delete": true,
-        "has_status_badge": true,
-        "has_metadata": true,
-        "has_log": false,
-        "has_back": true
-      },
-      "add": {
-        "tpl": "purchase_order_add.html",
-        "has_save": true,
-        "has_submit_complete": false,
-        "has_add_row": true,
-        "has_calc": true,
-        "has_material_autocomplete": true,
-        "has_form_csrf": true
-      },
-      "route_check": {
-        "signature_excerpt": "@app.route('/purchase_order')\n@login_required\ndef purchase_order_list(",
-        "has_login_required": true,
-        "has_require_role": false
-      }
+    "subcontract_receive": {
+      "new": true,
+      "import": true,
+      "export": true,
+      "dl_template": true,
+      "print": true,
+      "batch_delete": true,
+      "batch_complete": false,
+      "row_print": true
     }
   },
-  "completed_protection": {
-    "delete_user": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
+  "detail_pages": {
+    "in_order_detail": {
+      "edit": true,
+      "print": true,
+      "copy": true,
+      "submit": true,
+      "complete": true,
+      "revert": true,
+      "unaudit": false,
+      "delete": true,
+      "op_log": true
     },
-    "delete_warehouse": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
+    "out_order_detail": {
+      "edit": true,
+      "print": true,
+      "copy": true,
+      "submit": true,
+      "complete": true,
+      "revert": true,
+      "unaudit": false,
+      "delete": true,
+      "op_log": true
     },
-    "delete_department": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
+    "after_sale_out_detail": {
+      "edit": true,
+      "print": true,
+      "copy": false,
+      "submit": true,
+      "complete": true,
+      "revert": true,
+      "unaudit": false,
+      "delete": false,
+      "op_log": true
     },
-    "delete_contract": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
+    "purchase_order_detail": {
+      "edit": true,
+      "print": true,
+      "copy": true,
+      "submit": false,
+      "complete": true,
+      "revert": false,
+      "unaudit": false,
+      "delete": true,
+      "op_log": true
     },
-    "delete_all_materials": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
+    "subcontract_detail": {
+      "edit": false,
+      "print": true,
+      "copy": false,
+      "submit": false,
+      "complete": true,
+      "revert": false,
+      "unaudit": false,
+      "delete": true,
+      "op_log": true
     },
-    "delete_category": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
-    },
-    "delete_unit": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
-    },
-    "delete_supplier": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
-    },
-    "delete_customer": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
-    },
-    "delete_employee": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
-    },
-    "delete_in_order_item": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_in_order": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_bom_item": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
-    },
-    "delete_bom_item_alias": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": false
-    },
-    "delete_bom": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
-    },
-    "delete_bom_alias": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": false
-    },
-    "delete_label_template": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
-    },
-    "delete_requisition_item": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_requisition": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_subcontract_item": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_subcontract": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_subcontract_issue": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_subcontract_receive": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_transfer_item": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_transfer": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_adjustment": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_check": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_check_item": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_out_order_item": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_out_order": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_after_sale_out_order": {
-      "has_status_check": true,
-      "has_pending_check": false,
-      "has_409": true
-    },
-    "delete_purchase_request": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
-    },
-    "delete_purchase_order": {
-      "has_status_check": false,
-      "has_pending_check": true,
-      "has_409": true
-    },
-    "delete_print_template": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
-    },
-    "delete_in_order_print_template": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": false
-    },
-    "delete_out_order_print_template": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": false
-    },
-    "delete_backup": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
-    },
-    "delete_sales_order": {
-      "has_status_check": false,
-      "has_pending_check": false,
-      "has_409": true
+    "transfer_check_adjustment": {
+      "use_document_table_form": true,
+      "btn": "save/save_complete/complete/revert/print/return_list/add_row/paste"
     }
   },
-  "import_5mb_check": {
-    "import_max_rows": {
-      "has_size_check": false,
-      "has_ext_check": false
+  "import_export": {
+    "in_order": {
+      "import": true,
+      "export": true,
+      "dl_template_via": "/export/template/in_order",
+      "size_guard": true,
+      "ext_guard": true
+    },
+    "out_order": {
+      "import": true,
+      "export": true,
+      "dl_template_via": "/export/template/out_order",
+      "size_guard": true,
+      "ext_guard": true
+    },
+    "after_sale_out": {
+      "import": true,
+      "export": true,
+      "dl_template_via": "/export/template/after_sale_out",
+      "size_guard": true,
+      "ext_guard": true
+    },
+    "transfer": {
+      "import": true,
+      "export": true,
+      "dl_template_via": "/export/template/transfer",
+      "size_guard": true,
+      "ext_guard": true
+    },
+    "check": {
+      "import": true,
+      "export": true,
+      "dl_template_via": "/export/template/check",
+      "size_guard": true,
+      "ext_guard": true
+    },
+    "adjustment": {
+      "import": true,
+      "export": true,
+      "dl_template_via": "/export/template/adjustment",
+      "size_guard": true,
+      "ext_guard": true
+    },
+    "subcontract": {
+      "import": true,
+      "export": true,
+      "dl_template_via": "/export/template/subcontract",
+      "size_guard": true,
+      "ext_guard": true
+    },
+    "subcontract_issue": {
+      "import": true,
+      "export": true,
+      "dl_template_via": "/export/template/subcontract_issue",
+      "size_guard": true,
+      "ext_guard": true
+    },
+    "subcontract_receive": {
+      "import": true,
+      "export": true,
+      "dl_template_via": "/export/template/subcontract_receive",
+      "size_guard": true,
+      "ext_guard": true
     }
   },
-  "report_routes": [
-    "/api/wechat_helper/task/<int:log_id>/report",
-    "/purchase_report",
-    "/report",
-    "/report/api/<report_type>",
-    "/report/api/query",
-    "/report/dashboard",
-    "/report/dashboard/ai_insights",
-    "/report/inout/export",
-    "/report/inout/print",
-    "/report/stock/print",
-    "/report/view/<report_type>",
-    "/sales/execution_report",
-    "/sales/execution_report/export",
-    "/sales/outflow_report",
-    "/sales/outflow_report/export",
-    "/sales/report",
-    "/sales/report/export",
-    "/sales/trend_report",
-    "/sales/trend_report/export"
-  ],
-  "inventory_routes": [
-    "/ai/inventory_health",
-    "/ai/inventory_health_live",
-    "/api/ai/inventory_health",
-    "/inventory_check",
-    "/inventory_check/add"
-  ],
-  "csrf_init": true,
-  "api_exempt": false
+  "reports": {
+    "inventory": "/report/view/inventory",
+    "in_detail": "/report/view/in_detail",
+    "out_detail": "/report/view/out_detail",
+    "summary": "/report/view/summary",
+    "check": "/report/view/check",
+    "ledger": "/report/view/ledger",
+    "warehouse_monthly": "/report/view/warehouse_monthly",
+    "subcontract": "/report/view/subcontract",
+    "requisition": "/report/view/requisition",
+    "alert": "/alert",
+    "stock_query": "/stock_query",
+    "sales_trend": "/sales/trend_report",
+    "inout_print": "/report/inout/print",
+    "inout_export": "/report/inout/export",
+    "dashboard": "/report/dashboard"
+  },
+  "related_matrix": {
+    "purchase_request_to_purchase_order": {
+      "status": true,
+      "func": "create_purchase_order_from_request"
+    },
+    "purchase_order_to_in_order": {
+      "status": true,
+      "func": "create_in_order_from_purchase_order"
+    },
+    "sales_order_to_outbound": {
+      "status": true,
+      "func": "create_sales_outbound_from_selection"
+    },
+    "requisition_to_out_order": {
+      "status": false,
+      "note": "未实现下推"
+    },
+    "subcontract_to_subcontract_issue": {
+      "status": false,
+      "note": "subcontract_issue 是独立单据，subcontract 仅作为来源合同"
+    },
+    "subcontract_issue_to_receive": {
+      "status": false,
+      "note": "subcontract_receive 是独立单据"
+    },
+    "transfer_complete": {
+      "status": true,
+      "func": "complete_transfer",
+      "note": "只完成调拨，无自动生成对偶入库单"
+    },
+    "check_to_adjustment": {
+      "status": false,
+      "note": "盘点差异需要人工建调整单"
+    }
+  },
+  "state_machines": {
+    "in_order": "pending→completed (revert 路由齐全)",
+    "out_order": "pending→completed",
+    "after_sale_out": "pending→completed (completed 状态不可删)",
+    "transfer": "pending→completed",
+    "check": "pending→completed",
+    "adjustment": "pending→completed",
+    "subcontract": "pending→processing→completed",
+    "subcontract_issue": "pending→completed",
+    "subcontract_receive": "pending→completed",
+    "purchase_order": "pending→completed (close/reopen)"
+  },
+  "dynamic_verification": {
+    "admin_login": true,
+    "pages_total": 14,
+    "pages_200": 14,
+    "pages_302_or_500": 0,
+    "dom_keyword_pass_rate": "68/78 (87%)",
+    "failed_kw": "transfer/check/adjustment/subcontract 列表缺 bi-printer（行级 print 图标）"
+  },
+  "audit_summary": {
+    "list_buttons_total": 70,
+    "list_buttons_pass": 60,
+    "list_buttons_fail": 10,
+    "detail_buttons_total": 45,
+    "detail_buttons_pass": 38,
+    "detail_buttons_fail": 7,
+    "related_matrix_total": 8,
+    "related_matrix_pass": 4,
+    "related_matrix_fail": 4,
+    "p0": 0,
+    "p1": 5,
+    "p2": 2
+  }
 }
