@@ -916,6 +916,26 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
   - `7d14c7b` fix(audit-M-05): 合同删除补 OutOrderItem/PurchaseOrderItem/SalesOrderItem.contract_no 字符串引用校验
 - 推送：见下方 git push 输出。
 
+#### IO-AUDIT-2026-07-27（已完成）
+
+- 目标：对 WMS 出入库单据（10 类）+ 13 类报表 + 10 个列表/详情/新增/编辑模板进行全方位审计，输出 `wms_io_audit_20260727_133900.md` + `_data.json`。
+- 审计范围：采购入库单/领料销售出库单/售后出库单/调拨单/盘点单/调整单/委外加工单/委外发料单/委外收货单/采购订单 + 13 类 REPORT_DEFINITIONS。
+- 硬规则 8 项全部 PASS（main 分支唯一、HEAD=4fcbcc6、CSRF 启用、mobile API 豁免、已完成单据删除保护、密码工具保留用户输入、AI 不写业务数据）。
+- 业务规则：10 类单据状态机完整（draft→pending→completed，委外多 processing 状态，调拨多 in_transit）；8 条上下游下推路径全部存在；39 个 delete_* 函数全部含 409 反提交提示。
+- 报表路由：13 个 REPORT_DEFINITIONS 全部支持日期/物料/供应商/客户/状态过滤 + Excel 导出（`/report/view/<report_type>` + `/report/api/query` + `/report/inout/export`）。
+- 缺陷发现：
+  - P0: 0
+  - P1: 7 (M-01 11 个 import_* 函数无 5MB 校验; M-02 售后出库单列表缺工具栏; M-03 委外三单据缺下载模板; M-04/M-05 4 个单据无独立详情/新增页; M-06 委外加工单缺导入/导出/下载模板; M-07 采购入库单列表缺打印)
+  - P2: 7 (m-01..m-07 委外三单据/调拨/盘点/调整/采购订单/售后出库单缺分页+工具栏细节)
+- 综合评分：82%（硬规则 100% / 业务规则 95% / 后端路由 95% / 前端模板 60% / 报表 97% / 导入校验 52%）
+- 审计脚本：`_audit_io_full.py`（静态扫描）、`_check_import_validations.py`（导入校验专项）、`_audit_doc_pages.py`（路由枚举）、`_audit_render.py`（test_client 渲染探测）
+- 静态扫描数据：原始 JSON 落盘 `wms_io_audit_data.json`
+- 业务边界：仅生成报告 + 记录缺陷，不修改任何代码；保持 main 唯一分支。
+- 后续任务：建立 IO-AUDIT-FIX-2026-07-27 子项修复 7 项 P1 缺陷
+- 提交 SHA：见本次 commit
+- 推送：见下方 git push 输出
+- 报告文件：`wms_io_audit_20260727_133900.md`
+
 每个子项完成后必须在本台账追加：
 
 ```text
