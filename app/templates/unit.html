@@ -5,6 +5,20 @@
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center">
     <h2><i class="bi bi-rulers"></i> 计量单位管理</h2>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+            <i class="bi bi-plus-lg"></i> 新增单位
+        </button>
+        <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
+            <i class="bi bi-upload"></i> 导入
+        </button>
+        <a href="/unit/export" class="btn btn-outline-success btn-sm">
+            <i class="bi bi-download"></i> 导出
+        </a>
+        <a href="/unit/download_template" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-file-earmark-spreadsheet"></i> 下载模板
+        </a>
+    </div>
 </div>
 
 <div class="card">
@@ -44,6 +58,9 @@
                     <td>{{ unit.name }}</td>
                     <td>{{ unit.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                     <td>
+                        <button class="btn btn-sm btn-outline-primary me-1" onclick="editUnit({{ unit.id }})" title="编辑">
+                            <i class="bi bi-pencil"></i>
+                        </button>
                         <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('{{ url_for('delete_unit') }}', {{ unit.id }})">
                             <i class="bi bi-trash"></i>
                         </button>
@@ -73,6 +90,36 @@
                     <div class="mb-3">
                         <label class="form-label">单位名称 *</label>
                         <input type="text" class="form-control" name="name" required placeholder="如: 个、箱、米、公斤">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑单位模态框 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">编辑单位</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="id">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">单位编号 *</label>
+                        <input type="text" class="form-control" name="code" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">单位名称 *</label>
+                        <input type="text" class="form-control" name="name" required>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -136,7 +183,51 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(function(err){ alert('导入失败: ' + err.message); });
         });
     }
+
+    // M-01：编辑单位
+    var editForm = document.getElementById('editForm');
+    if (editForm) {
+        editForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            var id = this.querySelector('[name="id"]').value;
+            var formData = new FormData(this);
+            fetch('/unit/' + id + '/edit', {
+                method: 'POST',
+                body: formData
+            })
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                if (res.status === 'success') {
+                    notifyMasterDataChanged('unit_updated');
+                    showToast('编辑成功', 'success');
+                    setTimeout(function(){ location.reload(); }, 650);
+                } else {
+                    showToast(res.msg || '编辑失败', 'danger', 3600);
+                }
+            })
+            .catch(function(err){ showToast('编辑失败: ' + err.message, 'danger', 3600); });
+        });
+    }
 });
+
+// M-01：行级编辑 - 拉取单位详情并填充表单
+function editUnit(id) {
+    fetch('/unit/' + id)
+    .then(function(r){ return r.json(); })
+    .then(function(res) {
+        if (res.status === 'success') {
+            var u = res.unit;
+            var form = document.getElementById('editForm');
+            form.querySelector('[name="id"]').value = u.id;
+            form.querySelector('[name="code"]').value = u.code;
+            form.querySelector('[name="name"]').value = u.name;
+            new bootstrap.Modal(document.getElementById('editModal')).show();
+        } else {
+            showToast(res.msg || '获取数据失败', 'danger', 3600);
+        }
+    })
+    .catch(function(err){ showToast('获取数据失败: ' + err.message, 'danger', 3600); });
+}
 
 function notifyMasterDataChanged(type) {
     try {

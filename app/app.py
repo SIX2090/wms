@@ -65,6 +65,8 @@ from utils import (
     get_default_print_template, save_print_template_file, save_upload_image,
     require_role,
     validate_excel_extension,
+    validate_excel_size,
+    MAX_EXCEL_IMPORT_BYTES,
     sanitize_print_html,
     currency_cn, from_json_filter, to_json_filter, range_filter, add_filter
 )
@@ -729,6 +731,32 @@ def auto_migrate_database():
                 if _column not in _after_sale_item_cols:
                     cursor.execute(f"ALTER TABLE after_sale_out_order_item ADD COLUMN {_column} {_definition}")
                     modified = True
+
+        # M-03：warehouse.is_default 默认仓标识迁移
+        cursor.execute("PRAGMA table_info(warehouse)")
+        _warehouse_cols = [row[1] for row in cursor.fetchall()]
+        if _warehouse_cols and 'is_default' not in _warehouse_cols:
+            cursor.execute("ALTER TABLE warehouse ADD COLUMN is_default BOOLEAN DEFAULT 0 NOT NULL")
+            modified = True
+
+        # M-04：employee.code + department_id 迁移
+        cursor.execute("PRAGMA table_info(employee)")
+        _employee_cols = [row[1] for row in cursor.fetchall()]
+        if _employee_cols:
+            if 'code' not in _employee_cols:
+                cursor.execute("ALTER TABLE employee ADD COLUMN code VARCHAR(64)")
+                modified = True
+            if 'department_id' not in _employee_cols:
+                cursor.execute("ALTER TABLE employee ADD COLUMN department_id INTEGER")
+                modified = True
+            # 已存在员工自动补 code（EMP + 6 位补零），避免唯一约束在后续写入时碰撞
+            if 'code' in [row[1] for row in cursor.execute("PRAGMA table_info(employee)").fetchall()]:
+                cursor.execute("SELECT id FROM employee WHERE code IS NULL OR code = '' ORDER BY id")
+                for (emp_id,) in cursor.fetchall():
+                    candidate = f'EMP{emp_id:06d}'
+                    cursor.execute("UPDATE employee SET code = ? WHERE id = ? AND (code IS NULL OR code = '')", (candidate, emp_id))
+                    if cursor.rowcount:
+                        modified = True
 
         if modified:
             conn.commit()
@@ -2357,10 +2385,14 @@ class Notification(db.Model):
 class Employee(db.Model):
     """Employee."""
     id = db.Column(db.Integer, primary_key=True)
+    # M-04：员工编码 + 部门外键，便于按部门/编码筛选与考勤对接
+    code = db.Column(db.String(64), unique=True, nullable=True)  # 员工编码（可空，向后兼容）
     name = db.Column(db.String(50), nullable=False)  # Name
     position = db.Column(db.String(50))  # Position
     phone = db.Column(db.String(20))  # Contact phone
+    department_id = db.Column(db.Integer, db.ForeignKey('department.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
+    department = db.relationship('Department', backref='employees', lazy='joined')
 
 
 class MaterialCategory(db.Model):
@@ -2413,6 +2445,8 @@ class Warehouse(db.Model):
     status = db.Column(db.String(20), default='active')  # Status: active/inactive
     remark = db.Column(db.String(200))  # Remark
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
+    # M-03：默认仓标识，便于入库/出库默认带出仓库
+    is_default = db.Column(db.Boolean, default=False, nullable=False)
 
 
 DEFAULT_WAREHOUSES = (
@@ -7781,6 +7815,27 @@ def batch_delete_warehouse_master():
     return jsonify({'status': 'success', 'msg': f'已删除 {deleted} 个仓库'})
 
 
+@app.route('/warehouse/<int:warehouse_id>/set_default', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def warehouse_set_default(warehouse_id):
+    """M-03：设为默认仓。同一事务内先把所有 is_default=True 置 False，再把当前行置 True。"""
+    warehouse = db.session.get(Warehouse, warehouse_id)
+    if not warehouse:
+        return jsonify({'status': 'error', 'msg': '仓库不存在'}), 404
+    if warehouse.status != 'active':
+        return jsonify({'status': 'error', 'msg': '停用状态的仓库不能设为默认'}), 400
+    try:
+        Warehouse.query.filter(Warehouse.is_default.is_(True)).update({Warehouse.is_default: False}, synchronize_session=False)
+        warehouse.is_default = True
+        db.session.commit()
+        return jsonify({'status': 'success', 'msg': f'已将“{warehouse.name}”设为默认仓'})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'设置默认仓失败: {e}')
+        return jsonify({'status': 'error', 'msg': '设置失败，请稍后重试'}), 500
+
+
 @app.route('/warehouse/api/list')
 @login_required
 def warehouse_api_list():
@@ -7839,6 +7894,10 @@ def import_warehouse():
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
         return jsonify({'status': 'error', 'msg': _ext_msg})
+    # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -8092,6 +8151,10 @@ def import_department():
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
         return jsonify({'status': 'error', 'msg': _ext_msg})
+    # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -8132,9 +8195,20 @@ def _contract_delete_blockers(contract):
     blockers = []
     refs = []
     if InOrder.query.filter_by(contract_id=contract.id).count() > 0:
-        refs.append('采购入库单')
+        refs.append('采购入库单(头)')
+    # M-05：明细行的 contract_id / contract_no 字符串引用也要校验，避免硬删后历史明细合同字段悬空
+    if hasattr(InOrderItem, 'contract_id') and InOrderItem.query.filter_by(contract_id=contract.id).count() > 0:
+        refs.append('采购入库单(明细行 contract_id)')
+    if hasattr(InOrderItem, 'contract_no') and contract.contract_no and \
+            InOrderItem.query.filter(InOrderItem.contract_no == contract.contract_no,
+                                     InOrderItem.contract_id.is_(None)).count() > 0:
+        refs.append('采购入库单(明细行 contract_no 字符串)')
     if OutOrder.query.filter_by(contract_id=contract.id).count() > 0:
-        refs.append('领料出库单')
+        refs.append('领料出库单(头)')
+    if hasattr(OutOrder, 'contract_no') and contract.contract_no and \
+            OutOrder.query.filter(OutOrder.contract_no == contract.contract_no,
+                                  OutOrder.contract_id.is_(None)).count() > 0:
+        refs.append('领料出库单(contract_no 字符串)')
     if PurchaseOrder.query.filter_by(contract_id=contract.id).count() > 0:
         refs.append('采购订单')
     if SalesOrder.query.filter_by(contract_id=contract.id).count() > 0:
@@ -8403,6 +8477,10 @@ def import_contract():
         return jsonify({'status': 'error', 'msg': '请选择文件'}), 400
     if not validate_excel_extension(f.filename):
         return jsonify({'status': 'error', 'msg': '仅支持 .xlsx / .xls 文件'}), 400
+    # m-03：限制 Excel 上传 ≤ 5MB
+    _size_ok, _size_msg = validate_excel_size(f)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg}), 400
     try:
         wb = load_workbook(filename=io.BytesIO(f.read()), data_only=True)
         ws = wb.active
@@ -23697,6 +23775,52 @@ def delete_unit():
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success'})
 
+
+@app.route('/unit/<int:unit_id>')
+@require_role('warehouse')
+@login_required
+def get_unit(unit_id):
+    """M-01：行级编辑 - 返回单位详情 JSON。"""
+    unit = db.session.get(Unit, unit_id)
+    if not unit:
+        return jsonify({'status': 'error', 'msg': '单位不存在'}), 404
+    return jsonify({
+        'status': 'success',
+        'unit': {'id': unit.id, 'code': unit.code, 'name': unit.name}
+    })
+
+
+@app.route('/unit/<int:unit_id>/edit', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def edit_unit(unit_id):
+    """M-01：单位行级编辑。"""
+    unit = db.session.get(Unit, unit_id)
+    if not unit:
+        return jsonify({'status': 'error', 'msg': '单位不存在'}), 404
+    code = (request.form.get('code') or '').strip()
+    name = (request.form.get('name') or '').strip()
+    if not code:
+        return jsonify({'status': 'error', 'msg': '请输入单位编号'})
+    if not name:
+        return jsonify({'status': 'error', 'msg': '请输入单位名称'})
+    dup = Unit.query.filter_by(code=code).first()
+    if dup and dup.id != unit_id:
+        return jsonify({'status': 'error', 'msg': '单位编号已存在'})
+    dup = Unit.query.filter_by(name=name).first()
+    if dup and dup.id != unit_id:
+        return jsonify({'status': 'error', 'msg': '单位名称已存在'})
+    unit.code = code
+    unit.name = name
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'编辑单位失败: {e}')
+        return jsonify({'status': 'error', 'msg': '编辑失败'}), 500
+    return jsonify({'status': 'success', 'msg': '单位编辑成功'})
+
+
 # ==================== ?====================
 
 @app.route('/supplier')
@@ -23778,6 +23902,58 @@ def delete_supplier():
     return jsonify({'status': 'success'})
 
 
+@app.route('/supplier/<int:supplier_id>')
+@require_role('warehouse')
+@login_required
+def get_supplier(supplier_id):
+    """M-01：行级编辑 - 返回供应商详情 JSON。"""
+    sup = db.session.get(Supplier, supplier_id)
+    if not sup:
+        return jsonify({'status': 'error', 'msg': '供应商不存在'}), 404
+    return jsonify({
+        'status': 'success',
+        'supplier': {
+            'id': sup.id, 'code': sup.code, 'name': sup.name,
+            'contact': sup.contact or '', 'phone': sup.phone or '',
+            'address': sup.address or ''
+        }
+    })
+
+
+@app.route('/supplier/<int:supplier_id>/edit', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def edit_supplier(supplier_id):
+    """M-01：供应商行级编辑。"""
+    sup = db.session.get(Supplier, supplier_id)
+    if not sup:
+        return jsonify({'status': 'error', 'msg': '供应商不存在'}), 404
+    code = (request.form.get('code') or '').strip()
+    name = (request.form.get('name') or '').strip()
+    if not code:
+        return jsonify({'status': 'error', 'msg': '请输入供应商编号'})
+    if not name:
+        return jsonify({'status': 'error', 'msg': '请输入供应商名称'})
+    dup = Supplier.query.filter_by(code=code).first()
+    if dup and dup.id != supplier_id:
+        return jsonify({'status': 'error', 'msg': '供应商编号已存在'})
+    dup = Supplier.query.filter_by(name=name).first()
+    if dup and dup.id != supplier_id:
+        return jsonify({'status': 'error', 'msg': '供应商名称已存在'})
+    sup.code = code
+    sup.name = name
+    sup.contact = (request.form.get('contact') or '').strip() or None
+    sup.phone = (request.form.get('phone') or '').strip() or None
+    sup.address = (request.form.get('address') or '').strip() or None
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'编辑供应商失败: {e}')
+        return jsonify({'status': 'error', 'msg': '编辑失败'}), 500
+    return jsonify({'status': 'success', 'msg': '供应商编辑成功'})
+
+
 # ==================== Customer management ====================
 
 @app.route('/customer')
@@ -23837,6 +24013,15 @@ def delete_customer():
                 return jsonify({'status': 'error', 'msg': f'客户“{customer.name}”已有关联出库单，不能删除'})
             if AfterSaleOutOrder.query.filter(AfterSaleOutOrder.customer == customer.name).first():
                 return jsonify({'status': 'error', 'msg': f'客户“{customer.name}”已有关联售后出库单，不能删除'})
+            # m-01：采购入库单/销售订单等以 customer_id 外键引用时也要校验，避免硬删后外键悬空
+            if hasattr(InOrder, 'customer_id') and \
+                    InOrder.query.filter_by(customer_id=customer.id).count() > 0:
+                return jsonify({'status': 'error',
+                                'msg': f'客户“{customer.name}”已被采购入库单(其他入库)引用，不能删除'})
+            if hasattr(SalesOrder, 'customer_id') and \
+                    SalesOrder.query.filter_by(customer_id=customer.id).count() > 0:
+                return jsonify({'status': 'error',
+                                'msg': f'客户“{customer.name}”已被销售订单引用，不能删除'})
             db.session.delete(customer)
     try:
         db.session.commit()
@@ -23845,6 +24030,58 @@ def delete_customer():
         app.logger.error(f"数据库操作失败: {e}")
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success'})
+
+
+@app.route('/customer/<int:customer_id>')
+@require_role('warehouse')
+@login_required
+def get_customer(customer_id):
+    """M-01：行级编辑 - 返回客户详情 JSON。"""
+    customer = db.session.get(Customer, customer_id)
+    if not customer:
+        return jsonify({'status': 'error', 'msg': '客户不存在'}), 404
+    return jsonify({
+        'status': 'success',
+        'customer': {
+            'id': customer.id, 'code': customer.code, 'name': customer.name,
+            'contact': customer.contact or '', 'phone': customer.phone or '',
+            'address': customer.address or ''
+        }
+    })
+
+
+@app.route('/customer/<int:customer_id>/edit', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def edit_customer(customer_id):
+    """M-01：客户行级编辑。"""
+    customer = db.session.get(Customer, customer_id)
+    if not customer:
+        return jsonify({'status': 'error', 'msg': '客户不存在'}), 404
+    code = (request.form.get('code') or '').strip()
+    name = (request.form.get('name') or '').strip()
+    if not code:
+        return jsonify({'status': 'error', 'msg': '请输入客户编号'})
+    if not name:
+        return jsonify({'status': 'error', 'msg': '请输入客户名称'})
+    dup = Customer.query.filter_by(code=code).first()
+    if dup and dup.id != customer_id:
+        return jsonify({'status': 'error', 'msg': '客户编号已存在'})
+    dup = Customer.query.filter_by(name=name).first()
+    if dup and dup.id != customer_id:
+        return jsonify({'status': 'error', 'msg': '客户名称已存在'})
+    customer.code = code
+    customer.name = name
+    customer.contact = (request.form.get('contact') or '').strip() or None
+    customer.phone = (request.form.get('phone') or '').strip() or None
+    customer.address = (request.form.get('address') or '').strip() or None
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'编辑客户失败: {e}')
+        return jsonify({'status': 'error', 'msg': '编辑失败'}), 500
+    return jsonify({'status': 'success', 'msg': '客户编辑成功'})
 
 
 @app.route('/customer/download_template')
@@ -23891,6 +24128,10 @@ def import_customer():
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
         return jsonify({'status': 'error', 'msg': _ext_msg})
+    # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -23931,20 +24172,68 @@ def import_customer():
 @login_required
 def employee_list():
     search, status_filter, sort_by, sort_order = _get_master_list_filters('name')
-    allowed_sorts = {'id', 'name', 'position', 'phone', 'created_at'}
-    query = _apply_simple_search(Employee.query, Employee, search, ['name', 'position', 'phone'])
+    allowed_sorts = {'id', 'code', 'name', 'position', 'phone', 'created_at'}
+    query = _apply_simple_search(Employee.query, Employee, search, ['name', 'position', 'phone', 'code'])
+    # M-04：支持按部门筛选
+    dept_filter = (request.args.get('department_id') or '').strip()
+    if dept_filter:
+        try:
+            query = query.filter(Employee.department_id == int(dept_filter))
+        except ValueError:
+            pass
     query, sort_by = _apply_master_order(query, Employee, sort_by, sort_order, allowed_sorts, 'name')
     employees = query.all()
-    return render_template('employee.html', employees=employees, filters={'search': search, 'status': status_filter}, sort_by=sort_by, sort_order=sort_order)
+    departments = Department.query.order_by(Department.code.asc()).all()
+    return render_template('employee.html', employees=employees, departments=departments,
+                           filters={'search': search, 'status': status_filter, 'department_id': dept_filter},
+                           sort_by=sort_by, sort_order=sort_order)
+
+@app.route('/employee/<int:employee_id>')
+@login_required
+def get_employee(employee_id):
+    """M-01：行级编辑 - 返回员工详情 JSON。"""
+    emp = db.session.get(Employee, employee_id)
+    if not emp:
+        return jsonify({'status': 'error', 'msg': '员工不存在'}), 404
+    return jsonify({
+        'status': 'success',
+        'employee': {
+            'id': emp.id,
+            'code': emp.code or '',
+            'name': emp.name,
+            'position': emp.position or '',
+            'phone': emp.phone or '',
+            'department_id': emp.department_id or '',
+        }
+    })
 
 @app.route('/employee/add', methods=['POST'])
 @require_role('admin')
 @login_required
 def add_employee():
+    code = (request.form.get('code') or '').strip()
+    name = (request.form.get('name') or '').strip()
+    if not name:
+        return jsonify({"status": "error", "msg": "姓名不能为空"}), 400
+    # M-04：编码唯一性校验
+    if code:
+        if Employee.query.filter_by(code=code).first():
+            return jsonify({"status": "error", "msg": f"员工编码“{code}”已存在"}), 400
+    dept_id = request.form.get('department_id', '').strip()
+    dept_id_int = None
+    if dept_id:
+        try:
+            dept_id_int = int(dept_id)
+            if not db.session.get(Department, dept_id_int):
+                return jsonify({"status": "error", "msg": "所选部门不存在"}), 400
+        except ValueError:
+            return jsonify({"status": "error", "msg": "部门参数非法"}), 400
     employee = Employee(
-        name=request.form.get('name'),
+        code=code or None,
+        name=name,
         position=request.form.get('position'),
-        phone=request.form.get('phone')
+        phone=request.form.get('phone'),
+        department_id=dept_id_int,
     )
     db.session.add(employee)
     try:
@@ -23953,6 +24242,44 @@ def add_employee():
         db.session.rollback()
         app.logger.error(f"数据库操作失败: {e}")
         return jsonify({"status": "error", "msg": "操作失败"}), 500
+    return jsonify({'status': 'success'})
+
+@app.route('/employee/<int:employee_id>/edit', methods=['POST'])
+@require_role('admin')
+@login_required
+def edit_employee(employee_id):
+    """M-01：员工行级编辑。"""
+    emp = db.session.get(Employee, employee_id)
+    if not emp:
+        return jsonify({'status': 'error', 'msg': '员工不存在'}), 404
+    code = (request.form.get('code') or '').strip()
+    name = (request.form.get('name') or '').strip()
+    if not name:
+        return jsonify({'status': 'error', 'msg': '姓名不能为空'}), 400
+    if code:
+        dup = Employee.query.filter_by(code=code).first()
+        if dup and dup.id != emp.id:
+            return jsonify({'status': 'error', 'msg': f'员工编码“{code}”已存在'}), 400
+    dept_id = request.form.get('department_id', '').strip()
+    dept_id_int = None
+    if dept_id:
+        try:
+            dept_id_int = int(dept_id)
+            if not db.session.get(Department, dept_id_int):
+                return jsonify({'status': 'error', 'msg': '所选部门不存在'}), 400
+        except ValueError:
+            return jsonify({'status': 'error', 'msg': '部门参数非法'}), 400
+    emp.code = code or None
+    emp.name = name
+    emp.position = request.form.get('position')
+    emp.phone = request.form.get('phone')
+    emp.department_id = dept_id_int
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'编辑员工失败: {e}')
+        return jsonify({'status': 'error', 'msg': '操作失败'}), 500
     return jsonify({'status': 'success'})
 
 @app.route('/employee/delete', methods=['POST'])
@@ -26774,6 +27101,10 @@ def _read_import_sheet(file, aliases):
     _ext_ok, _ext_msg = validate_excel_extension(getattr(file, 'filename', '') or '')
     if not _ext_ok:
         raise ValueError(_ext_msg)
+    # m-03：底层兜底，限制 Excel 上传 ≤ 5MB
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        raise ValueError(_size_msg)
     from openpyxl import load_workbook
     wb = load_workbook(file)
     ws = wb.active
@@ -27112,6 +27443,10 @@ def import_bom():
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
         return jsonify({'status': 'error', 'msg': _ext_msg})
+    # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -40423,6 +40758,10 @@ def import_category():
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
         return jsonify({'status': 'error', 'msg': _ext_msg})
+    # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -40507,6 +40846,10 @@ def import_unit():
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
         return jsonify({'status': 'error', 'msg': _ext_msg})
+    # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -40586,6 +40929,13 @@ def import_supplier():
             return jsonify({'status': 'error', 'msg': _ext_msg})
         flash(_ext_msg, 'danger')
         return redirect(url_for('supplier_list'))
+    # m-03：限制 Excel 上传 ≤ 5MB
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'error', 'msg': _size_msg})
+        flash(_size_msg, 'danger')
+        return redirect(url_for('supplier_list'))
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -40638,8 +40988,8 @@ def download_employee_template():
     wb = Workbook()
     ws = wb.active
     ws.title = '员工导入模板'
-    ws.append(['姓名', '职位', '电话'])
-    ws.append([])
+    ws.append(['员工编码', '姓名', '职位', '电话', '部门编码'])
+    ws.append(['E001', '张三', '工程师', '13800138000', 'D001'])
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -40652,12 +41002,20 @@ def export_employee():
     wb = Workbook()
     ws = wb.active
     ws.title = '员工数据'
-    ws.append(['姓名', '职位', '电话'])
+    ws.append(['员工编码', '姓名', '职位', '电话', '部门编码', '部门名称'])
     search, status_filter, sort_by, sort_order = _get_master_list_filters('name')
-    query = _apply_simple_search(Employee.query, Employee, search, ['name', 'position', 'phone'])
-    query, _ = _apply_master_order(query, Employee, sort_by, sort_order, {'id', 'name', 'position', 'phone', 'created_at'}, 'name')
+    query = _apply_simple_search(Employee.query, Employee, search, ['name', 'position', 'phone', 'code'])
+    dept_filter = (request.args.get('department_id') or '').strip()
+    if dept_filter:
+        try:
+            query = query.filter(Employee.department_id == int(dept_filter))
+        except ValueError:
+            pass
+    query, _ = _apply_master_order(query, Employee, sort_by, sort_order, {'id', 'code', 'name', 'position', 'phone', 'created_at'}, 'name')
     for e in query.all():
-        ws.append([e.name, e.position or '', e.phone or ''])
+        dept = e.department
+        ws.append([e.code or '', e.name, e.position or '', e.phone or '',
+                   dept.code if dept else '', dept.name if dept else ''])
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -40667,36 +41025,76 @@ def export_employee():
 @require_role('admin')
 @login_required
 def import_employee():
+    """M-04：员工批量导入，按表头名匹配列。支持：员工编码、姓名、职位、电话、部门编码。
+    姓名必填；员工编码可空，已存在则更新；部门编码按 Department.code 匹配。"""
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的员工文件'})
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
         return jsonify({'status': 'error', 'msg': _ext_msg})
+    # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     try:
         from openpyxl import load_workbook
-        wb = load_workbook(file)
+        wb = load_workbook(filename=io.BytesIO(file.read()), data_only=True)
         ws = wb.active
-        count = 0
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if row[0]:
-                emp = Employee(
-                    name=str(row[0]),
-                    position=str(row[1]) if len(row) > 1 and row[1] else '',
-                    phone=str(row[2]) if len(row) > 2 and row[2] else ''
-                )
-                db.session.add(emp)
-                count += 1
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows or len(rows) < 2:
+            return jsonify({'status': 'error', 'msg': '文件无数据行'}), 400
+        header = [str(c).strip() if c else '' for c in rows[0]]
+        if '姓名' not in header:
+            return jsonify({'status': 'error', 'msg': '缺少必要列：姓名'}), 400
+        idx = {col: header.index(col) for col in header if col}
+        added, updated, skipped = 0, 0, 0
+        for r in rows[1:]:
+            if not r or not r[idx['姓名']]:
+                skipped += 1
+                continue
+            d = {col: (r[i] if i < len(r) and r[i] is not None else '') for col, i in idx.items()}
+            code = str(d.get('员工编码', '')).strip()
+            name = str(d.get('姓名', '')).strip()
+            position = str(d.get('职位', '')).strip() or None
+            phone = str(d.get('电话', '')).strip() or None
+            dept_code = str(d.get('部门编码', '')).strip()
+            dept_id_int = None
+            if dept_code:
+                dept = Department.query.filter_by(code=dept_code).first()
+                if dept:
+                    dept_id_int = dept.id
+            if code:
+                existing = Employee.query.filter_by(code=code).first()
+                if existing:
+                    existing.name = name
+                    existing.position = position
+                    existing.phone = phone
+                    existing.department_id = dept_id_int
+                    updated += 1
+                    continue
+            db.session.add(Employee(
+                code=code or None,
+                name=name,
+                position=position or '',
+                phone=phone or '',
+                department_id=dept_id_int,
+            ))
+            added += 1
         try:
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            app.logger.error(f'数据库操作失败: {e}')
+            app.logger.error(f'员工导入失败: {e}')
             return jsonify({'status': 'error', 'msg': '操作失败'}), 500
-        return jsonify({'status': 'success', 'msg': f'员工导入成功，共导入 {count} 条'})
+        msg = f'导入完成：新增 {added} 条，更新 {updated} 条'
+        if skipped:
+            msg += f'，跳过空行 {skipped} 条'
+        return jsonify({'status': 'success', 'msg': msg})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        app.logger.error(f'员工导入异常: {e}')
+        return jsonify({'status': 'error', 'msg': f'导入失败：{e}'}), 500
 
 @app.route('/material/download_template')
 @login_required
@@ -40784,6 +41182,13 @@ def import_material():
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'status': 'error', 'msg': _ext_msg})
         flash(_ext_msg, 'danger')
+        return redirect(url_for('material_list'))
+    # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'error', 'msg': _size_msg})
+        flash(_size_msg, 'danger')
         return redirect(url_for('material_list'))
     try:
         from openpyxl import load_workbook
@@ -40969,6 +41374,13 @@ def import_out_order():
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'status': 'error', 'msg': _ext_msg})
         flash(_ext_msg, 'danger')
+        return redirect(url_for('batch_import_page'))
+    # m-03：限制 Excel 上传 ≤ 5MB
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'error', 'msg': _size_msg})
+        flash(_size_msg, 'danger')
         return redirect(url_for('batch_import_page'))
     try:
         from openpyxl import load_workbook
@@ -41169,6 +41581,13 @@ def import_in_order():
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'status': 'error', 'msg': _ext_msg})
         flash(_ext_msg, 'danger')
+        return redirect(url_for('batch_import_page'))
+    # m-03：限制 Excel 上传 ≤ 5MB
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'error', 'msg': _size_msg})
+        flash(_size_msg, 'danger')
         return redirect(url_for('batch_import_page'))
     try:
         from openpyxl import load_workbook

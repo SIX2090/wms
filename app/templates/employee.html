@@ -3,73 +3,114 @@
 {% block title %}员工管理{% endblock %}
 
 {% block content %}
-<div class="page-header d-flex justify-content-between align-items-center">
-    <h2><i class="bi bi-people"></i> 员工管理</h2>
-</div>
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2><i class="bi bi-people"></i> 员工管理</h2>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-primary btn-sm" onclick="showAddModal()">
+                <i class="bi bi-plus-lg"></i> 新增员工
+            </button>
+            <a href="/employee/export{% if filters.search or filters.department_id %}?{% if filters.search %}search={{ filters.search }}{% endif %}{% if filters.department_id %}{% if filters.search %}&{% endif %}department_id={{ filters.department_id }}{% endif %}{% endif %}" class="btn btn-outline-success btn-sm">
+                <i class="bi bi-download"></i> 导出
+            </a>
+            <button type="button" class="btn btn-outline-primary btn-sm" onclick="showImportModal()">
+                <i class="bi bi-upload"></i> 导入
+            </button>
+            <a href="/employee/download_template" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-file-earmark-spreadsheet"></i> 导入模板
+            </a>
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchDelete()">
+                <i class="bi bi-trash"></i> 批量删除
+            </button>
+        </div>
+    </div>
 
-<div class="card">
-    <div class="card-body">
-        <form method="get" class="row g-2 align-items-end mb-3">
-            {% if request.args.get('embedded') == '1' %}
-            <input type="hidden" name="embedded" value="1">
-            {% endif %}
-            <div class="col-md-10">
-                <label class="form-label small text-muted mb-1">关键词</label>
-                <input type="text" name="search" class="form-control form-control-sm" placeholder="搜索姓名、职位、电话" value="{{ filters.search }}">
-            </div>
-            <div class="col-md-2 d-flex gap-2">
-                <button type="submit" class="btn btn-primary btn-sm flex-fill">筛选</button>
-                {% if filters.search %}
-                <a href="/employee{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+    <div class="card">
+        <div class="card-body">
+            <form method="get" class="row g-2 align-items-end mb-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if request.args.get('embedded') == '1' %}
+                <input type="hidden" name="embedded" value="1">
                 {% endif %}
-            </div>
-        </form>
-        <table class="table table-bordered table-hover" id="employeeTable">
-            <thead>
-                <tr>
-                    <th width="50"><input type="checkbox" id="checkAll"></th>
-                    {{ sort_th('ID', 'id', sort_by, sort_order) }}
-                    {{ sort_th('姓名', 'name', sort_by, sort_order) }}
-                    {{ sort_th('职位', 'position', sort_by, sort_order) }}
-                    {{ sort_th('电话', 'phone', sort_by, sort_order) }}
-                    {{ sort_th('创建时间', 'created_at', sort_by, sort_order) }}
-                    <th>操作</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for emp in employees %}
-                <tr>
-                    <td><input type="checkbox" class="check-item" value="{{ emp.id }}"></td>
-                    <td>{{ emp.id }}</td>
-                    <td>{{ emp.name }}</td>
-                    <td>{{ emp.position or '-' }}</td>
-                    <td>{{ emp.phone or '-' }}</td>
-                    <td>{{ emp.created_at.strftime('%Y-%m-%d') }}</td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('{{ url_for('delete_employee') }}', {{ emp.id }})">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="7" class="text-center text-muted">暂无数据，请添加员工</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted mb-1">部门</label>
+                    <select name="department_id" class="form-select form-select-sm">
+                        <option value="" {% if not filters.department_id %}selected{% endif %}>全部部门</option>
+                        {% for d in departments %}
+                        <option value="{{ d.id }}" {% if filters.department_id == d.id|string %}selected{% endif %}>{{ d.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-7">
+                    <label class="form-label small text-muted mb-1">关键词</label>
+                    <input type="text" name="search" class="form-control form-control-sm" placeholder="搜索员工编码、姓名、职位、电话" value="{{ filters.search }}">
+                </div>
+                <div class="col-md-2 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm flex-fill">筛选</button>
+                    {% if filters.search or filters.department_id %}
+                    <a href="/employee{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+                    {% endif %}
+                </div>
+            </form>
+
+            <table class="table table-bordered table-hover" id="employeeTable">
+                <thead>
+                    <tr>
+                        <th width="50"><input type="checkbox" id="checkAll"></th>
+                        {{ sort_th('员工编码', 'code', sort_by, sort_order) }}
+                        {{ sort_th('姓名', 'name', sort_by, sort_order) }}
+                        {{ sort_th('职位', 'position', sort_by, sort_order) }}
+                        {{ sort_th('电话', 'phone', sort_by, sort_order) }}
+                        <th>部门</th>
+                        {{ sort_th('创建时间', 'created_at', sort_by, sort_order) }}
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for emp in employees %}
+                    <tr>
+                        <td><input type="checkbox" class="check-item" value="{{ emp.id }}"></td>
+                        <td>{{ emp.code or '-' }}</td>
+                        <td>{{ emp.name }}</td>
+                        <td>{{ emp.position or '-' }}</td>
+                        <td>{{ emp.phone or '-' }}</td>
+                        <td>{{ emp.department.name if emp.department else '-' }}</td>
+                        <td>{{ emp.created_at.strftime('%Y-%m-%d') if emp.created_at else '-' }}</td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="editEmployee({{ emp.id }})">
+                                <i class="bi bi-pencil"></i> 编辑
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteEmployee({{ emp.id }})">
+                                <i class="bi bi-trash"></i> 删除
+                            </button>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-center text-muted py-4">暂无员工，点击右上角"新增员工"开始</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
-<div class="modal fade" id="addModal">
+<!-- 新增员工模态框 -->
+<div class="modal fade" id="addModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">新增员工</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form id="addForm">
-                <div class="modal-body">
+            <div class="modal-body">
+                <form id="addForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
-                        <label class="form-label">姓名 *</label>
+                        <label class="form-label">员工编码</label>
+                        <input type="text" class="form-control" name="code" placeholder="留空则系统自动编号">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">姓名 <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="name" required>
                     </div>
                     <div class="mb-3">
@@ -80,68 +121,260 @@
                         <label class="form-label">电话</label>
                         <input type="text" class="form-control" name="phone">
                     </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="submit" class="btn btn-primary">保存</button>
-                </div>
-            </form>
+                    <div class="mb-3">
+                        <label class="form-label">部门</label>
+                        <select class="form-select" name="department_id">
+                            <option value="">请选择</option>
+                            {% for d in departments %}
+                            <option value="{{ d.id }}">{{ d.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="submitAdd()">保存</button>
+            </div>
         </div>
     </div>
 </div>
-{% endblock %}
 
-{% block extra_js %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    initCheckAll('employeeTable');
+<!-- 编辑员工模态框 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">编辑员工</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="id">
+                    <div class="mb-3">
+                        <label class="form-label">员工编码</label>
+                        <input type="text" class="form-control" name="code">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">姓名 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">职位</label>
+                        <input type="text" class="form-control" name="position">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">电话</label>
+                        <input type="text" class="form-control" name="phone">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">部门</label>
+                        <select class="form-select" name="department_id">
+                            <option value="">请选择</option>
+                            {% for d in departments %}
+                            <option value="{{ d.id }}">{{ d.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="submitEdit()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
 
-    // 新增员工
-    var addForm = document.getElementById('addForm');
-    if (addForm) {
-        addForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            var formData = new FormData(this);
-            fetch('{{ url_for("add_employee") }}', {
-                method: 'POST',
-                body: formData
-            })
-            .then(function(r){ return r.json(); })
-            .then(function(res) {
-                if (res.status === 'success') {
-                    showToast('员工已创建，正在刷新列表…', 'success');
-                    setTimeout(function(){ location.reload(); }, 650);
-                }
-                else showToast(res.msg || '保存失败', 'danger', 3600);
-            })
-            .catch(function(err){ showToast('保存失败: ' + err.message, 'danger', 3600); });
-        });
-    }
-});
-</script>
-
-<!-- 导入弹窗 -->
-<div class="modal fade" id="importModal">
+<!-- 导入员工模态框 -->
+<div class="modal fade" id="importModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-upload"></i> 导入员工</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form action="{{ url_for('import_employee') }}" method="POST" enctype="multipart/form-data">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <div class="modal-body">
+            <div class="modal-body">
+                <p class="text-muted small mb-2">表头需含：员工编码、姓名、职位、电话、部门编码。按员工编码查重，已存在则更新；姓名必填。</p>
+                <form id="importForm" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
-                        <label class="form-label">选择 Excel 文件</label>
-                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                        <label class="form-label">选择文件</label>
+                        <input type="file" class="form-control" name="file" accept=".xlsx,.xls" required>
                     </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="submit" class="btn btn-primary">导入</button>
-                </div>
-            </form>
+                    <a href="/employee/download_template" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-download"></i> 下载模板
+                    </a>
+                </form>
+                <div class="import-result mt-2"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="submitImport()">开始导入</button>
+            </div>
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    initCheckAll('employeeTable');
+});
+
+function showAddModal() {
+    var form = document.getElementById('addForm');
+    if (form) form.reset();
+    new bootstrap.Modal(document.getElementById('addModal')).show();
+}
+
+function submitAdd() {
+    var form = document.getElementById('addForm');
+    var formData = new FormData(form);
+    fetch('/employee/add', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            notifyMasterDataChanged('employee_updated');
+            showToast('新增成功', 'success');
+            setTimeout(function(){ location.reload(); }, 800);
+        } else {
+            showToast(data.msg || '新增失败', 'danger', 3600);
+        }
+    })
+    .catch(function(err){ showToast('新增失败：' + err.message, 'danger', 3600); });
+}
+
+function editEmployee(id) {
+    fetch('/employee/' + id)
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            var e = data.employee;
+            var form = document.getElementById('editForm');
+            form.querySelector('[name="id"]').value = e.id;
+            form.querySelector('[name="code"]').value = e.code;
+            form.querySelector('[name="name"]').value = e.name;
+            form.querySelector('[name="position"]').value = e.position;
+            form.querySelector('[name="phone"]').value = e.phone;
+            form.querySelector('[name="department_id"]').value = e.department_id || '';
+            new bootstrap.Modal(document.getElementById('editModal')).show();
+        } else {
+            showToast(data.msg || '获取数据失败', 'danger', 3600);
+        }
+    })
+    .catch(function(err){ showToast('获取数据失败：' + err.message, 'danger', 3600); });
+}
+
+function submitEdit() {
+    var form = document.getElementById('editForm');
+    var formData = new FormData(form);
+    var id = formData.get('id');
+    fetch('/employee/' + id + '/edit', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            notifyMasterDataChanged('employee_updated');
+            showToast('编辑成功', 'success');
+            setTimeout(function(){ location.reload(); }, 800);
+        } else {
+            showToast(data.msg || '编辑失败', 'danger', 3600);
+        }
+    })
+    .catch(function(err){ showToast('编辑失败：' + err.message, 'danger', 3600); });
+}
+
+function deleteEmployee(id) {
+    if (!confirm('确定要删除这个员工吗？')) return;
+    fetch('/employee/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: [id]})
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            notifyMasterDataChanged('employee_updated');
+            showToast('删除成功', 'success');
+            setTimeout(function(){ location.reload(); }, 800);
+        } else {
+            showToast(data.msg || '删除失败', 'danger', 3600);
+        }
+    })
+    .catch(function(err){ showToast('删除失败：' + err.message, 'danger', 3600); });
+}
+
+function batchDelete() {
+    var ids = Array.from(document.querySelectorAll('.check-item:checked')).map(function(el){ return el.value; });
+    if (!ids.length) {
+        showToast('请先勾选要删除的员工', 'warning', 2400);
+        return;
+    }
+    if (!confirm('确定要删除选中的 ' + ids.length + ' 条员工吗？')) return;
+    fetch('/employee/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: ids})
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            notifyMasterDataChanged('employee_updated');
+            showToast('删除成功', 'success');
+            setTimeout(function(){ location.reload(); }, 800);
+        } else {
+            showToast(data.msg || '删除失败', 'danger', 3600);
+        }
+    })
+    .catch(function(err){ showToast('删除失败：' + err.message, 'danger', 3600); });
+}
+
+function showImportModal() {
+    var form = document.getElementById('importForm');
+    if (form) form.reset();
+    var result = document.querySelector('#importModal .import-result');
+    if (result) result.innerHTML = '';
+    new bootstrap.Modal(document.getElementById('importModal')).show();
+}
+
+function submitImport() {
+    var form = document.getElementById('importForm');
+    var formData = new FormData(form);
+    var result = document.querySelector('#importModal .import-result');
+    result.innerHTML = '<span class="text-muted">导入中...</span>';
+    fetch('/employee/import', {
+        method: 'POST',
+        body: formData,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            result.innerHTML = '<div class="alert alert-success py-1 mb-0"><i class="bi bi-check-circle"></i> ' + data.msg + '</div>';
+            setTimeout(function(){ location.reload(); }, 1200);
+        } else {
+            result.innerHTML = '<div class="alert alert-danger py-1 mb-0"><i class="bi bi-x-circle"></i> ' + (data.msg || '导入失败') + '</div>';
+        }
+    })
+    .catch(function(err){
+        result.innerHTML = '<div class="alert alert-danger py-1 mb-0"><i class="bi bi-x-circle"></i> 请求失败：' + err.message + '</div>';
+    });
+}
+
+function notifyMasterDataChanged(type) {
+    try {
+        if (typeof BroadcastChannel !== 'undefined') {
+            var bc = new BroadcastChannel('wms_master_data_update');
+            bc.postMessage({type: type, timestamp: Date.now()});
+            bc.close();
+        }
+    } catch(e) {}
+}
+</script>
 {% endblock %}

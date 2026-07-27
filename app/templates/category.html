@@ -83,6 +83,20 @@
 </style>
 <div class="page-header d-flex justify-content-between align-items-center">
     <h2><i class="bi bi-tags"></i> 物料分类管理</h2>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+            <i class="bi bi-plus-lg"></i> 新增分类
+        </button>
+        <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
+            <i class="bi bi-upload"></i> 导入
+        </button>
+        <a href="/category/export" class="btn btn-outline-success btn-sm">
+            <i class="bi bi-download"></i> 导出
+        </a>
+        <a href="/category/download_template" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-file-earmark-spreadsheet"></i> 下载模板
+        </a>
+    </div>
 </div>
 
 <div class="category-layout">

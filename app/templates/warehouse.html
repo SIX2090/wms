@@ -5,6 +5,20 @@
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2>仓库档案</h2>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="bi bi-plus-lg"></i> 新增仓库
+            </button>
+            <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
+                <i class="bi bi-upload"></i> 导入
+            </button>
+            <a href="/warehouse/export" class="btn btn-outline-success btn-sm">
+                <i class="bi bi-download"></i> 导出
+            </a>
+            <a href="/warehouse/download_template" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-file-earmark-spreadsheet"></i> 下载模板
+            </a>
+        </div>
     </div>
 
     <div class="card">
@@ -62,11 +76,17 @@
                             {% else %}
                             <span class="badge bg-secondary">停用</span>
                             {% endif %}
+                            {% if w.is_default %}
+                            <span class="badge bg-warning text-dark ms-1">默认</span>
+                            {% endif %}
                         </td>
                         <td>{{ w.remark or '' }}</td>
                         <td>{{ w.created_at.strftime('%Y-%m-%d %H:%M') if w.created_at else '-' }}</td>
                         <td>
                             <button class="btn btn-sm btn-primary" onclick="editWarehouse({{ w.id }})">编辑</button>
+                            {% if not w.is_default and w.status == 'active' %}
+                            <button class="btn btn-sm btn-outline-warning" onclick="setDefaultWarehouse({{ w.id }})">设为默认</button>
+                            {% endif %}
                             <button class="btn btn-sm btn-danger" onclick="deleteWarehouse({{ w.id }})">删除</button>
                         </td>
                     </tr>
@@ -210,9 +230,71 @@
     </div>
 </div>
 
+<!-- 导入仓库模态框 -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-upload"></i> 导入仓库</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="importForm" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+                    <p class="text-muted small">表头需含：仓库编码、仓库名称、仓库类型、仓库位置、状态、备注</p>
+                    <div class="mb-3">
+                        <label class="form-label">选择 Excel 文件</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <a href="/warehouse/download_template" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">导入</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     initCheckAll('warehouseTable');
+
+    // 导入仓库
+    var importForm = document.getElementById('importForm');
+    if (importForm) {
+        importForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            var btn = this.querySelector('button[type="submit"]');
+            var formData = new FormData(this);
+            var original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 导入中...';
+            fetch('/warehouse/import', {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                btn.disabled = false;
+                btn.innerHTML = original;
+                if (res.status === 'success') {
+                    notifyMasterDataChanged('warehouse_updated');
+                    showToast(res.msg || '导入成功', 'success');
+                    setTimeout(function(){ location.reload(); }, 1000);
+                } else {
+                    showToast(res.msg || '导入失败', 'danger', 3600);
+                }
+            })
+            .catch(function(err) {
+                btn.disabled = false;
+                btn.innerHTML = original;
+                showToast('导入失败: ' + err.message, 'danger', 3600);
+            });
+        });
+    }
 });
 
 function submitAdd() {
@@ -297,6 +379,25 @@ function deleteWarehouse(id) {
         }
     })
     .catch(err => showToast('删除失败：' + err.message, 'danger', 3600));
+}
+
+// M-03：设为默认仓
+function setDefaultWarehouse(id) {
+    if (!confirm('确定将此仓库设为默认仓吗？同一时间仅一个默认仓。')) return;
+    fetch('/warehouse/' + id + '/set_default', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showToast(data.msg || '设置成功', 'success');
+            setTimeout(() => location.reload(), 800);
+        } else {
+            showToast(data.msg || '设置失败', 'danger', 3600);
+        }
+    })
+    .catch(err => showToast('设置失败：' + err.message, 'danger', 3600));
 }
 
 function notifyMasterDataChanged(type) {

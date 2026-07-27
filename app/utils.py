@@ -240,6 +240,53 @@ def validate_excel_extension(filename):
     return True, ''
 
 
+# m-03：Excel 导入全局大小上限（5MB）。
+# 业务导入文件通常 < 1MB；超过 5MB 多为误传或恶意上传，
+# 提前拒绝可避免 openpyxl 把整份文件读入内存导致 OOM/超时。
+MAX_EXCEL_IMPORT_BYTES = 5 * 1024 * 1024  # 5MB
+
+
+def validate_excel_size(file_storage):
+    """校验上传 Excel 文件大小是否在 5MB 以内。
+
+    参数 file_storage 支持 Flask FileStorage（有 .stream 或 .read()）或
+    普通文件对象（有 .seek/.tell）。返回 (is_valid, error_msg)。
+    不会消费流：先记当前位置再 seek(0,2) 取 size，最后 seek 回原位置。
+    """
+    if file_storage is None:
+        return True, ''
+    # Flask FileStorage：优先用 content_length 头
+    content_length = getattr(file_storage, 'content_length', None) or 0
+    if content_length:
+        try:
+            if int(content_length) > MAX_EXCEL_IMPORT_BYTES:
+                return False, f'文件过大（{int(content_length) // 1024 // 1024}MB），Excel 导入上限为 5MB'
+        except (TypeError, ValueError):
+            pass
+    # 兜底：直接读取文件指针大小
+    try:
+        if hasattr(file_storage, 'stream'):
+            stream = file_storage.stream
+            pos = stream.tell() if hasattr(stream, 'tell') else None
+            stream.seek(0, 2)  # seek to end
+            size = stream.tell()
+            if pos is not None and hasattr(stream, 'seek'):
+                stream.seek(pos)
+            if size > MAX_EXCEL_IMPORT_BYTES:
+                return False, f'文件过大（{size // 1024 // 1024}MB），Excel 导入上限为 5MB'
+        elif hasattr(file_storage, 'seek') and hasattr(file_storage, 'tell'):
+            pos = file_storage.tell()
+            file_storage.seek(0, 2)
+            size = file_storage.tell()
+            file_storage.seek(pos)
+            if size > MAX_EXCEL_IMPORT_BYTES:
+                return False, f'文件过大（{size // 1024 // 1024}MB），Excel 导入上限为 5MB'
+    except Exception:
+        # 读流失败不阻断业务，由后置读取逻辑自然报错
+        return True, ''
+    return True, ''
+
+
 # ==================== 打印 HTML 模板净化 ====================
 # 用户自定义 HTML 打印模板经 SandboxedEnvironment 渲染后，仍可能包含 <script>、
 # <iframe>、on* 事件属性等危险内容（管理员账号被攻破时会触发存储型 XSS）。

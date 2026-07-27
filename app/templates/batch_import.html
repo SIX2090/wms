@@ -128,7 +128,7 @@
         <div class="card">
             <div class="card-header"><h5 class="mb-0">导入员工</h5></div>
             <div class="card-body">
-                <p class="text-muted small">需包含姓名、职位、电话</p>
+                <p class="text-muted small">表头需含：员工编码、姓名、职位、电话、部门编码。按员工编码查重，已存在则更新；姓名必填</p>
                 <form class="import-form" data-url="/employee/import" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
