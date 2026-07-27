@@ -24037,6 +24037,10 @@ def delete_customer():
                     SalesOrder.query.filter_by(customer_id=customer.id).count() > 0:
                 return jsonify({'status': 'error',
                                 'msg': f'客户“{customer.name}”已被销售订单引用，不能删除'})
+            if hasattr(AfterSaleOutOrder, 'customer_id') and \
+                    AfterSaleOutOrder.query.filter_by(customer_id=customer.id).count() > 0:
+                return jsonify({'status': 'error',
+                                'msg': f'客户“{customer.name}”已被售后出库单引用，不能删除'})
             db.session.delete(customer)
     try:
         db.session.commit()
