@@ -262,6 +262,10 @@ function batchOutOrderAction(url, emptyMessage, confirmMessage) {
         showToast(emptyMessage, 'warning');
         return;
     }
+    if (ids.length > 100) {
+        showToast('单次批量操作不能超过 100 条，请分批处理', 'warning', 5000);
+        return;
+    }
     showConfirm(confirmMessage, {title: '批量处理领料单'}).then(function(confirmed) {
         if (!confirmed) return;
         fetch(url, {

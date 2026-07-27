@@ -26093,6 +26093,8 @@ def batch_delete_in_order():
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
         return jsonify({'status': 'error', 'msg': '请选择要删除的入库单'})
+    if len(ids) > 100:
+        return jsonify({'status': 'error', 'msg': '单次批量操作不能超过 100 条，请分批处理'}), 400
 
     orders = InOrder.query.options(joinedload(InOrder.supplier), joinedload(InOrder.items)).filter(InOrder.id.in_(ids)).all()
     blocked = [order.order_no for order in orders if order.status != 'pending']
@@ -26137,6 +26139,8 @@ def batch_complete_in_order():
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
         if not ids:
             return jsonify({'status': 'error', 'msg': '请选择要审核的入库单'})
+        if len(ids) > 100:
+            return jsonify({'status': 'error', 'msg': '单次批量操作不能超过 100 条，请分批处理'}), 400
         orders = InOrder.query.options(joinedload(InOrder.items)).filter(InOrder.id.in_(ids)).all()
 
     completed = 0
@@ -32713,6 +32717,8 @@ def batch_delete_out_order():
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
         return jsonify({'status': 'error', 'msg': '请选择要删除的领料单'})
+    if len(ids) > 100:
+        return jsonify({'status': 'error', 'msg': '单次批量操作不能超过 100 条，请分批处理'}), 400
 
     orders = OutOrder.query.options(joinedload(OutOrder.items)).filter(OutOrder.id.in_(ids)).all()
     blocked = [order.order_no for order in orders if order.status != 'pending']
@@ -32750,6 +32756,8 @@ def batch_complete_out_order():
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
         return jsonify({'status': 'error', 'msg': '请选择要审核的领料单'})
+    if len(ids) > 100:
+        return jsonify({'status': 'error', 'msg': '单次批量操作不能超过 100 条，请分批处理'}), 400
     orders = OutOrder.query.options(joinedload(OutOrder.items)).filter(OutOrder.id.in_(ids)).all()
     completed = 0
     skipped = []
