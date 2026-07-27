@@ -69,6 +69,7 @@
 | BUG-SALES-016 | `customer.html` 完全无客户导入入口，与 `supplier.html` 结构不一致 | 检查 `customer.html` 含 `importModal` 模态框 + AJAX 提交 + `csrf_token` + `notifyMasterDataChanged('customer_updated')` 广播（SM-P6-02） |
 | LOGIN-CSRF-001 | Web `/login` 被 `@csrf.exempt` 豁免，无 CSRF token 的 POST 仍可建立会话 | 检查 `app.login` 不在 `csrf._exempt_views`，`app.native_api_login` 仍豁免，`login.html` 含 `csrf_token`，无 token POST `/login` 返回 400 |
 | BUG-INSPECT-2026-07-27-001 | `verify_ai_tool_schemas.py` 的 `VALID_PAYLOADS` 未覆盖 AI-SALES-F02 新增的 `sales_followup_agent` 和 `sales_insights`，导致 `verify_ai_all.py --level smoke` 6/7 失败 | 在 `scripts/verify_ai_tool_schemas.py` `VALID_PAYLOADS` 中补齐这两条 valid payload（参考 `app/ai/tools/registry.py:242-259` 的 `SALES_INSIGHTS_SCHEMA`/`SALES_FOLLOWUP_SCHEMA`），`verify_ai_all.py` 升至 7/7 |
+| BUG-MOBILE-2026-07-27-001 | 375/414 窄屏下出入库列表/详情页工具栏按钮可能并排挤压、触摸目标不足、长单号+状态徽章溢出可视区、模态框超出宽度（巡检报告 P2 遗留项） | 在 `app/static/css/custom.css` 末尾新增 `@media (max-width: 414px)` 块：`.wms-entry-toolbar` 改单列网格+按钮全宽+`min-height:40px`；`.order-title/.order-meta` 允许换行；`.modal-dialog` 限制 `max-width:calc(100vw-16px)`；`.table-responsive-wrapper` 不遮挡按钮；`.pagination` 换行居中。`scripts/verify_mobile_buttons.py` 静态校验通过；Playwright 运行时验证 375px 下 20 个按钮全部 `visible=True overflow=False` 高度 40px；截图存档 `qa_screenshots/mobile_375_*.png`、`qa_screenshots/mobile_414_*.png` |
 
 ## 已确认误报
 
