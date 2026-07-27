@@ -23,6 +23,11 @@
         <a href="{{ url_for('print_after_sale_out', id=order.id) }}" target="_blank" class="btn btn-outline-primary">
             <i class="bi bi-printer"></i> 打印
         </a>
+        {% if current_user.role in ['admin', 'warehouse'] %}
+        <button class="btn btn-outline-info" onclick="copyOrder({{ order.id }})">
+            <i class="bi bi-files"></i> 复制单据
+        </button>
+        {% endif %}
         {% if order.status == 'pending' %}
         <a href="{{ url_for('after_sale_out_edit_page', id=order.id) }}" class="btn btn-outline-secondary">
             <i class="bi bi-pencil-square"></i> 编辑
@@ -30,6 +35,11 @@
         <button class="btn btn-success" onclick="completeOrder({{ order.id }})">
             <i class="bi bi-check"></i> 完成出库
         </button>
+        {% if current_user.role in ['admin', 'warehouse'] %}
+        <button class="btn btn-outline-danger" onclick="deleteOrder({{ order.id }})">
+            <i class="bi bi-trash"></i> 删除
+        </button>
+        {% endif %}
         {% elif order.status == 'completed' %}
         <button class="btn btn-warning" onclick="revertOrder({{ order.id }})">
             <i class="bi bi-arrow-counterclockwise"></i> 反提交
@@ -205,6 +215,54 @@ function revertOrder(id) {
             } else {
                 showToast('反提交失败：' + (data.msg || '未知错误'), 'danger');
             }
+        });
+    });
+}
+
+// 复制单据
+function copyOrder(id) {
+    showConfirm('确定要复制该售后出库单吗？系统会生成一张新的售后出库草稿。', {title: '复制售后出库单'}).then(function(ok) {
+        if (!ok) return;
+        fetch(`/after_sale_out/${id}/copy`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(res.msg || '复制成功', 'success');
+                if (data.redirect_url) {
+                    setTimeout(function() { location.href = data.redirect_url; }, 600);
+                } else {
+                    setTimeout(function() { location.reload(); }, 600);
+                }
+            } else {
+                showToast('复制失败：' + (data.msg || '未知错误'), 'danger');
+            }
+        }).catch(function(err) {
+            showToast('复制失败：' + err.message, 'danger');
+        });
+    });
+}
+
+// 删除单据
+function deleteOrder(id) {
+    showConfirm('确定要删除该售后出库单吗？此操作不可恢复。', {title: '删除售后出库单'}).then(function(ok) {
+        if (!ok) return;
+        fetch(`/after_sale_out/${id}/delete`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.msg || '删除成功', 'success');
+                setTimeout(function() { location.href = '/after_sale_out'; }, 600);
+            } else {
+                showToast('删除失败：' + (data.msg || '未知错误'), 'danger');
+            }
+        }).catch(function(err) {
+            showToast('删除失败：' + err.message, 'danger');
         });
     });
 }

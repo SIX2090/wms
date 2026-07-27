@@ -28657,11 +28657,13 @@ def subcontract_detail(id):
     order = SubcontractOrder.query.get_or_404(id)
     materials = Material.query.options(joinedload(Material.unit)).all()
     units = Unit.query.all()
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
     return render_template(
         'subcontract_detail.html',
         order=order,
         materials=[serialize_material(material) for material in materials],
         units=units,
+        suppliers=suppliers,
         operation_logs=get_recent_operation_logs('subcontract', id),
     )
 
@@ -28940,6 +28942,149 @@ def quick_receive_subcontract(id):
         db.session.rollback()
         app.logger.error(f'委外快速收货失败: {e}')
         return jsonify({'status': 'error', 'msg': '收货失败，请稍后重试'})
+
+
+@app.route('/subcontract/<int:id>/edit', methods=['POST'])
+@require_role('production')
+@login_required
+def edit_subcontract_header(id):
+    """编辑委外单基础信息（仅 pending 状态可编辑）"""
+    order = SubcontractOrder.query.get_or_404(id)
+    if order.status != 'pending':
+        return jsonify({'status': 'error', 'msg': '只有待处理状态的委外单可以编辑'})
+
+    data = request.get_json(silent=True) or request.form
+    try:
+        if 'date' in data and data.get('date'):
+            new_date = parse_date_value(data.get('date'))
+            if new_date:
+                order.date = new_date
+        if 'deadline' in data:
+            deadline_str = (data.get('deadline') or '').strip()
+            order.deadline = parse_date_value(deadline_str) if deadline_str else None
+        if 'contact' in data:
+            order.contact = (data.get('contact') or '').strip() or None
+        if 'phone' in data:
+            order.phone = (data.get('phone') or '').strip() or None
+        if 'remark' in data:
+            order.remark = (data.get('remark') or '').strip() or None
+        if 'supplier_id' in data and data.get('supplier_id'):
+            try:
+                supplier_id = int(data.get('supplier_id'))
+                if Supplier.query.get(supplier_id):
+                    order.supplier_id = supplier_id
+            except (TypeError, ValueError):
+                pass
+        db.session.commit()
+        log_operation('编辑委外单', f'委外单：{order.order_no}', 'subcontract', id)
+        return jsonify({'status': 'success', 'msg': '保存成功'})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'编辑委外单失败: {e}')
+        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+
+
+@app.route('/subcontract/<int:id>/copy', methods=['POST'])
+@require_role('production')
+@login_required
+def copy_subcontract(id):
+    """复制委外加工单为新草稿（不复制发料/收货关联，避免脏数据）。"""
+    source = SubcontractOrder.query.options(
+        selectinload(SubcontractOrder.items),
+    ).get_or_404(id)
+    if not source.items:
+        return jsonify({'status': 'error', 'msg': '原委外单没有产品明细，不能复制'})
+
+    try:
+        new_order = SubcontractOrder(
+            order_no=generate_order_no('SUB'),
+            date=date.today(),
+            supplier_id=source.supplier_id,
+            contact=source.contact,
+            phone=source.phone,
+            deadline=source.deadline,
+            remark=(f'由委外单 {source.order_no} 复制生成'
+                    + (f'；原备注：{source.remark}' if source.remark else '')),
+            status='pending',
+            operator_id=current_user.id,
+            total_amount=0,
+        )
+        db.session.add(new_order)
+        db.session.flush()
+
+        total_amount = 0
+        for item in source.items:
+            qty = round_to_2_decimals(item.quantity or 0)
+            if qty <= 0:
+                continue
+            price = round_to_2_decimals(item.material.price if item.material and item.material.price else 0)
+            amount = round_to_2_decimals(qty * price)
+            db.session.add(SubcontractItem(
+                subcontract_order_id=new_order.id,
+                material_id=item.material_id,
+                quantity=qty,
+                returned_quantity=0,
+                loss=0,
+            ))
+            total_amount = round_to_2_decimals(total_amount + amount)
+
+        new_order.total_amount = total_amount
+        db.session.commit()
+        log_operation('复制委外单', f'{source.order_no} -> {new_order.order_no}', 'subcontract', new_order.id)
+        return jsonify({
+            'status': 'success',
+            'msg': '复制成功，已生成新的委外单草稿',
+            'id': new_order.id,
+            'order_no': new_order.order_no,
+            'redirect_url': url_for('subcontract_detail', id=new_order.id),
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'复制委外单失败: {e}')
+        return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
+
+
+@app.route('/subcontract/<int:id>/submit', methods=['POST'])
+@require_role('production')
+@login_required
+def submit_subcontract(id):
+    """提交委外单（pending -> processing）"""
+    order = SubcontractOrder.query.get_or_404(id)
+    if order.status != 'pending':
+        return jsonify({'status': 'error', 'msg': '只有待处理状态的委外单可以提交'})
+    if not order.items:
+        return jsonify({'status': 'error', 'msg': '请先添加产品明细再提交'})
+    try:
+        order.status = 'processing'
+        db.session.commit()
+        log_operation('提交委外单', f'委外单：{order.order_no}', 'subcontract', id)
+        return jsonify({'status': 'success', 'msg': '委外单已提交，进入加工中'})
+    except Exception:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'msg': '提交失败，请稍后重试'})
+
+
+@app.route('/subcontract/<int:id>/revert_to_pending', methods=['POST'])
+@require_role('production')
+@login_required
+def revert_subcontract_to_pending(id):
+    """反提交委外单（processing/cancelled -> pending）"""
+    order = SubcontractOrder.query.get_or_404(id)
+    if order.status == 'completed':
+        return jsonify({'status': 'error', 'msg': '已完结的委外单请使用「反完结」按钮'})
+    if order.status == 'pending':
+        return jsonify({'status': 'error', 'msg': '该委外单已经是待处理状态'})
+    # 已发料或已收货的反提交需要先回滚库存
+    if order.issue_orders:
+        return jsonify({'status': 'error', 'msg': '该委外单已发料，不能反提交'})
+    try:
+        order.status = 'pending'
+        db.session.commit()
+        log_operation('反提交委外单', f'委外单：{order.order_no}', 'subcontract', id)
+        return jsonify({'status': 'success', 'msg': '反提交成功，单据已回到待处理'})
+    except Exception:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'msg': '反提交失败，请稍后重试'})
 
 
 @app.route('/subcontract/<int:id>/delete', methods=['POST'])
@@ -33698,6 +33843,80 @@ def delete_after_sale_out_order(id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+
+
+@app.route('/after_sale_out/<int:id>/copy', methods=['POST'])
+@require_role('warehouse')
+@login_required
+def copy_after_sale_out_order(id):
+    """Copy an after-sale outbound order into a new draft order."""
+    source = AfterSaleOutOrder.query.options(
+        joinedload(AfterSaleOutOrder.items),
+    ).get_or_404(id)
+    if not source.items:
+        return jsonify({'status': 'error', 'msg': '原售后出库单没有明细，不能复制'})
+
+    try:
+        new_order = AfterSaleOutOrder(
+            order_no=generate_order_no('ASO'),
+            date=date.today(),
+            customer=source.customer,
+            customer_id=source.customer_id,
+            warehouse=source.warehouse or '',
+            contact=source.contact,
+            phone=source.phone,
+            reason=source.reason,
+            source_sales_order_id=None,
+            source_out_order_id=None,
+            responsibility=source.responsibility,
+            customer_feedback=source.customer_feedback,
+            remark=(f'由售后出库单 {source.order_no} 复制生成'
+                    + (f'；原备注：{source.remark}' if source.remark else '')),
+            status='pending',
+            operator_id=current_user.id,
+            total_amount=0,
+        )
+        db.session.add(new_order)
+        db.session.flush()
+
+        copied_count = 0
+        total_amount = 0
+        for item in source.items:
+            qty = round_to_2_decimals(item.quantity or 0)
+            price = round_to_2_decimals(item.price or 0)
+            amount = round_to_2_decimals(qty * price)
+            db.session.add(AfterSaleOutOrderItem(
+                after_sale_out_order_id=new_order.id,
+                material_id=item.material_id,
+                quantity=qty,
+                price=price,
+                amount=amount,
+                remark=item.remark,
+                contract_id=item.contract_id,
+                contract_no=item.contract_no,
+                project_name=item.project_name,
+            ))
+            total_amount = round_to_2_decimals(total_amount + amount)
+            copied_count += 1
+
+        if copied_count <= 0:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '原售后出库单没有有效明细，不能复制'})
+
+        new_order.total_amount = total_amount
+        db.session.commit()
+        log_operation('复制售后出库单', f'{source.order_no} -> {new_order.order_no}', 'after_sale_out_order', new_order.id)
+        return jsonify({
+            'status': 'success',
+            'msg': '复制成功，已生成新的售后出库草稿',
+            'id': new_order.id,
+            'order_no': new_order.order_no,
+            'redirect_url': url_for('after_sale_out_detail', id=new_order.id),
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'复制售后出库单失败: {e}')
+        return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
 
 
 @app.route('/after_sale_out/batch_delete', methods=['POST'])

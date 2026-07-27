@@ -34,14 +34,34 @@
                 <a href="{{ url_for('print_subcontract', id=order.id) }}" target="_blank" class="btn-order btn-order-secondary btn-order-sm">
                     <i class="bi bi-printer"></i> 打印
                 </a>
+                {% if current_user.role in ['admin', 'production'] %}
+                <button class="btn-order btn-order-info btn-order-sm" onclick="copyOrder({{ order.id }})">
+                    <i class="bi bi-files"></i> 复制单据
+                </button>
+                {% endif %}
                 {% if order.status == 'pending' %}
+                {% if current_user.role in ['admin', 'production'] %}
+                <button class="btn-order btn-order-secondary btn-order-sm" data-bs-toggle="modal" data-bs-target="#editHeaderModal">
+                    <i class="bi bi-pencil-square"></i> 编辑
+                </button>
+                <button class="btn-order btn-order-primary btn-order-sm" onclick="submitOrder({{ order.id }})">
+                    <i class="bi bi-send"></i> 提交
+                </button>
+                {% endif %}
                 <button class="btn-order btn-order-primary btn-order-sm" onclick="issueMaterial()">
                     <i class="bi bi-box-arrow-up"></i> 发料
                 </button>
+                {% if current_user.role in ['admin', 'production'] %}
                 <button class="btn-order btn-order-danger btn-order-sm" onclick="deleteOrder({{ order.id }})">
                     <i class="bi bi-trash"></i> 删除
                 </button>
+                {% endif %}
                 {% elif order.status == 'processing' %}
+                {% if current_user.role in ['admin', 'production'] %}
+                <button class="btn-order btn-order-warning btn-order-sm" onclick="revertToPending({{ order.id }})">
+                    <i class="bi bi-arrow-counterclockwise"></i> 反提交
+                </button>
+                {% endif %}
                 <button class="btn-order btn-order-success btn-order-sm" onclick="receiveProduct()">
                     <i class="bi bi-box-arrow-in-down"></i> 收货
                 </button>
@@ -263,6 +283,57 @@
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑基础信息模态框 -->
+<div class="modal fade" id="editHeaderModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="bi bi-pencil-square"></i> 编辑委外单基础信息</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">委外日期</label>
+                        <input class="form-control" id="editDate" type="date" value="{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">交货期限</label>
+                        <input class="form-control" id="editDeadline" type="date" value="{{ order.deadline.strftime('%Y-%m-%d') if order.deadline else '' }}">
+                    </div>
+                    <div class="col-md-12">
+                        <label class="form-label fw-medium">加工厂商</label>
+                        <select class="form-select" id="editSupplier">
+                            <option value="">请选择</option>
+                            {% for supplier in suppliers %}
+                            <option value="{{ supplier.id }}" {% if order.supplier_id == supplier.id %}selected{% endif %}>{{ supplier.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">联系人</label>
+                        <input class="form-control" id="editContact" type="text" value="{{ order.contact or '' }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">联系电话</label>
+                        <input class="form-control" id="editPhone" type="text" value="{{ order.phone or '' }}">
+                    </div>
+                    <div class="col-md-12">
+                        <label class="form-label fw-medium">备注</label>
+                        <textarea class="form-control" id="editRemark" rows="3">{{ order.remark or '' }}</textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" onclick="saveHeaderEdit({{ order.id }})">
+                    <i class="bi bi-check"></i> 保存
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -723,6 +794,89 @@ function deleteOrder(id) {
             }
         });
     });
+}
+
+// 复制单据
+function copyOrder(id) {
+    showConfirm('确定要复制该委外单吗？系统会生成一张新的委外单草稿。', {title: '复制委外单'}).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/subcontract/' + id + '/copy', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast(res.msg || '复制成功', 'success');
+                if (res.redirect_url) {
+                    setTimeout(function() { location.href = res.redirect_url; }, 600);
+                } else {
+                    setTimeout(function() { location.reload(); }, 600);
+                }
+            } else {
+                showToast(res.msg || '复制失败', 'danger');
+            }
+        }).catch(function(err) { showToast('复制失败：' + err.message, 'danger'); });
+    });
+}
+
+// 提交单据
+function submitOrder(id) {
+    showConfirm('确认提交该委外单？提交后单据将进入加工中。', {title: '提交委外单'}).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/subcontract/' + id + '/submit', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast(res.msg || '提交成功', 'success');
+                setTimeout(function() { location.reload(); }, 600);
+            } else {
+                showToast(res.msg || '提交失败', 'danger');
+            }
+        }).catch(function(err) { showToast('提交失败：' + err.message, 'danger'); });
+    });
+}
+
+// 反提交（processing -> pending）
+function revertToPending(id) {
+    showConfirm('确认反提交该委外单？反提交后单据将回到待处理状态。', {title: '反提交委外单'}).then(function(confirmed) {
+        if (!confirmed) return;
+        fetch('/subcontract/' + id + '/revert_to_pending', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success') {
+                showToast(res.msg || '反提交成功', 'success');
+                setTimeout(function() { location.reload(); }, 600);
+            } else {
+                showToast(res.msg || '反提交失败', 'danger');
+            }
+        }).catch(function(err) { showToast('反提交失败：' + err.message, 'danger'); });
+    });
+}
+
+// 保存基础信息编辑
+function saveHeaderEdit(id) {
+    const payload = {
+        date: document.getElementById('editDate').value,
+        deadline: document.getElementById('editDeadline').value,
+        supplier_id: document.getElementById('editSupplier').value,
+        contact: document.getElementById('editContact').value,
+        phone: document.getElementById('editPhone').value,
+        remark: document.getElementById('editRemark').value,
+    };
+    fetch('/subcontract/' + id + '/edit', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.status === 'success') {
+            showToast(res.msg || '保存成功', 'success');
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editHeaderModal'));
+            if (modal) modal.hide();
+            setTimeout(function() { location.reload(); }, 600);
+        } else {
+            showToast(res.msg || '保存失败', 'danger');
+        }
+    }).catch(function(err) { showToast('保存失败：' + err.message, 'danger'); });
 }
 
 </script>

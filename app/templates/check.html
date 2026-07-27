@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import '_list_macros.html' as list_macros %}
 {% block title %}库存盘点{% endblock %}
 
 {% block content %}
@@ -101,6 +102,9 @@
                         <a class="btn btn-sm btn-outline-primary" href="{{ url_for('check_detail', id=check.id) }}" title="{{ '编辑' if check.status == 'pending' else '查看' }}">
                             <i class="bi bi-pencil"></i>
                         </a>
+                        <a class="btn btn-sm btn-outline-info" href="{{ url_for('print_single_check', id=check.id) }}" target="_blank" title="打印">
+                            <i class="bi bi-printer"></i>
+                        </a>
                         <button class="btn btn-sm btn-outline-success copyBtn" data-id="{{ check.id }}" title="复制">
                             <i class="bi bi-clipboard"></i>
                         </button>
@@ -120,8 +124,7 @@
             </tbody>
         </table>
         </div><!-- end table-responsive-wrapper -->
-        {% if pagination is defined and pagination.pages > 1 %}
-        {% import '_list_macros.html' as list_macros %}
+        {% if pagination is defined %}
         {{ list_macros.pager(pagination, 'check_list', base_kwargs={'sort': sort_by, 'order': sort_order, 'per_page': per_page, 'status': filters.status, 'search': filters.search, 'date_start': filters.date_start, 'date_end': filters.date_end, 'embedded': request.args.get('embedded')}) }}
         {% endif %}
     </div>

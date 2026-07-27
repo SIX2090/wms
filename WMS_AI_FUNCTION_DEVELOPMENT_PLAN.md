@@ -977,6 +977,50 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 - 推送：见下方 git push 输出
 - 报告文件：`wms_io_audit_fix_20260727_140651.md`
 
+#### IO-AUDIT-2026-07-27-R2（已完成 - 审计）
+
+- 目标：对第一轮 IO-AUDIT-FIX 后状态再审计，确保 m-07 (OperationLog) 修复无回退。
+- 审计范围：10 出入库单据 + 8+ 报表 + 70 列表按钮矩阵 + 90 详情按钮矩阵 + 关联矩阵 8 链路 + 状态机
+- 审计方式：L1 静态扫描（DOM/路由/权限）+ L2 test_client 动态渲染
+- 审计结果：304/320 = 95% 通过；P0=0；P1=5（P1-1~P1-5 详见报告 §4.2）；P2=2
+- 5 项 P1 缺陷：
+  - P1-1 after_sale_out_detail 缺复制/删除按钮
+  - P1-2 subcontract_detail 缺编辑/复制/提交/反提交 4 按钮
+  - P1-3 transfer/check/adjustment/subcontract 列表缺行级 print 链接
+  - P1-4 6 列表缺"上一页/下一页"分页器
+  - P1-5 subcontract_detail 缺编辑按钮
+- 审计起始 SHA：`d9c1c51`；审计结束 SHA：`d873e0b` (m-07 OperationLog 修复)
+- 报告文件：`wms_io_audit_20260727_143600.md`
+- 后续任务：IO-AUDIT-FIX-2026-07-27-R2 修复 5 项 P1 缺陷
+
+#### IO-AUDIT-FIX-2026-07-27-R2（已完成）
+
+- 目标：按 P1 → P2 顺序一次性修复 `wms_io_audit_20260727_143600.md` 报告中的 5 项 P1 缺陷。
+- 业务边界：仅加 UI 按钮 / 后端路由 / 分页宏 / 行级 print 链接；不改后端业务逻辑 / 用户密码 / 已完成单据删除路径；保持 main 唯一分支；不引入 `secrets.token_urlsafe`。
+- 改动模块：
+  - `app/app.py` (+219)：新增 4 个委外单路由（`copy_subcontract` / `submit_subcontract` / `revert_subcontract_to_pending` / `edit_subcontract_header`）+ 1 个售后出库单复制路由（`copy_after_sale_out_order`）
+  - `app/templates/after_sale_out_detail.html` (+58)：补全工具栏（admin/warehouse 角色可见复制；pending 可见删除）+ 2 个 JS 函数
+  - `app/templates/subcontract_detail.html` (+154)：补全工具栏（admin/production 角色可见）+ 编辑模态框 + 4 个 JS 函数
+  - `app/templates/{transfer,check,adjustment,subcontract}.html` (+7 each)：行级 print 链接（修复 transfer/check 端点名为 print_single_transfer / print_single_check）
+  - `app/templates/{subcontract_issue,subcontract_receive}.html` (+4 each)：分页宏
+  - `app/templates/_list_macros.html` (+9/-2)：修复 per_page 关键字冲突（base_kwargs 透传时去除 per_page）+ 保留分页显示条件
+  - `_verify_p1_r2.py` (新)：test_client 动态验证脚本
+- 验证命令：
+  - `python -c "import ast; ast.parse(open('app/app.py').read())"` → OK
+  - `python _verify_p1_r2.py` → **20/20 PASS** (Pass rate 100%)
+  - `python _verify_io_fixes.py` → 18/18 URLs 200/302 PASS（无回退）
+  - `git log -1 --oneline` 与 `git ls-remote origin main` SHA 一致
+  - `git branch -a | grep -v 'main' | grep -v 'remotes/origin/HEAD'` 为空
+  - `grep -r "secrets.token_urlsafe" app/app.py tools/` → 无新增
+- 修复点详细：
+  - P1-1 售后出库单详情：copy_btn=YES, delete_btn=YES, copy_route 返回正确 error (空单拒绝) ✅
+  - P1-2/P1-5 委外单详情：edit_btn=YES, copy_btn=YES, submit_btn=YES, revert_btn=YES, edit_route=success ✅
+  - P1-3 4 列表行级 print：/transfer, /check, /adjustment, /subcontract 全部 YES ✅
+  - P1-4 6 列表分页：/transfer, /check, /adjustment, /subcontract, /subcontract_issue, /subcontract_receive 全部 YES ✅
+- 提交 SHA：（本次提交）
+- 推送：（本次推送）
+- 报告文件：`wms_io_audit_fix_20260727_150000.md`
+
 每个子项完成后必须在本台账追加：
 
 ```text
