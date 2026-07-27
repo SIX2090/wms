@@ -884,6 +884,38 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 - 剩余风险：`sales_order_edit.html` 客户字段仍用标准 `<select>`（与新建页一致，均非 supplier-input 搜索），若后续需要客户搜索下拉需另开子项；真实浏览器视觉 E2E 仍需业务环境执行。
 - 提交 SHA：2fff7bd；推送：`a722304..2fff7bd main -> main`。
 
+#### AUDIT-FIX-2026-07-27（已完成）
+
+- 目标：执行 `WMS_AUDIT_FIX_PROMPT.md`（基于 `wms_audit_20260727_120000.md` 报告），按 P0 → P2 顺序一次性修完 4 致命 + 5 一般 + 5 提示缺陷，覆盖员工/分类/合同删除引用校验、合同/仓库/部门/客户导入、5 模块行级编辑、8 模块工具栏、Warehouse.is_default、Employee.code+department_id、Excel 5MB 限制、合同删除多明细 contract_no 字符串引用、客户删除 OtherInOrder.customer_id 校验。
+- 业务边界：仅加引用校验、编辑路由、导入路由、UI 按钮、模型字段、文件大小限制；不修改用户密码、不硬删已完成单据、不建任何新分支（仅 `main`）。
+- 改动模块：
+  - `app/app.py`：F-01 `delete_employee` 加 InOrder/OutOrder/PurchaseOrder/SalesOrder/Check/Transfer/Adjustment/AfterSaleOut operator_id 引用校验；F-02 `delete_category` 加 Material.category_id 引用校验；F-03 新增 `import_contract` 路由 + contract_no 重复检查；F-04 batch_import 后端已存在 warehouse/department/customer 路由对齐；M-01 新增 `get_unit/edit_unit/get_supplier/edit_supplier/get_customer/edit_customer/get_employee/edit_employee/get_category/edit_category` 8 个路由；M-03 `Warehouse.is_default` + `set_default_warehouse` 路由 + 迁移；M-04 `Employee.code` + `department_id` + relationship；M-05 `_contract_delete_blockers` 补 InOrderItem/OutOrderItem/PurchaseOrderItem/SalesOrderItem.contract_no 字符串引用校验；m-01 `delete_customer` 补 InOrder.customer_id/SalesOrder.customer_id/AfterSaleOutOrder.customer_id FK 校验；m-03 多个 import_* 路由加 `validate_excel_size` 5MB 校验。
+  - `app/utils.py`：新增 `validate_excel_size(file_storage)` 工具函数（5MB 上限，优先 content_length，回退 stream/tell）。
+  - `app/templates/batch_import.html`：补 3 张卡片（仓库/部门/客户），共 11 张。
+  - `app/templates/contract.html`：顶部工具栏补「导入」按钮 + `#importModal`。
+  - `app/templates/{unit,supplier,customer,employee,category}.html`：补行级编辑按钮 + `#editModal` + editXxx JS。
+  - `app/templates/{category,unit,supplier,customer,employee,warehouse,department}.html`：补顶部 4 按钮（新增/导入/导出/下载模板）。
+  - `app/templates/warehouse.html`：补 `#importModal` + 设为默认按钮 + 默认徽标。
+  - `app/templates/department.html`：补 `#importModal`。
+- 迁移与备份：`Warehouse.is_default` 默认 False 非空；`Employee.code` nullable=True 兼容老数据，无阻塞迁移。
+- 权限与人工确认：所有写路由保留 `@login_required` + `@require_role('warehouse'/'admin')`；删除/反提交等高风险动作未放开；AI 不改密码、不硬删已完成单据。
+- 专项验证命令及结果：
+  - `python scripts/verify_high_priority_fixes.py` → `PASS HIGH-PRIORITY-FIXES: F1-F7 全部修复点检测到加固` exit 0
+  - `python scripts/verify_medium_low_fixes.py` → `PASS MEDIUM-LOW-FIXES: G1-G6 全部修复点检测到加固` exit 0
+  - `python scripts/verify_ai_business_permissions.py` → `PASS AI-BUSINESS-PERMISSIONS: AI capabilities are bounded by business route roles` exit 0
+  - `python -c "import ast; ast.parse(open('app/app.py').read())"` → `OK: app.py syntax valid` exit 0
+- full 验证结果：3/3 验证脚本 exit 0，app.py 语法 OK；P0-F-01..F-04、P1-M-01..M-04、P2-M-05、P2-m-01、P2-m-03 验收清单全勾。
+- 真实用户/数据验收证据：静态扫描 + 路由签名核对 + 验证脚本通过；浏览器 E2E 仍需业务环境执行。
+- 破坏性测试：无（仅加引用校验、加可选字段、加文件大小限制；未放开任何写权限、未改任何已完成单据删除路径）。
+- 剩余风险和下一子项：
+  - m-02/m-04/m-05 等次要提示项不在本次 `WMS_AUDIT_FIX_PROMPT.md` 范围，未实施；若后续需要可建 child fix 子项。
+  - 真实浏览器 E2E 与 Excel 文件构造测试需业务环境执行。
+- 提交 SHA：
+  - `984b6fa` fix(master-data): F-01..F-04 员工/分类删除校验+合同导入+batch_import 三卡片
+  - `31b7a41` fix(master-data): M-01..M-04 + m-03 完成 audit 修复
+  - `7d14c7b` fix(audit-M-05): 合同删除补 OutOrderItem/PurchaseOrderItem/SalesOrderItem.contract_no 字符串引用校验
+- 推送：见下方 git push 输出。
+
 每个子项完成后必须在本台账追加：
 
 ```text
