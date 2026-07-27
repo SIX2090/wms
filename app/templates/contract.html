@@ -12,6 +12,9 @@
             <a href="/contract/export{% if filters.search or filters.status %}?{% if filters.search %}search={{ filters.search }}{% endif %}{% if filters.status %}{% if filters.search %}&{% endif %}status={{ filters.status }}{% endif %}{% endif %}" class="btn btn-outline-success btn-sm">
                 <i class="bi bi-download"></i> 导出
             </a>
+            <button type="button" class="btn btn-outline-primary btn-sm" onclick="showImportModal()">
+                <i class="bi bi-upload"></i> 导入
+            </button>
             <a href="/contract/download_template" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-file-earmark-spreadsheet"></i> 导入模板
             </a>
@@ -150,6 +153,36 @@
     </div>
 </div>
 
+<!-- 导入合同模态框 -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">导入合同/工程</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-2">表头需含：合同编号、工程名称、状态、备注。按合同编号查重，已存在则更新。</p>
+                <form id="importForm" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label">选择文件</label>
+                        <input type="file" class="form-control" name="file" accept=".xlsx,.xls" required>
+                    </div>
+                    <a href="/contract/download_template" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-download"></i> 下载模板
+                    </a>
+                </form>
+                <div class="import-result mt-2"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="submitImport()">开始导入</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- 编辑合同模态框 -->
 <div class="modal fade" id="editModal" tabindex="-1">
     <div class="modal-dialog">
@@ -199,6 +232,38 @@ document.addEventListener('DOMContentLoaded', function() {
 function showAddModal() {
     document.getElementById('addForm').reset();
     new bootstrap.Modal(document.getElementById('addModal')).show();
+}
+
+function showImportModal() {
+    var form = document.getElementById('importForm');
+    if (form) form.reset();
+    var result = document.querySelector('#importModal .import-result');
+    if (result) result.innerHTML = '';
+    new bootstrap.Modal(document.getElementById('importModal')).show();
+}
+
+function submitImport() {
+    var form = document.getElementById('importForm');
+    var formData = new FormData(form);
+    var result = document.querySelector('#importModal .import-result');
+    result.innerHTML = '<span class="text-muted">导入中...</span>';
+    fetch('/contract/import', {
+        method: 'POST',
+        body: formData,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            result.innerHTML = '<div class="alert alert-success py-1 mb-0"><i class="bi bi-check-circle"></i> ' + data.msg + '</div>';
+            setTimeout(() => location.reload(), 1200);
+        } else {
+            result.innerHTML = '<div class="alert alert-danger py-1 mb-0"><i class="bi bi-x-circle"></i> ' + (data.msg || '导入失败') + '</div>';
+        }
+    })
+    .catch(err => {
+        result.innerHTML = '<div class="alert alert-danger py-1 mb-0"><i class="bi bi-x-circle"></i> 请求失败：' + err.message + '</div>';
+    });
 }
 
 function submitAdd() {

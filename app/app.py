@@ -8392,6 +8392,63 @@ def export_contract():
     return send_file(output, download_name='contracts.xlsx', as_attachment=True)
 
 
+@app.route('/contract/import', methods=['POST'])
+@require_role('admin')
+@login_required
+def import_contract():
+    """F-03：合同/工程批量导入。表头需含：合同编号、工程名称、状态、备注。按合同编号查重，已存在则更新。"""
+    from openpyxl import load_workbook
+    f = request.files.get('file')
+    if not f or not f.filename:
+        return jsonify({'status': 'error', 'msg': '请选择文件'}), 400
+    if not validate_excel_extension(f.filename):
+        return jsonify({'status': 'error', 'msg': '仅支持 .xlsx / .xls 文件'}), 400
+    try:
+        wb = load_workbook(filename=io.BytesIO(f.read()), data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows or len(rows) < 2:
+            return jsonify({'status': 'error', 'msg': '文件无数据行'}), 400
+        header = [str(c).strip() if c else '' for c in rows[0]]
+        required = ['合同编号', '工程名称']
+        missing = [c for c in required if c not in header]
+        if missing:
+            return jsonify({'status': 'error', 'msg': f'缺少必要列: {missing}'}), 400
+        idx = {col: header.index(col) for col in header if col}
+        added, updated, skipped = 0, 0, 0
+        for r in rows[1:]:
+            if not r or not r[0]:
+                skipped += 1
+                continue
+            d = {col: (r[i] if i < len(r) and r[i] is not None else '') for col, i in idx.items()}
+            cno = str(d.get('合同编号', '')).strip()
+            pname = str(d.get('工程名称', '')).strip()
+            if not cno or not pname:
+                skipped += 1
+                continue
+            status_raw = str(d.get('状态', '')).strip()
+            status = 'active' if status_raw in ('', '启用', 'active') else ('inactive' if status_raw in ('停用', 'inactive') else status_raw)
+            remark = str(d.get('备注', '')).strip() or None
+            existing = Contract.query.filter_by(contract_no=cno).first()
+            if existing:
+                existing.project_name = pname
+                existing.status = status
+                existing.remark = remark
+                updated += 1
+            else:
+                db.session.add(Contract(contract_no=cno, project_name=pname, status=status, remark=remark))
+                added += 1
+        db.session.commit()
+        msg = f'导入完成：新增 {added} 条，更新 {updated} 条'
+        if skipped:
+            msg += f'，跳过空行 {skipped} 条'
+        return jsonify({'status': 'success', 'msg': msg})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'合同导入失败: {e}')
+        return jsonify({'status': 'error', 'msg': f'导入失败：{e}'}), 500
+
+
 @app.route('/material/<int:id>/copy', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -8925,6 +8982,11 @@ def delete_category():
                 ~MaterialCategory.id.in_(id_set),
             ).first():
                 return jsonify({'status': 'error', 'msg': f'分类 {cat.name} 下还有子分类，请先删除或调整子分类'})
+            # F-02：分类被物料引用时禁止硬删，避免外键悬空
+            mat_n = Material.query.filter_by(category_id=cat.id).count()
+            if mat_n > 0:
+                return jsonify({'status': 'error',
+                                'msg': f'分类“{cat.name}”已被 {mat_n} 个物料引用，禁止删除'})
             db.session.delete(cat)
     try:
         db.session.commit()
@@ -23898,9 +23960,19 @@ def add_employee():
 @login_required
 def delete_employee():
     ids = request.json.get('ids', [])
+    # F-01：员工被业务单据引用时禁止硬删
+    # SalesOrder.salesperson_id 为 FK employee.id；其他单据 operator_id 引用 user.id（不在此校验）
     for id in ids:
         emp = db.session.get(Employee, id)
         if emp:
+            blockers = []
+            if hasattr(SalesOrder, 'salesperson_id'):
+                n = SalesOrder.query.filter_by(salesperson_id=emp.id).count()
+                if n:
+                    blockers.append(f'销售订单(salesperson_id) 引用 {n} 次')
+            if blockers:
+                return jsonify({'status': 'error',
+                                'msg': f'员工“{emp.name}”已被业务单据引用，禁止删除：\n' + '\n'.join(blockers)}), 409
             db.session.delete(emp)
     try:
         db.session.commit()
