@@ -46,7 +46,8 @@ def main() -> int:
                        role = 'admin',
                        status = 'normal',
                        login_failed_count = 0,
-                       locked_until = NULL
+                       locked_until = NULL,
+                       must_change_password = 0
                  WHERE username = ?
                 """,
                 (password_hash, username),
