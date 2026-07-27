@@ -1017,8 +1017,8 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
   - P1-2/P1-5 委外单详情：edit_btn=YES, copy_btn=YES, submit_btn=YES, revert_btn=YES, edit_route=success ✅
   - P1-3 4 列表行级 print：/transfer, /check, /adjustment, /subcontract 全部 YES ✅
   - P1-4 6 列表分页：/transfer, /check, /adjustment, /subcontract, /subcontract_issue, /subcontract_receive 全部 YES ✅
-- 提交 SHA：（本次提交）
-- 推送：（本次推送）
+- 提交 SHA：`48c4fd3 fix(io-audit-R2): 5 P1 缺陷修复 (P1-1~P1-5)`
+- 推送：✅ 远程 main SHA `48c4fd32369a74010f3f1f3578b06826ed3aa4d5` = 本地 `48c4fd3`
 - 报告文件：`wms_io_audit_fix_20260727_150000.md`
 
 每个子项完成后必须在本台账追加：
