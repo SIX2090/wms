@@ -28585,6 +28585,10 @@ def subcontract_list():
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'processing', 'completed', 'cancelled'))
     deadline_start = parse_date_value(request.args.get('deadline_start'))
     deadline_end = parse_date_value(request.args.get('deadline_end'))
+    page = max(1, request.args.get('page', default=1, type=int))
+    per_page = request.args.get('per_page', default=20, type=int)
+    if per_page not in (20, 50, 100, 200):
+        per_page = 20
     allowed_sorts = {'order_no', 'date', 'supplier_id', 'deadline', 'status', 'created_at', 'total_amount'}
     if sort_by not in allowed_sorts:
         sort_by = 'created_at'
@@ -28600,7 +28604,8 @@ def subcontract_list():
         query = query.filter(SubcontractOrder.deadline <= deadline_end)
     query = _apply_subcontract_search(query, search)
     sort_col = getattr(SubcontractOrder, sort_by, SubcontractOrder.created_at)
-    orders = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).all()
+    pagination = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    orders = pagination.items
     suppliers = Supplier.query.all()
     filters = {
         'status': status_filter,
@@ -28610,7 +28615,7 @@ def subcontract_list():
         'deadline_start': deadline_start.strftime('%Y-%m-%d') if deadline_start else '',
         'deadline_end': deadline_end.strftime('%Y-%m-%d') if deadline_end else '',
     }
-    return render_template('subcontract.html', orders=orders, suppliers=suppliers, filters=filters, sort_by=sort_by, sort_order=sort_order)
+    return render_template('subcontract.html', orders=orders, pagination=pagination, suppliers=suppliers, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page)
 
 @app.route('/subcontract/progress')
 @login_required
@@ -29203,6 +29208,10 @@ def revert_subcontract_order(id):
 def subcontract_issue_list():
     """委外发料单列表"""
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
+    page = max(1, request.args.get('page', default=1, type=int))
+    per_page = request.args.get('per_page', default=20, type=int)
+    if per_page not in (20, 50, 100, 200):
+        per_page = 20
     allowed_sorts = {'issue_no', 'date', 'subcontract_order_id', 'supplier_id', 'status', 'created_at'}
     if sort_by not in allowed_sorts:
         sort_by = 'created_at'
@@ -29215,7 +29224,8 @@ def subcontract_issue_list():
     query = _apply_status_date_filters(query, SubcontractIssue, status_filter, date_start, date_end)
     query = _apply_subcontract_issue_search(query, search)
     sort_col = getattr(SubcontractIssue, sort_by, SubcontractIssue.created_at)
-    issues = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).all()
+    pagination = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    issues = pagination.items
     subcontract_orders = SubcontractOrder.query.filter_by(status='processing').all()
     suppliers = Supplier.query.all()
     units = Unit.query.all()
@@ -29228,12 +29238,14 @@ def subcontract_issue_list():
     return render_template(
         'subcontract_issue.html',
         issues=issues,
+        pagination=pagination,
         subcontract_orders=subcontract_orders,
         suppliers=suppliers,
         units=units,
         filters=filters,
         sort_by=sort_by,
         sort_order=sort_order,
+        per_page=per_page,
         today=date.today()
     )
 
@@ -29724,6 +29736,10 @@ def import_subcontract_issue():
 def subcontract_receive_list():
     """委外收货单列表"""
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
+    page = max(1, request.args.get('page', default=1, type=int))
+    per_page = request.args.get('per_page', default=20, type=int)
+    if per_page not in (20, 50, 100, 200):
+        per_page = 20
     allowed_sorts = {'receive_no', 'date', 'subcontract_order_id', 'supplier_id', 'total_quantity', 'total_scrap', 'status', 'created_at'}
     if sort_by not in allowed_sorts:
         sort_by = 'created_at'
@@ -29736,7 +29752,8 @@ def subcontract_receive_list():
     query = _apply_status_date_filters(query, SubcontractReceive, status_filter, date_start, date_end)
     query = _apply_subcontract_receive_search(query, search)
     sort_col = getattr(SubcontractReceive, sort_by, SubcontractReceive.created_at)
-    receives = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).all()
+    pagination = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    receives = pagination.items
     subcontract_orders = SubcontractOrder.query.filter_by(status='processing').all()
     suppliers = Supplier.query.all()
     units = Unit.query.all()
@@ -29749,12 +29766,14 @@ def subcontract_receive_list():
     return render_template(
         'subcontract_receive.html',
         receives=receives,
+        pagination=pagination,
         subcontract_orders=subcontract_orders,
         suppliers=suppliers,
         units=units,
         filters=filters,
         sort_by=sort_by,
         sort_order=sort_order,
+        per_page=per_page,
         today=date.today()
     )
 
@@ -30283,6 +30302,10 @@ def import_subcontract_receive():
 def transfer_list():
     """库存调拨单列表"""
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed', 'cancelled'))
+    page = max(1, request.args.get('page', default=1, type=int))
+    per_page = request.args.get('per_page', default=20, type=int)
+    if per_page not in (20, 50, 100, 200):
+        per_page = 20
     allowed_sorts = {'transfer_no', 'date', 'from_location', 'to_location', 'status', 'created_at'}
     if sort_by not in allowed_sorts:
         sort_by = 'created_at'
@@ -30309,7 +30332,8 @@ def transfer_list():
             Material, TransferOrderItem.material_id == Material.id
         ).filter(db.or_(*conditions)).distinct()
     sort_col = getattr(TransferOrder, sort_by, TransferOrder.created_at)
-    transfers = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).all()
+    pagination = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    transfers = pagination.items
     warehouses = get_active_warehouses()
     filters = {
         'status': status_filter,
@@ -30317,7 +30341,7 @@ def transfer_list():
         'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
         'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
     }
-    return render_template('transfer.html', transfers=transfers, warehouses=warehouses, filters=filters, sort_by=sort_by, sort_order=sort_order)
+    return render_template('transfer.html', transfers=transfers, pagination=pagination, warehouses=warehouses, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page)
 
 
 @app.route('/transfer/add', methods=['GET'])
@@ -31060,6 +31084,10 @@ def batch_add_transfer_items(id):
 def adjustment_list():
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed', 'cancelled'))
     adjustment_type = (request.args.get('adjustment_type') or '').strip()
+    page = max(1, request.args.get('page', default=1, type=int))
+    per_page = request.args.get('per_page', default=20, type=int)
+    if per_page not in (20, 50, 100, 200):
+        per_page = 20
     allowed_sorts = {'adjustment_no', 'date', 'adjustment_type', 'status', 'created_at'}
     if sort_by not in allowed_sorts:
         sort_by = 'created_at'
@@ -31088,7 +31116,8 @@ def adjustment_list():
             Material, AdjustmentOrderItem.material_id == Material.id
         ).filter(db.or_(*conditions)).distinct()
     sort_col = getattr(AdjustmentOrder, sort_by, AdjustmentOrder.created_at)
-    adjustments = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).all()
+    pagination = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    adjustments = pagination.items
     filters = {
         'status': status_filter,
         'search': search,
@@ -31096,7 +31125,7 @@ def adjustment_list():
         'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
         'adjustment_type': adjustment_type,
     }
-    return render_template('adjustment.html', adjustments=adjustments, filters=filters, sort_by=sort_by, sort_order=sort_order)
+    return render_template('adjustment.html', adjustments=adjustments, pagination=pagination, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page)
 
 
 def _serialize_adjustment_item_for_form(item):
@@ -31706,6 +31735,10 @@ def import_adjustment():
 @login_required
 def check_list():
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
+    page = max(1, request.args.get('page', default=1, type=int))
+    per_page = request.args.get('per_page', default=20, type=int)
+    if per_page not in (20, 50, 100, 200):
+        per_page = 20
     allowed_sorts = {'check_no', 'date', 'status', 'created_at'}
     if sort_by not in allowed_sorts:
         sort_by = 'created_at'
@@ -31731,14 +31764,15 @@ def check_list():
             Material, InventoryCheckItem.material_id == Material.id
         ).filter(db.or_(*conditions)).distinct()
     sort_col = getattr(InventoryCheck, sort_by, InventoryCheck.created_at)
-    checks = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).all()
+    pagination = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    checks = pagination.items
     filters = {
         'status': status_filter,
         'search': search,
         'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
         'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
     }
-    return render_template('check.html', checks=checks, filters=filters, sort_by=sort_by, sort_order=sort_order)
+    return render_template('check.html', checks=checks, pagination=pagination, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page)
 
 
 @app.route('/inventory_check/add')

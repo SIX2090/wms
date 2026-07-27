@@ -125,6 +125,10 @@
             </tbody>
         </table>
         </div><!-- end table-responsive-wrapper -->
+        {% if pagination is defined and pagination.pages > 1 %}
+        {% import '_list_macros.html' as list_macros %}
+        {{ list_macros.pager(pagination, 'transfer_list', base_kwargs={'sort': sort_by, 'order': sort_order, 'per_page': per_page, 'status': filters.status, 'search': filters.search, 'date_start': filters.date_start, 'date_end': filters.date_end, 'embedded': request.args.get('embedded')}) }}
+        {% endif %}
     </div>
 </div>
 
