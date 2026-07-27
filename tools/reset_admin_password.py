@@ -37,6 +37,23 @@ def main() -> int:
             )
             """
         )
+
+        # 自动补齐缺失字段（兼容旧数据库）
+        existing_columns = {
+            r[1] for r in conn.execute("PRAGMA table_info(user)").fetchall()
+        }
+        for col, ddl in [
+            ("must_change_password", "ALTER TABLE user ADD COLUMN must_change_password BOOLEAN DEFAULT 0"),
+            ("login_lock_ip", "ALTER TABLE user ADD COLUMN login_lock_ip VARCHAR(50)"),
+            ("login_ip_failed_count", "ALTER TABLE user ADD COLUMN login_ip_failed_count INTEGER DEFAULT 0"),
+            ("login_ip_locked_until", "ALTER TABLE user ADD COLUMN login_ip_locked_until DATETIME"),
+        ]:
+            if col not in existing_columns:
+                try:
+                    conn.execute(ddl)
+                except Exception:
+                    pass
+
         row = conn.execute("SELECT id FROM user WHERE username = ?", (username,)).fetchone()
         if row:
             conn.execute(
