@@ -68,6 +68,7 @@
 | BUG-SALES-015 | `sales_order.html` 工具栏 + 行内写按钮无角色权限感知隐藏，`user`/`production` 角色可见写操作入口 | 检查写按钮包裹 `{% if current_user.role in ['admin','warehouse','purchase','sales'] %}`，后端 `@require_role` 仍二次校验（SM-P6-02） |
 | BUG-SALES-016 | `customer.html` 完全无客户导入入口，与 `supplier.html` 结构不一致 | 检查 `customer.html` 含 `importModal` 模态框 + AJAX 提交 + `csrf_token` + `notifyMasterDataChanged('customer_updated')` 广播（SM-P6-02） |
 | LOGIN-CSRF-001 | Web `/login` 被 `@csrf.exempt` 豁免，无 CSRF token 的 POST 仍可建立会话 | 检查 `app.login` 不在 `csrf._exempt_views`，`app.native_api_login` 仍豁免，`login.html` 含 `csrf_token`，无 token POST `/login` 返回 400 |
+| BUG-INSPECT-2026-07-27-001 | `verify_ai_tool_schemas.py` 的 `VALID_PAYLOADS` 未覆盖 AI-SALES-F02 新增的 `sales_followup_agent` 和 `sales_insights`，导致 `verify_ai_all.py --level smoke` 6/7 失败 | 在 `scripts/verify_ai_tool_schemas.py` `VALID_PAYLOADS` 中补齐这两条 valid payload（参考 `app/ai/tools/registry.py:242-259` 的 `SALES_INSIGHTS_SCHEMA`/`SALES_FOLLOWUP_SCHEMA`），`verify_ai_all.py` 升至 7/7 |
 
 ## 已确认误报
 

@@ -35,6 +35,9 @@ VALID_PAYLOADS = {
     'inventory_health': {'days': 30, 'risk': 'stagnant'},
     'warehouse_patrol_agent': {'warehouse_id': 1, 'days': 7, 'max_steps': 10},
     'purchase_followup_agent': {'supplier_id': 1, 'days': 30, 'max_steps': 10},
+    # 新增（AI-SALES-F02）：销售履约跟进 + 销售洞察
+    'sales_followup_agent': {'customer_id': 1, 'days': 30, 'max_steps': 10},
+    'sales_insights': {'page_url': '/sales_order', 'status': 'all', 'days': 30, 'limit': 20},
     'knowledge_base': {'query': '采购入库单如何确认', 'limit': 5},
     'master_data_insights': {'entity_type': 'material', 'limit': 50},
     'admin_insights': {'section': 'audit', 'days': 7},
