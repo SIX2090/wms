@@ -5,6 +5,25 @@
 <div class="page-header">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h2 class="mb-0"><i class="bi bi-box-arrow-up"></i> 售后出库单管理</h2>
+        {% if current_user.role in ['admin', 'warehouse', 'sales'] %}
+        <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+            <a href="/after_sale_out/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增售后出库单</a>
+            <a href="/after_sale_out/export?status={{ filters.status }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-success btn-sm">
+                <i class="bi bi-download"></i> 导出
+            </a>
+            <button type="button" class="btn btn-outline-info btn-sm" onclick="document.getElementById('afterSaleOutImportFile').click()">
+                <i class="bi bi-upload"></i> 导入
+            </button>
+            <a href="/after_sale_out/download_template" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-excel"></i> 下载模板</a>
+            <button type="button" class="btn btn-outline-primary btn-sm" onclick="printAfterSaleOutList()">
+                <i class="bi bi-printer"></i> 打印
+            </button>
+            <form id="afterSaleOutImportForm" action="/after_sale_out/import" method="post" enctype="multipart/form-data" class="d-none">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="file" id="afterSaleOutImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('afterSaleOutImportForm', 'afterSaleOutImportFile')">
+            </form>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -86,6 +105,9 @@
                     <td>
                         <a href="{{ url_for('after_sale_out_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情">
                             <i class="bi bi-eye"></i>
+                        </a>
+                        <a href="{{ url_for('print_after_sale_out', id=order.id) }}" target="_blank" class="btn btn-sm btn-outline-secondary" title="打印">
+                            <i class="bi bi-printer"></i>
                         </a>
                         {% if order.status == 'pending' %}
                         <button class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})" title="完成">
@@ -254,6 +276,44 @@ function batchDelete() {
             });
         });
     });
+}
+
+function printAfterSaleOutList() {
+    var checked = document.querySelectorAll('.order-check:checked');
+    var ids = Array.from(checked).map(function(cb){ return cb.value; });
+    if (ids.length === 0) {
+        showToast('请先勾选要打印的售后出库单', 'warning');
+        return;
+    }
+    if (ids.length === 1) {
+        window.open('/after_sale_out/' + ids[0] + '/print', '_blank');
+        return;
+    }
+    showToast('当前仅支持逐单打印，已打开第一张', 'info', 3000);
+    window.open('/after_sale_out/' + ids[0] + '/print', '_blank');
+}
+
+function submitDocumentImport(formId, fileId) {
+    var form = document.getElementById(formId);
+    var fileInput = document.getElementById(fileId);
+    if (!fileInput.files.length) return;
+    var formData = new FormData(form);
+    fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            showToast(data.msg || '导入成功', 'success', 3600);
+            setTimeout(function(){ location.reload(); }, 900);
+        } else {
+            showToast(data.msg || '导入失败', 'danger', 5000);
+        }
+    })
+    .catch(function(error) { showToast('导入失败：' + error.message, 'danger', 5000); })
+    .finally(function() { fileInput.value = ''; });
 }
 </script>
 {% endblock %}

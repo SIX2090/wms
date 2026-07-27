@@ -28496,6 +28496,12 @@ def import_requisition():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的工单领料文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     aliases = {
         'order_no': ['单据编号', '工单领料单号', '订单编号'],
         'date': ['日期'],
@@ -29047,6 +29053,7 @@ def export_subcontract():
 
 
 @app.route('/export/template/subcontract')
+@app.route('/subcontract/download_template')
 @login_required
 def export_subcontract_template():
     return _workbook_response(
@@ -29064,6 +29071,12 @@ def import_subcontract():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的委外加工文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     aliases = {
         'order_no': ['单据编号', '委外加工单号', '委外单号'],
         'date': ['日期'],
@@ -29604,6 +29617,7 @@ def export_subcontract_issue():
 
 
 @app.route('/export/template/subcontract_issue')
+@app.route('/subcontract_issue/download_template')
 @login_required
 def export_subcontract_issue_template():
     return _workbook_response(
@@ -29622,6 +29636,12 @@ def import_subcontract_issue():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的委外发料文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     aliases = {
         'order_no': ['发料单号', '单据编号'],
         'date': ['日期'],
@@ -30145,6 +30165,7 @@ def export_subcontract_receive():
 
 
 @app.route('/export/template/subcontract_receive')
+@app.route('/subcontract_receive/download_template')
 @login_required
 def export_subcontract_receive_template():
     return _workbook_response(
@@ -30163,6 +30184,12 @@ def import_subcontract_receive():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的委外入库文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     aliases = {
         'order_no': ['入库单号', '单据编号'],
         'date': ['日期'],
@@ -30876,6 +30903,12 @@ def import_transfer():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的库存调拨文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     aliases = {
         'order_no': ['单据编号', '调拨单号', '订单编号'],
         'date': ['日期'],
@@ -31583,6 +31616,12 @@ def import_adjustment():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的库存调整文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     aliases = {
         'order_no': ['单据编号', '调整单号', '订单编号'],
         'date': ['日期'],
@@ -32320,6 +32359,12 @@ def import_check():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的库存盘点文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     aliases = {
         'order_no': ['单据编号', '盘点单号', '订单编号'],
         'date': ['日期'],
@@ -33633,6 +33678,17 @@ def export_after_sale_out_template():
     )
 
 
+@app.route('/after_sale_out/download_template')
+@login_required
+def download_after_sale_out_template():
+    return _workbook_response(
+        'after_sale_out_template.xlsx',
+        '售后出库导入模板',
+        ['单据编号', '日期', '客户', '联系人', '电话', '售后原因', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注'],
+        [['ASO24010001', '2024-01-01', '示例客户', '李四', '13800138000', '售后换货', 'MAT001', '示例物料', '规格A', '个', 1, 0, '']],
+    )
+
+
 @app.route('/after_sale_out/import', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -33640,6 +33696,12 @@ def import_after_sale_out():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的售后出库文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     aliases = {
         'order_no': ['单据编号', '售后出库单号', '订单编号'],
         'date': ['日期'],
@@ -34404,6 +34466,12 @@ def import_purchase_request():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的采购申请文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     aliases = {
         'order_no': ['申请编号', '单据编号', '采购申请号'],
         'date': ['日期'],
@@ -34683,6 +34751,12 @@ def import_purchase_order():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择要导入的采购单文件'})
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg})
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg})
     aliases = {
         'order_no': ['采购单号', '单据编号', '订单编号'],
         'date': ['日期', '采购日期'],
@@ -43440,6 +43514,12 @@ def import_sales_orders():
     file = request.files.get('file')
     if not file:
         return jsonify({'status': 'error', 'msg': '请选择销售订单 Excel 文件'}), 400
+    _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+    if not _ext_ok:
+        return jsonify({'status': 'error', 'msg': _ext_msg}), 400
+    _size_ok, _size_msg = validate_excel_size(file)
+    if not _size_ok:
+        return jsonify({'status': 'error', 'msg': _size_msg}), 400
     aliases = {
         'order_no': ['销售订单号', '订单号', '单据编号'],
         'date': ['订单日期', '日期'],

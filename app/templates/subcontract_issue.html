@@ -4,7 +4,26 @@
 
 {% block content %}
 <div class="container-fluid">
-    <h1 class="h3 mb-3 text-gray-800">委外发料单</h1>
+    <div class="page-header">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h1 class="h3 mb-0 text-gray-800">委外发料单</h1>
+            {% if current_user.role in ['admin', 'production', 'warehouse'] %}
+            <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+                <a href="/subcontract_issue/download_template" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-excel"></i> 下载模板</a>
+                <a href="/subcontract_issue/export" class="btn btn-outline-success btn-sm">
+                    <i class="bi bi-download"></i> 导出
+                </a>
+                <button type="button" class="btn btn-outline-info btn-sm" onclick="document.getElementById('subcontractIssueImportFile').click()">
+                    <i class="bi bi-upload"></i> 导入
+                </button>
+                <form id="subcontractIssueImportForm" action="/subcontract_issue/import" method="post" enctype="multipart/form-data" class="d-none">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="file" id="subcontractIssueImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('subcontractIssueImportForm', 'subcontractIssueImportFile')">
+                </form>
+            </div>
+            {% endif %}
+        </div>
+    </div>
 
     <div class="card mb-3">
         <div class="card-body py-2">
@@ -427,5 +446,28 @@ $('#batchDeleteBtn').click(function() {
     alert('删除完成');
     location.reload();
 });
+
+function submitDocumentImport(formId, fileId) {
+    var form = document.getElementById(formId);
+    var fileInput = document.getElementById(fileId);
+    if (!fileInput.files.length) return;
+    var formData = new FormData(form);
+    fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            alert(data.msg || '导入成功');
+            setTimeout(function(){ location.reload(); }, 900);
+        } else {
+            alert('导入失败: ' + (data.msg || '未知错误'));
+        }
+    })
+    .catch(function(error) { alert('导入失败: ' + error.message); })
+    .finally(function() { fileInput.value = ''; });
+}
 </script>
 {% endblock %}
