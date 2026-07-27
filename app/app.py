@@ -4499,6 +4499,21 @@ def find_duplicate_in_order_item(order, material_id, source_purchase_order_item_
     return None
 
 
+def is_future_date(order_date, today=None):
+    """判断给定日期是否晚于今天（BUG-DATE-2026-07-27-001）。
+
+    入库/出库单据日期不允许晚于系统当前日期，防止凭证日期提前进入未来账期。
+    """
+    if not order_date:
+        return False
+    if today is None:
+        today = date.today()
+    try:
+        return order_date > today
+    except TypeError:
+        return False
+
+
 def build_purchase_request_execution(valid_items):
     item_ids = [item.id for item in valid_items if item.id]
     ordered_by_item = {item_id: 0 for item_id in item_ids}
@@ -24107,6 +24122,7 @@ def in_order_detail(id):
         warehouses=warehouses,
         warehouse_names=warehouse_names,
         purchase_order_execution=purchase_order_execution,
+        today=date.today(),
     )
 
 
@@ -24333,6 +24349,8 @@ def update_in_order(id):
     order_date = parse_date_value(data.get('date'), None)
     if not order_date:
         return jsonify({'status': 'error', 'msg': '日期格式不正确，请重新选择日期'})
+    if is_future_date(order_date):
+        return jsonify({'status': 'error', 'msg': '入库日期不能晚于今天'}), 400
 
     supplier_id = _clean_int(data.get('supplier_id'))
     if supplier_id:
@@ -24413,9 +24431,10 @@ def in_order_add_page():
                              'supplier_id': (request.args.get('supplier_id') or '').strip(),
                              'customer_id': (request.args.get('customer_id') or '').strip(),
                          },
-                         order_id=None, 
-                         order_no=order_no, 
-                         order_date=order_date)
+                         order_id=None,
+                         order_no=order_no,
+                         order_date=order_date,
+                         today=date.today())
 
 @app.route('/in_order/add', methods=['POST'])
 @require_role('warehouse')
@@ -24531,6 +24550,8 @@ def add_in_order():
                 order.date = datetime.strptime(date_str, '%Y-%m-%d').date()
             except ValueError:
                 return jsonify({'status': 'error', 'msg': '日期格式不正确，请重新选择日期'})
+        if is_future_date(order.date):
+            return jsonify({'status': 'error', 'msg': '入库日期不能晚于今天'}), 400
 
         order.business_type = business_type
         order.purpose = purpose
@@ -25354,6 +25375,8 @@ def complete_in_order(id):
     if order.status != 'pending':
         return jsonify({'status': 'error', 'msg': '该入库单已提交，不能重复操作'})
 
+    if is_future_date(order.date):
+        return jsonify({'status': 'error', 'msg': '入库日期不能晚于今天，请先修改单据日期'}), 400
     if not order.items:
         return jsonify({'status': 'error', 'msg': '请至少添加一条入库明细'})
     if location_management_enabled() and location_required_on_save() and not order.warehouse:
@@ -32060,7 +32083,8 @@ def out_order_add_page():
                              'department_id': (request.args.get('department_id') or '').strip(),
                              'business_type': (request.args.get('business_type') or '').strip(),
                          },
-                         order_id=None, order_no=order_no, order_date=order_date)
+                         order_id=None, order_no=order_no, order_date=order_date,
+                         today=date.today())
 
 @app.route('/out_order/add', methods=['POST'])
 @require_role('warehouse')
@@ -32082,6 +32106,8 @@ def add_out_order():
         order_date = parse_date_value(data.get('date'), date.today())
         if not order_date:
             return jsonify({'status': 'error', 'msg': '日期格式不正确，请重新选择日期'})
+        if is_future_date(order_date):
+            return jsonify({'status': 'error', 'msg': '出库日期不能晚于今天'}), 400
         business_type = (data.get('business_type') or '').strip()
         if business_type == '生产出库':
             business_type = '领料单'
@@ -32468,6 +32494,8 @@ def complete_out_order(id):
     order = OutOrder.query.get_or_404(id)
     if order.status != 'pending':
         return jsonify({'status': 'error', 'msg': '该领料单已提交，不能重复操作'})
+    if is_future_date(order.date):
+        return jsonify({'status': 'error', 'msg': '出库日期不能晚于今天，请先修改单据日期'}), 400
     if not order.items:
         return jsonify({'status': 'error', 'msg': '请至少添加一条领料明细'})
     if order.business_type == '销售出库':

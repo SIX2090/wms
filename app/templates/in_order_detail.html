@@ -534,7 +534,7 @@
                         </div>
                         <div class="col-md-6">
                             <label class="form-label fw-medium">入库日期 <span class="text-danger">*</span></label>
-                            <input class="form-control" name="date" type="date" value="{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}" required>
+                            <input class="form-control" name="date" type="date" value="{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}" max="{{ today }}" required>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label fw-medium">入库来源</label>
