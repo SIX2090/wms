@@ -1,0 +1,207 @@
+{
+  "scan_id": "wms_audit_20260727_120000",
+  "scan_time": "2026-07-27T12:00:00+08:00",
+  "scope": "WMS 基础资料（master data）9 模块 + 关联矩阵 + 红线",
+  "static_only": true,
+  "dynamic_skipped_reason": "沙箱缺 flask 包（ModuleNotFoundError: No module named 'flask'）",
+  "modules": [
+    "material", "contract", "category", "unit",
+    "supplier", "customer", "warehouse", "department", "employee"
+  ],
+  "summary": {
+    "critical": 4,
+    "major": 5,
+    "minor": 5,
+    "red_line_violations": 0
+  },
+  "findings": [
+    {
+      "id": "F-01",
+      "severity": "critical",
+      "module": "employee",
+      "title": "delete_employee 完全无引用校验，员工被业务单据引用仍可硬删",
+      "evidence": {
+        "file": "app/app.py",
+        "line": 23884,
+        "snippet": "def delete_employee(): ... db.session.delete(emp)"
+      },
+      "expected": "校验 InOrder.operator_id / OutOrder.operator_id 等业务引用",
+      "repro": "员工 E 已被入库单 I.operator_id 引用 → POST /employee/delete ids=[E.id] → 员工被删，入库单字段悬空"
+    },
+    {
+      "id": "F-02",
+      "severity": "critical",
+      "module": "category",
+      "title": "delete_category 缺 Material.category_id 引用校验",
+      "evidence": {
+        "file": "app/app.py",
+        "line": 8902,
+        "snippet": "if MaterialCategory.query.filter(MaterialCategory.parent_id == cat.id, ...).first(): return ... else: db.session.delete(cat)"
+      },
+      "expected": "Material.query.filter_by(category_id=cat.id).count() > 0 时阻断",
+      "repro": "分类 C 关联 10 个物料 → POST /category/delete ids=[C.id] → 物料外键悬空"
+    },
+    {
+      "id": "F-03",
+      "severity": "critical",
+      "module": "contract",
+      "title": "合同/工程缺导入路由（/contract/import 后端无 import_contract）",
+      "evidence": {
+        "file": "app/app.py",
+        "line": null,
+        "snippet": "app.py 搜索 /contract/(import|export|download) 仅有 download_template 与 export，无 import"
+      },
+      "expected": "POST /contract/import handler 接收 multipart Excel 并入库",
+      "repro": "合同/工程页面点击'导入模板'只下载，不提供上传入口"
+    },
+    {
+      "id": "F-04",
+      "severity": "critical",
+      "module": "warehouse,department,customer",
+      "title": "/batch_import 集中入口未覆盖仓库/部门/客户三类基础资料",
+      "evidence": {
+        "file": "app/templates/batch_import.html",
+        "line": null,
+        "snippet": "batch_import.html 全文 8 张卡片：material/in_order/out_order/category/unit/supplier/employee/bom。仓库/部门/客户无对应卡片"
+      },
+      "expected": "在 batch_import.html 增加 3 张卡片：仓库（/warehouse/import + /warehouse/download_template）、部门（/department/import + /department/download_template）、客户（/customer/import + /customer/download_template）",
+      "repro": "管理员 → 批量导入 → 翻看 8 张卡片 → 找不到仓库/部门/客户；这三个模块在各自单页也无任何 trigger（warehouse.html / department.html 无 addModal/importModal，customer.html 模态无 trigger）→ 三类数据当前没有可用的导入入口"
+    },
+    {
+      "id": "M-01",
+      "severity": "major",
+      "module": "unit,supplier,customer,employee,category",
+      "title": "5 个基础资料模板缺行级编辑按钮与 editXxx 函数",
+      "evidence": {
+        "file": "app/templates/unit.html, supplier.html, customer.html, employee.html, category.html",
+        "line": null,
+        "snippet": "unit.html 行操作仅有 delete 按钮；category.html 仅 1 处 editCategory 入口（树行），表内行无 edit 按钮"
+      },
+      "expected": "行级'编辑'按钮 + JS 弹窗 + 后端 edit_<resource> 路由",
+      "repro": "进入任一上述模块 → 行操作列只有删除 → 用户无法修改已录入数据"
+    },
+    {
+      "id": "M-02",
+      "severity": "major",
+      "module": "unit,supplier,customer,employee,category,contract,warehouse,department",
+      "title": "8 个基础资料页面顶部缺工具栏，addModal/importModal 在 DOM 但无 trigger",
+      "evidence": {
+        "file": "app/templates/*.html",
+        "line": null,
+        "snippet": "page-header 仅含 <h2>，无 <button> 触发 #addModal / #importModal；contract.html 有 3 按钮但缺导入；category.html 缺新增/导入"
+      },
+      "expected": "顶部工具栏含 新增 / 导入 / 导出 / 模板下载 / 批量删除",
+      "repro": "进入基础资料任一模块 → 无新增/导入入口"
+    },
+    {
+      "id": "M-03",
+      "severity": "major",
+      "module": "warehouse",
+      "title": "Warehouse 模型无 is_default 字段，缺'设为默认仓'按钮",
+      "evidence": {
+        "file": "app/app.py",
+        "line": 2406,
+        "snippet": "class Warehouse(db.Model): id, code, name, type, location, status, remark, created_at"
+      },
+      "expected": "is_default 字段 + 行级'设为默认'按钮 + 切换接口",
+      "repro": "用户期望有默认仓标识 → 现状无字段无按钮"
+    },
+    {
+      "id": "M-04",
+      "severity": "major",
+      "module": "employee",
+      "title": "Employee 模型缺 code/department_id，与基础资料主数据定位不符",
+      "evidence": {
+        "file": "app/app.py",
+        "line": 2357,
+        "snippet": "class Employee: id, name, position, phone, created_at"
+      },
+      "expected": "code(unique) + department_id(FK Department.id)",
+      "repro": "员工表无法按编号检索、无法按部门归类"
+    },
+    {
+      "id": "M-05",
+      "severity": "major",
+      "module": "contract",
+      "title": "_contract_delete_blockers 未覆盖 InOrderDetail.contract_no 字符串字段",
+      "evidence": {
+        "file": "app/app.py",
+        "line": 8115,
+        "snippet": "checks: InOrder.contract_id, OutOrder.contract_id, PurchaseOrder.contract_id, SalesOrder.contract_id"
+      },
+      "expected": "增加 InOrderItem.query.filter_by(contract_no=contract.contract_no).count() > 0 阻断",
+      "repro": "明细行带 contract_no 字符串引用 → 合同删除成功 → 明细行失去合同档案支撑"
+    },
+    {
+      "id": "m-01",
+      "severity": "minor",
+      "module": "customer",
+      "title": "delete_customer 仅按 name 字符串校验，缺 OtherInOrderDetail.customer_id FK 校验",
+      "evidence": {
+        "file": "app/app.py",
+        "line": 23751
+      },
+      "expected": "增加 OtherInOrderDetail.query.filter_by(customer_id=customer.id).count() > 0 阻断",
+      "repro": "其他入库明细勾选客供 customer_id=C → 删除客户 C 成功 → FK 悬空"
+    },
+    {
+      "id": "m-02",
+      "severity": "minor",
+      "module": "department",
+      "title": "delete_department 缺 Employee.department_id 校验（模型也缺此字段）",
+      "evidence": {
+        "file": "app/app.py",
+        "line": 7974
+      },
+      "expected": "先补 Employee.department_id，再增 blockers 检查",
+      "repro": "删除有员工的部门 → 阻断逻辑缺失"
+    },
+    {
+      "id": "m-03",
+      "severity": "minor",
+      "module": "global",
+      "title": "导入路由未限制文件大小，潜在 OOM",
+      "evidence": {
+        "file": "app/app.py",
+        "line": null
+      },
+      "expected": "app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024",
+      "repro": "上传 500MB xlsx → 内存压力"
+    },
+    {
+      "id": "m-04",
+      "severity": "minor",
+      "module": "navigation",
+      "title": "基础资料菜单包含'期初库存'，该功能属交易数据，不应放在基础资料",
+      "evidence": {
+        "file": "app/templates/base.html",
+        "line": 2261
+      },
+      "expected": "移至'库存'或单列'初始建账'",
+      "repro": "导航分类与功能分类不一致"
+    },
+    {
+      "id": "m-05",
+      "severity": "minor",
+      "module": "contract",
+      "title": "Contract 单表无 kind 字段区分合同/工程，靠 contract_no 前缀约定",
+      "evidence": {
+        "file": "app/app.py",
+        "line": 2530
+      },
+      "expected": "增加 kind ENUM('contract','project') 或 is_project 布尔",
+      "repro": "用户难以在 UI 上区分'这是合同还是工程'"
+    }
+  ],
+  "red_lines": {
+    "completed_inbound_hard_delete": "pass",
+    "material_hard_delete_no_check": "pass",
+    "supplier_customer_hard_delete": "pass",
+    "category_subtree_no_warning": "pass",
+    "contract_delete_affects_history": "pass (with caveat M-05)",
+    "random_password_generation": "pass",
+    "csrf_disabled": "pass (5 /api/* routes exempt, all mobile API)",
+    "dead_submitform_residue": "pass",
+    "material_delete_all_enabled": "pass (returns 403)"
+  }
+}
