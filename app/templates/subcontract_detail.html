@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import '_list_macros.html' as ui %}
 {% block title %}委外单详情 - {{ order.order_no }}{% endblock %}
 
 {% block extra_css %}
@@ -384,6 +385,7 @@
             </div>
         </div>
     </div>
+{{ ui.operation_log_card(operation_logs) }}
 </div>
 {% endblock %}
 

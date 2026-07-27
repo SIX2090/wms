@@ -961,7 +961,13 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
   - `git log -1 --oneline` 与 `git ls-remote origin main` SHA 一致
   - `git branch -a | grep -v 'main' | grep -v 'remotes/origin/HEAD'` 为空
   - `grep -r "secrets.token_urlsafe" app/app.py tools/` → 无新增
-- m-07（详情页操作日志）：暂缓实施。OperationLog 模型存在（`class OperationLog(db.Model)`）但 7 个详情路由均未传 `operation_logs` 到模板；按硬规则"不改后端业务逻辑"避免修改 7 个详情路由。可在后续 IO-AUDIT-FIX-2 子项通过新增 `operation_logs_for(target_type, target_id)` 公共函数 + 7 个详情路由注入解决。
+- m-07（详情页操作日志）：✅ **已完成**。用户授权后实施，新增：
+  - `app/app.py` 公共只读查询函数 `get_recent_operation_logs(target_type, target_id, limit=10)`（含 try-except 失败兜底返回空列表）
+  - 5 个详情路由（`in_order_detail` / `out_order_detail` / `after_sale_out_detail` / `purchase_order_detail` / `subcontract_detail`）注入 `operation_logs=get_recent_operation_logs(...)`
+  - `app/templates/_list_macros.html` 追加 `operation_log_card(operation_logs)` 共享宏
+  - 5 个 `_detail.html` 模板顶部加 `{% import '_list_macros.html' as ui %}` + content 块尾部加 `{{ ui.operation_log_card(operation_logs) }}`
+  - 注：委外发料/收货单 (`subcontract_issue` / `subcontract_receive`) 无独立 detail 页，使用 HTML fragment 路由，不在 m-07 范围内
+  - 验证：`_verify_m07_logs.py` 5+5+4 全部 PASS（5 模板导入+宏调用 / 5 路由注入 / 4 渲染字段）
 - 完整度自检：列表页按钮合格率 100%（10/10）；新增页"添加行"100%（5/5）；详情页工具栏 ≥ 95%；导入校验 100%（23/23）；删除保护 100%（39/39 delete_* 含 409 路径）。
 - 提交 SHA：
   - `c9d6405` docs(audit): WMS 出入库单据审计修复提示词

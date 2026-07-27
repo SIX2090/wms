@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import '_list_macros.html' as ui %}
 {% block title %}{{ order.business_type or '领料单' }}详情 - {{ order.order_no }}{% endblock %}
 
 {% block extra_css %}
@@ -469,6 +470,7 @@ MAT003,20,10.00"></textarea>
         </div>
     </div>
 </div>
+{{ ui.operation_log_card(operation_logs) }}
 {% endblock %}
 
 {% block extra_js %}

@@ -5096,6 +5096,31 @@ def log_operation(operation_type, operation_content, target_type=None, target_id
         app.logger.error(f'log_operation failed: {e}')
 
 
+def get_recent_operation_logs(target_type, target_id, limit=10):
+    """IO-AUDIT-FIX-2026-07-27 m-07: 只读查询某单据最近 N 条操作日志.
+
+    失败时返回空列表，确保不影响详情页主流程渲染。
+    """
+    try:
+        if not target_type or not target_id:
+            return []
+        return (
+            OperationLog.query
+            .options(joinedload(OperationLog.user))
+            .filter(
+                OperationLog.target_type == target_type,
+                OperationLog.target_id == target_id,
+            )
+            .order_by(OperationLog.created_at.desc(), OperationLog.id.desc())
+            .limit(limit)
+            .all()
+        )
+    except Exception as e:
+        app.logger.warning(f'get_recent_operation_logs failed: {e}')
+        return []
+
+
+
 def api_material_payload(material):
     warehouse_code = getattr(material, 'warehouse', '') or ''
     location_code = ''
@@ -24541,6 +24566,7 @@ def in_order_detail(id):
         warehouse_names=warehouse_names,
         purchase_order_execution=purchase_order_execution,
         today=date.today(),
+        operation_logs=get_recent_operation_logs('in_order', id),
     )
 
 
@@ -28635,7 +28661,9 @@ def subcontract_detail(id):
         'subcontract_detail.html',
         order=order,
         materials=[serialize_material(material) for material in materials],
-        units=units)
+        units=units,
+        operation_logs=get_recent_operation_logs('subcontract', id),
+    )
 
 
 @app.route('/subcontract/<int:id>/print')
@@ -32551,7 +32579,7 @@ def out_order_detail(id):
     push_source = DocumentPushLine.query.filter_by(
         target_document_id=order.id, status='active'
     ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out'))).first()
-    return render_template('out_order_detail.html', order=order, source_sales_orders=list(source_sales_orders.values()), push_source=push_source)
+    return render_template('out_order_detail.html', order=order, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id))
 
 @app.route('/out_order/add')
 @app.route('/other_out_order/add')
@@ -33335,7 +33363,7 @@ def after_sale_out_detail(id):
     push_source = DocumentPushLine.query.filter_by(
         target_document_type='after_sale_out', target_document_id=order.id, status='active'
     ).first()
-    return render_template('after_sale_out_detail.html', order=order, push_source=push_source)
+    return render_template('after_sale_out_detail.html', order=order, push_source=push_source, operation_logs=get_recent_operation_logs('after_sale_out_order', id))
 
 
 @app.route('/after_sale_out/<int:id>/print')
@@ -35074,6 +35102,7 @@ def purchase_order_detail(id):
         warehouses=warehouses,
         status_label=purchase_order_status_label,
         item_execution=item_execution,
+        operation_logs=get_recent_operation_logs('purchase_order', id),
     )
 
 
