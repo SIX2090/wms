@@ -8210,9 +8210,24 @@ def _contract_delete_blockers(contract):
                                   OutOrder.contract_id.is_(None)).count() > 0:
         refs.append('领料出库单(contract_no 字符串)')
     if PurchaseOrder.query.filter_by(contract_id=contract.id).count() > 0:
-        refs.append('采购订单')
+        refs.append('采购订单(头)')
+    # M-05：采购订单明细行 contract_no 字符串引用也要校验
+    if hasattr(PurchaseOrderItem, 'contract_no') and contract.contract_no and \
+            PurchaseOrderItem.query.filter(PurchaseOrderItem.contract_no == contract.contract_no,
+                                            PurchaseOrderItem.contract_id.is_(None)).count() > 0:
+        refs.append('采购订单(明细行 contract_no 字符串)')
     if SalesOrder.query.filter_by(contract_id=contract.id).count() > 0:
-        refs.append('销售订单')
+        refs.append('销售订单(头)')
+    # M-05：销售订单明细行 contract_no 字符串引用也要校验
+    if hasattr(SalesOrderItem, 'contract_no') and contract.contract_no and \
+            SalesOrderItem.query.filter(SalesOrderItem.contract_no == contract.contract_no,
+                                        SalesOrderItem.contract_id.is_(None)).count() > 0:
+        refs.append('销售订单(明细行 contract_no 字符串)')
+    # M-05：领料出库单明细行 contract_no 字符串引用也要校验
+    if hasattr(OutOrderItem, 'contract_no') and contract.contract_no and \
+            OutOrderItem.query.filter(OutOrderItem.contract_no == contract.contract_no,
+                                       OutOrderItem.contract_id.is_(None)).count() > 0:
+        refs.append('领料出库单(明细行 contract_no 字符串)')
     if refs:
         blockers.append('已被' + '、'.join(refs) + '引用')
     return blockers
