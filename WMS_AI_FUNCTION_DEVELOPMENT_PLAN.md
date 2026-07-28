@@ -1093,6 +1093,17 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
   - ✅ 仅加路由/按钮/工具栏入口，未改后端业务逻辑
 - 提交 SHA：`96fba6c fix(master-audit): 1 P0 + 14 P1 缺陷修复 (241/241 PASS)`
 - 推送：✅ 远程 main SHA `a420262` = 本地 `a420262`
+- 浏览器端到端验证（2026-07-28 06:53）：
+  - 测试方式：Chrome 147 + Playwright + http://127.0.0.1:8080
+  - 覆盖范围：登录、32 个菜单、所有工具栏、8 个新增表单、所有单据列表与报表中心、admin/operator 权限矩阵
+  - 修复检查总数 46 → 通过 46（100%）
+  - 全量检查 102 → 通过 99（97.1%），3 项失败均为非 P0/P1 范围（详见报告）
+  - 截图：80 张存于 `audit_screenshots/real_e2e/`
+  - 报告：`wms_browser_e2e_real_20260728_065219.md`
+  - 测试脚本：`_wms_browser_e2e_real.py`
+  - 测试数据：`wms_browser_e2e_real_data.json`
+  - 提交 SHA：`a1a5cd1 docs(verify): MASTER-AUDIT-FIX 验证报告`
+  - 推送：✅ 远程 main SHA `a1a5cd1` = 本地 `a1a5cd1`
 
 每个子项完成后必须在本台账追加：
 
