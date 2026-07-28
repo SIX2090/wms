@@ -566,9 +566,9 @@ textarea.form-control {
                 </div>
                 <div class="col-md-3">
                     <div class="mb-2">
-                        <label class="form-label">仓库</label>
-                        <select class="form-select" name="warehouse">
-                            <option value="">请选择仓库</option>
+                        <label class="form-label">仓库{% if not location_management_enabled %}<span class="text-muted">（可选，未启用库位管理）</span>{% endif %}</label>
+                        <select class="form-select" name="warehouse"{% if not location_management_enabled %} data-bug-f02-05-optional="1"{% endif %}>
+                            <option value="">{% if location_management_enabled %}请选择仓库{% else %}未启用库位管理，可不填{% endif %}</option>
                             {% for warehouse in warehouses %}
                             <option value="{{ warehouse.name }}">{{ warehouse.name }}</option>
                             {% endfor %}
@@ -680,6 +680,8 @@ const suppliers = {{ suppliers | tojson }};
 const supplierRequired = {{ supplier_required|tojson }};
 const partyField = {{ (party_field or 'supplier_id')|tojson }};
 const partyLabel = {{ (party_label or '供应商')|tojson }};
+// BUG-F02-05 修复：JS 中也读 location_management_enabled，控制仓库必填判断
+const locationManagementEnabled = {{ (location_management_enabled | default(false))|tojson }};
 const isOtherIn = {{ is_other_in|tojson }};
 const returnAddUrl = {{ (return_add_url or '/in_order/add')|tojson }};
 const sourcePurchaseOrderId = {{ source_purchase_order_id|tojson }};
@@ -1329,7 +1331,8 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
 
     if (!date) errors.push({ message: '日期不能为空，请填写单据日期。' });
     if (supplierRequired && !supplierId) errors.push({ message: partyLabel + '不能为空，请选择' + partyLabel + '。' });
-    if (completeAfterSave && !warehouse) errors.push({ message: '完成入库前必须选择仓库。' });
+    // BUG-F02-05 修复：未启用库位管理时，仓库为可选；启用时才要求"完成入库前必须选择仓库"
+    if (completeAfterSave && !warehouse && locationManagementEnabled) errors.push({ message: '完成入库前必须选择仓库。' });
 
     rows.forEach((row, rowIndex) => {
         const code = row.querySelector('.material-code').value.trim();

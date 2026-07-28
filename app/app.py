@@ -25268,7 +25268,8 @@ def add_in_order():
         # 仓库、供应商 / 客户、明细必填，禁止空表单保存为已完成入库单。
         # 表单可能未传 items_json（多数前端表单把明细写在 items_data 隐藏域），
         # 但若完全空白（连 warehouse 都没填）则属于误操作，直接拒绝。
-        if not warehouse:
+        # BUG-F02-05 修复：未启用库位管理时，仓库字段允许为空
+        if not warehouse and (location_management_enabled() and location_required_on_save()):
             return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
         if business_type == '采购入库' and not supplier_id:
             return jsonify({'status': 'error', 'msg': '采购入库单必须选择供应商'}), 400
