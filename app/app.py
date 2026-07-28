@@ -2506,6 +2506,34 @@ def get_active_warehouses():
     return Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc(), Warehouse.id.asc()).all()
 
 
+def is_warehouse_active(warehouse_name):
+    """BUG-F02-04 修复：判断名称/编码对应的仓库是否处于启用状态。
+    返回 (active: bool, message: str)
+    - 名称/编码为空时返回 (True, '') 视作不启用库位管理时的宽松模式
+    - 找不到对应仓库返回 (False, '仓库 {name} 不存在，请先在仓库主数据中维护')
+    - 状态非 active 返回 (False, '仓库 {name} 已停用，禁止新单据')
+    """
+    if not warehouse_name:
+        return True, ''
+    wh = Warehouse.query.filter(
+        (Warehouse.name == warehouse_name) | (Warehouse.code == warehouse_name)
+    ).first()
+    if not wh:
+        return False, f'仓库 {warehouse_name} 不存在，请先在仓库主数据中维护'
+    if (wh.status or 'active') != 'active':
+        return False, f'仓库 {warehouse_name} 已停用，禁止新单据（停用仓库的历史库存保留，可在查询/报表中查看）'
+    return True, ''
+
+
+def assert_warehouse_active(warehouse_name, allow_empty=True):
+    """BUG-F02-04 修复：若仓库被停用/不存在，返回 (False, message)；
+    返回 (True, '') 表示可继续。allow_empty=True 时空值视为通过。"""
+    if not warehouse_name and allow_empty:
+        return True, ''
+    ok, msg = is_warehouse_active(warehouse_name)
+    return ok, msg
+
+
 def resolve_active_sales_warehouse(value=None, warehouse_id=None):
     """Resolve a sales warehouse from its ID, name, or code.
 
@@ -25120,6 +25148,10 @@ def update_in_order(id):
     order.purpose = (data.get('purpose') or '').strip()
     order.warehouse = (data.get('warehouse') or '').strip()
     order.remark = (data.get('remark') or '').strip()
+    # BUG-F02-04 修复：保存前校验仓库是否启用/存在
+    ok, wh_msg = assert_warehouse_active(order.warehouse)
+    if not ok:
+        return jsonify({'status': 'error', 'msg': wh_msg}), 400
     recalculate_order_total(order)
 
     try:
@@ -25335,6 +25367,10 @@ def add_in_order():
         order.contract_id = int(contract_id) if contract_id else None
         order.contract_no = contract_no or None
         order.project_name = project_name or None
+        # BUG-F02-04 修复：保存入库单前校验仓库是否启用/存在
+        ok, wh_msg = assert_warehouse_active(order.warehouse, allow_empty=not location_required_on_save())
+        if not ok:
+            return jsonify({'status': 'error', 'msg': wh_msg}), 400
 
         source_item_updates = []
         source_purchase_order_ids = set()
