@@ -13,8 +13,36 @@
     <div class="row g-2 mb-3">
         <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">启用用户</div><div class="h5 mb-0">{{ active_users }} / {{ total_users }}</div></div></div>
         <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">今日登录</div><div class="h5 mb-0">{{ today_logins }}</div></div></div>
-        <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">验收快照</div><div class="h5 mb-0">{{ acceptance_snapshots }}</div></div></div>
-        <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">证据包</div><div class="h5 mb-0">{{ evidence_packages }}</div></div></div>
+        <div class="col-6 col-md-3">
+            {% if (acceptance_snapshots or 0) == 0 %}
+            <a href="/ai_prelaunch" class="text-decoration-none">
+            {% else %}
+            <a href="/ai_prelaunch" class="text-decoration-none">
+            {% endif %}
+            <div class="border rounded p-2 {% if (acceptance_snapshots or 0) == 0 %}border-warning{% endif %}">
+                <div class="text-muted small">验收快照</div>
+                <div class="h5 mb-0">{{ acceptance_snapshots or 0 }}</div>
+                {% if (acceptance_snapshots or 0) == 0 %}
+                <div class="small text-warning mt-1"><i class="bi bi-info-circle"></i> 尚未创建，点击前往 AI 上线预检</div>
+                {% endif %}
+            </div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3">
+            {% if (evidence_packages or 0) == 0 %}
+            <a href="/backup" class="text-decoration-none">
+            {% else %}
+            <a href="/backup" class="text-decoration-none">
+            {% endif %}
+            <div class="border rounded p-2 {% if (evidence_packages or 0) == 0 %}border-warning{% endif %}">
+                <div class="text-muted small">证据包</div>
+                <div class="h5 mb-0">{{ evidence_packages or 0 }}</div>
+                {% if (evidence_packages or 0) == 0 %}
+                <div class="small text-warning mt-1"><i class="bi bi-info-circle"></i> 尚未创建，点击前往 数据备份</div>
+                {% endif %}
+            </div>
+            </a>
+        </div>
     </div>
 
     <div class="row g-2">

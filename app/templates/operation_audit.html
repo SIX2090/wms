@@ -38,7 +38,7 @@
         <div class="card border-0 bg-secondary text-white">
             <div class="card-body py-3">
                 <div class="small opacity-75">日志来源</div>
-                <div class="fw-semibold">旧日志 {{ stats.operation_log }} / 变更审计 {{ stats.operation_audit }}</div>
+                <div class="fw-semibold">历史审计 {{ stats.operation_log }} / 实时审计 {{ stats.operation_audit }}</div>
             </div>
         </div>
     </div>
@@ -62,8 +62,8 @@
                 <label class="form-label small text-muted mb-1">来源</label>
                 <select name="source" class="form-select form-select-sm">
                     <option value="" {% if not filters.source %}selected{% endif %}>全部来源</option>
-                    <option value="operation_log" {% if filters.source == 'operation_log' %}selected{% endif %}>旧操作日志</option>
-                    <option value="operation_audit" {% if filters.source == 'operation_audit' %}selected{% endif %}>变更审计</option>
+                    <option value="operation_log" {% if filters.source == 'operation_log' %}selected{% endif %}>历史审计</option>
+                    <option value="operation_audit" {% if filters.source == 'operation_audit' %}selected{% endif %}>实时审计</option>
                 </select>
             </div>
             <div class="col-md-2">

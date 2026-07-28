@@ -385,7 +385,10 @@ textarea.form-control {
 <div class="page-header d-flex justify-content-between align-items-center">
     <h2 class="mb-0"><i class="bi bi-bag-check"></i> {{ page_title or '新增采购单' }}</h2>
     <div class="d-flex gap-2 flex-wrap">
-        <button type="button" class="btn btn-primary" onclick="submitForm()">
+        <button type="button" class="btn btn-outline-primary" onclick="submitForm(true)">
+            <i class="bi bi-plus-square"></i> 保存并新建
+        </button>
+        <button type="button" class="btn btn-primary" onclick="submitForm(false)">
             <i class="bi bi-save"></i> 保存
         </button>
         <a href="/purchase_order" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> 返回列表</a>
@@ -914,7 +917,8 @@ function collectItems() {
     })).filter(item => item.material_id || item.material_code);
 }
 
-function submitForm() {
+function submitForm(saveAndNew) {
+    window.__saveAndNew = !!saveAndNew;
     const form = document.getElementById('purchaseOrderForm');
     const formData = new FormData(form);
     const payload = {
@@ -944,7 +948,16 @@ function submitForm() {
     .then(data => {
         if (data.status === 'success') {
             showToast('采购单保存成功', 'success');
-            setTimeout(() => window.location.href = '/purchase_order/' + data.id, 500);
+            // BUG-2026-07-28-014 修复：保存并新建 - 保留表头回到新增页
+            if (window.__saveAndNew) {
+                setTimeout(() => {
+                    const url = new URL(window.location.origin + '/purchase_order/add');
+                    if (payload.supplier_id) url.searchParams.set('supplier_id', payload.supplier_id);
+                    window.location.href = url.toString();
+                }, 400);
+            } else {
+                setTimeout(() => window.location.href = '/purchase_order/' + data.id, 500);
+            }
         } else {
             showToast(data.msg || '保存失败', 'danger', 3600);
         }
