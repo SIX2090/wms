@@ -214,6 +214,23 @@
             window.location.href = url.toString();
         });
     }
+    // BUG-F02-07 修复：自动绑定所有 .per-page-select 元素，统一变更每页条数
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.per-page-select').forEach(function(sel) {
+            sel.addEventListener('change', function() {
+                var size = this.value;
+                var bk = {};
+                try { bk = JSON.parse(this.dataset.baseKwargs || '{}'); } catch (e) { bk = {}; }
+                var url = new URL(window.location.href, window.location.origin);
+                url.searchParams.set('per_page', size);
+                url.searchParams.set('page', '1');
+                Object.keys(bk).forEach(function(k) {
+                    if (bk[k] !== null && bk[k] !== undefined && bk[k] !== '') url.searchParams.set(k, bk[k]);
+                });
+                window.location.href = url.toString();
+            });
+        });
+    });
     </script>
     <style>
         :root {

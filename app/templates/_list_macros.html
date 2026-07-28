@@ -85,6 +85,20 @@
 {%- endif -%}
 {%- endmacro %}
 
+{# ----- 每页条数下拉（基础资料分页 BUG-F02-07）-----
+   参数：
+     current: 当前 per_page
+     options: 白名单（默认 10/20/50/100/200）
+#}
+{% macro per_page_select(current=20, options=(10, 20, 50, 100, 200)) -%}
+<span class="text-muted me-2 small">每页显示</span>
+<select class="form-select form-select-sm d-inline-block per-page-select" id="perPageSelect" style="width: auto;">
+    {%- for opt in options -%}
+    <option value="{{ opt }}" {% if current == opt %}selected{% endif %}>{{ opt }} 条</option>
+    {%- endfor -%}
+</select>
+{%- endmacro %}
+
 {# ----- 通用分页 nav（左：每页条数；右：页码）
    参数：
      pagination: SQLAlchemy Pagination 对象

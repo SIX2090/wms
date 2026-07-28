@@ -6594,7 +6594,7 @@ def operation_audit_page():
     date_end = _audit_date_arg('date_end')
     page = max(1, request.args.get('page', 1, type=int))
     per_page = request.args.get('per_page', 20, type=int)
-    if per_page not in [20, 50, 100, 200]:
+    if per_page not in [10, 20, 50, 100, 200]:
         per_page = 20
     if source not in {'operation_log', 'operation_audit'}:
         source = ''
@@ -7916,7 +7916,7 @@ def warehouse_list():
     per_page = request.args.get('per_page', 20, type=int)
     # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
     per_page = max(1, per_page)
-    if per_page not in [20, 50, 100, 200]:
+    if per_page not in [10, 20, 50, 100, 200]:
         per_page = 20
     query, filters, sort_by, sort_order = _warehouse_query_from_args()
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
@@ -8205,7 +8205,7 @@ def department_list():
     per_page = request.args.get('per_page', 20, type=int)
     # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
     per_page = max(1, per_page)
-    if per_page not in [20, 50, 100, 200]:
+    if per_page not in [10, 20, 50, 100, 200]:
         per_page = 20
     query, filters, sort_by, sort_order = _department_query_from_args()
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
@@ -8503,7 +8503,7 @@ def contract_list():
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
     per_page = max(1, per_page)
-    if per_page not in [20, 50, 100, 200]:
+    if per_page not in [10, 20, 50, 100, 200]:
         per_page = 20
     search = (request.args.get('search') or '').strip()
     status = (request.args.get('status') or '').strip()
@@ -24776,7 +24776,7 @@ def in_order_list():
     per_page = request.args.get('per_page', 20, type=int)
     # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
     per_page = max(1, per_page)
-    if per_page not in [20, 50, 100, 200]:
+    if per_page not in [10, 20, 50, 100, 200]:
         per_page = 20
     # 支持 ?type=purchase_in / ?type=product_in 英文简写参数，
     # 避免中文参数在 URL 中未经编码导致 Waitress Bad Request。
@@ -33047,7 +33047,7 @@ def out_order_list():
     per_page = request.args.get('per_page', 20, type=int)
     # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
     per_page = max(1, per_page)
-    if per_page not in [20, 50, 100, 200]:
+    if per_page not in [10, 20, 50, 100, 200]:
         per_page = 20
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
     allowed_sorts = {'order_no', 'date', 'department_id', 'customer', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
@@ -33855,7 +33855,7 @@ def after_sale_out_list():
     per_page = request.args.get('per_page', 20, type=int)
     # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
     per_page = max(1, per_page)
-    if per_page not in [20, 50, 100, 200]:
+    if per_page not in [10, 20, 50, 100, 200]:
         per_page = 20
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
     allowed_sorts = {'order_no', 'date', 'customer', 'reason', 'status', 'created_at', 'total_amount'}
@@ -34472,7 +34472,7 @@ def purchase_request_list():
     per_page = request.args.get('per_page', 20, type=int)
     # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
     per_page = max(1, per_page)
-    if per_page not in [20, 50, 100, 200]:
+    if per_page not in [10, 20, 50, 100, 200]:
         per_page = 20
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'approved', 'rejected', 'completed'))
     allowed_sorts = {'request_no', 'date', 'applicant', 'department', 'urgency', 'expected_date', 'status', 'created_at', 'total_amount'}
@@ -35256,7 +35256,7 @@ def purchase_order_list():
     per_page = request.args.get('per_page', 20, type=int)
     # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
     per_page = max(1, per_page)
-    if per_page not in [20, 50, 100, 200]:
+    if per_page not in [10, 20, 50, 100, 200]:
         per_page = 20
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'partial', 'completed', 'closed', 'open'))
     supplier_id = request.args.get('supplier_id', type=int) or 0
@@ -43193,7 +43193,7 @@ def approval_list():
     per_page = request.args.get('per_page', 20, type=int)
     # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
     per_page = max(1, per_page)
-    if per_page not in [20, 50, 100, 200]:
+    if per_page not in [10, 20, 50, 100, 200]:
         per_page = 20
     status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'approved', 'rejected', 'completed'))
     allowed_sorts = {'request_no', 'date', 'applicant', 'department', 'status', 'created_at', 'total_amount'}
