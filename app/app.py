@@ -24956,7 +24956,39 @@ def add_in_order():
             if quantity <= 0:
                 return jsonify({'status': 'error', 'msg': f'第 {index} 行物料 {material_code} 的数量必须大于0'}), 400
     elif not order_id:
-        return jsonify({'status': 'error', 'msg': '入库单至少需要一条明细'}), 400
+        # BUG-2026-07-28-005 修复：表单提交（无 items_json）也必须校验
+        # 仓库、供应商 / 客户、明细必填，禁止空表单保存为已完成入库单。
+        # 表单可能未传 items_json（多数前端表单把明细写在 items_data 隐藏域），
+        # 但若完全空白（连 warehouse 都没填）则属于误操作，直接拒绝。
+        if not warehouse:
+            return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
+        if business_type == '采购入库' and not supplier_id:
+            return jsonify({'status': 'error', 'msg': '采购入库单必须选择供应商'}), 400
+        if business_type == '其他入库' and not customer_id:
+            return jsonify({'status': 'error', 'msg': '其他入库单必须选择客户'}), 400
+        # 表单可附带 items_json 字符串（与 JSON 路径结构相同）
+        items_json = (request.form.get('items_json') or '').strip()
+        if items_json:
+            try:
+                items_data = json.loads(items_json)
+            except (ValueError, TypeError):
+                return jsonify({'status': 'error', 'msg': '明细 JSON 格式错误'}), 400
+            if not isinstance(items_data, list) or not items_data:
+                return jsonify({'status': 'error', 'msg': '入库单至少需要一条明细'}), 400
+            for index, item_data in enumerate(items_data, 1):
+                if not isinstance(item_data, dict):
+                    return jsonify({'status': 'error', 'msg': f'第 {index} 行入库明细格式不正确'}), 400
+                material_code = (item_data.get('code') or '').strip()
+                if not material_code:
+                    return jsonify({'status': 'error', 'msg': f'第 {index} 行请选择物料'}), 400
+                try:
+                    quantity = round_to_2_decimals(item_data.get('quantity', 0))
+                except (TypeError, ValueError):
+                    quantity = 0
+                if quantity <= 0:
+                    return jsonify({'status': 'error', 'msg': f'第 {index} 行物料 {material_code} 的数量必须大于0'}), 400
+        else:
+            return jsonify({'status': 'error', 'msg': '入库单至少需要一条明细'}), 400
 
     if order_id and order_id not in ('None', '', 'null'):
         try:
