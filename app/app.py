@@ -28168,6 +28168,7 @@ def add_label_template():
         return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
 
 @app.route('/label_template/<int:id>')
+@require_role('admin', 'warehouse')  # BUG-F02-08 修复：模板设计页只允许 admin/warehouse 进入
 @login_required
 def label_template_detail(id):
     template = LabelTemplate.query.get_or_404(id)
