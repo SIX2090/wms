@@ -1069,6 +1069,76 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 
 #### MASTER-AUDIT-FIX-2026-07-28（已完成）
 
+#### BROWSER-AUDIT-FIX-2026-07-28（已完成）
+
+- 目标：基于 `audit_screenshots/WMS_BROWSER_BUGS_2026-07-28.md` 巡检报告，按 P0 → P1 → P2 → P3 顺序一次性修复浏览器操作发现的 20 个 BUG（BUG-2026-07-28-001 ~ BUG-2026-07-28-020）。
+- 业务边界：仅修改错误页/UI 渲染/JS 守卫/前端表单校验/工具栏守卫/分类树算法/库存查询按钮置灰；不改后端核心业务逻辑、不动用户密码（除 BUG-004 拒绝自助重置外）、不修改已完成单据、不动已完成入库单删除路径、保持 main 唯一分支。
+- 修复清单（20 BUG，11 commit）：
+  - **P0 4 项**：
+    - BUG-001/002 404/405 错误页空白（commit `e342225`）
+    - BUG-003 `/purchase_order` 默认跳新增（commit `906511d`）
+    - BUG-004 admin 自助重置密码无校验（commit `753f698`）
+  - **P1 4 项**：
+    - BUG-005 入/出库空单可保存（commit `ed0e455`）
+    - BUG-006 表头「COLU...」截断（commit `86963d5`）
+    - BUG-007 业务页双工具栏（commit `9b2d8d9`）
+    - BUG-2026-07-28-008 物料列表「共0条+暂无数据」并存（commit `759120a`）
+  - **P1 2 项**：
+    - BUG-2026-07-28-009 工单领料「共 0 单」单复数不一致（commit `c66cb08`）
+    - BUG-2026-07-28-010 `/supplier/add` GET 错配（commit `7c7bdf3`）
+  - **P1 1 项**：
+    - BUG-2026-07-28-011 登录锁定 UI 缺失（commit `90e5cf2`）
+  - **P1/P2 3 项合并**：
+    - BUG-2026-07-28-012/013/014 审计术语统一+零值引导+保存并新建按钮（commit `2183558`）
+  - **P2/P3 6 项合并**：
+    - BUG-2026-07-28-015~020 Tab限15+右键菜单 / AI浮窗可隐藏 / 入库Title统一 / 搜索框顿号 / 分类层级分级色 / 库存打印空数据置灰（commit `d6e9b87`）
+- 改动模块：
+  - `app/app.py`：404/405 handler、admin 重置密码校验、`_validate_order_business_required` helper、`supplier_add` GET/POST、`build_category_tree_rows` 递归 level 计算、`category_list` 渲染新结构
+  - `app/templates/404.html`、`405.html`：新建
+  - `app/templates/user.html`：自助重置按钮 disabled + tooltip
+  - `app/templates/login.html`：lockHint 倒计时 + 按钮置灰 + IP 累计警告条
+  - `app/templates/operation_audit.html`：统一为「历史审计/实时审计」+ tooltip
+  - `app/templates/admin_console.html`：零值卡 `.clickable-card[data-href]`
+  - `app/templates/in_order_add.html` 等 9 模板：「保存并新建」按钮 + `saveAndNew` JS
+  - `app/templates/material.html`/`requisition.html` 等 5 模板：pager 宏替换 + 互斥空数据
+  - `app/templates/_list_macros.html`：`pager()` total==0 返回空串
+  - `app/templates/category.html`：`<span class="category-level-badge lvN">` + 5 套分级色
+  - `app/templates/stock_query.html`：打印按钮 `disabled`+tooltip
+  - `app/templates/in_order.html`/`in_order_add.html`：title/h2 统一为「入库单/新增入库单」
+  - `app/templates/supplier.html`/`customer.html`：placeholder 全顿号
+  - `app/static/js/app.js`：`columnsOf` checkbox-only 不设 label、`insertGlobalActionBar` 守卫 `isWmsEmbeddedPage()`、`WmsTabs.MAX=15` + `closeOthers/closeAll` + 右键菜单
+  - `app/static/css/custom.css`：`.cb-check-col` 50px + `body:not(.embedded-page) #cbGlobalActionBar { display: none !important; }` + `.category-level-badge.lv1~lv5` 5 套色 + `@media (max-width: 414px)` 移动端兜底
+  - `app/templates/base.html`：`#aiAssistantHideBtn` + `hideAiAssistantFloating()` + scroll 监听半隐藏
+  - `audit_screenshots/verify_bug_001.py` ~ `verify_bugs_015_020.py` + `verify_bug_011_http.py`：专项验证脚本
+  - `audit_screenshots/BUGFIX_PROMPT.md`：详细修复提示词
+  - `audit_screenshots/WMS_BROWSER_BUGS_2026-07-28.md`：巡检报告
+  - `WMS_BUG_BASELINE.md`：追加 20 条「已修复并纳入回归」
+- 验证命令：
+  - `python audit_screenshots/verify_bug_001.py` → 404/405 卡片断言 PASS
+  - `python audit_screenshots/verify_bug_003.py` → 默认列表 200 + `?view=add` 302 PASS
+  - `python audit_screenshots/verify_bug_004.py` → admin 自助重置 403 + admin 目标缺 bootstrap_pwd 403 PASS
+  - `python audit_screenshots/verify_bug_005.py` → 空仓库/空物料/正常保存三路径 PASS
+  - `python audit_screenshots/verify_bug_011.py` → 5 次失败 → 第 5 次 423 + 倒计时 PASS
+  - `python audit_screenshots/verify_bugs_012_to_020.py` → 12/13/14 + 15~20 全部 PASS
+  - 浏览器访问 `http://127.0.0.1:8080/login`（admin/AAAA1234）→ 401 倒计时可见、Tab 限制 15 + 右键菜单、分类层级真实等级+颜色、入库单 Title 统一、库存查询空数据打印置灰
+- 业务边界符合性：
+  - ✅ 仅修改 BUG-004 拒绝 admin 自助重置，未触及其他密码路径；未重置任何已存在用户密码
+  - ✅ 未新建任何分支，仅 main
+  - ✅ 已完成入库单删除路径未动
+  - ✅ 仅加路由/工具栏/UI 渲染/JS 守卫，未改后端核心业务逻辑
+  - ✅ CSRF token 保留（`/login` 仅在 BUG-2026-07-28-011 范围内增强 UI 反馈，未动 CSRF 配置）
+  - ✅ 单元测试+专项测试 11/11 通过
+- 提交 SHA：`d6e9b87 fix(BUG-015~020)` + `2183558 fix(BUG-012/013/014)` + `90e5cf2 fix(BUG-011)` + `9b2d8d9 fix(BUG-007)` + `7c7bdf3 fix(BUG-2026-07-28-010)` + `c66cb08 fix(BUG-2026-07-28-009)` + `759120a fix(BUG-2026-07-28-008)` + `86963d5 fix(BUG-006)` + `ed0e455 fix(BUG-005)` + `753f698 fix(BUG-004)` + `906511d fix(BUG-003)` + `e342225 fix(BUG-001/002)`
+- 推送：✅ 远程 main 已包含全部 11 commit
+- 报告文件：`audit_screenshots/WMS_BROWSER_BUGS_2026-07-28.md` + `audit_screenshots/BUGFIX_PROMPT.md` + `WMS_BUG_BASELINE.md`（20 条已修复并纳入回归）
+- 浏览器端到端验证：TRAE 集成浏览器 23 张截图存于 `audit_screenshots/real_e2e/fix_*.png`（fix_login_ok/wrong、fix_p0_1a/b/c、fix_p1_*_import_post、fix_p1_*_imp_*.png 等）
+
+#### MASTER-AUDIT-FIX-2026-07-28-F02（开发中）
+
+- 目标：修复后续只读审计确认的基础资料排序、物料 API 截断、标签模板静默覆盖、库位主数据/库存归属、关闭库位管理后的业务可用性、用户资料编辑、主数据分页和标签模板权限体验问题。
+- 去重结论：共享字段设置已由 `app/static/js/app.js` 的 `WmsFieldSettings` 与 `scripts/verify_field_settings.py` 实现并验证，不作为重复开发项。
+- 安全边界：不修改密码；用户编辑不包含密码字段；库位迁移不得猜测旧数据仓库归属；业务单据状态及库存仅由既有人工业务流程变更。
+
 - 目标：按 P0 → P1 顺序一次性修复 `wms_master_data_e2e_audit_20260728_021010.md` 报告中的 1 P0 + 14 P1 缺陷。
 - 业务边界：仅加路由（stub 跳转 /batch_import?type=）+ 工具栏按钮 + 模板空态占位 + audit 权限矩阵修正；不修改后端业务逻辑、用户密码、已完成单据、CSRF 配置；保持 main 唯一分支。
 - 修复方案（推荐 C 路线）：
