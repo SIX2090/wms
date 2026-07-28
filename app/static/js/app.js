@@ -3003,7 +3003,14 @@ document.addEventListener('DOMContentLoaded', function() {
         var headers = Array.from(table.querySelectorAll('thead th[data-column-key]'));
         return headers.map(function(th, index) {
             var key = th.dataset.columnKey;
-            var label = th.dataset.defaultLabel || Array.from(th.childNodes).filter(function(n) { return n.nodeType === 3; }).map(function(n) { return n.textContent; }).join('').trim() || key;
+            // BUG-2026-07-28-006 修复：checkbox 列（仅含 <input type="checkbox"> 无文本节点）
+            // 不要回退到 key 作为 label，否则会显示「COLU...」之类被截断的字段名。
+            var hasOnlyCheckbox = th.children.length === 1
+                && th.firstElementChild
+                && th.firstElementChild.tagName === 'INPUT'
+                && (th.firstElementChild.type || '').toLowerCase() === 'checkbox';
+            var rawText = Array.from(th.childNodes).filter(function(n) { return n.nodeType === 3; }).map(function(n) { return n.textContent; }).join('').trim();
+            var label = th.dataset.defaultLabel || rawText || (hasOnlyCheckbox ? '' : key);
             th.dataset.defaultLabel = label;
             return { key: key, label: label, defaultLabel: label, defaultIndex: index, locked: ['row_no','material_code','quantity','contract_no','project_name','actions'].indexOf(key) !== -1 };
         });
@@ -3027,6 +3034,17 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function setHeaderLabel(th, label) {
+        // BUG-2026-07-28-006 修复：checkbox 列无 label，不要插入任何文本节点，
+        // 否则 50px 窄列会显示「COLU...」之类被截断的字段名。
+        var hasOnlyCheckbox = th.children.length === 1
+            && th.firstElementChild
+            && th.firstElementChild.tagName === 'INPUT'
+            && (th.firstElementChild.type || '').toLowerCase() === 'checkbox';
+        if (hasOnlyCheckbox) {
+            var existing = Array.from(th.childNodes).find(function(node) { return node.nodeType === 3; });
+            if (existing) existing.textContent = '';
+            return;
+        }
         var textNode = Array.from(th.childNodes).find(function(node) { return node.nodeType === 3; });
         if (textNode) textNode.textContent = label;
         else th.insertBefore(document.createTextNode(label), th.firstChild);
