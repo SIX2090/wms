@@ -672,27 +672,45 @@ body {
         }
         
         // 保存布局
-        function saveLayout() {
-            fetch(`/label_template/{{ template.id }}/save_layout`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    layout: layoutData
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
+        // BUG-F02-03 修复：增加 response.ok 校验 + 保存中 disabled 防双击 + console.error 详细错误
+        let _savingLayout = false;
+        async function saveLayout() {
+            if (_savingLayout) return;
+            const saveBtn = document.querySelector('button.btn-success[onclick="saveLayout()"]');
+            const originalHtml = saveBtn ? saveBtn.innerHTML : '';
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>保存中...';
+            }
+            _savingLayout = true;
+            try {
+                const resp = await fetch(`/label_template/{{ template.id }}/save_layout`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ layout: layoutData })
+                });
+                let data = {};
+                try { data = await resp.json(); } catch (parseErr) {
+                    console.error('BUG-F02-03: 后端返回非 JSON', resp.status, resp.statusText, await resp.text());
+                    alert('保存失败：服务器返回 ' + resp.status + ' ' + resp.statusText);
+                    return;
+                }
+                if (resp.ok && data.status === 'success') {
                     alert('布局保存成功！');
                 } else {
-                    alert('保存失败：' + data.msg);
+                    console.error('BUG-F02-03: 保存失败', resp.status, data);
+                    alert('保存失败：' + (data.msg || ('HTTP ' + resp.status)));
                 }
-            })
-            .catch(error => {
-                alert('保存失败：' + error.message);
-            });
+            } catch (networkErr) {
+                console.error('BUG-F02-03: 网络错误', networkErr);
+                alert('保存失败：' + networkErr.message);
+            } finally {
+                _savingLayout = false;
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = originalHtml;
+                }
+            }
         }
         
         // 预览模板

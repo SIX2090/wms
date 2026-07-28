@@ -27982,6 +27982,34 @@ def delete_label_template(id):
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success'})
 
+@app.route('/label_template/<int:id>/save_layout', methods=['POST'])
+@require_role('admin', 'warehouse')
+@login_required
+def save_label_template_layout(id):
+    """BUG-F02-03 修复：标签模板保存布局路由（之前完全缺失，前端误报成功）"""
+    template = LabelTemplate.query.get_or_404(id)
+    payload = request.get_json(silent=True) or {}
+    layout = payload.get('layout')
+    if layout is None:
+        return jsonify({'status': 'error', 'msg': '布局数据不能为空'}), 400
+    if not isinstance(layout, (dict, list)):
+        return jsonify({'status': 'error', 'msg': '布局数据格式不正确（必须为对象或数组）'}), 400
+    try:
+        template.layout = json.dumps(layout, ensure_ascii=False)
+        template.updated_at = datetime.now()
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.error('标签模板布局保存失败: %s', exc)
+        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'}), 500
+    log_operation(
+        '更新标签模板布局',
+        f'template_id={id}, name={template.name}, keys={list(layout.keys()) if isinstance(layout, dict) else len(layout)}',
+        'label_template', id,
+    )
+    return jsonify({'status': 'success', 'msg': '布局已保存', 'updated_at': template.updated_at.strftime('%Y-%m-%d %H:%M:%S') if template.updated_at else ''})
+
+
 @app.route('/label_template/<int:id>/preview')
 @login_required
 def preview_label_template(id):
