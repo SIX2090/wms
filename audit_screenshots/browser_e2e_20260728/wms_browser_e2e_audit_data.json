@@ -1,0 +1,1441 @@
+{
+  "timestamp": "20260728_045127",
+  "stats": {
+    "pass": 147,
+    "fail": 0,
+    "warn": 11,
+    "skip": 0
+  },
+  "total": 158,
+  "pass": 147,
+  "p0_pass": 80,
+  "p0_total": 80,
+  "p1_pass": 52,
+  "p1_total": 52,
+  "p2_pass": 26,
+  "p2_total": 26,
+  "results": [
+    {
+      "category": "1.登录",
+      "name": "[admin] POST /login (admin/admin)",
+      "expected": "302/200 + 登录后页面",
+      "actual": "302 /",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "1.登录",
+      "name": "[admin] GET / (首页)",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "1.登录",
+      "name": "[warehouse] POST /login (warehouse_test/admin)",
+      "expected": "302/200 + 登录后页面",
+      "actual": "302 /",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "1.登录",
+      "name": "[warehouse] GET / (首页)",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "1.登录",
+      "name": "[production] POST /login (production_test/admin)",
+      "expected": "302/200 + 登录后页面",
+      "actual": "302 /",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "1.登录",
+      "name": "[production] GET / (首页)",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#01",
+      "name": "[物料分类] /category",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#02",
+      "name": "[物料] /material",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#03",
+      "name": "[单位] /unit",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#04",
+      "name": "[供应商] /supplier",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#05",
+      "name": "[客户] /customer",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#06",
+      "name": "[仓库] /warehouse",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#07",
+      "name": "[部门] /department",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#08",
+      "name": "[员工] /employee",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#09",
+      "name": "[合同] /contract",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#10",
+      "name": "[用户账号] /user",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#11",
+      "name": "[系统设置] /system_settings",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#12",
+      "name": "[标签模板] /label_template",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#13",
+      "name": "[BOM] /bom",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#14",
+      "name": "[期初库存] /opening_stock",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#15",
+      "name": "[库存查询] /stock_query",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#16",
+      "name": "[批量打印标签] /print_in_order_labels",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#17",
+      "name": "[报表中心] /report",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#18",
+      "name": "[报表看板] /report/dashboard",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#19",
+      "name": "[批量导入] /batch_import",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#20",
+      "name": "[字典/自定义字段] /admin/console",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#21",
+      "name": "[入库单] /in_order",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#22",
+      "name": "[出库单] /out_order",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#23",
+      "name": "[采购订单] /purchase_order",
+      "expected": "200",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#24",
+      "name": "[采购申请] /purchase_request",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#25",
+      "name": "[销售订单] /sales",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#26",
+      "name": "[调拨单] /transfer",
+      "expected": "200",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#27",
+      "name": "[盘点单] /check",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#28",
+      "name": "[调整单] /adjustment",
+      "expected": "200",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#29",
+      "name": "[审批中心] /approval",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#30",
+      "name": "[预警中心] /alert",
+      "expected": "200",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "2.菜单#31",
+      "name": "[操作审计] /operation_audit",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "3.工具栏#02",
+      "name": "[物料] export_button",
+      "expected": "-",
+      "actual": "物料 页未发现 export_button 按钮/控件",
+      "status": "NOTE",
+      "severity": "P2",
+      "note": "物料 页未发现 export_button 按钮/控件"
+    },
+    {
+      "category": "3.工具栏#10",
+      "name": "[用户账号] export_button",
+      "expected": "-",
+      "actual": "用户账号 页未发现 export_button 按钮/控件",
+      "status": "NOTE",
+      "severity": "P2",
+      "note": "用户账号 页未发现 export_button 按钮/控件"
+    },
+    {
+      "category": "3.工具栏#12",
+      "name": "[标签模板] export_button",
+      "expected": "-",
+      "actual": "标签模板 页未发现 export_button 按钮/控件",
+      "status": "NOTE",
+      "severity": "P2",
+      "note": "标签模板 页未发现 export_button 按钮/控件"
+    },
+    {
+      "category": "3.工具栏#15",
+      "name": "[库存查询] export_button",
+      "expected": "-",
+      "actual": "库存查询 页未发现 export_button 按钮/控件",
+      "status": "NOTE",
+      "severity": "P2",
+      "note": "库存查询 页未发现 export_button 按钮/控件"
+    },
+    {
+      "category": "3.工具栏#16",
+      "name": "[批量打印标签] add_button",
+      "expected": "-",
+      "actual": "批量打印标签 页未发现 add_button 按钮/控件",
+      "status": "NOTE",
+      "severity": "P2",
+      "note": "批量打印标签 页未发现 add_button 按钮/控件"
+    },
+    {
+      "category": "3.工具栏#16",
+      "name": "[批量打印标签] export_button",
+      "expected": "-",
+      "actual": "批量打印标签 页未发现 export_button 按钮/控件",
+      "status": "NOTE",
+      "severity": "P2",
+      "note": "批量打印标签 页未发现 export_button 按钮/控件"
+    },
+    {
+      "category": "3.工具栏#16",
+      "name": "[批量打印标签] pagination",
+      "expected": "-",
+      "actual": "批量打印标签 页未发现 pagination 按钮/控件",
+      "status": "NOTE",
+      "severity": "P2",
+      "note": "批量打印标签 页未发现 pagination 按钮/控件"
+    },
+    {
+      "category": "3.工具栏#16",
+      "name": "[批量打印标签] batch_delete",
+      "expected": "-",
+      "actual": "批量打印标签 页未发现 batch_delete 按钮/控件",
+      "status": "NOTE",
+      "severity": "P2",
+      "note": "批量打印标签 页未发现 batch_delete 按钮/控件"
+    },
+    {
+      "category": "3.工具栏#20",
+      "name": "[字典/自定义字段] export_button",
+      "expected": "-",
+      "actual": "字典/自定义字段 页未发现 export_button 按钮/控件",
+      "status": "NOTE",
+      "severity": "P2",
+      "note": "字典/自定义字段 页未发现 export_button 按钮/控件"
+    },
+    {
+      "category": "3.工具栏#29",
+      "name": "[审批中心] export_button",
+      "expected": "-",
+      "actual": "审批中心 页未发现 export_button 按钮/控件",
+      "status": "NOTE",
+      "severity": "P2",
+      "note": "审批中心 页未发现 export_button 按钮/控件"
+    },
+    {
+      "category": "3.工具栏#31",
+      "name": "[操作审计] export_button",
+      "expected": "-",
+      "actual": "操作审计 页未发现 export_button 按钮/控件",
+      "status": "NOTE",
+      "severity": "P2",
+      "note": "操作审计 页未发现 export_button 按钮/控件"
+    },
+    {
+      "category": "4.CRUD/物料",
+      "name": "[物料] 列表页 /material",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/物料",
+      "name": "[物料] 详情页 /material/1",
+      "expected": "200/404",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/供应商",
+      "name": "[供应商] 列表页 /supplier",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/供应商",
+      "name": "[供应商] 详情页 /supplier/1",
+      "expected": "200/404",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/客户",
+      "name": "[客户] 列表页 /customer",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/客户",
+      "name": "[客户] 详情页 /customer/1",
+      "expected": "200/404",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/仓库",
+      "name": "[仓库] 列表页 /warehouse",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/仓库",
+      "name": "[仓库] 详情页 /warehouse/1",
+      "expected": "200/404",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/部门",
+      "name": "[部门] 列表页 /department",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/部门",
+      "name": "[部门] 详情页 /department/1",
+      "expected": "200/404",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/员工",
+      "name": "[员工] 列表页 /employee",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/员工",
+      "name": "[员工] 详情页 /employee/1",
+      "expected": "200/404",
+      "actual": "404",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/合同",
+      "name": "[合同] 列表页 /contract",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/合同",
+      "name": "[合同] 详情页 /contract/1",
+      "expected": "200/404",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/BOM",
+      "name": "[BOM] 列表页 /bom",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/BOM",
+      "name": "[BOM] 详情页 /bom/1",
+      "expected": "200/404",
+      "actual": "404",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/期初库存",
+      "name": "[期初库存] 列表页 /opening_stock",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/期初库存",
+      "name": "[期初库存] 详情页 /opening_stock/1",
+      "expected": "200/404",
+      "actual": "404",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/标签模板",
+      "name": "[标签模板] 列表页 /label_template",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "4.CRUD/标签模板",
+      "name": "[标签模板] 详情页 /label_template/1",
+      "expected": "200/404",
+      "actual": "404",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "5.生命周期",
+      "name": "[入库] 列表页可访问",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "5.生命周期",
+      "name": "[入库] 列表含操作按钮",
+      "expected": "审核/完成/详情",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "5.生命周期",
+      "name": "[出库] 列表页可访问",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "5.生命周期",
+      "name": "[出库] 列表含操作按钮",
+      "expected": "审核/完成/详情",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "5.生命周期",
+      "name": "[入库] 新增页 /in_order/add",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "5.生命周期",
+      "name": "[出库] 新增页 /out_order/add",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "6.报表/报表中心",
+      "name": "[报表中心] /report",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "6.报表/报表看板",
+      "name": "[报表看板] /report/dashboard",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "6.报表/销售报表",
+      "name": "[销售报表] /sales/report",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "6.报表/采购报表",
+      "name": "[采购报表] /purchase_report",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "6.报表/销售趋势报表",
+      "name": "[销售趋势报表] /sales/trend_report",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "6.报表/销售执行报表",
+      "name": "[销售执行报表] /sales/execution_report",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "6.报表/销售异常报表",
+      "name": "[销售异常报表] /sales/exceptions",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "6.报表/销售Dashboard",
+      "name": "[销售Dashboard] /sales/dashboard",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "6.报表/销售出库流水",
+      "name": "[销售出库流水] /sales/outflow_report",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "6.报表/销售价格分析",
+      "name": "[销售价格分析] /sales/price_analysis",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "6.报表/销售对账",
+      "name": "[销售对账] /sales/reconciliation",
+      "expected": "200",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P0-1",
+      "name": "[P0-1] /label/batch_print?ids= 空表格",
+      "expected": "200 + 占位提示 + 跳 /material",
+      "actual": "200 + placeholder=True + search=True + link=True",
+      "status": "PASS",
+      "severity": "P0",
+      "note": "✅ 修复生效"
+    },
+    {
+      "category": "7.修复/P0-1b",
+      "name": "[P0-1] /label/batch_print?ids=1,2 有数据",
+      "expected": "200 + 不显示占位 + 含材料数据",
+      "actual": "200 + placeholder_absent=True + has_data=True",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-A/category",
+      "name": "[P1-A] category 工具栏含批量导入",
+      "expected": "含 /batch_import?type=",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-A/material",
+      "name": "[P1-A] material 工具栏含批量导入",
+      "expected": "含 /batch_import?type=",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-A/unit",
+      "name": "[P1-A] unit 工具栏含批量导入",
+      "expected": "含 /batch_import?type=",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-A/supplier",
+      "name": "[P1-A] supplier 工具栏含批量导入",
+      "expected": "含 /batch_import?type=",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-A/customer",
+      "name": "[P1-A] customer 工具栏含批量导入",
+      "expected": "含 /batch_import?type=",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-A/warehouse",
+      "name": "[P1-A] warehouse 工具栏含批量导入",
+      "expected": "含 /batch_import?type=",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-A/department",
+      "name": "[P1-A] department 工具栏含批量导入",
+      "expected": "含 /batch_import?type=",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-A/employee",
+      "name": "[P1-A] employee 工具栏含批量导入",
+      "expected": "含 /batch_import?type=",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-A/contract",
+      "name": "[P1-A] contract 工具栏含批量导入",
+      "expected": "含 /batch_import?type=",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-A/label_template",
+      "name": "[P1-A] label_template 工具栏含批量导入",
+      "expected": "含 /batch_import?type=",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-A/bom",
+      "name": "[P1-A] bom 工具栏含批量导入",
+      "expected": "含 /batch_import?type=",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-A/opening_stock",
+      "name": "[P1-A] opening_stock 工具栏含批量导入",
+      "expected": "含 /batch_import?type=",
+      "actual": "有",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-B//user/import",
+      "name": "[P1-B] POST /user/import",
+      "expected": "302/200",
+      "actual": "302 -> /batch_import?type=user",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-B//user/export",
+      "name": "[P1-B] GET /user/export",
+      "expected": "302/200",
+      "actual": "302 -> /batch_import?type=user",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-B//system_settings/add",
+      "name": "[P1-B] GET /system_settings/add",
+      "expected": "302/200",
+      "actual": "302 -> /system_settings",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-B//system_settings/import",
+      "name": "[P1-B] POST /system_settings/import",
+      "expected": "302/200",
+      "actual": "302 -> /batch_import?type=system_settings",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-B//system_settings/export",
+      "name": "[P1-B] GET /system_settings/export",
+      "expected": "302/200",
+      "actual": "302 -> /batch_import?type=system_settings",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-B//label_template/import",
+      "name": "[P1-B] POST /label_template/import",
+      "expected": "302/200",
+      "actual": "302 -> /batch_import?type=label_template",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-B//label_template/export",
+      "name": "[P1-B] GET /label_template/export",
+      "expected": "302/200",
+      "actual": "302 -> /batch_import?type=label_template",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-B//opening_stock/import",
+      "name": "[P1-B] POST /opening_stock/import",
+      "expected": "302/200",
+      "actual": "302 -> /batch_import?type=opening_stock",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-B//opening_stock/export",
+      "name": "[P1-B] GET /opening_stock/export",
+      "expected": "302/200",
+      "actual": "302 -> /batch_import?type=opening_stock",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-C",
+      "name": "[P1-C] warehouse 访问 /user 需被拒",
+      "expected": "302/403",
+      "actual": "302 -> /",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P1-C",
+      "name": "[P1-C] warehouse 访问 /admin/console 需被拒",
+      "expected": "302/403",
+      "actual": "302 -> /",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P2/batch_import",
+      "name": "[P2] /batch_import?type=category",
+      "expected": "含高亮 + 过滤提示",
+      "actual": "highlight=True",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P2/batch_import",
+      "name": "[P2] /batch_import?type=material",
+      "expected": "含高亮 + 过滤提示",
+      "actual": "highlight=True",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P2/batch_import",
+      "name": "[P2] /batch_import?type=unit",
+      "expected": "含高亮 + 过滤提示",
+      "actual": "highlight=True",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P2/batch_import",
+      "name": "[P2] /batch_import?type=supplier",
+      "expected": "含高亮 + 过滤提示",
+      "actual": "highlight=True",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "7.修复/P2/batch_import",
+      "name": "[P2] /batch_import?type=customer",
+      "expected": "含高亮 + 过滤提示",
+      "actual": "highlight=True",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "8.角色/admin",
+      "name": "[admin] GET /user",
+      "expected": "可访问",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/admin",
+      "name": "[admin] GET /system_settings",
+      "expected": "可访问",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/admin",
+      "name": "[admin] GET /admin/console",
+      "expected": "可访问",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/admin",
+      "name": "[admin] POST /user/add",
+      "expected": "POST 后处理",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/admin",
+      "name": "[admin] POST /system_settings/save",
+      "expected": "POST 后处理",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/admin",
+      "name": "[admin] GET /material (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/admin",
+      "name": "[admin] GET /supplier (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/admin",
+      "name": "[admin] GET /in_order (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/admin",
+      "name": "[admin] GET /out_order (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/admin",
+      "name": "[admin] GET /stock_query (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/admin",
+      "name": "[admin] GET /report (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/warehouse",
+      "name": "[warehouse] GET /user",
+      "expected": "应被拒绝",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/warehouse",
+      "name": "[warehouse] GET /system_settings",
+      "expected": "应被拒绝",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/warehouse",
+      "name": "[warehouse] GET /admin/console",
+      "expected": "应被拒绝",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/warehouse",
+      "name": "[warehouse] POST /user/add",
+      "expected": "POST 需被拒",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/warehouse",
+      "name": "[warehouse] POST /system_settings/save",
+      "expected": "POST 需被拒",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/warehouse",
+      "name": "[warehouse] GET /material (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/warehouse",
+      "name": "[warehouse] GET /supplier (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/warehouse",
+      "name": "[warehouse] GET /in_order (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/warehouse",
+      "name": "[warehouse] GET /out_order (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/warehouse",
+      "name": "[warehouse] GET /stock_query (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/warehouse",
+      "name": "[warehouse] GET /report (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/production",
+      "name": "[production] GET /user",
+      "expected": "应被拒绝",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/production",
+      "name": "[production] GET /system_settings",
+      "expected": "应被拒绝",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/production",
+      "name": "[production] GET /admin/console",
+      "expected": "应被拒绝",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/production",
+      "name": "[production] POST /user/add",
+      "expected": "POST 需被拒",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/production",
+      "name": "[production] POST /system_settings/save",
+      "expected": "POST 需被拒",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P0",
+      "note": ""
+    },
+    {
+      "category": "8.角色/production",
+      "name": "[production] GET /material (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/production",
+      "name": "[production] GET /supplier (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/production",
+      "name": "[production] GET /in_order (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/production",
+      "name": "[production] GET /out_order (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/production",
+      "name": "[production] GET /stock_query (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "8.角色/production",
+      "name": "[production] GET /report (公共)",
+      "expected": "200/302",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P1",
+      "note": ""
+    },
+    {
+      "category": "9.打印//print_in_order_labels",
+      "name": "[打印] /print_in_order_labels",
+      "expected": "200/400/404",
+      "actual": "200",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "9.打印//print_label",
+      "name": "[打印] /print_label",
+      "expected": "200/400/404",
+      "actual": "404",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "9.打印//print_in",
+      "name": "[打印] /print_in",
+      "expected": "200/400/404",
+      "actual": "404",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "9.打印//print_out",
+      "name": "[打印] /print_out",
+      "expected": "200/400/404",
+      "actual": "404",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "9.打印//print_in_with_excel",
+      "name": "[打印] /print_in_with_excel",
+      "expected": "200/400/404",
+      "actual": "404",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "9.打印//print_out_with_excel",
+      "name": "[打印] /print_out_with_excel",
+      "expected": "200/400/404",
+      "actual": "404",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "9.打印//check_print",
+      "name": "[打印] /check_print",
+      "expected": "200/400/404",
+      "actual": "404",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "9.打印//document_print",
+      "name": "[打印] /document_print",
+      "expected": "200/400/404",
+      "actual": "404",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "9.打印//transfer_print",
+      "name": "[打印] /transfer_print",
+      "expected": "200/400/404",
+      "actual": "302",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    },
+    {
+      "category": "9.打印//requisition_print",
+      "name": "[打印] /requisition_print",
+      "expected": "200/400/404",
+      "actual": "404",
+      "status": "PASS",
+      "severity": "P2",
+      "note": ""
+    }
+  ]
+}
