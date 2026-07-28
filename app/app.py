@@ -1833,8 +1833,14 @@ def not_found(e):
     """404错误处理"""
     if wants_json_error_response():
         return jsonify({'status': 'error', 'msg': '请求的资源不存在'}), 404
-    _404_path = os.path.join(app.template_folder, '404.html')
-    return render_template('404.html') if os.path.exists(_404_path) else ('页面不存在', 404)
+    return render_template('404.html'), 404
+
+@app.errorhandler(405)
+def method_not_allowed(e):
+    """405错误处理"""
+    if wants_json_error_response():
+        return jsonify({'status': 'error', 'msg': '请求方式不被允许'}), 405
+    return render_template('405.html'), 405
 
 @app.errorhandler(CSRFError)
 def handle_csrf_error(e):
