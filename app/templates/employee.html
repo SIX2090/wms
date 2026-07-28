@@ -10,6 +10,9 @@
             <button type="button" class="btn btn-primary btn-sm" onclick="showAddModal()">
                 <i class="bi bi-plus-lg"></i> 新增员工
             </button>
+            <a href="/batch_import?type=employee" class="btn btn-outline-info btn-sm">
+                <i class="bi bi-cloud-upload"></i> 批量导入
+            </a>
             <a href="/employee/export{% if filters.search or filters.department_id %}?{% if filters.search %}search={{ filters.search }}{% endif %}{% if filters.department_id %}{% if filters.search %}&{% endif %}department_id={{ filters.department_id }}{% endif %}{% endif %}" class="btn btn-outline-success btn-sm">
                 <i class="bi bi-download"></i> 导出
             </a>

@@ -2,13 +2,27 @@
 {% block title %}批量导入{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h2><i class="bi bi-cloud-upload"></i> 批量导入</h2>
+<style>
+.batch-card-highlight {
+    outline: 3px solid #0d6efd;
+    box-shadow: 0 0 0 4px rgba(13, 110, 253, .15);
+    border-radius: 6px;
+}
+.batch-card-highlight .card-header { background: #e7f1ff !important; color: #0d6efd !important; }
+</style>
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="mb-0"><i class="bi bi-cloud-upload"></i> 批量导入</h2>
+    {% if module_type %}
+    <div class="alert alert-info py-2 px-3 mb-0" style="font-size:14px;">
+        <i class="bi bi-funnel"></i> 当前过滤模块：<strong>{{ module_type }}</strong>（高亮对应卡片）
+        <a href="/batch_import" class="ms-2 alert-link">清除过滤</a>
+    </div>
+    {% endif %}
 </div>
 
 <div class="row">
     <div class="col-md-6">
-        <div class="card">
+        <div class="card {% if module_type == 'material' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入物料</h5></div>
             <div class="card-body">
                 <p class="text-muted small">按表头名称自动匹配列，列顺序不限。表头需含：物料编码、物料名称、规格、单位、分类、供应商、单价、最小库存</p>
@@ -25,8 +39,11 @@
             </div>
         </div>
     </div>
+</div>
+
+<div class="row mt-3">
     <div class="col-md-6">
-        <div class="card">
+        <div class="card {% if module_type == 'in_order' or module_type == 'inbound' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入采购入库单</h5></div>
             <div class="card-body">
                 <p class="text-muted small">按表头名称自动匹配列。表头需含：单据编号、日期、用途、供应商、物料编码、物料名称、规格、单位、数量、单价、金额、备注</p>
@@ -47,7 +64,7 @@
 
 <div class="row mt-3">
     <div class="col-md-6">
-        <div class="card">
+        <div class="card {% if module_type == 'out_order' or module_type == 'outbound' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入领料单</h5></div>
             <div class="card-body">
                 <p class="text-muted small">按表头名称自动匹配列。表头需含：单据编号、日期、用途、领料部门、物料编码、物料名称、规格、单位、数量、单价、金额、备注</p>
@@ -65,7 +82,7 @@
         </div>
     </div>
     <div class="col-md-6">
-        <div class="card">
+        <div class="card {% if module_type == 'category' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入物料分类</h5></div>
             <div class="card-body">
                 <p class="text-muted small">需包含分类编码和分类名称两列</p>
@@ -86,7 +103,7 @@
 
 <div class="row mt-3">
     <div class="col-md-6">
-        <div class="card">
+        <div class="card {% if module_type == 'unit' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入计量单位</h5></div>
             <div class="card-body">
                 <p class="text-muted small">需包含单位编号和单位名称两列</p>
@@ -104,7 +121,7 @@
         </div>
     </div>
     <div class="col-md-6">
-        <div class="card">
+        <div class="card {% if module_type == 'supplier' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入供应商</h5></div>
             <div class="card-body">
                 <p class="text-muted small">需包含供应商编号、供应商名称、联系人、电话、地址</p>
@@ -125,7 +142,7 @@
 
 <div class="row mt-3">
     <div class="col-md-6">
-        <div class="card">
+        <div class="card {% if module_type == 'employee' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入员工</h5></div>
             <div class="card-body">
                 <p class="text-muted small">表头需含：员工编码、姓名、职位、电话、部门编码。按员工编码查重，已存在则更新；姓名必填</p>
@@ -143,7 +160,7 @@
         </div>
     </div>
     <div class="col-md-6">
-        <div class="card">
+        <div class="card {% if module_type == 'bom' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入BOM</h5></div>
             <div class="card-body">
                 <p class="text-muted small">需包含：产品编码、产品名称、版本、物料编码、物料名称、规格、单位、数量、用途、备注。同一产品多行会导入为同一个BOM的多条明细。</p>
@@ -161,7 +178,7 @@
         </div>
     </div>
     <div class="col-md-6">
-        <div class="card">
+        <div class="card {% if module_type == 'warehouse' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入仓库</h5></div>
             <div class="card-body">
                 <p class="text-muted small">表头需含：仓库编码、仓库名称、仓库类型、仓库位置、状态、备注</p>
@@ -182,7 +199,7 @@
 
 <div class="row mt-3">
     <div class="col-md-6">
-        <div class="card">
+        <div class="card {% if module_type == 'department' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入部门</h5></div>
             <div class="card-body">
                 <p class="text-muted small">表头需含：部门编码、部门名称、状态、备注</p>
@@ -200,7 +217,7 @@
         </div>
     </div>
     <div class="col-md-6">
-        <div class="card">
+        <div class="card {% if module_type == 'customer' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入客户</h5></div>
             <div class="card-body">
                 <p class="text-muted small">表头需含：客户编号、客户名称、联系人、电话、地址</p>

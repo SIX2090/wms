@@ -42858,7 +42858,71 @@ def reject_from_approval_center(id):
 @app.route('/batch_import')
 @login_required
 def batch_import_page():
-    return render_template('batch_import.html')
+    _module_type = request.args.get('type', '').strip().lower() or None
+    return render_template('batch_import.html', module_type=_module_type)
+
+
+# P1-类别 B：基础资料 /import 与 /export 便捷入口（统一跳转集中式 /batch_import）
+@app.route('/user/import', methods=['POST'])
+@login_required
+@require_role('admin')
+def user_import_stub():
+    return redirect(url_for('batch_import_page', type='user'))
+
+
+@app.route('/user/export')
+@login_required
+@require_role('admin')
+def user_export_stub():
+    return redirect(url_for('batch_import_page', type='user'))
+
+
+@app.route('/system_settings/add', methods=['GET'])
+@login_required
+@require_role('admin')
+def system_settings_add_stub():
+    flash('系统设置项请前往"系统设置"页面维护', 'info')
+    return redirect(url_for('system_settings_page'))
+
+
+@app.route('/system_settings/import', methods=['POST'])
+@login_required
+@require_role('admin')
+def system_settings_import_stub():
+    return redirect(url_for('batch_import_page', type='system_settings'))
+
+
+@app.route('/system_settings/export')
+@login_required
+@require_role('admin')
+def system_settings_export_stub():
+    return redirect(url_for('batch_import_page', type='system_settings'))
+
+
+@app.route('/label_template/import', methods=['POST'])
+@login_required
+@require_role('admin')
+def label_template_import_stub():
+    return redirect(url_for('batch_import_page', type='label_template'))
+
+
+@app.route('/label_template/export')
+@login_required
+@require_role('admin')
+def label_template_export_stub():
+    return redirect(url_for('batch_import_page', type='label_template'))
+
+
+@app.route('/opening_stock/import', methods=['POST'])
+@login_required
+def opening_stock_import_stub():
+    return redirect(url_for('batch_import_page', type='opening_stock'))
+
+
+@app.route('/opening_stock/export')
+@login_required
+def opening_stock_export_stub():
+    return redirect(url_for('batch_import_page', type='opening_stock'))
 
 # ==================== Data backup ====================
 

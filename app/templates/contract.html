@@ -9,6 +9,9 @@
             <button type="button" class="btn btn-primary btn-sm" onclick="showAddModal()">
                 <i class="bi bi-plus-lg"></i> 新增合同
             </button>
+            <a href="/batch_import?type=contract" class="btn btn-outline-info btn-sm">
+                <i class="bi bi-cloud-upload"></i> 批量导入
+            </a>
             <a href="/contract/export{% if filters.search or filters.status %}?{% if filters.search %}search={{ filters.search }}{% endif %}{% if filters.status %}{% if filters.search %}&{% endif %}status={{ filters.status }}{% endif %}{% endif %}" class="btn btn-outline-success btn-sm">
                 <i class="bi bi-download"></i> 导出
             </a>

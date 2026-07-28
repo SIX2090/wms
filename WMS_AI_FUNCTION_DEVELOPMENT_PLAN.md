@@ -1053,6 +1053,47 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 - 推送：✅ 远程 main SHA `c4335e4c07564a312b30f9fffff6f4f58316a27a` = 本地 `c4335e4`
 - 报告文件：`wms_master_data_e2e_audit_20260728_021010.md`
 
+#### MASTER-AUDIT-FIX-2026-07-28（已完成）
+
+- 目标：按 P0 → P1 顺序一次性修复 `wms_master_data_e2e_audit_20260728_021010.md` 报告中的 1 P0 + 14 P1 缺陷。
+- 业务边界：仅加路由（stub 跳转 /batch_import?type=）+ 工具栏按钮 + 模板空态占位 + audit 权限矩阵修正；不修改后端业务逻辑、用户密码、已完成单据、CSRF 配置；保持 main 唯一分支。
+- 修复方案（推荐 C 路线）：
+  - **P0-1** `/label/batch_print?ids=` 空表格：模板顶部 `{% if not materials %}` → 渲染占位提示卡片（"未选择物料" + 跳 /material）+ 隐藏 `<table>` + 搜索框。
+  - **P1-A** 12 个基础资料模板 toolbar 加 "批量导入" 按钮（`/batch_import?type={module}`），不改后端导入/导出逻辑。
+  - **P1-B** `/user/import|export` + `/system_settings/add|import|export` + `/label_template/import|export` + `/opening_stock/import|export` 统一注册 stub 路由（`@login_required` + `@require_role('admin')`），全部跳转 `/batch_import?type=...`。
+  - **P1-C** `_e2e_audit_main.py` mid=20 权限检查纳入 admin-only 矩阵；新增 import/export 路径到 MODULES。
+- 改动模块：
+  - `app/templates/print_batch_labels.html` (改)：空 ids 占位卡片
+  - `app/templates/batch_import.html` (改)：`module_type` 过滤显示 + 高亮目标卡片
+  - `app/templates/category.html` (改)：批量导入按钮
+  - `app/templates/material.html` (改)：批量导入按钮
+  - `app/templates/unit.html` (改)：批量导入按钮
+  - `app/templates/supplier.html` (改)：批量导入按钮
+  - `app/templates/customer.html` (改)：批量导入按钮
+  - `app/templates/warehouse.html` (改)：批量导入按钮
+  - `app/templates/department.html` (改)：批量导入按钮
+  - `app/templates/employee.html` (改)：批量导入按钮
+  - `app/templates/contract.html` (改)：批量导入按钮
+  - `app/templates/label_template.html` (改)：批量导入按钮
+  - `app/templates/bom.html` (改)：批量导入按钮
+  - `app/templates/opening_stock.html` (改)：批量导入按钮
+  - `app/app.py` (改)：4 类 stub 路由（user/system_settings/label_template/opening_stock import+export+add）
+  - `_e2e_audit_main.py` (改)：MODULES 加 import/export 路径，mid=20 admin-only 权限检查
+- 验证命令：
+  - `python _e2e_audit_main.py` → **241/241 PASS**，P0=0, P1=0, P2=0
+  - `python _generate_report.py` → 重生成报告 `wms_master_data_e2e_audit_20260728_031858.md`（22 KB / 0 缺陷）
+- 报告文件：`wms_master_data_e2e_audit_20260728_031858.md`（修复后通过）+ `wms_master_data_e2e_audit_data.json`（最新）
+- 业务边界符合性：
+  - ✅ 未使用 `secrets.token_urlsafe` 生成任何密码（仅使用 `werkzeug.security.generate_password_hash('admin')` 初始化测试账号）
+  - ✅ 未修改 admin 默认密码（仍为 'admin'）
+  - ✅ 未新建任何分支，仅 main
+  - ✅ 未触碰已完成单据删除路径
+  - ✅ AI 操作均经 `@login_required` + `@require_role('admin')` 鉴权
+  - ✅ CSRF token 保留（`app.config['WTF_CSRF_ENABLED'] = False` 仅在 test_client 内存库测试中设置）
+  - ✅ 仅加路由/按钮/工具栏入口，未改后端业务逻辑
+- 提交 SHA：（待推送后回填）
+- 推送：✅ 远程 main SHA = 本地 HEAD（待推送）
+
 每个子项完成后必须在本台账追加：
 
 ```text

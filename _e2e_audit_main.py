@@ -63,11 +63,11 @@ MODULES = [
     (7, '部门', 'department', '/department', ['/department/add', '/department/1/edit', '/department/1/delete', '/department/import', '/department/export']),
     (8, '员工', 'employee', '/employee', ['/employee/add', '/employee/1/edit', '/employee/1/delete', '/employee/import', '/employee/export', '/employee/1']),
     (9, '合同', 'contract', '/contract', ['/contract/add', '/contract/1/edit', '/contract/1/delete', '/contract/import', '/contract/export', '/contract/1']),
-    (10, '用户账号', 'user', '/user', ['/user/add', '/user/1/edit', '/user/1/delete', '/user/1/reset_password']),
-    (11, '系统设置', 'system_settings', '/system_settings', ['/system_settings/save', '/system_settings/test_key']),
-    (12, '标签模板', 'label_template', '/label_template', ['/label_template/add', '/label_template/1', '/label_template/1/edit', '/label_template/1/delete']),
-    (13, 'BOM', 'bom', '/bom', ['/bom/add', '/bom/1', '/bom/1/edit', '/bom/1/delete']),
-    (14, '期初库存', 'opening_stock', '/opening_stock', ['/opening_stock/add', '/opening_stock/1/edit', '/opening_stock/1/delete']),
+    (10, '用户账号', 'user', '/user', ['/user/add', '/user/1/edit', '/user/1/delete', '/user/1/reset_password', '/user/import', '/user/export']),
+    (11, '系统设置', 'system_settings', '/system_settings', ['/system_settings/save', '/system_settings/test_key', '/system_settings/add', '/system_settings/import', '/system_settings/export']),
+    (12, '标签模板', 'label_template', '/label_template', ['/label_template/add', '/label_template/1', '/label_template/1/edit', '/label_template/1/delete', '/label_template/import', '/label_template/export']),
+    (13, 'BOM', 'bom', '/bom', ['/bom/add', '/bom/1', '/bom/1/edit', '/bom/1/delete', '/bom/import', '/bom/export']),
+    (14, '期初库存', 'opening_stock', '/opening_stock', ['/opening_stock/add', '/opening_stock/1/edit', '/opening_stock/1/delete', '/opening_stock/import', '/opening_stock/export']),
     (15, '库存查询', 'stock_query', '/stock_query', []),
     (16, '批量打印标签', 'print_batch_labels', '/label/batch_print', []),
     (17, '报表中心', 'report', '/report', ['/report/export']),
@@ -324,15 +324,10 @@ def audit_module(mid, mname, mtmpl, mpath, related_routes, client):
     # ====== Action 8: Permission test (warehouse role) ======
     wh_client = login_client(WH_ID)
     rv = wh_client.get(mpath)
-    if mid == 10:  # /user should be admin only
+    if mid in [10, 11, 20]:  # /user, /system_settings, /admin/console should be admin only
         blocked = rv.status_code in [302, 403] or 'login' in rv.headers.get('Location', '').lower()
         cp = add_checkpoint(mid, '7. 权限：warehouse 拒绝访问', f'GET {mpath} 期望 302/403', f'实际 {rv.status_code}', blocked, 'P0',
                             f'warehouse 角色可访问 {mpath}，权限未隔离' if not blocked else '')
-        mod['checkpoints'].append(cp)
-    elif mid == 11:  # /system_settings
-        blocked = rv.status_code in [302, 403] or 'login' in rv.headers.get('Location', '').lower()
-        cp = add_checkpoint(mid, '7. 权限：warehouse 拒绝访问', f'GET {mpath} 期望 302/403', f'实际 {rv.status_code}', blocked, 'P0',
-                            f'warehouse 角色可访问系统设置，权限未隔离' if not blocked else '')
         mod['checkpoints'].append(cp)
     else:
         # Should be allowed
@@ -344,12 +339,12 @@ def audit_module(mid, mname, mtmpl, mpath, related_routes, client):
     # ====== Action 9: Permission test (production role) ======
     pr_client = login_client(PR_ID)
     rv = pr_client.get(mpath)
-    if mid in [10, 11]:  # /user, /system_settings
+    if mid in [10, 11, 20]:  # /user, /system_settings, /admin/console
         blocked = rv.status_code in [302, 403] or 'login' in rv.headers.get('Location', '').lower()
         cp = add_checkpoint(mid, '8. 权限：production 拒绝访问', f'GET {mpath} 期望 302/403', f'实际 {rv.status_code}', blocked, 'P0',
                             f'production 角色可访问 {mpath}，权限未隔离' if not blocked else '')
         mod['checkpoints'].append(cp)
-    elif mid in [1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 15, 19, 20]:  # 仓库基础资料/物料
+    elif mid in [1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 15, 19]:  # 仓库基础资料/物料
         # Production can read but not write
         passes = rv.status_code in [200, 302, 403]
         cp = add_checkpoint(mid, '8. 权限：production 可读', f'GET {mpath} 期望 200/302/403', f'实际 {rv.status_code}', passes, 'P2',

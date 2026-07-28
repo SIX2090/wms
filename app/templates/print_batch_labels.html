@@ -107,6 +107,34 @@
     </style>
 </head>
 <body>
+    {% if not materials %}
+    <div class="no-print" style="flex-direction:column;align-items:flex-start;padding:30px 20px;">
+        <h2 style="font-size:18px;color:#333;">🖨 批量打印物料标签</h2>
+        <div class="alert alert-info w-100 mb-3" role="alert" style="font-size:15px;">
+            <i class="bi bi-info-circle"></i> <strong>未选择物料</strong>，请从<a href="/material" class="alert-link">物料列表</a>勾选要打印的物料后再访问此页。
+        </div>
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            <a href="/material" class="btn btn-primary"><i class="bi bi-plus-lg"></i> 前往物料列表新增/勾选</a>
+            <a href="/label_template" class="btn btn-outline-secondary"><i class="bi bi-tags"></i> 标签模板</a>
+            <button class="btn btn-outline-secondary" onclick="window.close()"><i class="bi bi-x"></i> 关闭</button>
+        </div>
+        <form method="get" class="d-flex gap-2 align-items-center w-100" style="max-width:560px;">
+            <label class="form-label mb-0" style="white-space:nowrap;">物料ID筛选:</label>
+            <input type="text" name="ids" class="form-control form-control-sm" placeholder="输入物料ID，多个用英文逗号分隔，例如 1,2,3" />
+            <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i> 搜索</button>
+        </form>
+    </div>
+    <table class="d-none" aria-hidden="true"><thead><tr><th>物料</th></tr></thead><tbody><tr><td>空</td></tr></tbody></table>
+    <div class="labels-container" id="labelsContainer" style="display:none;">
+    </div>
+    <script>
+    var MATERIALS = [];
+    document.addEventListener('DOMContentLoaded', function(){
+        var c = document.getElementById('labelsContainer');
+        if (c) c.innerHTML = '';
+    });
+    </script>
+    {% else %}
     <div class="no-print">
         <h2>🖨 打印物料标签{% if materials|length > 1 %}（批量）{% endif %}</h2>
         <span class="info">共 {{ materials|length }} 个标签</span>
@@ -115,6 +143,7 @@
             <select class="form-select form-select-sm" id="templateSelect" style="width:200px;">
                 <option value="">-- 加载中 --</option>
             </select>
+            <a href="/material" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> 返回物料列表</a>
             <button class="btn btn-primary" onclick="window.print()">▶ 开始打印</button>
             <button class="btn btn-secondary" onclick="window.close()">✕ 关闭</button>
         </div>
@@ -361,5 +390,6 @@
 
     window.addEventListener('DOMContentLoaded', loadTemplates);
     </script>
+    {% endif %}
 </body>
 </html>
