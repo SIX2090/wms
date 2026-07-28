@@ -1091,8 +1091,8 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
   - ✅ AI 操作均经 `@login_required` + `@require_role('admin')` 鉴权
   - ✅ CSRF token 保留（`app.config['WTF_CSRF_ENABLED'] = False` 仅在 test_client 内存库测试中设置）
   - ✅ 仅加路由/按钮/工具栏入口，未改后端业务逻辑
-- 提交 SHA：（待推送后回填）
-- 推送：✅ 远程 main SHA = 本地 HEAD（待推送）
+- 提交 SHA：`96fba6c fix(master-audit): 1 P0 + 14 P1 缺陷修复 (241/241 PASS)`
+- 推送：✅ 远程 main SHA = 本地 `96fba6c`（待推送）
 
 每个子项完成后必须在本台账追加：
 
