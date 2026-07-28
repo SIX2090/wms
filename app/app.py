@@ -34863,7 +34863,11 @@ def import_purchase_request():
 @app.route('/purchase_order')
 @login_required
 def purchase_order_list():
-    if request.args.get('view') != 'list':
+    # BUG-2026-07-28-003 修复：直接访问 /purchase_order 必须落到列表页；
+    # 不再无脑重定向到新增页。保留 ?view=add/new 显式跳新增的兼容行为，
+    # 同时支持嵌入式调用（embedded=1）保持原语义。
+    view = (request.args.get('view') or '').strip().lower()
+    if view in ('add', 'new'):
         return redirect(url_for('purchase_order_add_page'))
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
