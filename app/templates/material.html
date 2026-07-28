@@ -69,6 +69,7 @@
     <div class="card">
     <div class="card-body p-0">
         <div class="table-responsive-wrapper">
+        {% if materials and materials|length > 0 %}
         <table class="table table-bordered table-hover table-sm mb-0" id="materialTable">
             <thead>
                 <tr>
@@ -137,13 +138,23 @@
                         </button>
                     </td>
                 </tr>
-                {% else %}
-                <tr><td colspan="{{ 14 if inventory_alert_enabled else 13 }}" class="text-center text-muted">暂无数据，请添加物料</td></tr>
                 {% endfor %}
             </tbody>
         </table>
+        {% else %}
+        {# BUG-2026-07-28-008 修复：空数据时整张表隐藏，只渲染居中占位，避免「共 0 条 + 暂无数据」并存 #}
+        <div class="text-center py-5 my-3 text-muted" id="materialEmptyState">
+            <i class="bi bi-cloud-slash" style="font-size:3rem;color:#9CA3AF;"></i>
+            <p class="mt-3 mb-2">暂无物料数据</p>
+            <p class="small">请先在右上角「批量导入」或通过弹窗添加物料</p>
+            <button type="button" class="btn btn-primary btn-sm mt-2" data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="bi bi-plus-circle"></i> 新增物料
+            </button>
+        </div>
+        {% endif %}
         </div><!-- end table-responsive-wrapper -->
         
+        {% if materials and materials|length > 0 %}
         <div class="d-flex justify-content-between align-items-center mt-3">
             <div class="d-flex align-items-center">
                 <span class="text-muted me-2">每页显示：</span>
@@ -201,6 +212,7 @@
             </nav>
             {% endif %}
         </div>
+        {% endif %}
     </div>
 </div>
     </section>
