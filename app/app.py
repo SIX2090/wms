@@ -7135,13 +7135,14 @@ def material_list():
     stock_filter = (request.args.get('stock_filter') or '').strip()
     if not inventory_alert_enabled() and stock_filter in {'low', 'normal'}:
         stock_filter = ''
-    sort_by = request.args.get('sort', 'created_at')
-    sort_order = request.args.get('order', 'desc')
+    # BUG-F02-01 修复：默认按 code 升序，与其他基础资料一致
+    sort_by = request.args.get('sort', 'code')
+    sort_order = request.args.get('order', 'asc')
     allowed_sorts = {'code', 'name', 'brand', 'spec', 'category_id', 'supplier_id', 'stock', 'price', 'created_at'}
     if sort_by not in allowed_sorts:
-        sort_by = 'created_at'
+        sort_by = 'code'
     if sort_order not in ('asc', 'desc'):
-        sort_order = 'desc'
+        sort_order = 'asc'
     all_categories = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.name.asc(), MaterialCategory.id.asc()).all()
     category_rows = build_category_tree_rows(all_categories)
     category_descendants = {}
@@ -8506,8 +8507,9 @@ def contract_list():
         per_page = 20
     search = (request.args.get('search') or '').strip()
     status = (request.args.get('status') or '').strip()
-    sort_by = (request.args.get('sort') or 'created_at').strip()
-    sort_order = (request.args.get('order') or 'desc').strip()
+    # BUG-F02-01 修复：合同列表默认按 contract_no 升序（合同没有 code 字段，用单号排序）
+    sort_by = (request.args.get('sort') or 'contract_no').strip()
+    sort_order = (request.args.get('order') or 'asc').strip()
     query = Contract.query
     if search:
         like = f'%{search}%'
@@ -23827,13 +23829,16 @@ def download_wechat_share_log_image(log_id):
     return send_file(image_path, mimetype='image/png', as_attachment=True, download_name=filename)
 
 
-def _get_master_list_filters(default_sort='created_at'):
+def _get_master_list_filters(default_sort='code'):
+    """BUG-F02-01 修复：基础资料列表默认按 code 升序，方便人工查字典式浏览。
+    历史默认是 created_at desc，每次进列表都是"最新创建在前"，不符合"按编码/名称查字典"的预期。
+    """
     search = (request.args.get('search') or '').strip()
     status_filter = (request.args.get('status') or '').strip()
     sort_by = request.args.get('sort', default_sort)
-    sort_order = request.args.get('order', 'desc')
+    sort_order = request.args.get('order', 'asc')
     if sort_order not in ('asc', 'desc'):
-        sort_order = 'desc'
+        sort_order = 'asc'
     return search, status_filter, sort_by, sort_order
 
 
@@ -23852,7 +23857,8 @@ def _apply_master_order(query, model, sort_by, sort_order, allowed_sorts, defaul
 
 
 def _warehouse_query_from_args():
-    search, status_filter, sort_by, sort_order = _get_master_list_filters()
+    # BUG-F02-01 修复：仓库列表默认按 code 升序
+    search, status_filter, sort_by, sort_order = _get_master_list_filters('code')
     query = Warehouse.query
     if search:
         status_from_search = _status_from_master_keyword(search)
@@ -23873,7 +23879,8 @@ def _warehouse_query_from_args():
 
 
 def _department_query_from_args():
-    search, status_filter, sort_by, sort_order = _get_master_list_filters()
+    # BUG-F02-01 修复：部门列表默认按 code 升序
+    search, status_filter, sort_by, sort_order = _get_master_list_filters('code')
     query = Department.query
     if search:
         status_from_search = _status_from_master_keyword(search)
