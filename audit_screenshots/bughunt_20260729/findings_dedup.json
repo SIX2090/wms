@@ -1,0 +1,437 @@
+[
+  {
+    "id": "BUG-001",
+    "category": "HTTP 5xx/渲染",
+    "severity": "P1",
+    "page": "5 处 (覆盖 5 页)",
+    "summary": "页面异常 status=500",
+    "evidence": "共 5 处 (页: /api/ai/v2/tools/inventory/health, /api/ai/v2/tools/inventory/low-stock, /api/ai/v2/tools/inventory/value, /api/ai/v2/tools/navigation/skills, /api/barcode/<path:code>)",
+    "ts": "2026-07-28T18:18:25",
+    "occurrences": 5,
+    "pages_affected": [
+      "/api/ai/v2/tools/inventory/health",
+      "/api/ai/v2/tools/inventory/low-stock",
+      "/api/ai/v2/tools/inventory/value",
+      "/api/ai/v2/tools/navigation/skills",
+      "/api/barcode/<path:code>"
+    ]
+  },
+  {
+    "id": "BUG-002",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "76 处 (覆盖 76 页)",
+    "summary": "页面返回 404",
+    "evidence": "共 76 处 (页: /adjustment/<int:id>, /adjustment/<int:id>/print, /after_sale_out/<int:id>, /after_sale_out/<int:id>/edit, /after_sale_out/<int:id>/print, /ai/agent_tasks/<int:id>, /ai/document_jobs/<int:id>, /api/ai/acceptance/evidence_package/<int...)",
+    "ts": "2026-07-28T18:18:25",
+    "occurrences": 76,
+    "pages_affected": [
+      "/adjustment/<int:id>",
+      "/adjustment/<int:id>/print",
+      "/after_sale_out/<int:id>",
+      "/after_sale_out/<int:id>/edit",
+      "/after_sale_out/<int:id>/print",
+      "/ai/agent_tasks/<int:id>",
+      "/ai/document_jobs/<int:id>",
+      "/api/ai/acceptance/evidence_package/<int:package_id>",
+      "/api/ai/confirmations/<token>",
+      "/api/ai/conversations/<int:conversation_id>",
+      "/api/ai/out_order/<int:id>/anomaly_analysis",
+      "/api/ai/sales_order/<int:id>/anomaly_analysis",
+      "/api/document_navigation/<module_key>",
+      "/api/share_image/<module_key>/<int:id>",
+      "/api/share_pdf/<module_key>/<int:id>",
+      "/api/wechat_helper/task/<int:log_id>/image",
+      "/backup/download/<filename>",
+      "/bom/<int:id>",
+      "/bom/<int:id>/print",
+      "/category/<int:id>"
+    ]
+  },
+  {
+    "id": "BUG-003",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "16 处 (覆盖 16 页)",
+    "summary": "未登录返回 404",
+    "evidence": "共 16 处 (页: /admin_console, /admin_mobile_tokens, /ai/data_retention, /ai/ops_dashboard, /category/add, /change_password, /customer/add, /department/add...)",
+    "ts": "2026-07-28T18:18:32",
+    "occurrences": 16,
+    "pages_affected": [
+      "/admin_console",
+      "/admin_mobile_tokens",
+      "/ai/data_retention",
+      "/ai/ops_dashboard",
+      "/category/add",
+      "/change_password",
+      "/customer/add",
+      "/department/add",
+      "/employee/add",
+      "/label_template/add",
+      "/opening_stock/add",
+      "/sales_order/add",
+      "/subcontract/add",
+      "/unit/add",
+      "/user/add",
+      "/warehouse/add"
+    ]
+  },
+  {
+    "id": "BUG-004",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "2 处 (覆盖 2 页)",
+    "summary": "缺少 Strict-Transport-Security 响应头",
+    "evidence": "共 2 处 (页: /, /login)",
+    "ts": "2026-07-28T18:18:33",
+    "occurrences": 2,
+    "pages_affected": [
+      "/",
+      "/login"
+    ]
+  },
+  {
+    "id": "BUG-005",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "2 处 (覆盖 2 页)",
+    "summary": "缺少 Content-Security-Policy 响应头",
+    "evidence": "共 2 处 (页: /, /login)",
+    "ts": "2026-07-28T18:18:33",
+    "occurrences": 2,
+    "pages_affected": [
+      "/",
+      "/login"
+    ]
+  },
+  {
+    "id": "BUG-006",
+    "category": "错误页 5xx",
+    "severity": "P2",
+    "page": "4 处 (覆盖 4 页)",
+    "summary": "GET 返回 500",
+    "evidence": "共 4 处 (页: /api/ai/v2/tools/inventory/health, /api/ai/v2/tools/inventory/low-stock, /api/ai/v2/tools/inventory/value, /api/ai/v2/tools/navigation/skills)",
+    "ts": "2026-07-28T18:18:33",
+    "occurrences": 4,
+    "pages_affected": [
+      "/api/ai/v2/tools/inventory/health",
+      "/api/ai/v2/tools/inventory/low-stock",
+      "/api/ai/v2/tools/inventory/value",
+      "/api/ai/v2/tools/navigation/skills"
+    ]
+  },
+  {
+    "id": "BUG-007",
+    "category": "API 5xx",
+    "severity": "P1",
+    "page": "4 处 (覆盖 4 页)",
+    "summary": "GET 返回 500",
+    "evidence": "共 4 处 (页: /api/ai/v2/tools/inventory/health, /api/ai/v2/tools/inventory/low-stock, /api/ai/v2/tools/inventory/value, /api/ai/v2/tools/navigation/skills)",
+    "ts": "2026-07-28T18:18:36",
+    "occurrences": 4,
+    "pages_affected": [
+      "/api/ai/v2/tools/inventory/health",
+      "/api/ai/v2/tools/inventory/low-stock",
+      "/api/ai/v2/tools/inventory/value",
+      "/api/ai/v2/tools/navigation/skills"
+    ]
+  },
+  {
+    "id": "BUG-008",
+    "category": "Cookie 安全",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "Cookie session 非 Secure",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:38",
+    "occurrences": 1,
+    "pages_affected": [
+      "/login"
+    ]
+  },
+  {
+    "id": "BUG-009",
+    "category": "静态资源 404",
+    "severity": "P3",
+    "page": "10 处 (覆盖 10 页)",
+    "summary": "静态资源 404",
+    "evidence": "共 10 处 (页: /static/css/app.css, /static/css/bootstrap.min.css, /static/favicon.ico, /static/img/avatar.png, /static/img/cover.jpg, /static/img/empty.png, /static/img/error.svg, /static/img/logo.png...)",
+    "ts": "2026-07-28T18:21:41",
+    "occurrences": 10,
+    "pages_affected": [
+      "/static/css/app.css",
+      "/static/css/bootstrap.min.css",
+      "/static/favicon.ico",
+      "/static/img/avatar.png",
+      "/static/img/cover.jpg",
+      "/static/img/empty.png",
+      "/static/img/error.svg",
+      "/static/img/logo.png",
+      "/static/img/success.svg",
+      "/static/js/jquery.min.js"
+    ]
+  },
+  {
+    "id": "BUG-010",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "10 处 (覆盖 10 页)",
+    "summary": "1 个 <a> 无文本/无 alt 图",
+    "evidence": "共 10 处 (页: /, /category, /customer, /employee, /in_order, /material, /out_order, /report...)",
+    "ts": "2026-07-28T18:24:21",
+    "occurrences": 10,
+    "pages_affected": [
+      "/",
+      "/category",
+      "/customer",
+      "/employee",
+      "/in_order",
+      "/material",
+      "/out_order",
+      "/report",
+      "/supplier",
+      "/warehouse"
+    ]
+  },
+  {
+    "id": "BUG-011",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "10 处 (覆盖 10 页)",
+    "summary": "6 个 <button> 无文本/无 aria-label",
+    "evidence": "共 10 处 (页: /, /category, /customer, /employee, /in_order, /material, /out_order, /report...)",
+    "ts": "2026-07-28T18:24:21",
+    "occurrences": 10,
+    "pages_affected": [
+      "/",
+      "/category",
+      "/customer",
+      "/employee",
+      "/in_order",
+      "/material",
+      "/out_order",
+      "/report",
+      "/supplier",
+      "/warehouse"
+    ]
+  },
+  {
+    "id": "BUG-012",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "2 处 (覆盖 2 页)",
+    "summary": "36 个输入字段无 label/aria-label",
+    "evidence": "共 2 处 (页: /category, /material)",
+    "ts": "2026-07-28T18:24:22",
+    "occurrences": 2,
+    "pages_affected": [
+      "/category",
+      "/material"
+    ]
+  },
+  {
+    "id": "BUG-013",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "缺少 X-Content-Type-Options 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29",
+    "occurrences": 1,
+    "pages_affected": [
+      "/login"
+    ]
+  },
+  {
+    "id": "BUG-014",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "缺少 X-Frame-Options 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29",
+    "occurrences": 1,
+    "pages_affected": [
+      "/login"
+    ]
+  },
+  {
+    "id": "BUG-015",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "缺少 X-XSS-Protection 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29",
+    "occurrences": 1,
+    "pages_affected": [
+      "/login"
+    ]
+  },
+  {
+    "id": "BUG-016",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "缺少 Referrer-Policy 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29",
+    "occurrences": 1,
+    "pages_affected": [
+      "/login"
+    ]
+  },
+  {
+    "id": "BUG-017",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "缺少 Permissions-Policy 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29",
+    "occurrences": 1,
+    "pages_affected": [
+      "/login"
+    ]
+  },
+  {
+    "id": "BUG-018",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "8 处 (覆盖 8 页)",
+    "summary": "<form> 异常 action=copy",
+    "evidence": "共 8 处 (页: /admin/console, /category, /customer, /in_order, /material, /out_order, /report, /supplier)",
+    "ts": "2026-07-28T18:24:40",
+    "occurrences": 8,
+    "pages_affected": [
+      "/admin/console",
+      "/category",
+      "/customer",
+      "/in_order",
+      "/material",
+      "/out_order",
+      "/report",
+      "/supplier"
+    ]
+  },
+  {
+    "id": "BUG-019",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "8 处 (覆盖 8 页)",
+    "summary": "<form> 异常 action=batchDelete",
+    "evidence": "共 8 处 (页: /admin/console, /category, /customer, /in_order, /material, /out_order, /report, /supplier)",
+    "ts": "2026-07-28T18:24:40",
+    "occurrences": 8,
+    "pages_affected": [
+      "/admin/console",
+      "/category",
+      "/customer",
+      "/in_order",
+      "/material",
+      "/out_order",
+      "/report",
+      "/supplier"
+    ]
+  },
+  {
+    "id": "BUG-020",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "16 处 (覆盖 8 页)",
+    "summary": "<form> 异常 action=edit",
+    "evidence": "共 16 处 (页: /admin/console, /category, /customer, /in_order, /material, /out_order, /report, /supplier)",
+    "ts": "2026-07-28T18:24:40",
+    "occurrences": 16,
+    "pages_affected": [
+      "/admin/console",
+      "/category",
+      "/customer",
+      "/in_order",
+      "/material",
+      "/out_order",
+      "/report",
+      "/supplier"
+    ]
+  },
+  {
+    "id": "BUG-021",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "16 处 (覆盖 8 页)",
+    "summary": "<form> 异常 action=confirm",
+    "evidence": "共 16 处 (页: /admin/console, /category, /customer, /in_order, /material, /out_order, /report, /supplier)",
+    "ts": "2026-07-28T18:24:40",
+    "occurrences": 16,
+    "pages_affected": [
+      "/admin/console",
+      "/category",
+      "/customer",
+      "/in_order",
+      "/material",
+      "/out_order",
+      "/report",
+      "/supplier"
+    ]
+  },
+  {
+    "id": "BUG-022",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "8 处 (覆盖 8 页)",
+    "summary": "<form> 异常 action=view",
+    "evidence": "共 8 处 (页: /admin/console, /category, /customer, /in_order, /material, /out_order, /report, /supplier)",
+    "ts": "2026-07-28T18:24:40",
+    "occurrences": 8,
+    "pages_affected": [
+      "/admin/console",
+      "/category",
+      "/customer",
+      "/in_order",
+      "/material",
+      "/out_order",
+      "/report",
+      "/supplier"
+    ]
+  },
+  {
+    "id": "BUG-023",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "8 处 (覆盖 8 页)",
+    "summary": "<form> 异常 action=create-draft",
+    "evidence": "共 8 处 (页: /admin/console, /category, /customer, /in_order, /material, /out_order, /report, /supplier)",
+    "ts": "2026-07-28T18:24:40",
+    "occurrences": 8,
+    "pages_affected": [
+      "/admin/console",
+      "/category",
+      "/customer",
+      "/in_order",
+      "/material",
+      "/out_order",
+      "/report",
+      "/supplier"
+    ]
+  },
+  {
+    "id": "BUG-024",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "8 处 (覆盖 8 页)",
+    "summary": "<form> 异常 action=retry",
+    "evidence": "共 8 处 (页: /admin/console, /category, /customer, /in_order, /material, /out_order, /report, /supplier)",
+    "ts": "2026-07-28T18:24:40",
+    "occurrences": 8,
+    "pages_affected": [
+      "/admin/console",
+      "/category",
+      "/customer",
+      "/in_order",
+      "/material",
+      "/out_order",
+      "/report",
+      "/supplier"
+    ]
+  }
+]

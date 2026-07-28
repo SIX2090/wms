@@ -1,0 +1,1829 @@
+[
+  {
+    "id": "BUG-001",
+    "category": "HTTP 5xx/渲染",
+    "severity": "P1",
+    "page": "/api/ai/v2/tools/inventory/health",
+    "summary": "页面异常 status=500",
+    "evidence": "final=http://127.0.0.1:8080/api/ai/v2/tools/inventory/health",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-002",
+    "category": "HTTP 5xx/渲染",
+    "severity": "P1",
+    "page": "/api/ai/v2/tools/inventory/low-stock",
+    "summary": "页面异常 status=500",
+    "evidence": "final=http://127.0.0.1:8080/api/ai/v2/tools/inventory/low-stock",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-003",
+    "category": "HTTP 5xx/渲染",
+    "severity": "P1",
+    "page": "/api/ai/v2/tools/inventory/value",
+    "summary": "页面异常 status=500",
+    "evidence": "final=http://127.0.0.1:8080/api/ai/v2/tools/inventory/value",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-004",
+    "category": "HTTP 5xx/渲染",
+    "severity": "P1",
+    "page": "/api/ai/v2/tools/navigation/skills",
+    "summary": "页面异常 status=500",
+    "evidence": "final=http://127.0.0.1:8080/api/ai/v2/tools/navigation/skills",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-005",
+    "category": "HTTP 5xx/渲染",
+    "severity": "P1",
+    "page": "/api/barcode/<path:code>",
+    "summary": "页面异常 status=500",
+    "evidence": "final=http://127.0.0.1:8080/api/barcode/%3Cpath:code%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-006",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/adjustment/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/adjustment/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-007",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/adjustment/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/adjustment/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-008",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/after_sale_out/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/after_sale_out/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-009",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/after_sale_out/<int:id>/edit",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/after_sale_out/%3Cint:id%3E/edit",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-010",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/after_sale_out/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/after_sale_out/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-011",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/ai/agent_tasks/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/ai/agent_tasks/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-012",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/ai/document_jobs/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/ai/document_jobs/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-013",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/api/ai/acceptance/evidence_package/<int:package_id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/api/ai/acceptance/evidence_package/%3Cint:package_id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-014",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/api/ai/confirmations/<token>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/api/ai/confirmations/%3Ctoken%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-015",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/api/ai/conversations/<int:conversation_id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/api/ai/conversations/%3Cint:conversation_id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-016",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/api/ai/out_order/<int:id>/anomaly_analysis",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/api/ai/out_order/%3Cint:id%3E/anomaly_analysis",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-017",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/api/ai/sales_order/<int:id>/anomaly_analysis",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/api/ai/sales_order/%3Cint:id%3E/anomaly_analysis",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-018",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/api/document_navigation/<module_key>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/api/document_navigation/%3Cmodule_key%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-019",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/api/share_image/<module_key>/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/api/share_image/%3Cmodule_key%3E/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-020",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/api/share_pdf/<module_key>/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/api/share_pdf/%3Cmodule_key%3E/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-021",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/api/wechat_helper/task/<int:log_id>/image",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/api/wechat_helper/task/%3Cint:log_id%3E/image",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-022",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/backup/download/<filename>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/backup/download/%3Cfilename%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-023",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/bom/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/bom/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-024",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/bom/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/bom/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-025",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/category/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/category/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-026",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/check/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/check/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-027",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/check/<int:id>/export",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/check/%3Cint:id%3E/export",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-028",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/check/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/check/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-029",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/contract/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/contract/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-030",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/customer/<int:customer_id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/customer/%3Cint:customer_id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-031",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/debug/in_order/<order_no>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/debug/in_order/%3Corder_no%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-032",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/department/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/department/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-033",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/employee/<int:employee_id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/employee/%3Cint:employee_id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-034",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/in_order/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/in_order/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-035",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/in_order/<int:id>/export",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/in_order/%3Cint:id%3E/export",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-036",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/in_order/<int:id>/preview_template",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/in_order/%3Cint:id%3E/preview_template",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-037",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/in_order/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/in_order/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-038",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/in_order/<int:id>/print_direct",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/in_order/%3Cint:id%3E/print_direct",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-039",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/in_order/<int:id>/print_with_template",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/in_order/%3Cint:id%3E/print_with_template",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-040",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/in_order/<int:id>/push",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/in_order/%3Cint:id%3E/push",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-041",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/label_template/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/label_template/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-042",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/label_template/<int:id>/preview",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/label_template/%3Cint:id%3E/preview",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-043",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/label_template/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/label_template/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-044",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/label_template/api/<int:id>/detail",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/label_template/api/%3Cint:id%3E/detail",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-045",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/material/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/material/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-046",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/material/<int:id>/image_candidates",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/material/%3Cint:id%3E/image_candidates",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-047",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/opening_stock/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/opening_stock/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-048",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/out_order/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/out_order/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-049",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/out_order/<int:id>/export",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/out_order/%3Cint:id%3E/export",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-050",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/out_order/<int:id>/preview_template",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/out_order/%3Cint:id%3E/preview_template",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-051",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/out_order/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/out_order/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-052",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/out_order/<int:id>/print_with_template",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/out_order/%3Cint:id%3E/print_with_template",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-053",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/purchase_order/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/purchase_order/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-054",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/purchase_order/<int:id>/edit",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/purchase_order/%3Cint:id%3E/edit",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-055",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/purchase_order/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/purchase_order/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-056",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/purchase_request/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/purchase_request/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-057",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/purchase_request/<int:id>/edit",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/purchase_request/%3Cint:id%3E/edit",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-058",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/purchase_request/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/purchase_request/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-059",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/requisition/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/requisition/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-060",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/requisition/<int:id>/export",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/requisition/%3Cint:id%3E/export",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-061",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/requisition/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/requisition/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-062",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/sales/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/sales/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-063",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/sales/<int:id>/edit",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/sales/%3Cint:id%3E/edit",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-064",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/sales/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/sales/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-065",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/subcontract/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/subcontract/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-066",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/subcontract/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/subcontract/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-067",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/subcontract/issue/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/subcontract/issue/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-068",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/subcontract/issue/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/subcontract/issue/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-069",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/subcontract/receive/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/subcontract/receive/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-070",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/subcontract/receive/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/subcontract/receive/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-071",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/subcontract_issue/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/subcontract_issue/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-072",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/subcontract_issue/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/subcontract_issue/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-073",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/subcontract_receive/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/subcontract_receive/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-074",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/subcontract_receive/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/subcontract_receive/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-075",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/supplier/<int:supplier_id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/supplier/%3Cint:supplier_id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-076",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/transfer/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/transfer/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-077",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/transfer/<int:id>/export",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/transfer/%3Cint:id%3E/export",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-078",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/transfer/<int:id>/print",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/transfer/%3Cint:id%3E/print",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-079",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/unit/<int:unit_id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/unit/%3Cint:unit_id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-080",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/warehouse/<int:id>",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/warehouse/%3Cint:id%3E",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-081",
+    "category": "HTTP 404",
+    "severity": "P2",
+    "page": "/wechat_share/log/<int:log_id>/image",
+    "summary": "页面返回 404",
+    "evidence": "final=http://127.0.0.1:8080/wechat_share/log/%3Cint:log_id%3E/image",
+    "ts": "2026-07-28T18:18:25"
+  },
+  {
+    "id": "BUG-082",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/admin_console",
+    "summary": "未登录返回 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-083",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/change_password",
+    "summary": "未登录返回 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-084",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/ai/ops_dashboard",
+    "summary": "未登录返回 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-085",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/customer/add",
+    "summary": "未登录返回 405",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-086",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/warehouse/add",
+    "summary": "未登录返回 405",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-087",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/department/add",
+    "summary": "未登录返回 405",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-088",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/employee/add",
+    "summary": "未登录返回 405",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-089",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/unit/add",
+    "summary": "未登录返回 405",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-090",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/category/add",
+    "summary": "未登录返回 405",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-091",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/user/add",
+    "summary": "未登录返回 405",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-092",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/label_template/add",
+    "summary": "未登录返回 405",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-093",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/opening_stock/add",
+    "summary": "未登录返回 405",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-094",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/subcontract/add",
+    "summary": "未登录返回 405",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:32"
+  },
+  {
+    "id": "BUG-095",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/sales_order/add",
+    "summary": "未登录返回 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:33"
+  },
+  {
+    "id": "BUG-096",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/ai/data_retention",
+    "summary": "未登录返回 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:33"
+  },
+  {
+    "id": "BUG-097",
+    "category": "未授权异常",
+    "severity": "P2",
+    "page": "/admin_mobile_tokens",
+    "summary": "未登录返回 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:33"
+  },
+  {
+    "id": "BUG-098",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/",
+    "summary": "缺少 Strict-Transport-Security 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:33"
+  },
+  {
+    "id": "BUG-099",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/",
+    "summary": "缺少 Content-Security-Policy 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:33"
+  },
+  {
+    "id": "BUG-100",
+    "category": "错误页 5xx",
+    "severity": "P2",
+    "page": "/api/ai/v2/tools/inventory/health",
+    "summary": "GET 返回 500",
+    "evidence": "{\"msg\":\"\\u670d\\u52a1\\u5668\\u5185\\u90e8\\u9519\\u8bef\\uff0c\\u8bf7\\u7a0d\\u540e\\u91cd\\u8bd5\",\"status\":\"error\"}\n",
+    "ts": "2026-07-28T18:18:33"
+  },
+  {
+    "id": "BUG-101",
+    "category": "错误页 5xx",
+    "severity": "P2",
+    "page": "/api/ai/v2/tools/inventory/low-stock",
+    "summary": "GET 返回 500",
+    "evidence": "{\"msg\":\"\\u670d\\u52a1\\u5668\\u5185\\u90e8\\u9519\\u8bef\\uff0c\\u8bf7\\u7a0d\\u540e\\u91cd\\u8bd5\",\"status\":\"error\"}\n",
+    "ts": "2026-07-28T18:18:33"
+  },
+  {
+    "id": "BUG-102",
+    "category": "错误页 5xx",
+    "severity": "P2",
+    "page": "/api/ai/v2/tools/inventory/value",
+    "summary": "GET 返回 500",
+    "evidence": "{\"msg\":\"\\u670d\\u52a1\\u5668\\u5185\\u90e8\\u9519\\u8bef\\uff0c\\u8bf7\\u7a0d\\u540e\\u91cd\\u8bd5\",\"status\":\"error\"}\n",
+    "ts": "2026-07-28T18:18:33"
+  },
+  {
+    "id": "BUG-103",
+    "category": "错误页 5xx",
+    "severity": "P2",
+    "page": "/api/ai/v2/tools/navigation/skills",
+    "summary": "GET 返回 500",
+    "evidence": "{\"msg\":\"\\u670d\\u52a1\\u5668\\u5185\\u90e8\\u9519\\u8bef\\uff0c\\u8bf7\\u7a0d\\u540e\\u91cd\\u8bd5\",\"status\":\"error\"}\n",
+    "ts": "2026-07-28T18:18:33"
+  },
+  {
+    "id": "BUG-104",
+    "category": "API 5xx",
+    "severity": "P1",
+    "page": "/api/ai/v2/tools/inventory/health",
+    "summary": "GET 返回 500",
+    "evidence": "{\"msg\":\"\\u670d\\u52a1\\u5668\\u5185\\u90e8\\u9519\\u8bef\\uff0c\\u8bf7\\u7a0d\\u540e\\u91cd\\u8bd5\",\"status\":\"error\"}\n",
+    "ts": "2026-07-28T18:18:36"
+  },
+  {
+    "id": "BUG-105",
+    "category": "API 5xx",
+    "severity": "P1",
+    "page": "/api/ai/v2/tools/inventory/low-stock",
+    "summary": "GET 返回 500",
+    "evidence": "{\"msg\":\"\\u670d\\u52a1\\u5668\\u5185\\u90e8\\u9519\\u8bef\\uff0c\\u8bf7\\u7a0d\\u540e\\u91cd\\u8bd5\",\"status\":\"error\"}\n",
+    "ts": "2026-07-28T18:18:36"
+  },
+  {
+    "id": "BUG-106",
+    "category": "API 5xx",
+    "severity": "P1",
+    "page": "/api/ai/v2/tools/inventory/value",
+    "summary": "GET 返回 500",
+    "evidence": "{\"msg\":\"\\u670d\\u52a1\\u5668\\u5185\\u90e8\\u9519\\u8bef\\uff0c\\u8bf7\\u7a0d\\u540e\\u91cd\\u8bd5\",\"status\":\"error\"}\n",
+    "ts": "2026-07-28T18:18:36"
+  },
+  {
+    "id": "BUG-107",
+    "category": "API 5xx",
+    "severity": "P1",
+    "page": "/api/ai/v2/tools/navigation/skills",
+    "summary": "GET 返回 500",
+    "evidence": "{\"msg\":\"\\u670d\\u52a1\\u5668\\u5185\\u90e8\\u9519\\u8bef\\uff0c\\u8bf7\\u7a0d\\u540e\\u91cd\\u8bd5\",\"status\":\"error\"}\n",
+    "ts": "2026-07-28T18:18:36"
+  },
+  {
+    "id": "BUG-108",
+    "category": "Cookie 安全",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "Cookie session 非 Secure",
+    "evidence": "",
+    "ts": "2026-07-28T18:18:38"
+  },
+  {
+    "id": "BUG-109",
+    "category": "静态资源 404",
+    "severity": "P3",
+    "page": "/static/css/app.css",
+    "summary": "静态资源 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:21:41"
+  },
+  {
+    "id": "BUG-110",
+    "category": "静态资源 404",
+    "severity": "P3",
+    "page": "/static/img/logo.png",
+    "summary": "静态资源 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:21:41"
+  },
+  {
+    "id": "BUG-111",
+    "category": "静态资源 404",
+    "severity": "P3",
+    "page": "/static/favicon.ico",
+    "summary": "静态资源 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:21:41"
+  },
+  {
+    "id": "BUG-112",
+    "category": "静态资源 404",
+    "severity": "P3",
+    "page": "/static/img/avatar.png",
+    "summary": "静态资源 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:21:41"
+  },
+  {
+    "id": "BUG-113",
+    "category": "静态资源 404",
+    "severity": "P3",
+    "page": "/static/css/bootstrap.min.css",
+    "summary": "静态资源 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:21:41"
+  },
+  {
+    "id": "BUG-114",
+    "category": "静态资源 404",
+    "severity": "P3",
+    "page": "/static/js/jquery.min.js",
+    "summary": "静态资源 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:21:41"
+  },
+  {
+    "id": "BUG-115",
+    "category": "静态资源 404",
+    "severity": "P3",
+    "page": "/static/img/cover.jpg",
+    "summary": "静态资源 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:21:41"
+  },
+  {
+    "id": "BUG-116",
+    "category": "静态资源 404",
+    "severity": "P3",
+    "page": "/static/img/empty.png",
+    "summary": "静态资源 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:21:41"
+  },
+  {
+    "id": "BUG-117",
+    "category": "静态资源 404",
+    "severity": "P3",
+    "page": "/static/img/error.svg",
+    "summary": "静态资源 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:21:41"
+  },
+  {
+    "id": "BUG-118",
+    "category": "静态资源 404",
+    "severity": "P3",
+    "page": "/static/img/success.svg",
+    "summary": "静态资源 404",
+    "evidence": "",
+    "ts": "2026-07-28T18:21:41"
+  },
+  {
+    "id": "BUG-119",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/",
+    "summary": "1 个 <a> 无文本/无 alt 图",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:21"
+  },
+  {
+    "id": "BUG-120",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/",
+    "summary": "6 个 <button> 无文本/无 aria-label",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:21"
+  },
+  {
+    "id": "BUG-121",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/material",
+    "summary": "36 个输入字段无 label/aria-label",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:22"
+  },
+  {
+    "id": "BUG-122",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/material",
+    "summary": "1 个 <a> 无文本/无 alt 图",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:22"
+  },
+  {
+    "id": "BUG-123",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/material",
+    "summary": "15 个 <button> 无文本/无 aria-label",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:22"
+  },
+  {
+    "id": "BUG-124",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/category",
+    "summary": "4 个输入字段无 label/aria-label",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:23"
+  },
+  {
+    "id": "BUG-125",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/category",
+    "summary": "1 个 <a> 无文本/无 alt 图",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:23"
+  },
+  {
+    "id": "BUG-126",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/category",
+    "summary": "9 个 <button> 无文本/无 aria-label",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:23"
+  },
+  {
+    "id": "BUG-127",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/in_order",
+    "summary": "1 个 <a> 无文本/无 alt 图",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:23"
+  },
+  {
+    "id": "BUG-128",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/in_order",
+    "summary": "6 个 <button> 无文本/无 aria-label",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:23"
+  },
+  {
+    "id": "BUG-129",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/out_order",
+    "summary": "1 个 <a> 无文本/无 alt 图",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:24"
+  },
+  {
+    "id": "BUG-130",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/out_order",
+    "summary": "6 个 <button> 无文本/无 aria-label",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:24"
+  },
+  {
+    "id": "BUG-131",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/supplier",
+    "summary": "1 个 <a> 无文本/无 alt 图",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:25"
+  },
+  {
+    "id": "BUG-132",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/supplier",
+    "summary": "9 个 <button> 无文本/无 aria-label",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:25"
+  },
+  {
+    "id": "BUG-133",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/warehouse",
+    "summary": "1 个 <a> 无文本/无 alt 图",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:26"
+  },
+  {
+    "id": "BUG-134",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/warehouse",
+    "summary": "9 个 <button> 无文本/无 aria-label",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:26"
+  },
+  {
+    "id": "BUG-135",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/customer",
+    "summary": "1 个 <a> 无文本/无 alt 图",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:27"
+  },
+  {
+    "id": "BUG-136",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/customer",
+    "summary": "9 个 <button> 无文本/无 aria-label",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:27"
+  },
+  {
+    "id": "BUG-137",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/employee",
+    "summary": "1 个 <a> 无文本/无 alt 图",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:28"
+  },
+  {
+    "id": "BUG-138",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/employee",
+    "summary": "9 个 <button> 无文本/无 aria-label",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:28"
+  },
+  {
+    "id": "BUG-139",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/report",
+    "summary": "1 个 <a> 无文本/无 alt 图",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29"
+  },
+  {
+    "id": "BUG-140",
+    "category": "a11y",
+    "severity": "P3",
+    "page": "/report",
+    "summary": "6 个 <button> 无文本/无 aria-label",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29"
+  },
+  {
+    "id": "BUG-141",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "缺少 X-Content-Type-Options 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29"
+  },
+  {
+    "id": "BUG-142",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "缺少 X-Frame-Options 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29"
+  },
+  {
+    "id": "BUG-143",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "缺少 X-XSS-Protection 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29"
+  },
+  {
+    "id": "BUG-144",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "缺少 Strict-Transport-Security 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29"
+  },
+  {
+    "id": "BUG-145",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "缺少 Content-Security-Policy 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29"
+  },
+  {
+    "id": "BUG-146",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "缺少 Referrer-Policy 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29"
+  },
+  {
+    "id": "BUG-147",
+    "category": "安全头缺失",
+    "severity": "P3",
+    "page": "/login",
+    "summary": "缺少 Permissions-Policy 响应头",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:29"
+  },
+  {
+    "id": "BUG-148",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/material",
+    "summary": "<form> 异常 action=copy",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-149",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/material",
+    "summary": "<form> 异常 action=batchDelete",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-150",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/material",
+    "summary": "<form> 异常 action=edit",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-151",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/material",
+    "summary": "<form> 异常 action=confirm",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-152",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/material",
+    "summary": "<form> 异常 action=view",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-153",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/material",
+    "summary": "<form> 异常 action=create-draft",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-154",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/material",
+    "summary": "<form> 异常 action=retry",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-155",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/in_order",
+    "summary": "<form> 异常 action=copy",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-156",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/in_order",
+    "summary": "<form> 异常 action=batchDelete",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-157",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/in_order",
+    "summary": "<form> 异常 action=edit",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-158",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/in_order",
+    "summary": "<form> 异常 action=confirm",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-159",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/in_order",
+    "summary": "<form> 异常 action=view",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-160",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/in_order",
+    "summary": "<form> 异常 action=create-draft",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-161",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/in_order",
+    "summary": "<form> 异常 action=retry",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-162",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/out_order",
+    "summary": "<form> 异常 action=copy",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-163",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/out_order",
+    "summary": "<form> 异常 action=batchDelete",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-164",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/out_order",
+    "summary": "<form> 异常 action=edit",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-165",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/out_order",
+    "summary": "<form> 异常 action=confirm",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-166",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/out_order",
+    "summary": "<form> 异常 action=view",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-167",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/out_order",
+    "summary": "<form> 异常 action=create-draft",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-168",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/out_order",
+    "summary": "<form> 异常 action=retry",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-169",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/supplier",
+    "summary": "<form> 异常 action=copy",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-170",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/supplier",
+    "summary": "<form> 异常 action=batchDelete",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-171",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/supplier",
+    "summary": "<form> 异常 action=edit",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-172",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/supplier",
+    "summary": "<form> 异常 action=confirm",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-173",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/supplier",
+    "summary": "<form> 异常 action=view",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-174",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/supplier",
+    "summary": "<form> 异常 action=create-draft",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-175",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/supplier",
+    "summary": "<form> 异常 action=retry",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-176",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/customer",
+    "summary": "<form> 异常 action=copy",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-177",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/customer",
+    "summary": "<form> 异常 action=batchDelete",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-178",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/customer",
+    "summary": "<form> 异常 action=edit",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-179",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/customer",
+    "summary": "<form> 异常 action=confirm",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-180",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/customer",
+    "summary": "<form> 异常 action=view",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-181",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/customer",
+    "summary": "<form> 异常 action=create-draft",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-182",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/customer",
+    "summary": "<form> 异常 action=retry",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-183",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/category",
+    "summary": "<form> 异常 action=copy",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-184",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/category",
+    "summary": "<form> 异常 action=batchDelete",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-185",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/category",
+    "summary": "<form> 异常 action=edit",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-186",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/category",
+    "summary": "<form> 异常 action=confirm",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-187",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/category",
+    "summary": "<form> 异常 action=view",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-188",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/category",
+    "summary": "<form> 异常 action=create-draft",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-189",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/category",
+    "summary": "<form> 异常 action=retry",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-190",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/report",
+    "summary": "<form> 异常 action=copy",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-191",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/report",
+    "summary": "<form> 异常 action=batchDelete",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-192",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/report",
+    "summary": "<form> 异常 action=edit",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-193",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/report",
+    "summary": "<form> 异常 action=confirm",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-194",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/report",
+    "summary": "<form> 异常 action=view",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-195",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/report",
+    "summary": "<form> 异常 action=create-draft",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-196",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/report",
+    "summary": "<form> 异常 action=retry",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-197",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/admin/console",
+    "summary": "<form> 异常 action=copy",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-198",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/admin/console",
+    "summary": "<form> 异常 action=batchDelete",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-199",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/admin/console",
+    "summary": "<form> 异常 action=edit",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-200",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/admin/console",
+    "summary": "<form> 异常 action=confirm",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-201",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/admin/console",
+    "summary": "<form> 异常 action=view",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-202",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/admin/console",
+    "summary": "<form> 异常 action=create-draft",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  },
+  {
+    "id": "BUG-203",
+    "category": "链接完整性",
+    "severity": "P3",
+    "page": "/admin/console",
+    "summary": "<form> 异常 action=retry",
+    "evidence": "",
+    "ts": "2026-07-28T18:24:40"
+  }
+]
