@@ -99,9 +99,16 @@
                     </td>
                     <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline-warning" onclick='resetPassword({{ user.id }}, {{ user.username|tojson }})'>
+                        {# BUG-2026-07-28-004 修复：禁止自助重置自己密码；admin 目标二次确认 #}
+                        {% if user.id == current_user.id %}
+                        <button class="btn btn-sm btn-outline-warning" disabled title="禁止自助重置当前登录账号的密码，请联系其他管理员">
                             <i class="bi bi-key"></i> 重置密码
                         </button>
+                        {% else %}
+                        <button class="btn btn-sm btn-outline-warning" onclick='resetPassword({{ user.id }}, {{ user.username|tojson }}, {{ (user.role == 'admin' or user.username == 'admin')|tojson }})'>
+                            <i class="bi bi-key"></i> 重置密码
+                        </button>
+                        {% endif %}
                         {% if user.id == current_user.id %}
                         <button class="btn btn-sm btn-outline-secondary" disabled title="不能禁用当前登录账号">
                             <i class="bi bi-slash-circle"></i> 禁用
@@ -193,9 +200,15 @@
                         <label class="form-label">用户名</label>
                         <input type="text" class="form-control" id="resetUsername" disabled>
                     </div>
+                    <div class="mb-3" id="resetBootstrapGroup" style="display:none;">
+                        <label class="form-label text-danger">WMS_BOOTSTRAP_PASSWORD *</label>
+                        <input type="password" class="form-control" name="bootstrap_pwd" id="resetBootstrapPwd" placeholder="重置管理员账号需输入 WMS_BOOTSTRAP_PASSWORD 二次确认">
+                        <div class="form-text">仅当重置目标为 admin 角色或 admin 用户名时显示。</div>
+                    </div>
                     <div class="mb-3">
                         <label class="form-label">新密码 *</label>
                         <input type="password" class="form-control" name="new_password" required placeholder="请输入新密码">
+                        <div class="form-text">重置后被重置用户下次登录将强制要求修改密码。</div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -233,9 +246,19 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // 重置密码
-    window.resetPassword = function(userId, username) {
+    window.resetPassword = function(userId, username, isAdmin) {
         document.getElementById('resetUserId').value = userId;
         document.getElementById('resetUsername').value = username;
+        var group = document.getElementById('resetBootstrapGroup');
+        var bInput = document.getElementById('resetBootstrapPwd');
+        if (isAdmin) {
+            group.style.display = '';
+            bInput.required = true;
+        } else {
+            group.style.display = 'none';
+            bInput.required = false;
+            bInput.value = '';
+        }
         new bootstrap.Modal(document.getElementById('resetModal')).show();
     };
 

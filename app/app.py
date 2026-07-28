@@ -6796,6 +6796,7 @@ def delete_user():
 def reset_user_password():
     user_id = request.form.get('user_id')
     new_password = request.form.get('new_password', '').strip()
+    # BUG-2026-07-28-004 修复：禁止自助重置自己密码；重置 admin 目标必须二次确认
     if not user_id or not new_password:
         return jsonify({'status': 'error', 'msg': '缺少用户 ID 或新密码'})
     # 重置密码必须复用 validate_password_strength，避免管理员重置出弱密码
@@ -6809,14 +6810,25 @@ def reset_user_password():
         return jsonify({'status': 'error', 'msg': '用户ID格式错误'})
     if not user:
         return jsonify({'status': 'error', 'msg': '用户不存在'})
+    # 自助重置自己密码一律拒绝（即使非 admin）
+    if user.id == current_user.id:
+        return jsonify({'status': 'error', 'msg': '禁止自助重置当前登录账号的密码，请联系其他管理员'})
+    # 重置 admin 目标账号必须提供 WMS_BOOTSTRAP_PASSWORD 二次确认
+    if user.role == 'admin' or user.username == 'admin':
+        bootstrap_pwd = (request.form.get('bootstrap_pwd') or '').strip()
+        expected = os.environ.get('WMS_BOOTSTRAP_PASSWORD', 'admin')
+        if not bootstrap_pwd or bootstrap_pwd != expected:
+            return jsonify({'status': 'error', 'msg': '重置管理员账号需要输入 WMS_BOOTSTRAP_PASSWORD 二次确认'})
     user.password_hash = generate_password_hash(new_password)
+    # 强制被重置用户下次登录必须改密
+    user.must_change_password = True
     try:
         db.session.commit()
     except Exception as e:
         db.session.rollback()
         app.logger.error(f"数据库操作失败: {e}")
         return jsonify({"status": "error", "msg": "操作失败"}), 500
-    return jsonify({'status': 'success', 'msg': '密码重置成功'})
+    return jsonify({'status': 'success', 'msg': '密码重置成功，被重置用户下次登录需修改密码'})
 
 
 @app.route('/system_settings')
