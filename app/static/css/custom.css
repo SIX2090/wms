@@ -3035,3 +3035,9 @@ body.cb-form-actionbar .wms-entry-header.page-header {
         font-size: 0.8rem !important;
     }
 }
+
+/* BUG-2026-07-28-007 兜底：直接访问业务页（非嵌入/非 Tab）时不显示全局 cb-actionbar。
+   app.js 守卫是主修复；这里再加 CSS 兜底，防御 JS 未执行或被注入工具栏的场景。
+   嵌入模式（body.embedded-page / window.self!==window.top / ?embedded=1）下不隐藏。 */
+body:not(.embedded-page) #cbGlobalActionBar { display: none !important; }
+body:not(.embedded-page) .cb-actionbar-toolbar { display: none !important; }

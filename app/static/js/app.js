@@ -2813,6 +2813,11 @@ function initTrueMobileMode() {
 
 function insertGlobalActionBar() {
     if (document.getElementById('cbGlobalActionBar')) return;
+    // BUG-2026-07-28-007 修复：只在「嵌入 / Tab iframe」场景注入全局工具栏。
+    // 直接访问业务页时由各 list 模板自己的 page-header 工具栏负责，
+    // 避免两套工具栏在直接访问模式下并行显示造成认知负担。
+    // isWmsEmbeddedPage() 判定三条件任一满足即可：body.embedded-page 类 / window.self!==window.top / URL 携带 ?embedded=1
+    if (!isWmsEmbeddedPage()) return;
     var module = getWmsActionModule();
     if (!module) return;
     var content = document.querySelector('.embedded-content');
