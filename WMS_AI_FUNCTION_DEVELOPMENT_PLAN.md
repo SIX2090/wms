@@ -1133,7 +1133,7 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 - 报告文件：`audit_screenshots/WMS_BROWSER_BUGS_2026-07-28.md` + `audit_screenshots/BUGFIX_PROMPT.md` + `WMS_BUG_BASELINE.md`（20 条已修复并纳入回归）
 - 浏览器端到端验证：TRAE 集成浏览器 23 张截图存于 `audit_screenshots/real_e2e/fix_*.png`（fix_login_ok/wrong、fix_p0_1a/b/c、fix_p1_*_import_post、fix_p1_*_imp_*.png 等）
 
-#### MASTER-AUDIT-FIX-2026-07-28-F02（开发中）
+#### MASTER-AUDIT-FIX-2026-07-28-F02（已完成）
 
 - 目标：修复后续只读审计确认的基础资料排序、物料 API 截断、标签模板静默覆盖、库位主数据/库存归属、关闭库位管理后的业务可用性、用户资料编辑、主数据分页和标签模板权限体验问题。
 - 去重结论：共享字段设置已由 `app/static/js/app.js` 的 `WmsFieldSettings` 与 `scripts/verify_field_settings.py` 实现并验证，不作为重复开发项。
@@ -1188,6 +1188,34 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
   - 测试数据：`wms_browser_e2e_real_data.json`
   - 提交 SHA：`a1a5cd1 docs(verify): MASTER-AUDIT-FIX 验证报告`
   - 推送：✅ 远程 main SHA `a1a5cd1` = 本地 `a1a5cd1`
+
+- 8 项 F02 子项完成情况（按提交时间顺序）：
+  - **BUG-F02-03**（P0）`58c3417 fix(F02-03): 标签模板保存布局路由缺失 + JS 误报成功` → `verify_f02_03_label_save.py` 16/16
+  - **BUG-F02-02**（P1）`94484f7 fix(F02-02): 物料/供应商/客户 主数据长度截断防护` → `verify_f02_02_truncate.py` 30/30
+  - **BUG-F02-06**（P1）`b792bc5 fix(F02-06): 用户自助资料编辑入口 + email/phone/bio 迁移 + 长度校验 + admin 改他人审计带 last_modified_by` → `verify_f02_06_profile.py` 17/17
+  - **BUG-F02-04**（P1）`0fad2f7 fix(F02-04): 仓库主数据状态变更联动库存校验` → `verify_f02_04_warehouse.py` 12/12
+  - **BUG-F02-05**（P2）`b9fd18d fix(F02-05): 关闭库位管理后入库单仓库字段允许为空` → `verify_f02_05_location_off.py` 13/13
+  - **BUG-F02-01**（P2）`70b05ff fix(F02-01): 基础资料列表默认按 code 升序` → `verify_f02_01_sort.py` 33/33
+  - **BUG-F02-07**（P2）`61d8249 fix(F02-07): 主数据分页 per_page 统一白名单 + 每页条数下拉` → `verify_f02_07_pagination.py` 17/17
+  - **BUG-F02-08**（P2）`label_template_detail` 路由加 `@require_role('admin','warehouse')` → `verify_f02_08_template_perm.py` 4/4
+- 汇总：8 个专项脚本 **142/142 PASS**
+- 改动模块：
+  - `app/app.py`（多段）：默认 sort/order；6 路由长度校验；新增 `save_label_template_layout` / `is_warehouse_active` / `assert_warehouse_active` / `edit_my_profile`；分页 per_page 白名单；标签模板权限
+  - `app/templates/label_template_detail.html`：`saveLayout` JS 加 `response.ok` + disabled 守卫 + spinner 反馈
+  - `app/templates/in_order_add.html`：仓库字段 `{% if location_management_enabled() %}` 条件渲染
+  - `app/templates/_list_macros.html`：新增 `per_page_select` 宏
+  - `app/templates/base.html`：自动绑定 `.per-page-select`
+  - `app/templates/my_profile.html`（新建）：自助资料编辑页
+- 业务边界符合性：
+  - ✅ 未使用 `secrets.token_urlsafe` 生成密码
+  - ✅ 未修改 admin 默认密码
+  - ✅ 仅 main 分支
+  - ✅ 未触碰已完成单据删除路径
+  - ✅ `edit_my_profile` 仅改 email/phone/bio，不可改 username/role/status/password
+  - ✅ 库位归属不明 `assert_warehouse_active` 返 400 + 中文 msg，不自动重新分配
+  - ✅ 业务单据状态及库存仍由既有人工业务流程触发
+- 报告文件：`audit_screenshots/BUGFIX_PROMPT_F02.md` + `WMS_BUG_BASELINE.md` 追加 8 条 BUG-F02-01~08
+- 推送：✅ 已全部推送 origin main
 
 每个子项完成后必须在本台账追加：
 
