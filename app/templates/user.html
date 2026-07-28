@@ -99,6 +99,9 @@
                     </td>
                     <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</td>
                     <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick='editUser({{ user.id }}, {{ user.username|tojson }}, {{ user.role|tojson }}, {{ user_status|tojson }})'>
+                            <i class="bi bi-pencil"></i> 编辑
+                        </button>
                         {# BUG-2026-07-28-004 修复：禁止自助重置自己密码；admin 目标二次确认 #}
                         {% if user.id == current_user.id %}
                         <button class="btn btn-sm btn-outline-warning" disabled title="禁止自助重置当前登录账号的密码，请联系其他管理员">
@@ -143,6 +146,22 @@
             </tbody>
         </table>
     </div>
+</div>
+
+<!-- 编辑用户弹窗：不包含任何密码字段。 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">编辑用户资料</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <form id="editForm"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" id="editUserId">
+            <div class="modal-body">
+                <div class="mb-3"><label class="form-label">用户名</label><input class="form-control" name="username" id="editUsername" maxlength="80" required></div>
+                <div class="mb-3"><label class="form-label">角色</label><select class="form-select" name="role" id="editRole"><option value="user">普通用户</option><option value="warehouse">仓管员</option><option value="purchase">采购</option><option value="sales">销售</option><option value="production">生产</option><option value="admin">管理员</option></select></div>
+                <div class="mb-3"><label class="form-label">状态</label><select class="form-select" name="status" id="editStatus"><option value="normal">正常/启用</option><option value="disabled">禁用</option><option value="inactive">停用</option></select></div>
+                <div class="form-text">此页面不提供密码修改或重置功能；角色和状态变更将写入操作日志。</div>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button class="btn btn-primary" type="submit">保存</button></div>
+        </form>
+    </div></div>
 </div>
 
 <!-- 新增用户弹窗 -->
@@ -244,6 +263,23 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(function(err){ showToast('保存失败：' + err.message, 'danger', 3600); });
         });
     }
+
+    window.editUser = function(userId, username, role, status) {
+        document.getElementById('editUserId').value = userId;
+        document.getElementById('editUsername').value = username;
+        document.getElementById('editRole').value = role;
+        document.getElementById('editStatus').value = status;
+        new bootstrap.Modal(document.getElementById('editModal')).show();
+    };
+    var editForm = document.getElementById('editForm');
+    if (editForm) editForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var id = document.getElementById('editUserId').value;
+        fetch('/user/' + id + '/edit', {method: 'POST', body: new FormData(editForm)})
+            .then(function(r){ return r.json(); })
+            .then(function(res){ if (res.status === 'success') location.reload(); else showToast(res.msg || '用户编辑失败', 'danger'); })
+            .catch(function(){ showToast('用户编辑失败', 'danger'); });
+    });
 
     // 重置密码
     window.resetPassword = function(userId, username, isAdmin) {

@@ -8,9 +8,11 @@
     <h4 class="mb-0">
         <i class="bi bi-tags me-2"></i>标签模板管理
     </h4>
+    {% if current_user.role in ['admin', 'warehouse'] %}
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">
         <i class="bi bi-plus-lg me-1"></i>新增模板
     </button>
+    {% endif %}
     <a href="/batch_import?type=label_template" class="btn btn-outline-info">
         <i class="bi bi-cloud-upload me-1"></i>批量导入
     </a>
@@ -68,23 +70,29 @@
                             {% if template.is_default %}
                             <span class="badge bg-success">默认</span>
                             {% else %}
+                            {% if current_user.role in ['admin', 'warehouse'] %}
                             <button class="btn btn-sm btn-outline-secondary" onclick="setDefault({{ template.id }})">设为默认</button>
+                            {% endif %}
                             {% endif %}
                         </td>
                         <td>{{ template.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                         <td>
+                            {% if current_user.role in ['admin', 'warehouse'] %}
                             <a href="{{ url_for('label_template_detail', id=template.id) }}" class="btn btn-sm btn-outline-primary">
                                 <i class="bi bi-pencil"></i> 设计
                             </a>
+                            {% endif %}
                             <a href="{{ url_for('preview_label_template', id=template.id) }}" class="btn btn-sm btn-outline-info" target="_blank">
                                 <i class="bi bi-eye"></i> 预览
                             </a>
                             <a href="{{ url_for('print_labels', id=template.id) }}" class="btn btn-sm btn-outline-success">
                                 <i class="bi bi-printer"></i> 打印
                             </a>
+                            {% if current_user.role in ['admin', 'warehouse'] %}
                             <button class="btn btn-sm btn-outline-danger" onclick="deleteTemplate({{ template.id }})">
                                 <i class="bi bi-trash"></i>
                             </button>
+                            {% endif %}
                         </td>
                     </tr>
                     {% else %}

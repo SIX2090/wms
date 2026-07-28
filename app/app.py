@@ -1789,6 +1789,9 @@ def inject_query_helpers():
         'location_management_enabled': location_management_enabled(),
         'material_code_editable': material_code_editable(),
         'now': datetime.now(),
+        # BUG-2026-07-28-011 修复：登录页模板用得到
+        'max_login_failures': max_login_failures,
+        'account_lock_minutes': account_lock_minutes,
     }
 
 
@@ -2289,6 +2292,30 @@ class User(UserMixin, db.Model):
         if not deadline and self.login_lock_ip == ip_address and self.login_ip_locked_until:
             deadline = self.login_ip_locked_until
         return max(1, int((deadline - datetime.now()).total_seconds() // 60)) if deadline else 0
+
+    def login_lock_remaining_seconds(self, ip_address):
+        """BUG-2026-07-28-011 修复：返回精确剩余秒数，供前端做倒计时。"""
+        deadline = self.locked_until if self.is_locked else None
+        if not deadline and self.login_lock_ip == ip_address and self.login_ip_locked_until:
+            deadline = self.login_ip_locked_until
+        if not deadline:
+            return 0
+        return max(1, int((deadline - datetime.now()).total_seconds()))
+
+    def ip_failed_count_for(self, ip_address):
+        """BUG-2026-07-28-011 修复：返回当前 IP 的失败次数（同 IP 累计，跨账号不累计）。
+        锁定后从 0 重置，但前端展示仍希望看到累计次数以警示用户。
+        """
+        if not ip_address:
+            return 0
+        if self.login_lock_ip != ip_address:
+            return 0
+        # 已锁定时仍展示累计失败次数（提示用户风险），但若锁定已自然过期则清零
+        if self.login_ip_locked_until and self.login_ip_locked_until > datetime.now():
+            return self.login_ip_failed_count or 0
+        if self.login_ip_locked_until and self.login_ip_locked_until <= datetime.now():
+            return 0
+        return self.login_ip_failed_count or 0
 
     def increment_failed_count(self, ip_address=None):
         """Increase failed login count and lock account if needed."""
@@ -6202,12 +6229,22 @@ def change_own_password():
 def login():
     next_page = (request.values.get('next') or '').strip()
     login_date = date.today().strftime('%Y-%m-%d')
+    # BUG-2026-07-28-011 修复：把锁定/失败相关上下文统一封装，默认空，避免每个分支重复
+    login_ctx = {
+        'next': next_page,
+        'current_date': login_date,
+        'locked': False,
+        'lock_remaining_seconds': 0,
+        'lock_remaining_minutes': 0,
+        'ip_failed_count': 0,
+        'remaining_attempts': 0,
+    }
 
     if current_user.is_authenticated:
         return redirect(resolve_redirect_target(next_page))
 
     if request.method != 'POST':
-        return render_template('login.html', next=next_page, current_date=login_date)
+        return render_template('login.html', **login_ctx)
 
     username = (request.form.get('username') or '').strip()
     password = request.form.get('password') or ''
@@ -6218,13 +6255,13 @@ def login():
 
     if not username or not password:
         flash('请输入用户名和密码', 'danger')
-        return render_template('login.html', next=next_page, current_date=login_date), 400
+        return render_template('login.html', **login_ctx), 400
     if not usage_consent:
         flash('请先阅读并同意使用本系统后再登录', 'warning')
-        return render_template('login.html', next=next_page, current_date=login_date), 400
+        return render_template('login.html', **login_ctx), 400
     if len(username) > 80 or len(password) > 128:
         flash('用户名或密码长度不正确', 'danger')
-        return render_template('login.html', next=next_page, current_date=login_date), 400
+        return render_template('login.html', **login_ctx), 400
 
     user = User.query.filter_by(username=username).first()
     if not user:
@@ -6235,7 +6272,7 @@ def login():
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
         flash('用户名或密码错误', 'danger')
-        return render_template('login.html', next=next_page, current_date=login_date), 401
+        return render_template('login.html', **login_ctx), 401
 
     if not user.is_active:
         add_login_log(status='failed', username=username, user=user, fail_reason='failed')
@@ -6245,30 +6282,39 @@ def login():
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
         flash('账号已被禁用，请联系管理员', 'danger')
-        return render_template('login.html', next=next_page, current_date=login_date), 403
+        return render_template('login.html', **login_ctx), 403
 
     if login_mode == 'admin' and user.role != 'admin':
         add_login_log(status='failed', username=username, user=user, fail_reason='admin_mode_role_mismatch')
         db.session.commit()
         flash('管理员模式仅允许管理员账号登录', 'danger')
-        return render_template('login.html', next=next_page, current_date=login_date), 403
+        return render_template('login.html', **login_ctx), 403
 
     request_ip = get_request_ip()
     if user.is_locked_for(request_ip):
-        remaining = user.login_lock_remaining(request_ip)
+        remaining_min = user.login_lock_remaining(request_ip)
+        remaining_sec = user.login_lock_remaining_seconds(request_ip)
+        # BUG-2026-07-28-011 修复：锁定时向模板传精确剩余秒数，前端做倒计时
+        login_ctx.update({
+            'locked': True,
+            'lock_remaining_minutes': remaining_min,
+            'lock_remaining_seconds': remaining_sec,
+            'ip_failed_count': user.ip_failed_count_for(request_ip),
+            'username': username,
+        })
         add_login_log(
             status='failed',
             username=username,
             user=user,
-            fail_reason=f'{remaining}'
+            fail_reason=f'{remaining_min}'
         )
         try:
             db.session.commit()
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
-        flash(f'账号已锁定，请 {remaining} 分钟后再试', 'danger')
-        return render_template('login.html', next=next_page, current_date=login_date), 423
+        flash(f'账号已锁定，请 {remaining_min} 分钟后再试', 'danger')
+        return render_template('login.html', **login_ctx), 423
 
     if check_password_hash(user.password_hash, password):
         session.clear()
@@ -6303,11 +6349,29 @@ def login():
         app.logger.error(f'数据库操作失败: {e}')
 
     if user.is_locked_for(request_ip):
+        remaining_min = user.login_lock_remaining(request_ip)
+        remaining_sec = user.login_lock_remaining_seconds(request_ip)
+        # BUG-2026-07-28-011 修复：本轮失败刚好触发锁定，立即进入锁定 UI
+        login_ctx.update({
+            'locked': True,
+            'lock_remaining_minutes': remaining_min,
+            'lock_remaining_seconds': remaining_sec,
+            'ip_failed_count': user.ip_failed_count_for(request_ip),
+            'username': username,
+        })
         flash(f'密码错误次数过多，账号已锁定 {account_lock_minutes()} 分钟', 'danger')
-    else:
-        remaining = max(0, max_login_failures() - (user.login_failed_count or 0))
-        flash(f'用户名或密码错误，还可尝试 {remaining} 次', 'danger')
-    return render_template('login.html', next=next_page, current_date=login_date), 401
+        return render_template('login.html', **login_ctx), 423
+
+    remaining = max(0, max_login_failures() - (user.login_failed_count or 0))
+    ip_failed = user.ip_failed_count_for(request_ip)
+    # BUG-2026-07-28-011 修复：未锁定时向模板传剩余尝试次数 + IP 失败次数
+    login_ctx.update({
+        'remaining_attempts': remaining,
+        'ip_failed_count': ip_failed,
+        'username': username,
+    })
+    flash(f'用户名或密码错误，还可尝试 {remaining} 次', 'danger')
+    return render_template('login.html', **login_ctx), 401
 
 
 @app.route('/logout')
@@ -6668,6 +6732,43 @@ def add_user():
         app.logger.error(f'创建用户失败: {e}')
         return jsonify({'status': 'error', 'msg': '用户创建失败，用户名可能已存在'}), 500
     return jsonify({'status': 'success', 'msg': '用户创建成功'})
+
+
+@app.route('/user/<int:user_id>/edit', methods=['POST'])
+@require_role('admin')
+@login_required
+@role_required('admin')
+def edit_user(user_id):
+    """Edit non-password user profile fields with last-admin protection."""
+    target = db.session.get(User, user_id)
+    if not target:
+        return jsonify({'status': 'error', 'msg': '用户不存在'}), 404
+    username = (request.form.get('username') or '').strip()
+    role = (request.form.get('role') or '').strip()
+    status = _normalize_user_status(request.form.get('status'))
+    allowed_roles = {'admin', 'warehouse', 'purchase', 'sales', 'production', 'user', 'viewer'}
+    if not username or len(username) > 80:
+        return jsonify({'status': 'error', 'msg': '用户名不能为空且不能超过 80 个字符'}), 400
+    if role not in allowed_roles:
+        return jsonify({'status': 'error', 'msg': '用户角色不合法'}), 400
+    duplicate = User.query.filter(User.username == username, User.id != target.id).first()
+    if duplicate:
+        return jsonify({'status': 'error', 'msg': '用户名已存在'}), 409
+    removing_active_admin = target.role == 'admin' and (role != 'admin' or status in DISABLED_USER_STATUSES)
+    if removing_active_admin and not _has_other_active_admin(target.id):
+        return jsonify({'status': 'error', 'msg': '至少保留一个启用状态的管理员'}), 400
+    if target.id == current_user.id and (role != 'admin' or status in DISABLED_USER_STATUSES):
+        return jsonify({'status': 'error', 'msg': '不能降级或禁用当前登录管理员'}), 400
+    before = f'用户名={target.username}，角色={target.role}，状态={_normalize_user_status(target.status)}'
+    target.username, target.role, target.status = username, role, status
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.error('编辑用户失败: %s', exc)
+        return jsonify({'status': 'error', 'msg': '用户编辑失败'}), 500
+    log_operation('编辑用户', f'{before} -> 用户名={username}，角色={role}，状态={status}', 'user', target.id)
+    return jsonify({'status': 'success', 'msg': '用户资料已更新'})
 
 DISABLED_USER_STATUSES = {'disabled', 'inactive'}
 USER_STATUS_LABELS = {
