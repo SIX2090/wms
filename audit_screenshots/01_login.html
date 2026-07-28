@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 仓库管理系统</title>
+    <meta name="csrf-token" content="IjA1ZTJmOTg0MWRlZWM2NDE4ZjQyMGMwNzZiMTQxMTQ0NzI5ZDkzOWQi.amgPLA.QcVmZn7415yqsoBKJ8549roehSk">
+    <link href="/static/cdn/bootstrap-5.3.0.min.css" rel="stylesheet">
+    <link href="/static/cdn/bootstrap-icons-1.10.0.css" rel="stylesheet">
+    <style>
+        :root {
+            --login-accent: #ff4d5f;
+            --login-accent-dark: #e73348;
+            --login-ink: #111827;
+            --login-muted: #6b7280;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        html,
+        body {
+            min-height: 100%;
+            margin: 0;
+        }
+        body {
+            font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+            color: var(--login-ink);
+            overflow: hidden;
+        }
+        /* 科技粒子背景 - Canvas */
+        #particles-canvas {
+            position: fixed;
+            inset: 0;
+            z-index: -4;
+            background: linear-gradient(135deg, #0c1929 0%, #1a3a5c 50%, #0f2847 100%);
+        }
+        @keyframes fluidMove1 {
+            0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+            50% { transform: translate(100px, 120px) rotate(90deg) scale(1.1); }
+            100% { transform: translate(60px, 80px) rotate(180deg) scale(0.95); }
+        }
+        @keyframes fluidMove2 {
+            0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+            50% { transform: translate(-80px, -60px) rotate(-120deg) scale(1.15); }
+            100% { transform: translate(-40px, -100px) rotate(-240deg) scale(0.9); }
+        }
+        @keyframes fluidMove3 {
+            0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+            50% { transform: translate(120px, -80px) rotate(60deg) scale(1.1); }
+            100% { transform: translate(80px, 60px) rotate(120deg) scale(1.05); }
+        }
+        @keyframes fluidMove4 {
+            0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+            50% { transform: translate(-100px, 80px) rotate(-180deg) scale(0.95); }
+            100% { transform: translate(-60px, -40px) rotate(-360deg) scale(1.1); }
+        }
+        @keyframes fluidMove5 {
+            0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+            50% { transform: translate(40px, 100px) rotate(150deg) scale(1.08); }
+            100% { transform: translate(-80px, 60px) rotate(300deg) scale(0.92); }
+        }
+        .login-page {
+            position: relative;
+            min-height: 100vh;
+            display: grid;
+            grid-template-columns: minmax(420px, 1fr) minmax(360px, 520px);
+            align-items: center;
+            gap: 56px;
+            padding: 38px clamp(32px, 7vw, 130px);
+            isolation: isolate;
+        }
+        .login-page::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: rgba(7, 14, 30, 0.35);
+            z-index: -3;
+        }
+        .login-page::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(circle at 20% 15%, rgba(255,255,255,0.16), transparent 24%),
+                linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.02));
+            z-index: -2;
+        }
+        .scene-motion {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: -1;
+        }
+        .scene-motion span {
+            position: absolute;
+            left: -220px;
+            width: 220px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.72), transparent);
+            animation: driftLine 9s linear infinite;
+            opacity: 0.48;
+        }
+        .scene-motion span:nth-child(1) { top: 18%; animation-delay: -1s; }
+        .scene-motion span:nth-child(2) { top: 38%; animation-delay: -4s; width: 300px; }
+        .scene-motion span:nth-child(3) { top: 72%; animation-delay: -6s; width: 260px; }
+        @keyframes driftLine {
+            from { transform: translateX(0); }
+            to { transform: translateX(calc(100vw + 320px)); }
+        }
+        .brand-panel {
+            color: #fff;
+            max-width: 760px;
+            padding-top: 7vh;
+        }
+        .brand-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.32);
+            background: rgba(255,255,255,0.12);
+            backdrop-filter: blur(10px);
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+        .brand-title {
+            font-size: clamp(42px, 5vw, 74px);
+            line-height: 1.08;
+            font-weight: 700;
+            letter-spacing: 0;
+            margin: 0;
+            text-shadow: 0 12px 34px rgba(0,0,0,0.34);
+        }
+        .brand-subtitle {
+            margin: 26px 0 0;
+            display: flex;
+            align-items: center;
+            gap: 28px;
+            flex-wrap: wrap;
+            font-size: clamp(22px, 2.3vw, 34px);
+            font-weight: 600;
+            text-shadow: 0 8px 24px rgba(0,0,0,0.35);
+        }
+        .brand-footer {
+            position: absolute;
+            left: clamp(32px, 7vw, 130px);
+            bottom: 28px;
+            display: flex;
+            gap: 22px;
+            flex-wrap: wrap;
+            color: rgba(255,255,255,0.82);
+            font-size: 14px;
+        }
+        .login-card {
+            width: min(100%, 430px);
+            margin-left: auto;
+            background: rgba(255,255,255,0.96);
+            border-radius: 10px;
+            box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.65);
+            backdrop-filter: blur(18px);
+        }
+        .login-card-header {
+            padding: 24px 30px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            border-bottom: 1px solid #eef2f7;
+        }
+        .login-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--login-accent);
+        }
+        .login-logo-mark {
+            width: 36px;
+            height: 36px;
+            border-radius: 12px;
+            display: inline-grid;
+            place-items: center;
+            color: #fff;
+            background: linear-gradient(135deg, #ff4d5f, #7c3aed);
+            box-shadow: 0 8px 20px rgba(255, 77, 95, 0.28);
+        }
+        .login-mode {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #ef4444;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .login-body {
+            padding: 24px 32px 30px;
+        }
+        .login-tabs {
+            display: flex;
+            gap: 34px;
+            margin-bottom: 22px;
+            color: #6b7280;
+            font-weight: 600;
+        }
+        .login-tabs button {
+            border: 0;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            cursor: pointer;
+            position: relative;
+            padding-bottom: 10px;
+        }
+        .login-tabs .active {
+            color: #111827;
+        }
+        .login-tabs .active::after {
+            content: "";
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 64px;
+            height: 3px;
+            border-radius: 999px;
+            background: var(--login-accent);
+        }
+        .login-field {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            border-bottom: 1px solid #e5e7eb;
+            min-height: 58px;
+            color: #6b7280;
+        }
+        .login-field i {
+            width: 20px;
+            text-align: center;
+            font-size: 18px;
+            color: #64748b;
+        }
+        .login-field input {
+            flex: 1;
+            border: 0;
+            outline: 0;
+            background: transparent;
+            font-size: 15px;
+            color: #111827;
+            min-width: 0;
+        }
+        .login-field input::placeholder {
+            color: #9ca3af;
+        }
+        .login-field:focus-within {
+            border-bottom-color: var(--login-accent);
+        }
+        .login-field:focus-within i {
+            color: var(--login-accent);
+        }
+        .login-date {
+            flex: 1;
+            color: #374151;
+            font-size: 15px;
+        }
+        .login-options {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin: 18px 0 22px;
+            font-size: 13px;
+            color: #4b5563;
+        }
+        .form-check-input:checked {
+            background-color: var(--login-accent);
+            border-color: var(--login-accent);
+        }
+        .btn-login {
+            width: 100%;
+            height: 46px;
+            border: 0;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #ff4d5f, #ff6a7a);
+            color: #fff;
+            font-weight: 700;
+            box-shadow: 0 12px 26px rgba(255, 77, 95, 0.26);
+            transition: transform 0.16s ease, box-shadow 0.16s ease;
+        }
+        .btn-login:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 16px 32px rgba(255, 77, 95, 0.32);
+            background: linear-gradient(135deg, var(--login-accent-dark), #ff5c6e);
+            color: #fff;
+        }
+        .login-links {
+            display: flex;
+            justify-content: center;
+            gap: 18px;
+            margin-top: 18px;
+            font-size: 13px;
+        }
+        .login-links a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+        .login-links a:hover {
+            text-decoration: underline;
+        }
+        .login-tools {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            border-top: 1px solid #eef2f7;
+            margin-top: 24px;
+            padding-top: 18px;
+            color: #6b7280;
+            font-size: 12px;
+            text-align: center;
+        }
+        .login-tools i {
+            display: block;
+            font-size: 22px;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+        .alert {
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        @media (max-width: 980px) {
+            body {
+                overflow: auto;
+            }
+            .login-page {
+                grid-template-columns: 1fr;
+                padding: 30px 20px 80px;
+            }
+            .brand-panel {
+                padding-top: 0;
+            }
+            .login-card {
+                margin: 0;
+            }
+            .brand-footer {
+                left: 20px;
+                right: 20px;
+            }
+        }
+        @media (max-width: 560px) {
+            body {
+                min-height: 100%;
+            }
+            #particles-canvas {
+                min-height: 100vh;
+            }
+            .login-page {
+                min-height: 100vh;
+                align-content: center;
+                gap: 18px;
+                padding: 20px 14px 24px;
+            }
+            .brand-panel {
+                max-width: none;
+                padding: 0 4px;
+            }
+            .brand-kicker {
+                margin-bottom: 12px;
+                padding: 6px 10px;
+                font-size: 12px;
+            }
+            .brand-title {
+                font-size: 28px;
+                line-height: 1.16;
+            }
+            .brand-subtitle {
+                margin-top: 12px;
+                font-size: 15px;
+                gap: 12px;
+            }
+            .login-card {
+                width: 100%;
+                border-radius: 12px;
+            }
+            .login-card-header,
+            .login-body {
+                padding-left: 18px;
+                padding-right: 18px;
+            }
+            .login-card-header {
+                padding-top: 18px;
+                padding-bottom: 10px;
+            }
+            .login-logo {
+                font-size: 18px;
+            }
+            .login-logo-mark {
+                width: 32px;
+                height: 32px;
+                border-radius: 10px;
+            }
+            .login-mode {
+                font-size: 12px;
+            }
+            .login-body {
+                padding-top: 18px;
+                padding-bottom: 20px;
+            }
+            .login-tabs {
+                gap: 24px;
+                margin-bottom: 14px;
+            }
+            .login-field {
+                min-height: 54px;
+            }
+            .login-field input,
+            .login-date {
+                font-size: 16px;
+            }
+            .login-options {
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 8px;
+                margin: 14px 0 18px;
+            }
+            .btn-login {
+                height: 48px;
+            }
+            .login-links {
+                margin-top: 14px;
+            }
+            .login-tools {
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+                margin-top: 16px;
+                padding-top: 14px;
+            }
+            .brand-footer {
+                position: static;
+                justify-content: center;
+                gap: 10px;
+                font-size: 12px;
+                padding: 0 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 科技粒子背景 -->
+    <canvas id="particles-canvas"></canvas>
+    <main class="login-page">
+        <div class="scene-motion" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+
+        <section class="brand-panel" aria-label="系统介绍">
+            <div class="brand-kicker">
+                <i class="bi bi-shield-check"></i>
+                采购、库存、入库、出库一体化
+            </div>
+            <h1 class="brand-title">WMS 让仓库做单更顺手</h1>
+            <div class="brand-subtitle">
+                <span>选单</span>
+                <span>下推</span>
+                <span>联查</span>
+                <span>执行跟踪</span>
+            </div>
+        </section>
+
+        <section class="login-card" aria-label="登录面板">
+            <div class="login-card-header">
+                <div class="login-logo">
+                    <span class="login-logo-mark"><i class="bi bi-box-seam"></i></span>
+                    <span>WMS Cloud</span>
+                </div>
+                <div class="login-mode">
+                    <i class="bi bi-shield-fill-check"></i>
+                    正式使用
+                </div>
+            </div>
+            <div class="login-body">
+                <div class="login-tabs">
+                    <button type="button" class="active" data-login-mode="user" aria-selected="true">普通用户</button>
+                    <button type="button" data-login-mode="admin" aria-selected="false">管理员</button>
+                </div>
+
+                
+                    
+                
+
+                <form method="POST" autocomplete="on">
+                    <input type="hidden" name="csrf_token" value="IjA1ZTJmOTg0MWRlZWM2NDE4ZjQyMGMwNzZiMTQxMTQ0NzI5ZDkzOWQi.amgPLA.QcVmZn7415yqsoBKJ8549roehSk">
+                    <input type="hidden" name="next" value="">
+                    <input type="hidden" name="login_mode" id="loginMode" value="user">
+                    <label class="login-field">
+                        <i class="bi bi-person"></i>
+                        <input type="text" name="username" placeholder="请输入用户名" required autofocus autocomplete="username">
+                    </label>
+                    <label class="login-field">
+                        <i class="bi bi-key"></i>
+                        <input type="password" name="password" placeholder="请输入密码" required autocomplete="current-password">
+                    </label>
+                    <div class="login-field">
+                        <i class="bi bi-calendar3"></i>
+                        <span class="login-date">2026-07-28</span>
+                    </div>
+                    <div class="login-options">
+                        <label class="form-check mb-0">
+                            <input class="form-check-input" type="checkbox" value="1" checked>
+                            <span class="form-check-label">阅读并同意使用本系统</span>
+                        </label>
+                        <span>请使用管理员分配的账号登录</span>
+                    </div>
+                    <button type="submit" class="btn-login">登录</button>
+                </form>
+
+                <div class="login-links">
+                    <a href="#" onclick="return false;">验证码登录</a>
+                    <a href="#" onclick="return false;">忘记密码</a>
+                </div>
+                <div class="login-tools">
+                    <div>
+                        <i class="bi bi-compass"></i>
+                        推荐浏览器打开
+                    </div>
+                    <div>
+                        <i class="bi bi-phone"></i>
+                        移动端适配
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="brand-footer" aria-hidden="true">
+            <span>采购入库</span>
+            <span>库存管理</span>
+            <span>单据联查</span>
+            <span>个人仓库系统</span>
+        </div>
+    </main>
+
+    <script>
+        document.querySelectorAll('[data-login-mode]').forEach(function (tab) {
+            tab.addEventListener('click', function () {
+                document.querySelectorAll('[data-login-mode]').forEach(function (item) {
+                    item.classList.toggle('active', item === tab);
+                    item.setAttribute('aria-selected', item === tab ? 'true' : 'false');
+                });
+                document.getElementById('loginMode').value = tab.dataset.loginMode;
+                document.querySelector('input[name="username"]').focus();
+            });
+        });
+
+        // 科技粒子动画
+        const canvas = document.getElementById('particles-canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let particles = [];
+        let mouse = {
+            x: null,
+            y: null,
+            radius: 150
+        };
+        
+        // 初始化画布大小
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        
+        // 鼠标移动监听
+        window.addEventListener('mousemove', (event) => {
+            mouse.x = event.x;
+            mouse.y = event.y;
+        });
+        
+        // 粒子类
+        class Particle {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 3 + 1;
+                this.baseX = this.x;
+                this.baseY = this.y;
+                this.density = (Math.random() * 30) + 1;
+                this.speedX = (Math.random() - 0.5) * 0.5;
+                this.speedY = (Math.random() - 0.5) * 0.5;
+                this.color = `rgba(${Math.random() * 50 + 100}, ${Math.random() * 100 + 150}, ${Math.random() * 150 + 200}, ${Math.random() * 0.5 + 0.3})`;
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+            }
+            
+            update() {
+                // 鼠标交互
+                let dx = mouse.x - this.x;
+                let dy = mouse.y - this.y;
+                let distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < mouse.radius) {
+                    let forceDirectionX = dx / distance;
+                    let forceDirectionY = dy / distance;
+                    let maxDistance = mouse.radius;
+                    let force = (maxDistance - distance) / maxDistance;
+                    let directionX = forceDirectionX * force * this.density;
+                    let directionY = forceDirectionY * force * this.density;
+                    
+                    this.x -= directionX;
+                    this.y -= directionY;
+                }
+                
+                // 自动移动
+                this.x += this.speedX;
+                this.y += this.speedY;
+                
+                // 边界检测
+                if (this.x < 0) this.x = canvas.width;
+                if (this.x > canvas.width) this.x = 0;
+                if (this.y < 0) this.y = canvas.height;
+                if (this.y > canvas.height) this.y = 0;
+                
+                this.draw();
+            }
+        }
+        
+        // 初始化粒子
+        function init() {
+            particles = [];
+            let numberOfParticles = (canvas.width * canvas.height) / 9000;
+            for (let i = 0; i < numberOfParticles; i++) {
+                particles.push(new Particle());
+            }
+        }
+        init();
+        
+        // 连接粒子
+        function connect() {
+            let opacityValue = 1;
+            for (let a = 0; a < particles.length; a++) {
+                for (let b = a; b < particles.length; b++) {
+                    let distance = Math.sqrt(
+                        Math.pow(particles[a].x - particles[b].x, 2) + 
+                        Math.pow(particles[a].y - particles[b].y, 2)
+                    );
+                    
+                    if (distance < 120) {
+                        opacityValue = 1 - (distance / 120);
+                        ctx.strokeStyle = `rgba(100, 180, 255, ${opacityValue * 0.3})`;
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(particles[a].x, particles[a].y);
+                        ctx.lineTo(particles[b].x, particles[b].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+        
+        // 动画循环
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update();
+            }
+            connect();
+            requestAnimationFrame(animate);
+        }
+        animate();
+    </script>
+</body>
+</html>
