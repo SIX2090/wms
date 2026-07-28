@@ -183,6 +183,16 @@ def auto_migrate_database():
         if user_columns and 'login_ip_locked_until' not in user_columns:
             cursor.execute("ALTER TABLE user ADD COLUMN login_ip_locked_until DATETIME")
             modified = True
+        # BUG-F02-06 修复：用户自助资料编辑所需的扩展列迁移
+        if user_columns and 'email' not in user_columns:
+            cursor.execute("ALTER TABLE user ADD COLUMN email VARCHAR(200)")
+            modified = True
+        if user_columns and 'phone' not in user_columns:
+            cursor.execute("ALTER TABLE user ADD COLUMN phone VARCHAR(30)")
+            modified = True
+        if user_columns and 'bio' not in user_columns:
+            cursor.execute("ALTER TABLE user ADD COLUMN bio VARCHAR(500)")
+            modified = True
         if in_columns and 'business_type' not in in_columns:
             cursor.execute("ALTER TABLE in_order ADD COLUMN business_type VARCHAR(50)")
             cursor.execute("""
@@ -2256,6 +2266,12 @@ class User(UserMixin, db.Model):
     login_lock_ip = db.Column(db.String(50))
     login_ip_failed_count = db.Column(db.Integer, default=0)
     login_ip_locked_until = db.Column(db.DateTime)
+
+    # BUG-F02-06 修复：普通用户/管理员自助资料字段
+    # 仅限本人修改，不参与登录/权限判定；不在 edit_user 中提供
+    email = db.Column(db.String(200))
+    phone = db.Column(db.String(30))
+    bio = db.Column(db.String(500))
 
     # Flask-Login integration
     @property
@@ -6767,7 +6783,12 @@ def edit_user(user_id):
         db.session.rollback()
         app.logger.error('编辑用户失败: %s', exc)
         return jsonify({'status': 'error', 'msg': '用户编辑失败'}), 500
-    log_operation('编辑用户', f'{before} -> 用户名={username}，角色={role}，状态={status}', 'user', target.id)
+    # BUG-F02-06 修复：审计 log_operation 显式带 last_modified_by=current_user.username
+    log_operation(
+        '编辑用户',
+        f'{before} -> 用户名={username}，角色={role}，状态={status} (last_modified_by={current_user.username})',
+        'user', target.id,
+    )
     return jsonify({'status': 'success', 'msg': '用户资料已更新'})
 
 DISABLED_USER_STATUSES = {'disabled', 'inactive'}
@@ -6793,6 +6814,47 @@ def _has_other_active_admin(user_id):
         User.id != user_id,
         db.or_(User.status.is_(None), User.status.notin_(list(DISABLED_USER_STATUSES)))
     ).first() is not None
+
+
+# BUG-F02-06 修复：普通用户/管理员自助资料编辑入口
+# - 任何登录用户都可以编辑自己的 email/phone/bio（不动用户名/角色/状态/密码）
+# - 写入 log_operation 审计（before/after）
+# - 与 /user/<id>/edit 的 admin 写权限分离，避免越权
+@app.route('/profile/edit', methods=['GET', 'POST'])
+@login_required
+def edit_my_profile():
+    user = current_user
+    if request.method == 'GET':
+        return render_template('my_profile.html', profile_user=user)
+    email = (request.form.get('email') or '').strip()
+    phone = (request.form.get('phone') or '').strip()
+    bio = (request.form.get('bio') or '').strip()
+    # BUG-F02-06 修复：先校验长度再保存，不允许静默截断
+    if len(email) > 200:
+        return jsonify({'status': 'error', 'msg': '邮箱不能超过 200 个字符（当前 '+str(len(email))+'）'}), 400
+    if len(phone) > 30:
+        return jsonify({'status': 'error', 'msg': '电话不能超过 30 个字符（当前 '+str(len(phone))+'）'}), 400
+    if len(bio) > 500:
+        return jsonify({'status': 'error', 'msg': '个人简介不能超过 500 个字符（当前 '+str(len(bio))+'）'}), 400
+    if email and ('@' not in email or len(email) < 3):
+        return jsonify({'status': 'error', 'msg': '邮箱格式不正确'}), 400
+    if phone and not re.fullmatch(r'^[\d\-\+\s]{0,30}$', phone):
+        return jsonify({'status': 'error', 'msg': '电话只能包含数字/-/+/空格'}), 400
+    before = f'email={user.email or ""}, phone={user.phone or ""}, bio={user.bio or ""}'
+    user.email = email or None
+    user.phone = phone or None
+    user.bio = bio or None
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.error('个人资料保存失败: %s', exc)
+        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'}), 500
+    after = f'email={user.email or ""}, phone={user.phone or ""}, bio={user.bio or ""}'
+    log_operation('编辑自己的资料', f'{before} -> {after}', 'user', user.id)
+    if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return jsonify({'status': 'success', 'msg': '资料已更新'})
+    return redirect(url_for('edit_my_profile'))
 
 
 @app.route('/user/status', methods=['POST'])
@@ -20315,14 +20377,31 @@ def ai_replenishment_page():
 @require_role('warehouse', 'purchase')
 def ai_replenishment_live_page():
     """智能补货建议页面（新版AI驱动）"""
-    return render_template('ai_replenishment.html')
+    days = request.args.get('days', 30, type=int)
+    coverage_days = request.args.get('coverage_days', 30, type=int)
+    risk = (request.args.get('risk') or 'action').strip()
+    only_action = risk == 'action'
+    report = _ai_replenishment_report(
+        days=days,
+        coverage_days=coverage_days,
+        limit=200,
+        only_action=only_action,
+    )
+    return render_template('ai_replenishment.html', report=report, risk=risk)
 
 @app.route('/ai/inventory_health_live')
 @login_required
 @require_role('warehouse')
 def ai_inventory_health_live_page():
     """库存健康度评分页面"""
-    return render_template('ai_inventory_health.html')
+    days = request.args.get('days', 30, type=int)
+    risk = (request.args.get('risk') or 'all').strip()
+    report = _ai_inventory_health_report(
+        days=days,
+        limit=200,
+        risk_filter=risk,
+    )
+    return render_template('ai_inventory_health.html', report=report, risk=risk)
 
 
 @app.route('/ai/inventory_health')
