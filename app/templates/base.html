@@ -2113,6 +2113,12 @@
                     <i class="bi bi-speedometer2"></i> 首页
                 </a>
             </li>
+            {# BUG-F02-06 修复：所有登录用户都能进"我的资料" #}
+            <li class="nav-item">
+                <a class="nav-link" href="/profile/edit">
+                    <i class="bi bi-person-circle"></i> 我的资料
+                </a>
+            </li>
             <li class="nav-item module-menu">
                 <button type="button" class="nav-link module-toggle" onclick="toggleModuleMenu(this)" aria-expanded="false">
                     <span class="module-title"><i class="bi bi-qr-code-scan"></i> 手机扫码</span>
