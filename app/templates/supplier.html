@@ -168,6 +168,23 @@
 document.addEventListener('DOMContentLoaded', function() {
     initCheckAll('supplierTable');
 
+    // BUG-2026-07-28-010 修复：URL 携带 ?showAddModal=1 时自动打开新增 modal
+    try {
+        var sp = new URLSearchParams(window.location.search);
+        if (sp.get('showAddModal') === '1') {
+            var modalEl = document.getElementById('addModal');
+            if (modalEl && window.bootstrap) {
+                var m = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+                m.show();
+                // 清理 URL 上的 showAddModal 参数，避免刷新时重复弹
+                sp.delete('showAddModal');
+                var qs = sp.toString();
+                var newUrl = window.location.pathname + (qs ? '?' + qs : '');
+                window.history.replaceState({}, '', newUrl);
+            }
+        }
+    } catch (e) { /* ignore */ }
+
     // 新增供应商
     var addForm = document.getElementById('addForm');
     if (addForm) {

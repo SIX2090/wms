@@ -1794,16 +1794,12 @@ def inject_query_helpers():
 
 @app.before_request
 def block_location_modules_when_disabled():
-    if request.endpoint == 'static':
-        return None
-    if not request.path.startswith(('/transfer', '/adjustment')):
-        return None
-    if location_management_enabled():
-        return None
-    if request.path.startswith('/api/') or request.is_json:
-        return jsonify({'status': 'error', 'msg': '库位管理尚未启用，请先在系统管理中开启'}), 403
-    flash('库位管理尚未启用，请先在系统管理中开启。', 'info')
-    return redirect(url_for('stock_query'))
+    """Keep core transfer/adjustment available when location control is off.
+
+    Location management controls location-level validation only; it must not
+    disable warehouse-level transfer or inventory adjustment workflows.
+    """
+    return None
 
 
 @app.before_request
@@ -6950,6 +6946,11 @@ def material_list():
         stock_filter = ''
     sort_by = request.args.get('sort', 'created_at')
     sort_order = request.args.get('order', 'desc')
+    allowed_sorts = {'code', 'name', 'brand', 'spec', 'category_id', 'supplier_id', 'stock', 'price', 'created_at'}
+    if sort_by not in allowed_sorts:
+        sort_by = 'created_at'
+    if sort_order not in ('asc', 'desc'):
+        sort_order = 'desc'
     all_categories = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.name.asc(), MaterialCategory.id.asc()).all()
     category_rows = build_category_tree_rows(all_categories)
     category_descendants = {}
@@ -7016,13 +7017,22 @@ def material_api_list():
 @app.route('/material/api/all')
 @login_required
 def material_api_all():
-    """返回所有物料的完整数据（用于单据页面刷新）"""
-    materials = Material.query.options(
-        joinedload(Material.unit)
-    ).order_by(Material.code.asc()).limit(2000).all()
+    """分页返回物料完整数据，避免旧接口静默截断。"""
+    page = max(1, request.args.get('page', 1, type=int) or 1)
+    per_page = request.args.get('per_page', 500, type=int) or 500
+    per_page = min(max(1, per_page), 2000)
+    pagination = Material.query.options(joinedload(Material.unit)).order_by(
+        Material.code.asc()
+    ).paginate(page=page, per_page=per_page, error_out=False)
     return jsonify({
         'status': 'success',
-        'materials': [serialize_material(m) for m in materials]
+        'materials': [serialize_material(m) for m in pagination.items],
+        'total': pagination.total,
+        'page': pagination.page,
+        'per_page': pagination.per_page,
+        'pages': pagination.pages,
+        'truncated': pagination.page < pagination.pages,
+        'next_page': pagination.next_num if pagination.has_next else None,
     })
 
 @app.route('/material/add', methods=['GET', 'POST'])
@@ -23896,10 +23906,14 @@ def supplier_list():
     suppliers = query.all()
     return render_template('supplier.html', suppliers=suppliers, filters={'search': search, 'status': status_filter}, sort_by=sort_by, sort_order=sort_order)
 
-@app.route('/supplier/add', methods=['POST'])
+@app.route('/supplier/add', methods=['GET', 'POST'])
 @require_role('warehouse')
 @login_required
 def add_supplier():
+    # BUG-2026-07-28-010 修复：直接 GET /supplier/add 不再 405；
+    # 重定向到列表页并携带 showAddModal=1，由 supplier.html JS 自动弹出新增 modal
+    if request.method == 'GET':
+        return redirect(url_for('supplier_list') + '?showAddModal=1')
     code = (request.form.get('code') or '').strip()
     name = (request.form.get('name') or '').strip()
     if not code:
@@ -27826,25 +27840,16 @@ def add_label_template():
         if not name:
             return jsonify({'status': 'error', 'msg': '请输入模板名称'})
 
-        if is_default:
-            LabelTemplate.query.update({'is_default': False})
-
         existing = LabelTemplate.query.filter_by(name=name).first()
         if existing:
-            existing.width = width
-            existing.height = height
-            existing.cols = cols
-            existing.rows = rows
-            existing.is_default = is_default
-            existing.layout = layout
-            existing.updated_at = datetime.now()
-            template = existing
-        else:
-            template = LabelTemplate(
-                name=name, width=width, height=height,
-                cols=cols, rows=rows, is_default=is_default, layout=layout
-            )
-            db.session.add(template)
+            return jsonify({'status': 'error', 'msg': '模板名称已存在，请从模板设计页面编辑'}), 409
+        if is_default:
+            LabelTemplate.query.update({'is_default': False})
+        template = LabelTemplate(
+            name=name, width=width, height=height,
+            cols=cols, rows=rows, is_default=is_default, layout=layout
+        )
+        db.session.add(template)
         try:
             db.session.commit()
         except Exception as e:
