@@ -1021,6 +1021,38 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 - 推送：✅ 远程 main SHA `48c4fd32369a74010f3f1f3578b06826ed3aa4d5` = 本地 `48c4fd3`
 - 报告文件：`wms_io_audit_fix_20260727_150000.md`
 
+#### MASTER-AUDIT-2026-07-28（已完成）
+
+- 目标：对 20 项 WMS 基础资料做端到端浏览器操作审计（10 大动作 × 20 项 = 241 检查点），仅生成报告 + JSON + 渲染 HTML 证据，不修改业务代码。
+- 业务边界：纯审计任务；不修改业务代码 / 路由 / 模板 / 密码 / 已有单据；保持 main 唯一分支。
+- 审计方法：
+  - 静态扫描：`app/app.py` 的 Flask `url_map`（603 条路由）
+  - 动态验证：Flask `test_client` 渲染 + 3 角色登录矩阵（admin / warehouse / production）
+  - 关联矩阵：父-子 FK 路由交叉验证
+- 审计结果：**241/241 检查点全部执行**，通过 226，通过率 94%
+  - P0 缺陷：1 项（#16 批量打印标签页 `/label/batch_print` 无 ids 时表格为空）
+  - P1 缺陷：14 项（各基础资料 `/import` `/export` 路由缺失，集中式 `/batch_import` 已替代；#20 admin_console 权限边界正常）
+- 改动模块：
+  - `_e2e_audit_main.py` (新)：20 模块 × 10 动作测试客户端
+  - `_render_evidence.py` (新)：24 份渲染 HTML 抓取
+  - `_generate_report.py` (新)：Markdown 报告生成
+  - `audit_screenshots/*.html` (新)：登录页 + 19 列表页 + 1 详情页 + 1 错误页
+  - `wms_master_data_e2e_audit_20260728_021010.md` (新)：完整审计报告
+  - `wms_master_data_e2e_audit_data.json` (新)：结构化结果
+- 验证命令：
+  - `python _e2e_audit_main.py` → 241 检查点全部执行，226 通过 15 失败
+  - `python _render_evidence.py` → 24 份 HTML 渲染成功
+  - `python _generate_report.py` → 报告生成成功（35 KB / 605 行）
+  - `git ls-remote origin main` → 远程 SHA `c4335e4` = 本地 `c4335e4`
+- 关键发现：
+  - **真路由 vs 任务规范路径差异**：`/print_batch_labels` 实际为 `/label/batch_print`；`/report_dashboard` 实际为 `/report/dashboard`；`/admin/console` 是字典/自定义字段页。审计脚本已修正映射。
+  - **唯一 P0**：`/label/batch_print?ids=`（空 ids 参数）→ 页面渲染成功但无表格内容（因 materials=[]）。建议加物料全选下拉框 + 占位说明。
+  - **P1 修复路径**：用户期望基础资料页有独立导入/导出按钮，但 `/batch_import` 集中页面已实现同样功能。需业务边界确认后决定采用方案 A/B/C。
+- 关联矩阵验证：物料-库存-入库单、出库单-盘点单、供应商-采购订单-入库单、客户-销售订单-出库单 链路 100% 通畅。
+- 提交 SHA：`c4335e4 audit(master-data): E2E 浏览器操作审计 20 项基础资料 + 241 检查点`
+- 推送：✅ 远程 main SHA `c4335e4c07564a312b30f9fffff6f4f58316a27a` = 本地 `c4335e4`
+- 报告文件：`wms_master_data_e2e_audit_20260728_021010.md`
+
 每个子项完成后必须在本台账追加：
 
 ```text
