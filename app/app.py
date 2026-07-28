@@ -6196,6 +6196,7 @@ def change_own_password():
 
 
 @app.route('/login', methods=['GET', 'POST'])
+# AI_TASK: AI-LOGIN-F01
 def login():
     next_page = (request.values.get('next') or '').strip()
     login_date = date.today().strftime('%Y-%m-%d')
@@ -6208,12 +6209,16 @@ def login():
 
     username = (request.form.get('username') or '').strip()
     password = request.form.get('password') or ''
+    usage_consent = request.form.get('usage_consent') == '1'
     login_mode = request.form.get('login_mode', 'user')
     if login_mode not in {'user', 'admin'}:
         login_mode = 'user'
 
     if not username or not password:
         flash('请输入用户名和密码', 'danger')
+        return render_template('login.html', next=next_page, current_date=login_date), 400
+    if not usage_consent:
+        flash('请先阅读并同意使用本系统后再登录', 'warning')
         return render_template('login.html', next=next_page, current_date=login_date), 400
     if len(username) > 80 or len(password) > 128:
         flash('用户名或密码长度不正确', 'danger')

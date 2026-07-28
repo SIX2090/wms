@@ -133,7 +133,9 @@ def test_confirm_flow() -> None:
 
         token = 'TEST-CAT-CODE'
         with wms.app.test_client() as client:
-            client.post('/login', data={'username': 'admin', 'password': 'TestAdmin@2026'})
+            client.post('/login', data={
+                'username': 'admin', 'password': 'TestAdmin@2026', 'usage_consent': '1',
+            })
             with client.session_transaction() as session:
                 session['_ai_document_confirmations'] = {token: payload}
             page = client.get(f'/ai/document_confirm/{token}')

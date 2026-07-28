@@ -46,7 +46,9 @@ def main() -> int:
             }],
         }
         with wms.app.test_client() as client:
-            client.post('/login', data={'username': 'admin', 'password': 'TestAdmin@2026'})
+            client.post('/login', data={
+                'username': 'admin', 'password': 'TestAdmin@2026', 'usage_consent': '1',
+            })
             with client.session_transaction() as session:
                 session['_ai_document_confirmations'] = {token: payload}
 

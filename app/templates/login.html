@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- AI_TASK: AI-LOGIN-F01 -->
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -303,12 +304,55 @@
             margin-top: 18px;
             font-size: 13px;
         }
-        .login-links a {
+        .login-links button {
+            border: 0;
+            padding: 0;
+            background: transparent;
             color: #2563eb;
+            font: inherit;
+            cursor: pointer;
+        }
+        .login-links button:hover,
+        .login-links button:focus-visible {
+            text-decoration: underline;
+        }
+        .login-links button:disabled {
+            color: #94a3b8;
+            cursor: not-allowed;
             text-decoration: none;
         }
-        .login-links a:hover {
-            text-decoration: underline;
+        .login-help {
+            margin-top: 14px;
+            padding: 12px 14px;
+            border: 1px solid #dbeafe;
+            border-radius: 10px;
+            background: #f8fbff;
+            color: #475569;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .login-help[hidden] {
+            display: none;
+        }
+        .login-help strong {
+            color: #1e3a5f;
+        }
+        .login-mode-hint {
+            min-height: 20px;
+            margin: -10px 0 8px;
+            color: #64748b;
+            font-size: 12px;
+        }
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }
         .login-tools {
             display: grid;
@@ -320,6 +364,19 @@
             color: #6b7280;
             font-size: 12px;
             text-align: center;
+        }
+        .login-tools button {
+            border: 0;
+            padding: 0;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            cursor: pointer;
+        }
+        .login-tools button:focus-visible {
+            outline: 2px solid var(--login-accent);
+            outline-offset: 3px;
+            border-radius: 6px;
         }
         .login-tools i {
             display: block;
@@ -484,30 +541,33 @@
                 </div>
             </div>
             <div class="login-body">
-                <div class="login-tabs">
-                    <button type="button" class="active" data-login-mode="user" aria-selected="true">普通用户</button>
-                    <button type="button" data-login-mode="admin" aria-selected="false">管理员</button>
+                <div class="login-tabs" role="tablist" aria-label="登录身份">
+                    <button type="button" class="active" id="loginTabUser" role="tab" data-login-mode="user" aria-selected="true" aria-controls="loginForm">业务账号</button>
+                    <button type="button" id="loginTabAdmin" role="tab" data-login-mode="admin" aria-selected="false" aria-controls="loginForm" tabindex="-1">管理员</button>
                 </div>
+                <p class="login-mode-hint" id="loginModeHint" aria-live="polite">仓库、采购、生产及普通业务账号均从这里登录。</p>
 
                 {% with messages = get_flashed_messages(with_categories=true) %}
                     {% if messages %}
                         {% for category, message in messages %}
-                            <div class="alert alert-{{ category }}">{{ message }}</div>
+                            <div class="alert alert-{{ category }}" role="alert" aria-live="assertive">{{ message }}</div>
                         {% endfor %}
                     {% endif %}
                 {% endwith %}
 
-                <form method="POST" autocomplete="on">
+                <form id="loginForm" method="POST" autocomplete="on">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="next" value="{{ next }}">
                     <input type="hidden" name="login_mode" id="loginMode" value="user">
                     <label class="login-field">
                         <i class="bi bi-person"></i>
-                        <input type="text" name="username" placeholder="请输入用户名" required autofocus autocomplete="username">
+                        <span class="sr-only">用户名</span>
+                        <input type="text" name="username" placeholder="请输入用户名" aria-label="用户名" required autofocus autocomplete="username">
                     </label>
                     <label class="login-field">
                         <i class="bi bi-key"></i>
-                        <input type="password" name="password" placeholder="请输入密码" required autocomplete="current-password">
+                        <span class="sr-only">密码</span>
+                        <input type="password" name="password" placeholder="请输入密码" aria-label="密码" required autocomplete="current-password">
                     </label>
                     <div class="login-field">
                         <i class="bi bi-calendar3"></i>
@@ -515,7 +575,7 @@
                     </div>
                     <div class="login-options">
                         <label class="form-check mb-0">
-                            <input class="form-check-input" type="checkbox" value="1" checked>
+                            <input class="form-check-input" type="checkbox" name="usage_consent" value="1" checked required>
                             <span class="form-check-label">阅读并同意使用本系统</span>
                         </label>
                         <span>请使用管理员分配的账号登录</span>
@@ -524,18 +584,25 @@
                 </form>
 
                 <div class="login-links">
-                    <a href="#" onclick="return false;">验证码登录</a>
-                    <a href="#" onclick="return false;">忘记密码</a>
+                    <button type="button" disabled aria-describedby="captchaLoginHint">验证码登录（暂未启用）</button>
+                    <button type="button" id="forgotPasswordButton" aria-expanded="false" aria-controls="forgotPasswordHelp">忘记密码</button>
+                </div>
+                <div class="login-help" id="captchaLoginHint">当前系统未配置短信、邮件或企业微信验证码服务，请使用账号密码登录。</div>
+                <div class="login-help" id="forgotPasswordHelp" hidden role="status">
+                    <strong>密码协助：</strong>请联系系统管理员重置密码。为保护账号安全，本页面不会确认账号是否存在，也不提供未登录自助重置。
                 </div>
                 <div class="login-tools">
-                    <div>
+                    <button type="button" id="browserHelpButton" aria-expanded="false" aria-controls="browserHelp">
                         <i class="bi bi-compass"></i>
-                        推荐浏览器打开
-                    </div>
+                        浏览器建议
+                    </button>
                     <div>
                         <i class="bi bi-phone"></i>
-                        移动端适配
+                        支持移动端访问
                     </div>
+                </div>
+                <div class="login-help" id="browserHelp" hidden role="status">
+                    建议使用最新版 Chrome 或 Microsoft Edge 访问。当前浏览器不受推荐时，仍可继续使用系统；请在出现显示异常时更新浏览器后重试。
                 </div>
             </div>
         </section>
@@ -549,16 +616,59 @@
     </main>
 
     <script>
+        const loginModeHint = document.getElementById('loginModeHint');
+        const loginModeHints = {
+            user: '仓库、采购、生产及普通业务账号均从这里登录。',
+            admin: '仅管理员账号可使用管理员模式；非管理员账号会被安全拒绝。'
+        };
+
+        function selectLoginMode(tab) {
+            document.querySelectorAll('[data-login-mode]').forEach(function (item) {
+                const selected = item === tab;
+                item.classList.toggle('active', selected);
+                item.setAttribute('aria-selected', selected ? 'true' : 'false');
+                item.tabIndex = selected ? 0 : -1;
+            });
+            document.getElementById('loginMode').value = tab.dataset.loginMode;
+            loginModeHint.textContent = loginModeHints[tab.dataset.loginMode];
+            document.querySelector('input[name="username"]').focus();
+        }
+
         document.querySelectorAll('[data-login-mode]').forEach(function (tab) {
             tab.addEventListener('click', function () {
-                document.querySelectorAll('[data-login-mode]').forEach(function (item) {
-                    item.classList.toggle('active', item === tab);
-                    item.setAttribute('aria-selected', item === tab ? 'true' : 'false');
-                });
-                document.getElementById('loginMode').value = tab.dataset.loginMode;
-                document.querySelector('input[name="username"]').focus();
+                selectLoginMode(tab);
+            });
+            tab.addEventListener('keydown', function (event) {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const tabs = Array.from(document.querySelectorAll('[data-login-mode]'));
+                const current = tabs.indexOf(tab);
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+                tabs[next].focus();
+                selectLoginMode(tabs[next]);
             });
         });
+
+        document.getElementById('loginForm').addEventListener('submit', function (event) {
+            const consent = this.querySelector('input[name="usage_consent"]');
+            if (!consent.checked) {
+                event.preventDefault();
+                loginModeHint.textContent = '请先阅读并同意使用本系统后再登录。';
+                consent.focus();
+            }
+        });
+
+        function toggleHelp(buttonId, panelId) {
+            const button = document.getElementById(buttonId);
+            const panel = document.getElementById(panelId);
+            button.addEventListener('click', function () {
+                const hidden = !panel.hidden;
+                panel.hidden = hidden;
+                button.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+            });
+        }
+        toggleHelp('forgotPasswordButton', 'forgotPasswordHelp');
+        toggleHelp('browserHelpButton', 'browserHelp');
 
         // 科技粒子动画
         const canvas = document.getElementById('particles-canvas');
