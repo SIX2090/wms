@@ -7164,8 +7164,22 @@ def add_material():
 
     spec = (request.form.get('spec') or '').strip()
     brand = (request.form.get('brand') or '').strip()
+    # BUG-F02-02 修复：物料主数据长度截断防护
+    # 防止 DB 静默截断（DB 列宽：code=50/name=100/brand=100/spec=100/purpose=200/remark=500）
+    if len(code) > 50:
+        return jsonify({'status': 'error', 'msg': f'物料编码不能超过 50 个字符（当前 {len(code)}）'}), 400
+    if len(name) > 100:
+        return jsonify({'status': 'error', 'msg': f'物料名称不能超过 100 个字符（当前 {len(name)}）'}), 400
     if len(brand) > 100:
         return jsonify({'status': 'error', 'msg': '品牌不能超过 100 个字符'}), 400
+    if len(spec) > 100:
+        return jsonify({'status': 'error', 'msg': f'物料规格不能超过 100 个字符（当前 {len(spec)}）'}), 400
+    purpose = (request.form.get('purpose') or '').strip()
+    if len(purpose) > 200:
+        return jsonify({'status': 'error', 'msg': f'用途不能超过 200 个字符（当前 {len(purpose)}）'}), 400
+    remark = (request.form.get('remark') or '').strip()
+    if len(remark) > 500:
+        return jsonify({'status': 'error', 'msg': f'备注不能超过 500 个字符（当前 {len(remark)}）'}), 400
     if material_name_spec_exists(name, spec):
         return jsonify({'status': 'error', 'msg': '物料名称和规格不能同时重复'})
 
@@ -8770,10 +8784,21 @@ def edit_material(id):
 
     new_spec = (request.form.get('spec') or '').strip()
     new_brand = (request.form.get('brand') or '').strip()
+    # BUG-F02-02 修复：物料编辑入口同样 6 字段长度校验（与新增保持一致）
+    if len(new_code) > 50:
+        return jsonify({'status': 'error', 'msg': f'物料编码不能超过 50 个字符（当前 {len(new_code)}）'}), 400
+    if len(new_name) > 100:
+        return jsonify({'status': 'error', 'msg': f'物料名称不能超过 100 个字符（当前 {len(new_name)}）'}), 400
     if len(new_brand) > 100:
         return jsonify({'status': 'error', 'msg': '品牌不能超过 100 个字符'}), 400
-    if len(new_spec) > 200:
-        return jsonify({'status': 'error', 'msg': '物料规格不能超过 200 个字符'}), 400
+    if len(new_spec) > 100:
+        return jsonify({'status': 'error', 'msg': f'物料规格不能超过 100 个字符（当前 {len(new_spec)}）'}), 400
+    new_purpose = (request.form.get('purpose') or '').strip()
+    if len(new_purpose) > 200:
+        return jsonify({'status': 'error', 'msg': f'用途不能超过 200 个字符（当前 {len(new_purpose)}）'}), 400
+    new_remark = (request.form.get('remark') or '').strip()
+    if len(new_remark) > 500:
+        return jsonify({'status': 'error', 'msg': f'备注不能超过 500 个字符（当前 {len(new_remark)}）'}), 400
     if material_name_spec_exists(new_name, new_spec, exclude_id=id):
         return jsonify({'status': 'error', 'msg': '物料名称和规格不能同时重复'})
 
@@ -24021,6 +24046,21 @@ def add_supplier():
         return jsonify({'status': 'error', 'msg': '请输入供应商编号'})
     if not name:
         return jsonify({'status': 'error', 'msg': '请输入供应商名称'})
+    # BUG-F02-02 修复：供应商主数据长度截断防护
+    # DB 列宽：code=50/name=100/contact=50/phone=20/address=200
+    if len(code) > 50:
+        return jsonify({'status': 'error', 'msg': f'供应商编号不能超过 50 个字符（当前 {len(code)}）'}), 400
+    if len(name) > 100:
+        return jsonify({'status': 'error', 'msg': f'供应商名称不能超过 100 个字符（当前 {len(name)}）'}), 400
+    contact = (request.form.get('contact') or '').strip()
+    if len(contact) > 50:
+        return jsonify({'status': 'error', 'msg': f'联系人不能超过 50 个字符（当前 {len(contact)}）'}), 400
+    phone = (request.form.get('phone') or '').strip()
+    if len(phone) > 20:
+        return jsonify({'status': 'error', 'msg': f'电话不能超过 20 个字符（当前 {len(phone)}）'}), 400
+    address = (request.form.get('address') or '').strip()
+    if len(address) > 200:
+        return jsonify({'status': 'error', 'msg': f'地址不能超过 200 个字符（当前 {len(address)}）'}), 400
     if Supplier.query.filter_by(code=code).first():
         return jsonify({'status': 'error', 'msg': '供应商编号已存在'})
     if Supplier.query.filter_by(name=name).first():
@@ -24028,9 +24068,9 @@ def add_supplier():
     supplier = Supplier(
         code=code,
         name=name,
-        contact=request.form.get('contact'),
-        phone=request.form.get('phone'),
-        address=request.form.get('address')
+        contact=contact or None,
+        phone=phone or None,
+        address=address or None
     )
     db.session.add(supplier)
     try:
@@ -24112,6 +24152,20 @@ def edit_supplier(supplier_id):
         return jsonify({'status': 'error', 'msg': '请输入供应商编号'})
     if not name:
         return jsonify({'status': 'error', 'msg': '请输入供应商名称'})
+    # BUG-F02-02 修复：供应商编辑入口同样 5 字段长度校验
+    if len(code) > 50:
+        return jsonify({'status': 'error', 'msg': f'供应商编号不能超过 50 个字符（当前 {len(code)}）'}), 400
+    if len(name) > 100:
+        return jsonify({'status': 'error', 'msg': f'供应商名称不能超过 100 个字符（当前 {len(name)}）'}), 400
+    contact = (request.form.get('contact') or '').strip()
+    if len(contact) > 50:
+        return jsonify({'status': 'error', 'msg': f'联系人不能超过 50 个字符（当前 {len(contact)}）'}), 400
+    phone = (request.form.get('phone') or '').strip()
+    if len(phone) > 20:
+        return jsonify({'status': 'error', 'msg': f'电话不能超过 20 个字符（当前 {len(phone)}）'}), 400
+    address = (request.form.get('address') or '').strip()
+    if len(address) > 200:
+        return jsonify({'status': 'error', 'msg': f'地址不能超过 200 个字符（当前 {len(address)}）'}), 400
     dup = Supplier.query.filter_by(code=code).first()
     if dup and dup.id != supplier_id:
         return jsonify({'status': 'error', 'msg': '供应商编号已存在'})
@@ -24120,9 +24174,9 @@ def edit_supplier(supplier_id):
         return jsonify({'status': 'error', 'msg': '供应商名称已存在'})
     sup.code = code
     sup.name = name
-    sup.contact = (request.form.get('contact') or '').strip() or None
-    sup.phone = (request.form.get('phone') or '').strip() or None
-    sup.address = (request.form.get('address') or '').strip() or None
+    sup.contact = contact or None
+    sup.phone = phone or None
+    sup.address = address or None
     try:
         db.session.commit()
     except Exception as e:
@@ -24155,6 +24209,20 @@ def add_customer():
         return jsonify({'status': 'error', 'msg': '请输入客户编号'})
     if not name:
         return jsonify({'status': 'error', 'msg': '请输入客户名称'})
+    # BUG-F02-02 修复：客户主数据长度截断防护（与供应商一致）
+    if len(code) > 50:
+        return jsonify({'status': 'error', 'msg': f'客户编号不能超过 50 个字符（当前 {len(code)}）'}), 400
+    if len(name) > 100:
+        return jsonify({'status': 'error', 'msg': f'客户名称不能超过 100 个字符（当前 {len(name)}）'}), 400
+    contact = (request.form.get('contact') or '').strip()
+    if len(contact) > 50:
+        return jsonify({'status': 'error', 'msg': f'联系人不能超过 50 个字符（当前 {len(contact)}）'}), 400
+    phone = (request.form.get('phone') or '').strip()
+    if len(phone) > 20:
+        return jsonify({'status': 'error', 'msg': f'电话不能超过 20 个字符（当前 {len(phone)}）'}), 400
+    address = (request.form.get('address') or '').strip()
+    if len(address) > 200:
+        return jsonify({'status': 'error', 'msg': f'地址不能超过 200 个字符（当前 {len(address)}）'}), 400
     if Customer.query.filter_by(code=code).first():
         return jsonify({'status': 'error', 'msg': '客户编号已存在'})
     if Customer.query.filter_by(name=name).first():
@@ -24162,9 +24230,9 @@ def add_customer():
     customer = Customer(
         code=code,
         name=name,
-        contact=(request.form.get('contact') or '').strip(),
-        phone=(request.form.get('phone') or '').strip(),
-        address=(request.form.get('address') or '').strip()
+        contact=contact or None,
+        phone=phone or None,
+        address=address or None
     )
     db.session.add(customer)
     try:
@@ -24246,6 +24314,20 @@ def edit_customer(customer_id):
         return jsonify({'status': 'error', 'msg': '请输入客户编号'})
     if not name:
         return jsonify({'status': 'error', 'msg': '请输入客户名称'})
+    # BUG-F02-02 修复：客户编辑入口同样 5 字段长度校验
+    if len(code) > 50:
+        return jsonify({'status': 'error', 'msg': f'客户编号不能超过 50 个字符（当前 {len(code)}）'}), 400
+    if len(name) > 100:
+        return jsonify({'status': 'error', 'msg': f'客户名称不能超过 100 个字符（当前 {len(name)}）'}), 400
+    contact = (request.form.get('contact') or '').strip()
+    if len(contact) > 50:
+        return jsonify({'status': 'error', 'msg': f'联系人不能超过 50 个字符（当前 {len(contact)}）'}), 400
+    phone = (request.form.get('phone') or '').strip()
+    if len(phone) > 20:
+        return jsonify({'status': 'error', 'msg': f'电话不能超过 20 个字符（当前 {len(phone)}）'}), 400
+    address = (request.form.get('address') or '').strip()
+    if len(address) > 200:
+        return jsonify({'status': 'error', 'msg': f'地址不能超过 200 个字符（当前 {len(address)}）'}), 400
     dup = Customer.query.filter_by(code=code).first()
     if dup and dup.id != customer_id:
         return jsonify({'status': 'error', 'msg': '客户编号已存在'})
@@ -24254,9 +24336,9 @@ def edit_customer(customer_id):
         return jsonify({'status': 'error', 'msg': '客户名称已存在'})
     customer.code = code
     customer.name = name
-    customer.contact = (request.form.get('contact') or '').strip() or None
-    customer.phone = (request.form.get('phone') or '').strip() or None
-    customer.address = (request.form.get('address') or '').strip() or None
+    customer.contact = contact or None
+    customer.phone = phone or None
+    customer.address = address or None
     try:
         db.session.commit()
     except Exception as e:
