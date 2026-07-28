@@ -100,6 +100,8 @@
 | BUG-F02-06 | 普通用户没有自助改自己资料（电话/邮箱/备注）的入口；admin 改他人审计缺 `last_modified_by` | `app.py` 新增 `edit_my_profile`（仅改 email/phone/bio，邮箱/电话格式校验，长度限制 200/30/500，不可改 username/role/status/password）+ User 模型加 `email/phone/bio` 列 + 迁移；`edit_user` `log_operation` 显式带 `last_modified_by=current_user.username`；`my_profile.html` + 侧边栏入口。`audit_screenshots/verify_f02_06_profile.py` 17/17 |
 | BUG-F02-07 | 主数据列表分页 `per_page` 无上限校验，URL 不记忆每页大小 | `app.py` 5 list 路由统一 `per_page` 白名单 [10,20,50,100,200]，默认 20；`_list_macros.html` 新增 `per_page_select` 宏；`base.html` 自动绑定 `.per-page-select` 切换 URL。`audit_screenshots/verify_f02_07_pagination.py` 17/17 |
 | BUG-F02-08 | purchase/sales 等非授权角色可访问 `/label_template/<id>` 设计页，点保存才 403 | `app.py` `label_template_detail` 加 `@require_role('admin','warehouse')`。`audit_screenshots/verify_f02_08_template_perm.py` 4/4 |
+| BUG-F02-09 | `material.html` 标签模板设计器 16 处调用从未定义的 `saveTemplateToStorage()`，任何编辑交互即抛 `ReferenceError`，设计结果无法持久化 | `material.html` 新增 `saveTemplateToStorage()`（序列化当前编辑器状态到 `localStorage.labelTemplateDraft`）+ `restoreTemplateDraft()`（无已保存模板时自动恢复草稿）+ `saveTemplate()` 成功后清除草稿。`audit_screenshots/verify_f02_09_10_frontend.py` 14/15（浏览器实测项因本机无浏览器跳过） |
+| BUG-F02-10 | `warehouse.html`/`department.html`/`employee.html` 的 GET 筛选表单内含 `csrf_token` 隐藏域，筛选后 token 明文出现在地址栏 URL | 三个模板 GET 表单删除 `csrf_token` 隐藏域（POST 模态框表单保留）。`audit_screenshots/verify_f02_09_10_frontend.py` 静态+线上 HTTP 双重验证通过 |
 
 ## 已确认误报
 

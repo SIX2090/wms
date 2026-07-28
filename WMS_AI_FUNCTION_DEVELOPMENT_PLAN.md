@@ -1198,7 +1198,10 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
   - **BUG-F02-01**（P2）`70b05ff fix(F02-01): 基础资料列表默认按 code 升序` → `verify_f02_01_sort.py` 33/33
   - **BUG-F02-07**（P2）`61d8249 fix(F02-07): 主数据分页 per_page 统一白名单 + 每页条数下拉` → `verify_f02_07_pagination.py` 17/17
   - **BUG-F02-08**（P2）`label_template_detail` 路由加 `@require_role('admin','warehouse')` → `verify_f02_08_template_perm.py` 4/4
-- 汇总：8 个专项脚本 **142/142 PASS**
+- 2026-07-29 追加 2 项（前端只读审计发现）：
+  - **BUG-F02-09**（P1）`material.html` 标签模板设计器 16 处调用未定义的 `saveTemplateToStorage()` → 新增该函数（编辑器状态序列化到 `localStorage.labelTemplateDraft`）+ `restoreTemplateDraft()`（无已保存模板时恢复草稿）+ 保存成功后清草稿 → `verify_f02_09_10_frontend.py` 14/15（浏览器实测项因本机无可用浏览器跳过，静态断言覆盖函数定义/调用点/草稿链路）
+  - **BUG-F02-10**（P2）`warehouse.html`/`department.html`/`employee.html` GET 筛选表单泄露 `csrf_token` 到 URL → 三模板 GET 表单删除该隐藏域（POST 模态框保留）→ 静态 + 线上 HTTP 双重验证通过
+- 汇总：8 个专项脚本 **142/142 PASS**；F02-09/10 专项 **14/15 PASS**（1 项环境受限跳过）
 - 改动模块：
   - `app/app.py`（多段）：默认 sort/order；6 路由长度校验；新增 `save_label_template_layout` / `is_warehouse_active` / `assert_warehouse_active` / `edit_my_profile`；分页 per_page 白名单；标签模板权限
   - `app/templates/label_template_detail.html`：`saveLayout` JS 加 `response.ok` + disabled 守卫 + spinner 反馈

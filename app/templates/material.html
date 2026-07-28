@@ -1653,6 +1653,66 @@ var currentTemplate = {
     labelHeight: 40
 };
 
+// 将当前编辑器状态自动保存为草稿（localStorage），防止误关闭丢失未保存的设计
+function saveTemplateToStorage() {
+    try {
+        var table = document.getElementById('labelTable');
+        if (!table) return;
+        var cells = [];
+        table.querySelectorAll('.label-cell').forEach(function(cell) {
+            var content = cell.querySelector('.cell-content');
+            if (!content) return;
+            var cellData = {
+                row: cell.dataset.row,
+                col: cell.dataset.col,
+                text: content.textContent,
+                field: content.dataset.field || '',
+                style: {
+                    fontSize: content.style.fontSize,
+                    fontWeight: content.style.fontWeight,
+                    color: content.style.color,
+                    textAlign: content.style.textAlign
+                },
+                colSpan: cell.colSpan
+            };
+            if (content.dataset.field === 'barcode') {
+                cellData.barcodeWidth = content.dataset.barcodeWidth || '50';
+                cellData.barcodeHeight = content.dataset.barcodeHeight || '15';
+            }
+            cells.push(cellData);
+        });
+        var rowHeights = [];
+        for (var i = 0; i < table.rows.length; i++) {
+            rowHeights.push(parseInt(table.rows[i].style.height) || 30);
+        }
+        var draft = {
+            rows: currentTemplate.rows,
+            cols: currentTemplate.cols,
+            labelWidth: currentTemplate.labelWidth,
+            labelHeight: currentTemplate.labelHeight,
+            cells: cells,
+            rowHeights: rowHeights
+        };
+        localStorage.setItem('labelTemplateDraft', JSON.stringify(draft));
+    } catch (e) {
+        console.warn('标签模板草稿保存失败:', e);
+    }
+}
+
+// 无任何已保存模板时，恢复上次未保存的草稿
+function restoreTemplateDraft() {
+    try {
+        var raw = localStorage.getItem('labelTemplateDraft');
+        if (!raw) return;
+        var draft = JSON.parse(raw);
+        if (draft && draft.cells && draft.cells.length > 0) {
+            loadTemplateToEditor(draft);
+        }
+    } catch (e) {
+        console.warn('标签模板草稿恢复失败:', e);
+    }
+}
+
 function openLabelTemplate() {
     labelTemplateModal = new bootstrap.Modal(document.getElementById('labelTemplateModal'));
     labelTemplateModal.show();
@@ -2192,6 +2252,7 @@ function saveTemplate() {
     .then(function(r){ return r.json(); })
     .then(function(res) {
         if (res.status === 'success') {
+            try { localStorage.removeItem('labelTemplateDraft'); } catch (e) {}
             loadTemplateList();
             alert('模板"' + templateName + '"已保存！');
         } else {
@@ -2211,6 +2272,7 @@ function loadTemplateList() {
     .then(function(res) {
         if (res.status !== 'success' || !res.templates || res.templates.length === 0) {
             select.innerHTML = '<option value="">-- 无模板 --</option>';
+            restoreTemplateDraft();
             return;
         }
         select.innerHTML = '<option value="">-- 选择模板 --</option>';
