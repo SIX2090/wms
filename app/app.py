@@ -24657,7 +24657,7 @@ def in_order_list():
         'contract_no': contract_no_filter,
         'project_name': project_name_filter,
     }
-    page_title = f'{business_type_filter}明细' if business_type_filter else '入库明细'
+    page_title = f'{business_type_filter}单' if business_type_filter else '入库单'
     return render_template(
         'in_order.html',
         items=items,
@@ -24994,7 +24994,7 @@ def in_order_add_page():
                          is_other_in=is_other_in,
                          business_type=business_type,
                          default_purpose='客供料入库' if is_other_in else ('生产完工入库' if is_product_in else '采购到货入库'),
-                         page_title=f'新增{business_type}单',
+                         page_title='新增入库单',
                          supplier_required=not is_product_in,
                          party_field='customer_id' if is_other_in else 'supplier_id',
                          party_label='客户' if is_other_in else ('生产来源' if is_product_in else '供应商'),

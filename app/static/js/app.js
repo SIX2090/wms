@@ -329,6 +329,9 @@ window.WmsTabs = (function() {
         }
     }
 
+    // BUG-2026-07-28-015 修复：限制最大 Tab 数
+    const MAX_TABS = 15;
+
     function open(url, title) {
         const tabBar = document.getElementById('tabBar');
         const frameWrap = document.getElementById('tabFrameWrap');
@@ -342,6 +345,13 @@ window.WmsTabs = (function() {
         if (tabs.has(key)) {
             activate(key);
             return;
+        }
+
+        // BUG-015 修复：超过 MAX_TABS 自动关闭最早的 Tab
+        while (tabs.size >= MAX_TABS) {
+            const oldestKey = tabs.keys().next().value;
+            if (!oldestKey) break;
+            close(oldestKey);
         }
 
         const tabTitle = (title || normalizedUrl || '页面').replace(/\s+/g, ' ').trim();
@@ -399,7 +409,94 @@ window.WmsTabs = (function() {
         }
     }
 
-    return { open: open, close: close, activate: activate, restore: restore, getActiveContext: getActiveContext };
+    // BUG-2026-07-28-015 修复：关闭其他/全部关闭
+    function closeOthers(keepKey) {
+        const keys = Array.from(tabs.keys());
+        keys.forEach(function(k) {
+            if (k !== keepKey) close(k);
+        });
+    }
+
+    function closeAll() {
+        const keys = Array.from(tabs.keys());
+        keys.forEach(function(k) { close(k); });
+        activeKey = '';
+        persistTabs();
+    }
+
+    // BUG-2026-07-28-015 修复：右键菜单
+    function showContextMenu(x, y, key) {
+        const existing = document.getElementById('wmsTabContextMenu');
+        if (existing) existing.remove();
+        const menu = document.createElement('div');
+        menu.id = 'wmsTabContextMenu';
+        menu.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:99999;' +
+            'background:#fff;border:1px solid #d0d7de;border-radius:6px;padding:4px 0;' +
+            'box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:140px;font-size:13px;';
+        const items = [
+            { label: '关闭当前', action: function() { close(key); } },
+            { label: '关闭其他', action: function() { closeOthers(key); } },
+            { label: '全部关闭', action: function() { closeAll(); } },
+        ];
+        items.forEach(function(item) {
+            const div = document.createElement('div');
+            div.textContent = item.label;
+            div.style.cssText = 'padding:6px 14px;cursor:pointer;color:#1f2937;';
+            div.addEventListener('mouseenter', function() { div.style.background = '#f1f5f9'; });
+            div.addEventListener('mouseleave', function() { div.style.background = 'transparent'; });
+            div.addEventListener('click', function() { menu.remove(); item.action(); });
+            menu.appendChild(div);
+        });
+        document.body.appendChild(menu);
+        const closeHandler = function(e) {
+            if (!menu.contains(e.target)) {
+                menu.remove();
+                document.removeEventListener('click', closeHandler);
+            }
+        };
+        setTimeout(function() { document.addEventListener('click', closeHandler); }, 0);
+    }
+
+    function bindContextMenu() {
+        document.querySelectorAll('.tab-item').forEach(function(el) {
+            if (el.dataset.ctxBound) return;
+            el.dataset.ctxBound = '1';
+            el.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                // 通过按钮内文本匹配 key 不稳，改用 dataset 标记
+                const allKeys = Array.from(tabs.keys());
+                // 用 iframe src 反查 key
+                const iframe = document.querySelector('iframe[src*="' + el.querySelector('.tab-title').textContent + '"]');
+                // 简化：用 buttons 数组与 key 对应
+                const idx = Array.from(el.parentNode.children).indexOf(el);
+                let foundKey = '';
+                let i = 0;
+                tabs.forEach(function(t, k) {
+                    if (i === idx) foundKey = k;
+                    i++;
+                });
+                if (foundKey) showContextMenu(e.clientX, e.clientY, foundKey);
+            });
+        });
+    }
+
+    // 拦截 open 让每次新开 tab 重新绑定
+    const _origOpen = open;
+    function openWithCtx(url, title) {
+        _origOpen(url, title);
+        setTimeout(bindContextMenu, 0);
+    }
+
+    return {
+        open: openWithCtx,
+        close: close,
+        closeOthers: closeOthers,
+        closeAll: closeAll,
+        activate: activate,
+        restore: restore,
+        getActiveContext: getActiveContext,
+        MAX: MAX_TABS
+    };
 })();
 
 // 下拉框刷新

@@ -25,7 +25,13 @@
     color: #3730a3;
     font-size: 12px;
     text-align: center;
+    font-weight: 600;
 }
+.category-level-badge.lv1 { background: #eef2ff; color: #3730a3; }   /* 1级：靛蓝 */
+.category-level-badge.lv2 { background: #ecfeff; color: #0e7490; }   /* 2级：青色 */
+.category-level-badge.lv3 { background: #f0fdf4; color: #166534; }   /* 3级：绿色 */
+.category-level-badge.lv4 { background: #fef3c7; color: #92400e; }   /* 4级：琥珀 */
+.category-level-badge.lv5 { background: #fee2e2; color: #991b1b; }   /* 5级+：红色 */
 .category-layout {
     display: grid;
     grid-template-columns: 320px minmax(0, 1fr);
@@ -160,7 +166,7 @@
                         <i class="bi {{ 'bi-folder2-open' if row.has_children else 'bi-tag' }} category-folder"></i>{{ cat.name }}
                     </td>
                     <td>{{ cat.parent.name if cat.parent else '根分类' }}</td>
-                    <td><span class="category-level-badge">{{ row.level + 1 }} 级</span></td>
+                    <td><span class="category-level-badge lv{{ row.level + 1 }}" title="根分类到当前共 {{ row.level + 1 }} 层">{{ row.level + 1 }} 级</span></td>
                     <td>{{ cat.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary" onclick="editCategory({{ cat.id }})">
