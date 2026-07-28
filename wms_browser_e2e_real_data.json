@@ -1,0 +1,1015 @@
+{
+  "start": "2026-07-28T06:52:19.160802",
+  "checks": [
+    {
+      "level": "INFO",
+      "code": "S1-1",
+      "name": "Login page reachable",
+      "expect": "200 + title含'登录'",
+      "actual": "status=200 title=登录 - 仓库管理系统",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "AUTH",
+      "code": "S1-2",
+      "name": "Admin login (no forced change)",
+      "expect": "URL 不含 /login /change_password",
+      "actual": "url=http://127.0.0.1:8080/",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "INFO",
+      "code": "S1-3",
+      "name": "Navigation links present",
+      "expect": ">0",
+      "actual": "127",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "M-物料",
+      "name": "访问 /material",
+      "expect": "200 + 含 '物料'",
+      "actual": "status=200 title=物料档案",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "M-分类",
+      "name": "访问 /category",
+      "expect": "200 + 含 '分类'",
+      "actual": "status=200 title=物料分类",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "M-单位",
+      "name": "访问 /unit",
+      "expect": "200 + 含 '单位'",
+      "actual": "status=200 title=计量单位",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "M-供应商",
+      "name": "访问 /supplier",
+      "expect": "200 + 含 '供应商'",
+      "actual": "status=200 title=供应商管理",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "M-客户",
+      "name": "访问 /customer",
+      "expect": "200 + 含 '客户'",
+      "actual": "status=200 title=客户管理",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "M-仓库",
+      "name": "访问 /warehouse",
+      "expect": "200 + 含 '仓库'",
+      "actual": "status=200 title=仓库档案",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "M-部门",
+      "name": "访问 /department",
+      "expect": "200 + 含 '部门'",
+      "actual": "status=200 title=部门档案",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "M-员工",
+      "name": "访问 /employee",
+      "expect": "200 + 含 '员工'",
+      "actual": "status=200 title=员工管理",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "M-合同",
+      "name": "访问 /contract",
+      "expect": "200 + 含 '合同'",
+      "actual": "status=200 title=合同/工程档案",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "M-BOM",
+      "name": "访问 /bom",
+      "expect": "200 + 含 'BOM'",
+      "actual": "status=200 title=BOM清单管理",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "M-标签",
+      "name": "访问 /label_template",
+      "expect": "200 + 含 '标签'",
+      "actual": "status=200 title=标签模板管理",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "M-期初",
+      "name": "访问 /opening_stock",
+      "expect": "200 + 含 '期初'",
+      "actual": "status=200 title=期初库存单据",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "I-入库",
+      "name": "访问 /in_order",
+      "expect": "200",
+      "actual": "status=200 title=入库明细",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "I-出库",
+      "name": "访问 /out_order",
+      "expect": "200",
+      "actual": "status=200 title=领料明细",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "I-采购申请",
+      "name": "访问 /purchase_request",
+      "expect": "200",
+      "actual": "status=200 title=采购申请管理",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "I-采购订单",
+      "name": "访问 /purchase_order",
+      "expect": "200",
+      "actual": "status=200 title=新增采购单",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "I-调拨",
+      "name": "访问 /transfer",
+      "expect": "200",
+      "actual": "status=200 title=库存查询",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "I-盘点",
+      "name": "访问 /check",
+      "expect": "200",
+      "actual": "status=200 title=库存盘点",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "I-调整",
+      "name": "访问 /adjustment",
+      "expect": "200",
+      "actual": "status=200 title=库存查询",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "I-委外",
+      "name": "访问 /subcontract",
+      "expect": "200",
+      "actual": "status=200 title=委外加工单",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "I-售后",
+      "name": "访问 /after_sale_out",
+      "expect": "200",
+      "actual": "status=200 title=售后出库管理",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "I-领用",
+      "name": "访问 /requisition",
+      "expect": "200",
+      "actual": "status=200 title=工单领料管理",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "I-销售",
+      "name": "访问 /sales",
+      "expect": "200",
+      "actual": "status=200 title=销售订单管理",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "R-报表",
+      "name": "访问 /report",
+      "expect": "200",
+      "actual": "status=200 title=报表中心",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "R-库存",
+      "name": "访问 /stock_query",
+      "expect": "200",
+      "actual": "status=200 title=库存查询",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "R-采购",
+      "name": "访问 /purchase_report",
+      "expect": "200",
+      "actual": "status=200 title=采购报表",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "S-用户",
+      "name": "访问 /user",
+      "expect": "200",
+      "actual": "status=200 title=用户管理",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "S-设置",
+      "name": "访问 /system_settings",
+      "expect": "200",
+      "actual": "status=200 title=系统参数",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "S-备份",
+      "name": "访问 /backup",
+      "expect": "200",
+      "actual": "status=200 title=数据备份",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "S-审计",
+      "name": "访问 /operation_audit",
+      "expect": "200",
+      "actual": "status=200 title=操作审计",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "MENU",
+      "code": "S-审批",
+      "name": "访问 /approval",
+      "expect": "200",
+      "actual": "status=200 title=审批中心",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P0-1a",
+      "name": "空状态 (无 ids)",
+      "expect": "显示'未选择物料'占位",
+      "actual": "placeholder_present=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P0-1b",
+      "name": "有效 ids (1,2)",
+      "expect": "占位消失 + 含材料数据",
+      "actual": "empty_gone=True has_materials=True has_count=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P0-1c",
+      "name": "无效 ids (999,1000)",
+      "expect": "回退空态",
+      "actual": "empty_placeholder=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-material",
+      "name": "/batch_import?type=material",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-category",
+      "name": "/batch_import?type=category",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-unit",
+      "name": "/batch_import?type=unit",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-supplier",
+      "name": "/batch_import?type=supplier",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-customer",
+      "name": "/batch_import?type=customer",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-warehouse",
+      "name": "/batch_import?type=warehouse",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-department",
+      "name": "/batch_import?type=department",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-employee",
+      "name": "/batch_import?type=employee",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-contract",
+      "name": "/batch_import?type=contract",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-label_template",
+      "name": "/batch_import?type=label_template",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-bom",
+      "name": "/batch_import?type=bom",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-opening_stock",
+      "name": "/batch_import?type=opening_stock",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-imp-user",
+      "name": "/batch_import?type=user",
+      "expect": "200 + 模块高亮",
+      "actual": "status=200 has_import=True highlight=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-stub-user-export",
+      "name": "/user/export",
+      "expect": "重定向到 /batch_import?type=user",
+      "actual": "status=200 final_url=http://127.0.0.1:8080/batch_import?type=user",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-stub-user-import",
+      "name": "/user/import",
+      "expect": "POST-only (GET 405)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-stub-system_settings-export",
+      "name": "/system_settings/export",
+      "expect": "重定向到 /batch_import?type=system_settings",
+      "actual": "status=200 final_url=//127.0.0.1:8080/batch_import?type=system_settings",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-stub-system_settings-import",
+      "name": "/system_settings/import",
+      "expect": "POST-only (GET 405)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-stub-label_template-export",
+      "name": "/label_template/export",
+      "expect": "重定向到 /batch_import?type=label_template",
+      "actual": "status=200 final_url=://127.0.0.1:8080/batch_import?type=label_template",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-stub-label_template-import",
+      "name": "/label_template/import",
+      "expect": "POST-only (GET 405)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-stub-opening_stock-export",
+      "name": "/opening_stock/export",
+      "expect": "重定向到 /batch_import?type=opening_stock",
+      "actual": "status=200 final_url=p://127.0.0.1:8080/batch_import?type=opening_stock",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-stub-opening_stock-import",
+      "name": "/opening_stock/import",
+      "expect": "POST-only (GET 405)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-material-import-post",
+      "name": "/material/import GET",
+      "expect": "405 (POST-only)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-material-export-get",
+      "name": "/material/export GET",
+      "expect": "200 或 0 (file download)",
+      "actual": "status=0",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-supplier-import-post",
+      "name": "/supplier/import GET",
+      "expect": "405 (POST-only)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-supplier-export-get",
+      "name": "/supplier/export GET",
+      "expect": "200 或 0 (file download)",
+      "actual": "status=0",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-customer-import-post",
+      "name": "/customer/import GET",
+      "expect": "405 (POST-only)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-customer-export-get",
+      "name": "/customer/export GET",
+      "expect": "200 或 0 (file download)",
+      "actual": "status=0",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-category-import-post",
+      "name": "/category/import GET",
+      "expect": "405 (POST-only)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-category-export-get",
+      "name": "/category/export GET",
+      "expect": "200 或 0 (file download)",
+      "actual": "status=0",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-unit-import-post",
+      "name": "/unit/import GET",
+      "expect": "405 (POST-only)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-unit-export-get",
+      "name": "/unit/export GET",
+      "expect": "200 或 0 (file download)",
+      "actual": "status=0",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-warehouse-import-post",
+      "name": "/warehouse/import GET",
+      "expect": "405 (POST-only)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-warehouse-export-get",
+      "name": "/warehouse/export GET",
+      "expect": "200 或 0 (file download)",
+      "actual": "status=0",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-department-import-post",
+      "name": "/department/import GET",
+      "expect": "405 (POST-only)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-department-export-get",
+      "name": "/department/export GET",
+      "expect": "200 或 0 (file download)",
+      "actual": "status=0",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-employee-import-post",
+      "name": "/employee/import GET",
+      "expect": "405 (POST-only)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-employee-export-get",
+      "name": "/employee/export GET",
+      "expect": "200 或 0 (file download)",
+      "actual": "status=0",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-contract-import-post",
+      "name": "/contract/import GET",
+      "expect": "405 (POST-only)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-contract-export-get",
+      "name": "/contract/export GET",
+      "expect": "200 或 0 (file download)",
+      "actual": "status=0",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-bom-import-post",
+      "name": "/bom/import GET",
+      "expect": "405 (POST-only)",
+      "actual": "status=405",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-bom-export-get",
+      "name": "/bom/export GET",
+      "expect": "200 或 0 (file download)",
+      "actual": "status=0",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P1-toolbar-material",
+      "name": "物料列表批量打印入口",
+      "expect": "含'批量打印'按钮/链接",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "TOOL",
+      "code": "add-in_order",
+      "name": "/in_order 工具栏",
+      "expect": "含'新增'按钮",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "TOOL",
+      "code": "add-out_order",
+      "name": "/out_order 工具栏",
+      "expect": "含'新增'按钮",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "TOOL",
+      "code": "add-purchase_request",
+      "name": "/purchase_request 工具栏",
+      "expect": "含'新建'按钮",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "TOOL",
+      "code": "add-transfer",
+      "name": "/transfer 工具栏",
+      "expect": "含'新增调拨'按钮",
+      "actual": "has=False",
+      "pass": false,
+      "note": ""
+    },
+    {
+      "level": "FORM",
+      "code": "form-material_add",
+      "name": "/material/add 字段",
+      "expect": "含 name='name'",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FORM",
+      "code": "form-in_order_add",
+      "name": "/in_order/add 字段",
+      "expect": "含 name='warehouse_id'",
+      "actual": "has=False",
+      "pass": false,
+      "note": ""
+    },
+    {
+      "level": "FORM",
+      "code": "form-out_order_add",
+      "name": "/out_order/add 字段",
+      "expect": "含 name='warehouse_id'",
+      "actual": "has=False",
+      "pass": false,
+      "note": ""
+    },
+    {
+      "level": "FORM",
+      "code": "modal-category",
+      "name": "/category 模态字段",
+      "expect": "含 name='name'",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FORM",
+      "code": "modal-unit",
+      "name": "/unit 模态字段",
+      "expect": "含 name='name'",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FORM",
+      "code": "modal-supplier",
+      "name": "/supplier 模态字段",
+      "expect": "含 name='name'",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FORM",
+      "code": "modal-customer",
+      "name": "/customer 模态字段",
+      "expect": "含 name='name'",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FORM",
+      "code": "modal-warehouse",
+      "name": "/warehouse 模态字段",
+      "expect": "含 name='name'",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FORM",
+      "code": "modal-department",
+      "name": "/department 模态字段",
+      "expect": "含 name='name'",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FORM",
+      "code": "modal-employee",
+      "name": "/employee 模态字段",
+      "expect": "含 name='name'",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "FIX",
+      "code": "P0-1b-full",
+      "name": "P0-1b 完整 ids (1-5)",
+      "expect": "占位消失 + 含 5 个材料 + 显示数量",
+      "actual": "empty_gone=True has_data=True has_count=True match=共 5 个标签",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "AUTH",
+      "code": "S11-1",
+      "name": "CSRF token in login form",
+      "expect": "有 csrf_token 隐藏域",
+      "actual": "has=True",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "AUTH",
+      "code": "S11-2",
+      "name": "Wrong password rejected",
+      "expect": "留在 /login",
+      "actual": "url=http://127.0.0.1:8080/login",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "AUTH",
+      "code": "S11-3",
+      "name": "Correct password accepted",
+      "expect": "离开 /login",
+      "actual": "url=http://127.0.0.1:8080/",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "PERM",
+      "code": "perm-user",
+      "name": "Admin→/user",
+      "expect": "200",
+      "actual": "status=200",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "PERM",
+      "code": "perm-system_settings",
+      "name": "Admin→/system_settings",
+      "expect": "200",
+      "actual": "status=200",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "PERM",
+      "code": "perm-backup",
+      "name": "Admin→/backup",
+      "expect": "200",
+      "actual": "status=200",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "PERM",
+      "code": "perm-operation_audit",
+      "name": "Admin→/operation_audit",
+      "expect": "200",
+      "actual": "status=200",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "level": "PERM",
+      "code": "perm-approval",
+      "name": "Admin→/approval",
+      "expect": "200",
+      "actual": "status=200",
+      "pass": true,
+      "note": ""
+    }
+  ],
+  "fix_verification": {
+    "total_fix_checks": 46,
+    "fix_passed": 46,
+    "fix_failed": []
+  },
+  "end": "2026-07-28T06:53:01.151641",
+  "screenshots": [
+    "/workspace/audit_screenshots/real_e2e/01_login_page.png",
+    "/workspace/audit_screenshots/real_e2e/02_after_login.png",
+    "/workspace/audit_screenshots/real_e2e/menu_M_物料.png",
+    "/workspace/audit_screenshots/real_e2e/menu_M_分类.png",
+    "/workspace/audit_screenshots/real_e2e/menu_M_单位.png",
+    "/workspace/audit_screenshots/real_e2e/menu_M_供应商.png",
+    "/workspace/audit_screenshots/real_e2e/menu_M_客户.png",
+    "/workspace/audit_screenshots/real_e2e/menu_M_仓库.png",
+    "/workspace/audit_screenshots/real_e2e/menu_M_部门.png",
+    "/workspace/audit_screenshots/real_e2e/menu_M_员工.png",
+    "/workspace/audit_screenshots/real_e2e/menu_M_合同.png",
+    "/workspace/audit_screenshots/real_e2e/menu_M_BOM.png",
+    "/workspace/audit_screenshots/real_e2e/menu_M_标签.png",
+    "/workspace/audit_screenshots/real_e2e/menu_M_期初.png",
+    "/workspace/audit_screenshots/real_e2e/io_I_入库.png",
+    "/workspace/audit_screenshots/real_e2e/io_I_出库.png",
+    "/workspace/audit_screenshots/real_e2e/io_I_采购申请.png",
+    "/workspace/audit_screenshots/real_e2e/io_I_采购订单.png",
+    "/workspace/audit_screenshots/real_e2e/io_I_调拨.png",
+    "/workspace/audit_screenshots/real_e2e/io_I_盘点.png",
+    "/workspace/audit_screenshots/real_e2e/io_I_调整.png",
+    "/workspace/audit_screenshots/real_e2e/io_I_委外.png",
+    "/workspace/audit_screenshots/real_e2e/io_I_售后.png",
+    "/workspace/audit_screenshots/real_e2e/io_I_领用.png",
+    "/workspace/audit_screenshots/real_e2e/io_I_销售.png",
+    "/workspace/audit_screenshots/real_e2e/rpt_R_报表.png",
+    "/workspace/audit_screenshots/real_e2e/rpt_R_库存.png",
+    "/workspace/audit_screenshots/real_e2e/rpt_R_采购.png",
+    "/workspace/audit_screenshots/real_e2e/sys_S_用户.png",
+    "/workspace/audit_screenshots/real_e2e/sys_S_设置.png",
+    "/workspace/audit_screenshots/real_e2e/sys_S_备份.png",
+    "/workspace/audit_screenshots/real_e2e/sys_S_审计.png",
+    "/workspace/audit_screenshots/real_e2e/sys_S_审批.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p0_1a_empty.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p0_1b_with_ids.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p0_1c_invalid_ids.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_material.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_category.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_unit.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_supplier.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_customer.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_warehouse.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_department.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_employee.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_contract.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_label_template.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_bom.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_opening_stock.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_imp_user.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_stub_user_export.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_stub_user_import.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_stub_system_settings_export.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_stub_system_settings_import.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_stub_label_template_export.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_stub_label_template_import.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_stub_opening_stock_export.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_stub_opening_stock_import.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p1_toolbar_material.png",
+    "/workspace/audit_screenshots/real_e2e/tool_in_order.png",
+    "/workspace/audit_screenshots/real_e2e/tool_out_order.png",
+    "/workspace/audit_screenshots/real_e2e/tool_purchase_request.png",
+    "/workspace/audit_screenshots/real_e2e/tool_transfer.png",
+    "/workspace/audit_screenshots/real_e2e/form_material_add.png",
+    "/workspace/audit_screenshots/real_e2e/form_in_order_add.png",
+    "/workspace/audit_screenshots/real_e2e/form_out_order_add.png",
+    "/workspace/audit_screenshots/real_e2e/modal_category.png",
+    "/workspace/audit_screenshots/real_e2e/modal_unit.png",
+    "/workspace/audit_screenshots/real_e2e/modal_supplier.png",
+    "/workspace/audit_screenshots/real_e2e/modal_customer.png",
+    "/workspace/audit_screenshots/real_e2e/modal_warehouse.png",
+    "/workspace/audit_screenshots/real_e2e/modal_department.png",
+    "/workspace/audit_screenshots/real_e2e/modal_employee.png",
+    "/workspace/audit_screenshots/real_e2e/fix_p0_1b_full.png",
+    "/workspace/audit_screenshots/real_e2e/fix_login_wrong.png",
+    "/workspace/audit_screenshots/real_e2e/fix_login_ok.png",
+    "/workspace/audit_screenshots/real_e2e/perm_user.png",
+    "/workspace/audit_screenshots/real_e2e/perm_system_settings.png",
+    "/workspace/audit_screenshots/real_e2e/perm_backup.png",
+    "/workspace/audit_screenshots/real_e2e/perm_operation_audit.png",
+    "/workspace/audit_screenshots/real_e2e/perm_approval.png"
+  ],
+  "total_checks": 102,
+  "passed": 99,
+  "failed": 3,
+  "pass_rate": "97.1%"
+}
