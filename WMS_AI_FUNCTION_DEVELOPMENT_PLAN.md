@@ -1137,3 +1137,17 @@ full 验证结果：
 ```
 
 只有代码、权限、人工确认、专项测试、full 验证、真实业务验收、文档、提交和推送全部完成，子项才能标记“已完成”。仅 API 存在、仅 HTTP 200、仅空库指标或仅单元测试通过均不得标记完成。
+
+#### AI-LOGIN-F01（已完成）
+
+- 完成日期：2026-07-28
+- 提交 SHA：`9f02926 feat(login): complete safe login page interactions`
+- 业务边界：仅完善登录页可用性与安全提示；不创建验证码提供商、不提供未登录密码重置、不修改任何现有用户密码，不削弱 CSRF、锁定、角色校验或首次默认密码强制修改。
+- 改动模块：`app/app.py`（服务端 `usage_consent` 强制校验）、`app/templates/login.html`（业务账号/管理员无障碍页签、协议前端校验、验证码明确禁用、密码协助说明、浏览器与移动端说明）、`scripts/verify_login_experience.py`（新增 10 项隔离专项验证）；`scripts/verify_ai_material_category_coding.py` 与 `scripts/verify_ai_photo_document_flow.py` 补齐新协议字段；本台账补齐 5 个已有代码标记的已完成任务行。
+- 迁移与备份：无数据库迁移；未改业务数据、用户或密码。
+- 权限与人工确认：管理员模式仍由后端角色校验；忘记密码仅提示联系管理员且不枚举账号；验证码无真实服务时禁用；管理员密码重置接口未向未登录用户暴露。
+- 专项验证命令及结果：`python -m py_compile app/app.py scripts/verify_login_experience.py`、`python scripts/verify_login_experience.py`（10/10 PASS）、`python scripts/verify_admin_console.py`（6/6 PASS）、`python scripts/verify_wms_bugs.py`（PASS）、`python scripts/verify_ai_material_category_coding.py`（PASS）、`python scripts/verify_ai_photo_document_flow.py`（PASS）。
+- full 验证结果：`python scripts/verify_ai_all.py --level full` 后台完成，69/69 PASS（68.02s）。
+- 真实用户/数据验收证据：重启本机 `run_server.py` 后，`http://127.0.0.1:8080/login` 返回 HTTP 200，实际页面含 `usage_consent`、验证码未启用说明与密码协助说明；本机无 Chrome/Edge 与可用 Playwright 浏览器内核，真实浏览器桌面/390px 自动化无法执行，保留为环境验收项。
+- 破坏性测试：专项脚本确认缺失 CSRF 返回 400、取消协议返回 400、非管理员使用管理员模式返回 403、首次密码账户仍重定向 `/user/change_password`。
+- 剩余风险和下一子项：接入短信、邮件或企业微信验证码服务前继续保持验证码禁用；如接入真实服务，另建子项并评审频率限制、验证码存储、过期与审计。
