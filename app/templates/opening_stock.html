@@ -80,6 +80,99 @@
         </div>
     </div>
 
+    <div class="doc-panel" style="margin-top:12px;">
+        <div class="doc-title"><i class="bi bi-search"></i> 查询已建账期初库存</div>
+        <div class="doc-header">
+            <form method="get" action="/opening_stock" class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">关键字</label>
+                    <input type="text" class="form-control" name="search" value="{{ filters.search or '' }}" placeholder="物料编码/名称/规格">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">仓库</label>
+                    <select class="form-select" name="warehouse_id">
+                        <option value="">全部仓库</option>
+                        {% for w in warehouses %}
+                            <option value="{{ w.id }}" {% if filters.warehouse_id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">每页</label>
+                    <select class="form-select" name="per_page">
+                        {% for opt in [10, 20, 50, 100, 200] %}
+                            <option value="{{ opt }}" {% if per_page == opt %}selected{% endif %}>{{ opt }} 条</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex gap-2">
+                    <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> 查询</button>
+                    <a class="btn btn-outline-secondary" href="/opening_stock"><i class="bi bi-x-circle"></i> 重置</a>
+                </div>
+            </form>
+        </div>
+        <div class="opening-grid-wrap" style="margin:0 16px 12px; max-height:none; min-height:auto;">
+            <table class="opening-grid">
+                <thead>
+                    <tr>
+                        <th style="width:42px;">序号</th>
+                        <th style="width:120px;">仓库</th>
+                        <th style="width:140px;">物料编码</th>
+                        <th>物料名称</th>
+                        <th style="width:90px;">规格</th>
+                        <th style="width:60px;">单位</th>
+                        <th style="width:90px;">数量</th>
+                        <th style="width:90px;">单价</th>
+                        <th style="width:120px;">期初余额</th>
+                        <th>备注</th>
+                        <th style="width:140px;">更新时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if records %}
+                    {% for record in records %}
+                        <tr>
+                            <td class="row-no">{{ loop.index + ((pagination.page - 1) * pagination.per_page) }}</td>
+                            <td>{{ (record.warehouse.name if record.warehouse else '未指定') }}</td>
+                            <td>{{ (record.material.code if record.material else '') }}</td>
+                            <td>{{ (record.material.name if record.material else '') }}</td>
+                            <td>{{ (record.material.spec if record.material else '') }}</td>
+                            <td>{{ (record.material.unit.name if record.material and record.material.unit else '') }}</td>
+                            <td class="num">{{ '%.4f'|format(record.quantity or 0) }}</td>
+                            <td class="num">{{ '%.2f'|format(record.price or 0) }}</td>
+                            <td class="num">{{ '%.2f'|format(record.amount or 0) }}</td>
+                            <td>{{ record.remark or '' }}</td>
+                            <td>{{ record.updated_at.strftime('%Y-%m-%d %H:%M') if record.updated_at else '' }}</td>
+                        </tr>
+                    {% endfor %}
+                {% else %}
+                        <tr><td colspan="11" class="text-center text-muted" style="padding:18px;">暂无期初库存记录</td></tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% if pagination and pagination.total and pagination.total > 0 %}
+        <nav class="mt-2 mb-3 d-flex flex-wrap justify-content-between align-items-center gap-2" style="margin:0 16px 12px;">
+            <div class="text-muted small">共 {{ pagination.total }} 条 / 第 {{ pagination.page }} / {{ pagination.pages }} 页</div>
+            <ul class="pagination justify-content-center mb-0">
+                {%- if pagination.has_prev -%}
+                <li class="page-item"><a class="page-link" href="{{ url_for('opening_stock_list', page=pagination.prev_num, per_page=per_page, search=filters.search, warehouse_id=filters.warehouse_id) }}">上一页</a></li>
+                {%- endif -%}
+                {%- for page in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) -%}
+                {%- if page -%}
+                <li class="page-item {% if page==pagination.page %}active{% endif %}"><a class="page-link" href="{{ url_for('opening_stock_list', page=page, per_page=per_page, search=filters.search, warehouse_id=filters.warehouse_id) }}">{{ page }}</a></li>
+                {%- else -%}
+                <li class="page-item disabled"><span class="page-link">...</span></li>
+                {%- endif -%}
+                {%- endfor -%}
+                {%- if pagination.has_next -%}
+                <li class="page-item"><a class="page-link" href="{{ url_for('opening_stock_list', page=pagination.next_num, per_page=per_page, search=filters.search, warehouse_id=filters.warehouse_id) }}">下一页</a></li>
+                {%- endif -%}
+            </ul>
+        </nav>
+        {% endif %}
+    </div>
+
     <div class="doc-panel">
         <div class="doc-title"><i class="bi bi-file-earmark-plus"></i> 新增期初库存单</div>
         <div class="doc-header">
@@ -97,9 +190,12 @@
                     <input class="form-control" value="期初建账" readonly>
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label">仓库</label>
-                    <select class="form-select">
+                    <label class="form-label">单据仓库 <span class="text-danger">*</span></label>
+                    <select class="form-select" id="headerWarehouse" required>
                         <option value="">请选择仓库</option>
+                        {% for w in warehouses %}
+                            <option value="{{ w.id }}">{{ w.code }} - {{ w.name }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-12">
@@ -134,6 +230,7 @@
                 <thead>
                     <tr>
                         <th style="width:42px;">序号</th>
+                        <th style="width:120px;">仓库</th>
                         <th style="width:150px;">物料编码</th>
                         <th>物料名称</th>
                         <th style="width:100px;">规格</th>
@@ -141,7 +238,7 @@
                         <th style="width:100px;">数量</th>
                         <th style="width:100px;">单价</th>
                         <th style="width:120px;">期初余额</th>
-                        <th style="width:180px;">备注</th>
+                        <th style="width:160px;">备注</th>
                         <th style="width:92px;">操作</th>
                     </tr>
                 </thead>
@@ -165,10 +262,17 @@
 {% block extra_js %}
 <script>
 const materialData = {{ material_options|tojson }};
+const warehouseData = {{ (warehouses|map(attribute='id')|list)|tojson }};
+const warehouseNameById = {{ (warehouses|map(attribute='name'))|list|tojson }};
+const warehouseOptions = [
+    {% for w in warehouses %}{id: {{ w.id }}, name: {{ (w.code + ' - ' + w.name)|tojson }}}{% if not loop.last %},{% endif %}{% endfor %}
+];
 const existingRows = [
 {% for record in records %}
     {
         material_id: {{ record.material_id }},
+        warehouse_id: {{ record.warehouse_id if record.warehouse_id is not none else 'null' }},
+        warehouse_name: {{ (record.warehouse.name if record.warehouse else '')|tojson }},
         material_code: {{ (record.material.code if record.material else '')|tojson }},
         material_name: {{ (record.material.name if record.material else '')|tojson }},
         spec: {{ (record.material.spec if record.material else '')|tojson }},
@@ -187,7 +291,7 @@ const gridBody = document.getElementById('openingGridBody');
 const materialMenu = document.getElementById('materialMenu');
 
 function emptyRow() {
-    return {material_id: '', material_code: '', material_name: '', spec: '', unit: '', quantity: '', price: '', remark: ''};
+    return {material_id: '', warehouse_id: '', warehouse_name: '', material_code: '', material_name: '', spec: '', unit: '', quantity: '', price: '', remark: ''};
 }
 
 function ensureRows() {
@@ -200,11 +304,21 @@ function amountOf(row) {
     return quantity * price;
 }
 
+function warehouseOptionsHtml(selectedId) {
+    const opts = ['<option value="">请选择仓库</option>'];
+    warehouseOptions.forEach(w => {
+        const selected = String(w.id) === String(selectedId || '') ? ' selected' : '';
+        opts.push(`<option value="${w.id}"${selected}>${escapeHtml(w.name)}</option>`);
+    });
+    return opts.join('');
+}
+
 function renderRows() {
     ensureRows();
     gridBody.innerHTML = rows.map((row, index) => `
         <tr data-index="${index}">
             <td class="row-no">${index + 1}</td>
+            <td><select class="form-select form-select-sm" onchange="updateField(${index}, 'warehouse_id', this.value); updateField(${index}, 'warehouse_name', this.options[this.selectedIndex]?.text || '');">${warehouseOptionsHtml(row.warehouse_id)}</select></td>
             <td class="code-cell"><input data-field="material_code" value="${escapeHtml(row.material_code || '')}" autocomplete="off" oninput="updateField(${index}, 'material_code', this.value); showMaterialMenu(this, ${index});" onfocus="showMaterialMenu(this, ${index});"></td>
             <td><input value="${escapeHtml(row.material_name || '')}" readonly></td>
             <td><input value="${escapeHtml(row.spec || '')}" readonly></td>
@@ -309,9 +423,10 @@ function selectMaterial(index, materialId) {
 
 function collectItems() {
     return rows
-        .filter(row => row.material_id || row.material_code || row.quantity || row.price || row.remark)
+        .filter(row => row.material_id || row.material_code || row.quantity || row.price || row.remark || row.warehouse_id)
         .map(row => ({
             material_id: row.material_id,
+            warehouse_id: row.warehouse_id,
             quantity: row.quantity,
             price: row.price,
             remark: row.remark,
@@ -319,10 +434,27 @@ function collectItems() {
 }
 
 function saveDocument() {
+    const headerWarehouseId = document.getElementById('headerWarehouse')?.value;
     const items = collectItems();
     if (!items.length) {
         showToast('请至少录入一行期初库存', 'warning');
         return;
+    }
+    // AI-OS-MW-001: 表头仓库为空时，自动使用明细中已选仓库
+    if (!headerWarehouseId) {
+        const uniqueWarehouses = Array.from(new Set(items.map(item => String(item.warehouse_id || '')).filter(Boolean)));
+        if (uniqueWarehouses.length === 0) {
+            showToast('请选择表头仓库或在明细中为每行选择仓库', 'warning');
+            return;
+        }
+        if (uniqueWarehouses.length > 1) {
+            showToast('明细涉及多个仓库，请先在表头选择仓库', 'warning');
+            return;
+        }
+        items.forEach(item => { item.warehouse_id = uniqueWarehouses[0]; });
+    } else {
+        // 表头有仓库时：未指定明细行的仓库自动使用表头仓库
+        items.forEach(item => { if (!item.warehouse_id) item.warehouse_id = headerWarehouseId; });
     }
     fetch('/opening_stock/batch_save', {
         method: 'POST',
@@ -345,15 +477,19 @@ function saveDocument() {
 }
 
 function pasteImport() {
-    const text = prompt('请粘贴明细，每行格式：物料编码\\t数量\\t单价\\t备注');
+    const text = prompt('请粘贴明细，每行格式：仓库编码\\t物料编码\\t数量\\t单价\\t备注');
     if (!text) return;
     const imported = text.split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);
     imported.forEach(line => {
-        const [code, quantity, price, remark] = line.split(/\\t|,/);
+        const parts = line.split(/\\t|,/);
+        const [whCode, code, quantity, price, remark] = parts;
+        const wh = warehouseOptions.find(w => String(w.id) === String(whCode || '').trim() || String(w.name).includes(String(whCode || '').trim()));
         const material = materialData.find(item => String(item.code).toLowerCase() === String(code || '').trim().toLowerCase());
         if (material) {
             rows.push({
                 material_id: material.id,
+                warehouse_id: wh ? wh.id : (document.getElementById('headerWarehouse')?.value || ''),
+                warehouse_name: wh ? wh.name : '',
                 material_code: material.code || '',
                 material_name: material.name || '',
                 spec: material.spec || '',
@@ -368,13 +504,13 @@ function pasteImport() {
 }
 
 function showImportHint() {
-    showToast('当前支持粘贴导入：物料编码、数量、单价、备注', 'info', 3600);
+    showToast('当前支持粘贴导入：仓库编码、物料编码、数量、单价、备注', 'info', 3600);
 }
 
 function exportRows() {
-    const lines = [['物料编码', '物料名称', '规格', '单位', '数量', '单价', '期初余额', '备注'].join(',')];
+    const lines = [['仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '期初余额', '备注'].join(',')];
     rows.filter(row => row.material_id).forEach(row => {
-        lines.push([row.material_code, row.material_name, row.spec, row.unit, row.quantity, row.price, amountOf(row).toFixed(2), row.remark].map(value => `"${String(value ?? '').replaceAll('"', '""')}"`).join(','));
+        lines.push([row.warehouse_name || '', row.material_code, row.material_name, row.spec, row.unit, row.quantity, row.price, amountOf(row).toFixed(2), row.remark].map(value => `"${String(value ?? '').replaceAll('"', '""')}"`).join(','));
     });
     const blob = new Blob([lines.join('\\n')], {type: 'text/csv;charset=utf-8;'});
     const url = URL.createObjectURL(blob);

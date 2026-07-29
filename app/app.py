@@ -3525,15 +3525,18 @@ class AIPatrolSchedule(db.Model):
 
 
 class OpeningStock(db.Model):
-    """Opening stock balance for material setup."""
+    """Opening stock balance for material setup (per warehouse)."""
     __tablename__ = 'opening_stock'
     __table_args__ = (
-        db.UniqueConstraint('material_id', name='uix_opening_stock_material'),
+        # AI-OS-MW-001：物料 × 仓库 唯一；兼容历史无 warehouse_id 记录（NULL 视为未指定）
+        db.UniqueConstraint('material_id', 'warehouse_id', name='uix_opening_stock_material_warehouse'),
         db.Index('idx_opening_stock_material', 'material_id'),
+        db.Index('idx_opening_stock_warehouse', 'warehouse_id'),
         db.Index('idx_opening_stock_created', 'created_at'),
     )
     id = db.Column(db.Integer, primary_key=True)
     material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)
+    warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # AI-OS-MW-001: NULL 表示历史未指定仓库
     quantity = db.Column(db.Float, nullable=False, default=0)
     price = db.Column(db.Float, nullable=False, default=0)
     amount = db.Column(db.Float, nullable=False, default=0)
@@ -3542,7 +3545,8 @@ class OpeningStock(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
-    material = db.relationship('Material', backref=db.backref('opening_stock_record', uselist=False))
+    material = db.relationship('Material', backref=db.backref('opening_stock_records'))
+    warehouse = db.relationship('Warehouse', backref=db.backref('opening_stocks'))
     operator = db.relationship('User', backref='opening_stocks')
 
 
@@ -7420,6 +7424,7 @@ def add_material():
 
 def _opening_stock_payload_from_request():
     material_id = request.form.get('material_id', type=int)
+    warehouse_id = request.form.get('warehouse_id', type=int)
     try:
         quantity = float(request.form.get('quantity') or '')
     except (TypeError, ValueError):
@@ -7431,6 +7436,13 @@ def _opening_stock_payload_from_request():
     material = Material.query.filter_by(id=material_id).with_for_update().first()
     if not material:
         return None, '物料不存在'
+    if not warehouse_id:
+        return None, '请选择仓库'  # AI-OS-MW-001: 仓库必填
+    warehouse = Warehouse.query.filter_by(id=warehouse_id).with_for_update().first()
+    if not warehouse:
+        return None, '仓库不存在'
+    if (warehouse.status or 'active') != 'active':
+        return None, f'仓库 {warehouse.name} 已停用，禁止期初建账'  # AI-OS-MW-001: 禁止停用仓库
     if quantity is None:
         return None, '请输入数量'
     if quantity < 0:
@@ -7439,6 +7451,7 @@ def _opening_stock_payload_from_request():
         return None, '单价不能小于 0'
     return {
         'material': material,
+        'warehouse': warehouse,
         'quantity': normalize_stock_quantity(quantity),
         'price': round_to_2_decimals(price),
         'amount': round_to_2_decimals(quantity * price),
@@ -7446,13 +7459,14 @@ def _opening_stock_payload_from_request():
     }, None
 
 
-def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new_amount, remark):
+def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new_amount, remark, warehouse=None):
     old_quantity = normalize_stock_quantity(opening.quantity or 0) if opening else 0
     quantity_delta = normalize_stock_quantity(new_quantity - old_quantity)
 
     if opening is None:
         opening = OpeningStock(
             material_id=material.id,
+            warehouse_id=warehouse.id if warehouse else None,
             quantity=new_quantity,
             price=new_price,
             amount=new_amount,
@@ -7477,10 +7491,13 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
             .values(stock=Material.stock + quantity_delta)
         )
         db.session.expire(material, ['stock'])
+        # AI-OS-MW-001：台账和月报都依赖 location 字段
+        location_value = warehouse.name if warehouse else (opening.warehouse.name if opening.warehouse else '')
         db.session.add(StockTransaction(
             material_id=material.id,
             transaction_type='opening',
             quantity=quantity_delta,
+            location=location_value,
             reference_type='opening_stock',
             reference_id=opening.id,
             operator_id=current_user.id if current_user.is_authenticated else None,
@@ -7500,10 +7517,12 @@ def opening_stock_list():
     search = (request.args.get('search') or '').strip()
     sort_by = request.args.get('sort', 'created_at')
     sort_order = request.args.get('order', 'desc')
+    warehouse_id = request.args.get('warehouse_id', type=int)  # AI-OS-MW-001: 仓库筛选
 
     query = OpeningStock.query.options(
         joinedload(OpeningStock.material).joinedload(Material.unit),
         joinedload(OpeningStock.operator),
+        joinedload(OpeningStock.warehouse),
     ).join(Material)
     if search:
         like = f'%{search}%'
@@ -7513,6 +7532,8 @@ def opening_stock_list():
             Material.spec.like(like),
             OpeningStock.remark.like(like),
         ))
+    if warehouse_id:
+        query = query.filter(OpeningStock.warehouse_id == warehouse_id)
 
     allowed_sorts = {
         'id': OpeningStock.id,
@@ -7538,6 +7559,7 @@ def opening_stock_list():
         'stock': normalize_stock_quantity(material.stock or 0),
         'price': round_to_2_decimals(material.price or 0),
     } for material in materials]
+    warehouses = get_active_warehouses()  # AI-OS-MW-001
     opening_doc_no = f'OP{date.today().strftime("%Y%m%d")}'
     return render_template(
         'opening_stock.html',
@@ -7545,12 +7567,13 @@ def opening_stock_list():
         materials=materials,
         material_options=material_options,
         pagination=pagination,
-        filters={'search': search},
+        filters={'search': search, 'warehouse_id': warehouse_id},
         sort_by=sort_by,
         sort_order=sort_order,
         per_page=per_page,
         opening_doc_no=opening_doc_no,
         doc_date=date.today().isoformat(),
+        warehouses=warehouses,
     )
 
 
@@ -7563,16 +7586,19 @@ def add_opening_stock():
         return jsonify({'status': 'error', 'msg': error}), 400
 
     material = payload['material']
-    existing = OpeningStock.query.filter_by(material_id=material.id).with_for_update().first()
+    warehouse = payload['warehouse']
+    existing = OpeningStock.query.filter_by(
+        material_id=material.id, warehouse_id=warehouse.id
+    ).with_for_update().first()
     if existing:
-        return jsonify({'status': 'error', 'msg': '该物料已存在期初库存，请使用编辑按差额调整'}), 400
+        return jsonify({'status': 'error', 'msg': f'该物料在仓库 [{warehouse.name}] 已存在期初库存，请使用编辑按差额调整'}), 400
 
     try:
         opening, delta = _apply_opening_stock_balance(
-            None, material, payload['quantity'], payload['price'], payload['amount'], payload['remark']
+            None, material, payload['quantity'], payload['price'], payload['amount'], payload['remark'], warehouse
         )
         db.session.commit()
-        log_operation('新增期初库存', f'{material.code} 数量 {payload["quantity"]}', 'opening_stock', opening.id)
+        log_operation('新增期初库存', f'{material.code} @ {warehouse.name} 数量 {payload["quantity"]}', 'opening_stock', opening.id)
         return jsonify({'status': 'success', 'msg': '期初库存已保存', 'delta': delta})
     except Exception as e:
         db.session.rollback()
@@ -7583,7 +7609,10 @@ def add_opening_stock():
 @app.route('/opening_stock/<int:id>')
 @login_required
 def get_opening_stock(id):
-    opening = OpeningStock.query.options(joinedload(OpeningStock.material).joinedload(Material.unit)).get(id)
+    opening = OpeningStock.query.options(
+        joinedload(OpeningStock.material).joinedload(Material.unit),
+        joinedload(OpeningStock.warehouse),
+    ).get(id)
     if not opening:
         return jsonify({'status': 'error', 'msg': '期初库存记录不存在'}), 404
     material = opening.material
@@ -7592,6 +7621,8 @@ def get_opening_stock(id):
         'record': {
             'id': opening.id,
             'material_id': opening.material_id,
+            'warehouse_id': opening.warehouse_id,
+            'warehouse_name': opening.warehouse.name if opening.warehouse else '',
             'material_code': material.code if material else '',
             'material_name': material.name if material else '',
             'spec': material.spec if material else '',
@@ -7617,13 +7648,15 @@ def edit_opening_stock(id):
         return jsonify({'status': 'error', 'msg': error}), 400
     if payload['material'].id != opening.material_id:
         return jsonify({'status': 'error', 'msg': '期初库存编辑不能更换物料，请新增目标物料的期初记录'}), 400
+    if payload['warehouse'].id != opening.warehouse_id:
+        return jsonify({'status': 'error', 'msg': '期初库存编辑不能更换仓库，如需调整请到目标仓库新增'}), 400
 
     try:
         opening, delta = _apply_opening_stock_balance(
-            opening, payload['material'], payload['quantity'], payload['price'], payload['amount'], payload['remark']
+            opening, payload['material'], payload['quantity'], payload['price'], payload['amount'], payload['remark'], payload['warehouse']
         )
         db.session.commit()
-        log_operation('编辑期初库存', f'{payload["material"].code} 差额 {delta}', 'opening_stock', opening.id)
+        log_operation('编辑期初库存', f'{payload["material"].code} @ {payload["warehouse"].name} 差额 {delta}', 'opening_stock', opening.id)
         return jsonify({'status': 'success', 'msg': '期初库存已更新', 'delta': delta})
     except Exception as e:
         db.session.rollback()
@@ -7640,7 +7673,7 @@ def batch_save_opening_stock():
     if not isinstance(items, list):
         return jsonify({'status': 'error', 'msg': '明细数据格式错误'}), 400
 
-    seen_material_ids = set()
+    seen_keys = set()  # AI-OS-MW-001: (material_id, warehouse_id) 唯一
     normalized_items = []
     for index, item in enumerate(items, start=1):
         material_id = item.get('material_id')
@@ -7648,13 +7681,26 @@ def batch_save_opening_stock():
             material_id = int(material_id)
         except (TypeError, ValueError):
             return jsonify({'status': 'error', 'msg': f'第 {index} 行请选择物料'}), 400
-        if material_id in seen_material_ids:
-            return jsonify({'status': 'error', 'msg': f'第 {index} 行物料重复，请合并后保存'}), 400
-        seen_material_ids.add(material_id)
+        warehouse_id = item.get('warehouse_id')
+        try:
+            warehouse_id = int(warehouse_id) if warehouse_id not in (None, '') else None
+        except (TypeError, ValueError):
+            warehouse_id = None
+        if not warehouse_id:
+            return jsonify({'status': 'error', 'msg': f'第 {index} 行请选择仓库'}), 400
+        dedup_key = (material_id, warehouse_id)
+        if dedup_key in seen_keys:
+            return jsonify({'status': 'error', 'msg': f'第 {index} 行物料+仓库重复，请合并后保存'}), 400
+        seen_keys.add(dedup_key)
 
         material = Material.query.filter_by(id=material_id).with_for_update().first()
         if not material:
             return jsonify({'status': 'error', 'msg': f'第 {index} 行物料不存在'}), 400
+        warehouse = Warehouse.query.filter_by(id=warehouse_id).with_for_update().first()
+        if not warehouse:
+            return jsonify({'status': 'error', 'msg': f'第 {index} 行仓库不存在'}), 400
+        if (warehouse.status or 'active') != 'active':
+            return jsonify({'status': 'error', 'msg': f'第 {index} 行仓库 [{warehouse.name}] 已停用，禁止期初建账'}), 400
 
         quantity = parse_float_value(item.get('quantity'), None)
         price = parse_float_value(item.get('price'), 0)
@@ -7667,6 +7713,7 @@ def batch_save_opening_stock():
 
         normalized_items.append({
             'material': material,
+            'warehouse': warehouse,
             'quantity': normalize_stock_quantity(quantity),
             'price': round_to_2_decimals(price),
             'amount': round_to_2_decimals(quantity * price),
@@ -7680,7 +7727,10 @@ def batch_save_opening_stock():
         changed_count = 0
         for item in normalized_items:
             material = item['material']
-            opening = OpeningStock.query.filter_by(material_id=material.id).with_for_update().first()
+            warehouse = item['warehouse']
+            opening = OpeningStock.query.filter_by(
+                material_id=material.id, warehouse_id=warehouse.id
+            ).with_for_update().first()
             _, delta = _apply_opening_stock_balance(
                 opening,
                 material,
@@ -7688,6 +7738,7 @@ def batch_save_opening_stock():
                 item['price'],
                 item['amount'],
                 item['remark'],
+                warehouse,
             )
             if opening is None or abs(delta) > STOCK_COMPARE_EPSILON:
                 changed_count += 1
