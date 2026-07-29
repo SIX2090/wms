@@ -1,0 +1,117 @@
+package androidx.compose.material.icons.sharp;
+
+import androidx.compose.material.icons.Icons;
+import androidx.compose.ui.graphics.Brush;
+import androidx.compose.ui.graphics.Color;
+import androidx.compose.ui.graphics.SolidColor;
+import androidx.compose.ui.graphics.StrokeCap;
+import androidx.compose.ui.graphics.StrokeJoin;
+import androidx.compose.ui.graphics.vector.ImageVector;
+import androidx.compose.ui.graphics.vector.PathBuilder;
+import androidx.compose.ui.graphics.vector.VectorKt;
+import androidx.compose.ui.unit.Dp;
+import kotlin.Metadata;
+import kotlin.jvm.internal.Intrinsics;
+
+/* compiled from: HdrOffSelect.kt */
+@Metadata(d1 = {"\u0000\u0010\n\u0000\n\u0002\u0018\u0002\n\u0000\n\u0002\u0018\u0002\n\u0002\b\u0003\"\u0010\u0010\u0000\u001a\u0004\u0018\u00010\u0001X\u0082\u000e¢\u0006\u0002\n\u0000\"\u0015\u0010\u0002\u001a\u00020\u0001*\u00020\u00038F¢\u0006\u0006\u001a\u0004\b\u0004\u0010\u0005¨\u0006\u0006"}, d2 = {"_hdrOffSelect", "Landroidx/compose/ui/graphics/vector/ImageVector;", "HdrOffSelect", "Landroidx/compose/material/icons/Icons$Sharp;", "getHdrOffSelect", "(Landroidx/compose/material/icons/Icons$Sharp;)Landroidx/compose/ui/graphics/vector/ImageVector;", "material-icons-extended_release"}, k = 2, mv = {1, 8, 0}, xi = 48)
+/* loaded from: classes.dex */
+public final class HdrOffSelectKt {
+    private static ImageVector _hdrOffSelect;
+
+    public static final ImageVector getHdrOffSelect(Icons.Sharp $this$HdrOffSelect) {
+        if (_hdrOffSelect != null) {
+            ImageVector imageVector = _hdrOffSelect;
+            Intrinsics.checkNotNull(imageVector);
+            return imageVector;
+        }
+        ImageVector.Builder $this$_get_HdrOffSelect__u24lambda_u241 = new ImageVector.Builder("Sharp.HdrOffSelect", Dp.m6094constructorimpl(24.0f), Dp.m6094constructorimpl(24.0f), 24.0f, 24.0f, 0L, 0, false, 96, null);
+        int pathFillType$iv = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(18.0f, 20.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(-4.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(-5.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(6.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(1.5f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(-2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(1.1f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineToRelative(0.9f, 2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineTo(18.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineToRelative(-0.86f, -2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineTo(18.0f, 20.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(16.5f, 18.5f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(-2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(-1.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineTo(18.5f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(3.5f, 18.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(-2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(-2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineTo(0.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(6.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(1.5f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(-2.5f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineTo(22.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineTo(5.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(-6.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineTo(3.5f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineTo(18.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(10.0f, 16.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineTo(6.5f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(6.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineTo(10.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(0.8f, 0.0f, 1.5f, -0.7f, 1.5f, -1.5f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(-3.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveTo(11.5f, 16.7f, 10.8f, 16.0f, 10.0f, 16.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(10.0f, 20.5f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineTo(8.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(-3.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineTo(20.5f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(24.0f, 20.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(-2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(-1.5f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(-2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(-2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(-1.5f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(-2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineTo(22.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineTo(20.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(10.98f, 4.15f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineTo(9.42f, 2.59f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(5.1f, -2.42f, 10.41f, 2.89f, 7.99f, 7.99f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineToRelative(-1.56f, -1.56f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveTo(16.66f, 6.06f, 13.94f, 3.34f, 10.98f, 4.15f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(6.34f, 2.34f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineTo(4.93f, 3.76f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineToRelative(1.66f, 1.66f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(-2.42f, 5.1f, 2.89f, 10.41f, 7.99f, 7.99f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineToRelative(1.66f, 1.66f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineToRelative(1.41f, -1.41f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineTo(6.34f, 2.34f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(8.15f, 6.98f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineToRelative(4.87f, 4.87f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveTo(10.06f, 12.66f, 7.34f, 9.94f, 8.15f, 6.98f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        _hdrOffSelect = ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_HdrOffSelect__u24lambda_u241, $this$PathData_u24lambda_u240$iv$iv$iv.getNodes(), pathFillType$iv, "", fill$iv$iv, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv, strokeLineJoin$iv$iv, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null).build();
+        ImageVector imageVector2 = _hdrOffSelect;
+        Intrinsics.checkNotNull(imageVector2);
+        return imageVector2;
+    }
+}

@@ -1,0 +1,136 @@
+package androidx.compose.material.icons.rounded;
+
+import androidx.compose.material.icons.Icons;
+import androidx.compose.ui.graphics.Brush;
+import androidx.compose.ui.graphics.Color;
+import androidx.compose.ui.graphics.SolidColor;
+import androidx.compose.ui.graphics.StrokeCap;
+import androidx.compose.ui.graphics.StrokeJoin;
+import androidx.compose.ui.graphics.vector.ImageVector;
+import androidx.compose.ui.graphics.vector.PathBuilder;
+import androidx.compose.ui.graphics.vector.VectorKt;
+import androidx.compose.ui.unit.Dp;
+import kotlin.Metadata;
+import kotlin.jvm.internal.Intrinsics;
+
+/* compiled from: Diversity1.kt */
+@Metadata(d1 = {"\u0000\u0010\n\u0000\n\u0002\u0018\u0002\n\u0000\n\u0002\u0018\u0002\n\u0002\b\u0003\"\u0010\u0010\u0000\u001a\u0004\u0018\u00010\u0001X\u0082\u000e¢\u0006\u0002\n\u0000\"\u0015\u0010\u0002\u001a\u00020\u0001*\u00020\u00038F¢\u0006\u0006\u001a\u0004\b\u0004\u0010\u0005¨\u0006\u0006"}, d2 = {"_diversity1", "Landroidx/compose/ui/graphics/vector/ImageVector;", "Diversity1", "Landroidx/compose/material/icons/Icons$Rounded;", "getDiversity1", "(Landroidx/compose/material/icons/Icons$Rounded;)Landroidx/compose/ui/graphics/vector/ImageVector;", "material-icons-extended_release"}, k = 2, mv = {1, 8, 0}, xi = 48)
+/* loaded from: classes.dex */
+public final class Diversity1Kt {
+    private static ImageVector _diversity1;
+
+    public static final ImageVector getDiversity1(Icons.Rounded $this$Diversity1) {
+        if (_diversity1 != null) {
+            ImageVector imageVector = _diversity1;
+            Intrinsics.checkNotNull(imageVector);
+            return imageVector;
+        }
+        ImageVector.Builder $this$_get_Diversity1__u24lambda_u247 = new ImageVector.Builder("Rounded.Diversity1", Dp.m6094constructorimpl(24.0f), Dp.m6094constructorimpl(24.0f), 24.0f, 24.0f, 0L, 0, false, 96, null);
+        int pathFillType$iv = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(4.0f, 14.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveToRelative(-2.0f, 0.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.arcToRelative(2.0f, 2.0f, 0.0f, true, true, 4.0f, 0.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.arcToRelative(2.0f, 2.0f, 0.0f, true, true, -4.0f, 0.0f);
+        ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_Diversity1__u24lambda_u247, $this$PathData_u24lambda_u240$iv$iv$iv.getNodes(), pathFillType$iv, "", fill$iv$iv, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv, strokeLineJoin$iv$iv, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null);
+        int pathFillType$iv2 = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv2 = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv2 = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv2 = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv2 = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv2.moveTo(1.22f, 17.58f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.curveTo(0.48f, 17.9f, 0.0f, 18.62f, 0.0f, 19.43f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.lineTo(0.0f, 20.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.curveToRelative(0.0f, 0.55f, 0.45f, 1.0f, 1.0f, 1.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.lineToRelative(3.5f, 0.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.verticalLineToRelative(-1.61f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.curveToRelative(0.0f, -0.83f, 0.23f, -1.61f, 0.63f, -2.29f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.curveTo(4.76f, 17.04f, 4.39f, 17.0f, 4.0f, 17.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.curveTo(3.01f, 17.0f, 2.07f, 17.21f, 1.22f, 17.58f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.close();
+        ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_Diversity1__u24lambda_u247, $this$PathData_u24lambda_u240$iv$iv$iv2.getNodes(), pathFillType$iv2, "", fill$iv$iv2, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv2, strokeLineJoin$iv$iv2, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null);
+        int pathFillType$iv3 = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv3 = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv3 = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv3 = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv3 = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv3.moveTo(20.0f, 14.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv3.moveToRelative(-2.0f, 0.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv3.arcToRelative(2.0f, 2.0f, 0.0f, true, true, 4.0f, 0.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv3.arcToRelative(2.0f, 2.0f, 0.0f, true, true, -4.0f, 0.0f);
+        ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_Diversity1__u24lambda_u247, $this$PathData_u24lambda_u240$iv$iv$iv3.getNodes(), pathFillType$iv3, "", fill$iv$iv3, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv3, strokeLineJoin$iv$iv3, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null);
+        int pathFillType$iv4 = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv4 = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv4 = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv4 = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv4 = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv4.moveTo(22.78f, 17.58f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveTo(21.93f, 17.21f, 20.99f, 17.0f, 20.0f, 17.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(-0.39f, 0.0f, -0.76f, 0.04f, -1.13f, 0.1f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.4f, 0.68f, 0.63f, 1.46f, 0.63f, 2.29f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.verticalLineTo(21.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(3.5f, 0.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.55f, 0.0f, 1.0f, -0.45f, 1.0f, -1.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(0.0f, -0.57f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveTo(24.0f, 18.62f, 23.52f, 17.9f, 22.78f, 17.58f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.close();
+        ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_Diversity1__u24lambda_u247, $this$PathData_u24lambda_u240$iv$iv$iv4.getNodes(), pathFillType$iv4, "", fill$iv$iv4, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv4, strokeLineJoin$iv$iv4, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null);
+        int pathFillType$iv5 = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv5 = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv5 = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv5 = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv5 = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv5.moveTo(16.24f, 16.65f);
+        $this$PathData_u24lambda_u240$iv$iv$iv5.curveToRelative(-1.17f, -0.52f, -2.61f, -0.9f, -4.24f, -0.9f);
+        $this$PathData_u24lambda_u240$iv$iv$iv5.curveToRelative(-1.63f, 0.0f, -3.07f, 0.39f, -4.24f, 0.9f);
+        $this$PathData_u24lambda_u240$iv$iv$iv5.curveTo(6.68f, 17.13f, 6.0f, 18.21f, 6.0f, 19.39f);
+        $this$PathData_u24lambda_u240$iv$iv$iv5.lineTo(6.0f, 20.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv5.curveToRelative(0.0f, 0.55f, 0.45f, 1.0f, 1.0f, 1.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv5.horizontalLineToRelative(10.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv5.curveToRelative(0.55f, 0.0f, 1.0f, -0.45f, 1.0f, -1.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv5.lineToRelative(0.0f, -0.61f);
+        $this$PathData_u24lambda_u240$iv$iv$iv5.curveTo(18.0f, 18.21f, 17.32f, 17.13f, 16.24f, 16.65f);
+        $this$PathData_u24lambda_u240$iv$iv$iv5.close();
+        ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_Diversity1__u24lambda_u247, $this$PathData_u24lambda_u240$iv$iv$iv5.getNodes(), pathFillType$iv5, "", fill$iv$iv5, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv5, strokeLineJoin$iv$iv5, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null);
+        int pathFillType$iv6 = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv6 = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv6 = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv6 = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv6 = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv6.moveTo(9.0f, 12.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv6.curveToRelative(0.0f, 1.66f, 1.34f, 3.0f, 3.0f, 3.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv6.reflectiveCurveToRelative(3.0f, -1.34f, 3.0f, -3.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv6.curveToRelative(0.0f, -1.66f, -1.34f, -3.0f, -3.0f, -3.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv6.reflectiveCurveTo(9.0f, 10.34f, 9.0f, 12.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv6.close();
+        ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_Diversity1__u24lambda_u247, $this$PathData_u24lambda_u240$iv$iv$iv6.getNodes(), pathFillType$iv6, "", fill$iv$iv6, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv6, strokeLineJoin$iv$iv6, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null);
+        int pathFillType$iv7 = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv7 = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv7 = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv7 = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv7 = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv7.moveTo(2.48f, 10.86f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveTo(2.17f, 10.1f, 2.0f, 9.36f, 2.0f, 8.6f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveTo(2.0f, 6.02f, 4.02f, 4.0f, 6.6f, 4.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveToRelative(2.68f, 0.0f, 3.82f, 1.74f, 5.4f, 3.59f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveTo(13.57f, 5.76f, 14.7f, 4.0f, 17.4f, 4.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveTo(19.98f, 4.0f, 22.0f, 6.02f, 22.0f, 8.6f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveToRelative(0.0f, 0.76f, -0.17f, 1.5f, -0.48f, 2.26f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveToRelative(0.65f, 0.31f, 1.18f, 0.82f, 1.53f, 1.44f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveTo(23.65f, 11.1f, 24.0f, 9.88f, 24.0f, 8.6f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveTo(24.0f, 4.9f, 21.1f, 2.0f, 17.4f, 2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveToRelative(-2.09f, 0.0f, -4.09f, 0.97f, -5.4f, 2.51f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveTo(10.69f, 2.97f, 8.69f, 2.0f, 6.6f, 2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveTo(2.9f, 2.0f, 0.0f, 4.9f, 0.0f, 8.6f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveToRelative(0.0f, 1.28f, 0.35f, 2.5f, 0.96f, 3.7f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.curveTo(1.31f, 11.68f, 1.84f, 11.17f, 2.48f, 10.86f);
+        $this$PathData_u24lambda_u240$iv$iv$iv7.close();
+        _diversity1 = ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_Diversity1__u24lambda_u247, $this$PathData_u24lambda_u240$iv$iv$iv7.getNodes(), pathFillType$iv7, "", fill$iv$iv7, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv7, strokeLineJoin$iv$iv7, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null).build();
+        ImageVector imageVector2 = _diversity1;
+        Intrinsics.checkNotNull(imageVector2);
+        return imageVector2;
+    }
+}

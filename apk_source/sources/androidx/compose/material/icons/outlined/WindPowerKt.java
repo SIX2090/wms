@@ -1,0 +1,134 @@
+package androidx.compose.material.icons.outlined;
+
+import androidx.compose.material.icons.Icons;
+import androidx.compose.ui.graphics.Brush;
+import androidx.compose.ui.graphics.Color;
+import androidx.compose.ui.graphics.SolidColor;
+import androidx.compose.ui.graphics.StrokeCap;
+import androidx.compose.ui.graphics.StrokeJoin;
+import androidx.compose.ui.graphics.vector.ImageVector;
+import androidx.compose.ui.graphics.vector.PathBuilder;
+import androidx.compose.ui.graphics.vector.VectorKt;
+import androidx.compose.ui.unit.Dp;
+import kotlin.Metadata;
+import kotlin.jvm.internal.Intrinsics;
+
+/* compiled from: WindPower.kt */
+@Metadata(d1 = {"\u0000\u0010\n\u0000\n\u0002\u0018\u0002\n\u0000\n\u0002\u0018\u0002\n\u0002\b\u0003\"\u0010\u0010\u0000\u001a\u0004\u0018\u00010\u0001X\u0082\u000e¢\u0006\u0002\n\u0000\"\u0015\u0010\u0002\u001a\u00020\u0001*\u00020\u00038F¢\u0006\u0006\u001a\u0004\b\u0004\u0010\u0005¨\u0006\u0006"}, d2 = {"_windPower", "Landroidx/compose/ui/graphics/vector/ImageVector;", "WindPower", "Landroidx/compose/material/icons/Icons$Outlined;", "getWindPower", "(Landroidx/compose/material/icons/Icons$Outlined;)Landroidx/compose/ui/graphics/vector/ImageVector;", "material-icons-extended_release"}, k = 2, mv = {1, 8, 0}, xi = 48)
+/* loaded from: classes.dex */
+public final class WindPowerKt {
+    private static ImageVector _windPower;
+
+    public static final ImageVector getWindPower(Icons.Outlined $this$WindPower) {
+        if (_windPower != null) {
+            ImageVector imageVector = _windPower;
+            Intrinsics.checkNotNull(imageVector);
+            return imageVector;
+        }
+        ImageVector.Builder $this$_get_WindPower__u24lambda_u244 = new ImageVector.Builder("Outlined.WindPower", Dp.m6094constructorimpl(24.0f), Dp.m6094constructorimpl(24.0f), 24.0f, 24.0f, 0L, 0, false, 96, null);
+        int pathFillType$iv = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(4.0f, 3.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(6.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.verticalLineToRelative(2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.horizontalLineToRelative(-6.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_WindPower__u24lambda_u244, $this$PathData_u24lambda_u240$iv$iv$iv.getNodes(), pathFillType$iv, "", fill$iv$iv, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv, strokeLineJoin$iv$iv, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null);
+        int pathFillType$iv2 = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv2 = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv2 = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv2 = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv2 = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv2.moveTo(1.0f, 7.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.horizontalLineToRelative(5.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.verticalLineToRelative(2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.horizontalLineToRelative(-5.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv2.close();
+        ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_WindPower__u24lambda_u244, $this$PathData_u24lambda_u240$iv$iv$iv2.getNodes(), pathFillType$iv2, "", fill$iv$iv2, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv2, strokeLineJoin$iv$iv2, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null);
+        int pathFillType$iv3 = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv3 = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv3 = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv3 = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv3 = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv3.moveTo(3.0f, 19.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv3.horizontalLineToRelative(5.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv3.verticalLineToRelative(2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv3.horizontalLineToRelative(-5.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv3.close();
+        ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_WindPower__u24lambda_u244, $this$PathData_u24lambda_u240$iv$iv$iv3.getNodes(), pathFillType$iv3, "", fill$iv$iv3, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv3, strokeLineJoin$iv$iv3, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null);
+        int pathFillType$iv4 = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv4 = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv4 = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv4 = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv4 = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv4.moveTo(22.21f, 18.61f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(-2.28f, -4.1f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(-0.27f, -0.48f, -0.73f, -0.83f, -1.26f, -0.97f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(-2.69f, -0.67f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(-0.02f, -0.47f, -0.14f, -0.92f, -0.37f, -1.33f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(3.96f, -6.59f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.65f, -1.08f, 0.3f, -2.48f, -0.78f, -3.13f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(-0.36f, -0.22f, -0.77f, -0.32f, -1.17f, -0.32f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(-0.56f, 0.0f, -1.12f, 0.21f, -1.56f, 0.62f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(-3.43f, 3.21f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveTo(12.23f, 5.7f, 12.0f, 6.23f, 12.0f, 6.78f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.verticalLineToRelative(3.4f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(-0.47f, 0.17f, -0.89f, 0.45f, -1.23f, 0.82f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.horizontalLineTo(3.28f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveTo(2.02f, 11.0f, 1.0f, 12.02f, 1.0f, 13.28f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.0f, 1.02f, 0.67f, 1.91f, 1.65f, 2.19f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(4.51f, 1.29f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.18f, 0.05f, 0.37f, 0.08f, 0.55f, 0.08f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.36f, 0.0f, 0.72f, -0.1f, 1.03f, -0.29f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(2.24f, -1.34f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.29f, 0.26f, 0.63f, 0.47f, 1.02f, 0.61f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.verticalLineTo(21.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(-1.1f, 0.0f, -2.0f, 0.9f, -2.0f, 2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.horizontalLineToRelative(6.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.0f, -1.1f, -0.9f, -2.0f, -2.0f, -2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.verticalLineToRelative(-4.28f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(4.61f, 4.61f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.45f, 0.45f, 1.03f, 0.67f, 1.61f, 0.67f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.58f, 0.0f, 1.17f, -0.22f, 1.61f, -0.67f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.horizontalLineToRelative(0.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveTo(22.55f, 20.61f, 22.71f, 19.5f, 22.21f, 18.61f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv4.moveTo(7.72f, 14.84f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineTo(3.2f, 13.55f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveTo(3.08f, 13.52f, 3.0f, 13.4f, 3.0f, 13.28f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveTo(3.0f, 13.13f, 3.13f, 13.0f, 3.28f, 13.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.horizontalLineToRelative(6.73f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.0f, 0.15f, 0.01f, 0.3f, 0.03f, 0.44f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineTo(7.72f, 14.84f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv4.moveTo(13.0f, 14.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(-0.55f, 0.0f, -1.0f, -0.45f, -1.0f, -1.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.0f, -0.55f, 0.45f, -1.0f, 1.0f, -1.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.reflectiveCurveToRelative(1.0f, 0.45f, 1.0f, 1.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveTo(14.0f, 13.55f, 13.55f, 14.0f, 13.0f, 14.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv4.moveTo(14.0f, 10.14f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.verticalLineTo(6.78f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(3.43f, -3.21f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.05f, -0.05f, 0.19f, -0.12f, 0.34f, -0.04f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.13f, 0.08f, 0.18f, 0.25f, 0.1f, 0.38f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(-3.74f, 6.24f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineTo(14.0f, 10.14f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv4.moveTo(20.42f, 19.92f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(-0.05f, 0.05f, -0.24f, 0.16f, -0.4f, 0.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(-4.85f, -4.85f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveToRelative(0.08f, -0.09f, 0.16f, -0.18f, 0.24f, -0.28f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(2.78f, 0.69f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.lineToRelative(2.28f, 4.1f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.curveTo(20.53f, 19.69f, 20.51f, 19.83f, 20.42f, 19.92f);
+        $this$PathData_u24lambda_u240$iv$iv$iv4.close();
+        _windPower = ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_WindPower__u24lambda_u244, $this$PathData_u24lambda_u240$iv$iv$iv4.getNodes(), pathFillType$iv4, "", fill$iv$iv4, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv4, strokeLineJoin$iv$iv4, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null).build();
+        ImageVector imageVector2 = _windPower;
+        Intrinsics.checkNotNull(imageVector2);
+        return imageVector2;
+    }
+}

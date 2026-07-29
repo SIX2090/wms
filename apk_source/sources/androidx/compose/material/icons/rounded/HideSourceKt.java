@@ -1,0 +1,69 @@
+package androidx.compose.material.icons.rounded;
+
+import androidx.compose.material.icons.Icons;
+import androidx.compose.ui.graphics.Brush;
+import androidx.compose.ui.graphics.Color;
+import androidx.compose.ui.graphics.SolidColor;
+import androidx.compose.ui.graphics.StrokeCap;
+import androidx.compose.ui.graphics.StrokeJoin;
+import androidx.compose.ui.graphics.vector.ImageVector;
+import androidx.compose.ui.graphics.vector.PathBuilder;
+import androidx.compose.ui.graphics.vector.VectorKt;
+import androidx.compose.ui.unit.Dp;
+import kotlin.Metadata;
+import kotlin.jvm.internal.Intrinsics;
+
+/* compiled from: HideSource.kt */
+@Metadata(d1 = {"\u0000\u0010\n\u0000\n\u0002\u0018\u0002\n\u0000\n\u0002\u0018\u0002\n\u0002\b\u0003\"\u0010\u0010\u0000\u001a\u0004\u0018\u00010\u0001X\u0082\u000e¢\u0006\u0002\n\u0000\"\u0015\u0010\u0002\u001a\u00020\u0001*\u00020\u00038F¢\u0006\u0006\u001a\u0004\b\u0004\u0010\u0005¨\u0006\u0006"}, d2 = {"_hideSource", "Landroidx/compose/ui/graphics/vector/ImageVector;", "HideSource", "Landroidx/compose/material/icons/Icons$Rounded;", "getHideSource", "(Landroidx/compose/material/icons/Icons$Rounded;)Landroidx/compose/ui/graphics/vector/ImageVector;", "material-icons-extended_release"}, k = 2, mv = {1, 8, 0}, xi = 48)
+/* loaded from: classes.dex */
+public final class HideSourceKt {
+    private static ImageVector _hideSource;
+
+    public static final ImageVector getHideSource(Icons.Rounded $this$HideSource) {
+        if (_hideSource != null) {
+            ImageVector imageVector = _hideSource;
+            Intrinsics.checkNotNull(imageVector);
+            return imageVector;
+        }
+        ImageVector.Builder $this$_get_HideSource__u24lambda_u241 = new ImageVector.Builder("Rounded.HideSource", Dp.m6094constructorimpl(24.0f), Dp.m6094constructorimpl(24.0f), 24.0f, 24.0f, 0L, 0, false, 96, null);
+        int pathFillType$iv = VectorKt.getDefaultFillType();
+        Brush fill$iv$iv = new SolidColor(Color.INSTANCE.m3772getBlack0d7_KjU(), null);
+        int strokeLineCap$iv$iv = StrokeCap.INSTANCE.m4098getButtKaPHkGw();
+        int strokeLineJoin$iv$iv = StrokeJoin.INSTANCE.m4108getBevelLxFBmk8();
+        PathBuilder $this$PathData_u24lambda_u240$iv$iv$iv = new PathBuilder();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(2.1f, 3.51f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineTo(2.1f, 3.51f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveTo(1.71f, 3.9f, 1.71f, 4.54f, 2.1f, 4.93f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineToRelative(1.56f, 1.56f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(-1.25f, 1.88f, -1.88f, 4.2f, -1.59f, 6.69f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(0.52f, 4.54f, 4.21f, 8.23f, 8.75f, 8.75f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(2.49f, 0.29f, 4.81f, -0.34f, 6.69f, -1.59f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineToRelative(1.56f, 1.56f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(0.39f, 0.39f, 1.02f, 0.39f, 1.41f, 0.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineToRelative(0.0f, 0.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(0.39f, -0.39f, 0.39f, -1.02f, 0.0f, -1.41f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineTo(3.51f, 3.51f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveTo(3.12f, 3.12f, 2.49f, 3.12f, 2.1f, 3.51f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(12.0f, 20.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(-4.41f, 0.0f, -8.0f, -3.59f, -8.0f, -8.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(0.0f, -1.48f, 0.41f, -2.86f, 1.12f, -4.06f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineToRelative(10.94f, 10.94f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveTo(14.86f, 19.59f, 13.48f, 20.0f, 12.0f, 20.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        $this$PathData_u24lambda_u240$iv$iv$iv.moveTo(7.94f, 5.12f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineTo(6.49f, 3.66f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveTo(8.07f, 2.61f, 9.96f, 2.0f, 12.0f, 2.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(5.52f, 0.0f, 10.0f, 4.48f, 10.0f, 10.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(0.0f, 2.04f, -0.61f, 3.93f, -1.66f, 5.51f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.lineToRelative(-1.46f, -1.46f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveTo(19.59f, 14.86f, 20.0f, 13.48f, 20.0f, 12.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveToRelative(0.0f, -4.41f, -3.59f, -8.0f, -8.0f, -8.0f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.curveTo(10.52f, 4.0f, 9.14f, 4.41f, 7.94f, 5.12f);
+        $this$PathData_u24lambda_u240$iv$iv$iv.close();
+        _hideSource = ImageVector.Builder.m4379addPathoIyEayM$default($this$_get_HideSource__u24lambda_u241, $this$PathData_u24lambda_u240$iv$iv$iv.getNodes(), pathFillType$iv, "", fill$iv$iv, 1.0f, null, 1.0f, 1.0f, strokeLineCap$iv$iv, strokeLineJoin$iv$iv, 1.0f, 0.0f, 0.0f, 0.0f, 14336, null).build();
+        ImageVector imageVector2 = _hideSource;
+        Intrinsics.checkNotNull(imageVector2);
+        return imageVector2;
+    }
+}
