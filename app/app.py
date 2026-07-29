@@ -1866,7 +1866,18 @@ def refresh_session_lifetime():
 
 @app.before_request
 def enforce_initial_password_change():
-    if request.endpoint in {'static', 'login', 'change_own_password', 'logout'}:
+    # BUG-2026-07-29-008: 打印/导出路由纳入白名单，避免初始密码未改时被强制重定向到 change_password
+    # 导致 admin 无法查看单据（影响 /in_order/<id>/print 等）
+    EXEMPT_ENDPOINTS = {
+        'static', 'login', 'change_own_password', 'logout',
+        'print_in_order', 'print_in_order_direct', 'print_in_order_with_template',
+        'print_out_order', 'print_after_sale_out', 'print_purchase_request',
+        'print_purchase_order', 'print_adjustment', 'print_check',
+        'print_requisition', 'print_transfer', 'print_sales',
+        'print_bom', 'print_subcontract', 'print_subcontract_issue',
+        'print_subcontract_receive', 'print_labels', 'print_in_order_labels',
+    }
+    if request.endpoint in EXEMPT_ENDPOINTS:
         return None
     if current_user.is_authenticated and getattr(current_user, 'must_change_password', False):
         if request.path.startswith('/api/') or request.is_json:
