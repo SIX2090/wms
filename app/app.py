@@ -127,7 +127,21 @@ def auto_migrate_database():
 
         modified = False
 
+        # BUG-2026-07-29-001: 全新空库上 out_order / in_order 等表还不存在，
+        # PRAGMA table_info 返回空 columns 仍会进入 ALTER 分支并崩溃。
+        # 用 SELECT name FROM sqlite_master 守卫，缺失表交给 db.create_all() 处理。
+        def _table_exists(tbl):
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (tbl,),
+            )
+            return cursor.fetchone() is not None
+
         # out_order 字段迁移
+        if not _table_exists('out_order'):
+            conn.commit()
+            conn.close()
+            return  # 全新空库：所有目标表都不存在，跳过迁移
         cursor.execute("PRAGMA table_info(out_order)")
         columns = [row[1] for row in cursor.fetchall()]
         if 'department_id' not in columns:
