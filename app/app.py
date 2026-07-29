@@ -6354,6 +6354,32 @@ def login():
         return redirect(resolve_redirect_target(next_page))
 
     if request.method != 'POST':
+        # BUG-2026-07-29-010: GET /login 显式探测 admin 用户锁定状态，
+        # 把倒计时秒数传给模板（lockHint + JS 倒计时），避免锁定后用户看不到提示
+        try:
+            from datetime import datetime as _dt
+            locked_admin = User.query.filter_by(username='admin').first()
+            if locked_admin and locked_admin.locked_until and locked_admin.locked_until > _dt.now():
+                remaining = int((locked_admin.locked_until - _dt.now()).total_seconds())
+                if remaining > 0:
+                    login_ctx.update({
+                        'locked': True,
+                        'lock_remaining_minutes': remaining // 60,
+                        'lock_remaining_seconds': remaining,
+                        'username': 'admin',
+                    })
+            elif locked_admin and locked_admin.login_ip_locked_until and locked_admin.login_ip_locked_until > _dt.now():
+                # IP 维度锁定
+                remaining = int((locked_admin.login_ip_locked_until - _dt.now()).total_seconds())
+                if remaining > 0:
+                    login_ctx.update({
+                        'locked': True,
+                        'lock_remaining_minutes': remaining // 60,
+                        'lock_remaining_seconds': remaining,
+                        'username': 'admin',
+                    })
+        except Exception as _e:
+            app.logger.warning('探测 admin 锁定状态失败: %s', _e)
         return render_template('login.html', **login_ctx)
 
     username = (request.form.get('username') or '').strip()
