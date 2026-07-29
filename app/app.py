@@ -42853,6 +42853,28 @@ def print_batch_labels():
 
 # ==================== Inventory alert ====================
 
+# BUG-2026-07-29-006: 打印/导出路由 404 显式化
+# 历史审计中发现 /material/print_label、/stock_query/print、/report/print 等 URL 直接访问返回 404，
+# 但经全量 grep 后确认：app/templates/ 中没有任何 href/url_for 引用上述 URL。
+# 显式注册为 404 + 提示，避免误判为程序 bug，同时防止未来重新引入。
+@app.route('/material/print_label')
+@login_required
+def material_print_label_not_implemented():
+    return api_error('物料标签打印功能未实现，请联系系统管理员', code=404)
+
+
+@app.route('/stock_query/print')
+@login_required
+def stock_query_print_not_implemented():
+    return api_error('库存查询打印功能未实现', code=404)
+
+
+@app.route('/report/print')
+@login_required
+def report_print_not_implemented():
+    return api_error('报表打印功能未实现', code=404)
+
+
 @app.route('/stock_query')
 @login_required
 def stock_query():
