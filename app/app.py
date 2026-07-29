@@ -88,6 +88,30 @@ def parse_bounded_number(value, default=0, *, maximum=MAX_TRANSACTION_QUANTITY):
     return parsed
 
 
+# BUG-2026-07-29-002/009: 净化用户输入文本
+# 去除 NUL 字节 / 控制字符 / HTML 尖括号 < > / 事件属性前缀 javascript: ，
+# 防止存储型 XSS 与 NUL 静默吞掉。仅保留换行 \n / 制表符 \t / 回车 \r 等必要空白。
+def sanitize_text_input(value, max_len=500):
+    if value is None:
+        return ''
+    value = str(value).replace('\x00', '')
+    value = ''.join(
+        ch for ch in value
+        if ch == '\n' or ch == '\t' or ch == '\r' or ord(ch) >= 32
+    )
+    # 去除 HTML 尖括号：防止 <script>/<img onerror=> 等存储型 XSS
+    value = value.replace('<', '').replace('>', '')
+    # 去除 javascript: 协议前缀（不区分大小写），防止 href/src 注入
+    value = re.sub(r'(?i)\bjavascript\s*:', '', value)
+    value = value[:max_len].strip()
+    return value
+
+
+# BUG-2026-07-29-003: 统一 API 错误响应（HTTP 400），避免业务校验错误返回 200。
+def api_error(msg, code=400):
+    return jsonify({'status': 'error', 'msg': msg}), code
+
+
 # Auto-migrate database on startup
 def _env_flag(name):
     return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
@@ -7256,44 +7280,46 @@ def add_material():
                              suppliers=[serialize_supplier(supplier) for supplier in suppliers])
 
     # POST
-    code = request.form.get('code', '').strip()
+    # BUG-2026-07-29-002/009: name/code/spec/brand/purpose/remark 走 sanitize_text_input
+    # 去除 < > 与 NUL 字节，防止存储型 XSS 与 NUL 静默吞掉；截断到列宽上限。
+    code = sanitize_text_input(request.form.get('code', ''), max_len=50)
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入物料编码'})
+        return api_error('请输入物料编码')
 
-    name = request.form.get('name', '').strip()
+    name = sanitize_text_input(request.form.get('name', ''), max_len=100)
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入物料名称'})
+        return api_error('请输入物料名称')
 
     if Material.query.filter_by(code=code).first():
-        return jsonify({'status': 'error', 'msg': '物料编码已存在'})
+        return api_error('物料编码已存在')
 
-    spec = (request.form.get('spec') or '').strip()
-    brand = (request.form.get('brand') or '').strip()
+    spec = sanitize_text_input(request.form.get('spec'), max_len=100)
+    brand = sanitize_text_input(request.form.get('brand'), max_len=100)
     # BUG-F02-02 修复：物料主数据长度截断防护
     # 防止 DB 静默截断（DB 列宽：code=50/name=100/brand=100/spec=100/purpose=200/remark=500）
     if len(code) > 50:
-        return jsonify({'status': 'error', 'msg': f'物料编码不能超过 50 个字符（当前 {len(code)}）'}), 400
+        return api_error(f'物料编码不能超过 50 个字符（当前 {len(code)}）')
     if len(name) > 100:
-        return jsonify({'status': 'error', 'msg': f'物料名称不能超过 100 个字符（当前 {len(name)}）'}), 400
+        return api_error(f'物料名称不能超过 100 个字符（当前 {len(name)}）')
     if len(brand) > 100:
-        return jsonify({'status': 'error', 'msg': '品牌不能超过 100 个字符'}), 400
+        return api_error('品牌不能超过 100 个字符')
     if len(spec) > 100:
-        return jsonify({'status': 'error', 'msg': f'物料规格不能超过 100 个字符（当前 {len(spec)}）'}), 400
-    purpose = (request.form.get('purpose') or '').strip()
+        return api_error(f'物料规格不能超过 100 个字符（当前 {len(spec)}）')
+    purpose = sanitize_text_input(request.form.get('purpose'), max_len=200)
     if len(purpose) > 200:
-        return jsonify({'status': 'error', 'msg': f'用途不能超过 200 个字符（当前 {len(purpose)}）'}), 400
-    remark = (request.form.get('remark') or '').strip()
+        return api_error(f'用途不能超过 200 个字符（当前 {len(purpose)}）')
+    remark = sanitize_text_input(request.form.get('remark'), max_len=500)
     if len(remark) > 500:
-        return jsonify({'status': 'error', 'msg': f'备注不能超过 500 个字符（当前 {len(remark)}）'}), 400
+        return api_error(f'备注不能超过 500 个字符（当前 {len(remark)}）')
     if material_name_spec_exists(name, spec):
-        return jsonify({'status': 'error', 'msg': '物料名称和规格不能同时重复'})
+        return api_error('物料名称和规格不能同时重复')
 
     initial_stock = parse_bounded_number(request.form.get('stock'), 0)
     if initial_stock is None:
-        return jsonify({'status': 'error', 'msg': '初始库存必须是 0 至 1000000000000 的有限数字'}), 400
+        return api_error('初始库存必须是 0 至 1000000000000 的有限数字')
     initial_price = parse_bounded_number(request.form.get('price'), 0, maximum=MAX_TRANSACTION_PRICE)
     if initial_price is None:
-        return jsonify({'status': 'error', 'msg': '参考价格必须是 0 至 1000000000000 的有限数字'}), 400
+        return api_error('参考价格必须是 0 至 1000000000000 的有限数字')
 
     image_file = request.files.get('image')
     image_path = None
@@ -24168,31 +24194,32 @@ def add_supplier():
     # 重定向到列表页并携带 showAddModal=1，由 supplier.html JS 自动弹出新增 modal
     if request.method == 'GET':
         return redirect(url_for('supplier_list') + '?showAddModal=1')
-    code = (request.form.get('code') or '').strip()
-    name = (request.form.get('name') or '').strip()
+    # BUG-2026-07-29-002/009: 供应商主数据字段走 sanitize_text_input
+    code = sanitize_text_input(request.form.get('code'), max_len=50)
+    name = sanitize_text_input(request.form.get('name'), max_len=100)
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入供应商编号'})
+        return api_error('请输入供应商编号')
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入供应商名称'})
+        return api_error('请输入供应商名称')
     # BUG-F02-02 修复：供应商主数据长度截断防护
     # DB 列宽：code=50/name=100/contact=50/phone=20/address=200
     if len(code) > 50:
-        return jsonify({'status': 'error', 'msg': f'供应商编号不能超过 50 个字符（当前 {len(code)}）'}), 400
+        return api_error(f'供应商编号不能超过 50 个字符（当前 {len(code)}）')
     if len(name) > 100:
-        return jsonify({'status': 'error', 'msg': f'供应商名称不能超过 100 个字符（当前 {len(name)}）'}), 400
-    contact = (request.form.get('contact') or '').strip()
+        return api_error(f'供应商名称不能超过 100 个字符（当前 {len(name)}）')
+    contact = sanitize_text_input(request.form.get('contact'), max_len=50)
     if len(contact) > 50:
-        return jsonify({'status': 'error', 'msg': f'联系人不能超过 50 个字符（当前 {len(contact)}）'}), 400
-    phone = (request.form.get('phone') or '').strip()
+        return api_error(f'联系人不能超过 50 个字符（当前 {len(contact)}）')
+    phone = sanitize_text_input(request.form.get('phone'), max_len=20)
     if len(phone) > 20:
-        return jsonify({'status': 'error', 'msg': f'电话不能超过 20 个字符（当前 {len(phone)}）'}), 400
-    address = (request.form.get('address') or '').strip()
+        return api_error(f'电话不能超过 20 个字符（当前 {len(phone)}）')
+    address = sanitize_text_input(request.form.get('address'), max_len=200)
     if len(address) > 200:
-        return jsonify({'status': 'error', 'msg': f'地址不能超过 200 个字符（当前 {len(address)}）'}), 400
+        return api_error(f'地址不能超过 200 个字符（当前 {len(address)}）')
     if Supplier.query.filter_by(code=code).first():
-        return jsonify({'status': 'error', 'msg': '供应商编号已存在'})
+        return api_error('供应商编号已存在')
     if Supplier.query.filter_by(name=name).first():
-        return jsonify({'status': 'error', 'msg': '供应商名称已存在'})
+        return api_error('供应商名称已存在')
     supplier = Supplier(
         code=code,
         name=name,
@@ -24206,7 +24233,7 @@ def add_supplier():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f"数据库操作失败: {e}")
-        return jsonify({"status": "error", "msg": "操作失败"}), 500
+        return api_error("操作失败", code=500)
     return jsonify({'status': 'success', 'id': supplier.id, 'name': supplier.name})
 
 @app.route('/supplier/delete', methods=['POST'])
@@ -24331,30 +24358,31 @@ def customer_list():
 @require_role('warehouse')
 @login_required
 def add_customer():
-    code = (request.form.get('code') or '').strip()
-    name = (request.form.get('name') or '').strip()
+    # BUG-2026-07-29-002/009: 客户主数据字段走 sanitize_text_input
+    code = sanitize_text_input(request.form.get('code'), max_len=50)
+    name = sanitize_text_input(request.form.get('name'), max_len=100)
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入客户编号'})
+        return api_error('请输入客户编号')
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入客户名称'})
+        return api_error('请输入客户名称')
     # BUG-F02-02 修复：客户主数据长度截断防护（与供应商一致）
     if len(code) > 50:
-        return jsonify({'status': 'error', 'msg': f'客户编号不能超过 50 个字符（当前 {len(code)}）'}), 400
+        return api_error(f'客户编号不能超过 50 个字符（当前 {len(code)}）')
     if len(name) > 100:
-        return jsonify({'status': 'error', 'msg': f'客户名称不能超过 100 个字符（当前 {len(name)}）'}), 400
-    contact = (request.form.get('contact') or '').strip()
+        return api_error(f'客户名称不能超过 100 个字符（当前 {len(name)}）')
+    contact = sanitize_text_input(request.form.get('contact'), max_len=50)
     if len(contact) > 50:
-        return jsonify({'status': 'error', 'msg': f'联系人不能超过 50 个字符（当前 {len(contact)}）'}), 400
-    phone = (request.form.get('phone') or '').strip()
+        return api_error(f'联系人不能超过 50 个字符（当前 {len(contact)}）')
+    phone = sanitize_text_input(request.form.get('phone'), max_len=20)
     if len(phone) > 20:
-        return jsonify({'status': 'error', 'msg': f'电话不能超过 20 个字符（当前 {len(phone)}）'}), 400
-    address = (request.form.get('address') or '').strip()
+        return api_error(f'电话不能超过 20 个字符（当前 {len(phone)}）')
+    address = sanitize_text_input(request.form.get('address'), max_len=200)
     if len(address) > 200:
-        return jsonify({'status': 'error', 'msg': f'地址不能超过 200 个字符（当前 {len(address)}）'}), 400
+        return api_error(f'地址不能超过 200 个字符（当前 {len(address)}）')
     if Customer.query.filter_by(code=code).first():
-        return jsonify({'status': 'error', 'msg': '客户编号已存在'})
+        return api_error('客户编号已存在')
     if Customer.query.filter_by(name=name).first():
-        return jsonify({'status': 'error', 'msg': '客户名称已存在'})
+        return api_error('客户名称已存在')
     customer = Customer(
         code=code,
         name=name,
@@ -24368,7 +24396,7 @@ def add_customer():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f"数据库操作失败: {e}")
-        return jsonify({"status": "error", "msg": "操作失败"}), 500
+        return api_error("操作失败", code=500)
     return jsonify({'status': 'success', 'id': customer.id, 'name': customer.name})
 
 
