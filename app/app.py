@@ -4964,6 +4964,14 @@ def ensure_admin_user_exists():
             except Exception as e:
                 db.session.rollback()
                 app.logger.error(f'Failed to mark default admin password for change: {e}')
+        # 如果设置了 WMS_BOOTSTRAP_PASSWORD 环境变量，允许跳过强制修改密码
+        if os.environ.get('WMS_BOOTSTRAP_PASSWORD') and user.must_change_password:
+            user.must_change_password = False
+            try:
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f'Failed to reset must_change_password for admin: {e}')
         # 仅在账号被显式 disabled 时启动期解锁；is_locked（因登录失败次数过多触发的临时锁定）
         # 应等待 locked_until 自然到期，避免攻击者通过触发重启重置锁定计数绕过暴力破解保护。
         if user.status == 'disabled':
