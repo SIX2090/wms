@@ -102,6 +102,16 @@
 | BUG-F02-08 | purchase/sales 等非授权角色可访问 `/label_template/<id>` 设计页，点保存才 403 | `app.py` `label_template_detail` 加 `@require_role('admin','warehouse')`。`audit_screenshots/verify_f02_08_template_perm.py` 4/4 |
 | BUG-F02-09 | `material.html` 标签模板设计器 16 处调用从未定义的 `saveTemplateToStorage()`，任何编辑交互即抛 `ReferenceError`，设计结果无法持久化 | `material.html` 新增 `saveTemplateToStorage()`（序列化当前编辑器状态到 `localStorage.labelTemplateDraft`）+ `restoreTemplateDraft()`（无已保存模板时自动恢复草稿）+ `saveTemplate()` 成功后清除草稿。`audit_screenshots/verify_f02_09_10_frontend.py` 14/15（浏览器实测项因本机无浏览器跳过） |
 | BUG-F02-10 | `warehouse.html`/`department.html`/`employee.html` 的 GET 筛选表单内含 `csrf_token` 隐藏域，筛选后 token 明文出现在地址栏 URL | 三个模板 GET 表单删除 `csrf_token` 隐藏域（POST 模态框表单保留）。`audit_screenshots/verify_f02_09_10_frontend.py` 静态+线上 HTTP 双重验证通过 |
+| BUG-2026-07-29-001 | 全新空库上 `auto_migrate_database()` 启动失败，删除 `instance/inventory.db` 后直接 `python3 app/run_server.py` 服务退出，HTTP=000 | `app/app.py:auto_migrate_database()` 新增 `_table_exists()` helper；目标表 `out_order` 不存在时 commit + close + return，DDL 交给 `db.create_all()` 处理。`scripts/verify_bug_2026_07_29_001.py` 覆盖「空库启动→HTTP 200」+「已有库迁移正常」双场景 |
+| BUG-2026-07-29-002 | 物料/供应商/客户 name 字段接受未净化的 `<script>` 标签，存储型 XSS 风险 | `app/app.py` 新增 `sanitize_text_input()` helper（NUL/控制字符/HTML 尖括号净化+截断）；`add_material`/`add_supplier`/`add_customer` 等主数据路由同步接入。`scripts/verify_bug_2026_07_29_002.py` 断言尖括号与 NUL 字节均被过滤 |
+| BUG-2026-07-29-003 | POST 表单校验错误统一返回 HTTP 200 + `{"status":"error",...}`，违反 REST 规范 | `app/app.py` 全局 `grep -n 'return jsonify({\"status\": \"error\"'` 排查，新增 `api_error(msg, code=400)` helper，30+ 路由统一改 `return api_error(...)`。`scripts/verify_bug_2026_07_29_003.py` 覆盖空表单/缺字段/正常提交三路径 |
+| BUG-2026-07-29-004 | CSRF token 8 小时过期过长，截获一次可无限滥用 | `app/config.py` `WTF_CSRF_TIME_LIMIT` 从 28800 改 1800（30 分钟）。`scripts/verify_bug_2026_07_29_004.py` 覆盖 token 短过期 |
+| BUG-2026-07-29-005 | 物料 stock=999999999999（12 位）被接受，超业务合理边界 | `app/app.py` `add_material`/数量路由 `MAX_REASONABLE_STOCK=99999999.99`/`MAX_REASONABLE_PRICE=99999999.99` 收紧上限；超限返回 400。`scripts/verify_bug_2026_07_29_005.py` 断言 12 位数被拒 |
+| BUG-2026-07-29-006 | `/material/print_label`、`/stock_query/print`、`/report/print` 等打印/导出路由 404 | `app/app.py` 排查后端 `@app.route` 残留；缺实现路由按 `print_in_order` 模板补齐或前端按钮切换为 `window.print()`。`scripts/verify_bug_2026_07_29_006.py` 覆盖前端模板引用→后端实现一致 |
+| BUG-2026-07-29-007 | 5000 字符 URL 参数被接受，无截断/告警 | `app/app.py` 入口 `@before_request _limit_query_string` 拦截 >2048 字节 query string 返回 414。`scripts/verify_bug_2026_07_29_007.py` 覆盖 5000 字符拒绝 |
+| BUG-2026-07-29-008 | `/in_order/{id}/print` 已登录 admin 仍 302 | `app/app.py:print_in_order` 补齐 `@require_role('admin','warehouse','purchase')` admin 误伤修复。`scripts/verify_bug_2026_07_29_008.py` 覆盖 admin/warehouse/purchase 三角色 |
+| BUG-2026-07-29-009 | NUL 字节 `\x00` 被静默吞掉 | `sanitize_text_input()` 同时去除 NUL 字节（随 BUG-002 一并提交）。回归测试覆盖 code/name 全字段 |
+| BUG-2026-07-29-010 | 锁定后 `/login` GET 仍正常渲染，无前端倒计时 | `app/app.py:login()` GET 分支检测 admin 锁定 → 传 `lock_remaining`/`locked_account` 模板；`login.html` 新增 `lockHint` 倒计时 + JS 每秒 tick。`scripts/verify_bug_2026_07_29_010.py` 覆盖 5 次错误后 GET 页面含倒计时 span |
 
 ## 已确认误报
 
