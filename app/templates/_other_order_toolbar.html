@@ -1,0 +1,74 @@
+{#
+其他入库单 / 其他出库单 共用工具栏
+参数:
+  - toolbar_mode: 'in' (入库模式) 或 'out' (出库模式)
+  - return_list_url: 列表页 URL
+  - has_complete_action: 是否有"完成入库"动作（仅入库需要）
+  - order_id: 当前单据 ID（用于导航，新单为 None/空）
+  - order_no: 当前单据编号
+#}
+<style>
+.other-order-doc { background:#f7f8fb; padding:14px 16px 0; }
+.other-order-toolbar { background:#fff; border:1px solid #dfe5f2; border-radius:6px; padding:8px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); flex-wrap:wrap; }
+.other-order-toolbar .toolbar-left, .other-order-toolbar .toolbar-right { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+.other-order-toolbar .tool-btn { border:0; background:#fff; color:#172b4d; height:32px; padding:0 10px; display:inline-flex; align-items:center; gap:6px; font-size:13px; border-radius:4px; text-decoration:none; cursor:pointer; }
+.other-order-toolbar .tool-btn:hover:not(:disabled) { background:#f1f5ff; color:#0d47a1; }
+.other-order-toolbar .tool-btn:disabled { color:#94a3b8; cursor:not-allowed; background:#f8fafc; }
+.other-order-toolbar .tool-sep { width:1px; height:22px; background:#e5e7eb; margin:0 5px; }
+.other-order-toolbar .nav-tools { border:1px solid #cfd8e8; border-radius:6px; background:#f8fbff; padding:2px 6px; }
+@media (max-width:900px) {
+    .other-order-doc { padding:8px; }
+    .other-order-toolbar { padding:6px 8px; }
+}
+</style>
+<div class="other-order-doc">
+    <div class="other-order-toolbar">
+        <div class="toolbar-left">
+            <button type="button" class="tool-btn" data-action="new"><i class="bi bi-plus-lg"></i> 新增</button>
+            <button type="button" class="tool-btn" data-action="save"><i class="bi bi-save"></i> 保存</button>
+            {% if has_complete_action %}
+            <button type="button" class="tool-btn" data-action="save-and-complete"><i class="bi bi-check-circle"></i> 完成入库</button>
+            {% endif %}
+            {% if toolbar_mode == 'out' %}
+            <button type="button" class="tool-btn" data-action="save-and-new"><i class="bi bi-plus-square"></i> 保存并新增</button>
+            {% endif %}
+            <button type="button" class="tool-btn" data-action="delete"><i class="bi bi-trash"></i> 删除</button>
+            <span class="tool-sep"></span>
+            <a class="tool-btn" href="/system_settings"><i class="bi bi-gear"></i> 设置</a>
+            <button type="button" class="tool-btn" data-action="print"><i class="bi bi-printer"></i> 打印</button>
+            <span class="tool-sep"></span>
+            <button type="button" class="tool-btn" data-action="import"><i class="bi bi-upload"></i> 导入</button>
+            <button type="button" class="tool-btn" data-action="export"><i class="bi bi-download"></i> 导出</button>
+            <button type="button" class="tool-btn" data-action="import-export-template"><i class="bi bi-file-spreadsheet"></i> 导入导出模板</button>
+            <span class="tool-sep"></span>
+            <button type="button" class="tool-btn" data-action="smart-share"><i class="bi bi-share"></i> 智能分享</button>
+        </div>
+        <div class="toolbar-right nav-tools">
+            <a class="tool-btn" href="{{ return_list_url or '/in_order' }}"><i class="bi bi-search"></i> 查找单据</a>
+            <button type="button" class="tool-btn" data-action="nav-first" {% if not order_id %}disabled{% endif %}><i class="bi bi-chevron-bar-left"></i> 首张</button>
+            <button type="button" class="tool-btn" data-action="nav-prev" {% if not order_id %}disabled{% endif %}><i class="bi bi-chevron-left"></i> 上一张</button>
+            <button type="button" class="tool-btn" data-action="nav-next" {% if not order_id %}disabled{% endif %}>下一张 <i class="bi bi-chevron-right"></i></button>
+            <button type="button" class="tool-btn" data-action="nav-last" {% if not order_id %}disabled{% endif %}>末张 <i class="bi bi-chevron-bar-right"></i></button>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    // 工具栏按钮统一事件分发
+    document.querySelectorAll('.other-order-toolbar [data-action]').forEach(function(btn) {
+        btn.addEventListener('click', function(ev) {
+            var action = this.getAttribute('data-action');
+            if (this.tagName === 'A') return;  // 链接走默认
+            // 委托给父页面的全局函数
+            if (typeof window.handleOtherOrderToolbar === 'function') {
+                window.handleOtherOrderToolbar(action, ev);
+            } else {
+                // fallback: showToast 提示
+                if (typeof showToast === 'function') {
+                    showToast('操作 [' + action + '] 暂未实现', 'info');
+                }
+            }
+        });
+    });
+})();
+</script>

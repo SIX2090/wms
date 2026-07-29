@@ -379,8 +379,21 @@ textarea.form-control {
 {% endblock %}
 
 {% block content %}
+{% if is_other_out %}
+{% set _has_existing = order_id %}
+{% with toolbar_mode='out', has_complete_action=false, return_list_url=return_list_url or '/other_out_order', order_id=order_id, order_no=order_no %}
+{% include "_other_order_toolbar.html" %}
+{% endwith %}
+{% endif %}
 <div class="page-header d-flex justify-content-between align-items-center">
     <h2><i class="bi bi-box-arrow-up"></i> {{ page_title or '新增领料单' }}</h2>
+    {% if is_other_out %}
+    <div class="d-flex gap-2">
+        <a href="{{ return_list_url or '/other_out_order' }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+    {% else %}
     <div class="d-flex gap-2 flex-wrap">
         <button type="button" class="btn btn-primary" onclick="submitForm()">
             <i class="bi bi-save"></i> 保存
@@ -392,6 +405,7 @@ textarea.form-control {
             <i class="bi bi-arrow-left"></i> 返回列表
         </a>
     </div>
+    {% endif %}
 </div>
 
 <div class="card">
@@ -975,6 +989,47 @@ function renumberRows() {
         }
     });
 }
+
+// 其他出库工具栏动作分发
+function handleOtherOrderToolbar(action, ev) {
+    if (action === 'new') {
+        location.href = '/other_out_order/add';
+        return;
+    }
+    if (action === 'save') {
+        submitForm(false);
+        return;
+    }
+    if (action === 'save-and-new') {
+        submitForm(true);
+        return;
+    }
+    if (action === 'delete') {
+        if (typeof deleteOrderFromPage === 'function') {
+            deleteOrderFromPage();
+        } else {
+            showToast('删除功能待接入', 'info');
+        }
+        return;
+    }
+    if (action === 'print') {
+        window.print();
+        return;
+    }
+    if (action === 'import' || action === 'export' || action === 'import-export-template' || action === 'smart-share') {
+        showToast('「' + action + '」功能待开发，可参考期初库存单的实现', 'info');
+        return;
+    }
+    if (action === 'nav-first' || action === 'nav-prev' || action === 'nav-next' || action === 'nav-last') {
+        if (!{{ order_id or 0 }}) {
+            showToast('当前是新增单据，无法导航', 'info');
+            return;
+        }
+        showToast('上下张导航功能待开发', 'info');
+        return;
+    }
+}
+window.handleOtherOrderToolbar = handleOtherOrderToolbar;
 
 function submitForm(saveAndNew = false) {
     const rows = document.querySelectorAll('#materialTableBody tr');
