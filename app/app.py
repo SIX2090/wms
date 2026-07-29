@@ -6100,20 +6100,20 @@ def index():
 def api_subcontract_quick_issue():
     """Issue subcontract materials quickly."""
     if current_user.role not in ['admin', 'production']:
-        return jsonify({'status': 'error', 'msg': '当前账号没有权限执行发料'})
+        return api_error('当前账号没有权限执行发料')
 
     data = request.get_json(silent=True) or {}
     order_id = data.get('order_id')
     items = data.get('items', [])
 
     if not order_id:
-        return jsonify({'status': 'error', 'msg': '缺少委外单 ID'})
+        return api_error('缺少委外单 ID')
     if not items:
-        return jsonify({'status': 'error', 'msg': '请至少选择一条发料明细'})
+        return api_error('请至少选择一条发料明细')
 
     order = db.session.get(SubcontractOrder, order_id)
     if not order:
-        return jsonify({'status': 'error', 'msg': '委外单不存在，请刷新后重试'})
+        return api_error('委外单不存在，请刷新后重试')
 
     validated_items = []
     for item in items:
@@ -6137,7 +6137,7 @@ def api_subcontract_quick_issue():
         validated_items.append((material, quantity))
 
     if not validated_items:
-        return jsonify({'status': 'error', 'msg': '发料明细无效，请检查数量后重试'})
+        return api_error('发料明细无效，请检查数量后重试')
 
     # 创建发料单时显式设置 status='completed'，与 quick_issue_subcontract 对齐，
     # 否则 status 默认 'pending' 但库存已扣，会导致单据卡在 pending 无法后续完成
@@ -6189,7 +6189,7 @@ def api_subcontract_quick_issue():
 def api_subcontract_quick_receive():
     """Receive subcontract finished goods quickly."""
     if current_user.role not in ['admin', 'production']:
-        return jsonify({'status': 'error', 'msg': '当前账号没有权限执行收货'})
+        return api_error('当前账号没有权限执行收货')
 
     data = request.get_json(silent=True) or {}
     order_id = data.get('order_id')
@@ -6198,19 +6198,19 @@ def api_subcontract_quick_receive():
     scrap_qty = data.get('scrap_qty', 0)
 
     if not order_id:
-        return jsonify({'status': 'error', 'msg': '缺少委外单 ID'})
+        return api_error('缺少委外单 ID')
     if not material_id:
-        return jsonify({'status': 'error', 'msg': '缺少成品物料 ID'})
+        return api_error('缺少成品物料 ID')
     if quantity <= 0:
-        return jsonify({'status': 'error', 'msg': '收货数量必须大于 0'})
+        return api_error('收货数量必须大于 0')
 
     order = db.session.get(SubcontractOrder, order_id)
     if not order:
-        return jsonify({'status': 'error', 'msg': '委外单不存在，请刷新后重试'})
+        return api_error('委外单不存在，请刷新后重试')
 
     material = db.session.get(Material, material_id)
     if not material:
-        return jsonify({'status': 'error', 'msg': '成品物料不存在，请刷新后重试'})
+        return api_error('成品物料不存在，请刷新后重试')
 
     # Create receive order
     # 显式设置 status='completed'，与 quick_receive_subcontract 对齐
@@ -6786,19 +6786,19 @@ def add_user():
     role = (request.form.get('role', 'user') or 'user').strip()
     allowed_roles = {'admin', 'warehouse', 'purchase', 'sales', 'production', 'user', 'viewer'}
     if role not in allowed_roles:
-        return jsonify({'status': 'error', 'msg': '用户角色不合法'})
+        return api_error('用户角色不合法')
     if len(username) > 80:
         return jsonify({'status': 'error', 'msg': '用户名不能超过 80 个字符'}), 400
     if len(password) > 128:
         return jsonify({'status': 'error', 'msg': '密码不能超过 128 个字符'}), 400
     if not username or not password:
-        return jsonify({'status': 'error', 'msg': '请输入用户名和密码'})
+        return api_error('请输入用户名和密码')
     if User.query.filter_by(username=username).first():
-        return jsonify({'status': 'error', 'msg': '用户名已存在'})
+        return api_error('用户名已存在')
     # Password
     is_valid, error_msg = validate_password_strength(password)
     if not is_valid:
-        return jsonify({'status': 'error', 'msg': error_msg})
+        return api_error(error_msg)
     user = User(
         username=username,
         password_hash=generate_password_hash(password),
@@ -6934,18 +6934,18 @@ def update_user_status():
     new_status = (data.get('status') or '').strip()
 
     if new_status not in {'normal', 'disabled'}:
-        return jsonify({'status': 'error', 'msg': '用户状态不正确'})
+        return api_error('用户状态不正确')
     try:
         user = db.session.get(User, int(user_id))
     except (ValueError, TypeError):
-        return jsonify({'status': 'error', 'msg': '用户ID格式错误'})
+        return api_error('用户ID格式错误')
     if not user:
-        return jsonify({'status': 'error', 'msg': '用户不存在'})
+        return api_error('用户不存在')
 
     if user.id == current_user.id and new_status in DISABLED_USER_STATUSES:
-        return jsonify({'status': 'error', 'msg': '不能禁用当前登录账号'})
+        return api_error('不能禁用当前登录账号')
     if user.role == 'admin' and new_status in DISABLED_USER_STATUSES and not _has_other_active_admin(user.id):
-        return jsonify({'status': 'error', 'msg': '至少保留一个启用状态的管理员'})
+        return api_error('至少保留一个启用状态的管理员')
 
     old_status = _normalize_user_status(user.status)
     if old_status == new_status:
@@ -6977,16 +6977,16 @@ def delete_user():
     data = request.get_json(silent=True) or {}
     ids = data.get('ids', [])
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的用户'})
+        return api_error('请选择要删除的用户')
     try:
         ids = [int(str(i).strip()) for i in ids if str(i).strip().isdigit()]
     except (ValueError, TypeError):
-        return jsonify({'status': 'error', 'msg': '用户ID格式错误'})
+        return api_error('用户ID格式错误')
     ids = list(dict.fromkeys(ids))
     if current_user.id in ids:
-        return jsonify({'status': 'error', 'msg': '不能删除当前登录账号'})
+        return api_error('不能删除当前登录账号')
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的用户'})
+        return api_error('请选择要删除的用户')
     if ids:
         users_to_delete = User.query.filter(User.id.in_(ids)).all()
         if not users_to_delete:
@@ -7023,27 +7023,27 @@ def reset_user_password():
     new_password = request.form.get('new_password', '').strip()
     # BUG-2026-07-28-004 修复：禁止自助重置自己密码；重置 admin 目标必须二次确认
     if not user_id or not new_password:
-        return jsonify({'status': 'error', 'msg': '缺少用户 ID 或新密码'})
+        return api_error('缺少用户 ID 或新密码')
     # 重置密码必须复用 validate_password_strength，避免管理员重置出弱密码
     # （原先仅校验 6 位长度，与新增用户/修改密码的策略不一致）
     is_valid, error_msg = validate_password_strength(new_password)
     if not is_valid:
-        return jsonify({'status': 'error', 'msg': error_msg})
+        return api_error(error_msg)
     try:
         user = db.session.get(User, int(user_id))
     except (ValueError, TypeError):
-        return jsonify({'status': 'error', 'msg': '用户ID格式错误'})
+        return api_error('用户ID格式错误')
     if not user:
-        return jsonify({'status': 'error', 'msg': '用户不存在'})
+        return api_error('用户不存在')
     # 自助重置自己密码一律拒绝（即使非 admin）
     if user.id == current_user.id:
-        return jsonify({'status': 'error', 'msg': '禁止自助重置当前登录账号的密码，请联系其他管理员'})
+        return api_error('禁止自助重置当前登录账号的密码，请联系其他管理员')
     # 重置 admin 目标账号必须提供 WMS_BOOTSTRAP_PASSWORD 二次确认
     if user.role == 'admin' or user.username == 'admin':
         bootstrap_pwd = (request.form.get('bootstrap_pwd') or '').strip()
         expected = os.environ.get('WMS_BOOTSTRAP_PASSWORD', 'admin')
         if not bootstrap_pwd or bootstrap_pwd != expected:
-            return jsonify({'status': 'error', 'msg': '重置管理员账号需要输入 WMS_BOOTSTRAP_PASSWORD 二次确认'})
+            return api_error('重置管理员账号需要输入 WMS_BOOTSTRAP_PASSWORD 二次确认')
     user.password_hash = generate_password_hash(new_password)
     # 强制被重置用户下次登录必须改密
     user.must_change_password = True
@@ -7112,7 +7112,7 @@ def save_system_settings():
     except Exception as exc:
         db.session.rollback()
         app.logger.error(f'保存系统设置失败: {exc}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 
 @app.route('/system_settings/test_ai_llm', methods=['POST'])
@@ -7651,7 +7651,7 @@ def get_material(id):
     """Return a material record as JSON."""
     material = db.session.get(Material, id)
     if not material:
-        return jsonify({'status': 'error', 'msg': '物料不存在'})
+        return api_error('物料不存在')
 
     return jsonify({
         'status': 'success',
@@ -7970,17 +7970,17 @@ def warehouse_list():
 def add_warehouse():
     code = request.form.get('code', '').strip()
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入仓库编码'})
+        return api_error('请输入仓库编码')
 
     name = request.form.get('name', '').strip()
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入仓库名称'})
+        return api_error('请输入仓库名称')
 
     if Warehouse.query.filter_by(code=code).first():
-        return jsonify({'status': 'error', 'msg': '仓库编码已存在'})
+        return api_error('仓库编码已存在')
 
     if Warehouse.query.filter_by(name=name).first():
-        return jsonify({'status': 'error', 'msg': '仓库名称已存在'})
+        return api_error('仓库名称已存在')
 
     warehouse = Warehouse(
         code=code,
@@ -8031,21 +8031,21 @@ def edit_warehouse(id):
 
     code = request.form.get('code', '').strip()
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入仓库编码'})
+        return api_error('请输入仓库编码')
 
     name = request.form.get('name', '').strip()
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入仓库名称'})
+        return api_error('请输入仓库名称')
 
     # 检查编码是否重复（排除自己）
     existing = Warehouse.query.filter(Warehouse.code == code, Warehouse.id != id).first()
     if existing:
-        return jsonify({'status': 'error', 'msg': '仓库编码已存在'})
+        return api_error('仓库编码已存在')
 
     # 检查名称是否重复（排除自己）
     existing = Warehouse.query.filter(Warehouse.name == name, Warehouse.id != id).first()
     if existing:
-        return jsonify({'status': 'error', 'msg': '仓库名称已存在'})
+        return api_error('仓库名称已存在')
 
     warehouse.code = code
     warehouse.name = name
@@ -8077,7 +8077,7 @@ def delete_warehouse(id):
 
     blockers = _warehouse_delete_blockers(warehouse)
     if blockers:
-        return jsonify({'status': 'error', 'msg': '该仓库已有业务数据，不能删除：' + _format_delete_blockers(blockers)})
+        return api_error('该仓库已有业务数据，不能删除：' + _format_delete_blockers(blockers))
 
     try:
         db.session.delete(warehouse)
@@ -8194,14 +8194,14 @@ def export_warehouse():
 def import_warehouse():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的仓库文件'})
+        return api_error('请选择要导入的仓库文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -8234,7 +8234,7 @@ def import_warehouse():
         return jsonify({'status': 'success', 'msg': msg, 'count': count})
     except Exception:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '仓库导入失败'})
+        return api_error('仓库导入失败')
 
 
 # ==================== Department Routes ====================
@@ -8259,17 +8259,17 @@ def department_list():
 def add_department():
     code = request.form.get('code', '').strip()
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入部门编码'})
+        return api_error('请输入部门编码')
 
     name = request.form.get('name', '').strip()
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入部门名称'})
+        return api_error('请输入部门名称')
 
     if Department.query.filter_by(code=code).first():
-        return jsonify({'status': 'error', 'msg': '部门编码已存在'})
+        return api_error('部门编码已存在')
 
     if Department.query.filter_by(name=name).first():
-        return jsonify({'status': 'error', 'msg': '部门名称已存在'})
+        return api_error('部门名称已存在')
 
     department = Department(
         code=code,
@@ -8316,21 +8316,21 @@ def edit_department(id):
 
     code = request.form.get('code', '').strip()
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入部门编码'})
+        return api_error('请输入部门编码')
 
     name = request.form.get('name', '').strip()
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入部门名称'})
+        return api_error('请输入部门名称')
 
     # 检查编码是否重复（排除自己）
     existing = Department.query.filter(Department.code == code, Department.id != id).first()
     if existing:
-        return jsonify({'status': 'error', 'msg': '部门编码已存在'})
+        return api_error('部门编码已存在')
 
     # 检查名称是否重复（排除自己）
     existing = Department.query.filter(Department.name == name, Department.id != id).first()
     if existing:
-        return jsonify({'status': 'error', 'msg': '部门名称已存在'})
+        return api_error('部门名称已存在')
 
     department.code = code
     department.name = name
@@ -8356,7 +8356,7 @@ def delete_department(id):
 
     blockers = _department_delete_blockers(department)
     if blockers:
-        return jsonify({'status': 'error', 'msg': '该部门已有业务数据，不能删除：' + _format_delete_blockers(blockers)})
+        return api_error('该部门已有业务数据，不能删除：' + _format_delete_blockers(blockers))
 
     try:
         db.session.delete(department)
@@ -8451,14 +8451,14 @@ def export_department():
 def import_department():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的部门文件'})
+        return api_error('请选择要导入的部门文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -8489,7 +8489,7 @@ def import_department():
         return jsonify({'status': 'success', 'msg': msg, 'count': count})
     except Exception:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '部门导入失败'})
+        return api_error('部门导入失败')
 
 
 # ==================== 合同/工程档案 ====================
@@ -8580,12 +8580,12 @@ def contract_list():
 def add_contract():
     contract_no = request.form.get('contract_no', '').strip()
     if not contract_no:
-        return jsonify({'status': 'error', 'msg': '请输入合同编号'})
+        return api_error('请输入合同编号')
     project_name = request.form.get('project_name', '').strip()
     if not project_name:
-        return jsonify({'status': 'error', 'msg': '请输入工程名称'})
+        return api_error('请输入工程名称')
     if Contract.query.filter_by(contract_no=contract_no).first():
-        return jsonify({'status': 'error', 'msg': '合同编号已存在'})
+        return api_error('合同编号已存在')
     contract = Contract(
         contract_no=contract_no,
         project_name=project_name,
@@ -8629,13 +8629,13 @@ def edit_contract(id):
         return jsonify({'status': 'error', 'msg': '合同不存在'}), 404
     contract_no = request.form.get('contract_no', '').strip()
     if not contract_no:
-        return jsonify({'status': 'error', 'msg': '请输入合同编号'})
+        return api_error('请输入合同编号')
     project_name = request.form.get('project_name', '').strip()
     if not project_name:
-        return jsonify({'status': 'error', 'msg': '请输入工程名称'})
+        return api_error('请输入工程名称')
     existing = Contract.query.filter(Contract.contract_no == contract_no, Contract.id != id).first()
     if existing:
-        return jsonify({'status': 'error', 'msg': '合同编号已存在'})
+        return api_error('合同编号已存在')
     contract.contract_no = contract_no
     contract.project_name = project_name
     contract.status = request.form.get('status', 'active')
@@ -8658,7 +8658,7 @@ def delete_contract(id):
         return jsonify({'status': 'error', 'msg': '合同不存在'}), 404
     blockers = _contract_delete_blockers(contract)
     if blockers:
-        return jsonify({'status': 'error', 'msg': '该合同已有业务数据，不能删除：' + _format_delete_blockers(blockers)})
+        return api_error('该合同已有业务数据，不能删除：' + _format_delete_blockers(blockers))
     try:
         db.session.delete(contract)
         db.session.commit()
@@ -8899,20 +8899,20 @@ def edit_material(id):
     """Update a material record."""
     material = db.session.get(Material, id)
     if not material:
-        return jsonify({'status': 'error', 'msg': '物料不存在'})
+        return api_error('物料不存在')
 
     new_code = (request.form.get('code') or '').strip()
     new_name = (request.form.get('name') or '').strip()
     if not new_code:
-        return jsonify({'status': 'error', 'msg': '请输入物料编码'})
+        return api_error('请输入物料编码')
     if not new_name:
-        return jsonify({'status': 'error', 'msg': '请输入物料名称'})
+        return api_error('请输入物料名称')
     if len(new_code) > 50 or len(new_name) > 100:
         return jsonify({'status': 'error', 'msg': '物料编码不能超过 50 个字符，名称不能超过 100 个字符'}), 400
 
     existing = Material.query.filter_by(code=new_code).first()
     if existing and existing.id != id:
-        return jsonify({'status': 'error', 'msg': '物料编码已存在'})
+        return api_error('物料编码已存在')
 
     new_spec = (request.form.get('spec') or '').strip()
     new_brand = (request.form.get('brand') or '').strip()
@@ -8932,7 +8932,7 @@ def edit_material(id):
     if len(new_remark) > 500:
         return jsonify({'status': 'error', 'msg': f'备注不能超过 500 个字符（当前 {len(new_remark)}）'}), 400
     if material_name_spec_exists(new_name, new_spec, exclude_id=id):
-        return jsonify({'status': 'error', 'msg': '物料名称和规格不能同时重复'})
+        return api_error('物料名称和规格不能同时重复')
 
     image_file = request.files.get('image')
     image_path = material.image
@@ -8948,7 +8948,7 @@ def edit_material(id):
     code_changed = (old_code != new_code)
     name_changed = (old_name != new_name)
     if code_changed and not material_code_editable():
-        return jsonify({'status': 'error', 'msg': '系统参数已禁止修改物料编码'})
+        return api_error('系统参数已禁止修改物料编码')
 
     material.code = new_code
     material.name = new_name
@@ -9112,10 +9112,10 @@ def delete_material():
         try:
             ids = json.loads(ids_str)
         except (json.JSONDecodeError, TypeError):
-            return jsonify({'status': 'error', 'msg': '删除参数格式错误'})
+            return api_error('删除参数格式错误')
 
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的物料'})
+        return api_error('请选择要删除的物料')
 
     success_count = 0
     fail_count = 0
@@ -9164,13 +9164,13 @@ def delete_material():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'数据库操作失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'数据库操作失败: {str(e)}'})
+        return api_error(f'数据库操作失败: {str(e)}')
 
     # 记录操作日志
     log_operation('删除物料', f'批量删除物料，成功 {success_count} 条，失败 {fail_count} 条', 'material')
 
     if success_count == 0:
-        return jsonify({'status': 'error', 'msg': '删除失败，没有物料被删除'})
+        return api_error('删除失败，没有物料被删除')
 
     return jsonify({
         'status': 'success',
@@ -9308,15 +9308,15 @@ def add_category():
     name = (request.form.get('name') or '').strip()
     parent_id = request.form.get('parent_id', type=int) or None
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入分类编码'})
+        return api_error('请输入分类编码')
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入分类名称'})
+        return api_error('请输入分类名称')
     if MaterialCategory.query.filter_by(code=code).first():
-        return jsonify({'status': 'error', 'msg': '分类编码已存在'})
+        return api_error('分类编码已存在')
     if MaterialCategory.query.filter_by(name=name).first():
-        return jsonify({'status': 'error', 'msg': '分类名称已存在'})
+        return api_error('分类名称已存在')
     if parent_id and not db.session.get(MaterialCategory, parent_id):
-        return jsonify({'status': 'error', 'msg': '上级分类不存在'})
+        return api_error('上级分类不存在')
     cat = MaterialCategory(code=code, name=name, parent_id=parent_id)
     db.session.add(cat)
     try:
@@ -9332,7 +9332,7 @@ def add_category():
 def get_category(id):
     cat = db.session.get(MaterialCategory, id)
     if not cat:
-        return jsonify({'status': 'error', 'msg': '分类不存在'})
+        return api_error('分类不存在')
     return jsonify({'status': 'success', 'category': {'id': cat.id, 'code': cat.code, 'name': cat.name, 'parent_id': cat.parent_id or ''}})
 
 @app.route('/category/edit/<int:id>', methods=['POST'])
@@ -9341,30 +9341,30 @@ def get_category(id):
 def edit_category(id):
     cat = db.session.get(MaterialCategory, id)
     if not cat:
-        return jsonify({'status': 'error', 'msg': '分类不存在'})
+        return api_error('分类不存在')
     code = (request.form.get('code') or '').strip()
     name = (request.form.get('name') or '').strip()
     parent_id = request.form.get('parent_id', type=int) or None
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入分类编码'})
+        return api_error('请输入分类编码')
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入分类名称'})
+        return api_error('请输入分类名称')
     existing = MaterialCategory.query.filter_by(code=code).first()
     if existing and existing.id != id:
-        return jsonify({'status': 'error', 'msg': '分类编码已存在'})
+        return api_error('分类编码已存在')
     existing = MaterialCategory.query.filter_by(name=name).first()
     if existing and existing.id != id:
-        return jsonify({'status': 'error', 'msg': '分类名称已存在'})
+        return api_error('分类名称已存在')
     if parent_id == id:
-        return jsonify({'status': 'error', 'msg': '上级分类不能选择自己'})
+        return api_error('上级分类不能选择自己')
     if parent_id:
         parent = db.session.get(MaterialCategory, parent_id)
         if not parent:
-            return jsonify({'status': 'error', 'msg': '上级分类不存在'})
+            return api_error('上级分类不存在')
         current_parent = parent
         while current_parent:
             if current_parent.parent_id == id:
-                return jsonify({'status': 'error', 'msg': '上级分类不能选择自己的下级分类'})
+                return api_error('上级分类不能选择自己的下级分类')
             current_parent = current_parent.parent
     cat.code = code
     cat.name = name
@@ -9390,7 +9390,7 @@ def delete_category():
                 MaterialCategory.parent_id == cat.id,
                 ~MaterialCategory.id.in_(id_set),
             ).first():
-                return jsonify({'status': 'error', 'msg': f'分类 {cat.name} 下还有子分类，请先删除或调整子分类'})
+                return api_error(f'分类 {cat.name} 下还有子分类，请先删除或调整子分类')
             # F-02：分类被物料引用时禁止硬删，避免外键悬空
             mat_n = Material.query.filter_by(category_id=cat.id).count()
             if mat_n > 0:
@@ -23753,7 +23753,7 @@ def save_wechat_share_config():
     config = _wechat_share_default_config()
     share_time = (request.form.get('share_time') or '15:30').strip()
     if not _wechat_share_time_is_valid(share_time):
-        return jsonify({'status': 'error', 'msg': '分享时间格式不正确，请使用 HH:MM'})
+        return api_error('分享时间格式不正确，请使用 HH:MM')
 
     receiver_type = (request.form.get('receiver_type') or 'person').strip()
     if receiver_type not in {'person', 'group'}:
@@ -23776,7 +23776,7 @@ def save_wechat_share_config():
     if not config.receiver_search_key:
         config.receiver_search_key = config.receiver_name or config.receiver_wechat_id
     if not config.receiver_name and not config.receiver_wechat_id:
-        return jsonify({'status': 'error', 'msg': '请填写接收人名称或接收人微信号'})
+        return api_error('请填写接收人名称或接收人微信号')
 
     try:
         db.session.commit()
@@ -24078,13 +24078,13 @@ def add_unit():
     code = (request.form.get('code') or '').strip()
     name = (request.form.get('name') or '').strip()
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入单位编号'})
+        return api_error('请输入单位编号')
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入单位名称'})
+        return api_error('请输入单位名称')
     if Unit.query.filter_by(code=code).first():
-        return jsonify({'status': 'error', 'msg': '单位编号已存在'})
+        return api_error('单位编号已存在')
     if Unit.query.filter_by(name=name).first():
-        return jsonify({'status': 'error', 'msg': '单位名称已存在'})
+        return api_error('单位名称已存在')
     unit = Unit(code=code, name=name)
     db.session.add(unit)
     try:
@@ -24106,19 +24106,19 @@ def delete_unit():
             # 单位被物料/委外/BOM/领料/调拨/调整/请购等单据引用时不能删除，
             # 否则 SQLite 不强制外键约束会导致单位记录被删除后引用方 unit_id 悬空
             if unit.materials:
-                return jsonify({'status': 'error', 'msg': f'单位“{unit.name}”已关联物料，不能删除'})
+                return api_error(f'单位“{unit.name}”已关联物料，不能删除')
             if unit.bom_items:
-                return jsonify({'status': 'error', 'msg': f'单位“{unit.name}”已被BOM引用，不能删除'})
+                return api_error(f'单位“{unit.name}”已被BOM引用，不能删除')
             if unit.requisition_items:
-                return jsonify({'status': 'error', 'msg': f'单位“{unit.name}”已被领料单引用，不能删除'})
+                return api_error(f'单位“{unit.name}”已被领料单引用，不能删除')
             if unit.subcontract_items or unit.subcontract_issue_items or unit.subcontract_receive_items:
-                return jsonify({'status': 'error', 'msg': f'单位“{unit.name}”已被委外单据引用，不能删除'})
+                return api_error(f'单位“{unit.name}”已被委外单据引用，不能删除')
             if unit.transfer_items:
-                return jsonify({'status': 'error', 'msg': f'单位“{unit.name}”已被调拨单引用，不能删除'})
+                return api_error(f'单位“{unit.name}”已被调拨单引用，不能删除')
             if unit.adjustment_items:
-                return jsonify({'status': 'error', 'msg': f'单位“{unit.name}”已被库存调整单引用，不能删除'})
+                return api_error(f'单位“{unit.name}”已被库存调整单引用，不能删除')
             if unit.purchase_request_items:
-                return jsonify({'status': 'error', 'msg': f'单位“{unit.name}”已被请购单引用，不能删除'})
+                return api_error(f'单位“{unit.name}”已被请购单引用，不能删除')
             db.session.delete(unit)
     try:
         db.session.commit()
@@ -24154,15 +24154,15 @@ def edit_unit(unit_id):
     code = (request.form.get('code') or '').strip()
     name = (request.form.get('name') or '').strip()
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入单位编号'})
+        return api_error('请输入单位编号')
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入单位名称'})
+        return api_error('请输入单位名称')
     dup = Unit.query.filter_by(code=code).first()
     if dup and dup.id != unit_id:
-        return jsonify({'status': 'error', 'msg': '单位编号已存在'})
+        return api_error('单位编号已存在')
     dup = Unit.query.filter_by(name=name).first()
     if dup and dup.id != unit_id:
-        return jsonify({'status': 'error', 'msg': '单位名称已存在'})
+        return api_error('单位名称已存在')
     unit.code = code
     unit.name = name
     try:
@@ -24246,24 +24246,24 @@ def delete_supplier():
         if sup:
             # In stock
             if sup.in_orders:
-                return jsonify({'status': 'error', 'msg': f'供应商“{sup.name}”已有关联入库单，不能删除'})
+                return api_error(f'供应商“{sup.name}”已有关联入库单，不能删除')
 
             # Related materials
             if sup.materials:
-                return jsonify({'status': 'error', 'msg': f'供应商“{sup.name}”已关联物料，不能删除'})
+                return api_error(f'供应商“{sup.name}”已关联物料，不能删除')
 
             # 采购订单引用（原删除逻辑只检查入库单和物料，未覆盖采购单与委外单，
             # 删除后会因外键悬空导致采购/委外页面 500）
             if sup.purchase_orders:
-                return jsonify({'status': 'error', 'msg': f'供应商“{sup.name}”已有关联采购订单，不能删除'})
+                return api_error(f'供应商“{sup.name}”已有关联采购订单，不能删除')
 
             # 委外相关单据引用
             if sup.subcontract_orders:
-                return jsonify({'status': 'error', 'msg': f'供应商“{sup.name}”已有关联委外加工单，不能删除'})
+                return api_error(f'供应商“{sup.name}”已有关联委外加工单，不能删除')
             if sup.subcontract_issues:
-                return jsonify({'status': 'error', 'msg': f'供应商“{sup.name}”已有关联委外发料单，不能删除'})
+                return api_error(f'供应商“{sup.name}”已有关联委外发料单，不能删除')
             if sup.subcontract_receives:
-                return jsonify({'status': 'error', 'msg': f'供应商“{sup.name}”已有关联委外收货单，不能删除'})
+                return api_error(f'供应商“{sup.name}”已有关联委外收货单，不能删除')
 
             db.session.delete(sup)
     try:
@@ -24304,9 +24304,9 @@ def edit_supplier(supplier_id):
     code = (request.form.get('code') or '').strip()
     name = (request.form.get('name') or '').strip()
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入供应商编号'})
+        return api_error('请输入供应商编号')
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入供应商名称'})
+        return api_error('请输入供应商名称')
     # BUG-F02-02 修复：供应商编辑入口同样 5 字段长度校验
     if len(code) > 50:
         return jsonify({'status': 'error', 'msg': f'供应商编号不能超过 50 个字符（当前 {len(code)}）'}), 400
@@ -24323,10 +24323,10 @@ def edit_supplier(supplier_id):
         return jsonify({'status': 'error', 'msg': f'地址不能超过 200 个字符（当前 {len(address)}）'}), 400
     dup = Supplier.query.filter_by(code=code).first()
     if dup and dup.id != supplier_id:
-        return jsonify({'status': 'error', 'msg': '供应商编号已存在'})
+        return api_error('供应商编号已存在')
     dup = Supplier.query.filter_by(name=name).first()
     if dup and dup.id != supplier_id:
-        return jsonify({'status': 'error', 'msg': '供应商名称已存在'})
+        return api_error('供应商名称已存在')
     sup.code = code
     sup.name = name
     sup.contact = contact or None
@@ -24412,9 +24412,9 @@ def delete_customer():
             # 直接删除会让历史单据的客户名失去主数据支撑（下拉选不到、报表对不上），
             # 因此需要检查是否有单据使用该客户名
             if OutOrder.query.filter(OutOrder.customer == customer.name).first():
-                return jsonify({'status': 'error', 'msg': f'客户“{customer.name}”已有关联出库单，不能删除'})
+                return api_error(f'客户“{customer.name}”已有关联出库单，不能删除')
             if AfterSaleOutOrder.query.filter(AfterSaleOutOrder.customer == customer.name).first():
-                return jsonify({'status': 'error', 'msg': f'客户“{customer.name}”已有关联售后出库单，不能删除'})
+                return api_error(f'客户“{customer.name}”已有关联售后出库单，不能删除')
             # m-01：采购入库单/销售订单等以 customer_id 外键引用时也要校验，避免硬删后外键悬空
             if hasattr(InOrder, 'customer_id') and \
                     InOrder.query.filter_by(customer_id=customer.id).count() > 0:
@@ -24467,9 +24467,9 @@ def edit_customer(customer_id):
     code = (request.form.get('code') or '').strip()
     name = (request.form.get('name') or '').strip()
     if not code:
-        return jsonify({'status': 'error', 'msg': '请输入客户编号'})
+        return api_error('请输入客户编号')
     if not name:
-        return jsonify({'status': 'error', 'msg': '请输入客户名称'})
+        return api_error('请输入客户名称')
     # BUG-F02-02 修复：客户编辑入口同样 5 字段长度校验
     if len(code) > 50:
         return jsonify({'status': 'error', 'msg': f'客户编号不能超过 50 个字符（当前 {len(code)}）'}), 400
@@ -24486,10 +24486,10 @@ def edit_customer(customer_id):
         return jsonify({'status': 'error', 'msg': f'地址不能超过 200 个字符（当前 {len(address)}）'}), 400
     dup = Customer.query.filter_by(code=code).first()
     if dup and dup.id != customer_id:
-        return jsonify({'status': 'error', 'msg': '客户编号已存在'})
+        return api_error('客户编号已存在')
     dup = Customer.query.filter_by(name=name).first()
     if dup and dup.id != customer_id:
-        return jsonify({'status': 'error', 'msg': '客户名称已存在'})
+        return api_error('客户名称已存在')
     customer.code = code
     customer.name = name
     customer.contact = contact or None
@@ -24544,14 +24544,14 @@ def export_customer():
 def import_customer():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的客户文件'})
+        return api_error('请选择要导入的客户文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -24583,7 +24583,7 @@ def import_customer():
         return jsonify({'status': 'success', 'msg': msg, 'count': count})
     except Exception:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '客户导入失败'})
+        return api_error('客户导入失败')
 
 
 # ==================== Employee management ====================
@@ -25161,14 +25161,14 @@ def update_in_order(id):
     """Update the header fields of a draft inbound order."""
     order = InOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的入库单可以编辑'})
+        return api_error('只有草稿状态的入库单可以编辑')
 
     payload = request.get_json(silent=True)
     data = payload if isinstance(payload, dict) else request.form
 
     order_date = parse_date_value(data.get('date'), None)
     if not order_date:
-        return jsonify({'status': 'error', 'msg': '日期格式不正确，请重新选择日期'})
+        return api_error('日期格式不正确，请重新选择日期')
     if is_future_date(order_date):
         return jsonify({'status': 'error', 'msg': '入库日期不能晚于今天'}), 400
 
@@ -25176,7 +25176,7 @@ def update_in_order(id):
     if supplier_id:
         supplier = db.session.get(Supplier, supplier_id)
         if not supplier:
-            return jsonify({'status': 'error', 'msg': '请选择有效的供应商'})
+            return api_error('请选择有效的供应商')
         order.supplier_id = supplier.id
     else:
         order.supplier_id = None
@@ -25184,7 +25184,7 @@ def update_in_order(id):
     if customer_id:
         customer = db.session.get(Customer, customer_id)
         if not customer:
-            return jsonify({'status': 'error', 'msg': '请选择有效的客户'})
+            return api_error('请选择有效的客户')
         order.customer_id = customer.id
     else:
         order.customer_id = None
@@ -25210,7 +25210,7 @@ def update_in_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'编辑入库单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 @app.route('/in_order/add')
 @app.route('/other_in_order/add')
@@ -25363,9 +25363,9 @@ def add_in_order():
         if order_id:
             order = db.session.get(InOrder, order_id)
             if not order:
-                return jsonify({'status': 'error', 'msg': '入库单不存在，请刷新后重试'})
+                return api_error('入库单不存在，请刷新后重试')
             if order.status != 'pending':
-                return jsonify({'status': 'error', 'msg': '只有待处理的入库单可以修改'})
+                return api_error('只有待处理的入库单可以修改')
         else:
             if not order_no:
                 order_no = generate_order_no('IN')
@@ -25373,7 +25373,7 @@ def add_in_order():
             order = InOrder.query.filter_by(order_no=order_no).first()
             if order:
                 if order.status != 'pending':
-                    return jsonify({'status': 'error', 'msg': '入库单号已存在，不能重复保存'})
+                    return api_error('入库单号已存在，不能重复保存')
             else:
                 order = InOrder(
                     order_no=order_no,
@@ -25388,7 +25388,7 @@ def add_in_order():
             try:
                 order.supplier_id = int(supplier_id)
             except (TypeError, ValueError):
-                return jsonify({'status': 'error', 'msg': '请选择有效的供应商'})
+                return api_error('请选择有效的供应商')
         else:
             order.supplier_id = None
         if customer_id:
@@ -25397,7 +25397,7 @@ def add_in_order():
             except (TypeError, ValueError):
                 customer = None
             if not customer:
-                return jsonify({'status': 'error', 'msg': '请选择有效的客户'})
+                return api_error('请选择有效的客户')
             order.customer_id = customer.id
         else:
             order.customer_id = None
@@ -25406,7 +25406,7 @@ def add_in_order():
             try:
                 order.date = datetime.strptime(date_str, '%Y-%m-%d').date()
             except ValueError:
-                return jsonify({'status': 'error', 'msg': '日期格式不正确，请重新选择日期'})
+                return api_error('日期格式不正确，请重新选择日期')
         if is_future_date(order.date):
             return jsonify({'status': 'error', 'msg': '入库日期不能晚于今天'}), 400
 
@@ -25472,24 +25472,24 @@ def add_in_order():
                     except (TypeError, ValueError):
                         source_item = None
                     if not source_item or source_item.material_id != material.id:
-                        return jsonify({'status': 'error', 'msg': f'采购单来源明细无效：{material.code}'})
+                        return api_error(f'采购单来源明细无效：{material.code}')
                     source_order = source_item.purchase_order
                     if not source_order or source_order.status not in ('pending', 'partial'):
-                        return jsonify({'status': 'error', 'msg': '只能选择未入库或部分入库的采购单明细'})
+                        return api_error('只能选择未入库或部分入库的采购单明细')
                     valid_qty, qty_msg = validate_purchase_receive_quantity(source_item, quantity, material.code)
                     if not valid_qty:
-                        return jsonify({'status': 'error', 'msg': qty_msg})
+                        return api_error(qty_msg)
                     source_purchase_order_item_id = source_item.id
                     source_item_updates.append((source_item, quantity))
                     source_purchase_order_ids.add(source_order.id)
                 elif business_type == '采购入库' and purchase_in_order_requires_order():
-                    return jsonify({'status': 'error', 'msg': f'采购入库物料 {material.code} 必须关联采购订单明细'})
+                    return api_error(f'采购入库物料 {material.code} 必须关联采购订单明细')
                 duplicate_key = (material.id, source_purchase_order_item_id, is_customer_supplied)
                 duplicate_mode = in_order_duplicate_material_mode()
                 existing_item = pending_in_order_items.get(duplicate_key)
                 if existing_item:
                     if duplicate_mode == 'forbid':
-                        return jsonify({'status': 'error', 'msg': f'物料 {material.code} 在当前入库单中重复'})
+                        return api_error(f'物料 {material.code} 在当前入库单中重复')
                     if duplicate_mode == 'merge':
                         existing_item.quantity = round_to_2_decimals((existing_item.quantity or 0) + quantity)
                         existing_item.amount = round_to_2_decimals((existing_item.quantity or 0) * (existing_item.price or 0))
@@ -25527,7 +25527,7 @@ def add_in_order():
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
-            return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+            return api_error('保存失败，请稍后重试')
 
         log_operation('保存入库单', f'入库单：{order.order_no}', 'in_order', order.id)
         app.logger.info(f'入库单创建成功：{order.order_no}')
@@ -25535,7 +25535,7 @@ def add_in_order():
     except Exception as e:
         db.session.rollback()
         app.logger.exception(f'保存入库单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 # Inbound detail operations
 @app.route('/in_order/<int:id>/item/add', methods=['POST'])
@@ -25545,27 +25545,27 @@ def add_in_order_item(id):
     """Add a detail row to a pending inbound order."""
     order = InOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待处理的入库单可以添加明细'})
+        return api_error('只有待处理的入库单可以添加明细')
 
     material_code = (request.form.get('material_code') or '').strip()
     if not material_code:
-        return jsonify({'status': 'error', 'msg': '请选择物料后再添加'})
+        return api_error('请选择物料后再添加')
 
     material = Material.query.filter_by(code=material_code).first()
     if not material:
-        return jsonify({'status': 'error', 'msg': f'物料 {material_code} 不存在'})
+        return api_error(f'物料 {material_code} 不存在')
 
     try:
         quantity = round_to_2_decimals(request.form.get('quantity', 0))
     except (TypeError, ValueError):
-        return jsonify({'status': 'error', 'msg': '数量必须是数字'})
+        return api_error('数量必须是数字')
     if quantity <= 0:
-        return jsonify({'status': 'error', 'msg': '数量必须大于0'})
+        return api_error('数量必须大于0')
 
     try:
         price = round_to_2_decimals(request.form.get('price', 0))
     except (TypeError, ValueError):
-        return jsonify({'status': 'error', 'msg': '单价必须是数字'})
+        return api_error('单价必须是数字')
     amount = round_to_2_decimals(quantity * price)
     source_purchase_order_item_id = None
     source_item = None
@@ -25573,19 +25573,19 @@ def add_in_order_item(id):
     if source_item_id:
         source_item = db.session.get(PurchaseOrderItem, source_item_id)
         if not source_item or source_item.material_id != material.id:
-            return jsonify({'status': 'error', 'msg': f'采购单来源明细无效：{material.code}'})
+            return api_error(f'采购单来源明细无效：{material.code}')
         valid_qty, qty_msg = validate_purchase_receive_quantity(source_item, quantity, material.code)
         if not valid_qty:
-            return jsonify({'status': 'error', 'msg': qty_msg})
+            return api_error(qty_msg)
         source_purchase_order_item_id = source_item.id
     elif is_purchase_in_order(order) and purchase_in_order_requires_order():
-        return jsonify({'status': 'error', 'msg': '采购入库必须关联采购订单，请从采购订单下推或选单生成入库单'})
+        return api_error('采购入库必须关联采购订单，请从采购订单下推或选单生成入库单')
 
     duplicate_mode = in_order_duplicate_material_mode()
     duplicate_item = find_duplicate_in_order_item(order, material.id, source_purchase_order_item_id)
     if duplicate_item:
         if duplicate_mode == 'forbid':
-            return jsonify({'status': 'error', 'msg': f'物料 {material_code} 在当前入库单中重复'})
+            return api_error(f'物料 {material_code} 在当前入库单中重复')
         if duplicate_mode == 'merge':
             duplicate_item.quantity = round_to_2_decimals((duplicate_item.quantity or 0) + quantity)
             # 合并时若用户填入了新单价，应以新单价作为合并后单价；
@@ -25627,7 +25627,7 @@ def add_in_order_item(id):
         return jsonify({'status': 'success', 'msg': '明细添加成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '明细添加失败，请稍后重试'})
+        return api_error('明细添加失败，请稍后重试')
 
 @app.route('/in_order/<int:id>/batch_add_items', methods=['POST'])
 @require_role('warehouse')
@@ -25636,14 +25636,14 @@ def batch_add_in_order_items(id):
     """Batch add inbound detail rows. Format per line: code,quantity,price."""
     order = InOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的入库单可以添加明细'})
+        return api_error('只有草稿状态的入库单可以添加明细')
     if is_purchase_in_order(order) and purchase_in_order_requires_order():
-        return jsonify({'status': 'error', 'msg': '采购入库必须关联采购订单，不能批量添加无来源明细'})
+        return api_error('采购入库必须关联采购订单，不能批量添加无来源明细')
 
     data = request.get_json(silent=True) or {}
     content = (data.get('content') or request.form.get('content') or '').strip()
     if not content:
-        return jsonify({'status': 'error', 'msg': '请输入物料信息'})
+        return api_error('请输入物料信息')
 
     added = 0
     errors = []
@@ -25676,7 +25676,7 @@ def batch_add_in_order_items(id):
             added += 1
 
         if added == 0:
-            return jsonify({'status': 'error', 'msg': errors[0] if errors else '未添加任何明细'})
+            return api_error(errors[0] if errors else '未添加任何明细')
         recalculate_order_total(order)
         db.session.commit()
         log_operation('编辑入库单', f'批量添加入库单明细：{order.order_no}', 'in_order', id)
@@ -25687,7 +25687,7 @@ def batch_add_in_order_items(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'批量添加入库明细失败: {e}')
-        return jsonify({'status': 'error', 'msg': '添加失败，请稍后重试'})
+        return api_error('添加失败，请稍后重试')
 
 @app.route('/in_order/<int:id>/delete_item/<int:item_id>', methods=['POST'])
 @require_role('warehouse')
@@ -25696,11 +25696,11 @@ def delete_in_order_item(id, item_id):
     """Delete a detail row from a pending inbound order."""
     order = InOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待处理的入库单可以删除明细'})
+        return api_error('只有待处理的入库单可以删除明细')
 
     item = InOrderItem.query.get_or_404(item_id)
     if item.in_order_id != id:
-        return jsonify({'status': 'error', 'msg': '明细不属于当前入库单'})
+        return api_error('明细不属于当前入库单')
 
     material_name = item.material.name if item.material else ''
     log_operation('编辑入库单', f'删除入库单明细：{material_name}', 'in_order', id)
@@ -25722,11 +25722,11 @@ def in_order_item_delete_alias(id, item_id):
     """Alias endpoint for deleting an inbound order item."""
     order = InOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待处理的入库单可以删除明细'})
+        return api_error('只有待处理的入库单可以删除明细')
 
     item = InOrderItem.query.get_or_404(item_id)
     if item.in_order_id != id:
-        return jsonify({'status': 'error', 'msg': '明细不属于当前入库单'})
+        return api_error('明细不属于当前入库单')
 
     material_name = item.material.name if item.material else ''
     log_operation('编辑入库单', f'删除入库单明细：{material_name}', 'in_order', id)
@@ -25748,20 +25748,20 @@ def update_in_order_item():
     """Update an inbound order item."""
     item_id = request.form.get('id', type=int)
     if not item_id:
-        return jsonify({'status': 'error', 'msg': '缺少明细ID'})
+        return api_error('缺少明细ID')
     item = InOrderItem.query.get_or_404(item_id)
     if item.in_order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待处理的入库单可以修改明细'})
+        return api_error('只有待处理的入库单可以修改明细')
     old_quantity = item.quantity or 0
     new_quantity = round_to_2_decimals(request.form.get('quantity', item.quantity))
     if is_purchase_in_order(item.in_order) and purchase_in_order_requires_order() and not item.source_purchase_order_item:
-        return jsonify({'status': 'error', 'msg': '采购入库必须关联采购订单，请从采购订单下推或选单生成入库单'})
+        return api_error('采购入库必须关联采购订单，请从采购订单下推或选单生成入库单')
     if item.source_purchase_order_item and should_block_purchase_over_receive():
         source_item = item.source_purchase_order_item
         available_qty = round_to_2_decimals((source_item.quantity or 0) - ((source_item.received_quantity or 0) - old_quantity))
         if new_quantity - available_qty > STOCK_COMPARE_EPSILON:
             material_code = item.material.code if item.material else item.material_id
-            return jsonify({'status': 'error', 'msg': f'物料 {material_code} 入库数量不能大于采购单未入库数量'})
+            return api_error(f'物料 {material_code} 入库数量不能大于采购单未入库数量')
         source_item.received_quantity = round_to_2_decimals((source_item.received_quantity or 0) - old_quantity + new_quantity)
         update_purchase_order_status(source_item.purchase_order)
     item.quantity = new_quantity
@@ -25849,7 +25849,7 @@ def copy_in_order(id):
         joinedload(InOrder.items).joinedload(InOrderItem.source_purchase_order_item).joinedload(PurchaseOrderItem.purchase_order),
     ).get_or_404(id)
     if not source.items:
-        return jsonify({'status': 'error', 'msg': '原入库单没有明细，不能复制'})
+        return api_error('原入库单没有明细，不能复制')
 
     business_type = source.business_type or '采购入库'
     source_item_updates = []
@@ -25863,14 +25863,14 @@ def copy_in_order(id):
                 source_item = item.source_purchase_order_item
                 source_order = source_item.purchase_order if source_item else None
                 if not source_item or not source_order or source_order.status not in ('pending', 'partial'):
-                    return jsonify({'status': 'error', 'msg': '原入库单的采购来源已完成或关闭，请从采购订单重新下推生成入库单'})
+                    return api_error('原入库单的采购来源已完成或关闭，请从采购订单重新下推生成入库单')
                 valid_qty, qty_msg = validate_purchase_receive_quantity(
                     source_item,
                     quantity,
                     item.material.code if item.material else item.material_id,
                 )
                 if not valid_qty:
-                    return jsonify({'status': 'error', 'msg': f'{qty_msg}。请从采购订单按剩余未入库数量重新下推。'})
+                    return api_error(f'{qty_msg}。请从采购订单按剩余未入库数量重新下推。')
                 source_item_updates.append((source_item, quantity))
                 affected_purchase_orders.add(source_order)
         prefix = 'PI' if business_type == '产品入库' else 'IN'
@@ -25917,7 +25917,7 @@ def copy_in_order(id):
 
         if copied_count <= 0:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '原入库单没有有效数量，不能复制'})
+            return api_error('原入库单没有有效数量，不能复制')
 
         for source_item, quantity in source_item_updates:
             source_item.received_quantity = round_to_2_decimals((source_item.received_quantity or 0) + quantity)
@@ -25936,7 +25936,7 @@ def copy_in_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'复制入库单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
+        return api_error('复制失败，请稍后重试')
 
 
 
@@ -25951,7 +25951,7 @@ def copy_out_order(id):
         joinedload(OutOrder.department),
     ).get_or_404(id)
     if not source.items:
-        return jsonify({'status': 'error', 'msg': '原出库单没有明细，不能复制'})
+        return api_error('原出库单没有明细，不能复制')
 
     business_type = source.business_type or '领料单'
     if business_type == '其他出库':
@@ -26009,7 +26009,7 @@ def copy_out_order(id):
 
         if copied_count <= 0:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '原出库单没有有效数量，不能复制'})
+            return api_error('原出库单没有有效数量，不能复制')
 
         recalculate_order_total(new_order)
         db.session.commit()
@@ -26024,7 +26024,7 @@ def copy_out_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'复制出库单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
+        return api_error('复制失败，请稍后重试')
 
 
 def _calc_smart_threshold(values, base_threshold=0.5, min_threshold=0.2, max_threshold=1.0):
@@ -26158,7 +26158,7 @@ def check_in_order_anomalies(id):
     """检查入库单异常，返回异常列表供前端确认。"""
     order = InOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '该入库单已提交，不能检查异常'})
+        return api_error('该入库单已提交，不能检查异常')
     
     anomalies = _check_in_order_anomalies(order)
     
@@ -26234,17 +26234,17 @@ def complete_in_order(id):
     """Complete an inbound order and add stock."""
     order = InOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '该入库单已提交，不能重复操作'})
+        return api_error('该入库单已提交，不能重复操作')
 
     if is_future_date(order.date):
         return jsonify({'status': 'error', 'msg': '入库日期不能晚于今天，请先修改单据日期'}), 400
     if not order.items:
-        return jsonify({'status': 'error', 'msg': '请至少添加一条入库明细'})
+        return api_error('请至少添加一条入库明细')
     if location_management_enabled() and location_required_on_save() and not order.warehouse:
-        return jsonify({'status': 'error', 'msg': '启用库位管理后，入库单必须填写仓库/库位'})
+        return api_error('启用库位管理后，入库单必须填写仓库/库位')
     valid_source, source_msg = validate_purchase_in_order_source(order)
     if not valid_source:
-        return jsonify({'status': 'error', 'msg': source_msg})
+        return api_error(source_msg)
 
     force_submit = request.args.get('force', '').lower() in ('true', '1', 'yes')
     if not force_submit:
@@ -26260,11 +26260,11 @@ def complete_in_order(id):
         # 加写锁并重新读取状态，避免多 worker 并发重复入库
         locked, ok = _acquire_order_write_lock(InOrder, id, 'pending', selectinload(InOrder.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该入库单已提交，不能重复操作'})
+            return api_error('该入库单已提交，不能重复操作')
         order = locked
         if not order.items:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '请至少添加一条入库明细'})
+            return api_error('请至少添加一条入库明细')
         is_recompleted = StockTransaction.query.filter_by(
             reference_type='in_order',
             reference_id=order.id,
@@ -26279,12 +26279,12 @@ def complete_in_order(id):
                                     reference_id=order.id)
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err or '库存增加失败'})
+                    return api_error(err or '库存增加失败')
                 if location_management_enabled() and order.warehouse:
                     loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, item.quantity or 0)
                     if not loc_ok:
                         db.session.rollback()
-                        return jsonify({'status': 'error', 'msg': loc_err or '库位库存更新失败'})
+                        return api_error(loc_err or '库位库存更新失败')
             if is_recompleted and item.source_purchase_order_item:
                 source_item = item.source_purchase_order_item
                 source_item.received_quantity = round_to_2_decimals((source_item.received_quantity or 0) + (item.quantity or 0))
@@ -26315,7 +26315,7 @@ def complete_in_order(id):
         return jsonify({'status': 'success', 'msg': '提交成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '提交失败，请稍后重试'})
+        return api_error('提交失败，请稍后重试')
 
 
 @app.route('/in_order/<int:id>/update_completed', methods=['POST'])
@@ -26325,11 +26325,11 @@ def update_completed_in_order(id):
     """Update a completed inbound order and adjust stock differences."""
     order = InOrder.query.get_or_404(id)
     if order.status != 'completed':
-        return jsonify({'status': 'error', 'msg': '只有已完成的入库单可以修改已入库明细'})
+        return api_error('只有已完成的入库单可以修改已入库明细')
 
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
-        return jsonify({'status': 'error', 'msg': '请求数据格式不正确，请刷新后重试'})
+        return api_error('请求数据格式不正确，请刷新后重试')
     items_data = data.get('items', [])
     deleted_items = data.get('deleted_items', [])
 
@@ -26343,7 +26343,7 @@ def update_completed_in_order(id):
                     sufficient, current_stock, error_msg = check_stock_sufficient(item.material, item.quantity)
                     if not sufficient:
                         db.session.rollback()
-                        return jsonify({'status': 'error', 'msg': error_msg})
+                        return api_error(error_msg)
                 # 使用 deduct_stock 写流水+归一化+库位还原，避免直接改 stock
                 ok, err = deduct_stock(item.material, item.quantity or 0,
                                        transaction_type='delete_in_item',
@@ -26352,12 +26352,12 @@ def update_completed_in_order(id):
                                        remark=f'删除已完成入库单 {order.order_no} 明细回退库存')
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err or '库存回退失败'})
+                    return api_error(err or '库存回退失败')
                 if location_management_enabled() and order.warehouse:
                     loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, -(item.quantity or 0))
                     if not loc_ok:
                         db.session.rollback()
-                        return jsonify({'status': 'error', 'msg': loc_err or '库位库存回退失败'})
+                        return api_error(loc_err or '库位库存回退失败')
                 if item.source_purchase_order_item:
                     source_item = item.source_purchase_order_item
                     source_item.received_quantity = max(
@@ -26377,14 +26377,14 @@ def update_completed_in_order(id):
                 # Add new detail row and apply stock change
                 material_code = (item_data.get('code') or item_data.get('material_code') or '').strip()
                 if not material_code:
-                    return jsonify({'status': 'error', 'msg': '请选择物料后再添加'})
+                    return api_error('请选择物料后再添加')
                 material = Material.query.filter_by(code=material_code).first()
                 if not material:
-                    return jsonify({'status': 'error', 'msg': f'物料 {material_code} 不存在'})
+                    return api_error(f'物料 {material_code} 不存在')
 
                 quantity = float(item_data['quantity'])
                 if quantity <= 0:
-                    return jsonify({'status': 'error', 'msg': f'物料 {material_code} 的数量必须大于0'})
+                    return api_error(f'物料 {material_code} 的数量必须大于0')
                 price = float(item_data.get('price', 0))
                 amount = round_to_2_decimals(quantity * price)
                 source_purchase_order_item_id = None
@@ -26393,13 +26393,13 @@ def update_completed_in_order(id):
                     try:
                         source_item_id = int(source_item_id)
                     except (TypeError, ValueError):
-                        return jsonify({'status': 'error', 'msg': '来源采购单明细格式不正确'})
+                        return api_error('来源采购单明细格式不正确')
                     source_item = db.session.get(PurchaseOrderItem, source_item_id)
                     if not source_item or source_item.material_id != material.id:
-                        return jsonify({'status': 'error', 'msg': '来源采购单明细与物料不匹配'})
+                        return api_error('来源采购单明细与物料不匹配')
                     remain_qty = round_to_2_decimals((source_item.quantity or 0) - (source_item.received_quantity or 0))
                     if quantity - remain_qty > STOCK_COMPARE_EPSILON:
-                        return jsonify({'status': 'error', 'msg': '新增明细数量不能大于来源采购单未下推数量'})
+                        return api_error('新增明细数量不能大于来源采购单未下推数量')
                     source_item.received_quantity = round_to_2_decimals((source_item.received_quantity or 0) + quantity)
                     source_purchase_order_item_id = source_item.id
                     if source_item.purchase_order:
@@ -26423,12 +26423,12 @@ def update_completed_in_order(id):
                                     remark=f'已完成入库单 {order.order_no} 新增明细')
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err or '库存增加失败'})
+                    return api_error(err or '库存增加失败')
                 if location_management_enabled() and order.warehouse:
                     loc_ok, loc_err = update_location_inventory(material, order.warehouse, quantity)
                     if not loc_ok:
                         db.session.rollback()
-                        return jsonify({'status': 'error', 'msg': loc_err or '库位库存更新失败'})
+                        return api_error(loc_err or '库位库存更新失败')
 
             elif item_id:
                 item = db.session.get(InOrderItem, item_id)
@@ -26437,7 +26437,7 @@ def update_completed_in_order(id):
                     new_qty = float(item_data['quantity'])
                     if new_qty <= 0:
                         material_code = item.material.code if item.material else ''
-                        return jsonify({'status': 'error', 'msg': f'物料 {material_code} 的数量必须大于0'})
+                        return api_error(f'物料 {material_code} 的数量必须大于0')
                     new_price = float(item_data.get('price', 0))
 
                     qty_diff = new_qty - old_qty
@@ -26446,13 +26446,13 @@ def update_completed_in_order(id):
                         if not allow_negative_stock():
                             sufficient, current_stock, error_msg = check_stock_sufficient(item.material, deduct_qty)
                             if not sufficient:
-                                return jsonify({'status': 'error', 'msg': error_msg})
+                                return api_error(error_msg)
                     if item.source_purchase_order_item and abs(qty_diff) > STOCK_COMPARE_EPSILON:
                         source_item = item.source_purchase_order_item
                         effective_received_before = round_to_2_decimals((source_item.received_quantity or 0) - (old_qty or 0))
                         allowed_qty = round_to_2_decimals(max((source_item.quantity or 0) - effective_received_before, 0))
                         if new_qty - allowed_qty > STOCK_COMPARE_EPSILON:
-                            return jsonify({'status': 'error', 'msg': '明细数量不能大于来源采购单未下推数量'})
+                            return api_error('明细数量不能大于来源采购单未下推数量')
                         source_item.received_quantity = max(
                             0,
                             round_to_2_decimals((source_item.received_quantity or 0) + qty_diff)
@@ -26468,7 +26468,7 @@ def update_completed_in_order(id):
                                             remark=f'修改已完成入库单 {order.order_no} 明细数量增加')
                         if not ok:
                             db.session.rollback()
-                            return jsonify({'status': 'error', 'msg': err or '库存增加失败'})
+                            return api_error(err or '库存增加失败')
                     elif qty_diff < 0:
                         ok, err = deduct_stock(item.material, abs(qty_diff),
                                                transaction_type='adjust_in_item',
@@ -26476,12 +26476,12 @@ def update_completed_in_order(id):
                                                reference_id=order.id,
                                                remark=f'修改已完成入库单 {order.order_no} 明细数量减少')
                         if not ok:
-                            return jsonify({'status': 'error', 'msg': err or '库存回退失败'})
+                            return api_error(err or '库存回退失败')
                     if location_management_enabled() and order.warehouse and qty_diff != 0:
                         loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, qty_diff)
                         if not loc_ok:
                             db.session.rollback()
-                            return jsonify({'status': 'error', 'msg': loc_err or '库位库存更新失败'})
+                            return api_error(loc_err or '库位库存更新失败')
 
                     item.quantity = new_qty
                     item.price = new_price
@@ -26503,7 +26503,7 @@ def update_completed_in_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.exception(f'更新入库单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 
 @app.route('/api/material/all', methods=['GET', 'POST'])
@@ -26559,7 +26559,7 @@ def material_info_api():
         material = db.session.get(Material, material_id)
 
     if not material:
-        return jsonify({'status': 'error', 'success': False, 'msg': '物料不存在'})
+        return api_error('物料不存在')
 
     return jsonify({
         'status': 'success',
@@ -26693,14 +26693,14 @@ def save_field_config_api(page_type):
     """保存字段配置API"""
     data = request.get_json(silent=True)
     if not data or not isinstance(data, list):
-        return jsonify({'status': 'error', 'msg': '配置数据格式不正确'})
+        return api_error('配置数据格式不正确')
     
     try:
         save_user_field_config(current_user.id, page_type, data)
         return jsonify({'status': 'success', 'msg': '配置已保存'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 
 @app.route('/in_order/<int:id>/delete', methods=['POST'])
@@ -26745,7 +26745,7 @@ def delete_in_order(id):
         return jsonify({'status': 'success', 'msg': '删除成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/in_order/<int:id>/revert', methods=['POST'])
@@ -26756,7 +26756,7 @@ def revert_in_order(id):
     if _source_has_active_push(id):
         return jsonify({'status': 'error', 'msg': '该入库单存在有效下推单据，不能反提交；请先处理下游单据。'}), 409
     if order.status != 'completed':
-        return jsonify({'status': 'error', 'msg': '只有已完成的入库单可以反提交'})
+        return api_error('只有已完成的入库单可以反提交')
 
     for item in order.items:
         current_stock = normalize_stock_quantity(item.material.stock or 0)
@@ -26771,7 +26771,7 @@ def revert_in_order(id):
         # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复回退
         locked, ok = _acquire_order_write_lock(InOrder, id, 'completed', selectinload(InOrder.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该入库单已反提交，不能重复操作'})
+            return api_error('该入库单已反提交，不能重复操作')
         order = locked
         affected_purchase_order_ids = set()
         for item in order.items:
@@ -26781,13 +26781,13 @@ def revert_in_order(id):
                          reference_id=order.id)
             if not ok:
                 db.session.rollback()
-                return jsonify({'status': 'error', 'msg': error_msg or '库存回退失败'})
+                return api_error(error_msg or '库存回退失败')
             # 同步还原库位库存（与 complete_in_order 对称），仅启用库位管理且有仓库时
             if location_management_enabled() and order.warehouse:
                 loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, -(item.quantity or 0))
                 if not loc_ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': loc_err or '库位库存还原失败'})
+                    return api_error(loc_err or '库位库存还原失败')
             if item.source_purchase_order_item:
                 source_item = item.source_purchase_order_item
                 source_item.received_quantity = max(
@@ -26805,7 +26805,7 @@ def revert_in_order(id):
         return jsonify({'status': 'success', 'msg': '操作完成'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 
 @app.route('/in_order/<int:id>/convert_to_out_order', methods=['POST'])
@@ -26816,9 +26816,9 @@ def convert_in_order_to_out_order(id):
     in_order = InOrder.query.get_or_404(id)
 
     if in_order.status != 'completed':
-        return jsonify({'status': 'error', 'msg': '只有已完成的入库单才能转为领料单'})
+        return api_error('只有已完成的入库单才能转为领料单')
     if in_order.business_type != '产品入库':
-        return jsonify({'status': 'error', 'msg': '只有产品入库单可以转为领料单，采购入库单不能转换'})
+        return api_error('只有产品入库单可以转为领料单，采购入库单不能转换')
 
     try:
         # 生成领料单编号：必须复用 generate_order_no('OUT')，否则手动拼接的
@@ -26870,7 +26870,7 @@ def convert_in_order_to_out_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'入库单转领料单失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'转换失败：{str(e)}'})
+        return api_error(f'转换失败：{str(e)}')
 
 
 @app.route('/in_order/batch_delete', methods=['POST'])
@@ -26881,14 +26881,14 @@ def batch_delete_in_order():
     ids = payload.get('ids') or request.form.getlist('ids')
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的入库单'})
+        return api_error('请选择要删除的入库单')
     if len(ids) > 100:
         return jsonify({'status': 'error', 'msg': '单次批量操作不能超过 100 条，请分批处理'}), 400
 
     orders = InOrder.query.options(joinedload(InOrder.supplier), joinedload(InOrder.items)).filter(InOrder.id.in_(ids)).all()
     blocked = [order.order_no for order in orders if order.status != 'pending']
     if blocked:
-        return jsonify({'status': 'error', 'msg': '以下入库单已完成，不能删除：' + ', '.join(blocked)})
+        return api_error('以下入库单已完成，不能删除：' + ', '.join(blocked))
 
 
     try:
@@ -26907,7 +26907,7 @@ def batch_delete_in_order():
         return jsonify({'status': 'success', 'msg': f'删除成功，共删除 {deleted_count} 张入库单', 'deleted': deleted_count})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/in_order/batch_complete', methods=['POST'])
@@ -26927,7 +26927,7 @@ def batch_complete_in_order():
     else:
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
         if not ids:
-            return jsonify({'status': 'error', 'msg': '请选择要审核的入库单'})
+            return api_error('请选择要审核的入库单')
         if len(ids) > 100:
             return jsonify({'status': 'error', 'msg': '单次批量操作不能超过 100 条，请分批处理'}), 400
         orders = InOrder.query.options(joinedload(InOrder.items)).filter(InOrder.id.in_(ids)).all()
@@ -26971,7 +26971,7 @@ def batch_complete_in_order():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'})
+        return api_error(f'操作失败：{str(e)}')
     msg = f'批量审核完成，共审核 {completed} 张入库单'
     if skipped:
         msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
@@ -26990,7 +26990,7 @@ def batch_revert_in_order():
     else:
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
         if not ids:
-            return jsonify({'status': 'error', 'msg': '请选择要反审的入库单'})
+            return api_error('请选择要反审的入库单')
         orders = InOrder.query.options(joinedload(InOrder.items)).filter(InOrder.id.in_(ids)).all()
 
     reverted = 0
@@ -27033,7 +27033,7 @@ def batch_revert_in_order():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'})
+        return api_error(f'操作失败：{str(e)}')
     msg = f'批量反审完成，共反审 {reverted} 张入库单'
     if skipped:
         msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
@@ -27136,20 +27136,20 @@ def save_bom_table():
     remark = (header.get('remark') or data.get('remark') or '').strip()
 
     if not product_code or not product_name:
-        return jsonify({'status': 'error', 'msg': '请输入产品编码和产品名称'})
+        return api_error('请输入产品编码和产品名称')
     if status not in ('active', 'inactive'):
         status = 'active'
     if not items_data:
-        return jsonify({'status': 'error', 'msg': '请至少填写一条BOM明细'})
+        return api_error('请至少填写一条BOM明细')
 
     try:
         if order_id:
             bom = db.session.get(BOM, order_id)
             if not bom:
-                return jsonify({'status': 'error', 'msg': 'BOM不存在，请刷新后重试'})
+                return api_error('BOM不存在，请刷新后重试')
             duplicate = BOM.query.filter(BOM.bom_no == bom_no, BOM.id != order_id).first()
             if duplicate:
-                return jsonify({'status': 'error', 'msg': 'BOM编号已存在'})
+                return api_error('BOM编号已存在')
         else:
             bom = BOM.query.filter_by(bom_no=bom_no).first()
             if not bom:
@@ -27168,10 +27168,10 @@ def save_bom_table():
         for item_data in items_data:
             material = _material_from_payload(item_data)
             if not material:
-                return jsonify({'status': 'error', 'msg': f'物料不存在：{item_data.get("code") or ""}'})
+                return api_error(f'物料不存在：{item_data.get("code") or ""}')
             quantity = round_to_2_decimals(parse_float_value(item_data.get('quantity'), 0))
             if quantity <= 0:
-                return jsonify({'status': 'error', 'msg': f'物料 {material.code} 的数量必须大于0'})
+                return api_error(f'物料 {material.code} 的数量必须大于0')
             unit_id = _clean_int(item_data.get('unit_id')) or material.unit_id
             unit_cost = round_to_2_decimals(parse_float_value(item_data.get('price'), material.price or 0))
             db.session.add(BOMItem(
@@ -27192,7 +27192,7 @@ def save_bom_table():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'保存BOM失败: {e}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 @app.route('/bom/add', methods=['POST'])
 @require_role('production')
@@ -27205,7 +27205,7 @@ def add_bom():
         remark = (request.form.get('remark') or '').strip()
 
         if not product_code or not product_name:
-            return jsonify({'status': 'error', 'msg': '请输入成品编码和成品名称'})
+            return api_error('请输入成品编码和成品名称')
 
         bom_no = generate_order_no('BOM')
         bom = BOM(
@@ -27227,7 +27227,7 @@ def add_bom():
         return jsonify({'status': 'success', 'msg': 'BOM 新增成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 @app.route('/bom/<int:id>/update', methods=['POST'])
 @require_role('production')
@@ -27249,7 +27249,7 @@ def update_bom(id):
         return jsonify({'status': 'success'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 @app.route('/bom/<int:id>/item/add', methods=['POST'])
 @require_role('production')
@@ -27267,9 +27267,9 @@ def add_bom_item(id):
 
         material = Material.query.filter_by(code=material_code).first()
         if not material:
-            return jsonify({'status': 'error', 'msg': '物料编码不存在'})
+            return api_error('物料编码不存在')
         if quantity <= 0:
-            return jsonify({'status': 'error', 'msg': '用量必须大于 0'})
+            return api_error('用量必须大于 0')
 
         unit = db.session.get(Unit, unit_id) if unit_id else None
         unit_cost = material.price or 0
@@ -27295,7 +27295,7 @@ def add_bom_item(id):
         return jsonify({'status': 'success', 'msg': 'BOM 明细新增成功', 'id': item.id})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 
 @app.route('/bom/<int:id>/add_item', methods=['POST'])
@@ -27311,7 +27311,7 @@ def add_bom_item_alias(id):
 def delete_bom_item(id, item_id):
     item = BOMItem.query.get_or_404(item_id)
     if item.bom_id != id:
-        return jsonify({'status': 'error', 'msg': 'BOM'})
+        return api_error('BOM')
     db.session.delete(item)
     try:
         db.session.commit()
@@ -27864,7 +27864,7 @@ def calculate_bom_cost(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'计算BOM成本失败: {e}')
-        return jsonify({'status': 'error', 'msg': '计算失败，请稍后重试'})
+        return api_error('计算失败，请稍后重试')
 
 
 @app.route('/bom/export')
@@ -27901,14 +27901,14 @@ def export_bom():
 def import_bom():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的 BOM 文件'})
+        return api_error('请选择要导入的 BOM 文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -27949,7 +27949,7 @@ def import_bom():
 
         if 'product_code' not in col_map or 'product_name' not in col_map:
             msg = f'Excel表头缺少必要列（产品编码、产品名称）。检测到的表头：{", ".join(header_row)}'
-            return jsonify({'status': 'error', 'msg': msg})
+            return api_error(msg)
 
         def get_val(row, key):
             if key not in col_map:
@@ -28090,7 +28090,7 @@ def import_bom():
         return jsonify(resp)
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': f'BOM 导入失败：{str(e)}'})
+        return api_error(f'BOM 导入失败：{str(e)}')
 
 
 @app.route('/export/template/bom')
@@ -28186,7 +28186,7 @@ def add_label_template():
         layout = request.form.get('layout', '{}')
 
         if not name:
-            return jsonify({'status': 'error', 'msg': '请输入模板名称'})
+            return api_error('请输入模板名称')
 
         existing = LabelTemplate.query.filter_by(name=name).first()
         if existing:
@@ -28207,7 +28207,7 @@ def add_label_template():
         return jsonify({'status': 'success'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 @app.route('/label_template/<int:id>')
 @require_role('admin', 'warehouse')  # BUG-F02-08 修复：模板设计页只允许 admin/warehouse 进入
@@ -28343,7 +28343,7 @@ def api_label_template_detail(id):
 def generate_barcode():
     code = request.args.get('code', '')
     if not code:
-        return jsonify({'status': 'error', 'msg': '缺少条码内容'})
+        return api_error('缺少条码内容')
     from reportlab.graphics.barcode import createBarcodeDrawing
 
     drawing = createBarcodeDrawing(
@@ -28476,26 +28476,26 @@ def save_requisition_table():
     items_data = data.get('items') or []
 
     if not items_data:
-        return jsonify({'status': 'error', 'msg': '请至少填写一条工单领料明细'})
+        return api_error('请至少填写一条工单领料明细')
 
     try:
         if order_id:
             requisition = db.session.get(ProductionRequisition, order_id)
             if not requisition:
-                return jsonify({'status': 'error', 'msg': '工单领料单不存在，请刷新后重试'})
+                return api_error('工单领料单不存在，请刷新后重试')
             if requisition.status != 'pending':
-                return jsonify({'status': 'error', 'msg': '只有草稿状态的工单领料单可以修改'})
+                return api_error('只有草稿状态的工单领料单可以修改')
             duplicate = ProductionRequisition.query.filter(
                 ProductionRequisition.req_no == req_no,
                 ProductionRequisition.id != order_id
             ).first()
             if duplicate:
-                return jsonify({'status': 'error', 'msg': '工单领料单号已存在'})
+                return api_error('工单领料单号已存在')
         else:
             requisition = ProductionRequisition.query.filter_by(req_no=req_no).first()
             if requisition:
                 if requisition.status != 'pending':
-                    return jsonify({'status': 'error', 'msg': '工单领料单号已存在'})
+                    return api_error('工单领料单号已存在')
             else:
                 requisition = ProductionRequisition(req_no=req_no, status='pending', operator_id=current_user.id)
                 db.session.add(requisition)
@@ -28514,13 +28514,13 @@ def save_requisition_table():
         for item_data in items_data:
             material = _material_from_payload(item_data)
             if not material:
-                return jsonify({'status': 'error', 'msg': f'物料不存在：{item_data.get("code") or ""}'})
+                return api_error(f'物料不存在：{item_data.get("code") or ""}')
             quantity = round_to_2_decimals(parse_float_value(item_data.get('quantity'), 0))
             if quantity <= 0:
-                return jsonify({'status': 'error', 'msg': f'物料 {material.code} 的数量必须大于0'})
+                return api_error(f'物料 {material.code} 的数量必须大于0')
             current_stock = normalize_stock_quantity(material.stock or 0)
             if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-                return jsonify({'status': 'error', 'msg': f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}'})
+                return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
             db.session.add(ProductionRequisitionItem(
                 requisition_id=requisition.id,
                 material_id=material.id,
@@ -28535,7 +28535,7 @@ def save_requisition_table():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'保存工单领料单表格失败: {e}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 @app.route('/requisition/add', methods=['POST'])
 @require_role('production')
@@ -28564,7 +28564,7 @@ def add_requisition():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'保存工单领料单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 
 @app.route('/requisition/<int:id>/update', methods=['POST'])
@@ -28573,7 +28573,7 @@ def add_requisition():
 def update_requisition(id):
     requisition = ProductionRequisition.query.get_or_404(id)
     if requisition.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的工单领料单可以修改'})
+        return api_error('只有草稿状态的工单领料单可以修改')
 
     try:
         bom_id = request.form.get('bom_id')
@@ -28587,7 +28587,7 @@ def update_requisition(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'修改工单领料单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 
 @app.route('/requisition/<int:id>/item/add', methods=['POST'])
@@ -28596,7 +28596,7 @@ def update_requisition(id):
 def add_requisition_item(id):
     requisition = ProductionRequisition.query.get_or_404(id)
     if requisition.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的工单领料单可以添加明细'})
+        return api_error('只有草稿状态的工单领料单可以添加明细')
     try:
         material_code = (request.form.get('material_code') or '').strip()
         quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), 1))
@@ -28604,9 +28604,9 @@ def add_requisition_item(id):
 
         material = Material.query.filter_by(code=material_code).first()
         if not material:
-            return jsonify({'status': 'error', 'msg': '物料编码不存在'})
+            return api_error('物料编码不存在')
         if quantity <= 0:
-            return jsonify({'status': 'error', 'msg': '工单领料数量必须大于 0'})
+            return api_error('工单领料数量必须大于 0')
 
         item = ProductionRequisitionItem(
             requisition_id=id,
@@ -28624,7 +28624,7 @@ def add_requisition_item(id):
         return jsonify({'status': 'success'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 @app.route('/requisition/<int:id>/item/<int:item_id>/update', methods=['POST'])
 @require_role('production')
@@ -28632,18 +28632,18 @@ def add_requisition_item(id):
 def update_requisition_item(id, item_id):
     requisition = ProductionRequisition.query.get_or_404(id)
     if requisition.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的工单领料单可以修改明细'})
+        return api_error('只有草稿状态的工单领料单可以修改明细')
 
     item = ProductionRequisitionItem.query.get_or_404(item_id)
     if item.requisition_id != id:
-        return jsonify({'status': 'error', 'msg': '工单领料明细不属于当前工单领料单'})
+        return api_error('工单领料明细不属于当前工单领料单')
 
     try:
         quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), item.quantity))
         if quantity <= 0:
-            return jsonify({'status': 'error', 'msg': '数量必须大于0'})
+            return api_error('数量必须大于0')
         if item.material and (item.material.stock or 0) < quantity:
-            return jsonify({'status': 'error', 'msg': f'物料 {item.material.code} 库存不足，当前库存：{item.material.stock or 0}'})
+            return api_error(f'物料 {item.material.code} 库存不足，当前库存：{item.material.stock or 0}')
 
         item.quantity = quantity
         db.session.commit()
@@ -28651,7 +28651,7 @@ def update_requisition_item(id, item_id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'工单领料明细修改失败: {e}')
-        return jsonify({'status': 'error', 'msg': '修改失败，请稍后重试'})
+        return api_error('修改失败，请稍后重试')
 
 @app.route('/requisition/<int:id>/item/<int:item_id>/delete', methods=['POST'])
 @require_role('production')
@@ -28659,10 +28659,10 @@ def update_requisition_item(id, item_id):
 def delete_requisition_item(id, item_id):
     requisition = ProductionRequisition.query.get_or_404(id)
     if requisition.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的工单领料单可以删除明细'})
+        return api_error('只有草稿状态的工单领料单可以删除明细')
     item = ProductionRequisitionItem.query.get_or_404(item_id)
     if item.requisition_id != id:
-        return jsonify({'status': 'error', 'msg': '工单领料明细不存在或已被删除'})
+        return api_error('工单领料明细不存在或已被删除')
     db.session.delete(item)
     try:
         db.session.commit()
@@ -28678,16 +28678,16 @@ def delete_requisition_item(id, item_id):
 def batch_delete_requisition_items(id):
     requisition = ProductionRequisition.query.get_or_404(id)
     if requisition.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的工单领料单可以删除明细'})
+        return api_error('只有草稿状态的工单领料单可以删除明细')
 
     data = request.get_json(silent=True) or {}
     ids = data.get('ids') or []
     try:
         ids = [int(item_id) for item_id in ids]
     except (TypeError, ValueError):
-        return jsonify({'status': 'error', 'msg': '请选择要删除的明细'})
+        return api_error('请选择要删除的明细')
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的明细'})
+        return api_error('请选择要删除的明细')
 
     try:
         ProductionRequisitionItem.query.filter(
@@ -28699,7 +28699,7 @@ def batch_delete_requisition_items(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'批量删除工单领料明细失败: {e}')
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 @app.route('/requisition/<int:id>/batch_add_items', methods=['POST'])
 @require_role('production')
@@ -28707,12 +28707,12 @@ def batch_delete_requisition_items(id):
 def batch_add_requisition_items(id):
     requisition = ProductionRequisition.query.get_or_404(id)
     if requisition.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的工单领料单可以添加明细'})
+        return api_error('只有草稿状态的工单领料单可以添加明细')
 
     data = request.get_json(silent=True) or {}
     content = (data.get('content') or '').strip()
     if not content:
-        return jsonify({'status': 'error', 'msg': '请输入物料信息'})
+        return api_error('请输入物料信息')
 
     added = 0
     errors = []
@@ -28742,7 +28742,7 @@ def batch_add_requisition_items(id):
             ))
             added += 1
         if added == 0:
-            return jsonify({'status': 'error', 'msg': errors[0] if errors else '未添加任何明细'})
+            return api_error(errors[0] if errors else '未添加任何明细')
         db.session.commit()
         msg = f'成功添加 {added} 条'
         if errors:
@@ -28751,7 +28751,7 @@ def batch_add_requisition_items(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'批量添加工单领料明细失败: {e}')
-        return jsonify({'status': 'error', 'msg': '添加失败，请稍后重试'})
+        return api_error('添加失败，请稍后重试')
 
 @app.route('/requisition/<int:id>/complete', methods=['POST'])
 @require_role('production')
@@ -28759,12 +28759,12 @@ def batch_add_requisition_items(id):
 def complete_requisition(id):
     requisition = ProductionRequisition.query.get_or_404(id)
     if requisition.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '当前工单领料单状态不可完结'})
+        return api_error('当前工单领料单状态不可完结')
     try:
         # 加写锁并重新读取状态，避免多 worker 并发重复扣库存
         locked, ok = _acquire_order_write_lock(ProductionRequisition, id, 'pending', selectinload(ProductionRequisition.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '当前工单领料单状态不可完结'})
+            return api_error('当前工单领料单状态不可完结')
         requisition = locked
         for item in requisition.items:
             ok, error_msg = deduct_stock(item.material, item.quantity or 0,
@@ -28773,18 +28773,18 @@ def complete_requisition(id):
                                          reference_id=requisition.id)
             if not ok:
                 db.session.rollback()
-                return jsonify({'status': 'error', 'msg': error_msg or f'物料 {item.material.code} 库存不足'})
+                return api_error(error_msg or f'物料 {item.material.code} 库存不足')
         requisition.status = 'completed'
         try:
             db.session.commit()
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
-            return jsonify({'status': 'error', 'msg': '提交失败，请稍后重试'})
+            return api_error('提交失败，请稍后重试')
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'工单领料完成失败: {e}')
-        return jsonify({'status': 'error', 'msg': '提交失败，请稍后重试'})
+        return api_error('提交失败，请稍后重试')
     log_operation('工单领料完成', f'工单领料单：{requisition.req_no}', 'requisition', id)
     return jsonify({'status': 'success'})
 
@@ -28796,13 +28796,13 @@ def revert_requisition(id):
     """工单领料单撤销"""
     requisition = ProductionRequisition.query.get_or_404(id)
     if requisition.status != 'completed':
-        return jsonify({'status': 'error', 'msg': '只有已完成的工单领料单可以撤销'})
+        return api_error('只有已完成的工单领料单可以撤销')
 
     try:
         # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复恢复
         locked, ok = _acquire_order_write_lock(ProductionRequisition, id, 'completed', selectinload(ProductionRequisition.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该工单领料单已撤销，不能重复操作'})
+            return api_error('该工单领料单已撤销，不能重复操作')
         requisition = locked
         # 恢复库存（走 add_stock 写流水+归一化，与 complete_requisition 对称）
         for item in requisition.items:
@@ -28814,7 +28814,7 @@ def revert_requisition(id):
                                     remark=f'撤销工单领料单 {requisition.req_no}')
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err or '库存恢复失败'})
+                    return api_error(err or '库存恢复失败')
 
         requisition.status = 'pending'
         try:
@@ -28822,13 +28822,13 @@ def revert_requisition(id):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
-            return jsonify({'status': 'error', 'msg': '撤销失败，请稍后重试'})
+            return api_error('撤销失败，请稍后重试')
 
         log_operation('撤销工单领料单', f'工单领料单：{requisition.req_no}', 'requisition', id)
         return jsonify({'status': 'success', 'msg': '工单领料单已撤销，库存已恢复'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '撤销失败，请稍后重试'})
+        return api_error('撤销失败，请稍后重试')
 
 
 @app.route('/requisition/<int:id>/delete', methods=['POST'])
@@ -28857,13 +28857,13 @@ def batch_delete_requisition():
     ids = data.get('ids') or request.form.getlist('ids')
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的工单领料单'})
+        return api_error('请选择要删除的工单领料单')
     blocked = [
         requisition.req_no for requisition in ProductionRequisition.query.filter(ProductionRequisition.id.in_(ids)).all()
         if requisition.status != 'pending'
     ]
     if blocked:
-        return jsonify({'status': 'error', 'msg': '只能删除草稿工单领料单：' + '、'.join(blocked)})
+        return api_error('只能删除草稿工单领料单：' + '、'.join(blocked))
     for rid in ids:
         ProductionRequisitionItem.query.filter_by(requisition_id=rid).delete()
         ProductionRequisition.query.filter_by(id=rid).delete()
@@ -28958,13 +28958,13 @@ def export_requisition_template():
 def import_requisition():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的工单领料文件'})
+        return api_error('请选择要导入的工单领料文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     aliases = {
         'order_no': ['单据编号', '工单领料单号', '订单编号'],
         'date': ['日期'],
@@ -28982,7 +28982,7 @@ def import_requisition():
         ws, col_map, header_row = _read_import_sheet(file, aliases)
         required = {'material_code', 'quantity'}
         if not required.issubset(col_map):
-            return jsonify({'status': 'error', 'msg': f'Excel表头缺少必要列（物料编码、数量）。检测到的表头：{", ".join(header_row)}'})
+            return api_error(f'Excel表头缺少必要列（物料编码、数量）。检测到的表头：{", ".join(header_row)}')
         orders_by_no = {}
         order_count = 0
         item_count = 0
@@ -29037,7 +29037,7 @@ def import_requisition():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'工单领料导入失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'工单领料导入失败：{str(e)}'})
+        return api_error(f'工单领料导入失败：{str(e)}')
 
 
 # ==================== Subcontract ====================
@@ -29195,7 +29195,7 @@ def add_subcontract():
         return jsonify({'status': 'success'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 @app.route('/subcontract/<int:id>/item/add', methods=['POST'])
 @require_role('production')
@@ -29203,7 +29203,7 @@ def add_subcontract():
 def add_subcontract_item(id):
     order = SubcontractOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的委外单可以添加明细'})
+        return api_error('只有草稿状态的委外单可以添加明细')
     try:
         material_code = (request.form.get('material_code') or '').strip()
         quantity = parse_float_value(request.form.get('quantity'), 0)
@@ -29211,9 +29211,9 @@ def add_subcontract_item(id):
 
         material = Material.query.filter_by(code=material_code).first()
         if not material:
-            return jsonify({'status': 'error', 'msg': '物料编码不存在'})
+            return api_error('物料编码不存在')
         if quantity <= 0:
-            return jsonify({'status': 'error', 'msg': '委外数量必须大于 0'})
+            return api_error('委外数量必须大于 0')
 
         item = SubcontractItem(
             subcontract_order_id=id,
@@ -29236,7 +29236,7 @@ def add_subcontract_item(id):
         return jsonify({'status': 'success', 'msg': '委外明细新增成功', 'id': item.id})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 @app.route('/subcontract/<int:id>/item/<int:item_id>/delete', methods=['POST'])
 @require_role('production')
@@ -29244,10 +29244,10 @@ def add_subcontract_item(id):
 def delete_subcontract_item(id, item_id):
     order = SubcontractOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的委外单可以删除明细'})
+        return api_error('只有草稿状态的委外单可以删除明细')
     item = SubcontractItem.query.get_or_404(item_id)
     if item.subcontract_order_id != id:
-        return jsonify({'status': 'error', 'msg': '委外明细不存在或已被删除'})
+        return api_error('委外明细不存在或已被删除')
     db.session.delete(item)
     db.session.flush()
     order.total_amount = round_to_2_decimals(sum(
@@ -29272,16 +29272,16 @@ def quick_issue_subcontract(id):
     material_code = (request.form.get('material_code') or '').strip()
     quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), 0))
     if not material_code:
-        return jsonify({'status': 'error', 'msg': '请输入物料编码'})
+        return api_error('请输入物料编码')
     if quantity <= 0:
-        return jsonify({'status': 'error', 'msg': '发料数量必须大于 0'})
+        return api_error('发料数量必须大于 0')
 
     material = Material.query.filter_by(code=material_code).first()
     if not material:
-        return jsonify({'status': 'error', 'msg': '物料编码不存在'})
+        return api_error('物料编码不存在')
     current_stock = normalize_stock_quantity(material.stock or 0)
     if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-        return jsonify({'status': 'error', 'msg': f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}'})
+        return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
 
     try:
         issue_no = generate_order_no('SF')
@@ -29307,7 +29307,7 @@ def quick_issue_subcontract(id):
                      reference_id=issue.id)
         if not ok:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': error_msg or '库存扣减失败'})
+            return api_error(error_msg or '库存扣减失败')
         if order.status == 'pending':
             order.status = 'processing'
         db.session.commit()
@@ -29316,7 +29316,7 @@ def quick_issue_subcontract(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'委外快速发料失败: {e}')
-        return jsonify({'status': 'error', 'msg': '发料失败，请稍后重试'})
+        return api_error('发料失败，请稍后重试')
 
 
 @app.route('/subcontract/<int:id>/receive', methods=['POST'])
@@ -29328,13 +29328,13 @@ def quick_receive_subcontract(id):
     quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), 0))
     price = round_to_2_decimals(parse_float_value(request.form.get('price'), 0))
     if not material_code:
-        return jsonify({'status': 'error', 'msg': '请输入产品编码'})
+        return api_error('请输入产品编码')
     if quantity <= 0:
-        return jsonify({'status': 'error', 'msg': '收货数量必须大于 0'})
+        return api_error('收货数量必须大于 0')
 
     material = Material.query.filter_by(code=material_code).first()
     if not material:
-        return jsonify({'status': 'error', 'msg': '产品编码不存在'})
+        return api_error('产品编码不存在')
 
     try:
         receive_no = generate_order_no('SR')
@@ -29378,7 +29378,7 @@ def quick_receive_subcontract(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'委外快速收货失败: {e}')
-        return jsonify({'status': 'error', 'msg': '收货失败，请稍后重试'})
+        return api_error('收货失败，请稍后重试')
 
 
 @app.route('/subcontract/<int:id>/edit', methods=['POST'])
@@ -29388,7 +29388,7 @@ def edit_subcontract_header(id):
     """编辑委外单基础信息（仅 pending 状态可编辑）"""
     order = SubcontractOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待处理状态的委外单可以编辑'})
+        return api_error('只有待处理状态的委外单可以编辑')
 
     data = request.get_json(silent=True) or request.form
     try:
@@ -29418,7 +29418,7 @@ def edit_subcontract_header(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'编辑委外单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 
 @app.route('/subcontract/<int:id>/copy', methods=['POST'])
@@ -29430,7 +29430,7 @@ def copy_subcontract(id):
         selectinload(SubcontractOrder.items),
     ).get_or_404(id)
     if not source.items:
-        return jsonify({'status': 'error', 'msg': '原委外单没有产品明细，不能复制'})
+        return api_error('原委外单没有产品明细，不能复制')
 
     try:
         new_order = SubcontractOrder(
@@ -29478,7 +29478,7 @@ def copy_subcontract(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'复制委外单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
+        return api_error('复制失败，请稍后重试')
 
 
 @app.route('/subcontract/<int:id>/submit', methods=['POST'])
@@ -29488,9 +29488,9 @@ def submit_subcontract(id):
     """提交委外单（pending -> processing）"""
     order = SubcontractOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待处理状态的委外单可以提交'})
+        return api_error('只有待处理状态的委外单可以提交')
     if not order.items:
-        return jsonify({'status': 'error', 'msg': '请先添加产品明细再提交'})
+        return api_error('请先添加产品明细再提交')
     try:
         order.status = 'processing'
         db.session.commit()
@@ -29498,7 +29498,7 @@ def submit_subcontract(id):
         return jsonify({'status': 'success', 'msg': '委外单已提交，进入加工中'})
     except Exception:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '提交失败，请稍后重试'})
+        return api_error('提交失败，请稍后重试')
 
 
 @app.route('/subcontract/<int:id>/revert_to_pending', methods=['POST'])
@@ -29508,12 +29508,12 @@ def revert_subcontract_to_pending(id):
     """反提交委外单（processing/cancelled -> pending）"""
     order = SubcontractOrder.query.get_or_404(id)
     if order.status == 'completed':
-        return jsonify({'status': 'error', 'msg': '已完结的委外单请使用「反完结」按钮'})
+        return api_error('已完结的委外单请使用「反完结」按钮')
     if order.status == 'pending':
-        return jsonify({'status': 'error', 'msg': '该委外单已经是待处理状态'})
+        return api_error('该委外单已经是待处理状态')
     # 已发料或已收货的反提交需要先回滚库存
     if order.issue_orders:
-        return jsonify({'status': 'error', 'msg': '该委外单已发料，不能反提交'})
+        return api_error('该委外单已发料，不能反提交')
     try:
         order.status = 'pending'
         db.session.commit()
@@ -29521,7 +29521,7 @@ def revert_subcontract_to_pending(id):
         return jsonify({'status': 'success', 'msg': '反提交成功，单据已回到待处理'})
     except Exception:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '反提交失败，请稍后重试'})
+        return api_error('反提交失败，请稍后重试')
 
 
 @app.route('/subcontract/<int:id>/delete', methods=['POST'])
@@ -29531,12 +29531,12 @@ def delete_subcontract(id):
     order = SubcontractOrder.query.get_or_404(id)
     # 仅待处理状态可删除，避免删除已发料/已收货/进行中的委外单造成库存与单据不一致
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待处理状态的委外加工单可以删除'})
+        return api_error('只有待处理状态的委外加工单可以删除')
     # 已有发料/收货单据关联的委外单不能删除，否则会破坏外键与库存追溯链
     if order.issue_orders:
-        return jsonify({'status': 'error', 'msg': '该委外加工单已有关联发料单，不能删除'})
+        return api_error('该委外加工单已有关联发料单，不能删除')
     if order.receive_orders:
-        return jsonify({'status': 'error', 'msg': '该委外加工单已有关联收货单，不能删除'})
+        return api_error('该委外加工单已有关联收货单，不能删除')
     SubcontractItem.query.filter_by(subcontract_order_id=id).delete()
     db.session.delete(order)
     try:
@@ -29555,18 +29555,18 @@ def batch_delete_subcontract():
     ids = data.get('ids') or request.form.getlist('ids')
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的委外加工单'})
+        return api_error('请选择要删除的委外加工单')
     for oid in ids:
         order = db.session.get(SubcontractOrder, oid)
         if not order:
             continue
         # 批量删除同样需要状态与关联校验，跳过不符合条件的单据并返回提示
         if order.status != 'pending':
-            return jsonify({'status': 'error', 'msg': f'委外加工单“{order.order_no}”非待处理状态，不能删除'})
+            return api_error(f'委外加工单“{order.order_no}”非待处理状态，不能删除')
         if order.issue_orders:
-            return jsonify({'status': 'error', 'msg': f'委外加工单“{order.order_no}”已有关联发料单，不能删除'})
+            return api_error(f'委外加工单“{order.order_no}”已有关联发料单，不能删除')
         if order.receive_orders:
-            return jsonify({'status': 'error', 'msg': f'委外加工单“{order.order_no}”已有关联收货单，不能删除'})
+            return api_error(f'委外加工单“{order.order_no}”已有关联收货单，不能删除')
         SubcontractItem.query.filter_by(subcontract_order_id=oid).delete()
         db.session.delete(order)
     try:
@@ -29592,10 +29592,10 @@ def batch_update_subcontract_status():
     try:
         ids = [int(item) for item in ids]
     except (TypeError, ValueError):
-        return jsonify({'status': 'error', 'msg': '委外单参数格式错误'})
+        return api_error('委外单参数格式错误')
 
     if status not in {'pending', 'processing', 'completed', 'cancelled'}:
-        return jsonify({'status': 'error', 'msg': '目标状态不合法'})
+        return api_error('目标状态不合法')
 
     updated = 0
     for oid in ids:
@@ -29685,13 +29685,13 @@ def export_subcontract_template():
 def import_subcontract():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的委外加工文件'})
+        return api_error('请选择要导入的委外加工文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     aliases = {
         'order_no': ['单据编号', '委外加工单号', '委外单号'],
         'date': ['日期'],
@@ -29710,7 +29710,7 @@ def import_subcontract():
         ws, col_map, header_row = _read_import_sheet(file, aliases)
         required = {'supplier', 'material_code', 'quantity'}
         if not required.issubset(col_map):
-            return jsonify({'status': 'error', 'msg': f'Excel表头缺少必要列（加工厂商、物料编码、数量）。检测到的表头：{", ".join(header_row)}'})
+            return api_error(f'Excel表头缺少必要列（加工厂商、物料编码、数量）。检测到的表头：{", ".join(header_row)}')
         orders_by_no = {}
         order_count = 0
         item_count = 0
@@ -29767,7 +29767,7 @@ def import_subcontract():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'委外加工导入失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'委外加工导入失败：{str(e)}'})
+        return api_error(f'委外加工导入失败：{str(e)}')
 
 
 @app.route('/subcontract/<int:id>/complete', methods=['POST'])
@@ -29777,9 +29777,9 @@ def complete_subcontract_order(id):
     """完结委外单"""
     order = SubcontractOrder.query.get_or_404(id)
     if order.status == 'completed':
-        return jsonify({'status': 'error', 'msg': '该委外单已完结'})
+        return api_error('该委外单已完结')
     if order.status == 'cancelled':
-        return jsonify({'status': 'error', 'msg': '已取消的委外单不能完结'})
+        return api_error('已取消的委外单不能完结')
     
     try:
         order.status = 'completed'
@@ -29789,7 +29789,7 @@ def complete_subcontract_order(id):
         return jsonify({'status': 'success', 'msg': '委外单已完结'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 
 @app.route('/subcontract/<int:id>/revert', methods=['POST'])
@@ -29799,7 +29799,7 @@ def revert_subcontract_order(id):
     """反完结委外单"""
     order = SubcontractOrder.query.get_or_404(id)
     if order.status != 'completed':
-        return jsonify({'status': 'error', 'msg': '只有已完结的委外单可以反完结'})
+        return api_error('只有已完结的委外单可以反完结')
     try:
         order.status = 'processing' if any(issue.status == 'completed' for issue in order.issue_orders) or any(receive.status == 'completed' for receive in order.receive_orders) else 'pending'
         db.session.commit()
@@ -29807,7 +29807,7 @@ def revert_subcontract_order(id):
         return jsonify({'status': 'success', 'msg': '反完结成功'})
     except Exception:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '反完结失败，请稍后重试'})
+        return api_error('反完结失败，请稍后重试')
 
 
 # ==================== Subcontract Issue ====================
@@ -29872,11 +29872,11 @@ def add_subcontract_issue():
         remark = (request.form.get('remark') or '').strip()
         
         if not subcontract_order_id:
-            return jsonify({'status': 'error', 'msg': '请选择委外加工单'})
+            return api_error('请选择委外加工单')
         
         subcontract_order = SubcontractOrder.query.get(int(subcontract_order_id))
         if not subcontract_order:
-            return jsonify({'status': 'error', 'msg': '委外加工单不存在'})
+            return api_error('委外加工单不存在')
         
         if not issue_no:
             issue_no = generate_order_no('SF')
@@ -29933,7 +29933,7 @@ def add_subcontract_issue():
         return jsonify({'status': 'success', 'msg': '委外发料单创建成功', 'id': issue.id})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '创建失败，请稍后重试'})
+        return api_error('创建失败，请稍后重试')
 
 
 @app.route('/subcontract/issue/<int:id>')
@@ -30007,25 +30007,25 @@ def add_subcontract_issue_item(id):
     """添加委外发料明细"""
     issue = SubcontractIssue.query.get_or_404(id)
     if issue.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待发料状态可以添加明细'})
+        return api_error('只有待发料状态可以添加明细')
     
     try:
         material_code = (request.form.get('material_code') or '').strip()
         quantity = parse_float_value(request.form.get('quantity'), 0)
 
         if not material_code:
-            return jsonify({'status': 'error', 'msg': '请选择物料'})
+            return api_error('请选择物料')
         if quantity <= 0:
-            return jsonify({'status': 'error', 'msg': '数量必须大于0'})
+            return api_error('数量必须大于0')
 
         material = Material.query.filter_by(code=material_code).first()
         if not material:
-            return jsonify({'status': 'error', 'msg': f'物料 {material_code} 不存在'})
+            return api_error(f'物料 {material_code} 不存在')
 
         # 检查库存是否充足
         current_stock = normalize_stock_quantity(material.stock or 0)
         if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-            return jsonify({'status': 'error', 'msg': f'物料 {material_code} 库存不足，当前库存：{current_stock:.2f}'})
+            return api_error(f'物料 {material_code} 库存不足，当前库存：{current_stock:.2f}')
         
         item = SubcontractIssueItem(
             issue_id=id,
@@ -30044,7 +30044,7 @@ def add_subcontract_issue_item(id):
         return jsonify({'status': 'success', 'msg': '发料明细添加成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '添加失败，请稍后重试'})
+        return api_error('添加失败，请稍后重试')
 
 
 @app.route('/subcontract_issue/<int:id>/complete', methods=['POST'])
@@ -30055,20 +30055,20 @@ def complete_subcontract_issue(id):
     """完成委外发料"""
     issue = SubcontractIssue.query.get_or_404(id)
     if issue.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待发料状态可以完成发料'})
+        return api_error('只有待发料状态可以完成发料')
 
     if not issue.items:
-        return jsonify({'status': 'error', 'msg': '发料单没有明细，无法完成'})
+        return api_error('发料单没有明细，无法完成')
 
     try:
         # 加写锁并重新读取状态，避免多 worker 并发重复扣库存
         locked, ok = _acquire_order_write_lock(SubcontractIssue, id, 'pending', selectinload(SubcontractIssue.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该委外发料单已提交，不能重复操作'})
+            return api_error('该委外发料单已提交，不能重复操作')
         issue = locked
         if not issue.items:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '发料单没有明细，无法完成'})
+            return api_error('发料单没有明细，无法完成')
         # 先检查库存是否充足
         for item in issue.items:
             if item.material:
@@ -30090,7 +30090,7 @@ def complete_subcontract_issue(id):
                              reference_id=issue.id)
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': error_msg or '库存扣减失败'})
+                    return api_error(error_msg or '库存扣减失败')
 
         issue.status = 'completed'
         try:
@@ -30098,13 +30098,13 @@ def complete_subcontract_issue(id):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
-            return jsonify({'status': 'error', 'msg': '提交失败，请稍后重试'})
+            return api_error('提交失败，请稍后重试')
 
         log_operation('完成委外发料', f'发料单：{issue.issue_no}', 'subcontract_issue', id)
         return jsonify({'status': 'success', 'msg': '委外发料完成，库存已扣减'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 
 @app.route('/subcontract_issue/<int:id>/revert', methods=['POST'])
@@ -30115,12 +30115,12 @@ def revert_subcontract_issue(id):
     """反提交委外发料"""
     issue = SubcontractIssue.query.get_or_404(id)
     if issue.status != 'completed':
-        return jsonify({'status': 'error', 'msg': '只有已发料的委外发料单可以反提交'})
+        return api_error('只有已发料的委外发料单可以反提交')
     try:
         # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复恢复
         locked, ok = _acquire_order_write_lock(SubcontractIssue, id, 'completed', selectinload(SubcontractIssue.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该委外发料单已反提交，不能重复操作'})
+            return api_error('该委外发料单已反提交，不能重复操作')
         issue = locked
         for item in issue.items:
             if item.material:
@@ -30131,14 +30131,14 @@ def revert_subcontract_issue(id):
                                     remark=f'反提交委外发料 {issue.issue_no}')
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err or '库存恢复失败'})
+                    return api_error(err or '库存恢复失败')
         issue.status = 'pending'
         db.session.commit()
         log_operation('反提交委外发料', f'发料单：{issue.issue_no}', 'subcontract_issue', id)
         return jsonify({'status': 'success', 'msg': '反提交成功，库存已恢复'})
     except Exception:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '反提交失败，请稍后重试'})
+        return api_error('反提交失败，请稍后重试')
 
 
 @app.route('/subcontract_issue/<int:id>/delete', methods=['POST'])
@@ -30150,7 +30150,7 @@ def delete_subcontract_issue(id):
     """删除委外发料单"""
     issue = SubcontractIssue.query.get_or_404(id)
     if issue.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待发料状态可以删除'})
+        return api_error('只有待发料状态可以删除')
     
     try:
         # 删除明细
@@ -30162,7 +30162,7 @@ def delete_subcontract_issue(id):
         return jsonify({'status': 'success', 'msg': '删除成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/subcontract_issue/batch_delete', methods=['POST'])
@@ -30174,11 +30174,11 @@ def batch_delete_subcontract_issue():
     ids = data.get('ids') or request.form.getlist('ids')
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的委外发料单'})
+        return api_error('请选择要删除的委外发料单')
     issues = SubcontractIssue.query.filter(SubcontractIssue.id.in_(ids)).all()
     blocked = [issue.issue_no for issue in issues if issue.status != 'pending']
     if blocked:
-        return jsonify({'status': 'error', 'msg': '只能删除待发料单据：' + '、'.join(blocked)})
+        return api_error('只能删除待发料单据：' + '、'.join(blocked))
     try:
         SubcontractIssueItem.query.filter(SubcontractIssueItem.issue_id.in_(ids)).delete(synchronize_session=False)
         deleted = SubcontractIssue.query.filter(SubcontractIssue.id.in_(ids)).delete(synchronize_session=False)
@@ -30188,7 +30188,7 @@ def batch_delete_subcontract_issue():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'批量删除委外发料单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/subcontract_issue/export')
@@ -30257,13 +30257,13 @@ def export_subcontract_issue_template():
 def import_subcontract_issue():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的委外发料文件'})
+        return api_error('请选择要导入的委外发料文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     aliases = {
         'order_no': ['发料单号', '单据编号'],
         'date': ['日期'],
@@ -30280,7 +30280,7 @@ def import_subcontract_issue():
         ws, col_map, header_row = _read_import_sheet(file, aliases)
         required = {'material_code', 'quantity'}
         if not required.issubset(col_map):
-            return jsonify({'status': 'error', 'msg': f'Excel表头缺少必要列（物料编码、数量）。检测到的表头：{", ".join(header_row)}'})
+            return api_error(f'Excel表头缺少必要列（物料编码、数量）。检测到的表头：{", ".join(header_row)}')
         orders_by_no = {}
         order_count = 0
         item_count = 0
@@ -30335,7 +30335,7 @@ def import_subcontract_issue():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'委外发料导入失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'委外发料导入失败：{str(e)}'})
+        return api_error(f'委外发料导入失败：{str(e)}')
 
 
 # ==================== Subcontract Receive ====================
@@ -30400,11 +30400,11 @@ def add_subcontract_receive():
         remark = (request.form.get('remark') or '').strip()
         
         if not subcontract_order_id:
-            return jsonify({'status': 'error', 'msg': '请选择委外加工单'})
+            return api_error('请选择委外加工单')
         
         subcontract_order = SubcontractOrder.query.get(int(subcontract_order_id))
         if not subcontract_order:
-            return jsonify({'status': 'error', 'msg': '委外加工单不存在'})
+            return api_error('委外加工单不存在')
         
         if not receive_no:
             receive_no = generate_order_no('SR')
@@ -30472,7 +30472,7 @@ def add_subcontract_receive():
         return jsonify({'status': 'success', 'msg': '委外收货单创建成功', 'id': receive.id})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '创建失败，请稍后重试'})
+        return api_error('创建失败，请稍后重试')
 
 
 @app.route('/subcontract/receive/<int:id>')
@@ -30563,7 +30563,7 @@ def add_subcontract_receive_item(id):
     """添加委外收货明细"""
     receive = SubcontractReceive.query.get_or_404(id)
     if receive.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待收货状态可以添加明细'})
+        return api_error('只有待收货状态可以添加明细')
     
     try:
         material_code = (request.form.get('material_code') or '').strip()
@@ -30571,13 +30571,13 @@ def add_subcontract_receive_item(id):
         scrap_quantity = parse_float_value(request.form.get('scrap_quantity'), 0)
 
         if not material_code:
-            return jsonify({'status': 'error', 'msg': '请选择物料'})
+            return api_error('请选择物料')
         if quantity <= 0:
-            return jsonify({'status': 'error', 'msg': '收货数量必须大于0'})
+            return api_error('收货数量必须大于0')
         
         material = Material.query.filter_by(code=material_code).first()
         if not material:
-            return jsonify({'status': 'error', 'msg': f'物料 {material_code} 不存在'})
+            return api_error(f'物料 {material_code} 不存在')
         
         item = SubcontractReceiveItem(
             receive_id=id,
@@ -30597,7 +30597,7 @@ def add_subcontract_receive_item(id):
         return jsonify({'status': 'success', 'msg': '收货明细添加成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '添加失败，请稍后重试'})
+        return api_error('添加失败，请稍后重试')
 
 
 @app.route('/subcontract_receive/<int:id>/complete', methods=['POST'])
@@ -30608,20 +30608,20 @@ def complete_subcontract_receive(id):
     """完成委外收货"""
     receive = SubcontractReceive.query.get_or_404(id)
     if receive.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待收货状态可以完成收货'})
+        return api_error('只有待收货状态可以完成收货')
 
     if not receive.items:
-        return jsonify({'status': 'error', 'msg': '收货单没有明细，无法完成'})
+        return api_error('收货单没有明细，无法完成')
 
     try:
         # 加写锁并重新读取状态，避免多 worker 并发重复入库
         locked, ok = _acquire_order_write_lock(SubcontractReceive, id, 'pending', selectinload(SubcontractReceive.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该委外收货单已提交，不能重复操作'})
+            return api_error('该委外收货单已提交，不能重复操作')
         receive = locked
         if not receive.items:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '收货单没有明细，无法完成'})
+            return api_error('收货单没有明细，无法完成')
         # 增加库存
         total_quantity = 0
         total_scrap = 0
@@ -30635,7 +30635,7 @@ def complete_subcontract_receive(id):
                                     remark=f'完成委外收货 {receive.receive_no}')
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err or '库存增加失败'})
+                    return api_error(err or '库存增加失败')
                 total_quantity += item.quantity or 0
                 total_scrap += item.scrap_quantity or 0
 
@@ -30653,7 +30653,7 @@ def complete_subcontract_receive(id):
         return jsonify({'status': 'success', 'msg': '委外收货完成，库存已增加'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 
 @app.route('/subcontract_receive/<int:id>/revert', methods=['POST'])
@@ -30664,12 +30664,12 @@ def revert_subcontract_receive(id):
     """反提交委外收货"""
     receive = SubcontractReceive.query.get_or_404(id)
     if receive.status != 'completed':
-        return jsonify({'status': 'error', 'msg': '只有已入库的委外收货单可以反提交'})
+        return api_error('只有已入库的委外收货单可以反提交')
     try:
         # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复回退
         locked, ok = _acquire_order_write_lock(SubcontractReceive, id, 'completed', selectinload(SubcontractReceive.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该委外收货单已反提交，不能重复操作'})
+            return api_error('该委外收货单已反提交，不能重复操作')
         receive = locked
         for item in receive.items:
             if item.material:
@@ -30683,14 +30683,14 @@ def revert_subcontract_receive(id):
                 )
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': error_msg or '库存回退失败'})
+                    return api_error(error_msg or '库存回退失败')
         receive.status = 'pending'
         db.session.commit()
         log_operation('反提交委外收货', f'收货单：{receive.receive_no}', 'subcontract_receive', id)
         return jsonify({'status': 'success', 'msg': '反提交成功，库存已回退'})
     except Exception:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '反提交失败，请稍后重试'})
+        return api_error('反提交失败，请稍后重试')
 
 
 @app.route('/subcontract_receive/<int:id>/delete', methods=['POST'])
@@ -30702,7 +30702,7 @@ def delete_subcontract_receive(id):
     """删除委外收货单"""
     receive = SubcontractReceive.query.get_or_404(id)
     if receive.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待收货状态可以删除'})
+        return api_error('只有待收货状态可以删除')
     
     try:
         # 删除明细
@@ -30714,7 +30714,7 @@ def delete_subcontract_receive(id):
         return jsonify({'status': 'success', 'msg': '删除成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/subcontract_receive/batch_delete', methods=['POST'])
@@ -30726,11 +30726,11 @@ def batch_delete_subcontract_receive():
     ids = data.get('ids') or request.form.getlist('ids')
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的委外入库单'})
+        return api_error('请选择要删除的委外入库单')
     receives = SubcontractReceive.query.filter(SubcontractReceive.id.in_(ids)).all()
     blocked = [receive.receive_no for receive in receives if receive.status != 'pending']
     if blocked:
-        return jsonify({'status': 'error', 'msg': '只能删除待入库单据：' + '、'.join(blocked)})
+        return api_error('只能删除待入库单据：' + '、'.join(blocked))
     try:
         SubcontractReceiveItem.query.filter(SubcontractReceiveItem.receive_id.in_(ids)).delete(synchronize_session=False)
         deleted = SubcontractReceive.query.filter(SubcontractReceive.id.in_(ids)).delete(synchronize_session=False)
@@ -30740,7 +30740,7 @@ def batch_delete_subcontract_receive():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'批量删除委外入库单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/subcontract_receive/export')
@@ -30812,13 +30812,13 @@ def export_subcontract_receive_template():
 def import_subcontract_receive():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的委外入库文件'})
+        return api_error('请选择要导入的委外入库文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     aliases = {
         'order_no': ['入库单号', '单据编号'],
         'date': ['日期'],
@@ -30837,7 +30837,7 @@ def import_subcontract_receive():
         ws, col_map, header_row = _read_import_sheet(file, aliases)
         required = {'material_code', 'quantity'}
         if not required.issubset(col_map):
-            return jsonify({'status': 'error', 'msg': f'Excel表头缺少必要列（物料编码、收货数量）。检测到的表头：{", ".join(header_row)}'})
+            return api_error(f'Excel表头缺少必要列（物料编码、收货数量）。检测到的表头：{", ".join(header_row)}')
         orders_by_no = {}
         order_count = 0
         item_count = 0
@@ -30902,7 +30902,7 @@ def import_subcontract_receive():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'委外入库导入失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'委外入库导入失败：{str(e)}'})
+        return api_error(f'委外入库导入失败：{str(e)}')
 
 
 # ==================== Transfer ====================
@@ -30985,29 +30985,29 @@ def save_transfer_table():
     to_location = (header.get('to_location') or '').strip()
 
     if not from_location:
-        return jsonify({'status': 'error', 'msg': '请选择调出仓库'})
+        return api_error('请选择调出仓库')
     if not to_location:
-        return jsonify({'status': 'error', 'msg': '请选择调入仓库'})
+        return api_error('请选择调入仓库')
     if from_location == to_location:
-        return jsonify({'status': 'error', 'msg': '调出仓库和调入仓库不能相同'})
+        return api_error('调出仓库和调入仓库不能相同')
     if not items_data:
-        return jsonify({'status': 'error', 'msg': '请至少填写一条调拨明细'})
+        return api_error('请至少填写一条调拨明细')
 
     try:
         if order_id:
             transfer = db.session.get(TransferOrder, order_id)
             if not transfer:
-                return jsonify({'status': 'error', 'msg': '调拨单不存在，请刷新后重试'})
+                return api_error('调拨单不存在，请刷新后重试')
             if transfer.status != 'pending':
-                return jsonify({'status': 'error', 'msg': '只有草稿状态的调拨单可以修改'})
+                return api_error('只有草稿状态的调拨单可以修改')
             duplicate = TransferOrder.query.filter(TransferOrder.transfer_no == transfer_no, TransferOrder.id != order_id).first()
             if duplicate:
-                return jsonify({'status': 'error', 'msg': '调拨单号已存在'})
+                return api_error('调拨单号已存在')
         else:
             transfer = TransferOrder.query.filter_by(transfer_no=transfer_no).first()
             if transfer:
                 if transfer.status != 'pending':
-                    return jsonify({'status': 'error', 'msg': '调拨单号已存在'})
+                    return api_error('调拨单号已存在')
             else:
                 transfer = TransferOrder(transfer_no=transfer_no, status='pending', operator_id=current_user.id)
                 db.session.add(transfer)
@@ -31025,13 +31025,13 @@ def save_transfer_table():
         for item_data in items_data:
             material = _material_from_payload(item_data)
             if not material:
-                return jsonify({'status': 'error', 'msg': f'物料不存在：{item_data.get("code") or ""}'})
+                return api_error(f'物料不存在：{item_data.get("code") or ""}')
             quantity = round_to_2_decimals(parse_float_value(item_data.get('quantity'), 0))
             if quantity <= 0:
-                return jsonify({'status': 'error', 'msg': f'物料 {material.code} 的数量必须大于0'})
+                return api_error(f'物料 {material.code} 的数量必须大于0')
             current_stock = normalize_stock_quantity(material.stock or 0)
             if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-                return jsonify({'status': 'error', 'msg': f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}'})
+                return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
             price = round_to_2_decimals(parse_float_value(item_data.get('price'), material.price or 0))
             db.session.add(TransferOrderItem(
                 transfer_order_id=transfer.id,
@@ -31049,7 +31049,7 @@ def save_transfer_table():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'保存调拨单表格失败: {e}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 
 @app.route('/transfer/add', methods=['POST'])
@@ -31063,11 +31063,11 @@ def add_transfer():
         remark = (request.form.get('remark') or '').strip()
         
         if not from_location:
-            return jsonify({'status': 'error', 'msg': '请输入调出仓库'})
+            return api_error('请输入调出仓库')
         if not to_location:
-            return jsonify({'status': 'error', 'msg': '请输入调入仓库'})
+            return api_error('请输入调入仓库')
         if from_location == to_location:
-            return jsonify({'status': 'error', 'msg': '调出仓库和调入仓库不能相同'})
+            return api_error('调出仓库和调入仓库不能相同')
         
         transfer_no = generate_order_no('TF')
         transfer = TransferOrder(
@@ -31090,7 +31090,7 @@ def add_transfer():
         return jsonify({'status': 'success', 'msg': '调拨单创建成功', 'id': transfer.id})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '创建失败，请稍后重试'})
+        return api_error('创建失败，请稍后重试')
 
 
 @app.route('/transfer/<int:id>/item/add', methods=['POST'])
@@ -31100,7 +31100,7 @@ def add_transfer_item(id):
     """添加调拨明细"""
     transfer = TransferOrder.query.get_or_404(id)
     if transfer.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的调拨单可以添加明细'})
+        return api_error('只有草稿状态的调拨单可以添加明细')
     
     try:
         material_code = (request.form.get('material_code') or '').strip()
@@ -31108,18 +31108,18 @@ def add_transfer_item(id):
         price = round_to_2_decimals(parse_float_value(request.form.get('price'), 0))
 
         if not material_code:
-            return jsonify({'status': 'error', 'msg': '请选择物料'})
+            return api_error('请选择物料')
         if quantity <= 0:
-            return jsonify({'status': 'error', 'msg': '数量必须大于0'})
+            return api_error('数量必须大于0')
         
         material = Material.query.filter_by(code=material_code).first()
         if not material:
-            return jsonify({'status': 'error', 'msg': f'物料 {material_code} 不存在'})
+            return api_error(f'物料 {material_code} 不存在')
         
         # 检查库存是否充足
         current_stock = normalize_stock_quantity(material.stock or 0)
         if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-            return jsonify({'status': 'error', 'msg': f'物料 {material_code} 库存不足，当前库存：{current_stock:.2f}'})
+            return api_error(f'物料 {material_code} 库存不足，当前库存：{current_stock:.2f}')
         
         item = TransferOrderItem(
             transfer_order_id=id,
@@ -31141,7 +31141,7 @@ def add_transfer_item(id):
         return jsonify({'status': 'success', 'msg': '调拨明细添加成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '添加失败，请稍后重试'})
+        return api_error('添加失败，请稍后重试')
 
 
 @app.route('/transfer/<int:id>/item/<int:item_id>/delete', methods=['POST'])
@@ -31151,11 +31151,11 @@ def delete_transfer_item(id, item_id):
     """删除调拨明细"""
     transfer = TransferOrder.query.get_or_404(id)
     if transfer.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的调拨单可以删除明细'})
+        return api_error('只有草稿状态的调拨单可以删除明细')
     
     item = TransferOrderItem.query.get_or_404(item_id)
     if item.transfer_order_id != id:
-        return jsonify({'status': 'error', 'msg': '调拨明细不属于当前调拨单'})
+        return api_error('调拨明细不属于当前调拨单')
     
     try:
         db.session.delete(item)
@@ -31163,7 +31163,7 @@ def delete_transfer_item(id, item_id):
         return jsonify({'status': 'success', 'msg': '调拨明细删除成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/transfer/<int:id>/item/<int:item_id>/update', methods=['POST'])
@@ -31173,19 +31173,19 @@ def update_transfer_item(id, item_id):
     """修改调拨明细"""
     transfer = TransferOrder.query.get_or_404(id)
     if transfer.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的调拨单可以修改明细'})
+        return api_error('只有草稿状态的调拨单可以修改明细')
 
     item = TransferOrderItem.query.get_or_404(item_id)
     if item.transfer_order_id != id:
-        return jsonify({'status': 'error', 'msg': '调拨明细不属于当前调拨单'})
+        return api_error('调拨明细不属于当前调拨单')
 
     try:
         quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), item.quantity))
         price = round_to_2_decimals(parse_float_value(request.form.get('price'), item.price or 0))
         if quantity <= 0:
-            return jsonify({'status': 'error', 'msg': '数量必须大于0'})
+            return api_error('数量必须大于0')
         if item.material and (item.material.stock or 0) < quantity:
-            return jsonify({'status': 'error', 'msg': f'物料 {item.material.code} 库存不足，当前库存：{item.material.stock or 0}'})
+            return api_error(f'物料 {item.material.code} 库存不足，当前库存：{item.material.stock or 0}')
 
         item.quantity = quantity
         item.price = price
@@ -31197,7 +31197,7 @@ def update_transfer_item(id, item_id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'调拨明细修改失败: {e}')
-        return jsonify({'status': 'error', 'msg': '修改失败，请稍后重试'})
+        return api_error('修改失败，请稍后重试')
 
 
 @app.route('/transfer/<int:id>/batch_delete_items', methods=['POST'])
@@ -31207,17 +31207,17 @@ def batch_delete_transfer_items(id):
     """批量删除调拨明细"""
     transfer = TransferOrder.query.get_or_404(id)
     if transfer.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的调拨单可以删除明细'})
+        return api_error('只有草稿状态的调拨单可以删除明细')
 
     data = request.get_json(silent=True) or {}
     ids = data.get('ids') or request.form.getlist('ids[]') or request.form.getlist('ids')
     try:
         ids = [int(item_id) for item_id in ids]
     except (TypeError, ValueError):
-        return jsonify({'status': 'error', 'msg': '请选择要删除的明细'})
+        return api_error('请选择要删除的明细')
 
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的明细'})
+        return api_error('请选择要删除的明细')
 
     try:
         TransferOrderItem.query.filter(
@@ -31229,7 +31229,7 @@ def batch_delete_transfer_items(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'批量删除调拨明细失败: {e}')
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/transfer/<int:id>/complete', methods=['POST'])
@@ -31239,20 +31239,20 @@ def complete_transfer(id):
     """完成调拨"""
     transfer = TransferOrder.query.get_or_404(id)
     if transfer.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '当前调拨单状态不可完成'})
+        return api_error('当前调拨单状态不可完成')
 
     if not transfer.items:
-        return jsonify({'status': 'error', 'msg': '调拨单没有明细，无法完成'})
+        return api_error('调拨单没有明细，无法完成')
 
     try:
         # 加写锁并重新读取状态，避免多 worker 并发重复扣库位库存
         locked, ok = _acquire_order_write_lock(TransferOrder, id, 'pending', selectinload(TransferOrder.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该调拨单已提交，不能重复操作'})
+            return api_error('该调拨单已提交，不能重复操作')
         transfer = locked
         if not transfer.items:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '调拨单没有明细，无法完成'})
+            return api_error('调拨单没有明细，无法完成')
         # 调拨不改变总库存：只在 from_location 原子扣减、在 to_location 累加，并记录双向流水
         for item in transfer.items:
             if not item.material_id:
@@ -31265,12 +31265,12 @@ def complete_transfer(id):
             )
             if not ok:
                 db.session.rollback()
-                return jsonify({'status': 'error', 'msg': err})
+                return api_error(err)
             # 调入方向用老的 update_location_inventory 自动建账即可（非破坏性）
             ok_in, err_in = update_location_inventory(item.material, transfer.to_location, quantity)
             if not ok_in:
                 db.session.rollback()
-                return jsonify({'status': 'error', 'msg': err_in})
+                return api_error(err_in)
             add_stock_transaction(
                 item.material, -quantity, 'transfer_out',
                 reference_type='transfer',
@@ -31293,7 +31293,7 @@ def complete_transfer(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'调拨完成失败：{e}')
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 
 @app.route('/transfer/<int:id>/revert', methods=['POST'])
@@ -31303,13 +31303,13 @@ def revert_transfer(id):
     """反提交调拨单"""
     transfer = TransferOrder.query.get_or_404(id)
     if transfer.status != 'completed':
-        return jsonify({'status': 'error', 'msg': '只有已完成的调拨单可以反提交'})
+        return api_error('只有已完成的调拨单可以反提交')
 
     try:
         # 加写锁并重新读取状态，避免多 worker 并发反提交导致库位库存重复回退
         locked, ok = _acquire_order_write_lock(TransferOrder, id, 'completed', selectinload(TransferOrder.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该调拨单已反提交，不能重复操作'})
+            return api_error('该调拨单已反提交，不能重复操作')
         transfer = locked
         for item in transfer.items:
             if item.material:
@@ -31317,11 +31317,11 @@ def revert_transfer(id):
                 ok, error_msg = update_location_inventory(item.material, transfer.to_location, -quantity)
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': error_msg})
+                    return api_error(error_msg)
                 loc_ok, loc_err = update_location_inventory(item.material, transfer.from_location, quantity)
                 if not loc_ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': loc_err or '来源库位库存恢复失败'})
+                    return api_error(loc_err or '来源库位库存恢复失败')
                 add_stock_transaction(
                     item.material, quantity, 'transfer_in',
                     reference_type='transfer',
@@ -31344,7 +31344,7 @@ def revert_transfer(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'反提交调拨失败: {e}')
-        return jsonify({'status': 'error', 'msg': '反提交失败，请稍后重试'})
+        return api_error('反提交失败，请稍后重试')
 
 
 @app.route('/transfer/<int:id>/update', methods=['POST'])
@@ -31353,7 +31353,7 @@ def revert_transfer(id):
 def update_transfer(id):
     transfer = TransferOrder.query.get_or_404(id)
     if transfer.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的调拨单可以修改'})
+        return api_error('只有草稿状态的调拨单可以修改')
     try:
         remark = (request.form.get('remark') or '').strip()
         transfer.remark = remark
@@ -31362,7 +31362,7 @@ def update_transfer(id):
         return jsonify({'status': 'success', 'msg': '修改成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '修改失败，请稍后重试'})
+        return api_error('修改失败，请稍后重试')
 
 
 @app.route('/transfer/<int:id>/copy', methods=['POST'])
@@ -31398,7 +31398,7 @@ def copy_transfer(id):
         return jsonify({'status': 'success', 'msg': '复制成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
+        return api_error('复制失败，请稍后重试')
 
 
 @app.route('/transfer/<int:id>/delete', methods=['POST'])
@@ -31408,7 +31408,7 @@ def delete_transfer(id):
     """删除调拨单"""
     transfer = TransferOrder.query.get_or_404(id)
     if transfer.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的调拨单可以删除'})
+        return api_error('只有草稿状态的调拨单可以删除')
     
     try:
         # 删除明细
@@ -31420,7 +31420,7 @@ def delete_transfer(id):
         return jsonify({'status': 'success', 'msg': '删除成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/transfer/batch_delete', methods=['POST'])
@@ -31435,15 +31435,15 @@ def batch_delete_transfer():
     try:
         ids = [int(item_id) for item_id in ids]
     except (TypeError, ValueError):
-        return jsonify({'status': 'error', 'msg': '请选择要删除的记录'})
+        return api_error('请选择要删除的记录')
 
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的记录'})
+        return api_error('请选择要删除的记录')
 
     transfers = TransferOrder.query.filter(TransferOrder.id.in_(ids)).all()
     blocked = [transfer.transfer_no for transfer in transfers if transfer.status != 'pending']
     if blocked:
-        return jsonify({'status': 'error', 'msg': '只能删除草稿调拨单：' + '、'.join(blocked)})
+        return api_error('只能删除草稿调拨单：' + '、'.join(blocked))
 
     try:
         TransferOrderItem.query.filter(TransferOrderItem.transfer_order_id.in_(ids)).delete(synchronize_session=False)
@@ -31454,7 +31454,7 @@ def batch_delete_transfer():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'批量删除调拨单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/transfer/export')
@@ -31536,13 +31536,13 @@ def export_transfer_template():
 def import_transfer():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的库存调拨文件'})
+        return api_error('请选择要导入的库存调拨文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     aliases = {
         'order_no': ['单据编号', '调拨单号', '订单编号'],
         'date': ['日期'],
@@ -31560,7 +31560,7 @@ def import_transfer():
         ws, col_map, header_row = _read_import_sheet(file, aliases)
         required = {'from_location', 'to_location', 'material_code', 'quantity'}
         if not required.issubset(col_map):
-            return jsonify({'status': 'error', 'msg': f'Excel表头缺少必要列（调出仓库、调入仓库、物料编码、数量）。检测到的表头：{", ".join(header_row)}'})
+            return api_error(f'Excel表头缺少必要列（调出仓库、调入仓库、物料编码、数量）。检测到的表头：{", ".join(header_row)}')
         orders_by_no = {}
         order_count = 0
         item_count = 0
@@ -31623,7 +31623,7 @@ def import_transfer():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'库存调拨导入失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'库存调拨导入失败：{str(e)}'})
+        return api_error(f'库存调拨导入失败：{str(e)}')
 
 
 @app.route('/transfer/<int:id>/batch_add_items', methods=['POST'])
@@ -31633,12 +31633,12 @@ def batch_add_transfer_items(id):
     """批量粘贴添加调拨明细，格式：编码,数量,单价"""
     transfer = TransferOrder.query.get_or_404(id)
     if transfer.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的调拨单可以添加明细'})
+        return api_error('只有草稿状态的调拨单可以添加明细')
 
     data = request.get_json(silent=True) or {}
     content = (data.get('content') or request.form.get('content') or '').strip()
     if not content:
-        return jsonify({'status': 'error', 'msg': '请输入物料信息'})
+        return api_error('请输入物料信息')
 
     added = 0
     errors = []
@@ -31675,7 +31675,7 @@ def batch_add_transfer_items(id):
             added += 1
 
         if added == 0:
-            return jsonify({'status': 'error', 'msg': errors[0] if errors else '未添加任何明细'})
+            return api_error(errors[0] if errors else '未添加任何明细')
         db.session.commit()
         msg = f'成功添加 {added} 条'
         if errors:
@@ -31684,7 +31684,7 @@ def batch_add_transfer_items(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'批量添加调拨明细失败: {e}')
-        return jsonify({'status': 'error', 'msg': '添加失败，请稍后重试'})
+        return api_error('添加失败，请稍后重试')
 
 
 # ==================== Inventory adjustment management ====================
@@ -31913,26 +31913,26 @@ def add_adjustment():
             adjustment_no = generate_order_no('ADJ')
 
         if adjustment_type not in ('surplus', 'loss'):
-            return jsonify({'status': 'error', 'msg': '请选择调整类型'})
+            return api_error('请选择调整类型')
 
         if order_id:
             adjustment = AdjustmentOrder.query.get(order_id)
             if not adjustment:
-                return jsonify({'status': 'error', 'msg': '库存调整单不存在，请刷新后重试'})
+                return api_error('库存调整单不存在，请刷新后重试')
             if adjustment.status != 'pending':
-                return jsonify({'status': 'error', 'msg': '只有草稿状态的调整单可以修改'})
+                return api_error('只有草稿状态的调整单可以修改')
             same_no_order = AdjustmentOrder.query.filter(
                 AdjustmentOrder.adjustment_no == adjustment_no,
                 AdjustmentOrder.id != order_id
             ).first()
             if same_no_order:
-                return jsonify({'status': 'error', 'msg': '调整单号已存在，不能重复保存'})
+                return api_error('调整单号已存在，不能重复保存')
         else:
             # Check if adjustment order already exists
             adjustment = AdjustmentOrder.query.filter_by(adjustment_no=adjustment_no).first()
             if adjustment:
                 if adjustment.status != 'pending':
-                    return jsonify({'status': 'error', 'msg': '调整单号已存在，不能重复保存'})
+                    return api_error('调整单号已存在，不能重复保存')
             else:
                 adjustment = AdjustmentOrder(
                     adjustment_no=adjustment_no,
@@ -31945,13 +31945,13 @@ def add_adjustment():
                 db.session.add(adjustment)
 
         if replace_items and not items_data:
-            return jsonify({'status': 'error', 'msg': '请至少填写一条调整明细'})
+            return api_error('请至少填写一条调整明细')
 
         if date_str:
             try:
                 adjustment.date = datetime.strptime(date_str, '%Y-%m-%d').date()
             except ValueError:
-                return jsonify({'status': 'error', 'msg': '日期格式不正确'})
+                return api_error('日期格式不正确')
 
         adjustment.adjustment_no = adjustment_no
         adjustment.adjustment_type = adjustment_type
@@ -31977,18 +31977,18 @@ def add_adjustment():
                 if not material and material_code:
                     material = Material.query.filter_by(code=material_code).first()
                 if not material:
-                    return jsonify({'status': 'error', 'msg': f'物料不存在：{material_code or material_id}'})
+                    return api_error(f'物料不存在：{material_code or material_id}')
                 try:
                     quantity = round_to_2_decimals(item_data.get('quantity', 0))
                 except (TypeError, ValueError):
-                    return jsonify({'status': 'error', 'msg': f'物料 {material.code} 的数量必须是数字'})
+                    return api_error(f'物料 {material.code} 的数量必须是数字')
                 if quantity <= 0:
-                    return jsonify({'status': 'error', 'msg': f'物料 {material.code} 的数量必须大于0'})
+                    return api_error(f'物料 {material.code} 的数量必须大于0')
 
                 # Check stock for loss type
                 current_stock = normalize_stock_quantity(material.stock or 0)
                 if adjustment_type == 'loss' and not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-                    return jsonify({'status': 'error', 'msg': f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}'})
+                    return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
 
                 location = (item_data.get('location') or '').strip()
                 reason = (item_data.get('reason') or '').strip()
@@ -32013,7 +32013,7 @@ def add_adjustment():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'库存调整单保存失败: {e}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 
 @app.route('/adjustment/<int:id>/complete', methods=['POST'])
@@ -32022,19 +32022,19 @@ def add_adjustment():
 def complete_adjustment(id):
     adjustment = AdjustmentOrder.query.get_or_404(id)
     if adjustment.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的调整单可以完成'})
+        return api_error('只有草稿状态的调整单可以完成')
     if not adjustment.items:
-        return jsonify({'status': 'error', 'msg': '调整单没有明细，无法完成'})
+        return api_error('调整单没有明细，无法完成')
 
     try:
         # 加写锁并重新读取状态，避免多 worker 并发重复调整库存
         locked, ok = _acquire_order_write_lock(AdjustmentOrder, id, 'pending', selectinload(AdjustmentOrder.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该调整单已提交，不能重复操作'})
+            return api_error('该调整单已提交，不能重复操作')
         adjustment = locked
         if not adjustment.items:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '调整单没有明细，无法完成'})
+            return api_error('调整单没有明细，无法完成')
         for item in adjustment.items:
             if not item.material_id:
                 continue
@@ -32050,7 +32050,7 @@ def complete_adjustment(id):
                 )
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err or '库存增加失败'})
+                    return api_error(err or '库存增加失败')
             elif quantity < 0:
                 ok, err, _ = deduct_stock_atomic(
                     item.material_id,
@@ -32062,7 +32062,7 @@ def complete_adjustment(id):
                 )
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err})
+                    return api_error(err)
 
         adjustment.status = 'completed'
         db.session.commit()
@@ -32071,7 +32071,7 @@ def complete_adjustment(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'库存调整完成失败: {e}')
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 
 @app.route('/adjustment/<int:id>/revert', methods=['POST'])
@@ -32080,12 +32080,12 @@ def complete_adjustment(id):
 def revert_adjustment(id):
     adjustment = AdjustmentOrder.query.get_or_404(id)
     if adjustment.status != 'completed':
-        return jsonify({'status': 'error', 'msg': '只有已完成的调整单可以反提交'})
+        return api_error('只有已完成的调整单可以反提交')
     try:
         # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复回退
         locked, ok = _acquire_order_write_lock(AdjustmentOrder, id, 'completed', selectinload(AdjustmentOrder.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该调整单已反提交，不能重复操作'})
+            return api_error('该调整单已反提交，不能重复操作')
         adjustment = locked
         for item in adjustment.items:
             if not item.material_id:
@@ -32102,7 +32102,7 @@ def revert_adjustment(id):
                 )
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err})
+                    return api_error(err)
             elif quantity < 0:
                 ok, err = add_stock(
                     item.material,
@@ -32114,7 +32114,7 @@ def revert_adjustment(id):
                 )
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err or '库存恢复失败'})
+                    return api_error(err or '库存恢复失败')
         adjustment.status = 'pending'
         db.session.commit()
         log_operation('反提交库存调整', f'调整单：{adjustment.adjustment_no}', 'adjustment', id)
@@ -32122,7 +32122,7 @@ def revert_adjustment(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'库存调整反提交失败: {e}')
-        return jsonify({'status': 'error', 'msg': '反提交失败，请稍后重试'})
+        return api_error('反提交失败，请稍后重试')
 
 
 @app.route('/adjustment/<int:id>/delete', methods=['POST'])
@@ -32131,7 +32131,7 @@ def revert_adjustment(id):
 def delete_adjustment(id):
     adjustment = AdjustmentOrder.query.get_or_404(id)
     if adjustment.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的调整单可以删除'})
+        return api_error('只有草稿状态的调整单可以删除')
 
     try:
         AdjustmentOrderItem.query.filter_by(adjustment_order_id=id).delete()
@@ -32142,7 +32142,7 @@ def delete_adjustment(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'库存调整单删除失败: {e}')
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/adjustment/batch_delete', methods=['POST'])
@@ -32153,12 +32153,12 @@ def batch_delete_adjustment():
     ids = payload.get('ids') or request.form.getlist('ids')
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的库存调整单'})
+        return api_error('请选择要删除的库存调整单')
 
     adjustments = AdjustmentOrder.query.filter(AdjustmentOrder.id.in_(ids)).all()
     blocked = [adjustment.adjustment_no for adjustment in adjustments if adjustment.status != 'pending']
     if blocked:
-        return jsonify({'status': 'error', 'msg': '只能删除草稿调整单：' + '、'.join(blocked)})
+        return api_error('只能删除草稿调整单：' + '、'.join(blocked))
 
     try:
         AdjustmentOrderItem.query.filter(AdjustmentOrderItem.adjustment_order_id.in_(ids)).delete(synchronize_session=False)
@@ -32169,7 +32169,7 @@ def batch_delete_adjustment():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'批量删除库存调整单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/adjustment/export')
@@ -32254,13 +32254,13 @@ def export_adjustment_template():
 def import_adjustment():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的库存调整文件'})
+        return api_error('请选择要导入的库存调整文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     aliases = {
         'order_no': ['单据编号', '调整单号', '订单编号'],
         'date': ['日期'],
@@ -32278,7 +32278,7 @@ def import_adjustment():
         ws, col_map, header_row = _read_import_sheet(file, aliases)
         required = {'adjustment_type', 'material_code', 'quantity'}
         if not required.issubset(col_map):
-            return jsonify({'status': 'error', 'msg': f'Excel表头缺少必要列（调整类型、物料编码、数量）。检测到的表头：{", ".join(header_row)}'})
+            return api_error(f'Excel表头缺少必要列（调整类型、物料编码、数量）。检测到的表头：{", ".join(header_row)}')
         orders_by_no = {}
         order_count = 0
         item_count = 0
@@ -32336,7 +32336,7 @@ def import_adjustment():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'库存调整导入失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'库存调整导入失败：{str(e)}'})
+        return api_error(f'库存调整导入失败：{str(e)}')
 
 
 # ==================== Inventory check management ====================
@@ -32413,23 +32413,23 @@ def save_check_table():
     items_data = data.get('items') or []
 
     if not items_data:
-        return jsonify({'status': 'error', 'msg': '请至少填写一条盘点明细'})
+        return api_error('请至少填写一条盘点明细')
 
     try:
         if order_id:
             check = db.session.get(InventoryCheck, order_id)
             if not check:
-                return jsonify({'status': 'error', 'msg': '盘点单不存在，请刷新后重试'})
+                return api_error('盘点单不存在，请刷新后重试')
             if check.status != 'pending':
-                return jsonify({'status': 'error', 'msg': '只有草稿状态的盘点单可以修改'})
+                return api_error('只有草稿状态的盘点单可以修改')
             duplicate = InventoryCheck.query.filter(InventoryCheck.check_no == check_no, InventoryCheck.id != order_id).first()
             if duplicate:
-                return jsonify({'status': 'error', 'msg': '盘点单号已存在'})
+                return api_error('盘点单号已存在')
         else:
             check = InventoryCheck.query.filter_by(check_no=check_no).first()
             if check:
                 if check.status != 'pending':
-                    return jsonify({'status': 'error', 'msg': '盘点单号已存在'})
+                    return api_error('盘点单号已存在')
             else:
                 check = InventoryCheck(check_no=check_no, status='pending', operator_id=current_user.id)
                 db.session.add(check)
@@ -32445,7 +32445,7 @@ def save_check_table():
         for item_data in items_data:
             material = _material_from_payload(item_data)
             if not material:
-                return jsonify({'status': 'error', 'msg': f'物料不存在：{item_data.get("code") or ""}'})
+                return api_error(f'物料不存在：{item_data.get("code") or ""}')
             system_stock = round_to_2_decimals(parse_float_value(item_data.get('system_stock'), material.stock or 0))
             actual_stock = round_to_2_decimals(parse_float_value(item_data.get('actual_stock'), system_stock))
             db.session.add(InventoryCheckItem(
@@ -32463,7 +32463,7 @@ def save_check_table():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'保存盘点单表格失败: {e}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 @app.route('/check/add', methods=['POST'])
 @require_role('warehouse')
@@ -32489,7 +32489,7 @@ def add_check():
         return jsonify({'status': 'success', 'id': check.id})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 def _create_adjustment_drafts_from_check(check):
     """Create pending adjustment draft(s) from inventory check differences."""
@@ -32591,20 +32591,20 @@ def _create_adjustment_drafts_from_check_scan(check):
 def complete_check(id):
     check = InventoryCheck.query.get_or_404(id)
     if check.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '当前盘点单状态不可完结'})
+        return api_error('当前盘点单状态不可完结')
 
     if not check.items:
-        return jsonify({'status': 'error', 'msg': '盘点单没有明细，无法完成'})
+        return api_error('盘点单没有明细，无法完成')
 
     try:
         # 加写锁并重新读取状态，避免多 worker 并发重复生成调整草稿
         locked, ok = _acquire_order_write_lock(InventoryCheck, id, 'pending', selectinload(InventoryCheck.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该盘点单已提交，不能重复操作'})
+            return api_error('该盘点单已提交，不能重复操作')
         check = locked
         if not check.items:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '盘点单没有明细，无法完成'})
+            return api_error('盘点单没有明细，无法完成')
         drafts, error = _create_adjustment_drafts_from_check(check)
         if error:
             db.session.rollback()
@@ -32627,7 +32627,7 @@ def complete_check(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'盘点完成失败：{e}')
-        return jsonify({'status': 'error', 'msg': '盘点完成失败，请稍后重试'})
+        return api_error('盘点完成失败，请稍后重试')
 
 
 @app.route('/check/<int:id>/revert', methods=['POST'])
@@ -32636,18 +32636,18 @@ def complete_check(id):
 def revert_check(id):
     check = InventoryCheck.query.get_or_404(id)
     if check.status != 'completed':
-        return jsonify({'status': 'error', 'msg': '只有已完成的盘点单可以反提交'})
+        return api_error('只有已完成的盘点单可以反提交')
     try:
         # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复回退
         locked, ok = _acquire_order_write_lock(InventoryCheck, id, 'completed', selectinload(InventoryCheck.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该盘点单已反提交，不能重复操作'})
+            return api_error('该盘点单已反提交，不能重复操作')
         check = locked
         linked_adjustments = AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).all()
         completed_adjustments = [order.adjustment_no for order in linked_adjustments if order.status == 'completed']
         if completed_adjustments:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '该盘点单生成的调整单已提交，不能直接反提交盘点单：' + ', '.join(completed_adjustments)})
+            return api_error('该盘点单生成的调整单已提交，不能直接反提交盘点单：' + ', '.join(completed_adjustments))
 
         transactions = StockTransaction.query.filter(
             StockTransaction.reference_type == 'inventory_check',
@@ -32670,7 +32670,7 @@ def revert_check(id):
                 )
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err})
+                    return api_error(err)
             elif quantity < 0:
                 ok, err = add_stock(
                     material,
@@ -32682,7 +32682,7 @@ def revert_check(id):
                 )
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err or '库存恢复失败'})
+                    return api_error(err or '库存恢复失败')
         for order in linked_adjustments:
             if order.status == 'pending':
                 for item in list(order.items):
@@ -32697,7 +32697,7 @@ def revert_check(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'盘点反提交失败: {e}')
-        return jsonify({'status': 'error', 'msg': '反提交失败，请稍后重试'})
+        return api_error('反提交失败，请稍后重试')
 
 
 @app.route('/check/<int:id>/add_item', methods=['POST'])
@@ -32707,20 +32707,20 @@ def add_check_item(id):
     """添加盘点明细"""
     check = InventoryCheck.query.get_or_404(id)
     if check.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的盘点单可以添加明细'})
+        return api_error('只有草稿状态的盘点单可以添加明细')
     
     material_id = request.form.get('material_id')
     if not material_id:
-        return jsonify({'status': 'error', 'msg': '请选择物料'})
+        return api_error('请选择物料')
     
     try:
         material_id = int(material_id)
     except (ValueError, TypeError):
-        return jsonify({'status': 'error', 'msg': '物料ID格式不正确'})
+        return api_error('物料ID格式不正确')
     
     material = Material.query.get(material_id)
     if not material:
-        return jsonify({'status': 'error', 'msg': '物料不存在'})
+        return api_error('物料不存在')
     
     # 检查是否已存在该物料的盘点记录
     existing_item = InventoryCheckItem.query.filter_by(
@@ -32729,7 +32729,7 @@ def add_check_item(id):
     ).first()
     
     if existing_item:
-        return jsonify({'status': 'error', 'msg': f'物料 {material.code} 已存在于盘点单中'})
+        return api_error(f'物料 {material.code} 已存在于盘点单中')
     
     try:
         # 创建盘点明细，系统库存为当前库存，实际库存默认为系统库存
@@ -32753,7 +32753,7 @@ def add_check_item(id):
         return jsonify({'status': 'success', 'msg': '盘点明细添加成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '添加失败，请稍后重试'})
+        return api_error('添加失败，请稍后重试')
 
 
 @app.route('/check/<int:id>/item/<int:item_id>', methods=['POST'])
@@ -32763,16 +32763,16 @@ def update_check_item(id, item_id):
     """更新盘点明细的实际库存"""
     check = InventoryCheck.query.get_or_404(id)
     if check.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的盘点单可以修改明细'})
+        return api_error('只有草稿状态的盘点单可以修改明细')
     
     item = InventoryCheckItem.query.get_or_404(item_id)
     if item.inventory_check_id != id:
-        return jsonify({'status': 'error', 'msg': '盘点明细不属于当前盘点单'})
+        return api_error('盘点明细不属于当前盘点单')
     
     try:
         actual_stock = float(request.form.get('actual_stock', item.actual_stock))
     except (ValueError, TypeError):
-        return jsonify({'status': 'error', 'msg': '实际库存必须是数字'})
+        return api_error('实际库存必须是数字')
     
     try:
         item.actual_stock = actual_stock
@@ -32783,7 +32783,7 @@ def update_check_item(id, item_id):
         return jsonify({'status': 'success', 'msg': '盘点数量已更新'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '更新失败，请稍后重试'})
+        return api_error('更新失败，请稍后重试')
 
 
 @app.route('/check/<int:id>/update', methods=['POST'])
@@ -32792,7 +32792,7 @@ def update_check_item(id, item_id):
 def update_check(id):
     check = InventoryCheck.query.get_or_404(id)
     if check.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的盘点单可以修改'})
+        return api_error('只有草稿状态的盘点单可以修改')
     try:
         remark = (request.form.get('remark') or '').strip()
         check.remark = remark
@@ -32801,7 +32801,7 @@ def update_check(id):
         return jsonify({'status': 'success', 'msg': '修改成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '修改失败，请稍后重试'})
+        return api_error('修改失败，请稍后重试')
 
 
 @app.route('/check/<int:id>/copy', methods=['POST'])
@@ -32833,7 +32833,7 @@ def copy_check(id):
         return jsonify({'status': 'success', 'msg': '复制成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
+        return api_error('复制失败，请稍后重试')
 
 
 @app.route('/check/<int:id>/delete', methods=['POST'])
@@ -32843,7 +32843,7 @@ def delete_check(id):
     """删除盘点单"""
     check = InventoryCheck.query.get_or_404(id)
     if check.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的盘点单可以删除'})
+        return api_error('只有草稿状态的盘点单可以删除')
     
     try:
         # 删除明细
@@ -32855,7 +32855,7 @@ def delete_check(id):
         return jsonify({'status': 'success', 'msg': '删除成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/check/batch_delete', methods=['POST'])
@@ -32869,7 +32869,7 @@ def batch_delete_check():
         if not ids:
             ids = json.loads(request.form.get('ids', '[]'))
         if not ids:
-            return jsonify({'status': 'error', 'msg': '请选择要删除的盘点单'})
+            return api_error('请选择要删除的盘点单')
         
         deleted_count = 0
         failed_ids = []
@@ -32899,7 +32899,7 @@ def batch_delete_check():
         return jsonify({'status': 'success', 'msg': msg})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/check/<int:id>/item/<int:item_id>/delete', methods=['POST'])
@@ -32909,11 +32909,11 @@ def delete_check_item(id, item_id):
     """删除盘点明细"""
     check = InventoryCheck.query.get_or_404(id)
     if check.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有草稿状态的盘点单可以删除明细'})
+        return api_error('只有草稿状态的盘点单可以删除明细')
     
     item = InventoryCheckItem.query.get_or_404(item_id)
     if item.inventory_check_id != id:
-        return jsonify({'status': 'error', 'msg': '盘点明细不属于当前盘点单'})
+        return api_error('盘点明细不属于当前盘点单')
     
     try:
         material_code = item.material.code if item.material else ''
@@ -32924,7 +32924,7 @@ def delete_check_item(id, item_id):
         return jsonify({'status': 'success', 'msg': '盘点明细删除成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/check/export')
@@ -33002,13 +33002,13 @@ def export_check_template():
 def import_check():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的库存盘点文件'})
+        return api_error('请选择要导入的库存盘点文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     aliases = {
         'order_no': ['单据编号', '盘点单号', '订单编号'],
         'date': ['日期'],
@@ -33025,7 +33025,7 @@ def import_check():
         ws, col_map, header_row = _read_import_sheet(file, aliases)
         required = {'material_code', 'actual_stock'}
         if not required.issubset(col_map):
-            return jsonify({'status': 'error', 'msg': f'Excel表头缺少必要列（物料编码、实际库存）。检测到的表头：{", ".join(header_row)}'})
+            return api_error(f'Excel表头缺少必要列（物料编码、实际库存）。检测到的表头：{", ".join(header_row)}')
         checks_by_no = {}
         order_count = 0
         item_count = 0
@@ -33077,7 +33077,7 @@ def import_check():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'库存盘点导入失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'库存盘点导入失败：{str(e)}'})
+        return api_error(f'库存盘点导入失败：{str(e)}')
 
 
 # ==================== Outbound order management ====================
@@ -33224,7 +33224,7 @@ def add_out_order():
         order_no = (data.get('order_no') or '').strip() or generate_order_no('OUT')
         order_date = parse_date_value(data.get('date'), date.today())
         if not order_date:
-            return jsonify({'status': 'error', 'msg': '日期格式不正确，请重新选择日期'})
+            return api_error('日期格式不正确，请重新选择日期')
         if is_future_date(order_date):
             return jsonify({'status': 'error', 'msg': '出库日期不能晚于今天'}), 400
         business_type = (data.get('business_type') or '').strip()
@@ -33261,9 +33261,9 @@ def add_out_order():
         if order_id:
             order = db.session.get(OutOrder, order_id)
             if not order:
-                return jsonify({'status': 'error', 'msg': '领料单不存在，请刷新后重试'})
+                return api_error('领料单不存在，请刷新后重试')
             if order.status != 'pending':
-                return jsonify({'status': 'error', 'msg': '已完成的领料单不能修改'})
+                return api_error('已完成的领料单不能修改')
             if DocumentPushLine.query.filter_by(
                 target_document_id=order.id, status='active'
             ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out'))).first():
@@ -33276,7 +33276,7 @@ def add_out_order():
             order = OutOrder.query.filter_by(order_no=order_no).first()
             if order:
                 if order.status != 'pending':
-                    return jsonify({'status': 'error', 'msg': '领料单号已存在，不能重复保存'})
+                    return api_error('领料单号已存在，不能重复保存')
             else:
                 order = OutOrder(
                     order_no=order_no,
@@ -33320,12 +33320,12 @@ def add_out_order():
             material = Material.query.filter_by(code=material_code).first()
             if not material:
                 db.session.rollback()
-                return jsonify({'status': 'error', 'msg': f'物料 {material_code} 不存在'})
+                return api_error(f'物料 {material_code} 不存在')
 
             quantity = round_to_2_decimals(parse_float_value(submitted_item.get('quantity'), 0))
             if quantity <= 0:
                 db.session.rollback()
-                return jsonify({'status': 'error', 'msg': f'物料 {material_code} 的数量必须大于0'})
+                return api_error(f'物料 {material_code} 的数量必须大于0')
 
             price = round_to_2_decimals(parse_float_value(submitted_item.get('price'), material.price or 0))
             db.session.add(OutOrderItem(
@@ -33354,7 +33354,7 @@ def add_out_order():
     except Exception as e:
         db.session.rollback()
         app.logger.exception(f'保存出库单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 @app.route('/out_order/<int:id>/item/add', methods=['POST'])
 @app.route('/out_order/<int:id>/add_item', methods=['POST'])
@@ -33363,19 +33363,19 @@ def add_out_order():
 def add_out_order_item(id):
     order = OutOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待处理的领料单可以添加明细'})
+        return api_error('只有待处理的领料单可以添加明细')
 
     material_code = (request.form.get('material_code') or request.form.get('code') or '').strip()
     if not material_code:
-        return jsonify({'status': 'error', 'msg': '请选择物料后再添加'})
+        return api_error('请选择物料后再添加')
 
     material = Material.query.filter_by(code=material_code).first()
     if not material:
-        return jsonify({'status': 'error', 'msg': f'物料 {material_code} 不存在'})
+        return api_error(f'物料 {material_code} 不存在')
 
     quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), 0))
     if quantity <= 0:
-        return jsonify({'status': 'error', 'msg': '数量必须大于0'})
+        return api_error('数量必须大于0')
 
     price = round_to_2_decimals(parse_float_value(request.form.get('price'), material.price or 0))
 
@@ -33399,7 +33399,7 @@ def add_out_order_item(id):
         return jsonify({'status': 'success', 'msg': '明细添加成功', 'item_id': item.id})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '明细添加失败，请稍后重试'})
+        return api_error('明细添加失败，请稍后重试')
 
 @app.route('/out_order/<int:id>/delete_item/<int:item_id>', methods=['POST'])
 @app.route('/out_order/<int:id>/item/<int:item_id>/delete', methods=['POST'])
@@ -33408,11 +33408,11 @@ def add_out_order_item(id):
 def delete_out_order_item(id, item_id):
     order = OutOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待处理的领料单可以删除明细'})
+        return api_error('只有待处理的领料单可以删除明细')
 
     item = OutOrderItem.query.get_or_404(item_id)
     if item.out_order_id != id:
-        return jsonify({'status': 'error', 'msg': '明细不属于当前领料单'})
+        return api_error('明细不属于当前领料单')
 
     try:
         db.session.delete(item)
@@ -33421,7 +33421,7 @@ def delete_out_order_item(id, item_id):
         return jsonify({'status': 'success', 'msg': '删除成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 @app.route('/out_order/item/update', methods=['POST'])
 @require_role('warehouse')
@@ -33429,23 +33429,23 @@ def delete_out_order_item(id, item_id):
 def update_out_order_item():
     item_id = request.form.get('id', type=int)
     if not item_id:
-        return jsonify({'status': 'error', 'msg': '缺少明细ID'})
+        return api_error('缺少明细ID')
 
     item = OutOrderItem.query.get_or_404(item_id)
     order = item.out_order
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待处理的领料单可以修改明细'})
+        return api_error('只有待处理的领料单可以修改明细')
 
     material_code = (request.form.get('code') or '').strip()
     if material_code:
         material = Material.query.filter_by(code=material_code).first()
         if not material:
-            return jsonify({'status': 'error', 'msg': f'物料 {material_code} 不存在'})
+            return api_error(f'物料 {material_code} 不存在')
         item.material_id = material.id
 
     quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), item.quantity))
     if quantity <= 0:
-        return jsonify({'status': 'error', 'msg': '数量必须大于0'})
+        return api_error('数量必须大于0')
 
     price = round_to_2_decimals(parse_float_value(request.form.get('price'), item.price))
 
@@ -33460,7 +33460,7 @@ def update_out_order_item():
         return jsonify({'status': 'success', 'msg': '保存成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 def _check_out_order_anomalies(order):
     """检测出库单异常：数量异常、金额异常、重复单据。返回异常列表。"""
@@ -33576,7 +33576,7 @@ def check_out_order_anomalies(id):
     """检查出库单异常，返回异常列表供前端确认。"""
     order = OutOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '该出库单已提交，不能检查异常'})
+        return api_error('该出库单已提交，不能检查异常')
     
     anomalies = _check_out_order_anomalies(order)
     
@@ -33612,17 +33612,17 @@ def check_out_order_anomalies(id):
 def complete_out_order(id):
     order = OutOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '该领料单已提交，不能重复操作'})
+        return api_error('该领料单已提交，不能重复操作')
     if is_future_date(order.date):
         return jsonify({'status': 'error', 'msg': '出库日期不能晚于今天，请先修改单据日期'}), 400
     if not order.items:
-        return jsonify({'status': 'error', 'msg': '请至少添加一条领料明细'})
+        return api_error('请至少添加一条领料明细')
     if order.business_type == '销售出库':
         _, warehouse_error = validate_sales_outbound_warehouse(order)
         if warehouse_error:
             return jsonify({'status': 'error', 'msg': warehouse_error}), 400
     if location_management_enabled() and location_required_on_save() and not order.warehouse:
-        return jsonify({'status': 'error', 'msg': '启用库位管理后，领料单必须填写仓库/库位'})
+        return api_error('启用库位管理后，领料单必须填写仓库/库位')
 
     # 异常检测（force=true时跳过）
     force_submit = request.args.get('force', '').lower() in ('true', '1', 'yes')
@@ -33641,11 +33641,11 @@ def complete_out_order(id):
         # 加写锁并重新读取状态，避免多 worker 并发重复扣库存
         locked, ok = _acquire_order_write_lock(OutOrder, id, 'pending', selectinload(OutOrder.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该领料单已提交，不能重复操作'})
+            return api_error('该领料单已提交，不能重复操作')
         order = locked
         if not order.items:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '请至少添加一条领料明细'})
+            return api_error('请至少添加一条领料明细')
         for item in order.items:
             if not item.material_id:
                 continue
@@ -33659,7 +33659,7 @@ def complete_out_order(id):
             )
             if not ok:
                 db.session.rollback()
-                return jsonify({'status': 'error', 'msg': err or f'物料 {material_code} 库存不足'})
+                return api_error(err or f'物料 {material_code} 库存不足')
             # 原子扣库位
             if use_location:
                 ok2, err2 = deduct_location_inventory_atomic(
@@ -33668,7 +33668,7 @@ def complete_out_order(id):
                 )
                 if not ok2:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err2 or '库位库存扣减失败'})
+                    return api_error(err2 or '库位库存扣减失败')
         order.status = 'completed'
         sync_sales_order_shipment(order, quantity_sign=1)
         recalculate_order_total(order)
@@ -33679,7 +33679,7 @@ def complete_out_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'领料单完成失败：{e}')
-        return jsonify({'status': 'error', 'msg': '提交失败，请稍后重试'})
+        return api_error('提交失败，请稍后重试')
 
 @app.route('/out_order/<int:id>/revert', methods=['POST'])
 @require_role('warehouse')
@@ -33687,13 +33687,13 @@ def complete_out_order(id):
 def revert_out_order(id):
     order = OutOrder.query.get_or_404(id)
     if order.status != 'completed':
-        return jsonify({'status': 'error', 'msg': '只有已完成的领料单可以反提交'})
+        return api_error('只有已完成的领料单可以反提交')
 
     try:
         # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复恢复
         locked, ok = _acquire_order_write_lock(OutOrder, id, 'completed', selectinload(OutOrder.items))
         if not ok:
-            return jsonify({'status': 'error', 'msg': '该领料单已反提交，不能重复操作'})
+            return api_error('该领料单已反提交，不能重复操作')
         order = locked
         for item in order.items:
             ok, err = add_stock(item.material, item.quantity or 0,
@@ -33702,13 +33702,13 @@ def revert_out_order(id):
                                 reference_id=order.id)
             if not ok:
                 db.session.rollback()
-                return jsonify({'status': 'error', 'msg': err or '库存恢复失败'})
+                return api_error(err or '库存恢复失败')
             # 同步还原库位库存（与 complete_out_order 对称），仅启用库位管理且有仓库时
             if location_management_enabled() and order.warehouse:
                 loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, item.quantity or 0)
                 if not loc_ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': loc_err or '库位库存还原失败'})
+                    return api_error(loc_err or '库位库存还原失败')
         order.status = 'pending'
         sync_sales_order_shipment(order, quantity_sign=-1)
         recalculate_order_total(order)
@@ -33717,7 +33717,7 @@ def revert_out_order(id):
         return jsonify({'status': 'success', 'msg': '操作完成'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 @app.route('/out_order/<int:id>/delete', methods=['POST'])
 @require_role('warehouse')
@@ -33725,7 +33725,7 @@ def revert_out_order(id):
 def delete_out_order(id):
     order = OutOrder.query.get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有待处理的领料单可以删除'})
+        return api_error('只有待处理的领料单可以删除')
 
     try:
         _release_document_push_lines(
@@ -33740,7 +33740,7 @@ def delete_out_order(id):
         return jsonify({'status': 'success', 'msg': '删除成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 @app.route('/api/ai/out_order/<int:id>/anomaly_analysis')
 @login_required
@@ -33759,14 +33759,14 @@ def batch_delete_out_order():
     ids = payload.get('ids') or request.form.getlist('ids')
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的领料单'})
+        return api_error('请选择要删除的领料单')
     if len(ids) > 100:
         return jsonify({'status': 'error', 'msg': '单次批量操作不能超过 100 条，请分批处理'}), 400
 
     orders = OutOrder.query.options(joinedload(OutOrder.items)).filter(OutOrder.id.in_(ids)).all()
     blocked = [order.order_no for order in orders if order.status != 'pending']
     if blocked:
-        return jsonify({'status': 'error', 'msg': '以下领料单已完成，不能删除：' + ', '.join(blocked)})
+        return api_error('以下领料单已完成，不能删除：' + ', '.join(blocked))
 
     try:
         deleted_count = 0
@@ -33788,7 +33788,7 @@ def batch_delete_out_order():
         return jsonify({'status': 'success', 'msg': f'删除成功，共删除 {deleted_count} 张领料单', 'deleted': deleted_count})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 @app.route('/out_order/batch_complete', methods=['POST'])
 @require_role('warehouse')
@@ -33798,7 +33798,7 @@ def batch_complete_out_order():
     ids = payload.get('ids') or request.form.getlist('ids')
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要审核的领料单'})
+        return api_error('请选择要审核的领料单')
     if len(ids) > 100:
         return jsonify({'status': 'error', 'msg': '单次批量操作不能超过 100 条，请分批处理'}), 400
     orders = OutOrder.query.options(joinedload(OutOrder.items)).filter(OutOrder.id.in_(ids)).all()
@@ -34063,7 +34063,7 @@ def add_after_sale_out_order():
         order_no = (data.get('order_no') or '').strip() or generate_order_no('ASO')
         order_date = parse_date_value(data.get('date'), date.today())
         if not order_date:
-            return jsonify({'status': 'error', 'msg': '日期格式不正确，请重新选择日期'})
+            return api_error('日期格式不正确，请重新选择日期')
         customer = (data.get('customer') or '').strip()
         contact = (data.get('contact') or '').strip()
         phone = (data.get('phone') or '').strip()
@@ -34079,9 +34079,9 @@ def add_after_sale_out_order():
         if order_id:
             order = db.session.get(AfterSaleOutOrder, order_id)
             if not order:
-                return jsonify({'status': 'error', 'msg': '售后出库单不存在，请刷新后重试'})
+                return api_error('售后出库单不存在，请刷新后重试')
             if order.status != 'pending':
-                return jsonify({'status': 'error', 'msg': '已完成的售后出库单不能修改'})
+                return api_error('已完成的售后出库单不能修改')
             if DocumentPushLine.query.filter_by(
                 target_document_type='after_sale_out', target_document_id=order.id, status='active'
             ).first():
@@ -34090,7 +34090,7 @@ def add_after_sale_out_order():
             order = AfterSaleOutOrder.query.filter_by(order_no=order_no).first()
             if order:
                 if order.status != 'pending':
-                    return jsonify({'status': 'error', 'msg': '售后出库单号已存在，不能重复保存'})
+                    return api_error('售后出库单号已存在，不能重复保存')
             else:
                 order = AfterSaleOutOrder(
                     order_no=order_no,
@@ -34123,7 +34123,7 @@ def add_after_sale_out_order():
                 items_data = []
 
         if not items_data:
-            return jsonify({'status': 'error', 'msg': '请至少添加一条售后出库明细'})
+            return api_error('请至少添加一条售后出库明细')
 
         for existing_item in list(order.items):
             db.session.delete(existing_item)
@@ -34134,10 +34134,10 @@ def add_after_sale_out_order():
             material_code = (item_data.get('code') or item_data.get('material_code') or '').strip()
             material = Material.query.filter_by(code=material_code).first()
             if not material:
-                return jsonify({'status': 'error', 'msg': f'物料 {material_code} 不存在'})
+                return api_error(f'物料 {material_code} 不存在')
             quantity = parse_float_value(item_data.get('quantity'), 0)
             if quantity <= 0:
-                return jsonify({'status': 'error', 'msg': f'物料 {material_code} 的数量必须大于0'})
+                return api_error(f'物料 {material_code} 的数量必须大于0')
             price = parse_float_value(item_data.get('price'), material.price or 0)
             amount = round_to_2_decimals(quantity * price)
             total_amount = round_to_2_decimals(total_amount + amount)
@@ -34157,12 +34157,12 @@ def add_after_sale_out_order():
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
-            return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+            return api_error('保存失败，请稍后重试')
         log_operation('保存售后出库单', f'售后出库单：{order.order_no}', 'after_sale_out_order', order.id)
         return jsonify({'status': 'success', 'msg': '保存成功', 'id': order.id, 'order_no': order.order_no})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 @app.route('/after_sale_out/<int:id>/complete', methods=['POST'])
 @require_role('warehouse')
@@ -34171,9 +34171,9 @@ def complete_after_sale_out_order(id):
     try:
         order = AfterSaleOutOrder.query.get_or_404(id)
         if order.status != 'pending':
-            return jsonify({'status': 'error', 'msg': '该售后出库单已提交，不能重复操作'})
+            return api_error('该售后出库单已提交，不能重复操作')
         if not order.items:
-            return jsonify({'status': 'error', 'msg': '请至少添加一条售后出库明细'})
+            return api_error('请至少添加一条售后出库明细')
 
         locked, ok = _acquire_order_write_lock(
             AfterSaleOutOrder, id, 'pending', selectinload(AfterSaleOutOrder.items)
@@ -34188,7 +34188,7 @@ def complete_after_sale_out_order(id):
                 current_stock = normalize_stock_quantity(material.stock or 0)
                 quantity = normalize_stock_quantity(item.quantity or 0)
                 if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-                    return jsonify({'status': 'error', 'msg': f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}'})
+                    return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
 
         for item in order.items:
             material = db.session.get(Material, item.material_id)
@@ -34201,7 +34201,7 @@ def complete_after_sale_out_order(id):
                     remark=f'After-sales outbound order {order.order_no}')
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': error_msg or '库存扣减失败'})
+                    return api_error(error_msg or '库存扣减失败')
 
         order.status = 'completed'
         try:
@@ -34209,12 +34209,12 @@ def complete_after_sale_out_order(id):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库操作失败: {e}')
-            return jsonify({'status': 'error', 'msg': '提交失败，请稍后重试'})
+            return api_error('提交失败，请稍后重试')
         log_operation('售后出库完成', f'售后出库单：{order.order_no}', 'after_sale_out_order', order.id)
         return jsonify({'status': 'success', 'msg': '提交成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '提交失败，请稍后重试'})
+        return api_error('提交失败，请稍后重试')
 
 
 @app.route('/after_sale_out/<int:id>/revert', methods=['POST'])
@@ -34224,7 +34224,7 @@ def revert_after_sale_out_order(id):
     try:
         order = AfterSaleOutOrder.query.get_or_404(id)
         if order.status != 'completed':
-            return jsonify({'status': 'error', 'msg': '只有已完成的售后出库单可以反提交'})
+            return api_error('只有已完成的售后出库单可以反提交')
 
         locked, ok = _acquire_order_write_lock(
             AfterSaleOutOrder, id, 'completed', selectinload(AfterSaleOutOrder.items)
@@ -34245,7 +34245,7 @@ def revert_after_sale_out_order(id):
                 )
                 if not ok:
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': err or '库存恢复失败'})
+                    return api_error(err or '库存恢复失败')
 
         order.status = 'pending'
         db.session.commit()
@@ -34254,7 +34254,7 @@ def revert_after_sale_out_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'售后出库反提交失败: {e}')
-        return jsonify({'status': 'error', 'msg': '反提交失败，请稍后重试'})
+        return api_error('反提交失败，请稍后重试')
 
 
 @app.route('/after_sale_out/<int:id>/delete', methods=['POST'])
@@ -34264,7 +34264,7 @@ def delete_after_sale_out_order(id):
     try:
         order = AfterSaleOutOrder.query.get_or_404(id)
         if order.status == 'completed':
-            return jsonify({'status': 'error', 'msg': '已完成的售后出库单不能删除'})
+            return api_error('已完成的售后出库单不能删除')
         _release_document_push_lines('after_sale_out', order.id, f'目标草稿 {order.order_no} 已删除')
         for item in list(order.items):
             db.session.delete(item)
@@ -34279,7 +34279,7 @@ def delete_after_sale_out_order(id):
         return jsonify({'status': 'success', 'msg': '删除成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/after_sale_out/<int:id>/copy', methods=['POST'])
@@ -34291,7 +34291,7 @@ def copy_after_sale_out_order(id):
         joinedload(AfterSaleOutOrder.items),
     ).get_or_404(id)
     if not source.items:
-        return jsonify({'status': 'error', 'msg': '原售后出库单没有明细，不能复制'})
+        return api_error('原售后出库单没有明细，不能复制')
 
     try:
         new_order = AfterSaleOutOrder(
@@ -34338,7 +34338,7 @@ def copy_after_sale_out_order(id):
 
         if copied_count <= 0:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '原售后出库单没有有效明细，不能复制'})
+            return api_error('原售后出库单没有有效明细，不能复制')
 
         new_order.total_amount = total_amount
         db.session.commit()
@@ -34353,7 +34353,7 @@ def copy_after_sale_out_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'复制售后出库单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
+        return api_error('复制失败，请稍后重试')
 
 
 @app.route('/after_sale_out/batch_delete', methods=['POST'])
@@ -34364,12 +34364,12 @@ def batch_delete_after_sale_out():
     ids = payload.get('ids') or request.form.getlist('ids')
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的售后出库单'})
+        return api_error('请选择要删除的售后出库单')
 
     orders = AfterSaleOutOrder.query.filter(AfterSaleOutOrder.id.in_(ids)).all()
     blocked = [order.order_no for order in orders if order.status == 'completed']
     if blocked:
-        return jsonify({'status': 'error', 'msg': '以下售后出库单已完成，不能删除：' + '、'.join(blocked)})
+        return api_error('以下售后出库单已完成，不能删除：' + '、'.join(blocked))
 
     try:
         for order in orders:
@@ -34382,7 +34382,7 @@ def batch_delete_after_sale_out():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'批量删除售后出库单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/export/template/after_sale_out')
@@ -34413,13 +34413,13 @@ def download_after_sale_out_template():
 def import_after_sale_out():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的售后出库文件'})
+        return api_error('请选择要导入的售后出库文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     aliases = {
         'order_no': ['单据编号', '售后出库单号', '订单编号'],
         'date': ['日期'],
@@ -34439,7 +34439,7 @@ def import_after_sale_out():
         ws, col_map, header_row = _read_import_sheet(file, aliases)
         required = {'customer', 'material_code', 'quantity'}
         if not required.issubset(col_map):
-            return jsonify({'status': 'error', 'msg': f'Excel表头缺少必要列（客户、物料编码、数量）。检测到的表头：{", ".join(header_row)}'})
+            return api_error(f'Excel表头缺少必要列（客户、物料编码、数量）。检测到的表头：{", ".join(header_row)}')
         orders_by_no = {}
         order_count = 0
         item_count = 0
@@ -34503,7 +34503,7 @@ def import_after_sale_out():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'售后出库导入失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'售后出库导入失败：{str(e)}'})
+        return api_error(f'售后出库导入失败：{str(e)}')
 
 
 # ==================== Purchase ====================
@@ -34656,10 +34656,10 @@ def create_purchase_order_from_request(id):
         joinedload(PurchaseRequest.items).joinedload(PurchaseRequestItem.supplier),
     ).get_or_404(id)
     if request_order.status not in ('approved', 'completed'):
-        return jsonify({'status': 'error', 'msg': '采购申请需审核通过后才能生成采购单'})
+        return api_error('采购申请需审核通过后才能生成采购单')
     valid_items = [item for item in request_order.items if item.material_id and purchase_request_item_has_material(item)]
     if not valid_items:
-        return jsonify({'status': 'error', 'msg': '采购申请没有可下推的物料明细'})
+        return api_error('采购申请没有可下推的物料明细')
 
     try:
         item_execution = build_purchase_request_execution(valid_items)
@@ -34667,29 +34667,29 @@ def create_purchase_order_from_request(id):
         selected_items = payload.get('items') if isinstance(payload, dict) else None
         if selected_items is not None:
             if not isinstance(selected_items, list) or not selected_items:
-                return jsonify({'status': 'error', 'msg': '请选择要下推的采购申请明细'})
+                return api_error('请选择要下推的采购申请明细')
             valid_item_by_id = {item.id: item for item in valid_items}
             for selected in selected_items:
                 if not isinstance(selected, dict):
-                    return jsonify({'status': 'error', 'msg': '下推明细格式不正确'})
+                    return api_error('下推明细格式不正确')
                 try:
                     item_id = int(selected.get('purchase_request_item_id') or selected.get('item_id') or 0)
                 except (TypeError, ValueError):
                     item_id = 0
                 req_item = valid_item_by_id.get(item_id)
                 if not req_item:
-                    return jsonify({'status': 'error', 'msg': '下推明细不属于当前采购申请'})
+                    return api_error('下推明细不属于当前采购申请')
                 remaining_qty = round_to_2_decimals(item_execution.get(item_id, {}).get('remaining_to_order', 0))
                 quantity = round_to_2_decimals(parse_float_value(selected.get('quantity'), remaining_qty))
                 if quantity <= 0:
-                    return jsonify({'status': 'error', 'msg': '本次下推数量必须大于 0'})
+                    return api_error('本次下推数量必须大于 0')
                 if quantity - remaining_qty > STOCK_COMPARE_EPSILON:
-                    return jsonify({'status': 'error', 'msg': '本次下推数量不能大于未下推数量'})
+                    return api_error('本次下推数量不能大于未下推数量')
                 selected_quantities[item_id] = round_to_2_decimals(selected_quantities.get(item_id, 0) + quantity)
             for item_id, quantity in selected_quantities.items():
                 remaining_qty = round_to_2_decimals(item_execution.get(item_id, {}).get('remaining_to_order', 0))
                 if quantity - remaining_qty > STOCK_COMPARE_EPSILON:
-                    return jsonify({'status': 'error', 'msg': '同一明细累计下推数量不能大于未下推数量'})
+                    return api_error('同一明细累计下推数量不能大于未下推数量')
             push_items = [valid_item_by_id[item_id] for item_id in selected_quantities.keys()]
         else:
             push_items = [
@@ -34709,7 +34709,7 @@ def create_purchase_order_from_request(id):
                     'order_nos': [order.order_no for order in existing_orders],
                     'redirect_url': url_for('purchase_order_detail', id=existing.id)
                 })
-            return jsonify({'status': 'error', 'msg': '采购申请没有可下推数量'})
+            return api_error('采购申请没有可下推数量')
 
         grouped_items = {}
         for req_item in push_items:
@@ -34754,7 +34754,7 @@ def create_purchase_order_from_request(id):
 
             if not created_orders:
                 db.session.rollback()
-                return jsonify({'status': 'error', 'msg': '采购申请没有有效数量，不能生成采购单'})
+                return api_error('采购申请没有有效数量，不能生成采购单')
             db.session.commit()
             log_operation(
                 '采购申请下推采购单',
@@ -34817,7 +34817,7 @@ def create_purchase_order_from_request(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'采购申请下推采购单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '生成采购单失败，请稍后重试'})
+        return api_error('生成采购单失败，请稍后重试')
 
 @app.route('/purchase_request/add')
 @login_required
@@ -34900,7 +34900,7 @@ def add_purchase_request():
         request_no = (data.get('request_no') or '').strip() or generate_order_no('PR')
         request_date = parse_date_value(data.get('date'), date.today())
         if not request_date:
-            return jsonify({'status': 'error', 'msg': '申请日期格式不正确，请重新选择日期'})
+            return api_error('申请日期格式不正确，请重新选择日期')
         applicant = (data.get('applicant') or '').strip()
         department = (data.get('department') or '').strip()
         urgency = (data.get('urgency') or 'normal').strip() or 'normal'
@@ -34913,14 +34913,14 @@ def add_purchase_request():
         if request_id:
             request_order = db.session.get(PurchaseRequest, request_id)
             if not request_order:
-                return jsonify({'status': 'error', 'msg': '采购申请单不存在，请刷新后重试'})
+                return api_error('采购申请单不存在，请刷新后重试')
             if request_order.status != 'pending':
-                return jsonify({'status': 'error', 'msg': '只有待审批的采购申请单可以修改'})
+                return api_error('只有待审批的采购申请单可以修改')
         else:
             request_order = PurchaseRequest.query.filter_by(request_no=request_no).first()
             if request_order:
                 if request_order.status != 'pending':
-                    return jsonify({'status': 'error', 'msg': '采购申请单号已存在，不能重复保存'})
+                    return api_error('采购申请单号已存在，不能重复保存')
             else:
                 request_order = PurchaseRequest(
                     request_no=request_no,
@@ -34954,7 +34954,7 @@ def add_purchase_request():
         ]
 
         if not valid_items_data:
-            return jsonify({'status': 'error', 'msg': '请至少添加一条采购明细'})
+            return api_error('请至少添加一条采购明细')
 
         for existing_item in list(request_order.items):
             db.session.delete(existing_item)
@@ -34972,7 +34972,7 @@ def add_purchase_request():
 
             quantity = parse_float_value(item_data.get('quantity'), 0)
             if quantity <= 0:
-                return jsonify({'status': 'error', 'msg': f'物料 {material_code or item_data.get("material_name", "")} 的数量必须大于0'})
+                return api_error(f'物料 {material_code or item_data.get("material_name", "")} 的数量必须大于0')
 
             estimated_price = parse_float_value(item_data.get('estimated_price'), 0)
             estimated_amount = quantity * estimated_price
@@ -35029,7 +35029,7 @@ def add_purchase_request():
         return jsonify({'status': 'success', 'msg': '保存成功', 'id': request_order.id, 'request_no': request_order.request_no})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 @app.route('/purchase_request/<int:id>/approve', methods=['POST'])
 @require_role('purchase')
@@ -35038,14 +35038,14 @@ def approve_purchase_request(id):
     try:
         request_order = PurchaseRequest.query.get_or_404(id)
         if request_order.status != 'pending':
-            return jsonify({'status': 'error', 'msg': '只有待审批的采购申请单可以审批'})
+            return api_error('只有待审批的采购申请单可以审批')
         request_order.status = 'approved'
         db.session.commit()
         log_operation('采购申请审批通过', f'采购申请单：{request_order.request_no}', 'purchase_request', request_order.id)
         return jsonify({'status': 'success', 'msg': '操作完成'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 @app.route('/purchase_request/<int:id>/reject', methods=['POST'])
 @require_role('purchase')
@@ -35055,7 +35055,7 @@ def reject_purchase_request(id):
         data = request.get_json(silent=True) or {}
         request_order = PurchaseRequest.query.get_or_404(id)
         if request_order.status != 'pending':
-            return jsonify({'status': 'error', 'msg': '只有待审批的采购申请单可以驳回'})
+            return api_error('只有待审批的采购申请单可以驳回')
         request_order.status = 'rejected'
         request_order.remark = data.get('remark', request_order.remark)
         try:
@@ -35068,7 +35068,7 @@ def reject_purchase_request(id):
         return jsonify({'status': 'success', 'msg': '操作完成'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 
 @app.route('/purchase_request/<int:id>/revert', methods=['POST'])
@@ -35078,10 +35078,10 @@ def revert_purchase_request(id):
     try:
         request_order = PurchaseRequest.query.get_or_404(id)
         if request_order.status not in ('approved', 'completed'):
-            return jsonify({'status': 'error', 'msg': '只有已审批或已完成的采购申请单可以反审'})
+            return api_error('只有已审批或已完成的采购申请单可以反审')
         downstream_count = PurchaseOrder.query.filter_by(purchase_request_id=request_order.id).count()
         if downstream_count > 0:
-            return jsonify({'status': 'error', 'msg': '该采购申请已有下游采购单，不能反审；请先删除下游采购单'})
+            return api_error('该采购申请已有下游采购单，不能反审；请先删除下游采购单')
         request_order.status = 'pending'
         db.session.commit()
         log_operation('采购申请反审', f'采购申请单：{request_order.request_no}', 'purchase_request', request_order.id)
@@ -35089,7 +35089,7 @@ def revert_purchase_request(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'采购申请反审失败: {e}')
-        return jsonify({'status': 'error', 'msg': '反审失败，请稍后重试'})
+        return api_error('反审失败，请稍后重试')
 
 
 @app.route('/purchase_request/<int:id>/complete', methods=['POST'])
@@ -35099,14 +35099,14 @@ def complete_purchase_request(id):
     try:
         request_order = PurchaseRequest.query.get_or_404(id)
         if request_order.status != 'approved':
-            return jsonify({'status': 'error', 'msg': '只有已审批的采购申请单可以完成'})
+            return api_error('只有已审批的采购申请单可以完成')
         request_order.status = 'completed'
         db.session.commit()
         log_operation('采购申请完成', f'采购申请单：{request_order.request_no}', 'purchase_request', request_order.id)
         return jsonify({'status': 'success', 'msg': '操作完成'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 @app.route('/purchase_request/<int:id>/delete', methods=['POST'])
 @require_role('purchase')
@@ -35115,7 +35115,7 @@ def delete_purchase_request(id):
     try:
         request_order = PurchaseRequest.query.get_or_404(id)
         if request_order.status not in ('pending', 'rejected'):
-            return jsonify({'status': 'error', 'msg': '只有待审批或已驳回的采购申请单可以删除'})
+            return api_error('只有待审批或已驳回的采购申请单可以删除')
 
         request_no = request_order.request_no
 
@@ -35136,7 +35136,7 @@ def delete_purchase_request(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'删除采购申请单失败: {str(e)}')
-        return jsonify({'status': 'error', 'msg': f'删除失败：{str(e)}'})
+        return api_error(f'删除失败：{str(e)}')
 
 
 @app.route('/purchase_request/batch_delete', methods=['POST'])
@@ -35147,12 +35147,12 @@ def batch_delete_purchase_request():
     ids = payload.get('ids') or request.form.getlist('ids')
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的采购申请单'})
+        return api_error('请选择要删除的采购申请单')
 
     requests_list = PurchaseRequest.query.filter(PurchaseRequest.id.in_(ids)).all()
     blocked = [req.request_no for req in requests_list if req.status not in ('pending', 'rejected')]
     if blocked:
-        return jsonify({'status': 'error', 'msg': '只能删除待审批或已驳回的采购申请：' + '、'.join(blocked)})
+        return api_error('只能删除待审批或已驳回的采购申请：' + '、'.join(blocked))
 
     try:
         PurchaseRequestItem.query.filter(PurchaseRequestItem.purchase_request_id.in_(ids)).delete(synchronize_session=False)
@@ -35163,7 +35163,7 @@ def batch_delete_purchase_request():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'批量删除采购申请单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/export/template/purchase_request')
@@ -35183,13 +35183,13 @@ def export_purchase_request_template():
 def import_purchase_request():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的采购申请文件'})
+        return api_error('请选择要导入的采购申请文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     aliases = {
         'order_no': ['申请编号', '单据编号', '采购申请号'],
         'date': ['日期'],
@@ -35211,7 +35211,7 @@ def import_purchase_request():
         ws, col_map, header_row = _read_import_sheet(file, aliases)
         required = {'material_code', 'quantity'}
         if not required.issubset(col_map):
-            return jsonify({'status': 'error', 'msg': f'Excel表头缺少必要列（物料编码、数量）。检测到的表头：{", ".join(header_row)}'})
+            return api_error(f'Excel表头缺少必要列（物料编码、数量）。检测到的表头：{", ".join(header_row)}')
         orders_by_no = {}
         order_count = 0
         item_count = 0
@@ -35283,7 +35283,7 @@ def import_purchase_request():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'采购申请导入失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'采购申请导入失败：{str(e)}'})
+        return api_error(f'采购申请导入失败：{str(e)}')
 
 
 @app.route('/purchase_order')
@@ -35472,13 +35472,13 @@ def export_purchase_order():
 def import_purchase_order():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的采购单文件'})
+        return api_error('请选择要导入的采购单文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     aliases = {
         'order_no': ['采购单号', '单据编号', '订单编号'],
         'date': ['日期', '采购日期'],
@@ -35496,7 +35496,7 @@ def import_purchase_order():
         ws, col_map, header_row = _read_import_sheet(file, aliases)
         required = {'material_code', 'quantity'}
         if not required.issubset(col_map):
-            return jsonify({'status': 'error', 'msg': f'Excel表头缺少必要列（物料编码、数量）。检测到的表头：{", ".join(header_row)}'})
+            return api_error(f'Excel表头缺少必要列（物料编码、数量）。检测到的表头：{", ".join(header_row)}')
         orders_by_no = {}
         order_count = 0
         item_count = 0
@@ -35556,7 +35556,7 @@ def import_purchase_order():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'采购单导入失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'采购单导入失败：{str(e)}'})
+        return api_error(f'采购单导入失败：{str(e)}')
 
 
 @app.route('/purchase_order/add')
@@ -35623,7 +35623,7 @@ def save_purchase_order():
         order_no = (data.get('order_no') or '').strip() or generate_order_no('PO')
         order_date = parse_date_value(data.get('date'), date.today())
         if not order_date:
-            return jsonify({'status': 'error', 'msg': '采购日期格式不正确，请重新选择日期'})
+            return api_error('采购日期格式不正确，请重新选择日期')
         expected_date = parse_date_value(data.get('expected_date'))
         supplier_id = data.get('supplier_id')
         supplier_name = (data.get('supplier_name') or '').strip()
@@ -35633,7 +35633,7 @@ def save_purchase_order():
             supplier_id = None
         supplier = db.session.get(Supplier, supplier_id) if supplier_id else None
         if supplier_id and not supplier:
-            return jsonify({'status': 'error', 'msg': '请选择有效的供应商'})
+            return api_error('请选择有效的供应商')
         if not supplier and supplier_name:
             supplier = _find_or_create_supplier(supplier_name)
             supplier_id = supplier.id if supplier else None
@@ -35645,13 +35645,13 @@ def save_purchase_order():
         if order_id:
             order = db.session.get(PurchaseOrder, order_id)
             if not order:
-                return jsonify({'status': 'error', 'msg': '采购单不存在，请刷新后重试'})
+                return api_error('采购单不存在，请刷新后重试')
             if order.status != 'pending':
-                return jsonify({'status': 'error', 'msg': '只有未入库的采购单可以编辑'})
+                return api_error('只有未入库的采购单可以编辑')
         else:
             order = PurchaseOrder.query.filter_by(order_no=order_no).first()
             if order:
-                return jsonify({'status': 'error', 'msg': '采购单号已存在，不能重复保存'})
+                return api_error('采购单号已存在，不能重复保存')
             order = PurchaseOrder(order_no=order_no, status='pending', operator_id=current_user.id)
             db.session.add(order)
             db.session.flush()
@@ -35672,7 +35672,7 @@ def save_purchase_order():
             if item_data.get('material_id') or material_code:
                 valid_items.append(item_data)
         if not valid_items:
-            return jsonify({'status': 'error', 'msg': '请至少添加一条采购明细'})
+            return api_error('请至少添加一条采购明细')
 
         for existing_item in list(order.items):
             db.session.delete(existing_item)
@@ -35701,12 +35701,12 @@ def save_purchase_order():
                 material = Material.query.filter_by(code=material_code).first()
             if not material:
                 db.session.rollback()
-                return jsonify({'status': 'error', 'msg': f'物料 {material_code or material_id or ""} 不存在'})
+                return api_error(f'物料 {material_code or material_id or ""} 不存在')
 
             quantity = round_to_2_decimals(parse_float_value(item_data.get('quantity'), 0))
             if quantity <= 0:
                 db.session.rollback()
-                return jsonify({'status': 'error', 'msg': f'物料 {material.code} 的数量必须大于0'})
+                return api_error(f'物料 {material.code} 的数量必须大于0')
             price = round_to_2_decimals(parse_float_value(item_data.get('price'), material.price or 0))
             amount = round_to_2_decimals(quantity * price)
             order_total += amount
@@ -35731,7 +35731,7 @@ def save_purchase_order():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'保存采购单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'})
+        return api_error('保存失败，请稍后重试')
 
 
 @app.route('/purchase_order/<int:id>')
@@ -35936,11 +35936,11 @@ def api_purchase_order_selectable():
 @login_required
 def create_in_order_from_purchase_order_selection():
     if not purchase_order_to_in_order_enabled():
-        return jsonify({'status': 'error', 'msg': '系统已关闭采购订单下推入库单'})
+        return api_error('系统已关闭采购订单下推入库单')
     payload = request.get_json(silent=True) or {}
     selected_items = payload.get('items') or []
     if not isinstance(selected_items, list) or not selected_items:
-        return jsonify({'status': 'error', 'msg': '请选择要转换的采购单明细'})
+        return api_error('请选择要转换的采购单明细')
 
     warehouse = (payload.get('warehouse') or '').strip()
     remark = (payload.get('remark') or '').strip()
@@ -35960,14 +35960,14 @@ def create_in_order_from_purchase_order_selection():
             selected_qty_by_item_id.get(item_id, 0) + quantity
         )
     if not selected_qty_by_item_id:
-        return jsonify({'status': 'error', 'msg': '请选择大于 0 的转换数量'})
+        return api_error('请选择大于 0 的转换数量')
 
     source_items = PurchaseOrderItem.query.options(
         joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.supplier),
         joinedload(PurchaseOrderItem.material),
     ).filter(PurchaseOrderItem.id.in_(selected_qty_by_item_id.keys())).all()
     if len(source_items) != len(selected_qty_by_item_id):
-        return jsonify({'status': 'error', 'msg': '部分采购单明细不存在，请刷新后重试'})
+        return api_error('部分采购单明细不存在，请刷新后重试')
 
     supplier_ids = set()
     purchase_order_ids = set()
@@ -35975,17 +35975,17 @@ def create_in_order_from_purchase_order_selection():
     for item in source_items:
         order = item.purchase_order
         if not order or order.status not in ('pending', 'partial'):
-            return jsonify({'status': 'error', 'msg': '只能选择未入库或部分入库的采购单明细'})
+            return api_error('只能选择未入库或部分入库的采购单明细')
         receive_qty = selected_qty_by_item_id[item.id]
         material_code = item.material.code if item.material else item.material_id
         valid_qty, qty_msg = validate_purchase_receive_quantity(item, receive_qty, material_code)
         if not valid_qty:
-            return jsonify({'status': 'error', 'msg': qty_msg})
+            return api_error(qty_msg)
         supplier_ids.add(order.supplier_id or 0)
         purchase_order_ids.add(order.id)
         conversion_items.append((item, order, receive_qty))
     if len(supplier_ids) > 1:
-        return jsonify({'status': 'error', 'msg': '采购入库单只能选择同一供应商的采购单明细'})
+        return api_error('采购入库单只能选择同一供应商的采购单明细')
 
     try:
         purchase_order_nos = sorted({order.order_no for _, order, _ in conversion_items})
@@ -36033,7 +36033,7 @@ def create_in_order_from_purchase_order_selection():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'采购单选单生成采购入库单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '生成采购入库单失败，请稍后重试'})
+        return api_error('生成采购入库单失败，请稍后重试')
 
 
 @app.route('/purchase_order/<int:id>/copy', methods=['POST'])
@@ -36044,7 +36044,7 @@ def copy_purchase_order(id):
         joinedload(PurchaseOrder.items).joinedload(PurchaseOrderItem.material),
     ).get_or_404(id)
     if not source.items:
-        return jsonify({'status': 'error', 'msg': '原采购单没有明细，不能复制'})
+        return api_error('原采购单没有明细，不能复制')
     try:
         new_order = PurchaseOrder(
             order_no=generate_order_no('PO'),
@@ -36079,7 +36079,7 @@ def copy_purchase_order(id):
             ))
         if total_amount <= 0:
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': '原采购单没有有效数量，不能复制'})
+            return api_error('原采购单没有有效数量，不能复制')
         new_order.total_amount = round_to_2_decimals(total_amount)
         db.session.commit()
         log_operation('复制采购单', f'{source.order_no} -> {new_order.order_no}', 'purchase_order', new_order.id)
@@ -36093,7 +36093,7 @@ def copy_purchase_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'复制采购单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '复制失败，请稍后重试'})
+        return api_error('复制失败，请稍后重试')
 
 
 @app.route('/purchase_order/<int:id>/create_in_order', methods=['POST'])
@@ -36124,7 +36124,7 @@ def create_in_order_from_purchase_order(id):
                     continue
                 submitted_qty_by_id[item_id] = round_to_2_decimals(parse_float_value(row.get('quantity'), 0))
             if not submitted_qty_by_id:
-                return jsonify({'status': 'error', 'msg': '请选择要下推入库的采购明细'})
+                return api_error('请选择要下推入库的采购明细')
         in_order, error = _create_in_order_from_purchase_order_core(
             order,
             warehouse=warehouse,
@@ -36132,7 +36132,7 @@ def create_in_order_from_purchase_order(id):
             submitted_qty_by_id=submitted_qty_by_id,
         )
         if error:
-            return jsonify({'status': 'error', 'msg': error})
+            return api_error(error)
         return jsonify({
             'status': 'success',
             'msg': '采购入库单生成成功',
@@ -36143,7 +36143,7 @@ def create_in_order_from_purchase_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'采购单下推入库单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '生成采购入库单失败，请稍后重试'})
+        return api_error('生成采购入库单失败，请稍后重试')
 
 
 @app.route('/purchase_order/<int:id>/close', methods=['POST'])
@@ -36152,7 +36152,7 @@ def create_in_order_from_purchase_order(id):
 def close_purchase_order(id):
     order = PurchaseOrder.query.get_or_404(id)
     if order.status not in ('pending', 'partial'):
-        return jsonify({'status': 'error', 'msg': '只有未入库或部分入库的采购单可以关闭'})
+        return api_error('只有未入库或部分入库的采购单可以关闭')
     payload = request.get_json(silent=True) or request.form
     reason = (payload.get('reason') or '').strip()
     try:
@@ -36165,7 +36165,7 @@ def close_purchase_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'关闭采购单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '关闭失败，请稍后重试'})
+        return api_error('关闭失败，请稍后重试')
 
 
 @app.route('/purchase_order/<int:id>/reopen', methods=['POST'])
@@ -36174,7 +36174,7 @@ def close_purchase_order(id):
 def reopen_purchase_order(id):
     order = PurchaseOrder.query.get_or_404(id)
     if order.status != 'closed':
-        return jsonify({'status': 'error', 'msg': '只有已关闭的采购单可以重新打开'})
+        return api_error('只有已关闭的采购单可以重新打开')
     try:
         order.status = 'pending'
         update_purchase_order_status(order)
@@ -36184,7 +36184,7 @@ def reopen_purchase_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'重新打开采购单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '重新打开失败，请稍后重试'})
+        return api_error('重新打开失败，请稍后重试')
 
 
 @app.route('/purchase_order/<int:id>/delete', methods=['POST'])
@@ -36193,9 +36193,9 @@ def reopen_purchase_order(id):
 def delete_purchase_order(id):
     order = PurchaseOrder.query.options(joinedload(PurchaseOrder.items)).get_or_404(id)
     if order.status != 'pending':
-        return jsonify({'status': 'error', 'msg': '只有未入库的采购单可以删除'})
+        return api_error('只有未入库的采购单可以删除')
     if InOrder.query.filter_by(source_purchase_order_id=order.id).first():
-        return jsonify({'status': 'error', 'msg': '该采购单已有下游入库单，不能删除'})
+        return api_error('该采购单已有下游入库单，不能删除')
     try:
         order_no = order.order_no
         for item in list(order.items):
@@ -36207,7 +36207,7 @@ def delete_purchase_order(id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'删除采购单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 @app.route('/purchase_order/batch_delete', methods=['POST'])
@@ -36218,7 +36218,7 @@ def batch_delete_purchase_order():
     ids = payload.get('ids') or request.form.getlist('ids')
     ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
     if not ids:
-        return jsonify({'status': 'error', 'msg': '请选择要删除的采购单'})
+        return api_error('请选择要删除的采购单')
 
     orders = PurchaseOrder.query.options(joinedload(PurchaseOrder.items)).filter(PurchaseOrder.id.in_(ids)).all()
     blocked = []
@@ -36232,7 +36232,7 @@ def batch_delete_purchase_order():
             continue
         delete_orders.append(order)
     if blocked:
-        return jsonify({'status': 'error', 'msg': '以下采购单不能删除：' + '、'.join(blocked)})
+        return api_error('以下采购单不能删除：' + '、'.join(blocked))
 
     try:
         deleted = 0
@@ -36247,7 +36247,7 @@ def batch_delete_purchase_order():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'批量删除采购单失败: {e}')
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 
 # ==================== Report ====================
@@ -38203,7 +38203,7 @@ def report_dashboard():
 @login_required
 def report_dashboard_ai_insights():
     if not _ai_llm_configured():
-        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+        return api_error('请先在系统设置中配置大模型API')
     stats, chart_data = build_report_dashboard_context()
     
     # 计算环比增长率
@@ -38233,7 +38233,7 @@ def report_dashboard_ai_insights():
     try:
         insights = _ai_call_llm_chat(prompt)
         if not insights:
-            return jsonify({'status': 'error', 'msg': 'AI生成失败，请稍后重试'})
+            return api_error('AI生成失败，请稍后重试')
         return jsonify({'status': 'success', 'insights': insights})
     except Exception as e:
         app.logger.error(f'报表AI解读失败: {e}')
@@ -38244,7 +38244,7 @@ def report_dashboard_ai_insights():
 def ai_replenishment_suggestions():
     """智能补货建议：分析库存低于补货点的物料，结合历史出库数据生成补货建议。"""
     if not _ai_llm_configured():
-        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+        return api_error('请先在系统设置中配置大模型API')
     
     # 查询库存低于补货点的物料
     materials = Material.query.filter(
@@ -38321,7 +38321,7 @@ def ai_replenishment_suggestions():
 def ai_inventory_health():
     """库存健康度评分：AI评估每个物料的库存健康度（积压/缺货风险）。"""
     if not _ai_llm_configured():
-        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+        return api_error('请先在系统设置中配置大模型API')
     
     # 查询所有有库存的物料
     materials = Material.query.filter(Material.stock > 0).all()
@@ -41016,7 +41016,7 @@ def ai_supplier_evaluation_page():
 def api_supplier_evaluation():
     """供应商智能评估API：分析供应商交货表现、价格稳定性，生成AI评估报告。"""
     if not _ai_llm_configured():
-        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+        return api_error('请先在系统设置中配置大模型API')
 
     suppliers = Supplier.query.all()
     if not suppliers:
@@ -41140,7 +41140,7 @@ def ai_location_recommendation():
 def api_recommend_location():
     """智能库位推荐API：基于物料周转率和库位使用情况，推荐最优库位。"""
     if not _ai_llm_configured():
-        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+        return api_error('请先在系统设置中配置大模型API')
 
     data = request.get_json() or {}
     material_id = data.get('material_id')
@@ -41327,7 +41327,7 @@ def ai_demand_forecast():
 def api_demand_forecast():
     """需求预测API：基于历史出库数据预测未来需求，生成补货建议。"""
     if not _ai_llm_configured():
-        return jsonify({'status': 'error', 'msg': '请先在系统设置中配置大模型API'})
+        return api_error('请先在系统设置中配置大模型API')
 
     data = request.get_json() or {}
     forecast_days = data.get('forecast_days', 30)  # 预测天数：7/14/30
@@ -41570,14 +41570,14 @@ def export_category():
 def import_category():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的分类文件'})
+        return api_error('请选择要导入的分类文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -41618,7 +41618,7 @@ def import_category():
         return jsonify({'status': 'success', 'msg': msg})
     except Exception:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '导入失败，请稍后重试'})
+        return api_error('导入失败，请稍后重试')
 
 @app.route('/unit/download_template')
 @login_required
@@ -41658,14 +41658,14 @@ def export_unit():
 def import_unit():
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的单位文件'})
+        return api_error('请选择要导入的单位文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     try:
         from openpyxl import load_workbook
         wb = load_workbook(file)
@@ -41695,7 +41695,7 @@ def import_unit():
         return jsonify({'status': 'success', 'msg': msg})
     except Exception:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '导入失败，请稍后重试'})
+        return api_error('导入失败，请稍后重试')
 
 @app.route('/supplier/download_template')
 @login_required
@@ -41736,20 +41736,20 @@ def import_supplier():
     file = request.files.get('file')
     if not file:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': '请选择要导入的供应商文件'})
+            return api_error('请选择要导入的供应商文件')
         flash('请选择要导入的供应商文件', 'danger')
         return redirect(url_for('supplier_list'))
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': _ext_msg})
+            return api_error(_ext_msg)
         flash(_ext_msg, 'danger')
         return redirect(url_for('supplier_list'))
     # m-03：限制 Excel 上传 ≤ 5MB
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': _size_msg})
+            return api_error(_size_msg)
         flash(_size_msg, 'danger')
         return redirect(url_for('supplier_list'))
     try:
@@ -41781,7 +41781,7 @@ def import_supplier():
         except Exception:
             db.session.rollback()
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'status': 'error', 'msg': '导入失败'})
+                return api_error('导入失败')
             flash('导入失败，请稍后重试', 'danger')
             return redirect(url_for('supplier_list'))
         msg = f'供应商导入成功，共导入 {count} 条'
@@ -41793,7 +41793,7 @@ def import_supplier():
     except Exception:
         db.session.rollback()
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': '供应商导入失败'})
+            return api_error('供应商导入失败')
         flash('供应商导入失败，请稍后重试', 'danger')
     return redirect(url_for('supplier_list'))
 
@@ -41845,14 +41845,14 @@ def import_employee():
     姓名必填；员工编码可空，已存在则更新；部门编码按 Department.code 匹配。"""
     file = request.files.get('file')
     if not file:
-        return jsonify({'status': 'error', 'msg': '请选择要导入的员工文件'})
+        return api_error('请选择要导入的员工文件')
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
-        return jsonify({'status': 'error', 'msg': _ext_msg})
+        return api_error(_ext_msg)
     # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
-        return jsonify({'status': 'error', 'msg': _size_msg})
+        return api_error(_size_msg)
     try:
         from openpyxl import load_workbook
         wb = load_workbook(filename=io.BytesIO(file.read()), data_only=True)
@@ -41990,20 +41990,20 @@ def import_material():
     file = request.files.get('file')
     if not file:
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': '请选择要导入的物料文件'})
+            return api_error('请选择要导入的物料文件')
         flash('请选择要导入的物料文件', 'danger')
         return redirect(url_for('material_list'))
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': _ext_msg})
+            return api_error(_ext_msg)
         flash(_ext_msg, 'danger')
         return redirect(url_for('material_list'))
     # m-03：限制 Excel 上传 ≤ 5MB，避免大文件读入内存导致 OOM/超时
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': _size_msg})
+            return api_error(_size_msg)
         flash(_size_msg, 'danger')
         return redirect(url_for('material_list'))
     try:
@@ -42037,7 +42037,7 @@ def import_material():
                 col_map['min_stock'] = idx
         if 'code' not in col_map or 'name' not in col_map:
             if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'status': 'error', 'msg': f'Excel表头缺少必要列（物料编码、物料名称）。检测到的表头：{", ".join(header_row)}'})
+                return api_error(f'Excel表头缺少必要列（物料编码、物料名称）。检测到的表头：{", ".join(header_row)}')
             flash(f'Excel表头缺少必要列（物料编码、物料名称）。检测到的表头：{", ".join(header_row)}', 'danger')
             return redirect(url_for('material_list'))
         data_rows = max((ws.max_row or 1) - 1, 0)
@@ -42045,7 +42045,7 @@ def import_material():
         if data_rows > max_rows:
             msg = f'本次导入 {data_rows} 行，超过系统参数设置的导入上限 {max_rows} 行，请拆分文件后再导入'
             if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'status': 'error', 'msg': msg})
+                return api_error(msg)
             flash(msg, 'danger')
             return redirect(url_for('material_list'))
         count = 0
@@ -42151,7 +42151,7 @@ def import_material():
         except Exception as e:
             db.session.rollback()
             if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'status': 'error', 'msg': f'导入失败：{str(e)}'})
+                return api_error(f'导入失败：{str(e)}')
             flash(f'导入失败：{str(e)}', 'danger')
             return redirect(url_for('material_list'))
         msg = f'物料导入成功，共导入 {count} 条'
@@ -42170,7 +42170,7 @@ def import_material():
     except Exception as e:
         db.session.rollback()
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': f'物料导入失败：{str(e)}'})
+            return api_error(f'物料导入失败：{str(e)}')
         flash('物料导入失败，请稍后重试', 'danger')
     return redirect(url_for('material_list'))
 
@@ -42182,20 +42182,20 @@ def import_out_order():
     file = request.files.get('file')
     if not file:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': '请选择要导入的领料单文件'})
+            return api_error('请选择要导入的领料单文件')
         flash('请选择要导入的领料单文件', 'danger')
         return redirect(url_for('batch_import_page'))
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': _ext_msg})
+            return api_error(_ext_msg)
         flash(_ext_msg, 'danger')
         return redirect(url_for('batch_import_page'))
     # m-03：限制 Excel 上传 ≤ 5MB
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': _size_msg})
+            return api_error(_size_msg)
         flash(_size_msg, 'danger')
         return redirect(url_for('batch_import_page'))
     try:
@@ -42233,7 +42233,7 @@ def import_out_order():
                 col_map['remark'] = idx
         if 'order_no' not in col_map:
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'status': 'error', 'msg': f'Excel表头缺少"单据编号"列。检测到的表头：{", ".join(header_row)}'})
+                return api_error(f'Excel表头缺少"单据编号"列。检测到的表头：{", ".join(header_row)}')
             flash(f'Excel表头缺少"单据编号"列', 'danger')
             return redirect(url_for('batch_import_page'))
         count = 0
@@ -42358,7 +42358,7 @@ def import_out_order():
         except Exception as e:
             db.session.rollback()
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'status': 'error', 'msg': f'导入失败：{str(e)}'})
+                return api_error(f'导入失败：{str(e)}')
             flash(f'导入失败：{str(e)}', 'danger')
             return redirect(url_for('batch_import_page'))
         msg = f'领料单导入成功，共导入 {count} 张单据'
@@ -42377,7 +42377,7 @@ def import_out_order():
     except Exception as e:
         db.session.rollback()
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': f'领料单导入失败：{str(e)}'})
+            return api_error(f'领料单导入失败：{str(e)}')
         flash(f'领料单导入失败：{str(e)}', 'danger')
     return redirect(url_for('batch_import_page'))
 
@@ -42389,20 +42389,20 @@ def import_in_order():
     file = request.files.get('file')
     if not file:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': '请选择要导入的入库单文件'})
+            return api_error('请选择要导入的入库单文件')
         flash('请选择要导入的入库单文件', 'danger')
         return redirect(url_for('batch_import_page'))
     _ext_ok, _ext_msg = validate_excel_extension(file.filename)
     if not _ext_ok:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': _ext_msg})
+            return api_error(_ext_msg)
         flash(_ext_msg, 'danger')
         return redirect(url_for('batch_import_page'))
     # m-03：限制 Excel 上传 ≤ 5MB
     _size_ok, _size_msg = validate_excel_size(file)
     if not _size_ok:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': _size_msg})
+            return api_error(_size_msg)
         flash(_size_msg, 'danger')
         return redirect(url_for('batch_import_page'))
     try:
@@ -42440,7 +42440,7 @@ def import_in_order():
                 col_map['remark'] = idx
         if 'order_no' not in col_map:
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'status': 'error', 'msg': f'Excel表头缺少"单据编号"列。检测到的表头：{", ".join(header_row)}'})
+                return api_error(f'Excel表头缺少"单据编号"列。检测到的表头：{", ".join(header_row)}')
             flash(f'Excel表头缺少"单据编号"列', 'danger')
             return redirect(url_for('batch_import_page'))
         count = 0
@@ -42568,7 +42568,7 @@ def import_in_order():
         except Exception as e:
             db.session.rollback()
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'status': 'error', 'msg': f'导入失败：{str(e)}'})
+                return api_error(f'导入失败：{str(e)}')
             flash(f'导入失败：{str(e)}', 'danger')
             return redirect(url_for('batch_import_page'))
         msg = f'入库单导入成功，共导入 {count} 张单据'
@@ -42587,7 +42587,7 @@ def import_in_order():
     except Exception as e:
         db.session.rollback()
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'error', 'msg': f'入库单导入失败：{str(e)}'})
+            return api_error(f'入库单导入失败：{str(e)}')
         flash(f'入库单导入失败：{str(e)}', 'danger')
     return redirect(url_for('batch_import_page'))
 
@@ -42633,7 +42633,7 @@ def create_print_template(model, prefix):
     is_default = bool(request.form.get('is_default'))
 
     if not name:
-        return jsonify({'status': 'error', 'msg': 'Template name is required'})
+        return api_error('Template name is required')
 
     excel_template_path = ''
     html_template_content = ''
@@ -42641,12 +42641,12 @@ def create_print_template(model, prefix):
     if template_type == 'excel':
         excel_file = request.files.get('excel_file')
         if not excel_file or not excel_file.filename:
-            return jsonify({'status': 'error', 'msg': 'Excel template file is required'})
+            return api_error('Excel template file is required')
         excel_template_path = save_print_template_file(excel_file, prefix)
     else:
         html_template_content = (request.form.get('html_content') or '').strip()
         if not html_template_content:
-            return jsonify({'status': 'error', 'msg': 'HTML template content is required'})
+            return api_error('HTML template content is required')
 
     try:
         if is_default:
@@ -42670,7 +42670,7 @@ def create_print_template(model, prefix):
         return jsonify({'status': 'success', 'id': template.id})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 
 def set_default_print_template(model, template_id):
@@ -42683,7 +42683,7 @@ def set_default_print_template(model, template_id):
         return jsonify({'status': 'success'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 
 def delete_print_template(model, template_id):
@@ -42694,7 +42694,7 @@ def delete_print_template(model, template_id):
         return jsonify({'status': 'success'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'})
+        return api_error('操作失败，请稍后重试')
 
 
 @app.route('/in_order/<int:id>/preview_template')
@@ -42913,7 +42913,7 @@ def api_query_search():
     """模糊查询物料"""
     keyword = request.form.get('keyword', '').strip()
     if not keyword:
-        return jsonify({'status': 'error', 'msg': '请输入搜索关键词'})
+        return api_error('请输入搜索关键词')
 
     keyword_like = f'%{keyword}%'
     materials = Material.query.outerjoin(Supplier, Material.supplier_id == Supplier.id).outerjoin(
@@ -43462,7 +43462,7 @@ def create_backup():
     try:
         db_path = get_database_file_path()
         if not os.path.exists(db_path):
-            return jsonify({'status': 'error', 'msg': '数据库文件不存在'})
+            return api_error('数据库文件不存在')
         
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         backup_filename = f'wms_backup_{timestamp}.db'
@@ -43478,7 +43478,7 @@ def create_backup():
             'filename': backup_filename
         })
     except Exception as e:
-        return jsonify({'status': 'error', 'msg': '备份失败，请稍后重试'})
+        return api_error('备份失败，请稍后重试')
 
 @app.route('/backup/download/<filename>')
 @login_required
@@ -43502,23 +43502,23 @@ def delete_backup():
     try:
         filename = request.form.get('filename', '').strip()
         if not filename:
-            return jsonify({'status': 'error', 'msg': '请指定备份文件'})
+            return api_error('请指定备份文件')
         
         # 防止路径穿越攻击
         safe_filename = os.path.basename(filename)
         if safe_filename != filename or '..' in filename:
-            return jsonify({'status': 'error', 'msg': '非法文件名'})
+            return api_error('非法文件名')
         
         backup_path = os.path.join(BACKUP_DIR, safe_filename)
         if not os.path.exists(backup_path) or not os.path.isfile(backup_path):
-            return jsonify({'status': 'error', 'msg': '备份文件不存在'})
+            return api_error('备份文件不存在')
         
         os.remove(backup_path)
         log_operation('删除备份', f'备份文件：{safe_filename}', 'backup')
         
         return jsonify({'status': 'success', 'msg': '删除成功'})
     except Exception as e:
-        return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'})
+        return api_error('删除失败，请稍后重试')
 
 @app.route('/backup/restore', methods=['POST'])
 @login_required
