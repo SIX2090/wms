@@ -1874,6 +1874,19 @@ def enforce_initial_password_change():
         return redirect(url_for('change_own_password'))
     return None
 
+
+# BUG-2026-07-29-007: URL 查询参数长度限制
+# 防止超长查询串（>2KB）被静默接受。Werkzeug 默认 8KB 限制太宽松，
+# 业务侧 2KB 已经足够任何合理条件组合。返回 414 URI Too Long。
+QUERY_STRING_MAX_LENGTH = 2048
+
+
+@app.before_request
+def limit_query_string_length():
+    if len(request.query_string) > QUERY_STRING_MAX_LENGTH:
+        return api_error(f'查询参数过长（{len(request.query_string)} > {QUERY_STRING_MAX_LENGTH} 字节）', code=414)
+    return None
+
 # Error handlers
 def wants_json_error_response():
     return request.path.startswith('/api/')
