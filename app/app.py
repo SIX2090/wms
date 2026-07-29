@@ -37198,6 +37198,9 @@ def _check_columns():
 def _ledger_columns():
     return [
         {'field': 'date', 'title': '日期'},
+        {'field': 'material_code', 'title': '物料编码'},
+        {'field': 'material_name', 'title': '物料名称'},
+        {'field': 'spec', 'title': '规格型号'},
         {'field': 'reference_type', 'title': '单据类型'},
         {'field': 'reference_no', 'title': '单据编号', 'link_field': 'reference_url'},
         {'field': 'opening_quantity', 'title': '期初数量', 'type': 'number'},
@@ -37856,6 +37859,10 @@ def _build_check_report(filters):
 
 
 def _build_ledger_report(filters):
+    # 库存台账必须按单一物料查询，未指定物料时返回空数据并给出提示
+    if not (filters.get('material_code') or '').strip():
+        empty_summary = {'count': 0, 'quantity': 0, 'amount': 0}
+        return _ledger_columns(), [], empty_summary
     rows = _collect_ledger_rows(filters)
     ending_balances = {}
     for row in rows:

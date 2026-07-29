@@ -45,8 +45,9 @@
 
             {% if filters_config.material %}
             <div class="col-md-3">
-                <label for="material_code" class="form-label">物料搜索</label>
-                <input id="material_code" name="material_code" type="text" class="form-control" placeholder="编码 / 名称 / 规格">
+                <label for="material_code" class="form-label">物料搜索{% if report_type == 'ledger' %} <span class="text-danger">*</span>{% endif %}</label>
+                <input id="material_code" name="material_code" type="text" class="form-control" placeholder="编码 / 名称 / 规格"{% if report_type == 'ledger' %} required{% endif %}>
+                {% if report_type == 'ledger' %}<div class="form-text">库存台账需按单一物料查询，请先选择物料。</div>{% endif %}
             </div>
             {% endif %}
 
@@ -291,7 +292,10 @@ function renderTable(columns, rows) {
     });
 
     if (!rows.length) {
-        tableBody.innerHTML = `<tr><td colspan="${columns.length || 1}" class="text-center text-muted py-5">当前条件下没有数据</td></tr>`;
+        const emptyHint = reportType === 'ledger'
+            ? '请先在筛选条件中选择一个物料（编码 / 名称 / 规格），再点击查询。'
+            : '当前条件下没有数据';
+        tableBody.innerHTML = `<tr><td colspan="${columns.length || 1}" class="text-center text-muted py-5">${escapeHtml(emptyHint)}</td></tr>`;
         return;
     }
 
@@ -371,6 +375,13 @@ function renderPagination(total) {
 }
 
 async function loadData() {
+    // 库存台账必须先指定物料，避免打开就返回全表数据
+    if (reportType === 'ledger' && !filterForm.querySelector('#material_code').value.trim()) {
+        renderSummary({ count: 0, quantity: 0, amount: 0 });
+        renderTable(_defaultLedgerColumns(), []);
+        renderPagination(0);
+        return;
+    }
     setLoading(true);
     try {
         const response = await fetch(`/report/api/${encodeURIComponent(reportType)}?${buildParams().toString()}`);
@@ -389,6 +400,22 @@ async function loadData() {
     } finally {
         setLoading(false);
     }
+}
+
+function _defaultLedgerColumns() {
+    return [
+        { field: 'date', title: '日期' },
+        { field: 'material_code', title: '物料编码' },
+        { field: 'material_name', title: '物料名称' },
+        { field: 'spec', title: '规格型号' },
+        { field: 'reference_type', title: '单据类型' },
+        { field: 'reference_no', title: '单据编号' },
+        { field: 'opening_quantity', title: '期初数量', type: 'number' },
+        { field: 'in_quantity', title: '入库', type: 'number' },
+        { field: 'out_quantity', title: '出库', type: 'number' },
+        { field: 'balance_quantity', title: '结存', type: 'number' },
+        { field: 'remark', title: '备注' },
+    ];
 }
 
 loadData();
