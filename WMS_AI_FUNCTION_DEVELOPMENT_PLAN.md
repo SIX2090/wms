@@ -113,6 +113,9 @@
 | 24 | AI-OS-MW-001 | 已完成 | 期初库存多仓库支持 | AI-F02-04 | 无 |
 | 25 | AI-OS-LD-001 | 已完成 | 库存台账按单一物料查询与物料信息显示 | AI-OS-MW-001 | 无 |
 | 26 | AI-INIT-001 | 已完成 | 系统管理-业务数据初始化（系统重置） | 无 | 无 |
+| 27 | AI-MENU-2026-07-29-A1 | 已完成 | 销售出库单 page_title 误导修复 | 无 | A2 |
+| 28 | AI-MENU-2026-07-29-A2 | 已完成 | opening_stock.warehouse_id 自动迁移补齐 | AI-OS-MW-001 | 无 |
+| 29 | AI-MENU-2026-07-29-A3 | 已完成 | 期初库存菜单页面 title 改为「期初库存台账」 | 无 | 无 |
 
 ## 5. 任务详细定义
 
@@ -314,6 +317,59 @@
 - User 保留 ≥ 3（含 admin），`check_password_hash(admin.password_hash, 'admin')` 仍为 True。
 - OperationAudit 至少保留 preview+done 两条；再次 preview 全部 group 计数都为 0。
 - 静态 + 动态共 62 项专项验证全 PASS（`python scripts/verify_init_business_data.py`）。
+
+### AI-MENU-2026-07-29-A1：销售出库单 page_title 误导修复
+
+**目标**：消除 `/out_order/add?type=sale` 页面标题为"新增销售单"的语义歧义。销售出库（业务类型 SO）与新建销售订单是两个独立业务：销售出库是把库存出给客户、产生 SO 编号；销售订单是合同/订单登记、产生 PO/SO 系列单据号。菜单点进去 title 必须明示这是"出库单"。
+
+**范围与边界**：
+
+- `out_order_add` 路由 `page_title` 三元分支：`其他出库/销售出库/领料单`，分别显示"新增其他出库单 / 新增销售出库单 / 新增领料单"。
+- 仅修 title 文字；不动业务逻辑、单号前缀、字段。
+- 不修其他相关页面（领料单、其他出库单等已有 title 正确）。
+- 不新建分支。
+
+**验收**：
+
+- `GET /out_order/add?type=sale` 返回页面 `<title>` 包含"销售出库单"，且不再含"新增销售单"（避免再次误导）。
+- `GET /out_order/add` 和 `/other_out_order/add` 标题保持不变（回归通过）。
+- 全菜单扫描脚本（`scripts/audit/scan_all_menus.py`）不把"直接销售出库"列入错配清单。
+
+### AI-MENU-2026-07-29-A2：opening_stock.warehouse_id 自动迁移补齐
+
+**目标**：AI-OS-MW-001 已上线，但 `auto_migrate_database()` 没有给老库补 `opening_stock.warehouse_id` 列，导致部分历史数据库访问 `/opening_stock` 直接 500（`no such column: opening_stock.warehouse_id`）。本次补齐迁移逻辑，让任意历史库下一次启动时自动 ALTER 成功。
+
+**范围与边界**：
+
+- 在 `auto_migrate_database()` 已有 `in_order_item` / `out_order_item` 迁移段后追加 `opening_stock.warehouse_id` 迁移。
+- 兼容 `opening_stock` 表不存在的全新库（用 `_table_exists` 守卫，不存在则跳过本段，由 `db.create_all()` 创建带 `warehouse_id` 的表）。
+- 同时建索引 `idx_opening_stock_warehouse`，与 `OpeningStock` 模型 `db.Index('idx_opening_stock_warehouse', 'warehouse_id')` 对齐。
+- 旧记录 `warehouse_id = NULL` 合法；`UniqueConstraint(material_id, warehouse_id)` 兼容 NULL（SQLite 行为）。
+- 不修改 admin 默认密码；不新建分支。
+
+**验收**：
+
+- 旧库（缺 `opening_stock.warehouse_id`）启动后 5 秒内自动 ALTER 成功，进程不再因 `no such column` 崩溃。
+- 启动日志可见 `auto_migrate_database` 完成且无 traceback。
+- `GET /opening_stock` 返回 200 + `<title>期初库存单据</title>`。
+- 新库（`opening_stock` 表完全不存在）依然由 `db.create_all()` 创建带 `warehouse_id` 的表。
+
+### AI-MENU-2026-07-29-A3：期初库存菜单页面 title 改为「期初库存台账」
+
+**目标**：用户反馈"点期初库存菜单，打开却是库存台账报表"——本质是菜单语义期待"台账视图"（建账查询+期初余额列表），但页面 title 写的是"期初库存单据"（单据），与菜单期待形态不一致。本次把页面 title 改为「期初库存台账」，让菜单文字、URL、页面 title 三者语义对齐。
+
+**范围与边界**：
+
+- 只改 `opening_stock.html` 的 `<title>` 块：单字替换为「期初库存台账」。
+- 页面内容（建账查询面板 + 新增期初库存单面板）不动。
+- 业务日志文案「保存期初库存单据」「期初库存单据固定」不动（指代数据/单据类型，不指代页面）。
+- 不新建分支。
+
+**验收**：
+
+- `GET /opening_stock` 返回 200 + `<title>期初库存台账</title>`。
+- 菜单 `期初库存` 文字、URL `/opening_stock`、页面 title「期初库存台账」三者语义一致。
+- 扫描脚本 `scripts/audit/scan_all_menus.py` 不再为"期初库存"产生错配记录。
 
 ## 6. 执行顺序
 

@@ -276,6 +276,21 @@ def auto_migrate_database():
         if out_item_columns and 'remark' not in out_item_columns:
             cursor.execute("ALTER TABLE out_order_item ADD COLUMN remark VARCHAR(500)")
             modified = True
+
+        # BUG-MENU-2026-07-29-A2: opening_stock 表缺 warehouse_id 字段。
+        # 旧库直接访问 /opening_stock 会因 SQLAlchemy joinedload 找不到列而 500。
+        # 旧记录允许 warehouse_id 为 NULL（历史未指定仓库），AI-OS-MW-001 的
+        # UniqueConstraint(material_id, warehouse_id) 兼容 NULL。
+        if _table_exists('opening_stock'):
+            cursor.execute("PRAGMA table_info(opening_stock)")
+            op_columns = [row[1] for row in cursor.fetchall()]
+            if op_columns and 'warehouse_id' not in op_columns:
+                cursor.execute("ALTER TABLE opening_stock ADD COLUMN warehouse_id INTEGER")
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_opening_stock_warehouse "
+                    "ON opening_stock(warehouse_id)"
+                )
+                modified = True
         if out_item_columns:
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_out_order_item_sales_source "
@@ -33700,7 +33715,9 @@ def out_order_add_page():
                          is_sale_order=is_sale_order,
                          is_other_out=is_other_out,
                          default_business_type='其他出库' if is_other_out else ('销售出库' if is_sale_order else '领料单'),
-                         page_title='新增其他出库单' if is_other_out else ('新增销售单' if is_sale_order else '新增领料单'),
+                         # BUG-MENU-2026-07-29-A1: ?type=sale 是"销售出库"业务（单号前缀 SO），
+                         # 原本 page_title="新增销售单"会让用户误以为是新建销售订单，改为"新增销售出库单"
+                         page_title='新增其他出库单' if is_other_out else ('新增销售出库单' if is_sale_order else '新增领料单'),
                          party_label='客户/领用单位' if is_other_out else ('客户名称' if is_sale_order else '领料部门'),
                          party_required=not is_other_out,
                          return_list_url='/other_out_order' if is_other_out else '/out_order',
