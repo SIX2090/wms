@@ -5998,6 +5998,402 @@ def mobile_recognize_material():
         return jsonify({'status': 'error', 'msg': '识别失败，请稍后重试'}), 500
 
 
+# ==================== 移动端仓库管理 API ====================
+
+MOBILE_API_PAGE_SIZE_MAX = 100
+MOBILE_API_PAGE_SIZE_DEFAULT = 20
+
+
+def _mobile_paginate(query, page, page_size):
+    """Return paginated results for mobile API."""
+    page = max(1, page or 1)
+    page_size = min(max(1, page_size or MOBILE_API_PAGE_SIZE_DEFAULT), MOBILE_API_PAGE_SIZE_MAX)
+    total = query.count()
+    items = query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        'items': items,
+        'total': total,
+        'page': page,
+        'page_size': page_size,
+        'total_pages': max(1, (total + page_size - 1) // page_size) if total > 0 else 0,
+    }
+
+
+def _in_order_payload(order):
+    """Build mobile-friendly inbound order payload."""
+    return {
+        'id': order.id,
+        'order_no': order.order_no,
+        'date': order.date.isoformat() if order.date else '',
+        'business_type': order.business_type or '',
+        'warehouse': order.warehouse or '',
+        'status': order.status or '',
+        'total_amount': round_to_2_decimals(order.total_amount or 0),
+        'operator': order.operator.username if order.operator else '',
+        'remark': order.remark or '',
+        'created_at': order.created_at.isoformat() if order.created_at else '',
+        'item_count': len(order.items) if order.items else 0,
+    }
+
+
+def _in_order_detail_payload(order):
+    """Build mobile-friendly inbound order detail payload."""
+    payload = _in_order_payload(order)
+    payload['items'] = [
+        {
+            'id': item.id,
+            'material_code': item.material.code if item.material else '',
+            'material_name': item.material.name if item.material else '',
+            'material_spec': item.material.spec or '',
+            'unit': item.material.unit.name if item.material and item.material.unit else '',
+            'quantity': item.quantity or 0,
+            'price': round_to_2_decimals(item.price or 0),
+            'amount': round_to_2_decimals(item.amount or 0),
+        }
+        for item in order.items
+    ]
+    payload['supplier'] = order.supplier.name if order.supplier else ''
+    return payload
+
+
+def _out_order_payload(order):
+    """Build mobile-friendly outbound order payload."""
+    return {
+        'id': order.id,
+        'order_no': order.order_no,
+        'date': order.date.isoformat() if order.date else '',
+        'business_type': order.business_type or '',
+        'warehouse': order.warehouse or '',
+        'department': order.department.name if order.department else (order.customer or ''),
+        'status': order.status or '',
+        'total_amount': round_to_2_decimals(order.total_amount or 0),
+        'operator': order.operator.username if order.operator else '',
+        'remark': order.remark or '',
+        'created_at': order.created_at.isoformat() if order.created_at else '',
+        'item_count': len(order.items) if order.items else 0,
+    }
+
+
+def _out_order_detail_payload(order):
+    """Build mobile-friendly outbound order detail payload."""
+    payload = _out_order_payload(order)
+    payload['items'] = [
+        {
+            'id': item.id,
+            'material_code': item.material.code if item.material else '',
+            'material_name': item.material.name if item.material else '',
+            'material_spec': item.material.spec or '',
+            'unit': item.material.unit.name if item.material and item.material.unit else '',
+            'quantity': item.quantity or 0,
+            'price': round_to_2_decimals(item.price or 0),
+            'amount': round_to_2_decimals(item.amount or 0),
+        }
+        for item in order.items
+    ]
+    return payload
+
+
+# ---------- Dashboard ----------
+
+@app.route('/api/mobile/dashboard')
+@csrf.exempt
+@web_or_api_required
+def mobile_api_dashboard():
+    """移动端首页概览：今日进出统计、待处理数、库存告警"""
+    today = date.today()
+
+    # 今日入库统计
+    today_in_count = InOrder.query.filter(
+        InOrder.date == today,
+        InOrder.status == 'completed',
+    ).count()
+    today_in_items = db.session.query(func.coalesce(func.sum(InOrderItem.quantity), 0)).join(
+        InOrder, InOrderItem.in_order_id == InOrder.id
+    ).filter(
+        InOrder.date == today,
+        InOrder.status == 'completed',
+    ).scalar() or 0
+
+    # 今日出库统计
+    today_out_count = OutOrder.query.filter(
+        OutOrder.date == today,
+        OutOrder.status == 'completed',
+    ).count()
+    today_out_items = db.session.query(func.coalesce(func.sum(OutOrderItem.quantity), 0)).join(
+        OutOrder, OutOrderItem.out_order_id == OutOrder.id
+    ).filter(
+        OutOrder.date == today,
+        OutOrder.status == 'completed',
+    ).scalar() or 0
+
+    # 待处理入库单
+    pending_in = InOrder.query.filter_by(status='pending').count()
+
+    # 待处理出库单
+    pending_out = OutOrder.query.filter_by(status='pending').count()
+
+    # 库存告警
+    alert_count = 0
+    if inventory_alert_enabled():
+        alert_count = Material.query.filter(
+            Material.min_stock > 0,
+            Material.stock <= Material.min_stock,
+        ).count()
+
+    return api_json_success({
+        'today_in_orders': today_in_count,
+        'today_in_quantity': float(today_in_items),
+        'today_out_orders': today_out_count,
+        'today_out_quantity': float(today_out_items),
+        'pending_in_orders': pending_in,
+        'pending_out_orders': pending_out,
+        'alert_count': alert_count,
+        'date': today.isoformat(),
+    })
+
+
+# ---------- Stock Query ----------
+
+@app.route('/api/mobile/stock/query')
+@csrf.exempt
+@web_or_api_required
+def mobile_api_stock_query():
+    """移动端库存查询：多条件模糊搜索 + 分页"""
+    keyword = (request.args.get('keyword') or request.args.get('kw') or '').strip()
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+
+    query = Material.query.options(
+        joinedload(Material.unit),
+        joinedload(Material.category),
+        joinedload(Material.supplier),
+    )
+
+    if keyword:
+        like = f'%{keyword}%'
+        query = query.filter(db.or_(
+            Material.code.like(like),
+            Material.name.like(like),
+            Material.spec.like(like),
+        ))
+
+    query = query.order_by(Material.code.asc())
+
+    result = _mobile_paginate(query, page, page_size)
+    materials = result['items']
+
+    return api_json_success({
+        'items': [
+            {
+                'id': m.id,
+                'code': m.code or '',
+                'name': m.name or '',
+                'spec': m.spec or '',
+                'unit': m.unit.name if m.unit else '',
+                'category': m.category.name if m.category else '',
+                'supplier': m.supplier.name if m.supplier else '',
+                'stock': normalize_stock_quantity(m.stock or 0),
+                'price': round_to_2_decimals(m.price or 0),
+                'min_stock': m.min_stock or 0,
+                'reorder_point': m.reorder_point or 0,
+            }
+            for m in materials
+        ],
+        'total': result['total'],
+        'page': result['page'],
+        'page_size': result['page_size'],
+        'total_pages': result['total_pages'],
+    })
+
+
+# ---------- Stock Alert List ----------
+
+@app.route('/api/mobile/alert/list')
+@csrf.exempt
+@web_or_api_required
+def mobile_api_alert_list():
+    """移动端库存告警列表：库存低于安全库存 / 最低库存的物料"""
+    if not inventory_alert_enabled():
+        return api_json_success({
+            'items': [],
+            'total': 0,
+            'page': 1,
+            'page_size': MOBILE_API_PAGE_SIZE_DEFAULT,
+            'total_pages': 0,
+        }, '库存预警未启用')
+
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+
+    query = Material.query.options(
+        joinedload(Material.unit),
+        joinedload(Material.category),
+        joinedload(Material.supplier),
+    ).filter(
+        Material.min_stock > 0,
+        Material.stock <= Material.min_stock,
+    ).order_by(Material.stock.asc(), Material.code.asc())
+
+    result = _mobile_paginate(query, page, page_size)
+    materials = result['items']
+
+    return api_json_success({
+        'items': [
+            {
+                'id': m.id,
+                'code': m.code or '',
+                'name': m.name or '',
+                'spec': m.spec or '',
+                'unit': m.unit.name if m.unit else '',
+                'stock': normalize_stock_quantity(m.stock or 0),
+                'min_stock': m.min_stock or 0,
+                'reorder_point': m.reorder_point or 0,
+                'gap': max(0, (m.min_stock or 0) - normalize_stock_quantity(m.stock or 0)),
+            }
+            for m in materials
+        ],
+        'total': result['total'],
+        'page': result['page'],
+        'page_size': result['page_size'],
+        'total_pages': result['total_pages'],
+    })
+
+
+# ---------- Inbound Order List ----------
+
+@app.route('/api/mobile/in_order/list')
+@csrf.exempt
+@web_or_api_required
+def mobile_api_in_order_list():
+    """移动端入库单列表：分页 + 状态筛选"""
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+    status = (request.args.get('status') or '').strip()
+    keyword = (request.args.get('keyword') or '').strip()
+
+    query = InOrder.query.options(
+        joinedload(InOrder.operator),
+        joinedload(InOrder.items).joinedload(InOrderItem.material),
+    )
+
+    if status and status in ('pending', 'completed'):
+        query = query.filter(InOrder.status == status)
+    if keyword:
+        like = f'%{keyword}%'
+        query = query.filter(InOrder.order_no.like(like))
+
+    query = query.order_by(InOrder.created_at.desc(), InOrder.id.desc())
+
+    result = _mobile_paginate(query, page, page_size)
+    orders = result['items']
+
+    return api_json_success({
+        'items': [_in_order_payload(o) for o in orders],
+        'total': result['total'],
+        'page': result['page'],
+        'page_size': result['page_size'],
+        'total_pages': result['total_pages'],
+    })
+
+
+# ---------- Inbound Order Detail ----------
+
+@app.route('/api/mobile/in_order/<int:order_id>')
+@csrf.exempt
+@web_or_api_required
+def mobile_api_in_order_detail(order_id):
+    """移动端入库单详情"""
+    order = InOrder.query.options(
+        joinedload(InOrder.operator),
+        joinedload(InOrder.supplier),
+        joinedload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
+    ).get(order_id)
+
+    if not order:
+        return api_json_error('入库单不存在', 404)
+
+    return api_json_success(_in_order_detail_payload(order))
+
+
+# ---------- Outbound Order List ----------
+
+@app.route('/api/mobile/out_order/list')
+@csrf.exempt
+@web_or_api_required
+def mobile_api_out_order_list():
+    """移动端出库单列表：分页 + 状态筛选"""
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+    status = (request.args.get('status') or '').strip()
+    keyword = (request.args.get('keyword') or '').strip()
+
+    query = OutOrder.query.options(
+        joinedload(OutOrder.operator),
+        joinedload(OutOrder.department),
+        joinedload(OutOrder.items).joinedload(OutOrderItem.material),
+    )
+
+    if status and status in ('pending', 'completed'):
+        query = query.filter(OutOrder.status == status)
+    if keyword:
+        like = f'%{keyword}%'
+        query = query.filter(OutOrder.order_no.like(like))
+
+    query = query.order_by(OutOrder.created_at.desc(), OutOrder.id.desc())
+
+    result = _mobile_paginate(query, page, page_size)
+    orders = result['items']
+
+    return api_json_success({
+        'items': [_out_order_payload(o) for o in orders],
+        'total': result['total'],
+        'page': result['page'],
+        'page_size': result['page_size'],
+        'total_pages': result['total_pages'],
+    })
+
+
+# ---------- Outbound Order Detail ----------
+
+@app.route('/api/mobile/out_order/<int:order_id>')
+@csrf.exempt
+@web_or_api_required
+def mobile_api_out_order_detail(order_id):
+    """移动端出库单详情"""
+    order = OutOrder.query.options(
+        joinedload(OutOrder.operator),
+        joinedload(OutOrder.department),
+        joinedload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit),
+    ).get(order_id)
+
+    if not order:
+        return api_json_error('出库单不存在', 404)
+
+    return api_json_success(_out_order_detail_payload(order))
+
+
+# ---------- Profile ----------
+
+@app.route('/api/mobile/profile')
+@csrf.exempt
+@web_or_api_required
+def mobile_api_profile():
+    """移动端个人中心：用户信息"""
+    user = get_bearer_user() or current_user
+    if not user or not user.is_authenticated:
+        return api_json_error('未登录', 401)
+
+    return api_json_success({
+        'id': user.id,
+        'username': user.username,
+        'name': user.username,
+        'role': user.role,
+        'last_login_at': user.last_login_at.isoformat() if user.last_login_at else '',
+        'last_login_ip': user.last_login_ip or '',
+        'must_change_password': user.must_change_password or False,
+    })
+
+
 def _material_alert_enabled_filter():
     if not inventory_alert_enabled():
         return false()
