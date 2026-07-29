@@ -73,6 +73,10 @@ from utils import (
 from notifications import notification_manager
 
 STOCK_COMPARE_EPSILON = 1e-6
+# BUG-2026-07-29-005: 收紧物料主数据（库存/价格）业务上限到 99999999.99，
+# 防止 12 位以上无效值进入下游库存/价格计算。原 1 万亿（1_000_000_000_000）太宽松。
+MAX_REASONABLE_STOCK = 99_999_999.99
+MAX_REASONABLE_PRICE = 99_999_999.99
 MAX_TRANSACTION_QUANTITY = 1_000_000_000_000
 MAX_TRANSACTION_PRICE = 1_000_000_000_000
 
@@ -7314,12 +7318,13 @@ def add_material():
     if material_name_spec_exists(name, spec):
         return api_error('物料名称和规格不能同时重复')
 
-    initial_stock = parse_bounded_number(request.form.get('stock'), 0)
+    # BUG-2026-07-29-005: 库存/价格上限收紧至 99999999.99（拒绝 12 位以上大数）
+    initial_stock = parse_bounded_number(request.form.get('stock'), 0, maximum=MAX_REASONABLE_STOCK)
     if initial_stock is None:
-        return api_error('初始库存必须是 0 至 1000000000000 的有限数字')
-    initial_price = parse_bounded_number(request.form.get('price'), 0, maximum=MAX_TRANSACTION_PRICE)
+        return api_error(f'初始库存必须是 0 至 {MAX_REASONABLE_STOCK:,.2f} 的有限数字')
+    initial_price = parse_bounded_number(request.form.get('price'), 0, maximum=MAX_REASONABLE_PRICE)
     if initial_price is None:
-        return api_error('参考价格必须是 0 至 1000000000000 的有限数字')
+        return api_error(f'参考价格必须是 0 至 {MAX_REASONABLE_PRICE:,.2f} 的有限数字')
 
     image_file = request.files.get('image')
     image_path = None
