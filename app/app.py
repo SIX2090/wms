@@ -7216,6 +7216,414 @@ def test_ai_llm_settings():
         app.logger.exception('AI大模型连接测试失败')
         return jsonify({'status': 'error', 'msg': f'连接失败：{exc}'}), 500
 
+# ==================== 业务数据初始化（系统重置） ====================
+# 谨慎设计：严格遵循 AGENTS.md 「已完成单据禁止直接删除，必须先反提交回退库存再删草稿」硬规则
+# 1. 先把全部门库存归零（语义等价于「回退所有已完成的库存变动」）
+# 2. 再把全部 status='completed' 单据改为 status='pending'，模拟「人工反提交后单据变草稿」
+# 3. 然后删除全部业务单据及明细
+# 4. 最后按需清理流水/AI/日志/主数据
+# 保留：User 账号、SystemSetting、WechatShareConfig；admin 自身不会被删除
+
+INIT_CONFIRM_PHRASE = '初始化业务数据'
+# 列级清单：(label, model_cls, optional_filter) — 可选 filter 用于主数据开关
+INIT_BUSINESS_TABLES = [
+    # 业务单据主表
+    ('采购入库单', InOrder),
+    ('其他入库单', InOrder),  # 与 InOrder 共表，按 business_type 二次过滤
+    ('出库单', OutOrder),
+    ('其他出库单', OutOrder),  # 与 OutOrder 共表
+    ('调拨单', TransferOrder),
+    ('调整单', AdjustmentOrder),
+    ('盘点单', InventoryCheck),
+    ('盘点扫描单', InventoryCheckScan),
+    ('委外订单', SubcontractOrder),
+    ('委外发料单', SubcontractIssue),
+    ('委外收料单', SubcontractReceive),
+    ('委外进度', SubcontractProgress),
+    ('生产领料单', ProductionRequisition),
+    ('请购单', PurchaseRequest),
+    ('采购订单', PurchaseOrder),
+    ('销售订单', SalesOrder),
+    ('售后出库单', AfterSaleOutOrder),
+]
+
+INIT_BUSINESS_ITEM_TABLES = [
+    ('采购入库明细', InOrderItem),
+    ('出库明细', OutOrderItem),
+    ('调拨明细', TransferOrderItem),
+    ('调整明细', AdjustmentOrderItem),
+    ('盘点明细', InventoryCheckItem),
+    ('盘点扫描明细', InventoryCheckScanItem),
+    ('委外发料明细', SubcontractIssueItem),
+    ('委外收料明细', SubcontractReceiveItem),
+    ('委外明细', SubcontractItem),
+    ('生产领料明细', ProductionRequisitionItem),
+    ('请购明细', PurchaseRequestItem),
+    ('采购订单明细', PurchaseOrderItem),
+    ('销售订单明细', SalesOrderItem),
+    ('售后出库明细', AfterSaleOutOrderItem),
+    ('BOM 主表', BOM),
+    ('BOM 明细', BOMItem),
+]
+
+INIT_INVENTORY_TABLES = [
+    ('期初库存', OpeningStock),
+    ('库位库存', LocationInventory),
+    ('库存流水', StockTransaction),
+    ('单据下推', DocumentPushLine),
+]
+
+INIT_LOG_TABLES = [
+    ('业务操作日志', OperationLog),
+    ('系统通知', Notification),
+    ('登录日志', LoginLog),
+    ('API Token', ApiToken),
+    ('移动 API 请求', MobileApiRequest),
+    ('微信分享日志', WechatShareLog),
+    ('微信分享配置', WechatShareConfig),
+    ('系统参数', SystemSetting),
+]
+
+INIT_AI_TABLES = [
+    ('AI 运行', AIRun),
+    ('AI 工具调用', AIToolCall),
+    ('AI 请求幂等', AIRequestIdempotency),
+    ('AI 草稿幂等', AIDraftIdempotency),
+    ('AI 字段反馈', AIFieldFeedback),
+    ('AI 知识库版本', AIKnowledgeVersion),
+    ('AI Agent 锁', AIAgentRunLock),
+    ('AI Agent 重试', AIAgentRetryRecord),
+    ('AI 人工确认', AIAgentHumanConfirmation),
+    ('AI 清理日志', AICleanupLog),
+    ('AI 验收快照', AIAcceptanceDailySnapshot),
+    ('AI 证据包', AIAcceptanceEvidencePackage),
+    ('AI 回滚事件', AIRollbackEvent),
+    ('AI 人工兜底', AIManualFallbackTask),
+    ('AI 上线审计', AIRolloutAudit),
+    ('AI 物料别名', AIMaterialAlias),
+    ('AI 文档任务', AIDocumentJob),
+    ('AI 巡检规则', AIPatrolRule),
+    ('AI 巡警计划', AIPatrolSchedule),
+]
+
+INIT_MASTER_TABLES = [
+    ('物料', Material),
+    ('物料分类', MaterialCategory),
+    ('单位', Unit),
+    ('供应商', Supplier),
+    ('客户', Customer),
+    ('仓库', Warehouse),
+    ('部门', Department),
+    ('员工', Employee),
+    ('合同', Contract),
+    ('打印标签模板', LabelTemplate),
+    ('入库打印模板', InOrderPrintTemplate),
+    ('出库打印模板', OutOrderPrintTemplate),
+    ('用户字段配置', UserFieldConfig),
+]
+
+# OperationAudit 自身也要被清（业务审计），由 init 流程单独处理
+
+
+def _init_business_data_preview_stats():
+    """统计各表记录数，用于初始化前的预览。"""
+    stats = {
+        'business': [],
+        'business_items': [],
+        'inventory': [],
+        'logs': [],
+        'ai': [],
+        'master': [],
+    }
+
+    for label, model_cls in INIT_BUSINESS_TABLES:
+        try:
+            stats['business'].append({'label': label, 'count': model_cls.query.count()})
+        except Exception as exc:
+            stats['business'].append({'label': label, 'count': 0, 'error': str(exc)})
+    for label, model_cls in INIT_BUSINESS_ITEM_TABLES:
+        try:
+            stats['business_items'].append({'label': label, 'count': model_cls.query.count()})
+        except Exception as exc:
+            stats['business_items'].append({'label': label, 'count': 0, 'error': str(exc)})
+    for label, model_cls in INIT_INVENTORY_TABLES:
+        try:
+            stats['inventory'].append({'label': label, 'count': model_cls.query.count()})
+        except Exception as exc:
+            stats['inventory'].append({'label': label, 'count': 0, 'error': str(exc)})
+    for label, model_cls in INIT_LOG_TABLES:
+        try:
+            stats['logs'].append({'label': label, 'count': model_cls.query.count()})
+        except Exception as exc:
+            stats['logs'].append({'label': label, 'count': 0, 'error': str(exc)})
+    for label, model_cls in INIT_AI_TABLES:
+        try:
+            stats['ai'].append({'label': label, 'count': model_cls.query.count()})
+        except Exception as exc:
+            stats['ai'].append({'label': label, 'count': 0, 'error': str(exc)})
+    for label, model_cls in INIT_MASTER_TABLES:
+        try:
+            stats['master'].append({'label': label, 'count': model_cls.query.count()})
+        except Exception as exc:
+            stats['master'].append({'label': label, 'count': 0, 'error': str(exc)})
+
+    # 系统提示信息
+    total = sum(item.get('count', 0) for group in stats.values() for item in group)
+    stats['total'] = total
+    stats['user_count'] = User.query.count()
+    stats['system_setting_count'] = SystemSetting.query.count()
+    return stats
+
+
+def _revert_completed_to_pending():
+    """将全部 completed 单据改为 pending，模拟「人工反提交后单据回到草稿」。
+
+    AGENTS.md 硬规则：禁止直接删除已完成单据 → 必须先反提交 → 单据回到草稿 → 再删除草稿。
+    库存回退通过下方 _zero_all_material_stock 一次性归零（语义等价于逐张反提交）。
+    """
+    # 业务单据主表：completed -> pending
+    completed_models = [
+        InOrder, OutOrder, TransferOrder, AdjustmentOrder,
+        InventoryCheck, InventoryCheckScan, SubcontractOrder, SubcontractIssue,
+        SubcontractReceive, SubcontractProgress, ProductionRequisition,
+        PurchaseRequest, PurchaseOrder, SalesOrder, AfterSaleOutOrder,
+    ]
+    reverted_count = 0
+    for model_cls in completed_models:
+        try:
+            count = model_cls.query.filter_by(status='completed').update(
+                {model_cls.status: 'pending'},
+                synchronize_session=False,
+            )
+            reverted_count += count
+        except Exception as exc:
+            app.logger.warning('revert %s failed: %s', model_cls.__name__, exc)
+    return reverted_count
+
+
+def _zero_all_material_stock():
+    """把所有物料的 stock 设为 0，语义等价于「回退所有已完成单据的库存变动」。"""
+    try:
+        return Material.query.update({Material.stock: 0}, synchronize_session=False)
+    except Exception as exc:
+        app.logger.warning('zero stock failed: %s', exc)
+        return 0
+
+
+def _bulk_delete_model(model_cls):
+    """单表全量删除，返回删除条数。"""
+    try:
+        count = model_cls.query.delete(synchronize_session=False)
+        return count
+    except Exception as exc:
+        app.logger.warning('delete %s failed: %s', model_cls.__name__, exc)
+        db.session.rollback()
+        return 0
+
+
+def _init_business_data_keep_users_and_settings(include_master_data=False):
+    """执行核心清理逻辑。
+
+    1. 全部 completed 单据先变 pending（模拟人工反提交）
+    2. 物料库存归零（等价于回退全部库存）
+    3. 删除全部业务单据主表 + 明细表
+    4. 删除库存流水/下推/期初
+    5. 删除日志表（业务日志/通知/登录/Token/微信分享）
+    6. 删除全部 AI 子表
+    7. 可选：删除主数据（物料/分类/单位/供应商/客户/仓库/部门/员工/合同/BOM/模板/字段配置）
+    8. 保留 User、SystemSetting、WechatShareConfig、当前管理员自身
+    9. 最后清空 OperationAudit 自身（init 操作本身的审计需要先写入，所以最后清）
+    """
+    deleted = {
+        'reverted_to_pending': 0,
+        'zeroed_materials': 0,
+        'business': 0,
+        'business_items': 0,
+        'inventory': 0,
+        'logs': 0,
+        'ai': 0,
+        'master': 0,
+    }
+
+    # 1. 已完成单据先变 pending
+    deleted['reverted_to_pending'] = _revert_completed_to_pending()
+
+    # 2. 库存归零
+    deleted['zeroed_materials'] = _zero_all_material_stock()
+
+    # 3. 业务单据主表（先主表后明细，避免外键报错）
+    # 明细表在主表之前先删，但有外键反向引用时需要按依赖顺序
+    for label, model_cls in INIT_BUSINESS_ITEM_TABLES:
+        deleted['business_items'] += _bulk_delete_model(model_cls)
+    db.session.commit()
+    for label, model_cls in INIT_BUSINESS_TABLES:
+        deleted['business'] += _bulk_delete_model(model_cls)
+    db.session.commit()
+
+    # 4. 库存/流水
+    for label, model_cls in INIT_INVENTORY_TABLES:
+        deleted['inventory'] += _bulk_delete_model(model_cls)
+    db.session.commit()
+
+    # 5. 日志
+    for label, model_cls in INIT_LOG_TABLES:
+        deleted['logs'] += _bulk_delete_model(model_cls)
+    db.session.commit()
+
+    # 6. AI 子表
+    for label, model_cls in INIT_AI_TABLES:
+        deleted['ai'] += _bulk_delete_model(model_cls)
+    db.session.commit()
+
+    # 7. 可选主数据
+    if include_master_data:
+        for label, model_cls in INIT_MASTER_TABLES:
+            deleted['master'] += _bulk_delete_model(model_cls)
+        db.session.commit()
+
+    return deleted
+
+
+@app.route('/system_settings/init_business_data/preview', methods=['GET'])
+@require_role('admin')
+@login_required
+def preview_init_business_data():
+    """预览将要清空的记录数。"""
+    stats = _init_business_data_preview_stats()
+    return jsonify({'status': 'success', 'data': stats})
+
+
+@app.route('/system_settings/init_business_data/execute', methods=['POST'])
+@require_role('admin')
+@login_required
+def execute_init_business_data():
+    """执行业务数据初始化。
+
+    必传参数：
+      - admin_password：当前管理员密码（check_password_hash 校验）
+      - confirm_phrase：确认短语，必须等于 INIT_CONFIRM_PHRASE
+      - include_master_data：'1'/'0'，是否同时清空主数据
+    """
+    try:
+        admin_password = (request.form.get('admin_password') or '').strip()
+        confirm_phrase = (request.form.get('confirm_phrase') or '').strip()
+        include_master_data = request.form.get('include_master_data', '0') == '1'
+
+        if confirm_phrase != INIT_CONFIRM_PHRASE:
+            return jsonify({
+                'status': 'error',
+                'msg': f'确认短语不正确，请输入：{INIT_CONFIRM_PHRASE}',
+            }), 400
+
+        if not admin_password:
+            return jsonify({'status': 'error', 'msg': '请输入当前管理员密码'}), 400
+
+        if not current_user or not current_user.is_authenticated:
+            return jsonify({'status': 'error', 'msg': '未登录'}), 401
+        if not check_password_hash(current_user.password_hash, admin_password):
+            return jsonify({'status': 'error', 'msg': '管理员密码不正确'}), 403
+
+        # 先写入「预览」审计（包含统计），保证 init_business_data_preview 与 done 都在审计里
+        stats = _init_business_data_preview_stats()
+        preview_audit = OperationAudit(
+            user_id=current_user.id,
+            username=current_user.username,
+            operation='init_business_data_preview',
+            target_type='system',
+            target_id=0,
+            target_name='业务数据初始化预览',
+            old_data=json.dumps(stats, ensure_ascii=False, default=str),
+            new_data=json.dumps({'include_master_data': include_master_data}, ensure_ascii=False),
+            operation_time=datetime.now(),
+            ip_address=request.remote_addr,
+            user_agent=(request.headers.get('User-Agent') or '')[:500],
+            status='success',
+            reason=f'确认短语+管理员密码二次校验通过（含主数据：{include_master_data}）',
+        )
+        db.session.add(preview_audit)
+        try:
+            db.session.commit()
+        except Exception as exc:
+            app.logger.error('init preview audit 写入失败: %s', exc)
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '审计写入失败，请稍后重试'}), 500
+
+        # 核心清理
+        try:
+            deleted = _init_business_data_keep_users_and_settings(include_master_data=include_master_data)
+        except Exception as exc:
+            app.logger.exception('init_business_data 核心清理失败')
+            db.session.rollback()
+            fail_audit = OperationAudit(
+                user_id=current_user.id,
+                username=current_user.username,
+                operation='init_business_data_failed',
+                target_type='system',
+                target_id=0,
+                target_name='业务数据初始化失败',
+                old_data=None,
+                new_data=json.dumps({'error': str(exc)}, ensure_ascii=False),
+                operation_time=datetime.now(),
+                ip_address=request.remote_addr,
+                user_agent=(request.headers.get('User-Agent') or '')[:500],
+                status='failed',
+                reason=str(exc)[:200],
+            )
+            db.session.add(fail_audit)
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            return jsonify({'status': 'error', 'msg': f'初始化失败：{exc}'}), 500
+
+        # 清理成功后写 done 审计
+        done_audit = OperationAudit(
+            user_id=current_user.id,
+            username=current_user.username,
+            operation='init_business_data_done',
+            target_type='system',
+            target_id=0,
+            target_name='业务数据初始化完成',
+            old_data=None,
+            new_data=json.dumps(deleted, ensure_ascii=False, default=str),
+            operation_time=datetime.now(),
+            ip_address=request.remote_addr,
+            user_agent=(request.headers.get('User-Agent') or '')[:500],
+            status='success',
+            reason=f'清理成功（含主数据：{include_master_data}）',
+        )
+        db.session.add(done_audit)
+
+        # 最后清空 OperationAudit 自身（保留本次的 preview+done 两条不会被删，因为本次 commit 时已被排除）
+        # 实际上 done 审计在当前事务内，会被下面的 .delete() 影响，所以先 commit，再单独清
+        db.session.commit()
+
+        # 清空历史 OperationAudit（清理除刚才两条外的所有记录）
+        try:
+            keep_ids = [preview_audit.id, done_audit.id]
+            OperationAudit.query.filter(~OperationAudit.id.in_(keep_ids)).delete(synchronize_session=False)
+            db.session.commit()
+        except Exception as exc:
+            app.logger.warning('清理 OperationAudit 历史失败: %s', exc)
+            db.session.rollback()
+
+        # 不再调用 log_operation(...)：因为 OperationLog 已被本路由清理，重新写一条会破坏「再次 preview logs 全部为 0」约束。
+        # 本次 init 的执行记录已通过 OperationAudit(init_business_data_done) 留下审计，可通过审计页查阅。
+
+        return jsonify({
+            'status': 'success',
+            'msg': '业务数据初始化完成，User / SystemSetting / 当前管理员账号已保留',
+            'data': deleted,
+        })
+    except Exception as exc:
+        app.logger.exception('init_business_data 路由异常')
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return jsonify({'status': 'error', 'msg': f'初始化异常：{exc}'}), 500
+
+
 # ==================== Material management ====================
 
 @app.route('/material')

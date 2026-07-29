@@ -203,6 +203,71 @@
         </button>
     </div>
 </form>
+
+<div class="card settings-card border-danger">
+    <div class="card-header py-2" style="background:#fef2f2;">
+        <div>
+            <div class="settings-title text-danger"><i class="bi bi-exclamation-triangle-fill"></i> 初始化业务数据</div>
+            <div class="settings-desc mt-1">一键清空全部业务数据：单据/明细/期初/库存/流水/日志/AI/主数据/系统参数。仅保留 <strong>User 账号（账号+密码哈希）</strong>，方便重新启用 WMS。</div>
+        </div>
+        <button type="button" class="btn btn-outline-danger btn-sm" id="openInitModalBtn">
+            <i class="bi bi-arrow-counterclockwise"></i> 打开初始化向导
+        </button>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-warning small mb-0">
+            <strong>硬规则</strong>：执行前会先调用 <code>revert_*</code> 把所有 <code>completed</code> 单据变 <code>pending</code>，再批量删除草稿，库存数据自动归零。
+            <br>
+            <strong>三重门禁</strong>：仅 <code>admin</code> 角色 + 输入当前管理员密码 + 输入确认短语 <code>初始化业务数据</code>。
+            <br>
+            <strong>不可逆</strong>：操作写入 <code>OperationAudit</code> 审计（preview/done/failed）后连同历史审计一并清空。
+        </div>
+    </div>
+</div>
+
+<!-- 初始化向导 Modal -->
+<div class="modal fade" id="initBusinessDataModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-exclamation-octagon-fill"></i> 初始化业务数据</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger small">
+                    即将清空 <strong>所有</strong> 业务数据，仅保留 <code>User</code> 表的账号与密码哈希。操作不可逆，请先到 <a href="/backup" target="_blank" class="alert-link">数据备份</a> 创建备份。
+                </div>
+
+                <h6 class="text-muted">① 预览将清理的记录数</h6>
+                <div id="initPreviewArea" class="border rounded p-2 mb-3" style="max-height: 280px; overflow-y: auto; font-size: 13px;">
+                    <div class="text-muted text-center py-3">
+                        <i class="bi bi-arrow-clockwise"></i> 加载中…
+                    </div>
+                </div>
+
+                <h6 class="text-muted">② 二次确认</h6>
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <label class="form-label">管理员密码</label>
+                        <input type="password" class="form-control" id="initAdminPassword" placeholder="请输入当前管理员密码" autocomplete="new-password">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">确认短语</label>
+                        <input type="text" class="form-control" id="initConfirmPhrase" placeholder="请输入：初始化业务数据" autocomplete="off">
+                    </div>
+                </div>
+
+                <div id="initErrorArea" class="alert alert-danger small mt-3 d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" id="confirmInitBtn" disabled>
+                    <i class="bi bi-trash3-fill"></i> 确认初始化
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -299,6 +364,146 @@ if (testAiVisionBtn) {
                 btn.disabled = false;
                 btn.innerHTML = originalHtml;
             });
+    });
+}
+
+// ==================== 初始化业务数据 ====================
+const INIT_CONFIRM_PHRASE_FRONT = '初始化业务数据';
+
+const initModalEl = document.getElementById('initBusinessDataModal');
+const openInitBtn = document.getElementById('openInitModalBtn');
+const previewArea = document.getElementById('initPreviewArea');
+const errorArea = document.getElementById('initErrorArea');
+const pwdInput = document.getElementById('initAdminPassword');
+const phraseInput = document.getElementById('initConfirmPhrase');
+const confirmBtn = document.getElementById('confirmInitBtn');
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[ch]));
+}
+
+function renderPreviewTable(stats) {
+    const groups = [
+        { key: 'business', title: '业务单据主表' },
+        { key: 'business_items', title: '业务单据明细' },
+        { key: 'inventory', title: '库存/流水' },
+        { key: 'logs', title: '日志与配置' },
+        { key: 'ai', title: 'AI 业务' },
+        { key: 'master', title: '主数据' },
+    ];
+    let total = 0;
+    let html = '<div class="row g-1">';
+    for (const g of groups) {
+        const items = stats[g.key] || [];
+        const groupTotal = items.reduce((acc, it) => acc + (it.count || 0), 0);
+        total += groupTotal;
+        html += `<div class="col-12"><div class="d-flex justify-content-between border-bottom py-1">
+            <span class="text-muted">${escapeHtml(g.title)}</span>
+            <span><strong>${groupTotal}</strong> 条 <span class="text-muted">(${items.length} 张表)</span></span>
+        </div></div>`;
+        for (const it of items) {
+            html += `<div class="col-6"><div class="d-flex justify-content-between small">
+                <span class="text-muted ps-3">· ${escapeHtml(it.label)}</span>
+                <span class="text-body">${it.count || 0}</span>
+            </div></div>`;
+        }
+    }
+    html += '</div>';
+    html += `<div class="border-top mt-2 pt-2 d-flex justify-content-between">
+        <span class="fw-bold text-danger">合计将清理</span>
+        <span class="fw-bold text-danger">${total} 条</span>
+    </div>`;
+    html += `<div class="small text-muted mt-2">
+        保留 User 共 <strong>${stats.user_count}</strong> 个账号（其中 admin 自身不会被删除）。
+    </div>`;
+    return html;
+}
+
+async function loadInitPreview() {
+    previewArea.innerHTML = '<div class="text-muted text-center py-3"><span class="spinner-border spinner-border-sm me-1"></span>加载中…</div>';
+    try {
+        const fetcher = window.csrfFetch || fetch;
+        const res = await fetcher('/system_settings/init_business_data/preview', { method: 'GET' });
+        const data = await res.json();
+        if (!res.ok || data.status !== 'success') {
+            throw new Error(data.msg || '预览失败');
+        }
+        previewArea.innerHTML = renderPreviewTable(data.data);
+    } catch (err) {
+        previewArea.innerHTML = `<div class="text-danger text-center py-3">${escapeHtml(err.message)}</div>`;
+    }
+}
+
+function updateConfirmBtnState() {
+    const ok = (pwdInput.value || '').length > 0 && phraseInput.value === INIT_CONFIRM_PHRASE_FRONT;
+    confirmBtn.disabled = !ok;
+    if (phraseInput.value && phraseInput.value !== INIT_CONFIRM_PHRASE_FRONT) {
+        phraseInput.classList.add('is-invalid');
+    } else {
+        phraseInput.classList.remove('is-invalid');
+    }
+}
+
+if (openInitBtn && initModalEl) {
+    openInitBtn.addEventListener('click', function() {
+        if (window.bootstrap && window.bootstrap.Modal) {
+            new window.bootstrap.Modal(initModalEl).show();
+        } else if (typeof $ !== 'undefined' && $.fn.modal) {
+            $(initModalEl).modal('show');
+        }
+        loadInitPreview();
+    });
+    initModalEl.addEventListener('shown.bs.modal', loadInitPreview);
+}
+
+[pwdInput, phraseInput].forEach(el => el && el.addEventListener('input', updateConfirmBtnState));
+
+if (confirmBtn) {
+    confirmBtn.addEventListener('click', async function() {
+        if (confirmBtn.disabled) return;
+        const pwd = pwdInput.value;
+        const phrase = phraseInput.value;
+        if (phrase !== INIT_CONFIRM_PHRASE_FRONT) {
+            errorArea.textContent = `确认短语必须等于：${INIT_CONFIRM_PHRASE_FRONT}`;
+            errorArea.classList.remove('d-none');
+            return;
+        }
+        if (!pwd) {
+            errorArea.textContent = '请输入当前管理员密码';
+            errorArea.classList.remove('d-none');
+            return;
+        }
+        if (!window.confirm('最后确认：执行后将清空全部业务数据（仅保留 User 账号与密码），是否继续？')) {
+            return;
+        }
+        errorArea.classList.add('d-none');
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>初始化中…';
+        try {
+            const fd = new FormData();
+            fd.append('admin_password', pwd);
+            fd.append('confirm_phrase', phrase);
+            fd.append('include_master_data', '1');
+            const fetcher = window.csrfFetch || fetch;
+            const res = await fetcher('/system_settings/init_business_data/execute', {
+                method: 'POST',
+                body: fd,
+            });
+            const data = await res.json();
+            if (!res.ok || data.status !== 'success') {
+                throw new Error(data.msg || '初始化失败');
+            }
+            showToast('初始化完成，即将刷新页面', 'success');
+            setTimeout(() => location.reload(), 1500);
+        } catch (err) {
+            errorArea.textContent = err.message;
+            errorArea.classList.remove('d-none');
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="bi bi-trash3-fill"></i> 确认初始化';
+            updateConfirmBtnState();
+        }
     });
 }
 </script>
