@@ -32,6 +32,7 @@ import com.factory.wms.data.api.DocumentOcrResult
 import com.factory.wms.data.api.RecognizeMaterialResult
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.MainViewModel
+import com.factory.wms.util.formatQuantity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -381,7 +382,7 @@ fun DocumentOcrScreen(
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                "x${item.quantity ?: 1}",
+                                                "x${formatQuantity(item.quantity ?: 1.0)}",
                                                 color = Primary,
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 14.sp,
@@ -719,7 +720,7 @@ fun ObjectRecognizeScreen(
                                 extracted.code?.let { OcrResultRow("物料编码", it) }
                                 extracted.name?.let { OcrResultRow("物料名称", it) }
                                 extracted.spec?.let { OcrResultRow("规格型号", it) }
-                                extracted.quantity?.let { OcrResultRow("数量", it.toString()) }
+                                extracted.quantity?.let { OcrResultRow("数量", formatQuantity(it)) }
                                 extracted.confidence?.let {
                                     OcrResultRow("置信度", "${"%.0f".format(it * 100)}%")
                                 }
@@ -763,7 +764,7 @@ fun ObjectRecognizeScreen(
                                             SuccessContainer else ErrorContainer
                                     ) {
                                         Text(
-                                            "库存: ${material.stock ?: 0.0}",
+                                            "库存: ${formatQuantity(material.stock ?: 0.0)}",
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium,

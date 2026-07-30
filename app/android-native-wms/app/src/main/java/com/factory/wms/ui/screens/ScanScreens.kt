@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.MainViewModel
+import com.factory.wms.util.formatQuantity
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,7 +89,7 @@ fun InboundScreen(
             shape = RoundedCornerShape(20.dp),
             title = { Text("确认入库", fontWeight = FontWeight.SemiBold) },
             text = {
-                Text("共 ${uiState.scanLines.size} 种物料，数量 ${uiState.totalQuantity}，确认提交入库？")
+                Text("共 ${uiState.scanLines.size} 种物料，数量 ${formatQuantity(uiState.totalQuantity)}，确认提交入库？")
             },
             confirmButton = {
                 Button(
@@ -178,7 +179,7 @@ fun OutboundScreen(
             shape = RoundedCornerShape(20.dp),
             title = { Text("确认出库", fontWeight = FontWeight.SemiBold) },
             text = {
-                Text("共 ${uiState.scanLines.size} 种物料，数量 ${uiState.totalQuantity}，确认提交出库？")
+                Text("共 ${uiState.scanLines.size} 种物料，数量 ${formatQuantity(uiState.totalQuantity)}，确认提交出库？")
             },
             confirmButton = {
                 Button(
@@ -382,9 +383,9 @@ fun StockQueryScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            InfoChip("库存数量", "${material.stock ?: 0.0}")
+                            InfoChip("库存数量", formatQuantity(material.stock ?: 0.0))
                             InfoChip("单位", material.unit ?: "-")
-                            InfoChip("最低库存", "${material.minStock ?: 0}")
+                            InfoChip("最低库存", formatQuantity((material.minStock ?: 0).toDouble()))
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -394,7 +395,7 @@ fun StockQueryScreen(
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
                             InfoChip("单价", "¥${"%.2f".format(material.price ?: 0.0)}")
-                            InfoChip("再订货点", "${material.reorderPoint ?: 0}")
+                            InfoChip("再订货点", formatQuantity((material.reorderPoint ?: 0).toDouble()))
                             InfoChip("分类", material.category ?: "-")
                         }
 

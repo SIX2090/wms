@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.MainViewModel
+import com.factory.wms.util.formatQuantity
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,7 +130,7 @@ fun ScanScreenBase(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    "总计: $totalQuantity",
+                                    "总计: ${formatQuantity(totalQuantity)}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -198,7 +199,7 @@ fun ScanScreenBase(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        "数量: ${line.quantity}",
+                                        "数量: ${formatQuantity(line.quantity)}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -373,18 +374,64 @@ fun ScanScreenBase(
                         )
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = manualQty,
-                        onValueChange = onManualQtyChange,
-                        label = { Text("数量") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = submitColor,
-                            focusedLabelColor = submitColor
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // - button
+                        FilledIconButton(
+                            onClick = {
+                                val current = manualQty.toDoubleOrNull() ?: 1.0
+                                val newVal = (current - 1).coerceAtLeast(0.0)
+                                onManualQtyChange(formatQuantity(newVal))
+                            },
+                            modifier = Modifier.size(44.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = submitColor.copy(alpha = 0.1f)
+                            )
+                        ) {
+                            Icon(
+                                Icons.Outlined.Remove,
+                                "减1",
+                                tint = submitColor,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = manualQty,
+                            onValueChange = onManualQtyChange,
+                            label = { Text("数量") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = submitColor,
+                                focusedLabelColor = submitColor
+                            )
                         )
-                    )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        // + button
+                        FilledIconButton(
+                            onClick = {
+                                val current = manualQty.toDoubleOrNull() ?: 0.0
+                                val newVal = current + 1
+                                onManualQtyChange(formatQuantity(newVal))
+                            },
+                            modifier = Modifier.size(44.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = submitColor
+                            )
+                        ) {
+                            Icon(
+                                Icons.Outlined.Add,
+                                "加1",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
