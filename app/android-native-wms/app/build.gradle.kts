@@ -75,8 +75,11 @@ dependencies {
     // ML Kit Barcode Scanning
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
-    // DataStore
+    // DataStore (non-sensitive data)
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // EncryptedSharedPreferences (sensitive data like token)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // Coil for image loading
     implementation("io.coil-kt:coil-compose:2.7.0")

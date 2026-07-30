@@ -78,6 +78,16 @@ fun InboundScreen(
                 showScannerDialog = false
             }
         },
+        onScanBarcode = { barcode ->
+            viewModel.addScanLine(
+                ScanLine(
+                    material_code = barcode.trim(),
+                    quantity = manualQty.toDoubleOrNull() ?: 1.0
+                )
+            )
+            manualCode = ""
+            manualQty = "1"
+        },
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交入库",
         submitColor = CardBlue
@@ -167,6 +177,16 @@ fun OutboundScreen(
                 manualQty = "1"
                 showScannerDialog = false
             }
+        },
+        onScanBarcode = { barcode ->
+            viewModel.addScanLine(
+                ScanLine(
+                    material_code = barcode.trim(),
+                    quantity = manualQty.toDoubleOrNull() ?: 1.0
+                )
+            )
+            manualCode = ""
+            manualQty = "1"
         },
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交出库",
@@ -504,6 +524,16 @@ fun StocktakeScreen(
                 manualQty = "1"
                 showScannerDialog = false
             }
+        },
+        onScanBarcode = { barcode ->
+            viewModel.addScanLine(
+                ScanLine(
+                    material_code = barcode.trim(),
+                    quantity = manualQty.toDoubleOrNull() ?: 1.0
+                )
+            )
+            manualCode = ""
+            manualQty = "1"
         },
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交盘点",

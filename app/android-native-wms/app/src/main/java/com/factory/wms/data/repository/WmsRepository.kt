@@ -6,6 +6,8 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.api.WmsApiService
 import com.factory.wms.data.model.*
@@ -18,15 +20,29 @@ class WmsRepository(private val context: Context) {
 
     private val api: WmsApiService = RetrofitClient.apiService
 
+    // EncryptedSharedPreferences for sensitive token storage
+    private val encryptedPrefs by lazy {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        EncryptedSharedPreferences.create(
+            context,
+            "wms_secure_prefs",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
+
     companion object {
-        private val KEY_TOKEN = stringPreferencesKey("auth_token")
+        private const val KEY_TOKEN = "auth_token"
         private val KEY_BASE_URL = stringPreferencesKey("base_url")
         private val KEY_USERNAME = stringPreferencesKey("username")
         private val KEY_ROLE = stringPreferencesKey("role")
     }
 
     suspend fun getSavedToken(): String? {
-        return context.dataStore.data.map { it[KEY_TOKEN] }.first()
+        return encryptedPrefs.getString(KEY_TOKEN, null)
     }
 
     suspend fun getSavedBaseUrl(): String? {
@@ -34,8 +50,10 @@ class WmsRepository(private val context: Context) {
     }
 
     suspend fun saveLoginInfo(token: String, baseUrl: String, username: String, role: String) {
+        // Token stored in EncryptedSharedPreferences
+        encryptedPrefs.edit().putString(KEY_TOKEN, token).apply()
+        // Non-sensitive data stored in DataStore
         context.dataStore.edit {
-            it[KEY_TOKEN] = token
             it[KEY_BASE_URL] = baseUrl
             it[KEY_USERNAME] = username
             it[KEY_ROLE] = role
@@ -45,6 +63,9 @@ class WmsRepository(private val context: Context) {
     }
 
     suspend fun logout() {
+        // Clear encrypted token
+        encryptedPrefs.edit().remove(KEY_TOKEN).apply()
+        // Clear non-sensitive data
         context.dataStore.edit { it.clear() }
         RetrofitClient.setToken(null)
     }

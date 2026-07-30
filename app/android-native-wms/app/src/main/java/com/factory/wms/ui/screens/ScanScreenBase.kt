@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.ScanLine
+import com.factory.wms.ui.components.ScannerDialog
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.MainViewModel
 import com.factory.wms.util.formatQuantity
@@ -45,10 +46,12 @@ fun ScanScreenBase(
     onManualCodeChange: (String) -> Unit,
     onManualQtyChange: (String) -> Unit,
     onManualAdd: () -> Unit,
+    onScanBarcode: (String) -> Unit,
     onSubmitClick: () -> Unit,
     submitLabel: String,
     submitColor: Color
 ) {
+    var showCameraScanner by remember { mutableStateOf(false) }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
@@ -307,7 +310,7 @@ fun ScanScreenBase(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         OutlinedButton(
-                            onClick = onShowScanner,
+                            onClick = { showCameraScanner = true },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
@@ -448,6 +451,17 @@ fun ScanScreenBase(
                 TextButton(onClick = onDismissScanner) {
                     Text("取消")
                 }
+            }
+        )
+    }
+
+    // Camera scanner dialog
+    if (showCameraScanner) {
+        ScannerDialog(
+            onDismiss = { showCameraScanner = false },
+            onBarcodeScanned = { barcode ->
+                showCameraScanner = false
+                onScanBarcode(barcode)
             }
         )
     }
