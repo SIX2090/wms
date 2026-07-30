@@ -1934,11 +1934,42 @@ def method_not_allowed(e):
 
 @app.errorhandler(CSRFError)
 def handle_csrf_error(e):
-    """CSRF错误处理"""
+    """CSRF 错误处理
+
+    WMS-BUG-2026-07-30-003：用户停留超过 30 分钟后点登录或提交表单，
+    旧版本直接渲染 csrf_error.html 并显示"5 秒后自动刷新"，但 5 秒倒计时结束后
+    浏览器会携带**同一个已过期的 csrftoken cookie**重新发起请求，循环失败，
+    用户无法继续操作。
+    修复：根据请求路径和 referrer 智能重定向，让浏览器拿到新 csrftoken 再操作。
+    """
     db.session.rollback()
     msg = '请求已过期或缺少安全令牌，请刷新页面后重试'
     if wants_json_error_response():
         return jsonify({'status': 'error', 'msg': msg}), 400
+
+    # 业务路径智能跳转
+    try:
+        target = None
+        if request.method == 'POST':
+            path = (request.path or '').rstrip('/')
+            # 1) 登录页 POST 失败：直接重定向到 GET /login，让浏览器重新拿到 csrftoken
+            if path == '/login' or path.endswith('/login'):
+                target = url_for('login')
+            # 2) 修改密码页 POST 失败：跳到 change_own_password（保持 next）
+            elif path.endswith('/user/change_password'):
+                target = url_for('change_own_password')
+            # 3) 其他业务 POST：回首页（清掉旧 token，让下一个 GET 拿新 token）
+            else:
+                target = url_for('index')
+        if target:
+            # 用 redirect 而不是 render，避免浏览器在原 POST URL 上再次提交
+            resp = redirect(target)
+            # 强制覆盖 csrftoken cookie，使下一次 GET 拿到新 token
+            resp.set_cookie('csrf_token', '', expires=0, path='/')
+            return resp, 302
+    except Exception:
+        app.logger.exception('handle_csrf_error 智能重定向失败，回退到错误页')
+
     try:
         return render_template('csrf_error.html'), 400
     except Exception:
