@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}{{ page_title or '新增入库单' }}{% endblock %}
+{% block title %}{{ page_title or '新增采购入库单' }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -514,7 +514,7 @@ textarea.form-control {
 {% endwith %}
 {% endif %}
 <div class="page-header d-flex justify-content-between align-items-center">
-    <h2><i class="bi bi-box-arrow-in-down"></i> {{ page_title or '新增入库单' }}</h2>
+    <h2><i class="bi bi-box-arrow-in-down"></i> {{ page_title or '新增采购入库单' }}</h2>
     {% if is_other_in %}
     <div class="d-flex gap-2">
         <a href="{{ return_list_url or '/other_in_order' }}" class="btn btn-secondary">

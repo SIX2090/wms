@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ page_title or '新增采购单' }}{% endblock %}
+{% block title %}{{ page_title or '新增采购订单' }}{% endblock %}
 {% block extra_css %}
 <style>
 /* ==================== Changjet T+ 风格 - 采购订单 ==================== */
@@ -383,7 +383,7 @@ textarea.form-control {
 
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center">
-    <h2 class="mb-0"><i class="bi bi-bag-check"></i> {{ page_title or '新增采购单' }}</h2>
+    <h2 class="mb-0"><i class="bi bi-bag-check"></i> {{ page_title or '新增采购订单' }}</h2>
     <div class="d-flex gap-2 flex-wrap">
         <button type="button" class="btn btn-outline-primary" onclick="submitForm(true)">
             <i class="bi bi-plus-square"></i> 保存并新建
