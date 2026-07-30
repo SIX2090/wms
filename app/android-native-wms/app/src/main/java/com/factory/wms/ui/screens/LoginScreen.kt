@@ -71,9 +71,7 @@ fun LoginScreen(
                             Primary,
                             Color(0xFF2D3FBF),
                             Color(0xFF1A237E)
-                        ),
-                        start = Offset(0f, 0f),
-                        end = Offset(0f, Float.POSITIVE_INFINITY)
+                        )
                     )
                 )
         ) {

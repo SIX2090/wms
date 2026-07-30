@@ -74,7 +74,7 @@ fun ScanScreenBase(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                            Icons.Filled.ArrowBack,
                             "返回",
                             tint = MaterialTheme.colorScheme.onSurface
                         )

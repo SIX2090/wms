@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -51,6 +52,7 @@ fun DocumentOcrScreen(
     val context = LocalContext.current
     var selectedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -98,7 +100,7 @@ fun DocumentOcrScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                            Icons.Filled.ArrowBack,
                             "返回",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
@@ -164,7 +166,9 @@ fun DocumentOcrScreen(
                 Button(
                     onClick = {
                         selectedImageUri?.let { uri ->
-                            viewModel.documentOcr(uriToMultipart(uri, context, "image"))
+                            coroutineScope.launch {
+                                viewModel.documentOcr(uriToMultipart(uri, context, "image"))
+                            }
                         }
                     },
                     modifier = Modifier
@@ -454,6 +458,7 @@ fun ObjectRecognizeScreen(
     val context = LocalContext.current
     var selectedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -501,7 +506,7 @@ fun ObjectRecognizeScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                            Icons.Filled.ArrowBack,
                             "返回",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
@@ -565,7 +570,9 @@ fun ObjectRecognizeScreen(
                 Button(
                     onClick = {
                         selectedImageUri?.let { uri ->
-                            viewModel.recognizeMaterial(uriToMultipart(uri, context, "image"))
+                            coroutineScope.launch {
+                                viewModel.recognizeMaterial(uriToMultipart(uri, context, "image"))
+                            }
                         }
                     },
                     modifier = Modifier
