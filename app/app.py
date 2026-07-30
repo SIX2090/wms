@@ -43697,7 +43697,24 @@ def print_in_order_labels():
     item_ids = [int(item_id) for item_id in ids if item_id.strip().isdigit()]
     items = InOrderItem.query.filter(InOrderItem.id.in_(item_ids)).all() if item_ids else []
     materials = [item.material for item in items if item.material]
-    return render_template('print_batch_labels.html', materials=materials)
+    # 与 print_batch_labels 保持一致：传入 materials_data 以便前端 MATERIALS 正确初始化。
+    materials_data = [
+        {
+            'id': m.id,
+            'code': m.code or '',
+            'name': m.name or '',
+            'spec': m.spec or '',
+            'unit_name': m.unit.name if m.unit else '',
+            'category_name': m.category.name if m.category else '',
+            'stock': str(m.stock) if m.stock else '0',
+            'price': str(m.price) if m.price else '',
+            'barcode': m.code or '',
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'supplier_name': m.supplier.name if m.supplier else '',
+        }
+        for m in materials
+    ]
+    return render_template('print_batch_labels.html', materials=materials, materials_data=materials_data)
 
 
 @app.route('/in_order_print_template')
@@ -43785,7 +43802,10 @@ def print_batch_labels():
             'supplier_name': m.supplier.name if m.supplier else ''
         })
     
-    return render_template('print_batch_labels.html', materials=materials, materials_json=json.dumps(materials_data, ensure_ascii=False))
+    # 关键修复：materials_data 是 Python 列表，直接交给 Jinja2 tojson 序列化，
+    # 避免 json.dumps + tojson 双重 JSON 化导致 MATERIALS 变成字符串，
+    # 进而 MATERIALS.forEach 抛 TypeError，触发"加载失败/网络错误"。
+    return render_template('print_batch_labels.html', materials=materials, materials_data=materials_data)
 
 
 # ==================== Inventory alert ====================
