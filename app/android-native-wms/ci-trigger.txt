@@ -1,1 +1,1 @@
-trigger build
+build trigger v3
