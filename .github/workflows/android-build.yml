@@ -31,9 +31,13 @@ jobs:
         with:
           packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
 
+      - name: Grant execute permission for gradlew
+        working-directory: app/android-native-wms
+        run: chmod +x gradlew
+
       - name: Build Debug APK
         working-directory: app/android-native-wms
-        run: gradle assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
