@@ -321,7 +321,7 @@
 
                     var fieldName = (cd && cd.field) ? cd.field : '';
 
-                    if ((fieldName === 'barcode' || fieldName === 'code') && fieldVal) {
+                    if (fieldName === 'barcode' && fieldVal) {
                         var img = document.createElement('img');
                         img.src = '/api/barcode/' + encodeURIComponent(fieldVal);
                         img.alt = fieldVal;
