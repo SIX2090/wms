@@ -19,13 +19,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.ui.theme.*
-import com.factory.wms.ui.viewmodel.MainViewModel
+import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.util.formatQuantity
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InboundScreen(
-    viewModel: MainViewModel,
+    viewModel: ScanViewModel,
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -125,7 +125,7 @@ fun InboundScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OutboundScreen(
-    viewModel: MainViewModel,
+    viewModel: ScanViewModel,
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -225,7 +225,7 @@ fun OutboundScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StockQueryScreen(
-    viewModel: MainViewModel,
+    viewModel: ScanViewModel,
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -472,7 +472,7 @@ private fun InfoChip(label: String, value: String) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StocktakeScreen(
-    viewModel: MainViewModel,
+    viewModel: ScanViewModel,
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()

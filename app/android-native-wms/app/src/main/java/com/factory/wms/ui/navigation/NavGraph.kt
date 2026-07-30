@@ -1,26 +1,43 @@
 package com.factory.wms.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.factory.wms.data.api.AuthEventBus
 import com.factory.wms.ui.screens.*
-import com.factory.wms.ui.viewmodel.MainViewModel
+import com.factory.wms.ui.viewmodel.ai.AiViewModel
+import com.factory.wms.ui.viewmodel.auth.AuthViewModel
+import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 
 @Composable
-fun AppNavGraph(viewModel: MainViewModel = viewModel()) {
+fun AppNavGraph() {
     val navController = rememberNavController()
-    val uiState by viewModel.uiState.collectAsState()
+    val authViewModel: AuthViewModel = viewModel()
+    val scanViewModel: ScanViewModel = viewModel()
+    val aiViewModel: AiViewModel = viewModel()
 
-    val startDestination = if (uiState.isLoggedIn) Screen.Home.route else Screen.Login.route
+    val authState by authViewModel.uiState.collectAsState()
+
+    val startDestination = if (authState.isLoggedIn) Screen.Home.route else Screen.Login.route
+
+    // Listen for 401 unauthorized events and navigate to login
+    LaunchedEffect(Unit) {
+        AuthEventBus.unauthorizedEvents.collect {
+            navController.navigate(Screen.Login.route) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
 
     NavHost(navController = navController, startDestination = startDestination) {
         composable(Screen.Login.route) {
             LoginScreen(
-                viewModel = viewModel,
+                viewModel = authViewModel,
                 onLoginSuccess = {
                     navController.navigate(Screen.Home.route) {
                         popUpTo(Screen.Login.route) { inclusive = true }
@@ -31,7 +48,7 @@ fun AppNavGraph(viewModel: MainViewModel = viewModel()) {
 
         composable(Screen.Home.route) {
             HomeScreen(
-                viewModel = viewModel,
+                authViewModel = authViewModel,
                 onNavigate = { screen ->
                     navController.navigate(screen.route)
                 },
@@ -45,42 +62,42 @@ fun AppNavGraph(viewModel: MainViewModel = viewModel()) {
 
         composable(Screen.Inbound.route) {
             InboundScreen(
-                viewModel = viewModel,
+                viewModel = scanViewModel,
                 onBack = { navController.popBackStack() }
             )
         }
 
         composable(Screen.Outbound.route) {
             OutboundScreen(
-                viewModel = viewModel,
+                viewModel = scanViewModel,
                 onBack = { navController.popBackStack() }
             )
         }
 
         composable(Screen.StockQuery.route) {
             StockQueryScreen(
-                viewModel = viewModel,
+                viewModel = scanViewModel,
                 onBack = { navController.popBackStack() }
             )
         }
 
         composable(Screen.Stocktake.route) {
             StocktakeScreen(
-                viewModel = viewModel,
+                viewModel = scanViewModel,
                 onBack = { navController.popBackStack() }
             )
         }
 
         composable(Screen.DocumentOcr.route) {
             DocumentOcrScreen(
-                viewModel = viewModel,
+                viewModel = aiViewModel,
                 onBack = { navController.popBackStack() }
             )
         }
 
         composable(Screen.ObjectRecognize.route) {
             ObjectRecognizeScreen(
-                viewModel = viewModel,
+                viewModel = aiViewModel,
                 onBack = { navController.popBackStack() }
             )
         }

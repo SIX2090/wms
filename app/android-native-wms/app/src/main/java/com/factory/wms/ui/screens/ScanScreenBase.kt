@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.ui.components.ScannerDialog
 import com.factory.wms.ui.theme.*
-import com.factory.wms.ui.viewmodel.MainViewModel
+import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.util.formatQuantity
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,7 +35,7 @@ fun ScanScreenBase(
     onBack: () -> Unit,
     scanLines: List<ScanLine>,
     totalQuantity: Double,
-    viewModel: MainViewModel,
+    viewModel: ScanViewModel,
     snackbarHostState: SnackbarHostState,
     isLoading: Boolean,
     showScannerDialog: Boolean,

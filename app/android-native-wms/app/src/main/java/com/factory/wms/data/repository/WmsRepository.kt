@@ -8,17 +8,27 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.factory.wms.data.api.DocumentOcrResult
+import com.factory.wms.data.api.RecognizeMaterialResult
 import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.api.WmsApiService
+import com.factory.wms.data.local.AppDatabase
+import com.factory.wms.data.local.MaterialEntity
+import com.factory.wms.data.local.OperationLogEntity
 import com.factory.wms.data.model.*
+import com.google.gson.Gson
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import retrofit2.Response
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "wms_settings")
 
 class WmsRepository(private val context: Context) {
 
     private val api: WmsApiService = RetrofitClient.apiService
+    private val db: AppDatabase = AppDatabase.getDatabase(context)
+    private val materialDao = db.materialDao()
+    private val operationLogDao = db.operationLogDao()
 
     // EncryptedSharedPreferences for sensitive token storage
     private val encryptedPrefs by lazy {
@@ -105,7 +115,7 @@ class WmsRepository(private val context: Context) {
     suspend fun searchMaterial(keyword: String): Result<List<MaterialDto>> {
         return try {
             val response = api.searchMaterial(keyword)
-            handleResponse(response) { it }
+            handleResponse<List<MaterialDto>>(response)
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
@@ -113,17 +123,55 @@ class WmsRepository(private val context: Context) {
 
     suspend fun getMaterialInfo(code: String): Result<MaterialDto> {
         return try {
+            // Try Room cache first
+            val cached = materialDao.getByCode(code)
+            if (cached != null) {
+                val dto = cached.toDto()
+                return Result.success(dto)
+            }
+            // Cache miss, call API
             val response = api.materialInfo(code)
-            handleResponse(response) { it }
+            val result = handleResponse<MaterialDto>(response)
+            result.fold(
+                onSuccess = { dto ->
+                    // Cache the result
+                    materialDao.insert(dto.toEntity())
+                },
+                onFailure = { }
+            )
+            result
         } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
+            // Network unavailable, try cache as fallback
+            val cached = materialDao.getByCode(code)
+            if (cached != null) {
+                Result.success(cached.toDto())
+            } else {
+                Result.failure(Exception("网络错误: ${e.message}"))
+            }
         }
     }
 
     suspend fun submitInbound(request: InboundRequest): Result<SubmitResult> {
         return try {
             val response = api.submitInbound(request)
-            handleResponse(response) { it }
+            val result = handleResponse<SubmitResult>(response)
+            result.fold(
+                onSuccess = { submitResult ->
+                    // Log operation
+                    request.lines.forEach { line ->
+                        operationLogDao.insert(
+                            OperationLogEntity(
+                                operationType = "inbound",
+                                orderNo = submitResult.order_no,
+                                materialCode = line.material_code,
+                                quantity = line.quantity
+                            )
+                        )
+                    }
+                },
+                onFailure = { }
+            )
+            result
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
@@ -132,7 +180,23 @@ class WmsRepository(private val context: Context) {
     suspend fun submitOutbound(request: OutboundRequest): Result<SubmitResult> {
         return try {
             val response = api.submitOutbound(request)
-            handleResponse(response) { it }
+            val result = handleResponse<SubmitResult>(response)
+            result.fold(
+                onSuccess = { submitResult ->
+                    request.lines.forEach { line ->
+                        operationLogDao.insert(
+                            OperationLogEntity(
+                                operationType = "outbound",
+                                orderNo = submitResult.order_no,
+                                materialCode = line.material_code,
+                                quantity = line.quantity
+                            )
+                        )
+                    }
+                },
+                onFailure = { }
+            )
+            result
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
@@ -141,39 +205,56 @@ class WmsRepository(private val context: Context) {
     suspend fun submitStocktake(request: StocktakeRequest): Result<SubmitResult> {
         return try {
             val response = api.submitStocktake(request)
-            handleResponse(response) { it }
+            val result = handleResponse<SubmitResult>(response)
+            result.fold(
+                onSuccess = { submitResult ->
+                    request.lines.forEach { line ->
+                        operationLogDao.insert(
+                            OperationLogEntity(
+                                operationType = "stocktake",
+                                orderNo = submitResult.check_no,
+                                materialCode = line.material_code,
+                                quantity = line.actual_stock
+                            )
+                        )
+                    }
+                },
+                onFailure = { }
+            )
+            result
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
     }
 
-    suspend fun documentOcr(imagePart: okhttp3.MultipartBody.Part): Result<ApiEnvelope<DocumentOcrResult>> {
+    suspend fun documentOcr(imagePart: okhttp3.MultipartBody.Part): Result<DocumentOcrResult> {
         return try {
             val response = api.documentOcr(imagePart)
-            handleResponse(response) { response.body()!! }
+            handleResponse<DocumentOcrResult>(response)
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
     }
 
-    suspend fun recognizeMaterial(imagePart: okhttp3.MultipartBody.Part): Result<ApiEnvelope<RecognizeMaterialResult>> {
+    suspend fun recognizeMaterial(imagePart: okhttp3.MultipartBody.Part): Result<RecognizeMaterialResult> {
         return try {
             val response = api.recognizeMaterial(imagePart)
-            handleResponse(response) { response.body()!! }
+            handleResponse<RecognizeMaterialResult>(response)
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
     }
 
-    private fun <T> handleResponse(response: retrofit2.Response<ApiEnvelope<T>>, mapper: (T) -> Any): Result<Any> {
+    private inline fun <reified T> handleResponse(response: Response<ApiEnvelope<T>>): Result<T> {
         return if (response.isSuccessful) {
             val envelope = response.body()
             if (envelope != null && envelope.isOk()) {
                 val data = envelope.data
                 if (data != null) {
-                    Result.success(mapper(data))
+                    Result.success(data)
                 } else {
-                    Result.success(Unit)
+                    @Suppress("UNCHECKED_CAST")
+                    Result.success(Unit as T)
                 }
             } else {
                 Result.failure(Exception(envelope?.displayMessage() ?: "请求失败"))
@@ -181,9 +262,37 @@ class WmsRepository(private val context: Context) {
         } else {
             val errorMsg = try {
                 val errorBody = response.errorBody()?.string()
-                com.google.gson.Gson().fromJson(errorBody, ApiEnvelope::class.java)?.displayMessage()
+                Gson().fromJson(errorBody, ApiEnvelope::class.java)?.displayMessage()
             } catch (_: Exception) { null }
             Result.failure(Exception(errorMsg ?: "请求失败 (${response.code()})"))
         }
     }
 }
+
+// Extension functions for model-entity conversion
+private fun MaterialDto.toEntity(): MaterialEntity = MaterialEntity(
+    code = code ?: "",
+    name = name,
+    spec = spec,
+    unit = unit,
+    stock = stock,
+    price = price,
+    category = category,
+    supplier = supplier,
+    minStock = minStock,
+    reorderPoint = reorderPoint
+)
+
+private fun MaterialEntity.toDto(): MaterialDto = MaterialDto(
+    id = null,
+    code = code,
+    name = name,
+    spec = spec,
+    unit = unit,
+    category = category,
+    supplier = supplier,
+    stock = stock,
+    price = price,
+    minStock = minStock,
+    reorderPoint = reorderPoint
+)

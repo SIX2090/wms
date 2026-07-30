@@ -29,12 +29,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.ui.theme.*
-import com.factory.wms.ui.viewmodel.MainViewModel
+import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
-    viewModel: MainViewModel,
+    viewModel: AuthViewModel,
     onLoginSuccess: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()

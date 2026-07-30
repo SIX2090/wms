@@ -31,7 +31,7 @@ import coil.compose.AsyncImage
 import com.factory.wms.data.api.DocumentOcrResult
 import com.factory.wms.data.api.RecognizeMaterialResult
 import com.factory.wms.ui.theme.*
-import com.factory.wms.ui.viewmodel.MainViewModel
+import com.factory.wms.ui.viewmodel.ai.AiViewModel
 import com.factory.wms.util.formatQuantity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,7 +44,7 @@ import java.io.InputStream
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DocumentOcrScreen(
-    viewModel: MainViewModel,
+    viewModel: AiViewModel,
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -447,7 +447,7 @@ fun DocumentOcrScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ObjectRecognizeScreen(
-    viewModel: MainViewModel,
+    viewModel: AiViewModel,
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()

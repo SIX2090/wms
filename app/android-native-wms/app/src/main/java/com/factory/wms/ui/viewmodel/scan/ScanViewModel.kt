@@ -1,4 +1,4 @@
-package com.factory.wms.ui.viewmodel
+package com.factory.wms.ui.viewmodel.scan
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -10,12 +10,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-data class AppUiState(
-    val isLoggedIn: Boolean = false,
+data class ScanUiState(
     val isLoading: Boolean = false,
-    val username: String = "",
-    val role: String = "",
-    val baseUrl: String = "http://10.0.2.2:5000",
     val error: String? = null,
     val success: String? = null,
     // Material scan result
@@ -23,70 +19,15 @@ data class AppUiState(
     val scannedCode: String = "",
     // Scan list for batch operations
     val scanLines: List<ScanLine> = emptyList(),
-    val totalQuantity: Double = 0.0,
-    // Document OCR
-    val ocrResult: DocumentOcrResult? = null,
-    val ocrReply: String? = null,
-    // Object recognition
-    val recognizedMaterial: RecognizeMaterialResult? = null,
-    val recognizedReply: String? = null
+    val totalQuantity: Double = 0.0
 )
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = WmsRepository(application)
 
-    private val _uiState = MutableStateFlow(AppUiState())
-    val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
-
-    init {
-        viewModelScope.launch {
-            val token = repository.getSavedToken()
-            val baseUrl = repository.getSavedBaseUrl()
-            val username = repository.getUsername()
-            val role = repository.getRole()
-            if (token != null && baseUrl != null) {
-                _uiState.value = _uiState.value.copy(
-                    isLoggedIn = true,
-                    username = username ?: "",
-                    role = role ?: "",
-                    baseUrl = baseUrl
-                )
-            }
-        }
-    }
-
-    fun login(username: String, password: String, baseUrl: String) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            val result = repository.login(username, password, baseUrl)
-            result.fold(
-                onSuccess = { data ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoggedIn = true,
-                        isLoading = false,
-                        username = username,
-                        role = data.user.role ?: "",
-                        baseUrl = baseUrl,
-                        error = null
-                    )
-                },
-                onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = e.message
-                    )
-                }
-            )
-        }
-    }
-
-    fun logout() {
-        viewModelScope.launch {
-            repository.logout()
-            _uiState.value = AppUiState()
-        }
-    }
+    private val _uiState = MutableStateFlow(ScanUiState())
+    val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
@@ -100,17 +41,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(scannedMaterial = null, scannedCode = "")
     }
 
-    fun clearOcrResult() {
-        _uiState.value = _uiState.value.copy(ocrResult = null, ocrReply = null)
-    }
-
-    fun clearRecognizedMaterial() {
-        _uiState.value = _uiState.value.copy(recognizedMaterial = null, recognizedReply = null)
-    }
-
     fun addScanLine(line: ScanLine) {
         val current = _uiState.value.scanLines.toMutableList()
-        // Check if same material already exists, update quantity
         val existingIndex = current.indexOfFirst { it.material_code == line.material_code }
         if (existingIndex >= 0) {
             val existing = current[existingIndex]
@@ -253,46 +185,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         success = msg,
                         scanLines = emptyList(),
                         totalQuantity = 0.0
-                    )
-                },
-                onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
-                }
-            )
-        }
-    }
-
-    fun documentOcr(imagePart: okhttp3.MultipartBody.Part) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null, ocrResult = null, ocrReply = null)
-            val result = repository.documentOcr(imagePart)
-            result.fold(
-                onSuccess = { envelope ->
-                    val data = envelope.data
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        ocrResult = data,
-                        ocrReply = data?.reply
-                    )
-                },
-                onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
-                }
-            )
-        }
-    }
-
-    fun recognizeMaterial(imagePart: okhttp3.MultipartBody.Part) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null, recognizedMaterial = null, recognizedReply = null)
-            val result = repository.recognizeMaterial(imagePart)
-            result.fold(
-                onSuccess = { envelope ->
-                    val data = envelope.data
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        recognizedMaterial = data,
-                        recognizedReply = data?.reply
                     )
                 },
                 onFailure = { e ->

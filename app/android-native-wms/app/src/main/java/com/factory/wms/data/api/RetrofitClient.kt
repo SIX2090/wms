@@ -12,12 +12,19 @@ object RetrofitClient {
     private var baseUrl: String = "http://10.0.2.2:5000/"
     private var authToken: String? = null
 
+    var onUnauthorized: (() -> Unit)? = null
+
     private val authInterceptor = Interceptor { chain ->
         val request = chain.request().newBuilder()
         authToken?.let { token ->
             request.addHeader("Authorization", "Bearer $token")
         }
-        chain.proceed(request.build())
+        val response = chain.proceed(request.build())
+        if (response.code == 401) {
+            authToken = null
+            onUnauthorized?.invoke()
+        }
+        response
     }
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {

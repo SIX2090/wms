@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.ui.navigation.Screen
 import com.factory.wms.ui.theme.*
-import com.factory.wms.ui.viewmodel.MainViewModel
+import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -47,11 +47,11 @@ data class FunctionCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    viewModel: MainViewModel,
+    authViewModel: AuthViewModel,
     onNavigate: (Screen) -> Unit,
     onLogout: () -> Unit
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by authViewModel.uiState.collectAsState()
     var showLogoutDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -105,13 +105,7 @@ fun HomeScreen(
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
-            viewModel.clearError()
-        }
-    }
-    LaunchedEffect(uiState.success) {
-        uiState.success?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
-            viewModel.clearSuccess()
+            authViewModel.clearError()
         }
     }
 
@@ -321,7 +315,7 @@ fun HomeScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showLogoutDialog = false
-                    viewModel.logout()
+                    authViewModel.logout()
                     onLogout()
                 }) {
                     Text("确定退出", color = MaterialTheme.colorScheme.error)
