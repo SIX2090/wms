@@ -30,9 +30,18 @@ jobs:
         working-directory: app/android-native-wms
         run: chmod +x gradlew
 
+      - name: Remove sandbox proxy settings
+        working-directory: app/android-native-wms
+        run: |
+          sed -i '/systemProp.http.proxyHost/d' gradle.properties
+          sed -i '/systemProp.http.proxyPort/d' gradle.properties
+          sed -i '/systemProp.https.proxyHost/d' gradle.properties
+          sed -i '/systemProp.https.proxyPort/d' gradle.properties
+          sed -i '/# Proxy settings/d' gradle.properties
+
       - name: Build Debug APK
         working-directory: app/android-native-wms
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
