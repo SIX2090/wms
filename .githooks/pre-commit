@@ -1,44 +1,52 @@
 #!/bin/bash
-# .githooks/pre-commit
-# ============================================================
-# 防止裸调非 GET fetch 的 pre-commit 钩子
-# 触发时机：git commit 时
-#
-# 背景：
-#   之前在 app/static/js/app.js 中发现 5 处 fetch(url, {method: 'POST'}) 调用
-#   没有走 csrfFetch 统一封装，导致 CSRF 失败，物料批量删除不可用
-#   (commit 05c62121 fix(material): bulk delete fails without CSRF token)。
-#   本钩子用于防止再有人犯同样的错。
-#
-# 行为：
-#   1. 仅在变更涉及 app/static/js/ 下的 .js 文件时才扫描，避免无谓开销
-#   2. 调用 scripts/lint_no_raw_post_fetch.py 进行扫描
-#   3. 发现违规则拒绝提交并提示改用 csrfFetch(url, options)
-# ============================================================
+# WMS 仓库 pre-commit 钩子
+# 作用：提交时自动扫描 7 条防 BUG 规则，防止新 BUG 引入
+# 启用方法：git config core.hooksPath .githooks
+# 说明：保留历史"裸调 fetch"检查，并在此基础上扩展出 7 条规则扫描器
+#      scripts/lint_wms_rules.py
 
 set -e
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
-# 仅在变更涉及 app/static/js/ 时才扫描（避免不必要的开销）
-STAGED_JS=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^app/static/js/.*\.js$' || true)
+# 获取本次提交涉及的文件
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
 
-if [ -z "$STAGED_JS" ]; then
-    # 没有 JS 文件变更，跳过检查
+# 仅在涉及 app/、scripts/ 下时做多规则扫描
+RELEVANT=$(echo "$STAGED_FILES" | grep -E '^(app/|scripts/)' || true)
+
+if [ -z "$RELEVANT" ]; then
     exit 0
 fi
 
-echo "[pre-commit] 检查裸调非 GET fetch..."
+echo "[pre-commit] WMS 多规则防 BUG 检查"
 echo "[pre-commit] 待检查文件："
-echo "$STAGED_JS" | sed 's/^/  /'
+echo "$RELEVANT" | sed 's/^/  /'
+echo ""
 
-if ! python3 "$REPO_ROOT/scripts/lint_no_raw_post_fetch.py" --repo-root "$REPO_ROOT"; then
+# 第一步：跑 7 条规则（linter_wms_rules.py）
+if ! python3 "$REPO_ROOT/scripts/lint_wms_rules.py" --staged; then
     echo ""
-    echo "[pre-commit] ✗ 提交被拒绝：发现裸调非 GET fetch"
-    echo "[pre-commit] 请将所有非 GET 请求改为 csrfFetch(url, options) 或 api.xxx()"
-    echo "[pre-commit] 临时绕过（不建议）：git commit --no-verify"
+    echo "[pre-commit] ✗ 提交被拒绝：发现防 BUG 规则违规"
+    echo "[pre-commit] 请修复后重新提交，或用 git commit --no-verify 跳过（不推荐）"
     exit 1
 fi
 
-echo "[pre-commit] ✓ 通过"
+# 第二步：保留历史的"裸调 fetch"检查
+# 仅在变更涉及 app/static/js/ 时才扫描（避免无谓开销）
+STAGED_JS=$(echo "$STAGED_FILES" | grep -E '^app/static/js/.*\.js$' || true)
+if [ -n "$STAGED_JS" ]; then
+    echo "[pre-commit] 二次扫描：裸调非 GET fetch"
+    echo "[pre-commit] 待检查文件："
+    echo "$STAGED_JS" | sed 's/^/  /'
+    if ! python3 "$REPO_ROOT/scripts/lint_no_raw_post_fetch.py" --repo-root "$REPO_ROOT"; then
+        echo ""
+        echo "[pre-commit] ✗ 提交被拒绝：发现裸调非 GET fetch"
+        echo "[pre-commit] 请将所有非 GET 请求改为 csrfFetch(url, options) 或 api.xxx()"
+        echo "[pre-commit] 临时绕过（不建议）：git commit --no-verify"
+        exit 1
+    fi
+fi
+
+echo "[pre-commit] ✓ 全部规则通过"
 exit 0

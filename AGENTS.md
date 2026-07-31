@@ -16,3 +16,32 @@
 - At the end of each AI task, reconcile the ledger against AI routes, tools, models, templates, feature flags, migrations, and verification scripts so implemented capabilities are not omitted and planned capabilities are not falsely reported as implemented.
 - **Branch policy (hard rule, no exceptions)**: AI/TRAE must work directly on `main`. It is strictly forbidden to create, switch to, or push to any new branch — including `feature/*`, `fix/*`, `chore/*`, or any `trae/*` worktree branch. All commits and pushes MUST target `main`. Local pre-push hook `.githooks/pre-push` enforces this client-side; GitHub-side branch creation requires GitHub Pro on private repos. Any remote branch other than `main` is treated as a policy violation and must be deleted in the same audit cycle.
 - **No raw non-GET `fetch` in JS**: All non-GET requests in `app/static/js/*.js` MUST go through `csrfFetch(url, options)` (or the `api` helper). Local pre-commit hook `.githooks/pre-commit` runs `scripts/lint_no_raw_post_fetch.py` and rejects commits that contain `fetch(url, { method: 'POST'|'PUT'|'DELETE'|'PATCH' })`. Enable it once per clone with `git config core.hooksPath .githooks`.
+
+## 防 BUG 规则（2026-07-31 新增）
+
+**修改本仓库任何代码前，请先阅读 [DEVELOPMENT_RULES.md](./DEVELOPMENT_RULES.md)。**
+
+### 7 条核心规则速查
+
+| 编号 | 规则 | 防的 BUG |
+|---|---|---|
+| A1 | `<form method="post">` 必须有 csrf_token | 表单 400 / 死循环 |
+| A2 | Python POST 路由必须 @login_required 或 @csrf.exempt | 漏 CSRF 保护 |
+| A3 | 业务 JS 不能 console.log | 调试代码泄漏 |
+| A4 | 业务 JS 不能 debugger/alert | 调试残留 |
+| A5 | 业务 JS 不能 eval/new Function | XSS / 注入 |
+| A6 | 业务 Python 不能 print | 调试代码污染日志 |
+| A7 | SQL 必须参数化，禁止字符串拼接 | SQL 注入 |
+
+### 强制门禁
+
+- pre-commit 钩子（`.githooks/pre-commit`）会扫描以上规则
+- 启用：`git config core.hooksPath .githooks`
+- 跳过（不推荐）：`git commit --no-verify`
+
+### 修复 BUG 流程
+
+1. 在 `WMS_BUG_BASELINE.md` 登记（`BUG-YYYY-MM-DD-NNN: <标题>`）
+2. commit message 关联 BUG ID：`fix: BUG-2026-07-31-001 xxx`
+3. 加回归测试
+4. 改状态为"已修复"

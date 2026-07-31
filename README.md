@@ -293,3 +293,34 @@ git config core.hooksPath .githooks
 ```
 
 启用后，任何在 `app/static/js/` 下新增/修改的 JS 中出现 `fetch(url, { method: 'POST' })` 等裸调都会被 pre-commit 拦截，提示改用 `csrfFetch(url, options)`。
+
+## 开发规范
+
+加新功能或修复 BUG 前，请务必阅读：
+
+- 📘 [DEVELOPMENT_RULES.md](./DEVELOPMENT_RULES.md) — 完整开发规范
+- 🤖 [AGENTS.md](./AGENTS.md) — AI Agent 工作准则
+- 🐛 [WMS_BUG_BASELINE.md](./WMS_BUG_BASELINE.md) — 已知 BUG 登记
+
+### 防 BUG 7 条规则（pre-commit 强制）
+
+| 编号 | 规则 |
+|---|---|
+| A1 | `<form>` 必须有 csrf_token |
+| A2 | Python POST 路由必须有 CSRF 处理 |
+| A3 | 业务 JS 不能 console.log |
+| A4 | 业务 JS 不能 debugger/alert |
+| A5 | 业务 JS 不能 eval |
+| A6 | 业务 Python 不能 print |
+| A7 | SQL 必须参数化 |
+
+启用钩子：`git config core.hooksPath .githooks`
+
+跑全套检查：
+
+```bash
+python3 scripts/lint_wms_rules.py      # 7 条规则
+python3 scripts/verify_wms_bugs.py     # 86 项静态回归
+pytest tests/ -q                        # 90 项单元测试
+python3 scripts/full_smoke_test.py     # 121 项冒烟（需启动服务）
+```
