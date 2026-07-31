@@ -152,6 +152,12 @@
 | SEC-NEW2-001 | 已有保护 | `/api/login` 是换取 token 的原生 API；入库/出库/盘点有 `@api_required`，微信助手有独立授权，不移除 CSRF 豁免 |
 | SEC-NEW2-002 | 平台限制 | Windows 对 `chmod 0600` 支持有限，属于部署环境权限控制问题；生产应放在受限账户/目录下运行 |
 
+## 未修复/待处理
+
+| 编号 | 标题 | 现状与绕过方案 |
+|------|------|---------------|
+| BUG-2026-07-31-002 | `main` 分支未设置 protected branch，开发者可直接 push 绕过 PR + review | 尝试 `gh api -X PUT repos/SIX2090/wms/branches/main/protection` 设置（要求 1 approving review + strict status checks + linear history + no force push + 解决所有 conversation），但 GitHub 返回 `403 Resource not accessible by integration`：当前 GH_TOKEN 属于 GitHub App（client_id `Iv23liZK8tzQx0m4bCRd`），按 GitHub 平台硬限制，GitHub App token 没有 `Administration: write` 权限修改 branch protection。**绕过方案**：仓库 owner（`SIX2090`）在 GitHub Web UI → Settings → Branches → Add rule for `main` 手动开启 "Require a pull request before merging" + "Require approvals: 1" + "Require status checks: lint-and-test" + "Require linear history" + "Do not allow force pushes" + "Do not allow deletions"。或重新生成 fine-grained PAT 时勾选 "Administration: write"（含 "Branch protection rules"），用该 PAT 跑本任务第 3 步的 PUT 命令。已尝试的 API：GET/PUT/PATCH `/branches/main/protection[/*]` 全部 `403`。本地防线：`.githooks/pre-push` 钩子会拒绝向非 `main` 分支推送，未来启用 Web 端保护后服务端兜底。 |
+
 ## 每日使用方式
 
 ```powershell
