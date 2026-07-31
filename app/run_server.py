@@ -116,8 +116,9 @@ def main():
     # AI-DEPLOY-F01: 启动前自动从 GitHub 更新代码和依赖（失败不阻断启动）
     _run_startup_auto_update()
 
-    host = app.config.get("HOST", "0.0.0.0")
-    port = int(app.config.get("PORT", 8080))
+    # 端口/Host 支持环境变量覆盖：CI 测试时用 WMS_PORT=18080 避免与本机服务冲突
+    host = os.environ.get("WMS_HOST", app.config.get("HOST", "0.0.0.0"))
+    port = int(os.environ.get("WMS_PORT", app.config.get("PORT", 8080)))
     threads = 8
 
     print("=" * 60, flush=True)

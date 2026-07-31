@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 """WMS 全面冒烟测试：登录 + 页面遍历 + 表单提交 + 导出接口"""
+import argparse
 import requests
 import re
 import json
 import sys
 import time
 
-BASE = 'http://127.0.0.1:8080'
+# 命令行参数：--base-url 默认 http://127.0.0.1:8080
+# 兼容 CI：scripts/run_smoke_in_ci.py 启动在 18080 时传 --base-url http://127.0.0.1:18080
+_arg_parser = argparse.ArgumentParser(description='WMS 全量冒烟测试')
+_arg_parser.add_argument('--base-url', default='http://127.0.0.1:8080',
+                          help='WMS 服务地址，默认 http://127.0.0.1:8080')
+_args, _unknown = _arg_parser.parse_known_args()
+BASE = _args.base_url
+print(f'[smoke] BASE = {BASE}')
 s = requests.Session()
 
 results = []

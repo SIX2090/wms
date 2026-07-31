@@ -47,6 +47,17 @@ jobs:
       - name: "Unit tests"
         run: pytest tests/ -q
 
+      # 冒烟测试：启动 WMS 服务跑 121 项全量冒烟
+      - name: "Smoke test (启动服务跑 121 项)"
+        run: python3 scripts/run_smoke_in_ci.py
+
+      # 验证 install-hooks.sh 的可重现性（仅作可达性证明，CI 本身不强制）
+      - name: "Check hooks install script reproducibility"
+        continue-on-error: true
+        run: |
+          bash .githooks/install-hooks.sh
+          python3 scripts/check_hooks_installed.py
+
       # 总结
       - name: "CI summary"
         if: always()
