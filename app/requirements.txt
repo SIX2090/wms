@@ -56,6 +56,9 @@ python-dateutil==2.9.0.post0
 # API Docs
 flasgger==0.9.7.1
 
+# Data validation (A8 requires pydantic for new POST/PUT/DELETE routes)
+pydantic==2.10.4
+
 # Data
 pandas==3.0.2
 numpy==2.4.4

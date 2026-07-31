@@ -22,6 +22,8 @@
 ### 1.2 后端
 
 - [ ] 新增 POST 路由必须有 `@login_required` 或 `@csrf.exempt`（带理由注释）
+- [ ] **新增 POST/PUT/DELETE 路由必须用 pydantic `BaseModel` 做输入校验**（A8，门禁强制）
+- [ ] **新增业务函数必须先写至少 1 个 pytest 失败测试**（A9，门禁强制）
 - [ ] 不直接拼接 SQL，用 SQLAlchemy 参数化
 - [ ] 不写 `print(` 调试（用 `app.logger.info()` 代替）
 - [ ] 关键业务逻辑加 try/except + 业务日志
@@ -112,7 +114,7 @@
 
 | 工具 | 检查内容 | 必跑 |
 |---|---|---|
-| `scripts/lint_wms_rules.py` | 7 条防 BUG 规则 | ✅ pre-commit |
+| `scripts/lint_wms_rules.py` | 9 条防 BUG 规则 | ✅ pre-commit |
 | `scripts/lint_no_raw_post_fetch.py` | 裸调 fetch 检查 | ✅ pre-commit |
 | `scripts/verify_wms_bugs.py` | 86 项静态回归 | ✅ pre-commit |
 | `pytest tests/` | 90 项黄金测试 | ✅ pre-commit |
@@ -130,7 +132,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 
 ## 六、防 BUG 规则清单
 
-`scripts/lint_wms_rules.py` 共 7 条规则，每条独立可开关：
+`scripts/lint_wms_rules.py` 共 9 条规则，每条独立可开关：
 
 | 编号 | 规则 | 防的 BUG | 扫描范围 |
 |---|---|---|---|
@@ -141,6 +143,8 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 | **A5** | 业务 JS 不能 `eval` / `new Function`（严格） | XSS / 注入 | `app/static/js/*.js` |
 | **A6** | 业务 Python 不能 `print` | 调试代码污染日志 | `app/**/*.py`（除 `app/ai/` 与 runner 脚本） |
 | **A7** | SQL 必须参数化，禁止字符串拼接（严格） | SQL 注入 | `app/**/*.py`（除 `app/ai/`） |
+| **A8** | **新增** POST/PUT/DELETE 路由必须用 pydantic `BaseModel` 输入校验 | 数据类型 BUG / 字段漂移 | `app/**/*.py`（除 `app/ai/`，仅看 git staged 新增行） |
+| **A9** | **新增** 业务函数必须在 `tests/` 至少有 1 个对应 pytest 测试 | 未测试代码上线 | `app/**/*.py`（除 `app/ai/`，仅看 git staged 新增行） |
 
 ### 6.1 白名单与例外
 
@@ -151,12 +155,35 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 - **A5**：完全禁止，无白名单。
 - **A6**：行尾加 `# allow-print` 注释可豁免；`if __name__ == '__main__':` 块内不检查；`scripts/audit/*`、`scripts/benchmark_*`、`scripts/verify_*` 是测试脚本。
 - **A7**：完全禁止，无白名单。必须用 SQLAlchemy 参数化（`text("..."), {"param": val}`）。
+- **A8**：路由装饰器行/上一行/紧邻 `def` 行加 `# pydantic:reason=<理由>` 注释可豁免；登录/csrf/webhook/wechat 端点与 A2 一致豁免。
+- **A9**：同行/上一行加 `# no-test:reason=<理由>` 注释可豁免；`_xxx` 内部 helper、`test_xxx` 测试函数、`__dunder__` 魔术方法、装饰器（`@property` / `@staticmethod` / `@classmethod`）以及路由函数（`@app.route` 装饰的 def）均不算"业务函数"。
 
 ### 6.2 排除路径
 
-- A2 / A6 / A7 都排除 `app/ai/`（AI 子包）。
+- A2 / A6 / A7 / A8 / A9 都排除 `app/ai/`（AI 子包）。
 - A6 额外排除 `app/run_server.py`、`app/auto_update.py`、`app/restart.py`、`app/notifications.py`、`app/wechat_helper.py`（这些是 CLI / 启动 / 辅助脚本，`print` 是合法的运维输出）。
 - A3 / A4 / A5 自动跳过 `app/static/js/lib/` 和 `xlsx.full.min.js` 等第三方库。
+- **A8 / A9 是"新增代码生效"规则**：仅扫描 `git diff --cached` 的新增行（含 `--diff-filter=A` 新增文件），存量代码不会一次性报几百条违规。
+
+---
+
+## 六点五、为什么强制 pydantic + 测试
+
+**为什么强制 pydantic**（A8）：
+
+- 手工 `if not x: return error` 容易漏掉类型校验（数字/字符串混淆、None 检查遗漏）。
+- 没有契约文档，前端 / 后端字段名/类型漂移几个月后才被业务用户发现。
+- pydantic 一次给出 422 + 详细错误，避免脏数据进库。
+- 团队 3 个月以来 BUG 数居高不下，根因 Top 3 之一就是"输入校验不全"。A8 是对症下药。
+
+**为什么强制测试**（A9）：
+
+- AI 写完函数直接 commit 到 `main`，没有红绿循环 → 上线后才发现 BUG。
+- "我人工测过了" 不能替代自动化测试：每次重构、改字段、改 SQL 时人工测试 100% 漏掉。
+- 仓库当前 `tests/` 覆盖率极低（仅 3 个文件），A9 强制每个新增业务函数至少有 1 个失败测试，逼迫 AI 写可验证的代码。
+- 修复 BUG 时（A1-A7 触发的）也算"新增业务函数"，A9 顺带把回归测试也强制了。
+
+写测试和写实现不矛盾——A9 不要求覆盖率 100%，只要求"新增的每个 def 至少 1 个 test_xxx 跑得过"。对"小工具函数"用 `_xxx` 命名直接豁免，对路由函数按 A2 走（不重复强制）。
 
 ---
 
@@ -187,3 +214,4 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 | 日期 | 修订 | 修订人 |
 |---|---|---|
 | 2026-07-31 | 初版（A1-A7 7 条规则） | AI + SIX2090 |
+| 2026-07-31 | v2：新增 A8（pydantic 必填） + A9（必写测试） | AI + SIX2090 |

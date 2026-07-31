@@ -43,13 +43,13 @@
 ## 分支与前端约束
 
 - **Branch policy (hard rule, no exceptions)**: AI/TRAE must work directly on `main`. It is strictly forbidden to create, switch to, or push to any new branch -- including `feature/*`, `fix/*`, `chore/*`, or any `trae/*` worktree branch. All commits and pushes MUST target `main`. The local pre-push hook `.githooks/pre-push` enforces this client-side (it also blocks deletion of any remote branch, including `main`). Note: enforcing branch protection on the GitHub side requires GitHub Pro on private repos; on free private repos the local hook + CI are the only enforcement layers.
-- **No raw non-GET `fetch` in JS**: All non-GET requests in `app/static/js/*.js` MUST go through `WMS.api.get/post/put/delete(url, data)` (defined in `app/static/js/api.js`). Direct use of `fetch()` or the global `csrfFetch` wrapper is **forbidden** in business code. The local pre-commit hook `.githooks/pre-commit` runs `scripts/lint_wms_rules.py` (A1-A7) first and `scripts/lint_no_raw_post_fetch.py` second; together they reject commits that contain `fetch(url, { method: 'POST'|'PUT'|'DELETE'|'PATCH' })` outside the allow-list. Whitelisted files (the base.html global fetch interceptor, `app/static/js/api.js`, and `app/static/js/app.js`) may use raw `fetch` because they ARE the unified layer. Enable the hook once per clone with `bash .githooks/install-hooks.sh` (equivalent to `git config core.hooksPath .githooks`).
+- **No raw non-GET `fetch` in JS**: All non-GET requests in `app/static/js/*.js` MUST go through `WMS.api.get/post/put/delete(url, data)` (defined in `app/static/js/api.js`). Direct use of `fetch()` or the global `csrfFetch` wrapper is **forbidden** in business code. The local pre-commit hook `.githooks/pre-commit` runs `scripts/lint_wms_rules.py` (A1-A9) first and `scripts/lint_no_raw_post_fetch.py` second; together they reject commits that contain `fetch(url, { method: 'POST'|'PUT'|'DELETE'|'PATCH' })` outside the allow-list. Whitelisted files (the base.html global fetch interceptor, `app/static/js/api.js`, and `app/static/js/app.js`) may use raw `fetch` because they ARE the unified layer. Enable the hook once per clone with `bash .githooks/install-hooks.sh` (equivalent to `git config core.hooksPath .githooks`).
 
 ## 防 BUG 规则（2026-07-31 新增）
 
-**修改本仓库任何代码前，请先阅读 [DEVELOPMENT_RULES.md](./DEVELOPMENT_RULES.md)；且**必须** `bash .githooks/install-hooks.sh` 启用 pre-commit 钩子，否则 7 条防 BUG 规则不会自动跑。**
+**修改本仓库任何代码前，请先阅读 [DEVELOPMENT_RULES.md](./DEVELOPMENT_RULES.md)；且**必须** `bash .githooks/install-hooks.sh` 启用 pre-commit 钩子，否则 9 条防 BUG 规则不会自动跑。**
 
-### 7 条核心规则速查
+### 9 条核心规则速查
 
 | 编号 | 规则 | 防的 BUG |
 |---|---|---|
@@ -60,6 +60,10 @@
 | A5 | 业务 JS 不能 eval/new Function | XSS / 注入 |
 | A6 | 业务 Python 不能 print | 调试代码污染日志 |
 | A7 | SQL 必须参数化，禁止字符串拼接 | SQL 注入 |
+| **A8** | **新增** POST/PUT/DELETE 路由必须用 pydantic `BaseModel` 输入校验 | 数据类型 BUG / 字段漂移 |
+| **A9** | **新增** 业务函数必须在 `tests/` 至少 1 个对应 pytest 测试 | 未测试代码上线 |
+
+> A8/A9 是"新增代码生效"规则：仅对 `git diff --cached` 的新增行强制，存量代码不会一次性报几百条违规。详见 [DEVELOPMENT_RULES.md §六](./DEVELOPMENT_RULES.md)。
 
 ### 强制门禁
 
