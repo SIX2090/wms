@@ -3,6 +3,29 @@ let confirmResolver = null;
 let confirmQueue = [];
 let activeConfirm = null;
 
+// CSRF helpers (与 base.html 保持一致；这里仅作为未引入 base.html 时的回退)
+if (typeof getCsrfToken !== 'function') {
+    function getCsrfToken() {
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        if (meta && meta.content) return meta.content;
+        var hidden = document.querySelector('input[name="csrf_token"]');
+        return hidden ? hidden.value : '';
+    }
+}
+if (typeof csrfFetch !== 'function') {
+    function csrfFetch(url, options) {
+        options = Object.assign({method: 'POST'}, options || {});
+        var headers = new Headers(options.headers || {});
+        var token = getCsrfToken();
+        if (token && !headers.has('X-CSRFToken')) {
+            headers.set('X-CSRFToken', token);
+        }
+        options.headers = headers;
+        options.credentials = options.credentials || 'same-origin';
+        return fetch(url, options);
+    }
+}
+
 // Toast 图标映射
 function getToastIcon(type) {
     const icons = {
@@ -1408,7 +1431,7 @@ function batchDelete(url, tableId) {
     if (!confirm('确定要删除选中的 ' + checkedItems.length + ' 项吗？')) return;
 
     var ids = Array.from(checkedItems).map(function(item) { return item.value; });
-    fetch(url, {
+    csrfFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: ids })
@@ -1449,7 +1472,7 @@ function setupSortableHeaders() {
 async function deleteItem(url, id) {
     const confirmed = await showConfirm('确定要删除吗？', { title: '删除确认' });
     if (!confirmed) return;
-    fetch(url, {
+    csrfFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: [id] })
@@ -1799,7 +1822,7 @@ function getSelectedIds(module) {
 }
 
 function postJsonForAction(url, body) {
-    return fetch(url, {
+    return csrfFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {})
@@ -1808,7 +1831,7 @@ function postJsonForAction(url, body) {
 
 function postDetailDeletes(module, ids) {
     return Promise.all(ids.map(function(id) {
-        return fetch(buildModuleUrl(module.detailDeleteUrl, id), { method: 'POST' })
+        return csrfFetch(buildModuleUrl(module.detailDeleteUrl, id), { method: 'POST' })
             .then(function(r) { return r.json(); })
             .catch(function(err) { return { status: 'error', msg: err.message }; });
     })).then(function(results) {
@@ -1946,7 +1969,7 @@ function showImportModalForModule(module) {
         }
         var formData = new FormData();
         formData.append('file', fileInput.files[0]);
-        fetch(module.importUrl, {
+        csrfFetch(module.importUrl, {
             method: 'POST',
             headers: { 'X-Requested-With': 'XMLHttpRequest' },
             body: formData
