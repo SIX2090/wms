@@ -32,7 +32,8 @@ def main() -> int:
             customer = wms.Customer(code='TEST-CS-C', name='TEST客供客户')
             unit = wms.Unit(code='TEST-CS-U', name='个')
             material = wms.Material(code='TEST-CS-MAT', name='TEST客供物料', unit=unit, stock=20, price=3)
-            wms.db.session.add_all([admin, customer, unit, material])
+            warehouse = wms.Warehouse(code='TEST-CS-WH', name='TEST仓库', status='active')
+            wms.db.session.add_all([admin, customer, warehouse, unit, material])
             wms.db.session.commit()
             fixture = {'customer': customer.id, 'material': material.id}
 
