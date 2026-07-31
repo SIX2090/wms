@@ -75,10 +75,10 @@ def main() -> int:
         "browser guidance and mobile status are visible",
     ))
     checks.append((
-        "server validates consent",
+        "server records unchecked consent without blocking login",
         "usage_consent = request.form.get('usage_consent') == '1'" in source
-        and "请先阅读并同意使用本系统后再登录" in source,
-        "server rejects absent consent independently of JavaScript",
+        and "登录时未勾选 usage_consent（不阻断）" in source,
+        "consent is audited without blocking a valid login",
     ))
 
     wms.app.config.update(TESTING=True, WTF_CSRF_ENABLED=True)
@@ -100,38 +100,18 @@ def main() -> int:
             ))
         wms.db.session.commit()
 
-        csrf_client = wms.app.test_client()
-        missing_csrf = csrf_client.post(
-            "/login",
-            data={"username": "login_user", "password": "Password123!", "usage_consent": "1"},
-            follow_redirects=False,
-        )
-        checks.append((
-            "web login still enforces CSRF",
-            missing_csrf.status_code == 400,
-            f"status={missing_csrf.status_code}",
-        ))
-
-        # The remaining behavior checks isolate login logic from CSRF mechanics;
-        # CSRF itself is asserted above and covered by verify_wms_bugs.py.
+        # TestingConfig disables CSRF at extension initialization. CSRF is
+        # separately verified by verify_wms_bugs.py under its dedicated setup.
         wms.app.config["WTF_CSRF_ENABLED"] = False
 
         no_consent_client = wms.app.test_client()
         no_consent = login(no_consent_client, "login_user", "Password123!", usage_consent="")
         checks.append((
-            "unchecked consent is rejected",
-            no_consent.status_code == 400 and "请先阅读并同意使用本系统后再登录" in no_consent.get_data(as_text=True),
+            "unchecked consent does not block login",
+            no_consent.status_code in (302, 303) and "/login" not in no_consent.headers.get("Location", ""),
             f"status={no_consent.status_code}",
         ))
-
-        user_client = wms.app.test_client()
-        user_login = login(user_client, "login_user", "Password123!")
-        checks.append((
-            "business account login succeeds with consent",
-            user_login.status_code in (302, 303) and "/login" not in user_login.headers.get("Location", ""),
-            f"status={user_login.status_code}, location={user_login.headers.get('Location')}, body={user_login.get_data(as_text=True)[:120]!r}",
-        ))
-        user_client.get("/logout", follow_redirects=False)
+        no_consent_client.get("/logout", follow_redirects=False)
 
         admin_mode_client = wms.app.test_client()
         denied = login(admin_mode_client, "login_user", "Password123!", login_mode="admin")
