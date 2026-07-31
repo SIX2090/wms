@@ -13,6 +13,7 @@ COMMANDS = (
     ("lint rules", ("scripts/lint_wms_rules.py",)),
     ("non-GET fetch lint", ("scripts/lint_no_raw_post_fetch.py",)),
     ("bug regression", ("scripts/verify_wms_bugs.py",)),
+    ("inbound state machine", ("scripts/verify_in_order_state_machine.py",)),
     ("offline wheelhouse", ("scripts/verify_offline_wheelhouse.py",)),
     ("pytest", ("-m", "pytest", "tests/", "-q")),
 )
