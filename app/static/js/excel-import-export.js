@@ -58,8 +58,6 @@ class ExcelImportExport {
             return;
         }
 
-        console.log('ExcelImportExport: 找到工具栏容器', toolbar);
-
         // 查找或创建按钮组
         let btnGroup = toolbar.querySelector('.btn-group');
         if (!btnGroup) {
@@ -67,8 +65,6 @@ class ExcelImportExport {
             btnGroup.className = 'btn-group';
             toolbar.appendChild(btnGroup);
         }
-
-        console.log('ExcelImportExport: 创建按钮组', btnGroup);
 
         // 导出按钮
         const exportBtn = document.createElement('button');
@@ -408,7 +404,7 @@ class ExcelImportExport {
         if (typeof showToast === 'function') {
             showToast(message, type);
         } else {
-            alert(message);
+            alert(message); // allow-alert: showToast 全局函数尚未加载时的终极 fallback
         }
     }
 }

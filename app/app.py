@@ -852,7 +852,8 @@ app = Flask(__name__)
 
 # Run auto-migration before app configuration unless explicitly disabled.
 if startup_db_upgrade_disabled():
-    print('[DB] Startup database upgrade skipped by environment.', flush=True)
+    # 启动横幅:迁移被环境变量禁用。用 app.logger 替代 print,统一走日志通道。
+    app.logger.info('[DB] Startup database upgrade skipped by environment.')
 else:
     auto_migrate_database()
 

@@ -521,7 +521,7 @@ class ExcelTable {
         if (typeof showToast === 'function') {
             showToast(msg, 'success');
         } else {
-            console.log('Success:', msg);
+            console.log('Success:', msg); // allow-console: showToast 未加载时的 fallback
         }
     }
 

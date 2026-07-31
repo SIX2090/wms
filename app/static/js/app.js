@@ -44,7 +44,7 @@ function toast(message, type, duration) {
     duration = duration || 2600;
     const stack = document.getElementById('cbToastStack');
     if (!stack) {
-        alert(message);
+        alert(message); // allow-alert: cbToastStack 容器未渲染时的终极 fallback
         return;
     }
 
@@ -1425,7 +1425,12 @@ function initCheckAll(tableId) {
 function batchDelete(url, tableId) {
     var checkedItems = document.querySelectorAll('#' + tableId + ' .check-item:checked');
     if (checkedItems.length === 0) {
-        alert('请选择要删除的项');
+        // 用 toast 替代 alert,体验更一致(列表页必定加载了 base.html 的 cbToastStack)
+        if (typeof window.showToast === 'function') {
+            window.showToast('请选择要删除的项', 'warning');
+        } else {
+            alert('请选择要删除的项'); // allow-alert: 整页未加载 app.js 时的极端 fallback
+        }
         return;
     }
     if (!confirm('确定要删除选中的 ' + checkedItems.length + ' 项吗？')) return;
@@ -1441,11 +1446,19 @@ function batchDelete(url, tableId) {
         if (res.status === 'success') {
             location.reload();
         } else {
-            alert(res.msg || '操作失败');
+            if (typeof window.showToast === 'function') {
+                window.showToast(res.msg || '操作失败', 'danger');
+            } else {
+                alert(res.msg || '操作失败'); // allow-alert: 极端 fallback
+            }
         }
     })
     .catch(function(error) {
-        alert('操作失败：' + error.message);
+        if (typeof window.showToast === 'function') {
+            window.showToast('操作失败：' + error.message, 'danger');
+        } else {
+            alert('操作失败：' + error.message); // allow-alert: 极端 fallback
+        }
     });
 }
 
@@ -3362,7 +3375,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function showFillResult(message, type) {
         if (typeof window.showToast === 'function') window.showToast(message, type || 'success', 1800);
-        else if (type === 'warning') window.alert(message);
+        else if (type === 'warning') {
+            window.alert(message); // allow-alert: showToast 未加载时,仅对 warning 级别弹窗
+        }
     }
 
     function fillDown(table, key) {

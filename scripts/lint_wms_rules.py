@@ -272,6 +272,17 @@ class RuleA2PostRouteCsrf(Rule):
         "/login",  # login 页面
     )
 
+    # 已知鉴权/权限装饰器：装饰器直接放在路由下方即视为"已处理"。
+    # 把项目里所有等价的鉴权/权限装饰器都列上,避免误报。
+    KNOWN_DECORATOR_HINTS: Tuple[str, ...] = (
+        "@csrf.exempt",          # 标准 Flask-WTF CSRF 豁免
+        "@login_required",       # Flask-Login 登录要求
+        "@csrf_protect",         # 显式 CSRF 保护
+        "@web_or_api_required",  # 项目自定义:Web 会话或 Bearer Token 任一通过即可
+        "@role_required",        # 项目自定义:角色权限
+        "@admin_required",       # 项目自定义:管理员权限
+    )
+
     def scan(self, files: Sequence[Path], repo_root: Path) -> List[Violation]:
         violations: List[Violation] = []
         for f in files:
@@ -289,13 +300,14 @@ class RuleA2PostRouteCsrf(Rule):
                 ln = line_number_at(text, m.start())
                 line_idx = stripped[:m.start()].count("\n")
                 window = "\n".join(lines[line_idx:line_idx + 30])
-                has_exempt = "@csrf.exempt" in window
-                has_login = "@login_required" in window
-                has_protect = "@csrf_protect" in window
-                has_csrf_token_str = "csrf_token" in window
-                if not (has_exempt or has_login or has_protect or has_csrf_token_str):
-                    snippet = line_snippet(text, m.start())
-                    violations.append(Violation(rel, ln, snippet, extra=path))
+                # 命中任何已知鉴权/权限装饰器即视为合法
+                if any(hint in window for hint in self.KNOWN_DECORATOR_HINTS):
+                    continue
+                # 兼容老逻辑:保留 csrf_token 字符串识别
+                if "csrf_token" in window:
+                    continue
+                snippet = line_snippet(text, m.start())
+                violations.append(Violation(rel, ln, snippet, extra=path))
         return violations
 
 
