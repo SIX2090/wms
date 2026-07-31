@@ -8,14 +8,13 @@
 - AI must never modify, reset, or set any user account password (including the admin bootstrap password) unless the user explicitly authorizes the specific operation. Password operations require explicit prior approval.
 - The system must never auto-generate a random password for any account (including the bootstrap admin). When `WMS_BOOTSTRAP_PASSWORD` is not set, the system must use a fixed default password ('admin') with a warning, not `secrets.token_urlsafe` or any random generator. Random password generation hides credentials from the operator and violates password transparency.
 - After completing any task, AI must verify the result (e.g., check service status, test functionality, confirm output correctness) before reporting to the user. Unverified results must not be presented as done.
-- After completing any task, AI must commit and push changes to GitHub unless the user explicitly says not to.
 - Every completed task must push its task commit to `https://github.com/SIX2090/wms.git` on the `main` branch unless the user explicitly says not to. Before reporting completion, verify the push result or clearly report any network failure.
 - `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` is the sole AI development backlog and completion ledger. Before implementing an AI feature, check its unique task ID, current status, existing code, tests, pages, and Git history; never redevelop a completed or equivalent capability.
 - Every AI code change must map to one unique ledger task ID. Add a new task only after a repository-wide duplicate check; fixes to completed capabilities must use a child fix ID instead of duplicating the original task.
 - Mark an AI task complete only after code, permissions, human-confirmation boundaries, tests, documentation, verification, commit, and push are complete. Immediately record completion date, commit hash, changed modules, validation commands, result, and remaining child items in the ledger.
 - At the end of each AI task, reconcile the ledger against AI routes, tools, models, templates, feature flags, migrations, and verification scripts so implemented capabilities are not omitted and planned capabilities are not falsely reported as implemented.
-- **Branch policy (hard rule, no exceptions)**: AI/TRAE must work directly on `main`. It is strictly forbidden to create, switch to, or push to any new branch — including `feature/*`, `fix/*`, `chore/*`, or any `trae/*` worktree branch. All commits and pushes MUST target `main`. Local pre-push hook `.githooks/pre-push` enforces this client-side; GitHub-side branch creation requires GitHub Pro on private repos. Any remote branch other than `main` is treated as a policy violation and must be deleted in the same audit cycle.
-- **No raw non-GET `fetch` in JS**: All non-GET requests in `app/static/js/*.js` MUST go through `csrfFetch(url, options)` (or the `api` helper). Local pre-commit hook `.githooks/pre-commit` runs `scripts/lint_no_raw_post_fetch.py` and rejects commits that contain `fetch(url, { method: 'POST'|'PUT'|'DELETE'|'PATCH' })`. Enable it once per clone with `git config core.hooksPath .githooks`.
+- **Branch policy (hard rule, no exceptions)**: AI/TRAE must work directly on `main`. It is strictly forbidden to create, switch to, or push to any new branch — including `feature/*`, `fix/*`, `chore/*`, or any `trae/*` worktree branch. All commits and pushes MUST target `main`. The local pre-push hook `.githooks/pre-push` enforces this client-side (it also blocks deletion of any remote branch, including `main`). Note: enforcing branch protection on the GitHub side requires GitHub Pro on private repos; on free private repos the local hook + CI are the only enforcement layers.
+- **No raw non-GET `fetch` in JS**: All non-GET requests in `app/static/js/*.js` MUST go through `csrfFetch(url, options)` (or the `api` helper). The local pre-commit hook `.githooks/pre-commit` runs `scripts/lint_wms_rules.py` (A1–A7) first and `scripts/lint_no_raw_post_fetch.py` second, and rejects commits that contain `fetch(url, { method: 'POST'|'PUT'|'DELETE'|'PATCH' })`. Enable it once per clone with `bash .githooks/install-hooks.sh` (equivalent to `git config core.hooksPath .githooks`).
 
 ## 防 BUG 规则（2026-07-31 新增）
 
@@ -36,7 +35,7 @@
 ### 强制门禁
 
 - pre-commit 钩子（`.githooks/pre-commit`）会扫描以上规则
-- 启用：`git config core.hooksPath .githooks`
+- 启用：`bash .githooks/install-hooks.sh`
 - 跳过（不推荐）：`git commit --no-verify`
 
 ### 修复 BUG 流程

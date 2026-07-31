@@ -142,7 +142,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 | **A6** | 业务 Python 不能 `print` | 调试代码污染日志 | `app/**/*.py`（除 `app/ai/` 与 runner 脚本） |
 | **A7** | SQL 必须参数化，禁止字符串拼接（严格） | SQL 注入 | `app/**/*.py`（除 `app/ai/`） |
 
-### 5.1 白名单与例外
+### 6.1 白名单与例外
 
 - **A1**：`app/templates/csrf_error.html` 是 CSRF 错误页，本身不写 form；其它 form 可加注释 `<!-- nocsrf:reason -->` 豁免。
 - **A2**：登录前的端点（`/api/login`、`/api/csrf_refresh`、`/api/webhook/*`、`/wechat/*`、`/login`）豁免。
@@ -152,7 +152,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 - **A6**：行尾加 `# allow-print` 注释可豁免；`if __name__ == '__main__':` 块内不检查；`scripts/audit/*`、`scripts/benchmark_*`、`scripts/verify_*` 是测试脚本。
 - **A7**：完全禁止，无白名单。必须用 SQLAlchemy 参数化（`text("..."), {"param": val}`）。
 
-### 5.2 排除路径
+### 6.2 排除路径
 
 - A2 / A6 / A7 都排除 `app/ai/`（AI 子包）。
 - A6 额外排除 `app/run_server.py`、`app/auto_update.py`、`app/restart.py`、`app/notifications.py`、`app/wechat_helper.py`（这些是 CLI / 启动 / 辅助脚本，`print` 是合法的运维输出）。
@@ -160,7 +160,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 
 ---
 
-## 六、新人上手
+## 七、新人上手
 
 1. 克隆仓库：`git clone https://github.com/SIX2090/wms.git`
 2. 启用 pre-commit：**`bash .githooks/install-hooks.sh`**（不要手动设、不要 unset）
@@ -171,7 +171,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 
 ---
 
-## 七、规则扩展流程
+## 八、规则扩展流程
 
 要新增一条防 BUG 规则：
 
@@ -182,7 +182,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 
 ---
 
-## 八、版本
+## 九、版本
 
 | 日期 | 修订 | 修订人 |
 |---|---|---|
