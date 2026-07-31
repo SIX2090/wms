@@ -2662,6 +2662,8 @@
 
     <!-- Bootstrap 5 JS Bundle (鍚?Popper) -->
     <script src="{{ url_for('static', filename='cdn/bootstrap-bundle-5.3.0.min.js') }}"></script>
+    <!-- 统一 HTTP 客户端（必须在 app.js 之前加载，以便 app.js 未来调用 WMS.api.*） -->
+    <script src="{{ url_for('static', filename='js/api.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     <!-- 主应用 JS -->
     <script src="{{ url_for('static', filename='js/app.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     {% if current_user.is_authenticated %}
