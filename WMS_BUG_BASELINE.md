@@ -122,6 +122,7 @@
 | BUG-2026-07-29-008 | `/in_order/{id}/print` 已登录 admin 仍 302 | `app/app.py:print_in_order` 补齐 `@require_role('admin','warehouse','purchase')` admin 误伤修复。`scripts/verify_bug_2026_07_29_008.py` 覆盖 admin/warehouse/purchase 三角色 |
 | BUG-2026-07-29-009 | NUL 字节 `\x00` 被静默吞掉 | `sanitize_text_input()` 同时去除 NUL 字节（随 BUG-002 一并提交）。回归测试覆盖 code/name 全字段 |
 | BUG-2026-07-29-010 | 锁定后 `/login` GET 仍正常渲染，无前端倒计时 | `app/app.py:login()` GET 分支检测 admin 锁定 → 传 `lock_remaining`/`locked_account` 模板；`login.html` 新增 `lockHint` 倒计时 + JS 每秒 tick。`scripts/verify_bug_2026_07_29_010.py` 覆盖 5 次错误后 GET 页面含倒计时 span |
+| BUG-2026-07-31-001 | 长会话 CSRF token 过期（30 分钟寿命），停留 30 分钟后所有非 GET 请求失败 | `app/app.py` 新增 `POST /api/csrf_refresh` 端点（`@csrf.exempt`，返回新 token）；`app/templates/base.html` 每 25 分钟（寿命 30 分钟，提前 5 分钟保险）调用一次 + 页面 visibilitychange 切回前台时立即调用，更新 `<meta name="csrf-token">` content。根治用户停留 30+ 分钟的所有 CSRF 失败场景。 |
 
 ## 已确认误报
 

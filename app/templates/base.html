@@ -2102,6 +2102,54 @@
     });
     </script>
     {% block extra_css %}{% endblock %}
+    <!-- BUG-2026-07-31-001: 定时刷新 CSRF token（每 25 分钟，寿命 30 分钟），避免长会话过期 -->
+    <script>
+    (function() {
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        if (!meta) return;
+
+        // 每 25 分钟主动刷新一次 token（30 分钟寿命，提前 5 分钟保险）
+        var REFRESH_INTERVAL_MS = 25 * 60 * 1000;
+        // 防止重入：上一次请求未完成时跳过
+        var refreshInFlight = false;
+
+        function refreshCsrfToken() {
+            if (refreshInFlight) return;
+            refreshInFlight = true;
+
+            fetch('/api/csrf_refresh', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data && data.status === 'success' && data.csrf_token) {
+                    meta.setAttribute('content', data.csrf_token);
+                    console.log('[CSRF] token 已刷新');
+                } else if (data && data.csrf_disabled) {
+                    console.log('[CSRF] token 刷新被禁用，跳过');
+                }
+            })
+            .catch(function(err) {
+                console.warn('[CSRF] token 刷新失败：', err);
+            })
+            .finally(function() {
+                refreshInFlight = false;
+            });
+        }
+
+        // 定时刷新
+        setInterval(refreshCsrfToken, REFRESH_INTERVAL_MS);
+
+        // 页面从后台切回前台时立即刷新一次（避免后台暂停 setInterval 后过期）
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                refreshCsrfToken();
+            }
+        });
+    })();
+    </script>
 </head>
 <body class="{% block body_class %}{% endblock %}{% if request.args.get('embedded') == '1' %} embedded-page{% endif %}">
     <header class="mobile-topbar no-print">

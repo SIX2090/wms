@@ -1,6 +1,6 @@
-from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, jsonify, send_file, session, g, has_app_context, has_request_context, abort, Response, stream_with_context
+from flask import Flask, current_app, render_template, render_template_string, request, redirect, url_for, flash, jsonify, send_file, session, g, has_app_context, has_request_context, abort, Response, stream_with_context
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-from flask_wtf.csrf import CSRFProtect, CSRFError
+from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import generate_password_hash, check_password_hash
 from markupsafe import escape
@@ -5367,6 +5367,26 @@ def parse_api_lines(payload):
             return None, f'物料不存在：{code}'
         parsed.append((material, quantity, line))
     return parsed, None
+
+
+@app.route('/api/csrf_refresh', methods=['POST'])
+@csrf.exempt  # 该端点本身就是为了获取新 token，不能要求带 token，否则形成鸡生蛋问题
+def api_csrf_refresh():
+    """刷新 CSRF token
+
+    用于长会话场景：客户端每 25 分钟（寿命 30 分钟）主动调用一次，
+    更新 <meta name="csrf-token"> 标签，避免停留超过 30 分钟后所有
+    非 GET 请求因 CSRF 失败而报错。
+
+    Returns:
+        JSON: { status: 'success', csrf_token: '...' }
+    """
+    # 如果全局禁用 CSRF，则直接返回空 token，由前端跳过刷新
+    if not current_app.config.get('WTF_CSRF_ENABLED', True):
+        return jsonify({'status': 'success', 'csrf_token': '', 'csrf_disabled': True})
+    # 生成新的 CSRF token（flask_wtf 内部会自动写入 session）
+    new_token = generate_csrf()
+    return jsonify({'status': 'success', 'csrf_token': new_token})
 
 
 @app.route('/api/login', methods=['POST'])
