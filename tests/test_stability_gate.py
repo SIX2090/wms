@@ -14,6 +14,7 @@ def test_stability_gate_covers_every_mandatory_command():
         "scripts/verify_out_order_state_machine.py",
         "scripts/verify_transfer_state_machine.py",
         "scripts/verify_adjustment_state_machine.py",
+        "scripts/verify_check_state_machine.py",
         "scripts/verify_ai_photo_document_flow.py",
         "scripts/verify_ai_high_risk_boundaries.py",
         "scripts/verify_offline_wheelhouse.py",
