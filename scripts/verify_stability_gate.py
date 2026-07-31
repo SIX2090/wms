@@ -16,6 +16,7 @@ COMMANDS = (
     ("inbound state machine", ("scripts/verify_in_order_state_machine.py",)),
     ("outbound state machine", ("scripts/verify_out_order_state_machine.py",)),
     ("transfer state machine", ("scripts/verify_transfer_state_machine.py",)),
+    ("adjustment state machine", ("scripts/verify_adjustment_state_machine.py",)),
     ("AI document draft flow", ("scripts/verify_ai_photo_document_flow.py",)),
     ("AI human-confirmation boundary", ("scripts/verify_ai_high_risk_boundaries.py",)),
     ("offline wheelhouse", ("scripts/verify_offline_wheelhouse.py",)),
