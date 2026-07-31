@@ -30,27 +30,27 @@ jobs:
         run: |
           mkdir -p app/logs app/instance app/uploads logs
 
-      # ===== Lint:防 BUG 7 条规则(A1~A7),任何一条不过都视为 BUG 风险 =====
-      - name: Lint: 防 BUG 7 条规则
+      # Lint: 防 BUG 7 条规则 (A1-A7),任何一条不过都视为 BUG 风险
+      - name: "Lint - 防 BUG 7 条规则"
         run: python3 scripts/lint_wms_rules.py
 
-      # ===== Lint:禁止裸调非 GET fetch(防 CSRF 漏写) =====
-      - name: Lint: 禁止裸调非 GET fetch
+      # Lint: 禁止裸调非 GET fetch (防 CSRF 漏写)
+      - name: "Lint - 禁止裸调非 GET fetch"
         run: python3 scripts/lint_no_raw_post_fetch.py
 
-      # ===== 静态回归:历史 BUG 不再以违规形式存在 =====
-      # 当前有 2 个已知失败(LOGIN-CSRF-001 + VULN-005),先 continue-on-error=true,
+      # 静态回归: 历史 BUG 不再以违规形式存在
+      # 当前有 2 个已知失败 (LOGIN-CSRF-001 + VULN-005),先 continue-on-error=true,
       # 等清掉这两个 FAIL 再改回 false。
-      - name: Static regression: verify_wms_bugs
+      - name: "Static regression - verify_wms_bugs"
         run: python3 scripts/verify_wms_bugs.py
         continue-on-error: true
 
-      # ===== 单元测试 =====
-      - name: Unit tests
+      # 单元测试
+      - name: "Unit tests"
         run: pytest tests/ -q
 
-      # ===== 总结 =====
-      - name: CI summary
+      # 总结
+      - name: "CI summary"
         if: always()
         run: |
           echo "::notice::WMS CI 完成"
