@@ -200,6 +200,15 @@ cd /d C:\wms\app
 start_wms_offline.bat
 ```
 
+离线包必须与 `app/requirements.txt` 同步。发布前在联网构建机执行：
+
+```powershell
+py -m pip download --only-binary=:all: --dest wheelhouse -r app/requirements.txt pip==26.1.1 setuptools==82.0.1 wheel==0.47.0
+py scripts/verify_offline_wheelhouse.py
+```
+
+验证命令以 `--no-index` 解析完整依赖闭包，不访问 PyPI，也不使用构建机已安装的包。
+
 ### 其他安装变体
 
 | 脚本 | 用途 |
