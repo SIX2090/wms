@@ -40,8 +40,7 @@ def record(bug_id, ok, detail):
     results.append((bug_id, 'PASS' if ok else 'FAIL', detail))
 
 
-# BUG-001
-record('BUG-001', True, 'auto_migrate_database 空库保护（独立 verify 脚本通过，commit 61d077e/ca271e2）')
+# BUG-001 is covered by scripts/verify_empty_database_startup.py.
 
 # 登录态 client
 c = flask_app.test_client()
