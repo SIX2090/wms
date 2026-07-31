@@ -272,7 +272,7 @@ class ExcelImportExport {
             return;
         }
 
-        fetch(this.options.importUrl, {
+        csrfFetch(this.options.importUrl, {
             method: 'POST',
             body: formData
         })

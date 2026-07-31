@@ -299,7 +299,7 @@ class ExcelTable {
      * 默认保存方法
      */
     defaultSave(formData) {
-        return fetch('/in_order/item/update', {
+        return csrfFetch('/in_order/item/update', {
             method: 'POST',
             body: formData
         }).then(r => r.json());

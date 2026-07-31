@@ -275,3 +275,21 @@ app/static/uploads/
 secret_key
 wechat_helper_token
 ```
+
+
+## 本地开发钩子（防止 CSRF 回归）
+
+仓库自带一组 git 钩子，位于 `.githooks/`：
+
+| 钩子             | 作用                                                          |
+|------------------|---------------------------------------------------------------|
+| `pre-commit`     | 扫描 `app/static/js/*.js`，禁止裸调 `fetch` 发送非 GET 请求    |
+| `pre-push`       | 强制 push 只能发生在 `main`（禁止任何新分支、禁止删除远程分支） |
+
+首次克隆后启用（每个本地 clone 执行一次）：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+启用后，任何在 `app/static/js/` 下新增/修改的 JS 中出现 `fetch(url, { method: 'POST' })` 等裸调都会被 pre-commit 拦截，提示改用 `csrfFetch(url, options)`。
