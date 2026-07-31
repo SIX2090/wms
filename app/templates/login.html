@@ -639,7 +639,8 @@
                     </div>
                     <div class="login-options">
                         <label class="form-check mb-0">
-                            <input class="form-check-input" type="checkbox" name="usage_consent" value="1" checked required>
+                            {# BUG-2026-07-31-001 修复：usage_consent 不再阻断登录，去掉 required 避免浏览器原生校验拦截 #}
+                            <input class="form-check-input" type="checkbox" name="usage_consent" value="1" checked>
                             <span class="form-check-label">阅读并同意使用本系统</span>
                         </label>
                         <span>请使用管理员分配的账号登录</span>
@@ -734,12 +735,11 @@
             });
         });
 
+        // BUG-2026-07-31-001 修复：usage_consent 不再阻断登录，提交时只做提示不阻止
         document.getElementById('loginForm').addEventListener('submit', function (event) {
             const consent = this.querySelector('input[name="usage_consent"]');
-            if (!consent.checked) {
-                event.preventDefault();
-                loginModeHint.textContent = '请先阅读并同意使用本系统后再登录。';
-                consent.focus();
+            if (consent && !consent.checked) {
+                loginModeHint.textContent = '提示：未勾选「阅读并同意使用本系统」仍可登录，但建议阅读后勾选。';
             }
         });
 

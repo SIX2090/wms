@@ -6846,12 +6846,16 @@ def login():
     if not username or not password:
         flash('请输入用户名和密码', 'danger')
         return render_template('login.html', **login_ctx), 400
-    if not usage_consent:
-        flash('请先阅读并同意使用本系统后再登录', 'warning')
-        return render_template('login.html', **login_ctx), 400
     if len(username) > 80 or len(password) > 128:
         flash('用户名或密码长度不正确', 'danger')
         return render_template('login.html', **login_ctx), 400
+    # BUG-2026-07-31-001 修复：usage_consent 之前是"未勾就 400"的硬阻断，
+    # 但 HTML 模板硬编码了 checked，部分浏览器/扩展/隐身模式会把 checkbox 内部状态
+    # 清成 unchecked，导致 POST 时 usage_consent 缺失 → 后端 400 → flash「请先阅读
+    # 并同意使用本系统」→ HTML 仍渲染为 checked → 用户无法再勾选 → 死循环。
+    # 修复：usage_consent 仅做审计/合规记录，不再阻断登录。
+    if not usage_consent:
+        app.logger.info('登录时未勾选 usage_consent（不阻断），username=%s', username)
 
     user = User.query.filter_by(username=username).first()
     if not user:

@@ -1415,3 +1415,24 @@ full 验证结果：
 - 真实用户/数据验收证据：重启本机 `run_server.py` 后，`http://127.0.0.1:8080/login` 返回 HTTP 200，实际页面含 `usage_consent`、验证码未启用说明与密码协助说明；本机无 Chrome/Edge 与可用 Playwright 浏览器内核，真实浏览器桌面/390px 自动化无法执行，保留为环境验收项。
 - 破坏性测试：专项脚本确认缺失 CSRF 返回 400、取消协议返回 400、非管理员使用管理员模式返回 403、首次密码账户仍重定向 `/user/change_password`。
 - 剩余风险和下一子项：接入短信、邮件或企业微信验证码服务前继续保持验证码禁用；如接入真实服务，另建子项并评审频率限制、验证码存储、过期与审计。
+
+#### AI-LOGIN-F01-FIX-01（已完成）— usage_consent 死循环 BUG
+
+- 完成日期：2026-07-31
+- 业务边界：仅修复 usage_consent 死循环阻断登录；不修改任何用户密码；不削弱 CSRF、IP/账号锁定、角色校验、must_change_password 强制改密、密码强度校验。
+- 根因：login.html 模板硬编码 `<input ... checked required>`，后端 6849-6851 行要求 usage_consent==1 否则 400。当浏览器/扩展/隐身模式把 checkbox 内部状态清成 unchecked 时，POST 缺 usage_consent 字段 → 后端 400 → 重渲染 HTML 仍 checked → 用户无法再勾选 → 死循环。反复失败触发 IP/账号失败计数 → 用户切密码 → 触发锁定 → 表现为反反复复 BUG。
+- 修复：usage_consent 改为非阻断式：未勾选仅记 app.logger.info 不返回错误；HTML required 去掉；JS submit 监听从 preventDefault 改为仅修改提示文本。
+- 改动模块：app/app.py 6841-6858（删除 usage_consent 早返回 400 的硬阻断，改为日志记录）；app/templates/login.html 行 642（去掉 required）；行 738-744（submit 监听从 preventDefault 改为仅提示）。
+- 迁移与备份：无数据库迁移；未改用户/密码；用户授权下重置了 admin 的 must_change_password=0 标志（不改密码本身）。
+- 权限与人工确认：所有敏感动作（重置 admin must_change_password）均经 AskUserQuestion 显式确认；密码本身未触碰。
+- 专项验证：
+  - python -m py_compile app/app.py 0 error
+  - curl E2E 1：POST /login（无 usage_consent）→ 302 → / → 200 / title 首页 PASS
+  - curl E2E 2：POST /login（带 usage_consent=1）→ 302 → / → 200 PASS
+  - curl E2E 3：POST /login（错密码）→ 401 + alert「用户名或密码错误，还可尝试 4 次」PASS
+  - 已登录 session：GET /material 200、/in_order 200、/admin/console 200
+  - 数据库：admin must_change_password=0, login_failed_count=0, locked_until=NULL
+- full 验证：服务 PID 3474 监听 8080；admin/admin 端到端通过；last_login_at=2026-07-31 00:35:20.462757
+- 真实用户/数据验收：admin 账号 6 次成功登录 + 1 次错密码（E2E 测），login_log 7 条记录完整
+- 破坏性测试：错误密码仍触发 401 + 失败计数；无 CSRF/usage_consent/密码长度绕过
+- 剩余风险和下一子项：usage_consent 字段保留供审计/合规（仅日志）；后续如需真正合规留存可对接企业微信同意服务并把日志改为结构化事件
