@@ -277,22 +277,52 @@ wechat_helper_token
 ```
 
 
-## 本地开发钩子（防止 CSRF 回归）
+## 本地开发钩子（防止 CSRF 回归 + 拦截 7 条防 BUG 规则）
 
 仓库自带一组 git 钩子，位于 `.githooks/`：
 
 | 钩子             | 作用                                                          |
 |------------------|---------------------------------------------------------------|
-| `pre-commit`     | 扫描 `app/static/js/*.js`，禁止裸调 `fetch` 发送非 GET 请求    |
+| `pre-commit`     | 扫描 `app/static/js/*.js`，禁止裸调 `fetch` 发送非 GET 请求 + 跑 7 条防 BUG 规则 |
 | `pre-push`       | 强制 push 只能发生在 `main`（禁止任何新分支、禁止删除远程分支） |
 
-首次克隆后启用（每个本地 clone 执行一次）：
+### 首次克隆后必须启用钩子
+
+**为什么必须启用？**
+
+- 仓库的 7 条防 BUG 规则（`scripts/lint_wms_rules.py`）只在 `pre-commit` 里跑，CI 也跑、但本地早拦截更省事
+- 漏过本地拦截等于把检查责任全推给 CI，体验差、合并慢
+- 主动 `git config --unset core.hooksPath` 等于绕过所有检查，强烈不推荐
+
+**一键启用（每个本地 clone 执行一次）：**
+
+```bash
+bash .githooks/install-hooks.sh
+```
+
+脚本等价于 `git config core.hooksPath .githooks`，但会顺手打印当前设置和钩子列表，便于验证。
+
+手动等效命令（不推荐）：
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-启用后，任何在 `app/static/js/` 下新增/修改的 JS 中出现 `fetch(url, { method: 'POST' })` 等裸调都会被 pre-commit 拦截，提示改用 `csrfFetch(url, options)`。
+**验证启用是否成功：**
+
+```bash
+python3 scripts/check_hooks_installed.py
+```
+
+启用后，任何在 `app/static/js/` 下新增/修改的 JS 中出现 `fetch(url, { method: 'POST' })` 等裸调都会被 pre-commit 拦截，提示改用 `csrfFetch(url, options)`。同时还会跑 A1-A7 共 7 条防 BUG 规则。
+
+**跳过钩子（紧急情况，不推荐）：**
+
+```bash
+git commit --no-verify
+```
+
+跳过会绕过所有检查（包括 7 条规则 + 86 项静态回归），务必只在已知冲突、明确原因时使用。
 
 ## 开发规范
 

@@ -119,9 +119,12 @@
 | `scripts/full_smoke_test.py` | 121 项冒烟 | 推荐（需启动服务） |
 
 pre-commit 钩子位置：`.githooks/pre-commit`
-启用命令：`git config core.hooksPath .githooks`
+启用命令（一键脚本，**推荐**）：`bash .githooks/install-hooks.sh`
+启用命令（手动等效）：`git config core.hooksPath .githooks`
+验证启用：`python3 scripts/check_hooks_installed.py`
 
-跳过钩子（紧急情况）：`git commit --no-verify`（不推荐，会绕过所有检查）
+跳过钩子（紧急情况）：`git commit --no-verify`（**不推荐，会绕过所有检查**）
+不要主动 `git config --unset core.hooksPath`（绕过检查，等于把责任全推给 CI）
 
 ---
 
@@ -160,10 +163,11 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 ## 六、新人上手
 
 1. 克隆仓库：`git clone https://github.com/SIX2090/wms.git`
-2. 启用 pre-commit：`git config core.hooksPath .githooks`
+2. 启用 pre-commit：**`bash .githooks/install-hooks.sh`**（不要手动设、不要 unset）
 3. 读 `README.md`、`AGENTS.md`、`DEVELOPMENT_RULES.md`、`WMS_BUG_BASELINE.md`
 4. 看 `app/static/js/api.js` 了解 HTTP 调用方式
 5. 跑测试：`python3 scripts/verify_wms_bugs.py` `pytest tests/ -q`
+6. 验证钩子：`python3 scripts/check_hooks_installed.py`（应输出 `✓ core.hooksPath 已正确指向 .githooks`）
 
 ---
 
