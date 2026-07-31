@@ -933,8 +933,13 @@ log_level = getattr(logging, log_level_name, logging.INFO)
 log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 log_folder = app.config.get('LOG_FOLDER')
 log_file = app.config.get('LOG_FILE')
+# 优先用显式 LOG_FOLDER；否则用 LOG_FILE 的父目录；保证 CI 等无 logs/ 环境能自愈
 if log_folder:
     os.makedirs(log_folder, exist_ok=True)
+elif log_file:
+    _log_parent = os.path.dirname(log_file)
+    if _log_parent:
+        os.makedirs(_log_parent, exist_ok=True)
 
 for handler in list(app.logger.handlers):
     if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):

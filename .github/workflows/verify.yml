@@ -21,6 +21,12 @@ jobs:
         run: |
           pip install -r app/requirements.txt
 
+      # 关键：app/app.py import 时会立刻创建 RotatingFileHandler 指向 logs/app.log
+      # 必须先建好 logs/ 目录，否则 26 个 verify_ai_*.py 全部 FileNotFoundError
+      - name: Create required directories
+        run: |
+          mkdir -p app/logs app/instance app/uploads logs
+
       - name: Run source encoding check
         run: python3 scripts/verify_source_encoding.py
 
