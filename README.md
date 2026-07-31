@@ -2,6 +2,42 @@
 
 这是一个基于 Flask 的单人 WMS，面向低压成套电气设备企业。当前重点是快速登记物料出入库，并通过拍照识别、AI 建议物料编码和草稿生成减少仓管员录入工作。
 
+## ⚠️ Code Review SLA（开发者必读）
+
+> **所有改动只能直推 main，且必须先过本地 L1 + L2 三道关。**
+
+本仓库使用 GitHub 免费版 + 私有仓库，**main 分支无服务端强制保护**。同时按 [AGENTS.md](./AGENTS.md) 的硬规则，**禁止在 GitHub 上创建任何新分支**（包括 `feature/*` / `fix/*` / `chore/*`）。这意味着：
+
+- 没有 PR review 流程，所有 review 都在 commit 之前人工完成
+- 没有任何"合并前最后一道闸门"，错代码一旦 push 就是 main 历史
+- 服务端保护层（L4）"摆设"——不能依赖 GitHub Web UI 勾选的强制规则
+
+### 流程强制
+
+1. 改动前先读 [DEVELOPMENT_RULES.md](./DEVELOPMENT_RULES.md) 和本文件底部的"防 BUG 7 条规则"
+2. 提交前必须跑 `make check`（lint + 86 回归 + pytest），全部通过
+3. 改完模板或路由后跑 `make smoke`（121 冒烟），全部通过
+4. commit message 关联 BUG ID（若有）：`fix: BUG-2026-07-31-NNN 简述`
+5. push 之前再人工 review 一次自己的 diff（`git diff origin/main`）
+
+### 三层防御
+
+| 层级 | 触发时机 | 拦截什么 |
+|---|---|---|
+| L1 本地 pre-commit | `git commit` | 7 条防 BUG 规则（A1-A7）+ 裸 fetch 拦截 |
+| L2 本地 pre-push | `git push` | 拒绝非 main 分支推送 + 增量规则检查 |
+| L3 GitHub Actions CI | push | 121 冒烟 + 86 BUG 回归 + pytest + lint |
+
+L1 + L2 是合入 main 之前的**唯一**拦截机会。`git commit --no-verify` 和 `git push --no-verify` 等于主动缴械，强烈不推荐。
+
+### 启用本地钩子（每个 clone 必做一次）
+
+```bash
+bash .githooks/install-hooks.sh
+```
+
+详细规范见 [DEVELOPMENT_RULES.md](./DEVELOPMENT_RULES.md) 和 [AGENTS.md](./AGENTS.md)。
+
 ## 主要功能
 
 - 基础资料：物料、分类、单位、供应商、客户、仓库、库位、员工、部门。
