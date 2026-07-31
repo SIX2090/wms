@@ -14,11 +14,27 @@ REQUIREMENTS = ROOT_DIR / "app" / "requirements.txt"
 WHEELHOUSE = ROOT_DIR / "wheelhouse"
 
 
+def _is_tracked_but_sparse(path: Path) -> bool:
+    result = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", str(path / "*")],
+        cwd=ROOT_DIR,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def verify_offline_wheelhouse(wheelhouse: Path = WHEELHOUSE) -> None:
     """Ask pip to resolve requirements without network or installed packages."""
     if not REQUIREMENTS.is_file():
         raise SystemExit(f"requirements file is missing: {REQUIREMENTS}")
     if not wheelhouse.is_dir():
+        if _is_tracked_but_sparse(wheelhouse):
+            raise SystemExit(
+                "wheelhouse is tracked but absent from this sparse checkout; "
+                "run: git sparse-checkout add /wheelhouse/"
+            )
         raise SystemExit(f"wheelhouse is missing: {wheelhouse}")
 
     result = subprocess.run(

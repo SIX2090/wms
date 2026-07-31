@@ -9,3 +9,4 @@ def test_offline_wheelhouse_verifier_is_network_isolated():
     for option in ('"--dry-run"', '"--ignore-installed"', '"--no-index"', '"--find-links"'):
         assert option in verifier
     assert 'app" / "requirements.txt"' in verifier
+    assert "git sparse-checkout add /wheelhouse/" in verifier
