@@ -126,10 +126,14 @@ def check_web_login_csrf() -> tuple[bool, str]:
             follow_redirects=False,
         )
         location = resp.headers.get("Location") or ""
+        # CSRF 校验失败的有效拒绝方式有两种（均不应登录成功）：
+        # 1) 400 + JSON：JSON 客户端（API 调用）
+        # 2) 302 重定向到 /login：HTML 表单走 handle_csrf_error 的智能跳转
+        #    （fc22f9c2 修复 WMS-BUG-2026-07-30-003 后的预期行为，让浏览器拿到新 csrftoken）
         if resp.status_code in (302, 303) and "/login" not in location:
-            return False, f"无 CSRF token 的 POST /login 不应登录成功（status={resp.status_code}）"
-        if resp.status_code != 400:
-            return False, f"无 CSRF token 的 POST /login 应返回 400，实际 {resp.status_code}"
+            return False, f"无 CSRF token 的 POST /login 不应重定向到非登录页（status={resp.status_code}）"
+        if resp.status_code not in (400, 302, 303):
+            return False, f"无 CSRF token 的 POST /login 应返回 400/302/303，实际 {resp.status_code}"
     return True, "Web /login 强制 CSRF；/api/login 保持豁免；无 token 登录被拒绝"
 
 
@@ -938,10 +942,14 @@ def main() -> int:
     ))
 
     print_labels_html = read_text('app/templates/print_batch_labels.html')
+    # VULN-005: Batch label 模板必须用 Jinja tojson 渲染（不能用 | safe 直接注入原始字符串）
+    # 修复脚本误报：变量名可能是 materials_data / materials_json / 其他，统一用正则匹配
+    # 但要排除 | safe 的使用（因为 | safe 会绕开转义，等同 XSS）
+    has_tojson = bool(re.search(r'materials_\w+\s*\|\s*tojson', print_labels_html))
+    has_safe_on_materials = bool(re.search(r'materials_\w+\s*\|\s*safe', print_labels_html))
     checks.append((
         'VULN-005',
-        'materials_json | tojson' in print_labels_html
-        and 'materials_json | safe' not in print_labels_html,
+        has_tojson and not has_safe_on_materials,
         'Batch label JSON must use Jinja tojson instead of raw safe script injection',
     ))
 

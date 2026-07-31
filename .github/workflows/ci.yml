@@ -39,11 +39,9 @@ jobs:
         run: python3 scripts/lint_no_raw_post_fetch.py
 
       # 静态回归: 历史 BUG 不再以违规形式存在
-      # 当前有 2 个已知失败 (LOGIN-CSRF-001 + VULN-005),先 continue-on-error=true,
-      # 等清掉这两个 FAIL 再改回 false。
+      # 86/86 PASS,改成必过 (continue-on-error: false / 移除 continue-on-error 行)
       - name: "Static regression - verify_wms_bugs"
         run: python3 scripts/verify_wms_bugs.py
-        continue-on-error: true
 
       # 单元测试
       - name: "Unit tests"
