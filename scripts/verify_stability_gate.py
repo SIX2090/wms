@@ -20,6 +20,7 @@ COMMANDS = (
     ("inventory check state machine", ("scripts/verify_check_state_machine.py",)),
     ("AI document draft flow", ("scripts/verify_ai_photo_document_flow.py",)),
     ("AI human-confirmation boundary", ("scripts/verify_ai_high_risk_boundaries.py",)),
+    ("AI cross-user isolation", ("scripts/verify_ai_cross_user_isolation.py",)),
     ("offline wheelhouse", ("scripts/verify_offline_wheelhouse.py",)),
     ("pytest", ("-m", "pytest", "tests/", "-q")),
 )
