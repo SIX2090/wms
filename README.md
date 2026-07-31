@@ -1,6 +1,7 @@
 # WMS 仓库管理系统
 
-这是一个基于 Flask 的单人 WMS，面向低压成套电气设备企业。当前重点是快速登记物料出入库，并通过拍照识别、AI 建议物料编码和草稿生成减少仓管员录入工作。
+> 最近更新：2026-07-31 — 新增 7 条防 BUG 规则、CSRF 客户端自动刷新、统一 HTTP 层 `app/static/js/api.js`、清理 14 个过期文件
+> 当前重点：基于 Flask 的单人 WMS，面向低压成套电气设备企业，重点是拍照识别 + AI 物料治理 + 出入库草稿生成。
 
 ## ⚠️ Code Review SLA（开发者必读）
 
@@ -55,6 +56,11 @@ bash .githooks/install-hooks.sh
 - 单据下推：采购入库和其他入库可按明细及数量下推领料单、其他出库单或售后出库草稿。
 - 客供登记：其他入库明细可勾选客供并选择客户；当前尚未做库存所有权隔离，客供行禁止直接下推普通出库。
 - AI 单据助手：上传照片或截图后识别明细、匹配已有物料、人工确认新物料编码，并生成入库或出库草稿。
+- AI 物料治理：中文归一化、名称+规格加权、别名命中、低置信度二次确认（详见 `app/ai/documents/material_governance.py`）。
+- AI 工作台：采购到货跟进、销售跟进、仓库巡查、业务质量仪表盘（详见 `app/ai/ops/`）。
+- AI 灰度发布：四档灰度模式、白名单即时生效、降级保留证据（详见 `app/ai/ops/rollout_control.py`）。
+- 安全：Flask-WTF CSRF 保护、客户端每 25 分钟自动刷新令牌、`/api/csrf_refresh` 端点。
+- 前端统一 HTTP 层：`app/static/js/api.js` 封装 `WMS.api.get/post/put/delete`，自动注入 CSRF、统一错误处理。
 
 AI 只能创建和检查草稿。完成、审核、作废、删除以及库存变动必须由操作人员在业务页面手工执行。
 
@@ -63,9 +69,10 @@ AI 只能创建和检查草稿。完成、审核、作废、删除以及库存�
 - Python 3.11
 - Flask 3.0
 - Flask-SQLAlchemy
+- Flask-WTF（CSRF 保护）
+- APScheduler（定时任务）
 - SQLite 默认本地数据库
 - Waitress 生产 WSGI 服务
-- APScheduler 定时任务
 - openpyxl / pandas / reportlab / qrcode 等业务工具库
 
 依赖清单位于：
@@ -104,6 +111,8 @@ python -m pip install -r requirements.txt
 python run_server.py
 ```
 
+> 首次启动会自动迁移表结构（`auto_migrate_database`），过程约 10-30 秒，请勿中断。
+
 访问地址：
 
 ```text
@@ -135,6 +144,8 @@ build_portable_dist.bat
 dist\WMS\
 ```
 
+> `dist/` 是构建产物，已被 `.gitignore` 排除，不提交到 Git。
+
 该目录内包含 Python 解释器、依赖包、WMS 程序和启动入口。把整个 `dist\WMS\` 文件夹复制到用户电脑后，用户只需要双击：
 
 ```bat
@@ -160,7 +171,7 @@ http://127.0.0.1:8080/login
 初始密码：优先使用 `WMS_BOOTSTRAP_PASSWORD`；未设置且首次创建管理员时为 `admin`
 ```
 
-便携包由 `tools\build_portable_dist.ps1` 生成，`dist/` 是构建产物，不提交到 Git。
+便携包由 `tools\build_portable_dist.ps1` 生成。
 
 ### 源码离线安装
 
@@ -188,6 +199,14 @@ wms.bat
 cd /d C:\wms\app
 start_wms_offline.bat
 ```
+
+### 其他安装变体
+
+| 脚本 | 用途 |
+|---|---|
+| `install_e_wms.bat` | 企业内网定制版（含内网代理、域账号集成） |
+| `install_portable_python.bat` | 便携 Python 解释器版（不依赖系统 Python） |
+| `deploy_cloud.bat` | 腾讯云 Windows 服务器部署 |
 
 ## 重要数据
 
@@ -220,6 +239,9 @@ SQLALCHEMY_ECHO             是否打印 SQL，true/false
 WECHAT_HELPER_TOKEN         微信助手访问令牌
 WMS_WECHAT_HELPER_PORT      微信助手本地端口，默认 8765
 WMS_BASE_URL                WMS 主服务地址
+WMS_SKIP_AUTO_UPDATE        跳过 auto_update.py，默认 0
+WMS_SKIP_DB_UPGRADE         跳过启动时自动迁移，默认 0
+WMS_PORT                    HTTP 端口，默认 8080
 ```
 
 生产环境应显式设置 `SECRET_KEY` 和相关访问令牌，不要使用弱默认值。
@@ -227,25 +249,49 @@ WMS_BASE_URL                WMS 主服务地址
 ## 项目结构
 
 ```text
-C:\wms
-├── app/                         应用主目录
-│   ├── app.py                   Flask 主程序、模型和路由
-│   ├── config.py                配置
-│   ├── run_server.py            服务启动入口
-│   ├── requirements.txt         Python 依赖
-│   ├── templates/               页面模板
-│   ├── static/                  前端静态资源
-│   ├── instance/                本地数据库目录，不提交
-│   ├── logs/                    运行日志，不提交
-│   └── backups/                 数据备份，不提交
-├── scripts/                     检查和验证脚本
-├── runtime/                     离线运行环境资源
-├── tools/                       安装和维护工具
-├── wheelhouse/                  离线 Python 依赖包
-├── build_portable_dist.bat      生成 dist\WMS 便携包
-├── install.bat                  离线安装入口
-├── wms.bat                      快速启动入口
-└── README.md                    项目说明
+SIX2090/wms
+├── app/                          应用主目录
+│   ├── app.py                    Flask 主程序、模型和路由（约 2MB 单文件）
+│   ├── config.py                 配置
+│   ├── run_server.py             服务启动入口
+│   ├── requirements.txt          Python 依赖
+│   ├── ai/                       AI 子系统（87 个 .py）
+│   │   ├── agents/               Agent 框架（采购跟进、补货、销售跟进、仓库巡查）
+│   │   ├── analysis/             数据分析（主数据质量、可用天数、周转、呆滞、缺货）
+│   │   ├── documents/            文档识别（OCR、配送匹配、物料治理、黄金样本）
+│   │   ├── ops/                  运维（功能开关、灰度、监控、发布验收、发布移交）
+│   │   ├── tools/                工具注册中心（库存、采购、导航）
+│   │   ├── routes.py             AI 路由（聊天流、对话、反馈、确认）
+│   │   ├── v2_routes.py          AI v2 路由（LLM 直调、熔断器）
+│   │   └── orchestrator.py       AI 流程编排器
+│   ├── android-native-wms/       Android 客户端（约 1.7 万 .java，独立 Gradle 项目）
+│   ├── templates/                页面模板（151 个 .html）
+│   ├── static/                   前端静态资源
+│   │   ├── js/                   业务 JS（api.js / app.js / excel-table.js / excel-import-export.js）
+│   │   ├── templates/            用户可下载的 Excel 模板
+│   │   └── uploads/              用户上传文件，不提交
+│   ├── instance/                 本地数据库目录，不提交
+│   ├── logs/                     运行日志，不提交
+│   └── backups/                  数据备份，不提交
+├── scripts/                      检查、验证和质量工具（约 130 个 .py）
+│   ├── lint_wms_rules.py         7 条防 BUG 静态规则
+│   ├── run_smoke_in_ci.py        CI 冒烟（启动服务 + 121 项 + 关闭）
+│   ├── verify_wms_bugs.py        86 项 BUG 静态回归
+│   ├── full_smoke_test.py        121 项冒烟（本地手工）
+│   ├── monthly_bug_review.py     月度 BUG 复盘
+│   ├── check_hooks_installed.py  验证 git hooks 是否启用
+│   └── verify_ai_*.py            AI 子系统验证（约 70 个）
+├── tools/                        安装和维护工具
+│   ├── build_portable_dist.ps1   生成便携包
+│   └── clone_wms_main.ps1        一键恢复 main 工作区
+├── .githooks/                    git 钩子（pre-commit / pre-push / install-hooks.sh）
+├── .github/                      GitHub 配置（PR 模板、ISSUE 模板、CI workflow）
+├── dist/                         便携包构建产物，不提交
+├── wheelhouse/                   离线 Python 依赖包
+├── build_portable_dist.bat       生成 dist\WMS 便携包
+├── install.bat                   离线安装入口
+├── wms.bat                       快速启动入口
+└── README.md                     项目说明
 ```
 
 ## 部署说明
@@ -273,26 +319,59 @@ http://127.0.0.1:8080
 | `WMS_BUSINESS_SCOPE.md` | 当前单人 WMS 业务口径和客供料处理边界 |
 | `PRODUCTION_DEPLOYMENT_CHECKLIST.md` | 每次生产发布前重新填写的验收模板 |
 | `WMS_BUG_BASELINE.md` | 已核验 BUG、风险、误报和暂缓项基线 |
-| `上线部署说明.md` | 腾讯云 Windows 部署和数据保护说明 |
+| `WMS_QUALITY_REPORT.md` | BUG 质量月报（类型分布、模块分布、Top 根因） |
+| `DEVELOPMENT_RULES.md` | 开发规范：加功能 checklist、修复 BUG 流程、CI/pre-commit 门禁、防 BUG 规则清单 |
 | `AGENTS.md` | AI 和开发代理必须遵守的项目规则 |
+| `上线部署说明.md` | 腾讯云 Windows 部署和数据保护说明 |
 | `docs/archive/` | 已结束的 BUG、巡检和专项审计历史报告，仅供追溯 |
+
+> 2026-07-31 清理：根目录 6 个一次性审计快照、audit_screenshots/ 下 2 个无引用报告、6 个无引用 .cmd wrapper 已删除，详见 commit `680e7018` / `47aff0a0` / `bcb152f5`。
 
 为避免计划冲突，仓库只保留 `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` 作为 AI 开发主计划。
 
 ## 开发校验
 
-统一使用项目 Python 入口执行检查：
+### 基础校验
 
-```bat
-.\scripts\python.cmd -m compileall -q app scripts
-.\scripts\python.cmd scripts\verify_ai_all.py --level full
+```bash
+# 编译检查
+python3 -m compileall -q app scripts
+
+# BUG 基线和候选风险
+python3 scripts/verify_wms_bugs.py
+python3 scripts/scan_wms_risks.py
 ```
 
-BUG 基线和候选风险检查：
+### 防 BUG 静态规则 + 钩子验证
 
-```bat
-.\scripts\python.cmd scripts\verify_wms_bugs.py
-.\scripts\python.cmd scripts\scan_wms_risks.py
+```bash
+# 7 条防 BUG 规则（A1-A7）
+python3 scripts/lint_wms_rules.py
+
+# 验证 git hooks 是否启用
+python3 scripts/check_hooks_installed.py
+```
+
+### 测试套件
+
+```bash
+# AI 子系统全量验证（核心 / 冒烟 / 完整三档）
+python3 scripts/verify_ai_all.py --level core
+python3 scripts/verify_ai_all.py --level full
+
+# 业务冒烟（本地手工启动服务）
+python3 scripts/full_smoke_test.py
+
+# 业务冒烟（CI 友好版：自动启停服务）
+python3 scripts/run_smoke_in_ci.py
+```
+
+### 月度质量复盘
+
+```bash
+# 每月最后一天跑
+python3 scripts/monthly_bug_review.py
+# 写入 WMS_QUALITY_REPORT.md
 ```
 
 ## Git 忽略规则
@@ -307,20 +386,20 @@ app/instance/
 app/logs/
 app/backups/
 app/static/uploads/
+dist/
 .env
 secret_key
 wechat_helper_token
 ```
 
-
 ## 本地开发钩子（防止 CSRF 回归 + 拦截 7 条防 BUG 规则）
 
 仓库自带一组 git 钩子，位于 `.githooks/`：
 
-| 钩子             | 作用                                                          |
-|------------------|---------------------------------------------------------------|
-| `pre-commit`     | 扫描 `app/static/js/*.js`，禁止裸调 `fetch` 发送非 GET 请求 + 跑 7 条防 BUG 规则 |
-| `pre-push`       | 强制 push 只能发生在 `main`（禁止任何新分支、禁止删除远程分支） |
+| 钩子 | 触发时机 | 作用 |
+|---|---|---|
+| `pre-commit` | `git commit` | 跑 A1-A7 七条防 BUG 规则 + 裸调非 GET fetch 检查 |
+| `pre-push` | `git push` | 强制 push 只能发生在 `main`（禁止任何新分支、禁止删除远程分支） |
 
 ### 首次克隆后必须启用钩子
 
@@ -338,19 +417,18 @@ bash .githooks/install-hooks.sh
 
 脚本等价于 `git config core.hooksPath .githooks`，但会顺手打印当前设置和钩子列表，便于验证。
 
-手动等效命令（不推荐）：
-
-```bash
-git config core.hooksPath .githooks
-```
-
 **验证启用是否成功：**
 
 ```bash
 python3 scripts/check_hooks_installed.py
 ```
 
-启用后，任何在 `app/static/js/` 下新增/修改的 JS 中出现 `fetch(url, { method: 'POST' })` 等裸调都会被 pre-commit 拦截，提示改用 `csrfFetch(url, options)`。同时还会跑 A1-A7 共 7 条防 BUG 规则。
+### 启用后的运行流程
+
+1. `git commit` → pre-commit 跑 A1-A7 + 裸调 fetch，违规直接拒绝
+2. `git push` → pre-push 检查分支策略，禁止非 main 分支
+3. 推送触发 GitHub Actions：跑 121 项冒烟 + 86 项 BUG 回归 + 7 条静态规则
+4. PR 模板要求填写"测试覆盖"4 项勾选，缺项 review 应驳回
 
 **跳过钩子（紧急情况，不推荐）：**
 
@@ -380,13 +458,13 @@ git commit --no-verify
 | A6 | 业务 Python 不能 print |
 | A7 | SQL 必须参数化 |
 
-启用钩子：`git config core.hooksPath .githooks`
+启用钩子：`bash .githooks/install-hooks.sh`
 
 跑全套检查：
 
 ```bash
 python3 scripts/lint_wms_rules.py      # 7 条规则
 python3 scripts/verify_wms_bugs.py     # 86 项静态回归
-pytest tests/ -q                        # 90 项单元测试
+pytest tests/ -q                        # 单元测试
 python3 scripts/full_smoke_test.py     # 121 项冒烟（需启动服务）
 ```
