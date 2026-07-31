@@ -8,7 +8,18 @@
 - AI must never modify, reset, or set any user account password (including the admin bootstrap password) unless the user explicitly authorizes the specific operation. Password operations require explicit prior approval.
 - The system must never auto-generate a random password for any account (including the bootstrap admin). When `WMS_BOOTSTRAP_PASSWORD` is not set, the system must use a fixed default password ('admin') with a warning, not `secrets.token_urlsafe` or any random generator. Random password generation hides credentials from the operator and violates password transparency.
 - After completing any task, AI must verify the result (e.g., check service status, test functionality, confirm output correctness) before reporting to the user. Unverified results must not be presented as done.
-- Every completed task must push its task commit to `https://github.com/SIX2090/wms.git` on the `main` branch unless the user explicitly says not to. Before reporting completion, verify the push result or clearly report any network failure.
+- **Atomic-action push (hard rule)**: After completing EACH atomic action — not after each "task" — AI must commit AND push the result to `https://github.com/SIX2090/wms.git` on the `main` branch, unless the user explicitly says not to. An atomic action is one self-contained change that:
+  - has a single clear purpose (one rule fix, one file cleanup batch, one doc update, one function rewrite, etc.)
+  - can be reverted independently (one `git revert <sha>` undoes it cleanly)
+  - passes lint / build / relevant tests on its own (no half-broken intermediate state on main)
+  - has a conventional commit message (e.g. `fix(scope): ...`, `chore: ...`, `docs: ...`)
+- Examples:
+  - "Fix AGENTS.md wording" = 1 atomic action → 1 commit + 1 push
+  - "Delete 14 unused files" = 3 atomic actions (category A, B, C) → 3 commits + 3 pushes
+  - "Update README 20 places" = 1 atomic action (single doc, single commit) → 1 commit + 1 push
+  - **Wrong**: batching 5 unrelated rule fixes into one commit just to "save pushes"
+- Before reporting completion of any atomic action, AI MUST verify the push result by reading the actual `git push` output (`To <url> ... -> main`) and confirming a non-empty new SHA on origin/main. If the push fails (network, non-fast-forward, auth), the action is NOT done — rebase/pull, fix, and re-push before reporting.
+- An atomic action is considered done only when both `git log -1` locally and `git log origin/main -1` show the same new SHA. Local-only commits do not count as completed.
 - `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` is the sole AI development backlog and completion ledger. Before implementing an AI feature, check its unique task ID, current status, existing code, tests, pages, and Git history; never redevelop a completed or equivalent capability.
 - Every AI code change must map to one unique ledger task ID. Add a new task only after a repository-wide duplicate check; fixes to completed capabilities must use a child fix ID instead of duplicating the original task.
 - Mark an AI task complete only after code, permissions, human-confirmation boundaries, tests, documentation, verification, commit, and push are complete. Immediately record completion date, commit hash, changed modules, validation commands, result, and remaining child items in the ledger.
