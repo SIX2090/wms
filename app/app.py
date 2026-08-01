@@ -35231,6 +35231,15 @@ def complete_after_sale_out_order(id):
                 if not ok:
                     db.session.rollback()
                     return api_error(error_msg or '库存扣减失败')
+                # 同步库位库存（与 batch_complete_out_order 对称），
+                # 库位管理与总库存独立维护，必须显式同步
+                if location_management_enabled() and order.warehouse:
+                    loc_ok, loc_err = update_location_inventory(
+                        material, order.warehouse, -(item.quantity or 0)
+                    )
+                    if not loc_ok:
+                        db.session.rollback()
+                        return api_error(loc_err or '库位库存扣减失败')
 
         order.status = 'completed'
         try:
@@ -35275,6 +35284,15 @@ def revert_after_sale_out_order(id):
                 if not ok:
                     db.session.rollback()
                     return api_error(err or '库存恢复失败')
+                # 同步还原库位库存（与 complete_after_sale_out_order 对称），
+                # 库位管理与总库存独立维护，必须显式同步
+                if location_management_enabled() and order.warehouse:
+                    loc_ok, loc_err = update_location_inventory(
+                        item.material, order.warehouse, item.quantity or 0
+                    )
+                    if not loc_ok:
+                        db.session.rollback()
+                        return api_error(loc_err or '库位库存还原失败')
 
         order.status = 'pending'
         db.session.commit()
