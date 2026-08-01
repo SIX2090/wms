@@ -729,6 +729,9 @@ function addNewRow() {
     if (window.outOrderColumnController) {
         window.outOrderColumnController.applyOrder();
     }
+    if (window.WMS && window.WMS.ContractAutocomplete) {
+        window.WMS.ContractAutocomplete.bindRow(row);
+    }
     return row;
 }
 
@@ -976,6 +979,9 @@ function insertRowBefore(btn) {
     if (window.outOrderColumnController) {
         window.outOrderColumnController.applyOrder();
     }
+    if (window.WMS && window.WMS.ContractAutocomplete) {
+        window.WMS.ContractAutocomplete.bindRow(newRow);
+    }
     newRow.querySelector('.material-code').focus();
     return newRow;
 }
@@ -1150,6 +1156,9 @@ document.addEventListener('click', function(e) {
 document.addEventListener('DOMContentLoaded', function() {
     for (let i = 0; i < 15; i++) {
         addNewRow();
+    }
+    if (window.WMS && window.WMS.ContractAutocomplete) {
+        window.WMS.ContractAutocomplete.bindAll();
     }
     registerDetailRowActions({
         tableSelector: '#materialTable',
