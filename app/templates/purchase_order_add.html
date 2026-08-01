@@ -690,6 +690,9 @@ function addNewRow(data = {}, insertBeforeRow = null) {
         tbody.appendChild(row);
     }
     bindRow(row);
+    if (window.WMS && window.WMS.ContractAutocomplete) {
+        window.WMS.ContractAutocomplete.bindRow(row);
+    }
     if (data.material_id) {
         row.querySelector('.material-code').dataset.materialId = data.material_id;
     }
@@ -971,6 +974,9 @@ document.addEventListener('DOMContentLoaded', function() {
         initialItems.forEach(item => addNewRow(item));
     } else {
         for (let i = 0; i < 15; i++) addNewRow();
+    }
+    if (window.WMS && window.WMS.ContractAutocomplete) {
+        window.WMS.ContractAutocomplete.bindAll();
     }
     registerDetailRowActions({
         tableSelector: '#materialTable',
