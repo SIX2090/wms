@@ -1436,3 +1436,36 @@ full 验证结果：
 - 真实用户/数据验收：admin 账号 6 次成功登录 + 1 次错密码（E2E 测），login_log 7 条记录完整
 - 破坏性测试：错误密码仍触发 401 + 失败计数；无 CSRF/usage_consent/密码长度绕过
 - 剩余风险和下一子项：usage_consent 字段保留供审计/合规（仅日志）；后续如需真正合规留存可对接企业微信同意服务并把日志改为结构化事件
+
+#### POST-COMMIT-SCAN-2026-08-01（已完成）— 入库/出库批量并发+售后库位同步 4 项原子修复
+
+- 完成日期：2026-08-01
+- 业务边界：仅修复高影响库存数据正确性 BUG；不修改任何用户/密码；不削弱 CSRF、角色校验、事务隔离；不引入新的并发原语（仅复用既有 `_acquire_order_write_lock` + `deduct_stock_atomic` + `update_location_inventory`）。
+- 提交 SHA（4 个原子动作 + 1 个登记文档，均已推送 main `dffdf9ed`）：
+  - `7d2272a4` BUG-NEW3-005 `batch_complete_in_order` 加单据写锁+每单独立事务
+  - `9d6a2ea1` BUG-NEW3-006 `batch_complete_out_order` 加单据写锁+每单独立事务
+  - `60f365b4` BUG-NEW3-007 `batch_revert_in_order` 加锁+`deduct_stock_atomic`+每单独立事务
+  - `0b56db5d` BUG-NEW3-008 `complete/revert_after_sale_out_order` 同步库位库存
+  - `dffdf9ed` 登记 `WMS_BUG_BASELINE.md` 4 条修复记录
+- 根因与修复：
+  1. **BUG-NEW3-005** `batch_complete_in_order` 缺单据写锁：原循环在 status 早判后即处理，无行锁；并发请求/单据版完成会重复入库；且循环外 `db.session.commit()` 让任意一张失败导致所有已处理单据一起回滚。修复：每张单 `_acquire_order_write_lock(InOrder,id,'pending')` + 循环内 `commit()` + 失败仅 rollback 自身。
+  2. **BUG-NEW3-006** `batch_complete_out_order` 与 BUG-NEW3-005 同样的并发+事务边界问题，且重复扣库存会推进销售单发货进度，是真实资损。修复同 BUG-NEW3-005。
+  3. **BUG-NEW3-007** `batch_revert_in_order` 除上述并发问题外，`deduct_stock()` 是 read-modify-write 并发会重复扣减；改用条件 UPDATE 原子扣减 `deduct_stock_atomic()` 修复竞态。
+  4. **BUG-NEW3-008** `complete_after_sale_out_order` / `revert_after_sale_out_order` 仅改 `Material.stock` 不改库位库存，启用库位管理后总库存与库位库存长期漂移。修复：在原子扣减/恢复后调用 `update_location_inventory(material, order.warehouse, ±qty)`，失败回滚。
+- 改动模块：`app/app.py` 4 个函数（仅修改既有函数实现，不新增路由/Schema/迁移）。
+  - `batch_complete_in_order` 行 27910 附近
+  - `batch_complete_out_order` 行 34800 附近
+  - `batch_revert_in_order` 行 27985 附近
+  - `complete_after_sale_out_order` 行 35199 附近
+  - `revert_after_sale_out_order` 行 35252 附近
+- 迁移与备份：无数据库迁移；未改业务数据/用户/密码；未碰任何已完成单据。
+- 权限与人工确认：均经过用户对 4 项 BUG 真实性+可修复性的逐项确认；未触碰任何 POST/PUT/DELETE 路由的权限/CSRF 装饰器。
+- 专项验证：
+  - `python scripts/verify_in_order_state_machine.py` → PASS（入库完成/反审/删除状态机）
+  - `python scripts/verify_out_order_state_machine.py` → PASS（领料完成/反审状态机）
+  - `python scripts/verify_wms_bugs.py` → 全部回归通过
+  - `python -m pytest tests/test_lint_wms_rules_a8_a9_golden.py` → 12/12 PASS
+  - 每次 commit 前 `python scripts/lint_wms_rules.py` → 0 违规
+  - 每次 commit 前 `python scripts/lint_no_raw_post_fetch.py` → 通过
+- 推送验证：5 次推送均输出 `To https://github.com/SIX2090/wms.git ... -> main` 且 `git ls-remote` 确认 `dffdf9ed` 已在 `refs/heads/main`。
+- 剩余风险和下一子项：`_acquire_order_write_lock` 在 SQLite 上用 `BEGIN IMMEDIATE` 串行化写事务，并发高时批量操作会排队；如未来切到 PostgreSQL/MySQL，可改用 `SELECT ... FOR UPDATE` 减小锁粒度（`_acquire_order_write_lock` 已实现该分支，无须改业务代码）。
