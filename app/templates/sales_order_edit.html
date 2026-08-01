@@ -830,6 +830,9 @@ textarea.form-control {
         row.querySelectorAll('input').forEach(function(input) { input.addEventListener('input', recalc); });
         row.querySelector('.remove').addEventListener('click', function() { row.remove(); renumber(); recalc(); });
 
+        if (window.WMS && window.WMS.ContractAutocomplete) {
+            window.WMS.ContractAutocomplete.bindRow(row);
+        }
         renumber(); recalc();
         return row;
     }
@@ -1111,6 +1114,9 @@ textarea.form-control {
         addRow();
     }
     ensureBlankRows(15);
+    if (window.WMS && window.WMS.ContractAutocomplete) {
+        window.WMS.ContractAutocomplete.bindAll();
+    }
 })();
 </script>
 
