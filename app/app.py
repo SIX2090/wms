@@ -34808,13 +34808,25 @@ def batch_complete_out_order():
     orders = OutOrder.query.options(joinedload(OutOrder.items)).filter(OutOrder.id.in_(ids)).all()
     completed = 0
     skipped = []
-    for order in orders:
+    for order in list(orders):
+        # 防止列表中重复 id 触发同一单据被处理两次
+        order_id = order.id
         if order.status != 'pending':
             skipped.append(order.order_no)
             continue
         if not order.items:
             skipped.append(f'{order.order_no}(无明细)')
             continue
+        # 重新加锁并校验状态，避免并发批量/单据完成请求重复审核同一张领料单
+        # （重复审核会重复扣库存、重复推进销售单发货进度）
+        locked, lock_ok = _acquire_order_write_lock(
+            OutOrder, order_id, 'pending', selectinload(OutOrder.items)
+        )
+        if not lock_ok or locked is None:
+            skipped.append(f'{order.order_no}(状态已变更)')
+            db.session.rollback()
+            continue
+        order = locked
         stock_ok = True
         for item in order.items:
             stock = normalize_stock_quantity(item.material.stock or 0)
@@ -34824,6 +34836,7 @@ def batch_complete_out_order():
                 stock_ok = False
                 break
         if not stock_ok:
+            db.session.rollback()
             continue
         try:
             for item in order.items:
@@ -34842,6 +34855,7 @@ def batch_complete_out_order():
             order.status = 'completed'
             sync_sales_order_shipment(order, quantity_sign=1)
             recalculate_order_total(order)
+            # 每张单据独立 commit，保证单点失败仅回滚自身，不影响后续单据
             db.session.commit()
             completed += 1
         except Exception as e:
