@@ -27997,10 +27997,22 @@ def batch_revert_in_order():
 
     reverted = 0
     skipped = []
-    for order in orders:
+    for order in list(orders):
+        # 防止列表中重复 id 触发同一单据被处理两次
+        order_id = order.id
         if order.status != 'completed':
             skipped.append(order.order_no)
             continue
+        # 重新加锁并校验状态，避免并发批量/单据反审请求重复回退同一张入库单
+        # （重复反审会重复扣减库存）
+        locked, lock_ok = _acquire_order_write_lock(
+            InOrder, order_id, 'completed', selectinload(InOrder.items)
+        )
+        if not lock_ok or locked is None:
+            skipped.append(f'{order.order_no}(状态已变更)')
+            db.session.rollback()
+            continue
+        order = locked
         stock_insufficient = False
         for item in order.items:
             stock = normalize_stock_quantity(item.material.stock or 0)
@@ -28010,11 +28022,13 @@ def batch_revert_in_order():
                 stock_insufficient = True
                 break
         if stock_insufficient:
+            db.session.rollback()
             continue
         try:
             for item in order.items:
                 if item.material:
-                    ok, error_msg = deduct_stock(item.material, item.quantity or 0,
+                    # 使用原子扣减避免并发超扣，并检查返回值
+                    ok, error_msg, _ = deduct_stock_atomic(item.material_id, item.quantity or 0,
                                  transaction_type='revert_in',
                                  reference_type='in_order',
                                  reference_id=order.id)
@@ -28027,15 +28041,12 @@ def batch_revert_in_order():
                             raise ValueError(loc_err or '库位库存还原失败')
             order.status = 'pending'
             recalculate_order_total(order)
+            # 每张单据独立 commit，保证单点失败仅回滚自身，不影响后续单据
+            db.session.commit()
             reverted += 1
         except Exception as e:
-            skipped.append(f'{order.order_no}(错误: {e})')
             db.session.rollback()
-    try:
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        return api_error(f'操作失败：{str(e)}')
+            skipped.append(f'{order.order_no}(错误: {e})')
     msg = f'批量反审完成，共反审 {reverted} 张入库单'
     if skipped:
         msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
