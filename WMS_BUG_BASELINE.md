@@ -46,6 +46,10 @@
 | BUG-NEW2-003 | 期初库存并发更新读取旧值缺少锁 | 检查期初库存新增/编辑/批量保存读取时使用 `with_for_update()`，库存更新仍用原子增量 |
 | BUG-NEW2-004 | 盘点完成直接改库存或不生成调整单 | 检查普通盘点和扫码盘点完成后生成库存调整草稿，库存变化由调整单提交执行 |
 | BUG-NEW3-001 | `add_stock()` 返回值未检查导致流水和库存可能不一致 | 检查所有 `add_stock()` 调用必须接收并处理返回值 |
+| BUG-NEW3-005 | `batch_complete_in_order` 缺单据写锁、循环外 commit 致并发重复审核/部分失败整体回滚 | 每单 `_acquire_order_write_lock(InOrder,id,'pending')`、循环内独立 `commit`、失败仅回滚自身，SHA `7d2272a4` |
+| BUG-NEW3-006 | `batch_complete_out_order` 缺单据写锁致并发重复扣库存/重复推进销售发货进度 | 每单 `_acquire_order_write_lock(OutOrder,id,'pending')`、循环内独立 `commit`，SHA `9d6a2ea1` |
+| BUG-NEW3-007 | `batch_revert_in_order` 缺锁+`deduct_stock` 读改写竞态+循环外 commit | 每单加锁+改 `deduct_stock_atomic`+循环内独立 `commit`，SHA `60f365b4` |
+| BUG-NEW3-008 | 售后出库完成/反提交未同步库位库存，启用库位管理后总库存与库位库存长期不一致 | `complete_after_sale_out_order` 和 `revert_after_sale_out_order` 在原子扣减/恢复后调用 `update_location_inventory`，失败回滚，SHA `0b56db5d` |
 | AI-AUTH-001 | AI 草稿和敏感分析权限校验分散，存在能力扩展后越权风险 | 检查 AI 草稿、文档确认和敏感分析统一通过 `AI_CAPABILITY_ROLES` 校验 |
 | AI-AUTH-002 | 销售 AI 能力 `sales_insights` / `sales_followup_agent` 上线后未纳入权限矩阵自动化覆盖 | 检查 `scripts/verify_ai_permission_matrix.py` 的 `EXPECTED` 含上述能力，且 `ROLES` 含 `sales` |
 | AI-IDEMPOTENCY-001 | AI 重复点击、网络重试或 SSE 重连可能重复生成草稿 | 检查普通响应和 SSE 使用持久化 `request_id`，重复请求只执行一次并重放结果 |
