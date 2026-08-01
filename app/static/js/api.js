@@ -195,6 +195,10 @@
         csrfFetch: function(url, options) {
             return request(options && options.method ? options.method : 'POST', url, options);
         },
+        // 合同档案关键词搜索（合同编号 / 工程名称）
+        getContracts: function(keyword) {
+            return this.get('/api/contracts', { query: { keyword: keyword || '' } });
+        },
         // 暴露给业务代码的辅助函数
         getCsrfToken: getCsrfToken
     };
