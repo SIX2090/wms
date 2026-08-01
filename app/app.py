@@ -27928,13 +27928,24 @@ def batch_complete_in_order():
 
     completed = 0
     skipped = []
-    for order in orders:
+    for order in list(orders):
+        # 防止列表中重复 id 触发同一单据被处理两次
+        order_id = order.id
         if order.status != 'pending':
             skipped.append(order.order_no)
             continue
         if not order.items:
             skipped.append(f'{order.order_no}(无明细)')
             continue
+        # 重新加锁并校验状态，避免并发批量/单据完成请求重复审核同一张单据
+        locked, lock_ok = _acquire_order_write_lock(
+            InOrder, order_id, 'pending', selectinload(InOrder.items)
+        )
+        if not lock_ok or locked is None:
+            skipped.append(f'{order.order_no}(状态已变更)')
+            db.session.rollback()
+            continue
+        order = locked
         try:
             for item in order.items:
                 if item.material:
@@ -27951,6 +27962,8 @@ def batch_complete_in_order():
                             raise ValueError(loc_err or '库位库存更新失败')
             order.status = 'completed'
             order.total_amount = sum((item.amount or 0) for item in order.items)
+            # 每张单据独立 commit，保证单点失败仅回滚自身，不影响后续单据
+            db.session.commit()
             completed += 1
             share_now_config = WechatShareConfig.query.filter_by(enabled=True, immediate_on_complete=True, share_in_order=True).first()
             if share_now_config:
@@ -27959,13 +27972,8 @@ def batch_complete_in_order():
                 except Exception:
                     app.logger.exception('批量入库完成后微信分享失败: %s', order.order_no)
         except Exception as e:
-            skipped.append(f'{order.order_no}(错误)')
             db.session.rollback()
-    try:
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        return api_error(f'操作失败：{str(e)}')
+            skipped.append(f'{order.order_no}(错误)')
     msg = f'批量审核完成，共审核 {completed} 张入库单'
     if skipped:
         msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
