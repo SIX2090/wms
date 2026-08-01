@@ -902,6 +902,9 @@ textarea.form-control {
             ['qty','price','tax-rate','batch-no','serial-no','line-remark'].forEach(function(cls) { row.querySelector('.' + cls).value = copyFrom.querySelector('.' + cls).value; });
             fillRow(row, findMaterial(codeInput.value));
         }
+        if (window.WMS && window.WMS.ContractAutocomplete) {
+            window.WMS.ContractAutocomplete.bindRow(row);
+        }
         renumber(); recalc();
         return row;
     }
@@ -1166,6 +1169,9 @@ textarea.form-control {
 
     addRow();
     ensureBlankRows(15);
+    if (window.WMS && window.WMS.ContractAutocomplete) {
+        window.WMS.ContractAutocomplete.bindAll();
+    }
     loadTemplates();
     applyColumnSettings();
 })();
