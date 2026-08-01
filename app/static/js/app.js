@@ -3452,3 +3452,205 @@ document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('DOMContentLoaded', initializeAll);
     window.WmsFillDown = { refresh: initializeAll, fill: fillDown };
 })();
+
+// ==================== 合同编号 / 工程名称 快速匹配 ====================
+(function(global) {
+    'use strict';
+
+    if (!global.WMS || !global.WMS.api || !global.WMS.api.getContracts) {
+        return;
+    }
+
+    var ACTIVE_CLASS = 'wms-contract-dropdown';
+    var ITEM_CLASS = 'wms-contract-dropdown-item';
+    var currentDropdown = null;
+
+    function ensureStyles() {
+        if (document.getElementById('wms-contract-autocomplete-style')) return;
+        var style = document.createElement('style');
+        style.id = 'wms-contract-autocomplete-style';
+        style.textContent =
+            '.' + ACTIVE_CLASS + ' { position: fixed; min-width: 320px; max-height: 260px; overflow-y: auto; background: #fff; border: 1px solid #d9e2ef; border-radius: 6px; box-shadow: 0 8px 24px rgba(15,23,42,.14); z-index: 99999; }' +
+            '.' + ITEM_CLASS + ' { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0; font-size: 13px; line-height: 1.45; color: #1f2937; }' +
+            '.' + ITEM_CLASS + ':hover, .' + ITEM_CLASS + '.active { background-color: #e6f7ff; }' +
+            '.' + ITEM_CLASS + ' .contract-no { font-weight: 600; color: #0052cc; }' +
+            '.' + ITEM_CLASS + ' .project-name { color: #111827; font-weight: 500; }' +
+            '.' + ITEM_CLASS + ' .remark { color: #6b7280; font-size: 12px; }';
+        document.head.appendChild(style);
+    }
+
+    function closeDropdown() {
+        if (currentDropdown) {
+            currentDropdown.remove();
+            currentDropdown = null;
+        }
+    }
+
+    function findRowInputs(input) {
+        var row = input.closest('tr');
+        if (!row) return null;
+        return {
+            row: row,
+            contractNo: row.querySelector('.line-contract-no'),
+            projectName: row.querySelector('.line-project-name')
+        };
+    }
+
+    function renderDropdown(input, contracts) {
+        closeDropdown();
+        if (!contracts || !contracts.length) return;
+
+        var dropdown = document.createElement('div');
+        dropdown.className = ACTIVE_CLASS;
+        dropdown.setAttribute('role', 'listbox');
+
+        var rect = input.getBoundingClientRect();
+        dropdown.style.left = rect.left + 'px';
+        dropdown.style.top = (rect.bottom + window.scrollY + 2) + 'px';
+        dropdown.style.width = Math.max(rect.width, 320) + 'px';
+
+        contracts.forEach(function(c, idx) {
+            var item = document.createElement('div');
+            item.className = ITEM_CLASS;
+            item.setAttribute('role', 'option');
+            item.setAttribute('data-idx', idx);
+            item.setAttribute('data-contract-no', c.contract_no || '');
+            item.setAttribute('data-project-name', c.project_name || '');
+            item.innerHTML =
+                '<div><span class="contract-no"></span> <span class="project-name"></span></div>' +
+                (c.remark ? '<div class="remark"></div>' : '');
+            item.querySelector('.contract-no').textContent = c.contract_no || '';
+            item.querySelector('.project-name').textContent = c.project_name || '';
+            if (c.remark) {
+                item.querySelector('.remark').textContent = c.remark;
+            }
+            item.addEventListener('mousedown', function(event) {
+                event.preventDefault();
+                applySelection(input, c.contract_no || '', c.project_name || '');
+                closeDropdown();
+            });
+            dropdown.appendChild(item);
+        });
+
+        document.body.appendChild(dropdown);
+        currentDropdown = dropdown;
+    }
+
+    function applySelection(input, contractNo, projectName) {
+        var inputs = findRowInputs(input);
+        if (!inputs) return;
+        if (inputs.contractNo) inputs.contractNo.value = contractNo;
+        if (inputs.projectName) inputs.projectName.value = projectName;
+    }
+
+    function moveActive(direction) {
+        if (!currentDropdown) return;
+        var items = currentDropdown.querySelectorAll('.' + ITEM_CLASS);
+        var active = currentDropdown.querySelector('.' + ITEM_CLASS + '.active');
+        var idx = -1;
+        if (active) {
+            idx = parseInt(active.getAttribute('data-idx'), 10) || 0;
+            active.classList.remove('active');
+        }
+        idx += direction;
+        if (idx < 0) idx = items.length - 1;
+        if (idx >= items.length) idx = 0;
+        items[idx].classList.add('active');
+        items[idx].scrollIntoView({ block: 'nearest' });
+    }
+
+    function selectActive(input) {
+        if (!currentDropdown) return;
+        var active = currentDropdown.querySelector('.' + ITEM_CLASS + '.active');
+        if (!active) return;
+        applySelection(input, active.getAttribute('data-contract-no'), active.getAttribute('data-project-name'));
+        closeDropdown();
+    }
+
+    function bind(input) {
+        if (!input || input.dataset.contractAutocompleteBound === '1') return;
+        input.dataset.contractAutocompleteBound = '1';
+
+        var debounceTimer = null;
+        var lastKeyword = '';
+        var lastResults = null;
+
+        input.addEventListener('input', function() {
+            clearTimeout(debounceTimer);
+            var value = input.value.trim();
+            if (!value) {
+                closeDropdown();
+                return;
+            }
+            if (value === lastKeyword && lastResults) {
+                renderDropdown(input, lastResults);
+                return;
+            }
+            debounceTimer = setTimeout(function() {
+                global.WMS.api.getContracts(value)
+                    .then(function(data) {
+                        var contracts = (data && data.contracts) ? data.contracts : (Array.isArray(data) ? data : []);
+                        lastKeyword = value;
+                        lastResults = contracts;
+                        renderDropdown(input, contracts);
+                    })
+                    .catch(function() {
+                        // ignore network errors; dropdown will simply not show
+                    });
+            }, 200);
+        });
+
+        input.addEventListener('keydown', function(event) {
+            if (!currentDropdown) return;
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                moveActive(1);
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                moveActive(-1);
+            } else if (event.key === 'Enter') {
+                event.preventDefault();
+                selectActive(input);
+            } else if (event.key === 'Escape') {
+                closeDropdown();
+            }
+        });
+
+        input.addEventListener('blur', function() {
+            setTimeout(closeDropdown, 150);
+        });
+    }
+
+    function bindRow(row) {
+        if (!row) return;
+        var contractInput = row.querySelector('.line-contract-no');
+        var projectInput = row.querySelector('.line-project-name');
+        if (contractInput) bind(contractInput);
+        if (projectInput) bind(projectInput);
+    }
+
+    function bindAll(container) {
+        container = container || document;
+        if (container.matches && container.matches('tr')) {
+            bindRow(container);
+            return;
+        }
+        container.querySelectorAll('tr').forEach(bindRow);
+    }
+
+    document.addEventListener('click', function(event) {
+        if (currentDropdown && !currentDropdown.contains(event.target)) {
+            var input = event.target.closest('.line-contract-no, .line-project-name');
+            if (!input) closeDropdown();
+        }
+    });
+
+    ensureStyles();
+
+    global.WMS = global.WMS || {};
+    global.WMS.ContractAutocomplete = {
+        bind: bind,
+        bindRow: bindRow,
+        bindAll: bindAll
+    };
+})(window);
