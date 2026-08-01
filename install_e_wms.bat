@@ -88,9 +88,16 @@ if not exist "%WHEELHOUSE%" (
   exit /b 1
 )
 
-REM === 文件日志初始化（AI-SEC-F01）===
+REM === 文件日志初始化（AI-SEC-F01；BUG-2026-07-31-002 修复：避免 RDP 会话下 PowerShell stdout 失败）===
 if not exist "%RUN_DIR%\logs" mkdir "%RUN_DIR%\logs"
-for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "STAMP=%%i"
+set "STAMP="
+for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set "DATETIME=%%I"
+if defined DATETIME set "STAMP=%DATETIME:~0,8%_%DATETIME:~8,6%"
+if not defined STAMP (
+  set "STAMP=%date:~0,4%%date:~5,2%%date:~8,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
+  set "STAMP=%STAMP: =0%"
+)
+if not defined STAMP set "STAMP=manual_%RANDOM%"
 set "INSTALL_LOG=%RUN_DIR%\logs\install_%STAMP%.log"
 call :log "WMS offline installer (E:\wms) started"
 call :log "INSTALL_DIR=%INSTALL_DIR%  RUN_DIR=%RUN_DIR%"
