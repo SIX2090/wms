@@ -244,12 +244,18 @@ with flask_app.app_context():
     db.session.add(item)
     db.session.commit()
 
-    rv = client.post(f"/in_order/{order.id}/complete")
+    # D3：完成入库单时无仓库自动取默认仓库。
+    # 必须传 force=true 跳过异常检测（D2 已建过同供应商+同物料+今日的入库单，
+    #  _check_in_order_anomalies 会判定为重复单据并返回 status='warning' 200，
+    #  不会执行完成逻辑，warehouse 自然不会被赋值——那不是 BUG-2026-08-02-009 的回归点）。
+    db.session.refresh(order)
+    rv = client.post(f"/in_order/{order.id}/complete?force=true")
     data = rv.get_json(force=True)
+    db.session.refresh(order)
     record(
         "D3-complete-default-assigned",
-        rv.status_code == 200 and order.warehouse == default_wh.name,
-        f"complete_in_order 自动默认仓库={order.warehouse!r}, status={rv.status_code}",
+        rv.status_code == 200 and data.get("status") == "success" and order.warehouse == default_wh.name,
+        f"complete_in_order 自动默认仓库={order.warehouse!r}, status={rv.status_code}, resp={data.get('status')}",
     )
 
     # 批量完成时无仓库自动取默认仓库
@@ -284,11 +290,46 @@ with flask_app.app_context():
         f"batch_complete_in_order 自动默认仓库={order2.warehouse!r}, status={rv.status_code}",
     )
 
+    # ---------- D5: complete_in_order 存量无仓库 pending 单据完成时仓库赋值须落库 ----------
+    # BUG-2026-08-02-009：锁前赋值被 _acquire_order_write_lock 的 SQLite rollback 丢弃，
+    # 导致 order.warehouse 仍为空。修复后赋值移到锁后，应正确落库。
+    order_no3 = f"IN{suffix}05"
+    order3 = InOrder(
+        order_no=order_no3,
+        date=date(2026, 8, 2),
+        business_type="采购入库",
+        supplier_id=supplier.id,
+        warehouse="",
+        status="pending",
+        operator_id=1,
+    )
+    db.session.add(order3)
+    db.session.flush()
+    item3 = InOrderItem(
+        in_order_id=order3.id,
+        material_id=material.id,
+        quantity=3,
+        price=1,
+        amount=3,
+    )
+    db.session.add(item3)
+    db.session.commit()
+
+    rv = client.post(f"/in_order/{order3.id}/complete?force=true")
+    db.session.refresh(order3)
+    data5 = rv.get_json(force=True)
+    record(
+        "D5-complete-default-persisted-after-lock",
+        rv.status_code == 200 and data5.get("status") == "success" and order3.warehouse == default_wh.name,
+        f"complete_in_order 锁后赋值落库={order3.warehouse!r}, status={rv.status_code}, resp={data5.get('status')}",
+    )
+
     # 清理测试数据：先删明细再删头，避免 NOT NULL 外键冲突
-    for o in (order, order2):
+    for o in (order, order2, order3):
         for it in list(o.items):
             db.session.delete(it)
     db.session.commit()
+    db.session.delete(order3)
     db.session.delete(order2)
     db.session.delete(order)
     # 删除由 add_in_order 创建的入库单

@@ -27264,13 +27264,12 @@ def complete_in_order(id):
         return jsonify({'status': 'error', 'msg': '入库日期不能晚于今天，请先修改单据日期'}), 400
     if not order.items:
         return api_error('请至少添加一条入库明细')
-    # BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
-    # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
-    if not order.warehouse:
-        default_wh = get_default_warehouse()
-        if default_wh:
-            order.warehouse = default_wh.name
-    if not order.warehouse:
+    # BUG-2026-08-02-009 修复：仓库是入库单必填字段，与库位管理是否启用无关。
+    # 锁前只做 fast-path 读校验（不修改 order 对象），实际赋值放到加锁后完成。
+    # 因为 _acquire_order_write_lock 在 SQLite 分支会 db.session.rollback()，
+    # 锁前的 order.warehouse 修改会被丢弃，导致存量无仓库 pending 单据完成时
+    # 以 warehouse=NULL 落库 + 库位库存不同步。
+    if not order.warehouse and not get_default_warehouse():
         return api_error('入库单必须填写仓库')
     valid_source, source_msg = validate_purchase_in_order_source(order)
     if not valid_source:
@@ -27295,6 +27294,15 @@ def complete_in_order(id):
         if not order.items:
             db.session.rollback()
             return api_error('请至少添加一条入库明细')
+        # 加锁后再做仓库赋值与必填校验，避免锁前修改被 rollback 丢弃。
+        # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
+        if not order.warehouse:
+            default_wh = get_default_warehouse()
+            if default_wh:
+                order.warehouse = default_wh.name
+        if not order.warehouse:
+            db.session.rollback()
+            return api_error('入库单必须填写仓库')
         is_recompleted = StockTransaction.query.filter_by(
             reference_type='in_order',
             reference_id=order.id,
