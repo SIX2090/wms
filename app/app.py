@@ -34908,6 +34908,16 @@ def batch_complete_out_order():
             db.session.rollback()
             continue
         order = locked
+        # BUG-2026-08-02-004 修复：批量完成时仓库必填校验，与单据版 complete_out_order 一致。
+        # 未填仓库时自动带入默认仓库，无默认仓库则跳过本单（不阻断整批）。
+        if not order.warehouse:
+            default_wh = get_default_warehouse()
+            if default_wh:
+                order.warehouse = default_wh.name
+        if not order.warehouse:
+            skipped.append(f'{order.order_no}(未填写仓库)')
+            db.session.rollback()
+            continue
         stock_ok = True
         for item in order.items:
             stock = normalize_stock_quantity(item.material.stock or 0)
