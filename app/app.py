@@ -32984,7 +32984,8 @@ def adjustment_add_page():
     materials_json = [serialize_material(m) for m in materials]
     units = Unit.query.order_by(Unit.name.asc()).all()
     units_json = [{'id': u.id, 'name': u.name} for u in units]
-    warehouses = Warehouse.query.order_by(Warehouse.name.asc()).all()
+    # BUG-2026-08-02-015：调整单仓库必填，仅列出启用仓库并预选默认仓库
+    warehouses = get_active_warehouses()
 
     return render_template('adjustment_add.html',
                          adjustment=None,
@@ -32996,6 +32997,7 @@ def adjustment_add_page():
                          materials=materials_json,
                          units=units_json,
                          warehouses=warehouses,
+                         default_warehouse=get_default_warehouse(),
                          existing_items=[],
                          readonly=False,
                          page_title='新增库存调整单')
@@ -33014,7 +33016,8 @@ def adjustment_detail(id):
     materials_json = [serialize_material(m) for m in materials]
     units = Unit.query.order_by(Unit.name.asc()).all()
     units_json = [{'id': u.id, 'name': u.name} for u in units]
-    warehouses = Warehouse.query.order_by(Warehouse.name.asc()).all()
+    # BUG-2026-08-02-015：调整单仓库必填，仅列出启用仓库并预选默认仓库
+    warehouses = get_active_warehouses()
     readonly = adjustment.status != 'pending'
 
     return render_template('adjustment_add.html',
@@ -33027,6 +33030,7 @@ def adjustment_detail(id):
                          materials=materials_json,
                          units=units_json,
                          warehouses=warehouses,
+                         default_warehouse=get_default_warehouse(),
                          existing_items=[_serialize_adjustment_item_for_form(item) for item in adjustment.items],
                          readonly=readonly,
                          page_title=('查看库存调整单' if readonly else '编辑库存调整单'))

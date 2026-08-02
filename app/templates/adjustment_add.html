@@ -312,7 +312,19 @@
                         <input type="text" class="form-control" value="{{ adjustment.operator.username if adjustment and adjustment.operator else current_user.username }}" readonly>
                     </div>
                 </div>
-                <div class="col-md-12">
+                <div class="col-md-3">
+                    {# BUG-2026-08-02-015：调整单仓库必填，未填写时模板预选默认仓库 #}
+                    <div class="mb-2">
+                        <label class="form-label">仓库 <span class="text-danger">*</span></label>
+                        <select class="form-select" name="warehouse" {% if readonly %}disabled{% endif %} required>
+                            <option value="">请选择仓库</option>
+                            {% for warehouse in warehouses %}
+                            <option value="{{ warehouse.name }}" {% if (adjustment and adjustment.warehouse == warehouse.name) or (not adjustment and default_warehouse and default_warehouse.name == warehouse.name) %}selected{% endif %}>{{ warehouse.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-9">
                     <div class="mb-2">
                         <label class="form-label">备注</label>
                         <textarea class="form-control" name="remark" rows="2" {% if readonly %}readonly{% endif %}>{{ remark }}</textarea>
@@ -679,6 +691,15 @@ function submitForm(completeAfterSave) {
         return;
     }
 
+    // BUG-2026-08-02-015：仓库必填前端校验
+    const warehouseEl = document.querySelector('[name="warehouse"]');
+    const warehouse = warehouseEl ? warehouseEl.value.trim() : '';
+    if (!warehouse) {
+        showToast('请选择仓库', 'warning');
+        if (warehouseEl) warehouseEl.focus();
+        return;
+    }
+
     const result = collectItems();
     if (result.invalidRows.length) {
         showToast(result.invalidRows[0], 'danger', 3600);
@@ -694,6 +715,7 @@ function submitForm(completeAfterSave) {
         adjustment_no: document.querySelector('[name="adjustment_no"]').value,
         date: date,
         adjustment_type: document.querySelector('[name="adjustment_type"]').value,
+        warehouse: warehouse,
         remark: document.querySelector('[name="remark"]').value,
         items: result.items
     };
