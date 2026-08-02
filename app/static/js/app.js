@@ -3497,6 +3497,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function renderDropdown(input, contracts) {
+        if (!input) return;
         closeDropdown();
         if (!contracts || !contracts.length) return;
 
