@@ -38228,9 +38228,23 @@ def _parse_positive_int(value, default):
 
 
 def _build_report_filters():
+    # BUG-2026-08-02-014：报表仓库必填筛选，未指定时带入默认仓库
+    warehouse_id = _parse_positive_int(request.args.get('warehouse_id'), 0)
+    warehouse_name = ''
+    if not warehouse_id:
+        default_wh = get_default_warehouse()
+        if default_wh:
+            warehouse_id = default_wh.id
+            warehouse_name = default_wh.name
+    else:
+        wh = Warehouse.query.get(warehouse_id)
+        if wh:
+            warehouse_name = wh.name
     return {
         'start_date': _parse_date_arg('start_date'),
         'end_date': _parse_date_arg('end_date'),
+        'warehouse_id': warehouse_id,
+        'warehouse': warehouse_name,
         'material_code': (request.args.get('material_code') or '').strip(),
         'supplier_id': _parse_positive_int(request.args.get('supplier_id'), 0),
         'supplier': (request.args.get('supplier') or '').strip(),
