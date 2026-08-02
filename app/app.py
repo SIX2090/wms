@@ -8539,6 +8539,8 @@ def opening_stock_list():
         opening_doc_no=opening_doc_no,
         doc_date=date.today().isoformat(),
         warehouses=warehouses,
+        # BUG-2026-08-02-017：期初建账仓库必填，新建时预选默认仓库
+        default_warehouse=get_default_warehouse(),
     )
 
 

@@ -194,7 +194,7 @@
                     <select class="form-select" id="headerWarehouse" required>
                         <option value="">请选择仓库</option>
                         {% for w in warehouses %}
-                            <option value="{{ w.id }}">{{ w.code }} - {{ w.name }}</option>
+                            <option value="{{ w.id }}" {% if default_warehouse and default_warehouse.id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
