@@ -14,6 +14,10 @@ cd /d "%~dp0" || exit /b 1
 for %%I in ("%~dp0..") do set "APP_ROOT=%%~fI"
 set "FLASK_ENV=production"
 set "PYTHONUTF8=1"
+REM WMS_NO_DB_TOUCH=1：服务模式启动同样跳过数据库初始化（默认基础资料补齐），
+REM 与 start_wms_offline.bat 保持一致。若更新引入新数据库字段，需临时移除本行
+REM 或改用 update_from_github.bat 统一更新。
+set "WMS_NO_DB_TOUCH=1"
 set "PYTHONPATH=%~dp0;%PYTHONPATH%"
 
 REM 查找 Python（优先绿色版，回退系统 Python）

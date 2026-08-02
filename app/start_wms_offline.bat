@@ -9,6 +9,12 @@ REM WMS_ALLOW_AUTO_SECRET_KEY=1 enables controlled offline deployment: SECRET_KE
 REM and persisted to instance/secret_key (not regenerated each restart). For production servers with
 REM explicit SECRET_KEY env var, this flag has no effect.
 set "WMS_ALLOW_AUTO_SECRET_KEY=1"
+REM WMS_NO_DB_TOUCH=1 让启动时跳过数据库初始化（schema 自动迁移 + 默认基础资料补齐，
+REM 如默认仓库/默认物料分类等 ensure_* 逻辑）。生产环境已稳定后加此标志，避免每次
+REM 双击启动都往库里补齐代码内置的默认基础资料。若某次更新引入了新数据库字段，
+REM 需临时移除本行（或改用 update_from_github.bat 统一更新，它在更新后会用
+REM WMS_NO_DB_TOUCH=1 启动并做必要的显式迁移）。
+set "WMS_NO_DB_TOUCH=1"
 set "PYTHONPATH=%~dp0;%PYTHONPATH%"
 echo Starting WMS...
 echo URL: http://127.0.0.1:8080/login
