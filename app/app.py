@@ -42932,11 +42932,14 @@ def report_view(report_type):
     if definition is None:
         abort(404)
     suppliers = Supplier.query.all()
+    # BUG-2026-08-02-014：报表筛选器加仓库下拉框，传 warehouses / default_warehouse 给模板
     return render_template(
         'report_view.html',
         report_type=report_type,
         title=definition['title'],
         suppliers=suppliers,
+        warehouses=get_active_warehouses(),
+        default_warehouse=get_default_warehouse(),
         summary_labels=definition['summary_labels'],
         summary_types=definition['summary_types'],
         filters_config=definition['filters'],

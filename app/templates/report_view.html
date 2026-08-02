@@ -43,6 +43,17 @@
             </div>
             {% endif %}
 
+            {# BUG-2026-08-02-014：报表仓库必填下拉框，未选时前端校验+默认仓库预选 #}
+            <div class="col-md-3">
+                <label for="warehouse_id" class="form-label">仓库 <span class="text-danger">*</span></label>
+                <select id="warehouse_id" name="warehouse_id" class="form-select" required>
+                    <option value="">请选择仓库</option>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}" {% if default_warehouse and default_warehouse.id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
             {% if filters_config.material %}
             <div class="col-md-3">
                 <label for="material_code" class="form-label">物料搜索{% if report_type == 'ledger' %} <span class="text-danger">*</span>{% endif %}</label>
@@ -375,6 +386,15 @@ function renderPagination(total) {
 }
 
 async function loadData() {
+    // BUG-2026-08-02-014：报表仓库必填前端校验
+    const warehouseSel = filterForm.querySelector('#warehouse_id');
+    if (warehouseSel && !warehouseSel.value) {
+        tableBody.innerHTML = `<tr><td class="text-center text-danger py-5">请先选择仓库</td></tr>`;
+        tableHeaderRow.innerHTML = '<th>提示</th>';
+        renderSummary({ count: 0, quantity: 0, amount: 0 });
+        renderPagination(0);
+        return;
+    }
     // 库存台账必须先指定物料，避免打开就返回全表数据
     if (reportType === 'ledger' && !filterForm.querySelector('#material_code').value.trim()) {
         renderSummary({ count: 0, quantity: 0, amount: 0 });
