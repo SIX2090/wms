@@ -28882,6 +28882,8 @@ def _document_units_json():
 
 def _render_transfer_form(transfer=None):
     warehouses = get_active_warehouses()
+    # BUG-2026-08-02-016：调拨单新建时调出仓库预选默认仓库
+    default_warehouse = get_default_warehouse()
     return render_template(
         'document_table_form.html',
         doc_type='transfer',
@@ -28905,6 +28907,7 @@ def _render_transfer_form(transfer=None):
         materials=_document_materials_json(),
         units=_document_units_json(),
         warehouses=warehouses,
+        default_warehouse=default_warehouse,
         boms=[],
         existing_items=[_material_line_data(item) for item in (transfer.items if transfer else [])],
         can_complete=bool(transfer and transfer.status == 'pending'),
@@ -32139,7 +32142,7 @@ def transfer_list():
         'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
         'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
     }
-    return render_template('transfer.html', transfers=transfers, pagination=pagination, warehouses=warehouses, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page)
+    return render_template('transfer.html', transfers=transfers, pagination=pagination, warehouses=warehouses, default_warehouse=get_default_warehouse(), filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page)
 
 
 @app.route('/transfer/add', methods=['GET'])
