@@ -38903,6 +38903,9 @@ def _purchase_order_item_query(filters):
 
 
 def _collect_purchase_order_execution_rows(filters):
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return []
     items = _purchase_order_item_query(filters).limit(5000).all()
     today_value = date.today()
     rows = []
@@ -39381,8 +39384,23 @@ def _build_purchase_price_report(filters):
     return _purchase_price_analysis_columns(), rows, summary
 
 
+def _subcontract_columns():
+    return [
+        {'field': 'order_no', 'title': '委外单号', 'link_field': 'order_url'},
+        {'field': 'date', 'title': '日期'},
+        {'field': 'supplier', 'title': '加工厂商'},
+        {'field': 'status', 'title': '状态'},
+        {'field': 'issue_qty', 'title': '发料数量'},
+        {'field': 'receive_qty', 'title': '收货数量'},
+        {'field': 'remark', 'title': '备注'},
+    ]
+
+
 def _build_subcontract_report(filters):
     """构建委外加工报表"""
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return _subcontract_columns(), [], {'count': 0, 'quantity': 0, 'amount': 0}
     query = SubcontractOrder.query.options(
         joinedload(SubcontractOrder.supplier),
         selectinload(SubcontractOrder.items).joinedload(SubcontractItem.material),
@@ -39443,26 +39461,32 @@ def _build_subcontract_report(filters):
             'remark': order.remark or '',
         })
     
-    columns = [
-        {'field': 'order_no', 'title': '委外单号', 'link_field': 'order_url'},
-        {'field': 'date', 'title': '日期'},
-        {'field': 'supplier', 'title': '加工厂商'},
-        {'field': 'status', 'title': '状态'},
-        {'field': 'issue_qty', 'title': '发料数量'},
-        {'field': 'receive_qty', 'title': '收货数量'},
-        {'field': 'remark', 'title': '备注'},
-    ]
-    
     summary = {
         'count': len(rows),
         'quantity': total_issue,
         'amount': total_receive,
     }
-    return columns, rows, summary
+    return _subcontract_columns(), rows, summary
+
+
+def _requisition_columns():
+    return [
+        {'field': 'req_no', 'title': '工单领料单号', 'link_field': 'order_url'},
+        {'field': 'date', 'title': '日期'},
+        {'field': 'bom_no', 'title': 'BOM单号'},
+        {'field': 'status', 'title': '状态'},
+        {'field': 'quantity', 'title': '工单领料数量'},
+        {'field': 'amount', 'title': '工单领料金额'},
+        {'field': 'operator', 'title': '操作人'},
+        {'field': 'remark', 'title': '备注'},
+    ]
 
 
 def _build_requisition_report(filters):
     """构建工单领料报表"""
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return _requisition_columns(), [], {'count': 0, 'quantity': 0, 'amount': 0}
     query = ProductionRequisition.query.options(
         joinedload(ProductionRequisition.bom),
         joinedload(ProductionRequisition.operator),
@@ -39505,23 +39529,12 @@ def _build_requisition_report(filters):
             'remark': req.remark or '',
         })
     
-    columns = [
-        {'field': 'req_no', 'title': '工单领料单号', 'link_field': 'order_url'},
-        {'field': 'date', 'title': '日期'},
-        {'field': 'bom_no', 'title': 'BOM单号'},
-        {'field': 'status', 'title': '状态'},
-        {'field': 'quantity', 'title': '工单领料数量'},
-        {'field': 'amount', 'title': '工单领料金额'},
-        {'field': 'operator', 'title': '操作人'},
-        {'field': 'remark', 'title': '备注'},
-    ]
-    
     summary = {
         'count': len(rows),
         'quantity': total_qty,
         'amount': round(total_amount, 2),
     }
-    return columns, rows, summary
+    return _requisition_columns(), rows, summary
 
 
 REPORT_BUILDERS = {

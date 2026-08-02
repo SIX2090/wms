@@ -21,7 +21,9 @@ os.environ.setdefault("WMS_DEBUG", "0")
 import app as app_module  # noqa: E402
 from app import (  # noqa: E402
     Warehouse, User, Material, MaterialCategory, Unit, Supplier,
-    InOrder, InOrderItem, db,
+    InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem,
+    SubcontractOrder, SubcontractItem, ProductionRequisition,
+    ProductionRequisitionItem, db,
 )
 
 app_module.app.config["TESTING"] = True
@@ -194,3 +196,152 @@ class TestBugP16CompletedInOrderCannotDeleteDirectly:
                 f"批量删除未挡住已完成单，P1-6要求：{body}"
             )
             assert InOrder.query.get(id_done) is not None
+
+
+# ---------------------------------------------------------------------------
+# P2-1：subcontract / requisition / purchase_* 业务报表仓库必填守卫
+# ---------------------------------------------------------------------------
+class TestBugP21BizReportWarehouseGuard:
+    def _seed_without_warehouse(self):
+        """无仓库配置环境：不创建任何 Warehouse。"""
+        with app_module.app.app_context():
+            _reset_db()
+            unit = Unit(name="个", code="PCS")
+            cat = MaterialCategory(name="默认分类", code="CAT-DEFAULT")
+            sup = Supplier(code="SUP001", name="测试供应商")
+            from werkzeug.security import generate_password_hash
+            user = User(
+                username="admin",
+                password_hash=generate_password_hash("admin"),
+                role="admin",
+                must_change_password=False,
+            )
+            mat = Material(
+                code="M001", name="测试物料", spec="S1",
+                category=cat, unit=unit, supplier=sup,
+                stock=0, price=10, min_stock=0, max_stock=9999, reorder_point=0,
+            )
+            db.session.add_all([unit, cat, sup, user, mat])
+            db.session.commit()
+            return {"mat": mat, "sup": sup}
+
+    def _seed_biz_orders(self):
+        """在当前会话中造委外单 / 领料单 / 采购订单各一条，验证"有数据仍被守卫拦截"。"""
+        from datetime import date as _date
+        with app_module.app.app_context():
+            mat = Material.query.filter_by(code="M001").first()
+            sup = Supplier.query.filter_by(code="SUP001").first()
+            if PurchaseOrder.query.count() == 0:
+                po = PurchaseOrder(
+                    order_no="PO-001", date=_date.today(), supplier_id=sup.id,
+                    status="pending", total_amount=100,
+                )
+                db.session.add(po)
+                db.session.flush()
+                db.session.add(PurchaseOrderItem(
+                    purchase_order_id=po.id, material_id=mat.id,
+                    quantity=10, received_quantity=0, price=10, amount=100,
+                ))
+            if SubcontractOrder.query.count() == 0:
+                sc = SubcontractOrder(
+                    order_no="SC-001", date=_date.today(), supplier_id=sup.id,
+                    status="pending", total_amount=50,
+                )
+                db.session.add(sc)
+                db.session.flush()
+                db.session.add(SubcontractItem(
+                    subcontract_order_id=sc.id, material_id=mat.id, quantity=5,
+                ))
+            if ProductionRequisition.query.count() == 0:
+                pr = ProductionRequisition(
+                    req_no="REQ-001", date=_date.today(),
+                    purpose="测试领料", status="pending",
+                )
+                db.session.add(pr)
+                db.session.flush()
+                db.session.add(ProductionRequisitionItem(
+                    requisition_id=pr.id, material_id=mat.id, quantity=3,
+                ))
+            db.session.commit()
+
+    def test_A_no_warehouse_no_default_returns_empty(self):
+        """无仓库参数 + 无默认仓库 → 三个业务报表返回空数据（守卫生效）。"""
+        self._seed_without_warehouse()
+        client = _make_client()
+        for report_type in ('purchase_order_execution', 'subcontract', 'requisition'):
+            resp = client.get(f"/report/api/{report_type}")
+            body = resp.get_json() or {}
+            assert resp.status_code == 200, (report_type, body)
+            assert body.get("status") == "success", (report_type, body)
+            assert body.get("data") == [], (
+                f"{report_type} 无仓库时未返回空，违反 AGENTS.md 仓库必填：{body}"
+            )
+            assert body.get("total", 0) == 0, (report_type, body)
+
+    def test_B_default_warehouse_auto_used_returns_rows(self):
+        """有默认仓库且未显式传仓库 → 自动带入默认仓，报表返回数据（不误伤）。"""
+        with app_module.app.app_context():
+            _reset_db()
+            # 建默认仓库
+            wh = Warehouse(code="WHD", name="默认仓", is_default=True, status="active")
+            unit = Unit(name="个", code="PCS")
+            cat = MaterialCategory(name="默认分类", code="CAT-DEFAULT")
+            sup = Supplier(code="SUP001", name="测试供应商")
+            from werkzeug.security import generate_password_hash
+            user = User(
+                username="admin",
+                password_hash=generate_password_hash("admin"),
+                role="admin",
+                must_change_password=False,
+            )
+            mat = Material(
+                code="M001", name="测试物料", spec="S1",
+                category=cat, unit=unit, supplier=sup,
+                stock=0, price=10, min_stock=0, max_stock=9999, reorder_point=0,
+            )
+            db.session.add_all([wh, unit, cat, sup, user, mat])
+            db.session.commit()
+        self._seed_biz_orders()
+        client = _make_client()
+        for report_type in ('purchase_order_execution', 'subcontract', 'requisition'):
+            resp = client.get(f"/report/api/{report_type}")
+            body = resp.get_json() or {}
+            assert resp.status_code == 200, (report_type, body)
+            assert body.get("status") == "success", (report_type, body)
+            assert body.get("data") != [], (
+                f"{report_type} 有默认仓时不应被守卫拦截（自动带入默认仓）：{body}"
+            )
+
+    def test_C_explicit_warehouse_param_returns_rows(self):
+        """显式传 warehouse_id → 报表正常返回数据（指定仓 PO 行可见）。"""
+        with app_module.app.app_context():
+            _reset_db()
+            wh = Warehouse(code="WHA", name="仓库A", is_default=True, status="active")
+            unit = Unit(name="个", code="PCS")
+            cat = MaterialCategory(name="默认分类", code="CAT-DEFAULT")
+            sup = Supplier(code="SUP001", name="测试供应商")
+            from werkzeug.security import generate_password_hash
+            user = User(
+                username="admin",
+                password_hash=generate_password_hash("admin"),
+                role="admin",
+                must_change_password=False,
+            )
+            mat = Material(
+                code="M001", name="测试物料", spec="S1",
+                category=cat, unit=unit, supplier=sup,
+                stock=0, price=10, min_stock=0, max_stock=9999, reorder_point=0,
+            )
+            db.session.add_all([wh, unit, cat, sup, user, mat])
+            db.session.commit()
+            wh_id = wh.id
+        self._seed_biz_orders()
+        client = _make_client()
+        for report_type in ('purchase_order_execution', 'subcontract', 'requisition'):
+            resp = client.get(f"/report/api/{report_type}?warehouse_id={wh_id}")
+            body = resp.get_json() or {}
+            assert resp.status_code == 200, (report_type, body)
+            assert body.get("status") == "success", (report_type, body)
+            assert body.get("data") != [], (
+                f"{report_type} 显式指定仓库时应返回数据：{body}"
+            )
