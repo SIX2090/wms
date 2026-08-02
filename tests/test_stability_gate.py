@@ -11,6 +11,7 @@ def test_stability_gate_covers_every_mandatory_command():
         "scripts/lint_no_raw_post_fetch.py",
         "scripts/verify_wms_bugs.py",
         "scripts/verify_bug_2026_08_02_001.py",
+        "scripts/verify_bug_2026_08_02_002.py",
         "scripts/verify_in_order_state_machine.py",
         "scripts/verify_out_order_state_machine.py",
         "scripts/verify_transfer_state_machine.py",
