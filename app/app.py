@@ -35302,6 +35302,15 @@ def complete_after_sale_out_order(id):
             return jsonify({'status': 'error', 'msg': '该售后出库单状态已变化，不能重复完成'}), 409
         order = locked
 
+        # BUG-2026-08-02-006 修复：售后出库完成时仓库必填校验，与出库单一致。
+        # 存量未填仓库的 pending 单据完成时先自动带入默认仓库，无默认仓库才拒绝。
+        if not order.warehouse:
+            default_wh = get_default_warehouse()
+            if default_wh:
+                order.warehouse = default_wh.name
+        if not order.warehouse:
+            return api_error('请选择仓库')
+
         for item in order.items:
             material = db.session.get(Material, item.material_id)
             if material:
