@@ -123,3 +123,74 @@ class TestBugP15PurchaseInOptionalPurchaseOrder:
             )
             mat = Material.query.filter_by(code="M001").first()
             assert (mat.stock or 0) >= 3
+
+
+# ---------------------------------------------------------------------------
+# P1-6
+# ---------------------------------------------------------------------------
+class TestBugP16CompletedInOrderCannotDeleteDirectly:
+    def test_A_delete_completed_order_returns_409(self):
+        with app_module.app.app_context():
+            _reset_db()
+            seeds = _seed_common()
+            client = _make_client()
+            resp = client.post("/in_order/add", json={
+                "business_type": "采购入库",
+                "supplier_id": seeds["sup"].id,
+                "warehouse": seeds["wh_a"].name,
+                "items": [{"code": "M001", "quantity": 7, "price": 10}],
+            })
+            order_id = resp.get_json()["id"]
+            client.post(f"/in_order/{order_id}/complete")
+
+            delete_resp = client.post(f"/in_order/{order_id}/delete")
+            assert delete_resp.status_code == 409, (
+                f"已完成入库单被直接删除！P1-6要求必须先反提交：{delete_resp.get_json()}"
+            )
+            msg = (delete_resp.get_json() or {}).get("msg", "")
+            assert "反提交" in msg or "草稿" in msg, msg
+            assert InOrder.query.get(order_id) is not None
+
+    def test_B_revert_then_delete_succeeds(self):
+        with app_module.app.app_context():
+            _reset_db()
+            seeds = _seed_common()
+            client = _make_client()
+            resp = client.post("/in_order/add", json={
+                "business_type": "产品入库",
+                "warehouse": seeds["wh_a"].name,
+                "items": [{"code": "M001", "quantity": 2, "price": 10}],
+            })
+            order_id = resp.get_json()["id"]
+            client.post(f"/in_order/{order_id}/complete")
+            rev = client.post(f"/in_order/{order_id}/revert")
+            assert rev.get_json()["status"] == "success", rev.get_json()
+            d = client.post(f"/in_order/{order_id}/delete")
+            assert d.get_json()["status"] == "success", d.get_json()
+            assert InOrder.query.get(order_id) is None
+
+    def test_C_batch_delete_blocks_completed(self):
+        with app_module.app.app_context():
+            _reset_db()
+            seeds = _seed_common()
+            client = _make_client()
+            r1 = client.post("/in_order/add", json={
+                "business_type": "产品入库", "warehouse": seeds["wh_a"].name,
+                "items": [{"code": "M001", "quantity": 1, "price": 10}]
+            })
+            id_pending = r1.get_json()["id"]
+            r2 = client.post("/in_order/add", json={
+                "business_type": "产品入库", "warehouse": seeds["wh_a"].name,
+                "items": [{"code": "M001", "quantity": 1, "price": 10}]
+            })
+            id_done = r2.get_json()["id"]
+            client.post(f"/in_order/{id_done}/complete")
+
+            r = client.post("/in_order/batch_delete",
+                            json={"ids": [id_pending, id_done]})
+            body = r.get_json() or {}
+            msg = body.get("msg", "")
+            assert "已完成" in msg or "不能删除" in msg, (
+                f"批量删除未挡住已完成单，P1-6要求：{body}"
+            )
+            assert InOrder.query.get(id_done) is not None
