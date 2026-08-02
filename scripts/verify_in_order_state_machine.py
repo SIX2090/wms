@@ -32,6 +32,17 @@ def main() -> None:
         if not material:
             material = wms.Material(code="STATE-MACHINE-MAT", name="State machine material", stock=0)
             wms.db.session.add(material)
+        # BUG-2026-08-02-001 之后 complete_in_order 强制仓库必填；
+        # 本测试关注状态机与库存保护，需提供一个默认仓库让单据可完成。
+        warehouse = wms.Warehouse.query.filter_by(code="STATE-MACHINE-WH").first()
+        if not warehouse:
+            warehouse = wms.Warehouse(
+                code="STATE-MACHINE-WH",
+                name="入库状态机测试仓",
+                status="active",
+                is_default=True,
+            )
+            wms.db.session.add(warehouse)
         wms.db.session.commit()
         order = wms.InOrder(order_no="STATE-MACHINE-IN-001", date=date.today(), business_type="采购入库",
                             status="pending", operator_id=user.id)
