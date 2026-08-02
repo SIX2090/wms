@@ -33229,6 +33229,8 @@ def add_adjustment():
                     return api_error(f'物料 {material.code} 的数量必须是数字')
                 if quantity <= 0:
                     return api_error(f'物料 {material.code} 的数量必须大于0')
+                if quantity > 999999:
+                    return api_error(f'物料 {material.code} 的数量超过合理范围（最大 999999）')
 
                 # Check stock for loss type
                 current_stock = normalize_stock_quantity(material.stock or 0)
