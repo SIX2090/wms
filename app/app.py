@@ -33153,6 +33153,9 @@ def complete_adjustment(id):
         if not adjustment.items:
             db.session.rollback()
             return api_error('调整单没有明细，无法完成')
+        # BUG-2026-08-02-010 修复：开启库位管理时同步库位库存，避免总库存与库位库存之和产生偏差。
+        # TODO(P1-1)：AdjustmentOrder 加 warehouse 字段后，loc_key 改为 adjustment.warehouse or item.location
+        use_location = location_management_enabled()
         for item in adjustment.items:
             if not item.material_id:
                 continue
@@ -33181,6 +33184,15 @@ def complete_adjustment(id):
                 if not ok:
                     db.session.rollback()
                     return api_error(err)
+            # 库位库存同步：update_location_inventory 内部按 delta 正负自动分发 add/deduct。
+            # loc_key 优先 item.location（行级库位），P1-1 完成后切换为 adjustment.warehouse。
+            if use_location and quantity:
+                loc_key = (item.location or '').strip()
+                if loc_key:
+                    loc_ok, loc_err = update_location_inventory(item.material, loc_key, quantity)
+                    if not loc_ok:
+                        db.session.rollback()
+                        return api_error(loc_err or '库位库存更新失败')
 
         adjustment.status = 'completed'
         db.session.commit()
@@ -33205,6 +33217,9 @@ def revert_adjustment(id):
         if not ok:
             return api_error('该调整单已反提交，不能重复操作')
         adjustment = locked
+        # BUG-2026-08-02-010 修复：反提交时对称回退库位库存（与 complete 方向相反）。
+        # TODO(P1-1)：AdjustmentOrder 加 warehouse 字段后，loc_key 改为 adjustment.warehouse or item.location
+        use_location = location_management_enabled()
         for item in adjustment.items:
             if not item.material_id:
                 continue
@@ -33233,6 +33248,15 @@ def revert_adjustment(id):
                 if not ok:
                     db.session.rollback()
                     return api_error(err or '库存恢复失败')
+            # 库位库存对称回退：complete 时 +quantity，revert 时 -quantity；
+            # complete 时 -quantity，revert 时 +quantity。即 -quantity。
+            if use_location and quantity:
+                loc_key = (item.location or '').strip()
+                if loc_key:
+                    loc_ok, loc_err = update_location_inventory(item.material, loc_key, -quantity)
+                    if not loc_ok:
+                        db.session.rollback()
+                        return api_error(loc_err or '库位库存回退失败')
         adjustment.status = 'pending'
         db.session.commit()
         log_operation('反提交库存调整', f'调整单：{adjustment.adjustment_no}', 'adjustment', id)
