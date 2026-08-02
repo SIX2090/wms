@@ -34703,11 +34703,10 @@ def complete_out_order(id):
             return jsonify({'status': 'error', 'msg': warehouse_error}), 400
     # BUG-2026-08-02-003 修复：仓库是出库单必填字段，与库位管理是否启用无关。
     # 存量未填仓库的 pending 单据完成时，先自动带入默认仓库，无默认仓库才拒绝。
-    if not order.warehouse:
-        default_wh = get_default_warehouse()
-        if default_wh:
-            order.warehouse = default_wh.name
-    if not order.warehouse:
+    # 注意：此处只做读校验（fast-path），不修改 order.warehouse。
+    # 因为下方 _acquire_order_write_lock 在 SQLite 分支会 db.session.rollback()，
+    # 锁前的修改会被丢弃。实际赋值放到加锁后完成，保证 commit 时仓库已落库。
+    if not order.warehouse and not get_default_warehouse():
         return api_error('请选择仓库')
 
     # 异常检测（force=true时跳过）
@@ -34721,8 +34720,6 @@ def complete_out_order(id):
                 'anomalies': anomalies
             })
 
-    use_location = bool(location_management_enabled() and order.warehouse)
-
     try:
         # 加写锁并重新读取状态，避免多 worker 并发重复扣库存
         locked, ok = _acquire_order_write_lock(OutOrder, id, 'pending', selectinload(OutOrder.items))
@@ -34732,6 +34729,15 @@ def complete_out_order(id):
         if not order.items:
             db.session.rollback()
             return api_error('请至少添加一条领料明细')
+        # 加锁后再做仓库赋值与必填校验，避免锁前修改被 rollback 丢弃。
+        if not order.warehouse:
+            default_wh = get_default_warehouse()
+            if default_wh:
+                order.warehouse = default_wh.name
+        if not order.warehouse:
+            db.session.rollback()
+            return api_error('请选择仓库')
+        use_location = bool(location_management_enabled() and order.warehouse)
         for item in order.items:
             if not item.material_id:
                 continue
