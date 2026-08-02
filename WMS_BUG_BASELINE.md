@@ -127,6 +127,7 @@
 | BUG-2026-07-29-009 | NUL 字节 `\x00` 被静默吞掉 | `sanitize_text_input()` 同时去除 NUL 字节（随 BUG-002 一并提交）。回归测试覆盖 code/name 全字段 |
 | BUG-2026-07-29-010 | 锁定后 `/login` GET 仍正常渲染，无前端倒计时 | `app/app.py:login()` GET 分支检测 admin 锁定 → 传 `lock_remaining`/`locked_account` 模板；`login.html` 新增 `lockHint` 倒计时 + JS 每秒 tick。`scripts/verify_bug_2026_07_29_010.py` 覆盖 5 次错误后 GET 页面含倒计时 span |
 | BUG-2026-07-31-001 | 长会话 CSRF token 过期（30 分钟寿命），停留 30 分钟后所有非 GET 请求失败 | `app/app.py` 新增 `POST /api/csrf_refresh` 端点（`@csrf.exempt`，返回新 token）；`app/templates/base.html` 每 25 分钟（寿命 30 分钟，提前 5 分钟保险）调用一次 + 页面 visibilitychange 切回前台时立即调用，更新 `<meta name="csrf-token">` content。根治用户停留 30+ 分钟的所有 CSRF 失败场景。 |
+| BUG-2026-08-02-001 | 未启用库位管理时入库单仓库被误设为可选，导致可保存无仓库入库单；仓库与库位概念混淆 | `app/app.py` 新增 `prefer_default_warehouse()`/`get_default_warehouse()` helper；`add_in_order`/`update_in_order`/`complete_in_order`/`update_completed_in_order`/`batch_complete_in_order` 均强制仓库必填，未填写时自动取默认仓库，无默认仓库时拒绝保存/完成；`in_order_add.html`/`in_order_detail.html` 仓库字段加 `required` 与默认仓库选中，移除 `locationManagementEnabled` 控制仓库必填的旧逻辑。`scripts/verify_bug_2026_08_02_001.py` 静态+动态全量覆盖 |
 
 ## 已确认误报
 
