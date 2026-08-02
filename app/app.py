@@ -32456,24 +32456,28 @@ def complete_transfer(id):
         if not transfer.items:
             db.session.rollback()
             return api_error('调拨单没有明细，无法完成')
-        # 调拨不改变总库存：只在 from_location 原子扣减、在 to_location 累加，并记录双向流水
+        # BUG-2026-08-02-013：与入库/出库对齐，未开启库位管理时不写 LocationInventory。
+        # 调拨不改变总库存：开启库位管理时在 from_location 原子扣减、to_location 累加；
+        # 未开启时只记录双向流水（审计用），不动 LocationInventory。
+        use_location = location_management_enabled()
         for item in transfer.items:
             if not item.material_id:
                 continue
             material_code = item.material.code if item.material else str(item.material_id)
             quantity = item.quantity or 0
-            ok, err = deduct_location_inventory_atomic(
-                item.material_id, transfer.from_location, quantity,
-                material_code_hint=material_code,
-            )
-            if not ok:
-                db.session.rollback()
-                return api_error(err)
-            # 调入方向用老的 update_location_inventory 自动建账即可（非破坏性）
-            ok_in, err_in = update_location_inventory(item.material, transfer.to_location, quantity)
-            if not ok_in:
-                db.session.rollback()
-                return api_error(err_in)
+            if use_location:
+                ok, err = deduct_location_inventory_atomic(
+                    item.material_id, transfer.from_location, quantity,
+                    material_code_hint=material_code,
+                )
+                if not ok:
+                    db.session.rollback()
+                    return api_error(err)
+                # 调入方向用老的 update_location_inventory 自动建账即可（非破坏性）
+                ok_in, err_in = update_location_inventory(item.material, transfer.to_location, quantity)
+                if not ok_in:
+                    db.session.rollback()
+                    return api_error(err_in)
             add_stock_transaction(
                 item.material, -quantity, 'transfer_out',
                 reference_type='transfer',
@@ -32514,17 +32518,20 @@ def revert_transfer(id):
         if not ok:
             return api_error('该调拨单已反提交，不能重复操作')
         transfer = locked
+        # BUG-2026-08-02-013：与 complete_transfer 对称，未开启库位管理时不写 LocationInventory。
+        use_location = location_management_enabled()
         for item in transfer.items:
             if item.material:
                 quantity = item.quantity or 0
-                ok, error_msg = update_location_inventory(item.material, transfer.to_location, -quantity)
-                if not ok:
-                    db.session.rollback()
-                    return api_error(error_msg)
-                loc_ok, loc_err = update_location_inventory(item.material, transfer.from_location, quantity)
-                if not loc_ok:
-                    db.session.rollback()
-                    return api_error(loc_err or '来源库位库存恢复失败')
+                if use_location:
+                    ok, error_msg = update_location_inventory(item.material, transfer.to_location, -quantity)
+                    if not ok:
+                        db.session.rollback()
+                        return api_error(error_msg)
+                    loc_ok, loc_err = update_location_inventory(item.material, transfer.from_location, quantity)
+                    if not loc_ok:
+                        db.session.rollback()
+                        return api_error(loc_err or '来源库位库存恢复失败')
                 add_stock_transaction(
                     item.material, quantity, 'transfer_in',
                     reference_type='transfer',
@@ -33780,6 +33787,8 @@ def _create_adjustment_drafts_from_check(check):
             source_id=check.id,
             status='pending',
             operator_id=current_user.id if current_user.is_authenticated else None,
+            # BUG-2026-08-02-013：盘点生成的调整草稿带上盘点仓库，保证 complete_adjustment 能按仓库同步库位库存
+            warehouse=getattr(check, 'warehouse', None),
             remark=f'由盘点单 {check.check_no} 自动生成，请审核后提交'
         )
         db.session.add(order)
@@ -33827,6 +33836,8 @@ def _create_adjustment_drafts_from_check_scan(check):
             source_id=check.id,
             status='pending',
             operator_id=getattr(check, 'operator_id', None) or (current_user.id if current_user.is_authenticated else None),
+            # BUG-2026-08-02-013：扫码盘点生成的调整草稿带上盘点仓库
+            warehouse=getattr(check, 'warehouse', None),
             remark=f'由扫码盘点单 {check.check_no} 自动生成，请审核后提交'
         )
         db.session.add(order)
