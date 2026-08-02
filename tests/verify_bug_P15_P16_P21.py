@@ -197,6 +197,81 @@ class TestBugP16CompletedInOrderCannotDeleteDirectly:
             )
             assert InOrder.query.get(id_done) is not None
 
+    def test_D_batch_delete_po_update_failure_warns(self, monkeypatch):
+        """P1-1：批量删除后统一更新采购订单状态失败时，返回 po_update_failed=True
+        且 msg 提示人工核对，不再静默返回 success。"""
+        with app_module.app.app_context():
+            _reset_db()
+            seeds = _seed_common()
+            from datetime import date as _date
+            # 构造一张来源采购订单（草稿状态，received_quantity=5）
+            po = PurchaseOrder(
+                order_no="PO-P11", date=_date.today(), supplier_id=seeds["sup"].id,
+                status="pending", total_amount=100,
+            )
+            db.session.add(po)
+            db.session.flush()
+            po_item = PurchaseOrderItem(
+                purchase_order_id=po.id, material_id=seeds["mat"].id,
+                quantity=10, received_quantity=5, price=10, amount=100,
+            )
+            db.session.add(po_item)
+            db.session.flush()
+            # 直接在 DB 构造一张来源该采购订单的草稿入库单（可删除）
+            io = InOrder(
+                order_no="IN-P11", date=_date.today(), supplier_id=seeds["sup"].id,
+                business_type="采购入库", warehouse=seeds["wh_a"].name,
+                source_purchase_order_id=po.id, status="pending",
+                operator_id=seeds["user"].id, total_amount=20,
+            )
+            db.session.add(io)
+            db.session.flush()
+            # 关键：InOrderItem 关联 source_purchase_order_item_id，使批量删除时
+            # affected_purchase_order_ids 非空，触发统一 update_purchase_order_status
+            db.session.add(InOrderItem(
+                in_order_id=io.id, material_id=seeds["mat"].id,
+                source_purchase_order_item_id=po_item.id,
+                quantity=2, price=10, amount=20,
+            ))
+            db.session.commit()
+            order_id = io.id
+
+            # mock update_purchase_order_status 抛异常，模拟 PO 状态更新失败
+            def _boom(_po):
+                raise RuntimeError("模拟采购订单状态更新失败")
+            monkeypatch.setattr(app_module, "update_purchase_order_status", _boom)
+
+            client = _make_client()
+            r = client.post("/in_order/batch_delete", json={"ids": [order_id]})
+            body = r.get_json() or {}
+            assert body.get("status") == "success", body
+            assert body.get("deleted") == 1, body
+            assert body.get("po_update_failed") is True, (
+                f"PO 状态更新失败时未返回 po_update_failed=True：{body}"
+            )
+            assert "采购订单状态更新失败" in body.get("msg", ""), (
+                f"msg 未提示采购订单状态更新失败：{body}"
+            )
+
+    def test_E_batch_delete_po_update_ok_no_warn(self):
+        """P1-1：正常路径下（PO 状态更新成功）po_update_failed=False。"""
+        with app_module.app.app_context():
+            _reset_db()
+            seeds = _seed_common()
+            client = _make_client()
+            resp = client.post("/in_order/add", json={
+                "business_type": "产品入库", "warehouse": seeds["wh_a"].name,
+                "items": [{"code": "M001", "quantity": 2, "price": 10}],
+            })
+            order_id = resp.get_json()["id"]
+            r = client.post("/in_order/batch_delete", json={"ids": [order_id]})
+            body = r.get_json() or {}
+            assert body.get("status") == "success", body
+            assert body.get("deleted") == 1, body
+            assert body.get("po_update_failed") is False, (
+                f"正常路径下 po_update_failed 应为 False：{body}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # P2-1：subcontract / requisition / purchase_* 业务报表仓库必填守卫

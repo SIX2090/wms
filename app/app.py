@@ -28050,6 +28050,7 @@ def batch_delete_in_order():
             app.logger.exception('批量删除入库单失败: %s', order_no)
 
     # 更新受影响的采购订单状态（已提交的单据不受后续 rollback 影响）
+    po_update_failed = False
     try:
         for po_id in affected_purchase_order_ids:
             po = db.session.get(PurchaseOrder, po_id)
@@ -28058,12 +28059,21 @@ def batch_delete_in_order():
         db.session.commit()
     except Exception:
         db.session.rollback()
+        po_update_failed = True
         app.logger.exception('批量删除入库单后更新采购订单状态失败')
 
     msg = f'批量删除完成，共删除 {deleted_count} 张入库单'
     if skipped:
         msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
-    return jsonify({'status': 'success', 'msg': msg, 'deleted': deleted_count, 'skipped': skipped})
+    if po_update_failed:
+        msg += '；但部分采购订单状态更新失败，请人工核对采购订单执行进度'
+    return jsonify({
+        'status': 'success',
+        'msg': msg,
+        'deleted': deleted_count,
+        'skipped': skipped,
+        'po_update_failed': po_update_failed,
+    })
 
 
 @app.route('/in_order/batch_complete', methods=['POST'])
