@@ -1,285 +1,537 @@
-# AI 修复 WMS 基础资料缺陷 — 提示词
+# WMS 系统仓库必填规则全面修复 AI 提示词
 
-> 用途：把 `/workspace/wms_audit_20260727_120000.md` 列出的 4 个致命、5 个一般、5 个提示缺陷**按优先级一次性修完**，并由 AI 自行 commit + push。
-> 工作目录：`/workspace`
-> 目标分支：`main`（**禁止**创建 feature/fix/chore/trae/* 等任何新分支；本地 `.githooks/pre-push` 与 AGENTS.md 已硬约束）
-
----
-
-## 0. 必须遵守的硬规则
-
-1. **工作分支：仅 `main`**。禁止 `git checkout -b`、禁止 `gh repo create`、禁止 `git push origin HEAD:xxx`。
-2. **禁止自动改/重置/生成任何用户密码**，包括 admin bootstrap。修改前必须取得用户显式授权。
-3. **已完成入库单禁止硬删**。所有入库/出库/盘点等已完成单据的 `delete_*` 路由必须先反提交到草稿并回退库存，再允许删除。
-4. **每完成一个任务必须**：
-   - 跑相关验证脚本（如 `scripts/verify_high_priority_fixes.py`、`verify_ai_business_permissions.py`）拿到 exit 0 输出；
-   - `git add <具体文件>`（不要 `git add -A` / `git add .`）；
-   - `git commit -m "fix(<scope>): <一句话说明>"`；
-   - `git push origin main`；
-   - 把 commit SHA 写进 `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` 对应 task 行。
-5. **不要把 secrets/.env/credentials.json 加入 commit**。
-6. **不要重新开发已完成 capability**。改前先查 `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` 任务 ID 是否已 `DONE`；若是，使用 child fix ID（如 `AI-F-01-fix1`）。
+> **使用说明**：把本文件全文作为 prompt 发给 AI 编码助手（如 TRAE/Cursor/Copilot），AI 会按顺序执行 P0 → P1 → P2 修复。每个修复项都是独立 atomic action，修一个 commit 一个 push 一个，不批量打包。
+>
+> **修复前必读**：
+> 1. 先 `bash .githooks/install-hooks.sh` 启用 pre-commit 钩子（A1-A9 规则门禁）
+> 2. 先 `cat AGENTS.md` 阅读仓库与库位必填规则全文
+> 3. 先 `cat DEVELOPMENT_RULES.md` 阅读 9 条防 BUG 规则
+> 4. 所有提交直接到 `main` 分支，**禁止建分支**
+> 5. 业务 JS 禁止裸 `fetch`，必须用 `WMS.api.post/put/delete`
+> 6. 新增 POST/PUT/DELETE 路由必须用 pydantic BaseModel 输入校验（A8）
+> 7. 新增业务函数必须在 `tests/` 至少 1 个 pytest 测试（A9）
 
 ---
 
-## 1. 任务清单（按 P0 → P2 顺序）
+## 背景
 
-### P0-F-01：员工删除加业务引用校验
-- 文件：`app/app.py`（约 23884 行的 `delete_employee`）
-- 改动：
-  ```python
-  # 在 db.session.delete(emp) 之前，先查所有 operator_id 引用
-  from sqlalchemy import or_
-  blockers = []
-  for Model, col in [
-      (InOrder, 'operator_id'),
-      (OutOrder, 'operator_id'),
-      (PurchaseOrder, 'operator_id'),
-      (SalesOrder, 'operator_id'),
-      (Check, 'operator_id'),
-      (Transfer, 'operator_id'),
-      (Adjustment, 'operator_id'),
-      (AfterSaleOut, 'operator_id'),
-  ]:
-      if hasattr(Model, col):
-          n = Model.query.filter(getattr(Model, col) == emp.id).count()
-          if n:
-              blockers.append(f"{Model.__name__}.{col} 引用 {n} 次")
-  if blockers:
-      return jsonify(success=False, error="员工已被业务单据引用，禁止删除：\n" + "\n".join(blockers)), 409
-  ```
-- 验证：构造一个被 InOrder.operator_id 引用的员工，POST `/employee/delete`，必须返回 409 + 中文错误。
+依据 `AGENTS.md` 仓库与库位必填规则，对 WMS 系统做了一次全面审计，发现 **3 个 P0 数据正确性 BUG** + **4 类 P1 设计缺陷** + **5 个 P2 前端模板缺失**。本提示词逐项给出修复方案、关键代码位置、回归测试要求。
 
-### P0-F-02：分类删除加 Material 引用校验
-- 文件：`app/app.py`（约 8902 行的 `delete_category`）
-- 改动：
-  ```python
-  mat_n = Material.query.filter_by(category_id=cat.id).count()
-  if mat_n:
-      return jsonify(success=False, error=f"分类已被 {mat_n} 个物料引用，禁止删除"), 409
-  ```
-- 验证：构造一个被 5 个物料引用的分类，POST `/category/delete`，必须返回 409。
+### 规则速查
 
-### P0-F-03：合同/工程加导入路由
-- 文件：`app/app.py`（新增）+ `app/templates/contract.html`（顶部工具栏加导入按钮）
-- 改动：
-  1. `app/app.py` 新增：
-     ```python
-     @app.route('/contract/import', methods=['POST'])
-     @login_required
-     @require_role('admin')
-     def import_contract():
-         f = request.files.get('file')
-         if not f or not validate_excel_extension(f.filename):
-             return jsonify(success=False, error='仅支持 .xlsx/.xls'), 400
-         try:
-             wb = load_workbook(filename=BytesIO(f.read()), data_only=True)
-             ws = wb.active
-           rows = list(ws.iter_rows(values_only=True))
-             header = [str(c).strip() if c else '' for c in rows[0]]
-             required = ['合同号', '合同名称', '供应商', '签订日期', '金额']
-             missing = [c for c in required if c not in header]
-             if missing:
-                 return jsonify(success=False, error=f'缺少列: {missing}'), 400
-             ok = 0
-             for r in rows[1:]:
-                 if not r or not r[0]: continue
-                 d = dict(zip(header, r))
-                 c = Contract.query.filter_by(contract_no=str(d['合同号']).strip()).first()
-                 if c:
-                     c.contract_name = d.get('合同名称') or c.contract_name
-                     # ...其他字段更新
-                 else:
-                     db.session.add(Contract(contract_no=str(d['合同号']).strip(), ...))
-                 ok += 1
-             db.session.commit()
-             return jsonify(success=True, message=f'导入 {ok} 条'))
-         except Exception as e:
-             db.session.rollback()
-             return jsonify(success=False, error=str(e)), 500
-     ```
-  2. `contract.html` `page-header` 加按钮：`<button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#importModal"><i class="bi bi-upload"></i> 导入</button>`
-  3. 加 `#importModal`（参照 `material.html:754-777` 的弹窗结构）。
-- 验证：上传 3 行合同 Excel → 数据库新增 3 条 → 二次上传同合同号 → 不重复新增（更新）。
+| 规则 | 未开启库位管理 | 开启库位管理 |
+|---|---|---|
+| 出入库单据 | 仓库必填，可默认仓库 | 仓库+库位均必填，可默认 |
+| 库存查询/报表/台账 | 仓库必填筛选项 | 仓库必填筛选，库位可选 |
+| 仓库与库位 | 不同层级概念，**不得混淆或互相替代** | 同左 |
 
-### P0-F-04：batch_import.html 增 3 张卡片
-- 文件：`app/templates/batch_import.html`（在现有 8 张卡片末尾追加）
-- 改动（参考现有卡片结构，**3 张**）：
-  ```html
-  <!-- 仓库 -->
-  <div class="col-md-6"><div class="card">
-    <div class="card-header"><h5 class="mb-0">导入仓库</h5></div>
-    <div class="card-body">
-      <p class="text-muted small">表头需含：仓库编号、仓库名称、类型、地点、状态</p>
-      <form class="import-form" data-url="/warehouse/import" enctype="multipart/form-data">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="file" class="form-control mb-2" name="file" accept=".xlsx,.xls" required>
-        <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-upload"></i> 导入仓库</button>
-        <a href="/warehouse/download_template" class="btn btn-sm btn-outline-secondary ms-2"><i class="bi bi-download"></i> 下载模板</a>
-      </form>
-      <div class="import-result mt-2"></div>
-    </div></div></div>
-  <!-- 部门 -->
-  <div class="col-md-6"><div class="card">
-    <div class="card-header"><h5 class="mb-0">导入部门</h5></div>
-    <div class="card-body">
-      <p class="text-muted small">表头需含：部门编号、部门名称、上级部门</p>
-      <form class="import-form" data-url="/department/import" enctype="multipart/form-data">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="file" class="form-control mb-2" name="file" accept=".xlsx,.xls" required>
-        <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-upload"></i> 导入部门</button>
-        <a href="/department/download_template" class="btn btn-sm btn-outline-secondary ms-2"><i class="bi bi-download"></i> 下载模板</a>
-      </form>
-      <div class="import-result mt-2"></div>
-    </div></div></div>
-  <!-- 客户 -->
-  <div class="col-md-6"><div class="card">
-    <div class="card-header"><h5 class="mb-0">导入客户</h5></div>
-    <div class="card-body">
-      <p class="text-muted small">表头需含：客户编号、客户名称、联系人、电话、地址</p>
-      <form class="import-form" data-url="/customer/import" enctype="multipart/form-data">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="file" class="form-control mb-2" name="file" accept=".xlsx,.xls" required>
-        <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-upload"></i> 导入客户</button>
-        <a href="/customer/download_template" class="btn btn-sm btn-outline-secondary ms-2"><i class="bi bi-download"></i> 下载模板</a>
-      </form>
-      <div class="import-result mt-2"></div>
-    </div></div></div>
-  ```
-- 验证：浏览器访问 `/batch_import`，确认共 11 张卡片；任选一卡片 → 下载模板 → 填 1 行 → 上传 → 列表显示新数据。
+### 仓库与库位概念
 
-### P1-M-01：5 个基础资料加 editXxx 函数 + 行级编辑按钮
-- 文件：`app/templates/{unit,supplier,customer,employee,category}.html` + `app/app.py` 新增 `edit_<resource>` 路由
-- 改动：每个页面行操作列在删除前加 `<button class="btn btn-sm btn-outline-primary me-1" onclick="editXxx(<id>)">编辑</button>`，并在页面底部加 `function editXxx(id){...fetch + 弹窗}` 完整实现（参照 `material.html` 的 edit 流程）。后端新增 `edit_unit/supplier/customer/employee/category` 5 个 PUT 路由。
-- 验证：进入任一模块 → 行级点编辑 → 弹窗显示原值 → 改名 → 保存 → 列表更新。
-
-### P1-M-02：8 个基础资料页加顶部工具栏
-- 文件：`app/templates/{category,unit,supplier,customer,employee,warehouse,department,contract}.html`
-- 改动：在 `page-header` 区域统一加 4 按钮（新增 / 导入 / 导出 / 下载模板），按钮 trigger 对应模态（warehouse.html / department.html 缺模态，需先补 `#addModal` / `#importModal`）。`contract.html` 补「新增」+「导入」。
-- 验证：进入每个基础资料页 → 顶部 4 按钮可见且能点开对应模态或跳转对应下载。
-
-### P1-M-03：Warehouse 加 is_default 字段 + 设为默认按钮
-- 文件：`app/models.py`（Warehouse 模型）+ `app/app.py`（迁移 + 切换接口）+ `app/templates/warehouse.html`（行级按钮）
-- 改动：
-  ```python
-  class Warehouse(db.Model):
-      # ... 现有字段 ...
-      is_default = db.Column(db.Boolean, default=False, nullable=False)
-  ```
-  新增路由 `POST /warehouse/<id>/set_default`：先把所有 `is_default=True` 置 False，再把当前行置 True（同一事务）。行级加 `<button onclick="setDefault(<id>)">设为默认</button>`。
-- 验证：建 3 个仓库 → 把 #2 设为默认 → 列表中 #2 显示「默认」徽标，其他两行徽标消失。
-
-### P1-M-04：Employee 加 code + department_id 字段
-- 文件：`app/models.py`（Employee 模型）+ 一次性迁移
-- 改动：
-  ```python
-  class Employee(db.Model):
-      # ... 现有字段 ...
-      code = db.Column(db.String(64), unique=True, nullable=True)  # nullable=True 兼容老数据
-      department_id = db.Column(db.Integer, db.ForeignKey('department.id'), nullable=True)
-      department = db.relationship('Department', backref='employees', lazy='joined')
-  ```
-  一次性数据迁移脚本：`UPDATE employee SET code = 'EMP' || id WHERE code IS NULL;`
-- 验证：`SELECT code, department_id FROM employee LIMIT 5;` 不再全为 NULL；建员工时传 code/department_id → 保存成功。
-
-### P2-M-05：合同删除增 InOrderDetail.contract_no 字符串匹配
-- 文件：`app/app.py`（约 8115 行的 `_contract_delete_blockers`）
-- 改动：
-  ```python
-  n = db.session.query(InOrderDetail).join(InOrder, InOrderDetail.in_order_id == InOrder.id)\
-        .filter(InOrderDetail.contract_no == contract.contract_no).count()
-  if n:
-      blockers.append(f"InOrderDetail.contract_no 引用 {n} 次")
-  # 同样补 OutOrderDetail / PurchaseOrderDetail / SalesOrderDetail
-  ```
-- 验证：建一个合同号 C001 → 入库单明细行 contract_no=C001 → 删合同 C001 → 期望 409。
-
-### P2-m-01：客户删除增 OtherInOrderDetail.customer_id FK 校验
-- 文件：`app/app.py`（约 23751 行的 `delete_customer`）
-- 改动：`n = OtherInOrderDetail.query.filter_by(customer_id=customer.id).count(); if n: return 409`
-- 验证：构造 OtherInOrderDetail.customer_id = C → 删客户 C → 期望 409。
-
-### P2-m-03：全局限制 Excel 上传 ≤ 5MB
-- 文件：`app/app.py`
-- 改动：`app.config.setdefault('MAX_CONTENT_LENGTH', 5 * 1024 * 1024)`（在 `app = Flask(__name__)` 之后一行）。
-- 验证：上传 6MB xlsx → 期望 413 Request Entity Too Large。
+- **仓库（Warehouse）**：物理存储设施（如"主仓库"、"原料仓"）
+- **库位（Location）**：仓库内部的细分储位（如"A-01-02"）
+- 仓库始终是必填项，库位管理未开启时不要求库位
 
 ---
 
-## 2. 执行步骤（AI 严格按此顺序）
+## P0 修复（数据正确性，必须立即修复）
 
+### P0-1：`complete_in_order` 仓库赋值被 SQLite rollback 丢弃
+
+**BUG ID**：BUG-2026-08-02-009  
+**位置**：`app/app.py` 函数 `complete_in_order`（约第 27257-27348 行）  
+**根因**：`order.warehouse = default_wh.name` 写在 `_acquire_order_write_lock` **之前**，而该锁在 SQLite 分支会 `db.session.rollback()`，导致锁前赋值被丢弃，存量无仓库 pending 入库单完成时以 `warehouse=NULL` 落库 + 库位库存不同步。
+
+**参照模板**：`complete_out_order`（约第 34692-34774 行）已正确实现此修复，注释明确说明"实际赋值放到加锁后完成"。
+
+**修复方案**：
+
+1. **锁前只做 fast-path 读校验**（不修改 order 对象）：
+```python
+# 锁前 fast-path：无仓库且无默认仓库时直接拒绝，不修改 order 对象
+# 实际赋值放到加锁后完成，避免 SQLite 分支 rollback 丢弃
+if not order.warehouse and not get_default_warehouse():
+    return api_error('入库单必须填写仓库')
+```
+
+2. **删除锁前的 `order.warehouse = default_wh.name` 赋值代码块**
+
+3. **加锁后 `order = locked` 之后再做实际赋值与必填校验**：
+```python
+locked, ok = _acquire_order_write_lock(InOrder, id, 'pending', selectinload(InOrder.items))
+if not ok:
+    return api_error('该入库单已提交，不能重复操作')
+order = locked
+if not order.items:
+    db.session.rollback()
+    return api_error('请至少添加一条入库明细')
+# 加锁后再做仓库赋值与必填校验，避免锁前修改被 rollback 丢弃
+if not order.warehouse:
+    default_wh = get_default_warehouse()
+    if default_wh:
+        order.warehouse = default_wh.name
+if not order.warehouse:
+    db.session.rollback()
+    return api_error('入库单必须填写仓库')
+use_location = bool(location_management_enabled() and order.warehouse)
+```
+
+**回归测试**：扩展 `scripts/verify_bug_2026_08_02_001.py`，新增 D5 用例：
+- 创建一个 `warehouse=""` 的 pending 入库单
+- 调用 `/in_order/<id>/complete`
+- 断言 `order.warehouse == default_wh.name`（不是空字符串）
+- 断言响应 200
+
+**验收命令**：
 ```bash
-# 0. 准备
-cd /workspace
-git status
-git log -n 3 --oneline
+python3 scripts/verify_bug_2026_08_02_001.py  # 必须全绿
+python3 scripts/verify_in_order_state_machine.py  # 不能回归
+```
 
-# 1. 拉一个干净的 main（不要建分支）
-git checkout main
-git pull --rebase origin main
+**commit message**：
+```
+fix(in_order): BUG-2026-08-02-009 complete_in_order 仓库赋值移到锁后
 
-# 2. 修 P0 四个 → 每个改完立即验证 + commit + push
-#    每个 P0 任务对应一次 commit
-#    例：fix(emp-delete): F-01 add operator_id reference checks
+锁前 order.warehouse = default_wh.name 被 _acquire_order_write_lock
+的 SQLite 分支 rollback 丢弃，导致存量无仓库 pending 入库单完成时
+以 warehouse=NULL 落库 + 库位库存不同步。
 
-# 3. 跑一遍综合验证
-python scripts/verify_high_priority_fixes.py        # 期望 exit 0
-python scripts/verify_medium_low_fixes.py           # 期望 exit 0
-python scripts/verify_ai_business_permissions.py    # 期望 exit 0
-
-# 4. 更新 WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md
-#    对每个修完的 task 行追加：
-#    DONE 2026-07-27  commit=<sha>  modules=<files>  validate=<cmd>  result=pass
-
-# 5. 最终汇总
-git log -n 14 --oneline
-git push origin main
+改为锁前只做 fast-path 读校验，实际赋值移到 order = locked 之后，
+与 complete_out_order 实现对齐。
 ```
 
 ---
 
-## 3. 验收清单（AI 修完必须勾完）
+### P0-2：`complete_adjustment` / `revert_adjustment` 不同步库位库存
 
-- [ ] P0-F-01 employee.delete 引用校验生效
-- [ ] P0-F-02 category.delete 物料引用校验生效
-- [ ] P0-F-03 contract.import 路由存在且 contract.html 工具栏有「导入」按钮
-- [ ] P0-F-04 /batch_import 渲染 11 张卡片，仓库/部门/客户可正常导入
-- [ ] P1-M-01 5 模块行级 edit 按钮 + editXxx 函数 + 后端 PUT 路由 全部就绪
-- [ ] P1-M-02 8 基础资料页顶部 4 按钮齐全
-- [ ] P1-M-03 Warehouse.is_default 字段 + 切换接口 + 行级徽标 全部就绪
-- [ ] P1-M-04 Employee.code + department_id 字段 + 一次性数据迁移脚本就绪
-- [ ] P2-M-05 合同删除阻断 InOrderDetail.contract_no 引用
-- [ ] P2-m-01 客户删除阻断 OtherInOrderDetail.customer_id 引用
-- [ ] P2-m-03 MAX_CONTENT_LENGTH=5MB 生效
-- [ ] 全部 commit 已 push 到 `main`（**未**新建任何分支）
-- [ ] WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md 任务状态已更新
-- [ ] 验证脚本全部 exit 0，输出已贴到 ledger
+**BUG ID**：BUG-2026-08-02-010  
+**位置**：`app/app.py` 函数 `complete_adjustment`（约第 33090-33142 行）、`revert_adjustment`（约第 33148-33195 行）  
+**根因**：只调 `add_stock`/`deduct_stock_atomic` 改 `Material.stock` 总库存，**完全不调 `update_location_inventory`**，`AdjustmentOrderItem.location` 字段存在却被忽略。开启库位管理后，每次调整完成都让总库存与库位库存之和产生偏差，且无法通过对称回退修复。
+
+**参照模板**：`complete_in_order`（约第 27313-27317 行）的正确写法：
+```python
+if location_management_enabled() and order.warehouse:
+    loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, item.quantity or 0)
+```
+
+**修复方案**：
+
+1. **`complete_adjustment`** 在 `add_stock` / `deduct_stock_atomic` 之后补库位同步：
+```python
+for item in adjustment.items:
+    if not item.material_id:
+        continue
+    quantity = item.quantity or 0
+    if quantity > 0:
+        ok, err = add_stock(item.material, quantity, transaction_type='adjustment_in', ...)
+    elif quantity < 0:
+        ok, err, _ = deduct_stock_atomic(item.material_id, abs(quantity), transaction_type='adjustment_out', ...)
+    # BUG-2026-08-02-010 修复：开启库位管理时同步库位库存
+    # 使用 item.location（如有）或 adjustment 的仓库字段作为库位 key
+    if location_management_enabled():
+        loc_key = item.location or adjustment.warehouse  # 优先 item.location，回退单据仓库
+        if loc_key:
+            if quantity > 0:
+                update_location_inventory(item.material, loc_key, quantity)
+            elif quantity < 0:
+                deduct_location_inventory_atomic(item.material_id, loc_key, abs(quantity))
+```
+
+2. **`revert_adjustment`** 对称回退库位库存（与 complete 相反方向）。
+
+**前置依赖**：本修复依赖 P1-2（AdjustmentOrder 模型加 warehouse 字段）。若 P1-2 未完成，先用 `item.location` 作为库位 key，注释标记 TODO 等模型字段补齐后切换为 `adjustment.warehouse`。
+
+**回归测试**：创建 `scripts/verify_bug_2026_08_02_003.py`：
+- 开启 `location_management_enabled`
+- 创建一个带 `item.location='测试库位'` 的 pending 调整单
+- 调用 `/adjustment/<id>/complete`
+- 断言 `LocationInventory` 中该库位的数量已更新
+- 断言 `Material.stock` 也已更新（总库存与库位库存一致）
+- 调用 `/adjustment/<id>/revert`
+- 断言 `LocationInventory` 已回退
+
+**验收命令**：
+```bash
+python3 scripts/verify_bug_2026_08_02_003.py
+python3 scripts/verify_adjustment_state_machine.py  # 不能回归
+```
+
+**commit message**：
+```
+fix(adjustment): BUG-2026-08-02-010 complete/revert_adjustment 同步库位库存
+
+之前只改 Material.stock 总库存，不调 update_location_inventory，
+导致开启库位管理后总库存与库位库存之和产生偏差，且无法对称回退。
+
+补齐库位同步逻辑，与 complete_in_order 对齐。
+```
 
 ---
 
-## 4. 失败回退
+### P0-3：`batch_delete_in_order` 未回退采购订单进度 + 未加写锁
 
-任一 P0 任务验证未通过：
-1. `git revert <sha>` 回退该 commit
-2. 在 `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` 该 task 行加 `BLOCKED: <原因>`
-3. 继续修其他独立 P0，最后再回头修这一个
-4. **不要**因为一个 P0 失败就跳过其他 P0
+**BUG ID**：BUG-2026-08-02-011  
+**位置**：`app/app.py` 函数 `batch_delete_in_order`（约第 27915-27949 行）  
+**根因**：
+1. 删除循环未回退 `source_purchase_order_item.received_quantity`，未调用 `update_purchase_order_status`，与单条删除 `delete_in_order`（约第 27766-27780 行）逻辑不对称
+2. 未调用 `_acquire_order_write_lock`，存在并发完成导致已完成单被删的竞态
+
+**参照模板**：`delete_in_order`（约第 27745-27787 行）的正确实现。
+
+**修复方案**：
+
+```python
+@app.route('/in_order/batch_delete', methods=['POST'])
+@login_required
+def batch_delete_in_order():
+    # ... 读取 ids ...
+    orders = InOrder.query.filter(InOrder.id.in_(ids)).all()
+    blocked = [o.order_no for o in orders if o.status != 'pending']
+    if blocked:
+        return api_error(f'以下入库单不是草稿状态，不能删除：{", ".join(blocked)}')
+
+    deleted_count = 0
+    affected_purchase_order_ids = set()
+    for order in orders:
+        # BUG-2026-08-02-011 修复：逐条加写锁，防止并发完成后误删
+        locked, ok = _acquire_order_write_lock(InOrder, order.id, 'pending', selectinload(InOrder.items))
+        if not ok:
+            db.session.rollback()
+            continue  # 已被并发完成，跳过
+        order = locked
+        # 回退采购订单来源进度（与 delete_in_order 对齐）
+        for item in list(order.items):
+            if item.source_purchase_order_item_id:
+                poi = SourcePurchaseOrderItem.query.get(item.source_purchase_order_item_id)
+                if poi:
+                    poi.received_quantity = (poi.received_quantity or 0) - (item.quantity or 0)
+                    affected_purchase_order_ids.add(poi.purchase_order_id)
+            db.session.delete(item)
+        db.session.delete(order)
+        deleted_count += 1
+
+    # 更新受影响的采购订单状态
+    from app import update_purchase_order_status
+    for po_id in affected_purchase_order_ids:
+        po = PurchaseOrder.query.get(po_id)
+        if po:
+            update_purchase_order_status(po)
+
+    db.session.commit()
+    return jsonify({'status': 'success', 'deleted_count': deleted_count})
+```
+
+**回归测试**：创建 `scripts/verify_bug_2026_08_02_004.py`：
+- 创建一个带 `source_purchase_order_item_id` 的 pending 入库单
+- 调用 `/in_order/batch_delete` 删除它
+- 断言 `source_purchase_order_item.received_quantity` 已回退
+- 断言采购订单状态已更新
+- 断言入库单已删除
+
+**验收命令**：
+```bash
+python3 scripts/verify_bug_2026_08_02_004.py
+python3 scripts/verify_in_order_state_machine.py  # 不能回归
+```
+
+**commit message**：
+```
+fix(in_order): BUG-2026-08-02-011 batch_delete_in_order 补采购订单进度回退+写锁
+
+与 delete_in_order 逻辑对齐：
+1. 逐条加 _acquire_order_write_lock，防止并发完成后误删
+2. 删除前回退 source_purchase_order_item.received_quantity
+3. 删除后调用 update_purchase_order_status 更新采购订单状态
+```
 
 ---
 
-## 5. 关键文件路径速查
+## P1 修复（设计缺陷，需模型 migration）
 
-| 用途 | 路径 |
-|---|---|
-| 报告 md | `wms_audit_20260727_120000.md` |
-| 报告 json | `wms_audit_20260727_120000.json` |
-| 主程序 | `app/app.py` |
-| 模型 | `app/models.py` |
-| 集中导入页 | `app/templates/batch_import.html` |
-| 物料导入参考模板 | `app/templates/material.html:754-777` |
-| 通用导入前端组件 | `app/static/js/excel-import-export.js` |
-| AI 任务台账 | `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` |
-| 高优先级验证 | `scripts/verify_high_priority_fixes.py` |
-| 中低优先级验证 | `scripts/verify_medium_low_fixes.py` |
-| 权限矩阵验证 | `scripts/verify_ai_business_permissions.py` |
-| 预推送钩子 | `.githooks/pre-push`（禁止 push 非 main 分支） |
+### P1-1：TransferOrder / InventoryCheck / AdjustmentOrder 模型加 warehouse 字段
+
+**BUG ID**：BUG-2026-08-02-012  
+**位置**：
+- `TransferOrder` 模型（约第 4350-4364 行）
+- `InventoryCheck` 模型（约第 3725-3735 行）
+- `AdjustmentOrder` 模型（约第 4385-4402 行）
+
+**根因**：三个模型均无 `warehouse` 字段，导致无法满足 AGENTS.md "调拨、盘点、调整…仓库是必填项"规则。TransferOrder 用 `from_location`/`to_location` 存储 `Warehouse.name`，仓库与库位概念混淆。
+
+**修复方案**：
+
+1. **模型层加字段**（migration）：
+```python
+class TransferOrder(db.Model):
+    # 保留 from_location/to_location 作为库位字段（开启库位管理时使用）
+    from_location = db.Column(db.String(100), nullable=False)  # 调出仓库（未开库位）或调出库位（开库位）
+    to_location = db.Column(db.String(100), nullable=False)
+    # 新增：调出仓库 + 调入仓库（仓库必填，库位可选）
+    from_warehouse = db.Column(db.String(100), nullable=False)  # 调出仓库
+    to_warehouse = db.Column(db.String(100), nullable=False)    # 调入仓库
+
+class InventoryCheck(db.Model):
+    warehouse = db.Column(db.String(100), nullable=False)  # 盘点仓库，必填
+
+class AdjustmentOrder(db.Model):
+    warehouse = db.Column(db.String(100), nullable=False)  # 调整仓库，必填
+```
+
+2. **migration 脚本**：创建 `scripts/migrate_add_warehouse_to_transfer_check_adjustment.py`
+   - 对 TransferOrder：从 `from_location`/`to_location`（当前存的是仓库名）回填到 `from_warehouse`/`to_warehouse`
+   - 对 InventoryCheck/AdjustmentOrder：存量数据回填默认仓库名
+
+3. **路由层补校验**：
+   - `save_transfer_table` / `add_transfer`：读取 `from_warehouse`/`to_warehouse`，未填时自动带入默认仓库，无默认仓库拒绝保存
+   - `save_check_table` / `add_check`：读取 `warehouse`，未填时自动带入默认仓库
+   - `add_adjustment`：读取 `warehouse`，未填时自动带入默认仓库
+
+4. **前端模板补字段**：
+   - `transfer.html`：新增"调出仓库"/"调入仓库"下拉，保留 `from_location`/`to_location` 作为库位字段
+   - `check.html`：新增盘点仓库下拉
+   - `adjustment_add.html`：新增调整仓库下拉
+
+**回归测试**：创建 `scripts/verify_bug_2026_08_02_005.py`：
+- 静态检查模型字段存在
+- 动态测试：无仓库时拒绝保存、有默认仓库时自动带入、complete 时 warehouse 落库
+
+**注意**：本修复涉及 migration，需在维护窗口执行。`nullable=False` 加字段对存量数据需先回填再 alter。
+
+**commit message**：
+```
+feat(model): BUG-2026-08-02-012 TransferOrder/InventoryCheck/AdjustmentOrder 加 warehouse 字段
+
+三个模型原本无 warehouse 字段，违反 AGENTS.md 仓库必填规则。
+TransferOrder 用 from_location/to_location 存仓库名，概念混淆。
+
+- TransferOrder 新增 from_warehouse/to_warehouse（保留 from_location/to_location 作库位）
+- InventoryCheck 新增 warehouse
+- AdjustmentOrder 新增 warehouse
+- 路由层补仓库必填校验 + 默认仓库带入
+- 前端模板补仓库下拉
+- migration 脚本回填存量数据
+```
+
+---
+
+### P1-2：`complete_adjustment` 使用 `adjustment.warehouse` 同步库位（依赖 P1-1）
+
+**位置**：`app/app.py` 函数 `complete_adjustment`  
+**说明**：P0-2 修复中用 `item.location or adjustment.warehouse` 作为 loc_key，P1-1 完成后改为优先用 `adjustment.warehouse`：
+```python
+loc_key = adjustment.warehouse or item.location
+```
+
+---
+
+### P1-3：调拨/盘点/调整三类路由补 `location_management_enabled()` 判断
+
+**BUG ID**：BUG-2026-08-02-013  
+**位置**：
+- `complete_transfer`（约第 32306 行）
+- `complete_check`（约第 33659 行）
+- `complete_adjustment`（约第 33090 行，P0-2 已部分修复）
+
+**根因**：三类路由均未调用 `location_management_enabled()`，与入库/出库的 `if location_management_enabled() and order.warehouse:` 模式不一致。
+
+**修复方案**：
+- `complete_transfer`：把 `update_location_inventory` 调用包在 `if location_management_enabled() and transfer.from_warehouse:` 内
+- `complete_check`：生成的调整草稿带上 warehouse 信息
+- `complete_adjustment`：P0-2 已补，确认判断开关
+
+**commit message**：
+```
+fix(transfer_check_adjust): BUG-2026-08-02-013 三类路由补 location_management_enabled 判断
+
+与入库/出库对齐，未开启库位管理时不写 LocationInventory，避免冗余记录。
+```
+
+---
+
+### P1-4：库存查询/报表/台账仓库必填筛选
+
+**BUG ID**：BUG-2026-08-02-014  
+**位置**：22 个路由（详见审计报告），核心是 `_build_report_filters`（约第 38003-38017 行）无 warehouse 字段  
+**根因**：系统不存在 `StockBalance` 按仓库维度的当前库存余额表，`Material.stock` 是单一聚合值，无法按仓库拆分当前库存。
+
+**修复方案**（分两步）：
+
+**步骤 1（最小改动，先满足规则）**：
+- `_build_report_filters` 增加 `warehouse` 字段，为空时 `raise ValueError`
+- `report_api_query` 捕获 ValueError 返回 400 "请选择仓库"
+- `/stock_query`、`/alert`、`/opening_stock`、`/sales/outflow_report` 等查询入口增加 warehouse 必填校验
+- `in_detail`/`out_detail`/`ledger`/`summary` 等 builder 的 SQL 加 `.filter(InOrder.warehouse == warehouse)` / `.filter(OutOrder.warehouse == warehouse)`
+- `/report/view/<report_type>` 模板加仓库必填下拉
+
+**步骤 2（架构改造，可选）**：
+- 引入 `StockBalance(material_id, warehouse_id, quantity)` 表
+- `Material.stock` 改为按仓库汇总的视图或冗余字段
+- `StockTransaction` / `LocationInventory` 加 `warehouse_id` 外键 + migration 回填
+
+**回归测试**：创建 `scripts/verify_bug_2026_08_02_006.py`：
+- 无 warehouse 参数调用 `/report/api/query` 返回 400
+- 有 warehouse 参数时 SQL 带 warehouse 过滤
+- `/stock_query` 无 warehouse 参数返回 400 或空结果
+
+**commit message**：
+```
+feat(report): BUG-2026-08-02-014 库存查询/报表/台账仓库必填筛选
+
+22 个路由全部缺失仓库必填筛选，违反 AGENTS.md 规则。
+- _build_report_filters 增加 warehouse 字段，为空时 raise
+- report_api_query 捕获返回 400
+- /stock_query /alert /opening_stock /sales_outflow_report 补必填校验
+- in_detail/out_detail/ledger/summary builder SQL 加 warehouse 过滤
+```
+
+---
+
+## P2 修复（前端模板缺失）
+
+### P2-1：`after_sale_out_detail.html` 详情页补显示仓库
+
+**位置**：`app/templates/after_sale_out_detail.html` 基本信息卡片（约第 56-95 行）  
+**修复**：在基本信息卡片中补：
+```html
+<p><strong>仓库：</strong>{{ order.warehouse or '-' }}</p>
+```
+
+**commit message**：
+```
+fix(template): 售后出库详情页补显示仓库字段
+```
+
+---
+
+### P2-2：`check.html` 新增盘点单模态框补仓库字段
+
+**位置**：`app/templates/check.html` 新增盘点单模态框（约第 134-155 行）  
+**修复**：
+```html
+<div class="mb-3">
+    <label class="form-label">仓库 <span class="text-danger">*</span></label>
+    <select class="form-select" name="warehouse" required>
+        <option value="">请选择仓库</option>
+        {% for warehouse in warehouses %}
+        <option value="{{ warehouse.name }}" {% if default_warehouse and default_warehouse.name == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
+        {% endfor %}
+    </select>
+</div>
+```
+JS 提交前校验：`if (!warehouse) { showToast('仓库不能为空', 'warning'); return; }`
+
+**依赖**：P1-1（InventoryCheck 模型加 warehouse 字段）
+
+**commit message**：
+```
+fix(template): 盘点单新增模态框补仓库必填字段
+```
+
+---
+
+### P2-3：`adjustment_add.html` 表头补仓库字段
+
+**位置**：`app/templates/adjustment_add.html` 表头区域（约第 287-321 行）  
+**修复**：表头补仓库下拉（与 P2-2 同款），保留 `adjust-location` 作为库位字段。  
+**依赖**：P1-1（AdjustmentOrder 模型加 warehouse 字段）
+
+**commit message**：
+```
+fix(template): 调整单表头补仓库必填字段，保留库位字段
+```
+
+---
+
+### P2-4：`transfer.html` 调拨新增模态框补 default_warehouse 预选
+
+**位置**：`app/templates/transfer.html`（约第 149-162 行）  
+**修复**：调出/调入仓库下拉按 `default_warehouse` 预选：
+```html
+<option value="{{ warehouse.name }}" {% if default_warehouse and default_warehouse.name == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
+```
+JS 补"调出仓库 ≠ 调入仓库"前端校验。
+
+**commit message**：
+```
+fix(template): 调拨单补默认仓库预选+调出调入不能相同校验
+```
+
+---
+
+### P2-5：`opening_stock.html` 表头仓库补 default_warehouse 预选
+
+**位置**：`app/templates/opening_stock.html`（约第 194 行）  
+**修复**：表头仓库下拉按 `default_warehouse` 预选。
+
+**commit message**：
+```
+fix(template): 期初库存表头仓库补默认预选
+```
+
+---
+
+## 执行顺序与依赖关系
+
+```
+P0-1 (complete_in_order 锁后赋值)        ── 独立，立即执行
+P0-3 (batch_delete_in_order 补回退+锁)    ── 独立，立即执行
+P1-1 (三个模型加 warehouse 字段+migration) ── 独立，但需维护窗口
+P0-2 (complete_adjustment 同步库位)        ── 依赖 P1-1（用 adjustment.warehouse）
+P1-3 (三类路由补 location_management 判断) ── 依赖 P1-1
+P1-4 (库存查询/报表仓库必填筛选)           ── 独立，但 in_detail/out_detail/ledger 依赖 InOrder/OutOrder.warehouse（已有）
+P2-1 (after_sale_out_detail 显示仓库)      ── 独立，立即执行
+P2-2 (check.html 补仓库字段)               ── 依赖 P1-1
+P2-3 (adjustment_add.html 补仓库字段)      ── 依赖 P1-1
+P2-4 (transfer.html 补默认预选)            ── 独立，立即执行
+P2-5 (opening_stock.html 补默认预选)       ── 独立，立即执行
+```
+
+**推荐执行顺序**：
+1. P0-1 → P0-3（立即，数据正确性）
+2. P2-1 → P2-4 → P2-5（立即，前端模板，无依赖）
+3. P1-1（维护窗口，模型 migration）
+4. P0-2 → P1-3（依赖 P1-1）
+5. P1-4（报表改造，较大）
+6. P2-2 → P2-3（依赖 P1-1）
+
+---
+
+## 每个 atomic action 的验收清单
+
+每个修复完成后必须逐项确认：
+
+- [ ] 代码改动符合本提示词方案
+- [ ] 新增/扩展的回归脚本全绿
+- [ ] 原有 `scripts/verify_*_state_machine.py` 不回归
+- [ ] `python3 scripts/verify_stability_gate.py` 通过
+- [ ] `python3 -m pytest tests/ -q` 全过
+- [ ] `WMS_BUG_BASELINE.md` 添加对应 BUG 条目
+- [ ] `scripts/verify_stability_gate.py` 注册新回归脚本
+- [ ] `tests/test_stability_gate.py` 添加对新脚本的断言
+- [ ] commit message 关联 BUG ID
+- [ ] `git push origin main` 成功，本地与 origin/main SHA 一致
+
+---
+
+## 禁止事项
+
+- ❌ 禁止建分支，所有提交直接到 `main`
+- ❌ 禁止批量打包多个修复到一个 commit
+- ❌ 禁止用 `git commit --no-verify` 跳过钩子
+- ❌ 禁止修改用户密码（规则 B）
+- ❌ 禁止强制采购入库关联采购订单（规则 C，`purchase_in_order_requires_order()` 恒 `False`）
+- ❌ 禁止业务 JS 裸 `fetch`（必须 `WMS.api`）
+- ❌ 禁止把仓库和库位概念混淆（`from_location` 不能再存仓库名）
+- ❌ 禁止 AI 自动完成入库单/出库单（只能创建草稿，完成需人工）
+- ❌ 禁止删除已完成入库单（必须先反提交回草稿）
+
+---
+
+## 参考文件
+
+- [AGENTS.md](file:///workspace/AGENTS.md) — 仓库与库位必填规则全文
+- [DEVELOPMENT_RULES.md](file:///workspace/DEVELOPMENT_RULES.md) — 9 条防 BUG 规则
+- [WMS_BUG_BASELINE.md](file:///workspace/WMS_BUG_BASELINE.md) — BUG 台账
+- [WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md](file:///workspace/WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md) — AI 开发台账
+- [scripts/verify_bug_2026_08_02_001.py](file:///workspace/scripts/verify_bug_2026_08_02_001.py) — 入库仓库必填回归
+- [scripts/verify_bug_2026_08_02_002.py](file:///workspace/scripts/verify_bug_2026_08_02_002.py) — 出库/售后出库仓库必填回归
+- [app/app.py](file:///workspace/app/app.py) — 主应用代码
