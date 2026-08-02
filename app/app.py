@@ -34320,6 +34320,15 @@ def add_out_order():
             if warehouse_error:
                 return jsonify({'status': 'error', 'msg': warehouse_error}), 400
             warehouse = sales_warehouse.name
+        else:
+            # BUG-2026-08-02-002 修复：领料单/其他出库仓库是必填字段，与库位管理无关。
+            # 未填写时优先自动带入默认仓库，无默认仓库则拒绝保存。
+            if not warehouse:
+                default_wh = get_default_warehouse()
+                if default_wh:
+                    warehouse = default_wh.name
+            if not warehouse:
+                return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
 
         # 转换department_id
         if department_id:
