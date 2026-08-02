@@ -44291,6 +44291,12 @@ def stock_query():
     stock_filter = (request.args.get('stock_filter') or '').strip()
     sort_by = request.args.get('sort', 'code')
     sort_order = request.args.get('order', 'asc')
+    # BUG-2026-08-02-018：库存查询仓库必填（AGENTS.md 规则），未指定时带入默认仓库
+    warehouse_id = request.args.get('warehouse_id', type=int)
+    if not warehouse_id:
+        default_wh = get_default_warehouse()
+        if default_wh:
+            warehouse_id = default_wh.id
     allowed_sorts = {'code', 'name', 'spec', 'stock', 'min_stock', 'price', 'created_at', 'category_id', 'supplier_id'}
     if sort_by not in allowed_sorts:
         sort_by = 'code'
@@ -44301,44 +44307,47 @@ def stock_query():
     if not inventory_alert_enabled() and stock_filter in {'low', 'normal'}:
         stock_filter = ''
 
-    query = Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
-    if search:
-        search_like = f'%{search}%'
-        query = query.filter(
-            db.or_(
-                Material.code.like(search_like),
-                Material.name.like(search_like),
-                Material.spec.like(search_like),
-                Material.purpose.like(search_like),
-                Supplier.name.like(search_like),
-                MaterialCategory.name.like(search_like),
-                Unit.name.like(search_like)
-            )
-        ).outerjoin(Supplier, Material.supplier_id == Supplier.id).outerjoin(
-            MaterialCategory, Material.category_id == MaterialCategory.id
-        ).outerjoin(Unit, Material.unit_id == Unit.id)
-    if category_id:
-        query = query.filter(Material.category_id == category_id)
-    if stock_filter == 'low':
-        query = query.filter(_material_low_stock_filter())
-    elif stock_filter == 'normal':
-        query = query.filter(_material_normal_stock_filter())
-    sort_col = getattr(Material, sort_by, Material.code)
-    query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc())
-    materials = query.all()
+    materials = []
     location_map = {}
-    if location_management_enabled() and materials:
-        material_ids = [material.id for material in materials]
-        rows = LocationInventory.query.filter(LocationInventory.material_id.in_(material_ids)).order_by(
-            LocationInventory.location.asc()
-        ).all()
-        for row in rows:
-            if not row.quantity:
-                continue
-            location_map.setdefault(row.material_id, []).append(row)
+    # AGENTS.md：不指定仓库时不得返回数据
+    if warehouse_id:
+        query = Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
+        if search:
+            search_like = f'%{search}%'
+            query = query.filter(
+                db.or_(
+                    Material.code.like(search_like),
+                    Material.name.like(search_like),
+                    Material.spec.like(search_like),
+                    Material.purpose.like(search_like),
+                    Supplier.name.like(search_like),
+                    MaterialCategory.name.like(search_like),
+                    Unit.name.like(search_like)
+                )
+            ).outerjoin(Supplier, Material.supplier_id == Supplier.id).outerjoin(
+                MaterialCategory, Material.category_id == MaterialCategory.id
+            ).outerjoin(Unit, Material.unit_id == Unit.id)
+        if category_id:
+            query = query.filter(Material.category_id == category_id)
+        if stock_filter == 'low':
+            query = query.filter(_material_low_stock_filter())
+        elif stock_filter == 'normal':
+            query = query.filter(_material_normal_stock_filter())
+        sort_col = getattr(Material, sort_by, Material.code)
+        query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc())
+        materials = query.all()
+        if location_management_enabled() and materials:
+            material_ids = [material.id for material in materials]
+            rows = LocationInventory.query.filter(LocationInventory.material_id.in_(material_ids)).order_by(
+                LocationInventory.location.asc()
+            ).all()
+            for row in rows:
+                if not row.quantity:
+                    continue
+                location_map.setdefault(row.material_id, []).append(row)
     categories = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.name.asc()).all()
-    filters = {'search': search, 'category_id': category_id or '', 'stock_filter': stock_filter}
-    return render_template('stock_query.html', materials=materials, categories=categories, filters=filters, sort_by=sort_by, sort_order=sort_order, location_map=location_map)
+    filters = {'search': search, 'category_id': category_id or '', 'stock_filter': stock_filter, 'warehouse_id': warehouse_id or ''}
+    return render_template('stock_query.html', materials=materials, categories=categories, filters=filters, sort_by=sort_by, sort_order=sort_order, location_map=location_map, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
 
 
 @app.route('/api/query/search', methods=['POST'])

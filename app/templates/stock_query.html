@@ -24,6 +24,15 @@
             <input type="hidden" name="embedded" value="1">
             {% endif %}
             <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">仓库 <span class="text-danger">*</span></label>
+                <select name="warehouse_id" class="form-select form-select-sm" required>
+                    <option value="">请选择仓库</option>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}" {% if filters.warehouse_id == w.id or (not filters.warehouse_id and default_warehouse and default_warehouse.id == w.id) %}selected{% endif %}>{{ w.code }} - {{ w.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">分类</label>
                 <select name="category_id" class="form-select form-select-sm">
                     <option value="" {% if not filters.category_id %}selected{% endif %}>全部分类</option>
