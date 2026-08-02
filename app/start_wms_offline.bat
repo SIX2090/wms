@@ -5,15 +5,7 @@ cd /d "%~dp0" || exit /b 1
 for %%I in ("%~dp0..") do set "APP_ROOT=%%~fI"
 set "FLASK_ENV=production"
 set "PYTHONUTF8=1"
-REM WMS_ALLOW_AUTO_SECRET_KEY=1 enables controlled offline deployment: SECRET_KEY is auto-generated once
-REM and persisted to instance/secret_key (not regenerated each restart). For production servers with
-REM explicit SECRET_KEY env var, this flag has no effect.
 set "WMS_ALLOW_AUTO_SECRET_KEY=1"
-REM WMS_NO_DB_TOUCH=1 让启动时跳过数据库初始化（schema 自动迁移 + 默认基础资料补齐，
-REM 如默认仓库/默认物料分类等 ensure_* 逻辑）。生产环境已稳定后加此标志，避免每次
-REM 双击启动都往库里补齐代码内置的默认基础资料。若某次更新引入了新数据库字段，
-REM 需临时移除本行（或改用 update_from_github.bat 统一更新，它在更新后会用
-REM WMS_NO_DB_TOUCH=1 启动并做必要的显式迁移）。
 set "WMS_NO_DB_TOUCH=1"
 set "PYTHONPATH=%~dp0;%PYTHONPATH%"
 echo Starting WMS...
@@ -22,24 +14,11 @@ echo Username: admin
 echo Initial password: WMS_BOOTSTRAP_PASSWORD, or admin on first creation when unset
 echo.
 set "PYTHON_CMD="
-if exist "%APP_ROOT%\python\python.exe" (
-    set "PYTHON_CMD=%APP_ROOT%\python\python.exe"
-)
-if not defined PYTHON_CMD if exist "%APP_ROOT%\python\Scripts\python.exe" (
-    set "PYTHON_CMD=%APP_ROOT%\python\Scripts\python.exe"
-)
-if not defined PYTHON_CMD if exist "%~dp0python\python.exe" (
-    set "PYTHON_CMD=%~dp0python\python.exe"
-)
-if not defined PYTHON_CMD if exist "%~dp0python\Scripts\python.exe" (
-    set "PYTHON_CMD=%~dp0python\Scripts\python.exe"
-)
-if not defined PYTHON_CMD if exist "%APP_ROOT%\python\python.exe" (
-    set "PYTHON_CMD=%APP_ROOT%\python\python.exe"
-)
-if not defined PYTHON_CMD if exist "%APP_ROOT%\runtime\Python311\python.exe" (
-    set "PYTHON_CMD=%APP_ROOT%\runtime\Python311\python.exe"
-)
+if exist "%APP_ROOT%\python\python.exe" set "PYTHON_CMD=%APP_ROOT%\python\python.exe"
+if not defined PYTHON_CMD if exist "%APP_ROOT%\python\Scripts\python.exe" set "PYTHON_CMD=%APP_ROOT%\python\Scripts\python.exe"
+if not defined PYTHON_CMD if exist "%~dp0python\python.exe" set "PYTHON_CMD=%~dp0python\python.exe"
+if not defined PYTHON_CMD if exist "%~dp0python\Scripts\python.exe" set "PYTHON_CMD=%~dp0python\Scripts\python.exe"
+if not defined PYTHON_CMD if exist "%APP_ROOT%\runtime\Python311\python.exe" set "PYTHON_CMD=%APP_ROOT%\runtime\Python311\python.exe"
 if not defined PYTHON_CMD (
     where python.exe >nul 2>nul
     if not errorlevel 1 (
@@ -50,14 +29,10 @@ if not defined PYTHON_CMD (
     )
 )
 if not defined PYTHON_CMD (
-    if exist "%LocalAppData%\Programs\Python\Python311\python.exe" (
-        set "PYTHON_CMD=%LocalAppData%\Programs\Python\Python311\python.exe"
-    )
+    if exist "%LocalAppData%\Programs\Python\Python311\python.exe" set "PYTHON_CMD=%LocalAppData%\Programs\Python\Python311\python.exe"
 )
 if not defined PYTHON_CMD (
     echo Python runtime was not found.
-    echo For user computers, run dist\WMS\??WMS.bat from the portable package.
-    echo For development computers, run tools\build_portable_dist.ps1 first or install Python 3.11.
     pause
     exit /b 1
 )
