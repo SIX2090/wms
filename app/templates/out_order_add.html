@@ -466,11 +466,11 @@ textarea.form-control {
                 </div>
                 <div class="col-md-3">
                     <div class="mb-2">
-                        <label class="form-label">仓库</label>
-                        <select class="form-select" name="warehouse">
+                        <label class="form-label">仓库 <span class="text-danger">*</span></label>
+                        <select class="form-select" name="warehouse" required>
                             <option value="">请选择仓库</option>
                             {% for warehouse in warehouses %}
-                            <option value="{{ warehouse.name }}">{{ warehouse.name }}</option>
+                            <option value="{{ warehouse.name }}" {% if (prefill and prefill.warehouse == warehouse.name) or (not (prefill and prefill.warehouse) and default_warehouse and default_warehouse.name == warehouse.name) %}selected{% endif %}>{{ warehouse.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -1098,7 +1098,13 @@ function submitForm(saveAndNew = false) {
         alert('请至少添加一条物料');
         return;
     }
-    
+
+    const warehouseValue = document.querySelector('[name="warehouse"]').value.trim();
+    if (!warehouseValue) {
+        alert('仓库不能为空，请选择仓库');
+        return;
+    }
+
     // 数量异常大时二次确认；库存只在完成单据时校验。
     if (largeQtyCount > 0) {
         if (!confirm('有 ' + largeQtyCount + ' 行物料数量超过10000，是否确认提交？')) {

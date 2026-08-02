@@ -34251,6 +34251,7 @@ def out_order_add_page():
                          customers=[serialize_customer(customer) for customer in customers],
                          departments=departments,
                          warehouses=warehouses,
+                         default_warehouse=None if is_sale_order else get_default_warehouse(),
                          is_sale_order=is_sale_order,
                          is_other_out=is_other_out,
                          default_business_type='其他出库' if is_other_out else ('销售出库' if is_sale_order else '领料单'),
