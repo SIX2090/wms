@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -70,11 +71,16 @@ def _stage_new_file(repo: Path, rel_path: str, content: str) -> None:
 
 def _run_lint_staged(repo: Path, rule: str) -> tuple:
     """跑 lint_wms_rules.py --staged --rule <rule>，返回 (returncode, stdout)。"""
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"  # Windows 默认 GBK 会解码失败，强制 UTF-8
     proc = subprocess.run(
-        ["python3", "scripts/lint_wms_rules.py", "--staged", "--rule", rule],
+        [sys.executable, "scripts/lint_wms_rules.py", "--staged", "--rule", rule],
         cwd=str(repo),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
         check=False,
     )
     return proc.returncode, proc.stdout
@@ -291,11 +297,16 @@ class TestRuleRegistry:
 
     def test_list命令输出包含A8A9(self):
         """``--list`` 输出必须包含 A8/A9。"""
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"  # Windows 默认 GBK 会解码失败，强制 UTF-8
         proc = subprocess.run(
-            ["python3", str(SCRIPT_LINT), "--list"],
+            [sys.executable, str(SCRIPT_LINT), "--list"],
             cwd=str(WORKSPACE_ROOT),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
             check=False,
         )
         assert proc.returncode == 0
