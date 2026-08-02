@@ -8,6 +8,26 @@
 - AI must never modify, reset, or set any user account password (including the admin bootstrap password) unless the user explicitly authorizes the specific operation. Password operations require explicit prior approval.
 - The system must never auto-generate a random password for any account (including the bootstrap admin). When `WMS_BOOTSTRAP_PASSWORD` is not set, the system must use a fixed default password ('admin') with a warning, not `secrets.token_urlsafe` or any random generator. Random password generation hides credentials from the operator and violates password transparency.
 
+## 仓库与库位必填规则
+
+> 仓库（Warehouse）是物理存储设施，库位（Location）是仓库内部的细分储位。两者是不同层级的概念，不得混淆或互相替代。无论库位管理是否启用，仓库始终是必填项。
+
+### 规则一：未开启库位管理
+
+- **出入库单据**（采购入库、产品入库、其他入库、销售出库、领料出库、其他出库、售后出库、调拨、盘点、调整等）：**仓库是必填项**。未选择仓库时自动带入默认仓库（若已配置），无默认仓库则拒绝保存。
+- **库存查询、出入库报表、库存台账**：**仓库是必填筛选项**。不指定仓库时不得返回数据。
+
+### 规则二：开启库位管理
+
+- **出入库单据**：**仓库和库位均为必填项**。未选择时分别自动带入默认仓库和默认库位（若已配置），无默认值则拒绝保存。
+- **库存查询、出入库报表、库存台账**：**仓库是必填筛选项**（库位为可选筛选）。
+
+### 适用范围
+
+- 后端：所有出入库新增/编辑/完成/批量完成路由必须校验仓库（及库位）必填。
+- 前端：所有出入库表单的仓库（及库位）字段必须加 `required` 属性，并默认选中默认值。
+- 报表：库存查询、出入库报表、库存台账的查询入口必须将仓库作为必填条件，后端未收到仓库参数时返回空结果或 400。
+
 ## 任务粒度与提交流程
 
 > 一个 **AI task** = 一个用户请求的目标（例如"修删除物料 BUG"、"清理 14 个过期文件"、"加一种导出格式"）。
