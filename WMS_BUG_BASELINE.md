@@ -145,6 +145,7 @@
 | BUG-2026-08-02-015 | `adjustment_add.html` 表单无仓库字段，`adjustment_add_page`/`adjustment_detail` 路由未传 `default_warehouse`，且 warehouses 查询未过滤启用状态 | `adjustment_add_page`/`adjustment_detail` 改用 `get_active_warehouses()` 并传 `default_warehouse=get_default_warehouse()`；模板在操作人旁补 `<select name="warehouse" required>` 编辑回填 `adjustment.warehouse`、新建预选默认仓库；`submitForm()` 增加仓库非空前端校验并写入 data.warehouse（commit `479bfcc7`） |
 | BUG-2026-08-02-016 | `transfer.html` 新建弹窗和 `document_table_form.html` 调拨表单的调出/调入仓库下拉无 `required`、无默认预选；`_render_transfer_form`/`transfer_list` 未传 `default_warehouse` | `_render_transfer_form`/`transfer_list` 补传 `default_warehouse=get_default_warehouse()`；`transfer.html` 弹窗调出仓库预选默认仓库、调出/调入加 `*` 必填标记；`document_table_form.html` 调拨分支调出/调入 `<select>` 加 `required`、调出仓库新建时预选默认仓库（commit `fc60ddf8`） |
 | BUG-2026-08-02-017 | `opening_stock.html` 新增期初库存单的仓库下拉已有 `required` 但未预选默认仓库；`opening_stock_list` 路由未传 `default_warehouse` | `opening_stock_list` 补传 `default_warehouse=get_default_warehouse()`；`opening_stock.html` 仓库 `<option>` 按 `default_warehouse.id == w.id` 预选（commit `5f4f95f9`） |
+| BUG-2026-08-02-019 | P1-5 采购入库被设计为必须关联采购订单，与 AGENTS.md"采购订单仅作为可选来源"规则冲突 | 新增/保存/完成 `采购入库` 路径不强制校验 source_purchase_order_id；手工单可直接保存并完成入库；有关联 PO 时仍保留来源/数量/执行进度跟踪。回归 `tests/verify_bug_P15_P16_P21.py` TestBugP15PurchaseInOptionalPurchaseOrder 组 |
 
 ## 已确认误报
 
