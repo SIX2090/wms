@@ -84,8 +84,7 @@ class NotificationManager:
         try:
             current_app.logger.info(' '.join(parts))
         except Exception:
-            # Fallback: print without email/PIM details if app context is unavailable
-            print(' '.join(parts))
+            logging.getLogger('app').warning(' '.join(parts))
 
     def check_low_stock(self, db, Material, User):
         """检查低库存物料并发送通知"""
