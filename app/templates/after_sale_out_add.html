@@ -222,6 +222,20 @@
                 </div>
                 <div class="col-md-3">
                     <div class="mb-2">
+                        <label class="form-label">仓库 <span class="text-danger">*</span></label>
+                        <select class="form-select" name="warehouse" required>
+                            <option value="">请选择仓库</option>
+                            {% for warehouse in warehouses %}
+                            <option value="{{ warehouse.name }}" {% if (order and order.warehouse == warehouse.name) or (not order or not order.warehouse) and default_warehouse and default_warehouse.name == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
+                            {% endfor %}
+                            {% if order and order.warehouse and order.warehouse not in warehouses|map(attribute='name')|list %}
+                            <option value="{{ order.warehouse }}" selected>{{ order.warehouse }}</option>
+                            {% endif %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
                         <label class="form-label">售后原因</label>
                         <input type="text" class="form-control" name="reason" placeholder="请输入售后原因" value="{{ order.reason if order else '' }}">
                         <input type="number" class="form-control mt-2" name="source_sales_order_id" placeholder="原销售订单ID（可选）" value="{{ order.source_sales_order_id if order else '' }}">
@@ -493,6 +507,12 @@ function submitForm() {
         return;
     }
 
+    const warehouse = document.querySelector('[name="warehouse"]').value.trim();
+    if (!warehouse) {
+        showToast('仓库不能为空，请选择仓库', 'warning');
+        return;
+    }
+
     const data = {
         order_id: document.querySelector('[name="order_id"]').value,
         order_no: document.querySelector('[name="order_no"]').value,
@@ -500,6 +520,7 @@ function submitForm() {
         customer: document.querySelector('[name="customer"]').value,
         contact: document.querySelector('[name="contact"]').value,
         phone: document.querySelector('[name="phone"]').value,
+        warehouse: document.querySelector('[name="warehouse"]').value,
         reason: document.querySelector('[name="reason"]').value,
         source_sales_order_id: document.querySelector('[name="source_sales_order_id"]').value,
         source_out_order_id: document.querySelector('[name="source_out_order_id"]').value,

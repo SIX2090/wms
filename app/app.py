@@ -35112,6 +35112,8 @@ def after_sale_out_add_page():
                           materials=[serialize_material(material) for material in materials],
                           units=[serialize_unit(unit) for unit in units],
                           customers=[serialize_customer(customer) for customer in customers],
+                          warehouses=get_active_warehouses(),
+                          default_warehouse=get_default_warehouse(),
                           order_id=None, order_no=order_no, order_date=order_date,
                           initial_items=[])
 
@@ -35148,6 +35150,8 @@ def after_sale_out_edit_page(id):
         materials=[serialize_material(material) for material in materials],
         units=[serialize_unit(unit) for unit in units],
         customers=[serialize_customer(customer) for customer in customers],
+        warehouses=get_active_warehouses(),
+        default_warehouse=get_default_warehouse(),
         order_id=order.id,
         order_no=order.order_no,
         order_date=(order.date if order.date else date.today()).strftime('%Y-%m-%d'),
