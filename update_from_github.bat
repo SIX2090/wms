@@ -54,7 +54,23 @@ if /i not "%CURRENT_BRANCH%"=="%BRANCH%" (
 for /f "delims=" %%s in ('git status --porcelain 2^>nul') do (
   set "STATUS_LINE=%%s"
   set "STATUS_PATH=!STATUS_LINE:~3!"
-  if /i not "!STATUS_PATH!"=="update_from_github.bat" if /i not "!STATUS_PATH!"=="app/WMS_NO_DB_TOUCH.flag" if /i not "!STATUS_PATH!"=="WMS_NO_DB_TOUCH.flag" set "GIT_DIRTY=1"
+  REM 忽略以下"非业务代码"脏文件，避免它们阻塞一键更新（它们不影响 WMS 运行）：
+  REM   - update_from_github.bat / WMS_NO_DB_TOUCH.flag：本脚本自身产物
+  REM   - apk_source/：APK 反编译的第三方依赖库源码（androidx/retrofit2/okio 等），
+  REM     每次反编译内容都会变，不应视为业务改动
+  REM   - app/FETCH_HEAD：git fetch 自动生成的文件
+  REM   - app/cd、app/git：cmd 误操作产生的异常文件
+  REM   - app/.installed.flag：部署/安装标记文件
+  set "SKIP=0"
+  if /i "!STATUS_PATH!"=="update_from_github.bat" set "SKIP=1"
+  if /i "!STATUS_PATH!"=="app/WMS_NO_DB_TOUCH.flag" set "SKIP=1"
+  if /i "!STATUS_PATH!"=="WMS_NO_DB_TOUCH.flag" set "SKIP=1"
+  if /i "!STATUS_PATH:~0,11!"=="apk_source/" set "SKIP=1"
+  if /i "!STATUS_PATH!"=="app/FETCH_HEAD" set "SKIP=1"
+  if /i "!STATUS_PATH!"=="app/cd" set "SKIP=1"
+  if /i "!STATUS_PATH!"=="app/git" set "SKIP=1"
+  if /i "!STATUS_PATH!"=="app/.installed.flag" set "SKIP=1"
+  if "!SKIP!"=="0" set "GIT_DIRTY=1"
 )
 if defined GIT_DIRTY (
   echo [ERROR] Local code has uncommitted changes.
