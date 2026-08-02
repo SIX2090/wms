@@ -2652,6 +2652,18 @@ def assert_warehouse_active(warehouse_name, allow_empty=True):
     return ok, msg
 
 
+def prefer_default_warehouse():
+    """录单时是否优先自动带出默认仓库。"""
+    return get_system_setting_bool('prefer_default_warehouse', True)
+
+
+def get_default_warehouse():
+    """返回当前启用的默认仓库；未设置或不启用自动带出时返回 None。"""
+    if not prefer_default_warehouse():
+        return None
+    return Warehouse.query.filter_by(status='active', is_default=True).first()
+
+
 def resolve_active_sales_warehouse(value=None, warehouse_id=None):
     """Resolve a sales warehouse from its ID, name, or code.
 
@@ -25925,6 +25937,7 @@ def in_order_detail(id):
     customers = Customer.query.order_by(Customer.name.asc(), Customer.id.asc()).all()
     warehouses = get_active_warehouses()
     warehouse_names = [warehouse.name for warehouse in warehouses]
+    default_warehouse = get_default_warehouse()
     return render_template(
         'in_order_detail.html',
         order=order,
@@ -25934,6 +25947,7 @@ def in_order_detail(id):
         customers=customers,
         warehouses=warehouses,
         warehouse_names=warehouse_names,
+        default_warehouse=default_warehouse,
         purchase_order_execution=purchase_order_execution,
         today=date.today(),
         operation_logs=get_recent_operation_logs('in_order', id),
@@ -26189,10 +26203,19 @@ def update_in_order(id):
 
     order.date = order_date
     order.purpose = (data.get('purpose') or '').strip()
-    order.warehouse = (data.get('warehouse') or '').strip()
+    warehouse = (data.get('warehouse') or '').strip()
+    # BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
+    # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
+    if not warehouse:
+        default_wh = get_default_warehouse()
+        if default_wh:
+            warehouse = default_wh.name
+    if not warehouse:
+        return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
+    order.warehouse = warehouse
     order.remark = (data.get('remark') or '').strip()
-    # BUG-F02-04 修复：保存前校验仓库是否启用/存在
-    ok, wh_msg = assert_warehouse_active(order.warehouse)
+    # BUG-F02-04 / BUG-2026-08-02-001 修复：保存前校验仓库是否启用/存在
+    ok, wh_msg = assert_warehouse_active(order.warehouse, allow_empty=False)
     if not ok:
         return jsonify({'status': 'error', 'msg': wh_msg}), 400
     recalculate_order_total(order)
@@ -26220,12 +26243,14 @@ def in_order_add_page():
     order_no = generate_order_no('OI' if is_other_in else ('PI' if is_product_in else 'IN'))
     parties = Customer.query.order_by(Customer.code.asc()).all() if is_other_in else Supplier.query.all()
     warehouses = get_active_warehouses()
+    default_warehouse = get_default_warehouse()
     order_date = datetime.now().strftime('%Y-%m-%d')
     return render_template('in_order_add.html', 
                          materials=[serialize_material(material) for material in materials],
                          units=[serialize_unit(unit) for unit in units],
                          suppliers=[serialize_customer(p) if is_other_in else serialize_supplier(p) for p in parties],
                          warehouses=warehouses,
+                         default_warehouse=default_warehouse,
                          is_product_in=is_product_in,
                          is_other_in=is_other_in,
                          business_type=business_type,
@@ -26288,6 +26313,15 @@ def add_in_order():
     contract_no = ((data.get('contract_no') if request.is_json else request.form.get('contract_no')) or '').strip()
     project_name = ((data.get('project_name') if request.is_json else request.form.get('project_name')) or '').strip()
 
+    # BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
+    # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
+    if not warehouse:
+        default_wh = get_default_warehouse()
+        if default_wh:
+            warehouse = default_wh.name
+    if not warehouse:
+        return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
+
     if request.is_json:
         if not isinstance(items_data, list) or not items_data:
             return jsonify({'status': 'error', 'msg': '入库单至少需要一条明细'}), 400
@@ -26308,12 +26342,8 @@ def add_in_order():
                 return jsonify({'status': 'error', 'msg': f'第 {index} 行物料 {material_code} 的数量必须大于0'}), 400
     elif not order_id:
         # BUG-2026-07-28-005 修复：表单提交（无 items_json）也必须校验
-        # 仓库、供应商 / 客户、明细必填，禁止空表单保存为已完成入库单。
-        # 表单可能未传 items_json（多数前端表单把明细写在 items_data 隐藏域），
-        # 但若完全空白（连 warehouse 都没填）则属于误操作，直接拒绝。
-        # BUG-F02-05 修复：未启用库位管理时，仓库字段允许为空
-        if not warehouse and (location_management_enabled() and location_required_on_save()):
-            return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
+        # 供应商 / 客户、明细必填，禁止空表单保存为已完成入库单。
+        # 仓库必填逻辑已统一在上方处理。
         if business_type == '采购入库' and not supplier_id:
             return jsonify({'status': 'error', 'msg': '采购入库单必须选择供应商'}), 400
         if business_type == '其他入库' and not customer_id:
@@ -26411,8 +26441,8 @@ def add_in_order():
         order.contract_id = int(contract_id) if contract_id else None
         order.contract_no = contract_no or None
         order.project_name = project_name or None
-        # BUG-F02-04 修复：保存入库单前校验仓库是否启用/存在
-        ok, wh_msg = assert_warehouse_active(order.warehouse, allow_empty=not location_required_on_save())
+        # BUG-2026-08-02-001 修复：仓库必填且必须有效（与库位管理是否启用无关）
+        ok, wh_msg = assert_warehouse_active(order.warehouse, allow_empty=False)
         if not ok:
             return jsonify({'status': 'error', 'msg': wh_msg}), 400
 
@@ -27234,8 +27264,14 @@ def complete_in_order(id):
         return jsonify({'status': 'error', 'msg': '入库日期不能晚于今天，请先修改单据日期'}), 400
     if not order.items:
         return api_error('请至少添加一条入库明细')
-    if location_management_enabled() and location_required_on_save() and not order.warehouse:
-        return api_error('启用库位管理后，入库单必须填写仓库/库位')
+    # BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
+    # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
+    if not order.warehouse:
+        default_wh = get_default_warehouse()
+        if default_wh:
+            order.warehouse = default_wh.name
+    if not order.warehouse:
+        return api_error('入库单必须填写仓库')
     valid_source, source_msg = validate_purchase_in_order_source(order)
     if not valid_source:
         return api_error(source_msg)
@@ -27326,6 +27362,15 @@ def update_completed_in_order(id):
         return api_error('请求数据格式不正确，请刷新后重试')
     items_data = data.get('items', [])
     deleted_items = data.get('deleted_items', [])
+
+    # BUG-2026-08-02-001 修复：已完成的入库单也必须有仓库。
+    # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
+    if not order.warehouse:
+        default_wh = get_default_warehouse()
+        if default_wh:
+            order.warehouse = default_wh.name
+    if not order.warehouse:
+        return api_error('入库单必须填写仓库')
 
     try:
         affected_purchase_order_ids = set()
@@ -27946,6 +27991,16 @@ def batch_complete_in_order():
             db.session.rollback()
             continue
         order = locked
+        # BUG-2026-08-02-001 修复：批量完成时入库单也必须有仓库。
+        # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
+        if not order.warehouse:
+            default_wh = get_default_warehouse()
+            if default_wh:
+                order.warehouse = default_wh.name
+        if not order.warehouse:
+            skipped.append(f'{order.order_no}(未填写仓库)')
+            db.session.rollback()
+            continue
         try:
             for item in order.items:
                 if item.material:
