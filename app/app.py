@@ -32166,12 +32166,19 @@ def save_transfer_table():
     items_data = data.get('items') or []
     from_location = (header.get('from_location') or '').strip()
     to_location = (header.get('to_location') or '').strip()
+    # BUG-2026-08-02-013：仓库必填（AGENTS.md 规则）。
+    # 优先读 from_warehouse/to_warehouse（新字段），未提供时回退 from_location/to_location
+    # （历史兼容：旧前端把仓库名存到 from_location/to_location）。
+    from_warehouse = (header.get('from_warehouse') or from_location or '').strip()
+    to_warehouse = (header.get('to_warehouse') or to_location or '').strip()
 
-    if not from_location:
+    # 未开启库位管理时，from_location/to_location 与仓库相同；
+    # 开启库位管理时，from_location/to_location 作为库位字段（可为空，由前端控制）。
+    if not from_warehouse:
         return api_error('请选择调出仓库')
-    if not to_location:
+    if not to_warehouse:
         return api_error('请选择调入仓库')
-    if from_location == to_location:
+    if from_warehouse == to_warehouse and (not from_location or from_location == to_location):
         return api_error('调出仓库和调入仓库不能相同')
     if not items_data:
         return api_error('请至少填写一条调拨明细')
@@ -32197,8 +32204,11 @@ def save_transfer_table():
 
         transfer.transfer_no = transfer_no
         transfer.date = _parse_form_date(data.get('date'), transfer.date if order_id else date.today())
-        transfer.from_location = from_location
-        transfer.to_location = to_location
+        transfer.from_warehouse = from_warehouse
+        transfer.to_warehouse = to_warehouse
+        # from_location/to_location 保留为库位字段；未开启库位管理时与仓库相同（历史兼容）
+        transfer.from_location = from_location or from_warehouse
+        transfer.to_location = to_location or to_warehouse
         transfer.remark = (header.get('remark') or '').strip()
         if not transfer.operator_id:
             transfer.operator_id = current_user.id
@@ -32244,19 +32254,29 @@ def add_transfer():
         from_location = (request.form.get('from_location') or '').strip()
         to_location = (request.form.get('to_location') or '').strip()
         remark = (request.form.get('remark') or '').strip()
-        
-        if not from_location:
-            return api_error('请输入调出仓库')
-        if not to_location:
-            return api_error('请输入调入仓库')
-        if from_location == to_location:
+        # BUG-2026-08-02-013：仓库必填（AGENTS.md 规则）。
+        # 优先读 from_warehouse/to_warehouse（新字段），未提供时回退 from_location/to_location
+        # （历史兼容：旧前端把仓库名存到 from_location/to_location）。
+        from_warehouse = (request.form.get('from_warehouse') or from_location or '').strip()
+        to_warehouse = (request.form.get('to_warehouse') or to_location or '').strip()
+
+        # 未开启库位管理时，from_location/to_location 与仓库相同；
+        # 开启库位管理时，from_location/to_location 作为库位字段（可为空，由前端控制）。
+        if not from_warehouse:
+            return api_error('请选择调出仓库')
+        if not to_warehouse:
+            return api_error('请选择调入仓库')
+        if from_warehouse == to_warehouse and (not from_location or from_location == to_location):
             return api_error('调出仓库和调入仓库不能相同')
-        
+
         transfer_no = generate_order_no('TF')
         transfer = TransferOrder(
             transfer_no=transfer_no,
-            from_location=from_location,
-            to_location=to_location,
+            from_warehouse=from_warehouse,
+            to_warehouse=to_warehouse,
+            # from_location/to_location 保留为库位字段；未开启库位管理时与仓库相同（历史兼容）
+            from_location=from_location or from_warehouse,
+            to_location=to_location or to_warehouse,
             remark=remark,
             status='pending',
             operator_id=current_user.id
@@ -33063,6 +33083,7 @@ def add_adjustment():
         adjustment_type = (data.get('adjustment_type') or '').strip()
         date_str = (data.get('date') or '').strip()
         remark = (data.get('remark') or '').strip()
+        warehouse = (data.get('warehouse') or '').strip()
         items_data = data.get('items', [])
         replace_items = 'items' in data
     else:
@@ -33071,6 +33092,7 @@ def add_adjustment():
         adjustment_type = (request.form.get('adjustment_type') or '').strip()
         date_str = (request.form.get('date') or '').strip()
         remark = (request.form.get('remark') or '').strip()
+        warehouse = (request.form.get('warehouse') or '').strip()
         items_data = []
         material_id = request.form.get('material_id')
         quantity = request.form.get('quantity')
@@ -33097,6 +33119,14 @@ def add_adjustment():
 
         if adjustment_type not in ('surplus', 'loss'):
             return api_error('请选择调整类型')
+
+        # BUG-2026-08-02-013：仓库必填（AGENTS.md 规则），未填写时自动带入默认仓库
+        if not warehouse:
+            default_wh = get_default_warehouse()
+            if default_wh:
+                warehouse = default_wh.name
+        if not warehouse:
+            return api_error('请选择仓库')
 
         if order_id:
             adjustment = AdjustmentOrder.query.get(order_id)
@@ -33139,6 +33169,7 @@ def add_adjustment():
         adjustment.adjustment_no = adjustment_no
         adjustment.adjustment_type = adjustment_type
         adjustment.remark = remark
+        adjustment.warehouse = warehouse
         if not adjustment.operator_id:
             adjustment.operator_id = current_user.id
 
@@ -33624,6 +33655,15 @@ def save_check_table():
     if not items_data:
         return api_error('请至少填写一条盘点明细')
 
+    # BUG-2026-08-02-013：仓库必填（AGENTS.md 规则），未填写时自动带入默认仓库
+    warehouse = (header.get('warehouse') or data.get('warehouse') or '').strip()
+    if not warehouse:
+        default_wh = get_default_warehouse()
+        if default_wh:
+            warehouse = default_wh.name
+    if not warehouse:
+        return api_error('请选择仓库')
+
     try:
         if order_id:
             check = db.session.get(InventoryCheck, order_id)
@@ -33646,6 +33686,7 @@ def save_check_table():
         check.check_no = check_no
         check.date = _parse_form_date(data.get('date'), check.date if order_id else date.today())
         check.remark = (header.get('remark') or '').strip()
+        check.warehouse = warehouse
         if not check.operator_id:
             check.operator_id = current_user.id
         db.session.flush()
@@ -33680,10 +33721,19 @@ def save_check_table():
 def add_check():
     try:
         remark = (request.form.get('remark') or '').strip()
+        # BUG-2026-08-02-013：仓库必填，未填写时自动带入默认仓库
+        warehouse = (request.form.get('warehouse') or '').strip()
+        if not warehouse:
+            default_wh = get_default_warehouse()
+            if default_wh:
+                warehouse = default_wh.name
+        if not warehouse:
+            return api_error('请选择仓库')
         check_no = generate_order_no('CK')
         check = InventoryCheck(
             check_no=check_no,
             remark=remark,
+            warehouse=warehouse,
             status='pending',
             operator_id=current_user.id
         )
