@@ -3575,6 +3575,20 @@ document.addEventListener('DOMContentLoaded', function() {
         var lastKeyword = '';
         var lastResults = null;
 
+        function triggerSearch(value) {
+            if (!value) return;
+            global.WMS.api.getContracts(value)
+                .then(function(data) {
+                    var contracts = (data && data.contracts) ? data.contracts : (Array.isArray(data) ? data : []);
+                    lastKeyword = value;
+                    lastResults = contracts;
+                    renderDropdown(input, contracts);
+                })
+                .catch(function() {
+                    // ignore network errors; dropdown will simply not show
+                });
+        }
+
         input.addEventListener('input', function() {
             clearTimeout(debounceTimer);
             var value = input.value.trim();
@@ -3586,18 +3600,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 renderDropdown(input, lastResults);
                 return;
             }
-            debounceTimer = setTimeout(function() {
-                global.WMS.api.getContracts(value)
-                    .then(function(data) {
-                        var contracts = (data && data.contracts) ? data.contracts : (Array.isArray(data) ? data : []);
-                        lastKeyword = value;
-                        lastResults = contracts;
-                        renderDropdown(input, contracts);
-                    })
-                    .catch(function() {
-                        // ignore network errors; dropdown will simply not show
-                    });
-            }, 200);
+            debounceTimer = setTimeout(function() { triggerSearch(value); }, 200);
+        });
+
+        // 聚焦时也触发搜索：让用户点击/聚焦合同编号或工程名称单元格时能看到匹配项
+        // （即使已有值，也搜索该值展示对应的合同档案供快速选择/校对）
+        input.addEventListener('focus', function() {
+            var value = input.value.trim();
+            if (!value) return;
+            if (value === lastKeyword && lastResults) {
+                renderDropdown(input, lastResults);
+                return;
+            }
+            triggerSearch(value);
         });
 
         input.addEventListener('keydown', function(event) {
