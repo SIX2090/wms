@@ -35178,12 +35178,22 @@ def add_after_sale_out_order():
         phone = (data.get('phone') or '').strip()
         reason = (data.get('reason') or '').strip()
         remark = (data.get('remark') or '').strip()
+        # BUG-2026-08-02-005 修复：售后出库仓库必填，模型字段已存在但之前闲置。
+        warehouse = (data.get('warehouse') or '').strip()
         source_sales_order_id = _clean_int(data.get('source_sales_order_id'))
         source_out_order_id = _clean_int(data.get('source_out_order_id'))
         if source_sales_order_id and not db.session.get(SalesOrder, source_sales_order_id):
             return jsonify({'status': 'error', 'msg': '来源销售订单不存在'}), 400
         if source_out_order_id and not db.session.get(OutOrder, source_out_order_id):
             return jsonify({'status': 'error', 'msg': '来源销售出库单不存在'}), 400
+
+        # BUG-2026-08-02-005 修复：仓库必填，未填写时自动带入默认仓库，无默认仓库则拒绝保存。
+        if not warehouse:
+            default_wh = get_default_warehouse()
+            if default_wh:
+                warehouse = default_wh.name
+        if not warehouse:
+            return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
 
         if order_id:
             order = db.session.get(AfterSaleOutOrder, order_id)
@@ -35218,6 +35228,7 @@ def add_after_sale_out_order():
         order.reason = reason
         order.source_sales_order_id = source_sales_order_id
         order.source_out_order_id = source_out_order_id
+        order.warehouse = warehouse
         order.responsibility = (data.get('responsibility') or '').strip() or None
         order.customer_feedback = (data.get('customer_feedback') or '').strip() or None
         order.remark = remark
