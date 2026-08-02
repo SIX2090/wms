@@ -28932,10 +28932,15 @@ def _render_check_form(check=None):
         order_no=check.check_no if check else generate_order_no('CK'),
         order_no_label='盘点单号',
         date_value=(check.date if check and check.date else date.today()).strftime('%Y-%m-%d'),
-        header={'remark': check.remark if check else ''},
+        # BUG-2026-08-02-014：盘点单表头带仓库字段，供 document_table_form 渲染并回填
+        header={
+            'remark': check.remark if check else '',
+            'warehouse': getattr(check, 'warehouse', '') if check else '',
+        },
         materials=_document_materials_json(),
         units=_document_units_json(),
-        warehouses=[],
+        warehouses=get_active_warehouses(),
+        default_warehouse=get_default_warehouse(),
         boms=[],
         existing_items=[
             _material_line_data(item, extra={
@@ -33629,7 +33634,18 @@ def check_list():
         'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
         'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
     }
-    return render_template('check.html', checks=checks, pagination=pagination, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page)
+    return render_template(
+        'check.html',
+        checks=checks,
+        pagination=pagination,
+        filters=filters,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        per_page=per_page,
+        # BUG-2026-08-02-014：盘点列表新增弹窗需要仓库下拉 + 默认仓库预选
+        warehouses=get_active_warehouses(),
+        default_warehouse=get_default_warehouse(),
+    )
 
 
 @app.route('/inventory_check/add')

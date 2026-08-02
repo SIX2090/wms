@@ -140,6 +140,16 @@
             </div>
             <form id="addForm">
                 <div class="modal-body">
+                    {# BUG-2026-08-02-014：新建盘点单仓库必填，未填写时预选默认仓库 #}
+                    <div class="mb-3">
+                        <label class="form-label">仓库 <span class="text-danger">*</span></label>
+                        <select class="form-select" name="warehouse" required>
+                            <option value="">请选择仓库</option>
+                            {% for warehouse in warehouses %}
+                            <option value="{{ warehouse.name }}" {% if default_warehouse and default_warehouse.name == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                     <div class="mb-3">
                         <label class="form-label">备注（可选）</label>
                         <textarea class="form-control" name="remark" rows="2"></textarea>

@@ -170,6 +170,19 @@
                         <input type="text" class="form-control" name="purpose" value="{{ header.purpose }}" {% if readonly %}readonly{% endif %}>
                     </div>
                 </div>
+                {% elif doc_type == 'check' %}
+                {# BUG-2026-08-02-014：盘点单仓库必填，未填写时模板预选默认仓库 #}
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">仓库 <span class="text-danger">*</span></label>
+                        <select class="form-select" name="warehouse" {% if readonly %}disabled{% endif %} required>
+                            <option value="">请选择仓库</option>
+                            {% for warehouse in warehouses %}
+                            <option value="{{ warehouse.name }}" {% if header.warehouse == warehouse.name or (not header.warehouse and default_warehouse and default_warehouse.name == warehouse.name) %}selected{% endif %}>{{ warehouse.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
                 {% endif %}
 
                 <div class="{{ 'col-md-12' if doc_type in ['transfer', 'check'] else 'col-md-12' }}">
@@ -606,6 +619,8 @@ function collectHeader() {
     if (docType === 'transfer') return {from_location:get('from_location'), to_location:get('to_location'), remark:get('remark')};
     if (docType === 'bom') return {product_code:get('product_code'), product_name:get('product_name'), version:get('version'), status:get('status'), remark:get('remark')};
     if (docType === 'requisition') return {bom_id:get('bom_id'), production_order:get('production_order'), purpose:get('purpose'), remark:get('remark')};
+    // BUG-2026-08-02-014：盘点单表头带仓库字段
+    if (docType === 'check') return {warehouse:get('warehouse'), remark:get('remark')};
     return {remark:get('remark')};
 }
 function submitForm(completeAfterSave) {
@@ -732,21 +747,34 @@ function refreshUnits() {
     }).catch(function() {});
 }
 function refreshWarehouses() {
-    if (docType !== 'transfer') return;
+    // BUG-2026-08-02-014：盘点单仓库下拉也要随仓库主数据更新
+    if (docType !== 'transfer' && docType !== 'check') return;
     fetch('/warehouse/api/list').then(r => r.json()).then(res => {
         if (!res || !Array.isArray(res.warehouses)) return;
-        ['from_location', 'to_location'].forEach(function(name) {
-            const select = document.querySelector('[name="' + name + '"]');
+        if (docType === 'transfer') {
+            ['from_location', 'to_location'].forEach(function(name) {
+                const select = document.querySelector('[name="' + name + '"]');
+                if (!select) return;
+                const current = select.value;
+                const placeholder = name === 'from_location' ? '请选择调出仓库' : '请选择调入仓库';
+                let html = '<option value="">' + placeholder + '</option>';
+                res.warehouses.forEach(function(w) {
+                    const selected = String(current) === String(w.name) ? ' selected' : '';
+                    html += '<option value="' + escapeHtml(w.name || '') + '"' + selected + '>' + escapeHtml(w.name || '') + '</option>';
+                });
+                select.innerHTML = html;
+            });
+        } else if (docType === 'check') {
+            const select = document.querySelector('[name="warehouse"]');
             if (!select) return;
             const current = select.value;
-            const placeholder = name === 'from_location' ? '请选择调出仓库' : '请选择调入仓库';
-            let html = '<option value="">' + placeholder + '</option>';
+            let html = '<option value="">请选择仓库</option>';
             res.warehouses.forEach(function(w) {
                 const selected = String(current) === String(w.name) ? ' selected' : '';
                 html += '<option value="' + escapeHtml(w.name || '') + '"' + selected + '>' + escapeHtml(w.name || '') + '</option>';
             });
             select.innerHTML = html;
-        });
+        }
     }).catch(function() {});
 }
 document.addEventListener('click', function(e) { if (activeDropdown && !e.target.closest('.material-input')) hideDropdown(); });
