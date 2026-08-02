@@ -825,6 +825,59 @@ def auto_migrate_database():
                     if cursor.rowcount:
                         modified = True
 
+        # BUG-2026-08-02-012: transfer_order / inventory_check / adjustment_order
+        # 三个模型原本无 warehouse 字段，违反 AGENTS.md 仓库必填规则。
+        # 迁移策略：
+        #   - transfer_order.from_location / to_location 历史存的是仓库名，
+        #     回填到 from_warehouse / to_warehouse；from_location / to_location
+        #     保留原值，后续作为库位字段使用（开启库位管理时由前端覆盖）。
+        #   - inventory_check / adjustment_order 存量数据回填默认仓库名
+        #     （取 warehouse 表 is_default=True 的第一条；无默认仓库时留 NULL，
+        #     路由层必填校验会阻止后续无仓库单据保存）。
+        if _table_exists('transfer_order'):
+            cursor.execute("PRAGMA table_info(transfer_order)")
+            tf_cols = [row[1] for row in cursor.fetchall()]
+            if tf_cols:
+                if 'from_warehouse' not in tf_cols:
+                    cursor.execute("ALTER TABLE transfer_order ADD COLUMN from_warehouse VARCHAR(100)")
+                    # 从 from_location 回填仓库名（历史 from_location 存的就是仓库名）
+                    cursor.execute("UPDATE transfer_order SET from_warehouse = from_location WHERE from_warehouse IS NULL AND from_location IS NOT NULL AND from_location != ''")
+                    modified = True
+                if 'to_warehouse' not in tf_cols:
+                    cursor.execute("ALTER TABLE transfer_order ADD COLUMN to_warehouse VARCHAR(100)")
+                    cursor.execute("UPDATE transfer_order SET to_warehouse = to_location WHERE to_warehouse IS NULL AND to_location IS NOT NULL AND to_location != ''")
+                    modified = True
+
+        if _table_exists('inventory_check'):
+            cursor.execute("PRAGMA table_info(inventory_check)")
+            ic_cols = [row[1] for row in cursor.fetchall()]
+            if ic_cols and 'warehouse' not in ic_cols:
+                cursor.execute("ALTER TABLE inventory_check ADD COLUMN warehouse VARCHAR(100)")
+                # 存量数据回填默认仓库名
+                try:
+                    cursor.execute("SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' LIMIT 1")
+                    row = cursor.fetchone()
+                    if row:
+                        cursor.execute("UPDATE inventory_check SET warehouse = ? WHERE warehouse IS NULL OR warehouse = ''", (row[0],))
+                except Exception:
+                    pass
+                modified = True
+
+        if _table_exists('adjustment_order'):
+            cursor.execute("PRAGMA table_info(adjustment_order)")
+            adj_cols = [row[1] for row in cursor.fetchall()]
+            if adj_cols and 'warehouse' not in adj_cols:
+                cursor.execute("ALTER TABLE adjustment_order ADD COLUMN warehouse VARCHAR(100)")
+                # 存量数据回填默认仓库名
+                try:
+                    cursor.execute("SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' LIMIT 1")
+                    row = cursor.fetchone()
+                    if row:
+                        cursor.execute("UPDATE adjustment_order SET warehouse = ? WHERE warehouse IS NULL OR warehouse = ''", (row[0],))
+                except Exception:
+                    pass
+                modified = True
+
         if modified:
             conn.commit()
     except Exception as e:
@@ -3727,6 +3780,9 @@ class InventoryCheck(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     check_no = db.Column(db.String(50), unique=True, nullable=False)  # Order number
     date = db.Column(db.Date, default=date.today)  # Date
+    # BUG-2026-08-02-012：盘点仓库，必填（AGENTS.md 规则）。
+    # 模型层保持 nullable=True 以兼容存量数据，必填校验在路由层强制。
+    warehouse = db.Column(db.String(100))
     remark = db.Column(db.String(200))  # Remark
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
@@ -4354,8 +4410,14 @@ class TransferOrder(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     transfer_no = db.Column(db.String(50), unique=True, nullable=False)  # Transfer order number
     date = db.Column(db.Date, default=date.today)  # Transfer date
-    from_location = db.Column(db.String(100), nullable=False)  # Source location
-    to_location = db.Column(db.String(100), nullable=False)  # Target location
+    # BUG-2026-08-02-012：from_location/to_location 原本存的是仓库名，
+    # 仓库与库位概念混淆。新增 from_warehouse/to_warehouse 显式存仓库，
+    # from_location/to_location 保留作为库位字段（开启库位管理时使用）。
+    # 模型层保持 nullable=True 以兼容存量数据，必填校验在路由层强制。
+    from_warehouse = db.Column(db.String(100))
+    to_warehouse = db.Column(db.String(100))
+    from_location = db.Column(db.String(100), nullable=False)  # Source location（未开库位时存调出仓库名，开库位时存调出库位）
+    to_location = db.Column(db.String(100), nullable=False)  # Target location（同上）
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed/cancelled
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     remark = db.Column(db.String(500))  # Remark
@@ -4390,6 +4452,9 @@ class AdjustmentOrder(db.Model):
     adjustment_no = db.Column(db.String(50), unique=True, nullable=False)  # Adjustment order number
     date = db.Column(db.Date, default=date.today)  # Adjustment date
     adjustment_type = db.Column(db.String(20), nullable=False)  # Type: profit/surplus or loss
+    # BUG-2026-08-02-012：调整仓库，必填（AGENTS.md 规则）。
+    # 模型层保持 nullable=True 以兼容存量数据，必填校验在路由层强制。
+    warehouse = db.Column(db.String(100))
     source_type = db.Column(db.String(50))  # Source type: check/manual
     source_id = db.Column(db.Integer)  # Source ID
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed/cancelled
@@ -33154,7 +33219,8 @@ def complete_adjustment(id):
             db.session.rollback()
             return api_error('调整单没有明细，无法完成')
         # BUG-2026-08-02-010 修复：开启库位管理时同步库位库存，避免总库存与库位库存之和产生偏差。
-        # TODO(P1-1)：AdjustmentOrder 加 warehouse 字段后，loc_key 改为 adjustment.warehouse or item.location
+        # P1-1 已为 AdjustmentOrder 加 warehouse 字段，loc_key 优先 adjustment.warehouse
+        # （单据级仓库），无则回退 item.location（行级库位）。
         use_location = location_management_enabled()
         for item in adjustment.items:
             if not item.material_id:
@@ -33185,9 +33251,9 @@ def complete_adjustment(id):
                     db.session.rollback()
                     return api_error(err)
             # 库位库存同步：update_location_inventory 内部按 delta 正负自动分发 add/deduct。
-            # loc_key 优先 item.location（行级库位），P1-1 完成后切换为 adjustment.warehouse。
+            # loc_key 优先 adjustment.warehouse（单据级仓库），无则回退 item.location（行级库位）。
             if use_location and quantity:
-                loc_key = (item.location or '').strip()
+                loc_key = (adjustment.warehouse or item.location or '').strip()
                 if loc_key:
                     loc_ok, loc_err = update_location_inventory(item.material, loc_key, quantity)
                     if not loc_ok:
@@ -33218,7 +33284,8 @@ def revert_adjustment(id):
             return api_error('该调整单已反提交，不能重复操作')
         adjustment = locked
         # BUG-2026-08-02-010 修复：反提交时对称回退库位库存（与 complete 方向相反）。
-        # TODO(P1-1)：AdjustmentOrder 加 warehouse 字段后，loc_key 改为 adjustment.warehouse or item.location
+        # P1-1 已为 AdjustmentOrder 加 warehouse 字段，loc_key 优先 adjustment.warehouse
+        # （单据级仓库），无则回退 item.location（行级库位）。
         use_location = location_management_enabled()
         for item in adjustment.items:
             if not item.material_id:
@@ -33251,7 +33318,7 @@ def revert_adjustment(id):
             # 库位库存对称回退：complete 时 +quantity，revert 时 -quantity；
             # complete 时 -quantity，revert 时 +quantity。即 -quantity。
             if use_location and quantity:
-                loc_key = (item.location or '').strip()
+                loc_key = (adjustment.warehouse or item.location or '').strip()
                 if loc_key:
                     loc_ok, loc_err = update_location_inventory(item.material, loc_key, -quantity)
                     if not loc_ok:
