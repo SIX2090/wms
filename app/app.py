@@ -38607,6 +38607,9 @@ def _purchase_price_analysis_columns():
 
 
 def _collect_inventory_rows(filters):
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return []
     query = Material.query.order_by(Material.code.asc(), Material.id.asc())
     if filters['supplier_id']:
         query = query.filter(Material.supplier_id == filters['supplier_id'])
@@ -38638,6 +38641,9 @@ def _collect_inventory_rows(filters):
 
 
 def _collect_in_detail_rows(filters):
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return []
     query = InOrderItem.query.join(InOrder).join(Material, InOrderItem.material_id == Material.id).options(
         joinedload(InOrderItem.in_order).joinedload(InOrder.supplier),
         joinedload(InOrderItem.in_order).joinedload(InOrder.operator),
@@ -38647,6 +38653,9 @@ def _collect_in_detail_rows(filters):
         InOrder.order_no.desc(),
         InOrderItem.id.desc()
     )
+    # BUG-2026-08-02-014：入库明细按仓库过滤
+    if filters.get('warehouse'):
+        query = query.filter(InOrder.warehouse == filters['warehouse'])
     if filters['start_date']:
         query = query.filter(InOrder.date >= filters['start_date'])
     if filters['end_date']:
@@ -38691,6 +38700,9 @@ def _collect_in_detail_rows(filters):
 
 
 def _collect_out_detail_rows(filters):
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return []
     query = OutOrderItem.query.join(OutOrder).join(Material, OutOrderItem.material_id == Material.id).options(
         joinedload(OutOrderItem.out_order).joinedload(OutOrder.department),
         joinedload(OutOrderItem.out_order).joinedload(OutOrder.operator),
@@ -38700,6 +38712,9 @@ def _collect_out_detail_rows(filters):
         OutOrder.order_no.desc(),
         OutOrderItem.id.desc()
     )
+    # BUG-2026-08-02-014：出库明细按仓库过滤
+    if filters.get('warehouse'):
+        query = query.filter(OutOrder.warehouse == filters['warehouse'])
     if filters['start_date']:
         query = query.filter(OutOrder.date >= filters['start_date'])
     if filters['end_date']:
@@ -38743,6 +38758,9 @@ def _collect_out_detail_rows(filters):
 
 
 def _collect_check_rows(filters):
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return []
     query = InventoryCheckItem.query.join(InventoryCheck).join(Material, InventoryCheckItem.material_id == Material.id).options(
         joinedload(InventoryCheckItem.inventory_check).joinedload(InventoryCheck.operator),
         joinedload(InventoryCheckItem.material).joinedload(Material.unit)
@@ -38751,6 +38769,9 @@ def _collect_check_rows(filters):
         InventoryCheck.check_no.desc(),
         InventoryCheckItem.id.desc()
     )
+    # BUG-2026-08-02-014：盘点报表按仓库过滤
+    if filters.get('warehouse'):
+        query = query.filter(InventoryCheck.warehouse == filters['warehouse'])
     if filters['start_date']:
         query = query.filter(InventoryCheck.date >= filters['start_date'])
     if filters['end_date']:
@@ -38788,10 +38809,16 @@ def _collect_check_rows(filters):
 
 
 def _collect_ledger_rows(filters):
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return []
     query = StockTransaction.query.options(
         joinedload(StockTransaction.material),
         joinedload(StockTransaction.operator)
     )
+    # BUG-2026-08-02-014：库存台账按仓库过滤（通过 StockTransaction.location 匹配仓库名）
+    if filters.get('warehouse'):
+        query = query.filter(StockTransaction.location == filters['warehouse'])
     if filters.get('end_date'):
         query = query.filter(StockTransaction.created_at <= datetime.combine(filters['end_date'], time.max))
     material_clause = _material_filter_clause(filters.get('material_code'))
@@ -39194,6 +39221,9 @@ def _is_inbound_transaction(transaction_type, quantity):
 
 
 def _build_warehouse_monthly_report(filters):
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return _warehouse_monthly_columns(), [], {'count': 0, 'quantity': 0, 'amount': 0}
     today_value = date.today()
     start_date = filters.get('start_date') or today_value.replace(day=1)
     end_date = filters.get('end_date') or today_value
@@ -39219,13 +39249,19 @@ def _build_warehouse_monthly_report(filters):
     end_month = _month_start(end_date)
     final_cutoff = datetime.combine(_month_end(end_month), time.max)
 
-    future_rows = db.session.query(
+    # BUG-2026-08-02-014：仓库月报表按仓库过滤（StockTransaction.location 存仓库名）
+    warehouse_filter = StockTransaction.location == filters['warehouse'] if filters.get('warehouse') else None
+
+    future_rows_query = db.session.query(
         StockTransaction.material_id,
         func.coalesce(func.sum(StockTransaction.quantity), 0),
     ).filter(
         StockTransaction.material_id.in_(material_ids),
         StockTransaction.created_at > final_cutoff,
-    ).group_by(StockTransaction.material_id).all()
+    )
+    if warehouse_filter is not None:
+        future_rows_query = future_rows_query.filter(warehouse_filter)
+    future_rows = future_rows_query.group_by(StockTransaction.material_id).all()
     future_net_by_material = {material_id: _safe_float(quantity) for material_id, quantity in future_rows}
 
     current_stock_by_material = {
@@ -39234,11 +39270,14 @@ def _build_warehouse_monthly_report(filters):
     }
 
     month_buckets = {}
-    transactions = StockTransaction.query.options(joinedload(StockTransaction.material)).filter(
+    transactions_query = StockTransaction.query.options(joinedload(StockTransaction.material)).filter(
         StockTransaction.material_id.in_(material_ids),
         StockTransaction.created_at >= datetime.combine(start_month, time.min),
         StockTransaction.created_at <= final_cutoff,
-    ).order_by(StockTransaction.created_at.desc(), StockTransaction.id.desc()).all()
+    )
+    if warehouse_filter is not None:
+        transactions_query = transactions_query.filter(warehouse_filter)
+    transactions = transactions_query.order_by(StockTransaction.created_at.desc(), StockTransaction.id.desc()).all()
 
     for transaction in transactions:
         if not transaction.created_at:
