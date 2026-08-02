@@ -13,11 +13,14 @@ from __future__ import annotations
 import ctypes
 import io
 import json
+import logging
 import os
 import sys
 import threading
 import time
 import traceback
+
+logger = logging.getLogger(__name__)
 from ctypes import wintypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -405,14 +408,14 @@ def poll_once() -> int:
             status, message = send_image_task(image_response.content, task)
             requests.post(report_url, headers=helper_headers(), json={"status": status, "msg": message}, timeout=20).raise_for_status()
             processed += 1
-            print(f"[poll] task {task_id}: {status} {message}", flush=True)
+            logger.info("[poll] task %s: %s %s", task_id, status, message)
         except Exception as exc:
             message = f"本机微信助手发送失败：{exc}"
             try:
                 requests.post(report_url, headers=helper_headers(), json={"status": "failed", "msg": message}, timeout=20)
             except Exception:
                 pass
-            print(f"[poll] task {task_id} failed: {exc}", flush=True)
+            logger.error("[poll] task %s failed: %s", task_id, exc)
     return processed
 
 
@@ -421,7 +424,7 @@ def poll_loop() -> None:
         try:
             poll_once()
         except Exception as exc:
-            print(f"[poll] {exc}", flush=True)
+            logger.error("[poll] %s", exc)
         time.sleep(POLL_INTERVAL)
 
 
@@ -553,21 +556,19 @@ def main() -> None:
         # poll 模式需要主动向 WMS 主服务认证拉取任务，未配置 token 时拒绝启动，
         # 避免使用弱默认 token 导致任意人可触发本机微信发送图片
         if not WMS_HELPER_TOKEN:
-            print("[FATAL] 已启用轮询模式(POLL_ENABLED=1)但未配置 WECHAT_HELPER_TOKEN 环境变量，拒绝启动。", flush=True)
-            print("        请在启动前设置 WECHAT_HELPER_TOKEN（与 WMS 主服务 instance/wechat_helper_token 文件中的值一致）。", flush=True)
+            logger.critical("[FATAL] 已启用轮询模式(POLL_ENABLED=1)但未配置 WECHAT_HELPER_TOKEN 环境变量，拒绝启动。")
+            logger.critical("        请在启动前设置 WECHAT_HELPER_TOKEN（与 WMS 主服务 instance/wechat_helper_token 文件中的值一致）。")
             sys.exit(1)
         thread = threading.Thread(target=poll_loop, name="wechat-task-poller", daemon=True)
         thread.start()
-        print(f"Polling WMS tasks from {WMS_BASE_URL} every {POLL_INTERVAL}s", flush=True)
+        logger.info("Polling WMS tasks from %s every %ss", WMS_BASE_URL, POLL_INTERVAL)
     else:
-        # 非轮询模式下，/send 端点也会校验 X-Wechat-Helper-Token；
-        # 未配置 token 时 /send 一律 403，避免本机任意进程可触发发送
         if not WMS_HELPER_TOKEN:
-            print("[WARNING] 未配置 WECHAT_HELPER_TOKEN，/send 端点将拒绝所有请求。", flush=True)
-            print("          请设置 WECHAT_HELPER_TOKEN 后重启，或在 WMS 主服务启用轮询模式由其主动推送任务。", flush=True)
+            logger.warning("[WARNING] 未配置 WECHAT_HELPER_TOKEN，/send 端点将拒绝所有请求。")
+            logger.warning("          请设置 WECHAT_HELPER_TOKEN 后重启，或在 WMS 主服务启用轮询模式由其主动推送任务。")
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WMS WeChat helper listening on http://{HOST}:{PORT}", flush=True)
-    print("Default mode: use already-open WeChat, paste image, and wait for manual confirmation.", flush=True)
+    logger.info("WMS WeChat helper listening on http://%s:%s", HOST, PORT)
+    logger.info("Default mode: use already-open WeChat, paste image, and wait for manual confirmation.")
     server.serve_forever()
 
 

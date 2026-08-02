@@ -1038,6 +1038,20 @@ except Exception as _safe_filter_exc:  # noqa: BLE001 - 脱敏过滤器加载失
 # Log active configuration
 app.logger.info("Flask config loaded: env=%s, DEBUG=%s", env, app.config.get('DEBUG'))
 
+if env == 'production':
+    if not app.config.get('SESSION_COOKIE_SECURE'):
+        app.logger.warning(
+            '[SECURITY] SESSION_COOKIE_SECURE=False in production: '
+            'session cookies transmitted over HTTP in plaintext. '
+            'Set SESSION_COOKIE_SECURE=true env var and deploy behind HTTPS.'
+        )
+    if not app.config.get('WTF_CSRF_ENABLED', True):
+        app.logger.error(
+            '[SECURITY] CSRF protection is DISABLED in production (WMS_DISABLE_CSRF is set). '
+            'This exposes all state-changing endpoints to CSRF attacks. '
+            'Unset WMS_DISABLE_CSRF immediately.'
+        )
+
 # CSRF
 csrf = CSRFProtect(app)
 
