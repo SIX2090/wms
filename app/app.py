@@ -27933,28 +27933,70 @@ def batch_delete_in_order():
         return jsonify({'status': 'error', 'msg': '单次批量操作不能超过 100 条，请分批处理'}), 400
 
     orders = InOrder.query.options(joinedload(InOrder.supplier), joinedload(InOrder.items)).filter(InOrder.id.in_(ids)).all()
+    # BUG-2026-08-02-011 修复：fast-path 校验非草稿单据，与 delete_in_order 对齐。
+    # 已完成单必须先反提交回草稿再删除，禁止批量直接物理删除已完成单。
     blocked = [order.order_no for order in orders if order.status != 'pending']
     if blocked:
         return api_error('以下入库单已完成，不能删除：' + ', '.join(blocked))
 
-
-    try:
-        deleted_count = 0
-        for order in orders:
+    deleted_count = 0
+    skipped = []
+    affected_purchase_order_ids = set()
+    # 逐条加写锁并独立提交，单点失败仅回滚自身，不影响其余单据。
+    # 与 delete_in_order / batch_complete_in_order 实现保持对称。
+    for order in list(orders):
+        order_id = order.id
+        order_no = order.order_no
+        # 校验下推占用：存在有效下游草稿时不能删除，与 delete_in_order 一致
+        if _source_has_active_push(order_id):
+            skipped.append(f'{order_no}(存在下游单据)')
+            continue
+        try:
+            # 重新加锁并校验草稿状态，防止并发完成/反提交后状态已变更。
+            locked, ok = _acquire_order_write_lock(
+                InOrder, order_id, 'pending', selectinload(InOrder.items)
+            )
+            if not ok or locked is None:
+                skipped.append(f'{order_no}(状态已变更)')
+                db.session.rollback()
+                continue
+            order = locked
+            # 回退采购订单来源进度（与 delete_in_order 对齐）
             for item in list(order.items):
+                if item.source_purchase_order_item:
+                    source_item = item.source_purchase_order_item
+                    source_item.received_quantity = max(
+                        0,
+                        round_to_2_decimals((source_item.received_quantity or 0) - (item.quantity or 0))
+                    )
+                    if source_item.purchase_order:
+                        affected_purchase_order_ids.add(source_item.purchase_order.id)
                 db.session.delete(item)
             db.session.delete(order)
-            deleted_count += 1
-        try:
+            # 每张单据独立提交，保证单点失败仅回滚自身
             db.session.commit()
-        except Exception as e:
+            deleted_count += 1
+            log_operation('批量删除入库单', f'入库单：{order_no}', 'in_order', order_id)
+        except Exception:
             db.session.rollback()
-            app.logger.error(f'数据库操作失败: {e}')
-            return jsonify({'status': 'error', 'msg': '操作失败'}), 500
-        return jsonify({'status': 'success', 'msg': f'删除成功，共删除 {deleted_count} 张入库单', 'deleted': deleted_count})
-    except Exception as e:
+            skipped.append(f'{order_no}(错误)')
+            app.logger.exception('批量删除入库单失败: %s', order_no)
+
+    # 更新受影响的采购订单状态（已提交的单据不受后续 rollback 影响）
+    try:
+        for po_id in affected_purchase_order_ids:
+            po = db.session.get(PurchaseOrder, po_id)
+            if po:
+                update_purchase_order_status(po)
+        db.session.commit()
+    except Exception:
         db.session.rollback()
-        return api_error('删除失败，请稍后重试')
+        app.logger.exception('批量删除入库单后更新采购订单状态失败')
+
+    msg = f'批量删除完成，共删除 {deleted_count} 张入库单'
+    if skipped:
+        msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
+    return jsonify({'status': 'success', 'msg': msg, 'deleted': deleted_count, 'skipped': skipped})
 
 
 @app.route('/in_order/batch_complete', methods=['POST'])
