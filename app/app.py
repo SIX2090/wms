@@ -34700,8 +34700,14 @@ def complete_out_order(id):
         _, warehouse_error = validate_sales_outbound_warehouse(order)
         if warehouse_error:
             return jsonify({'status': 'error', 'msg': warehouse_error}), 400
-    if location_management_enabled() and location_required_on_save() and not order.warehouse:
-        return api_error('启用库位管理后，领料单必须填写仓库/库位')
+    # BUG-2026-08-02-003 修复：仓库是出库单必填字段，与库位管理是否启用无关。
+    # 存量未填仓库的 pending 单据完成时，先自动带入默认仓库，无默认仓库才拒绝。
+    if not order.warehouse:
+        default_wh = get_default_warehouse()
+        if default_wh:
+            order.warehouse = default_wh.name
+    if not order.warehouse:
+        return api_error('请选择仓库')
 
     # 异常检测（force=true时跳过）
     force_submit = request.args.get('force', '').lower() in ('true', '1', 'yes')
