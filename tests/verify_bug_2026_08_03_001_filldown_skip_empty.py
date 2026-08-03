@@ -1,10 +1,11 @@
-"""BUG-2026-08-03-001：表头向下填充按钮（WmsFillDown.fillDown）跳过空行
+"""BUG-2026-08-03-001：向下填充（WmsFillDown.fillDown）跳过空行
 
 回归测试：
-昨天 BUG-2026-08-02-021 修复了 Ctrl+D（setupColumnFillDown）跳过空行，
+昨天 BUG-2026-08-02-021 修复了 Ctrl+D（原 setupColumnFillDown）跳过空行，
 但表头列上的向下填充按钮（WmsFillDown.fillDown，app.js）是另一套独立机制，
 仍然把合同编号/工程名称填到所有 15 行（含空行）。
 
+后续 BUG-2026-08-03-002 将 Ctrl+D 统一到 fillDown，两个入口共用同一函数。
 本测试做静态 JS 内容断言（项目无 JSDOM/Selenium），防止代码回退：
 - T1: fillDown 函数检查 material_code 列
 - T2: fillDown 统计 skipped 空行计数

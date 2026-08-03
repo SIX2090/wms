@@ -2333,60 +2333,9 @@ function setupScanAutoFill() {
 }
 setupScanAutoFill();
 
-// ==================== Ctrl+D：向下填充 ====================
-// 在数量/单价/合同编号/工程名称单元格按 Ctrl+D，把当前格的值填到它下面所有行的同一列。
-// 关键约束：只填充"有数据的行"（material-code 非空），跳过空行，避免把同一个合同编号
-// 错误地填到所有还没录物料的空行上（例如一张单据只有 2 条记录时，不应填到后面 12 个空行）。
-function setupColumnFillDown() {
-    document.addEventListener('keydown', function(e) {
-        if (!(e.ctrlKey || e.metaKey) || (e.key !== 'd' && e.key !== 'D')) return;
-        const target = e.target;
-        if (!target || !target.classList) return;
-        let cls = null;
-        let isAmount = false;
-        if (target.classList.contains('material-qty')) cls = '.material-qty';
-        else if (target.classList.contains('material-price')) cls = '.material-price';
-        else if (target.classList.contains('line-contract-no')) cls = '.line-contract-no';
-        else if (target.classList.contains('line-project-name')) cls = '.line-project-name';
-        if (!cls) return;
-
-        e.preventDefault();
-        const value = target.value;
-        if (value === '' || value === null || value === undefined) return;
-
-        const currentRow = target.closest('tr');
-        if (!currentRow) return;
-        let row = currentRow.nextElementSibling;
-        let count = 0;
-        let skipped = 0;
-        while (row) {
-            // 只填充有物料数据的行（material-code 非空），空行跳过不填充
-            const codeInput = row.querySelector('.material-code');
-            const codeVal = codeInput ? codeInput.value.trim() : '';
-            if (!codeVal) {
-                skipped++;
-                row = row.nextElementSibling;
-                continue;
-            }
-            const input = row.querySelector(cls);
-            if (input) {
-                input.value = value;
-                if (isAmount) calcAmount(row);
-                count += 1;
-            }
-            row = row.nextElementSibling;
-        }
-        if (count > 0) {
-            const msg = skipped > 0
-                ? `已向下填充 ${count} 行（跳过 ${skipped} 个空行）`
-                : `已向下填充 ${count} 行`;
-            if (window.toastr && typeof window.toastr.info === 'function') {
-                window.toastr.info(msg);
-            }
-        }
-    });
-}
-setupColumnFillDown();
+// Ctrl+D 向下填充已统一到 app.js 的 WmsFillDown 模块（与表头向下箭头按钮共用 fillDown），
+// 保证两个入口行为一致：跳过 material_code 空行、派发事件联动金额、提示文案相同。
+// 见 app/static/js/app.js 中 WmsFillDown IIFE 的 keydown 监听。
 
 // ==================== 批量修改功能 ====================
 function batchUpdateField() {

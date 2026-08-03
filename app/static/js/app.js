@@ -3461,6 +3461,26 @@ document.addEventListener('DOMContentLoaded', function() {
         document.querySelectorAll('table').forEach(initialize);
     }
 
+    // Ctrl+D / Cmd+D：在可编辑明细单元格上按下，复用 fillDown 向下填充。
+    // 与表头向下箭头按钮走同一个函数，保证两个入口行为永远一致
+    // （跳过 material_code 空行、派发 input/change 联动金额、提示文案相同）。
+    document.addEventListener('keydown', function(e) {
+        if (!(e.ctrlKey || e.metaKey) || (e.key !== 'd' && e.key !== 'D')) return;
+        var control = e.target;
+        if (!control || !control.closest) return;
+        var cell = control.closest('td[data-column-key]');
+        if (!cell) return; // 不在明细单元格内（如单据头搜索框）则不拦截
+        var row = cell.closest('tr');
+        var table = row && row.closest('table');
+        if (!table || table.dataset.fillDownReady !== '1') return;
+        var key = cell.dataset.columnKey;
+        if (!key || excludedKeys.has(key)) return;
+        e.preventDefault();
+        // 以当前焦点行作为填充源，保证与"先点单元格再按 Ctrl+D"的直觉一致
+        table._wmsFillSource = { row: row, key: key };
+        fillDown(table, key);
+    });
+
     document.addEventListener('DOMContentLoaded', initializeAll);
     window.WmsFillDown = { refresh: initializeAll, fill: fillDown };
 })();
