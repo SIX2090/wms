@@ -147,6 +147,7 @@
 | BUG-2026-08-02-017 | `opening_stock.html` 新增期初库存单的仓库下拉已有 `required` 但未预选默认仓库；`opening_stock_list` 路由未传 `default_warehouse` | `opening_stock_list` 补传 `default_warehouse=get_default_warehouse()`；`opening_stock.html` 仓库 `<option>` 按 `default_warehouse.id == w.id` 预选（commit `5f4f95f9`） |
 | BUG-2026-08-02-019 | P1-5 采购入库被设计为必须关联采购订单，与 AGENTS.md"采购订单仅作为可选来源"规则冲突 | 新增/保存/完成 `采购入库` 路径不强制校验 source_purchase_order_id；手工单可直接保存并完成入库；有关联 PO 时仍保留来源/数量/执行进度跟踪。回归 `tests/verify_bug_P15_P16_P21.py` TestBugP15PurchaseInOptionalPurchaseOrder 组 |
 | BUG-2026-08-02-020 | P1-6 已完成入库单可通过详情页/列表/批量接口直接删除，违反"人工反提交→草稿→删除"规则 | `delete_in_order` 路由仅允许 pending 单删除，completed/partially_completed 返回 409 `已完成入库单禁止直接删除，请先反提交回草稿状态`；`batch_delete_in_order` 对已完成 ID 整批拒绝。详情页、列表页后端、接口统一规则。回归 `tests/verify_bug_P15_P16_P21.py` TestBugP16CompletedInOrderCannotDeleteDirectly 组 |
+| BUG-2026-08-03-001 | 表头列向下填充按钮（`WmsFillDown.fillDown`，app.js）不跳过 `material_code` 空行，把合同编号/工程名称填到所有 15 行（含空行），与"向下填充行数应与物料明细行数一致"规则冲突；昨天 BUG-2026-08-02-021 只修了 Ctrl+D（`setupColumnFillDown`），表头按钮入口未修 | `app/static/js/app.js` `fillDown()` 在遍历源行之后的行时，先检查 `cellFor(row,'material_code')` 是否有值，空行 `skipped++` 跳过不填充，提示含"跳过 N 个空行"；仅在有 `material_code` 列的表格生效，不影响其他表格。回归 `tests/verify_bug_2026_08_03_001_filldown_skip_empty.py` |
 
 ## 已确认误报
 

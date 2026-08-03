@@ -3395,17 +3395,29 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         var value = valueOf(sourceControl);
         var count = 0;
+        var skipped = 0;
         rows.slice(sourceIndex + 1).forEach(function(row) {
+            // 跳过没有物料编码的空行：仅填充有物料明细的行，避免把合同编号/工程名称
+            // 错误地填到还没录物料的空行上（与 setupColumnFillDown Ctrl+D 行为一致）。
+            // 仅在表格存在 material_code 列时生效，不影响无该列的其他表格。
+            var materialCell = cellFor(row, 'material_code');
+            if (materialCell) {
+                var materialControl = editableControl(materialCell);
+                if (materialControl && !hasValue(materialControl)) {
+                    skipped += 1;
+                    return;
+                }
+            }
             var target = editableControl(cellFor(row, key));
             if (!target) return;
             assignValue(target, value);
             count += 1;
         });
         if (!count) {
-            showFillResult('当前行下面没有可填充的明细行', 'warning');
+            showFillResult(skipped > 0 ? '已跳过 ' + skipped + ' 个空行，没有可填充的明细行' : '当前行下面没有可填充的明细行', 'warning');
             return;
         }
-        showFillResult('已向下填充 ' + count + ' 行');
+        showFillResult(skipped > 0 ? '已向下填充 ' + count + ' 行（跳过 ' + skipped + ' 个空行）' : '已向下填充 ' + count + ' 行');
     }
 
     function updateButtons(table) {
