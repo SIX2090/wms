@@ -1489,7 +1489,10 @@ document.addEventListener('click', function(e) {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-    // 默认不再预置空明细行，用户点击“添加物料”或按快捷键后再录入，避免打开页面即出现大量空白行。
+    // Default to 15 empty rows so the table looks complete on first open.
+    if (!document.querySelector('#materialTableBody tr')) {
+        for (let i = 0; i < 15; i++) addNewRow();
+    }
     if (window.WMS && window.WMS.ContractAutocomplete) {
         window.WMS.ContractAutocomplete.bindAll();
     }
