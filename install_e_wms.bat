@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-chcp 65001 >nul
+REM 部分腾讯云控制台对 chcp 65001 会写设备失败，这里不强制切代码页
+set "PYTHONUTF8=1"
 
 REM === 管理员权限校验（AI-SEC-F01）===
 net session >nul 2>&1

@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableExtensions
-chcp 65001 >nul
+REM 部分腾讯云控制台对 chcp 65001 会写设备失败，这里不强制切代码页
+set "PYTHONUTF8=1"
 
 set "APP_DIR=%~dp0"
 set "APP_DIR=%APP_DIR:~0,-1%"
