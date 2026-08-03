@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableExtensions
-REM 部分腾讯云控制台对 chcp 65001 会写设备失败，这里不强制切代码页
+REM chcp 65001 removed: Tencent Cloud console cannot write to CON device.
+REM Use PYTHONUTF8=1 instead for UTF-8 support.
 set "PYTHONUTF8=1"
 
 set "APP_DIR=%~dp0"
