@@ -1,6 +1,5 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-REM 部分腾讯云控制台对 chcp 65001 会写设备失败，这里不强制切代码页
 set "PYTHONUTF8=1"
 
 REM === 腾讯云 RDP/控制台兼容：部分会话无法直接写入 CON 设备 ===

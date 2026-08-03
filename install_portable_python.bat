@@ -1,8 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-REM 部分腾讯云 Windows 控制台对 chcp 65001 会报
-REM "The system cannot write to the specified device."
-REM 因此不强制切 UTF-8 代码页。
+REM Do not switch code page; some cloud consoles cannot write to CON.
 
 REM ============================================================
 REM WMS 绿色版 Python 3.11 部署脚本（离线优先）

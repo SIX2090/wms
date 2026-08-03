@@ -1,6 +1,5 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-REM 部分腾讯云控制台对 chcp 65001 会写设备失败，这里不强制切代码页
 cd /d "%~dp0" || exit /b 1
 for %%I in ("%~dp0..") do set "APP_ROOT=%%~fI"
 set "FLASK_ENV=production"

@@ -1,7 +1,6 @@
 @echo off
 setlocal EnableExtensions
-REM chcp 65001 removed: Tencent Cloud console cannot write to CON device.
-REM Use PYTHONUTF8=1 instead for UTF-8 support.
+REM Use PYTHONUTF8=1 for UTF-8 support.
 set "PYTHONUTF8=1"
 
 set "APP_DIR=%~dp0"
