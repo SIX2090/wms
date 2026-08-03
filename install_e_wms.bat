@@ -2,16 +2,16 @@
 setlocal EnableExtensions EnableDelayedExpansion
 set "PYTHONUTF8=1"
 
-REM === 腾讯云 RDP/控制台兼容：部分会话无法直接写入 CON 设备 ===
+REM === Tencent Cloud RDP/console compatibility: some sessions cannot write to CON device ===
 set "CONSOLE_OK=1"
 echo. >con 2>nul
 if errorlevel 1 set "CONSOLE_OK=0"
 
-REM === 管理员权限校验（AI-SEC-F01）===
+REM === administrator privilege check (AI-SEC-F01) ===
 net session >nul 2>&1
 if errorlevel 1 (
-  echo [ERROR] 请以管理员身份运行此脚本（右键 → 以管理员身份运行）。
-  echo         安装便携 Python、创建目录需要管理员权限。
+  echo [ERROR] Please run this script as administrator (right-click ^> Run as administrator).
+  echo         Installing portable Python and creating directories require admin rights.
   pause
   exit /b 1
 )
@@ -36,7 +36,7 @@ if /i "%PKG_DIR_FULL%"=="%INSTALL_DIR_FULL%" (
 
 goto :main
 
-REM ==================== 日志函数（AI-SEC-F01）====================
+REM ==================== log functions (AI-SEC-F01) ====================
 :log
 if "%CONSOLE_OK%"=="1" echo [%date% %time%] %~1
 echo [%date% %time%] %~1>>"%INSTALL_LOG%"
@@ -47,28 +47,28 @@ if "%CONSOLE_OK%"=="1" echo [%date% %time%] [ERROR] %~1 1>&2
 echo [%date% %time%] [ERROR] %~1>>"%INSTALL_LOG%"
 goto :eof
 
-REM ==================== 回滚函数（AI-SEC-F01）====================
+REM ==================== rollback functions (AI-SEC-F01) ====================
 :do_rollback
-call :log "===== 开始回滚 ====="
+call :log "===== start rollback ====="
 if defined COPIED_FILES (
   if not defined IN_PLACE_INSTALL (
     if exist "%INSTALL_DIR%\app.py" (
       rd /s /q "%INSTALL_DIR%" >nul 2>nul
-      call :log "已清理安装目录: %INSTALL_DIR%"
+      call :log "cleaned install directory: %INSTALL_DIR%"
     )
   )
 )
 if exist "%USERPROFILE%\Desktop\WMS.lnk" (
   del /q "%USERPROFILE%\Desktop\WMS.lnk" >nul 2>nul
-  call :log "已删除桌面快捷方式"
+  call :log "deleted desktop shortcut"
 )
-call :log "===== 回滚完成 ====="
-call :logerr "部署失败，已回滚。详见日志: %INSTALL_LOG%"
+call :log "===== rollback completed ====="
+call :logerr "deployment failed, rolled back. log: %INSTALL_LOG%"
 pause
 goto :eof
 
 :main
-REM banner 只在控制台可写时输出，避免腾讯云 RDP 会话报 "cannot write to device"
+REM banner shown only when console is writable (Tencent Cloud RDP "cannot write to device")
 if "%CONSOLE_OK%"=="1" (
   echo ============================================================
   echo WMS offline installer (E:\wms)
@@ -96,7 +96,7 @@ if not exist "%WHEELHOUSE%" (
   exit /b 1
 )
 
-REM === 文件日志初始化（AI-SEC-F01；BUG-2026-07-31-002 修复：避免 RDP 会话下 PowerShell stdout 失败）===
+REM === create log directory (AI-SEC-F01, BUG-2026-07-31-002: some RDP sessions fail PowerShell stdout) ===
 if not exist "%RUN_DIR%\logs" mkdir "%RUN_DIR%\logs"
 set "STAMP="
 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set "DATETIME=%%I"
@@ -110,34 +110,34 @@ set "INSTALL_LOG=%RUN_DIR%\logs\install_%STAMP%.log"
 call :log "WMS offline installer (E:\wms) started"
 call :log "INSTALL_DIR=%INSTALL_DIR%  RUN_DIR=%RUN_DIR%"
 
-REM === PowerShell 版本预检（AI-SEC-F01）===
+REM === PowerShell version check (AI-SEC-F01) ===
 for /f "delims=" %%v in ('powershell -NoProfile -Command "$PSVersionTable.PSVersion.Major" 2^>nul') do set "PS_MAJOR=%%v"
 if not defined PS_MAJOR (
-  call :logerr "PowerShell 未找到。请安装 WMF 5.1。"
-  echo         下载: https://www.microsoft.com/download/details.aspx?id=54616
+  call :logerr "PowerShell not found. Please install WMF 5.1."
+  echo         URL: https://www.microsoft.com/download/details.aspx?id=54616
   pause
   exit /b 1
 )
 if !PS_MAJOR! LSS 5 (
-  call :logerr "PowerShell 版本 !PS_MAJOR! 过低，需要 5.0+。"
-  echo         请安装 WMF 5.1: https://www.microsoft.com/download/details.aspx?id=54616
+  call :logerr "PowerShell version !PS_MAJOR! is too old; need 5.0+."
+  echo         Please install WMF 5.1: https://www.microsoft.com/download/details.aspx?id=54616
   pause
   exit /b 1
 )
 call :log "PowerShell !PS_MAJOR! OK"
 
-REM === 端口预检（AI-SEC-F01）===
+REM === port 8080 check (AI-SEC-F01) ===
 powershell -NoProfile -Command "$c=Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue; if($c){exit 1} else {exit 0}"
 if errorlevel 1 (
-  call :logerr "端口 8080 已被占用，部署中止。请先停止占用该端口的进程。"
+  call :logerr "Port 8080 is already in use. Please stop the occupying process first."
   pause
   exit /b 1
 )
-call :log "端口 8080 空闲"
+call :log "Port 8080 is available."
 
-REM === 幂等性检查（AI-SEC-F01）===
+REM === already installed check (AI-SEC-F01) ===
 if exist "%RUN_DIR%\.installed.flag" (
-  call :log "检测到已安装标记，跳过重复安装。如需重新安装，请先删除 .installed.flag 并卸载旧版本。"
+  call :log "Already installed. To reinstall, delete .installed.flag and run again."
   pause
   exit /b 0
 )
@@ -303,7 +303,7 @@ if errorlevel 1 (
   call :log "Desktop shortcut created."
 )
 
-REM === 写入安装标记（AI-SEC-F01 幂等性）===
+REM === write installation marker flag (AI-SEC-F01) ===
 echo installed > "%RUN_DIR%\.installed.flag"
 call :log "Installation flag written."
 

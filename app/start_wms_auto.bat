@@ -24,9 +24,9 @@ if not defined PYTHON_CMD (
 )
 :pyfound
 if not defined PYTHON_CMD (
-    echo [%date% %time%] [ERROR] Python 未找到，无法启动 WMS
+    echo [%date% %time%] [ERROR] Python not found; failed to start WMS
     exit /b 1
 )
 
-echo [%date% %time%] 启动 WMS 服务（auto_update 由 run_server.py 触发）...
+echo [%date% %time%] Starting WMS service (auto-update via run_server.py trigger)...
 "%PYTHON_CMD%" "%~dp0run_server.py"
