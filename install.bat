@@ -3,6 +3,11 @@ setlocal EnableExtensions EnableDelayedExpansion
 REM 部分腾讯云控制台对 chcp 65001 会写设备失败，这里不强制切代码页
 set "PYTHONUTF8=1"
 
+REM === 腾讯云 RDP/控制台兼容：部分会话无法直接写入 CON 设备 ===
+set "CONSOLE_OK=1"
+echo. >con 2>nul
+if errorlevel 1 set "CONSOLE_OK=0"
+
 REM === 管理员权限校验（AI-SEC-F01）===
 net session >nul 2>&1
 if errorlevel 1 (
@@ -32,12 +37,12 @@ goto :main
 
 REM ==================== 日志函数（AI-SEC-F01）====================
 :log
-echo [%date% %time%] %~1
+if "%CONSOLE_OK%"=="1" echo [%date% %time%] %~1
 echo [%date% %time%] %~1>>"%INSTALL_LOG%"
 goto :eof
 
 :logerr
-echo [%date% %time%] [ERROR] %~1 1>&2
+if "%CONSOLE_OK%"=="1" echo [%date% %time%] [ERROR] %~1 1>&2
 echo [%date% %time%] [ERROR] %~1>>"%INSTALL_LOG%"
 goto :eof
 
@@ -62,27 +67,30 @@ pause
 goto :eof
 
 :main
-echo ============================================================
-echo WMS offline installer
-if defined IN_PLACE_INSTALL (
-  echo Install mode: in-place
-  echo App dir: %RUN_DIR%
-) else (
-  echo Install dir: %INSTALL_DIR%
+REM banner 只在控制台可写时输出，避免腾讯云 RDP 会话报 "cannot write to device"
+if "%CONSOLE_OK%"=="1" (
+  echo ============================================================
+  echo WMS offline installer
+  if defined IN_PLACE_INSTALL (
+    echo Install mode: in-place
+    echo App dir: %RUN_DIR%
+  ) else (
+    echo Install dir: %INSTALL_DIR%
+  )
+  echo Default username: admin
+  echo Initial password: WMS_BOOTSTRAP_PASSWORD, or admin on first creation when unset
+  echo ============================================================
+  echo.
 )
-echo Default username: admin
-echo Initial password: WMS_BOOTSTRAP_PASSWORD, or admin on first creation when unset
-echo ============================================================
-echo.
 
 if not exist "%APP_SRC%\app.py" (
-  echo [ERROR] Package is incomplete: app\app.py not found.
+  if "%CONSOLE_OK%"=="1" echo [ERROR] Package is incomplete: app\app.py not found.
   pause
   exit /b 1
 )
 
 if not exist "%WHEELHOUSE%" (
-  echo [ERROR] Package is incomplete: wheelhouse not found.
+  if "%CONSOLE_OK%"=="1" echo [ERROR] Package is incomplete: wheelhouse not found.
   pause
   exit /b 1
 )
@@ -153,16 +161,15 @@ if not defined PYTHON_EXE (
 if not defined PYTHON_EXE (
   if not exist "%PY_INSTALLER%" (
     call :logerr "Python not found and bundled installer is missing."
-    echo Install Python 3.11 x64 first, then run this script again.
+    if "%CONSOLE_OK%"=="1" echo Install Python 3.11 x64 first, then run this script again.
     pause
     exit /b 1
   )
-  echo [1/8] Python not found. Installing Python 3.11...
   call :log "[1/8] Installing Python 3.11..."
   "%PY_INSTALLER%" /quiet InstallAllUsers=0 PrependPath=1 Include_pip=1 Include_test=0
   if errorlevel 1 (
     call :logerr "Python installer failed."
-    echo Try right-clicking install.bat and choose "Run as administrator", or install Python 3.11 x64 manually.
+    if "%CONSOLE_OK%"=="1" echo Try right-clicking install.bat and choose "Run as administrator", or install Python 3.11 x64 manually.
     set "ROLLBACK_NEEDED=1"
     call :do_rollback
     exit /b 1
@@ -179,10 +186,8 @@ if not exist "%PYTHON_EXE%" (
   pause
   exit /b 1
 )
-echo [1/8] Python: %PYTHON_EXE%
 call :log "[1/8] Python resolved: %PYTHON_EXE%"
 
-echo [2/8] Stopping old WMS process...
 call :log "[2/8] Stopping old WMS process..."
 if exist "%INSTALL_DIR%\stop_wms_offline.bat" (
   call "%INSTALL_DIR%\stop_wms_offline.bat" >nul 2>nul
@@ -192,10 +197,8 @@ if exist "%INSTALL_DIR%\stop_wms_offline.bat" (
   powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $ids = @(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess); foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue } } catch {}" >nul 2>nul
 )
 
-echo [3/8] Copying WMS files...
 call :log "[3/8] Copying WMS files..."
 if defined IN_PLACE_INSTALL (
-  echo Source package is already in %INSTALL_DIR%. Skipping file copy.
   call :log "In-place install, skipping file copy."
 ) else (
   if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
@@ -228,7 +231,6 @@ if not exist "%RUN_DIR%\logs" mkdir "%RUN_DIR%\logs"
 if not exist "%RUN_DIR%\backups" mkdir "%RUN_DIR%\backups"
 if not exist "%RUN_DIR%\instance" mkdir "%RUN_DIR%\instance"
 
-echo [4/8] Installing dependencies into system Python...
 call :log "[4/8] Installing dependencies into system Python..."
 cd /d "%RUN_DIR%" || (
   call :logerr "Cannot enter RUN_DIR."
@@ -236,7 +238,6 @@ cd /d "%RUN_DIR%" || (
   call :do_rollback
   exit /b 1
 )
-echo [5/8] Installing dependencies from local wheelhouse...
 call :log "[5/8] Installing dependencies from local wheelhouse..."
 "%PYTHON_EXE%" -m pip install --no-index --find-links "%WHEELHOUSE%" --upgrade pip setuptools wheel
 if errorlevel 1 (
@@ -256,7 +257,6 @@ if errorlevel 1 (
 set "DEPS_INSTALLED=1"
 call :log "Dependencies installed."
 
-echo [6/8] Creating empty database and default admin account...
 call :log "[6/8] Creating empty database and default admin account..."
 set "WMS_ALLOW_AUTO_SECRET_KEY=1"
 set "WMS_INIT_SAMPLE_DATA=0"
@@ -270,7 +270,6 @@ if errorlevel 1 (
 )
 set "DB_INITIALIZED=1"
 call :log "Database initialized."
-echo [7/8] Checking startup scripts...
 call :log "[7/8] Checking startup scripts..."
 if defined IN_PLACE_INSTALL (
   set "START_SCRIPT=%PKG_DIR%\start_wms_offline.bat"
@@ -285,7 +284,6 @@ if not exist "%START_SCRIPT%" (
   exit /b 1
 )
 
-echo [8/8] Creating desktop shortcuts...
 call :log "[8/8] Creating desktop shortcuts..."
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$desktop=[Environment]::GetFolderPath('Desktop');" ^
@@ -305,15 +303,17 @@ REM === 写入安装标记（AI-SEC-F01 幂等性）===
 echo installed > "%RUN_DIR%\.installed.flag"
 call :log "Installation flag written."
 
-echo.
-echo ============================================================
-echo [OK] WMS installed
-echo Start: %START_SCRIPT%
-echo Login: http://127.0.0.1:8080/login
-echo Username: admin
-echo Initial password: WMS_BOOTSTRAP_PASSWORD, or admin on first creation when unset
-echo ============================================================
+if "%CONSOLE_OK%"=="1" (
+  echo.
+  echo ============================================================
+  echo [OK] WMS installed
+  echo Start: %START_SCRIPT%
+  echo Login: http://127.0.0.1:8080/login
+  echo Username: admin
+  echo Initial password: WMS_BOOTSTRAP_PASSWORD, or admin on first creation when unset
+  echo ============================================================
+  echo.
+)
 call :log "WMS installation completed successfully."
-echo.
 pause
 exit /b 0
