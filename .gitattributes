@@ -11,6 +11,10 @@
 *.txt text eol=lf
 *.sh  text eol=lf
 
+# Windows batch files must use CRLF for old cmd.exe compatibility
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
 # Binary files - no conversion
 *.png  binary
 *.jpg  binary
