@@ -11,9 +11,11 @@
 *.txt text eol=lf
 *.sh  text eol=lf
 
-# Windows batch files must use CRLF for old cmd.exe compatibility
-*.bat text eol=crlf
-*.cmd text eol=crlf
+# Windows batch files must use CRLF for old cmd.exe compatibility.
+# Use -text so Git stores CRLF bytes verbatim in the repository instead of
+# normalizing to LF; this avoids checkout-time conversion on old Git clients.
+*.bat -text
+*.cmd -text
 
 # Binary files - no conversion
 *.png  binary
