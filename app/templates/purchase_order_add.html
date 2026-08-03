@@ -972,9 +972,8 @@ document.addEventListener('DOMContentLoaded', function() {
     setupSupplierInput();
     if (initialItems.length) {
         initialItems.forEach(item => addNewRow(item));
-    } else {
-        for (let i = 0; i < 15; i++) addNewRow();
     }
+    // 无初始数据时不再预置空明细行，避免打开页面即出现大量空白行。
     if (window.WMS && window.WMS.ContractAutocomplete) {
         window.WMS.ContractAutocomplete.bindAll();
     }

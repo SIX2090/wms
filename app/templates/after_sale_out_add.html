@@ -560,11 +560,8 @@ document.addEventListener('DOMContentLoaded', function() {
         initialItems.forEach(function(item) {
             addNewRow(null, item);
         });
-    } else {
-        for (let i = 0; i < 15; i++) {
-            addNewRow();
-        }
     }
+    // 无初始数据时不再预置空明细行，避免打开页面即出现大量空白行。
     registerDetailRowActions({
         tableSelector: '#materialTable',
         rowSelector: '#materialTableBody tr',
