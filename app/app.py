@@ -10117,10 +10117,12 @@ def edit_material(id):
         material.reorder_point = parse_float_value(request.form.get('reorder_point'), 0)
         material.alert_days = parse_int_value(request.form.get('alert_days'), 30, minimum=1, maximum=3650)
     material.expiry_date = parse_date_value(expiry_date)
-    material.price = parse_bounded_number(request.form.get('price'), 0, maximum=MAX_TRANSACTION_PRICE)
+    # BUG-2026-08-04-007: 编辑物料价格上限必须与新增一致（MAX_REASONABLE_PRICE），
+    # 原来用 MAX_TRANSACTION_PRICE（1 万亿）可绕过新增时的 99999999.99 上限。
+    material.price = parse_bounded_number(request.form.get('price'), 0, maximum=MAX_REASONABLE_PRICE)
     if material.price is None:
         db.session.rollback()
-        return jsonify({'status': 'error', 'msg': '参考价格超出有效范围'}), 400
+        return api_error(f'参考价格必须是 0 至 {MAX_REASONABLE_PRICE:,.2f} 的有限数字')
     material.remark = (request.form.get('remark') or '').strip() or None
     material.image = image_path
 
