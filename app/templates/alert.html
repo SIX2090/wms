@@ -247,7 +247,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             batchBtn.disabled = true;
             batchBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>设置中';
-            fetch('/alert/batch_update_thresholds', {
+            csrfFetch('/alert/batch_update_thresholds', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -288,7 +288,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             disableBtn.disabled = true;
             disableBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>处理中';
-            fetch('/alert/batch_update_thresholds', {
+            csrfFetch('/alert/batch_update_thresholds', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
