@@ -151,6 +151,7 @@
 | BUG-2026-08-03-002 | Ctrl+D 向下填充（`setupColumnFillDown`）与表头按钮（`WmsFillDown.fillDown`）是两套独立实现：① Ctrl+D 仅采购入库有，销售订单/采购订单/出库单无 Ctrl+D；② Ctrl+D 填数量/单价后不联动金额（`isAmount` 死代码，`calcAmount` 永不触发），按钮会联动；③ 两套实现易出现"修一处漏一处"的回归（正是 BUG-2026-08-02-021→001 的根因） | 将 Ctrl+D 统一到 `app/static/js/app.js` 的 `WmsFillDown` IIFE：新增 keydown 监听复用 `fillDown(table,key)`，所有页面自动获得 Ctrl+D；移除 `in_order_add.html` 的 `setupColumnFillDown`（避免双重触发）。两入口共用同一函数，行为永远一致（跳过空行、派发 input/change 联动金额、提示文案相同）。回归 `tests/verify_bug_2026_08_02_021_in_order_contract.py` T1-T2、`tests/verify_bug_2026_08_03_001_filldown_skip_empty.py` |
 | BUG-2026-08-04-012 | 采购入库单详情页"下推"菜单三个链接（下推领料单/其他出库/售后出库）是普通 `<a href>` 锚点，点击后在当前标签页跳转到下推页，原采购入库单详情页被替换（界面关闭），用户无法在查看原单的同时进入领料单/出库单界面 | 给 `in_order_detail.html` 三个下推链接添加 `target="_blank" rel="noopener"`，在新标签页打开下推页，原采购入库单详情页保持打开。回归 `tests/verify_bug_2026_08_04_012_push_open_new_tab.py` T1-T3 |
 | BUG-2026-08-04-013 | 复制物料时自动生成的物料编码只基于原物料编码递增，未按"原物料分类 + 流水号"生成 | `generate_material_copy_code()` 参数改为接收 `Material` 对象，优先取 `source.category.code` 作为前缀生成 `{分类编码}{三位流水号}`（补零到 3 位，如分类编码 `101` 已有最大编号 `101009` → 复制生成 `101010`），取该前缀下最大流水号 +1；原物料无分类时回退到原编码递增逻辑保持兼容。回归 `tests/verify_bug_2026_08_04_013_copy_material_category_code.py` T1-T5 |
+| BUG-2026-08-04-014 | 采购订单新增页面保存使用原生非 GET `fetch` 提交，违反"所有非 GET 请求必须走 `WMS.api.*`"规则（预提交钩子、CSRF一致性可能不一致） | 迁移原生 `fetch` 为 `WMS.api.post`，复用统一错误处理和CSRF逻辑，保持业务功能不变。lint 规则 `scripts/lint_no_raw_post_fetch.py` 验证通过 |
 
 ## 已确认误报
 

@@ -942,30 +942,23 @@ function submitForm(saveAndNew) {
         showToast('请至少添加一条采购明细', 'warning');
         return;
     }
-    fetch('/purchase_order/save', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    })
-    .then(res => res.json())
+    // 禁止业务代码使用 raw fetch，必须通过 WMS.api.post 统一发起请求（符合 WMS 前端规范）。
+    // WMS.api 在业务失败时 reject，错误信息经 error.message 传入 catch。
+    WMS.api.post('/purchase_order/save', payload)
     .then(data => {
-        if (data.status === 'success') {
-            showToast('采购单保存成功', 'success');
-            // BUG-2026-07-28-014 修复：保存并新建 - 保留表头回到新增页
-            if (window.__saveAndNew) {
-                setTimeout(() => {
-                    const url = new URL(window.location.origin + '/purchase_order/add');
-                    if (payload.supplier_id) url.searchParams.set('supplier_id', payload.supplier_id);
-                    window.location.href = url.toString();
-                }, 400);
-            } else {
-                setTimeout(() => window.location.href = '/purchase_order/' + data.id, 500);
-            }
+        showToast('采购单保存成功', 'success');
+        // BUG-2026-07-28-014 修复：保存并新建 - 保留表头回到新增页
+        if (window.__saveAndNew) {
+            setTimeout(() => {
+                const url = new URL(window.location.origin + '/purchase_order/add');
+                if (payload.supplier_id) url.searchParams.set('supplier_id', payload.supplier_id);
+                window.location.href = url.toString();
+            }, 400);
         } else {
-            showToast(data.msg || '保存失败', 'danger', 3600);
+            setTimeout(() => window.location.href = '/purchase_order/' + data.id, 500);
         }
     })
-    .catch(error => showToast('保存失败：' + error.message, 'danger', 3600));
+    .catch(error => showToast((error && error.message) || '保存失败', 'danger', 3600));
 }
 
 document.addEventListener('DOMContentLoaded', function() {
