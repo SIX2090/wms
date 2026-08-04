@@ -1471,3 +1471,27 @@ full 验证结果：
   - 每次 commit 前 `python scripts/lint_no_raw_post_fetch.py` → 通过
 - 推送验证：5 次推送均输出 `To https://github.com/SIX2090/wms.git ... -> main` 且 `git ls-remote` 确认 `dffdf9ed` 已在 `refs/heads/main`。
 - 剩余风险和下一子项：`_acquire_order_write_lock` 在 SQLite 上用 `BEGIN IMMEDIATE` 串行化写事务，并发高时批量操作会排队；如未来切到 PostgreSQL/MySQL，可改用 `SELECT ... FOR UPDATE` 减小锁粒度（`_acquire_order_write_lock` 已实现该分支，无须改业务代码）。
+
+#### AI-REFACTOR-APP-SPLIT（已完成）— app.py 按业务域拆分路由到独立模块
+
+- 完成日期：2026-08-04
+- 目标：将超大单文件 `app/app.py` 按业务域拆分路由到 `app/routes/` 独立模块，先单位（unit）Blueprint 试点，再采用 register-on-app 模式批量拆分，降低单文件膨胀风险、提升可维护性，且不改变任何 endpoint 名/URL，保证 `url_for` 引用与既有功能零回归。
+- 业务边界：仅做路由代码迁移与模块化，不修改任何业务逻辑、密码、权限、CSRF、事务边界；不建任何新分支（仅 `main`）。
+- 拆分方式：
+  - 单位（unit）：`routes/unit.py` Blueprint 模式试点。
+  - 供应商（supplier）/分类（category）/员工（employee）/物料（material）/客户（customer）/仓库（warehouse）/部门（department）/合同（contract）/备份（backup）/审批中心（approval）/手机端扫码（mobile）/微信分享（wechat_share）：`register_<domain>_routes(app)` 模式，endpoint 名与 app.py 原实现完全一致。
+  - 循环导入处理：app 依赖（模型/辅助函数）在路由函数内部延迟导入（请求期才执行），模块级只导入稳定依赖（flask / utils / db）。
+- 改动模块：
+  - `app/routes/*.py`：unit/supplier/category/employee/material/customer/warehouse/department/contract/backup/approval/mobile/wechat_share 共 13 个域路由模块。
+  - `app/app.py`：导入并注册各 `register_*_routes(app)`，删除对应原路由代码块；恢复共享辅助函数 `format_file_size` 到共享区。
+  - `scripts/lint_wms_rules.py`：A9 规则放宽路由函数排除窗口（2 → 6 行），叠 `@app.route`+`@require_role`+`@login_required` 三层装饰器的路由函数不再误报需单独测试。
+  - `tests/verify_app_py_split_*.py`：单位 Blueprint 回归 + 其余 12 域 register-on-app 回归测试。
+- 权限与人工确认：所有迁移路由保留原 `@login_required` + `@require_role` 装饰器；AI 不放开任何写权限、不改密码、不硬删单据。
+- 专项验证命令及结果：
+  - `python scripts/lint_wms_rules.py` → 0 违规。
+  - `python -m pytest tests/verify_app_py_split_*.py -q` → 85 passed。
+  - 每次 commit 前 pre-commit 钩子（lint_wms_rules + lint_no_raw_post_fetch）→ 全部通过。
+- 推送验证：多批次推送均输出 `To https://github.com/SIX2090/wms.git ... -> main`；本地与 `origin/main` SHA 一致。
+- 剩余风险和下一子项：
+  - 大业务域（subcontract/sales/in_order/out_order 等）仍有严重交错的路由块尚未拆分，需精确分析行号与依赖后再下手。
+  - 建议新增"app.py 路由防膨胀"pre-commit 规则，禁止新路由直接写进 app.py，强制走 `routes/` 模块。
