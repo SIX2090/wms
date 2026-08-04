@@ -2,6 +2,35 @@
 {% from '_list_macros.html' import sort_th, per_page_select %}
 {% block title %}合同/工程档案{% endblock %}
 {% block content %}
+<style>
+.copy-text { margin-right: 4px; }
+.btn-copy-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    padding: 0;
+    border: 1px solid #dee2e6;
+    border-radius: 3px;
+    background: #fff;
+    color: #6c757d;
+    cursor: pointer;
+    vertical-align: middle;
+    transition: all 0.15s;
+    font-size: 12px;
+    line-height: 1;
+}
+.btn-copy-icon:hover {
+    background: #e9ecef;
+    color: #0d6efd;
+    border-color: #0d6efd;
+}
+.btn-copy-icon.copied {
+    background: #198754;
+    color: #fff;
+    border-color: #198754;
+}
+</style>
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2><i class="bi bi-file-earmark-text"></i> 合同/工程档案</h2>
@@ -67,8 +96,18 @@
                     {% for c in contracts %}
                     <tr>
                         <td><input type="checkbox" class="check-item" value="{{ c.id }}"></td>
-                        <td>{{ c.contract_no }}</td>
-                        <td>{{ c.project_name }}</td>
+                        <td>
+                            <span class="copy-text">{{ c.contract_no }}</span>
+                            <button type="button" class="btn-copy-icon" onclick="copyCellValue(this)" title="复制合同编号" data-copy="{{ c.contract_no }}">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
+                        </td>
+                        <td>
+                            <span class="copy-text">{{ c.project_name }}</span>
+                            <button type="button" class="btn-copy-icon" onclick="copyCellValue(this)" title="复制工程名称" data-copy="{{ c.project_name }}">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
+                        </td>
                         <td>
                             {% if c.status == 'active' %}
                             <span class="badge bg-success">启用</span>
@@ -233,6 +272,38 @@
 </div>
 
 <script>
+function copyCellValue(btn) {
+    var text = btn.getAttribute('data-copy') || '';
+    if (!text) return;
+    var icon = btn.querySelector('i');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+            showCopied(btn, icon);
+        }).catch(function() {
+            fallbackCopy(text, btn, icon);
+        });
+    } else {
+        fallbackCopy(text, btn, icon);
+    }
+}
+function fallbackCopy(text, btn, icon) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showCopied(btn, icon); } catch(e) {}
+    document.body.removeChild(ta);
+}
+function showCopied(btn, icon) {
+    btn.classList.add('copied');
+    icon.className = 'bi bi-check-lg';
+    setTimeout(function() {
+        btn.classList.remove('copied');
+        icon.className = 'bi bi-clipboard';
+    }, 1000);
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     initCheckAll('contractTable');
 });
