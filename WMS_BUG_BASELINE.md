@@ -152,6 +152,7 @@
 | BUG-2026-08-04-012 | 采购入库单详情页"下推"菜单三个链接（下推领料单/其他出库/售后出库）是普通 `<a href>` 锚点，点击后在当前标签页跳转到下推页，原采购入库单详情页被替换（界面关闭），用户无法在查看原单的同时进入领料单/出库单界面 | 给 `in_order_detail.html` 三个下推链接添加 `target="_blank" rel="noopener"`，在新标签页打开下推页，原采购入库单详情页保持打开。回归 `tests/verify_bug_2026_08_04_012_push_open_new_tab.py` T1-T3 |
 | BUG-2026-08-04-013 | 复制物料时自动生成的物料编码只基于原物料编码递增，未按"原物料分类 + 流水号"生成 | `generate_material_copy_code()` 参数改为接收 `Material` 对象，优先取 `source.category.code` 作为前缀生成 `{分类编码}{三位流水号}`（补零到 3 位，如分类编码 `101` 已有最大编号 `101009` → 复制生成 `101010`），取该前缀下最大流水号 +1；原物料无分类时回退到原编码递增逻辑保持兼容。回归 `tests/verify_bug_2026_08_04_013_copy_material_category_code.py` T1-T5 |
 | BUG-2026-08-04-014 | 采购订单新增页面保存使用原生非 GET `fetch` 提交，违反"所有非 GET 请求必须走 `WMS.api.*`"规则（预提交钩子、CSRF一致性可能不一致） | 迁移原生 `fetch` 为 `WMS.api.post`，复用统一错误处理和CSRF逻辑，保持业务功能不变。lint 规则 `scripts/lint_no_raw_post_fetch.py` 验证通过 |
+| BUG-2026-08-04-016 | `/api/material/search` 返回的物料载荷缺少 `brand` 与 `price` 字段：`in_order_detail.html` 用该接口做物料快速搜索，`fillAddMaterialInfo()` 读取 `material.brand`/`material.price`，导致入库单详情页新增物料时品牌恒为空、单价恒为 0.00，覆盖了物料档案里已维护的品牌与价格 | `api_material_payload()` 补充返回 `brand` 与 `price` 字段（对 `/api/material/search` 与 `/api/material/info` 等所有调用方均为新增字段，向后兼容）。回归测试 `tests/verify_bug_2026_08_04_016_material_search_brand_price.py`（2 场景：搜索结果含 brand/price、info 含 brand/price） |
 
 ## 已确认误报
 
