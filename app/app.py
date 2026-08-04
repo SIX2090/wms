@@ -9017,7 +9017,8 @@ def generate_material_copy_code(source):
     根据源物料生成新的物料编码：原物料分类 + 流水号。
 
     - 以源物料所属分类的编码为前缀，取该前缀下已存在物料的最大流水号 + 1，
-      生成 `{分类编码}{流水号}`。例如分类编码 FL-01，则生成 FL-011、FL-012...
+      生成 `{分类编码}{三位流水号}`。例如分类编码 101，已有最大编号 101009，
+      则复制生成 101010（流水号 009 → 010，可见三位补零）。
     - 原物料无分类时，退回到基于原编码的旧逻辑（末尾数字递增，或追加 -COPY 后缀）。
     """
     if source is None:
@@ -9054,14 +9055,14 @@ def generate_material_copy_code(source):
                 return candidate
         raise ValueError("无法生成唯一编码，请检查数据")
 
-    # 有分类：按分类前缀 + 流水号（取该前缀下最大流水号 + 1）
+    # 有分类：按分类前缀 + 三位流水号（取该前缀下最大流水号 + 1）
     max_number = 0
     for (code,) in Material.query.with_entities(Material.code).filter(Material.code.like(f'{prefix}%')).all():
         code_match = re.match(rf'^{re.escape(prefix)}(\d+)$', code or '')
         if code_match:
             max_number = max(max_number, int(code_match.group(1)))
     for next_number in range(max_number + 1, max_number + 10000):
-        candidate = f'{prefix}{next_number}'
+        candidate = f'{prefix}{next_number:03d}'
         if not Material.query.filter_by(code=candidate).first():
             return candidate
     raise ValueError("无法生成唯一编码，请检查数据")
