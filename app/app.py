@@ -22,6 +22,8 @@ import shutil
 import re
 import sqlite3
 import requests
+import ipaddress
+import socket
 import base64
 import json
 from pathlib import Path
@@ -8832,17 +8834,48 @@ def _search_material_images_online(material, limit=12):
     return _extract_bing_image_candidates(response.text, limit=limit), query
 
 
+def _is_private_or_loopback_host(hostname):
+    """检查主机名是否指向内网/回环/私有地址，用于阻止 SSRF。
+
+    解析 hostname 的所有 A/AAAA 记录，只要有一个落在私有/回环/链路本地/
+    保留地址段即判定为内网地址。
+    """
+    try:
+        infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        # DNS 解析失败：保守拒绝，避免攻击者用不存在的域名绕过校验
+        return True
+    for info in infos:
+        ip_str = info[4][0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return True
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            return True
+    return False
+
+
 def _save_material_image_from_url(material, image_url):
     image_url = (image_url or '').strip()
     if not image_url.lower().startswith(('http://', 'https://')):
         return None, '图片地址无效'
+
+    # SSRF 防护：解析 URL 主机名，拒绝指向内网/回环/私有地址的请求
+    parsed_url = urlparse(image_url)
+    hostname = parsed_url.hostname
+    if not hostname:
+        return None, '图片地址无效'
+    if _is_private_or_loopback_host(hostname):
+        return None, '不允许访问内网地址'
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
                       '(KHTML, like Gecko) Chrome/126.0 Safari/537.36',
         'Referer': 'https://www.bing.com/',
     }
-    with requests.get(image_url, headers=headers, timeout=12, stream=True) as response:
+    # 限制重定向次数为 5，防止通过 302 链绕过上面的内网校验
+    with requests.get(image_url, headers=headers, timeout=12, stream=True, allow_redirects=True, max_redirects=5) as response:
         response.raise_for_status()
         content_type = (response.headers.get('Content-Type') or '').split(';', 1)[0].lower()
         if content_type and not content_type.startswith('image/'):
