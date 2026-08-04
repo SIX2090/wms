@@ -1782,7 +1782,8 @@ function showColumnSettings() {
     });
 
     fetch('/api/contracts').then(function(r) { return r.json(); }).then(function(list) {
-        if (Array.isArray(list)) { list.forEach(function(c) { contracts.push(c); }); }
+        var arr = (list && list.data && list.data.contracts) ? list.data.contracts : (list && list.contracts) ? list.contracts : (Array.isArray(list) ? list : []);
+        arr.forEach(function(c) { contracts.push(c); });
     }).catch(function(err) { console.warn('合同列表加载失败:', err); });
 })();
 </script>

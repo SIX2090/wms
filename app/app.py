@@ -9894,13 +9894,18 @@ def api_contracts_search():
             Contract.project_name.ilike(like),
         ))
     contracts = query.order_by(Contract.contract_no).limit(50).all()
+    # 返回标准信封 {status, data}，与 api.js 统一请求层对齐；
+    # 否则 WMS.api.getContracts() 会因缺少 status==='success' 被当作业务失败而 reject。
     return jsonify({
-        'contracts': [{
-            'id': c.id,
-            'contract_no': c.contract_no,
-            'project_name': c.project_name,
-            'remark': c.remark or ''
-        } for c in contracts]
+        'status': 'success',
+        'data': {
+            'contracts': [{
+                'id': c.id,
+                'contract_no': c.contract_no,
+                'project_name': c.project_name,
+                'remark': c.remark or ''
+            } for c in contracts]
+        }
     })
 
 
