@@ -10096,8 +10096,10 @@ def edit_material(id):
 
     old_code = material.code
     old_name = material.name
+    old_spec = material.spec  # BUG-2026-08-04-005: 赋值前捕获旧规格，否则 spec_changed 永为 False
     code_changed = (old_code != new_code)
     name_changed = (old_name != new_name)
+    spec_changed = (old_spec != new_spec)  # 必须在 material.spec = new_spec 之前比较
     if code_changed and not material_code_editable():
         return api_error('系统参数已禁止修改物料编码')
 
@@ -10124,82 +10126,56 @@ def edit_material(id):
 
     # 级联更新所有关联单据
     cascade_info = []
-    spec_changed = (material.spec != new_spec)
+    # BUG-2026-08-04-005: spec_changed 已在赋值前计算，此处不再重复比较
 
     if code_changed or name_changed or spec_changed:
         # 1. 更新采购申请明细
         pr_items = PurchaseRequestItem.query.filter_by(material_id=id).all()
         for item in pr_items:
-            if code_changed:
+            if code_changed and hasattr(item, 'material_code'):
                 item.material_code = new_code
-            if name_changed:
+            if name_changed and hasattr(item, 'material_name'):
                 item.material_name = new_name
+            if spec_changed and hasattr(item, 'spec'):
+                item.spec = new_spec
         if pr_items:
             cascade_info.append(f'采购申请 {len(pr_items)} 条')
 
         # 2. 更新BOM
         bom_records = BOM.query.filter_by(product_code=old_code if code_changed else new_code).all()
         for bom in bom_records:
-            if code_changed:
+            if code_changed and hasattr(bom, 'product_code'):
                 bom.product_code = new_code
-            if name_changed:
+            if name_changed and hasattr(bom, 'product_name'):
                 bom.product_name = new_name
         if bom_records:
             cascade_info.append(f'BOM {len(bom_records)} 条')
 
-        # 3. 更新入库单明细
+        # 3. 更新入库单明细（InOrderItem 无冗余 code/name/spec 字段，跳过）
         in_items = InOrderItem.query.filter_by(material_id=id).all()
-        for item in in_items:
-            if code_changed:
-                item.material_code = new_code
-            if name_changed:
-                item.material_name = new_name
-            if spec_changed:
-                item.spec = new_spec
+        # InOrderItem 仅持有 material_id 外键，物料主数据变化时无需冗余同步
         if in_items:
-            cascade_info.append(f'入库单 {len(in_items)} 条')
+            cascade_info.append(f'入库单 {len(in_items)} 条（仅关联，无冗余字段）')
 
-        # 4. 更新领料单明细
+        # 4. 更新领料单明细（OutOrderItem 无冗余 code/name/spec 字段，跳过）
         out_items = OutOrderItem.query.filter_by(material_id=id).all()
-        for item in out_items:
-            if code_changed:
-                item.material_code = new_code
-            if name_changed:
-                item.material_name = new_name
-            if spec_changed:
-                item.spec = new_spec
         if out_items:
-            cascade_info.append(f'领料单 {len(out_items)} 条')
+            cascade_info.append(f'领料单 {len(out_items)} 条（仅关联，无冗余字段）')
 
-        # 5. 更新盘点单明细
+        # 5. 更新盘点单明细（InventoryCheckItem 无冗余字段，跳过）
         check_items = InventoryCheckItem.query.filter_by(material_id=id).all()
-        for item in check_items:
-            if code_changed:
-                item.material_code = new_code
-            if name_changed:
-                item.material_name = new_name
         if check_items:
-            cascade_info.append(f'盘点单 {len(check_items)} 条')
+            cascade_info.append(f'盘点单 {len(check_items)} 条（仅关联，无冗余字段）')
 
-        # 6. 更新委外加工明细
+        # 6. 更新委外加工明细（SubcontractItem 无冗余字段，跳过）
         subcontract_items = SubcontractItem.query.filter_by(material_id=id).all()
-        for item in subcontract_items:
-            if code_changed:
-                item.material_code = new_code
-            if name_changed:
-                item.material_name = new_name
         if subcontract_items:
-            cascade_info.append(f'委外单 {len(subcontract_items)} 条')
+            cascade_info.append(f'委外单 {len(subcontract_items)} 条（仅关联，无冗余字段）')
 
-        # 7. 更新BOM子项明细
+        # 7. 更新BOM子项明细（BOMItem 无冗余字段，跳过）
         bom_items = BOMItem.query.filter_by(material_id=id).all()
-        for item in bom_items:
-            if code_changed:
-                item.material_code = new_code
-            if name_changed:
-                item.material_name = new_name
         if bom_items:
-            cascade_info.append(f'BOM子项 {len(bom_items)} 条')
+            cascade_info.append(f'BOM子项 {len(bom_items)} 条（仅关联，无冗余字段）')
 
     try:
         db.session.commit()
