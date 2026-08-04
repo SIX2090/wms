@@ -1285,17 +1285,36 @@ document.addEventListener('DOMContentLoaded', function() {
             resultDiv.style.display = 'none';
             resultDiv.innerHTML = '';
             var formData = new FormData(this);
+            // BUG-2026-08-04-004: 之前用 csrfFetch().then(r => r.json())，
+            // 当后端返回 4xx/5xx 非 JSON（如 CSRF 重定向 HTML）时，r.json() 抛错，
+            // catch 只能看到 "请求失败：Unexpected token..." 丢失真实原因。
+            // 改为先检查 response.ok，再解析 JSON，非 JSON 时给出友好提示。
             csrfFetch(this.action, {
                 method: 'POST',
                 body: formData,
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
             })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                // 非 2xx：尝试解析 JSON 错误体，失败则用 HTTP 状态码构造原因
+                if (!r.ok) {
+                    return r.json().catch(function() {
+                        var hint = r.status === 0 ? '网络连接失败' : ('HTTP ' + r.status);
+                        if (r.status === 403 || r.status === 302) {
+                            hint = '会话已过期或权限不足，请刷新页面后重试';
+                        }
+                        throw { message: '导入失败：' + hint, status: r.status };
+                    }).then(function(err) {
+                        var msg = (err && err.msg) ? err.msg : ('HTTP ' + r.status);
+                        throw { message: '导入失败：' + msg, status: r.status, data: err };
+                    });
+                }
+                return r.json();
+            })
             .then(function(res) {
                 btn.disabled = false;
                 btn.textContent = '导入';
                 resultDiv.style.display = 'block';
-                if (res.status === 'success') {
+                if (res && res.status === 'success') {
                     var html = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + res.msg + '</div>';
                     if (res.warnings) {
                         html += '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> ' + res.warnings + '</div>';
@@ -1303,14 +1322,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     resultDiv.innerHTML = html;
                     setTimeout(function() { location.reload(); }, 2000);
                 } else {
-                    resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + res.msg + '</div>';
+                    var errMsg = (res && res.msg) ? res.msg : '未知错误';
+                    resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + errMsg + '</div>';
                 }
             })
             .catch(function(err) {
                 btn.disabled = false;
                 btn.textContent = '导入';
                 resultDiv.style.display = 'block';
-                resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 请求失败：' + err.message + '</div>';
+                var msg = (err && err.message) ? err.message : '请求失败，请稍后重试';
+                resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + msg + '</div>';
             });
         });
     }

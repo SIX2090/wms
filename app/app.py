@@ -1990,7 +1990,19 @@ def limit_query_string_length():
 
 # Error handlers
 def wants_json_error_response():
-    return request.path.startswith('/api/')
+    # BUG-2026-08-04-004: 之前只判断 /api/ 前缀，导致 /material/import 等
+    # AJAX POST 路径在 CSRF 失效或 4xx/5xx 时返回 302 重定向或 HTML 错误页，
+    # 前端 fetch().then(r => r.json()) 解析失败，丢失错误原因。
+    # 现在额外识别 X-Requested-With: XMLHttpRequest 与 Accept: application/json，
+    # 让 AJAX 请求统一拿到 JSON 错误响应。
+    if request.path.startswith('/api/'):
+        return True
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return True
+    accept = request.headers.get('Accept', '') or ''
+    if 'application/json' in accept and 'text/html' not in accept:
+        return True
+    return False
 
 
 @app.errorhandler(404)

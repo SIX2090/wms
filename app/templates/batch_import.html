@@ -263,26 +263,45 @@ document.querySelectorAll('.import-form').forEach(function(form) {
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 导入中...';
         resultDiv.innerHTML = '';
         var formData = new FormData(form);
+        // BUG-2026-08-04-004: 之前直接 fetch().then(r => r.json())，
+        // 4xx/5xx 非 JSON 响应时 r.json() 抛错，丢失真实原因。
+        // 改为先检查 response.ok，并从 JSON 错误体提取 msg，否则用 HTTP 状态码提示。
         fetch(url, {
             method: 'POST',
             body: formData,
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        }).then(function(r) { return r.json(); }).then(function(res) {
+        }).then(function(r) {
+            if (!r.ok) {
+                return r.json().catch(function() {
+                    var hint = r.status === 0 ? '网络连接失败' : ('HTTP ' + r.status);
+                    if (r.status === 403 || r.status === 302) {
+                        hint = '会话已过期或权限不足，请刷新页面后重试';
+                    }
+                    throw { message: '导入失败：' + hint, status: r.status };
+                }).then(function(err) {
+                    var msg = (err && err.msg) ? err.msg : ('HTTP ' + r.status);
+                    throw { message: '导入失败：' + msg, status: r.status, data: err };
+                });
+            }
+            return r.json();
+        }).then(function(res) {
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-upload"></i> 导入';
-            if (res.status === 'success') {
+            if (res && res.status === 'success') {
                 var html = '<div class="alert alert-success py-1 mb-1"><i class="bi bi-check-circle"></i> ' + res.msg + '</div>';
                 if (res.warnings) {
                     html += '<div class="alert alert-warning py-1 mb-1"><i class="bi bi-exclamation-triangle"></i> ' + res.warnings + '</div>';
                 }
                 resultDiv.innerHTML = html;
             } else {
-                resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1"><i class="bi bi-x-circle"></i> ' + (res.msg || '未知错误') + '</div>';
+                var errMsg = (res && res.msg) ? res.msg : '未知错误';
+                resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1"><i class="bi bi-x-circle"></i> ' + errMsg + '</div>';
             }
         }).catch(function(err) {
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-upload"></i> 导入';
-            resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1"><i class="bi bi-x-circle"></i> 请求失败：' + err.message + '</div>';
+            var msg = (err && err.message) ? err.message : '请求失败，请稍后重试';
+            resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1"><i class="bi bi-x-circle"></i> ' + msg + '</div>';
         });
     });
 });
