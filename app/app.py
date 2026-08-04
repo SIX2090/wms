@@ -47,6 +47,8 @@ from ai.knowledge import is_knowledge_question, search_knowledge_entries
 from ai.orchestrator import dispatch_registered_tool
 from ai.routes import ai_bp
 from ai.streaming import sse_event, stream_response_payload
+# 业务域 Blueprint（试点：单位域）。模块内部对 app 级依赖采用延迟导入，避免循环依赖。
+from routes.unit import unit_bp
 from ai.tools.registry import get_ai_tool_spec
 from ai.documents.sales_draft_validation import (
     SalesLineInfo,
@@ -1124,6 +1126,9 @@ app.register_blueprint(ai_bp)
 # 阶段1：AI v2 兼容层（使用新 Provider + 工具模块）
 from ai.v2_routes import v2_bp
 app.register_blueprint(v2_bp)
+
+# 业务域 Blueprint（试点）：单位域。url_prefix='' 保持原 URL 路径不变。
+app.register_blueprint(unit_bp)
 
 MAX_LOGIN_FAILURES = 5
 ACCOUNT_LOCK_MINUTES = 30
@@ -20099,7 +20104,7 @@ def _ai_master_data_import_response(message, context=None, force=False):
     duplicate_material_name_spec = _ai_duplicate_group_count(Material, Material.name, Material.spec)
 
     cards = [
-        {'title': '1. 单位导入/维护', 'meta': f'当前单位 {unit_count} 个；物料导入前先统一“个、件、箱、米”等单位写法', 'url': url_for('unit_list')},
+        {'title': '1. 单位导入/维护', 'meta': f'当前单位 {unit_count} 个；物料导入前先统一“个、件、箱、米”等单位写法', 'url': url_for('unit.unit_list')},
         {'title': '2. 物料分类导入/维护', 'meta': f'当前分类 {category_count} 个；建议先建原材料、半成品、成品、辅料等分类', 'url': url_for('category_list')},
         {'title': '3. 供应商导入/维护', 'meta': f'当前供应商 {supplier_count} 个；物料默认供应商必须先统一名称', 'url': url_for('supplier_list')},
         {'title': '4. 仓库导入/维护', 'meta': f'当前仓库 {warehouse_count} 个；启用库位管理时先统一仓库/库位编码', 'url': url_for('warehouse_list')},
@@ -20125,7 +20130,7 @@ def _ai_master_data_import_response(message, context=None, force=False):
         '\n'.join(lines),
         cards,
         [
-            {'label': '单位', 'url': url_for('unit_list')},
+            {'label': '单位', 'url': url_for('unit.unit_list')},
             {'label': '物料分类', 'url': url_for('category_list')},
             {'label': '供应商', 'url': url_for('supplier_list')},
             {'label': '物料档案', 'url': url_for('material_list')},
@@ -20918,7 +20923,7 @@ def _ai_page_navigation_catalog():
         ('供应商管理', '基础资料', 'supplier_list', {}, ('供应商', '供方', '供应商档案')),
         ('客户管理', '基础资料', 'customer_list', {}, ('客户', '客户档案')),
         ('仓库档案', '基础资料', 'warehouse_list', {}, ('仓库', '库房', '仓库档案')),
-        ('计量单位', '基础资料', 'unit_list', {}, ('单位', '计量单位')),
+        ('计量单位', '基础资料', 'unit.unit_list', {}, ('单位', '计量单位')),
         ('物料分类', '基础资料', 'category_list', {}, ('分类', '物料分类')),
         ('部门档案', '基础资料', 'department_list', {}, ('部门', '部门档案')),
         ('员工管理', '基础资料', 'employee_list', {}, ('员工', '员工档案')),
@@ -25235,119 +25240,6 @@ def api_document_navigation(module_key):
         'list': rows[:80],
         'total': len(rows),
     })
-
-@app.route('/unit')
-@login_required
-def unit_list():
-    search, status_filter, sort_by, sort_order = _get_master_list_filters('code')
-    allowed_sorts = {'id', 'code', 'name', 'created_at'}
-    query = _apply_simple_search(Unit.query, Unit, search, ['code', 'name'])
-    query, sort_by = _apply_master_order(query, Unit, sort_by, sort_order, allowed_sorts, 'code')
-    units = query.all()
-    return render_template('unit.html', units=units, filters={'search': search, 'status': status_filter}, sort_by=sort_by, sort_order=sort_order)
-
-@app.route('/unit/add', methods=['POST'])
-@require_role('warehouse')
-@login_required
-def add_unit():
-    code = (request.form.get('code') or '').strip()
-    name = (request.form.get('name') or '').strip()
-    if not code:
-        return api_error('请输入单位编号')
-    if not name:
-        return api_error('请输入单位名称')
-    if Unit.query.filter_by(code=code).first():
-        return api_error('单位编号已存在')
-    if Unit.query.filter_by(name=name).first():
-        return api_error('单位名称已存在')
-    unit = Unit(code=code, name=name)
-    db.session.add(unit)
-    try:
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"数据库操作失败: {e}")
-        return jsonify({"status": "error", "msg": "操作失败"}), 500
-    return jsonify({'status': 'success', 'msg': '单位新增成功', 'id': unit.id, 'name': unit.name})
-
-@app.route('/unit/delete', methods=['POST'])
-@require_role('warehouse')
-@login_required
-def delete_unit():
-    ids = request.json.get('ids', [])
-    for id in ids:
-        unit = db.session.get(Unit, id)
-        if unit:
-            # 单位被物料/委外/BOM/领料/调拨/调整/请购等单据引用时不能删除，
-            # 否则 SQLite 不强制外键约束会导致单位记录被删除后引用方 unit_id 悬空
-            if unit.materials:
-                return api_error(f'单位“{unit.name}”已关联物料，不能删除')
-            if unit.bom_items:
-                return api_error(f'单位“{unit.name}”已被BOM引用，不能删除')
-            if unit.requisition_items:
-                return api_error(f'单位“{unit.name}”已被领料单引用，不能删除')
-            if unit.subcontract_items or unit.subcontract_issue_items or unit.subcontract_receive_items:
-                return api_error(f'单位“{unit.name}”已被委外单据引用，不能删除')
-            if unit.transfer_items:
-                return api_error(f'单位“{unit.name}”已被调拨单引用，不能删除')
-            if unit.adjustment_items:
-                return api_error(f'单位“{unit.name}”已被库存调整单引用，不能删除')
-            if unit.purchase_request_items:
-                return api_error(f'单位“{unit.name}”已被请购单引用，不能删除')
-            db.session.delete(unit)
-    try:
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"数据库操作失败: {e}")
-        return jsonify({"status": "error", "msg": "操作失败"}), 500
-    return jsonify({'status': 'success'})
-
-
-@app.route('/unit/<int:unit_id>')
-@require_role('warehouse')
-@login_required
-def get_unit(unit_id):
-    """M-01：行级编辑 - 返回单位详情 JSON。"""
-    unit = db.session.get(Unit, unit_id)
-    if not unit:
-        return jsonify({'status': 'error', 'msg': '单位不存在'}), 404
-    return jsonify({
-        'status': 'success',
-        'unit': {'id': unit.id, 'code': unit.code, 'name': unit.name}
-    })
-
-
-@app.route('/unit/<int:unit_id>/edit', methods=['POST'])
-@require_role('warehouse')
-@login_required
-def edit_unit(unit_id):
-    """M-01：单位行级编辑。"""
-    unit = db.session.get(Unit, unit_id)
-    if not unit:
-        return jsonify({'status': 'error', 'msg': '单位不存在'}), 404
-    code = (request.form.get('code') or '').strip()
-    name = (request.form.get('name') or '').strip()
-    if not code:
-        return api_error('请输入单位编号')
-    if not name:
-        return api_error('请输入单位名称')
-    dup = Unit.query.filter_by(code=code).first()
-    if dup and dup.id != unit_id:
-        return api_error('单位编号已存在')
-    dup = Unit.query.filter_by(name=name).first()
-    if dup and dup.id != unit_id:
-        return api_error('单位名称已存在')
-    unit.code = code
-    unit.name = name
-    try:
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f'编辑单位失败: {e}')
-        return jsonify({'status': 'error', 'msg': '编辑失败'}), 500
-    return jsonify({'status': 'success', 'msg': '单位编辑成功'})
-
 
 # ==================== ?====================
 
