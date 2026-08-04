@@ -5,10 +5,27 @@
 <div class="page-header">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h2 class="mb-0"><i class="bi bi-box"></i> 物料档案管理</h2>
-        <div class="d-flex gap-2 flex-wrap">
+        <div class="d-flex gap-2 flex-wrap align-items-center">
             <a href="/batch_import?type=material" class="btn btn-outline-info btn-sm">
                 <i class="bi bi-cloud-upload"></i> 批量导入
             </a>
+            <div class="vr"></div>
+            <button class="btn btn-outline-primary btn-sm" id="toolbarEditBtn" onclick="toolbarEdit()" disabled title="编辑选中物料">
+                <i class="bi bi-pencil"></i> 编辑
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" id="toolbarCopyBtn" onclick="toolbarCopy()" disabled title="复制为新物料草稿">
+                <i class="bi bi-files"></i> 复制
+            </button>
+            <button class="btn btn-outline-info btn-sm" id="toolbarPrintBtn" onclick="toolbarPrint()" disabled title="打印标签">
+                <i class="bi bi-printer"></i> 打印
+            </button>
+            <button class="btn btn-outline-success btn-sm" id="toolbarFindImageBtn" onclick="toolbarFindImage()" disabled title="网上找图">
+                <i class="bi bi-image"></i> 找图
+            </button>
+            <button class="btn btn-outline-danger btn-sm" id="toolbarDeleteBtn" onclick="toolbarDelete()" disabled title="删除选中物料">
+                <i class="bi bi-trash"></i> 删除
+            </button>
+            <div class="vr"></div>
             <button class="btn btn-warning btn-sm" onclick="fixEmptyFields()">
                 <i class="bi bi-tools"></i> 修复空分类/单位
             </button>
@@ -89,7 +106,6 @@
                     <th data-column-key="price" data-sortable="price" class="sortable-header">单价 {% if sort_by=='price' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
                     <th data-column-key="remark">备注<span class="col-resize"></span></th>
                     <th data-column-key="image">图片<span class="col-resize"></span></th>
-                    <th data-column-key="actions" class="action-col">操作</th>
                 </tr>
             </thead>
             <tbody>
@@ -119,23 +135,6 @@
                             <i class="bi bi-image"></i>
                         </button>
                         {% endif %}
-                    </td>
-                    <td data-column-key="actions">
-                        <button class="btn btn-sm btn-outline-primary" onclick="editMaterial({{ mat.id }})" title="编辑">
-                            <i class="bi bi-pencil"></i>
-                        </button>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="copyMaterial({{ mat.id }})" title="复制为新物料草稿">
-                            <i class="bi bi-files"></i>
-                        </button>
-                        <button class="btn btn-sm btn-outline-info" onclick="printSingleLabel({{ mat.id }})" title="打印标签">
-                            <i class="bi bi-printer"></i>
-                        </button>
-                        <button class="btn btn-sm btn-outline-success" onclick="findMaterialImage({{ mat.id }})" title="网上找图">
-                            <i class="bi bi-image"></i>
-                        </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('{{ url_for('delete_material') }}', {{ mat.id }})" title="删除">
-                            <i class="bi bi-trash"></i>
-                        </button>
                     </td>
                 </tr>
                 {% endfor %}
@@ -1235,14 +1234,69 @@ function setInputValueIfExists(id, value) {
     if (node) node.value = value;
 }
 
+function getSelectedSingleId() {
+    var checked = document.querySelectorAll('#materialTable .check-item:checked');
+    if (checked.length !== 1) return null;
+    return checked[0].value;
+}
+
+function updateToolbarButtons() {
+    var id = getSelectedSingleId();
+    var hasSelection = id !== null;
+    document.getElementById('toolbarEditBtn').disabled = !hasSelection;
+    document.getElementById('toolbarCopyBtn').disabled = !hasSelection;
+    document.getElementById('toolbarPrintBtn').disabled = !hasSelection;
+    document.getElementById('toolbarFindImageBtn').disabled = !hasSelection;
+    document.getElementById('toolbarDeleteBtn').disabled = !hasSelection;
+}
+
+function initToolbarActions() {
+    var table = document.getElementById('materialTable');
+    if (table) {
+        table.addEventListener('change', function(e) {
+            if (e.target.classList.contains('check-item')) {
+                updateToolbarButtons();
+            }
+        });
+        // 初始化时更新一次
+        updateToolbarButtons();
+    }
+}
+
+function toolbarEdit() {
+    var id = getSelectedSingleId();
+    if (id) editMaterial(id);
+}
+
+function toolbarCopy() {
+    var id = getSelectedSingleId();
+    if (id) copyMaterial(id);
+}
+
+function toolbarPrint() {
+    var id = getSelectedSingleId();
+    if (id) printSingleLabel(id);
+}
+
+function toolbarFindImage() {
+    var id = getSelectedSingleId();
+    if (id) findMaterialImage(id);
+}
+
+function toolbarDelete() {
+    var id = getSelectedSingleId();
+    if (id) deleteItem('{{ url_for("delete_material") }}', parseInt(id));
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     initCheckAll('materialTable');
+    initToolbarActions();
     if (typeof setupDynamicDetailColumnControls === 'function') {
         window.materialColumnController = setupDynamicDetailColumnControls({
             tableSelector: '#materialTable',
             orderKey: 'material_col_order_v1',
             widthKey: 'material_col_widths_v1',
-            lockedColumns: ['select', 'actions'],
+            lockedColumns: ['select'],
             minWidths: {
                 select: 50,
                 code: 120,
@@ -1256,8 +1310,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 min_stock: 90,
                 price: 80,
                 remark: 160,
-                image: 70,
-                actions: 150
+                image: 70
             }
         });
     }
