@@ -976,9 +976,10 @@ class RuleA9NewFuncMustTest(Rule):
                 ln = line_number_at(text, m.start())
                 if ln not in added_lines:
                     continue
-                # 排除路由函数（装饰器离 def 最多 2 行：常见
-                # ``@app.route`` + ``@login_required`` + ``def`` 三层）
-                if any(ln - 2 <= rl <= ln for rl in route_line_nos):
+                # 排除路由函数（@app.route 装饰器与 def 之间可叠多层装饰器，
+                # 如 @app.route + @require_role + @login_required + def 共跨 3 行；
+                # 窗口放宽到 6 行，避免误报路由函数需单独测试）
+                if any(ln - 6 <= rl <= ln for rl in route_line_nos):
                     continue
                 # 排除属性/类方法
                 if ln >= 2 and re.search(

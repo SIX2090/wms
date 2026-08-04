@@ -65,6 +65,14 @@ from routes.warehouse import register_warehouse_routes
 from routes.department import register_department_routes
 # 合同域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
 from routes.contract import register_contract_routes
+# 备份域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
+from routes.backup import register_backup_routes
+# 审批中心域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
+from routes.approval import register_approval_routes
+# 手机端扫码域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
+from routes.mobile import register_mobile_routes
+# 微信分享域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
+from routes.wechat_share import register_wechat_share_routes
 from ai.tools.registry import get_ai_tool_spec
 from ai.documents.sales_draft_validation import (
     SalesLineInfo,
@@ -100,7 +108,6 @@ MAX_REASONABLE_PRICE = 99_999_999.99
 MAX_TRANSACTION_QUANTITY = 1_000_000_000_000
 MAX_TRANSACTION_PRICE = 1_000_000_000_000
 
-
 def parse_bounded_number(value, default=0, *, maximum=MAX_TRANSACTION_QUANTITY):
     """Parse a finite non-negative business number within database-safe bounds."""
     parsed = parse_float_value(value, default)
@@ -110,7 +117,6 @@ def parse_bounded_number(value, default=0, *, maximum=MAX_TRANSACTION_QUANTITY):
     if parsed < 0 or parsed > maximum:
         return None
     return parsed
-
 
 # BUG-2026-07-29-002/009: 净化用户输入文本
 # 去除 NUL 字节 / 控制字符 / HTML 尖括号 < > / 事件属性前缀 javascript: ，
@@ -130,16 +136,13 @@ def sanitize_text_input(value, max_len=500):
     value = value[:max_len].strip()
     return value
 
-
 # BUG-2026-07-29-003: 统一 API 错误响应（HTTP 400），避免业务校验错误返回 200。
 def api_error(msg, code=400):
     return jsonify({'status': 'error', 'msg': msg}), code
 
-
 # Auto-migrate database on startup
 def _env_flag(name):
     return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
-
 
 def startup_db_upgrade_disabled():
     """Return True when startup schema/data bootstrap must be skipped."""
@@ -153,7 +156,6 @@ def startup_db_upgrade_disabled():
         or _env_flag('WMS_NO_DB_TOUCH')
         or any(os.path.exists(path) for path in no_touch_markers)
     )
-
 
 def auto_migrate_database():
     """自动迁移数据库，添加缺失的字段"""
@@ -1087,18 +1089,15 @@ db.init_app(app)
 
 _original_drop_all = db.drop_all
 
-
 def guarded_drop_all(*args, **kwargs):
     if not app.config.get('TESTING') or app.config.get('SQLALCHEMY_DATABASE_URI') != 'sqlite:///:memory:':
         raise RuntimeError('Refusing db.drop_all outside testing in-memory database')
     return _original_drop_all(*args, **kwargs)
 
-
 db.drop_all = guarded_drop_all
 
 # 在 db.init_app 之后导入 AI 模型,确保 db 已初始化
 from ai.models import AIConversation, AIMessage, AIFeedback, AIConfirmation
-
 
 def backup_sqlite_on_startup():
     if app.config.get('TESTING'):
@@ -1126,7 +1125,6 @@ def backup_sqlite_on_startup():
         app.logger.info('Startup database backup created: %s', backup_path.name)
     except Exception:
         app.logger.exception('Startup database backup failed')
-
 
 with app.app_context():
     backup_sqlite_on_startup()
@@ -1161,6 +1159,25 @@ register_warehouse_routes(app)
 register_department_routes(app)
 # 合同域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_contract_routes(app)
+# 备份域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
+register_backup_routes(app)
+# 审批中心域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
+register_approval_routes(app)
+# 手机端扫码域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
+register_mobile_routes(app)
+# 微信分享域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
+register_wechat_share_routes(app)
+
+
+# no-test:reason=共享文件大小格式化辅助函数（纯展示逻辑），由 backup/wechat_share 路由测试间接覆盖
+def format_file_size(size):
+    """格式化文件大小"""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1024:
+            return f"{size:.2f} {unit}"
+        size /= 1024
+    return f"{size:.2f} TB"
+
 
 MAX_LOGIN_FAILURES = 5
 ACCOUNT_LOCK_MINUTES = 30
@@ -1211,7 +1228,6 @@ app.jinja_env.filters['from_json'] = from_json_filter
 app.jinja_env.filters['to_json'] = to_json_filter
 app.jinja_env.filters['range'] = range_filter
 app.jinja_env.filters['add'] = add_filter
-
 
 SYSTEM_SETTING_GROUPS = [
     {
@@ -1783,11 +1799,9 @@ SYSTEM_SETTING_DEFINITIONS = {
     for setting in group['settings']
 }
 
-
 def inventory_alert_enabled():
     default = '1' if app.config.get('INVENTORY_ALERT_ENABLED', False) else '0'
     return get_system_setting('inventory_alert_enabled', default) == '1'
-
 
 def get_system_setting(key, default=''):
     try:
@@ -1801,7 +1815,6 @@ def get_system_setting(key, default=''):
     if not setting:
         return default
     return setting.value if setting.value is not None else default
-
 
 def set_system_setting(key, value):
     try:
@@ -1818,20 +1831,16 @@ def set_system_setting(key, value):
     setting.updated_at = datetime.now()
     return setting
 
-
 def location_management_enabled():
     return get_system_setting('location_management_enabled', '0') == '1'
-
 
 def github_auto_update_enabled():
     """Whether startup should pull from GitHub. Default off (AI-DEPLOY-F01-FIX-01)."""
     return get_system_setting_bool('github_auto_update_enabled', False)
 
-
 def get_system_setting_bool(key, default=False):
     fallback = '1' if default else '0'
     return get_system_setting(key, fallback) == '1'
-
 
 def get_system_setting_int(key, default=0):
     try:
@@ -1847,82 +1856,63 @@ def get_system_setting_int(key, default=0):
         value = min(int(max_value), value)
     return value
 
-
 def get_system_setting_float(key, default=0.0):
     try:
         return float(get_system_setting(key, str(default)))
     except (TypeError, ValueError):
         return default
 
-
 def max_login_failures():
     return get_system_setting_int('max_login_failures', MAX_LOGIN_FAILURES)
-
 
 def account_lock_minutes():
     return get_system_setting_int('account_lock_minutes', ACCOUNT_LOCK_MINUTES)
 
-
 def material_code_editable():
     return get_system_setting_bool('material_code_editable', True)
-
 
 def allow_negative_stock():
     return get_system_setting_bool('allow_negative_stock', False)
 
-
 def allow_negative_location_stock():
     return get_system_setting_bool('allow_negative_location_stock', False)
-
 
 def location_available_stock_control():
     return get_system_setting_bool('location_available_stock_control', True)
 
-
 def location_required_on_save():
     return get_system_setting_bool('location_required_on_save', True)
-
 
 def purchase_in_order_requires_order():
     # Permanent business rule: purchase orders are an optional receipt source.
     return False
 
-
 def purchase_receipt_strict_order():
     return get_system_setting_bool('purchase_receipt_strict_order', True)
-
 
 def purchase_over_receive_control_mode():
     return get_system_setting('purchase_over_receive_control_mode', 'forbid')
 
-
 def in_order_duplicate_material_mode():
     return get_system_setting('in_order_duplicate_material_mode', 'merge')
-
 
 def purchase_order_to_in_order_enabled():
     return get_system_setting_bool('purchase_order_to_in_order_enabled', True)
 
-
 def import_max_rows():
     return get_system_setting_int('import_max_rows', 3000)
-
 
 def export_max_rows():
     return get_system_setting_int('export_max_rows', 5000)
 
-
 def quantity_decimal_places():
     return get_system_setting_int('quantity_decimal_places', 3)
-
 
 def price_decimal_places():
     return get_system_setting_int('price_decimal_places', 4)
 
-
 def amount_decimal_places():
     return get_system_setting_int('amount_decimal_places', 2)
-
 
 def get_grouped_system_settings():
     grouped = []
@@ -1949,7 +1939,6 @@ def get_grouped_system_settings():
         })
     return grouped
 
-
 @app.context_processor
 def inject_query_helpers():
     def url_with_query(**updates):
@@ -1973,7 +1962,6 @@ def inject_query_helpers():
         'account_lock_minutes': account_lock_minutes,
     }
 
-
 @app.before_request
 def block_location_modules_when_disabled():
     """Keep core transfer/adjustment available when location control is off.
@@ -1983,13 +1971,11 @@ def block_location_modules_when_disabled():
     """
     return None
 
-
 @app.before_request
 def refresh_session_lifetime():
     """滑动会话过期时间：每次请求时刷新会话，避免用户活跃期间突然过期"""
     if current_user.is_authenticated and session.permanent:
         session.permanent = True  # 触发 Flask 重新计算过期时间
-
 
 @app.before_request
 def enforce_initial_password_change():
@@ -2012,12 +1998,10 @@ def enforce_initial_password_change():
         return redirect(url_for('change_own_password'))
     return None
 
-
 # BUG-2026-07-29-007: URL 查询参数长度限制
 # 防止超长查询串（>2KB）被静默接受。Werkzeug 默认 8KB 限制太宽松，
 # 业务侧 2KB 已经足够任何合理条件组合。返回 414 URI Too Long。
 QUERY_STRING_MAX_LENGTH = 2048
-
 
 @app.before_request
 def limit_query_string_length():
@@ -2040,7 +2024,6 @@ def wants_json_error_response():
     if 'application/json' in accept and 'text/html' not in accept:
         return True
     return False
-
 
 @app.errorhandler(404)
 def not_found(e):
@@ -2128,7 +2111,6 @@ def handle_exception(e):
     if app.config.get('DEBUG'):
         return "Internal Server Error", 500
     return "Internal Server Error", 500
-
 
 # ==================== 权限检查装饰器 ====================
 # ==================== Document number ====================
@@ -2219,7 +2201,6 @@ def generate_order_no(prefix='NO'):
             import time
             time.sleep(0.1)
 
-
 def deduct_stock(material, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None):
     """扣减库存，返回(是否成功, 错误信息)"""
     if not material:
@@ -2233,7 +2214,6 @@ def deduct_stock(material, quantity, transaction_type=None, reference_type=None,
         remark=remark,
     )
     return ok, error_msg
-
 
 def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None):
     """原子扣减库存：用条件 UPDATE 保证并发安全。
@@ -2277,7 +2257,6 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
         ))
     return True, '', mat
 
-
 def add_stock(material, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None):
     """增加库存，返回(是否成功, 错误信息)"""
     if not material:
@@ -2303,7 +2282,6 @@ def add_stock(material, quantity, transaction_type=None, reference_type=None, re
         )
         db.session.add(transaction)
     return True, ''
-
 
 def update_location_inventory(material, location, quantity_delta):
     """Update per-location inventory without changing total material stock.
@@ -2341,7 +2319,6 @@ def update_location_inventory(material, location, quantity_delta):
         quantity_delta,
         material_code_hint=material.code,
     )
-
 
 def add_location_inventory_atomic(material_id, location, quantity, material_code_hint=None):
     """原子增加库位库存：用条件 UPDATE 避免并发丢失更新。
@@ -2411,7 +2388,6 @@ def add_location_inventory_atomic(material_id, location, quantity, material_code
         return False, f'物料 {code} 在 {location} 库位库存更新失败或并发冲突'
     return True, ''
 
-
 def deduct_location_inventory_atomic(material_id, location, quantity, material_code_hint=None):
     """原子扣减库位库存：用条件 UPDATE 避免库位级 TOCTOU。
     不处理"不存在库位记录"的新增加库——那只发生在入库/调入方向。
@@ -2453,7 +2429,6 @@ def deduct_location_inventory_atomic(material_id, location, quantity, material_c
         return False, f'物料 {code} 在 {location} 库存不足或并发冲突'
     return True, ''
 
-
 def add_stock_transaction(material, quantity, transaction_type, reference_type=None, reference_id=None, location=None, remark=None):
     """Record a stock movement without changing total material stock."""
     if not material or not transaction_type:
@@ -2469,7 +2444,6 @@ def add_stock_transaction(material, quantity, transaction_type, reference_type=N
         operator_id=current_user.id if current_user.is_authenticated else None,
         remark=remark or ''
     ))
-
 
 # ==================== Operation ====================
 def log_audit(operation, target_type, target_id, target_name=None, old_data=None, new_data=None, status='success', reason=None):
@@ -2499,7 +2473,6 @@ def log_audit(operation, target_type, target_id, target_name=None, old_data=None
         # Best-effort logging; do not fail the main operation if audit logging fails.
         app.logger.error("Audit log failed")
         db.session.rollback()
-
 
 # ==================== Models ====================
 
@@ -2607,7 +2580,6 @@ class User(UserMixin, db.Model):
         elif self.login_failed_count >= max_login_failures():
             self.locked_until = datetime.now() + timedelta(minutes=account_lock_minutes())
 
-
 class LoginLog(db.Model):
     """Login audit log."""
     id = db.Column(db.Integer, primary_key=True)
@@ -2618,7 +2590,6 @@ class LoginLog(db.Model):
     user_agent = db.Column(db.String(500))  # User agent
     status = db.Column(db.String(20))  # success/failed
     fail_reason = db.Column(db.String(200))  # Failure reason
-
 
 class ApiToken(db.Model):
     """Bearer token for native app API access."""
@@ -2632,7 +2603,6 @@ class ApiToken(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)
 
     user = db.relationship('User', backref='api_tokens')
-
 
 class MobileApiRequest(db.Model):
     """Idempotency records for native mobile warehouse submissions."""
@@ -2652,7 +2622,6 @@ class MobileApiRequest(db.Model):
 
     user = db.relationship('User', backref='mobile_api_requests')
 
-
 class OperationAudit(db.Model):
     """Operation audit record."""
     id = db.Column(db.Integer, primary_key=True)
@@ -2670,7 +2639,6 @@ class OperationAudit(db.Model):
     status = db.Column(db.String(20))  # success/failed
     reason = db.Column(db.String(200))  # Operation reason
 
-
 class Notification(db.Model):
     """系统通知记录"""
     id = db.Column(db.Integer, primary_key=True)
@@ -2680,7 +2648,6 @@ class Notification(db.Model):
     content = db.Column(db.Text, nullable=False)
     is_read = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
-
 
 class Employee(db.Model):
     """Employee."""
@@ -2694,7 +2661,6 @@ class Employee(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
     department = db.relationship('Department', backref='employees', lazy='joined')
 
-
 class MaterialCategory(db.Model):
     """Material category."""
     id = db.Column(db.Integer, primary_key=True)
@@ -2704,14 +2670,12 @@ class MaterialCategory(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
     parent = db.relationship('MaterialCategory', remote_side=[id], backref='children')
 
-
 class Unit(db.Model):
     """Unit of measure."""
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(50), unique=True, nullable=False)  # Unit code
     name = db.Column(db.String(20), unique=True, nullable=False)  # Unit name
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
-
 
 class Supplier(db.Model):
     """Supplier."""
@@ -2723,7 +2687,6 @@ class Supplier(db.Model):
     address = db.Column(db.String(200))  # Address
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
-
 class Customer(db.Model):
     """Customer master data."""
     id = db.Column(db.Integer, primary_key=True)
@@ -2733,7 +2696,6 @@ class Customer(db.Model):
     phone = db.Column(db.String(20))  # Contact phone
     address = db.Column(db.String(200))  # Address
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
-
 
 class Warehouse(db.Model):
     """Warehouse."""
@@ -2748,18 +2710,15 @@ class Warehouse(db.Model):
     # M-03：默认仓标识，便于入库/出库默认带出仓库
     is_default = db.Column(db.Boolean, default=False, nullable=False)
 
-
 DEFAULT_WAREHOUSES = (
     {'code': 'WH001', 'name': '材料仓', 'type': '原料仓'},
     {'code': 'WH002', 'name': '成品仓', 'type': '成品仓'},
     {'code': 'WH003', 'name': '半成品仓', 'type': '半成品仓'},
 )
 
-
 def get_active_warehouses():
     """Return selectable warehouses from warehouse master data."""
     return Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc(), Warehouse.id.asc()).all()
-
 
 def is_warehouse_active(warehouse_name):
     """BUG-F02-04 修复：判断名称/编码对应的仓库是否处于启用状态。
@@ -2779,7 +2738,6 @@ def is_warehouse_active(warehouse_name):
         return False, f'仓库 {warehouse_name} 已停用，禁止新单据（停用仓库的历史库存保留，可在查询/报表中查看）'
     return True, ''
 
-
 def assert_warehouse_active(warehouse_name, allow_empty=True):
     """BUG-F02-04 修复：若仓库被停用/不存在，返回 (False, message)；
     返回 (True, '') 表示可继续。allow_empty=True 时空值视为通过。"""
@@ -2788,18 +2746,15 @@ def assert_warehouse_active(warehouse_name, allow_empty=True):
     ok, msg = is_warehouse_active(warehouse_name)
     return ok, msg
 
-
 def prefer_default_warehouse():
     """录单时是否优先自动带出默认仓库。"""
     return get_system_setting_bool('prefer_default_warehouse', True)
-
 
 def get_default_warehouse():
     """返回当前启用的默认仓库；未设置或不启用自动带出时返回 None。"""
     if not prefer_default_warehouse():
         return None
     return Warehouse.query.filter_by(status='active', is_default=True).first()
-
 
 def resolve_active_sales_warehouse(value=None, warehouse_id=None):
     """Resolve a sales warehouse from its ID, name, or code.
@@ -2824,13 +2779,11 @@ def resolve_active_sales_warehouse(value=None, warehouse_id=None):
         db.or_(Warehouse.name == normalized, Warehouse.code == normalized),
     ).order_by(Warehouse.id.asc()).first()
 
-
 def validate_sales_warehouse(value=None, warehouse_id=None):
     warehouse = resolve_active_sales_warehouse(value, warehouse_id)
     if not warehouse:
         return None, '请选择有效且启用的发货仓库'
     return warehouse, None
-
 
 def validate_sales_outbound_warehouse(outbound):
     """Validate the canonical warehouse and every linked sales source row."""
@@ -2848,7 +2801,6 @@ def validate_sales_outbound_warehouse(outbound):
             return None, '销售出库明细包含跨仓库来源，不能完成出库'
     outbound.warehouse = warehouse.name
     return warehouse, None
-
 
 def ensure_default_warehouses():
     """Keep legacy document warehouse choices available in warehouse master data."""
@@ -2875,7 +2827,6 @@ def ensure_default_warehouses():
     if changed:
         db.session.commit()
 
-
 def ensure_default_system_settings():
     changed = False
     for key, definition in SYSTEM_SETTING_DEFINITIONS.items():
@@ -2890,7 +2841,6 @@ def ensure_default_system_settings():
     if changed:
         db.session.commit()
 
-
 class Department(db.Model):
     """Department."""
     id = db.Column(db.Integer, primary_key=True)
@@ -2899,7 +2849,6 @@ class Department(db.Model):
     status = db.Column(db.String(20), default='active')  # Status: active/inactive
     remark = db.Column(db.String(200))  # Remark
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
-
 
 class Contract(db.Model):
     """合同/工程档案主数据（精简版）。
@@ -2919,7 +2868,6 @@ class Contract(db.Model):
     status = db.Column(db.String(20), default='active')  # active/inactive
     remark = db.Column(db.String(500))  # 备注（可记订货单位、型号等自由文本）
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
-
 
 class Material(db.Model):
     """Material master data."""
@@ -2953,7 +2901,6 @@ class Material(db.Model):
     unit = db.relationship('Unit', backref=db.backref('materials', cascade='save-update, merge'))  # Related unit
     supplier = db.relationship('Supplier', backref=db.backref('materials', cascade='save-update, merge'))  # Related supplier
 
-
 class AIMaterialAlias(db.Model):
     """Learned external material name/code mapped to a material."""
     __tablename__ = 'ai_material_alias'
@@ -2978,7 +2925,6 @@ class AIMaterialAlias(db.Model):
     material = db.relationship('Material', backref=db.backref('ai_aliases', cascade='all, delete-orphan'))
     creator = db.relationship('User', backref='ai_material_aliases')
 
-
 class AIRun(db.Model):
     __tablename__ = 'ai_run'
     __table_args__ = (
@@ -3000,7 +2946,6 @@ class AIRun(db.Model):
     completed_at = db.Column(db.DateTime)
 
     user = db.relationship('User', backref='ai_runs')
-
 
 class AIToolCall(db.Model):
     __tablename__ = 'ai_tool_call'
@@ -3032,7 +2977,6 @@ class AIToolCall(db.Model):
 
     ai_run = db.relationship('AIRun', backref=db.backref('tool_calls', cascade='all, delete-orphan'))
 
-
 class AIRollbackEvent(db.Model):
     """AI-R17-F01 回滚事件记录（一键关闭/恢复）。
 
@@ -3055,7 +2999,6 @@ class AIRollbackEvent(db.Model):
     started_at = db.Column(db.DateTime, nullable=False)
     completed_at = db.Column(db.DateTime, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
-
 
 class AIManualFallbackTask(db.Model):
     """AI-R17-F01 人工降级任务（Provider 故障等场景保留证据）。
@@ -3081,7 +3024,6 @@ class AIManualFallbackTask(db.Model):
     handled_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
-
 class AIRolloutAudit(db.Model):
     """AI-R17-F01 灰度拒绝审计记录。
 
@@ -3104,7 +3046,6 @@ class AIRolloutAudit(db.Model):
     stage = db.Column(db.String(20), nullable=False)  # global/flag/role/allowlist/risk/confirmation
     source = db.Column(db.String(20), nullable=False)  # api/page/agent/background
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
-
 
 class AIAcceptanceDailySnapshot(db.Model):
     """AI-R17-F02 每日验收指标快照。
@@ -3130,7 +3071,6 @@ class AIAcceptanceDailySnapshot(db.Model):
     filter_applied = db.Column(db.Text)  # JSON: 筛选条件追溯
     generated_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
-
 
 class AIAcceptanceEvidencePackage(db.Model):
     """AI-R17-F02 七天验收证据包。
@@ -3162,7 +3102,6 @@ class AIAcceptanceEvidencePackage(db.Model):
     decided_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
-
 class AIRequestIdempotency(db.Model):
     __tablename__ = 'ai_request_idempotency'
     __table_args__ = (
@@ -3186,7 +3125,6 @@ class AIRequestIdempotency(db.Model):
 
     user = db.relationship('User', backref='ai_idempotent_requests')
     ai_run = db.relationship('AIRun', backref=db.backref('idempotent_request', uselist=False))
-
 
 class AIDraftIdempotency(db.Model):
     """AI 草稿统一幂等与审计闭环记录 (AI-R01)。
@@ -3228,7 +3166,6 @@ class AIDraftIdempotency(db.Model):
     ai_run = db.relationship('AIRun', backref=db.backref('draft_idempotency_records', cascade='all, delete-orphan'))
     ai_tool_call = db.relationship('AIToolCall', backref=db.backref('draft_idempotency_records'))
 
-
 class AIFieldFeedback(db.Model):
     """AI 字段级反馈记录 (AI-R09)。
 
@@ -3261,7 +3198,6 @@ class AIFieldFeedback(db.Model):
     user = db.relationship('User', backref='ai_field_feedback_records')
     ai_run = db.relationship('AIRun', backref=db.backref('field_feedback_records', cascade='all, delete-orphan'))
 
-
 # AI-R12: 知识库版本生命周期状态机
 # draft -> in_review -> published -> deprecated -> archived
 AI_KNOWLEDGE_VERSION_STATUSES = ('draft', 'in_review', 'published', 'deprecated', 'archived')
@@ -3273,7 +3209,6 @@ AI_KNOWLEDGE_VERSION_STATUS_LABELS = {
     'archived': '已归档',
 }
 AI_KNOWLEDGE_VERSION_SOURCES = ('manual', 'system', 'imported', 'ai_generated')
-
 
 class AIKnowledgeVersion(db.Model):
     """AI 知识库版本记录 (AI-R12)。
@@ -3310,7 +3245,6 @@ class AIKnowledgeVersion(db.Model):
 
     published_by_user = db.relationship('User', foreign_keys=[published_by], backref='published_knowledge_versions')
 
-
 def _ai_kv_to_dataclass(kv: 'AIKnowledgeVersion') -> 'KnowledgeVersion':
     """ORM AIKnowledgeVersion 转纯数据 KnowledgeVersion。"""
     from ai.knowledge_lifecycle import KnowledgeVersion
@@ -3337,11 +3271,9 @@ def _ai_kv_to_dataclass(kv: 'AIKnowledgeVersion') -> 'KnowledgeVersion':
         superseded_by=kv.superseded_by,
     )
 
-
 # AI-R13: Agent 预算、取消、熔断和并发控制
 AI_AGENT_LOCK_STATUSES = ('held', 'released', 'expired')
 AI_AGENT_HUMAN_CONFIRM_STATUSES = ('waiting_human', 'confirmed', 'rejected')
-
 
 class AIAgentRunLock(db.Model):
     """Agent 并发互斥锁 (AI-R13)。
@@ -3362,7 +3294,6 @@ class AIAgentRunLock(db.Model):
     released_at = db.Column(db.DateTime)
     status = db.Column(db.String(20), default='held', nullable=False)
 
-
 class AIAgentRetryRecord(db.Model):
     """Agent 重试记录 (AI-R13，保留原证据)。"""
     __tablename__ = 'ai_agent_retry_record'
@@ -3379,7 +3310,6 @@ class AIAgentRetryRecord(db.Model):
     original_evidence = db.Column(db.Text, default='{}')  # JSON
     retry_count = db.Column(db.Integer, default=1, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
-
 
 class AIAgentHumanConfirmation(db.Model):
     """Agent 人工确认请求 (AI-R13，自动提交业务单据次数为 0)。"""
@@ -3400,10 +3330,8 @@ class AIAgentHumanConfirmation(db.Model):
     decided_at = db.Column(db.DateTime)
     status = db.Column(db.String(20), default='waiting_human', nullable=False)
 
-
 # AI-R14: AI 数据保留、脱敏和清理任务
 AI_CLEANUP_LOG_CATEGORIES = ('conversations', 'images', 'tasks', 'feedback', 'audit')
-
 
 class AICleanupLog(db.Model):
     """AI 数据清理日志 (AI-R14)。
@@ -3433,7 +3361,6 @@ class AICleanupLog(db.Model):
 
     executed_by_user = db.relationship('User', backref='ai_cleanup_logs')
 
-
 # AI document job status flow: uploading -> recognizing -> recognized -> pending_confirmation -> draft_created / failed
 AI_DOCUMENT_JOB_STATUSES = ('uploading', 'recognizing', 'recognized', 'pending_confirmation', 'draft_created', 'failed', 'cancelled')
 AI_DOCUMENT_JOB_STATUS_LABELS = {
@@ -3445,7 +3372,6 @@ AI_DOCUMENT_JOB_STATUS_LABELS = {
     'failed': '失败',
     'cancelled': '已取消',
 }
-
 
 class AIDocumentJob(db.Model):
     # AI_TASK: AI-R08-F01
@@ -3492,7 +3418,6 @@ class AIDocumentJob(db.Model):
     ai_run = db.relationship('AIRun', backref='document_jobs')
     source_purchase_order = db.relationship('PurchaseOrder', foreign_keys=[source_purchase_order_id])
 
-
 class AIDocumentItem(db.Model):
     # AI_TASK: AI-R08-F01
     __tablename__ = 'ai_document_item'
@@ -3524,7 +3449,6 @@ class AIDocumentItem(db.Model):
     job = db.relationship('AIDocumentJob', backref=db.backref('items', cascade='all, delete-orphan'))
     material = db.relationship('Material', backref='ai_document_items')
     confirmer = db.relationship('User', backref='confirmed_document_items', foreign_keys=[confirmed_by])
-
 
 class AIDocumentFieldConfirmation(db.Model):
     """AI-R08-F01 字段级确认记录。
@@ -3562,7 +3486,6 @@ class AIDocumentFieldConfirmation(db.Model):
     item = db.relationship('AIDocumentItem', backref=db.backref('field_confirmations', cascade='all, delete-orphan'))
     confirmer = db.relationship('User', backref='field_confirmations')
 
-
 class AIDocumentAttempt(db.Model):
     __tablename__ = 'ai_document_attempt'
     __table_args__ = (
@@ -3585,7 +3508,6 @@ class AIDocumentAttempt(db.Model):
 
     job = db.relationship('AIDocumentJob', backref=db.backref('attempts', cascade='all, delete-orphan'))
 
-
 class AIDocumentFeedback(db.Model):
     __tablename__ = 'ai_document_feedback'
     __table_args__ = (
@@ -3603,7 +3525,6 @@ class AIDocumentFeedback(db.Model):
 
     job = db.relationship('AIDocumentJob', backref=db.backref('feedbacks', cascade='all, delete-orphan'))
     user = db.relationship('User', backref='ai_document_feedbacks')
-
 
 class AIAgentTask(db.Model):
     __tablename__ = 'ai_agent_task'
@@ -3625,7 +3546,6 @@ class AIAgentTask(db.Model):
 
     user = db.relationship('User', backref='ai_agent_tasks')
     ai_run = db.relationship('AIRun', backref='agent_tasks')
-
 
 class AIAgentStep(db.Model):
     __tablename__ = 'ai_agent_step'
@@ -3650,7 +3570,6 @@ class AIAgentStep(db.Model):
 
     task = db.relationship('AIAgentTask', backref=db.backref('steps', cascade='all, delete-orphan'))
 
-
 class AIPatrolRule(db.Model):
     """AI巡检规则配置"""
     __tablename__ = 'ai_patrol_rule'
@@ -3673,7 +3592,6 @@ class AIPatrolRule(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     creator = db.relationship('User', backref='ai_patrol_rules')
-
 
 class AIPatrolAlert(db.Model):
     """AI巡检告警记录"""
@@ -3704,7 +3622,6 @@ class AIPatrolAlert(db.Model):
     acknowledger = db.relationship('User', foreign_keys=[acknowledged_by], backref='acknowledged_alerts')
     resolver = db.relationship('User', foreign_keys=[resolved_by], backref='resolved_alerts')
 
-
 class AIPatrolSchedule(db.Model):
     """AI巡检调度配置"""
     __tablename__ = 'ai_patrol_schedule'
@@ -3723,7 +3640,6 @@ class AIPatrolSchedule(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     creator = db.relationship('User', backref='ai_patrol_schedules')
-
 
 class OpeningStock(db.Model):
     """Opening stock balance for material setup (per warehouse)."""
@@ -3749,7 +3665,6 @@ class OpeningStock(db.Model):
     material = db.relationship('Material', backref=db.backref('opening_stock_records'))
     warehouse = db.relationship('Warehouse', backref=db.backref('opening_stocks'))
     operator = db.relationship('User', backref='opening_stocks')
-
 
 class InOrder(db.Model):
     """Inbound order."""
@@ -3784,7 +3699,6 @@ class InOrder(db.Model):
     source_purchase_order = db.relationship('PurchaseOrder', backref='in_orders')
     contract = db.relationship('Contract', backref='in_orders')  # 关联合同档案
 
-
 class InOrderItem(db.Model):
     """Inbound order item."""
     id = db.Column(db.Integer, primary_key=True)
@@ -3804,7 +3718,6 @@ class InOrderItem(db.Model):
     material = db.relationship('Material', backref='in_order_items')  # Related material
     source_purchase_order_item = db.relationship('PurchaseOrderItem', backref='in_order_items')
     contract = db.relationship('Contract', foreign_keys=[contract_id])
-
 
 class OutOrder(db.Model):
     """Outbound order."""
@@ -3838,7 +3751,6 @@ class OutOrder(db.Model):
     source_sales_order = db.relationship('SalesOrder', backref='outbound_orders', foreign_keys=[source_sales_order_id])  # 关联销售订单
     contract = db.relationship('Contract', backref='out_orders')  # 关联合同档案
 
-
 class OutOrderItem(db.Model):
     """Outbound order item."""
     id = db.Column(db.Integer, primary_key=True)
@@ -3858,7 +3770,6 @@ class OutOrderItem(db.Model):
     source_sales_order_item = db.relationship('SalesOrderItem', backref='sales_out_order_items')
     contract = db.relationship('Contract', foreign_keys=[contract_id])
 
-
 class InventoryCheck(db.Model):
     """Inventory check order."""
     id = db.Column(db.Integer, primary_key=True)
@@ -3874,7 +3785,6 @@ class InventoryCheck(db.Model):
 
     operator = db.relationship('User', backref='inventory_checks')  # Operator
 
-
 class InventoryCheckItem(db.Model):
     """Inventory check item."""
     id = db.Column(db.Integer, primary_key=True)
@@ -3887,7 +3797,6 @@ class InventoryCheckItem(db.Model):
 
     inventory_check = db.relationship('InventoryCheck', backref='items')  # Related check order
     material = db.relationship('Material', backref='inventory_check_items')  # Related material
-
 
 class SubcontractOrder(db.Model):
     """Subcontract order."""
@@ -3907,7 +3816,6 @@ class SubcontractOrder(db.Model):
     supplier = db.relationship('Supplier', backref='subcontract_orders')  # Related supplier
     operator = db.relationship('User', backref='subcontract_orders')  # Operator
 
-
 class SubcontractIssue(db.Model):
     """Subcontract issue order."""
     id = db.Column(db.Integer, primary_key=True)
@@ -3924,7 +3832,6 @@ class SubcontractIssue(db.Model):
     supplier = db.relationship('Supplier', backref='subcontract_issues')  # Related supplier
     operator = db.relationship('User', backref='subcontract_issues')  # Operator
 
-
 class SubcontractIssueItem(db.Model):
     """Subcontract issue item."""
     id = db.Column(db.Integer, primary_key=True)
@@ -3937,7 +3844,6 @@ class SubcontractIssueItem(db.Model):
     issue = db.relationship('SubcontractIssue', backref='items')  # Related issue order
     material = db.relationship('Material', backref='subcontract_issue_items')  # Related material
     unit = db.relationship('Unit', backref='subcontract_issue_items')  # Related unit
-
 
 class SubcontractReceive(db.Model):
     """Subcontract receive order."""
@@ -3957,7 +3863,6 @@ class SubcontractReceive(db.Model):
     supplier = db.relationship('Supplier', backref='subcontract_receives')  # Related supplier
     operator = db.relationship('User', backref='subcontract_receives')  # Operator
 
-
 class SubcontractReceiveItem(db.Model):
     """Subcontract receive item."""
     id = db.Column(db.Integer, primary_key=True)
@@ -3974,7 +3879,6 @@ class SubcontractReceiveItem(db.Model):
     material = db.relationship('Material', backref='subcontract_receive_items')  # Related material
     unit = db.relationship('Unit', backref='subcontract_receive_items')  # Related unit
 
-
 class SubcontractProgress(db.Model):
     """Subcontract progress record."""
     id = db.Column(db.Integer, primary_key=True)
@@ -3990,7 +3894,6 @@ class SubcontractProgress(db.Model):
     subcontract_order = db.relationship('SubcontractOrder', backref='progress_records')  # Related subcontract order
     operator = db.relationship('User', backref='subcontract_progress')  # Operator
 
-
 class SubcontractItem(db.Model):
     """Subcontract material item."""
     id = db.Column(db.Integer, primary_key=True)
@@ -4004,7 +3907,6 @@ class SubcontractItem(db.Model):
     subcontract_order = db.relationship('SubcontractOrder', backref='items')  # Related subcontract order
     material = db.relationship('Material', backref='subcontract_items')  # Related material
     unit = db.relationship('Unit', backref='subcontract_items')  # Related unit
-
 
 class BOM(db.Model):
     """BOM"""
@@ -4024,7 +3926,6 @@ class BOM(db.Model):
     # Parent-child BOM relationship
     parent_bom = db.relationship('BOM', remote_side=[id], backref='child_boms', lazy='select')
 
-
 class BOMItem(db.Model):
     """BOM"""
     id = db.Column(db.Integer, primary_key=True)
@@ -4040,7 +3941,6 @@ class BOMItem(db.Model):
     bom = db.relationship('BOM', backref='items')  # BOM
     material = db.relationship('Material', backref='bom_items')  # Related material
     unit = db.relationship('Unit', backref='bom_items')  # Related unit
-
 
 class ProductionRequisition(db.Model):
     """Production requisition order."""
@@ -4059,7 +3959,6 @@ class ProductionRequisition(db.Model):
     bom = db.relationship('BOM', backref='requisitions')  # BOM
     items = db.relationship('ProductionRequisitionItem', backref='requisition')  # Requisition details
 
-
 class ProductionRequisitionItem(db.Model):
     """Production requisition item."""
     id = db.Column(db.Integer, primary_key=True)
@@ -4072,7 +3971,6 @@ class ProductionRequisitionItem(db.Model):
 
     material = db.relationship('Material', backref='requisition_items')  # Related material
     unit = db.relationship('Unit', backref='requisition_items')  # Related unit
-
 
 class InventoryCheckScan(db.Model):
     """Inventory check scan order."""
@@ -4087,7 +3985,6 @@ class InventoryCheckScan(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
     operator = db.relationship('User', backref='check_scans')  # Operator
-
 
 class InventoryCheckScanItem(db.Model):
     """Inventory check scan item."""
@@ -4106,7 +4003,6 @@ class InventoryCheckScanItem(db.Model):
     check_scan = db.relationship('InventoryCheckScan', backref='items')
     material = db.relationship('Material', backref='check_scan_items')
 
-
 class OperationLog(db.Model):
     """Operation log."""
     id = db.Column(db.Integer, primary_key=True)
@@ -4119,7 +4015,6 @@ class OperationLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)  # Operation time
 
     user = db.relationship('User', backref='logs')
-
 
 class LabelTemplate(db.Model):
     """Label template."""
@@ -4136,7 +4031,6 @@ class LabelTemplate(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
-
 class InOrderPrintTemplate(db.Model):
     """Inbound order print template."""
     id = db.Column(db.Integer, primary_key=True)
@@ -4148,7 +4042,6 @@ class InOrderPrintTemplate(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
-
 class OutOrderPrintTemplate(db.Model):
     """Outbound order print template."""
     id = db.Column(db.Integer, primary_key=True)
@@ -4159,7 +4052,6 @@ class OutOrderPrintTemplate(db.Model):
     is_default = db.Column(db.Boolean, default=False)  # Default template flag
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-
 
 DEFAULT_IN_ORDER_HTML_TEMPLATE = """<div class="print-document">
     <style>
@@ -4234,7 +4126,6 @@ DEFAULT_IN_ORDER_HTML_TEMPLATE = """<div class="print-document">
     </div>
 </div>"""
 
-
 DEFAULT_OUT_ORDER_HTML_TEMPLATE = """<div class="print-document">
     <style>
         .print-document { font-family: "Microsoft YaHei", SimSun, serif; color: #111; }
@@ -4308,7 +4199,6 @@ DEFAULT_OUT_ORDER_HTML_TEMPLATE = """<div class="print-document">
     </div>
 </div>"""
 
-
 DEFAULT_LABEL_CELLS = [
     {'row': 0, 'col': 0, 'field': 'name', 'style': {'fontSize': 13, 'fontWeight': 'bold', 'textAlign': 'center', 'color': '#111827'}},
     {'row': 1, 'col': 0, 'field': 'barcode', 'barcodeWidth': 55, 'barcodeHeight': 14, 'style': {'fontSize': 10, 'textAlign': 'center', 'color': '#111827'}},
@@ -4316,7 +4206,6 @@ DEFAULT_LABEL_CELLS = [
     {'row': 3, 'col': 0, 'field': 'spec', 'style': {'fontSize': 10, 'textAlign': 'left', 'color': '#374151'}},
     {'row': 4, 'col': 0, 'field': 'unit', 'style': {'fontSize': 10, 'textAlign': 'left', 'color': '#374151'}},
 ]
-
 
 DEFAULT_LABEL_LAYOUT = {
     'cells': DEFAULT_LABEL_CELLS,
@@ -4334,7 +4223,6 @@ for cell in DEFAULT_LABEL_CELLS:
         }.get(cell['field'], cell['field']),
         'style': cell.get('style', {}),
     }
-
 
 def _normalize_label_template_layout(layout):
     if not isinstance(layout, dict):
@@ -4367,7 +4255,6 @@ def _normalize_label_template_layout(layout):
     elif not isinstance(normalized.get('cells'), list):
         normalized['cells'] = []
     return normalized
-
 
 def ensure_default_print_templates():
     """Create the built-in print templates when an installation has none."""
@@ -4411,7 +4298,6 @@ def ensure_default_print_templates():
     if changed:
         db.session.commit()
 
-
 class LocationInventory(db.Model):
     """Inventory quantity by location."""
     __tablename__ = 'location_inventory'
@@ -4428,7 +4314,6 @@ class LocationInventory(db.Model):
     __table_args__ = (
         db.UniqueConstraint('material_id', 'location', name='uix_material_location'),
     )
-
 
 class StockTransaction(db.Model):
     """Stock transaction record."""
@@ -4452,7 +4337,6 @@ class StockTransaction(db.Model):
 
     material = db.relationship('Material', backref='stock_transactions')
     operator = db.relationship('User', backref='stock_transactions')
-
 
 class DocumentPushLine(db.Model):
     """Auditable source-line allocation created by a document push."""
@@ -4486,7 +4370,6 @@ class DocumentPushLine(db.Model):
 
     creator = db.relationship('User', foreign_keys=[created_by])
 
-
 class TransferOrder(db.Model):
     """Inventory transfer order."""
     __tablename__ = 'transfer_order'
@@ -4509,7 +4392,6 @@ class TransferOrder(db.Model):
 
     operator = db.relationship('User', backref='transfer_orders')
 
-
 class TransferOrderItem(db.Model):
     """Inventory transfer item."""
     __tablename__ = 'transfer_order_item'
@@ -4526,7 +4408,6 @@ class TransferOrderItem(db.Model):
     transfer_order = db.relationship('TransferOrder', backref='items')
     material = db.relationship('Material', backref='transfer_items')
     unit = db.relationship('Unit', backref='transfer_items')
-
 
 class AdjustmentOrder(db.Model):
     """Inventory adjustment order."""
@@ -4550,7 +4431,6 @@ class AdjustmentOrder(db.Model):
 
     operator = db.relationship('User', backref='adjustment_orders')
 
-
 class AdjustmentOrderItem(db.Model):
     """Inventory adjustment item."""
     __tablename__ = 'adjustment_order_item'
@@ -4566,7 +4446,6 @@ class AdjustmentOrderItem(db.Model):
     adjustment_order = db.relationship('AdjustmentOrder', backref='items')
     material = db.relationship('Material', backref='adjustment_items')
     unit = db.relationship('Unit', backref='adjustment_items')
-
 
 class AfterSaleOutOrder(db.Model):
     """After-sales outbound order."""
@@ -4596,7 +4475,6 @@ class AfterSaleOutOrder(db.Model):
     source_out_order = db.relationship('OutOrder', backref='after_sale_out_orders')
     customer_master = db.relationship('Customer', foreign_keys=[customer_id])
 
-
 class AfterSaleOutOrderItem(db.Model):
     """After-sales outbound order item."""
     __tablename__ = 'after_sale_out_order_item'
@@ -4615,7 +4493,6 @@ class AfterSaleOutOrderItem(db.Model):
     after_sale_out_order = db.relationship('AfterSaleOutOrder', backref='items')
     material = db.relationship('Material', backref='after_sale_out_order_items')
     contract = db.relationship('Contract', foreign_keys=[contract_id])
-
 
 class PurchaseRequest(db.Model):
     """Purchase request."""
@@ -4636,7 +4513,6 @@ class PurchaseRequest(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
     operator = db.relationship('User', backref='purchase_requests')
-
 
 class PurchaseRequestItem(db.Model):
     """Purchase request item."""
@@ -4660,7 +4536,6 @@ class PurchaseRequestItem(db.Model):
     material = db.relationship('Material', backref='purchase_request_items')
     unit = db.relationship('Unit', backref='purchase_request_items')
     supplier = db.relationship('Supplier', backref='purchase_request_items')
-
 
 class PurchaseOrder(db.Model):
     """Purchase order generated manually or from a purchase request."""
@@ -4692,7 +4567,6 @@ class PurchaseOrder(db.Model):
     operator = db.relationship('User', backref='purchase_orders')
     contract = db.relationship('Contract', backref='purchase_orders')  # 关联合同档案
 
-
 class PurchaseOrderItem(db.Model):
     """Purchase order detail row."""
     __tablename__ = 'purchase_order_item'
@@ -4714,7 +4588,6 @@ class PurchaseOrderItem(db.Model):
     purchase_request_item = db.relationship('PurchaseRequestItem', backref='purchase_order_items')
     material = db.relationship('Material', backref='purchase_order_items')
     contract = db.relationship('Contract', foreign_keys=[contract_id])
-
 
 class SalesOrder(db.Model):
     """Sales order header; shipment completion remains a warehouse action."""
@@ -4762,7 +4635,6 @@ class SalesOrder(db.Model):
     warehouse_ref = db.relationship('Warehouse', backref='sales_orders_by_warehouse', foreign_keys=[warehouse_id])
     contract = db.relationship('Contract', backref='sales_orders')  # 关联合同档案
 
-
 class SalesOrderItem(db.Model):
     """Sales order detail row."""
     __tablename__ = 'sales_order_item'
@@ -4799,7 +4671,6 @@ def purchase_request_item_has_material(item):
         (getattr(item, 'material_name', None) or '').strip()
     )
 
-
 def purchase_request_item_data_has_material(item_data):
     if not isinstance(item_data, dict):
         return False
@@ -4808,7 +4679,6 @@ def purchase_request_item_data_has_material(item_data):
         (item_data.get('material_code') or item_data.get('code') or '').strip() or
         (item_data.get('material_name') or item_data.get('name') or '').strip()
     )
-
 
 def update_purchase_order_status(order):
     if not order:
@@ -4850,10 +4720,8 @@ def update_purchase_order_status(order):
     else:
         order.status = 'partial'
 
-
 def is_purchase_in_order(order):
     return (getattr(order, 'business_type', None) or '采购入库') == '采购入库'
-
 
 def validate_purchase_in_order_source(order):
     if not order or not is_purchase_in_order(order) or not purchase_in_order_requires_order():
@@ -4865,10 +4733,8 @@ def validate_purchase_in_order_source(order):
         return False, '采购入库必须关联采购订单，请从采购订单下推或选单生成入库单'
     return True, None
 
-
 def should_block_purchase_over_receive():
     return purchase_receipt_strict_order() and purchase_over_receive_control_mode() == 'forbid'
-
 
 def validate_purchase_receive_quantity(source_item, receive_qty, material_code=None):
     if not source_item or not should_block_purchase_over_receive():
@@ -4879,7 +4745,6 @@ def validate_purchase_receive_quantity(source_item, receive_qty, material_code=N
         return False, f'物料 {code} 入库数量不能大于采购单未入库数量'
     return True, None
 
-
 def find_duplicate_in_order_item(order, material_id, source_purchase_order_item_id=None):
     for item in order.items or []:
         if item.material_id != material_id:
@@ -4887,7 +4752,6 @@ def find_duplicate_in_order_item(order, material_id, source_purchase_order_item_
         if (item.source_purchase_order_item_id or None) == (source_purchase_order_item_id or None):
             return item
     return None
-
 
 def is_future_date(order_date, today=None):
     """判断给定日期是否晚于今天（BUG-DATE-2026-07-27-001）。
@@ -4902,7 +4766,6 @@ def is_future_date(order_date, today=None):
         return order_date > today
     except TypeError:
         return False
-
 
 def build_purchase_request_execution(valid_items):
     item_ids = [item.id for item in valid_items if item.id]
@@ -4943,7 +4806,6 @@ def build_purchase_request_execution(valid_items):
             'status': status,
         }
     return execution
-
 
 def build_purchase_order_execution(order):
     items = list(order.items or [])
@@ -4987,7 +4849,6 @@ def build_purchase_order_execution(order):
         }
     return execution
 
-
 def purchase_order_status_label(status):
     return {
         'pending': '未入库',
@@ -4995,7 +4856,6 @@ def purchase_order_status_label(status):
         'completed': '已入库',
         'closed': '已关闭',
     }.get(status, status or '-')
-
 
 def build_purchase_order_todo_summary():
     summary_rows = db.session.query(
@@ -5035,7 +4895,6 @@ def build_purchase_order_todo_summary():
     summary['open_amount'] = round_to_2_decimals(summary['pending_amount'] + summary['partial_amount'])
     return summary
 
-
 class UserFieldConfig(db.Model):
     """用户字段配置 - 用于存储用户对单据明细表格的自定义配置"""
     id = db.Column(db.Integer, primary_key=True)
@@ -5055,7 +4914,6 @@ class UserFieldConfig(db.Model):
         db.UniqueConstraint('user_id', 'page_type', 'field_key', name='uix_user_field_config'),
     )
 
-
 class SystemSetting(db.Model):
     """System-level settings stored in the database."""
     __tablename__ = 'system_setting'
@@ -5066,7 +4924,6 @@ class SystemSetting(db.Model):
     remark = db.Column(db.String(200))
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-
 
 class WechatShareConfig(db.Model):
     """Personal WeChat sharing configuration."""
@@ -5087,7 +4944,6 @@ class WechatShareConfig(db.Model):
     helper_url = db.Column(db.String(300))
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-
 
 class WechatShareLog(db.Model):
     """Share job execution log."""
@@ -5114,7 +4970,6 @@ class WechatShareLog(db.Model):
     sent_at = db.Column(db.DateTime)
 
     config = db.relationship('WechatShareConfig', backref='logs')
-
 
 def ensure_bootstrap_admin_user():
     """Create an initial admin account when the user table is empty."""
@@ -5146,7 +5001,6 @@ def ensure_bootstrap_admin_user():
         raise
     app.logger.warning("Bootstrap admin account created: username=%s. Please change the password after first login.", username)
     return user
-
 
 def ensure_admin_user_exists():
     """Ensure admin user exists; create if missing, unlock only if disabled."""
@@ -5206,7 +5060,6 @@ def ensure_admin_user_exists():
     app.logger.warning("Admin user created with default password 'admin'. Please set WMS_BOOTSTRAP_PASSWORD for a secure password.")
     return user
 
-
 def initialize_database():
     """Create missing tables and ensure the bootstrap admin account exists."""
     if startup_db_upgrade_disabled():
@@ -5250,13 +5103,11 @@ def initialize_database():
         db.session.rollback()
         app.logger.warning(f'修复物料字段跳过: {e}')
 
-
 # ==================== Login management ====================
 
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
-
 
 def get_request_ip():
     """Return the client IP, respecting reverse proxy headers."""
@@ -5265,12 +5116,10 @@ def get_request_ip():
         return forwarded_for.split(',')[0].strip()
     return request.remote_addr or ''
 
-
 def get_next_target():
     if request.query_string:
         return f'{request.path}?{request.query_string.decode("utf-8")}'
     return request.path
-
 
 def is_safe_redirect_target(target):
     if not target:
@@ -5287,12 +5136,10 @@ def is_safe_redirect_target(target):
         return False
     return True
 
-
 def resolve_redirect_target(target, default_endpoint='index'):
     if is_safe_redirect_target(target):
         return target
     return url_for(default_endpoint)
-
 
 def add_login_log(status, username, user=None, fail_reason=None):
     db.session.add(LoginLog(
@@ -5303,7 +5150,6 @@ def add_login_log(status, username, user=None, fail_reason=None):
         status=status,
         fail_reason=fail_reason
     ))
-
 
 @login_manager.unauthorized_handler
 def unauthorized():
@@ -5326,7 +5172,6 @@ def get_bearer_user():
         return None
     return token.user if token.user and token.user.is_active else None
 
-
 def api_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -5335,7 +5180,6 @@ def api_required(f):
             return jsonify({'status': 'error', 'msg': 'Bearer Token 无效或已过期'}), 401
         return f(user, *args, **kwargs)
     return decorated_function
-
 
 def api_role_required(*roles):
     """Require a bearer token user with one of the allowed business roles."""
@@ -5352,7 +5196,6 @@ def api_role_required(*roles):
             return f(user, *args, **kwargs)
         return decorated_function
     return decorator
-
 
 def mobile_api_idempotent(endpoint):
     """Replay a successful native mobile submission when a client retries it."""
@@ -5407,7 +5250,6 @@ def mobile_api_idempotent(endpoint):
         return decorated_function
     return decorator
 
-
 def web_or_api_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -5417,7 +5259,6 @@ def web_or_api_required(f):
             return f(*args, **kwargs)
         return jsonify({'status': 'error', 'success': False, 'msg': '未登录或 Bearer Token 无效'}), 401
     return decorated_function
-
 
 def role_required(*roles):
     """Require one of the given roles for page access."""
@@ -5459,7 +5300,6 @@ def log_operation(operation_type, operation_content, target_type=None, target_id
         db.session.rollback()
         app.logger.error(f'log_operation failed: {e}')
 
-
 def get_recent_operation_logs(target_type, target_id, limit=10):
     """IO-AUDIT-FIX-2026-07-27 m-07: 只读查询某单据最近 N 条操作日志.
 
@@ -5483,8 +5323,6 @@ def get_recent_operation_logs(target_type, target_id, limit=10):
         app.logger.warning(f'get_recent_operation_logs failed: {e}')
         return []
 
-
-
 def api_material_payload(material):
     warehouse_code = getattr(material, 'warehouse', '') or ''
     location_code = ''
@@ -5507,14 +5345,11 @@ def api_material_payload(material):
         'location_code': location_code,
     }
 
-
 def api_json_error(message, status_code=400):
     return jsonify({'status': 'error', 'success': False, 'msg': message, 'message': message}), status_code
 
-
 def api_json_success(data=None, message='操作成功'):
     return jsonify({'status': 'success', 'success': True, 'msg': message, 'message': message, 'data': data or {}})
-
 
 def parse_api_lines(payload):
     lines = payload.get('lines') if isinstance(payload, dict) else None
@@ -5537,7 +5372,6 @@ def parse_api_lines(payload):
         parsed.append((material, quantity, line))
     return parsed, None
 
-
 @app.route('/api/csrf_refresh', methods=['POST'])
 @csrf.exempt  # 该端点本身就是为了获取新 token，不能要求带 token，否则形成鸡生蛋问题
 def api_csrf_refresh():
@@ -5556,7 +5390,6 @@ def api_csrf_refresh():
     # 生成新的 CSRF token（flask_wtf 内部会自动写入 session）
     new_token = generate_csrf()
     return jsonify({'status': 'success', 'csrf_token': new_token})
-
 
 @app.route('/api/login', methods=['POST'])
 @csrf.exempt
@@ -5608,7 +5441,6 @@ def native_api_login():
             'role': user.role,
         }
     }, '登录成功')
-
 
 @app.route('/api/inbound', methods=['POST'])
 @csrf.exempt
@@ -5678,7 +5510,6 @@ def native_api_inbound(user):
         app.logger.exception('Android inbound failed')
         return api_json_error('入库提交失败', 500)
 
-
 @app.route('/api/outbound', methods=['POST'])
 @csrf.exempt
 @api_role_required('warehouse', 'production')
@@ -5746,7 +5577,6 @@ def native_api_outbound(user):
         app.logger.exception('Android outbound failed')
         return api_json_error('出库提交失败', 500)
 
-
 @app.route('/api/stocktake', methods=['POST'])
 @csrf.exempt
 @api_role_required('warehouse')
@@ -5797,7 +5627,6 @@ def native_api_stocktake(user):
         app.logger.exception('Android stocktake failed')
         return api_json_error('盘点提交失败', 500)
 
-
 MOBILE_SCAN_MODES = {
     'in': {'title': '手机入库', 'icon': 'bi-box-arrow-in-down'},
     'out': {'title': '手机出库', 'icon': 'bi-box-arrow-up'},
@@ -5815,422 +5644,10 @@ ANDROID_APK_PATHS = (
     ),
 )
 
-
-@app.route('/mobile/app')
-def mobile_app_download():
-    apk_path = next((path for path in ANDROID_APK_PATHS if os.path.isfile(path)), None)
-    if not apk_path:
-        abort(404)
-    return send_file(
-        apk_path,
-        mimetype='application/vnd.android.package-archive',
-        as_attachment=True,
-        download_name='wms-mobile-scan.apk'
-    )
-
-
-@app.route('/mobile/connect')
-@login_required
-def mobile_connect():
-    base_url = request.url_root.rstrip('/')
-    return render_template(
-        'mobile_connect.html',
-        base_url=base_url,
-        qr_url=url_for('api_qrcode_image', data=base_url),
-    )
-
-
-def mobile_material_payload(material):
-    locations = []
-    if location_management_enabled():
-        rows = LocationInventory.query.filter_by(material_id=material.id).order_by(LocationInventory.location.asc()).all()
-        locations = [
-            {
-                'location': row.location,
-                'quantity': normalize_stock_quantity(row.quantity or 0),
-            }
-            for row in rows
-            if normalize_stock_quantity(row.quantity or 0) != 0
-        ]
-
-    return {
-        'id': material.id,
-        'code': material.code or '',
-        'name': material.name or '',
-        'spec': material.spec or '',
-        'unit': material.unit.name if material.unit else '',
-        'category': material.category.name if material.category else '',
-        'supplier': material.supplier.name if material.supplier else '',
-        'stock': normalize_stock_quantity(material.stock or 0),
-        'price': round_to_2_decimals(material.price or 0),
-        'locations': locations,
-    }
-
-
-def find_mobile_material(keyword):
-    keyword = (keyword or '').strip()
-    if not keyword:
-        return None, []
-
-    query_options = (
-        joinedload(Material.unit),
-        joinedload(Material.category),
-        joinedload(Material.supplier),
-    )
-    exact = Material.query.options(*query_options).filter_by(code=keyword).first()
-    if exact:
-        return exact, []
-
-    like = f'%{keyword}%'
-    matches = (
-        Material.query.options(*query_options)
-        .filter(db.or_(
-            Material.code.like(like),
-            Material.name.like(like),
-            Material.spec.like(like),
-        ))
-        .order_by(Material.code.asc(), Material.id.asc())
-        .limit(10)
-        .all()
-    )
-    if len(matches) == 1:
-        return matches[0], []
-    return None, matches
-
-
-@app.route('/mobile/scan')
-@login_required
-def mobile_scan():
-    mode = (request.args.get('mode') or 'query').strip()
-    if mode not in MOBILE_SCAN_MODES:
-        mode = 'query'
-    warehouses = Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc(), Warehouse.id.asc()).all()
-    departments = Department.query.filter_by(status='active').order_by(Department.code.asc(), Department.id.asc()).all()
-    return render_template(
-        'mobile_scan.html',
-        mode=mode,
-        modes=MOBILE_SCAN_MODES,
-        mode_config=MOBILE_SCAN_MODES[mode],
-        warehouses=warehouses,
-        departments=departments,
-        can_write=current_user.role in ('admin', 'warehouse'),
-    )
-
-
-@app.route('/mobile/api/material_lookup')
-@login_required
-def mobile_material_lookup():
-    keyword = (request.args.get('code') or request.args.get('q') or '').strip()
-    material, matches = find_mobile_material(keyword)
-    if material:
-        return jsonify({
-            'status': 'success',
-            'success': True,
-            'data': mobile_material_payload(material),
-        })
-    if matches:
-        return jsonify({
-            'status': 'multiple',
-            'success': True,
-            'msg': '请选择物料',
-            'data': {
-                'matches': [mobile_material_payload(item) for item in matches],
-            },
-        })
-    return jsonify({'status': 'error', 'success': False, 'msg': '物料不存在'}), 404
-
-
-@app.route('/mobile/api/scan_submit', methods=['POST'])
-@require_role('warehouse')
-@login_required
-def mobile_scan_submit():
-    data = request.get_json(silent=True) or {}
-    mode = (data.get('mode') or '').strip()
-    code = (data.get('code') or '').strip()
-    if mode not in MOBILE_SCAN_MODES:
-        return jsonify({'status': 'error', 'success': False, 'msg': '扫码类型不正确'}), 400
-    if not code:
-        return jsonify({'status': 'error', 'success': False, 'msg': '请输入物料编码'}), 400
-
-    material = (
-        Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
-        .filter_by(code=code)
-        .first()
-    )
-    if not material:
-        return jsonify({'status': 'error', 'success': False, 'msg': f'物料不存在：{code}'}), 404
-
-    if mode == 'query':
-        return jsonify({
-            'status': 'success',
-            'success': True,
-            'msg': '查询成功',
-            'data': {'material': mobile_material_payload(material)},
-        })
-
-    if current_user.role not in ('admin', 'warehouse'):
-        return jsonify({'status': 'error', 'success': False, 'msg': '当前账号没有仓库操作权限'}), 403
-
-    warehouse = (data.get('warehouse') or data.get('location') or '').strip()
-    remark = (data.get('remark') or '').strip()
-    if mode in ('in', 'out') and location_management_enabled() and location_required_on_save() and not warehouse:
-        return jsonify({'status': 'error', 'success': False, 'msg': '启用库位管理后，扫码出入库必须填写仓库/库位'}), 400
-
-    try:
-        if mode == 'in':
-            quantity = round_to_2_decimals(parse_float_value(data.get('quantity'), 0))
-            if quantity <= 0:
-                return jsonify({'status': 'error', 'success': False, 'msg': '入库数量必须大于0'}), 400
-
-            price = round_to_2_decimals(material.price or 0)
-            order = InOrder(
-                order_no=generate_order_no('IN'),
-                date=date.today(),
-                business_type='产品入库',
-                purpose='手机扫码入库',
-                warehouse=warehouse or None,
-                remark=remark or '手机端扫码提交',
-                status='completed',
-                operator_id=current_user.id,
-                total_amount=round_to_2_decimals(quantity * price),
-            )
-            db.session.add(order)
-            db.session.flush()
-            db.session.add(InOrderItem(
-                in_order_id=order.id,
-                material_id=material.id,
-                quantity=quantity,
-                price=price,
-                amount=round_to_2_decimals(quantity * price),
-            ))
-            ok, error_msg = add_stock(material, quantity, 'in', 'in_order', order.id, f'手机扫码入库 {order.order_no}')
-            if not ok:
-                db.session.rollback()
-                return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库存增加失败'}), 500
-            if location_management_enabled() and warehouse:
-                ok, error_msg = update_location_inventory(material, warehouse, quantity)
-                if not ok:
-                    db.session.rollback()
-                    return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库位库存更新失败'}), 400
-            db.session.commit()
-            log_operation('手机扫码入库', f'入库单：{order.order_no}', 'in_order', order.id)
-            return jsonify({
-                'status': 'success',
-                'success': True,
-                'msg': f'入库成功：{order.order_no}',
-                'data': {'order_no': order.order_no, 'material': mobile_material_payload(material)},
-            })
-
-        if mode == 'out':
-            quantity = round_to_2_decimals(parse_float_value(data.get('quantity'), 0))
-            if quantity <= 0:
-                return jsonify({'status': 'error', 'success': False, 'msg': '出库数量必须大于0'}), 400
-
-            current_stock = normalize_stock_quantity(material.stock or 0)
-            if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-                return jsonify({
-                    'status': 'error',
-                    'success': False,
-                    'msg': f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}',
-                }), 400
-            if location_management_enabled() and warehouse and location_available_stock_control() and not allow_negative_location_stock():
-                location_inventory = LocationInventory.query.filter_by(
-                    material_id=material.id,
-                    location=warehouse
-                ).first()
-                location_stock = normalize_stock_quantity(location_inventory.quantity if location_inventory else 0)
-                if not is_stock_sufficient(location_stock, quantity):
-                    return jsonify({
-                        'status': 'error',
-                        'success': False,
-                        'msg': f'物料 {material.code} 在 {warehouse} 库位库存不足，当前库位库存：{location_stock:.2f}',
-                    }), 400
-
-            target = (data.get('target') or data.get('receiver') or '').strip()
-            department = None
-            if target:
-                department = Department.query.filter(db.or_(Department.code == target, Department.name == target)).first()
-            price = round_to_2_decimals(material.price or 0)
-            order = OutOrder(
-                order_no=generate_order_no('OU'),
-                date=date.today(),
-                department_id=department.id if department else None,
-                customer=(department.name if department else target) or None,
-                business_type='领料单',
-                warehouse=warehouse or None,
-                purpose='手机扫码出库',
-                remark=remark or '手机端扫码提交',
-                status='completed',
-                operator_id=current_user.id,
-                total_amount=round_to_2_decimals(quantity * price),
-            )
-            db.session.add(order)
-            db.session.flush()
-            db.session.add(OutOrderItem(
-                out_order_id=order.id,
-                material_id=material.id,
-                quantity=quantity,
-                price=price,
-                amount=round_to_2_decimals(quantity * price),
-            ))
-            ok, error_msg = deduct_stock(material, quantity, 'out', 'out_order', order.id, f'手机扫码出库 {order.order_no}')
-            if not ok:
-                db.session.rollback()
-                return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库存扣减失败'}), 400
-            if location_management_enabled() and warehouse:
-                ok, error_msg = update_location_inventory(material, warehouse, -quantity)
-                if not ok:
-                    db.session.rollback()
-                    return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库位库存扣减失败'}), 400
-            db.session.commit()
-            log_operation('手机扫码出库', f'领料单：{order.order_no}', 'out_order', order.id)
-            return jsonify({
-                'status': 'success',
-                'success': True,
-                'msg': f'出库成功：{order.order_no}',
-                'data': {'order_no': order.order_no, 'material': mobile_material_payload(material)},
-            })
-
-        if mode == 'check':
-            actual_raw = data.get('actual_stock')
-            if actual_raw is None or str(actual_raw).strip() == '':
-                actual_raw = data.get('quantity')
-            if actual_raw is None or str(actual_raw).strip() == '':
-                return jsonify({'status': 'error', 'success': False, 'msg': '请输入盘点数量'}), 400
-            actual_stock = round_to_2_decimals(parse_float_value(actual_raw, 0))
-            system_stock = normalize_stock_quantity(material.stock or 0)
-            check = InventoryCheckScan(
-                check_no=generate_order_no('CS'),
-                date=date.today(),
-                remark=remark or '手机扫码盘点',
-                status='completed',
-                operator_id=current_user.id,
-            )
-            db.session.add(check)
-            db.session.flush()
-            db.session.add(InventoryCheckScanItem(
-                check_scan_id=check.id,
-                material_id=material.id,
-                system_stock=system_stock,
-                actual_stock=actual_stock,
-                difference=round_to_2_decimals(actual_stock - system_stock),
-            ))
-            drafts, error = _create_adjustment_drafts_from_check_scan(check)
-            if error:
-                db.session.rollback()
-                return jsonify({'status': 'error', 'success': False, 'msg': error}), 400
-            db.session.commit()
-            log_operation('手机扫码盘点', f'扫码盘点单：{check.check_no}', 'inventory_check_scan', check.id)
-            msg = f'盘点保存成功：{check.check_no}'
-            if drafts:
-                msg += '，已生成库存调整草稿，请审核后提交'
-            return jsonify({
-                'status': 'success',
-                'success': True,
-                'msg': msg,
-                'data': {
-                    'check_no': check.check_no,
-                    'adjustment_nos': [order.adjustment_no for order in drafts],
-                    'material': mobile_material_payload(material),
-                },
-            })
-    except Exception:
-        db.session.rollback()
-        app.logger.exception('Mobile scan submit failed')
-        return jsonify({'status': 'error', 'success': False, 'msg': '提交失败，请稍后重试'}), 500
-
-    return jsonify({'status': 'error', 'success': False, 'msg': '扫码类型不正确'}), 400
-
-
-@app.route('/mobile/api/recognize_material', methods=['POST'])
-@login_required
-def mobile_recognize_material():
-    if not _ai_llm_configured() or not _ai_llm_vision_enabled():
-        return jsonify({'status': 'error', 'msg': '请先在系统设置中启用大模型和图片识别'}), 400
-
-    if 'image' not in request.files:
-        return jsonify({'status': 'error', 'msg': '请上传图片'}), 400
-
-    file = request.files['image']
-    if not file.filename:
-        return jsonify({'status': 'error', 'msg': '请选择图片文件'}), 400
-
-    allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
-    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
-    if ext not in allowed_ext:
-        return jsonify({'status': 'error', 'msg': '不支持的图片格式'}), 400
-
-    file.seek(0, 2)
-    file_size = file.tell()
-    file.seek(0)
-    if file_size > 10 * 1024 * 1024:
-        return jsonify({'status': 'error', 'msg': '图片大小不能超过10MB'}), 400
-
-    try:
-        import base64
-        img_data = base64.b64encode(file.read()).decode('ascii')
-        data_url = f'data:image/{ext};base64,{img_data}'
-
-        prompt = '''请识别这张图片中的物料。如果是物料标签、物料实物或包装，请提取：
-1. 物料编码（如有）
-2. 物料名称
-3. 规格型号
-4. 数量（如有）
-
-请在回答末尾追加 JSON 代码块，格式如下：
-```json
-{"code": "编码", "name": "名称", "spec": "规格", "quantity": 数量或null, "confidence": 0.8}
-```
-如果无法识别，code和name留空，confidence设为0。'''
-
-        reply, extracted, error = _ai_call_llm_vision(prompt, [{'data_url': data_url}])
-        if error:
-            return jsonify({'status': 'error', 'msg': error}), 500
-
-        matches = []
-        if extracted:
-            code = (extracted.get('code') or '').strip()
-            name = (extracted.get('name') or '').strip()
-            spec = (extracted.get('spec') or '').strip()
-
-            query = Material.query.options(
-                joinedload(Material.unit),
-                joinedload(Material.category),
-                joinedload(Material.supplier)
-            )
-            if code:
-                exact = query.filter_by(code=code).first()
-                if exact:
-                    matches = [exact]
-                else:
-                    search = f'%{code}%'
-                    matches = query.filter(Material.code.like(search)).limit(5).all()
-            if not matches and name:
-                search = f'%{name}%'
-                matches = query.filter(
-                    db.or_(Material.name.like(search), Material.code.like(search))
-                ).limit(5).all()
-            if not matches and spec:
-                search = f'%{spec}%'
-                matches = query.filter(Material.spec.like(search)).limit(5).all()
-
-        return jsonify({
-            'status': 'success',
-            'reply': reply,
-            'extracted': extracted,
-            'matches': [mobile_material_payload(m) for m in matches],
-            'match_count': len(matches)
-        })
-    except Exception as e:
-        app.logger.error(f'拍照识物失败: {e}')
-        return jsonify({'status': 'error', 'msg': '识别失败，请稍后重试'}), 500
-
-
 # ==================== 移动端仓库管理 API ====================
 
 MOBILE_API_PAGE_SIZE_MAX = 100
 MOBILE_API_PAGE_SIZE_DEFAULT = 20
-
 
 def _mobile_paginate(query, page, page_size):
     """Return paginated results for mobile API."""
@@ -6245,7 +5662,6 @@ def _mobile_paginate(query, page, page_size):
         'page_size': page_size,
         'total_pages': max(1, (total + page_size - 1) // page_size) if total > 0 else 0,
     }
-
 
 def _in_order_payload(order):
     """Build mobile-friendly inbound order payload."""
@@ -6262,7 +5678,6 @@ def _in_order_payload(order):
         'created_at': order.created_at.isoformat() if order.created_at else '',
         'item_count': len(order.items) if order.items else 0,
     }
-
 
 def _in_order_detail_payload(order):
     """Build mobile-friendly inbound order detail payload."""
@@ -6283,7 +5698,6 @@ def _in_order_detail_payload(order):
     payload['supplier'] = order.supplier.name if order.supplier else ''
     return payload
 
-
 def _out_order_payload(order):
     """Build mobile-friendly outbound order payload."""
     return {
@@ -6300,7 +5714,6 @@ def _out_order_payload(order):
         'created_at': order.created_at.isoformat() if order.created_at else '',
         'item_count': len(order.items) if order.items else 0,
     }
-
 
 def _out_order_detail_payload(order):
     """Build mobile-friendly outbound order detail payload."""
@@ -6319,7 +5732,6 @@ def _out_order_detail_payload(order):
         for item in order.items
     ]
     return payload
-
 
 # ---------- Dashboard ----------
 
@@ -6379,7 +5791,6 @@ def mobile_api_dashboard():
         'date': today.isoformat(),
     })
 
-
 # ---------- Stock Query ----------
 
 @app.route('/api/mobile/stock/query')
@@ -6433,7 +5844,6 @@ def mobile_api_stock_query():
         'total_pages': result['total_pages'],
     })
 
-
 # ---------- Stock Alert List ----------
 
 @app.route('/api/mobile/alert/list')
@@ -6486,7 +5896,6 @@ def mobile_api_alert_list():
         'total_pages': result['total_pages'],
     })
 
-
 # ---------- Inbound Order List ----------
 
 @app.route('/api/mobile/in_order/list')
@@ -6523,7 +5932,6 @@ def mobile_api_in_order_list():
         'total_pages': result['total_pages'],
     })
 
-
 # ---------- Inbound Order Detail ----------
 
 @app.route('/api/mobile/in_order/<int:order_id>')
@@ -6541,7 +5949,6 @@ def mobile_api_in_order_detail(order_id):
         return api_json_error('入库单不存在', 404)
 
     return api_json_success(_in_order_detail_payload(order))
-
 
 # ---------- Outbound Order List ----------
 
@@ -6580,7 +5987,6 @@ def mobile_api_out_order_list():
         'total_pages': result['total_pages'],
     })
 
-
 # ---------- Outbound Order Detail ----------
 
 @app.route('/api/mobile/out_order/<int:order_id>')
@@ -6598,7 +6004,6 @@ def mobile_api_out_order_detail(order_id):
         return api_json_error('出库单不存在', 404)
 
     return api_json_success(_out_order_detail_payload(order))
-
 
 # ---------- Profile ----------
 
@@ -6621,16 +6026,13 @@ def mobile_api_profile():
         'must_change_password': user.must_change_password or False,
     })
 
-
 def _material_alert_enabled_filter():
     if not inventory_alert_enabled():
         return false()
     return db.or_(Material.min_stock > 0, Material.reorder_point > 0)
 
-
 def _material_low_stock_filter():
     return db.and_(_material_alert_enabled_filter(), Material.stock <= Material.min_stock)
-
 
 def _material_normal_stock_filter():
     if not inventory_alert_enabled():
@@ -6639,7 +6041,6 @@ def _material_normal_stock_filter():
         db.and_(Material.min_stock <= 0, Material.reorder_point <= 0),
         Material.stock > Material.min_stock
     )
-
 
 def _material_alert_status_values(material):
     if not inventory_alert_enabled():
@@ -6656,7 +6057,6 @@ def _material_alert_status_values(material):
     else:
         alert_status = 'normal'
     return stock, min_stock, safety_stock, alert_status
-
 
 # ==================== Dashboard ====================
 
@@ -6948,7 +6348,6 @@ def validate_password_strength(password):
         return False, '密码必须包含字母'
     return True, None
 
-
 @app.route('/user/change_password', methods=['GET', 'POST'])
 @login_required
 def change_own_password():
@@ -6975,7 +6374,6 @@ def change_own_password():
         app.logger.error('用户修改密码失败: %s', e)
         return jsonify({'status': 'error', 'msg': '密码修改失败，请稍后重试'}), 500
     return jsonify({'status': 'success', 'msg': '密码修改成功', 'redirect': url_for('index')})
-
 
 @app.route('/login', methods=['GET', 'POST'])
 # AI_TASK: AI-LOGIN-F01
@@ -7156,7 +6554,6 @@ def login():
     flash(f'用户名或密码错误，还可尝试 {remaining} 次', 'danger')
     return render_template('login.html', **login_ctx), 401
 
-
 @app.route('/logout')
 @login_required
 def logout():
@@ -7188,7 +6585,6 @@ def admin_mobile_tokens():
     tokens = ApiToken.query.join(User).order_by(ApiToken.created_at.desc()).limit(200).all()
     return render_template('admin_mobile_tokens.html', tokens=tokens, now=datetime.now())
 
-
 @app.route('/admin/mobile_tokens/<int:token_id>/revoke', methods=['POST'])
 @login_required
 @role_required('admin')
@@ -7203,7 +6599,6 @@ def revoke_mobile_token(token_id):
         log_operation('撤销移动 Token', f'用户：{token.user.username if token.user else token.user_id}', 'api_token', token.id)
         flash('移动 Token 已撤销', 'success')
     return redirect(url_for('admin_mobile_tokens'))
-
 
 @app.route('/user')
 @login_required
@@ -7261,7 +6656,6 @@ def user_list():
     filters = {'search': search, 'status': status_filter, 'role': role_filter}
     return render_template('user.html', users=users, filters=filters, sort_by=sort_by, sort_order=sort_order)
 
-
 def _audit_date_arg(name):
     value = (request.args.get(name) or '').strip()
     if not value:
@@ -7271,7 +6665,6 @@ def _audit_date_arg(name):
         return value
     except ValueError:
         return ''
-
 
 def _audit_datetime_bounds(date_start, date_end):
     if date_start:
@@ -7285,7 +6678,6 @@ def _audit_datetime_bounds(date_start, date_end):
     if start_dt > end_dt:
         start_dt, end_dt = end_dt - timedelta(days=1), start_dt + timedelta(days=1)
     return start_dt, end_dt
-
 
 def _audit_risk_condition(model, operation_attr, content_attrs):
     conditions = [
@@ -7306,7 +6698,6 @@ def _audit_risk_condition(model, operation_attr, content_attrs):
         ])
     return db.or_(*conditions)
 
-
 def _audit_iter_pages(page, pages):
     if pages <= 0:
         return []
@@ -7317,7 +6708,6 @@ def _audit_iter_pages(page, pages):
         elif values and values[-1] is not None:
             values.append(None)
     return values
-
 
 @app.route('/operation_audit')
 @login_required
@@ -7516,7 +6906,6 @@ def add_user():
         return jsonify({'status': 'error', 'msg': '用户创建失败，用户名可能已存在'}), 500
     return jsonify({'status': 'success', 'msg': '用户创建成功'})
 
-
 @app.route('/user/<int:user_id>/edit', methods=['POST'])
 @require_role('admin')
 @login_required
@@ -7565,15 +6954,12 @@ USER_STATUS_LABELS = {
     'inactive': '停用',
 }
 
-
 def _normalize_user_status(status):
     status = (status or 'normal').strip()
     return status if status in USER_STATUS_LABELS else 'normal'
 
-
 def _user_status_label(status):
     return USER_STATUS_LABELS.get(_normalize_user_status(status), status or 'normal')
-
 
 def _has_other_active_admin(user_id):
     return User.query.filter(
@@ -7581,7 +6967,6 @@ def _has_other_active_admin(user_id):
         User.id != user_id,
         db.or_(User.status.is_(None), User.status.notin_(list(DISABLED_USER_STATUSES)))
     ).first() is not None
-
 
 # BUG-F02-06 修复：普通用户/管理员自助资料编辑入口
 # - 任何登录用户都可以编辑自己的 email/phone/bio（不动用户名/角色/状态/密码）
@@ -7622,7 +7007,6 @@ def edit_my_profile():
     if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return jsonify({'status': 'success', 'msg': '资料已更新'})
     return redirect(url_for('edit_my_profile'))
-
 
 @app.route('/user/status', methods=['POST'])
 @require_role('admin')
@@ -7668,7 +7052,6 @@ def update_user_status():
     log_operation(action, f'用户：{user.username}，{_user_status_label(old_status)} -> {_user_status_label(new_status)}', 'user', user.id)
     msg = '用户已启用，可以重新登录' if new_status == 'normal' else '用户已禁用，禁用后不能登录'
     return jsonify({'status': 'success', 'msg': msg})
-
 
 @app.route('/user/delete', methods=['POST'])
 @require_role('admin')
@@ -7756,13 +7139,11 @@ def reset_user_password():
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success', 'msg': '密码重置成功，被重置用户下次登录需修改密码'})
 
-
 @app.route('/system_settings')
 @require_role('admin')
 @login_required
 def system_settings_page():
     return render_template('system_settings.html', setting_groups=get_grouped_system_settings())
-
 
 @app.route('/system_settings/save', methods=['POST'])
 @require_role('admin')
@@ -7814,7 +7195,6 @@ def save_system_settings():
         db.session.rollback()
         app.logger.error(f'保存系统设置失败: {exc}')
         return api_error('保存失败，请稍后重试')
-
 
 @app.route('/system_settings/test_ai_llm', methods=['POST'])
 @require_role('admin')
@@ -7967,7 +7347,6 @@ INIT_MASTER_TABLES = [
 
 # OperationAudit 自身也要被清（业务审计），由 init 流程单独处理
 
-
 def _init_business_data_preview_stats():
     """统计各表记录数，用于初始化前的预览。"""
     stats = {
@@ -8017,7 +7396,6 @@ def _init_business_data_preview_stats():
     stats['system_setting_count'] = SystemSetting.query.count()
     return stats
 
-
 def _revert_completed_to_pending():
     """将全部 completed 单据改为 pending，模拟「人工反提交后单据回到草稿」。
 
@@ -8043,7 +7421,6 @@ def _revert_completed_to_pending():
             app.logger.warning('revert %s failed: %s', model_cls.__name__, exc)
     return reverted_count
 
-
 def _zero_all_material_stock():
     """把所有物料的 stock 设为 0，语义等价于「回退所有已完成单据的库存变动」。"""
     try:
@@ -8051,7 +7428,6 @@ def _zero_all_material_stock():
     except Exception as exc:
         app.logger.warning('zero stock failed: %s', exc)
         return 0
-
 
 def _bulk_delete_model(model_cls):
     """单表全量删除，返回删除条数。"""
@@ -8062,7 +7438,6 @@ def _bulk_delete_model(model_cls):
         app.logger.warning('delete %s failed: %s', model_cls.__name__, exc)
         db.session.rollback()
         return 0
-
 
 def _init_business_data_keep_users_and_settings(include_master_data=False):
     """执行核心清理逻辑。
@@ -8126,7 +7501,6 @@ def _init_business_data_keep_users_and_settings(include_master_data=False):
 
     return deleted
 
-
 @app.route('/system_settings/init_business_data/preview', methods=['GET'])
 @require_role('admin')
 @login_required
@@ -8134,7 +7508,6 @@ def preview_init_business_data():
     """预览将要清空的记录数。"""
     stats = _init_business_data_preview_stats()
     return jsonify({'status': 'success', 'data': stats})
-
 
 @app.route('/system_settings/init_business_data/execute', methods=['POST'])
 @require_role('admin')
@@ -8266,7 +7639,6 @@ def execute_init_business_data():
             pass
         return jsonify({'status': 'error', 'msg': f'初始化异常：{exc}'}), 500
 
-
 def _opening_stock_payload_from_request():
     material_id = request.form.get('material_id', type=int)
     warehouse_id = request.form.get('warehouse_id', type=int)
@@ -8302,7 +7674,6 @@ def _opening_stock_payload_from_request():
         'amount': round_to_2_decimals(quantity * price),
         'remark': remark or None,
     }, None
-
 
 def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new_amount, remark, warehouse=None):
     old_quantity = normalize_stock_quantity(opening.quantity or 0) if opening else 0
@@ -8349,7 +7720,6 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
             remark=remark or '期初库存调整'
         ))
     return opening, quantity_delta
-
 
 @app.route('/opening_stock')
 @login_required
@@ -8423,7 +7793,6 @@ def opening_stock_list():
         default_warehouse=get_default_warehouse(),
     )
 
-
 @app.route('/opening_stock/add', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -8451,7 +7820,6 @@ def add_opening_stock():
         db.session.rollback()
         app.logger.error(f'新增期初库存失败: {e}')
         return jsonify({'status': 'error', 'msg': '期初库存保存失败'}), 500
-
 
 @app.route('/opening_stock/<int:id>')
 @login_required
@@ -8481,7 +7849,6 @@ def get_opening_stock(id):
         }
     })
 
-
 @app.route('/opening_stock/edit/<int:id>', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -8509,7 +7876,6 @@ def edit_opening_stock(id):
         db.session.rollback()
         app.logger.error(f'编辑期初库存失败: {e}')
         return jsonify({'status': 'error', 'msg': '期初库存更新失败'}), 500
-
 
 @app.route('/opening_stock/batch_save', methods=['POST'])
 @require_role('warehouse')
@@ -8597,7 +7963,6 @@ def batch_save_opening_stock():
         app.logger.error(f'批量保存期初库存失败: {e}')
         return jsonify({'status': 'error', 'msg': '期初库存保存失败'}), 500
 
-
 def _material_image_search_terms(material):
     parts = [
         material.brand or '',
@@ -8617,7 +7982,6 @@ def _material_image_search_terms(material):
             seen.add(token.lower())
             tokens.append(token)
     return ' '.join(tokens[:10]).strip()
-
 
 def _extract_bing_image_candidates(html, limit=12):
     candidates = []
@@ -8650,7 +8014,6 @@ def _extract_bing_image_candidates(html, limit=12):
                 return candidates
     return candidates
 
-
 def _search_material_images_online(material, limit=12):
     query = _material_image_search_terms(material)
     if not query:
@@ -8664,7 +8027,6 @@ def _search_material_images_online(material, limit=12):
     response = requests.get(url, headers=headers, timeout=8)
     response.raise_for_status()
     return _extract_bing_image_candidates(response.text, limit=limit), query
-
 
 def _is_private_or_loopback_host(hostname):
     """检查主机名是否指向内网/回环/私有地址，用于阻止 SSRF。
@@ -8686,7 +8048,6 @@ def _is_private_or_loopback_host(hostname):
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
             return True
     return False
-
 
 def _save_material_image_from_url(material, image_url):
     image_url = (image_url or '').strip()
@@ -8749,7 +8110,6 @@ def _save_material_image_from_url(material, image_url):
 
     return f'uploads/material_images/{filename}', ''
 
-
 def generate_material_copy_code(source):
     """
     根据源物料生成新的物料编码：原物料分类 + 流水号。
@@ -8805,7 +8165,6 @@ def generate_material_copy_code(source):
             return candidate
     raise ValueError("无法生成唯一编码，请检查数据")
 
-
 def generate_material_copy_name(source_name, source_spec):
     base_name = (source_name or '').strip()
     if not base_name:
@@ -8821,7 +8180,6 @@ def generate_material_copy_name(source_name, source_spec):
 
     raise ValueError('无法生成唯一物料名称，请手动修改')
 
-
 def material_name_spec_exists(name, spec, exclude_id=None):
     query = Material.query.filter(
         Material.name == name,
@@ -8830,7 +8188,6 @@ def material_name_spec_exists(name, spec, exclude_id=None):
     if exclude_id:
         query = query.filter(Material.id != exclude_id)
     return query.first() is not None
-
 
 def _nonempty_reference_values(*values):
     result = []
@@ -8842,10 +8199,8 @@ def _nonempty_reference_values(*values):
             result.append(text)
     return result
 
-
 def _format_delete_blockers(blockers):
     return '；'.join(f'{label} {count} 条' for label, count in blockers if count)
-
 
 def _warehouse_delete_blockers(warehouse):
     values = _nonempty_reference_values(warehouse.name, warehouse.code)
@@ -8862,7 +8217,6 @@ def _warehouse_delete_blockers(warehouse):
     ]
     return [(label, count) for label, count in checks if count]
 
-
 def _department_delete_blockers(department):
     values = _nonempty_reference_values(department.name, department.code)
     checks = [
@@ -8874,7 +8228,6 @@ def _department_delete_blockers(department):
             ('采购申请部门', PurchaseRequest.query.filter(PurchaseRequest.department.in_(values)).count()),
         ])
     return [(label, count) for label, count in checks if count]
-
 
 def _contract_delete_blockers(contract):
     """检查合同是否被业务单据引用，返回阻断原因列表。"""
@@ -8918,13 +8271,6 @@ def _contract_delete_blockers(contract):
         blockers.append('已被' + '、'.join(refs) + '引用')
     return blockers
 
-
-
-
-
-
-
-
 # ==================== Category management ====================
 
 def build_category_tree_rows(categories):
@@ -8966,7 +8312,6 @@ def build_category_tree_rows(categories):
             rows.append({'category': cat, 'level': 0, 'branch': '', 'has_children': bool(by_parent.get(cat.id))})
     return rows
 
-
 def build_category_parent_options(categories, exclude_id=None):
     rows = build_category_tree_rows(categories)
     options = []
@@ -8980,7 +8325,6 @@ def build_category_parent_options(categories, exclude_id=None):
             'level': row['level'],
         })
     return options
-
 
 def ensure_material_category_tree_defaults():
     """Create practical root categories and attach existing flat categories once."""
@@ -9053,7 +8397,6 @@ def api_customers():
     customers = Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all()
     return jsonify([serialize_customer(customer) for customer in customers])
 
-
 def _ai_record_capability_audit(capability, allowed, *, reason='', source='api', stage=''):
     """记录 AI 能力权限判定结果到 AIToolCall。
 
@@ -9103,7 +8446,6 @@ def _ai_record_capability_audit(capability, allowed, *, reason='', source='api',
         tool_call.denied_stage = stage or tool_call.denied_stage
     else:
         tool_call.source = source or tool_call.source or 'api'
-
 
 def _ai_record_rollout_denied_audit(decision, source='api'):
     """AI-R17-F01：灰度拒绝写入 AIRolloutAudit 审计表 + AIToolCall.denied_reason。
@@ -9162,7 +8504,6 @@ def _ai_record_rollout_denied_audit(decision, source='api'):
             tool_call.user_id = decision.user_id or tool_call.user_id
             tool_call.role = decision.role or tool_call.role
 
-
 def _ai_capability_allowed(capability, *, source='api'):
     """AI-R17-F01：能力权限判定主流程。
 
@@ -9212,18 +8553,14 @@ def _ai_capability_allowed(capability, *, source='api'):
     _ai_record_capability_audit(capability, allowed, source=source)
     return allowed
 
-
 def _ai_permission_denied_text(capability):
     return f'当前账号没有权限使用此 AI 能力（{capability}）'
-
 
 def _ai_permission_denied_response(capability):
     return _ai_json_response(_ai_permission_denied_text(capability))
 
-
 def _ai_manual_confirmation_required_text(capability):
     return f'AI 能力 {capability} 只能在人工确认后创建草稿，不能由模型、工具编排器或 Agent 直接执行。'
-
 
 def _ai_draft_execution_allowed(capability, manual_confirmation=False):
     if not _ai_capability_allowed(capability):
@@ -9231,7 +8568,6 @@ def _ai_draft_execution_allowed(capability, manual_confirmation=False):
     if ai_capability_requires_manual_confirmation(capability) and not manual_confirmation:
         return False, _ai_manual_confirmation_required_text(capability)
     return True, None
-
 
 def _ai_high_risk_denied_response(message):
     operation = detect_ai_high_risk_operation(message)
@@ -9254,7 +8590,6 @@ def _ai_high_risk_denied_response(message):
         ],
     )
 
-
 _ai_idempotency = configure_ai_idempotency_service(
     db=db,
     run_model=AIRun,
@@ -9275,10 +8610,8 @@ configure_ai_draft_idempotency_service(
     tool_call_model=AIToolCall,
 )
 
-
 def _ai_draft_idempotency():
     return get_ai_draft_idempotency_service()
-
 
 def _ai_draft_business_key_from_items(items, extra=None):
     """由解析后的物料明细构造幂等业务关键字段。
@@ -9305,7 +8638,6 @@ def _ai_draft_business_key_from_items(items, extra=None):
     return business
 _ai_fail_idempotent_request = _ai_idempotency.fail_request
 
-
 def _ai_material_query(keyword, limit=8):
     keyword = (keyword or '').strip()
     query = Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
@@ -9317,7 +8649,6 @@ def _ai_material_query(keyword, limit=8):
             Material.spec.ilike(like),
         ))
     return query.order_by(Material.code.asc()).limit(limit).all()
-
 
 def _ai_material_payload(material):
     stock, min_stock, safety_stock, alert_status = _material_alert_status_values(material)
@@ -9334,12 +8665,10 @@ def _ai_material_payload(material):
         'url': url_for('material_list', search=material.code or material.name or ''),
     }
 
-
 def _ai_card(title, meta='', url='', **extra):
     card = {'title': title, 'meta': meta, 'url': url}
     card.update(extra)
     return card
-
 
 def _ai_order_payload(label, order, endpoint):
     order_no = getattr(order, 'order_no', '') or getattr(order, 'request_no', '') or getattr(order, 'transfer_no', '') or getattr(order, 'adjustment_no', '') or getattr(order, 'check_no', '') or getattr(order, 'bom_no', '') or getattr(order, 'req_no', '') or getattr(order, 'issue_no', '') or getattr(order, 'receive_no', '')
@@ -9352,7 +8681,6 @@ def _ai_order_payload(label, order, endpoint):
         'date': date_text,
         'url': url_for(endpoint, id=order.id),
     }
-
 
 def _ai_find_orders(message, limit=8):
     text = (message or '').strip()
@@ -9391,7 +8719,6 @@ def _ai_find_orders(message, limit=8):
                 return results
     return results
 
-
 def _ai_pending_documents(limit=12):
     rows = []
     configs = [
@@ -9410,7 +8737,6 @@ def _ai_pending_documents(limit=12):
         for order in model.query.filter(model.status.in_(('pending', 'approved', 'processing'))).order_by(model.id.desc()).limit(3).all():
             rows.append(_ai_order_payload(label, order, endpoint))
     return rows[:limit]
-
 
 # ==================== AI 数据分析能力 ====================
 
@@ -9489,7 +8815,6 @@ def _ai_analysis_inventory_turnover(top_n=10, days=90, warehouse=None, category=
     )
     return reply
 
-
 def _ai_analysis_stock_value(category=None):
     """库存金额分布分析。
     可选参数：
@@ -9520,7 +8845,6 @@ def _ai_analysis_stock_value(category=None):
             value = m.stock * m.price
             lines.append(f'| {idx} | {m.code} | {(m.name or "")[:12]} | {m.stock:.0f} | ¥{m.price:.2f} | ¥{value:,.2f} |')
     return '\n'.join(lines)
-
 
 def _ai_analysis_supplier(days=90, warehouse=None):
     """供应商分析：采购金额、单据数。
@@ -9558,7 +8882,6 @@ def _ai_analysis_supplier(days=90, warehouse=None):
     for idx, row in enumerate(rows, 1):
         lines.append(f'| {idx} | {(row.name or "")[:16]} | {row.order_count} | ¥{row.total_amount:,.2f} |')
     return '\n'.join(lines)
-
 
 def _ai_analysis_consumption_trend(keyword, days=30, warehouse=None):
     """物料消耗趋势：返回近N天每日出库量。
@@ -9611,7 +8934,6 @@ def _ai_analysis_consumption_trend(keyword, days=30, warehouse=None):
             lines.append(f'- 近7天日均 {recent:.1f}，较前期{arrow}{abs(change):.0f}%')
     return '\n'.join(lines)
 
-
 def _ai_analysis_category_summary(category=None):
     """按物料分类汇总库存：分类名、物料数、库存数量、库存金额。
     可选参数：
@@ -9646,7 +8968,6 @@ def _ai_analysis_category_summary(category=None):
         lines.append(f'| {idx} | {(row.name or "-")[:16]} | {row.material_count} | {row.total_stock:.0f} | ¥{row.total_value:,.2f} |')
     return '\n'.join(lines)
 
-
 def _ai_analysis_low_stock_report():
     """低库存补货建议报告"""
     if not inventory_alert_enabled():
@@ -9667,7 +8988,6 @@ def _ai_analysis_low_stock_report():
         reorder = max(0, (m.max_stock or m.min_stock or 0) - m.stock)
         lines.append(f'| {m.code} | {(m.name or "")[:12]} | {m.stock:.0f} | {m.min_stock:.0f} | {reorder:.0f} |')
     return '\n'.join(lines)
-
 
 def _ai_inventory_health_report(days=30, limit=200, risk_filter='all'):
     """库存健康度评分报告。
@@ -9886,7 +9206,6 @@ def _ai_inventory_health_report(days=30, limit=200, risk_filter='all'):
     
     return {'rows': rows, 'summary': summary}
 
-
 def _ai_analyze_out_order_anomalies(order_id):
     """出库单异常AI分析：检查出库单中每个物料的异常情况。
     返回 dict: {order: {...}, anomalies: [...], summary: "..."}
@@ -9994,7 +9313,6 @@ def _ai_analyze_out_order_anomalies(order_id):
         'summary': summary,
     }
 
-
 def _ai_report_mom_insights():
     """报表仪表盘环比分析洞察"""
     today = date.today()
@@ -10090,7 +9408,6 @@ def _ai_report_mom_insights():
 
     return '\n'.join(lines)
 
-
 def _ai_is_stage4_deep_analysis_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -10106,7 +9423,6 @@ def _ai_is_stage4_deep_analysis_question(message):
         'shortage', 'supplier_performance', 'stocktake_variance',
     ))
 
-
 def _ai_stage4_out_qty_by_material(days=30):
     cutoff = datetime.now() - timedelta(days=max(1, int(days or 30)))
     rows = db.session.query(
@@ -10117,7 +9433,6 @@ def _ai_stage4_out_qty_by_material(days=30):
         StockTransaction.created_at >= cutoff,
     ).group_by(StockTransaction.material_id).all()
     return {material_id: float(qty or 0) for material_id, qty in rows}
-
 
 def _ai_stage4_days_of_supply_report(days=30, limit=12):
     out_qty = _ai_stage4_out_qty_by_material(days)
@@ -10146,7 +9461,6 @@ def _ai_stage4_days_of_supply_report(days=30, limit=12):
         )
     return '\n'.join(lines)
 
-
 def _ai_stage4_slow_moving_report(days=90, limit=12):
     cutoff = datetime.now() - timedelta(days=max(1, int(days or 90)))
     recent_out_material_ids = db.session.query(StockTransaction.material_id).filter(
@@ -10170,7 +9484,6 @@ def _ai_stage4_slow_moving_report(days=90, limit=12):
             f'{value:,.2f} | 复核需求、替代料、报废或降库存上限 |'
         )
     return '\n'.join(lines)
-
 
 def _ai_stage4_shortage_report(limit=12):
     if not inventory_alert_enabled():
@@ -10209,7 +9522,6 @@ def _ai_stage4_shortage_report(limit=12):
         )
     return '\n'.join(lines)
 
-
 def _ai_stage4_supplier_performance_report(days=90, limit=12):
     today_value = date.today()
     cutoff = today_value - timedelta(days=max(1, int(days or 90)))
@@ -10242,7 +9554,6 @@ def _ai_stage4_supplier_performance_report(days=90, limit=12):
         lines.append(f'| {row.name or "-"} | {row.order_count} | {overdue} | {normalize_stock_quantity(remaining_qty)} | {float(row.total_amount or 0):,.2f} | {status} |')
     return '\n'.join(lines)
 
-
 def _ai_stage4_stocktake_variance_report(days=90, limit=12):
     cutoff = date.today() - timedelta(days=max(1, int(days or 90)))
     rows = InventoryCheckItem.query.options(
@@ -10266,7 +9577,6 @@ def _ai_stage4_stocktake_variance_report(days=90, limit=12):
             f'{normalize_stock_quantity(item.difference or 0)} | {item.reason or "-"} |'
         )
     return '\n'.join(lines)
-
 
 def _ai_stage4_deep_analysis_response(message, context=None, force=False):
     if not force and not _ai_is_stage4_deep_analysis_question(message):
@@ -10322,7 +9632,6 @@ def _ai_stage4_deep_analysis_response(message, context=None, force=False):
     )
     return _ai_json_response(reply, [], actions[:4])
 
-
 def _ai_today_summary():
     today = date.today()
     in_count = InOrder.query.filter_by(date=today).count()
@@ -10351,7 +9660,6 @@ def _ai_today_summary():
     reply = f'今天业务概况：入库 {in_count} 张，领料 {out_count} 张，售后出库 {after_sale_count} 张；待处理 {pending_count} 张；负库存 {negative_count} 项，低库存 {low_count} 项。'
     return reply, cards
 
-
 def _ai_today_received_materials(limit=12):
     today = date.today()
     rows = (
@@ -10376,7 +9684,6 @@ def _ai_today_received_materials(limit=12):
     total_orders = InOrder.query.filter_by(date=today).count()
     reply = f'今天共有 {total_orders} 张入库单，下面列出前 {len(cards)} 条入库物料。' if cards else '今天还没有入库物料记录。'
     return reply, cards
-
 
 def _ai_today_issued_materials(limit=12):
     today = date.today()
@@ -10403,7 +9710,6 @@ def _ai_today_issued_materials(limit=12):
     reply = f'今天共有 {total_orders} 张出库/领料单，下面列出前 {len(cards)} 条出库物料。' if cards else '今天还没有出库/领料物料记录。'
     return reply, cards
 
-
 def _ai_stock_transactions(material, limit=8):
     rows = StockTransaction.query.filter_by(material_id=material.id).order_by(StockTransaction.created_at.desc()).limit(limit).all()
     cards = []
@@ -10416,7 +9722,6 @@ def _ai_stock_transactions(material, limit=8):
         ))
     return cards
 
-
 def _ai_guess_keyword(message):
     text = (message or '').strip()
     for word in ('库存', '物料', '查询', '查一下', '查', '现在', '还有多少', '多少', '低库存', '负库存', '异常'):
@@ -10425,7 +9730,6 @@ def _ai_guess_keyword(message):
     stop_words = {'帮我', '一下', '今天', '本月', '哪些', '有没有', '还有', '当前'}
     tokens = [token for token in tokens if token not in stop_words]
     return tokens[0] if tokens else ''
-
 
 def _ai_extract_material_candidates(message):
     text = (message or '').strip()
@@ -10438,7 +9742,6 @@ def _ai_extract_material_candidates(message):
         seen.add(normalized)
         candidates.append(normalized)
     return candidates
-
 
 def _ai_find_materials_from_message(message, limit=8):
     candidates = _ai_extract_material_candidates(message)
@@ -10461,7 +9764,6 @@ def _ai_find_materials_from_message(message, limit=8):
                 return found
     return found
 
-
 def _ai_alert_status_label(status):
     return {
         'disabled': '未启用预警',
@@ -10470,12 +9772,10 @@ def _ai_alert_status_label(status):
         'normal': '正常',
     }.get(status or '', status or '未知')
 
-
 def _ai_context_value(context, key):
     if isinstance(context, dict):
         return str(context.get(key) or '').strip()
     return ''
-
 
 def _ai_material_from_context(context):
     """从当前页面上下文推断用户正在查看的物料。
@@ -10493,7 +9793,6 @@ def _ai_material_from_context(context):
         return None
     return Material.query.get(material_id)
 
-
 def _ai_is_purchase_order_receive_request(message, context=None):
     compact = (message or '').strip().replace(' ', '')
     if not compact:
@@ -10509,7 +9808,6 @@ def _ai_is_purchase_order_receive_request(message, context=None):
     has_receive = any(word in compact for word in receive_words)
     has_action = any(word in compact for word in action_words) or any(word in compact for word in context_words)
     return has_receive and has_action and (has_purchase or on_purchase_order_page)
-
 
 def _ai_purchase_order_from_context_or_message(message, context=None):
     page_url = _ai_context_value(context, 'page_url') or _ai_context_value(context, 'url')
@@ -10536,7 +9834,6 @@ def _ai_purchase_order_from_context_or_message(message, context=None):
         if order:
             return order
     return None
-
 
 def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', submitted_qty_by_id=None):
     if not purchase_order_to_in_order_enabled():
@@ -10606,7 +9903,6 @@ def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', su
     log_operation('采购单下推采购入库单', f'{order.order_no} -> {in_order.order_no}', 'in_order', in_order.id)
     return in_order, None
 
-
 def _ai_parse_material_lines(message):
     text = (message or '').strip()
     text = re.sub(r'[，,；;、\n]+', ' ', text)
@@ -10631,7 +9927,6 @@ def _ai_parse_material_lines(message):
         parsed.append((material, quantity))
         seen.add(material.id)
     return parsed
-
 
 def _ai_create_out_order_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
     allowed, error = _ai_draft_execution_allowed('out_order_draft', manual_confirmation)
@@ -10701,7 +9996,6 @@ def _ai_create_out_order_draft(message, manual_confirmation=False, confirmation_
         db.session.rollback()
         _ai_draft_idempotency().fail(slot.record, str(exc))
         raise
-
 
 def _ai_create_in_order_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
     allowed, error = _ai_draft_execution_allowed('in_order_draft', manual_confirmation)
@@ -10774,7 +10068,6 @@ def _ai_create_in_order_draft(message, manual_confirmation=False, confirmation_t
         _ai_draft_idempotency().fail(slot.record, str(exc))
         raise
 
-
 def _ai_extract_transfer_locations(message):
     """从自然语言中提取调拨的源仓库和目标仓库。
     支持的表达式：
@@ -10801,7 +10094,6 @@ def _ai_extract_transfer_locations(message):
             if from_loc and to_loc and from_loc != to_loc:
                 return from_loc, to_loc
     return None, None
-
 
 def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
     """AI 助手生成库存调拨单草稿。
@@ -10888,7 +10180,6 @@ def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_t
     )
     return response, None
 
-
 def _ai_create_check_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
     """AI 助手生成盘点单草稿。
     示例：盘点 M001 M002 M003  /  生成盘点单 A001 A002
@@ -10967,7 +10258,6 @@ def _ai_create_check_draft(message, manual_confirmation=False, confirmation_toke
         response=response,
     )
     return response, None
-
 
 def _ai_create_adjustment_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
     """AI 助手生成库存调整单草稿。
@@ -11067,7 +10357,6 @@ def _ai_create_adjustment_draft(message, manual_confirmation=False, confirmation
     )
     return response, None
 
-
 AI_ASSISTANT_INTENTS = {
     'greeting',
     'model_status',
@@ -11099,7 +10388,6 @@ AI_ASSISTANT_INTENTS = {
     'help',
 }
 
-
 def _ai_json_response(reply, cards=None, actions=None):
     return jsonify({
         'status': 'success',
@@ -11107,7 +10395,6 @@ def _ai_json_response(reply, cards=None, actions=None):
         'cards': cards or [],
         'actions': actions or [],
     })
-
 
 def _ai_data_source_footer(source, scope='当前可见业务数据', tables=None, query_time=None):
     when = query_time or datetime.now()
@@ -11121,13 +10408,11 @@ def _ai_data_source_footer(source, scope='当前可见业务数据', tables=None
     ]
     return '\n'.join(lines)
 
-
 def _ai_append_data_source(reply, source, scope='当前可见业务数据', tables=None):
     text = reply or ''
     if '数据来源：' in text and '查询时间：' in text and '查询范围：' in text:
         return text
     return text + _ai_data_source_footer(source, scope, tables)
-
 
 def _ai_knowledge_response(message, context=None, force=False):
     if not force and not is_knowledge_question(message):
@@ -11170,12 +10455,10 @@ def _ai_knowledge_response(message, context=None, force=False):
     ))
     return _ai_json_response('\n'.join(lines), cards, actions[:4])
 
-
 def _ai_model_status_text():
     if _ai_llm_configured():
         return f'当前已启用大模型意图理解，配置模型是 {_ai_llm_model()}。我会先用大模型理解你的仓库业务问题，再由系统后台执行查库存、查单据、生成草稿等操作。'
     return '当前没有启用可用的大模型配置，正在使用本地规则助手。请到“系统管理 - 系统设置 - AI助手参数”填写接口地址、模型名称和 API Key 后测试连接。'
-
 
 def _ai_is_vision_status_question(message):
     compact = (message or '').replace(' ', '').lower()
@@ -11190,7 +10473,6 @@ def _ai_is_vision_status_question(message):
         '怎么配', '如何配', '要求', '规范', '清晰', '准确',
     )
     return any(word in compact for word in vision_words) and any(word in compact for word in status_words)
-
 
 def _ai_vision_status_response(message, context=None):
     if not _ai_is_vision_status_question(message):
@@ -11252,7 +10534,6 @@ def _ai_vision_status_response(message, context=None):
     ]
     return _ai_json_response('\n'.join(lines), cards, actions)
 
-
 AI_SYSTEM_API_GROUP_ORDER = [
     'AI助手',
     '原生接口',
@@ -11268,7 +10549,6 @@ AI_SYSTEM_API_GROUP_ORDER = [
     '微信助手',
     '其他',
 ]
-
 
 def _ai_is_system_api_question(message):
     compact = (message or '').strip().replace(' ', '').lower()
@@ -11292,13 +10572,11 @@ def _ai_is_system_api_question(message):
     )
     return any(word in compact for word in api_words) and any(word in compact for word in system_words)
 
-
 def _ai_is_api_route(rule):
     route = (rule.rule or '').lower()
     if rule.endpoint == 'static':
         return False
     return route.startswith('/api/') or '/api/' in route
-
 
 def _ai_api_route_group(route):
     route = route.lower()
@@ -11331,7 +10609,6 @@ def _ai_api_route_group(route):
         return '微信助手'
     return '其他'
 
-
 def _ai_system_api_catalog():
     routes = []
     for rule in app.url_map.iter_rules():
@@ -11350,7 +10627,6 @@ def _ai_system_api_catalog():
 
     order_index = {name: index for index, name in enumerate(AI_SYSTEM_API_GROUP_ORDER)}
     return sorted(routes, key=lambda item: (order_index.get(item['module'], 999), item['route']))
-
 
 def _ai_system_api_catalog_response(message):
     if not _ai_is_system_api_question(message):
@@ -11379,7 +10655,6 @@ def _ai_system_api_catalog_response(message):
     )
     return _ai_json_response(reply, cards)
 
-
 def _ai_basic_conversation_response(message):
     compact = (message or '').strip().replace(' ', '').lower()
     if not compact:
@@ -11395,7 +10670,6 @@ def _ai_basic_conversation_response(message):
     if any(word in compact for word in ('你是谁', '什么模型', '哪个模型', '大模型', 'gpt', 'gpt-5.5', 'gpt5.5', '模型状态')):
         return _ai_json_response(_ai_model_status_text())
     return None
-
 
 def _ai_stock_shortage_help_response(message):
     compact = (message or '').strip().replace(' ', '')
@@ -11465,7 +10739,6 @@ def _ai_stock_shortage_help_response(message):
         ],
     )
 
-
 def _ai_purchase_order_receive_response(message, context=None):
     if not _ai_is_purchase_order_receive_request(message, context):
         return None
@@ -11507,7 +10780,6 @@ def _ai_purchase_order_receive_response(message, context=None):
         source='purchase_order',
         context={'page_url': f'/purchase_order/{order.id}', 'page_title': order.order_no},
     )
-
 
 def _ai_usage_help_response(message):
     compact = (message or '').strip().replace(' ', '')
@@ -11609,7 +10881,6 @@ def _ai_usage_help_response(message):
         ],
     )
 
-
 def _ai_skill_catalog_response(message):
     compact = (message or '').strip().replace(' ', '').lower()
     if not compact:
@@ -11632,7 +10903,6 @@ def _ai_skill_catalog_response(message):
             {'label': '系统设置', 'url': url_for('system_settings_page')},
         ],
     )
-
 
 AI_LOCAL_SKILLS = [
     {
@@ -11691,7 +10961,6 @@ AI_LOCAL_SKILLS = [
     },
 ]
 
-
 def _ai_try_local_skills(message, context=None):
     for skill in AI_LOCAL_SKILLS:
         try:
@@ -11701,7 +10970,6 @@ def _ai_try_local_skills(message, context=None):
         if response:
             return response, skill['name']
     return None, ''
-
 
 def _ai_rule_based_response(message):
     stage4_response = _ai_stage4_deep_analysis_response(message)
@@ -11861,18 +11129,14 @@ def _ai_rule_based_response(message):
         '我可以查库存、查单号、查今日概况、查待处理、查库存异常、查物料流水，也可以生成各类单据草稿。示例：查 A001 库存；查 IN26050001；今天概况；查 A001 流水；生成领料单 A001 20；从A仓库转到B仓库 M001 100；盘点 M001 M002；报废 M001 5；盘盈 A002 10。'
     )
 
-
 def _ai_feature_enabled(key, default=True):
     return get_system_setting_bool(key, bool(default))
-
 
 def _ai_global_enabled():
     return _ai_feature_enabled('ai_feature_global_enabled', True)
 
-
 def _ai_degrade_local_only():
     return _ai_feature_enabled('ai_degrade_local_only', False)
-
 
 def _ai_rollout_mode():
     """AI-R17-F01：返回归一化后的灰度模式（off/allowlist/role/all，默认 off）。
@@ -11885,7 +11149,6 @@ def _ai_rollout_mode():
     raw_mode = get_system_setting('ai_feature_rollout_mode', DEFAULT_MODE)
     return normalize_mode(raw_mode)
 
-
 def _ai_allowed_user_ids():
     """AI-R17-F01：从系统设置读取灰度白名单用户 ID 列表。"""
     # AI_TASK: AI-R17-F01
@@ -11893,12 +11156,10 @@ def _ai_allowed_user_ids():
     raw = get_system_setting('ai_feature_allowed_user_ids', '')
     return parse_allowed_user_ids(raw)
 
-
 def _ai_force_fallback():
     """AI-R17-F01：Provider 紧急回滚（降级为人工流程）是否开启。"""
     # AI_TASK: AI-R17-F01
     return _ai_feature_enabled('ai_force_fallback', False)
-
 
 def _ai_capability_allowed_by_rollout(capability, role, user_id=None, risk_level=None, source='api'):
     """AI-R17-F01：按固定权限判定顺序进行灰度判定。
@@ -11937,19 +11198,16 @@ def _ai_capability_allowed_by_rollout(capability, role, user_id=None, risk_level
             app.logger.warning(f'AI-R17-F01 写灰度拒绝审计失败: {exc}')
     return decision.allowed
 
-
 def _ai_llm_configured(overrides=None):
     return bool(
         _ai_llm_enabled(overrides)
         and _ai_llm_api_key(overrides)
     )
 
-
 def _ai_override_value(overrides, key):
     if isinstance(overrides, dict) and key in overrides:
         return str(overrides.get(key) or '').strip()
     return None
-
 
 def _ai_llm_enabled(overrides=None):
     if _ai_degrade_local_only():
@@ -11959,20 +11217,17 @@ def _ai_llm_enabled(overrides=None):
         return override == '1'
     return get_system_setting_bool('ai_llm_enabled', bool(app.config.get('WMS_LLM_ENABLED', True)))
 
-
 def _ai_llm_api_key(overrides=None):
     override = _ai_override_value(overrides, 'ai_llm_api_key')
     if override:
         return override
     return (get_system_setting('ai_llm_api_key', '') or str(app.config.get('WMS_LLM_API_KEY') or '')).strip()
 
-
 def _ai_llm_model(overrides=None):
     override = _ai_override_value(overrides, 'ai_llm_model')
     if override:
         return override
     return (get_system_setting('ai_llm_model', app.config.get('WMS_LLM_MODEL', 'gpt-4.1-mini')) or 'gpt-4.1-mini').strip()
-
 
 def _ai_llm_vision_enabled(overrides=None):
     if not _ai_feature_enabled('ai_feature_vision_enabled', True):
@@ -11981,7 +11236,6 @@ def _ai_llm_vision_enabled(overrides=None):
     if override is not None:
         return override == '1'
     return get_system_setting_bool('ai_llm_vision_enabled', True)
-
 
 def _ai_llm_timeout_seconds(overrides=None):
     override = _ai_override_value(overrides, 'ai_llm_timeout_seconds')
@@ -11992,7 +11246,6 @@ def _ai_llm_timeout_seconds(overrides=None):
             return 8.0
     return get_system_setting_float('ai_llm_timeout_seconds', float(app.config.get('WMS_LLM_TIMEOUT_SECONDS') or 8))
 
-
 def _ai_llm_max_tokens(overrides=None):
     override = _ai_override_value(overrides, 'ai_llm_max_tokens')
     if override:
@@ -12001,7 +11254,6 @@ def _ai_llm_max_tokens(overrides=None):
         except ValueError:
             return 300
     return get_system_setting_int('ai_llm_max_tokens', int(app.config.get('WMS_LLM_MAX_TOKENS') or 300))
-
 
 def _ai_llm_endpoint(overrides=None):
     override = _ai_override_value(overrides, 'ai_llm_base_url')
@@ -12014,7 +11266,6 @@ def _ai_llm_endpoint(overrides=None):
         return normalized
     return normalized + '/chat/completions'
 
-
 def _ai_llm_headers(overrides=None):
     return {
         'Authorization': f'Bearer {_ai_llm_api_key(overrides)}',
@@ -12022,7 +11273,6 @@ def _ai_llm_headers(overrides=None):
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) WMS-AI-Assistant/1.0',
     }
-
 
 def _ai_extract_json_object(text):
     text = (text or '').strip()
@@ -12042,7 +11292,6 @@ def _ai_extract_json_object(text):
             except ValueError:
                 return None
     return None
-
 
 def _ai_normalize_image_attachments(raw_attachments):
     if not isinstance(raw_attachments, list):
@@ -12071,7 +11320,6 @@ def _ai_normalize_image_attachments(raw_attachments):
             return [], compress_error
         images.append({'name': name, 'mime_type': mime_type, 'data_url': data_url})
     return images, ''
-
 
 def _ai_prepare_vision_image(data_url, mime_type):
     try:
@@ -12118,7 +11366,6 @@ def _ai_prepare_vision_image(data_url, mime_type):
     compressed_url = 'data:image/jpeg;base64,' + base64.b64encode(compressed).decode('ascii')
     return compressed_url, 'image/jpeg', ''
 
-
 def _ai_normalize_intent(raw):
     if not isinstance(raw, dict):
         return None
@@ -12127,7 +11374,6 @@ def _ai_normalize_intent(raw):
         return None
     params = raw.get('params') if isinstance(raw.get('params'), dict) else {}
     return {'intent': intent, 'params': params}
-
 
 def _ai_call_llm_intent(message, overrides=None):
     if not _ai_llm_configured(overrides):
@@ -12193,7 +11439,6 @@ def _ai_call_llm_intent(message, overrides=None):
         app.logger.warning('AI intent model unavailable, falling back to rules: %s', exc)
         return None
 
-
 def _ai_call_llm_chat(message):
     if not _ai_llm_configured():
         return None
@@ -12234,7 +11479,6 @@ def _ai_call_llm_chat(message):
     except Exception as exc:
         app.logger.warning('AI chat model unavailable, falling back to rules: %s', exc)
         return None
-
 
 def _ai_call_llm_vision(message, images, context=None):
     """调用视觉大模型识别图片，返回 (reply, extracted, error)。
@@ -12302,7 +11546,6 @@ def _ai_call_llm_vision(message, images, context=None):
         app.logger.warning('AI vision model unavailable: %s', exc)
         return None, None, str(exc)
 
-
 def _ai_vision_parse_extracted(content):
     """从视觉模型回复中解析末尾的 JSON 代码块，返回 (clean_reply, extracted_or_none)"""
     if not content:
@@ -12320,7 +11563,6 @@ def _ai_vision_parse_extracted(content):
     except (ValueError, TypeError):
         pass
     return content.strip(), None
-
 
 def _ai_vision_try_create_draft(extracted, message):
     """根据视觉模型提取的结构化数据尝试创建单据草稿。
@@ -12404,7 +11646,6 @@ def _ai_vision_try_create_draft(extracted, message):
         reply_parts.append(f'另有 {len(unmatched)} 个物料未匹配或数量无效，需手工补录：{names}')
     return '\n'.join(reply_parts), draft['items'], [{'label': '打开草稿', 'url': draft['url']}]
 
-
 AI_DOC_TYPE_LABELS = {
     'in_order': '采购入库草稿',
     'out_order': '领料单草稿',
@@ -12415,12 +11656,10 @@ AI_DOC_TYPE_LABELS = {
     'purchase_request': '采购申请草稿',
 }
 
-
 def _ai_material_alias_key(value):
     value = (value or '').strip().lower()
     value = re.sub(r'[\s\-_/#:：，,;；]+', '', value)
     return value[:120]
-
 
 def _ai_learn_material_alias(alias, material_id, source='confirm'):
     alias = (alias or '').strip()
@@ -12457,7 +11696,6 @@ def _ai_learn_material_alias(alias, material_id, source='confirm'):
         row.use_count = (row.use_count or 0) + 1
         row.updated_at = datetime.now()
     return row
-
 
 def _ai_material_match_one(code='', name='', spec='', barcode=''):
     """Match extracted item to a Material record.
@@ -12521,7 +11759,6 @@ def _ai_material_match_one(code='', name='', spec='', barcode=''):
             return None, 'multiple'
     return None, 'none'
 
-
 def _ai_guess_doc_type_from_text(text):
     compact = (text or '').replace(' ', '').lower()
     if _ai_is_wechat_delivery_notice(text):
@@ -12539,7 +11776,6 @@ def _ai_guess_doc_type_from_text(text):
     if any(word in compact for word in ('报废', '损坏', '盘亏', '盘盈', '调整')):
         return 'adjustment'
     return None
-
 
 def _ai_is_wechat_delivery_notice(text):
     """Detect short WeChat-style supplier shipment notices.
@@ -12559,7 +11795,6 @@ def _ai_is_wechat_delivery_notice(text):
         return False
     return True
 
-
 def _ai_parse_wechat_material_segments(text):
     text = (text or '').strip()
     if not text:
@@ -12577,7 +11812,6 @@ def _ai_parse_wechat_material_segments(text):
             continue
         segments.append({'name': name, 'quantity': qty, 'unit': unit})
     return segments
-
 
 def _ai_extract_supplier_from_wechat_delivery_notice(text):
     text = (text or '').strip()
@@ -12599,7 +11833,6 @@ def _ai_extract_supplier_from_wechat_delivery_notice(text):
         return value[:100]
     return ''
 
-
 def _ai_extract_customer_from_text(text):
     text = (text or '').strip()
     if not text:
@@ -12618,7 +11851,6 @@ def _ai_extract_customer_from_text(text):
             continue
         return value[:100]
     return ''
-
 
 def _ai_extract_document_from_text(message):
     text = (message or '').strip()
@@ -12666,7 +11898,6 @@ def _ai_extract_document_from_text(message):
         extracted['customer'] = _ai_extract_customer_from_text(text)
     return extracted
 
-
 def _ai_is_excel_table_document_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -12677,7 +11908,6 @@ def _ai_is_excel_table_document_question(message):
         '表格生成领料', '表格生成入库', '表格生成出库', '粘贴表格',
         '剪贴板表格', 'excel表格',
     ))
-
 
 def _ai_table_columns(line):
     line = (line or '').strip()
@@ -12691,7 +11921,6 @@ def _ai_table_columns(line):
         return [part.strip() for part in line.split(',')]
     return [part.strip() for part in re.split(r'\s{2,}', line) if part.strip()]
 
-
 def _ai_header_index(headers, aliases):
     lowered = [str(header or '').strip().lower() for header in headers]
     for alias in aliases:
@@ -12700,7 +11929,6 @@ def _ai_header_index(headers, aliases):
             if header == alias_key or alias_key in header:
                 return idx
     return None
-
 
 def _ai_table_header_score(cols):
     if not cols:
@@ -12715,7 +11943,6 @@ def _ai_table_header_score(cols):
     if _ai_header_index(cols, ('单位', 'unit', 'uom')) is not None:
         score += 1
     return score
-
 
 def _ai_table_header_value(text, aliases):
     text = (text or '').strip()
@@ -12739,7 +11966,6 @@ def _ai_table_header_value(text, aliases):
             if value:
                 return value[:100]
     return ''
-
 
 def _ai_extract_document_table_from_text(message):
     text = (message or '').strip()
@@ -12840,7 +12066,6 @@ def _ai_extract_document_table_from_text(message):
         extracted['customer'] = header_values.get('customer') or _ai_extract_customer_from_text(text)
     return extracted
 
-
 def _ai_excel_table_document_response(message, context=None, force=False):
     if not force and not _ai_is_excel_table_document_question(message):
         return None
@@ -12871,7 +12096,6 @@ def _ai_excel_table_document_response(message, context=None, force=False):
             ],
         )
     return _ai_create_draft_from_extracted(extracted, source='excel', context=context)
-
 
 def _ai_call_llm_document_extract(message):
     if not _ai_llm_configured():
@@ -12936,18 +12160,15 @@ def _ai_call_llm_document_extract(message):
         app.logger.warning('AI document extraction unavailable: %s', exc)
         return None
 
-
 def _ai_try_llm_document_response(message, context=None):
     extracted = _ai_call_llm_document_extract(message)
     if not extracted:
         return None
     return _ai_create_draft_from_extracted(extracted, source='gpt', context=context)
 
-
 def _ai_should_try_llm_document(message):
     compact = (message or '').replace(' ', '').lower()
     return any(marker in compact for marker in ('gpt识别', 'ai识别', '大模型识别', '智能识别'))
-
 
 _AI_ITEM_FIELD_ALIASES = {
     'code': ('code', 'material_code', 'materialCode', 'item_code', 'sku', 'part_no', 'partNo', 'product_code', 'productCode', '\u7269\u6599\u7f16\u7801', '\u7f16\u7801', '\u6599\u53f7', '\u54c1\u53f7', '\u8d27\u53f7', '\u4ea7\u54c1\u7f16\u7801', '\u578b\u53f7\u7f16\u7801'),
@@ -12964,18 +12185,15 @@ _AI_ITEM_FIELD_ALIASES = {
     'confidence': ('confidence', 'score', '\u7f6e\u4fe1\u5ea6'),
 }
 
-
 def _ai_item_value(item, field, default=''):
     for key in _AI_ITEM_FIELD_ALIASES.get(field, (field,)):
         if key in item and item.get(key) not in (None, ''):
             return item.get(key)
     return default
 
-
 def _ai_ocr_text(value):
     table = str.maketrans('０１２３４５６７８９．，,＊×Xx', '0123456789.,,****')
     return str(value or '').translate(table).strip()
-
 
 def _ai_ocr_number(value, default=0):
     text = _ai_ocr_text(value)
@@ -12985,13 +12203,11 @@ def _ai_ocr_number(value, default=0):
         return round_to_2_decimals(parse_float_value(value, default))
     return round_to_2_decimals(parse_float_value(match.group(0), default))
 
-
 def _ai_ocr_confidence(value):
     confidence = _ai_ocr_number(value, 0)
     if confidence > 1 and confidence <= 100:
         confidence = round_to_2_decimals(confidence / 100)
     return confidence if 0 <= confidence <= 1 else 0
-
 
 def _ai_normalize_document_extraction(raw, source_text=''):
     if not isinstance(raw, dict):
@@ -13066,7 +12282,6 @@ def _ai_normalize_document_extraction(raw, source_text=''):
         result['customer'] = _ai_extract_customer_from_text(source_text)
     return result
 
-
 def _ai_collect_vision_ocr_text(raw, message=''):
     parts = []
     if message:
@@ -13095,7 +12310,6 @@ def _ai_collect_vision_ocr_text(raw, message=''):
             seen.add(key)
     return '\n'.join(clean_parts).strip()
 
-
 def _ai_try_wechat_document_from_vision_json(raw, message=''):
     ocr_text = _ai_collect_vision_ocr_text(raw, message)
     if not ocr_text or not _ai_is_wechat_delivery_notice(ocr_text):
@@ -13105,7 +12319,6 @@ def _ai_try_wechat_document_from_vision_json(raw, message=''):
         return None
     extracted['extracted_by'] = 'vision_ocr_text'
     return extracted
-
 
 def _ai_call_llm_document_vision_extract(message, images, context=None):
     if not _ai_llm_configured():
@@ -13183,7 +12396,6 @@ def _ai_call_llm_document_vision_extract(message, images, context=None):
     except Exception as exc:
         app.logger.warning('AI document vision extraction unavailable: %s', exc)
         return None, str(exc)
-
 
 def _ai_match_extracted_items(items_raw, purchase_order_id=None):
     """Match extracted document items to materials.
@@ -13265,7 +12477,6 @@ def _ai_match_extracted_items(items_raw, purchase_order_id=None):
             })
     return matched, unmatched
 
-
 def _ai_document_summary_text(extracted):
     text = str((extracted or {}).get('source_text') or (extracted or {}).get('ocr_text') or '').strip()
     if not text:
@@ -13275,7 +12486,6 @@ def _ai_document_summary_text(extracted):
                 parts.append(str(item.get('raw_text') or item.get('name') or item.get('code') or '').strip())
         text = '\n'.join(part for part in parts if part)
     return text[:500]
-
 
 def _ai_document_generated_type(doc_type):
     if doc_type == 'in_order':
@@ -13291,7 +12501,6 @@ def _ai_document_generated_type(doc_type):
     if doc_type == 'purchase_request':
         return 'purchase_request'
     return doc_type or ''
-
 
 def _ai_record_document_job(extracted, source, status, context=None, matched=None, unmatched=None, error_message='', image_path=None):
     if not has_request_context() or not current_user.is_authenticated:
@@ -13370,7 +12579,6 @@ def _ai_record_document_job(extracted, source, status, context=None, matched=Non
     db.session.commit()
     return job
 
-
 def _ai_record_document_attempt(job, source, status, matched=None, unmatched=None, error_message=''):
     if not job:
         return None
@@ -13393,7 +12601,6 @@ def _ai_record_document_attempt(job, source, status, matched=None, unmatched=Non
     db.session.add(attempt)
     db.session.commit()
     return attempt
-
 
 def _ai_update_document_job(job_id, status, **values):
     if not job_id:
@@ -13419,7 +12626,6 @@ def _ai_update_document_job(job_id, status, **values):
             setattr(job, field, value)
     db.session.commit()
 
-
 def _ai_generated_document_ref(doc_type, draft):
     if not draft:
         return '', None, ''
@@ -13437,7 +12643,6 @@ def _ai_generated_document_ref(doc_type, draft):
     row = model.query.filter_by(**{number_field: order_no}).first() if model and order_no else None
     return generated_type, row.id if row else None, order_no
 
-
 def _ai_mark_document_job_draft_created(job_id, doc_type, draft):
     generated_type, generated_id, generated_no = _ai_generated_document_ref(doc_type, draft)
     _ai_update_document_job(
@@ -13448,7 +12653,6 @@ def _ai_mark_document_job_draft_created(job_id, doc_type, draft):
         generated_document_no=generated_no,
     )
 
-
 def _ai_draft_message_from_matches(matched):
     parts = []
     for row in matched:
@@ -13457,7 +12661,6 @@ def _ai_draft_message_from_matches(matched):
         qty_text = str(int(qty)) if float(qty).is_integer() else str(qty)
         parts.append(f'{material.code or material.name} {qty_text}')
     return ' '.join(parts)
-
 
 def _ai_match_cards(matched, unmatched):
     cards = []
@@ -13473,7 +12676,6 @@ def _ai_match_cards(matched, unmatched):
         cards.append({'title': f'未匹配 {row.get("title") or "-"}', 'meta': row.get('meta') or '需要人工补录物料'})
     return cards
 
-
 def _ai_vision_low_confidence_items(items, threshold=0.75):
     low_items = []
     for item in items or []:
@@ -13485,7 +12687,6 @@ def _ai_vision_low_confidence_items(items, threshold=0.75):
             low_items.append({'label': label[:80] or '未命名行', 'confidence': confidence})
     return low_items
 
-
 def _ai_context_purchase_order_id(context=None):
     page_url = (context or {}).get('page_url') or ''
     po_match = re.search(r'/purchase_order/(\d+)(?:\D|$)', page_url)
@@ -13496,7 +12697,6 @@ def _ai_context_purchase_order_id(context=None):
     except ValueError:
         return None
 
-
 AI_MATCH_TYPE_LABELS = {
     'exact_code': '精确编码',
     'exact_name': '精确名称',
@@ -13505,7 +12705,6 @@ AI_MATCH_TYPE_LABELS = {
     'multiple': '多个候选',
     'none': '未找到',
 }
-
 
 def _ai_confirmation_payload(extracted, context=None, document_job_id=None):
     doc_type = str((extracted or {}).get('document_type') or '').strip().lower()
@@ -13573,7 +12772,6 @@ def _ai_confirmation_payload(extracted, context=None, document_job_id=None):
         'rows': rows,
     }
 
-
 def _ai_suggest_material_code(offset=0):
     """Return a short operator-editable code for an OCR-unmatched material."""
     # AI_TASK: AI-R07-F02 — 无分类时的通用流水号兜底
@@ -13586,7 +12784,6 @@ def _ai_suggest_material_code(offset=0):
             highest = max(highest, int(match.group(1)))
     return f'{prefix}{highest + 1 + max(0, int(offset or 0)):03d}'
 
-
 def _ai_load_category_infos():
     """Load material categories for AI-R07-F02 coding suggestions."""
     from ai.documents.material_category_coding import CategoryInfo
@@ -13595,7 +12792,6 @@ def _ai_load_category_infos():
         CategoryInfo(id=int(c.id), code=str(c.code or ''), name=str(c.name or ''))
         for c in rows
     ]
-
 
 def _ai_prepare_new_material_suggestions(payload):
     """Fill unmatched rows with category + code suggestions (AI-R07-F02).
@@ -13658,7 +12854,6 @@ def _ai_prepare_new_material_suggestions(payload):
         offset += 1
     return units
 
-
 def _ai_store_document_confirmation(extracted, context=None, document_job_id=None):
     payload = _ai_confirmation_payload(extracted, context, document_job_id)
     token = secrets.token_urlsafe(12)
@@ -13672,7 +12867,6 @@ def _ai_store_document_confirmation(extracted, context=None, document_job_id=Non
     _ai_update_document_job(document_job_id, 'pending_confirmation', confirmation_token=token)
     return token, payload
 
-
 def _ai_confirmation_action(extracted, context=None, document_job_id=None):
     token, payload = _ai_store_document_confirmation(extracted, context, document_job_id)
     return {
@@ -13680,7 +12874,6 @@ def _ai_confirmation_action(extracted, context=None, document_job_id=None):
         'url': url_for('ai_document_confirm', token=token),
         'payload': payload,
     }
-
 
 def _ai_document_job_confirmation_payload(job):
     rows = []
@@ -13717,7 +12910,6 @@ def _ai_document_job_confirmation_payload(job):
         'document_job_id': job.id,
         'rows': rows,
     }
-
 
 def _ai_save_field_confirmations_from_form(document_job_id, payload, form):
     """AI-R08-F01 从确认台表单保存字段确认状态。
@@ -13886,7 +13078,6 @@ def _ai_save_field_confirmations_from_form(document_job_id, payload, form):
         app.logger.error(f'保存字段确认状态失败: {e}')
         return False
 
-
 def _ai_check_draft_creation_gate(document_job_id):
     """AI-R08-F01 服务端门禁校验。
 
@@ -13970,7 +13161,6 @@ def _ai_check_draft_creation_gate(document_job_id):
     except Exception as e:
         app.logger.error(f'门禁校验失败: {e}')
         return True, []  # 校验失败时降级允许创建
-
 
 def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustment_type='', customer='', source_purchase_order_id=None, confirmation_token=None, document_job_id=None, inbound_business_type='other_in'):
     doc_type = (doc_type or '').strip()
@@ -14205,7 +13395,6 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
         return None, error
     return draft, None
 
-
 def _ai_purchase_match_qty_map(matched):
     qty_by_material = {}
     for row in matched or []:
@@ -14214,7 +13403,6 @@ def _ai_purchase_match_qty_map(matched):
             continue
         qty_by_material[material.id] = round_to_2_decimals(qty_by_material.get(material.id, 0) + (row.get('quantity') or 0))
     return {mid: qty for mid, qty in qty_by_material.items() if qty > 0}
-
 
 def _ai_find_purchase_order_candidates_for_matches(matched, limit=5):
     qty_by_material = _ai_purchase_match_qty_map(matched)
@@ -14256,7 +13444,6 @@ def _ai_find_purchase_order_candidates_for_matches(matched, limit=5):
     candidates.sort(key=lambda row: (-row['score'], row['order'].expected_date or date.max, row['order'].date or date.max, row['order'].id))
     return candidates[:limit]
 
-
 # AI_TASK: AI-R06
 # ORM adapter：把 PurchaseOrder ORM 查询结果转成 delivery_matcher 的纯数据结构
 def _ai_purchase_order_to_info(order):
@@ -14295,7 +13482,6 @@ def _ai_purchase_order_to_info(order):
         expected_date=expected_date_str,
         lines=lines,
     )
-
 
 def _ai_query_open_purchase_orders_for_delivery(supplier_name, material_codes):
     """联合匹配注入回调：按供应商名称 + 物料编码/名称查开放采购订单。
@@ -14349,7 +13535,6 @@ def _ai_query_open_purchase_orders_for_delivery(supplier_name, material_codes):
         app.logger.warning(f'查询开放采购订单异常: {exc}')
         return []
 
-
 def _ai_query_purchase_order_by_no(order_no):
     """联合匹配注入回调：按订单号精确查采购订单（含关闭订单，用于差异展示）。"""
     if not order_no:
@@ -14365,7 +13550,6 @@ def _ai_query_purchase_order_by_no(order_no):
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'按订单号查询采购订单异常: {exc}')
         return None
-
 
 # AI_TASK: AI-R07
 # 物料治理 ORM adapter：把 Material/AIMaterialAlias ORM 对象转成 MaterialInfo
@@ -14388,7 +13572,6 @@ def _ai_material_to_info(material):
         aliases=aliases,
     )
 
-
 def _ai_mg_query_materials_by_codes(codes):
     """物料治理注入回调：按编码列表查物料。"""
     if not codes:
@@ -14406,7 +13589,6 @@ def _ai_mg_query_materials_by_codes(codes):
         app.logger.warning(f'按编码查询物料异常: {exc}')
         return []
 
-
 def _ai_mg_query_materials_by_name(name, limit=3):
     """物料治理注入回调：按名称模糊查物料（limit 上限 3）。"""
     if not name:
@@ -14420,7 +13602,6 @@ def _ai_mg_query_materials_by_name(name, limit=3):
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'按名称查询物料异常: {exc}')
         return []
-
 
 def _ai_mg_query_aliases(alias_keys):
     """物料治理注入回调：按别名键列表查物料（一物多码）。"""
@@ -14449,7 +13630,6 @@ def _ai_mg_query_aliases(alias_keys):
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'按别名查询物料异常: {exc}')
         return []
-
 
 def _ai_dc_query_existing_drafts(source_hash, business_key):
     """AI-R08 文档确认台注入回调：按 source_hash/business_key 查已存在的草稿。
@@ -14504,7 +13684,6 @@ def _ai_dc_query_existing_drafts(source_hash, business_key):
         app.logger.warning(f'查询已存在草稿异常: {exc}')
         return []
 
-
 def _ai_ff_save_feedback_record(record):
     """AI-R09 字段反馈注入回调：持久化单条 FieldCorrectionRecord 到 AIFieldFeedback 表。
 
@@ -14534,7 +13713,6 @@ def _ai_ff_save_feedback_record(record):
     except Exception as exc:  # noqa: BLE001 - 反馈记录持久化失败不阻塞业务
         db.session.rollback()
         app.logger.warning(f'字段反馈记录持久化异常: {exc}')
-
 
 def _ai_ff_query_feedback_records(source='', model='', schema_version='', field_name='', limit=500):
     """AI-R09 查询字段反馈记录（供聚合质量指标用）。"""
@@ -14569,7 +13747,6 @@ def _ai_ff_query_feedback_records(source='', model='', schema_version='', field_
         app.logger.warning(f'查询字段反馈记录异常: {exc}')
         return []
 
-
 # ---- AI-R10 仓库角色工作台 ORM adapter ----
 
 def _ai_ww_query_today_inbound_pending():
@@ -14598,7 +13775,6 @@ def _ai_ww_query_today_inbound_pending():
         app.logger.warning(f'查询今日待收异常: {exc}')
         return 0, []
 
-
 def _ai_ww_query_today_outbound_pending():
     """AI-R10 今日待出：OutOrder status=pending。返回 (count, list[dict])。"""
     try:
@@ -14625,7 +13801,6 @@ def _ai_ww_query_today_outbound_pending():
         app.logger.warning(f'查询今日待出异常: {exc}')
         return 0, []
 
-
 def _ai_ww_query_inventory_check_pending():
     """AI-R10 待盘：InventoryCheck status=pending。返回 (count, list[dict])。"""
     try:
@@ -14650,7 +13825,6 @@ def _ai_ww_query_inventory_check_pending():
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'查询待盘异常: {exc}')
         return 0, []
-
 
 def _ai_ww_query_abnormal_stock():
     """AI-R10 异常库存：负库存 + 低库存。返回 (count, list[dict])。"""
@@ -14688,7 +13862,6 @@ def _ai_ww_query_abnormal_stock():
         app.logger.warning(f'查询异常库存异常: {exc}')
         return 0, []
 
-
 def _ai_ww_query_documents_pending_confirmation():
     """AI-R10 文档待确认：AIDocumentJob status=pending_confirmation。返回 (count, list[dict])。"""
     try:
@@ -14713,7 +13886,6 @@ def _ai_ww_query_documents_pending_confirmation():
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'查询文档待确认异常: {exc}')
         return 0, []
-
 
 def _ai_ww_query_failed_tasks():
     """AI-R10 失败任务：AIDocumentJob status=failed + AIRun status=failed。返回 (count, list[dict])。"""
@@ -14750,7 +13922,6 @@ def _ai_ww_query_failed_tasks():
         app.logger.warning(f'查询失败任务异常: {exc}')
         return 0, []
 
-
 def _ai_ww_query_unfinished_drafts():
     """AI-R10 未完成草稿：AIDraftIdempotency status=processing。返回 (count, list[dict])。"""
     try:
@@ -14775,7 +13946,6 @@ def _ai_ww_query_unfinished_drafts():
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'查询未完成草稿异常: {exc}')
         return 0, []
-
 
 # ---- AI-R11 采购到货跟进工作台 ORM adapter ----
 
@@ -14815,7 +13985,6 @@ def _ai_pf_query_pending_arrival():
         app.logger.warning(f'查询待到货异常: {exc}')
         return 0, []
 
-
 def _ai_pf_query_delayed_arrival():
     """AI-R11 延期：PurchaseOrder status in (pending,partial) 且 expected_date<today。返回 (count, list[dict])。"""
     try:
@@ -14852,7 +14021,6 @@ def _ai_pf_query_delayed_arrival():
         app.logger.warning(f'查询延期到货异常: {exc}')
         return 0, []
 
-
 def _ai_pf_query_short_delivery():
     """AI-R11 短交：PurchaseOrderItem received_quantity<quantity。返回 (count, list[dict])。"""
     try:
@@ -14885,7 +14053,6 @@ def _ai_pf_query_short_delivery():
         app.logger.warning(f'查询短交明细异常: {exc}')
         return 0, []
 
-
 def _ai_pf_query_over_receive():
     """AI-R11 超收：PurchaseOrderItem received_quantity>quantity。返回 (count, list[dict])。"""
     try:
@@ -14917,7 +14084,6 @@ def _ai_pf_query_over_receive():
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'查询超收明细异常: {exc}')
         return 0, []
-
 
 def _ai_pf_query_unlinked_notices():
     """AI-R11 未关联通知：AIDocumentJob 含送货通知但 source_purchase_order_id 为空。返回 (count, list[dict])。"""
@@ -14954,7 +14120,6 @@ def _ai_pf_query_unlinked_notices():
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'查询未关联通知异常: {exc}')
         return 0, []
-
 
 def _ai_pf_query_multi_order_candidates():
     """AI-R11 多订单候选：AI-R06 delivery_match 多候选未自动选单。
@@ -14996,7 +14161,6 @@ def _ai_pf_query_multi_order_candidates():
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'查询多订单候选异常: {exc}')
         return 0, []
-
 
 def _ai_pf_query_supplier_followup_list():
     """AI-R11 供应商跟进清单：按供应商归组的待跟进订单汇总。返回 list[dict]。"""
@@ -15063,7 +14227,6 @@ def _ai_pf_query_supplier_followup_list():
         app.logger.warning(f'查询供应商跟进清单异常: {exc}')
         return []
 
-
 # ---- AI-SALES-F02 销售履约跟进工作台 ORM adapter ----
 
 def _ai_sf_query_pending_shipment():
@@ -15104,7 +14267,6 @@ def _ai_sf_query_pending_shipment():
         app.logger.warning(f'查询待发货异常: {exc}')
         return 0, []
 
-
 def _ai_sf_query_overdue_shipment():
     """AI-SALES-F02 逾期未发货：SalesOrder status in (draft,confirmed) 且 shipment_status in (pending,partial) 且 delivery_date<today。返回 (count, list[dict])。"""
     try:
@@ -15143,7 +14305,6 @@ def _ai_sf_query_overdue_shipment():
         app.logger.warning(f'查询逾期未发货异常: {exc}')
         return 0, []
 
-
 def _ai_sf_query_partial_stalled():
     """AI-SALES-F02 部分发货停滞：shipment_status=partial 且 updated_at 距今 >= 7 天。返回 (count, list[dict])。"""
     try:
@@ -15181,7 +14342,6 @@ def _ai_sf_query_partial_stalled():
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'查询部分发货停滞异常: {exc}')
         return 0, []
-
 
 def _ai_sf_query_short_stock():
     """AI-SALES-F02 缺货待核对：SalesOrderItem.quantity > material.stock。返回 (count, list[dict])。"""
@@ -15232,7 +14392,6 @@ def _ai_sf_query_short_stock():
         app.logger.warning(f'查询缺货待核对异常: {exc}')
         return 0, []
 
-
 def _ai_sf_query_customer_urgency():
     """AI-SALES-F02 客户催发货话术：按客户归组逾期订单，生成话术（不自动发送）。返回 (count, list[dict])。"""
     try:
@@ -15281,7 +14440,6 @@ def _ai_sf_query_customer_urgency():
         app.logger.warning(f'查询客户催发货话术异常: {exc}')
         return 0, []
 
-
 def _ai_sf_query_merge_candidates():
     """AI-SALES-F02 多笔订单合并发货候选：同客户+同仓库+未来 7 天到期的多笔订单。返回 (count, list[dict])。"""
     try:
@@ -15325,7 +14483,6 @@ def _ai_sf_query_merge_candidates():
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'查询合并发货候选异常: {exc}')
         return 0, []
-
 
 def _ai_sf_query_customer_followup_list():
     """AI-SALES-F02 客户跟进清单：按客户归组的待跟进订单汇总。返回 list[dict]。"""
@@ -15395,7 +14552,6 @@ def _ai_sf_query_customer_followup_list():
         app.logger.warning(f'查询客户跟进清单异常: {exc}')
         return []
 
-
 # ===== AI-R12 知识库版本生命周期 ORM adapter =====
 
 def _ai_kv_query_all_versions():
@@ -15409,7 +14565,6 @@ def _ai_kv_query_all_versions():
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'查询知识版本异常: {exc}')
         return []
-
 
 def _ai_kv_query_published():
     """AI-R12 查询所有已发布版本（供检索用）。返回 list[KnowledgeVersion]。"""
@@ -15425,7 +14580,6 @@ def _ai_kv_query_published():
         app.logger.warning(f'查询已发布知识异常: {exc}')
         return []
 
-
 def _ai_kv_query_published_by_key(knowledge_key: str):
     """AI-R12 按 key 查询已发布版本（唯一）。返回 KnowledgeVersion 或 None。"""
     try:
@@ -15438,7 +14592,6 @@ def _ai_kv_query_published_by_key(knowledge_key: str):
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'按 key 查询已发布知识异常: {exc}')
         return None
-
 
 def _ai_kv_query_versions_by_key(knowledge_key: str):
     """AI-R12 按 key 查询全部版本（含历史）。返回 list[KnowledgeVersion]。"""
@@ -15453,7 +14606,6 @@ def _ai_kv_query_versions_by_key(knowledge_key: str):
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'按 key 查询知识版本异常: {exc}')
         return []
-
 
 def _ai_kv_update_status(version_id: int, status: str, published_by=None, published_at=None, superseded_by=None):
     """AI-R12 更新版本状态（draft/in_review/published/deprecated/archived）。
@@ -15474,7 +14626,6 @@ def _ai_kv_update_status(version_id: int, status: str, published_by=None, publis
     db.session.commit()
     return _ai_kv_to_dataclass(row)
 
-
 def _ai_kv_next_version_number(knowledge_key: str) -> int:
     """计算同 key 下一版本号。"""
     try:
@@ -15484,7 +14635,6 @@ def _ai_kv_next_version_number(knowledge_key: str) -> int:
         return int(max_version) + 1
     except Exception:
         return 1
-
 
 # ===== AI-R13 Agent 预算、取消、熔断和并发控制 ORM adapter =====
 
@@ -15524,7 +14674,6 @@ def _ai_bc_acquire_lock(concurrency_key: str, run_id: str, locked_until_iso: str
         app.logger.warning(f'AI-R13 获取并发锁异常: {exc}')
         return False
 
-
 def _ai_bc_release_lock(concurrency_key: str, run_id: str) -> bool:
     """AI-R13 释放并发互斥锁。"""
     try:
@@ -15541,7 +14690,6 @@ def _ai_bc_release_lock(concurrency_key: str, run_id: str) -> bool:
         db.session.rollback()
         app.logger.warning(f'AI-R13 释放并发锁异常: {exc}')
         return False
-
 
 def _ai_bc_query_lock(concurrency_key: str):
     """AI-R13 查询并发锁。返回 ConcurrencyLock 或 None。"""
@@ -15563,7 +14711,6 @@ def _ai_bc_query_lock(concurrency_key: str):
         app.logger.warning(f'AI-R13 查询并发锁异常: {exc}')
         return None
 
-
 def _ai_bc_save_retry_record(record) -> 'RetryRecord':
     """AI-R13 保存重试记录（保留原证据）。"""
     import json as _json
@@ -15584,7 +14731,6 @@ def _ai_bc_save_retry_record(record) -> 'RetryRecord':
         db.session.rollback()
         app.logger.warning(f'AI-R13 保存重试记录异常: {exc}')
         return record
-
 
 def _ai_bc_query_retry_records(original_run_id: str):
     """AI-R13 查询重试历史。返回 list[RetryRecord]。"""
@@ -15614,7 +14760,6 @@ def _ai_bc_query_retry_records(original_run_id: str):
         app.logger.warning(f'AI-R13 查询重试记录异常: {exc}')
         return []
 
-
 def _ai_bc_save_human_confirmation(request) -> 'HumanConfirmationRequest':
     """AI-R13 保存人工确认请求。"""
     try:
@@ -15635,7 +14780,6 @@ def _ai_bc_save_human_confirmation(request) -> 'HumanConfirmationRequest':
         db.session.rollback()
         app.logger.warning(f'AI-R13 保存人工确认请求异常: {exc}')
         return request
-
 
 def _ai_bc_update_human_confirmation(run_id: str, decision: str):
     """AI-R13 更新人工确认请求状态。返回更新后的 HumanConfirmationRequest 或 None。"""
@@ -15665,7 +14809,6 @@ def _ai_bc_update_human_confirmation(run_id: str, decision: str):
         app.logger.warning(f'AI-R13 更新人工确认请求异常: {exc}')
         return None
 
-
 def _ai_bc_query_human_confirmation(run_id: str):
     """AI-R13 查询人工确认请求。返回 HumanConfirmationRequest 或 None。"""
     from ai.agents.budget_control import HumanConfirmationRequest
@@ -15688,7 +14831,6 @@ def _ai_bc_query_human_confirmation(run_id: str):
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R13 查询人工确认请求异常: {exc}')
         return None
-
 
 # ===== AI-R14 AI 数据保留、脱敏和清理任务 ORM adapter =====
 
@@ -15783,7 +14925,6 @@ def _ai_dr_query_expired(category: str, cutoff_iso: str):
         app.logger.warning(f'AI-R14 查询过期记录异常: {exc}')
         return []
 
-
 def _ai_dr_delete_records(category: str, ids: list) -> int:
     """AI-R14 删除记录。返回实际删除数。"""
     if not ids:
@@ -15806,7 +14947,6 @@ def _ai_dr_delete_records(category: str, ids: list) -> int:
         db.session.rollback()
         app.logger.warning(f'AI-R14 删除记录异常: {exc}')
         return 0
-
 
 def _ai_dr_save_log(log_entry) -> 'CleanupLogEntry':
     """AI-R14 保存清理日志。"""
@@ -15832,7 +14972,6 @@ def _ai_dr_save_log(log_entry) -> 'CleanupLogEntry':
         db.session.rollback()
         app.logger.warning(f'AI-R14 保存清理日志异常: {exc}')
         return log_entry
-
 
 def _ai_dr_query_logs(limit: int = 50):
     """AI-R14 查询清理日志历史。返回 list[CleanupLogEntry]。"""
@@ -15862,7 +15001,6 @@ def _ai_dr_query_logs(limit: int = 50):
         app.logger.warning(f'AI-R14 查询清理日志异常: {exc}')
         return []
 
-
 def _parse_iso_cutoff(iso_str: str):
     """解析截止日期 ISO8601 字符串。"""
     if not iso_str:
@@ -15874,7 +15012,6 @@ def _parse_iso_cutoff(iso_str: str):
         return datetime.fromisoformat(s)
     except (ValueError, TypeError):
         return None
-
 
 # ===== AI-R15 业务质量指标和版本对比 ORM adapter =====
 
@@ -16032,7 +15169,6 @@ def _ai_bq_query_samples(filter_dict=None):
         return []
     return samples
 
-
 def _ai_r17_acceptance_counts(window_hours=168):
     """AI-R17 ORM adapter：查询上线验收四项指标的绝对计数。
 
@@ -16093,7 +15229,6 @@ def _ai_r17_acceptance_counts(window_hours=168):
         counts['low_confidence_unconfirmed'] = 0
     return counts
 
-
 def _ai_f02_query_daily_counts(target_date):
     """AI-R17-F02 ORM adapter：查询指定日期的四项绝对指标计数。
 
@@ -16150,7 +15285,6 @@ def _ai_f02_query_daily_counts(target_date):
         counts['low_confidence_unconfirmed'] = 0
     return counts
 
-
 def _ai_f02_query_daily_quality(target_date):
     """AI-R17-F02 ORM adapter：查询指定日期的七项质量指标聚合。
 
@@ -16189,7 +15323,6 @@ def _ai_f02_query_daily_quality(target_date):
             result[metric] = {'numerator': 0, 'denominator': 0, 'rate': 0.0}
     return result
 
-
 def _ai_f02_query_rollout_info():
     """AI-R17-F02 ORM adapter：查询当前灰度用户/角色信息。"""
     try:
@@ -16204,7 +15337,6 @@ def _ai_f02_query_rollout_info():
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 灰度信息查询异常: {exc}')
         return {'user_count': 0, 'role_count': 0, 'roles': ()}
-
 
 def _ai_f02_check_draft_adoption(draft_type, draft_id):
     """AI-R17-F02 口径修正：反查业务单据状态判定草稿是否被真实采用。
@@ -16234,7 +15366,6 @@ def _ai_f02_check_draft_adoption(draft_type, draft_id):
         app.logger.warning(f'AI-R17-F02 草稿采用率反查异常: {exc}')
         business_status = None
     return is_draft_adopted_by_business(draft_type, draft_id, business_status)
-
 
 def _ai_f02_query_sample_lists(start_date, end_date):
     """AI-R17-F02 ORM adapter：查询七天内的失败/降级/重复/人工修正样本清单。"""
@@ -16324,7 +15455,6 @@ def _ai_f02_query_sample_lists(start_date, end_date):
         app.logger.warning(f'AI-R17-F02 人工修正样本查询异常: {exc}')
     return failures, fallbacks, duplicates, corrections
 
-
 def _ai_f02_query_rollback_events(start_date, end_date):
     """AI-R17-F02 ORM adapter：查询七天内的回滚演练记录。"""
     from ai.ops.acceptance_evidence import RollbackEvidence
@@ -16351,7 +15481,6 @@ def _ai_f02_query_rollback_events(start_date, end_date):
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 回滚记录查询异常: {exc}')
     return events
-
 
 def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='', confirmation_token=None, document_job_id=None):
     if current_user.role not in ('admin', 'warehouse', 'purchase'):
@@ -16412,7 +15541,6 @@ def _ai_try_create_in_order_from_purchase_order_matches(matched, source_text='',
         response=response,
     )
     return response, None
-
 
 def _ai_try_create_in_order_from_context_purchase_order(matched, context=None, source_text='', confirmation_token=None, document_job_id=None):
     page_url = (context or {}).get('page_url') or ''
@@ -16505,7 +15633,6 @@ def _ai_try_create_in_order_from_context_purchase_order(matched, context=None, s
         response=response,
     )
     return response, None
-
 
 def _ai_create_draft_from_extracted(extracted, source='text', context=None):
     if not extracted or not isinstance(extracted, dict):
@@ -16646,13 +15773,11 @@ def _ai_create_draft_from_extracted(extracted, source='text', context=None):
     }] + _ai_match_cards(matched, unmatched)
     return _ai_json_response(reply, cards, [{'label': '打开草稿', 'url': draft['url']}])
 
-
 def _ai_try_text_document_response(message, context=None):
     extracted = _ai_extract_document_from_text(message)
     if not extracted:
         return None
     return _ai_create_draft_from_extracted(extracted, source='text', context=context)
-
 
 def _ai_context_order_from_url(page_url):
     patterns = [
@@ -16669,7 +15794,6 @@ def _ai_context_order_from_url(page_url):
             if order:
                 return module_key, order, endpoint
     return None, None, None
-
 
 def _ai_check_draft(module_key, order):
     issues = []
@@ -16712,7 +15836,6 @@ def _ai_check_draft(module_key, order):
         cards.append({'title': '提交前检查', 'meta': issue})
     return reply, cards
 
-
 def _ai_draft_check_response(message, context=None):
     compact = (message or '').replace(' ', '')
     if not any(word in compact for word in ('检查当前草稿', '检查草稿', '提交前检查', '能不能提交', '检查单据')):
@@ -16721,7 +15844,6 @@ def _ai_draft_check_response(message, context=None):
     reply, cards = _ai_check_draft(module_key, order)
     actions = [{'label': '打开单据', 'url': url_for(endpoint, id=order.id)}] if order and endpoint else []
     return _ai_json_response(reply, cards, actions)
-
 
 def _ai_alias_management_response(message):
     compact = (message or '').replace(' ', '').lower()
@@ -16735,7 +15857,6 @@ def _ai_alias_management_response(message):
         [{'title': 'AI物料别名', 'meta': f'已学习 {alias_count} 条外部叫法', 'url': url_for('ai_material_alias_list')}],
         [{'label': '打开AI物料别名', 'url': url_for('ai_material_alias_list')}],
     )
-
 
 def _ai_exception_explain_response(message, context=None):
     compact = (message or '').replace(' ', '')
@@ -16770,7 +15891,6 @@ def _ai_exception_explain_response(message, context=None):
     } for txn in recent_txns[:5]]
     return _ai_json_response(reply, cards, [{'label': '查看物料', 'url': url_for('material_list', search=material.code or material.name or '')}])
 
-
 def _ai_is_inventory_discrepancy_question(message):
     compact = (message or '').replace(' ', '')
     return any(word in compact for word in (
@@ -16778,7 +15898,6 @@ def _ai_is_inventory_discrepancy_question(message):
         '系统库存和实物不一致', '系统数和实物不一致', '库存和实物不一致', '库存与实物不一致',
         '盘点差异', '盘盈盘亏', '库存不准怎么办', '库存不对怎么办',
     ))
-
 
 def _ai_inventory_discrepancy_response(message, context=None):
     if not _ai_is_inventory_discrepancy_question(message):
@@ -16859,7 +15978,6 @@ def _ai_inventory_discrepancy_response(message, context=None):
     ]
     return _ai_json_response(reply, cards, material_actions)
 
-
 def _ai_is_exception_workbench_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -16874,7 +15992,6 @@ def _ai_is_exception_workbench_question(message):
     scope_words = ('仓库', '库存', '物料', '单据', 'wms')
     issue_words = ('异常', '风险', '待办', '待处理', '优先级', '要处理', '需要处理')
     return any(word in compact for word in scope_words) and any(word in compact for word in issue_words)
-
 
 def _ai_pending_document_cards(limit=6):
     rows = []
@@ -16908,7 +16025,6 @@ def _ai_pending_document_cards(limit=6):
         row.pop('date_value', None)
         row.pop('id_value', None)
     return rows[:limit]
-
 
 def _ai_exception_workbench_response(message, context=None, force=False):
     if not force and not _ai_is_exception_workbench_question(message):
@@ -17003,14 +16119,12 @@ def _ai_exception_workbench_response(message, context=None, force=False):
         ],
     )
 
-
 AI_LOCAL_SKILLS.append({
     'name': 'exception_workbench',
     'title': '仓库异常工作台',
     'handler': _ai_exception_workbench_response,
     'description': '汇总负库存、低库存、90天未出库和待处理单据，给仓库主管优先处理清单。',
 })
-
 
 def _ai_is_agent_patrol_question(message):
     compact = (message or '').replace(' ', '').lower()
@@ -17020,7 +16134,6 @@ def _ai_is_agent_patrol_question(message):
         'agent巡检', 'ai巡检', '自动巡检', '帮我巡检', '巡检仓库', '仓库巡检',
         'agent功能', 'agent检查', '自动检查仓库', '帮我检查仓库', '跑一遍巡检', '今日巡检',
     ))
-
 
 def _ai_agent_patrol_response(message, context=None, force=False):
     if not force and not _ai_is_agent_patrol_question(message):
@@ -17106,14 +16219,12 @@ def _ai_agent_patrol_response(message, context=None, force=False):
     ]
     return _ai_json_response('\n'.join(lines), cards[:12], actions)
 
-
 AI_LOCAL_SKILLS.append({
     'name': 'agent_patrol',
     'title': 'Agent仓库巡检',
     'handler': _ai_agent_patrol_response,
     'description': '自动读取库存风险、待处理单据、采购到货和草稿阻塞，输出巡检步骤和下一步入口。',
 })
-
 
 def _ai_is_purchase_workbench_question(message):
     compact = (message or '').replace(' ', '').lower()
@@ -17128,7 +16239,6 @@ def _ai_is_purchase_workbench_question(message):
         return True
     return '采购' in compact and any(word in compact for word in ('待办', '逾期', '风险', '异常', '建议', '优先', '巡检', '跟进'))
 
-
 def _ai_is_purchase_followup_agent_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -17137,7 +16247,6 @@ def _ai_is_purchase_followup_agent_question(message):
         '采购agent', '采购aiagent', '采购巡检', '采购跟进agent', '到货跟进agent',
         '催供应商agent', '采购自动跟进', '自动催交', '采购任务agent',
     ))
-
 
 def _ai_purchase_price_risk_cards(limit=5):
     recent_orders = (
@@ -17184,7 +16293,6 @@ def _ai_purchase_price_risk_cards(limit=5):
         row.pop('increase_pct', None)
     return cards[:limit]
 
-
 def _ai_purchase_replenishment_cards(limit=8):
     if not inventory_alert_enabled():
         return []
@@ -17206,7 +16314,6 @@ def _ai_purchase_replenishment_cards(limit=8):
         })
     return cards
 
-
 def _ai_is_purchase_request_draft_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -17216,7 +16323,6 @@ def _ai_is_purchase_request_draft_question(message):
         '低库存转请购', '缺料采购申请', '缺料请购', '补货申请草稿',
         '根据低库存生成采购申请草稿', '按低库存生成请购',
     ))
-
 
 def _ai_purchase_replenishment_candidates(limit=20):
     if not inventory_alert_enabled():
@@ -17281,7 +16387,6 @@ def _ai_purchase_replenishment_candidates(limit=20):
         if len(candidates) >= limit:
             break
     return candidates, skipped
-
 
 def _ai_create_purchase_request_draft_response(message, context=None, force=False):
     if not force and not _ai_is_purchase_request_draft_question(message):
@@ -17397,7 +16502,6 @@ def _ai_create_purchase_request_draft_response(message, context=None, force=Fals
         ],
     )
 
-
 def _ai_replenishment_triggered(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -17406,7 +16510,6 @@ def _ai_replenishment_triggered(message):
         '补货建议', '补货预测', '缺货预测', '采购建议', '智能补货', '安全库存建议',
         '再订货', 'replenishment', 'shortage forecast', 'stock coverage',
     ))
-
 
 def _ai_replenishment_out_qty_by_material(days=30):
     cutoff = datetime.now() - timedelta(days=max(int(days or 30), 1))
@@ -17418,7 +16521,6 @@ def _ai_replenishment_out_qty_by_material(days=30):
         StockTransaction.quantity < 0,
     ).group_by(StockTransaction.material_id).all()
     return {material_id: round_to_2_decimals(qty or 0) for material_id, qty in rows}
-
 
 def _ai_replenishment_open_qty(material_ids):
     if not material_ids:
@@ -17444,7 +16546,6 @@ def _ai_replenishment_open_qty(material_ids):
     for row in request_rows:
         pending_request_ids.add(row[0])
     return on_order, pending_request_ids
-
 
 def _ai_replenishment_report(days=30, coverage_days=30, limit=100, only_action=False):
     days = max(int(days or 30), 1)
@@ -17540,7 +16641,6 @@ def _ai_replenishment_report(days=30, coverage_days=30, limit=100, only_action=F
     }
     return {'rows': rows, 'summary': summary}
 
-
 def _ai_smart_replenishment_out_qty_by_material(days=30, offset_days=0):
     """Return outbound qty per material for a period ending `offset_days` ago."""
     offset_days = max(int(offset_days or 0), 0)
@@ -17556,7 +16656,6 @@ def _ai_smart_replenishment_out_qty_by_material(days=30, offset_days=0):
         StockTransaction.quantity < 0,
     ).group_by(StockTransaction.material_id).all()
     return {material_id: round_to_2_decimals(qty or 0) for material_id, qty in rows}
-
 
 def _ai_smart_replenishment_report(days=30, coverage_days=30, limit=200, only_action=False):
     """Smart replenishment report with AI suggestions, trend, and priority score."""
@@ -17694,7 +16793,6 @@ def _ai_smart_replenishment_report(days=30, coverage_days=30, limit=200, only_ac
     }
     return {'rows': rows, 'summary': summary}
 
-
 def _ai_replenishment_planning_response(message, context=None, force=False):
     if not force and not _ai_replenishment_triggered(message):
         return None
@@ -17730,7 +16828,6 @@ def _ai_replenishment_planning_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_supplier_profile_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -17738,7 +16835,6 @@ def _ai_is_supplier_profile_question(message):
     supplier_words = ('供应商画像', '供应商评估', '供应商分析', '供应商表现', '供应商风险', '供应商档案',
                       '供应商采购', '供应商到货', '供应商逾期', '这个供应商', '供方画像', '供方评估')
     return any(word in compact for word in supplier_words)
-
 
 def _ai_supplier_from_message(message):
     text = (message or '').strip()
@@ -17768,7 +16864,6 @@ def _ai_supplier_from_message(message):
         return fuzzy_hits[0][1]
     return None
 
-
 def _ai_top_supplier_by_recent_purchase(days=180):
     cutoff = date.today() - timedelta(days=max(1, int(days or 180)))
     row = db.session.query(
@@ -17778,7 +16873,6 @@ def _ai_top_supplier_by_recent_purchase(days=180):
         PurchaseOrder.date >= cutoff,
     ).group_by(Supplier.id).order_by(func.coalesce(func.sum(PurchaseOrder.total_amount), 0).desc()).first()
     return db.session.get(Supplier, row.id) if row else None
-
 
 def _ai_supplier_profile_response(message, context=None, force=False):
     if not force and not _ai_is_supplier_profile_question(message):
@@ -17895,7 +16989,6 @@ def _ai_supplier_profile_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_supplier_followup_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -17905,7 +16998,6 @@ def _ai_is_supplier_followup_question(message):
         '生成催货消息', '生成催交通知', '供应商跟进话术', '催到货',
         '提醒供应商发货', '采购跟进消息',
     ))
-
 
 def _ai_purchase_followup_orders(limit=12):
     today_value = date.today()
@@ -17921,7 +17013,6 @@ def _ai_purchase_followup_orders(limit=12):
         .limit(limit)
         .all()
     )
-
 
 def _ai_supplier_followup_response(message, context=None, force=False):
     if not force and not _ai_is_supplier_followup_question(message):
@@ -18019,7 +17110,6 @@ def _ai_supplier_followup_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_master_data_health_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -18030,7 +17120,6 @@ def _ai_is_master_data_health_question(message):
         '基础资料ai', '基础资料AI', '主数据ai', '主数据AI',
     ))
 
-
 def _ai_duplicate_group_count(model, *columns):
     if not columns:
         return 0
@@ -18039,7 +17128,6 @@ def _ai_duplicate_group_count(model, *columns):
     for expression in expressions:
         query = query.filter(expression != '')
     return query.count()
-
 
 def _ai_master_data_health_response(message, context=None, force=False):
     if not force and not _ai_is_master_data_health_question(message):
@@ -18132,7 +17220,6 @@ def _ai_master_data_health_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_master_data_fix_list_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -18142,7 +17229,6 @@ def _ai_is_master_data_fix_list_question(message):
         '主数据待办', '物料修复清单', '缺失资料清单', '基础资料要修哪些',
         '哪些资料要补', '资料补全清单', '档案修复清单',
     ))
-
 
 def _ai_material_master_issues(material):
     issues = []
@@ -18163,7 +17249,6 @@ def _ai_material_master_issues(material):
     if material.stock is not None and material.stock < 0:
         issues.append(('负库存', 5))
     return issues
-
 
 def _ai_master_data_fix_list_response(message, context=None, force=False):
     if not force and not _ai_is_master_data_fix_list_question(message):
@@ -18293,7 +17378,6 @@ def _ai_master_data_fix_list_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_system_health_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -18302,7 +17386,6 @@ def _ai_is_system_health_question(message):
         '系统管理体检', '系统体检', '系统检查', '系统管理检查', 'ai配置检查', 'AI配置检查',
         '配置体检', '登录安全检查', '备份检查', '启动检查', '系统健康', '管理体检',
     ))
-
 
 def _ai_system_health_response(message, context=None, force=False):
     if not force and not _ai_is_system_health_question(message):
@@ -18393,7 +17476,6 @@ def _ai_system_health_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_system_fix_list_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -18403,7 +17485,6 @@ def _ai_is_system_fix_list_question(message):
         '配置修复清单', '登录安全修复', '备份修复清单', '系统要修哪些',
         '管理修复清单', '系统风险清单',
     ))
-
 
 def _ai_system_fix_list_response(message, context=None, force=False):
     if not force and not _ai_is_system_fix_list_question(message):
@@ -18520,7 +17601,6 @@ def _ai_system_fix_list_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_master_data_import_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -18530,7 +17610,6 @@ def _ai_is_master_data_import_question(message):
         '单位导入', '仓库导入', '导入模板', 'excel导入', 'Excel导入',
         '批量导入资料', '导入前检查', '导入清洗', '资料导入助手',
     ))
-
 
 def _ai_master_data_import_response(message, context=None, force=False):
     if not force and not _ai_is_master_data_import_question(message):
@@ -18580,7 +17659,6 @@ def _ai_master_data_import_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_user_permission_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -18591,7 +17669,6 @@ def _ai_is_user_permission_question(message):
         '锁定账号', '登录失败', '权限检查',
     ))
 
-
 def _ai_role_label(role):
     return {
         'admin': '管理员',
@@ -18600,7 +17677,6 @@ def _ai_role_label(role):
         'production': '生产',
         'user': '普通用户',
     }.get(role or '', role or '未设置')
-
 
 def _ai_user_permission_response(message, context=None, force=False):
     if not force and not _ai_is_user_permission_question(message):
@@ -18693,7 +17769,6 @@ def _ai_user_permission_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_operation_audit_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -18703,7 +17778,6 @@ def _ai_is_operation_audit_question(message):
         '删除操作', '谁删除', '最近谁操作', '最近操作', '操作记录',
         '管理员审计', '审计助手', '系统审计',
     ))
-
 
 def _ai_operation_audit_response(message, context=None, force=False):
     if not force and not _ai_is_operation_audit_question(message):
@@ -18845,7 +17919,6 @@ def _ai_operation_audit_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_product_suggestion_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -18856,7 +17929,6 @@ def _ai_is_product_suggestion_question(message):
         '下一步开发什么', '功能规划', '产品规划', '开发建议', 'AI建议功能',
         'ai建议功能', '软件改进',
     ))
-
 
 def _ai_product_suggestion_response(message, context=None, force=False):
     if not force and not _ai_is_product_suggestion_question(message):
@@ -18964,7 +18036,6 @@ def _ai_product_suggestion_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_ai_benchmark_roadmap_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -18974,7 +18045,6 @@ def _ai_is_ai_benchmark_roadmap_question(message):
         'AI对标', 'copilot', 'joule', 'oracleagent', 'oracle ai agent',
         '金蝶用友', 'erp ai对标', 'ERP AI对标', 'ai标杆', 'AI标杆',
     ))
-
 
 def _ai_benchmark_roadmap_response(message, context=None, force=False):
     if not force and not _ai_is_ai_benchmark_roadmap_question(message):
@@ -19072,7 +18142,6 @@ def _ai_benchmark_roadmap_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_task_list_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -19083,7 +18152,6 @@ def _ai_is_task_list_question(message):
         '改进任务', '处理清单', '闭环清单',
     ))
 
-
 def _ai_task_priority_label(score):
     if score >= 90:
         return 'P0'
@@ -19092,7 +18160,6 @@ def _ai_task_priority_label(score):
     if score >= 55:
         return 'P2'
     return 'P3'
-
 
 def _ai_task_list_response(message, context=None, force=False):
     if not force and not _ai_is_task_list_question(message):
@@ -19315,7 +18382,6 @@ def _ai_task_list_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_page_navigation_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -19332,7 +18398,6 @@ def _ai_is_page_navigation_question(message):
     )
     return any(word in compact for word in nav_words) and any(word in compact for word in page_words)
 
-
 def _ai_safe_url_for(endpoint, **values):
     if endpoint not in app.view_functions:
         return None
@@ -19340,7 +18405,6 @@ def _ai_safe_url_for(endpoint, **values):
         return url_for(endpoint, **values)
     except Exception:
         return None
-
 
 def _ai_page_navigation_catalog():
     pages = [
@@ -19395,7 +18459,6 @@ def _ai_page_navigation_catalog():
             'keywords': keywords,
         })
     return catalog
-
 
 def _ai_page_navigation_response(message, context=None, force=False):
     if not force and not _ai_is_page_navigation_question(message):
@@ -19454,7 +18517,6 @@ def _ai_page_navigation_response(message, context=None, force=False):
         cards,
         [{'label': page['title'], 'url': page['url']} for page in selected[:4]],
     )
-
 
 def _ai_purchase_workbench_response(message, context=None, force=False):
     if not force and not _ai_is_purchase_workbench_question(message):
@@ -19562,7 +18624,6 @@ def _ai_purchase_workbench_response(message, context=None, force=False):
         ],
     )
 
-
 def _ai_is_sales_workbench_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -19576,7 +18637,6 @@ def _ai_is_sales_workbench_question(message):
         return True
     return '销售' in compact and any(word in compact for word in ('待办', '逾期', '风险', '异常', '建议', '优先', '巡检', '跟进'))
 
-
 def _ai_is_sales_followup_agent_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -19585,7 +18645,6 @@ def _ai_is_sales_followup_agent_question(message):
         '销售agent', '销售aiagent', '销售巡检', '销售跟进agent', '发货跟进agent',
         '催客户agent', '销售自动跟进', '自动催发货', '销售任务agent',
     ))
-
 
 def _ai_sales_workbench_response(message, context=None, force=False):
     """AI-SALES-F02 销售履约跟进工作台响应。
@@ -19679,14 +18738,12 @@ def _ai_sales_workbench_response(message, context=None, force=False):
         ],
     )
 
-
 AI_LOCAL_SKILLS.append({
     'name': 'sales_workbench',
     'title': '销售工作台',
     'handler': _ai_sales_workbench_response,
     'description': '汇总待发货、逾期、部分停滞、缺货、客户催发货话术、合并发货候选和客户跟进清单，给销售优先处理清单。',
 })
-
 
 AI_LOCAL_SKILLS.append({
     'name': 'purchase_workbench',
@@ -19695,14 +18752,12 @@ AI_LOCAL_SKILLS.append({
     'description': '汇总逾期采购、即将到货、待处理请购、低库存补货和采购价异常，给采购优先处理清单。',
 })
 
-
 AI_LOCAL_SKILLS.append({
     'name': 'purchase_replenishment_draft',
     'title': '低库存补货请购草稿',
     'handler': _ai_create_purchase_request_draft_response,
     'description': '按低库存预警生成待审批采购申请草稿，扣减未完成采购待到货并跳过已有待处理请购。',
 })
-
 
 AI_LOCAL_SKILLS.append({
     'name': 'supplier_profile',
@@ -19711,14 +18766,12 @@ AI_LOCAL_SKILLS.append({
     'description': '按供应商汇总采购订单、未到货、逾期、最近到货、常购物料和跟进建议。',
 })
 
-
 AI_LOCAL_SKILLS.append({
     'name': 'supplier_followup',
     'title': '采购催交话术',
     'handler': _ai_supplier_followup_response,
     'description': '按逾期和即将到货采购订单生成分供应商催交话术，不自动发送。',
 })
-
 
 AI_LOCAL_SKILLS.append({
     'name': 'master_data_health',
@@ -19727,14 +18780,12 @@ AI_LOCAL_SKILLS.append({
     'description': '检查物料、供应商、客户、仓库、单位、分类的完整性、重复线索和库存预警基础。',
 })
 
-
 AI_LOCAL_SKILLS.append({
     'name': 'master_data_fix_list',
     'title': '基础资料修复清单',
     'handler': _ai_master_data_fix_list_response,
     'description': '列出需要优先补全的物料、供应商、客户和重复物料线索，只定位不自动修改。',
 })
-
 
 AI_LOCAL_SKILLS.append({
     'name': 'system_health',
@@ -19743,14 +18794,12 @@ AI_LOCAL_SKILLS.append({
     'description': '检查AI配置、图片识别、登录安全、数据库备份、关键业务控制参数和近期操作风险。',
 })
 
-
 AI_LOCAL_SKILLS.append({
     'name': 'system_fix_list',
     'title': '系统管理修复清单',
     'handler': _ai_system_fix_list_response,
     'description': '列出AI配置、备份、登录安全、危险业务参数等系统管理待处理项，只定位不自动修改。',
 })
-
 
 AI_LOCAL_SKILLS.append({
     'name': 'master_data_import_assistant',
@@ -19759,14 +18808,12 @@ AI_LOCAL_SKILLS.append({
     'description': '给出基础资料Excel导入顺序、清洗规则、模板入口和导入后体检建议，不自动写库。',
 })
 
-
 AI_LOCAL_SKILLS.append({
     'name': 'user_permission_assistant',
     'title': '权限账号助手',
     'handler': _ai_user_permission_response,
     'description': '汇总用户角色、登录失败、锁定/停用账号并解释权限边界，不自动改账号。',
 })
-
 
 AI_LOCAL_SKILLS.append({
     'name': 'operation_audit_assistant',
@@ -19775,14 +18822,12 @@ AI_LOCAL_SKILLS.append({
     'description': '汇总近7天操作日志、删除/审核/备份类动作、活跃用户和风险样本，只读审计不处理日志。',
 })
 
-
 AI_LOCAL_SKILLS.append({
     'name': 'product_suggestion_assistant',
     'title': '软件改进建议助手',
     'handler': _ai_product_suggestion_response,
     'description': '基于当前WMS模块、数据状态、待办、报表和AI配置提出软件功能改进建议。',
 })
-
 
 AI_LOCAL_SKILLS.append({
     'name': 'ai_benchmark_roadmap',
@@ -19791,14 +18836,12 @@ AI_LOCAL_SKILLS.append({
     'description': '对标Microsoft Copilot、SAP Joule、Oracle AI Agent和金蝶用友，输出AI能力差距和开发路线图。',
 })
 
-
 AI_LOCAL_SKILLS.append({
     'name': 'ai_task_list',
     'title': 'AI任务清单',
     'handler': _ai_task_list_response,
     'description': '把库存、采购、单据、基础资料、系统管理和审计风险整理成可人工确认的执行清单。',
 })
-
 
 AI_LOCAL_SKILLS.append({
     'name': 'page_navigator',
@@ -19807,14 +18850,12 @@ AI_LOCAL_SKILLS.append({
     'description': '按“打开采购订单、进入操作审计、去物料管理”等自然语言返回系统页面入口，不执行写操作。',
 })
 
-
 AI_LOCAL_SKILLS.append({
     'name': 'excel_table_document',
     'title': 'Excel表格转单据',
     'handler': _ai_excel_table_document_response,
     'description': '识别从Excel复制出来的表格明细，按单据类型生成草稿或提示补充单据类型。',
 })
-
 
 def _ai_is_delivery_note_inbound_request(message):
     compact = (message or '').replace(' ', '').lower()
@@ -19825,7 +18866,6 @@ def _ai_is_delivery_note_inbound_request(message):
         '送货单生成采购入库', '到货单入库', '来货单入库', '供应商送货单',
         '生成采购入库草稿', '生成采购入库单草稿',
     ))
-
 
 def _ai_delivery_note_inbound_response(message, context=None, force=False):
     if not force and not _ai_is_delivery_note_inbound_request(message):
@@ -19859,14 +18899,12 @@ def _ai_delivery_note_inbound_response(message, context=None, force=False):
         actions,
     )
 
-
 AI_LOCAL_SKILLS.append({
     'name': 'delivery_note_inbound',
     'title': '送货单入库Agent',
     'handler': _ai_delivery_note_inbound_response,
     'description': '引导用户上传送货单图片，并走图片识别、采购订单匹配、采购入库草稿生成流程。',
 })
-
 
 def _ai_warehouse_insights_response(message, context=None):
     for handler in (
@@ -19881,7 +18919,6 @@ def _ai_warehouse_insights_response(message, context=None):
             return response
     return None
 
-
 def _ai_purchase_insights_response(message, context=None):
     for handler in (
         _ai_replenishment_planning_response,
@@ -19894,7 +18931,6 @@ def _ai_purchase_insights_response(message, context=None):
             return response
     return None
 
-
 def _ai_sales_insights_response(message, context=None):
     """AI-SALES-F02 销售 insights 总入口：仅 _ai_sales_workbench_response（含 Agent 路径）。"""
     for handler in (
@@ -19904,7 +18940,6 @@ def _ai_sales_insights_response(message, context=None):
         if response:
             return response
     return None
-
 
 def _ai_master_data_insights_response(message, context=None):
     for handler in (
@@ -19916,7 +18951,6 @@ def _ai_master_data_insights_response(message, context=None):
         if response:
             return response
     return None
-
 
 def _ai_admin_insights_response(message, context=None):
     for handler in (
@@ -19930,7 +18964,6 @@ def _ai_admin_insights_response(message, context=None):
             return response
     return None
 
-
 AI_TOOL_DISPATCHERS = {
     'warehouse_insights': _ai_warehouse_insights_response,
     'purchase_insights': _ai_purchase_insights_response,
@@ -19940,10 +18973,8 @@ AI_TOOL_DISPATCHERS = {
     'admin_insights': _ai_admin_insights_response,
 }
 
-
 def _ai_dispatch_registered_tool(tool_name, message, context=None):
     return dispatch_registered_tool(tool_name, message, context, AI_TOOL_DISPATCHERS, app.logger)
-
 
 def _ai_percentile(values, percentile):
     cleaned = sorted(int(value or 0) for value in values if value is not None)
@@ -19951,7 +18982,6 @@ def _ai_percentile(values, percentile):
         return 0
     index = int(round((len(cleaned) - 1) * percentile))
     return cleaned[max(0, min(index, len(cleaned) - 1))]
-
 
 def _ai_ops_metrics(window_hours=168):
     now_value = datetime.now()
@@ -20015,7 +19045,6 @@ def _ai_ops_metrics(window_hours=168):
         'generated_at': now_value,
     }
 
-
 @app.route('/ai/ops')
 @login_required
 @require_role('admin')
@@ -20024,7 +19053,6 @@ def ai_ops_dashboard():
     metrics_7d = _ai_ops_metrics(window_hours=168)
     recent_runs = AIRun.query.options(joinedload(AIRun.user)).order_by(AIRun.started_at.desc()).limit(50).all()
     return render_template('ai_ops_dashboard.html', metrics_24h=metrics_24h, metrics_7d=metrics_7d, recent_runs=recent_runs)
-
 
 @app.route('/ai/data-retention')
 @login_required
@@ -20043,7 +19071,6 @@ def ai_data_retention_page():
         'enabled': config_obj.enabled,
     }
     return render_template('ai_data_retention.html', config=config)
-
 
 @app.route('/ai/replenishment')
 @login_required
@@ -20094,7 +19121,6 @@ def ai_inventory_health_live_page():
         risk_filter=risk,
     )
     return render_template('ai_inventory_health.html', report=report, risk=risk)
-
 
 @app.route('/ai/inventory_health')
 @login_required
@@ -20149,7 +19175,6 @@ def ai_inventory_health_page():
         )
     
     return render_template('ai_inventory_health.html', report=report, risk=risk)
-
 
 @app.route('/ai/replenishment_smart')
 @login_required
@@ -20206,7 +19231,6 @@ def ai_replenishment_smart_page():
 
     return render_template('ai_replenishment_smart.html', report=report, risk=risk)
 
-
 def _ai_prelaunch_add_check(checks, code, title, status, detail, action_label='', action_url='', severity='medium'):
     checks.append({
         'code': code,
@@ -20217,7 +19241,6 @@ def _ai_prelaunch_add_check(checks, code, title, status, detail, action_label=''
         'action_url': action_url,
         'severity': severity,
     })
-
 
 def _ai_prelaunch_checks():
     checks = []
@@ -20345,14 +19368,12 @@ def _ai_prelaunch_checks():
         'generated_at': now_value,
     }
 
-
 @app.route('/ai/prelaunch')
 @login_required
 @require_role('admin')
 def ai_prelaunch_page():
     report = _ai_prelaunch_checks()
     return render_template('ai_prelaunch.html', report=report)
-
 
 @app.route('/ai/acceptance')
 @login_required
@@ -20361,7 +19382,6 @@ def ai_acceptance_page():
     """AI-R18-F02：管理员只读验收台和人工 go/no-go 签署入口。"""
     # AI_TASK: AI-R18-F02
     return render_template('ai_acceptance.html')
-
 
 def _ai_create_agent_task(agent_type, objective):
     task = AIAgentTask(
@@ -20374,7 +19394,6 @@ def _ai_create_agent_task(agent_type, objective):
     db.session.add(task)
     db.session.flush()
     return task
-
 
 def _ai_add_agent_step(task, step_no, name, tool_name, data_scope, result_summary, action_label='', action_url='', status='completed', risk_level='read', error_message=''):
     step = AIAgentStep(
@@ -20394,7 +19413,6 @@ def _ai_add_agent_step(task, step_no, name, tool_name, data_scope, result_summar
     db.session.add(step)
     return step
 
-
 def _ai_finish_agent_task(task, status, summary, next_action_url=''):
     task.status = status
     task.summary = (summary or '')[:1000]
@@ -20402,7 +19420,6 @@ def _ai_finish_agent_task(task, status, summary, next_action_url=''):
     task.completed_at = datetime.now()
     db.session.commit()
     return task
-
 
 def _ai_pending_document_count():
     count = 0
@@ -20412,7 +19429,6 @@ def _ai_pending_document_count():
         if model and statuses:
             count += model.query.filter(model.status.in_(statuses)).count()
     return count
-
 
 def _ai_run_warehouse_patrol_agent():
     if not _ai_capability_allowed('warehouse_patrol_agent'):
@@ -20479,7 +19495,6 @@ def _ai_run_warehouse_patrol_agent():
     summary = f'Warehouse patrol completed. Stock risks {negative_count + low_count}, pending documents {pending_count}, open purchase orders {purchase_summary.get("open_count", 0)}.'
     return _ai_finish_agent_task(task, 'completed', summary, url_for('pending_documents')), None
 
-
 def _ai_run_purchase_followup_agent():
     if not _ai_capability_allowed('purchase_followup_agent'):
         return None, 'purchase_followup_agent denied'
@@ -20541,19 +19556,16 @@ def _ai_run_purchase_followup_agent():
     task_summary = f'Purchase follow-up completed. Open orders {summary.get("open_count", 0)}, overdue {summary.get("overdue_count", 0)}, due soon {due_soon_count}, pending requests {pending_request_count}.'
     return _ai_finish_agent_task(task, 'completed', task_summary, url_for('purchase_order_list')), None
 
-
 def _ai_handle_draft_check_request(payload):
     payload = payload or {}
     context = {'page_url': (payload.get('page_url') or '').strip()}
     return _ai_draft_check_response('检查当前草稿', context)
-
 
 def _ai_agent_task_query():
     query = AIAgentTask.query.options(joinedload(AIAgentTask.user))
     if current_user.role != 'admin':
         query = query.filter_by(user_id=current_user.id)
     return query
-
 
 @app.route('/ai/agent_tasks')
 @login_required
@@ -20572,14 +19584,12 @@ def ai_agent_task_list():
     }
     return render_template('ai_agent_tasks.html', tasks=tasks, stats=stats, agent_type=agent_type)
 
-
 @app.route('/ai/agent_tasks/<int:id>')
 @login_required
 def ai_agent_task_detail(id):
     task = _ai_agent_task_query().options(selectinload(AIAgentTask.steps)).filter(AIAgentTask.id == id).first_or_404()
     steps = sorted(task.steps or [], key=lambda step: (step.step_no or 0, step.id or 0))
     return render_template('ai_agent_task_detail.html', task=task, steps=steps)
-
 
 @app.route('/ai/agent_tasks/run/warehouse_patrol', methods=['POST'])
 @require_role('warehouse')
@@ -20592,7 +19602,6 @@ def ai_agent_run_warehouse_patrol():
     flash('仓库巡检 Agent 已完成。', 'success')
     return redirect(url_for('ai_agent_task_detail', id=task.id))
 
-
 @app.route('/ai/agent_tasks/run/purchase_followup', methods=['POST'])
 @require_role('purchase')
 @login_required
@@ -20603,7 +19612,6 @@ def ai_agent_run_purchase_followup():
         return redirect(url_for('ai_agent_task_list'))
     flash('采购跟进 Agent 已完成。', 'success')
     return redirect(url_for('ai_agent_task_detail', id=task.id))
-
 
 def _ai_run_sales_followup_agent():
     """AI-SALES-F02 销售履约跟进 Agent（4 步受控任务路径）。
@@ -20693,7 +19701,6 @@ def _ai_run_sales_followup_agent():
     )
     return _ai_finish_agent_task(task, 'completed', task_summary, url_for('sales_order_list')), None
 
-
 @app.route('/ai/agent_tasks/run/sales_followup', methods=['POST'])
 @require_role('sales')
 @login_required
@@ -20704,7 +19711,6 @@ def ai_agent_run_sales_followup():
         return redirect(url_for('ai_agent_task_list'))
     flash('销售跟进 Agent 已完成。', 'success')
     return redirect(url_for('ai_agent_task_detail', id=task.id))
-
 
 def _ai_document_job_url(job):
     if not job:
@@ -20722,7 +19728,6 @@ def _ai_document_job_url(job):
     if job.confirmation_token:
         return url_for('ai_document_confirm', token=job.confirmation_token)
     return ''
-
 
 @app.route('/ai/document_jobs')
 @login_required
@@ -20752,7 +19757,6 @@ def ai_document_job_list():
         stats=stats,
     )
 
-
 @app.route('/ai/document_jobs/<int:id>')
 @login_required
 def ai_document_job_detail(id):
@@ -20771,7 +19775,6 @@ def ai_document_job_detail(id):
         items=items,
         result_url=_ai_document_job_url(job),
     )
-
 
 @app.route('/ai/document_jobs/<int:id>/confirm', methods=['POST'])
 @login_required
@@ -20799,7 +19802,6 @@ def ai_document_job_reopen_confirmation(id):
     session.modified = True
     _ai_update_document_job(job.id, 'pending_confirmation', confirmation_token=token, error_message='')
     return redirect(url_for('ai_document_confirm', token=token))
-
 
 @app.route('/ai/document_jobs/<int:id>/retry', methods=['POST'])
 @login_required
@@ -20834,7 +19836,6 @@ def ai_document_job_retry(id):
     _ai_update_document_job(job.id, 'failed', error_message='重试识别结果无法生成草稿或确认页。')
     return redirect(url_for('ai_document_job_detail', id=job.id))
 
-
 @app.route('/ai/document_jobs/<int:id>/feedback', methods=['POST'])
 @login_required
 def ai_document_job_feedback(id):
@@ -20861,7 +19862,6 @@ def ai_document_job_feedback(id):
     flash('AI文档反馈已记录。', 'success')
     return redirect(url_for('ai_document_job_detail', id=job.id))
 
-
 @app.route('/ai/material_alias')
 @require_role('warehouse', 'purchase')
 @login_required
@@ -20886,7 +19886,6 @@ def ai_material_alias_list():
     aliases = query.order_by(AIMaterialAlias.updated_at.desc().nullslast(), AIMaterialAlias.id.desc()).limit(300).all()
     materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).limit(1000).all()
     return render_template('ai_material_alias.html', aliases=aliases, materials=materials, search=search)
-
 
 @app.route('/ai/material_alias/add', methods=['POST'])
 @require_role('warehouse', 'purchase')
@@ -20914,7 +19913,6 @@ def ai_material_alias_add():
         flash('保存失败，请稍后重试。', 'danger')
     return redirect(url_for('ai_material_alias_list', search=alias))
 
-
 @app.route('/ai/material_alias/<int:id>/delete', methods=['POST'])
 @require_role('warehouse', 'purchase')
 @login_required
@@ -20931,7 +19929,6 @@ def ai_material_alias_delete(id):
         app.logger.exception('AI material alias delete failed: %s', exc)
         flash('删除失败，请稍后重试。', 'danger')
     return redirect(url_for('ai_material_alias_list', search=request.args.get('search', '')))
-
 
 def _ai_confirmation_material_candidates(payload, limit=300):
     payload = payload or {}
@@ -20985,7 +19982,6 @@ def _ai_confirmation_material_candidates(payload, limit=300):
                 break
     return candidates
 
-
 def _ai_document_confirm_allowed(doc_type):
     doc_type = (doc_type or '').strip()
     if doc_type == 'sales_out':
@@ -21000,7 +19996,6 @@ def _ai_document_confirm_allowed(doc_type):
         'purchase_request': 'purchase_request_draft',
     }.get(doc_type)
     return bool(capability and _ai_capability_allowed(capability))
-
 
 @app.route('/ai/document_confirm/<token>', methods=['GET', 'POST'])
 @require_role('warehouse', 'purchase', 'production')
@@ -21114,7 +20109,6 @@ def ai_document_confirm(token):
 
     return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units, categories=categories)
 
-
 def _ai_test_llm_vision(overrides=None):
     if not _ai_llm_configured(overrides):
         return None, '请先启用大模型并保存 API Key'
@@ -21161,7 +20155,6 @@ def _ai_test_llm_vision(overrides=None):
         app.logger.warning('AI vision test unavailable: %s', exc)
         return None, str(exc)
 
-
 def _ai_llm_error_message(response):
     try:
         data = response.json()
@@ -21177,7 +20170,6 @@ def _ai_llm_error_message(response):
         suffix = '，'.join(part for part in [err_type, code] if part)
         return f'HTTP {response.status_code}: {detail}' + (f'（{suffix}）' if suffix else '')
     return f'HTTP {response.status_code}: {json.dumps(data, ensure_ascii=False)[:300]}'
-
 
 def _ai_execute_intent(message, intent_payload, context=None):
     if not intent_payload:
@@ -21414,7 +20406,6 @@ def _ai_execute_intent(message, intent_payload, context=None):
 
     return None
 
-
 def _ai_should_try_general_chat(message):
     compact = (message or '').strip().replace(' ', '').lower()
     if not compact:
@@ -21430,7 +20421,6 @@ def _ai_should_try_general_chat(message):
     if any(word in compact for word in business_words):
         return False
     return True
-
 
 def _ai_should_try_business_chat(message):
     compact = (message or '').strip().replace(' ', '').lower()
@@ -21456,14 +20446,12 @@ def _ai_should_try_business_chat(message):
     )
     return any(word in compact for word in advice_words) and any(word in compact for word in business_words)
 
-
 def _ai_strip_general_chat_marker(message):
     text = (message or '').strip()
     for marker in ('问大模型', '问GPT', '问gpt', 'GPT回答', 'gpt回答', 'GPT聊', 'gpt聊', 'AI聊天', 'ai聊天', '大模型回答', '通用聊天'):
         if text.startswith(marker):
             return text[len(marker):].lstrip('：: ，,')
     return text
-
 
 def _ai_handle_warehouse_assistant_request(payload):
     payload = payload or {}
@@ -21659,18 +20647,15 @@ def _ai_handle_warehouse_assistant_request(payload):
         app.logger.exception('AI warehouse assistant failed: %s', exc)
         return jsonify({'status': 'error', 'msg': 'AI助手处理失败，请稍后重试'}), 500
 
-
 # ==================== AI 流式响应 + 多轮对话 ====================
 
 def _ai_get_history(user_id):
     """Return the current user AI chat history."""
     return get_history(user_id)
 
-
 def _ai_append_history(user_id, role, content):
     """Append a message to the current user AI chat history."""
     append_history(user_id, role, content)
-
 
 def _ai_handle_chat_stream_request(payload):
     """流式返回 AI 回答（SSE），支持多轮对话上下文。
@@ -21904,18 +20889,15 @@ def _ai_handle_chat_stream_request(payload):
     return Response(stream_with_context(generate()), content_type='text/event-stream; charset=utf-8',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
-
 def _ai_handle_chat_clear_request():
     """清空当前用户的对话历史"""
     user_id = current_user.id if current_user.is_authenticated else 0
     clear_history(user_id)
     return jsonify({'status': 'success', 'msg': '已清空对话历史'})
 
-
 def _document_nav_related(obj, relation_name, field_name='name'):
     related = getattr(obj, relation_name, None)
     return getattr(related, field_name, '') if related else ''
-
 
 DOCUMENT_NAVIGATION_MODULES = {
     'in_order': {
@@ -22028,14 +21010,12 @@ DOCUMENT_NAVIGATION_MODULES = {
     },
 }
 
-
 def _document_nav_value(obj, getter):
     if not getter:
         return ''
     if callable(getter):
         return getter(obj)
     return getattr(obj, getter, '')
-
 
 def _document_nav_material_terms(item):
     terms = []
@@ -22053,7 +21033,6 @@ def _document_nav_material_terms(item):
             getattr(detail, 'spec', ''),
         ])
     return terms
-
 
 PENDING_DOCUMENT_MODULES = [
     {
@@ -22175,11 +21154,9 @@ PENDING_DOCUMENT_MODULES = [
     },
 ]
 
-
 def _pending_action_label(config, item):
     action = config.get('action') or ''
     return action(item) if callable(action) else action
-
 
 def _pending_status_label(config, item):
     status = str(getattr(item, 'status', '') or '')
@@ -22195,7 +21172,6 @@ def _pending_status_label(config, item):
         return '处理中'
     return _share_pdf_status_label(status)
 
-
 def _pending_document_search_text(config, item):
     parts = [
         config.get('label'),
@@ -22210,7 +21186,6 @@ def _pending_document_search_text(config, item):
         parts.append(_document_nav_value(item, getter))
     parts.extend(_document_nav_material_terms(item))
     return ' '.join(str(part or '') for part in parts).lower()
-
 
 def _build_pending_document_rows(module_filter='', status_filter='', search=''):
     rows = []
@@ -22245,14 +21220,12 @@ def _build_pending_document_rows(module_filter='', status_filter='', search=''):
     rows.sort(key=lambda row: (row['created_at'] or datetime.min, row['id']), reverse=True)
     return rows
 
-
 def _format_document_nav_date(value):
     if isinstance(value, datetime):
         return value.strftime('%Y-%m-%d')
     if isinstance(value, date):
         return value.strftime('%Y-%m-%d')
     return str(value or '')
-
 
 def _document_status_terms(status):
     status = str(status or '').strip()
@@ -22267,7 +21240,6 @@ def _document_status_terms(status):
     terms = status_map.get(status, [status])
     return [term for term in terms if term]
 
-
 def _status_from_search_keyword(keyword, allowed_statuses):
     keyword = str(keyword or '').strip().lower()
     if not keyword:
@@ -22277,7 +21249,6 @@ def _status_from_search_keyword(keyword, allowed_statuses):
         if any(keyword == term or (len(term) > 1 and term in keyword) or (len(keyword) > 1 and keyword in term) for term in terms):
             return status
     return None
-
 
 def _get_order_list_filters(allowed_statuses, default_sort='created_at'):
     status_filter = (request.args.get('status') or '').strip()
@@ -22292,7 +21263,6 @@ def _get_order_list_filters(allowed_statuses, default_sort='created_at'):
         sort_order = 'desc'
     return status_filter, search, date_start, date_end, sort_by, sort_order
 
-
 def _apply_status_date_filters(query, model, status_filter, date_start, date_end):
     if status_filter:
         query = query.filter(model.status == status_filter)
@@ -22301,7 +21271,6 @@ def _apply_status_date_filters(query, model, status_filter, date_start, date_end
     if date_end:
         query = query.filter(model.date <= date_end)
     return query
-
 
 def _apply_in_order_search(query, search):
     if not search:
@@ -22331,7 +21300,6 @@ def _apply_in_order_search(query, search):
         .filter(db.or_(*conditions))
     )
 
-
 def _apply_out_order_search(query, search):
     if not search:
         return query
@@ -22353,7 +21321,6 @@ def _apply_out_order_search(query, search):
         db.or_(*conditions)
     )
 
-
 def _apply_purchase_request_search(query, search):
     if not search:
         return query
@@ -22372,7 +21339,6 @@ def _apply_purchase_request_search(query, search):
         db.or_(*conditions)
     )
 
-
 def _subcontract_status_label(status):
     labels = {
         'pending': '待处理',
@@ -22382,14 +21348,11 @@ def _subcontract_status_label(status):
     }
     return labels.get(status, status or '')
 
-
 def _subcontract_issue_status_label(status):
     return '待发料' if status == 'pending' else ('已发料' if status == 'completed' else (status or ''))
 
-
 def _subcontract_receive_status_label(status):
     return '待入库' if status == 'pending' else ('已入库' if status == 'completed' else (status or ''))
-
 
 def _apply_subcontract_search(query, search):
     if not search:
@@ -22411,7 +21374,6 @@ def _apply_subcontract_search(query, search):
     return query.outerjoin(Supplier, SubcontractOrder.supplier_id == Supplier.id).outerjoin(
         SubcontractItem, SubcontractItem.subcontract_order_id == SubcontractOrder.id
     ).outerjoin(Material, SubcontractItem.material_id == Material.id).filter(db.or_(*conditions)).distinct()
-
 
 def _apply_subcontract_issue_search(query, search):
     if not search:
@@ -22435,7 +21397,6 @@ def _apply_subcontract_issue_search(query, search):
         Material, SubcontractIssueItem.material_id == Material.id
     ).filter(db.or_(*conditions)).distinct()
 
-
 def _apply_subcontract_receive_search(query, search):
     if not search:
         return query
@@ -22458,7 +21419,6 @@ def _apply_subcontract_receive_search(query, search):
         Material, SubcontractReceiveItem.material_id == Material.id
     ).filter(db.or_(*conditions)).distinct()
 
-
 def _status_from_master_keyword(keyword):
     keyword = str(keyword or '').strip().lower()
     active_terms = {'active', '启用', '正常', '激活'}
@@ -22469,7 +21429,6 @@ def _status_from_master_keyword(keyword):
         return 'inactive'
     return None
 
-
 def _share_pdf_font_name():
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
@@ -22478,7 +21437,6 @@ def _share_pdf_font_name():
     if font_name not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(UnicodeCIDFont(font_name))
     return font_name
-
 
 def _share_pdf_text(value, default='-'):
     if value is None:
@@ -22490,20 +21448,17 @@ def _share_pdf_text(value, default='-'):
     text = str(value).strip()
     return text if text else default
 
-
 def _share_pdf_money(value):
     try:
         return f'¥{float(value or 0):.2f}'
     except (TypeError, ValueError):
         return '¥0.00'
 
-
 def _share_pdf_qty(value):
     try:
         return f'{float(value or 0):.2f}'
     except (TypeError, ValueError):
         return '0.00'
-
 
 def _share_pdf_status_label(status):
     return {
@@ -22513,7 +21468,6 @@ def _share_pdf_status_label(status):
         'rejected': '已驳回',
         'cancelled': '已取消',
     }.get(status, status or '-')
-
 
 def _wechat_share_default_config():
     config = WechatShareConfig.query.order_by(WechatShareConfig.id.asc()).first()
@@ -22538,21 +21492,17 @@ def _wechat_share_default_config():
     db.session.commit()
     return config
 
-
 def _wechat_share_time_is_valid(value):
     return bool(re.match(r'^(?:[01]\d|2[0-3]):[0-5]\d$', str(value or '').strip()))
-
 
 def _wechat_share_output_dir():
     folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output', 'wechat_share')
     os.makedirs(folder, exist_ok=True)
     return folder
 
-
 def _wechat_share_safe_filename(order_no):
     base = re.sub(r'[^0-9A-Za-z\u4e00-\u9fff_-]+', '_', _share_pdf_text(order_no, 'document')).strip('_')
     return base or 'document'
-
 
 def _wechat_share_today_in_orders():
     return InOrder.query.options(
@@ -22563,7 +21513,6 @@ def _wechat_share_today_in_orders():
         InOrder.status == 'completed',
         InOrder.date == date.today(),
     ).order_by(InOrder.created_at.asc(), InOrder.id.asc()).all()
-
 
 def _wechat_share_send_image(config, image_path):
     helper_url = (
@@ -22600,7 +21549,6 @@ def _wechat_share_send_image(config, image_path):
         app.logger.warning('微信发送助手调用失败: %s', exc)
         return False, f'微信发送助手调用失败：{exc}'
 
-
 def _wechat_share_status_from_send_result(sent, message):
     if sent:
         return 'sent'
@@ -22612,7 +21560,6 @@ def _wechat_share_status_from_send_result(sent, message):
     if any(term in message_text for term in failure_terms):
         return 'failed'
     return 'pending'
-
 
 def _wechat_share_helper_health_url(config):
     helper_url = (
@@ -22627,7 +21574,6 @@ def _wechat_share_helper_health_url(config):
     if parsed.path.endswith('/send'):
         return helper_url.rsplit('/send', 1)[0].rstrip('/') + '/health'
     return helper_url.rstrip('/') + '/health'
-
 
 def _wechat_share_get_helper_health(config):
     health = {
@@ -22662,7 +21608,6 @@ def _wechat_share_get_helper_health(config):
     except Exception as exc:
         health['message'] = f'助手不可用：{exc}'
     return health
-
 
 def _wechat_share_order(config, order, trigger_type='manual', force=False):
     existing = WechatShareLog.query.filter_by(
@@ -22702,7 +21647,6 @@ def _wechat_share_order(config, order, trigger_type='manual', force=False):
     db.session.add(log)
     return log, 'created'
 
-
 def run_wechat_share_for_today(trigger_type='manual', force=False, config=None):
     config = config or _wechat_share_default_config()
     if not config.enabled and trigger_type == 'scheduled':
@@ -22732,7 +21676,6 @@ def run_wechat_share_for_today(trigger_type='manual', force=False, config=None):
         'skipped': skipped,
         'log_ids': [log.id for log in logs if getattr(log, 'id', None)],
     }
-
 
 def run_due_wechat_share_jobs():
     if not has_app_context():
@@ -22765,13 +21708,11 @@ def run_due_wechat_share_jobs():
             db.session.rollback()
             app.logger.exception('微信分享定时任务失败: config_id=%s', config.id)
 
-
 def _share_pdf_paragraph(value, style):
     from xml.sax.saxutils import escape
     from reportlab.platypus import Paragraph
 
     return Paragraph(escape(_share_pdf_text(value)), style)
-
 
 def _build_order_share_pdf(order, module_key):
     from reportlab.lib import colors
@@ -22928,7 +21869,6 @@ def _build_order_share_pdf(order, module_key):
     filename = f'{_share_pdf_text(order.order_no, "document")}.pdf'
     return output, filename
 
-
 @app.route('/api/share_pdf/<module_key>/<int:id>')
 @login_required
 def share_order_pdf(module_key, id):
@@ -22950,7 +21890,6 @@ def share_order_pdf(module_key, id):
     output, filename = _build_order_share_pdf(order, module_key)
     return send_file(output, mimetype='application/pdf', as_attachment=True, download_name=filename)
 
-
 def _share_image_font(size, bold=False):
     from PIL import ImageFont
 
@@ -22967,14 +21906,12 @@ def _share_image_font(size, bold=False):
                 continue
     return ImageFont.load_default()
 
-
 def _image_text_width(draw, text, font):
     try:
         box = draw.textbbox((0, 0), str(text), font=font)
         return box[2] - box[0]
     except Exception:
         return len(str(text)) * 10
-
 
 def _fit_image_text(draw, text, font, width):
     text = _share_pdf_text(text)
@@ -22987,7 +21924,6 @@ def _fit_image_text(draw, text, font, width):
             break
         result += ch
     return (result or text[:1]) + ellipsis
-
 
 def _wrap_image_text(draw, text, font, width, max_lines=2):
     text = _share_pdf_text(text)
@@ -23009,12 +21945,10 @@ def _wrap_image_text(draw, text, font, width, max_lines=2):
         lines[-1] = _fit_image_text(draw, lines[-1], font, width)
     return lines or ['-']
 
-
 def _draw_wrapped_text(draw, xy, lines, font, fill, line_height):
     x, y = xy
     for index, line in enumerate(lines):
         draw.text((x, y + index * line_height), line, font=font, fill=fill)
-
 
 def _load_share_order(module_key, id):
     if module_key == 'in_order':
@@ -23030,7 +21964,6 @@ def _load_share_order(module_key, id):
             selectinload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit)
         ).get_or_404(id)
     abort(404)
-
 
 def _build_order_share_image(order, module_key):
     from PIL import Image, ImageDraw
@@ -23189,7 +22122,6 @@ def _build_order_share_image(order, module_key):
     filename = f'{_share_pdf_text(order.order_no, "document")}.png'
     return output, filename
 
-
 @app.route('/api/share_image/<module_key>/<int:id>')
 @login_required
 def share_order_image(module_key, id):
@@ -23199,7 +22131,6 @@ def share_order_image(module_key, id):
     output, filename = _build_order_share_image(order, module_key)
     return send_file(output, mimetype='image/png', as_attachment=True, download_name=filename)
 
-
 def _wechat_share_log_status_label(status):
     return {
         'sent': '已发送',
@@ -23207,7 +22138,6 @@ def _wechat_share_log_status_label(status):
         'failed': '失败',
         'skipped': '跳过',
     }.get(status, status or '-')
-
 
 def _wechat_share_log_trigger_label(trigger_type):
     return {
@@ -23217,7 +22147,6 @@ def _wechat_share_log_trigger_label(trigger_type):
         'completed': '单据完成后分享',
         'test': '测试',
     }.get(trigger_type, trigger_type or '-')
-
 
 def _wechat_share_log_message_summary(message, max_len=80):
     text = str(message or '').strip()
@@ -23230,7 +22159,6 @@ def _wechat_share_log_message_summary(message, max_len=80):
         return text
     return text[:max_len - 1] + '...'
 
-
 def _wechat_helper_authorized():
     expected = str(app.config.get('WECHAT_HELPER_TOKEN') or '').strip()
     # 仅允许通过 HTTP header 传递 token，避免 URL query 参数被访问日志/Referer/浏览器历史泄露
@@ -23239,7 +22167,6 @@ def _wechat_helper_authorized():
         or ''
     ).strip()
     return bool(expected and provided and secrets.compare_digest(expected, provided))
-
 
 def _wechat_helper_task_payload(log):
     return {
@@ -23256,7 +22183,6 @@ def _wechat_helper_task_payload(log):
         'image_url': url_for('wechat_helper_task_image', log_id=log.id),
         'report_url': url_for('wechat_helper_report_task', log_id=log.id),
     }
-
 
 @app.route('/api/wechat_helper/tasks')
 def wechat_helper_tasks():
@@ -23275,7 +22201,6 @@ def wechat_helper_tasks():
         'tasks': [_wechat_helper_task_payload(log) for log in logs],
     })
 
-
 @app.route('/api/wechat_helper/task/<int:log_id>/image')
 def wechat_helper_task_image(log_id):
     if not _wechat_helper_authorized():
@@ -23290,7 +22215,6 @@ def wechat_helper_task_image(log_id):
         abort(404)
     filename = os.path.basename(image_path)
     return send_file(image_path, mimetype='image/png', as_attachment=True, download_name=filename)
-
 
 @app.route('/api/wechat_helper/task/<int:log_id>/report', methods=['POST'])
 @csrf.exempt
@@ -23320,177 +22244,6 @@ def wechat_helper_report_task(log_id):
         app.logger.error('微信助手回写状态失败: %s', exc)
         return jsonify({'status': 'error', 'msg': 'report failed'}), 500
 
-
-@app.route('/wechat_share')
-@login_required
-@role_required('admin')
-def wechat_share_page():
-    config = _wechat_share_default_config()
-    status_filter = (request.args.get('status') or '').strip()
-    if status_filter not in {'', 'pending', 'failed', 'sent', 'skipped'}:
-        status_filter = ''
-    log_limit = request.args.get('limit', 10, type=int)
-    if log_limit not in {10, 20, 50}:
-        log_limit = 10
-    logs_query = WechatShareLog.query
-    if status_filter:
-        logs_query = logs_query.filter(WechatShareLog.status == status_filter)
-    log_total_count = logs_query.count()
-    logs = logs_query.order_by(WechatShareLog.created_at.desc()).limit(log_limit).all()
-    today_orders = _wechat_share_today_in_orders()
-    helper_configured = bool((config.helper_url or '').strip() or os.environ.get('WMS_WECHAT_HELPER_URL', '').strip())
-    helper_health = _wechat_share_get_helper_health(config)
-    latest_log = next((log for log in logs if log.module_key == 'in_order'), None)
-    log_counts = {
-        'pending': WechatShareLog.query.filter_by(status='pending').count(),
-        'failed': WechatShareLog.query.filter_by(status='failed').count(),
-        'sent_today': WechatShareLog.query.filter(
-            WechatShareLog.status == 'sent',
-            WechatShareLog.share_date == date.today(),
-        ).count(),
-    }
-    return render_template(
-        'wechat_share.html',
-        share_config=config,
-        logs=logs,
-        today_orders=today_orders,
-        today_count=len(today_orders),
-        helper_configured=helper_configured,
-        helper_health=helper_health,
-        latest_log=latest_log,
-        log_counts=log_counts,
-        log_filters={'status': status_filter, 'limit': log_limit},
-        log_total_count=log_total_count,
-        status_label=_wechat_share_log_status_label,
-        trigger_label=_wechat_share_log_trigger_label,
-        message_summary=_wechat_share_log_message_summary,
-        format_file_size=format_file_size,
-    )
-
-
-@app.route('/wechat_share/save', methods=['POST'])
-@login_required
-@role_required('admin')
-def save_wechat_share_config():
-    config = _wechat_share_default_config()
-    share_time = (request.form.get('share_time') or '15:30').strip()
-    if not _wechat_share_time_is_valid(share_time):
-        return api_error('分享时间格式不正确，请使用 HH:MM')
-
-    receiver_type = (request.form.get('receiver_type') or 'person').strip()
-    if receiver_type not in {'person', 'group'}:
-        receiver_type = 'person'
-
-    config.sender_name = (request.form.get('sender_name') or '').strip()
-    config.sender_wechat_id = (request.form.get('sender_wechat_id') or '').strip()
-    config.receiver_name = (request.form.get('receiver_name') or '').strip()
-    config.receiver_wechat_id = (request.form.get('receiver_wechat_id') or '').strip()
-    config.receiver_search_key = (request.form.get('receiver_search_key') or '').strip()
-    config.receiver_type = receiver_type
-    config.share_time = share_time
-    config.share_in_order = request.form.get('share_in_order') == '1'
-    config.immediate_on_complete = request.form.get('immediate_on_complete') == '1'
-    config.enabled = request.form.get('enabled') == '1'
-    config.auto_send = request.form.get('auto_send') == '1'
-    config.helper_url = (request.form.get('helper_url') or '').strip() or 'http://127.0.0.1:8765/send'
-    config.updated_at = datetime.now()
-
-    if not config.receiver_search_key:
-        config.receiver_search_key = config.receiver_name or config.receiver_wechat_id
-    if not config.receiver_name and not config.receiver_wechat_id:
-        return api_error('请填写接收人名称或接收人微信号')
-
-    try:
-        db.session.commit()
-        log_operation('保存微信分享设置', f'接收人：{config.receiver_name or config.receiver_wechat_id}，时间：{config.share_time}', 'wechat_share', config.id)
-        return jsonify({'status': 'success', 'msg': '微信分享设置已保存'})
-    except Exception as exc:
-        db.session.rollback()
-        app.logger.error('保存微信分享设置失败: %s', exc)
-        return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'}), 500
-
-
-@app.route('/wechat_share/run_now', methods=['POST'])
-@login_required
-@role_required('admin')
-def run_wechat_share_now():
-    force = request.form.get('force') == '1'
-    try:
-        result = run_wechat_share_for_today(trigger_type='manual', force=force)
-        log_operation('立即执行微信分享', result.get('msg', ''), 'wechat_share')
-        return jsonify(result)
-    except Exception as exc:
-        db.session.rollback()
-        app.logger.exception('立即执行微信分享失败')
-        return jsonify({'status': 'error', 'msg': f'执行失败：{exc}'}), 500
-
-
-@app.route('/wechat_share/log/<int:log_id>/resend', methods=['POST'])
-@login_required
-@role_required('admin')
-def resend_wechat_share_log(log_id):
-    log = WechatShareLog.query.get_or_404(log_id)
-    config = log.config or _wechat_share_default_config()
-    if log.module_key != 'in_order':
-        return jsonify({'status': 'error', 'msg': '当前只支持重发入库单分享记录'}), 400
-    if not log.image_path:
-        return jsonify({'status': 'error', 'msg': '该记录没有可重发的图片'}), 400
-    base_dir = os.path.abspath(_wechat_share_output_dir())
-    image_path = os.path.abspath(log.image_path)
-    if not image_path.startswith(base_dir + os.sep) or not os.path.exists(image_path):
-        return jsonify({'status': 'error', 'msg': '分享图片不存在，请重新生成今日图片'}), 404
-
-    try:
-        sent, message = _wechat_share_send_image(config, image_path)
-        log.status = _wechat_share_status_from_send_result(sent, message)
-        log.message = message
-        log.trigger_type = 'manual_resend'
-        log.receiver_name = config.receiver_name
-        log.receiver_wechat_id = config.receiver_wechat_id
-        log.sent_at = datetime.now() if sent else None
-        db.session.commit()
-        log_operation('重发微信分享', f'记录：{log.id}，单据：{log.order_no or "-"}，状态：{log.status}', 'wechat_share', log.id)
-        return jsonify({'status': 'success', 'msg': message or '已重新提交微信助手', 'log_status': log.status})
-    except Exception as exc:
-        db.session.rollback()
-        app.logger.exception('重发微信分享失败: log_id=%s', log_id)
-        return jsonify({'status': 'error', 'msg': f'重发失败：{exc}'}), 500
-
-
-@app.route('/wechat_share/logs/clear', methods=['POST'])
-@login_required
-@role_required('admin')
-def clear_wechat_share_logs():
-    clear_status = (request.form.get('status') or '').strip()
-    if clear_status not in {'failed', 'skipped'}:
-        return jsonify({'status': 'error', 'msg': '只能清理失败或跳过的分享记录'}), 400
-
-    try:
-        deleted = WechatShareLog.query.filter(WechatShareLog.status == clear_status).delete(synchronize_session=False)
-        db.session.commit()
-        log_operation('清理微信分享记录', f'状态：{_wechat_share_log_status_label(clear_status)}，数量：{deleted}', 'wechat_share')
-        return jsonify({'status': 'success', 'msg': f'已清理 {deleted} 条{_wechat_share_log_status_label(clear_status)}记录', 'deleted': deleted})
-    except Exception as exc:
-        db.session.rollback()
-        app.logger.exception('清理微信分享记录失败: status=%s', clear_status)
-        return jsonify({'status': 'error', 'msg': f'清理失败：{exc}'}), 500
-
-
-@app.route('/wechat_share/log/<int:log_id>/image')
-@login_required
-@role_required('admin')
-def download_wechat_share_log_image(log_id):
-    log = WechatShareLog.query.get_or_404(log_id)
-    if not log.image_path:
-        abort(404)
-    base_dir = os.path.abspath(_wechat_share_output_dir())
-    image_path = os.path.abspath(log.image_path)
-    if not image_path.startswith(base_dir + os.sep) or not os.path.exists(image_path):
-        abort(404)
-    filename = os.path.basename(image_path)
-    return send_file(image_path, mimetype='image/png', as_attachment=True, download_name=filename)
-
-
 def _get_master_list_filters(default_sort='code'):
     """BUG-F02-01 修复：基础资料列表默认按 code 升序，方便人工查字典式浏览。
     历史默认是 created_at desc，每次进列表都是"最新创建在前"，不符合"按编码/名称查字典"的预期。
@@ -23503,20 +22256,17 @@ def _get_master_list_filters(default_sort='code'):
         sort_order = 'asc'
     return search, status_filter, sort_by, sort_order
 
-
 def _apply_simple_search(query, model, search, fields):
     if not search:
         return query
     search_like = f'%{search}%'
     return query.filter(db.or_(*(getattr(model, field).like(search_like) for field in fields)))
 
-
 def _apply_master_order(query, model, sort_by, sort_order, allowed_sorts, default_sort='created_at'):
     if sort_by not in allowed_sorts:
         sort_by = default_sort
     sort_col = getattr(model, sort_by, getattr(model, default_sort))
     return query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()), sort_by
-
 
 def _warehouse_query_from_args():
     # BUG-F02-01 修复：仓库列表默认按 code 升序
@@ -23539,7 +22289,6 @@ def _warehouse_query_from_args():
     query, sort_by = _apply_master_order(query, Warehouse, sort_by, sort_order, {'code', 'name', 'type', 'location', 'status', 'created_at'})
     return query, {'search': search, 'status': status_filter}, sort_by, sort_order
 
-
 def _department_query_from_args():
     # BUG-F02-01 修复：部门列表默认按 code 升序
     search, status_filter, sort_by, sort_order = _get_master_list_filters('code')
@@ -23558,7 +22307,6 @@ def _department_query_from_args():
         query = query.filter(Department.status == status_filter)
     query, sort_by = _apply_master_order(query, Department, sort_by, sort_order, {'code', 'name', 'status', 'created_at'})
     return query, {'search': search, 'status': status_filter}, sort_by, sort_order
-
 
 def _bom_query_from_args():
     search, status_filter, sort_by, sort_order = _get_master_list_filters()
@@ -23587,7 +22335,6 @@ def _bom_query_from_args():
     sort_col = getattr(BOM, sort_by, BOM.created_at)
     query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc())
     return query, {'search': search, 'status': status_filter}, sort_by, sort_order
-
 
 def _print_template_query_from_args(model):
     search, status_filter, sort_by, sort_order = _get_master_list_filters('created_at')
@@ -23625,7 +22372,6 @@ def _print_template_query_from_args(model):
         query = query.order_by(model.is_default.desc())
     return query, {'search': search, 'status': status_filter, 'type': type_filter}, sort_by, sort_order
 
-
 def _serialize_document_nav_item(item, config):
     item_id = item.id
     number = str(_document_nav_value(item, config['number']) or '')
@@ -23642,7 +22388,6 @@ def _serialize_document_nav_item(item, config):
         'url': detail_url,
     }
 
-
 def _document_nav_matches(item, row, config, keyword):
     if not keyword:
         return True
@@ -23652,7 +22397,6 @@ def _document_nav_matches(item, row, config, keyword):
         parts.append(_document_nav_value(item, getter))
     parts.extend(_document_nav_material_terms(item))
     return keyword in ' '.join(str(part or '') for part in parts).lower()
-
 
 @app.route('/api/document_navigation/<module_key>')
 @login_required
@@ -23683,8 +22427,6 @@ def api_document_navigation(module_key):
         'total': len(rows),
     })
 
-
-
 # ==================== In order management ====================
 
 INBOUND_PUSH_TARGETS = {
@@ -23693,7 +22435,6 @@ INBOUND_PUSH_TARGETS = {
     'after_sale_out': {'label': '售后出库单', 'business_type': None},
 }
 
-
 def _in_order_push_source_type(order):
     if order.business_type == '采购入库':
         return 'purchase_in_order'
@@ -23701,12 +22442,10 @@ def _in_order_push_source_type(order):
         return 'other_in_order'
     return None
 
-
 def _active_in_order_push_lines(order_id):
     return DocumentPushLine.query.filter_by(
         source_document_id=order_id, status='active'
     ).filter(DocumentPushLine.source_document_type.in_(('purchase_in_order', 'other_in_order')))
-
 
 def _in_order_push_quantities(order):
     rows = _active_in_order_push_lines(order.id).with_entities(
@@ -23715,12 +22454,10 @@ def _in_order_push_quantities(order):
     ).group_by(DocumentPushLine.source_item_id).all()
     return {item_id: normalize_stock_quantity(quantity) for item_id, quantity in rows}
 
-
 def _push_target_url(target_type, target_id):
     if target_type in ('requisition', 'other_out'):
         return url_for('out_order_detail', id=target_id)
     return url_for('after_sale_out_detail', id=target_id)
-
 
 def _in_order_push_history(order):
     rows = DocumentPushLine.query.filter_by(source_document_id=order.id).filter(
@@ -23748,7 +22485,6 @@ def _in_order_push_history(order):
         grouped[key]['quantity'] += row.pushed_quantity or 0
     return list(grouped.values())
 
-
 def _release_document_push_lines(target_type, target_id, reason):
     now = datetime.now()
     rows = DocumentPushLine.query.filter_by(
@@ -23761,7 +22497,6 @@ def _release_document_push_lines(target_type, target_id, reason):
         row.released_at = now
         row.release_reason = reason
     return len(rows)
-
 
 def _source_has_active_push(order_id):
     return _active_in_order_push_lines(order_id).first() is not None
@@ -23903,7 +22638,6 @@ def in_order_detail(id):
         operation_logs=get_recent_operation_logs('in_order', id),
     )
 
-
 @app.route('/in_order/<int:id>/push')
 @require_role('warehouse')
 @login_required
@@ -23933,7 +22667,6 @@ def in_order_push_page(id):
         'in_order_push.html', order=order, lines=lines,
         target_types=INBOUND_PUSH_TARGETS, customers=Customer.query.order_by(Customer.code.asc()).all(),
     )
-
 
 @app.route('/in_order/<int:id>/push', methods=['POST'])
 @require_role('warehouse')
@@ -24787,7 +23520,6 @@ def copy_in_order_to_out(id):
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success', 'msg': '操作完成', 'out_order_id': out_order.id})
 
-
 def _apply_header_or_item_contract_filters(query, header_model, item_model, order_fk_name,
                                            contract_no_filter='', project_name_filter=''):
     """表头或任一明细匹配合同编号/工程名称（避免仅明细有值时列表漏查）。"""
@@ -24811,7 +23543,6 @@ def _apply_header_or_item_contract_filters(query, header_model, item_model, orde
         ).exists()
         query = query.filter(db.or_(header_model.project_name.like(like), item_exists))
     return query
-
 
 @app.route('/in_order/<int:id>/copy', methods=['POST'])
 @require_role('warehouse')
@@ -24912,9 +23643,6 @@ def copy_in_order(id):
         app.logger.error(f'复制入库单失败: {e}')
         return api_error('复制失败，请稍后重试')
 
-
-
-
 @app.route('/out_order/<int:id>/copy', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -25000,7 +23728,6 @@ def copy_out_order(id):
         app.logger.error(f'复制出库单失败: {e}')
         return api_error('复制失败，请稍后重试')
 
-
 def _calc_smart_threshold(values, base_threshold=0.5, min_threshold=0.2, max_threshold=1.0):
     """基于历史数据计算智能异常阈值。
     数据稳定（变异系数小）→ 阈值收紧；数据波动大 → 阈值放宽。
@@ -25025,7 +23752,6 @@ def _calc_smart_threshold(values, base_threshold=0.5, min_threshold=0.2, max_thr
     threshold = max(min_threshold, min(threshold, max_threshold))
     
     return threshold, mean, std
-
 
 def _check_in_order_anomalies(order):
     """检测入库单异常：数量异常、价格异常、重复单据。返回异常列表。"""
@@ -25124,7 +23850,6 @@ def _check_in_order_anomalies(order):
     
     return anomalies
 
-
 @app.route('/in_order/<int:id>/check_anomalies', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -25160,7 +23885,6 @@ def check_in_order_anomalies(id):
         'anomalies': anomalies,
         'has_anomalies': len(anomalies) > 0
     })
-
 
 def _acquire_order_write_lock(model_cls, record_id, expected_status, eager_load=None):
     """获取单据写锁并重新读取状态，避免多 worker 并发重复处理同一张单据。
@@ -25199,7 +23923,6 @@ def _acquire_order_write_lock(model_cls, record_id, expected_status, eager_load=
     except Exception:
         db.session.rollback()
         return None, False
-
 
 @app.route('/in_order/<int:id>/complete', methods=['POST'])
 @require_role('warehouse')
@@ -25302,7 +24025,6 @@ def complete_in_order(id):
     except Exception as e:
         db.session.rollback()
         return api_error('提交失败，请稍后重试')
-
 
 @app.route('/in_order/<int:id>/update_completed', methods=['POST'])
 @require_role('warehouse')
@@ -25509,7 +24231,6 @@ def update_completed_in_order(id):
         app.logger.exception(f'更新入库单失败: {e}')
         return api_error('保存失败，请稍后重试')
 
-
 @app.route('/api/material/all', methods=['GET', 'POST'])
 @web_or_api_required
 def material_all_api():
@@ -25519,7 +24240,6 @@ def material_all_api():
         'success': True,
         'data': [api_material_payload(material) for material in materials]
     })
-
 
 @app.route('/api/material/search', methods=['GET', 'POST'])
 @web_or_api_required
@@ -25549,7 +24269,6 @@ def material_search_api():
         'data': [api_material_payload(material) for material in materials]
     })
 
-
 @app.route('/api/material/info', methods=['GET', 'POST'])
 @web_or_api_required
 def material_info_api():
@@ -25570,7 +24289,6 @@ def material_info_api():
         'success': True,
         'data': api_material_payload(material)
     })
-
 
 # ==================== 字段配置API ====================
 
@@ -25634,7 +24352,6 @@ DEFAULT_FIELD_CONFIGS = {
     ],
 }
 
-
 def get_user_field_config(user_id, page_type):
     """获取用户的字段配置，如果没有则返回默认配置"""
     configs = UserFieldConfig.query.filter_by(user_id=user_id, page_type=page_type).all()
@@ -25653,7 +24370,6 @@ def get_user_field_config(user_id, page_type):
     # 返回默认配置
     defaults = DEFAULT_FIELD_CONFIGS.get(page_type, [])
     return [dict(d) for d in defaults]
-
 
 def save_user_field_config(user_id, page_type, configs):
     """保存用户的字段配置"""
@@ -25681,14 +24397,12 @@ def save_user_field_config(user_id, page_type, configs):
         raise
     return True
 
-
 @app.route('/api/field_config/<page_type>', methods=['GET'])
 @login_required
 def get_field_config_api(page_type):
     """获取字段配置API"""
     configs = get_user_field_config(current_user.id, page_type)
     return jsonify({'status': 'success', 'data': configs})
-
 
 @app.route('/api/field_config/<page_type>', methods=['POST'])
 @require_role('warehouse')
@@ -25705,7 +24419,6 @@ def save_field_config_api(page_type):
     except Exception as e:
         db.session.rollback()
         return api_error('保存失败，请稍后重试')
-
 
 @app.route('/in_order/<int:id>/delete', methods=['POST'])
 @require_role('warehouse')
@@ -25750,7 +24463,6 @@ def delete_in_order(id):
     except Exception as e:
         db.session.rollback()
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/in_order/<int:id>/revert', methods=['POST'])
 @require_role('warehouse')
@@ -25811,7 +24523,6 @@ def revert_in_order(id):
     except Exception as e:
         db.session.rollback()
         return api_error('操作失败，请稍后重试')
-
 
 @app.route('/in_order/<int:id>/convert_to_out_order', methods=['POST'])
 @require_role('warehouse')
@@ -25876,7 +24587,6 @@ def convert_in_order_to_out_order(id):
         db.session.rollback()
         app.logger.error(f'入库单转领料单失败: {e}')
         return api_error(f'转换失败：{str(e)}')
-
 
 @app.route('/in_order/batch_delete', methods=['POST'])
 @require_role('warehouse')
@@ -25965,7 +24675,6 @@ def batch_delete_in_order():
         'skipped': skipped,
         'po_update_failed': po_update_failed,
     })
-
 
 @app.route('/in_order/batch_complete', methods=['POST'])
 @require_role('warehouse')
@@ -26148,7 +24857,6 @@ def bom_detail(id):
     ).get_or_404(id)
     return _render_bom_form(bom)
 
-
 @app.route('/bom/<int:id>/print')
 @login_required
 def print_bom(id):
@@ -26198,12 +24906,10 @@ def print_bom(id):
         'signatures': ['制单', '审核', '生产', '仓库'],
     })
 
-
 @app.route('/bom/add', methods=['GET'])
 @login_required
 def bom_add_page():
     return _render_bom_form()
-
 
 @app.route('/bom/save_table', methods=['POST'])
 @require_role('production')
@@ -26383,13 +25089,11 @@ def add_bom_item(id):
         db.session.rollback()
         return api_error('操作失败，请稍后重试')
 
-
 @app.route('/bom/<int:id>/add_item', methods=['POST'])
 @require_role('production')
 @login_required
 def add_bom_item_alias(id):
     return add_bom_item(id)
-
 
 @app.route('/bom/<int:id>/item/<int:item_id>/delete', methods=['POST'])
 @require_role('production')
@@ -26411,13 +25115,11 @@ def delete_bom_item(id, item_id):
         db.session.commit()
     return jsonify({'status': 'success'})
 
-
 @app.route('/bom/<int:id>/delete_item/<int:item_id>', methods=['POST'])
 @require_role('production')
 @login_required
 def delete_bom_item_alias(id, item_id):
     return delete_bom_item(id, item_id)
-
 
 @app.route('/bom/<int:id>/delete', methods=['POST'])
 @require_role('production')
@@ -26434,13 +25136,11 @@ def delete_bom(id):
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success'})
 
-
 @app.route('/bom/delete/<int:id>', methods=['POST'])
 @require_role('production')
 @login_required
 def delete_bom_alias(id):
     return delete_bom(id)
-
 
 @app.route('/bom/batch_delete', methods=['POST'])
 @require_role('production')
@@ -26458,7 +25158,6 @@ def batch_delete_bom():
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success'})
 
-
 def calculate_bom_cost_value(bom, refresh_unit_cost=True):
     total_cost = 0
     for item in bom.items:
@@ -26471,7 +25170,6 @@ def calculate_bom_cost_value(bom, refresh_unit_cost=True):
     bom.total_cost = round_to_2_decimals(total_cost)
     return bom.total_cost
 
-
 def _clean_int(value):
     if value in (None, '', 'None', 'null'):
         return None
@@ -26480,13 +25178,11 @@ def _clean_int(value):
     except (TypeError, ValueError):
         return None
 
-
 def _parse_form_date(value, default=None):
     value = (value or '').strip()
     if not value:
         return default or date.today()
     return datetime.strptime(value, '%Y-%m-%d').date()
-
 
 def _parse_excel_date(value, default=None):
     """Parse dates from Excel cells or strings."""
@@ -26506,7 +25202,6 @@ def _parse_excel_date(value, default=None):
             continue
     return default or date.today()
 
-
 def _get_excel_cell(row, col_map, key, default=''):
     idx = col_map.get(key)
     if idx is None or idx >= len(row) or row[idx] is None:
@@ -26518,13 +25213,11 @@ def _get_excel_cell(row, col_map, key, default=''):
         return value.strftime('%Y-%m-%d')
     return str(value).strip()
 
-
 def _get_excel_number(row, col_map, key, default=0):
     idx = col_map.get(key)
     if idx is None or idx >= len(row) or row[idx] in (None, ''):
         return default
     return round_to_2_decimals(parse_float_value(row[idx], default))
-
 
 def _find_or_create_unit(name):
     name = (name or '').strip()
@@ -26537,7 +25230,6 @@ def _find_or_create_unit(name):
         db.session.flush()
     return unit
 
-
 def _find_or_create_supplier(name):
     name = (name or '').strip()
     if not name:
@@ -26548,7 +25240,6 @@ def _find_or_create_supplier(name):
         db.session.add(supplier)
         db.session.flush()
     return supplier
-
 
 def _find_or_create_customer(name, contact='', phone=''):
     name = (name or '').strip()
@@ -26570,7 +25261,6 @@ def _find_or_create_customer(name, contact='', phone=''):
             customer.phone = phone
     return customer
 
-
 def _find_or_create_warehouse(name):
     name = (name or '').strip()
     if not name:
@@ -26586,7 +25276,6 @@ def _find_or_create_warehouse(name):
         db.session.add(warehouse)
         db.session.flush()
     return warehouse
-
 
 def _find_or_create_material(code, name='', spec='', unit_name=''):
     code = (code or '').strip()
@@ -26615,7 +25304,6 @@ def _find_or_create_material(code, name='', spec='', unit_name=''):
             material.unit_id = unit.id
     return material
 
-
 def _build_col_map(header_row, aliases):
     col_map = {}
     for idx, header in enumerate(header_row):
@@ -26629,7 +25317,6 @@ def _build_col_map(header_row, aliases):
                 col_map[key] = idx
     return col_map
 
-
 def _workbook_response(filename, sheet_title, columns, rows=None):
     from openpyxl import Workbook
     wb = Workbook()
@@ -26642,7 +25329,6 @@ def _workbook_response(filename, sheet_title, columns, rows=None):
     wb.save(output)
     output.seek(0)
     return send_file(output, download_name=filename, as_attachment=True)
-
 
 def _read_import_sheet(file, aliases):
     # 底层防御：即使调用方漏校验，也阻止非 Excel 文件进入 openpyxl 解析
@@ -26660,7 +25346,6 @@ def _read_import_sheet(file, aliases):
     header_row = [str(cell).strip() if cell else '' for cell in header]
     return ws, _build_col_map(header_row, aliases), header_row
 
-
 def _import_result(name, order_count, item_count=0, skip=0, skip_details=None, extra=None):
     msg = f'{name}导入成功，共导入 {order_count} 张单据'
     if item_count:
@@ -26674,10 +25359,8 @@ def _import_result(name, order_count, item_count=0, skip=0, skip_details=None, e
         payload.update(extra)
     return jsonify(payload)
 
-
 def _order_no_from_row(row, col_map, key, prefix):
     return _get_excel_cell(row, col_map, key) or generate_order_no(prefix)
-
 
 def _material_from_payload(item_data):
     material_id = _clean_int(item_data.get('material_id'))
@@ -26689,7 +25372,6 @@ def _material_from_payload(item_data):
     if material_code:
         return Material.query.filter_by(code=material_code).first()
     return None
-
 
 def _material_line_data(item, quantity=None, extra=None):
     material = item.material
@@ -26712,7 +25394,6 @@ def _material_line_data(item, quantity=None, extra=None):
         data.update(extra)
     return data
 
-
 def _fmt_date(value):
     if isinstance(value, datetime):
         return value.strftime('%Y-%m-%d %H:%M')
@@ -26720,17 +25401,14 @@ def _fmt_date(value):
         return value.strftime('%Y-%m-%d')
     return value or ''
 
-
 def _operator_name(obj):
     operator = getattr(obj, 'operator', None)
     return operator.username if operator else ''
-
 
 def _material_unit_name(item):
     material = getattr(item, 'material', None)
     unit = getattr(item, 'unit', None) or (material.unit if material and material.unit else None)
     return unit.name if unit else ''
-
 
 def _material_row_common(item, quantity=None, price=None, amount=None, remark=None, extra=None):
     material = getattr(item, 'material', None)
@@ -26748,7 +25426,6 @@ def _material_row_common(item, quantity=None, price=None, amount=None, remark=No
         row.update(extra)
     return row
 
-
 def _print_status_label(status):
     labels = {
         'pending': '草稿',
@@ -26764,7 +25441,6 @@ def _print_status_label(status):
     }
     return labels.get(status, status or '')
 
-
 def _render_generic_document_print(payload):
     payload.setdefault('print_time', datetime.now())
     payload.setdefault('status_label', _print_status_label(payload.get('status')))
@@ -26772,16 +25448,13 @@ def _render_generic_document_print(payload):
     payload.setdefault('total_amount', sum(row.get('amount', 0) or 0 for row in payload.get('rows', [])))
     return render_template('document_print.html', doc=payload)
 
-
 def _document_materials_json():
     materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()
     return [serialize_material(material) for material in materials]
 
-
 def _document_units_json():
     units = Unit.query.order_by(Unit.name.asc()).all()
     return [{'id': unit.id, 'name': unit.name} for unit in units]
-
 
 def _render_transfer_form(transfer=None):
     warehouses = get_active_warehouses()
@@ -26820,7 +25493,6 @@ def _render_transfer_form(transfer=None):
         revert_label='反提交',
         revert_url=url_for('revert_transfer', id=transfer.id if transfer else 0),
     )
-
 
 def _render_check_form(check=None):
     return render_template(
@@ -26863,7 +25535,6 @@ def _render_check_form(check=None):
         revert_label='反提交',
         revert_url=url_for('revert_check', id=check.id if check else 0),
     )
-
 
 def _render_bom_form(bom=None):
     return render_template(
@@ -26908,7 +25579,6 @@ def _render_bom_form(bom=None):
         revert_url='',
     )
 
-
 def _render_requisition_form(requisition=None):
     boms = BOM.query.order_by(BOM.bom_no.asc()).all()
     return render_template(
@@ -26945,7 +25615,6 @@ def _render_requisition_form(requisition=None):
         revert_url=url_for('revert_requisition', id=requisition.id if requisition else 0),
     )
 
-
 @app.route('/bom/<int:id>/calculate_cost', methods=['POST'])
 @require_role('production')
 @login_required
@@ -26959,7 +25628,6 @@ def calculate_bom_cost(id):
         db.session.rollback()
         app.logger.error(f'计算BOM成本失败: {e}')
         return api_error('计算失败，请稍后重试')
-
 
 @app.route('/bom/export')
 @login_required
@@ -27186,7 +25854,6 @@ def import_bom():
         db.session.rollback()
         return api_error(f'BOM 导入失败：{str(e)}')
 
-
 @app.route('/export/template/bom')
 @login_required
 def export_bom_template():
@@ -27233,7 +25900,6 @@ def create_requisition_from_bom(bom_id):
         app.logger.error(f"数据库操作失败: {e}")
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success', 'id': requisition.id})
-
 
 # ==================== Label template management ====================
 
@@ -27351,7 +26017,6 @@ def save_label_template_layout(id):
     )
     return jsonify({'status': 'success', 'msg': '布局已保存', 'updated_at': template.updated_at.strftime('%Y-%m-%d %H:%M:%S') if template.updated_at else ''})
 
-
 @app.route('/label_template/<int:id>/preview')
 @login_required
 def preview_label_template(id):
@@ -27383,7 +26048,6 @@ def set_default_template(id):
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success'})
 
-
 @app.route('/label_template/api/list')
 @login_required
 def api_label_template_list():
@@ -27401,7 +26065,6 @@ def api_label_template_list():
             'is_default': t.is_default
         })
     return jsonify({'status': 'success', 'templates': result})
-
 
 @app.route('/label_template/api/<int:id>/detail')
 @login_required
@@ -27431,7 +26094,6 @@ def api_label_template_detail(id):
     }
     return jsonify({'status': 'success', 'template': data})
 
-
 @app.route('/barcode/generate')
 @login_required
 def generate_barcode():
@@ -27451,7 +26113,6 @@ def generate_barcode():
     output.seek(0)
     return send_file(output, mimetype='application/pdf', download_name=f'{code}.pdf')
 
-
 @app.route('/api/barcode/<path:code>')
 def api_barcode_image(code):
     """生成条码图片（PNG格式）"""
@@ -27470,7 +26131,6 @@ def api_barcode_image(code):
     except Exception as e:
         app.logger.error(f'生成条码失败: {e}')
         return jsonify({'status': 'error', 'msg': '生成条码失败'}), 500
-
 
 @app.route('/api/qrcode/<path:data>')
 def api_qrcode_image(data):
@@ -27492,7 +26152,6 @@ def api_qrcode_image(data):
     except Exception as e:
         app.logger.error(f'生成二维码失败: {e}')
         return jsonify({'status': 'error', 'msg': '生成二维码失败'}), 500
-
 
 # ==================== Production requisition ====================
 
@@ -27539,7 +26198,6 @@ def requisition_list():
     }
     return render_template('requisition.html', requisitions=requisitions, boms=boms, filters=filters, sort_by=sort_by, sort_order=sort_order)
 
-
 @app.route('/production_requisition/add')
 @app.route('/production_requisition')
 @app.route('/requisition/add', methods=['GET'])
@@ -27557,7 +26215,6 @@ def requisition_detail(id):
         selectinload(ProductionRequisition.items).joinedload(ProductionRequisitionItem.unit)
     ).get_or_404(id)
     return _render_requisition_form(requisition)
-
 
 @app.route('/requisition/save_table', methods=['POST'])
 @require_role('production')
@@ -27660,7 +26317,6 @@ def add_requisition():
         app.logger.error(f'保存工单领料单失败: {e}')
         return api_error('操作失败，请稍后重试')
 
-
 @app.route('/requisition/<int:id>/update', methods=['POST'])
 @require_role('production')
 @login_required
@@ -27682,7 +26338,6 @@ def update_requisition(id):
         db.session.rollback()
         app.logger.error(f'修改工单领料单失败: {e}')
         return api_error('保存失败，请稍后重试')
-
 
 @app.route('/requisition/<int:id>/item/add', methods=['POST'])
 @require_role('production')
@@ -27882,7 +26537,6 @@ def complete_requisition(id):
     log_operation('工单领料完成', f'工单领料单：{requisition.req_no}', 'requisition', id)
     return jsonify({'status': 'success'})
 
-
 @app.route('/requisition/<int:id>/revert', methods=['POST'])
 @require_role('production')
 @login_required
@@ -27923,7 +26577,6 @@ def revert_requisition(id):
     except Exception as e:
         db.session.rollback()
         return api_error('撤销失败，请稍后重试')
-
 
 @app.route('/requisition/<int:id>/delete', methods=['POST'])
 @require_role('production')
@@ -27968,7 +26621,6 @@ def batch_delete_requisition():
         app.logger.error(f"数据库操作失败: {e}")
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success'})
-
 
 @app.route('/requisition/export')
 @login_required
@@ -28034,7 +26686,6 @@ def export_requisition():
         rows,
     )
 
-
 @app.route('/export/template/requisition')
 @login_required
 def export_requisition_template():
@@ -28044,7 +26695,6 @@ def export_requisition_template():
         ['单据编号', '日期', '工单', '用途', 'BOM编号', '物料编码', '物料名称', '规格', '单位', '数量', '备注'],
         [['REQ24010001', '2024-01-01', 'MO24010001', '工单领料', '', 'MAT001', '示例物料', '规格A', '个', 10, '']],
     )
-
 
 @app.route('/requisition/import', methods=['POST'])
 @require_role('production')
@@ -28133,7 +26783,6 @@ def import_requisition():
         app.logger.error(f'工单领料导入失败: {e}')
         return api_error(f'工单领料导入失败：{str(e)}')
 
-
 # ==================== Subcontract ====================
 
 @app.route('/subcontract')
@@ -28197,7 +26846,6 @@ def subcontract_detail(id):
         suppliers=suppliers,
         operation_logs=get_recent_operation_logs('subcontract', id),
     )
-
 
 @app.route('/subcontract/<int:id>/print')
 @login_required
@@ -28357,7 +27005,6 @@ def delete_subcontract_item(id, item_id):
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success'})
 
-
 @app.route('/subcontract/<int:id>/issue', methods=['POST'])
 @require_role('production')
 @login_required
@@ -28411,7 +27058,6 @@ def quick_issue_subcontract(id):
         db.session.rollback()
         app.logger.error(f'委外快速发料失败: {e}')
         return api_error('发料失败，请稍后重试')
-
 
 @app.route('/subcontract/<int:id>/receive', methods=['POST'])
 @require_role('production')
@@ -28474,7 +27120,6 @@ def quick_receive_subcontract(id):
         app.logger.error(f'委外快速收货失败: {e}')
         return api_error('收货失败，请稍后重试')
 
-
 @app.route('/subcontract/<int:id>/edit', methods=['POST'])
 @require_role('production')
 @login_required
@@ -28513,7 +27158,6 @@ def edit_subcontract_header(id):
         db.session.rollback()
         app.logger.error(f'编辑委外单失败: {e}')
         return api_error('保存失败，请稍后重试')
-
 
 @app.route('/subcontract/<int:id>/copy', methods=['POST'])
 @require_role('production')
@@ -28574,7 +27218,6 @@ def copy_subcontract(id):
         app.logger.error(f'复制委外单失败: {e}')
         return api_error('复制失败，请稍后重试')
 
-
 @app.route('/subcontract/<int:id>/submit', methods=['POST'])
 @require_role('production')
 @login_required
@@ -28593,7 +27236,6 @@ def submit_subcontract(id):
     except Exception:
         db.session.rollback()
         return api_error('提交失败，请稍后重试')
-
 
 @app.route('/subcontract/<int:id>/revert_to_pending', methods=['POST'])
 @require_role('production')
@@ -28616,7 +27258,6 @@ def revert_subcontract_to_pending(id):
     except Exception:
         db.session.rollback()
         return api_error('反提交失败，请稍后重试')
-
 
 @app.route('/subcontract/<int:id>/delete', methods=['POST'])
 @require_role('production')
@@ -28705,7 +27346,6 @@ def batch_update_subcontract_status():
         return jsonify({"status": "error", "msg": "操作失败"}), 500
     return jsonify({'status': 'success', 'count': updated, 'msg': f'状态更新成功，共处理 {updated} 条'})
 
-
 @app.route('/subcontract/export')
 @login_required
 def export_subcontract():
@@ -28760,7 +27400,6 @@ def export_subcontract():
         rows,
     )
 
-
 @app.route('/export/template/subcontract')
 @app.route('/subcontract/download_template')
 @login_required
@@ -28771,7 +27410,6 @@ def export_subcontract_template():
         ['单据编号', '日期', '加工厂商', '联系人', '电话', '交货期限', '物料编码', '物料名称', '规格', '单位', '数量', '备注'],
         [['SC24010001', '2024-01-01', '示例加工厂', '王五', '13800138000', '2024-01-10', 'MAT001', '示例物料', '规格A', '个', 10, '']],
     )
-
 
 @app.route('/subcontract/import', methods=['POST'])
 @require_role('production')
@@ -28863,7 +27501,6 @@ def import_subcontract():
         app.logger.error(f'委外加工导入失败: {e}')
         return api_error(f'委外加工导入失败：{str(e)}')
 
-
 @app.route('/subcontract/<int:id>/complete', methods=['POST'])
 @require_role('production')
 @login_required
@@ -28885,7 +27522,6 @@ def complete_subcontract_order(id):
         db.session.rollback()
         return api_error('操作失败，请稍后重试')
 
-
 @app.route('/subcontract/<int:id>/revert', methods=['POST'])
 @require_role('production')
 @login_required
@@ -28902,7 +27538,6 @@ def revert_subcontract_order(id):
     except Exception:
         db.session.rollback()
         return api_error('反完结失败，请稍后重试')
-
 
 # ==================== Subcontract Issue ====================
 
@@ -28952,7 +27587,6 @@ def subcontract_issue_list():
         per_page=per_page,
         today=date.today()
     )
-
 
 @app.route('/subcontract_issue/add', methods=['POST'])
 @app.route('/subcontract/issue/add', methods=['POST'])
@@ -29029,7 +27663,6 @@ def add_subcontract_issue():
         db.session.rollback()
         return api_error('创建失败，请稍后重试')
 
-
 @app.route('/subcontract/issue/<int:id>')
 @app.route('/subcontract_issue/<int:id>')
 @login_required
@@ -29051,7 +27684,6 @@ def subcontract_issue_detail_fragment(id):
         rows.append('<tr><td colspan="5" class="text-center text-muted">暂无明细</td></tr>')
     rows.append('</tbody></table></div>')
     return ''.join(rows)
-
 
 @app.route('/subcontract/issue/<int:id>/print')
 @app.route('/subcontract_issue/<int:id>/print')
@@ -29091,7 +27723,6 @@ def print_subcontract_issue(id):
         'rows': rows,
         'signatures': ['制单', '发料', '委外签收', '仓库主管'],
     })
-
 
 @app.route('/subcontract_issue/<int:id>/item/add', methods=['POST'])
 @app.route('/subcontract/issue/<int:id>/item/add', methods=['POST'])
@@ -29139,7 +27770,6 @@ def add_subcontract_issue_item(id):
     except Exception as e:
         db.session.rollback()
         return api_error('添加失败，请稍后重试')
-
 
 @app.route('/subcontract_issue/<int:id>/complete', methods=['POST'])
 @app.route('/subcontract/issue/<int:id>/complete', methods=['POST'])
@@ -29200,7 +27830,6 @@ def complete_subcontract_issue(id):
         db.session.rollback()
         return api_error('操作失败，请稍后重试')
 
-
 @app.route('/subcontract_issue/<int:id>/revert', methods=['POST'])
 @app.route('/subcontract/issue/<int:id>/revert', methods=['POST'])
 @require_role('production')
@@ -29234,7 +27863,6 @@ def revert_subcontract_issue(id):
         db.session.rollback()
         return api_error('反提交失败，请稍后重试')
 
-
 @app.route('/subcontract_issue/<int:id>/delete', methods=['POST'])
 @app.route('/subcontract/issue/<int:id>/delete', methods=['POST'])
 @app.route('/subcontract/issue/delete/<int:id>', methods=['POST'])
@@ -29257,7 +27885,6 @@ def delete_subcontract_issue(id):
     except Exception as e:
         db.session.rollback()
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/subcontract_issue/batch_delete', methods=['POST'])
 @app.route('/subcontract/issue/batch_delete', methods=['POST'])
@@ -29283,7 +27910,6 @@ def batch_delete_subcontract_issue():
         db.session.rollback()
         app.logger.error(f'批量删除委外发料单失败: {e}')
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/subcontract_issue/export')
 @app.route('/subcontract/issue/export')
@@ -29331,7 +27957,6 @@ def export_subcontract_issue():
         rows,
     )
 
-
 @app.route('/export/template/subcontract_issue')
 @app.route('/subcontract_issue/download_template')
 @login_required
@@ -29342,7 +27967,6 @@ def export_subcontract_issue_template():
         ['发料单号', '日期', '委外加工单号', '加工厂商', '物料编码', '物料名称', '规格', '单位', '数量', '备注'],
         [['SF24010001', '2024-01-01', 'SC24010001', '示例加工厂', 'MAT001', '示例物料', '规格A', '个', 10, '']],
     )
-
 
 @app.route('/subcontract_issue/import', methods=['POST'])
 @app.route('/subcontract/issue/import', methods=['POST'])
@@ -29431,7 +28055,6 @@ def import_subcontract_issue():
         app.logger.error(f'委外发料导入失败: {e}')
         return api_error(f'委外发料导入失败：{str(e)}')
 
-
 # ==================== Subcontract Receive ====================
 
 @app.route('/subcontract_receive')
@@ -29480,7 +28103,6 @@ def subcontract_receive_list():
         per_page=per_page,
         today=date.today()
     )
-
 
 @app.route('/subcontract_receive/add', methods=['POST'])
 @app.route('/subcontract/receive/add', methods=['POST'])
@@ -29568,7 +28190,6 @@ def add_subcontract_receive():
         db.session.rollback()
         return api_error('创建失败，请稍后重试')
 
-
 @app.route('/subcontract/receive/<int:id>')
 @app.route('/subcontract_receive/<int:id>')
 @login_required
@@ -29592,7 +28213,6 @@ def subcontract_receive_detail_fragment(id):
         rows.append('<tr><td colspan="7" class="text-center text-muted">暂无明细</td></tr>')
     rows.append('</tbody></table></div>')
     return ''.join(rows)
-
 
 @app.route('/subcontract/receive/<int:id>/print')
 @app.route('/subcontract_receive/<int:id>/print')
@@ -29648,7 +28268,6 @@ def print_subcontract_receive(id):
         'signatures': ['制单', '收货', '质检', '仓库'],
     })
 
-
 @app.route('/subcontract_receive/<int:id>/item/add', methods=['POST'])
 @app.route('/subcontract/receive/<int:id>/item/add', methods=['POST'])
 @require_role('production')
@@ -29692,7 +28311,6 @@ def add_subcontract_receive_item(id):
     except Exception as e:
         db.session.rollback()
         return api_error('添加失败，请稍后重试')
-
 
 @app.route('/subcontract_receive/<int:id>/complete', methods=['POST'])
 @app.route('/subcontract/receive/<int:id>/complete', methods=['POST'])
@@ -29749,7 +28367,6 @@ def complete_subcontract_receive(id):
         db.session.rollback()
         return api_error('操作失败，请稍后重试')
 
-
 @app.route('/subcontract_receive/<int:id>/revert', methods=['POST'])
 @app.route('/subcontract/receive/<int:id>/revert', methods=['POST'])
 @require_role('production')
@@ -29786,7 +28403,6 @@ def revert_subcontract_receive(id):
         db.session.rollback()
         return api_error('反提交失败，请稍后重试')
 
-
 @app.route('/subcontract_receive/<int:id>/delete', methods=['POST'])
 @app.route('/subcontract/receive/<int:id>/delete', methods=['POST'])
 @app.route('/subcontract/receive/delete/<int:id>', methods=['POST'])
@@ -29809,7 +28425,6 @@ def delete_subcontract_receive(id):
     except Exception as e:
         db.session.rollback()
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/subcontract_receive/batch_delete', methods=['POST'])
 @app.route('/subcontract/receive/batch_delete', methods=['POST'])
@@ -29835,7 +28450,6 @@ def batch_delete_subcontract_receive():
         db.session.rollback()
         app.logger.error(f'批量删除委外入库单失败: {e}')
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/subcontract_receive/export')
 @app.route('/subcontract/receive/export')
@@ -29886,7 +28500,6 @@ def export_subcontract_receive():
         rows,
     )
 
-
 @app.route('/export/template/subcontract_receive')
 @app.route('/subcontract_receive/download_template')
 @login_required
@@ -29897,7 +28510,6 @@ def export_subcontract_receive_template():
         ['入库单号', '日期', '委外加工单号', '加工厂商', '物料编码', '物料名称', '规格', '单位', '收货数量', '报废数量', '单价', '备注'],
         [['SR24010001', '2024-01-01', 'SC24010001', '示例加工厂', 'MAT001', '示例物料', '规格A', '个', 10, 0, 5, '']],
     )
-
 
 @app.route('/subcontract_receive/import', methods=['POST'])
 @app.route('/subcontract/receive/import', methods=['POST'])
@@ -29998,7 +28610,6 @@ def import_subcontract_receive():
         app.logger.error(f'委外入库导入失败: {e}')
         return api_error(f'委外入库导入失败：{str(e)}')
 
-
 # ==================== Transfer ====================
 
 @app.route('/transfer')
@@ -30047,12 +28658,10 @@ def transfer_list():
     }
     return render_template('transfer.html', transfers=transfers, pagination=pagination, warehouses=warehouses, default_warehouse=get_default_warehouse(), filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page)
 
-
 @app.route('/transfer/add', methods=['GET'])
 @login_required
 def transfer_add_page():
     return _render_transfer_form()
-
 
 @app.route('/transfer/<int:id>')
 @login_required
@@ -30064,7 +28673,6 @@ def transfer_detail(id):
         selectinload(TransferOrder.items).joinedload(TransferOrderItem.unit)
     ).get_or_404(id)
     return _render_transfer_form(transfer)
-
 
 @app.route('/transfer/save_table', methods=['POST'])
 @require_role('warehouse')
@@ -30155,7 +28763,6 @@ def save_transfer_table():
         app.logger.error(f'保存调拨单表格失败: {e}')
         return api_error('保存失败，请稍后重试')
 
-
 @app.route('/transfer/add', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -30205,7 +28812,6 @@ def add_transfer():
     except Exception as e:
         db.session.rollback()
         return api_error('创建失败，请稍后重试')
-
 
 @app.route('/transfer/<int:id>/item/add', methods=['POST'])
 @require_role('warehouse')
@@ -30257,7 +28863,6 @@ def add_transfer_item(id):
         db.session.rollback()
         return api_error('添加失败，请稍后重试')
 
-
 @app.route('/transfer/<int:id>/item/<int:item_id>/delete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -30278,7 +28883,6 @@ def delete_transfer_item(id, item_id):
     except Exception as e:
         db.session.rollback()
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/transfer/<int:id>/item/<int:item_id>/update', methods=['POST'])
 @require_role('warehouse')
@@ -30313,7 +28917,6 @@ def update_transfer_item(id, item_id):
         app.logger.error(f'调拨明细修改失败: {e}')
         return api_error('修改失败，请稍后重试')
 
-
 @app.route('/transfer/<int:id>/batch_delete_items', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -30344,7 +28947,6 @@ def batch_delete_transfer_items(id):
         db.session.rollback()
         app.logger.error(f'批量删除调拨明细失败: {e}')
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/transfer/<int:id>/complete', methods=['POST'])
 @require_role('warehouse')
@@ -30413,7 +29015,6 @@ def complete_transfer(id):
         app.logger.error(f'调拨完成失败：{e}')
         return api_error('操作失败，请稍后重试')
 
-
 @app.route('/transfer/<int:id>/revert', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -30467,7 +29068,6 @@ def revert_transfer(id):
         app.logger.error(f'反提交调拨失败: {e}')
         return api_error('反提交失败，请稍后重试')
 
-
 @app.route('/transfer/<int:id>/update', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -30484,7 +29084,6 @@ def update_transfer(id):
     except Exception as e:
         db.session.rollback()
         return api_error('修改失败，请稍后重试')
-
 
 @app.route('/transfer/<int:id>/copy', methods=['POST'])
 @require_role('warehouse')
@@ -30521,7 +29120,6 @@ def copy_transfer(id):
         db.session.rollback()
         return api_error('复制失败，请稍后重试')
 
-
 @app.route('/transfer/<int:id>/delete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -30542,7 +29140,6 @@ def delete_transfer(id):
     except Exception as e:
         db.session.rollback()
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/transfer/batch_delete', methods=['POST'])
 @require_role('warehouse')
@@ -30576,7 +29173,6 @@ def batch_delete_transfer():
         db.session.rollback()
         app.logger.error(f'批量删除调拨单失败: {e}')
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/transfer/export')
 @login_required
@@ -30639,7 +29235,6 @@ def export_transfer():
         rows,
     )
 
-
 @app.route('/export/template/transfer')
 @login_required
 def export_transfer_template():
@@ -30649,7 +29244,6 @@ def export_transfer_template():
         ['单据编号', '日期', '调出仓库', '调入仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注'],
         [['TF24010001', '2024-01-01', '材料仓', '成品仓', 'MAT001', '示例物料', '规格A', '个', 10, 0, '']],
     )
-
 
 @app.route('/transfer/import', methods=['POST'])
 @require_role('warehouse')
@@ -30746,7 +29340,6 @@ def import_transfer():
         app.logger.error(f'库存调拨导入失败: {e}')
         return api_error(f'库存调拨导入失败：{str(e)}')
 
-
 @app.route('/transfer/<int:id>/batch_add_items', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -30807,7 +29400,6 @@ def batch_add_transfer_items(id):
         app.logger.error(f'批量添加调拨明细失败: {e}')
         return api_error('添加失败，请稍后重试')
 
-
 # ==================== Inventory adjustment management ====================
 
 @app.route('/adjustment')
@@ -30858,7 +29450,6 @@ def adjustment_list():
     }
     return render_template('adjustment.html', adjustments=adjustments, pagination=pagination, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page)
 
-
 def _serialize_adjustment_item_for_form(item):
     """Serialize adjustment detail rows for the table editor."""
     material = item.material
@@ -30879,7 +29470,6 @@ def _serialize_adjustment_item_for_form(item):
         'location': item.location or '',
         'reason': item.reason or '',
     }
-
 
 @app.route('/adjustment/add', methods=['GET'])
 @login_required
@@ -30907,7 +29497,6 @@ def adjustment_add_page():
                          existing_items=[],
                          readonly=False,
                          page_title='新增库存调整单')
-
 
 @app.route('/adjustment/<int:id>')
 @login_required
@@ -30940,7 +29529,6 @@ def adjustment_detail(id):
                          existing_items=[_serialize_adjustment_item_for_form(item) for item in adjustment.items],
                          readonly=readonly,
                          page_title=('查看库存调整单' if readonly else '编辑库存调整单'))
-
 
 @app.route('/adjustment/<int:id>/print')
 @login_required
@@ -30991,7 +29579,6 @@ def print_adjustment(id):
         'rows': rows,
         'signatures': ['制单', '审核', '仓库', '财务'],
     })
-
 
 @app.route('/adjustment/add', methods=['POST'])
 @require_role('warehouse')
@@ -31153,7 +29740,6 @@ def add_adjustment():
         app.logger.error(f'库存调整单保存失败: {e}')
         return api_error('保存失败，请稍后重试')
 
-
 @app.route('/adjustment/<int:id>/complete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -31224,7 +29810,6 @@ def complete_adjustment(id):
         app.logger.error(f'库存调整完成失败: {e}')
         return api_error('操作失败，请稍后重试')
 
-
 @app.route('/adjustment/<int:id>/revert', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -31288,7 +29873,6 @@ def revert_adjustment(id):
         app.logger.error(f'库存调整反提交失败: {e}')
         return api_error('反提交失败，请稍后重试')
 
-
 @app.route('/adjustment/<int:id>/delete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -31307,7 +29891,6 @@ def delete_adjustment(id):
         db.session.rollback()
         app.logger.error(f'库存调整单删除失败: {e}')
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/adjustment/batch_delete', methods=['POST'])
 @require_role('warehouse')
@@ -31334,7 +29917,6 @@ def batch_delete_adjustment():
         db.session.rollback()
         app.logger.error(f'批量删除库存调整单失败: {e}')
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/adjustment/export')
 @login_required
@@ -31400,7 +29982,6 @@ def export_adjustment():
         rows,
     )
 
-
 @app.route('/export/template/adjustment')
 @login_required
 def export_adjustment_template():
@@ -31410,7 +29991,6 @@ def export_adjustment_template():
         ['单据编号', '日期', '调整类型', '物料编码', '物料名称', '规格', '单位', '数量', '库位', '原因', '备注'],
         [['ADJ24010001', '2024-01-01', '盘盈', 'MAT001', '示例物料', '规格A', '个', 10, 'A01', '盘点差异', '']],
     )
-
 
 @app.route('/adjustment/import', methods=['POST'])
 @require_role('warehouse')
@@ -31502,7 +30082,6 @@ def import_adjustment():
         app.logger.error(f'库存调整导入失败: {e}')
         return api_error(f'库存调整导入失败：{str(e)}')
 
-
 # ==================== Inventory check management ====================
 
 @app.route('/check')
@@ -31559,7 +30138,6 @@ def check_list():
         default_warehouse=get_default_warehouse(),
     )
 
-
 @app.route('/inventory_check/add')
 @app.route('/inventory_check')
 @app.route('/check/add', methods=['GET'])
@@ -31575,7 +30153,6 @@ def check_detail(id):
         selectinload(InventoryCheck.items).joinedload(InventoryCheckItem.material).joinedload(Material.unit)
     ).get_or_404(id)
     return _render_check_form(check)
-
 
 @app.route('/check/save_table', methods=['POST'])
 @require_role('warehouse')
@@ -31733,7 +30310,6 @@ def _create_adjustment_drafts_from_check(check):
         drafts.append(order)
     return drafts, None
 
-
 def _create_adjustment_drafts_from_check_scan(check):
     """Create pending adjustment draft(s) from mobile/native stocktake differences."""
     existing = AdjustmentOrder.query.filter_by(source_type='check_scan', source_id=check.id).all()
@@ -31782,7 +30358,6 @@ def _create_adjustment_drafts_from_check_scan(check):
         drafts.append(order)
     return drafts, None
 
-
 @app.route('/check/<int:id>/complete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -31826,7 +30401,6 @@ def complete_check(id):
         db.session.rollback()
         app.logger.error(f'盘点完成失败：{e}')
         return api_error('盘点完成失败，请稍后重试')
-
 
 @app.route('/check/<int:id>/revert', methods=['POST'])
 @require_role('warehouse')
@@ -31897,7 +30471,6 @@ def revert_check(id):
         app.logger.error(f'盘点反提交失败: {e}')
         return api_error('反提交失败，请稍后重试')
 
-
 @app.route('/check/<int:id>/add_item', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -31953,7 +30526,6 @@ def add_check_item(id):
         db.session.rollback()
         return api_error('添加失败，请稍后重试')
 
-
 @app.route('/check/<int:id>/item/<int:item_id>', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -31983,7 +30555,6 @@ def update_check_item(id, item_id):
         db.session.rollback()
         return api_error('更新失败，请稍后重试')
 
-
 @app.route('/check/<int:id>/update', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -32000,7 +30571,6 @@ def update_check(id):
     except Exception as e:
         db.session.rollback()
         return api_error('修改失败，请稍后重试')
-
 
 @app.route('/check/<int:id>/copy', methods=['POST'])
 @require_role('warehouse')
@@ -32033,7 +30603,6 @@ def copy_check(id):
         db.session.rollback()
         return api_error('复制失败，请稍后重试')
 
-
 @app.route('/check/<int:id>/delete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -32054,7 +30623,6 @@ def delete_check(id):
     except Exception as e:
         db.session.rollback()
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/check/batch_delete', methods=['POST'])
 @require_role('warehouse')
@@ -32099,7 +30667,6 @@ def batch_delete_check():
         db.session.rollback()
         return api_error('删除失败，请稍后重试')
 
-
 @app.route('/check/<int:id>/item/<int:item_id>/delete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -32123,7 +30690,6 @@ def delete_check_item(id, item_id):
     except Exception as e:
         db.session.rollback()
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/check/export')
 @login_required
@@ -32182,7 +30748,6 @@ def export_check():
         rows,
     )
 
-
 @app.route('/export/template/check')
 @login_required
 def export_check_template():
@@ -32192,7 +30757,6 @@ def export_check_template():
         ['单据编号', '日期', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异原因', '备注'],
         [['CK24010001', '2024-01-01', 'MAT001', '示例物料', '规格A', '个', 100, 98, '盘点差异', '']],
     )
-
 
 @app.route('/check/import', methods=['POST'])
 @require_role('warehouse')
@@ -32276,7 +30840,6 @@ def import_check():
         db.session.rollback()
         app.logger.error(f'库存盘点导入失败: {e}')
         return api_error(f'库存盘点导入失败：{str(e)}')
-
 
 # ==================== Outbound order management ====================
 
@@ -32778,7 +31341,6 @@ def _check_out_order_anomalies(order):
     
     return anomalies
 
-
 @app.route('/out_order/<int:id>/check_anomalies', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -32814,7 +31376,6 @@ def check_out_order_anomalies(id):
         'anomalies': anomalies,
         'has_anomalies': len(anomalies) > 0
     })
-
 
 @app.route('/out_order/<int:id>/complete', methods=['POST'])
 @require_role('warehouse')
@@ -33134,7 +31695,6 @@ def print_out_order(id):
     order = OutOrder.query.get_or_404(id)
     return print_out_order_with_template(id)
 
-
 # ==================== After-sales outbound order management ====================
 
 @app.route('/after_sale_out')
@@ -33192,7 +31752,6 @@ def after_sale_out_detail(id):
         target_document_type='after_sale_out', target_document_id=order.id, status='active'
     ).first()
     return render_template('after_sale_out_detail.html', order=order, push_source=push_source, operation_logs=get_recent_operation_logs('after_sale_out_order', id))
-
 
 @app.route('/after_sale_out/<int:id>/print')
 @login_required
@@ -33253,7 +31812,6 @@ def after_sale_out_add_page():
                           default_warehouse=get_default_warehouse(),
                           order_id=None, order_no=order_no, order_date=order_date,
                           initial_items=[])
-
 
 @app.route('/after_sale_out/<int:id>/edit')
 @login_required
@@ -33495,7 +32053,6 @@ def complete_after_sale_out_order(id):
         db.session.rollback()
         return api_error('提交失败，请稍后重试')
 
-
 @app.route('/after_sale_out/<int:id>/revert', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -33544,7 +32101,6 @@ def revert_after_sale_out_order(id):
         app.logger.error(f'售后出库反提交失败: {e}')
         return api_error('反提交失败，请稍后重试')
 
-
 @app.route('/after_sale_out/<int:id>/delete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -33568,7 +32124,6 @@ def delete_after_sale_out_order(id):
     except Exception as e:
         db.session.rollback()
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/after_sale_out/<int:id>/copy', methods=['POST'])
 @require_role('warehouse')
@@ -33643,7 +32198,6 @@ def copy_after_sale_out_order(id):
         app.logger.error(f'复制售后出库单失败: {e}')
         return api_error('复制失败，请稍后重试')
 
-
 @app.route('/after_sale_out/batch_delete', methods=['POST'])
 @require_role('warehouse')
 @login_required
@@ -33672,7 +32226,6 @@ def batch_delete_after_sale_out():
         app.logger.error(f'批量删除售后出库单失败: {e}')
         return api_error('删除失败，请稍后重试')
 
-
 @app.route('/export/template/after_sale_out')
 @login_required
 def export_after_sale_out_template():
@@ -33683,7 +32236,6 @@ def export_after_sale_out_template():
         [['ASO24010001', '2024-01-01', '示例客户', '李四', '13800138000', '售后换货', 'MAT001', '示例物料', '规格A', '个', 1, 0, '']],
     )
 
-
 @app.route('/after_sale_out/download_template')
 @login_required
 def download_after_sale_out_template():
@@ -33693,7 +32245,6 @@ def download_after_sale_out_template():
         ['单据编号', '日期', '客户', '联系人', '电话', '售后原因', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注'],
         [['ASO24010001', '2024-01-01', '示例客户', '李四', '13800138000', '售后换货', 'MAT001', '示例物料', '规格A', '个', 1, 0, '']],
     )
-
 
 @app.route('/after_sale_out/import', methods=['POST'])
 @require_role('warehouse')
@@ -33793,7 +32344,6 @@ def import_after_sale_out():
         app.logger.error(f'售后出库导入失败: {e}')
         return api_error(f'售后出库导入失败：{str(e)}')
 
-
 # ==================== Purchase ====================
 
 @app.route('/purchase_request')
@@ -33879,7 +32429,6 @@ def purchase_request_detail(id):
         item_purchase_orders=item_purchase_orders,
     )
 
-
 @app.route('/purchase_request/<int:id>/print')
 @login_required
 def print_purchase_request(id):
@@ -33932,7 +32481,6 @@ def print_purchase_request(id):
         'total_amount': request_order.total_amount or sum(row.get('amount', 0) or 0 for row in rows),
         'signatures': ['申请', '部门审核', '采购审核', '批准'],
     })
-
 
 @app.route('/purchase_request/<int:id>/create_purchase_order', methods=['POST'])
 @require_role('purchase')
@@ -34124,7 +32672,6 @@ def purchase_request_add_page():
                           suppliers=[serialize_supplier(supplier) for supplier in suppliers],
                           request_id=None, request_no=request_no, request_date=request_date,
                           initial_items=[])
-
 
 @app.route('/purchase_request/<int:id>/edit')
 @login_required
@@ -34358,7 +32905,6 @@ def reject_purchase_request(id):
         db.session.rollback()
         return api_error('操作失败，请稍后重试')
 
-
 @app.route('/purchase_request/<int:id>/revert', methods=['POST'])
 @require_role('purchase')
 @login_required
@@ -34378,7 +32924,6 @@ def revert_purchase_request(id):
         db.session.rollback()
         app.logger.error(f'采购申请反审失败: {e}')
         return api_error('反审失败，请稍后重试')
-
 
 @app.route('/purchase_request/<int:id>/complete', methods=['POST'])
 @require_role('purchase')
@@ -34426,7 +32971,6 @@ def delete_purchase_request(id):
         app.logger.error(f'删除采购申请单失败: {str(e)}')
         return api_error(f'删除失败：{str(e)}')
 
-
 @app.route('/purchase_request/batch_delete', methods=['POST'])
 @require_role('purchase')
 @login_required
@@ -34453,7 +32997,6 @@ def batch_delete_purchase_request():
         app.logger.error(f'批量删除采购申请单失败: {e}')
         return api_error('删除失败，请稍后重试')
 
-
 @app.route('/export/template/purchase_request')
 @login_required
 def export_purchase_request_template():
@@ -34463,7 +33006,6 @@ def export_purchase_request_template():
         ['申请编号', '日期', '申请人', '部门', '紧急程度', '期望到货', '申请原因', '物料编码', '物料名称', '规格', '单位', '数量', '预估单价', '推荐供应商', '备注'],
         [['PR24010001', '2024-01-01', '张三', '采购部', '普通', '2024-01-10', '采购备货', 'MAT001', '示例物料', '规格A', '个', 10, 5, '示例供应商', '']],
     )
-
 
 @app.route('/purchase_request/import', methods=['POST'])
 @require_role('purchase')
@@ -34573,7 +33115,6 @@ def import_purchase_request():
         app.logger.error(f'采购申请导入失败: {e}')
         return api_error(f'采购申请导入失败：{str(e)}')
 
-
 @app.route('/purchase_order')
 @login_required
 def purchase_order_list():
@@ -34680,7 +33221,6 @@ def purchase_order_list():
         status_label=purchase_order_status_label,
     )
 
-
 @app.route('/export/template/purchase_order')
 @login_required
 def export_purchase_order_template():
@@ -34690,7 +33230,6 @@ def export_purchase_order_template():
         ['采购单号', '日期', '供应商', '预计到货', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注'],
         [['PO24010001', '2024-01-01', '示例供应商', '2024-01-10', 'MAT001', '示例物料', '规格A', '个', 10, 5, '']],
     )
-
 
 @app.route('/purchase_order/export')
 @login_required
@@ -34752,7 +33291,6 @@ def export_purchase_order():
         ['采购单号', '日期', '供应商', '预计到货', '状态', '物料编码', '物料名称', '规格', '单位', '采购数量', '已入库', '未入库', '单价', '金额', '备注'],
         rows,
     )
-
 
 @app.route('/purchase_order/import', methods=['POST'])
 @require_role('purchase')
@@ -34846,7 +33384,6 @@ def import_purchase_order():
         app.logger.error(f'采购单导入失败: {e}')
         return api_error(f'采购单导入失败：{str(e)}')
 
-
 @app.route('/purchase_order/add')
 @login_required
 def purchase_order_add_page():
@@ -34865,7 +33402,6 @@ def purchase_order_add_page():
         suppliers=[serialize_supplier(supplier) for supplier in suppliers],
         page_title='新增采购订单',
     )
-
 
 @app.route('/purchase_order/<int:id>/edit')
 @login_required
@@ -34890,7 +33426,6 @@ def purchase_order_edit_page(id):
         suppliers=[serialize_supplier(supplier) for supplier in suppliers],
         page_title='编辑采购单',
     )
-
 
 @app.route('/purchase_order/save', methods=['POST'])
 @require_role('purchase')
@@ -35021,7 +33556,6 @@ def save_purchase_order():
         app.logger.error(f'保存采购单失败: {e}')
         return api_error('保存失败，请稍后重试')
 
-
 @app.route('/purchase_order/<int:id>')
 @login_required
 def purchase_order_detail(id):
@@ -35052,7 +33586,6 @@ def purchase_order_detail(id):
         item_execution=item_execution,
         operation_logs=get_recent_operation_logs('purchase_order', id),
     )
-
 
 @app.route('/purchase_order/<int:id>/print')
 @login_required
@@ -35108,7 +33641,6 @@ def print_purchase_order(id):
         'signatures': ['制单', '采购', '供应商', '仓库'],
     })
 
-
 @app.route('/api/purchase_order/todo_summary')
 @login_required
 def api_purchase_order_todo_summary():
@@ -35136,7 +33668,6 @@ def api_purchase_order_todo_summary():
             'url': url_for('purchase_order_detail', id=order.id),
         } for order in latest_orders]
     })
-
 
 @app.route('/api/purchase_order/selectable')
 @require_role('warehouse', 'purchase')
@@ -35217,7 +33748,6 @@ def api_purchase_order_selectable():
                 'items': order_items,
             })
     return jsonify({'status': 'success', 'orders': orders, 'items': flat_items})
-
 
 @app.route('/purchase_order/create_in_order_from_selection', methods=['POST'])
 @require_role('warehouse', 'purchase')
@@ -35323,7 +33853,6 @@ def create_in_order_from_purchase_order_selection():
         app.logger.error(f'采购单选单生成采购入库单失败: {e}')
         return api_error('生成采购入库单失败，请稍后重试')
 
-
 @app.route('/purchase_order/<int:id>/copy', methods=['POST'])
 @require_role('purchase')
 @login_required
@@ -35383,7 +33912,6 @@ def copy_purchase_order(id):
         app.logger.error(f'复制采购单失败: {e}')
         return api_error('复制失败，请稍后重试')
 
-
 @app.route('/purchase_order/<int:id>/create_in_order', methods=['POST'])
 @require_role('warehouse', 'purchase')
 @login_required
@@ -35433,7 +33961,6 @@ def create_in_order_from_purchase_order(id):
         app.logger.error(f'采购单下推入库单失败: {e}')
         return api_error('生成采购入库单失败，请稍后重试')
 
-
 @app.route('/purchase_order/<int:id>/close', methods=['POST'])
 @require_role('purchase')
 @login_required
@@ -35455,7 +33982,6 @@ def close_purchase_order(id):
         app.logger.error(f'关闭采购单失败: {e}')
         return api_error('关闭失败，请稍后重试')
 
-
 @app.route('/purchase_order/<int:id>/reopen', methods=['POST'])
 @require_role('purchase')
 @login_required
@@ -35473,7 +33999,6 @@ def reopen_purchase_order(id):
         db.session.rollback()
         app.logger.error(f'重新打开采购单失败: {e}')
         return api_error('重新打开失败，请稍后重试')
-
 
 @app.route('/purchase_order/<int:id>/delete', methods=['POST'])
 @require_role('purchase')
@@ -35496,7 +34021,6 @@ def delete_purchase_order(id):
         db.session.rollback()
         app.logger.error(f'删除采购单失败: {e}')
         return api_error('删除失败，请稍后重试')
-
 
 @app.route('/purchase_order/batch_delete', methods=['POST'])
 @require_role('purchase')
@@ -35536,7 +34060,6 @@ def batch_delete_purchase_order():
         db.session.rollback()
         app.logger.error(f'批量删除采购单失败: {e}')
         return api_error('删除失败，请稍后重试')
-
 
 # ==================== Report ====================
 
@@ -35899,17 +34422,14 @@ REPORT_REFERENCE_LINKS = {
     'requisition': {'model': ProductionRequisition, 'number': 'req_no', 'endpoint': 'requisition_detail'},
 }
 
-
 def _get_report_definition(report_type):
     return REPORT_DEFINITIONS.get(report_type)
-
 
 def _shift_month_start(month_start, offset):
     month_index = month_start.month - 1 + offset
     year = month_start.year + month_index // 12
     month = month_index % 12 + 1
     return date(year, month, 1)
-
 
 def build_report_dashboard_context():
     today = date.today()
@@ -36104,13 +34624,11 @@ def build_report_dashboard_context():
     }
     return stats, chart_data
 
-
 def _safe_float(value):
     try:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
-
 
 def _parse_date_arg(name):
     value = (request.args.get(name) or '').strip()
@@ -36121,14 +34639,12 @@ def _parse_date_arg(name):
     except ValueError as exc:
         raise ValueError(f'{name} format is invalid') from exc
 
-
 def _parse_positive_int(value, default):
     try:
         parsed = int(value)
     except (TypeError, ValueError):
         return default
     return parsed if parsed > 0 else default
-
 
 def _build_report_filters():
     # BUG-2026-08-02-014：报表仓库必填筛选，未指定时带入默认仓库
@@ -36160,10 +34676,8 @@ def _build_report_filters():
         'export': (request.args.get('export') or '').strip().lower(),
     }
 
-
 def _keyword_tokens(keyword):
     return [token for token in str(keyword or '').split() if token]
-
 
 def _material_filter_clause(keyword):
     clauses = []
@@ -36176,7 +34690,6 @@ def _material_filter_clause(keyword):
         ))
     return db.and_(*clauses) if clauses else None
 
-
 def _supplier_filter_clause(keyword):
     clauses = []
     for token in _keyword_tokens(keyword):
@@ -36186,7 +34699,6 @@ def _supplier_filter_clause(keyword):
             Supplier.name.ilike(pattern),
         ))
     return db.and_(*clauses) if clauses else None
-
 
 def _material_matches(material, keyword):
     if not keyword:
@@ -36199,7 +34711,6 @@ def _material_matches(material, keyword):
     )
     return all(token.lower() in haystack for token in keyword.split() if token)
 
-
 def _supplier_matches(supplier, keyword):
     if not keyword:
         return True
@@ -36211,7 +34722,6 @@ def _supplier_matches(supplier, keyword):
     )
     return all(token.lower() in haystack for token in keyword.split() if token)
 
-
 def _within_date_range(value, start_date=None, end_date=None):
     if value is None:
         return False
@@ -36221,10 +34731,8 @@ def _within_date_range(value, start_date=None, end_date=None):
         return False
     return True
 
-
 def _status_label(status):
     return STATUS_LABELS.get(status, status or '-')
-
 
 def _report_detail_url(endpoint, doc_id):
     if not endpoint or not doc_id:
@@ -36233,7 +34741,6 @@ def _report_detail_url(endpoint, doc_id):
         return url_for(endpoint, id=doc_id)
     except Exception:
         return ''
-
 
 def _report_reference_info(reference_type, reference_id, fallback_no=''):
     config = REPORT_REFERENCE_LINKS.get(reference_type or '')
@@ -36248,7 +34755,6 @@ def _report_reference_info(reference_type, reference_id, fallback_no=''):
     number = getattr(doc, config['number'], None) or fallback_no or f'{reference_type}-{reference_id}'
     return str(number), _report_detail_url(config['endpoint'], doc.id)
 
-
 def _serialize_excel_value(column, row):
     value = row.get(column['field'])
     if value is None:
@@ -36256,7 +34762,6 @@ def _serialize_excel_value(column, row):
     if column.get('type') == 'status':
         return _status_label(value)
     return value
-
 
 def _build_excel_response(report_type, columns, rows):
     from openpyxl import Workbook
@@ -36282,7 +34787,6 @@ def _build_excel_response(report_type, columns, rows):
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
-
 def _sort_rows(rows, sort_field, sort_order):
     if not sort_field or not rows or sort_field not in rows[0]:
         return rows
@@ -36297,12 +34801,10 @@ def _sort_rows(rows, sort_field, sort_order):
 
     return sorted(rows, key=sort_key, reverse=(sort_order == 'desc'))
 
-
 def _paginate_rows(rows, page, page_size):
     start = (page - 1) * page_size
     end = start + page_size
     return rows[start:end]
-
 
 def _inventory_columns():
     columns = [
@@ -36320,7 +34822,6 @@ def _inventory_columns():
     if inventory_alert_enabled():
         columns.insert(-1, {'field': 'min_stock', 'title': '最低库存'})
     return columns
-
 
 def _in_detail_columns():
     return [
@@ -36340,7 +34841,6 @@ def _in_detail_columns():
         {'field': 'remark', 'title': '备注'},
     ]
 
-
 def _out_detail_columns():
     return [
         {'field': 'date', 'title': '日期'},
@@ -36359,7 +34859,6 @@ def _out_detail_columns():
         {'field': 'remark', 'title': '备注'},
     ]
 
-
 def _summary_columns():
     return [
         {'field': 'date', 'title': '日期'},
@@ -36372,7 +34871,6 @@ def _summary_columns():
         {'field': 'net_quantity', 'title': '净变动数量'},
         {'field': 'net_amount', 'title': '净变动金额', 'type': 'money'},
     ]
-
 
 def _check_columns():
     return [
@@ -36390,7 +34888,6 @@ def _check_columns():
         {'field': 'reason', 'title': '原因'},
     ]
 
-
 def _ledger_columns():
     return [
         {'field': 'date', 'title': '日期'},
@@ -36405,7 +34902,6 @@ def _ledger_columns():
         {'field': 'balance_quantity', 'title': '结存', 'type': 'number'},
         {'field': 'remark', 'title': '备注'},
     ]
-
 
 def _warehouse_monthly_columns():
     return [
@@ -36426,7 +34922,6 @@ def _warehouse_monthly_columns():
         {'field': 'transaction_count', 'title': '流水数量'},
         {'field': 'remark', 'title': '备注'},
     ]
-
 
 def _purchase_order_execution_columns():
     return [
@@ -36451,7 +34946,6 @@ def _purchase_order_execution_columns():
         {'field': 'remark', 'title': '备注'},
     ]
 
-
 def _supplier_purchase_summary_columns():
     return [
         {'field': 'supplier_code', 'title': '供应商编码'},
@@ -36468,7 +34962,6 @@ def _supplier_purchase_summary_columns():
         {'field': 'overdue_count', 'title': '逾期未到货行数'},
         {'field': 'last_purchase_date', 'title': '最近采购日期'},
     ]
-
 
 def _material_purchase_summary_columns():
     return [
@@ -36489,7 +34982,6 @@ def _material_purchase_summary_columns():
         {'field': 'last_purchase_date', 'title': '最近采购日期'},
     ]
 
-
 def _purchase_price_analysis_columns():
     return [
         {'field': 'material_code', 'title': '物料编码'},
@@ -36507,7 +34999,6 @@ def _purchase_price_analysis_columns():
         {'field': 'last_purchase_date', 'title': '最近采购日期'},
         {'field': 'last_order_no', 'title': '最近采购单', 'link_field': 'last_order_url'},
     ]
-
 
 def _collect_inventory_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
@@ -36541,7 +35032,6 @@ def _collect_inventory_rows(filters):
             'max_stock': _safe_float(material.max_stock),
         })
     return rows
-
 
 def _collect_in_detail_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
@@ -36601,7 +35091,6 @@ def _collect_in_detail_rows(filters):
         })
     return rows
 
-
 def _collect_out_detail_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
@@ -36659,7 +35148,6 @@ def _collect_out_detail_rows(filters):
         })
     return rows
 
-
 def _collect_check_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
@@ -36709,7 +35197,6 @@ def _collect_check_rows(filters):
             'reason': item.reason or '',
         })
     return rows
-
 
 def _collect_ledger_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
@@ -36777,7 +35264,6 @@ def _collect_ledger_rows(filters):
 
     return sorted(rows, key=lambda row: (row['date'], row['material_code'], row['reference_no']))
 
-
 def _purchase_order_item_query(filters):
     query = PurchaseOrderItem.query.join(PurchaseOrder).join(Material, PurchaseOrderItem.material_id == Material.id).options(
         joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.supplier),
@@ -36803,7 +35289,6 @@ def _purchase_order_item_query(filters):
     if material_clause is not None:
         query = query.filter(material_clause)
     return query
-
 
 def _collect_purchase_order_execution_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
@@ -36848,7 +35333,6 @@ def _collect_purchase_order_execution_rows(filters):
         })
     return rows
 
-
 def _build_purchase_summary_row(bucket):
     amount = bucket['amount']
     quantity = bucket['order_quantity']
@@ -36865,7 +35349,6 @@ def _build_purchase_summary_row(bucket):
         'avg_price': round_to_2_decimals(amount / quantity) if quantity else 0,
         'last_purchase_date': bucket['last_purchase_date'].isoformat() if bucket.get('last_purchase_date') else '',
     }
-
 
 def _build_supplier_purchase_summary_report(filters):
     rows_by_supplier = {}
@@ -36911,7 +35394,6 @@ def _build_supplier_purchase_summary_report(filters):
         rows.append(_build_purchase_summary_row(bucket))
     return rows
 
-
 def _build_material_purchase_summary_report(filters):
     rows_by_material = {}
     for row in _collect_purchase_order_execution_rows(filters):
@@ -36948,7 +35430,6 @@ def _build_material_purchase_summary_report(filters):
             bucket['last_supplier'] = row['supplier']
 
     return [_build_purchase_summary_row(bucket) for bucket in rows_by_material.values()]
-
 
 def _build_purchase_price_analysis_report(filters):
     rows_by_key = {}
@@ -36997,7 +35478,6 @@ def _build_purchase_price_analysis_report(filters):
         })
     return rows
 
-
 def _build_inventory_report(filters):
     rows = _collect_inventory_rows(filters)
     summary = {
@@ -37006,7 +35486,6 @@ def _build_inventory_report(filters):
         'amount': sum(row['stock_value'] for row in rows),
     }
     return _inventory_columns(), rows, summary
-
 
 def _build_in_detail_report(filters):
     rows = _collect_in_detail_rows(filters)
@@ -37017,7 +35496,6 @@ def _build_in_detail_report(filters):
     }
     return _in_detail_columns(), rows, summary
 
-
 def _build_out_detail_report(filters):
     rows = _collect_out_detail_rows(filters)
     summary = {
@@ -37026,7 +35504,6 @@ def _build_out_detail_report(filters):
         'amount': sum(row['amount'] for row in rows),
     }
     return _out_detail_columns(), rows, summary
-
 
 def _build_summary_report(filters):
     daily = {}
@@ -37073,7 +35550,6 @@ def _build_summary_report(filters):
     }
     return _summary_columns(), rows, summary
 
-
 def _build_check_report(filters):
     rows = _collect_check_rows(filters)
     summary = {
@@ -37082,7 +35558,6 @@ def _build_check_report(filters):
         'amount': sum(abs(row['difference']) for row in rows),
     }
     return _check_columns(), rows, summary
-
 
 def _build_ledger_report(filters):
     # 库存台账必须按单一物料查询，未指定物料时返回空数据并给出提示
@@ -37100,21 +35575,17 @@ def _build_ledger_report(filters):
     }
     return _ledger_columns(), rows, summary
 
-
 def _month_start(value):
     return value.replace(day=1)
 
-
 def _month_end(value):
     return _shift_month_start(_month_start(value), 1) - timedelta(days=1)
-
 
 def _iter_month_starts(start_month, end_month):
     current = start_month
     while current <= end_month:
         yield current
         current = _shift_month_start(current, 1)
-
 
 def _is_inbound_transaction(transaction_type, quantity):
     if transaction_type in ('opening', 'opening_stock'):
@@ -37124,7 +35595,6 @@ def _is_inbound_transaction(transaction_type, quantity):
     if transaction_type in ('out', 'transfer_out', 'adjustment_out', 'after_sale_out', 'check_out'):
         return False
     return _safe_float(quantity) >= 0
-
 
 def _build_warehouse_monthly_report(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
@@ -37246,7 +35716,6 @@ def _build_warehouse_monthly_report(filters):
     }
     return _warehouse_monthly_columns(), rows, summary
 
-
 def _build_purchase_order_execution_report(filters):
     rows = _collect_purchase_order_execution_rows(filters)
     summary = {
@@ -37255,7 +35724,6 @@ def _build_purchase_order_execution_report(filters):
         'amount': sum(row['amount'] for row in rows),
     }
     return _purchase_order_execution_columns(), rows, summary
-
 
 def _build_supplier_purchase_report(filters):
     rows = _build_supplier_purchase_summary_report(filters)
@@ -37266,7 +35734,6 @@ def _build_supplier_purchase_report(filters):
     }
     return _supplier_purchase_summary_columns(), rows, summary
 
-
 def _build_material_purchase_report(filters):
     rows = _build_material_purchase_summary_report(filters)
     summary = {
@@ -37276,7 +35743,6 @@ def _build_material_purchase_report(filters):
     }
     return _material_purchase_summary_columns(), rows, summary
 
-
 def _build_purchase_price_report(filters):
     rows = _build_purchase_price_analysis_report(filters)
     summary = {
@@ -37285,7 +35751,6 @@ def _build_purchase_price_report(filters):
         'amount': sum(row['amount'] for row in rows),
     }
     return _purchase_price_analysis_columns(), rows, summary
-
 
 def _subcontract_columns():
     return [
@@ -37297,7 +35762,6 @@ def _subcontract_columns():
         {'field': 'receive_qty', 'title': '收货数量'},
         {'field': 'remark', 'title': '备注'},
     ]
-
 
 def _build_subcontract_report(filters):
     """构建委外加工报表"""
@@ -37371,7 +35835,6 @@ def _build_subcontract_report(filters):
     }
     return _subcontract_columns(), rows, summary
 
-
 def _requisition_columns():
     return [
         {'field': 'req_no', 'title': '工单领料单号', 'link_field': 'order_url'},
@@ -37383,7 +35846,6 @@ def _requisition_columns():
         {'field': 'operator', 'title': '操作人'},
         {'field': 'remark', 'title': '备注'},
     ]
-
 
 def _build_requisition_report(filters):
     """构建工单领料报表"""
@@ -37439,7 +35901,6 @@ def _build_requisition_report(filters):
     }
     return _requisition_columns(), rows, summary
 
-
 REPORT_BUILDERS = {
     'inventory': _build_inventory_report,
     'in_detail': _build_in_detail_report,
@@ -37455,7 +35916,6 @@ REPORT_BUILDERS = {
     'subcontract': _build_subcontract_report,
     'requisition': _build_requisition_report,
 }
-
 
 def _build_report_payload(report_type, filters):
     builder = REPORT_BUILDERS.get(report_type)
@@ -38236,7 +36696,6 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
         app.logger.error(f'单据OCR识别失败: {e}')
         return jsonify({'status': 'error', 'msg': f'识别失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/document_feedback', methods=['POST'])
 @login_required
 def api_ai_document_feedback():
@@ -38343,7 +36802,6 @@ def api_ai_document_feedback():
         app.logger.error(f'字段反馈记录失败: {e}')
         return jsonify({'status': 'error', 'msg': f'记录失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/document_quality')
 @login_required
 def api_ai_document_quality():
@@ -38429,13 +36887,11 @@ def api_ai_document_quality():
         app.logger.error(f'文档质量指标聚合失败: {e}')
         return jsonify({'status': 'error', 'msg': f'聚合失败：{str(e)}'}), 500
 
-
 @app.route('/ai/warehouse_workbench')
 @login_required
 def ai_warehouse_workbench_page():
     """AI-R10-F01 仓库 AI 工作台页面。"""
     return render_template('ai_warehouse_workbench.html')
-
 
 @app.route('/api/ai/warehouse_workbench')
 @login_required
@@ -38473,13 +36929,11 @@ def api_ai_warehouse_workbench():
         app.logger.error(f'仓库工作台构建失败: {e}')
         return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
 
-
 @app.route('/ai/purchase_workbench')
 @login_required
 def ai_purchase_workbench_page():
     """AI-R11-F01 采购到货 AI 工作台页面。"""
     return render_template('ai_purchase_workbench.html')
-
 
 @app.route('/api/ai/purchase_followup_workbench')
 @login_required
@@ -38522,13 +36976,11 @@ def api_ai_purchase_followup_workbench():
         app.logger.error(f'采购跟进工作台构建失败: {e}')
         return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
 
-
 @app.route('/ai/sales_workbench')
 @login_required
 def ai_sales_workbench_page():
     """AI-SALES-F02 销售履约 AI 工作台页面。"""
     return render_template('ai_sales_workbench.html')
-
 
 @app.route('/api/ai/sales_followup_workbench')
 @login_required
@@ -38571,7 +37023,6 @@ def api_ai_sales_followup_workbench():
         app.logger.error(f'销售跟进工作台构建失败: {e}')
         return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
 
-
 # ===== AI-R12 知识库版本生命周期 API 端点 =====
 
 @app.route('/api/ai/knowledge_search')
@@ -38613,7 +37064,6 @@ def api_ai_knowledge_search():
         app.logger.error(f'知识库检索失败: {e}')
         return jsonify({'status': 'error', 'msg': f'检索失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/knowledge_versions')
 @login_required
 def api_ai_knowledge_versions():
@@ -38640,7 +37090,6 @@ def api_ai_knowledge_versions():
     except Exception as e:
         app.logger.error(f'知识版本列表查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/knowledge_draft', methods=['POST'])
 @login_required
@@ -38691,7 +37140,6 @@ def api_ai_knowledge_draft():
         app.logger.error(f'知识草稿创建失败: {e}')
         return jsonify({'status': 'error', 'msg': f'创建失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/knowledge_publish', methods=['POST'])
 @login_required
 @require_role('admin')
@@ -38730,7 +37178,6 @@ def api_ai_knowledge_publish():
         db.session.rollback()
         app.logger.error(f'知识发布失败: {e}')
         return jsonify({'status': 'error', 'msg': f'发布失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/knowledge_rollback', methods=['POST'])
 @login_required
@@ -38771,7 +37218,6 @@ def api_ai_knowledge_rollback():
         app.logger.error(f'知识回滚失败: {e}')
         return jsonify({'status': 'error', 'msg': f'回滚失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/knowledge_deprecate', methods=['POST'])
 @login_required
 @require_role('admin')
@@ -38803,7 +37249,6 @@ def api_ai_knowledge_deprecate():
         app.logger.error(f'知识失效失败: {e}')
         return jsonify({'status': 'error', 'msg': f'失效失败：{str(e)}'}), 500
 
-
 def _ai_safe_url_for(endpoint: str) -> str:
     """安全生成 URL，失败返回空串。"""
     if not endpoint:
@@ -38812,7 +37257,6 @@ def _ai_safe_url_for(endpoint: str) -> str:
         return url_for(endpoint)
     except Exception:
         return ''
-
 
 # ===== AI-R13 Agent 预算、取消、熔断和并发控制 API 端点 =====
 
@@ -38861,7 +37305,6 @@ def api_ai_agent_budget_check():
         app.logger.error(f'AI-R13 预算检查失败: {e}')
         return jsonify({'status': 'error', 'msg': f'检查失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/agent_concurrency_lock', methods=['POST'])
 @login_required
 @require_role('admin', 'warehouse', 'purchase')
@@ -38904,7 +37347,6 @@ def api_ai_agent_concurrency_lock():
     except Exception as e:
         app.logger.error(f'AI-R13 并发锁操作失败: {e}')
         return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/agent_circuit_breaker', methods=['POST'])
 @login_required
@@ -38962,7 +37404,6 @@ def api_ai_agent_circuit_breaker():
     except Exception as e:
         app.logger.error(f'AI-R13 熔断器操作失败: {e}')
         return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/agent_human_confirmation', methods=['POST'])
 @login_required
@@ -39034,7 +37475,6 @@ def api_ai_agent_human_confirmation():
         app.logger.error(f'AI-R13 人工确认操作失败: {e}')
         return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/agent_retry_record', methods=['POST'])
 @login_required
 @require_role('admin')
@@ -39089,7 +37529,6 @@ def api_ai_agent_retry_record():
     except Exception as e:
         app.logger.error(f'AI-R13 重试记录操作失败: {e}')
         return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/agent_validate_safety', methods=['POST'])
 @login_required
@@ -39153,7 +37592,6 @@ def api_ai_agent_validate_safety():
         app.logger.error(f'AI-R13 安全校验失败: {e}')
         return jsonify({'status': 'error', 'msg': f'校验失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/data_cleanup_preview', methods=['POST'])
 @login_required
 @require_role('admin')
@@ -39214,7 +37652,6 @@ def api_ai_data_cleanup_preview():
         app.logger.error(f'AI-R14 清理预览失败: {e}')
         return jsonify({'status': 'error', 'msg': f'预览失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/data_cleanup_execute', methods=['POST'])
 @login_required
 @require_role('admin')
@@ -39271,7 +37708,6 @@ def api_ai_data_cleanup_execute():
         app.logger.error(f'AI-R14 清理执行失败: {e}')
         return jsonify({'status': 'error', 'msg': f'执行失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/data_cleanup_logs', methods=['GET'])
 @login_required
 @require_role('admin')
@@ -39288,7 +37724,6 @@ def api_ai_data_cleanup_logs():
     except Exception as e:
         app.logger.error(f'AI-R14 清理日志查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/data_retention_config', methods=['GET'])
 @login_required
@@ -39315,7 +37750,6 @@ def api_ai_data_retention_config_get():
     except Exception as e:
         app.logger.error(f'AI-R14 保留配置查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/data_retention_config', methods=['POST'])
 @login_required
@@ -39351,7 +37785,6 @@ def api_ai_data_retention_config_post():
     except Exception as e:
         app.logger.error(f'AI-R14-F01 保留配置保存失败: {e}')
         return jsonify({'status': 'error', 'msg': f'保存失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/data_retention_validate', methods=['POST'])
 @login_required
@@ -39416,7 +37849,6 @@ def api_ai_data_retention_validate():
         app.logger.error(f'AI-R14 安全校验失败: {e}')
         return jsonify({'status': 'error', 'msg': f'校验失败：{str(e)}'}), 500
 
-
 # ===== AI-R15 业务质量指标和版本对比 API 端点 =====
 
 @app.route('/api/ai/business_quality_snapshot', methods=['POST', 'GET'])
@@ -39470,7 +37902,6 @@ def api_ai_business_quality_snapshot():
     except Exception as e:
         app.logger.error(f'AI-R15 业务质量快照失败: {e}')
         return jsonify({'status': 'error', 'msg': f'快照计算失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/business_quality_compare', methods=['POST'])
 @login_required
@@ -39540,7 +37971,6 @@ def api_ai_business_quality_compare():
         app.logger.error(f'AI-R15 版本对比失败: {e}')
         return jsonify({'status': 'error', 'msg': f'版本对比失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/business_quality_metrics', methods=['GET'])
 @login_required
 @require_role('admin')
@@ -39561,14 +37991,12 @@ def api_ai_business_quality_metrics():
         app.logger.error(f'AI-R15 指标定义查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
 
-
 @app.route('/ai/business_quality')
 @login_required
 @require_role('admin')
 def ai_business_quality_page():
     """AI-R15-F01 业务质量运营看板页面。"""
     return render_template('ai_business_quality.html')
-
 
 @app.route('/api/ai/business_quality_drilldown', methods=['POST'])
 @login_required
@@ -39635,7 +38063,6 @@ def api_ai_business_quality_drilldown():
         app.logger.error(f'AI-R15-F01 样本下钻失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/launch_acceptance', methods=['GET'])
 # AI_TASK: AI-R17
 @login_required
@@ -39662,7 +38089,6 @@ def api_ai_launch_acceptance():
         app.logger.error(f'AI-R17 上线验收报告查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/launch_acceptance/metrics', methods=['GET'])
 # AI_TASK: AI-R17
 @login_required
@@ -39684,7 +38110,6 @@ def api_ai_launch_acceptance_metrics():
         app.logger.error(f'AI-R17 指标定义查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
 
-
 # ===== AI-R17-F01 真实用户白名单灰度与一键回滚闭环 端点 =====
 
 def _ai_r17f01_take_snapshot():
@@ -39698,7 +38123,6 @@ def _ai_r17f01_take_snapshot():
         force_fallback=_ai_force_fallback(),
     )
 
-
 def _ai_r17f01_apply_snapshot(snapshot_dict):
     """AI-R17-F01：把快照值写回 SystemSetting（恢复用）。"""
     # AI_TASK: AI-R17-F01
@@ -39709,7 +38133,6 @@ def _ai_r17f01_apply_snapshot(snapshot_dict):
     )
     set_system_setting('ai_feature_global_enabled', '1' if snapshot_dict.get('global_enabled') else '0')
     set_system_setting('ai_force_fallback', '1' if snapshot_dict.get('force_fallback') else '0')
-
 
 def _ai_r17f01_record_event(action, previous_snapshot, new_snapshot, started_at, completed_at):
     """AI-R17-F01：写回滚事件到 AIRollbackEvent。"""
@@ -39743,7 +38166,6 @@ def _ai_r17f01_record_event(action, previous_snapshot, new_snapshot, started_at,
     db.session.add(row)
     return event
 
-
 @app.route('/api/ai/rollout/status', methods=['GET'])
 # AI_TASK: AI-R17-F01
 @login_required
@@ -39773,7 +38195,6 @@ def api_ai_rollout_status():
     except Exception as e:
         app.logger.error(f'AI-R17-F01 灰度状态查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/rollout/allowlist', methods=['POST'])
 # AI_TASK: AI-R17-F01
@@ -39814,7 +38235,6 @@ def api_ai_rollout_allowlist():
         db.session.rollback()
         app.logger.error(f'AI-R17-F01 维护白名单失败: {e}')
         return jsonify({'status': 'error', 'msg': f'保存失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/rollout/shutdown', methods=['POST'])
 # AI_TASK: AI-R17-F01
@@ -39866,7 +38286,6 @@ def api_ai_rollout_shutdown():
         db.session.rollback()
         app.logger.error(f'AI-R17-F01 一键关闭失败: {e}')
         return jsonify({'status': 'error', 'msg': f'关闭失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/rollout/restore', methods=['POST'])
 # AI_TASK: AI-R17-F01
@@ -39945,7 +38364,6 @@ def api_ai_rollout_restore():
         app.logger.error(f'AI-R17-F01 一键恢复失败: {e}')
         return jsonify({'status': 'error', 'msg': f'恢复失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/rollout/audit', methods=['GET'])
 # AI_TASK: AI-R17-F01
 @login_required
@@ -39986,7 +38404,6 @@ def api_ai_rollout_audit():
         app.logger.error(f'AI-R17-F01 审计查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/rollout/fallback_tasks', methods=['GET'])
 # AI_TASK: AI-R17-F01
 @login_required
@@ -40022,7 +38439,6 @@ def api_ai_rollout_fallback_tasks():
         app.logger.error(f'AI-R17-F01 降级任务查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/rollout/fallback_tasks/<task_id>', methods=['POST'])
 # AI_TASK: AI-R17-F01
 @login_required
@@ -40055,7 +38471,6 @@ def api_ai_rollout_fallback_task_handle(task_id):
         db.session.rollback()
         app.logger.error(f'AI-R17-F01 处理降级任务失败: {e}')
         return jsonify({'status': 'error', 'msg': f'处理失败：{str(e)}'}), 500
-
 
 @app.route('/api/ai/acceptance/daily_snapshot', methods=['POST'])
 @login_required
@@ -40128,7 +38543,6 @@ def api_ai_acceptance_daily_snapshot():
         app.logger.error(f'AI-R17-F02 采集每日快照失败: {e}')
         return jsonify({'status': 'error', 'msg': f'采集失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/acceptance/daily_snapshots')
 @login_required
 @require_role('admin')
@@ -40165,7 +38579,6 @@ def api_ai_acceptance_daily_snapshots():
     except Exception as e:
         app.logger.error(f'AI-R17-F02 查询每日快照失败: {e}')
         return jsonify({'status': 'error', 'msg': str(e)}), 500
-
 
 @app.route('/api/ai/acceptance/evidence_package', methods=['POST'])
 @login_required
@@ -40273,7 +38686,6 @@ def api_ai_acceptance_evidence_package():
         app.logger.error(f'AI-R17-F02 构建证据包失败: {e}')
         return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
 
-
 @app.route('/api/ai/acceptance/evidence_package/<int:package_id>')
 @login_required
 @require_role('admin')
@@ -40310,7 +38722,6 @@ def api_ai_acceptance_evidence_package_detail(package_id):
     except Exception as e:
         app.logger.error(f'AI-R17-F02 查询证据包失败: {e}')
         return jsonify({'status': 'error', 'msg': str(e)}), 500
-
 
 @app.route('/api/ai/acceptance/go_no_go', methods=['POST'])
 @login_required
@@ -40363,7 +38774,6 @@ def api_ai_acceptance_go_no_go():
         db.session.rollback()
         app.logger.error(f'AI-R17-F02 签字 go/no-go 失败: {e}')
         return jsonify({'status': 'error', 'msg': str(e)}), 500
-
 
 @app.route('/ai/supplier_evaluation')
 @login_required
@@ -40488,13 +38898,11 @@ def api_supplier_evaluation():
         app.logger.error(f'供应商评估失败: {e}')
         return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
 
-
 @app.route('/ai/location_recommendation')
 @login_required
 def ai_location_recommendation():
     """智能库位推荐页面"""
     return render_template('ai_location_recommendation.html')
-
 
 @app.route('/api/ai/recommend_location', methods=['POST'])
 @login_required
@@ -40678,13 +39086,11 @@ def api_recommend_location():
         app.logger.error(f'库位推荐失败: {e}')
         return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
 
-
 @app.route('/ai/demand_forecast')
 @login_required
 def ai_demand_forecast():
     """需求预测页面"""
     return render_template('ai_demand_forecast.html')
-
 
 @app.route('/api/ai/demand_forecast', methods=['POST'])
 @login_required
@@ -40844,7 +39250,6 @@ def api_demand_forecast():
         app.logger.error(f'需求预测失败: {e}')
         return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
 
-
 @app.route('/report/view/<report_type>')
 @login_required
 def report_view(report_type):
@@ -40895,7 +39300,6 @@ def report_api_query(report_type=None):
         'page': filters['page'],
         'page_size': filters['page_size'],
     })
-
 
 # ==================== Import and export ====================
 
@@ -41282,7 +39686,6 @@ def import_out_order():
         flash(f'领料单导入失败：{str(e)}', 'danger')
     return redirect(url_for('batch_import_page'))
 
-
 @app.route('/import/in_order', methods=['POST'])
 @require_role('warehouse', 'purchase')
 @login_required
@@ -41492,7 +39895,6 @@ def import_in_order():
         flash(f'入库单导入失败：{str(e)}', 'danger')
     return redirect(url_for('batch_import_page'))
 
-
 # ==================== Print template ====================
 
 def _normalize_html_template_content(content):
@@ -41505,7 +39907,6 @@ def _normalize_html_template_content(content):
         r'{{ \1 }}',
         content,
     )
-
 
 def _render_html_print_content(content, **context):
     content = _normalize_html_template_content(content)
@@ -41526,7 +39927,6 @@ def _render_html_print_content(content, **context):
     except Exception as exc:
         app.logger.warning(f'打印HTML模板渲染失败: {exc}')
         return f'<div style="color:#b91c1c;border:1px solid #fecaca;padding:12px;">打印模板渲染失败：{escape(str(exc))}</div>'
-
 
 def create_print_template(model, prefix):
     name = (request.form.get('name') or '').strip()
@@ -41573,7 +39973,6 @@ def create_print_template(model, prefix):
         db.session.rollback()
         return api_error('操作失败，请稍后重试')
 
-
 def set_default_print_template(model, template_id):
     template = model.query.get_or_404(template_id)
     try:
@@ -41586,7 +39985,6 @@ def set_default_print_template(model, template_id):
         db.session.rollback()
         return api_error('操作失败，请稍后重试')
 
-
 def delete_print_template(model, template_id):
     template = model.query.get_or_404(template_id)
     try:
@@ -41596,7 +39994,6 @@ def delete_print_template(model, template_id):
     except Exception as e:
         db.session.rollback()
         return api_error('操作失败，请稍后重试')
-
 
 @app.route('/in_order/<int:id>/preview_template')
 @login_required
@@ -41620,7 +40017,6 @@ def preview_in_order_template(id):
     )
     return jsonify({'status': 'success', 'msg': '操作完成', 'type': 'html', 'content': rendered})
 
-
 @app.route('/in_order/<int:id>/print_with_template')
 @login_required
 def print_in_order_with_template(id):
@@ -41634,20 +40030,17 @@ def print_in_order_with_template(id):
             return render_template('print_in_with_html.html', order=order, template=template, rendered_content=rendered_content)
     return render_template('print_in.html', order=order)
 
-
 @app.route('/in_order/<int:id>/print')
 @login_required
 def print_in_order(id):
     order = InOrder.query.get_or_404(id)
     return print_in_order_with_template(id)
 
-
 @app.route('/in_order/<int:id>/print_direct')
 @login_required
 def print_in_order_direct(id):
     order = InOrder.query.get_or_404(id)
     return render_template('print_in.html', order=order)
-
 
 @app.route('/print_in_order_labels')
 @login_required
@@ -41675,7 +40068,6 @@ def print_in_order_labels():
     ]
     return render_template('print_batch_labels.html', materials=materials, materials_data=materials_data)
 
-
 @app.route('/in_order_print_template')
 @login_required
 def in_order_print_template_list():
@@ -41683,13 +40075,11 @@ def in_order_print_template_list():
     templates = query.all()
     return render_template('in_order_print_template.html', templates=templates, filters=filters, sort_by=sort_by, sort_order=sort_order)
 
-
 @app.route('/in_order_print_template/add', methods=['POST'])
 @require_role('admin')
 @login_required
 def add_in_order_print_template():
     return create_print_template(InOrderPrintTemplate, 'in_order_template')
-
 
 @app.route('/in_order_print_template/<int:template_id>/set_default', methods=['POST'])
 @require_role('admin')
@@ -41697,13 +40087,11 @@ def add_in_order_print_template():
 def set_default_in_order_print_template(template_id):
     return set_default_print_template(InOrderPrintTemplate, template_id)
 
-
 @app.route('/in_order_print_template/<int:template_id>/delete', methods=['POST'])
 @require_role('admin')
 @login_required
 def delete_in_order_print_template(template_id):
     return delete_print_template(InOrderPrintTemplate, template_id)
-
 
 @app.route('/out_order/print_template')
 @app.route('/out_order_print_template')
@@ -41713,20 +40101,17 @@ def out_order_print_template_list():
     templates = query.all()
     return render_template('out_order_print_template.html', templates=templates, filters=filters, sort_by=sort_by, sort_order=sort_order)
 
-
 @app.route('/out_order_print_template/add', methods=['POST'])
 @require_role('admin')
 @login_required
 def add_out_order_print_template():
     return create_print_template(OutOrderPrintTemplate, 'out_order_template')
 
-
 @app.route('/out_order_print_template/<int:template_id>/set_default', methods=['POST'])
 @require_role('admin')
 @login_required
 def set_default_out_order_print_template(template_id):
     return set_default_print_template(OutOrderPrintTemplate, template_id)
-
 
 @app.route('/out_order_print_template/<int:template_id>/delete', methods=['POST'])
 @require_role('admin')
@@ -41766,7 +40151,6 @@ def print_batch_labels():
     # 进而 MATERIALS.forEach 抛 TypeError，触发"加载失败/网络错误"。
     return render_template('print_batch_labels.html', materials=materials, materials_data=materials_data)
 
-
 # ==================== Inventory alert ====================
 
 # BUG-2026-07-29-006: 打印/导出路由 404 显式化
@@ -41779,12 +40163,10 @@ def print_batch_labels():
 def stock_query_print_not_implemented():
     return api_error('库存查询打印功能未实现', code=404)
 
-
 @app.route('/report/print')
 @login_required
 def report_print_not_implemented():
     return api_error('报表打印功能未实现', code=404)
-
 
 @app.route('/stock_query')
 @login_required
@@ -41853,7 +40235,6 @@ def stock_query():
     filters = {'search': search, 'category_id': category_id or '', 'stock_filter': stock_filter, 'warehouse_id': warehouse_id or ''}
     return render_template('stock_query.html', materials=materials, categories=categories, filters=filters, sort_by=sort_by, sort_order=sort_order, location_map=location_map, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
 
-
 @app.route('/api/query/search', methods=['POST'])
 @login_required
 def api_query_search():
@@ -41890,7 +40271,6 @@ def api_query_search():
         })
     
     return jsonify({'status': 'success', 'data': data})
-
 
 @app.route('/alert')
 @login_required
@@ -42010,7 +40390,6 @@ def alert_list():
                          sort_by=sort_by,
                          sort_order=sort_order)
 
-
 def _parse_alert_threshold_value(payload, key, label):
     value = payload.get(key)
     if isinstance(value, list):
@@ -42025,7 +40404,6 @@ def _parse_alert_threshold_value(payload, key, label):
         return False, None, f'{label}不能小于 0'
     return True, round_to_2_decimals(parsed), None
 
-
 def _parse_alert_material_ids(raw_ids):
     ids = []
     seen = set()
@@ -42039,7 +40417,6 @@ def _parse_alert_material_ids(raw_ids):
         seen.add(material_id)
         ids.append(material_id)
     return ids
-
 
 @app.route('/alert/batch_update_thresholds', methods=['POST'])
 @require_role('warehouse')
@@ -42131,7 +40508,6 @@ def batch_update_alert_thresholds():
         'codes': updated_codes[:20],
     })
 
-
 @app.route('/pending_documents')
 @login_required
 def pending_documents():
@@ -42172,74 +40548,7 @@ def pending_documents():
         filters={'module': module_filter, 'status': status_filter, 'search': search},
     )
 
-
 # ==================== Approval center ====================
-
-@app.route('/approval')
-@login_required
-@role_required('admin', 'manager', 'purchase')
-def approval_list():
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 20, type=int)
-    # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
-    per_page = max(1, per_page)
-    if per_page not in [10, 20, 50, 100, 200]:
-        per_page = 20
-    status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'approved', 'rejected', 'completed'))
-    allowed_sorts = {'request_no', 'date', 'applicant', 'department', 'status', 'created_at', 'total_amount'}
-    if sort_by not in allowed_sorts:
-        sort_by = 'created_at'
-
-    query = PurchaseRequest.query
-    query = _apply_status_date_filters(query, PurchaseRequest, status_filter, date_start, date_end)
-    query = _apply_purchase_request_search(query, search)
-    sort_col = getattr(PurchaseRequest, sort_by, PurchaseRequest.created_at)
-    query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc())
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-
-    approvals = []
-    for item in pagination.items:
-        approvals.append({
-            'id': item.id,
-            'type': '采购申请',
-            'order_no': item.request_no,
-            'applicant': item.applicant or (item.operator.username if item.operator else ''),
-            'created_at': item.created_at,
-            'date': item.date,
-            'status': item.status,
-            'detail_url': url_for('purchase_request_detail', id=item.id),
-        })
-    filters = {
-        'status': status_filter,
-        'search': search,
-        'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
-        'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
-    }
-    return render_template('approval.html',
-                         approvals=approvals,
-                         pagination=pagination,
-                         per_page=per_page,
-                         sort_by=sort_by,
-                         sort_order=sort_order,
-                         filters=filters,
-                         pending_count=PurchaseRequest.query.filter_by(status='pending').count(),
-                         approved_count=PurchaseRequest.query.filter_by(status='approved').count(),
-                         rejected_count=PurchaseRequest.query.filter_by(status='rejected').count(),
-                         total_count=PurchaseRequest.query.count())
-
-
-@app.route('/approval/<int:id>/approve', methods=['POST'])
-@require_role('purchase')
-@login_required
-def approve_from_approval_center(id):
-    return approve_purchase_request(id)
-
-
-@app.route('/approval/<int:id>/reject', methods=['POST'])
-@require_role('purchase')
-@login_required
-def reject_from_approval_center(id):
-    return reject_purchase_request(id)
 
 # ==================== Batch import ====================
 
@@ -42249,7 +40558,6 @@ def batch_import_page():
     _module_type = request.args.get('type', '').strip().lower() or None
     return render_template('batch_import.html', module_type=_module_type)
 
-
 # P1-类别 B：基础资料 /import 与 /export 便捷入口（统一跳转集中式 /batch_import）
 @app.route('/user/import', methods=['POST'])
 @login_required
@@ -42257,13 +40565,11 @@ def batch_import_page():
 def user_import_stub():
     return redirect(url_for('batch_import_page', type='user'))
 
-
 @app.route('/user/export')
 @login_required
 @require_role('admin')
 def user_export_stub():
     return redirect(url_for('batch_import_page', type='user'))
-
 
 @app.route('/system_settings/add', methods=['GET'])
 @login_required
@@ -42272,13 +40578,11 @@ def system_settings_add_stub():
     flash('系统设置项请前往"系统设置"页面维护', 'info')
     return redirect(url_for('system_settings_page'))
 
-
 @app.route('/system_settings/import', methods=['POST'])
 @login_required
 @require_role('admin')
 def system_settings_import_stub():
     return redirect(url_for('batch_import_page', type='system_settings'))
-
 
 @app.route('/system_settings/export')
 @login_required
@@ -42286,13 +40590,11 @@ def system_settings_import_stub():
 def system_settings_export_stub():
     return redirect(url_for('batch_import_page', type='system_settings'))
 
-
 @app.route('/label_template/import', methods=['POST'])
 @login_required
 @require_role('admin')
 def label_template_import_stub():
     return redirect(url_for('batch_import_page', type='label_template'))
-
 
 @app.route('/label_template/export')
 @login_required
@@ -42300,12 +40602,10 @@ def label_template_import_stub():
 def label_template_export_stub():
     return redirect(url_for('batch_import_page', type='label_template'))
 
-
 @app.route('/opening_stock/import', methods=['POST'])
 @login_required
 def opening_stock_import_stub():
     return redirect(url_for('batch_import_page', type='opening_stock'))
-
 
 @app.route('/opening_stock/export')
 @login_required
@@ -42323,13 +40623,11 @@ BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backups')
 if not os.path.exists(BACKUP_DIR):
     os.makedirs(BACKUP_DIR)
 
-
 def get_database_file_path():
     uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
     if not uri.startswith('sqlite:///') or uri == 'sqlite:///:memory:':
         raise RuntimeError('仅支持 SQLite 文件数据库备份')
     return uri.replace('sqlite:///', '', 1)
-
 
 def create_sqlite_online_backup(source_path, backup_path):
     """Create a consistent SQLite backup while the app is running."""
@@ -42347,133 +40645,6 @@ def create_sqlite_online_backup(source_path, backup_path):
             dst_conn.close()
     finally:
         src_conn.close()
-
-@app.route('/backup')
-@login_required
-@role_required('admin')
-def backup_page():
-    """显示备份列表"""
-    search = (request.args.get('search') or '').strip()
-    sort_by = request.args.get('sort', 'created_at')
-    sort_order = request.args.get('order', 'desc')
-    if sort_by not in {'filename', 'created_at', 'size_bytes'}:
-        sort_by = 'created_at'
-    if sort_order not in ('asc', 'desc'):
-        sort_order = 'desc'
-    backups = []
-    if os.path.exists(BACKUP_DIR):
-        for f in glob.glob(os.path.join(BACKUP_DIR, '*.db')):
-            stat = os.stat(f)
-            filename = os.path.basename(f)
-            if search and search.lower() not in filename.lower():
-                continue
-            backups.append({
-                'id': filename,
-                'filename': filename,
-                'created_at': datetime.fromtimestamp(stat.st_mtime),
-                'size': format_file_size(stat.st_size),
-                'size_bytes': stat.st_size,
-                'url': url_for('download_backup', filename=os.path.basename(f))
-            })
-    # 排序键需稳定支持 datetime/int/str 混合类型；
-    # 旧实现 `item.get(sort_by) or ''` 在 created_at 为 None 时会退化为 ''，
-    # 与 datetime 比较抛 TypeError；这里为 None 字段提供类型一致的默认值。
-    _SORT_DEFAULTS = {
-        'created_at': datetime.min,
-        'size_bytes': 0,
-        'filename': '',
-    }
-
-    def _backup_sort_key(item):
-        value = item.get(sort_by)
-        if value is None:
-            return _SORT_DEFAULTS.get(sort_by, '')
-        return value
-
-    backups.sort(key=_backup_sort_key, reverse=(sort_order == 'desc'))
-    return render_template('backup.html', backups=backups, filters={'search': search}, sort_by=sort_by, sort_order=sort_order)
-
-def format_file_size(size):
-    """格式化文件大小"""
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size < 1024:
-            return f"{size:.2f} {unit}"
-        size /= 1024
-    return f"{size:.2f} TB"
-
-@app.route('/backup/create', methods=['POST'])
-@login_required
-@role_required('admin')
-def create_backup():
-    """创建数据库备份"""
-    try:
-        db_path = get_database_file_path()
-        if not os.path.exists(db_path):
-            return api_error('数据库文件不存在')
-        
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup_filename = f'wms_backup_{timestamp}.db'
-        backup_path = os.path.join(BACKUP_DIR, backup_filename)
-
-        create_sqlite_online_backup(db_path, backup_path)
-        
-        log_operation('创建备份', f'备份文件：{backup_filename}', 'backup')
-        
-        return jsonify({
-            'status': 'success', 
-            'msg': '备份成功',
-            'filename': backup_filename
-        })
-    except Exception as e:
-        return api_error('备份失败，请稍后重试')
-
-@app.route('/backup/download/<filename>')
-@login_required
-@role_required('admin')
-def download_backup(filename):
-    """下载备份文件"""
-    # 防止路径穿越攻击
-    safe_filename = os.path.basename(filename)
-    if safe_filename != filename or '..' in filename:
-        abort(400)
-    backup_path = os.path.join(BACKUP_DIR, safe_filename)
-    if not os.path.exists(backup_path) or not os.path.isfile(backup_path):
-        abort(404)
-    return send_file(backup_path, as_attachment=True, download_name=safe_filename)
-
-@app.route('/backup/delete', methods=['POST'])
-@login_required
-@role_required('admin')
-def delete_backup():
-    """删除备份文件"""
-    try:
-        filename = request.form.get('filename', '').strip()
-        if not filename:
-            return api_error('请指定备份文件')
-        
-        # 防止路径穿越攻击
-        safe_filename = os.path.basename(filename)
-        if safe_filename != filename or '..' in filename:
-            return api_error('非法文件名')
-        
-        backup_path = os.path.join(BACKUP_DIR, safe_filename)
-        if not os.path.exists(backup_path) or not os.path.isfile(backup_path):
-            return api_error('备份文件不存在')
-        
-        os.remove(backup_path)
-        log_operation('删除备份', f'备份文件：{safe_filename}', 'backup')
-        
-        return jsonify({'status': 'success', 'msg': '删除成功'})
-    except Exception as e:
-        return api_error('删除失败，请稍后重试')
-
-@app.route('/backup/restore', methods=['POST'])
-@login_required
-@role_required('admin')
-def restore_backup():
-    """Disable online database restore in production."""
-    return jsonify({'status': 'error', 'msg': '线上系统已禁用页面恢复数据库，请走停机维护流程'}), 403
-
 
 # ==================== Export routes ====================
 
@@ -42534,7 +40705,6 @@ def export_in_order():
     output.seek(0)
     return send_file(output, download_name='in_orders.xlsx', as_attachment=True)
 
-
 @app.route('/export/out_order')
 @app.route('/out_order/export')
 @login_required
@@ -42592,7 +40762,6 @@ def export_out_order():
     output.seek(0)
     return send_file(output, download_name='out_orders.xlsx', as_attachment=True)
 
-
 @app.route('/export/purchase_request')
 @app.route('/purchase_request/export')
 @login_required
@@ -42645,7 +40814,6 @@ def export_purchase_request():
     wb.save(output)
     output.seek(0)
     return send_file(output, download_name='purchase_requests.xlsx', as_attachment=True)
-
 
 @app.route('/export/after_sale_out')
 @app.route('/after_sale_out/export')
@@ -42722,7 +40890,6 @@ def export_after_sale_out():
     output.seek(0)
     return send_file(output, download_name='after_sale_outs.xlsx', as_attachment=True)
 
-
 # ==================== Report print routes ====================
 
 @app.route('/report/inout/print')
@@ -42780,12 +40947,10 @@ def report_inout_print():
     output.seek(0)
     return send_file(output, download_name='inout_report.xlsx', as_attachment=True)
 
-
 @app.route('/report/inout/export')
 @login_required
 def report_inout_export():
     return report_inout_print()
-
 
 @app.route('/report/stock/print')
 @login_required
@@ -42823,7 +40988,6 @@ def report_stock_print():
     output.seek(0)
     return send_file(output, download_name='stock_report.xlsx', as_attachment=True)
 
-
 # ==================== Template export routes ====================
 
 @app.route('/export/template/material')
@@ -42845,7 +41009,6 @@ def export_material_template():
     output.seek(0)
     return send_file(output, download_name='material_template.xlsx', as_attachment=True)
 
-
 @app.route('/export/template/in_order')
 @login_required
 def export_in_order_template():
@@ -42860,7 +41023,6 @@ def export_in_order_template():
     output.seek(0)
     return send_file(output, download_name='in_order_template.xlsx', as_attachment=True)
 
-
 @app.route('/export/template/out_order')
 @login_required
 def export_out_order_template():
@@ -42874,7 +41036,6 @@ def export_out_order_template():
     wb.save(output)
     output.seek(0)
     return send_file(output, download_name='out_order_template.xlsx', as_attachment=True)
-
 
 # ==================== Single document export routes ====================
 
@@ -42909,7 +41070,6 @@ def export_single_in_order(id):
     output.seek(0)
     return send_file(output, download_name=f'in_order_{order.order_no}.xlsx', as_attachment=True)
 
-
 @app.route('/out_order/<int:id>/export')
 @login_required
 def export_single_out_order(id):
@@ -42941,7 +41101,6 @@ def export_single_out_order(id):
     output.seek(0)
     return send_file(output, download_name=f'out_order_{order.order_no}.xlsx', as_attachment=True)
 
-
 @app.route('/check/<int:id>/export')
 @login_required
 def export_single_check(id):
@@ -42970,7 +41129,6 @@ def export_single_check(id):
     output.seek(0)
     return send_file(output, download_name=f'check_{check.check_no}.xlsx', as_attachment=True)
 
-
 @app.route('/check/<int:id>/print')
 @login_required
 def print_single_check(id):
@@ -42979,7 +41137,6 @@ def print_single_check(id):
         joinedload(InventoryCheck.operator)
     ).get_or_404(id)
     return render_template('check_print.html', check=check)
-
 
 @app.route('/requisition/<int:id>/export')
 @login_required
@@ -43009,7 +41166,6 @@ def export_single_requisition(id):
     output.seek(0)
     return send_file(output, download_name=f'requisition_{order.req_no}.xlsx', as_attachment=True)
 
-
 @app.route('/requisition/<int:id>/print')
 @login_required
 def print_single_requisition(id):
@@ -43019,7 +41175,6 @@ def print_single_requisition(id):
         joinedload(ProductionRequisition.bom)
     ).get_or_404(id)
     return render_template('requisition_print.html', requisition=requisition)
-
 
 @app.route('/transfer/<int:id>/export')
 @login_required
@@ -43049,7 +41204,6 @@ def export_single_transfer(id):
     output.seek(0)
     return send_file(output, download_name=f'transfer_{order.transfer_no}.xlsx', as_attachment=True)
 
-
 @app.route('/transfer/<int:id>/print')
 @login_required
 def print_single_transfer(id):
@@ -43059,7 +41213,6 @@ def print_single_transfer(id):
         joinedload(TransferOrder.operator)
     ).get_or_404(id)
     return render_template('transfer_print.html', transfer=transfer)
-
 
 # ==================== Sales management ====================
 def generate_sales_order_no():
@@ -43074,7 +41227,6 @@ def generate_sales_order_no():
             sequence = SalesOrder.query.filter(SalesOrder.order_no.like(f'{prefix}{month}%')).count() + 1
     return f'{prefix}{month}{sequence:04d}'
 
-
 def sales_status_label(status):
     return {
         'draft': '草稿',
@@ -43083,10 +41235,8 @@ def sales_status_label(status):
         'cancelled': '已取消',
     }.get(status, status or '-')
 
-
 def sales_shipment_status_label(status):
     return {'pending': '待发货', 'partial': '部分发货', 'shipped': '已发货'}.get(status, status or '-')
-
 
 def recalculate_sales_order(order):
     """重新计算销售订单的金额、税额和发货状态。
@@ -43139,7 +41289,6 @@ def recalculate_sales_order(order):
     else:
         order.shipment_status = 'partial'
         order.status = 'confirmed'
-
 
 def sync_sales_order_shipment(outbound, quantity_sign=1):
     # 优先使用外键关联，兜底 purpose 字符串解析
@@ -43228,7 +41377,6 @@ def build_sales_outbound_draft(order, selected_qty_by_item_id=None):
     order.shipment_status = 'pending'
     return outbound, 'created'
 
-
 @app.route('/sales/download_template')
 @require_role('warehouse', 'purchase', 'sales')
 @login_required
@@ -43239,7 +41387,6 @@ def download_sales_order_template():
         ['销售订单号', '订单日期', '客户名称', '交货日期', '发货仓库', '业务员', '项目号', '币别', '结算方式', '物料编码', '物料名称', '规格', '单位', '数量', '含税单价', '税率', '批次号', '序列号', '备注'],
         [['SO240001', date.today().isoformat(), '示例客户', date.today().isoformat(), '', '张三', 'PRJ-001', 'CNY', '月结30天', 'A001', '示例物料', '', '', 1, 100, 0.13, '', '', '导入后为草稿']],
     )
-
 
 @app.route('/sales/import', methods=['POST'])
 @require_role('warehouse', 'purchase', 'sales')
@@ -43345,7 +41492,6 @@ def import_sales_orders():
         db.session.rollback()
         app.logger.exception('导入销售订单失败')
         return jsonify({'status': 'error', 'msg': f'导入失败：{exc}'}), 500
-
 
 @app.route('/sales')
 @login_required
@@ -43463,7 +41609,6 @@ def sales_order_list():
         today=today
     )
 
-
 @app.route('/sales/outbound_selection')
 @login_required
 def sales_outbound_selection_page():
@@ -43473,7 +41618,6 @@ def sales_outbound_selection_page():
         employees=Employee.query.order_by(Employee.id.asc()).all(),
         warehouses=get_active_warehouses(),
     )
-
 
 @app.route('/api/sales_order/selectable')
 @require_role('warehouse', 'purchase', 'sales')
@@ -43538,7 +41682,6 @@ def api_sales_order_selectable():
                 'amount': round_to_2_decimals(remaining * (item.price or 0)),
             })
     return jsonify({'status': 'success', 'items': items})
-
 
 @app.route('/sales/create_outbound_from_selection', methods=['POST'])
 @require_role('warehouse', 'purchase', 'sales')
@@ -43660,12 +41803,10 @@ def create_sales_outbound_from_selection():
         app.logger.exception('销售订单选单生成销售出库单失败')
         return jsonify({'status': 'error', 'msg': '生成销售出库草稿失败，请稍后重试'}), 500
 
-
 @app.route('/sales/add')
 @login_required
 def sales_order_add_page():
     return render_template('sales_order_add.html', order_no=generate_sales_order_no(), order_date=date.today().isoformat(), customers=Customer.query.order_by(Customer.code.asc()).all(), warehouses=get_active_warehouses(), materials=[serialize_material(material) for material in Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()], employees=Employee.query.order_by(Employee.id.asc()).all(), default_tax_rate=0.13)
-
 
 @app.route('/sales/add', methods=['POST'])
 @require_role('warehouse', 'purchase', 'sales')
@@ -43747,7 +41888,6 @@ def sales_order_add():
         app.logger.exception('保存销售订单失败')
         return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'}), 500
 
-
 @app.route('/sales/<int:id>')
 @login_required
 def sales_order_detail(id):
@@ -43773,7 +41913,6 @@ def sales_order_detail(id):
         status_label=sales_status_label,
         shipment_status_label=sales_shipment_status_label,
     )
-
 
 @app.route('/api/ai/sales_order/<int:id>/anomaly_analysis')
 # AI_TASK: AI-SALES-F01-FIX-03
@@ -43897,7 +42036,6 @@ def api_ai_sales_order_anomaly_analysis(id):
         },
     })
 
-
 @app.route('/api/ai/sales/<int:id>/draft_check', methods=['POST'])
 # AI_TASK: AI-SALES-F01-FIX-01
 @require_role('admin', 'warehouse', 'sales')
@@ -43950,7 +42088,6 @@ def api_ai_sales_draft_check(id):
         return jsonify({'status': 'error', 'msg': message}), 400
     return jsonify({'status': 'success', 'message': message, 'evidence': evidence.to_dict(), 'sales_order': sales_info.to_dict(), 'outbound_drafts': [item.to_dict() for item in outbound_infos]})
 
-
 @app.route('/sales/<int:id>/edit', methods=['GET'])
 @require_role('warehouse', 'purchase', 'sales')
 @login_required
@@ -43967,7 +42104,6 @@ def sales_order_edit_page(id):
     # 已有明细项转 JSON 供前端回填
     existing_items = [{'code': item.material.code if item.material else '', 'quantity': item.quantity, 'price': item.price, 'tax_rate': item.tax_rate, 'batch_no': item.batch_no or '', 'serial_no': item.serial_no or '', 'remark': item.remark or '', 'contract_id': item.contract_id, 'contract_no': item.contract_no or order.contract_no or '', 'project_name': item.project_name or order.project_name or ''} for item in order.items]
     return render_template('sales_order_edit.html', order=order, customers=customers, employees=employees, warehouses=warehouses, materials=materials, material_list=material_list, existing_items=existing_items, default_tax_rate=0.13)
-
 
 @app.route('/sales/<int:id>/edit', methods=['POST'])
 @require_role('warehouse', 'purchase', 'sales')
@@ -44049,7 +42185,6 @@ def sales_order_edit(id):
         app.logger.exception('修改销售订单失败')
         return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'}), 500
 
-
 @app.route('/sales/<int:id>/confirm', methods=['POST'])
 @require_role('warehouse', 'purchase', 'sales')
 @login_required
@@ -44066,7 +42201,6 @@ def confirm_sales_order(id):
     db.session.commit()
     log_operation('确认销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
     return jsonify({'status': 'success', 'msg': '销售订单已确认'})
-
 
 @app.route('/sales/<int:id>/create_outbound', methods=['POST'])
 @require_role('warehouse', 'purchase', 'sales')
@@ -44141,7 +42275,6 @@ def batch_confirm_sales_orders():
         if order.status == 'confirmed' and order.order_no not in skipped:
             log_operation('批量确认销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
     return jsonify({'status': 'success', 'msg': f'已确认 {confirmed} 张销售订单，跳过 {len(skipped)} 张', 'confirmed': confirmed, 'skipped': skipped})
-
 
 @app.route('/sales/batch_create_outbound', methods=['POST'])
 @require_role('warehouse', 'purchase', 'sales')
@@ -44272,7 +42405,6 @@ def sales_outbound_list():
     ).paginate(page=page, per_page=per_page, error_out=False)
     return render_template('sales_outbound_list.html', pagination=pagination, status=status, search=search, sort_by=sort_by, sort_order=sort_order)
 
-
 @app.route('/sales/outbound/export')
 @login_required
 def export_sales_outbound():
@@ -44317,7 +42449,6 @@ def export_sales_outbound():
     wb.save(output)
     output.seek(0)
     return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='销售出库_' + datetime.now().strftime('%Y%m%d_%H%M%S') + '.xlsx')
-
 
 @app.route('/sales/dashboard')
 @login_required
@@ -44365,7 +42496,6 @@ def sales_dashboard():
         status_label=sales_status_label,
         shipment_status_label=sales_shipment_status_label,
     )
-
 
 @app.route('/sales/exceptions')
 @login_required
@@ -44430,7 +42560,6 @@ def sales_exceptions():
         counts={value: sum(1 for row in exceptions if row['kind'] == value) for value in ('overdue', 'shortage', 'over_shipped', 'missing_source', 'price')},
     )
 
-
 @app.route('/sales/<int:id>/cancel', methods=['POST'])
 @require_role('warehouse', 'purchase', 'sales')
 @login_required
@@ -44443,7 +42572,6 @@ def cancel_sales_order(id):
     db.session.commit()
     log_operation('取消销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
     return jsonify({'status': 'success', 'msg': '销售订单已取消'})
-
 
 @app.route('/sales/<int:id>/delete', methods=['POST'])
 @require_role('warehouse', 'purchase', 'sales')
@@ -44458,7 +42586,6 @@ def delete_sales_order(id):
     db.session.commit()
     log_operation('删除销售订单', f'销售订单：{order.order_no}', 'sales_order', id)
     return jsonify({'status': 'success', 'msg': '销售订单已删除'})
-
 
 @app.route('/sales/<int:id>/copy', methods=['POST'])
 @require_role('warehouse', 'purchase', 'sales')
@@ -44506,7 +42633,6 @@ def copy_sales_order(id):
         app.logger.exception('复制销售订单失败')
         return jsonify({'status': 'error', 'msg': f'复制失败：{exc}'}), 500
 
-
 @app.route('/sales/batch_delete', methods=['POST'])
 @require_role('warehouse', 'purchase', 'sales')
 @login_required
@@ -44535,7 +42661,6 @@ def batch_delete_sales_orders():
     if errors:
         msg += '；' + '；'.join(errors)
     return jsonify({'status': 'success', 'msg': msg})
-
 
 @app.route('/sales/export')
 @login_required
@@ -44601,7 +42726,6 @@ def export_sales_orders():
     workbook.save(output)
     output.seek(0)
     return Response(output.read(), headers={'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': 'attachment; filename=sales_orders.xlsx'}), 200
-
 
 @app.route('/sales/report/export')
 @login_required
@@ -44700,7 +42824,6 @@ def sales_reconciliation_report():
     }
     return render_template('sales_reconciliation_report.html', rows=rows, warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), warehouse_id=warehouse_id or '', chart_data=chart_data)
 
-
 @app.route('/sales/reconciliation/export')
 @login_required
 def export_sales_reconciliation_report():
@@ -44718,7 +42841,6 @@ def export_sales_reconciliation_report():
         sheet.append([order.order_no, order.warehouse or '', sum(float(item.shipped_quantity or 0) for item in order.items), completed_qty, float(order.shipped_amount or 0), '通过' if ok else '不一致'])
     output = io.BytesIO(); workbook.save(output); output.seek(0)
     return send_file(output, download_name='sales_reconciliation.xlsx', as_attachment=True)
-
 
 @app.route('/sales/report')
 @login_required
@@ -44812,7 +42934,6 @@ def sales_report():
                     })
     return render_template('sales_report.html', date_start=date_start, date_end=date_end, drill_customer_id=drill_customer_id, drill_material_code=drill_material_code, salesperson_id=salesperson_id, status=status, shipment_status=shipment_status, project_no=project_no, warehouse=warehouse, warehouse_id=warehouse_id or '', drill_material_name=(Material.query.get(drill_material_id).name if drill_material_id else ''), drill_items=drill_items, customers=Customer.query.order_by(Customer.code.asc()).all(), employees=Employee.query.order_by(Employee.id.asc()).all(), warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), orders=orders, by_customer=sorted(by_customer.values(), key=lambda row: row['amount'], reverse=True), by_material=sorted(by_material.values(), key=lambda row: row['amount'], reverse=True), by_salesperson=sorted(by_salesperson.values(), key=lambda row: row['amount'], reverse=True), total_amount=total_amount, total_untaxed=total_untaxed, total_tax=total_tax, shipped_amount=shipped_amount, pending_amount=round_to_2_decimals(total_amount - shipped_amount), shipped_quantity=shipped_quantity, total_orders=len(orders), status_label=sales_status_label)
 
-
 @app.route('/sales/outflow_report')
 @login_required
 def sales_outflow_report():
@@ -44898,7 +43019,6 @@ def sales_outflow_report():
                 total_tax += tax_amount
     return render_template('sales_outflow_report.html', date_start=date_start, date_end=date_end, search=search, warehouse=warehouse, warehouse_id=warehouse_id or '', customer=customer_name, warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), rows=rows, total_quantity=round_to_2_decimals(total_quantity), total_amount=round_to_2_decimals(total_amount), total_untaxed=round_to_2_decimals(total_untaxed), total_tax=round_to_2_decimals(total_tax), total_rows=len(rows), status_label=sales_status_label)
 
-
 @app.route('/sales/outflow_report/export')
 @login_required
 def export_sales_outflow_report():
@@ -44971,7 +43091,6 @@ def export_sales_outflow_report():
     output.seek(0)
     return send_file(output, download_name=f'sales_outflow_{start:%Y%m%d}_{end:%Y%m%d}.xlsx', as_attachment=True)
 
-
 @app.route('/sales/trend_report')
 @login_required
 def sales_trend_report():
@@ -45018,7 +43137,6 @@ def sales_trend_report():
         prev_amount = row['amount']
     return render_template('sales_trend_report.html', months_back=months_back, warehouse_id=selected_warehouse.id if selected_warehouse else '', warehouse=selected_warehouse.name if selected_warehouse else '', warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), rows=rows, total_orders=sum(r['orders'] for r in rows), total_amount=round_to_2_decimals(sum(r['amount'] for r in rows)), total_untaxed=round_to_2_decimals(sum(r['untaxed_amount'] for r in rows)), total_tax=round_to_2_decimals(sum(r['tax_amount'] for r in rows)), total_shipped=round_to_2_decimals(sum(r['shipped_amount'] for r in rows)))
 
-
 @app.route('/sales/trend_report/export')
 @login_required
 def export_sales_trend_report():
@@ -45064,7 +43182,6 @@ def export_sales_trend_report():
     output.seek(0)
     return send_file(output, download_name=f'sales_trend_{months_back}months.xlsx', as_attachment=True)
 
-
 def _sales_report_orders():
     """Return the common filtered order set used by sales execution reports."""
     query = SalesOrder.query.filter(SalesOrder.status != 'cancelled')
@@ -45095,7 +43212,6 @@ def _sales_report_orders():
         selectinload(SalesOrder.items).joinedload(SalesOrderItem.material),
     ).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).all()
 
-
 def _sales_report_filters_context():
     warehouse_id = request.args.get('warehouse_id', type=int)
     selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(request.args.get('warehouse'))
@@ -45107,7 +43223,6 @@ def _sales_report_filters_context():
         'warehouse_id': selected_warehouse.id if selected_warehouse else '',
         'warehouse': selected_warehouse.name if selected_warehouse else '',
     }
-
 
 @app.route('/sales/execution_report')
 @login_required
@@ -45143,7 +43258,6 @@ def sales_execution_report():
         remaining_amount=round_to_2_decimals(sum(row['remaining_amount'] for row in rows)),
     )
 
-
 @app.route('/sales/execution_report/export')
 @login_required
 def export_sales_execution_report():
@@ -45173,7 +43287,6 @@ def export_sales_execution_report():
     workbook.save(output)
     output.seek(0)
     return send_file(output, download_name='sales_execution_report.xlsx', as_attachment=True)
-
 
 @app.route('/sales/price_analysis')
 @login_required
@@ -45215,7 +43328,6 @@ def sales_price_analysis():
         total_quantity=round_to_2_decimals(sum(row['quantity'] for row in rows)),
         total_amount=round_to_2_decimals(sum(row['amount'] for row in rows)),
     )
-
 
 @app.route('/sales/price_analysis/export')
 @login_required
