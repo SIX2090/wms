@@ -27470,11 +27470,11 @@ def complete_in_order(id):
         if not order.warehouse:
             db.session.rollback()
             return api_error('入库单必须填写仓库')
-        is_recompleted = StockTransaction.query.filter_by(
-            reference_type='in_order',
-            reference_id=order.id,
-            transaction_type='revert_in'
-        ).first() is not None
+        # BUG-2026-08-04-015 修复：移除 is_recompleted 递增。
+        # 反提交（revert_in_order）不再释放 received_quantity 预留，
+        # 因此重新完成时无需再次递增，避免 反提交→编辑→重新完成 双计数。
+        # 采购单 received_quantity 由 /in_order/add 保存、update_completed、
+        # delete_in_order 处维护，完成仅代表库存入账，不改变接收数量。
         affected_purchase_order_ids = set()
         for item in order.items:
             if item.material:
@@ -27490,11 +27490,9 @@ def complete_in_order(id):
                     if not loc_ok:
                         db.session.rollback()
                         return api_error(loc_err or '库位库存更新失败')
-            if is_recompleted and item.source_purchase_order_item:
-                source_item = item.source_purchase_order_item
-                source_item.received_quantity = round_to_2_decimals((source_item.received_quantity or 0) + (item.quantity or 0))
-                if source_item.purchase_order:
-                    affected_purchase_order_ids.add(source_item.purchase_order.id)
+            if item.source_purchase_order_item:
+                if item.source_purchase_order_item.purchase_order:
+                    affected_purchase_order_ids.add(item.source_purchase_order_item.purchase_order.id)
 
         order.status = 'completed'
         order.total_amount = sum((item.amount or 0) for item in order.items)
@@ -28011,14 +28009,15 @@ def revert_in_order(id):
                 if not loc_ok:
                     db.session.rollback()
                     return api_error(loc_err or '库位库存还原失败')
+            # BUG-2026-08-04-015 修复（received_quantity 双计数）：
+            # 反提交只回退库存，不释放采购单 received_quantity 预留。
+            # 该入库单仍为 pending，仍占用采购单“已下推”数量；
+            # 只有删除该草稿（delete_in_order）才会释放预留。
+            # 若此处释放，则与 batch_revert_in_order（不释放）行为不一致，
+            # 且重新完成时 complete_in_order 的 is_recompleted 递增会导致重复计数。
             if item.source_purchase_order_item:
-                source_item = item.source_purchase_order_item
-                source_item.received_quantity = max(
-                    0,
-                    round_to_2_decimals((source_item.received_quantity or 0) - (item.quantity or 0))
-                )
-                if source_item.purchase_order:
-                    affected_purchase_order_ids.add(source_item.purchase_order.id)
+                if item.source_purchase_order_item.purchase_order:
+                    affected_purchase_order_ids.add(item.source_purchase_order_item.purchase_order.id)
         order.status = 'pending'
         recalculate_order_total(order)
         for purchase_order in PurchaseOrder.query.filter(PurchaseOrder.id.in_(affected_purchase_order_ids)).all():
