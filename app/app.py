@@ -8319,7 +8319,7 @@ def material_api_list():
 def material_api_all():
     """分页返回物料完整数据，避免旧接口静默截断。"""
     page = max(1, request.args.get('page', 1, type=int) or 1)
-    per_page = request.args.get('per_page', 500, type=int) or 500
+    per_page = request.args.get('per_page', 2000, type=int) or 2000
     per_page = min(max(1, per_page), 2000)
     pagination = Material.query.options(joinedload(Material.unit)).order_by(
         Material.code.asc()

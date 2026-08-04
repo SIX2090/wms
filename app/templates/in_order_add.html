@@ -1661,6 +1661,21 @@ function notifyMaterialRefresh(message, type, silent) {
     }
 }
 
+function fetchAllMaterials(page, acc) {
+    return fetch('/material/api/all?page=' + page + '&per_page=2000')
+        .then(function(r){ return r.json(); })
+        .then(function(res) {
+            if (res.status !== 'success' || !res.materials) {
+                throw new Error((res && res.msg) || '未知错误');
+            }
+            acc = acc.concat(res.materials);
+            if (res.truncated && res.next_page) {
+                return fetchAllMaterials(res.next_page, acc);
+            }
+            return acc;
+        });
+}
+
 function refreshMaterials(options) {
     const silent = !!(options && options.silent);
     const btn = document.querySelector('button[onclick="refreshMaterials()"]');
@@ -1668,16 +1683,12 @@ function refreshMaterials(options) {
         btn.disabled = true;
         btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新中...';
     }
-    fetch('/material/api/all')
-        .then(function(r){ return r.json(); })
-        .then(function(res) {
-            if (res.status === 'success' && res.materials) {
-                materials.length = 0;
-                res.materials.forEach(function(m){ materials.push(m); });
-                notifyMaterialRefresh('物料列表已更新，共 ' + materials.length + ' 条', 'success', silent);
-            } else {
-                notifyMaterialRefresh('刷新失败：' + (res.msg || '未知错误'), 'danger', silent);
-            }
+    // 分页拉取全部物料，避免新增/复制物料因分页（按编码升序排在末尾）被截断而看不到
+    fetchAllMaterials(1, [])
+        .then(function(all) {
+            materials.length = 0;
+            all.forEach(function(m){ materials.push(m); });
+            notifyMaterialRefresh('物料列表已更新，共 ' + materials.length + ' 条', 'success', silent);
         })
         .catch(function(err){ notifyMaterialRefresh('刷新失败：' + err.message, 'danger', silent); })
         .finally(function() {
