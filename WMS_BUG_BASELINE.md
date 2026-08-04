@@ -177,6 +177,9 @@
 | JS-NEW2-002 | 低风险兜底 | `toast()` 缺容器时降级 `alert()` 是可用性兜底，不影响核心业务 |
 | SEC-NEW2-001 | 已有保护 | `/api/login` 是换取 token 的原生 API；入库/出库/盘点有 `@api_required`，微信助手有独立授权，不移除 CSRF 豁免 |
 | SEC-NEW2-002 | 平台限制 | Windows 对 `chmod 0600` 支持有限，属于部署环境权限控制问题；生产应放在受限账户/目录下运行 |
+| BUG-2026-08-04-001 | `add_location_inventory_atomic` 建账冲突时 `db.session.rollback()` 回滚整个外层事务，导致总库存与库位库存、单据状态永久不一致 | 检查 INSERT 冲突时用 `begin_nested()`（SAVEPOINT），只回滚保存点，外层事务不受影响；重查后走原子 UPDATE。回归测试 `tests/verify_bug_2026_08_04_001_location_inventory_savepoint.py`，SHA `8cdfac0f` |
+| BUG-2026-08-04-002 | `update_location_inventory` 负 delta 无库位记录时返回 `True, ''`（静默成功），`batch_complete_out_order` 总库存已扣但库位库存未扣 | 检查无库位记录且不允许负库存时返回 `False` + 错误信息，与 `deduct_location_inventory_atomic` 对齐。回归测试 `tests/verify_bug_2026_08_04_002_location_inventory_no_silent_success.py`，SHA `8efc4bbd` |
+| BUG-2026-08-04-003 | `update_completed_in_order` 缺 `_acquire_order_write_lock`，并发编辑/反提交时库存调整可能重复执行或对 pending 单据做库存操作 | 检查库存操作前加 `_acquire_order_write_lock(InOrder, id, 'completed')`，加锁后重新读取状态并做仓库赋值。回归测试 `tests/verify_bug_2026_08_04_003_update_completed_in_order_lock.py`，SHA `aaf2b418` |
 
 ## 未修复/待处理
 
