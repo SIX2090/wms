@@ -43595,22 +43595,41 @@ def import_material():
         skip_details = []
         warnings = []
         for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            code = str(row[col_map['code']]).strip() if len(row) > col_map['code'] and row[col_map['code']] else ''
-            name = str(row[col_map['name']]).strip() if len(row) > col_map['name'] and row[col_map['name']] else ''
-            if not code or not name:
+            # BUG-2026-08-04-008: 导入物料走 sanitize_text_input + 长度/价格校验，
+            # 与 add_material 保持一致，防止 XSS/NUL、DB 列宽溢出、天价物料进入系统。
+            # 长度校验在 sanitize_text_input 之前检查原始值，避免静默截断导致数据不符。
+            raw_code = str(row[col_map['code']]).strip() if len(row) > col_map['code'] and row[col_map['code']] else ''
+            raw_name = str(row[col_map['name']]).strip() if len(row) > col_map['name'] and row[col_map['name']] else ''
+            if not raw_code or not raw_name:
                 skip += 1
                 skip_details.append(f'第{row_idx}行：编码或名称为空')
                 continue
+            if len(raw_code) > 50:
+                skip += 1
+                skip_details.append(f'第{row_idx}行：编码不能超过50个字符')
+                continue
+            if len(raw_name) > 100:
+                skip += 1
+                skip_details.append(f'第{row_idx}行：名称不能超过100个字符')
+                continue
+            code = sanitize_text_input(raw_code, max_len=50)
+            name = sanitize_text_input(raw_name, max_len=100)
             if Material.query.filter_by(code=code).first():
                 skip += 1
                 skip_details.append(f'第{row_idx}行：编码{code}已存在')
                 continue
-            spec = str(row[col_map['spec']]).strip() if 'spec' in col_map and len(row) > col_map['spec'] and row[col_map['spec']] else ''
-            brand = str(row[col_map['brand']]).strip() if 'brand' in col_map and len(row) > col_map['brand'] and row[col_map['brand']] else ''
-            if len(brand) > 100:
+            raw_spec = str(row[col_map['spec']]).strip() if 'spec' in col_map and len(row) > col_map['spec'] and row[col_map['spec']] else ''
+            raw_brand = str(row[col_map['brand']]).strip() if 'brand' in col_map and len(row) > col_map['brand'] and row[col_map['brand']] else ''
+            if len(raw_spec) > 100:
+                skip += 1
+                skip_details.append(f'第{row_idx}行：规格不能超过100个字符')
+                continue
+            if len(raw_brand) > 100:
                 skip += 1
                 skip_details.append(f'第{row_idx}行：品牌不能超过100个字符')
                 continue
+            spec = sanitize_text_input(raw_spec, max_len=100)
+            brand = sanitize_text_input(raw_brand, max_len=100)
             unit_name = str(row[col_map['unit']]).strip() if 'unit' in col_map and len(row) > col_map['unit'] and row[col_map['unit']] else ''
             unit = None
             if unit_name:
@@ -43656,10 +43675,19 @@ def import_material():
                 db.session.add(supplier)
                 db.session.flush()
                 warnings.append(f'自动创建供应商：{sup_name}')
+            # BUG-2026-08-04-008: 价格校验与 add_material 一致（0 至 MAX_REASONABLE_PRICE）。
+            # 注意 parse_bounded_number 内部 parse_float_value 会把负数静默转 0，
+            # 因此先显式检查原始值是否为负，负数行跳过并告知用户。
+            raw_price = row[col_map['price']] if 'price' in col_map and len(row) > col_map['price'] and row[col_map['price']] else 0
             try:
-                price_val = float(row[col_map['price']]) if 'price' in col_map and len(row) > col_map['price'] and row[col_map['price']] else 0
+                _price_check = float(raw_price)
             except (ValueError, TypeError):
-                price_val = 0
+                _price_check = 0
+            if _price_check < 0 or _price_check > MAX_REASONABLE_PRICE or not math.isfinite(_price_check):
+                skip += 1
+                skip_details.append(f'第{row_idx}行：参考价格必须是 0 至 {MAX_REASONABLE_PRICE:,.2f} 的有限数字')
+                continue
+            price_val = _price_check
             min_stock_val = 0
             safety_stock_val = 0
             if inventory_alert_enabled():
