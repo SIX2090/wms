@@ -2272,7 +2272,13 @@ def update_location_inventory(material, location, quantity_delta):
             location=location
         ).first()
         if not inventory and not allow_negative_location_stock():
-            return True, ''
+            # BUG-2026-08-04-002 修复：原代码返回 True, ''（静默成功），
+            # 导致调用方（如 batch_complete_out_order）在总库存已扣减但
+            # 库位库存未扣减时仍认为操作成功，造成账实不一致。
+            # 与 deduct_location_inventory_atomic 的行为对齐：无库位记录
+            # 且不允许负库存时返回失败。
+            code = material.code if material else str(material.id)
+            return False, f'物料 {code} 在 {location} 无库位库存记录'
         return deduct_location_inventory_atomic(
             material.id,
             location,
