@@ -27504,16 +27504,25 @@ def update_completed_in_order(id):
     items_data = data.get('items', [])
     deleted_items = data.get('deleted_items', [])
 
-    # BUG-2026-08-02-001 修复：已完成的入库单也必须有仓库。
-    # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
-    if not order.warehouse:
-        default_wh = get_default_warehouse()
-        if default_wh:
-            order.warehouse = default_wh.name
-    if not order.warehouse:
-        return api_error('入库单必须填写仓库')
-
     try:
+        # BUG-2026-08-04-003 修复：原代码缺少 _acquire_order_write_lock，
+        # 并发编辑已完成入库单或同时反提交（revert_in_order 已加锁）时，
+        # 库存调整可能重复执行或对 pending 单据做库存操作。
+        # 加锁后重新读取状态并做仓库赋值，与 complete_in_order 对称。
+        locked, ok = _acquire_order_write_lock(InOrder, id, 'completed', selectinload(InOrder.items))
+        if not ok:
+            return api_error('该入库单状态已变更，不能修改已入库明细')
+        order = locked
+        # BUG-2026-08-02-001 修复：已完成的入库单也必须有仓库。
+        # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
+        if not order.warehouse:
+            default_wh = get_default_warehouse()
+            if default_wh:
+                order.warehouse = default_wh.name
+        if not order.warehouse:
+            db.session.rollback()
+            return api_error('入库单必须填写仓库')
+
         affected_purchase_order_ids = set()
         # 1. Delete detail rows and reverse their stock changes
         for item_id in deleted_items:
