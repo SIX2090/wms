@@ -2311,7 +2311,12 @@ def add_location_inventory_atomic(material_id, location, quantity, material_code
     if not existing:
         # 并发下两个事务可能同时进入此分支，但 SQLite BEGIN IMMEDIATE
         # 已串行化写事务；MySQL/PG 依赖 UNIQUE 约束兜底。
+        # BUG-2026-08-04-001 修复：原代码在冲突时调用 db.session.rollback()
+        # 会回滚整个外层事务（包括已完成的 add_stock 总库存增减），导致总库存
+        # 与库位库存、单据状态永久不一致。改用 SAVEPOINT（begin_nested），
+        # 冲突时只回滚保存点，不影响外层事务；随后重查记录走原子 UPDATE。
         try:
+            nested = db.session.begin_nested()
             db.session.add(LocationInventory(
                 material_id=material_id,
                 location=location,
@@ -2321,11 +2326,19 @@ def add_location_inventory_atomic(material_id, location, quantity, material_code
             db.session.flush()
             return True, ''
         except Exception as e:
-            db.session.rollback()
-            # 并发插入冲突，退回 UPDATE 路径
+            nested.rollback()
             app.logger.warning(
                 'add_location_inventory_atomic 建账冲突，转 UPDATE: %s', e
             )
+            # 保存点已回滚，外层事务仍可继续；重查确认并发对手已建账
+            existing = LocationInventory.query.filter_by(
+                material_id=material_id,
+                location=location,
+            ).first()
+            if not existing:
+                # 对手事务建的行不可见或非唯一冲突异常，安全失败
+                code = material_code_hint or str(material_id)
+                return False, f'物料 {code} 在 {location} 库位建账失败: {e}'
 
     rowcount = db.session.execute(
         sa_update(LocationInventory)
