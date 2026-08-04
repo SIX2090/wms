@@ -3489,10 +3489,6 @@ document.addEventListener('DOMContentLoaded', function() {
 (function(global) {
     'use strict';
 
-    if (!global.WMS || !global.WMS.api || !global.WMS.api.getContracts) {
-        return;
-    }
-
     var ACTIVE_CLASS = 'wms-contract-dropdown';
     var ITEM_CLASS = 'wms-contract-dropdown-item';
     var currentDropdown = null;
@@ -3602,6 +3598,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function bind(input) {
         if (!input || input.dataset.contractAutocompleteBound === '1') return;
+        // 延迟检查 API 可用性（IIFE 加载时 api.js 可能尚未就绪）
+        if (!global.WMS || !global.WMS.api || !global.WMS.api.getContracts) return;
         input.dataset.contractAutocompleteBound = '1';
 
         var debounceTimer = null;
