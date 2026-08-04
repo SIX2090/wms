@@ -9012,35 +9012,56 @@ def material_image_select(id):
         return jsonify({'status': 'error', 'msg': '保存物料图片失败'}), 500
 
 
-def generate_material_copy_code(source_code):
+def generate_material_copy_code(source):
     """
-    根据源物料编码生成新的物料编码
-    优先按末尾数字递增，并保留原数字位数；没有数字后缀时使用 -COPY 后缀。
-    """
-    if not source_code or not isinstance(source_code, str):
-        raise ValueError("物料编码不能为空")
+    根据源物料生成新的物料编码：原物料分类 + 流水号。
 
-    source_code = source_code.strip()
-    match = re.match(r'^(.*?)(\d+)$', source_code)
-    if match:
-        prefix, number_text = match.groups()
-        width = len(number_text)
-        max_number = int(number_text)
-        for (code,) in Material.query.with_entities(Material.code).filter(Material.code.like(f'{prefix}%')).all():
-            code_match = re.match(rf'^{re.escape(prefix)}(\d+)$', code or '')
-            if code_match:
-                max_number = max(max_number, int(code_match.group(1)))
-        for next_number in range(max_number + 1, max_number + 10000):
-            candidate = f'{prefix}{next_number:0{width}d}' if len(str(next_number)) <= width else f'{prefix}{next_number}'
+    - 以源物料所属分类的编码为前缀，取该前缀下已存在物料的最大流水号 + 1，
+      生成 `{分类编码}{流水号}`。例如分类编码 FL-01，则生成 FL-011、FL-012...
+    - 原物料无分类时，退回到基于原编码的旧逻辑（末尾数字递增，或追加 -COPY 后缀）。
+    """
+    if source is None:
+        raise ValueError("物料不能为空")
+
+    # 优先使用原物料分类编码作为前缀
+    category = getattr(source, 'category', None)
+    prefix = (category.code if category and category.code else '').strip()
+    if not prefix:
+        # 原物料无分类：回退到基于原编码的旧逻辑
+        source_code = (source.code or '').strip()
+        if not source_code:
+            raise ValueError("物料编码不能为空")
+        match = re.match(r'^(.*?)(\d+)$', source_code)
+        if match:
+            old_prefix, number_text = match.groups()
+            width = len(number_text)
+            max_number = int(number_text)
+            for (code,) in Material.query.with_entities(Material.code).filter(Material.code.like(f'{old_prefix}%')).all():
+                code_match = re.match(rf'^{re.escape(old_prefix)}(\d+)$', code or '')
+                if code_match:
+                    max_number = max(max_number, int(code_match.group(1)))
+            for next_number in range(max_number + 1, max_number + 10000):
+                candidate = f'{old_prefix}{next_number:0{width}d}' if len(str(next_number)) <= width else f'{old_prefix}{next_number}'
+                if not Material.query.filter_by(code=candidate).first():
+                    return candidate
+            raise ValueError("无法生成唯一编码，请检查数据")
+        base_code = f"{source_code}-COPY"
+        if not Material.query.filter_by(code=base_code).first():
+            return base_code
+        for index in range(2, 10000):
+            candidate = f"{base_code}{index}"
             if not Material.query.filter_by(code=candidate).first():
                 return candidate
         raise ValueError("无法生成唯一编码，请检查数据")
 
-    base_code = f"{source_code}-COPY"
-    if not Material.query.filter_by(code=base_code).first():
-        return base_code
-    for index in range(2, 10000):
-        candidate = f"{base_code}{index}"
+    # 有分类：按分类前缀 + 流水号（取该前缀下最大流水号 + 1）
+    max_number = 0
+    for (code,) in Material.query.with_entities(Material.code).filter(Material.code.like(f'{prefix}%')).all():
+        code_match = re.match(rf'^{re.escape(prefix)}(\d+)$', code or '')
+        if code_match:
+            max_number = max(max_number, int(code_match.group(1)))
+    for next_number in range(max_number + 1, max_number + 10000):
+        candidate = f'{prefix}{next_number}'
         if not Material.query.filter_by(code=candidate).first():
             return candidate
     raise ValueError("无法生成唯一编码，请检查数据")
@@ -10032,7 +10053,7 @@ def copy_material(id):
 
         # 生成新的物料编码
         try:
-            suggested_code = generate_material_copy_code(source.code)
+            suggested_code = generate_material_copy_code(source)
             suggested_name = generate_material_copy_name(source.name, source.spec or '')
         except ValueError as e:
             app.logger.error(f'生成复制物料草稿失败: {e}')
