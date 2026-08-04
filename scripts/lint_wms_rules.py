@@ -896,8 +896,10 @@ class RuleA9NewFuncMustTest(Rule):
     exclude_paths = ("app/ai",)
     extensions = (".py",)
 
-    # 匹配 ``def function_name(``，行首可有空白
-    _DEF = re.compile(r"^\s*def\s+([A-Za-z_]\w*)\s*\(", re.MULTILINE)
+    # 匹配 ``def function_name(``，行首可有空白。
+    # 注意：前导空白用 [ \t]* 而非 \s*，否则 \s* 会跨行匹配到 def 之前的空行，
+    # 导致 m.start() 指向空行、行号偏移、no-test 豁免注释检测失效。
+    _DEF = re.compile(r"^[ \t]*def\s+([A-Za-z_]\w*)\s*\(", re.MULTILINE)
     _ALLOW_HINT = re.compile(r"#\s*no-test\s*:\s*reason\s*=", re.IGNORECASE)
     _ROUTE_DECORATOR = re.compile(r"@app\.route\b")
 
