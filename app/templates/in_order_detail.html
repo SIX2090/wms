@@ -175,9 +175,9 @@
                         <i class="bi bi-diagram-3"></i> 下推
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">
-                        <li><a class="dropdown-item" href="{{ url_for('in_order_push_page', id=order.id) }}?target=requisition">下推领料单</a></li>
-                        <li><a class="dropdown-item" href="{{ url_for('in_order_push_page', id=order.id) }}?target=other_out">下推其他出库单</a></li>
-                        <li><a class="dropdown-item" href="{{ url_for('in_order_push_page', id=order.id) }}?target=after_sale_out">下推售后出库单</a></li>
+                        <li><a class="dropdown-item" target="_blank" rel="noopener" href="{{ url_for('in_order_push_page', id=order.id) }}?target=requisition">下推领料单</a></li>
+                        <li><a class="dropdown-item" target="_blank" rel="noopener" href="{{ url_for('in_order_push_page', id=order.id) }}?target=other_out">下推其他出库单</a></li>
+                        <li><a class="dropdown-item" target="_blank" rel="noopener" href="{{ url_for('in_order_push_page', id=order.id) }}?target=after_sale_out">下推售后出库单</a></li>
                     </ul>
                 </div>
                 {% elif order.business_type == '产品入库' %}
