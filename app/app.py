@@ -8431,6 +8431,23 @@ def add_material():
         db.session.rollback()
         app.logger.error(f'物料创建失败: {e}')
         return jsonify({'status': 'error', 'msg': '物料创建失败，编码可能已存在'}), 500
+    # BUG-2026-08-04-009: 新增物料带初始库存时补一条审计流水，保证库存台账/月报
+    # 可追溯（与期初库存调整 opening_stock 语义一致）。仅在有初始库存时记录。
+    if initial_stock and initial_stock > 0:
+        _loc = None
+        _default_wh = get_default_warehouse()
+        if _default_wh:
+            _loc = _default_wh.name
+        add_stock_transaction(
+            material,
+            initial_stock,
+            'opening',
+            reference_type='opening_stock',
+            reference_id=material.id,
+            location=_loc,
+            remark='新增物料初始库存',
+        )
+        db.session.commit()
     app.logger.info(f'物料创建成功：{material.code}')
     return jsonify({'status': 'success', 'msg': '物料新增成功'})
 
