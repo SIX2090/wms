@@ -42679,7 +42679,10 @@ def api_recommend_location():
     material_id = data.get('material_id')
     
     # 获取所有物料供选择
-    materials = Material.query.filter_by(status='active').all()
+    # BUG-2026-08-04-006: Material 模型无 status 字段，filter_by(status='active')
+    # 会触发 SQLAlchemy "Unknown column material.status" 错误，导致 AI 库位推荐
+    # 和需求预测 API 直接 500。移除该过滤条件，所有物料均视为可用。
+    materials = Material.query.all()
     material_options = [{'id': m.id, 'code': m.code, 'name': m.name, 'spec': m.spec or '', 'unit': m.unit or ''} for m in materials]
     
     if not material_id:
@@ -42867,7 +42870,8 @@ def api_demand_forecast():
     category = data.get('category', '')  # 物料分类筛选
     
     # 获取物料列表
-    materials_query = Material.query.filter_by(status='active')
+    # BUG-2026-08-04-006: Material 模型无 status 字段，移除 filter_by(status='active')
+    materials_query = Material.query
     if category:
         materials_query = materials_query.filter_by(category=category)
     materials = materials_query.limit(100).all()
