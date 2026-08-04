@@ -26,6 +26,21 @@
                 <i class="bi bi-trash"></i> 删除
             </button>
             <div class="vr"></div>
+            <div class="position-relative">
+                <button class="btn btn-outline-secondary btn-sm" id="toolbarColumnBtn" onclick="toggleMaterialColumnSettings()" title="设置显示/隐藏列">
+                    <i class="bi bi-layout-three-columns"></i> 列设置
+                </button>
+                <div class="dropdown-menu material-col-settings-panel" id="materialColSettingsPanel">
+                    <div class="material-col-settings-title">选择显示字段</div>
+                    <div id="materialColOptions"></div>
+                    <div class="material-col-settings-footer">
+                        <button class="btn btn-sm btn-outline-secondary w-100" onclick="resetMaterialColumns()">
+                            <i class="bi bi-arrow-counterclockwise"></i> 重置
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="vr"></div>
             <button class="btn btn-warning btn-sm" onclick="fixEmptyFields()">
                 <i class="bi bi-tools"></i> 修复空分类/单位
             </button>
@@ -994,6 +1009,48 @@
 .material-image-card .btn {
     width: 100%;
 }
+/* 列设置面板 */
+.material-col-settings-panel {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 1060;
+    min-width: 180px;
+    padding: 8px 12px;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+    margin-top: 4px;
+}
+.material-col-settings-panel.show {
+    display: block;
+}
+.material-col-settings-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #6c757d;
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #eee;
+}
+.material-col-option {
+    margin-bottom: 2px;
+}
+.material-col-option label {
+    font-size: 13px;
+    cursor: pointer;
+}
+.material-col-settings-footer {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #eee;
+}
+/* 隐藏列样式 */
+.cb-detail-hidden {
+    display: none !important;
+}
 @media (max-width: 992px) {
     .material-layout {
         grid-template-columns: 1fr;
@@ -1288,9 +1345,115 @@ function toolbarDelete() {
     if (id) deleteItem('{{ url_for("delete_material") }}', parseInt(id));
 }
 
+// ==================== 列设置（显示/隐藏字段） ====================
+var MATERIAL_COL_STORAGE_KEY = 'material_col_visibility_v1';
+var MATERIAL_COL_DEFAULTS = [
+    {key: 'code',     label: '物料编码'},
+    {key: 'name',     label: '物料名称'},
+    {key: 'brand',    label: '品牌'},
+    {key: 'spec',     label: '规格'},
+    {key: 'unit',     label: '单位'},
+    {key: 'category', label: '分类'},
+    {key: 'supplier', label: '供应商'},
+    {key: 'purpose',  label: '用途'},
+    {key: 'stock',    label: '库存'},
+    {key: 'min_stock',label: '最低库存'},
+    {key: 'price',    label: '单价'},
+    {key: 'remark',   label: '备注'},
+    {key: 'image',    label: '图片'}
+];
+
+function loadMaterialColVisibility() {
+    try {
+        var saved = JSON.parse(localStorage.getItem(MATERIAL_COL_STORAGE_KEY) || 'null');
+        if (Array.isArray(saved) && saved.length) return new Set(saved);
+    } catch(e) {}
+    return null;
+}
+
+function saveMaterialColVisibility(hiddenSet) {
+    localStorage.setItem(MATERIAL_COL_STORAGE_KEY, JSON.stringify(Array.from(hiddenSet)));
+}
+
+function buildMaterialColOptions() {
+    var container = document.getElementById('materialColOptions');
+    if (!container) return;
+    var hidden = loadMaterialColVisibility() || new Set();
+    var html = '';
+    MATERIAL_COL_DEFAULTS.forEach(function(col) {
+        var checked = !hidden.has(col.key) ? ' checked' : '';
+        html += '<div class="form-check material-col-option">' +
+            '<input class="form-check-input" type="checkbox" id="matCol_' + col.key + '"' + checked + ' data-col-key="' + col.key + '">' +
+            '<label class="form-check-label" for="matCol_' + col.key + '">' + col.label + '</label>' +
+            '</div>';
+    });
+    container.innerHTML = html;
+
+    container.querySelectorAll('.form-check-input').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+            var key = this.dataset.colKey;
+            var curHidden = loadMaterialColVisibility() || new Set();
+            if (this.checked) {
+                curHidden.delete(key);
+            } else {
+                curHidden.add(key);
+            }
+            saveMaterialColVisibility(curHidden);
+            applyMaterialColVisibility(curHidden);
+        });
+    });
+}
+
+function applyMaterialColVisibility(hiddenSet) {
+    var table = document.getElementById('materialTable');
+    if (!table) return;
+    hiddenSet = hiddenSet || loadMaterialColVisibility() || new Set();
+    // 表头
+    table.querySelectorAll('thead th[data-column-key]').forEach(function(th) {
+        var key = th.dataset.columnKey;
+        if (key === 'select') return;
+        th.classList.toggle('cb-detail-hidden', hiddenSet.has(key));
+    });
+    // 表体
+    table.querySelectorAll('tbody tr').forEach(function(tr) {
+        tr.querySelectorAll('td[data-column-key]').forEach(function(td) {
+            var key = td.dataset.columnKey;
+            if (key === 'select') return;
+            td.classList.toggle('cb-detail-hidden', hiddenSet.has(key));
+        });
+    });
+}
+
+function toggleMaterialColumnSettings() {
+    var panel = document.getElementById('materialColSettingsPanel');
+    if (!panel) return;
+    var isOpen = panel.classList.contains('show');
+    if (!isOpen) {
+        buildMaterialColOptions();
+    }
+    panel.classList.toggle('show');
+}
+
+function resetMaterialColumns() {
+    localStorage.removeItem(MATERIAL_COL_STORAGE_KEY);
+    buildMaterialColOptions();
+    applyMaterialColVisibility(new Set());
+    showToast('列设置已重置', 'success', 1500);
+}
+
+// 点击面板外部关闭
+document.addEventListener('click', function(e) {
+    var panel = document.getElementById('materialColSettingsPanel');
+    var btn = document.getElementById('toolbarColumnBtn');
+    if (panel && !panel.contains(e.target) && btn && !btn.contains(e.target)) {
+        panel.classList.remove('show');
+    }
+});
+
 document.addEventListener('DOMContentLoaded', function() {
     initCheckAll('materialTable');
     initToolbarActions();
+    applyMaterialColVisibility();
     if (typeof setupDynamicDetailColumnControls === 'function') {
         window.materialColumnController = setupDynamicDetailColumnControls({
             tableSelector: '#materialTable',
