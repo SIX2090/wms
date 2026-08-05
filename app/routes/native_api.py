@@ -1,0 +1,651 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# 原生/移动端 API + 通用数据查询（native_api）域路由。
+#
+# 批量拆分模式：与销售（sales）、库存调整（adjustment）等域一致，采用
+# 「register_native_api_routes(app)」直接在 app 上注册路由，endpoint 名保持不变
+# （如 api_csrf_refresh、native_api_login、native_api_inbound、mobile_api_dashboard、
+# api_categories 等），与 app.py 内原有 url_for 引用完全兼容。
+#
+# - 模块级只导入稳定依赖（flask / db），不导入 app，避免循环导入。
+# - app.py 内部定义（csrf、api_role_required、mobile_api_idempotent、web_or_api_required
+#   等装饰器，User、ApiToken、InOrder、InOrderItem、OutOrder、OutOrderItem、Material、
+#   MaterialCategory、Unit、Supplier、Customer、InventoryCheckScan、
+#   InventoryCheckScanItem 等模型，以及 api_json_error / api_json_success /
+#   api_json_error / get_request_ip / get_bearer_user / add_login_log / parse_api_lines /
+#   parse_float_value / generate_order_no / round_to_2_decimals / normalize_stock_quantity /
+#   add_stock / deduct_stock / update_location_inventory / check_stock_sufficient /
+#   purchase_in_order_requires_order / location_management_enabled /
+#   location_required_on_save / allow_negative_stock / inventory_alert_enabled /
+#   _create_adjustment_drafts_from_check_scan / _mobile_paginate / _in_order_payload /
+#   _in_order_detail_payload / _out_order_payload / _out_order_detail_payload /
+#   serialize_unit / serialize_supplier / serialize_customer / MOBILE_API_PAGE_SIZE_DEFAULT /
+#   MOBILE_API_PAGE_SIZE_MAX 等）在各路由函数内延迟导入（请求期才执行），
+#   避免 app.py 模块加载期触发循环导入。
+# - 装饰器 csrf / api_role_required / mobile_api_idempotent / web_or_api_required 需在
+#   路由函数定义期可用，故在 register_native_api_routes(app) 函数内延迟导入。
+# - 日志复用 register_native_api_routes(app) 传入的 app.logger（与 app.py 原实现一致）。
+# 注意：本文件顶部不用多行 """docstring""" 作为模块说明，会触发 lint 脚本
+# strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
+from __future__ import annotations
+
+from flask import jsonify, request
+
+from db import db
+
+
+# no-test:reason=路由注册辅助函数，能力由 native_api_* 与 mobile_api_* 各路由测试覆盖
+def register_native_api_routes(app):
+    # 装饰器为 app.py 内部定义（csrf / api_role_required / mobile_api_idempotent /
+    # web_or_api_required），需在函数定义期（注册期）可用，故在 register 内延迟导入，
+    # 避免 app.py 模块加载期触发循环导入。
+    from app import (api_role_required, csrf, mobile_api_idempotent, web_or_api_required)
+
+    # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
+    @app.route('/api/csrf_refresh', methods=['POST'])
+    @csrf.exempt  # 该端点本身就是为了获取新 token，不能要求带 token，否则形成鸡生蛋问题
+    def api_csrf_refresh():
+        from flask import current_app
+        from flask_wtf.csrf import generate_csrf
+        # 刷新 CSRF token
+        # 用于长会话场景：客户端每 25 分钟（寿命 30 分钟）主动调用一次，
+        # 更新 <meta name="csrf-token"> 标签，避免停留超过 30 分钟后所有
+        # 非 GET 请求因 CSRF 失败而报错。
+        # Returns: JSON: { status: 'success', csrf_token: '...' }
+        # 如果全局禁用 CSRF，则直接返回空 token，由前端跳过刷新
+        if not current_app.config.get('WTF_CSRF_ENABLED', True):
+            return jsonify({'status': 'success', 'csrf_token': '', 'csrf_disabled': True})
+        # 生成新的 CSRF token（flask_wtf 内部会自动写入 session）
+        new_token = generate_csrf()
+        return jsonify({'status': 'success', 'csrf_token': new_token})
+
+    # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
+    @app.route('/api/login', methods=['POST'])
+    @csrf.exempt
+    def native_api_login():
+        from datetime import datetime, timedelta
+        import secrets
+        from werkzeug.security import check_password_hash
+        from app import (ApiToken, User, add_login_log, api_json_error,
+                         api_json_success, get_request_ip)
+        payload = request.get_json(silent=True) or {}
+        username = (payload.get('username') or '').strip()
+        password = payload.get('password') or ''
+        if not username or not password:
+            return api_json_error('请输入账号和密码', 400)
+        if len(username) > 80 or len(password) > 128:
+            return api_json_error('用户名或密码长度不正确', 400)
+        request_ip = get_request_ip()
+
+        user = User.query.filter_by(username=username).first()
+        if not user or not check_password_hash(user.password_hash, password):
+            if user and user.is_active:
+                user.increment_failed_count(request_ip)
+            add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            return api_json_error('账号或密码错误', 401)
+        if not user.is_active:
+            return api_json_error('账号已被禁用', 403)
+        if user.must_change_password:
+            return api_json_error('请先通过网页登录修改初始密码', 403)
+        if user.is_locked_for(request_ip):
+            return api_json_error(f'账号已锁定，请 {user.login_lock_remaining(request_ip)} 分钟后再试', 423)
+
+        token = ApiToken(
+            token=secrets.token_urlsafe(48),
+            user_id=user.id,
+            expires_at=datetime.now() + timedelta(days=7),
+        )
+        user.last_login_at = datetime.now()
+        user.last_login_ip = get_request_ip()
+        user.reset_failed_count()
+        add_login_log(status='success', username=username, user=user)
+        db.session.add(token)
+        db.session.commit()
+        return api_json_success({
+            'token': token.token,
+            'expires_in': 7 * 24 * 60 * 60,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'name': user.username,
+                'role': user.role,
+            }
+        }, '登录成功')
+
+    # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
+    @app.route('/api/inbound', methods=['POST'])
+    @csrf.exempt
+    @api_role_required('warehouse')
+    @mobile_api_idempotent('inbound')
+    def native_api_inbound(user):
+        from datetime import date
+        from app import (InOrder, InOrderItem, add_stock, api_json_error,
+                         api_json_success, generate_order_no, location_management_enabled,
+                         location_required_on_save, parse_api_lines, parse_float_value,
+                         purchase_in_order_requires_order, round_to_2_decimals,
+                         update_location_inventory)
+        payload = request.get_json(silent=True) or {}
+        parsed, error = parse_api_lines(payload)
+        if error:
+            return api_json_error(error)
+        business_type = (payload.get('business_type') or payload.get('type') or '').strip()
+        if business_type in ('product', '产品', '产品入库'):
+            business_type = '产品入库'
+        elif business_type in ('purchase', '采购', '采购入库', ''):
+            business_type = '采购入库'
+        else:
+            business_type = business_type[:50]
+        if business_type == '采购入库' and purchase_in_order_requires_order():
+            return api_json_error('系统要求采购入库必须关联采购订单，请从采购订单下推或选单生成入库单', 403)
+        if location_management_enabled() and location_required_on_save():
+            order_warehouse = (payload.get('warehouse_code') or payload.get('warehouse') or '').strip()
+            for _material, _quantity, line in parsed:
+                location = (line.get('warehouse_code') or line.get('location_code') or order_warehouse or '').strip()
+                if not location:
+                    return api_json_error('启用库位管理后，入库必须填写仓库/库位')
+
+        try:
+            order = InOrder(
+                order_no=generate_order_no('IN'),
+                date=date.today(),
+                warehouse=(payload.get('warehouse_code') or payload.get('warehouse') or '').strip() or None,
+                business_type=business_type,
+                purpose='Android扫码入库',
+                remark='Android原生端提交',
+                status='completed',
+                operator_id=user.id,
+                total_amount=0,
+            )
+            db.session.add(order)
+            db.session.flush()
+            total_amount = 0
+            for material, quantity, line in parsed:
+                price = parse_float_value(line.get('price'), material.price or 0)
+                amount = round_to_2_decimals(quantity * price)
+                total_amount += amount
+                db.session.add(InOrderItem(
+                    in_order_id=order.id,
+                    material_id=material.id,
+                    quantity=quantity,
+                    price=price,
+                    amount=amount,
+                ))
+                ok, msg = add_stock(material, quantity, 'in', 'in_order', order.id, f'Android入库 {order.order_no}')
+                if not ok:
+                    db.session.rollback()
+                    return api_json_error(msg or '库存增加失败', 500)
+                location = (line.get('warehouse_code') or line.get('location_code') or order.warehouse or '').strip()
+                loc_ok, loc_msg = update_location_inventory(material, location, quantity)
+                if not loc_ok:
+                    db.session.rollback()
+                    return api_json_error(loc_msg or '库位库存更新失败', 500)
+            order.total_amount = round_to_2_decimals(total_amount)
+            db.session.commit()
+            return api_json_success({'order_no': order.order_no}, '入库提交成功')
+        except Exception as e:
+            db.session.rollback()
+            app.logger.exception('Android inbound failed')
+            return api_json_error('入库提交失败', 500)
+
+    # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
+    @app.route('/api/outbound', methods=['POST'])
+    @csrf.exempt
+    @api_role_required('warehouse', 'production')
+    @mobile_api_idempotent('outbound')
+    def native_api_outbound(user):
+        from datetime import date
+        from app import (OutOrder, OutOrderItem, allow_negative_stock, api_json_error,
+                         api_json_success, check_stock_sufficient, deduct_stock,
+                         generate_order_no, location_management_enabled,
+                         location_required_on_save, parse_api_lines, parse_float_value,
+                         round_to_2_decimals, update_location_inventory)
+        payload = request.get_json(silent=True) or {}
+        parsed, error = parse_api_lines(payload)
+        if error:
+            return api_json_error(error)
+        if location_management_enabled() and location_required_on_save():
+            order_warehouse = (payload.get('warehouse_code') or payload.get('warehouse') or '').strip()
+            for _material, _quantity, line in parsed:
+                location = (line.get('warehouse_code') or line.get('location_code') or order_warehouse or '').strip()
+                if not location:
+                    return api_json_error('启用库位管理后，出库必须填写仓库/库位')
+
+        if not allow_negative_stock():
+            for material, quantity, _line in parsed:
+                sufficient, current_stock, error_msg = check_stock_sufficient(material, quantity)
+                if not sufficient:
+                    return api_json_error(error_msg or f'{material.code} 库存不足，当前库存 {current_stock}')
+
+        try:
+            order = OutOrder(
+                order_no=generate_order_no('OU'),
+                date=date.today(),
+                customer=(payload.get('receiver') or '').strip() or None,
+                business_type='Android扫码出库',
+                warehouse=(payload.get('warehouse_code') or payload.get('warehouse') or '').strip() or None,
+                purpose=(payload.get('department') or 'Android原生端提交').strip(),
+                remark='Android原生端提交',
+                status='completed',
+                operator_id=user.id,
+                total_amount=0,
+            )
+            db.session.add(order)
+            db.session.flush()
+            total_amount = 0
+            for material, quantity, line in parsed:
+                price = parse_float_value(line.get('price'), material.price or 0)
+                amount = round_to_2_decimals(quantity * price)
+                total_amount += amount
+                db.session.add(OutOrderItem(
+                    out_order_id=order.id,
+                    material_id=material.id,
+                    quantity=quantity,
+                    price=price,
+                    amount=amount,
+                    remark=(line.get('remark') or '').strip() or None,
+                ))
+                ok, msg = deduct_stock(material, quantity, 'out', 'out_order', order.id, f'Android出库 {order.order_no}')
+                if not ok:
+                    db.session.rollback()
+                    return api_json_error(msg)
+                location = (line.get('warehouse_code') or line.get('location_code') or order.warehouse or '').strip()
+                ok, msg = update_location_inventory(material, location, -quantity)
+                if not ok:
+                    db.session.rollback()
+                    return api_json_error(msg)
+            order.total_amount = round_to_2_decimals(total_amount)
+            db.session.commit()
+            return api_json_success({'order_no': order.order_no}, '出库提交成功')
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('Android outbound failed')
+            return api_json_error('出库提交失败', 500)
+
+    # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
+    @app.route('/api/stocktake', methods=['POST'])
+    @csrf.exempt
+    @api_role_required('warehouse')
+    @mobile_api_idempotent('stocktake')
+    def native_api_stocktake(user):
+        from datetime import date
+        from app import (InventoryCheckScan, InventoryCheckScanItem, Material,
+                         _create_adjustment_drafts_from_check_scan, api_json_error,
+                         api_json_success, generate_order_no, parse_float_value,
+                         round_to_2_decimals)
+        payload = request.get_json(silent=True) or {}
+        lines = payload.get('lines') if isinstance(payload, dict) else None
+        if not isinstance(lines, list) or not lines:
+            return api_json_error('盘点明细不能为空')
+
+        try:
+            check = InventoryCheckScan(
+                check_no=generate_order_no('CS'),
+                date=date.today(),
+                remark=f"Android盘点：{payload.get('mode') or 'all'}",
+                status='completed',
+                operator_id=user.id,
+            )
+            db.session.add(check)
+            db.session.flush()
+            for index, line in enumerate(lines, start=1):
+                code = (line.get('material_code') or line.get('code') or '').strip()
+                material = Material.query.filter_by(code=code).first()
+                if not material:
+                    db.session.rollback()
+                    return api_json_error(f'第 {index} 行物料不存在：{code}')
+                system_stock = parse_float_value(line.get('system_stock'), material.stock or 0)
+                actual_stock = parse_float_value(line.get('actual_stock'), system_stock)
+                db.session.add(InventoryCheckScanItem(
+                    check_scan_id=check.id,
+                    material_id=material.id,
+                    system_stock=system_stock,
+                    actual_stock=actual_stock,
+                    difference=round_to_2_decimals(actual_stock - system_stock),
+                ))
+            drafts, error = _create_adjustment_drafts_from_check_scan(check)
+            if error:
+                db.session.rollback()
+                return api_json_error(error, 400)
+            db.session.commit()
+            data = {'check_no': check.check_no, 'adjustment_nos': [order.adjustment_no for order in drafts]}
+            msg = '盘点提交成功'
+            if drafts:
+                msg += '，已生成库存调整草稿，请审核后提交'
+            return api_json_success(data, msg)
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('Android stocktake failed')
+            return api_json_error('盘点提交失败', 500)
+
+    @app.route('/api/mobile/dashboard')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_dashboard():
+        """移动端首页概览：今日进出统计、待处理数、库存告警"""
+        from datetime import date
+        from sqlalchemy import func
+        from app import (InOrder, InOrderItem, Material, OutOrder, OutOrderItem,
+                         api_json_success, inventory_alert_enabled)
+        today = date.today()
+
+        # 今日入库统计
+        today_in_count = InOrder.query.filter(
+            InOrder.date == today,
+            InOrder.status == 'completed',
+        ).count()
+        today_in_items = db.session.query(func.coalesce(func.sum(InOrderItem.quantity), 0)).join(
+            InOrder, InOrderItem.in_order_id == InOrder.id
+        ).filter(
+            InOrder.date == today,
+            InOrder.status == 'completed',
+        ).scalar() or 0
+
+        # 今日出库统计
+        today_out_count = OutOrder.query.filter(
+            OutOrder.date == today,
+            OutOrder.status == 'completed',
+        ).count()
+        today_out_items = db.session.query(func.coalesce(func.sum(OutOrderItem.quantity), 0)).join(
+            OutOrder, OutOrderItem.out_order_id == OutOrder.id
+        ).filter(
+            OutOrder.date == today,
+            OutOrder.status == 'completed',
+        ).scalar() or 0
+
+        # 待处理入库单
+        pending_in = InOrder.query.filter_by(status='pending').count()
+
+        # 待处理出库单
+        pending_out = OutOrder.query.filter_by(status='pending').count()
+
+        # 库存告警
+        alert_count = 0
+        if inventory_alert_enabled():
+            alert_count = Material.query.filter(
+                Material.min_stock > 0,
+                Material.stock <= Material.min_stock,
+            ).count()
+
+        return api_json_success({
+            'today_in_orders': today_in_count,
+            'today_in_quantity': float(today_in_items),
+            'today_out_orders': today_out_count,
+            'today_out_quantity': float(today_out_items),
+            'pending_in_orders': pending_in,
+            'pending_out_orders': pending_out,
+            'alert_count': alert_count,
+            'date': today.isoformat(),
+        })
+
+    @app.route('/api/mobile/stock/query')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_stock_query():
+        """移动端库存查询：多条件模糊搜索 + 分页"""
+        from sqlalchemy.orm import joinedload
+        from app import (MOBILE_API_PAGE_SIZE_DEFAULT, Material, _mobile_paginate,
+                         api_json_success, normalize_stock_quantity, round_to_2_decimals)
+        keyword = (request.args.get('keyword') or request.args.get('kw') or '').strip()
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+
+        query = Material.query.options(
+            joinedload(Material.unit),
+            joinedload(Material.category),
+            joinedload(Material.supplier),
+        )
+
+        if keyword:
+            like = f'%{keyword}%'
+            query = query.filter(db.or_(
+                Material.code.like(like),
+                Material.name.like(like),
+                Material.spec.like(like),
+            ))
+
+        query = query.order_by(Material.code.asc())
+
+        result = _mobile_paginate(query, page, page_size)
+        materials = result['items']
+
+        return api_json_success({
+            'items': [
+                {
+                    'id': m.id,
+                    'code': m.code or '',
+                    'name': m.name or '',
+                    'spec': m.spec or '',
+                    'unit': m.unit.name if m.unit else '',
+                    'category': m.category.name if m.category else '',
+                    'supplier': m.supplier.name if m.supplier else '',
+                    'stock': normalize_stock_quantity(m.stock or 0),
+                    'price': round_to_2_decimals(m.price or 0),
+                    'min_stock': m.min_stock or 0,
+                    'reorder_point': m.reorder_point or 0,
+                }
+                for m in materials
+            ],
+            'total': result['total'],
+            'page': result['page'],
+            'page_size': result['page_size'],
+            'total_pages': result['total_pages'],
+        })
+
+    @app.route('/api/mobile/alert/list')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_alert_list():
+        """移动端库存告警列表：库存低于安全库存 / 最低库存的物料"""
+        from sqlalchemy.orm import joinedload
+        from app import (MOBILE_API_PAGE_SIZE_DEFAULT, Material, _mobile_paginate,
+                         api_json_success, inventory_alert_enabled, normalize_stock_quantity)
+        if not inventory_alert_enabled():
+            return api_json_success({
+                'items': [],
+                'total': 0,
+                'page': 1,
+                'page_size': MOBILE_API_PAGE_SIZE_DEFAULT,
+                'total_pages': 0,
+            }, '库存预警未启用')
+
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+
+        query = Material.query.options(
+            joinedload(Material.unit),
+            joinedload(Material.category),
+            joinedload(Material.supplier),
+        ).filter(
+            Material.min_stock > 0,
+            Material.stock <= Material.min_stock,
+        ).order_by(Material.stock.asc(), Material.code.asc())
+
+        result = _mobile_paginate(query, page, page_size)
+        materials = result['items']
+
+        return api_json_success({
+            'items': [
+                {
+                    'id': m.id,
+                    'code': m.code or '',
+                    'name': m.name or '',
+                    'spec': m.spec or '',
+                    'unit': m.unit.name if m.unit else '',
+                    'stock': normalize_stock_quantity(m.stock or 0),
+                    'min_stock': m.min_stock or 0,
+                    'reorder_point': m.reorder_point or 0,
+                    'gap': max(0, (m.min_stock or 0) - normalize_stock_quantity(m.stock or 0)),
+                }
+                for m in materials
+            ],
+            'total': result['total'],
+            'page': result['page'],
+            'page_size': result['page_size'],
+            'total_pages': result['total_pages'],
+        })
+
+    @app.route('/api/mobile/in_order/list')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_in_order_list():
+        """移动端入库单列表：分页 + 状态筛选"""
+        from sqlalchemy.orm import joinedload
+        from app import (MOBILE_API_PAGE_SIZE_DEFAULT, InOrder, InOrderItem, Material,
+                         _in_order_payload, _mobile_paginate, api_json_success)
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+        status = (request.args.get('status') or '').strip()
+        keyword = (request.args.get('keyword') or '').strip()
+
+        query = InOrder.query.options(
+            joinedload(InOrder.operator),
+            joinedload(InOrder.items).joinedload(InOrderItem.material),
+        )
+
+        if status and status in ('pending', 'completed'):
+            query = query.filter(InOrder.status == status)
+        if keyword:
+            like = f'%{keyword}%'
+            query = query.filter(InOrder.order_no.like(like))
+
+        query = query.order_by(InOrder.created_at.desc(), InOrder.id.desc())
+
+        result = _mobile_paginate(query, page, page_size)
+        orders = result['items']
+
+        return api_json_success({
+            'items': [_in_order_payload(o) for o in orders],
+            'total': result['total'],
+            'page': result['page'],
+            'page_size': result['page_size'],
+            'total_pages': result['total_pages'],
+        })
+
+    @app.route('/api/mobile/in_order/<int:order_id>')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_in_order_detail(order_id):
+        """移动端入库单详情"""
+        from sqlalchemy.orm import joinedload
+        from app import (InOrder, InOrderItem, Material, Unit, _in_order_detail_payload,
+                         api_json_error, api_json_success)
+        order = InOrder.query.options(
+            joinedload(InOrder.operator),
+            joinedload(InOrder.supplier),
+            joinedload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
+        ).get(order_id)
+
+        if not order:
+            return api_json_error('入库单不存在', 404)
+
+        return api_json_success(_in_order_detail_payload(order))
+
+    @app.route('/api/mobile/out_order/list')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_out_order_list():
+        """移动端出库单列表：分页 + 状态筛选"""
+        from sqlalchemy.orm import joinedload
+        from app import (MOBILE_API_PAGE_SIZE_DEFAULT, OutOrder, OutOrderItem, Material,
+                         _mobile_paginate, _out_order_payload, api_json_success)
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+        status = (request.args.get('status') or '').strip()
+        keyword = (request.args.get('keyword') or '').strip()
+
+        query = OutOrder.query.options(
+            joinedload(OutOrder.operator),
+            joinedload(OutOrder.department),
+            joinedload(OutOrder.items).joinedload(OutOrderItem.material),
+        )
+
+        if status and status in ('pending', 'completed'):
+            query = query.filter(OutOrder.status == status)
+        if keyword:
+            like = f'%{keyword}%'
+            query = query.filter(OutOrder.order_no.like(like))
+
+        query = query.order_by(OutOrder.created_at.desc(), OutOrder.id.desc())
+
+        result = _mobile_paginate(query, page, page_size)
+        orders = result['items']
+
+        return api_json_success({
+            'items': [_out_order_payload(o) for o in orders],
+            'total': result['total'],
+            'page': result['page'],
+            'page_size': result['page_size'],
+            'total_pages': result['total_pages'],
+        })
+
+    @app.route('/api/mobile/out_order/<int:order_id>')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_out_order_detail(order_id):
+        """移动端出库单详情"""
+        from sqlalchemy.orm import joinedload
+        from app import (OutOrder, OutOrderItem, Material, Unit, _out_order_detail_payload,
+                         api_json_error, api_json_success)
+        order = OutOrder.query.options(
+            joinedload(OutOrder.operator),
+            joinedload(OutOrder.department),
+            joinedload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit),
+        ).get(order_id)
+
+        if not order:
+            return api_json_error('出库单不存在', 404)
+
+        return api_json_success(_out_order_detail_payload(order))
+
+    @app.route('/api/mobile/profile')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_profile():
+        """移动端个人中心：用户信息"""
+        from flask_login import current_user
+        from app import api_json_error, api_json_success, get_bearer_user
+        user = get_bearer_user() or current_user
+        if not user or not user.is_authenticated:
+            return api_json_error('未登录', 401)
+
+        return api_json_success({
+            'id': user.id,
+            'username': user.username,
+            'name': user.username,
+            'role': user.role,
+            'last_login_at': user.last_login_at.isoformat() if user.last_login_at else '',
+            'last_login_ip': user.last_login_ip or '',
+            'must_change_password': user.must_change_password or False,
+        })
+
+    @app.route('/api/categories')
+    @web_or_api_required
+    def api_categories():
+        from app import MaterialCategory
+        cats = MaterialCategory.query.all()
+        return jsonify([{'id': c.id, 'code': c.code, 'name': c.name} for c in cats])
+
+    @app.route('/api/units')
+    @web_or_api_required
+    def api_units():
+        from app import Unit, serialize_unit
+        units = Unit.query.order_by(Unit.code.asc(), Unit.id.asc()).all()
+        return jsonify([serialize_unit(unit) for unit in units])
+
+    @app.route('/api/suppliers')
+    @web_or_api_required
+    def api_suppliers():
+        from app import Supplier, serialize_supplier
+        suppliers = Supplier.query.order_by(Supplier.code.asc(), Supplier.id.asc()).all()
+        return jsonify([serialize_supplier(supplier) for supplier in suppliers])
+
+    @app.route('/api/customers')
+    @web_or_api_required
+    def api_customers():
+        from app import Customer, serialize_customer
+        customers = Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all()
+        return jsonify([serialize_customer(customer) for customer in customers])
