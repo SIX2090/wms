@@ -10,6 +10,11 @@ APP_DIR = ROOT / "app"
 sys.path.insert(0, str(APP_DIR))
 os.chdir(APP_DIR)
 
+# 其他测试可能已把 'app' 当作目录命名空间包（无 __file__）缓存，导致
+# `from app import ...` 取不到模块属性；先清理，确保 import app 指向 app/app.py。
+if "app" in sys.modules and not getattr(sys.modules["app"], "__file__", None):
+    del sys.modules["app"]
+
 import app as app_module  # noqa: E402
 from app import Warehouse, db  # noqa: E402
 

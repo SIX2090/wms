@@ -14,12 +14,36 @@ def read_text(relative: str) -> str:
 
 
 def function_body(source: str, name: str) -> str:
-    match = re.search(rf"^def\s+{re.escape(name)}\s*\([^)]*\):", source, re.M)
-    if not match:
+    m = re.search(rf"^([ \t]*)def\s+{re.escape(name)}\s*\([^)]*\):", source, re.M)
+    if not m:
         return ""
-    next_match = re.search(r"^def\s+\w+\s*\(", source[match.end() :], re.M)
-    end = match.end() + next_match.start() if next_match else len(source)
-    return source[match.start() : end]
+    indent = len(m.group(1))
+    # 边界取下一个同缩进或更浅缩进的 def（嵌套 def 不截断函数体）。
+    rest = source[m.end() :]
+    nm = re.search(rf"^[ \t]{{0,{indent}}}def\s+\w+\s*\(", rest, re.M)
+    end = m.end() + nm.start() if nm else len(source)
+    return source[m.start() : end]
+
+
+def routes_source() -> str:
+    """拼接 app/app.py 与 app/routes/*.py 的源码，供函数体/路由静态检索使用。
+
+    路由拆分后，业务函数已从 app.py 迁移到 app/routes/ 各模块，
+    静态检查需同时在两处查找，避免误报。
+    """
+    parts = [read_text("app/app.py")]
+    for p in sorted((ROOT / "app" / "routes").glob("*.py")):
+        parts.append(p.read_text(encoding="utf-8", errors="ignore"))
+    return "\n".join(parts)
+
+
+def app_function_body(name: str) -> str:
+    """在 app.py 与 app/routes/*.py 中查找函数体，返回首个匹配。"""
+    for src in (read_text("app/app.py"), routes_source()):
+        body = function_body(src, name)
+        if body:
+            return body
+    return ""
 
 
 def check_post_forms_have_csrf() -> tuple[bool, str]:
@@ -61,12 +85,12 @@ def check_add_stock_results_checked() -> tuple[bool, str]:
 
 def check_web_login_csrf() -> tuple[bool, str]:
     """LOGIN-CSRF-001: Web /login 必须校验 CSRF，原生 /api/login 可继续豁免。"""
-    app_py = read_text("app/app.py")
+    combined = routes_source()
     login_html = read_text("app/templates/login.html")
 
     web_login = re.search(
-        r"@app\.route\('/login',\s*methods=\['GET',\s*'POST'\]\)(?P<body>.*?)\ndef login\(",
-        app_py,
+        r"@app\.route\('/login',\s*methods=\['GET',\s*'POST'\]\)(?P<body>.*?)\n[ \t]*def login\(",
+        combined,
         re.S,
     )
     if not web_login:
@@ -75,8 +99,8 @@ def check_web_login_csrf() -> tuple[bool, str]:
         return False, "Web /login 不得使用 @csrf.exempt"
 
     api_login = re.search(
-        r"@app\.route\('/api/login',\s*methods=\['POST'\]\)(?P<body>.*?)\ndef native_api_login\(",
-        app_py,
+        r"@app\.route\('/api/login',\s*methods=\['POST'\]\)(?P<body>.*?)\n[ \t]*def native_api_login\(",
+        combined,
         re.S,
     )
     if not api_login or "@csrf.exempt" not in api_login.group("body"):
@@ -114,10 +138,10 @@ def check_web_login_csrf() -> tuple[bool, str]:
             wms_app.db.session.add(user)
             wms_app.db.session.commit()
 
-        if "app.login" in wms_app.csrf._exempt_views:
-            return False, "运行时 app.login 不应在 csrf._exempt_views"
-        if "app.native_api_login" not in wms_app.csrf._exempt_views:
-            return False, "运行时 app.native_api_login 必须在 csrf._exempt_views"
+        if "routes.native_api.native_api_login" not in wms_app.csrf._exempt_views:
+            return False, "运行时 routes.native_api.native_api_login 必须在 csrf._exempt_views"
+        if "login" in wms_app.csrf._exempt_views:
+            return False, "运行时 login 不应在 csrf._exempt_views"
 
         client = wms_app.app.test_client()
         resp = client.post(
@@ -245,7 +269,7 @@ def main() -> int:
         "多进程启动迁移必须串行等待，且迁移失败时停止启动",
     ))
 
-    delete_in_order_body = function_body(app_py, "delete_in_order")
+    delete_in_order_body = app_function_body("delete_in_order")
     checks.append((
         "BUG-NEW-001",
         "order.status != 'pending'" in delete_in_order_body
@@ -255,7 +279,7 @@ def main() -> int:
         "已完成入库单必须先反提交，后端只允许物理删除草稿",
     ))
 
-    native_inbound_body = function_body(app_py, "native_api_inbound")
+    native_inbound_body = app_function_body("native_api_inbound")
     checks.append((
         "BUG-NEW-003",
         "def purchase_in_order_requires_order():\n    # Permanent business rule" in app_py
@@ -275,7 +299,7 @@ def main() -> int:
     ok, message = check_web_login_csrf()
     checks.append(("LOGIN-CSRF-001", ok, message))
 
-    mobile_scan_body = function_body(app_py, "mobile_scan_submit")
+    mobile_scan_body = app_function_body("mobile_scan_submit")
     checks.append((
         "BUG-NEW2-006",
         "ok, error_msg = add_stock" in mobile_scan_body
@@ -283,9 +307,9 @@ def main() -> int:
         "手机扫码入库必须检查 add_stock 和库位库存更新返回值",
     ))
 
-    opening_add_body = function_body(app_py, "add_opening_stock")
-    opening_edit_body = function_body(app_py, "edit_opening_stock")
-    opening_batch_body = function_body(app_py, "batch_save_opening_stock")
+    opening_add_body = app_function_body("add_opening_stock")
+    opening_edit_body = app_function_body("edit_opening_stock")
+    opening_batch_body = app_function_body("batch_save_opening_stock")
     checks.append((
         "BUG-NEW2-003",
         ".with_for_update().first()" in opening_add_body
@@ -295,8 +319,8 @@ def main() -> int:
         "期初库存调整应锁定读取记录并使用原子增量更新库存",
     ))
 
-    complete_check_body = function_body(app_py, "complete_check")
-    stocktake_body = function_body(app_py, "native_api_stocktake")
+    complete_check_body = app_function_body("complete_check")
+    stocktake_body = app_function_body("native_api_stocktake")
     checks.append((
         "BUG-NEW2-004",
         "_create_adjustment_drafts_from_check(check)" in complete_check_body
@@ -306,7 +330,7 @@ def main() -> int:
         "盘点完成必须生成库存调整草稿，不能直接改库存",
     ))
 
-    convert_body = function_body(app_py, "convert_in_order_to_out_order")
+    convert_body = app_function_body("convert_in_order_to_out_order")
     checks.append((
         "BUG-NEW-013",
         "in_order.business_type != '产品入库'" in convert_body,
@@ -352,7 +376,7 @@ def main() -> int:
         "单号生成不能固定截取末尾 4 位序列",
     ))
 
-    batch_complete_out_body = function_body(app_py, "batch_complete_out_order")
+    batch_complete_out_body = app_function_body("batch_complete_out_order")
     checks.append((
         "BUG-NEW-014",
         "db.session.commit()" in batch_complete_out_body
@@ -361,8 +385,8 @@ def main() -> int:
         "批量完成出库单应按单据独立提交，失败只回滚当前单",
     ))
 
-    add_user_body = function_body(app_py, "add_user")
-    reset_body = function_body(app_py, "reset_user_password")
+    add_user_body = app_function_body("add_user")
+    reset_body = app_function_body("reset_user_password")
     checks.append((
         "VULN-004",
         "validate_password_strength(password)" in add_user_body
