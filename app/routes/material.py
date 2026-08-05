@@ -623,6 +623,8 @@ def register_material_routes(app):
         from app import (
             AdjustmentOrderItem,
             AfterSaleOutOrderItem,
+            AIDocumentItem,
+            AIMaterialAlias,
             BOMItem,
             InOrderItem,
             InventoryCheckItem,
@@ -632,7 +634,9 @@ def register_material_routes(app):
             OpeningStock,
             OutOrderItem,
             ProductionRequisitionItem,
+            PurchaseOrderItem,
             PurchaseRequestItem,
+            SalesOrderItem,
             StockTransaction,
             SubcontractIssueItem,
             SubcontractItem,
@@ -668,6 +672,8 @@ def register_material_routes(app):
                     InOrderItem.query.filter_by(material_id=id).first()
                     or OutOrderItem.query.filter_by(material_id=id).first()
                     or StockTransaction.query.filter_by(material_id=id).first()
+                    or PurchaseOrderItem.query.filter_by(material_id=id).first()
+                    or SalesOrderItem.query.filter_by(material_id=id).first()
                     or ProductionRequisitionItem.query.filter_by(material_id=id).first()
                     or SubcontractItem.query.filter_by(material_id=id).first()
                     or SubcontractIssueItem.query.filter_by(material_id=id).first()
@@ -680,6 +686,8 @@ def register_material_routes(app):
                     or AdjustmentOrderItem.query.filter_by(material_id=id).first()
                     or InventoryCheckScanItem.query.filter_by(material_id=id).first()
                     or OpeningStock.query.filter_by(material_id=id).first()
+                    or AIMaterialAlias.query.filter_by(material_id=id).first()
+                    or AIDocumentItem.query.filter_by(material_id=id).first()
                 ):
                     fail_count += 1
                     current_app.logger.info(f"跳过删除物料 {id}({material.code})：存在业务引用，建议改为停用")

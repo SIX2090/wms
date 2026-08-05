@@ -200,6 +200,53 @@ class TestMaterialRegister:
         with app_module.app.app_context():
             assert Material.query.get(mid) is None
 
+    def test_delete_material_referenced_by_purchase_order_item(self):
+        """S7b：被采购/销售订单项引用的物料应被引用完整性拦截，返回清晰业务提示而非数据库外键错误。"""
+        from app import Customer, PurchaseOrder, PurchaseOrderItem, SalesOrder, SalesOrderItem, Supplier, Unit, MaterialCategory, User
+        client = self._setup()
+        _login(client)
+        with app_module.app.app_context():
+            unit = Unit(name="个", code="PCS")
+            cat = MaterialCategory(name="默认分类", code="CAT-DEFAULT")
+            sup = Supplier(code="SUP001", name="供应商")
+            cus = Customer(code="C001", name="客户")
+            db.session.add_all([unit, cat, sup, cus])
+            db.session.commit()
+            # 被采购订单项引用
+            m_po = Material(code="M-PO", name="被采购订单引用", unit_id=unit.id, category_id=cat.id, supplier_id=sup.id)
+            db.session.add(m_po)
+            po = PurchaseOrder(order_no="PO-001", supplier_id=sup.id, status="pending", total_amount=0)
+            db.session.add(po)
+            db.session.flush()
+            po_item = PurchaseOrderItem(purchase_order_id=po.id, material_id=m_po.id, quantity=5, price=2, amount=10)
+            db.session.add(po_item)
+            # 被销售订单项引用
+            m_so = Material(code="M-SO", name="被销售订单引用", unit_id=unit.id, category_id=cat.id, supplier_id=sup.id)
+            db.session.add(m_so)
+            so = SalesOrder(order_no="SO-001", customer_id=cus.id, status="pending", total_amount=0)
+            db.session.add(so)
+            db.session.flush()
+            so_item = SalesOrderItem(sales_order_id=so.id, material_id=m_so.id, quantity=3, price=5, amount=15)
+            db.session.add(so_item)
+            db.session.commit()
+            po_id, so_id = m_po.id, m_so.id
+        # 被采购订单引用：不删除，返回清晰错误，不抛数据库外键异常
+        resp = client.post("/material/delete", json={"ids": [po_id]})
+        data = resp.get_json()
+        assert data["status"] == "error", data
+        assert "数据库操作失败" not in data.get("msg", ""), data
+        with app_module.app.app_context():
+            assert Material.query.get(po_id) is not None
+            assert PurchaseOrderItem.query.filter_by(material_id=po_id).first() is not None
+        # 被销售订单引用：同样拦截，明细保留
+        resp = client.post("/material/delete", json={"ids": [so_id]})
+        data = resp.get_json()
+        assert data["status"] == "error", data
+        assert "数据库操作失败" not in data.get("msg", ""), data
+        with app_module.app.app_context():
+            assert Material.query.get(so_id) is not None
+            assert SalesOrderItem.query.filter_by(material_id=so_id).first() is not None
+
     def test_import_material(self):
         """S8：合法行新增、重复编码跳过、空行跳过。"""
         client = self._setup()
