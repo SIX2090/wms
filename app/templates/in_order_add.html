@@ -1178,10 +1178,19 @@ function handleOtherOrderToolbar(action, ev) {
         return;
     }
     if (action === 'delete') {
+        const orderId = document.querySelector('[name="order_id"]')?.value;
+        if (!orderId) {
+            showToast('当前为新增单据，没有可删除内容', 'info');
+            return;
+        }
         if (typeof deleteOrderFromPage === 'function') {
             deleteOrderFromPage();
-        } else {
-            showToast('删除功能待接入', 'info');
+            return;
+        }
+        if (confirm('确定删除当前单据吗？')) {
+            WMS.api.post('/in_order/' + orderId + '/delete', {})
+                .then(function() { location.href = '{{ return_list_url or "/other_in_order" }}'; })
+                .catch(function(err) { showToast('删除失败：' + ((err && err.msg) || '未知错误'), 'danger'); });
         }
         return;
     }
@@ -1189,20 +1198,67 @@ function handleOtherOrderToolbar(action, ev) {
         window.print();
         return;
     }
-    if (action === 'import' || action === 'export' || action === 'import-export-template' || action === 'smart-share') {
-        showToast('「' + action + '」功能待开发，可参考期初库存单的实现', 'info');
+    if (action === 'import') {
+        showPasteModal();
+        return;
+    }
+    if (action === 'export') {
+        exportDetailRows();
+        return;
+    }
+    if (action === 'import-export-template') {
+        showImportTemplateHint();
+        return;
+    }
+    if (action === 'smart-share') {
+        showToast('单据保存后可到列表页通过「智能分享」分享给协作伙伴', 'info');
         return;
     }
     if (action === 'nav-first' || action === 'nav-prev' || action === 'nav-next' || action === 'nav-last') {
-        if (!{{ order_id or 0 }}) {
-            showToast('当前是新增单据，无法导航', 'info');
-            return;
-        }
-        showToast('上下张导航功能待开发', 'info');
+        showToast('请先保存单据，再到列表页进行上/下张导航', 'info');
         return;
     }
 }
 window.handleOtherOrderToolbar = handleOtherOrderToolbar;
+
+// 导出当前明细行为 CSV（参考期初库存单的导出实现）
+function exportDetailRows() {
+    const headers = ['物料编码','品牌','物料名称','规格','单位','数量','单价','金额','合同编号','工程名称','备注'];
+    const lines = [headers.join(',')];
+    document.querySelectorAll('#materialTableBody tr').forEach(function(row) {
+        const code = row.querySelector('.material-code')?.value || '';
+        if (!code) return;
+        const values = [
+            code,
+            row.querySelector('.material-brand')?.value || '',
+            row.querySelector('.material-name')?.value || '',
+            row.querySelector('.material-spec')?.value || '',
+            row.querySelector('.material-unit')?.value || '',
+            row.querySelector('.material-qty')?.value || '',
+            row.querySelector('.material-price')?.value || '',
+            row.querySelector('.material-amount')?.value || '',
+            row.querySelector('.line-contract-no')?.value || '',
+            row.querySelector('.line-project-name')?.value || '',
+            row.querySelector('.material-remark')?.value || ''
+        ];
+        lines.push(values.map(function(v) { return '"' + String(v).replace(/"/g, '""') + '"'; }).join(','));
+    });
+    if (lines.length === 1) {
+        showToast('当前没有可导出的物料明细', 'info');
+        return;
+    }
+    const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '其他入库单明细.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function showImportTemplateHint() {
+    showToast('当前支持粘贴导入：物料编码、数量、单价（从 Excel 复制后点击「导入」粘贴）', 'info', 3600);
+}
 
 function submitFormLegacy(saveAndNew = false) {
     const rows = document.querySelectorAll('#materialTableBody tr');
