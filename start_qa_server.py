@@ -23,9 +23,9 @@ app.config['WTF_CSRF_ENABLED'] = False
 # 浏览器把 127.0.0.1 视为第三方站点，默认 SameSite=Lax 会拒绝回传 session cookie，
 # 表现为"点登录没反应"。SameSite 必须显式设为字符串 'None' 并启用 Secure，
 # 浏览器才会接受跨站 cookie。
-app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_SECURE'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 with app.app_context():
     initialize_database()

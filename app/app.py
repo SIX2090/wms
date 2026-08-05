@@ -27501,7 +27501,12 @@ def get_database_file_path():
     uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
     if not uri.startswith('sqlite:///') or uri == 'sqlite:///:memory:':
         raise RuntimeError('仅支持 SQLite 文件数据库备份')
-    return uri.replace('sqlite:///', '', 1)
+    path = uri.replace('sqlite:///', '', 1)
+    # Flask-SQLAlchemy 将相对 sqlite:/// 路径解析到 app.instance_path 目录，
+    # 直接用 CWD 相对路径会指向错误位置导致备份失败（数据库文件不存在）。
+    if not os.path.isabs(path):
+        path = os.path.join(app.instance_path, path)
+    return path
 
 def create_sqlite_online_backup(source_path, backup_path):
     """Create a consistent SQLite backup while the app is running."""

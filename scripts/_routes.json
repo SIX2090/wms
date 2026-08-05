@@ -1,0 +1,4555 @@
+[
+ {
+  "path": "/api/ai/tools",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai.tools"
+ },
+ {
+  "path": "/api/ai/chat/clear",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai.chat_clear"
+ },
+ {
+  "path": "/api/ai/draft_check",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai.draft_check"
+ },
+ {
+  "path": "/api/ai/warehouse_assistant",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai.warehouse_assistant"
+ },
+ {
+  "path": "/api/ai/chat/stream",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai.chat_stream"
+ },
+ {
+  "path": "/api/ai/conversations",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai.conversations_list"
+ },
+ {
+  "path": "/api/ai/conversations/<int:conversation_id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai.conversation_detail"
+ },
+ {
+  "path": "/api/ai/conversations",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai.conversation_create"
+ },
+ {
+  "path": "/api/ai/conversations/<int:conversation_id>",
+  "methods": [
+   "PUT"
+  ],
+  "endpoint": "ai.conversation_update"
+ },
+ {
+  "path": "/api/ai/conversations/<int:conversation_id>/archive",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai.conversation_archive"
+ },
+ {
+  "path": "/api/ai/conversations/<int:conversation_id>/messages",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai.message_create"
+ },
+ {
+  "path": "/api/ai/feedback",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai.feedback_create"
+ },
+ {
+  "path": "/api/ai/feedback",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai.feedback_list"
+ },
+ {
+  "path": "/api/ai/confirmations",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai.confirmation_create"
+ },
+ {
+  "path": "/api/ai/confirmations/<token>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai.confirmation_detail"
+ },
+ {
+  "path": "/api/ai/confirmations/<token>/confirm",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai.confirmation_confirm"
+ },
+ {
+  "path": "/api/ai/confirmations/<token>/revoke",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai.confirmation_revoke"
+ },
+ {
+  "path": "/api/ai/v2/tools/inventory/material",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_material_query"
+ },
+ {
+  "path": "/api/ai/v2/tools/inventory/transactions",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_stock_transactions"
+ },
+ {
+  "path": "/api/ai/v2/tools/inventory/health",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_inventory_health"
+ },
+ {
+  "path": "/api/ai/v2/tools/inventory/low-stock",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_low_stock"
+ },
+ {
+  "path": "/api/ai/v2/tools/inventory/value",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_stock_value"
+ },
+ {
+  "path": "/api/ai/v2/tools/purchase/insights",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_purchase_insights"
+ },
+ {
+  "path": "/api/ai/v2/tools/purchase/suppliers",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_supplier_analysis"
+ },
+ {
+  "path": "/api/ai/v2/tools/purchase/pending",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_pending_purchase_orders"
+ },
+ {
+  "path": "/api/ai/v2/tools/navigation/skills",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_skill_catalog"
+ },
+ {
+  "path": "/api/ai/v2/tools/navigation/apis",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_system_api_catalog"
+ },
+ {
+  "path": "/api/ai/v2/tools/navigation/help",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_usage_help"
+ },
+ {
+  "path": "/api/ai/v2/llm/chat",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_v2.v2_llm_chat"
+ },
+ {
+  "path": "/api/ai/v2/llm/intent",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_v2.v2_llm_intent"
+ },
+ {
+  "path": "/api/ai/v2/circuit-breakers",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_circuit_breakers"
+ },
+ {
+  "path": "/api/ai/v2/circuit-breakers/reset",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_v2.v2_reset_circuit_breakers"
+ },
+ {
+  "path": "/api/ai/v2/feedback",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_v2.v2_feedback"
+ },
+ {
+  "path": "/api/ai/v2/conversations",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_v2.v2_conversations"
+ },
+ {
+  "path": "/api/ai/v2/conversations",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_v2.v2_save_conversation"
+ },
+ {
+  "path": "/unit",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "unit.unit_list"
+ },
+ {
+  "path": "/unit/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "unit.add_unit"
+ },
+ {
+  "path": "/unit/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "unit.delete_unit"
+ },
+ {
+  "path": "/unit/<int:unit_id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "unit.get_unit"
+ },
+ {
+  "path": "/unit/<int:unit_id>/edit",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "unit.edit_unit"
+ },
+ {
+  "path": "/supplier",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "supplier_list"
+ },
+ {
+  "path": "/supplier/add",
+  "methods": [
+   "GET",
+   "POST"
+  ],
+  "endpoint": "add_supplier"
+ },
+ {
+  "path": "/supplier/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_supplier"
+ },
+ {
+  "path": "/supplier/<int:supplier_id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "get_supplier"
+ },
+ {
+  "path": "/supplier/<int:supplier_id>/edit",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "edit_supplier"
+ },
+ {
+  "path": "/category",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "category_list"
+ },
+ {
+  "path": "/category/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_category"
+ },
+ {
+  "path": "/category/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "get_category"
+ },
+ {
+  "path": "/category/edit/<int:id>",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "edit_category"
+ },
+ {
+  "path": "/category/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_category"
+ },
+ {
+  "path": "/category/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_category_template"
+ },
+ {
+  "path": "/category/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_category"
+ },
+ {
+  "path": "/category/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_category"
+ },
+ {
+  "path": "/employee",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "employee_list"
+ },
+ {
+  "path": "/employee/<int:employee_id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "get_employee"
+ },
+ {
+  "path": "/employee/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_employee"
+ },
+ {
+  "path": "/employee/<int:employee_id>/edit",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "edit_employee"
+ },
+ {
+  "path": "/employee/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_employee"
+ },
+ {
+  "path": "/employee/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_employee_template"
+ },
+ {
+  "path": "/employee/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_employee"
+ },
+ {
+  "path": "/employee/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_employee"
+ },
+ {
+  "path": "/material",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "material_list"
+ },
+ {
+  "path": "/material/api/list",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "material_api_list"
+ },
+ {
+  "path": "/material/api/all",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "material_api_all"
+ },
+ {
+  "path": "/material/add",
+  "methods": [
+   "GET",
+   "POST"
+  ],
+  "endpoint": "add_material"
+ },
+ {
+  "path": "/material/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "get_material"
+ },
+ {
+  "path": "/material/<int:id>/image_candidates",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "material_image_candidates"
+ },
+ {
+  "path": "/material/<int:id>/image_select",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "material_image_select"
+ },
+ {
+  "path": "/material/<int:id>/copy",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "copy_material"
+ },
+ {
+  "path": "/material/edit/<int:id>",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "edit_material"
+ },
+ {
+  "path": "/material/delete_all",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_all_materials"
+ },
+ {
+  "path": "/material/fix_empty_fields",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "fix_empty_fields"
+ },
+ {
+  "path": "/material/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_material"
+ },
+ {
+  "path": "/material/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_material_template"
+ },
+ {
+  "path": "/material/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_material"
+ },
+ {
+  "path": "/material/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_material"
+ },
+ {
+  "path": "/material/print_label",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "material_print_label_not_implemented"
+ },
+ {
+  "path": "/customer",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "customer_list"
+ },
+ {
+  "path": "/customer/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_customer"
+ },
+ {
+  "path": "/customer/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_customer"
+ },
+ {
+  "path": "/customer/<int:customer_id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "get_customer"
+ },
+ {
+  "path": "/customer/<int:customer_id>/edit",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "edit_customer"
+ },
+ {
+  "path": "/customer/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_customer_template"
+ },
+ {
+  "path": "/customer/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_customer"
+ },
+ {
+  "path": "/customer/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_customer"
+ },
+ {
+  "path": "/warehouse",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "warehouse_list"
+ },
+ {
+  "path": "/warehouse/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_warehouse"
+ },
+ {
+  "path": "/warehouse/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "get_warehouse"
+ },
+ {
+  "path": "/warehouse/<int:id>/edit",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "edit_warehouse"
+ },
+ {
+  "path": "/warehouse/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_warehouse"
+ },
+ {
+  "path": "/warehouse/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_warehouse_master"
+ },
+ {
+  "path": "/warehouse/<int:warehouse_id>/set_default",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "warehouse_set_default"
+ },
+ {
+  "path": "/warehouse/api/list",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "warehouse_api_list"
+ },
+ {
+  "path": "/warehouse/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_warehouse_template"
+ },
+ {
+  "path": "/warehouse/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_warehouse"
+ },
+ {
+  "path": "/warehouse/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_warehouse"
+ },
+ {
+  "path": "/department",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "department_list"
+ },
+ {
+  "path": "/department/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_department"
+ },
+ {
+  "path": "/department/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "get_department"
+ },
+ {
+  "path": "/department/<int:id>/edit",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "edit_department"
+ },
+ {
+  "path": "/department/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_department"
+ },
+ {
+  "path": "/department/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_department_master"
+ },
+ {
+  "path": "/department/api/list",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "department_api_list"
+ },
+ {
+  "path": "/department/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_department_template"
+ },
+ {
+  "path": "/department/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_department"
+ },
+ {
+  "path": "/department/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_department"
+ },
+ {
+  "path": "/contract",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "contract_list"
+ },
+ {
+  "path": "/contract/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_contract"
+ },
+ {
+  "path": "/contract/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "get_contract"
+ },
+ {
+  "path": "/contract/<int:id>/edit",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "edit_contract"
+ },
+ {
+  "path": "/contract/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_contract"
+ },
+ {
+  "path": "/contract/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_contract_master"
+ },
+ {
+  "path": "/contract/api/list",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "contract_api_list"
+ },
+ {
+  "path": "/api/contracts",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_contracts_search"
+ },
+ {
+  "path": "/contract/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_contract_template"
+ },
+ {
+  "path": "/contract/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_contract"
+ },
+ {
+  "path": "/contract/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_contract"
+ },
+ {
+  "path": "/backup",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "backup_page"
+ },
+ {
+  "path": "/backup/create",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "create_backup"
+ },
+ {
+  "path": "/backup/download/<filename>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_backup"
+ },
+ {
+  "path": "/backup/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_backup"
+ },
+ {
+  "path": "/backup/restore",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "restore_backup"
+ },
+ {
+  "path": "/approval",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "approval_list"
+ },
+ {
+  "path": "/approval/<int:id>/approve",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "approve_from_approval_center"
+ },
+ {
+  "path": "/approval/<int:id>/reject",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "reject_from_approval_center"
+ },
+ {
+  "path": "/mobile/app",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "mobile_app_download"
+ },
+ {
+  "path": "/mobile/connect",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "mobile_connect"
+ },
+ {
+  "path": "/mobile/scan",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "mobile_scan"
+ },
+ {
+  "path": "/mobile/api/material_lookup",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "mobile_material_lookup"
+ },
+ {
+  "path": "/mobile/api/scan_submit",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "mobile_scan_submit"
+ },
+ {
+  "path": "/mobile/api/recognize_material",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "mobile_recognize_material"
+ },
+ {
+  "path": "/wechat_share",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "wechat_share_page"
+ },
+ {
+  "path": "/wechat_share/save",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "save_wechat_share_config"
+ },
+ {
+  "path": "/wechat_share/run_now",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "run_wechat_share_now"
+ },
+ {
+  "path": "/wechat_share/log/<int:log_id>/resend",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "resend_wechat_share_log"
+ },
+ {
+  "path": "/wechat_share/logs/clear",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "clear_wechat_share_logs"
+ },
+ {
+  "path": "/wechat_share/log/<int:log_id>/image",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_wechat_share_log_image"
+ },
+ {
+  "path": "/opening_stock",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "opening_stock_list"
+ },
+ {
+  "path": "/opening_stock/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_opening_stock"
+ },
+ {
+  "path": "/opening_stock/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "get_opening_stock"
+ },
+ {
+  "path": "/opening_stock/edit/<int:id>",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "edit_opening_stock"
+ },
+ {
+  "path": "/opening_stock/batch_save",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_save_opening_stock"
+ },
+ {
+  "path": "/label_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "label_template_list"
+ },
+ {
+  "path": "/label_template/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_label_template"
+ },
+ {
+  "path": "/label_template/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "label_template_detail"
+ },
+ {
+  "path": "/label_template/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_label_template"
+ },
+ {
+  "path": "/label_template/<int:id>/save_layout",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "save_label_template_layout"
+ },
+ {
+  "path": "/label_template/<int:id>/preview",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "preview_label_template"
+ },
+ {
+  "path": "/label_template/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_labels"
+ },
+ {
+  "path": "/label_template/<int:id>/set_default",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "set_default_template"
+ },
+ {
+  "path": "/label_template/api/list",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_label_template_list"
+ },
+ {
+  "path": "/label_template/api/<int:id>/detail",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_label_template_detail"
+ },
+ {
+  "path": "/barcode/generate",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "generate_barcode"
+ },
+ {
+  "path": "/api/barcode/<path:code>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_barcode_image"
+ },
+ {
+  "path": "/api/qrcode/<path:data>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_qrcode_image"
+ },
+ {
+  "path": "/after_sale_out",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "after_sale_out_list"
+ },
+ {
+  "path": "/after_sale_out/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "after_sale_out_detail"
+ },
+ {
+  "path": "/after_sale_out/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_after_sale_out"
+ },
+ {
+  "path": "/after_sale_out/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "after_sale_out_add_page"
+ },
+ {
+  "path": "/after_sale_out/<int:id>/edit",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "after_sale_out_edit_page"
+ },
+ {
+  "path": "/after_sale_out/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_after_sale_out_order"
+ },
+ {
+  "path": "/after_sale_out/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_after_sale_out_order"
+ },
+ {
+  "path": "/after_sale_out/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_after_sale_out_order"
+ },
+ {
+  "path": "/after_sale_out/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_after_sale_out_order"
+ },
+ {
+  "path": "/after_sale_out/<int:id>/copy",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "copy_after_sale_out_order"
+ },
+ {
+  "path": "/after_sale_out/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_after_sale_out"
+ },
+ {
+  "path": "/export/template/after_sale_out",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_after_sale_out_template"
+ },
+ {
+  "path": "/after_sale_out/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_after_sale_out_template"
+ },
+ {
+  "path": "/after_sale_out/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_after_sale_out"
+ },
+ {
+  "path": "/transfer",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "transfer_list"
+ },
+ {
+  "path": "/transfer/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "transfer_add_page"
+ },
+ {
+  "path": "/transfer/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "transfer_detail"
+ },
+ {
+  "path": "/transfer/save_table",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "save_transfer_table"
+ },
+ {
+  "path": "/transfer/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_transfer"
+ },
+ {
+  "path": "/transfer/<int:id>/item/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_transfer_item"
+ },
+ {
+  "path": "/transfer/<int:id>/item/<int:item_id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_transfer_item"
+ },
+ {
+  "path": "/transfer/<int:id>/item/<int:item_id>/update",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "update_transfer_item"
+ },
+ {
+  "path": "/transfer/<int:id>/batch_delete_items",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_transfer_items"
+ },
+ {
+  "path": "/transfer/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_transfer"
+ },
+ {
+  "path": "/transfer/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_transfer"
+ },
+ {
+  "path": "/transfer/<int:id>/update",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "update_transfer"
+ },
+ {
+  "path": "/transfer/<int:id>/copy",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "copy_transfer"
+ },
+ {
+  "path": "/transfer/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_transfer"
+ },
+ {
+  "path": "/transfer/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_transfer"
+ },
+ {
+  "path": "/transfer/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_transfer"
+ },
+ {
+  "path": "/export/template/transfer",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_transfer_template"
+ },
+ {
+  "path": "/transfer/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_transfer"
+ },
+ {
+  "path": "/transfer/<int:id>/batch_add_items",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_add_transfer_items"
+ },
+ {
+  "path": "/transfer/<int:id>/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_single_transfer"
+ },
+ {
+  "path": "/transfer/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_single_transfer"
+ },
+ {
+  "path": "/sales/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_sales_order_template"
+ },
+ {
+  "path": "/sales/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_sales_orders"
+ },
+ {
+  "path": "/sales",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_order_list"
+ },
+ {
+  "path": "/sales/outbound_selection",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_outbound_selection_page"
+ },
+ {
+  "path": "/sales/create_outbound_from_selection",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "create_sales_outbound_from_selection"
+ },
+ {
+  "path": "/sales/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_order_add_page"
+ },
+ {
+  "path": "/sales/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "sales_order_add"
+ },
+ {
+  "path": "/sales/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_order_detail"
+ },
+ {
+  "path": "/sales/<int:id>/edit",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_order_edit_page"
+ },
+ {
+  "path": "/sales/<int:id>/edit",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "sales_order_edit"
+ },
+ {
+  "path": "/sales/<int:id>/confirm",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "confirm_sales_order"
+ },
+ {
+  "path": "/sales/<int:id>/create_outbound",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "create_sales_outbound_draft"
+ },
+ {
+  "path": "/sales/batch_confirm",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_confirm_sales_orders"
+ },
+ {
+  "path": "/sales/batch_create_outbound",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_create_sales_outbound"
+ },
+ {
+  "path": "/sales/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_sales_order"
+ },
+ {
+  "path": "/sales/outbound",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_outbound_list"
+ },
+ {
+  "path": "/sales/outbound/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_sales_outbound"
+ },
+ {
+  "path": "/sales/dashboard",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_dashboard"
+ },
+ {
+  "path": "/sales/exceptions",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_exceptions"
+ },
+ {
+  "path": "/sales/<int:id>/cancel",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "cancel_sales_order"
+ },
+ {
+  "path": "/sales/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_sales_order"
+ },
+ {
+  "path": "/sales/<int:id>/copy",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "copy_sales_order"
+ },
+ {
+  "path": "/sales/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_sales_orders"
+ },
+ {
+  "path": "/sales/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_sales_orders"
+ },
+ {
+  "path": "/sales/report/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_sales_report"
+ },
+ {
+  "path": "/sales/reconciliation",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_reconciliation_report"
+ },
+ {
+  "path": "/sales/reconciliation/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_sales_reconciliation_report"
+ },
+ {
+  "path": "/sales/report",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_report"
+ },
+ {
+  "path": "/sales/outflow_report",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_outflow_report"
+ },
+ {
+  "path": "/sales/outflow_report/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_sales_outflow_report"
+ },
+ {
+  "path": "/sales/trend_report",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_trend_report"
+ },
+ {
+  "path": "/sales/trend_report/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_sales_trend_report"
+ },
+ {
+  "path": "/sales/execution_report",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_execution_report"
+ },
+ {
+  "path": "/sales/execution_report/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_sales_execution_report"
+ },
+ {
+  "path": "/sales/price_analysis",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "sales_price_analysis"
+ },
+ {
+  "path": "/sales/price_analysis/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_sales_price_analysis"
+ },
+ {
+  "path": "/requisition",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "requisition_list"
+ },
+ {
+  "path": "/requisition/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "requisition_legacy_page"
+ },
+ {
+  "path": "/production_requisition",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "requisition_legacy_page"
+ },
+ {
+  "path": "/production_requisition/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "requisition_legacy_page"
+ },
+ {
+  "path": "/requisition/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "requisition_detail"
+ },
+ {
+  "path": "/requisition/save_table",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "save_requisition_table"
+ },
+ {
+  "path": "/requisition/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_requisition"
+ },
+ {
+  "path": "/requisition/<int:id>/update",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "update_requisition"
+ },
+ {
+  "path": "/requisition/<int:id>/item/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_requisition_item"
+ },
+ {
+  "path": "/requisition/<int:id>/item/<int:item_id>/update",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "update_requisition_item"
+ },
+ {
+  "path": "/requisition/<int:id>/item/<int:item_id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_requisition_item"
+ },
+ {
+  "path": "/requisition/<int:id>/batch_delete_items",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_requisition_items"
+ },
+ {
+  "path": "/requisition/<int:id>/batch_add_items",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_add_requisition_items"
+ },
+ {
+  "path": "/requisition/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_requisition"
+ },
+ {
+  "path": "/requisition/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_requisition"
+ },
+ {
+  "path": "/requisition/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_requisition"
+ },
+ {
+  "path": "/requisition/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_requisition"
+ },
+ {
+  "path": "/requisition/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_requisition"
+ },
+ {
+  "path": "/requisition/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_requisition"
+ },
+ {
+  "path": "/requisition/<int:id>/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_single_requisition"
+ },
+ {
+  "path": "/requisition/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_single_requisition"
+ },
+ {
+  "path": "/out_order/<int:id>/copy",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "copy_out_order"
+ },
+ {
+  "path": "/other_out_order",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "out_order_list"
+ },
+ {
+  "path": "/out_order",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "out_order_list"
+ },
+ {
+  "path": "/out_order/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "out_order_detail"
+ },
+ {
+  "path": "/other_out_order/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "out_order_add_page"
+ },
+ {
+  "path": "/out_order/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "out_order_add_page"
+ },
+ {
+  "path": "/out_order/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_out_order"
+ },
+ {
+  "path": "/out_order/<int:id>/add_item",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_out_order_item"
+ },
+ {
+  "path": "/out_order/<int:id>/item/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_out_order_item"
+ },
+ {
+  "path": "/out_order/<int:id>/item/<int:item_id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_out_order_item"
+ },
+ {
+  "path": "/out_order/<int:id>/delete_item/<int:item_id>",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_out_order_item"
+ },
+ {
+  "path": "/out_order/item/update",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "update_out_order_item"
+ },
+ {
+  "path": "/out_order/<int:id>/check_anomalies",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "check_out_order_anomalies"
+ },
+ {
+  "path": "/out_order/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_out_order"
+ },
+ {
+  "path": "/out_order/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_out_order"
+ },
+ {
+  "path": "/out_order/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_out_order"
+ },
+ {
+  "path": "/out_order/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_out_order"
+ },
+ {
+  "path": "/out_order/batch_complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_complete_out_order"
+ },
+ {
+  "path": "/out_order/<int:id>/preview_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "preview_out_order_template"
+ },
+ {
+  "path": "/out_order/<int:id>/print_with_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_out_order_with_template"
+ },
+ {
+  "path": "/out_order/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_out_order"
+ },
+ {
+  "path": "/out_order_print_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "out_order_print_template_list"
+ },
+ {
+  "path": "/out_order/print_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "out_order_print_template_list"
+ },
+ {
+  "path": "/out_order_print_template/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_out_order_print_template"
+ },
+ {
+  "path": "/out_order_print_template/<int:template_id>/set_default",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "set_default_out_order_print_template"
+ },
+ {
+  "path": "/out_order_print_template/<int:template_id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_out_order_print_template"
+ },
+ {
+  "path": "/out_order/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_out_order"
+ },
+ {
+  "path": "/out_order/<int:id>/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_single_out_order"
+ },
+ {
+  "path": "/other_in_order",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "in_order_list"
+ },
+ {
+  "path": "/in_order",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "in_order_list"
+ },
+ {
+  "path": "/in_order/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "in_order_detail"
+ },
+ {
+  "path": "/in_order/<int:id>/push",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "in_order_push_page"
+ },
+ {
+  "path": "/in_order/<int:id>/push",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "create_in_order_push"
+ },
+ {
+  "path": "/in_order/<int:id>/update",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "update_in_order"
+ },
+ {
+  "path": "/other_in_order/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "in_order_add_page"
+ },
+ {
+  "path": "/in_order/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "in_order_add_page"
+ },
+ {
+  "path": "/in_order/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_in_order"
+ },
+ {
+  "path": "/in_order/<int:id>/item/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_in_order_item"
+ },
+ {
+  "path": "/in_order/<int:id>/batch_add_items",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_add_in_order_items"
+ },
+ {
+  "path": "/in_order/<int:id>/delete_item/<int:item_id>",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_in_order_item"
+ },
+ {
+  "path": "/in_order/<int:id>/item/<int:item_id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "in_order_item_delete_alias"
+ },
+ {
+  "path": "/in_order/item/update",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "update_in_order_item"
+ },
+ {
+  "path": "/in_order/<int:id>/copy_to_out",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "copy_in_order_to_out"
+ },
+ {
+  "path": "/in_order/<int:id>/copy",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "copy_in_order"
+ },
+ {
+  "path": "/in_order/<int:id>/check_anomalies",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "check_in_order_anomalies"
+ },
+ {
+  "path": "/in_order/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_in_order"
+ },
+ {
+  "path": "/in_order/<int:id>/update_completed",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "update_completed_in_order"
+ },
+ {
+  "path": "/in_order/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_in_order"
+ },
+ {
+  "path": "/in_order/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_in_order"
+ },
+ {
+  "path": "/in_order/<int:id>/convert_to_out_order",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "convert_in_order_to_out_order"
+ },
+ {
+  "path": "/in_order/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_in_order"
+ },
+ {
+  "path": "/in_order/batch_complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_complete_in_order"
+ },
+ {
+  "path": "/in_order/batch_revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_revert_in_order"
+ },
+ {
+  "path": "/in_order/<int:id>/preview_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "preview_in_order_template"
+ },
+ {
+  "path": "/in_order/<int:id>/print_with_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_in_order_with_template"
+ },
+ {
+  "path": "/in_order/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_in_order"
+ },
+ {
+  "path": "/in_order/<int:id>/print_direct",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_in_order_direct"
+ },
+ {
+  "path": "/print_in_order_labels",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_in_order_labels"
+ },
+ {
+  "path": "/in_order_print_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "in_order_print_template_list"
+ },
+ {
+  "path": "/in_order_print_template/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_in_order_print_template"
+ },
+ {
+  "path": "/in_order_print_template/<int:template_id>/set_default",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "set_default_in_order_print_template"
+ },
+ {
+  "path": "/in_order_print_template/<int:template_id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_in_order_print_template"
+ },
+ {
+  "path": "/in_order/<int:id>/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_single_in_order"
+ },
+ {
+  "path": "/subcontract",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "subcontract_list"
+ },
+ {
+  "path": "/subcontract/progress",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "subcontract_progress_page"
+ },
+ {
+  "path": "/subcontract/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "subcontract_detail"
+ },
+ {
+  "path": "/subcontract/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_subcontract"
+ },
+ {
+  "path": "/subcontract/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_subcontract"
+ },
+ {
+  "path": "/subcontract/<int:id>/item/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_subcontract_item"
+ },
+ {
+  "path": "/subcontract/<int:id>/item/<int:item_id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_subcontract_item"
+ },
+ {
+  "path": "/subcontract/<int:id>/issue",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "quick_issue_subcontract"
+ },
+ {
+  "path": "/subcontract/<int:id>/receive",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "quick_receive_subcontract"
+ },
+ {
+  "path": "/subcontract/<int:id>/edit",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "edit_subcontract_header"
+ },
+ {
+  "path": "/subcontract/<int:id>/copy",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "copy_subcontract"
+ },
+ {
+  "path": "/subcontract/<int:id>/submit",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "submit_subcontract"
+ },
+ {
+  "path": "/subcontract/<int:id>/revert_to_pending",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_subcontract_to_pending"
+ },
+ {
+  "path": "/subcontract/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_subcontract"
+ },
+ {
+  "path": "/subcontract/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_subcontract"
+ },
+ {
+  "path": "/subcontract/batch_update_status",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_update_subcontract_status"
+ },
+ {
+  "path": "/subcontract/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_subcontract"
+ },
+ {
+  "path": "/subcontract/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_subcontract"
+ },
+ {
+  "path": "/subcontract/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_subcontract_order"
+ },
+ {
+  "path": "/subcontract/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_subcontract_order"
+ },
+ {
+  "path": "/subcontract/issue",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "subcontract_issue_list"
+ },
+ {
+  "path": "/subcontract_issue",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "subcontract_issue_list"
+ },
+ {
+  "path": "/subcontract/issue/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_subcontract_issue"
+ },
+ {
+  "path": "/subcontract_issue/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_subcontract_issue"
+ },
+ {
+  "path": "/subcontract_issue/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "subcontract_issue_detail_fragment"
+ },
+ {
+  "path": "/subcontract/issue/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "subcontract_issue_detail_fragment"
+ },
+ {
+  "path": "/subcontract_issue/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_subcontract_issue"
+ },
+ {
+  "path": "/subcontract/issue/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_subcontract_issue"
+ },
+ {
+  "path": "/subcontract/issue/<int:id>/item/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_subcontract_issue_item"
+ },
+ {
+  "path": "/subcontract_issue/<int:id>/item/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_subcontract_issue_item"
+ },
+ {
+  "path": "/subcontract/issue/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_subcontract_issue"
+ },
+ {
+  "path": "/subcontract_issue/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_subcontract_issue"
+ },
+ {
+  "path": "/subcontract/issue/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_subcontract_issue"
+ },
+ {
+  "path": "/subcontract_issue/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_subcontract_issue"
+ },
+ {
+  "path": "/subcontract/issue/delete/<int:id>",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_subcontract_issue"
+ },
+ {
+  "path": "/subcontract/issue/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_subcontract_issue"
+ },
+ {
+  "path": "/subcontract_issue/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_subcontract_issue"
+ },
+ {
+  "path": "/subcontract/issue/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_subcontract_issue"
+ },
+ {
+  "path": "/subcontract_issue/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_subcontract_issue"
+ },
+ {
+  "path": "/subcontract/issue/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_subcontract_issue"
+ },
+ {
+  "path": "/subcontract_issue/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_subcontract_issue"
+ },
+ {
+  "path": "/subcontract/issue/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_subcontract_issue"
+ },
+ {
+  "path": "/subcontract_issue/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_subcontract_issue"
+ },
+ {
+  "path": "/subcontract/receive",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "subcontract_receive_list"
+ },
+ {
+  "path": "/subcontract_receive",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "subcontract_receive_list"
+ },
+ {
+  "path": "/subcontract/receive/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_subcontract_receive"
+ },
+ {
+  "path": "/subcontract_receive/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_subcontract_receive"
+ },
+ {
+  "path": "/subcontract_receive/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "subcontract_receive_detail_fragment"
+ },
+ {
+  "path": "/subcontract/receive/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "subcontract_receive_detail_fragment"
+ },
+ {
+  "path": "/subcontract_receive/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_subcontract_receive"
+ },
+ {
+  "path": "/subcontract/receive/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_subcontract_receive"
+ },
+ {
+  "path": "/subcontract/receive/<int:id>/item/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_subcontract_receive_item"
+ },
+ {
+  "path": "/subcontract_receive/<int:id>/item/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_subcontract_receive_item"
+ },
+ {
+  "path": "/subcontract/receive/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_subcontract_receive"
+ },
+ {
+  "path": "/subcontract_receive/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_subcontract_receive"
+ },
+ {
+  "path": "/subcontract/receive/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_subcontract_receive"
+ },
+ {
+  "path": "/subcontract_receive/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_subcontract_receive"
+ },
+ {
+  "path": "/subcontract/receive/delete/<int:id>",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_subcontract_receive"
+ },
+ {
+  "path": "/subcontract/receive/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_subcontract_receive"
+ },
+ {
+  "path": "/subcontract_receive/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_subcontract_receive"
+ },
+ {
+  "path": "/subcontract/receive/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_subcontract_receive"
+ },
+ {
+  "path": "/subcontract_receive/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_subcontract_receive"
+ },
+ {
+  "path": "/subcontract/receive/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_subcontract_receive"
+ },
+ {
+  "path": "/subcontract_receive/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_subcontract_receive"
+ },
+ {
+  "path": "/subcontract/receive/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_subcontract_receive"
+ },
+ {
+  "path": "/subcontract_receive/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_subcontract_receive"
+ },
+ {
+  "path": "/bom",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "bom_list"
+ },
+ {
+  "path": "/bom/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "bom_detail"
+ },
+ {
+  "path": "/bom/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_bom"
+ },
+ {
+  "path": "/bom/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "bom_add_page"
+ },
+ {
+  "path": "/bom/save_table",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "save_bom_table"
+ },
+ {
+  "path": "/bom/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_bom"
+ },
+ {
+  "path": "/bom/<int:id>/update",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "update_bom"
+ },
+ {
+  "path": "/bom/<int:id>/item/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_bom_item"
+ },
+ {
+  "path": "/bom/<int:id>/add_item",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_bom_item_alias"
+ },
+ {
+  "path": "/bom/<int:id>/item/<int:item_id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_bom_item"
+ },
+ {
+  "path": "/bom/<int:id>/delete_item/<int:item_id>",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_bom_item_alias"
+ },
+ {
+  "path": "/bom/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_bom"
+ },
+ {
+  "path": "/bom/delete/<int:id>",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_bom_alias"
+ },
+ {
+  "path": "/bom/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_bom"
+ },
+ {
+  "path": "/bom/<int:id>/calculate_cost",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "calculate_bom_cost"
+ },
+ {
+  "path": "/bom/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_bom"
+ },
+ {
+  "path": "/bom/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_bom"
+ },
+ {
+  "path": "/bom/<int:bom_id>/create_requisition",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "create_requisition_from_bom"
+ },
+ {
+  "path": "/check",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "check_list"
+ },
+ {
+  "path": "/check/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "check_detail"
+ },
+ {
+  "path": "/check/save_table",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "save_check_table"
+ },
+ {
+  "path": "/check/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_check"
+ },
+ {
+  "path": "/check/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_check"
+ },
+ {
+  "path": "/check/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_check"
+ },
+ {
+  "path": "/check/<int:id>/add_item",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_check_item"
+ },
+ {
+  "path": "/check/<int:id>/item/<int:item_id>",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "update_check_item"
+ },
+ {
+  "path": "/check/<int:id>/update",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "update_check"
+ },
+ {
+  "path": "/check/<int:id>/copy",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "copy_check"
+ },
+ {
+  "path": "/check/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_check"
+ },
+ {
+  "path": "/check/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_check"
+ },
+ {
+  "path": "/check/<int:id>/item/<int:item_id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_check_item"
+ },
+ {
+  "path": "/check/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_check"
+ },
+ {
+  "path": "/check/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_check"
+ },
+ {
+  "path": "/check/<int:id>/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_single_check"
+ },
+ {
+  "path": "/check/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_single_check"
+ },
+ {
+  "path": "/purchase_order",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "purchase_order_list"
+ },
+ {
+  "path": "/purchase_order/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_purchase_order"
+ },
+ {
+  "path": "/purchase_order/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_purchase_order"
+ },
+ {
+  "path": "/purchase_order/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "purchase_order_add_page"
+ },
+ {
+  "path": "/purchase_order/<int:id>/edit",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "purchase_order_edit_page"
+ },
+ {
+  "path": "/purchase_order/save",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "save_purchase_order"
+ },
+ {
+  "path": "/purchase_order/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "purchase_order_detail"
+ },
+ {
+  "path": "/purchase_order/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_purchase_order"
+ },
+ {
+  "path": "/purchase_order/create_in_order_from_selection",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "create_in_order_from_purchase_order_selection"
+ },
+ {
+  "path": "/purchase_order/<int:id>/copy",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "copy_purchase_order"
+ },
+ {
+  "path": "/purchase_order/<int:id>/create_in_order",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "create_in_order_from_purchase_order"
+ },
+ {
+  "path": "/purchase_order/<int:id>/close",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "close_purchase_order"
+ },
+ {
+  "path": "/purchase_order/<int:id>/reopen",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "reopen_purchase_order"
+ },
+ {
+  "path": "/purchase_order/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_purchase_order"
+ },
+ {
+  "path": "/purchase_order/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_purchase_order"
+ },
+ {
+  "path": "/purchase_request",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "purchase_request_list"
+ },
+ {
+  "path": "/purchase_request/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "purchase_request_detail"
+ },
+ {
+  "path": "/purchase_request/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_purchase_request"
+ },
+ {
+  "path": "/purchase_request/<int:id>/create_purchase_order",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "create_purchase_order_from_request"
+ },
+ {
+  "path": "/purchase_request/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "purchase_request_add_page"
+ },
+ {
+  "path": "/purchase_request/<int:id>/edit",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "purchase_request_edit_page"
+ },
+ {
+  "path": "/purchase_request/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_purchase_request"
+ },
+ {
+  "path": "/purchase_request/<int:id>/approve",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "approve_purchase_request"
+ },
+ {
+  "path": "/purchase_request/<int:id>/reject",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "reject_purchase_request"
+ },
+ {
+  "path": "/purchase_request/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_purchase_request"
+ },
+ {
+  "path": "/purchase_request/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_purchase_request"
+ },
+ {
+  "path": "/purchase_request/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_purchase_request"
+ },
+ {
+  "path": "/purchase_request/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_purchase_request"
+ },
+ {
+  "path": "/purchase_request/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_purchase_request"
+ },
+ {
+  "path": "/adjustment",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "adjustment_list"
+ },
+ {
+  "path": "/adjustment/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "adjustment_add_page"
+ },
+ {
+  "path": "/adjustment/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "adjustment_detail"
+ },
+ {
+  "path": "/adjustment/<int:id>/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_adjustment"
+ },
+ {
+  "path": "/adjustment/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_adjustment"
+ },
+ {
+  "path": "/adjustment/<int:id>/complete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "complete_adjustment"
+ },
+ {
+  "path": "/adjustment/<int:id>/revert",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revert_adjustment"
+ },
+ {
+  "path": "/adjustment/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_adjustment"
+ },
+ {
+  "path": "/adjustment/batch_delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_delete_adjustment"
+ },
+ {
+  "path": "/adjustment/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_adjustment"
+ },
+ {
+  "path": "/adjustment/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_adjustment"
+ },
+ {
+  "path": "/system_settings",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "system_settings_page"
+ },
+ {
+  "path": "/system_settings/save",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "save_system_settings"
+ },
+ {
+  "path": "/system_settings/test_ai_llm",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "test_ai_llm_settings"
+ },
+ {
+  "path": "/system_settings/init_business_data/preview",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "preview_init_business_data"
+ },
+ {
+  "path": "/system_settings/init_business_data/execute",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "execute_init_business_data"
+ },
+ {
+  "path": "/system_settings/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "system_settings_add_stub"
+ },
+ {
+  "path": "/system_settings/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "system_settings_import_stub"
+ },
+ {
+  "path": "/system_settings/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "system_settings_export_stub"
+ },
+ {
+  "path": "/report",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "report"
+ },
+ {
+  "path": "/purchase_report",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "purchase_report"
+ },
+ {
+  "path": "/report/dashboard",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "report_dashboard"
+ },
+ {
+  "path": "/report/dashboard/ai_insights",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "report_dashboard_ai_insights"
+ },
+ {
+  "path": "/report/view/<report_type>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "report_view"
+ },
+ {
+  "path": "/report/api/<report_type>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "report_api_query"
+ },
+ {
+  "path": "/report/api/query",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "report_api_query"
+ },
+ {
+  "path": "/report/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "report_print_not_implemented"
+ },
+ {
+  "path": "/report/inout/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "report_inout_print"
+ },
+ {
+  "path": "/report/inout/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "report_inout_export"
+ },
+ {
+  "path": "/report/stock/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "report_stock_print"
+ },
+ {
+  "path": "/export/template/bom",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_bom_template"
+ },
+ {
+  "path": "/export/template/requisition",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_requisition_template"
+ },
+ {
+  "path": "/subcontract/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_subcontract_template"
+ },
+ {
+  "path": "/export/template/subcontract",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_subcontract_template"
+ },
+ {
+  "path": "/subcontract_issue/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_subcontract_issue_template"
+ },
+ {
+  "path": "/export/template/subcontract_issue",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_subcontract_issue_template"
+ },
+ {
+  "path": "/subcontract_receive/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_subcontract_receive_template"
+ },
+ {
+  "path": "/export/template/subcontract_receive",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_subcontract_receive_template"
+ },
+ {
+  "path": "/export/template/adjustment",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_adjustment_template"
+ },
+ {
+  "path": "/export/template/check",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_check_template"
+ },
+ {
+  "path": "/export/template/purchase_request",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_purchase_request_template"
+ },
+ {
+  "path": "/export/template/purchase_order",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_purchase_order_template"
+ },
+ {
+  "path": "/in_order/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_in_order"
+ },
+ {
+  "path": "/export/in_order",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_in_order"
+ },
+ {
+  "path": "/purchase_request/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_purchase_request"
+ },
+ {
+  "path": "/export/purchase_request",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_purchase_request"
+ },
+ {
+  "path": "/after_sale_out/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_after_sale_out"
+ },
+ {
+  "path": "/export/after_sale_out",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_after_sale_out"
+ },
+ {
+  "path": "/export/template/material",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_material_template"
+ },
+ {
+  "path": "/export/template/in_order",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_in_order_template"
+ },
+ {
+  "path": "/export/template/out_order",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_out_order_template"
+ },
+ {
+  "path": "/import/out_order",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_out_order"
+ },
+ {
+  "path": "/import/in_order",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_in_order"
+ },
+ {
+  "path": "/batch_import",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "batch_import_page"
+ },
+ {
+  "path": "/user/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "user_import_stub"
+ },
+ {
+  "path": "/user/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "user_export_stub"
+ },
+ {
+  "path": "/label_template/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "label_template_import_stub"
+ },
+ {
+  "path": "/label_template/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "label_template_export_stub"
+ },
+ {
+  "path": "/opening_stock/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "opening_stock_import_stub"
+ },
+ {
+  "path": "/opening_stock/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "opening_stock_export_stub"
+ },
+ {
+  "path": "/stock_query/print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "stock_query_print_not_implemented"
+ },
+ {
+  "path": "/stock_query",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "stock_query"
+ },
+ {
+  "path": "/api/query/search",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_query_search"
+ },
+ {
+  "path": "/alert",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "alert_list"
+ },
+ {
+  "path": "/alert/batch_update_thresholds",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "batch_update_alert_thresholds"
+ },
+ {
+  "path": "/label/batch_print",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "print_batch_labels"
+ },
+ {
+  "path": "/pending_documents",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "pending_documents"
+ },
+ {
+  "path": "/unit/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_unit_template"
+ },
+ {
+  "path": "/unit/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_unit"
+ },
+ {
+  "path": "/unit/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_unit"
+ },
+ {
+  "path": "/supplier/download_template",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "download_supplier_template"
+ },
+ {
+  "path": "/supplier/export",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "export_supplier"
+ },
+ {
+  "path": "/supplier/import",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "import_supplier"
+ },
+ {
+  "path": "/user/change_password",
+  "methods": [
+   "GET",
+   "POST"
+  ],
+  "endpoint": "change_own_password"
+ },
+ {
+  "path": "/login",
+  "methods": [
+   "GET",
+   "POST"
+  ],
+  "endpoint": "login"
+ },
+ {
+  "path": "/logout",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "logout"
+ },
+ {
+  "path": "/admin/console",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "admin_console"
+ },
+ {
+  "path": "/admin/mobile_tokens",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "admin_mobile_tokens"
+ },
+ {
+  "path": "/admin/mobile_tokens/<int:token_id>/revoke",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "revoke_mobile_token"
+ },
+ {
+  "path": "/user",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "user_list"
+ },
+ {
+  "path": "/operation_audit",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "operation_audit_page"
+ },
+ {
+  "path": "/user/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "add_user"
+ },
+ {
+  "path": "/user/<int:user_id>/edit",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "edit_user"
+ },
+ {
+  "path": "/profile/edit",
+  "methods": [
+   "GET",
+   "POST"
+  ],
+  "endpoint": "edit_my_profile"
+ },
+ {
+  "path": "/user/status",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "update_user_status"
+ },
+ {
+  "path": "/user/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "delete_user"
+ },
+ {
+  "path": "/user/reset_password",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "reset_user_password"
+ },
+ {
+  "path": "/api/csrf_refresh",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_csrf_refresh"
+ },
+ {
+  "path": "/api/login",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "native_api_login"
+ },
+ {
+  "path": "/api/inbound",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "native_api_inbound"
+ },
+ {
+  "path": "/api/outbound",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "native_api_outbound"
+ },
+ {
+  "path": "/api/stocktake",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "native_api_stocktake"
+ },
+ {
+  "path": "/api/mobile/dashboard",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "mobile_api_dashboard"
+ },
+ {
+  "path": "/api/mobile/stock/query",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "mobile_api_stock_query"
+ },
+ {
+  "path": "/api/mobile/alert/list",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "mobile_api_alert_list"
+ },
+ {
+  "path": "/api/mobile/in_order/list",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "mobile_api_in_order_list"
+ },
+ {
+  "path": "/api/mobile/in_order/<int:order_id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "mobile_api_in_order_detail"
+ },
+ {
+  "path": "/api/mobile/out_order/list",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "mobile_api_out_order_list"
+ },
+ {
+  "path": "/api/mobile/out_order/<int:order_id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "mobile_api_out_order_detail"
+ },
+ {
+  "path": "/api/mobile/profile",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "mobile_api_profile"
+ },
+ {
+  "path": "/api/warehouses",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "native_api_warehouses"
+ },
+ {
+  "path": "/api/opening_stock",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "native_api_opening_stock_list"
+ },
+ {
+  "path": "/api/opening_stock",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "native_api_opening_stock_submit"
+ },
+ {
+  "path": "/api/categories",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_categories"
+ },
+ {
+  "path": "/api/units",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_units"
+ },
+ {
+  "path": "/api/suppliers",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_suppliers"
+ },
+ {
+  "path": "/api/customers",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_customers"
+ },
+ {
+  "path": "/",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "index"
+ },
+ {
+  "path": "/api/subcontract/quick_issue",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_subcontract_quick_issue"
+ },
+ {
+  "path": "/api/subcontract/quick_receive",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_subcontract_quick_receive"
+ },
+ {
+  "path": "/ai/ops",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_ops_dashboard"
+ },
+ {
+  "path": "/ai/data-retention",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_data_retention_page"
+ },
+ {
+  "path": "/ai/replenishment",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_replenishment_page"
+ },
+ {
+  "path": "/ai/replenishment_live",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_replenishment_live_page"
+ },
+ {
+  "path": "/ai/inventory_health_live",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_inventory_health_live_page"
+ },
+ {
+  "path": "/ai/inventory_health",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_inventory_health_page"
+ },
+ {
+  "path": "/ai/replenishment_smart",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_replenishment_smart_page"
+ },
+ {
+  "path": "/ai/prelaunch",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_prelaunch_page"
+ },
+ {
+  "path": "/ai/acceptance",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_acceptance_page"
+ },
+ {
+  "path": "/ai/agent_tasks",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_agent_task_list"
+ },
+ {
+  "path": "/ai/agent_tasks/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_agent_task_detail"
+ },
+ {
+  "path": "/ai/agent_tasks/run/warehouse_patrol",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_agent_run_warehouse_patrol"
+ },
+ {
+  "path": "/ai/agent_tasks/run/purchase_followup",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_agent_run_purchase_followup"
+ },
+ {
+  "path": "/ai/agent_tasks/run/sales_followup",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_agent_run_sales_followup"
+ },
+ {
+  "path": "/ai/document_jobs",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_document_job_list"
+ },
+ {
+  "path": "/ai/document_jobs/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_document_job_detail"
+ },
+ {
+  "path": "/ai/document_jobs/<int:id>/confirm",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_document_job_reopen_confirmation"
+ },
+ {
+  "path": "/ai/document_jobs/<int:id>/retry",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_document_job_retry"
+ },
+ {
+  "path": "/ai/document_jobs/<int:id>/feedback",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_document_job_feedback"
+ },
+ {
+  "path": "/ai/material_alias",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_material_alias_list"
+ },
+ {
+  "path": "/ai/material_alias/add",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_material_alias_add"
+ },
+ {
+  "path": "/ai/material_alias/<int:id>/delete",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_material_alias_delete"
+ },
+ {
+  "path": "/ai/document_confirm/<token>",
+  "methods": [
+   "GET",
+   "POST"
+  ],
+  "endpoint": "ai_document_confirm"
+ },
+ {
+  "path": "/api/share_pdf/<module_key>/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "share_order_pdf"
+ },
+ {
+  "path": "/api/share_image/<module_key>/<int:id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "share_order_image"
+ },
+ {
+  "path": "/api/wechat_helper/tasks",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "wechat_helper_tasks"
+ },
+ {
+  "path": "/api/wechat_helper/task/<int:log_id>/image",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "wechat_helper_task_image"
+ },
+ {
+  "path": "/api/wechat_helper/task/<int:log_id>/report",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "wechat_helper_report_task"
+ },
+ {
+  "path": "/api/document_navigation/<module_key>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_document_navigation"
+ },
+ {
+  "path": "/api/material/all",
+  "methods": [
+   "GET",
+   "POST"
+  ],
+  "endpoint": "material_all_api"
+ },
+ {
+  "path": "/api/material/search",
+  "methods": [
+   "GET",
+   "POST"
+  ],
+  "endpoint": "material_search_api"
+ },
+ {
+  "path": "/api/material/info",
+  "methods": [
+   "GET",
+   "POST"
+  ],
+  "endpoint": "material_info_api"
+ },
+ {
+  "path": "/api/field_config/<page_type>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "get_field_config_api"
+ },
+ {
+  "path": "/api/field_config/<page_type>",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "save_field_config_api"
+ },
+ {
+  "path": "/debug/in_order/<order_no>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "debug_in_order"
+ },
+ {
+  "path": "/check/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "check_legacy_page"
+ },
+ {
+  "path": "/inventory_check",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "check_legacy_page"
+ },
+ {
+  "path": "/inventory_check/add",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "check_legacy_page"
+ },
+ {
+  "path": "/api/ai/out_order/<int:id>/anomaly_analysis",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_out_order_anomaly_analysis"
+ },
+ {
+  "path": "/api/purchase_order/todo_summary",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_purchase_order_todo_summary"
+ },
+ {
+  "path": "/api/purchase_order/selectable",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_purchase_order_selectable"
+ },
+ {
+  "path": "/api/ai/replenishment_suggestions",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_replenishment_suggestions"
+ },
+ {
+  "path": "/api/ai/inventory_health",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "ai_inventory_health"
+ },
+ {
+  "path": "/ai/document_ocr",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "document_ocr_page"
+ },
+ {
+  "path": "/api/ai/document_ocr",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_document_ocr"
+ },
+ {
+  "path": "/api/ai/document_feedback",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_document_feedback"
+ },
+ {
+  "path": "/api/ai/document_quality",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_document_quality"
+ },
+ {
+  "path": "/ai/warehouse_workbench",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_warehouse_workbench_page"
+ },
+ {
+  "path": "/api/ai/warehouse_workbench",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_warehouse_workbench"
+ },
+ {
+  "path": "/ai/purchase_workbench",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_purchase_workbench_page"
+ },
+ {
+  "path": "/api/ai/purchase_followup_workbench",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_purchase_followup_workbench"
+ },
+ {
+  "path": "/ai/sales_workbench",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_sales_workbench_page"
+ },
+ {
+  "path": "/api/ai/sales_followup_workbench",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_sales_followup_workbench"
+ },
+ {
+  "path": "/api/ai/knowledge_search",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_knowledge_search"
+ },
+ {
+  "path": "/api/ai/knowledge_versions",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_knowledge_versions"
+ },
+ {
+  "path": "/api/ai/knowledge_draft",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_knowledge_draft"
+ },
+ {
+  "path": "/api/ai/knowledge_publish",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_knowledge_publish"
+ },
+ {
+  "path": "/api/ai/knowledge_rollback",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_knowledge_rollback"
+ },
+ {
+  "path": "/api/ai/knowledge_deprecate",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_knowledge_deprecate"
+ },
+ {
+  "path": "/api/ai/agent_budget_check",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_agent_budget_check"
+ },
+ {
+  "path": "/api/ai/agent_concurrency_lock",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_agent_concurrency_lock"
+ },
+ {
+  "path": "/api/ai/agent_circuit_breaker",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_agent_circuit_breaker"
+ },
+ {
+  "path": "/api/ai/agent_human_confirmation",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_agent_human_confirmation"
+ },
+ {
+  "path": "/api/ai/agent_retry_record",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_agent_retry_record"
+ },
+ {
+  "path": "/api/ai/agent_validate_safety",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_agent_validate_safety"
+ },
+ {
+  "path": "/api/ai/data_cleanup_preview",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_data_cleanup_preview"
+ },
+ {
+  "path": "/api/ai/data_cleanup_execute",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_data_cleanup_execute"
+ },
+ {
+  "path": "/api/ai/data_cleanup_logs",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_data_cleanup_logs"
+ },
+ {
+  "path": "/api/ai/data_retention_config",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_data_retention_config_get"
+ },
+ {
+  "path": "/api/ai/data_retention_config",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_data_retention_config_post"
+ },
+ {
+  "path": "/api/ai/data_retention_validate",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_data_retention_validate"
+ },
+ {
+  "path": "/api/ai/business_quality_snapshot",
+  "methods": [
+   "GET",
+   "POST"
+  ],
+  "endpoint": "api_ai_business_quality_snapshot"
+ },
+ {
+  "path": "/api/ai/business_quality_compare",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_business_quality_compare"
+ },
+ {
+  "path": "/api/ai/business_quality_metrics",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_business_quality_metrics"
+ },
+ {
+  "path": "/ai/business_quality",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_business_quality_page"
+ },
+ {
+  "path": "/api/ai/business_quality_drilldown",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_business_quality_drilldown"
+ },
+ {
+  "path": "/api/ai/launch_acceptance",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_launch_acceptance"
+ },
+ {
+  "path": "/api/ai/launch_acceptance/metrics",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_launch_acceptance_metrics"
+ },
+ {
+  "path": "/api/ai/rollout/status",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_rollout_status"
+ },
+ {
+  "path": "/api/ai/rollout/allowlist",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_rollout_allowlist"
+ },
+ {
+  "path": "/api/ai/rollout/shutdown",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_rollout_shutdown"
+ },
+ {
+  "path": "/api/ai/rollout/restore",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_rollout_restore"
+ },
+ {
+  "path": "/api/ai/rollout/audit",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_rollout_audit"
+ },
+ {
+  "path": "/api/ai/rollout/fallback_tasks",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_rollout_fallback_tasks"
+ },
+ {
+  "path": "/api/ai/rollout/fallback_tasks/<task_id>",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_rollout_fallback_task_handle"
+ },
+ {
+  "path": "/api/ai/acceptance/daily_snapshot",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_acceptance_daily_snapshot"
+ },
+ {
+  "path": "/api/ai/acceptance/daily_snapshots",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_acceptance_daily_snapshots"
+ },
+ {
+  "path": "/api/ai/acceptance/evidence_package",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_acceptance_evidence_package"
+ },
+ {
+  "path": "/api/ai/acceptance/evidence_package/<int:package_id>",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_acceptance_evidence_package_detail"
+ },
+ {
+  "path": "/api/ai/acceptance/go_no_go",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_acceptance_go_no_go"
+ },
+ {
+  "path": "/ai/supplier_evaluation",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_supplier_evaluation_page"
+ },
+ {
+  "path": "/api/ai/supplier_evaluation",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_supplier_evaluation"
+ },
+ {
+  "path": "/ai/location_recommendation",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_location_recommendation"
+ },
+ {
+  "path": "/api/ai/recommend_location",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_recommend_location"
+ },
+ {
+  "path": "/ai/demand_forecast",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "ai_demand_forecast"
+ },
+ {
+  "path": "/api/ai/demand_forecast",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_demand_forecast"
+ },
+ {
+  "path": "/api/sales_order/selectable",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_sales_order_selectable"
+ },
+ {
+  "path": "/api/ai/sales_order/<int:id>/anomaly_analysis",
+  "methods": [
+   "GET"
+  ],
+  "endpoint": "api_ai_sales_order_anomaly_analysis"
+ },
+ {
+  "path": "/api/ai/sales/<int:id>/draft_check",
+  "methods": [
+   "POST"
+  ],
+  "endpoint": "api_ai_sales_draft_check"
+ }
+]

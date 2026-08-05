@@ -15,9 +15,9 @@
         <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="text-muted small">今日登录</div><div class="h5 mb-0">{{ today_logins }}</div></div></div>
         <div class="col-6 col-md-3">
             {% if (acceptance_snapshots or 0) == 0 %}
-            <a href="/ai_prelaunch" class="text-decoration-none">
+            <a href="/ai/prelaunch" class="text-decoration-none">
             {% else %}
-            <a href="/ai_prelaunch" class="text-decoration-none">
+            <a href="/ai/prelaunch" class="text-decoration-none">
             {% endif %}
             <div class="border rounded p-2 {% if (acceptance_snapshots or 0) == 0 %}border-warning{% endif %}">
                 <div class="text-muted small">验收快照</div>
