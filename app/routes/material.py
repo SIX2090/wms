@@ -668,34 +668,44 @@ def register_material_routes(app):
             if material:
                 # 引用完整性校验：被已完成单据或库存流水引用的物料不允许删除，
                 # 避免历史单据变空壳、审计流水丢失。仅允许删除无业务引用的物料。
-                if (
-                    InOrderItem.query.filter_by(material_id=id).first()
-                    or OutOrderItem.query.filter_by(material_id=id).first()
-                    or StockTransaction.query.filter_by(material_id=id).first()
-                    or PurchaseOrderItem.query.filter_by(material_id=id).first()
-                    or SalesOrderItem.query.filter_by(material_id=id).first()
-                    or ProductionRequisitionItem.query.filter_by(material_id=id).first()
-                    or SubcontractItem.query.filter_by(material_id=id).first()
-                    or SubcontractIssueItem.query.filter_by(material_id=id).first()
-                    or SubcontractReceiveItem.query.filter_by(material_id=id).first()
-                    or BOMItem.query.filter_by(material_id=id).first()
-                    or InventoryCheckItem.query.filter_by(material_id=id).first()
-                    or AfterSaleOutOrderItem.query.filter_by(material_id=id).first()
-                    or PurchaseRequestItem.query.filter_by(material_id=id).first()
-                    or TransferOrderItem.query.filter_by(material_id=id).first()
-                    or AdjustmentOrderItem.query.filter_by(material_id=id).first()
-                    or InventoryCheckScanItem.query.filter_by(material_id=id).first()
-                    or OpeningStock.query.filter_by(material_id=id).first()
-                    or AIMaterialAlias.query.filter_by(material_id=id).first()
-                    or AIDocumentItem.query.filter_by(material_id=id).first()
-                ):
+                # 逐表检查并分别 try/except：旧库可能缺少新增的 AI 关联表
+                # （如 ai_material_alias / ai_document_item），若某张表查询抛错，
+                # 只跳过该表（视为无引用），绝不能把整个删除接口打成 500 HTML。
+                _ref_check_models = (
+                    InOrderItem, OutOrderItem, StockTransaction, PurchaseOrderItem,
+                    SalesOrderItem, ProductionRequisitionItem, SubcontractItem,
+                    SubcontractIssueItem, SubcontractReceiveItem, BOMItem,
+                    InventoryCheckItem, AfterSaleOutOrderItem, PurchaseRequestItem,
+                    TransferOrderItem, AdjustmentOrderItem, InventoryCheckScanItem,
+                    OpeningStock, AIMaterialAlias, AIDocumentItem,
+                )
+                _referenced = False
+                for _model in _ref_check_models:
+                    try:
+                        if _model.query.filter_by(material_id=id).first():
+                            _referenced = True
+                            break
+                    except Exception as _e:
+                        current_app.logger.warning(
+                            f"物料 {id} 引用检查跳过 {_model.__name__}（表或字段缺失，视为无引用）: {_e}")
+                        continue
+                if _referenced:
                     fail_count += 1
                     current_app.logger.info(f"跳过删除物料 {id}({material.code})：存在业务引用，建议改为停用")
                     continue
                 try:
-                    # 无业务引用时，只清理物料的库位辅助记录后删除物料主数据。
+                    # 无业务引用时，先清理物料的库位辅助记录，再删除物料主数据。
                     LocationInventory.query.filter_by(material_id=id).delete()
-                    db.session.delete(material)
+                    # 主数据删除改用 raw SQL，避免 db.session.delete(material) 触发
+                    # ORM 级联加载 ai_aliases / ai_document_items 等 backref——
+                    # 旧库若缺这些新增的 AI 关联表，ORM 加载会抛 OperationalError 造成 500。
+                    # 上面的引用检查已确认无业务引用，raw DELETE 不会触发外键冲突。
+                    from sqlalchemy import text as _sa_text
+                    db.session.expunge(material)
+                    db.session.execute(
+                        _sa_text("DELETE FROM material WHERE id = :m_id"),
+                        {"m_id": id},
+                    )
                     success_count += 1
                 except Exception as e:
                     # 单条删除失败必须 rollback，否则 session 进入 PendingRollback 状态，
