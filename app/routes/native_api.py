@@ -622,6 +622,134 @@ def register_native_api_routes(app):
             'must_change_password': user.must_change_password or False,
         })
 
+    @app.route('/api/warehouses')
+    @web_or_api_required
+    def native_api_warehouses():
+        """移动端仓库列表：返回启用的仓库，供期初建账等场景选择"""
+        from app import Warehouse, api_json_success
+        warehouses = Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc(), Warehouse.id.asc()).all()
+        return api_json_success({
+            'items': [
+                {'id': w.id, 'code': w.code or '', 'name': w.name or ''}
+                for w in warehouses
+            ]
+        })
+
+    @app.route('/api/opening_stock')
+    @web_or_api_required
+    def native_api_opening_stock_list():
+        """移动端期初库存列表：可按仓库筛选，返回建账日期等信息"""
+        from sqlalchemy.orm import joinedload
+        from app import (OpeningStock, api_json_success, normalize_stock_quantity,
+                         round_to_2_decimals)
+        warehouse_id = request.args.get('warehouse_id', type=int)
+        keyword = (request.args.get('keyword') or '').strip()
+
+        query = OpeningStock.query.options(
+            joinedload(OpeningStock.material),
+            joinedload(OpeningStock.warehouse),
+        )
+        if warehouse_id:
+            query = query.filter(OpeningStock.warehouse_id == warehouse_id)
+        if keyword:
+            from app import Material
+            like = f'%{keyword}%'
+            query = query.join(Material, OpeningStock.material_id == Material.id).filter(
+                db.or_(
+                    Material.code.like(like),
+                    Material.name.like(like),
+                    Material.spec.like(like),
+                )
+            )
+
+        items = query.order_by(OpeningStock.created_at.desc(), OpeningStock.id.desc()).limit(200).all()
+        return api_json_success({
+            'items': [
+                {
+                    'id': o.id,
+                    'material_code': o.material.code if o.material else '',
+                    'material_name': o.material.name if o.material else '',
+                    'spec': o.material.spec if o.material else '',
+                    'unit': o.material.unit.name if o.material and o.material.unit else '',
+                    'warehouse_id': o.warehouse_id,
+                    'warehouse_name': o.warehouse.name if o.warehouse else '',
+                    'date': o.date.isoformat() if o.date else '',
+                    'quantity': normalize_stock_quantity(o.quantity or 0),
+                    'price': round_to_2_decimals(o.price or 0),
+                    'amount': round_to_2_decimals(o.amount or 0),
+                }
+                for o in items
+            ]
+        })
+
+    # pydantic:reason=存量起步按手写校验，pydantic 迁移另行任务
+    @app.route('/api/opening_stock', methods=['POST'])
+    @csrf.exempt
+    @api_role_required('warehouse')
+    @mobile_api_idempotent('opening_stock')
+    def native_api_opening_stock_submit(user):
+        """移动端期初建账提交：选择日期+仓库，扫码录入物料行"""
+        from app import (Material, OpeningStock, Warehouse,
+                         _apply_opening_stock_balance, _parse_opening_stock_date,
+                         api_json_error, api_json_success, normalize_stock_quantity,
+                         parse_float_value, round_to_2_decimals)
+        payload = request.get_json(silent=True) or {}
+        lines = payload.get('lines') if isinstance(payload, dict) else None
+        if not isinstance(lines, list) or not lines:
+            return api_json_error('期初库存明细不能为空', 400)
+
+        warehouse_code = (payload.get('warehouse_code') or payload.get('warehouse') or '').strip()
+        if not warehouse_code:
+            return api_json_error('请选择仓库', 400)
+        warehouse = Warehouse.query.filter(
+            (Warehouse.code == warehouse_code) | (Warehouse.name == warehouse_code)
+        ).first()
+        if not warehouse:
+            return api_json_error(f'仓库不存在：{warehouse_code}', 400)
+        if (warehouse.status or 'active') != 'active':
+            return api_json_error(f'仓库 [{warehouse.name}] 已停用，禁止期初建账', 403)
+        doc_date = _parse_opening_stock_date(payload.get('date'))
+
+        try:
+            saved = []
+            for index, line in enumerate(lines, start=1):
+                if not isinstance(line, dict):
+                    return api_json_error(f'第 {index} 行格式错误', 400)
+                code = (line.get('material_code') or line.get('code') or '').strip()
+                if not code:
+                    return api_json_error(f'第 {index} 行缺少物料编码', 400)
+                material = Material.query.filter_by(code=code).first()
+                if not material:
+                    return api_json_error(f'第 {index} 行物料不存在：{code}', 400)
+                raw_qty = str(line.get('quantity') if line.get('quantity') is not None else '').strip()
+                if raw_qty == '':
+                    return api_json_error(f'第 {index} 行请输入数量', 400)
+                try:
+                    quantity = float(raw_qty)
+                except (TypeError, ValueError):
+                    return api_json_error(f'第 {index} 行数量格式不正确', 400)
+                if quantity < 0:
+                    return api_json_error(f'第 {index} 行期初数量不能小于 0', 400)
+                quantity = normalize_stock_quantity(quantity)
+                price = round_to_2_decimals(parse_float_value(line.get('price'), material.price or 0))
+                amount = round_to_2_decimals(quantity * price)
+                remark = (line.get('remark') or '').strip() or None
+
+                opening = OpeningStock.query.filter_by(
+                    material_id=material.id, warehouse_id=warehouse.id
+                ).with_for_update().first()
+                opening, _delta = _apply_opening_stock_balance(
+                    opening, material, quantity, price, amount, remark, warehouse, doc_date
+                )
+                opening.operator_id = user.id
+                saved.append({'material_code': code, 'quantity': quantity, 'price': price})
+            db.session.commit()
+            return api_json_success({'count': len(saved), 'lines': saved}, f'期初库存已保存，共 {len(saved)} 行')
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('Android opening stock submit failed')
+            return api_json_error('期初库存提交失败', 500)
+
     @app.route('/api/categories')
     @web_or_api_required
     def api_categories():
