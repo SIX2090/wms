@@ -1385,6 +1385,7 @@ def register_in_order_routes(app):
             return jsonify({'status': 'success', 'msg': '提交成功'})
         except Exception as e:
             db.session.rollback()
+            app.logger.exception(f'入库单完成异常: order_id={id}, order_no={order.order_no}')
             return api_error('提交失败，请稍后重试')
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
