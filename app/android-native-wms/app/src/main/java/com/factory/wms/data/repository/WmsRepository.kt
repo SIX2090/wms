@@ -245,6 +245,53 @@ class WmsRepository(private val context: Context) {
         }
     }
 
+    suspend fun getWarehouses(): Result<List<WarehouseDto>> {
+        return try {
+            val response = api.getWarehouses()
+            handleResponse<List<WarehouseDto>>(response)
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
+        }
+    }
+
+    suspend fun getOpeningStock(warehouseId: Int? = null, keyword: String? = null): Result<List<OpeningStockDto>> {
+        return try {
+            val response = api.getOpeningStock(warehouseId, keyword)
+            val data = handleResponse<OpeningStockListData>(response).getOrNull()
+            Result.success(data?.items ?: emptyList())
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
+        }
+    }
+
+    suspend fun submitOpeningStock(request: OpeningStockRequest): Result<String> {
+        return try {
+            val response = api.submitOpeningStock(request)
+            val result = handleResponse<SubmitResult>(response)
+            result.fold(
+                onSuccess = { submitResult ->
+                    val msg = submitResult?.let { "期初库存已保存" } ?: "期初库存已保存"
+                    request.lines.forEachIndexed { index, line ->
+                        operationLogDao.insert(
+                            OperationLogEntity(
+                                operationType = "opening_stock",
+                                orderNo = "期初-${index + 1}",
+                                materialCode = line.materialCode,
+                                quantity = line.quantity
+                            )
+                        )
+                    }
+                    Result.success(msg)
+                },
+                onFailure = { e ->
+                    Result.failure(e)
+                }
+            )
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
+        }
+    }
+
     private inline fun <reified T> handleResponse(response: Response<ApiEnvelope<T>>): Result<T> {
         return if (response.isSuccessful) {
             val envelope = response.body()

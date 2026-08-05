@@ -21,6 +21,18 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+    // 固定发布签名：keystore 提交到仓库（wms-release.jks），保证不同 CI 环境构建的
+    // APK 签名一致，可覆盖安装旧版本。密钥存储口令与密钥口令均为 wms123456。
+    signingConfigs {
+        create("release") {
+            storeFile = file("../keystore/wms-release.jks")
+            storePassword = "wms123456"
+            keyAlias = "wms"
+            keyPassword = "wms123456"
         }
     }
 

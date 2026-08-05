@@ -78,6 +78,11 @@ val CardPink = Color(0xFFE11D48)
 val CardPinkLight = Color(0xFFFB7185)
 val CardPinkDark = Color(0xFF9F1239)
 
+// 期初库存 - Cyan
+val CardCyan = Color(0xFF0891B2)
+val CardCyanLight = Color(0xFF22D3EE)
+val CardCyanDark = Color(0xFF155E75)
+
 // ── Dark Theme ──
 val DarkSurface = Color(0xFF18181B)
 val DarkSurfaceVariant = Color(0xFF27272A)

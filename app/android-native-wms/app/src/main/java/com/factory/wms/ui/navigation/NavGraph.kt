@@ -12,6 +12,7 @@ import com.factory.wms.data.api.AuthEventBus
 import com.factory.wms.ui.screens.*
 import com.factory.wms.ui.viewmodel.ai.AiViewModel
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
+import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 
 @Composable
@@ -20,6 +21,7 @@ fun AppNavGraph() {
     val authViewModel: AuthViewModel = viewModel()
     val scanViewModel: ScanViewModel = viewModel()
     val aiViewModel: AiViewModel = viewModel()
+    val openingStockViewModel: OpeningStockViewModel = viewModel()
 
     val authState by authViewModel.uiState.collectAsState()
 
@@ -84,6 +86,13 @@ fun AppNavGraph() {
         composable(Screen.Stocktake.route) {
             StocktakeScreen(
                 viewModel = scanViewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.OpeningStock.route) {
+            OpeningStockScreen(
+                viewModel = openingStockViewModel,
                 onBack = { navController.popBackStack() }
             )
         }

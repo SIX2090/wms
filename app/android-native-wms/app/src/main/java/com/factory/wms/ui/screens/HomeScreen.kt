@@ -86,6 +86,13 @@ fun HomeScreen(
                 screen = Screen.Stocktake
             ),
             FunctionCard(
+                title = "期初库存",
+                subtitle = "选日期仓库 · 扫码建账",
+                icon = Icons.Outlined.AccountBalanceWallet,
+                gradient = listOf(CardCyan, CardCyanDark),
+                screen = Screen.OpeningStock
+            ),
+            FunctionCard(
                 title = "识别单据",
                 subtitle = "拍照识别 · 自动录入",
                 icon = Icons.Outlined.Description,

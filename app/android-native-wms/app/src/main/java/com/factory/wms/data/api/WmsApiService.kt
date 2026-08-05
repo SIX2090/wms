@@ -41,6 +41,18 @@ interface WmsApiService {
     suspend fun recognizeMaterial(
         @Part image: MultipartBody.Part
     ): Response<ApiEnvelope<RecognizeMaterialResult>>
+
+    @GET("api/warehouses")
+    suspend fun getWarehouses(): Response<ApiEnvelope<List<WarehouseDto>>>
+
+    @GET("api/opening_stock")
+    suspend fun getOpeningStock(
+        @Query("warehouse_id") warehouseId: Int? = null,
+        @Query("keyword") keyword: String? = null
+    ): Response<ApiEnvelope<OpeningStockListData>>
+
+    @POST("api/opening_stock")
+    suspend fun submitOpeningStock(@Body request: OpeningStockRequest): Response<ApiEnvelope<SubmitResult>>
 }
 
 data class OcrItem(
