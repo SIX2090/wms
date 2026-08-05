@@ -158,7 +158,7 @@ def register_adjustment_routes(app):
     @login_required
     def print_adjustment(id):
         from sqlalchemy.orm import joinedload, selectinload
-        from app import (AdjustmentOrder, AdjustmentOrderItem,
+        from app import (AdjustmentOrder, AdjustmentOrderItem, Material,
                          _fmt_date, _material_row_common, _operator_name,
                          _render_generic_document_print)
         adjustment = AdjustmentOrder.query.options(

@@ -245,6 +245,7 @@ def register_label_barcode_routes(app):
         if not code:
             return api_error('缺少条码内容')
         from reportlab.graphics.barcode import createBarcodeDrawing
+        from reportlab.graphics import renderPDF
 
         drawing = createBarcodeDrawing(
             'Code128',

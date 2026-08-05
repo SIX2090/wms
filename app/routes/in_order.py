@@ -1398,7 +1398,8 @@ def register_in_order_routes(app):
         from app import (InOrder, InOrderItem, Material, PurchaseOrder, PurchaseOrderItem,
                          STOCK_COMPARE_EPSILON, _acquire_order_write_lock, add_stock,
                          allow_negative_stock, api_error, check_stock_sufficient,
-                         deduct_stock, location_management_enabled, recalculate_order_total,
+                         deduct_stock, get_default_warehouse, location_management_enabled,
+                         recalculate_order_total,
                          round_to_2_decimals, update_location_inventory,
                          update_purchase_order_status)
         order = InOrder.query.get_or_404(id)

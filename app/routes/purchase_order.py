@@ -610,7 +610,7 @@ def register_purchase_order_routes(app):
         from datetime import date
         from flask_login import current_user
         from sqlalchemy.orm import joinedload
-        from app import (InOrder, InOrderItem, PurchaseOrderItem, api_error,
+        from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem, api_error,
                          generate_order_no, log_operation, parse_float_value,
                          purchase_order_to_in_order_enabled, recalculate_order_total,
                          round_to_2_decimals, update_purchase_order_status,

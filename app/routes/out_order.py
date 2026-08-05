@@ -960,7 +960,7 @@ def register_out_order_routes(app):
     @require_role('admin')
     @login_required
     def set_default_out_order_print_template(template_id):
-        from app import OutOrderPrintTemplate
+        from app import OutOrderPrintTemplate, set_default_print_template
         return set_default_print_template(OutOrderPrintTemplate, template_id)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
