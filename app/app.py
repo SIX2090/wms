@@ -2110,6 +2110,15 @@ def limit_query_string_length():
     return None
 
 # Error handlers
+def _db_safe_rollback():
+    """错误处理器专用的安全回滚：连接已损坏时 rollback 可能再次抛错，
+    绝不能让异常逃出错误处理器（waitress 会兜底返回英文纯文本 500）。"""
+    try:
+        db.session.rollback()
+    except Exception:
+        pass
+
+
 def wants_json_error_response():
     # BUG-2026-08-04-004: 之前只判断 /api/ 前缀，导致 /material/import 等
     # AJAX POST 路径在 CSRF 失效或 4xx/5xx 时返回 302 重定向或 HTML 错误页，
@@ -2119,6 +2128,13 @@ def wants_json_error_response():
     if request.path.startswith('/api/'):
         return True
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return True
+    # BUG-2026-08-05-005: 前端 csrfFetch/postJsonForAction 发 JSON POST 时只带
+    # Content-Type: application/json，浏览器 fetch 默认 Accept: */* 且不带
+    # X-Requested-With，仅靠上面两个条件会漏判，导致 5xx 返回纯文本
+    # "Internal Server Error"，前端 r.json() 抛 "Unexpected token 'I'..."。
+    # 请求体本身是 JSON 即视为 AJAX JSON 调用，统一回 JSON 错误。
+    if request.is_json:
         return True
     accept = request.headers.get('Accept', '') or ''
     if 'application/json' in accept and 'text/html' not in accept:
@@ -2149,7 +2165,7 @@ def handle_csrf_error(e):
     用户无法继续操作。
     修复：根据请求路径和 referrer 智能重定向，让浏览器拿到新 csrftoken 再操作。
     """
-    db.session.rollback()
+    _db_safe_rollback()
     msg = '请求已过期或缺少安全令牌，请刷新页面后重试'
     if wants_json_error_response():
         return jsonify({'status': 'error', 'msg': msg}), 400
@@ -2186,7 +2202,9 @@ def handle_csrf_error(e):
 def internal_error(e):
     """500错误处理"""
     app.logger.error(f"500 Error: {str(e)}")
-    db.session.rollback()
+    # BUG-2026-08-05-005: 连接已损坏时 rollback 可能再次抛错，异常会逃出 Flask，
+    # waitress 直接返回纯文本 "Internal Server Error"，前端 r.json() 解析失败。
+    _db_safe_rollback()
     if wants_json_error_response():
         return jsonify({'status': 'error', 'msg': '服务器内部错误'}), 500
     return '服务器内部错误，请稍后重试', 500
@@ -2202,15 +2220,20 @@ def handle_exception(e):
     import traceback
     error_trace = traceback.format_exc()
     app.logger.error(f"Exception: {str(e)}\n{error_trace}")
-    db.session.rollback()
+    # BUG-2026-08-05-005: rollback 失败不得逃出错误处理器，否则 waitress 兜底
+    # 返回英文纯文本，前端完全看不到真实错误。
+    _db_safe_rollback()
     if wants_json_error_response():
         resp = {'status': 'error', 'msg': '服务器内部错误，请稍后重试'}
         if app.config.get('DEBUG'):
             resp['trace'] = error_trace
         return jsonify(resp), 500
+    # BUG-2026-08-05-005: 原先 DEBUG/非 DEBUG 两个分支都返回英文
+    # "Internal Server Error" 纯文本，AJAX 调用方 r.json() 直接解析失败。
+    # 与 internal_error 对齐，非 JSON 场景返回可读的中文提示。
     if app.config.get('DEBUG'):
-        return "Internal Server Error", 500
-    return "Internal Server Error", 500
+        return f"服务器内部错误，请稍后重试\n{error_trace}", 500
+    return '服务器内部错误，请稍后重试', 500
 
 # ==================== 权限检查装饰器 ====================
 # ==================== Document number ====================
