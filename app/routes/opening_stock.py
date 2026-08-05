@@ -123,7 +123,7 @@ def register_opening_stock_routes(app):
 
         try:
             opening, delta = _apply_opening_stock_balance(
-                None, material, payload['quantity'], payload['price'], payload['amount'], payload['remark'], warehouse
+                None, material, payload['quantity'], payload['price'], payload['amount'], payload['remark'], warehouse, payload.get('date')
             )
             db.session.commit()
             log_operation('新增期初库存', f'{material.code} @ {warehouse.name} 数量 {payload["quantity"]}', 'opening_stock', opening.id)
@@ -152,6 +152,7 @@ def register_opening_stock_routes(app):
                 'material_id': opening.material_id,
                 'warehouse_id': opening.warehouse_id,
                 'warehouse_name': opening.warehouse.name if opening.warehouse else '',
+                'date': opening.date.isoformat() if opening.date else '',
                 'material_code': material.code if material else '',
                 'material_name': material.name if material else '',
                 'spec': material.spec if material else '',
@@ -194,7 +195,7 @@ def register_opening_stock_routes(app):
 
         try:
             opening, delta = _apply_opening_stock_balance(
-                opening, payload['material'], payload['quantity'], payload['price'], payload['amount'], payload['remark'], payload['warehouse']
+                opening, payload['material'], payload['quantity'], payload['price'], payload['amount'], payload['remark'], payload['warehouse'], payload.get('date')
             )
             db.session.commit()
             log_operation('编辑期初库存', f'{payload["material"].code} @ {payload["warehouse"].name} 差额 {delta}', 'opening_stock', opening.id)
@@ -216,6 +217,7 @@ def register_opening_stock_routes(app):
             STOCK_COMPARE_EPSILON,
             Warehouse,
             _apply_opening_stock_balance,
+            _parse_opening_stock_date,
             app,
             db,
             jsonify,
@@ -271,6 +273,7 @@ def register_opening_stock_routes(app):
             normalized_items.append({
                 'material': material,
                 'warehouse': warehouse,
+                'date': _parse_opening_stock_date(item.get('date')),
                 'quantity': normalize_stock_quantity(quantity),
                 'price': round_to_2_decimals(price),
                 'amount': round_to_2_decimals(quantity * price),
@@ -296,6 +299,7 @@ def register_opening_stock_routes(app):
                     item['amount'],
                     item['remark'],
                     warehouse,
+                    item['date'],
                 )
                 if opening is None or abs(delta) > STOCK_COMPARE_EPSILON:
                     changed_count += 1

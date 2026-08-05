@@ -362,6 +362,11 @@ def auto_migrate_database():
                     "ON opening_stock(warehouse_id)"
                 )
                 modified = True
+            # AI-OS-APP-001：期初建账日期；旧记录回填为 2023-01-01（建账首日）
+            if op_columns and 'date' not in op_columns:
+                cursor.execute("ALTER TABLE opening_stock ADD COLUMN date DATE")
+                cursor.execute("UPDATE opening_stock SET date = '2023-01-01' WHERE date IS NULL")
+                modified = True
         if out_item_columns:
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_out_order_item_sales_source "
@@ -3749,6 +3754,8 @@ class OpeningStock(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)
     warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # AI-OS-MW-001: NULL 表示历史未指定仓库
+    # AI-OS-APP-001：期初建账日期（旧记录回填为建账首日 2023-01-01）
+    date = db.Column(db.Date, default=date.today)
     quantity = db.Column(db.Float, nullable=False, default=0)
     price = db.Column(db.Float, nullable=False, default=0)
     amount = db.Column(db.Float, nullable=False, default=0)
@@ -6296,6 +6303,9 @@ def _init_business_data_keep_users_and_settings(include_master_data=False):
 def _opening_stock_payload_from_request():
     material_id = request.form.get('material_id', type=int)
     warehouse_id = request.form.get('warehouse_id', type=int)
+    # AI-OS-APP-001：支持表单日期，缺省当天
+    raw_date = (request.form.get('date') or '').strip()
+    doc_date = _parse_opening_stock_date(raw_date)
     try:
         quantity = float(request.form.get('quantity') or '')
     except (TypeError, ValueError):
@@ -6323,20 +6333,33 @@ def _opening_stock_payload_from_request():
     return {
         'material': material,
         'warehouse': warehouse,
+        'date': doc_date,
         'quantity': normalize_stock_quantity(quantity),
         'price': round_to_2_decimals(price),
         'amount': round_to_2_decimals(quantity * price),
         'remark': remark or None,
     }, None
 
-def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new_amount, remark, warehouse=None):
+def _parse_opening_stock_date(raw):
+    """解析期初建账日期，非法或缺省返回当天。"""
+    raw = (raw or '').strip()
+    if raw:
+        try:
+            return datetime.strptime(raw, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            pass
+    return date.today()
+
+def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new_amount, remark, warehouse=None, doc_date=None):
     old_quantity = normalize_stock_quantity(opening.quantity or 0) if opening else 0
     quantity_delta = normalize_stock_quantity(new_quantity - old_quantity)
+    doc_date = doc_date or getattr(opening, 'date', None) or date.today()
 
     if opening is None:
         opening = OpeningStock(
             material_id=material.id,
             warehouse_id=warehouse.id if warehouse else None,
+            date=doc_date,
             quantity=new_quantity,
             price=new_price,
             amount=new_amount,
@@ -6350,6 +6373,7 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
         opening.price = new_price
         opening.amount = new_amount
         opening.remark = remark
+        opening.date = doc_date
         opening.operator_id = current_user.id if current_user.is_authenticated else None
         opening.updated_at = datetime.now()
         db.session.flush()
