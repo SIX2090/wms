@@ -132,7 +132,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 
 ## 六、防 BUG 规则清单
 
-`scripts/lint_wms_rules.py` 共 9 条规则，每条独立可开关：
+`scripts/lint_wms_rules.py` 共 10 条规则，每条独立可开关：
 
 | 编号 | 规则 | 防的 BUG | 扫描范围 |
 |---|---|---|---|
@@ -145,6 +145,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 | **A7** | SQL 必须参数化，禁止字符串拼接（严格） | SQL 注入 | `app/**/*.py`（除 `app/ai/`） |
 | **A8** | **新增** POST/PUT/DELETE 路由必须用 pydantic `BaseModel` 输入校验 | 数据类型 BUG / 字段漂移 | `app/**/*.py`（除 `app/ai/`，仅看 git staged 新增行） |
 | **A9** | **新增** 业务函数必须在 `tests/` 至少有 1 个对应 pytest 测试 | 未测试代码上线 | `app/**/*.py`（除 `app/ai/`，仅看 git staged 新增行） |
+| **A10** | **新增** `app/app.py` 禁止新增 `@app.route` 路由，强制走 `app/routes/` 模块 | app.py 重新膨胀 / 可维护性下滑 | `app/app.py`（仅看 git staged 新增行） |
 
 ### 6.1 白名单与例外
 
@@ -157,13 +158,15 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 - **A7**：完全禁止，无白名单。必须用 SQLAlchemy 参数化（`text("..."), {"param": val}`）。
 - **A8**：路由装饰器行/上一行/紧邻 `def` 行加 `# pydantic:reason=<理由>` 注释可豁免；登录/csrf/webhook/wechat 端点与 A2 一致豁免。
 - **A9**：同行/上一行加 `# no-test:reason=<理由>` 注释可豁免；`_xxx` 内部 helper、`test_xxx` 测试函数、`__dunder__` 魔术方法、装饰器（`@property` / `@staticmethod` / `@classmethod`）以及路由函数（`@app.route` 装饰的 def）均不算"业务函数"。
+- **A10**：`@app.route` 装饰器行/上一行/下一行加 `# route-in-app:reason=<理由>` 注释可豁免（用于确有必要留在 app.py 的极少数特殊端点）；存量路由不强制，仅拦 git staged 新增行。
 
 ### 6.2 排除路径
 
 - A2 / A6 / A7 / A8 / A9 都排除 `app/ai/`（AI 子包）。
+- A10 仅作用于 `app/app.py` 这一个文件，`app/routes/` 等其他文件天然不适用。
 - A6 额外排除 `app/run_server.py`、`app/auto_update.py`、`app/restart.py`、`app/notifications.py`、`app/wechat_helper.py`（这些是 CLI / 启动 / 辅助脚本，`print` 是合法的运维输出）。
 - A3 / A4 / A5 自动跳过 `app/static/js/lib/` 和 `xlsx.full.min.js` 等第三方库。
-- **A8 / A9 是"新增代码生效"规则**：仅扫描 `git diff --cached` 的新增行（含 `--diff-filter=A` 新增文件），存量代码不会一次性报几百条违规。
+- **A8 / A9 / A10 是"新增代码生效"规则**：仅扫描 `git diff --cached` 的新增行（含 `--diff-filter=A` 新增文件），存量代码不会一次性报几百条违规。
 
 ---
 
@@ -215,3 +218,4 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 |---|---|---|
 | 2026-07-31 | 初版（A1-A7 7 条规则） | AI + SIX2090 |
 | 2026-07-31 | v2：新增 A8（pydantic 必填） + A9（必写测试） | AI + SIX2090 |
+| 2026-08-05 | v3：新增 A10（app.py 禁止新增路由，防膨胀） | AI + SIX2090 |

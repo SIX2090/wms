@@ -5,9 +5,9 @@ lint_wms_rules.py
 =================
 
 WMS 防 BUG 多规则静态检查器
-统一扫描 9 条最常见的"招 BUG 写法"，每条规则可独立开关。
+统一扫描 10 条最常见的"招 BUG 写法"，每条规则可独立开关。
 
-9 条规则一览
+10 条规则一览
 ------------
 * **A1** 模板 ``<form method="post">`` 必须有 csrf_token
 * **A2** Python POST 路由必须有 ``@csrf.exempt`` / ``@login_required`` / ``@csrf_protect``
@@ -18,8 +18,9 @@ WMS 防 BUG 多规则静态检查器
 * **A7** SQL 字符串拼接（f-string / %s / text 拼接）禁止
 * **A8** 新增 POST/PUT/DELETE 路由必须用 pydantic 输入模型（防数据校验 BUG）
 * **A9** 新增业务函数必须在 ``tests/`` 至少有 1 个失败测试（防未测试代码上线）
+* **A10** ``app/app.py`` 禁止新增 ``@app.route`` 路由（防 app.py 重新膨胀，强制走 ``app/routes/`` 模块）
 
-A8/A9 是"新增代码生效"规则：仅对 git staged 的新增行强制，不会对存量代码一次性报几百条违规。
+A8/A9/A10 是"新增代码生效"规则：仅对 git staged 的新增行强制，不会对存量代码一次性报几百条违规。
 
 设计要点
 --------
@@ -1010,6 +1011,86 @@ class RuleA9NewFuncMustTest(Rule):
 
 
 # ---------------------------------------------------------------------------
+# A10：app/app.py 禁止新增 @app.route 路由（防 app.py 重新膨胀）
+# ---------------------------------------------------------------------------
+
+class RuleA10NoNewRouteInApp(Rule):
+    """禁止在 ``app/app.py`` 新增 ``@app.route`` 路由。
+
+    这是一条"新增代码生效"规则：仅检查 git staged 中 ``app/app.py`` **新增**的
+    ``@app.route(...)`` 装饰器，强制新增路由走 ``app/routes/`` 独立模块
+    （register-on-app 模式），防止 app.py 重新膨胀；存量路由不强制。
+
+    豁免（任一命中即放行）：
+    - 装饰器行 / 上一行 / 下一行出现 ``# route-in-app:reason=...`` 豁免注释
+      （用于确有必要留在 app.py 的极少数路由，如启动期注册的特殊端点）。
+
+    为什么强制走 routes/：
+    - app.py 曾达约 3.6 万行，已按业务域拆到 ``app/routes/`` 38 个模块。
+    - 若新路由直接写回 app.py，单文件膨胀风险会复发，可维护性下滑。
+    - routes/ 模块 + register-on-app 模式完全不改变 endpoint 名 / URL，
+      与 app.py 内既有 url_for 引用兼容。
+    """
+
+    name = "a10"
+    description = "app.py 禁止新增 @app.route 路由（强制走 app/routes/）"
+    enabled = True
+    scan_paths = ("app",)
+    exclude_paths = ()
+    extensions = (".py",)
+
+    # 匹配 ``@app.route(`` 装饰器（不限 methods，GET/POST 等一律强制走 routes/）
+    _ROUTE = re.compile(r"@app\.route\s*\(")
+
+    # 豁免注释: # route-in-app:reason=...
+    _ALLOW_HINT = re.compile(r"#\s*route-in-app\s*:\s*reason\s*=", re.IGNORECASE)
+
+    def scan(self, files: Sequence[Path], repo_root: Path) -> List[Violation]:
+        violations: List[Violation] = []
+        for f in files:
+            rel = str(f.relative_to(repo_root)).replace("\\", "/")
+            # 仅针对 app 主文件 app.py；其他文件（models/、routes/ 等）不适用
+            if rel != "app/app.py":
+                continue
+            try:
+                text = f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            # 仅对 git staged 的新增行强制（存量路由不报）
+            added_lines = get_staged_added_lines(repo_root, f)
+            if not added_lines:
+                continue
+            stripped = strip_py_comments(text)
+            lines_raw = text.split("\n")
+            for m in self._ROUTE.finditer(stripped):
+                ln = line_number_at(text, m.start())
+                if ln not in added_lines:
+                    continue  # 存量路由不强制
+                # 装饰器行 / 上一行 / 下一行（含注释跨行）有无豁免注释
+                line_idx = stripped[: m.start()].count("\n")
+                found_allow = False
+                for offset in (-1, 0, 1):
+                    check_idx = line_idx + offset
+                    if 0 <= check_idx < len(lines_raw) and self._ALLOW_HINT.search(
+                        lines_raw[check_idx]
+                    ):
+                        found_allow = True
+                        break
+                if found_allow:
+                    continue
+                snippet = line_snippet(text, m.start())
+                violations.append(
+                    Violation(
+                        rel,
+                        ln,
+                        snippet,
+                        extra="app.py 新增路由，请移入 app/routes/ 模块",
+                    )
+                )
+        return violations
+
+
+# ---------------------------------------------------------------------------
 # 规则注册表
 # ---------------------------------------------------------------------------
 
@@ -1023,10 +1104,11 @@ RULES: Dict[str, Rule] = {
     "a7": RuleA7NoSqlConcat(),
     "a8": RuleA8NewRoutePydantic(),
     "a9": RuleA9NewFuncMustTest(),
+    "a10": RuleA10NoNewRouteInApp(),
 }
 
 RULE_DISPLAY_ORDER: Tuple[str, ...] = (
-    "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9",
+    "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "a10",
 )
 
 
@@ -1121,7 +1203,7 @@ def format_report(
 # ---------------------------------------------------------------------------
 
 HELP_TEXT = """\
-WMS 防 BUG 多规则静态检查器（9 条规则）
+WMS 防 BUG 多规则静态检查器（10 条规则）
 
 用法：
   python3 scripts/lint_wms_rules.py                  跑所有规则
