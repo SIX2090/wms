@@ -1483,9 +1483,10 @@ full 验证结果：
   - 第二批：调拨（transfer）/销售（sales）/领料（requisition）/销售出库（out_order）/采购入库（in_order）/委外（subcontract）/BOM（bom）/盘点（check）/采购订单（purchase_order）/采购申请（purchase_request）/库存调整（adjustment）/系统设置（system_settings）：`register_<domain>_routes(app)` 模式，endpoint 名与 URL 不变。
   - 第三批：用户认证与管理员控制台（user_auth）/报表（report）/原生与移动端 API（native_api）：`register_<domain>_routes(app)` 模式；因依赖 `role_required` / `api_role_required` / `mobile_api_idempotent` / `web_or_api_required` 装饰器，注册调用放置在对应装饰器定义之后。
   - 第四批：导出（export）：`register_export_routes(app)` 模式，endpoint 名与 URL 不变。
+  - 第五批（2026-08-05，commit `847dc41b`）：批量导入（batch_import）/库存查询（stock_query）/库存预警（inventory_alert）/标签打印（label）/待办单据（pending_documents）/单位与供应商导入导出（unit_supplier_import）：`register_<domain>_routes(app)` 模式，endpoint 名与 URL 不变。
   - 循环导入处理：app 依赖（模型/辅助函数）在路由函数内部延迟导入（请求期才执行），模块级只导入稳定依赖（flask / utils / db）。
 - 改动模块：
-  - `app/routes/*.py`：unit/supplier/category/employee/material/customer/warehouse/department/contract/backup/approval/mobile/wechat_share/opening_stock/label_barcode/after_sale_out 共 16 个域路由模块；第二批 transfer/sales/requisition/out_order/in_order/subcontract/bom/check/purchase_order/purchase_request/adjustment/system_settings 共 12 个域；第三批 user_auth/report/native_api 共 3 个域；第四批 export 共 1 个域。合计 32 个域路由模块。
+  - `app/routes/*.py`：unit/supplier/category/employee/material/customer/warehouse/department/contract/backup/approval/mobile/wechat_share/opening_stock/label_barcode/after_sale_out 共 16 个域路由模块；第二批 transfer/sales/requisition/out_order/in_order/subcontract/bom/check/purchase_order/purchase_request/adjustment/system_settings 共 12 个域；第三批 user_auth/report/native_api 共 3 个域；第四批 export 共 1 个域；第五批 batch_import/stock_query/inventory_alert/label/pending_documents/unit_supplier_import 共 6 个域。合计 38 个域路由模块。
   - `app/app.py`：导入并注册各 `register_*_routes(app)`，删除对应原路由代码块；第三批 user_auth/native_api 的注册调用置于 `role_required` 等装饰器定义之后。
   - `scripts/lint_wms_rules.py`：A9 规则放宽路由函数排除窗口（2 → 6 行），叠 `@app.route`+`@require_role`+`@login_required` 三层装饰器的路由函数不再误报需单独测试。
 - 附带修复：`routes/approval.py` 审批中心批准/驳回原从 app 导入 `approve_purchase_request`/`reject_purchase_request`（已随 purchase_request 拆分移除），改为内联复现原逻辑，修复审批中心 API 失效回归（pre-existing bug）。
@@ -1493,10 +1494,9 @@ full 验证结果：
 - 权限与人工确认：所有迁移路由保留原 `@login_required` + `@require_role` 装饰器；AI 不放开任何写权限、不改密码、不硬删单据。
 - 专项验证命令及结果：
   - `python scripts/lint_wms_rules.py` → 0 违规。
-  - `python -m pytest tests/verify_app_py_split_*.py -q` → 166 passed（新增 export 域 4 个用例）。
+  - `python -m pytest tests/verify_app_py_split_*.py -q` → 194 passed（第五批新增 6 域 28 个用例）。
   - 每次 commit 前 pre-commit 钩子（lint_wms_rules + lint_no_raw_post_fetch）→ 全部通过。
 - 推送验证：多批次推送均输出 `To https://github.com/SIX2090/wms.git ... -> main`；本地与 `origin/main` SHA 一致。
 - 剩余风险和下一子项：
-  - 第四批：导出（export）域 15 个路由（`export_*` 模板导出 + `export_in_order`/`export_purchase_request`/`export_after_sale_out` 数据导出）拆到 `routes/export.py`（register-on-app 模式，endpoint 与 URL 不变）。
-  - app.py 剩余约 122 个路由，其中 `/api`(67) 与 `/ai`(31) 共约 98 个为 AI 子系统路由，与 app.py 内约 200 个 `_ai_*` 辅助函数深度耦合、交错，拆分风险高；其余为散落的 import/label/stock_query/alert/pending_documents/batch_import 及 unit/supplier 的 export/import stub 路由。
+  - app.py 剩余约 100 个路由，其中 `/api` 与 `/ai` 多为 AI 子系统路由，与 app.py 内约 200 个 `_ai_*` 辅助函数深度耦合、交错，拆分风险高。
   - 建议新增"app.py 路由防膨胀"pre-commit 规则，禁止新路由直接写进 app.py，强制走 `routes/` 模块。
