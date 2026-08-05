@@ -1518,3 +1518,4 @@ full 验证结果：
 - 剩余风险和下一子项：
   - app.py 剩余约 100 个路由，其中 `/api` 与 `/ai` 多为 AI 子系统路由，与 app.py 内约 200 个 `_ai_*` 辅助函数深度耦合、交错，拆分风险高。
   - 建议新增"app.py 路由防膨胀"pre-commit 规则，禁止新路由直接写进 app.py，强制走 `routes/` 模块。
+- 子修复（BUG-2026-08-05-001）：拆分迁移 `in_order.py` 时，`create_in_order_push` 使用 `DocumentPushLine` 却漏导入，导致采购入库完成后下推失效（`NameError`）。在 `create_in_order_push` 的 `from app import (...)` 补入 `DocumentPushLine`，与 `out_order.py`/`after_sale_out.py` 一致。回归：`scripts/verify_inbound_push.py` Full PASS。

@@ -239,8 +239,8 @@ def register_in_order_routes(app):
         from flask_login import current_user
         from sqlalchemy.orm import selectinload
         from app import (AfterSaleOutOrder, AfterSaleOutOrderItem, Customer,
-                         INBOUND_PUSH_TARGETS, InOrder, OperationLog, OutOrder,
-                         OutOrderItem, _acquire_order_write_lock, _clean_int,
+                         DocumentPushLine, INBOUND_PUSH_TARGETS, InOrder, OperationLog,
+                         OutOrder, OutOrderItem, _acquire_order_write_lock, _clean_int,
                          _in_order_push_quantities, _in_order_push_source_type,
                          _push_target_url, generate_order_no, normalize_stock_quantity,
                          round_to_2_decimals)
