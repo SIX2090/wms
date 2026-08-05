@@ -1519,3 +1519,4 @@ full 验证结果：
   - app.py 剩余约 100 个路由，其中 `/api` 与 `/ai` 多为 AI 子系统路由，与 app.py 内约 200 个 `_ai_*` 辅助函数深度耦合、交错，拆分风险高。
   - 建议新增"app.py 路由防膨胀"pre-commit 规则，禁止新路由直接写进 app.py，强制走 `routes/` 模块。
 - 子修复（BUG-2026-08-05-001）：拆分迁移 `in_order.py` 时，`create_in_order_push` 使用 `DocumentPushLine` 却漏导入，导致采购入库完成后下推失效（`NameError`）。在 `create_in_order_push` 的 `from app import (...)` 补入 `DocumentPushLine`，与 `out_order.py`/`after_sale_out.py` 一致。回归：`scripts/verify_inbound_push.py` Full PASS。
+- 子修复（BUG-2026-08-05-002）：`complete_in_order` / `update_completed_in_order` / `update_in_order` 三个函数的延迟导入均漏 `InOrder`，点击"完成入库"即抛 `NameError`，单据停在草稿、下推按钮不出现（被 `except` 吞掉）。在三个函数导入补入 `InOrder`，并在 `complete_in_order` 的 `except` 补 `app.logger.exception` 记录堆栈。新增静态检查 `scripts/check_in_order_imports.py` 扫描全部使用 `InOrder` 的函数确保导入覆盖。回归：`scripts/repro_complete_in_order.py`、`tests/verify_bug_2026_08_05_002_complete_in_order_imports.py`（3 用例）、`scripts/verify_inbound_push.py`、`make check` 全 PASS。

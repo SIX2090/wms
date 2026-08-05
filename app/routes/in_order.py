@@ -423,7 +423,7 @@ def register_in_order_routes(app):
     @login_required
     def update_in_order(id):
         """Update the header fields of a draft inbound order."""
-        from app import (Customer, Supplier, _clean_int, api_error, assert_warehouse_active,
+        from app import (Customer, InOrder, Supplier, _clean_int, api_error, assert_warehouse_active,
                          get_default_warehouse, is_future_date, log_operation,
                          parse_date_value, recalculate_order_total)
         order = InOrder.query.get_or_404(id)
@@ -1285,7 +1285,7 @@ def register_in_order_routes(app):
     def complete_in_order(id):
         """Complete an inbound order and add stock."""
         from sqlalchemy.orm import selectinload
-        from app import (PurchaseOrder, WechatShareConfig, _acquire_order_write_lock,
+        from app import (InOrder, PurchaseOrder, WechatShareConfig, _acquire_order_write_lock,
                          _check_in_order_anomalies, _wechat_share_order, add_stock, api_error,
                          get_default_warehouse, is_future_date, location_management_enabled,
                          log_operation, update_location_inventory, update_purchase_order_status,
@@ -1395,7 +1395,7 @@ def register_in_order_routes(app):
     def update_completed_in_order(id):
         """Update a completed inbound order and adjust stock differences."""
         from sqlalchemy.orm import selectinload
-        from app import (InOrderItem, Material, PurchaseOrder, PurchaseOrderItem,
+        from app import (InOrder, InOrderItem, Material, PurchaseOrder, PurchaseOrderItem,
                          STOCK_COMPARE_EPSILON, _acquire_order_write_lock, add_stock,
                          allow_negative_stock, api_error, check_stock_sufficient,
                          deduct_stock, location_management_enabled, recalculate_order_total,
