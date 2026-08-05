@@ -116,6 +116,7 @@
 | 27 | AI-MENU-2026-07-29-A1 | 已完成 | 销售出库单 page_title 误导修复 | 无 | A2 |
 | 28 | AI-MENU-2026-07-29-A2 | 已完成 | opening_stock.warehouse_id 自动迁移补齐 | AI-OS-MW-001 | 无 |
 | 29 | AI-MENU-2026-07-29-A3 | 已完成 | 期初库存菜单页面 title 改为「期初库存台账」 | 无 | 无 |
+| 30 | AI-OS-APP-001 | 已完成 | 手机端期初库存（日期/仓库/扫码建账）+ 移动期初 API + APK 固定签名修复 | AI-OS-MW-001 | 无 |
 
 ## 5. 任务详细定义
 
@@ -370,6 +371,23 @@
 - `GET /opening_stock` 返回 200 + `<title>期初库存台账</title>`。
 - 菜单 `期初库存` 文字、URL `/opening_stock`、页面 title「期初库存台账」三者语义一致。
 - 扫描脚本 `scripts/audit/scan_all_menus.py` 不再为"期初库存"产生错配记录。
+
+### AI-OS-APP-001：手机端期初库存（日期/仓库/扫码建账）+ 移动期初 API + APK 固定签名修复
+
+**目标**：在 Android WMS App 上新增"期初库存"功能，支持选择建账日期、选择仓库、扫码录入物料行后批量提交建账；同时修复"上次开发后手机装不上"的安装覆盖问题。
+
+**范围与边界**：
+- 后端移动 API：`GET /api/warehouses`（启用的仓库列表）、`GET /api/opening_stock`（按仓库/关键字查询）、`POST /api/opening_stock`（批量期初建账，含日期+仓库+物料编码+数量+单价），走 Bearer 认证 + `mobile_api_idempotent` 幂等 + `api_role_required('warehouse')` 权限。
+- 期初库存后端支持建账日期字段：`OpeningStock.date` 模型字段 + `auto_migrate_database()` 的 `ALTER TABLE opening_stock ADD COLUMN date DATE` 迁移 + 路由/批量保存解析日期。
+- Android 端：`OpeningStockModels`（WarehouseDto/OpeningStockDto/OpeningStockLine/OpeningStockRequest）、`WmsApiService` 三个接口、`WmsRepository` 数据访问、`OpeningStockViewModel`、`OpeningStockScreen`（日期选择器 + 仓库选择器 + 扫码/手动录入 + 提交）、首页功能卡片、导航注册。
+- APK 安装修复：固定 release 签名 keystore（`app/android-native-wms/keystore/wms-release.jks`，口令 `wms123456`），`build.gradle.kts` 引入固定签名，CI 改为构建并上传 release APK，保证不同环境构建签名一致可覆盖安装。
+
+**验收**：
+- `tests/verify_mobile_opening_stock_api.py` 覆盖移动端点注册、仓库列表、期初提交、参数校验、差额调整，全部通过。
+- Android 源码编译通过；CI `assembleRelease` 产出 `app-release.apk` 并上传 artifact。
+- 期初库存页面：选择日期、选择仓库、扫码/手动添加物料、提交建账成功提示。
+
+**记录**：完成日期 2026-08-05；提交 `b0b70c34`（期初日期字段）、`c9523acb`（移动期初 API）、`f9c622ed`（Android 端 + 签名修复）；涉及模块 app/app.py、app/routes/opening_stock.py、app/routes/native_api.py、app/android-native-wms/**、.github/workflows/android-build.yml、tests/verify_mobile_opening_stock_api.py。
 
 ### AI-MENU-2026-07-30-B1：菜单/页面 title 批量对齐（剩余 9 项 → 0）
 
