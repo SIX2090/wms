@@ -74,13 +74,48 @@ def register_approval_routes(app):
     @require_role('purchase')
     @login_required
     def approve_from_approval_center(id):
-        from app import approve_purchase_request
-        return approve_purchase_request(id)
+        # 原实现调用共享辅助函数 approve_purchase_request；该函数已随 purchase_request
+        # 域拆分为独立路由，不再位于 app。此处内联复现原逻辑，保持行为一致。
+        from app import PurchaseRequest, api_error, log_operation
+        from db import db
+        from flask import jsonify
+        try:
+            request_order = PurchaseRequest.query.get_or_404(id)
+            if request_order.status != 'pending':
+                return api_error('只有待审批的采购申请单可以审批')
+            request_order.status = 'approved'
+            db.session.commit()
+            log_operation('采购申请审批通过', f'采购申请单：{request_order.request_no}', 'purchase_request', request_order.id)
+            return jsonify({'status': 'success', 'msg': '操作完成'})
+        except Exception:
+            db.session.rollback()
+            return api_error('操作失败，请稍后重试')
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/approval/<int:id>/reject', methods=['POST'])
     @require_role('purchase')
     @login_required
     def reject_from_approval_center(id):
-        from app import reject_purchase_request
-        return reject_purchase_request(id)
+        # 原实现调用共享辅助函数 reject_purchase_request；该函数已随 purchase_request
+        # 域拆分为独立路由，不再位于 app。此处内联复现原逻辑，保持行为一致。
+        from app import PurchaseRequest, api_error, log_operation
+        from db import db
+        from flask import jsonify, request
+        try:
+            data = request.get_json(silent=True) or {}
+            request_order = PurchaseRequest.query.get_or_404(id)
+            if request_order.status != 'pending':
+                return api_error('只有待审批的采购申请单可以驳回')
+            request_order.status = 'rejected'
+            request_order.remark = data.get('remark', request_order.remark)
+            try:
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f'数据库操作失败: {e}')
+                return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'}), 500
+            log_operation('采购申请驳回', f'采购申请单：{request_order.request_no}', 'purchase_request', request_order.id)
+            return jsonify({'status': 'success', 'msg': '操作完成'})
+        except Exception:
+            db.session.rollback()
+            return api_error('操作失败，请稍后重试')
