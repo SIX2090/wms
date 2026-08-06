@@ -1106,6 +1106,28 @@ function setupDynamicDetailColumnControls(config) {
     setupResize();
     applyOrder();
 
+    // 监听动态新增的明细行，自动应用当前字段顺序
+    const tbody = table.querySelector('tbody');
+    if (tbody && typeof MutationObserver === 'function') {
+        const observer = new MutationObserver(function(mutations) {
+            const currentOrder = normalizeOrder(readJson(orderKey, defaultOrder));
+            mutations.forEach(function(mutation) {
+                if (mutation.type !== 'childList') return;
+                mutation.addedNodes.forEach(function(node) {
+                    if (node.nodeType !== Node.ELEMENT_NODE) return;
+                    if (node.matches && node.matches('tr')) {
+                        reorderRow(node, currentOrder);
+                    } else if (node.querySelectorAll) {
+                        node.querySelectorAll('tr').forEach(function(nr) {
+                            reorderRow(nr, currentOrder);
+                        });
+                    }
+                });
+            });
+        });
+        observer.observe(tbody, { childList: true, subtree: true });
+    }
+
     return {
         applyOrder: applyOrder,
         applyWidths: applyWidths,
@@ -3191,17 +3213,21 @@ document.addEventListener('DOMContentLoaded', function() {
     function applyState(controller) {
         var table = controller.table;
         var state = controller.state;
-        Array.from(table.rows).forEach(function(row) {
-            var keyedCells = Array.from(row.children).filter(function(item) { return item.dataset && item.dataset.columnKey; });
-            var current = keyedCells.map(function(item) { return item.dataset.columnKey; }).join('|');
-            var desired = state.order.filter(function(key) { return keyedCells.some(function(item) { return item.dataset.columnKey === key; }); }).join('|');
-            if (current !== desired) {
-                state.order.forEach(function(key) {
-                    var cell = keyedCells.find(function(item) { return item.dataset.columnKey === key; });
-                    if (cell) row.appendChild(cell);
-                });
-            }
-        });
+        // 当表格已由 setupDynamicDetailColumnControls 接管列顺序（拖动调整）时，
+        // 跳过"字段设置"系统的行重排，避免其 MutationObserver 在拖动后把列顺序改回默认。
+        if (table.dataset.dynamicDetailColumnsReady !== 'true') {
+            Array.from(table.rows).forEach(function(row) {
+                var keyedCells = Array.from(row.children).filter(function(item) { return item.dataset && item.dataset.columnKey; });
+                var current = keyedCells.map(function(item) { return item.dataset.columnKey; }).join('|');
+                var desired = state.order.filter(function(key) { return keyedCells.some(function(item) { return item.dataset.columnKey === key; }); }).join('|');
+                if (current !== desired) {
+                    state.order.forEach(function(key) {
+                        var cell = keyedCells.find(function(item) { return item.dataset.columnKey === key; });
+                        if (cell) row.appendChild(cell);
+                    });
+                }
+            });
+        }
         controller.columns.forEach(function(column) {
             var hidden = state.hidden.indexOf(column.key) !== -1;
             table.querySelectorAll('[data-column-key="' + CSS.escape(column.key) + '"]').forEach(function(cell) {

@@ -452,25 +452,25 @@ textarea.form-control {
                 <table id="materialTable">
                     <thead>
                         <tr>
-                            <th class="row-num">序号<span class="col-resize"></span></th>
-                            <th style="width: 160px;">物料编码<span class="col-resize"></span></th>
-                            <th>物料名称<span class="col-resize"></span></th>
-                            <th style="width: 120px;">规格<span class="col-resize"></span></th>
-                            <th style="width: 80px;">单位<span class="col-resize"></span></th>
-                            <th style="width: 100px;" class="num-col">数量<span class="col-resize"></span></th>
-                            <th style="width: 100px;" class="num-col">单价<span class="col-resize"></span></th>
-                            <th style="width: 110px;" class="amount-col">金额<span class="col-resize"></span></th>
-                            <th style="width: 140px;">合同编号<span class="col-resize"></span></th>
-                            <th style="width: 180px;">工程名称<span class="col-resize"></span></th>
-                            <th style="width: 140px;">备注<span class="col-resize"></span></th>
-                            <th style="width: 90px;" class="action-col">操作<span class="col-resize"></span></th>
+                            <th class="row-num" data-column-key="row_no">序号<span class="col-resize"></span></th>
+                            <th style="width: 160px;" data-column-key="material_code">物料编码<span class="col-resize"></span></th>
+                            <th data-column-key="material_name">物料名称<span class="col-resize"></span></th>
+                            <th style="width: 120px;" data-column-key="spec">规格<span class="col-resize"></span></th>
+                            <th style="width: 80px;" data-column-key="unit">单位<span class="col-resize"></span></th>
+                            <th style="width: 100px;" class="num-col" data-column-key="quantity">数量<span class="col-resize"></span></th>
+                            <th style="width: 100px;" class="num-col" data-column-key="price">单价<span class="col-resize"></span></th>
+                            <th style="width: 110px;" class="amount-col" data-column-key="amount">金额<span class="col-resize"></span></th>
+                            <th style="width: 140px;" data-column-key="contract_no">合同编号<span class="col-resize"></span></th>
+                            <th style="width: 180px;" data-column-key="project_name">工程名称<span class="col-resize"></span></th>
+                            <th style="width: 140px;" data-column-key="remark">备注<span class="col-resize"></span></th>
+                            <th style="width: 90px;" class="action-col" data-column-key="actions">操作<span class="col-resize"></span></th>
                         </tr>
                     </thead>
                     <tbody id="materialTableBody"></tbody>
                     <tfoot>
                         <tr class="total-row">
                             <td colspan="7" class="text-end"><strong>合计：</strong></td>
-                            <td class="amount-col"><strong id="totalAmount" class="total-amount">¥0.00</strong></td>
+                            <td class="amount-col" data-column-key="amount"><strong id="totalAmount" class="total-amount">¥0.00</strong></td>
                             <td></td>
                             <td></td>
                         </tr>
@@ -662,24 +662,24 @@ function addNewRow(data = {}, insertBeforeRow = null) {
     const tbody = document.getElementById('materialTableBody');
     const row = document.createElement('tr');
     row.innerHTML = `
-        <td class="row-num"></td>
-        <td>
+        <td class="row-num" data-column-key="row_no"></td>
+        <td data-column-key="material_code">
             <div class="material-input-wrap">
                 <input class="form-control material-code" value="${escapeHtml(data.material_code || '')}" autocomplete="off">
                 <button type="button" class="material-select-btn" title="选择物料">▼</button>
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
-        <td><input class="form-control material-name" value="${escapeHtml(data.material_name || '')}" readonly></td>
-        <td><input class="form-control material-spec" value="${escapeHtml(data.spec || '')}" readonly></td>
-        <td><input class="form-control material-unit" value="${escapeHtml(data.unit_name || '')}" readonly></td>
-        <td class="num-col"><input type="number" class="form-control material-qty" min="0" step="0.01" value="${escapeHtml(data.quantity || '')}"></td>
-        <td class="num-col"><input type="number" class="form-control material-price" min="0" step="0.01" value="${escapeHtml(data.price || '')}"></td>
-        <td class="amount-col"><input class="form-control material-amount" readonly></td>
-        <td><input class="form-control line-contract-no" maxlength="50" value="${escapeHtml(data.contract_no || '')}"></td>
-        <td><input class="form-control line-project-name" maxlength="200" value="${escapeHtml(data.project_name || '')}"></td>
-        <td><input type="text" class="form-control material-remark" maxlength="500" value="${escapeHtml(data.remark || '')}"></td>
-        <td class="action-col">
+        <td data-column-key="material_name"><input class="form-control material-name" value="${escapeHtml(data.material_name || '')}" readonly></td>
+        <td data-column-key="spec"><input class="form-control material-spec" value="${escapeHtml(data.spec || '')}" readonly></td>
+        <td data-column-key="unit"><input class="form-control material-unit" value="${escapeHtml(data.unit_name || '')}" readonly></td>
+        <td class="num-col" data-column-key="quantity"><input type="number" class="form-control material-qty" min="0" step="0.01" value="${escapeHtml(data.quantity || '')}"></td>
+        <td class="num-col" data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01" value="${escapeHtml(data.price || '')}"></td>
+        <td class="amount-col" data-column-key="amount"><input class="form-control material-amount" readonly></td>
+        <td data-column-key="contract_no"><input class="form-control line-contract-no" maxlength="50" value="${escapeHtml(data.contract_no || '')}"></td>
+        <td data-column-key="project_name"><input class="form-control line-project-name" maxlength="200" value="${escapeHtml(data.project_name || '')}"></td>
+        <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500" value="${escapeHtml(data.remark || '')}"></td>
+        <td class="action-col" data-column-key="actions">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入"><i class="bi bi-plus-circle"></i></button>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除"><i class="bi bi-trash"></i></button>
         </td>
@@ -986,6 +986,29 @@ document.addEventListener('DOMContentLoaded', function() {
         copy: function(row) { copyRowAfter(row); },
         remove: function(row) { deleteRow(row); }
     });
+    // ==================== 明细表字段位置和列宽 ====================
+    if (typeof setupDynamicDetailColumnControls === 'function') {
+        window.purchaseOrderColumnController = setupDynamicDetailColumnControls({
+            tableSelector: '#materialTable',
+            orderKey: 'purchase_order_col_order_v1',
+            widthKey: 'purchase_order_col_widths_v1',
+            lockedColumns: ['row_no', 'actions'],
+            minWidths: {
+                row_no: 42,
+                actions: 92,
+                material_code: 120,
+                material_name: 140,
+                spec: 80,
+                unit: 60,
+                quantity: 80,
+                price: 80,
+                amount: 90,
+                contract_no: 120,
+                project_name: 140,
+                remark: 120
+            }
+        });
+    }
 });
 document.addEventListener('click', function(event) {
     if (!event.target.closest('.material-input-wrap')) hideMaterialDropdown();

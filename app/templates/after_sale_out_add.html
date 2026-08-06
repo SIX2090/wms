@@ -261,25 +261,25 @@
                 <table id="materialTable">
                     <thead>
                         <tr>
-                            <th class="row-num">序号</th>
-                            <th style="width: 150px;">物料编码</th>
-                            <th style="width: 100px;">品牌</th>
-                            <th>物料名称</th>
-                            <th style="width: 100px;">规格</th>
-                            <th style="width: 70px;">单位</th>
-                            <th style="width: 90px;">当前库存</th>
-                            <th style="width: 100px;">数量</th>
-                            <th style="width: 100px;">单价</th>
-                            <th style="width: 100px;" class="amount-col">金额</th>
-                            <th style="width: 140px;">备注</th>
-                            <th class="action-col">操作</th>
+                            <th class="row-num" data-column-key="row_no">序号<span class="col-resize"></span></th>
+                            <th style="width: 150px;" data-column-key="material_code">物料编码<span class="col-resize"></span></th>
+                            <th style="width: 100px;" data-column-key="brand">品牌<span class="col-resize"></span></th>
+                            <th data-column-key="material_name">物料名称<span class="col-resize"></span></th>
+                            <th style="width: 100px;" data-column-key="spec">规格<span class="col-resize"></span></th>
+                            <th style="width: 70px;" data-column-key="unit">单位<span class="col-resize"></span></th>
+                            <th style="width: 90px;" data-column-key="stock">当前库存<span class="col-resize"></span></th>
+                            <th style="width: 100px;" data-column-key="quantity">数量<span class="col-resize"></span></th>
+                            <th style="width: 100px;" data-column-key="price">单价<span class="col-resize"></span></th>
+                            <th style="width: 100px;" class="amount-col" data-column-key="amount">金额<span class="col-resize"></span></th>
+                            <th style="width: 140px;" data-column-key="remark">备注<span class="col-resize"></span></th>
+                            <th class="action-col" data-column-key="actions">操作<span class="col-resize"></span></th>
                         </tr>
                     </thead>
                     <tbody id="materialTableBody"></tbody>
                     <tfoot>
                         <tr>
                             <td colspan="9" class="text-end"><strong>合计：</strong></td>
-                            <td class="amount-col"><strong id="totalAmount">¥0.00</strong></td>
+                            <td class="amount-col" data-column-key="amount"><strong id="totalAmount">¥0.00</strong></td>
                             <td></td>
                         </tr>
                     </tfoot>
@@ -306,24 +306,24 @@ function addNewRow(insertBeforeRow = null, data = {}) {
     const tbody = document.getElementById('materialTableBody');
     const row = document.createElement('tr');
     row.innerHTML = `
-        <td class="row-num"></td>
-        <td>
+        <td class="row-num" data-column-key="row_no"></td>
+        <td data-column-key="material_code">
             <div class="material-input">
                 <input type="text" class="form-control material-code" placeholder="">
                 <button type="button" class="material-select-btn">▼</button>
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
-        <td><input type="text" class="form-control material-brand" readonly></td>
-        <td><input type="text" class="form-control material-name" readonly></td>
-        <td><input type="text" class="form-control material-spec" readonly></td>
-        <td><input type="text" class="form-control material-unit" readonly></td>
-        <td><input type="text" class="form-control material-stock num-col" readonly></td>
-        <td><input type="number" class="form-control material-qty num-col" min="0" step="0.01"></td>
-        <td><input type="number" class="form-control material-price num-col" min="0" step="0.01"></td>
-        <td class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
-        <td><input type="text" class="form-control material-remark" maxlength="500"></td>
-        <td class="action-col">
+        <td data-column-key="brand"><input type="text" class="form-control material-brand" readonly></td>
+        <td data-column-key="material_name"><input type="text" class="form-control material-name" readonly></td>
+        <td data-column-key="spec"><input type="text" class="form-control material-spec" readonly></td>
+        <td data-column-key="unit"><input type="text" class="form-control material-unit" readonly></td>
+        <td data-column-key="stock"><input type="text" class="form-control material-stock num-col" readonly></td>
+        <td data-column-key="quantity"><input type="number" class="form-control material-qty num-col" min="0" step="0.01"></td>
+        <td data-column-key="price"><input type="number" class="form-control material-price num-col" min="0" step="0.01"></td>
+        <td class="amount-col" data-column-key="amount"><input type="text" class="form-control material-amount" readonly></td>
+        <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
+        <td class="action-col" data-column-key="actions">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除行"><i class="bi bi-trash"></i></button>
         </td>
@@ -573,6 +573,29 @@ document.addEventListener('DOMContentLoaded', function() {
         copy: function(row) { copyRowAfter(row); },
         remove: function(row) { deleteRow(row); }
     });
+    // ==================== 明细表字段位置和列宽 ====================
+    if (typeof setupDynamicDetailColumnControls === 'function') {
+        window.afterSaleOutColumnController = setupDynamicDetailColumnControls({
+            tableSelector: '#materialTable',
+            orderKey: 'after_sale_out_col_order_v1',
+            widthKey: 'after_sale_out_col_widths_v1',
+            lockedColumns: ['row_no', 'actions'],
+            minWidths: {
+                row_no: 42,
+                actions: 92,
+                material_code: 120,
+                brand: 90,
+                material_name: 140,
+                spec: 80,
+                unit: 60,
+                stock: 90,
+                quantity: 80,
+                price: 80,
+                amount: 90,
+                remark: 120
+            }
+        });
+    }
     setupCustomerSearch();
     try {
         if (typeof BroadcastChannel !== 'undefined') {

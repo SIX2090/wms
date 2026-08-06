@@ -350,17 +350,17 @@
                 <table class="adjust-grid" id="adjustmentTable">
                     <thead>
                         <tr>
-                            <th class="row-num">序号</th>
-                            <th style="width: 150px;">物料编码</th>
-                            <th>物料名称</th>
-                            <th style="width: 110px;">规格</th>
-                            <th style="width: 70px;">单位</th>
-                            <th style="width: 95px;">当前库存</th>
-                            <th style="width: 100px;">调整数量</th>
-                            <th style="width: 120px;">库位</th>
-                            <th style="width: 220px;">调整原因</th>
+                            <th class="row-num" data-column-key="row_no">序号<span class="col-resize"></span></th>
+                            <th style="width: 150px;" data-column-key="material_code">物料编码<span class="col-resize"></span></th>
+                            <th data-column-key="material_name">物料名称<span class="col-resize"></span></th>
+                            <th style="width: 110px;" data-column-key="spec">规格<span class="col-resize"></span></th>
+                            <th style="width: 70px;" data-column-key="unit">单位<span class="col-resize"></span></th>
+                            <th style="width: 95px;" data-column-key="stock">当前库存<span class="col-resize"></span></th>
+                            <th style="width: 100px;" data-column-key="adjust_qty">调整数量<span class="col-resize"></span></th>
+                            <th style="width: 120px;" data-column-key="location">库位<span class="col-resize"></span></th>
+                            <th style="width: 220px;" data-column-key="reason">调整原因<span class="col-resize"></span></th>
                             {% if not readonly %}
-                            <th class="action-col">操作</th>
+                            <th class="action-col" data-column-key="actions">操作<span class="col-resize"></span></th>
                             {% endif %}
                         </tr>
                     </thead>
@@ -368,7 +368,7 @@
                     <tfoot>
                         <tr>
                             <td colspan="6" class="text-end">合计：</td>
-                            <td class="text-end" id="totalQty">0.00</td>
+                            <td class="text-end" id="totalQty" data-column-key="adjust_qty">0.00</td>
                             <td colspan="{{ 3 if not readonly else 2 }}"></td>
                         </tr>
                     </tfoot>
@@ -465,21 +465,21 @@ function createRow(item) {
     const row = tbody.insertRow();
     row.dataset.materialId = item && item.material_id ? item.material_id : '';
     row.innerHTML = `
-        <td class="row-num"></td>
-        <td>
+        <td class="row-num" data-column-key="row_no"></td>
+        <td data-column-key="material_code">
             <div class="material-input">
                 <input type="text" class="material-code" ${readonly ? 'readonly' : ''}>
                 ${readonly ? '' : '<button type="button" class="material-select-btn">▼</button><div class="material-dropdown" style="display:none;"></div>'}
             </div>
         </td>
-        <td><input type="text" class="material-name" readonly></td>
-        <td><input type="text" class="material-spec" readonly></td>
-        <td><input type="text" class="material-unit" readonly></td>
-        <td class="num-col"><input type="text" class="material-stock" readonly></td>
-        <td class="num-col"><input type="number" class="adjust-qty" min="0" step="0.01" ${readonly ? 'readonly' : ''}></td>
-        <td><input type="text" class="adjust-location" ${readonly ? 'readonly' : ''}></td>
-        <td><input type="text" class="adjust-reason" ${readonly ? 'readonly' : ''}></td>
-        ${readonly ? '' : `<td class="action-col">
+        <td data-column-key="material_name"><input type="text" class="material-name" readonly></td>
+        <td data-column-key="spec"><input type="text" class="material-spec" readonly></td>
+        <td data-column-key="unit"><input type="text" class="material-unit" readonly></td>
+        <td class="num-col" data-column-key="stock"><input type="text" class="material-stock" readonly></td>
+        <td class="num-col" data-column-key="adjust_qty"><input type="number" class="adjust-qty" min="0" step="0.01" ${readonly ? 'readonly' : ''}></td>
+        <td data-column-key="location"><input type="text" class="adjust-location" ${readonly ? 'readonly' : ''}></td>
+        <td data-column-key="reason"><input type="text" class="adjust-reason" ${readonly ? 'readonly' : ''}></td>
+        ${readonly ? '' : `<td class="action-col" data-column-key="actions">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除行"><i class="bi bi-trash"></i></button>
         </td>`}
@@ -868,6 +868,27 @@ document.addEventListener('DOMContentLoaded', function() {
             insert: function(row) { insertRowBefore(row); },
             copy: function(row) { copyRowAfter(row); },
             remove: function(row) { deleteRow(row); }
+        });
+    }
+    // ==================== 明细表字段位置和列宽 ====================
+    if (typeof setupDynamicDetailColumnControls === 'function') {
+        window.adjustmentColumnController = setupDynamicDetailColumnControls({
+            tableSelector: '#adjustmentTable',
+            orderKey: 'adjustment_col_order_v1',
+            widthKey: 'adjustment_col_widths_v1',
+            lockedColumns: ['row_no', 'actions'],
+            minWidths: {
+                row_no: 42,
+                actions: 92,
+                material_code: 120,
+                material_name: 140,
+                spec: 80,
+                unit: 60,
+                stock: 90,
+                adjust_qty: 90,
+                location: 100,
+                reason: 160
+            }
         });
     }
     try {

@@ -224,35 +224,35 @@
                 <table class="doc-grid" id="docTable">
                     <thead>
                         <tr>
-                            <th class="row-num">序号</th>
-                            <th style="width:150px;">物料编码</th>
-                            {% if doc_type == 'requisition' %}<th style="width:100px;">品牌</th>{% endif %}
-                            <th>物料名称</th>
-                            <th style="width:110px;">规格</th>
-                            <th style="width:75px;">单位</th>
+                            <th class="row-num" data-column-key="row_no">序号<span class="col-resize"></span></th>
+                            <th style="width:150px;" data-column-key="material_code">物料编码<span class="col-resize"></span></th>
+                            {% if doc_type == 'requisition' %}<th style="width:100px;" data-column-key="brand">品牌<span class="col-resize"></span></th>{% endif %}
+                            <th data-column-key="material_name">物料名称<span class="col-resize"></span></th>
+                            <th style="width:110px;" data-column-key="spec">规格<span class="col-resize"></span></th>
+                            <th style="width:75px;" data-column-key="unit">单位<span class="col-resize"></span></th>
                             {% if doc_type in ['transfer', 'requisition', 'check'] %}
-                            <th style="width:95px;">当前库存</th>
+                            <th style="width:95px;" data-column-key="stock">当前库存<span class="col-resize"></span></th>
                             {% endif %}
                             {% if doc_type == 'check' %}
-                            <th style="width:100px;">系统库存</th>
-                            <th style="width:100px;">实际库存</th>
-                            <th style="width:100px;">差异</th>
-                            <th style="width:180px;">差异原因</th>
+                            <th style="width:100px;" data-column-key="system_stock">系统库存<span class="col-resize"></span></th>
+                            <th style="width:100px;" data-column-key="actual_stock">实际库存<span class="col-resize"></span></th>
+                            <th style="width:100px;" data-column-key="diff">差异<span class="col-resize"></span></th>
+                            <th style="width:180px;" data-column-key="reason">差异原因<span class="col-resize"></span></th>
                             {% elif doc_type == 'bom' %}
-                            <th style="width:100px;">用量</th>
-                            <th style="width:100px;">单价</th>
-                            <th style="width:110px;">成本</th>
-                            <th style="width:140px;">用途</th>
-                            <th style="width:180px;">备注</th>
+                            <th style="width:100px;" data-column-key="usage">用量<span class="col-resize"></span></th>
+                            <th style="width:100px;" data-column-key="price">单价<span class="col-resize"></span></th>
+                            <th style="width:110px;" data-column-key="amount">成本<span class="col-resize"></span></th>
+                            <th style="width:140px;" data-column-key="line_usage">用途<span class="col-resize"></span></th>
+                            <th style="width:180px;" data-column-key="remark">备注<span class="col-resize"></span></th>
                             {% else %}
-                            <th style="width:100px;">数量</th>
+                            <th style="width:100px;" data-column-key="quantity">数量<span class="col-resize"></span></th>
                             {% if doc_type == 'transfer' %}
-                            <th style="width:100px;">单价</th>
-                            <th style="width:110px;">金额</th>
+                            <th style="width:100px;" data-column-key="price">单价<span class="col-resize"></span></th>
+                            <th style="width:110px;" data-column-key="amount">金额<span class="col-resize"></span></th>
                             {% endif %}
-                            <th style="width:200px;">备注</th>
+                            <th style="width:200px;" data-column-key="remark">备注<span class="col-resize"></span></th>
                             {% endif %}
-                            {% if can_save %}<th class="action-col">操作</th>{% endif %}
+                            {% if can_save %}<th class="action-col" data-column-key="actions">操作<span class="col-resize"></span></th>{% endif %}
                         </tr>
                     </thead>
                     <tbody id="docTableBody"></tbody>
@@ -260,19 +260,19 @@
                         <tr>
                             {% if doc_type == 'check' %}
                             <td colspan="8" class="text-end">合计：</td>
-                            <td class="text-end" id="totalQty">0.00</td>
+                            <td class="text-end" id="totalQty" data-column-key="actual_stock">0.00</td>
                             <td colspan="{{ 2 if can_save else 1 }}"></td>
                             {% elif doc_type == 'transfer' %}
                             <td colspan="6" class="text-end">合计：</td>
-                            <td class="text-end" id="totalQty">0.00</td>
+                            <td class="text-end" id="totalQty" data-column-key="quantity">0.00</td>
                             <td colspan="{{ 4 if can_save else 3 }}"></td>
                             {% elif doc_type == 'requisition' %}
                             <td colspan="7" class="text-end">合计：</td>
-                            <td class="text-end" id="totalQty">0.00</td>
+                            <td class="text-end" id="totalQty" data-column-key="quantity">0.00</td>
                             <td colspan="{{ 2 if can_save else 1 }}"></td>
                             {% else %}
                             <td colspan="5" class="text-end">合计：</td>
-                            <td class="text-end" id="totalQty">0.00</td>
+                            <td class="text-end" id="totalQty" data-column-key="quantity">0.00</td>
                             <td colspan="{{ 5 if can_save else 4 }}"></td>
                             {% endif %}
                         </tr>
@@ -372,42 +372,42 @@ function rowCells(item) {
     const disabledAttr = readonly ? 'disabled' : '';
     const unitId = item && item.unit_id ? item.unit_id : '';
     let html = `
-        <td class="row-num"></td>
-        <td>
+        <td class="row-num" data-column-key="row_no"></td>
+        <td data-column-key="material_code">
             <div class="material-input">
                 <input type="text" class="material-code" ${readonlyAttr}>
                 ${readonly ? '' : '<button type="button" class="material-select-btn">▼</button><div class="material-dropdown" style="display:none;"></div>'}
             </div>
         </td>
-        ${docType === 'requisition' ? '<td><input type="text" class="material-brand" readonly></td>' : ''}
-        <td><input type="text" class="material-name" readonly></td>
-        <td><input type="text" class="material-spec" readonly></td>
-        <td><input type="text" class="material-unit" readonly><select class="unit-id d-none" ${disabledAttr}>${unitOptions(unitId)}</select></td>`;
+        ${docType === 'requisition' ? '<td data-column-key="brand"><input type="text" class="material-brand" readonly></td>' : ''}
+        <td data-column-key="material_name"><input type="text" class="material-name" readonly></td>
+        <td data-column-key="spec"><input type="text" class="material-spec" readonly></td>
+        <td data-column-key="unit"><input type="text" class="material-unit" readonly><select class="unit-id d-none" ${disabledAttr}>${unitOptions(unitId)}</select></td>`;
     if (docType === 'transfer' || docType === 'requisition' || docType === 'check') {
-        html += '<td class="num-col"><input type="text" class="material-stock" readonly></td>';
+        html += '<td class="num-col" data-column-key="stock"><input type="text" class="material-stock" readonly></td>';
     }
     if (docType === 'check') {
         html += `
-            <td class="num-col"><input type="number" class="system-stock" step="0.01" ${readonlyAttr}></td>
-            <td class="num-col"><input type="number" class="actual-stock" step="0.01" ${readonlyAttr}></td>
-            <td class="num-col"><input type="text" class="line-diff" readonly></td>
-            <td><input type="text" class="line-reason" ${readonlyAttr}></td>`;
+            <td class="num-col" data-column-key="system_stock"><input type="number" class="system-stock" step="0.01" ${readonlyAttr}></td>
+            <td class="num-col" data-column-key="actual_stock"><input type="number" class="actual-stock" step="0.01" ${readonlyAttr}></td>
+            <td class="num-col" data-column-key="diff"><input type="text" class="line-diff" readonly></td>
+            <td data-column-key="reason"><input type="text" class="line-reason" ${readonlyAttr}></td>`;
     } else if (docType === 'bom') {
         html += `
-            <td class="num-col"><input type="number" class="line-qty" min="0" step="0.01" ${readonlyAttr}></td>
-            <td class="num-col"><input type="number" class="line-price" min="0" step="0.01" ${readonlyAttr}></td>
-            <td class="num-col"><input type="text" class="line-amount" readonly></td>
-            <td><input type="text" class="line-usage" ${readonlyAttr}></td>
-            <td><input type="text" class="line-remark" ${readonlyAttr}></td>`;
+            <td class="num-col" data-column-key="usage"><input type="number" class="line-qty" min="0" step="0.01" ${readonlyAttr}></td>
+            <td class="num-col" data-column-key="price"><input type="number" class="line-price" min="0" step="0.01" ${readonlyAttr}></td>
+            <td class="num-col" data-column-key="amount"><input type="text" class="line-amount" readonly></td>
+            <td data-column-key="line_usage"><input type="text" class="line-usage" ${readonlyAttr}></td>
+            <td data-column-key="remark"><input type="text" class="line-remark" ${readonlyAttr}></td>`;
     } else {
-        html += '<td class="num-col"><input type="number" class="line-qty" min="0" step="0.01" ' + readonlyAttr + '></td>';
+        html += '<td class="num-col" data-column-key="quantity"><input type="number" class="line-qty" min="0" step="0.01" ' + readonlyAttr + '></td>';
         if (docType === 'transfer') {
-            html += '<td class="num-col"><input type="number" class="line-price" min="0" step="0.01" ' + readonlyAttr + '></td><td class="num-col"><input type="text" class="line-amount" readonly></td>';
+            html += '<td class="num-col" data-column-key="price"><input type="number" class="line-price" min="0" step="0.01" ' + readonlyAttr + '></td><td class="num-col" data-column-key="amount"><input type="text" class="line-amount" readonly></td>';
         }
-        html += '<td><input type="text" class="line-remark" ' + readonlyAttr + '></td>';
+        html += '<td data-column-key="remark"><input type="text" class="line-remark" ' + readonlyAttr + '></td>';
     }
     if (!readonly) {
-        html += `<td class="action-col">
+        html += `<td class="action-col" data-column-key="actions">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除行"><i class="bi bi-trash"></i></button>
         </td>`;
@@ -812,6 +812,35 @@ document.addEventListener('DOMContentLoaded', function() {
             insert: function(row) { insertRowBefore(row); },
             copy: function(row) { copyRowAfter(row); },
             remove: function(row) { deleteRow(row); }
+        });
+    }
+    // ==================== 明细表字段位置和列宽 ====================
+    if (typeof setupDynamicDetailColumnControls === 'function') {
+        window.docTableColumnController = setupDynamicDetailColumnControls({
+            tableSelector: '#docTable',
+            orderKey: 'doc_table_col_order_' + docType,
+            widthKey: 'doc_table_col_widths_' + docType,
+            lockedColumns: ['row_no', 'actions'],
+            minWidths: {
+                row_no: 42,
+                actions: 92,
+                material_code: 120,
+                brand: 90,
+                material_name: 140,
+                spec: 80,
+                unit: 60,
+                stock: 90,
+                quantity: 80,
+                price: 80,
+                amount: 90,
+                system_stock: 90,
+                actual_stock: 90,
+                diff: 80,
+                reason: 140,
+                usage: 80,
+                line_usage: 120,
+                remark: 140
+            }
         });
     }
     try {

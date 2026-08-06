@@ -1174,6 +1174,35 @@ textarea.form-control {
     }
     loadTemplates();
     applyColumnSettings();
+
+    // ==================== 明细表字段位置和列宽 ====================
+    if (typeof setupDynamicDetailColumnControls === 'function') {
+        window.salesOrderColumnController = setupDynamicDetailColumnControls({
+            tableSelector: '#materialTable',
+            orderKey: 'sales_order_col_order_v1',
+            widthKey: 'sales_order_col_widths_v1',
+            lockedColumns: ['row_no', 'actions'],
+            minWidths: {
+                row_no: 42,
+                actions: 92,
+                material_code: 120,
+                material_name: 140,
+                spec: 80,
+                unit: 60,
+                quantity: 80,
+                price: 80,
+                tax_rate: 70,
+                untaxed: 90,
+                tax: 90,
+                included: 90,
+                batch_no: 100,
+                serial_no: 120,
+                contract_no: 120,
+                project_name: 140,
+                remark: 120
+            }
+        });
+    }
 })();
 </script>
 
