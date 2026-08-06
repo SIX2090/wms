@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -48,3 +50,19 @@ jobs:
         with:
           name: app-release
           path: app/android-native-wms/app/build/outputs/apk/release/app-release.apk
+
+      # 回传 release APK 到仓库根目录：服务器通过 git pull 即可拿到，
+      # 无需手动下载。仅提交根目录 app-release.apk，不触碰 android-native-wms/**，
+      # 因此不会再次触发本 workflow（死循环），只会触发 verify/ci 的 Python 测试。
+      - name: Commit APK back to repo
+        run: |
+          cp app/android-native-wms/app/build/outputs/apk/release/app-release.apk ./app-release.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app-release.apk
+          if git diff --cached --quiet; then
+            echo "APK unchanged, nothing to commit"
+          else
+            git commit -m "chore(mobile): update release APK [skip ci]"
+            git push
+          fi
