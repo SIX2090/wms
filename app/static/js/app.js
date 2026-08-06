@@ -3006,7 +3006,8 @@ function insertGlobalActionBar() {
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn btn-sm';
-        btn.innerHTML = '<i class="bi ' + item.icon + '"></i>' + item.label;
+        btn.title = item.label;
+        btn.innerHTML = '<i class="bi ' + item.icon + '"></i><span class="cb-actionbar-label">' + item.label + '</span>';
         btn.addEventListener('click', item.action);
         if (item.key === 'save' && !isFormPage()) btn.classList.add('disabled');
         if (item.key === 'delete' && !module.deleteUrl && !module.detailDeleteUrl) btn.classList.add('disabled');
