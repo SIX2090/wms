@@ -1,60 +1,31 @@
 @echo off
 chcp 65001 >nul
-echo ===== 修复 out_order / production_requisition 缺 picker 列 =====
+echo ============================================
+echo   WMS 数据库修复：添加 picker 列
+echo ============================================
 echo.
 
-cd /d "%~dp0"
+set "DB_PATH=c:\wms\app\instance\inventory.db"
 
-python -c "
-import sqlite3, os, sys
+if not exist "%DB_PATH%" (
+    echo [ERROR] 数据库文件不存在: %DB_PATH%
+    echo 请确认 WMS 安装目录为 c:\wms
+    pause
+    exit /b 1
+)
 
-# 自动查找数据库
-candidates = [
-    os.path.join(os.path.dirname(__file__) if '__file__' in dir() else '.', 'app', 'instance', 'inventory.db'),
-    os.path.join(os.environ.get('USERPROFILE',''), 'AppData', 'Local', 'Programs', 'Python', 'Python311', 'Scripts', 'instance', 'inventory.db'),
-    r'C:\workspace\app\instance\inventory.db',
-]
+echo [INFO] 数据库: %DB_PATH%
+echo.
 
-db_path = None
-for c in candidates:
-    if os.path.exists(c):
-        db_path = c
-        break
+python -c "import sqlite3; conn=sqlite3.connect(r'%DB_PATH%'); cols=[r[1] for r in conn.execute('PRAGMA table_info(out_order)').fetchall()]; print('[INFO] out_order 现有列:', cols); conn.close()"
+echo.
 
-if not db_path:
-    # 尝试从 Flask config 读取
-    try:
-        sys.path.insert(0, os.path.join(os.getcwd(), 'app'))
-        from config import config_dict
-        uri = config_dict.get('default').SQLALCHEMY_DATABASE_URI
-        if uri and uri.startswith('sqlite:///'):
-            p = uri.replace('sqlite:///', '')
-            if not os.path.isabs(p):
-                p = os.path.join(os.getcwd(), 'app', 'instance', p)
-            if os.path.exists(p):
-                db_path = p
-    except:
-        pass
+python -c "import sqlite3; conn=sqlite3.connect(r'%DB_PATH%'); cols=[r[1] for r in conn.execute('PRAGMA table_info(out_order)').fetchall()]; (conn.execute('ALTER TABLE out_order ADD COLUMN picker VARCHAR(50)') or True) and conn.commit() and print('[OK] 已添加 out_order.picker') if 'picker' not in cols else print('[OK] out_order.picker 已存在'); conn.close()"
 
-if not db_path:
-    print('[ERROR] 找不到 inventory.db，请手动指定路径')
-    input('按回车退出...')
-    sys.exit(1)
+python -c "import sqlite3; conn=sqlite3.connect(r'%DB_PATH%'); cols=[r[1] for r in conn.execute('PRAGMA table_info(production_requisition)').fetchall()]; (conn.execute('ALTER TABLE production_requisition ADD COLUMN picker VARCHAR(50)') or True) and conn.commit() and print('[OK] 已添加 production_requisition.picker') if 'picker' not in cols else print('[OK] production_requisition.picker 已存在'); conn.close()"
 
-print('[OK] 数据库:', db_path)
-conn = sqlite3.connect(db_path)
-
-for tbl in ['out_order', 'production_requisition']:
-    cols = [r[1] for r in conn.execute('PRAGMA table_info(%s)' % tbl).fetchall()]
-    if 'picker' not in cols:
-        conn.execute('ALTER TABLE %s ADD COLUMN picker VARCHAR(50)' % tbl)
-        conn.commit()
-        print('[OK] 已添加 %s.picker' % tbl)
-    else:
-        print('[OK] %s.picker 已存在，跳过' % tbl)
-
-conn.close()
-print()
-print('===== 修复完成，请重启 WMS 服务 =====')
-input('按回车退出...')
-"
+echo.
+echo ============================================
+echo   修复完成！请重启 WMS 服务。
+echo ============================================
+pause
