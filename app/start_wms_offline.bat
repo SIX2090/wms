@@ -40,7 +40,7 @@ if not defined PYTHON_CMD (
 
 REM 自动修复数据库字段
 echo [Auto-Fix] 检查并修复数据库字段...
-%PYTHON_CMD% "fix_db_columns.py"
+"%PYTHON_CMD%" "fix_db_columns.py"
 echo.
 
 %PYTHON_CMD% "run_server.py"
