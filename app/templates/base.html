@@ -1356,6 +1356,28 @@
             margin-bottom: 0;
             font-size: 0.85rem;
         }
+        /* 全站面包屑（P1-3）：依据侧边栏菜单层级自动推导，嵌入页也有定位感 */
+        .wms-breadcrumb {
+            margin: -6px 0 10px;
+            font-size: 12px;
+        }
+        .wms-breadcrumb .breadcrumb {
+            margin-bottom: 0;
+            padding: 0;
+            background: transparent;
+            --bs-breadcrumb-divider: '/';
+        }
+        .wms-breadcrumb .breadcrumb-item,
+        .wms-breadcrumb .breadcrumb-item a {
+            color: #9ca3af;
+            text-decoration: none;
+        }
+        .wms-breadcrumb .breadcrumb-item a:hover {
+            color: #4f46e5;
+        }
+        .wms-breadcrumb .breadcrumb-item.active {
+            color: #6b7280;
+        }
         .card {
             border: none;
             border-radius: 10px;
@@ -2129,6 +2151,65 @@
             }
         });
     });
+
+    // P1-3 全站面包屑：依据侧边栏 flyout 菜单层级自动推导「首页 / 模块 / 当前页」。
+    // 仅嵌入页（实际渲染业务内容的页）显示；首页不显示。
+    document.addEventListener('DOMContentLoaded', function() {
+        var nav = document.getElementById('wmsBreadcrumb');
+        var list = document.getElementById('wmsBreadcrumbList');
+        if (!nav || !list) return;
+        var path = window.location.pathname;
+        if (!path || path === '/' || path === '/index') return;
+        var currentSearch = window.location.search || '';
+        var links = Array.prototype.slice.call(document.querySelectorAll('.sidebar .flyout-link[href]'));
+        if (!links.length) return;
+        function parseHref(href) {
+            var a = document.createElement('a');
+            a.href = href;
+            return { path: a.pathname, search: a.search || '' };
+        }
+        var best = null;
+        var bestScore = -1;
+        links.forEach(function(link) {
+            var info = parseHref(link.getAttribute('href'));
+            if (!info.path || info.path === '/') return;
+            var score = -1;
+            if (info.path === path && info.search && info.search === currentSearch) {
+                score = 100 + info.path.length;            // 路径+查询完全匹配（如 采购入库明细）
+            } else if (info.path === path && !info.search) {
+                score = 50 + info.path.length;             // 纯路径匹配
+            } else if (path.indexOf(info.path + '/') === 0) {
+                score = 10 + info.path.length;             // 前缀匹配（详情/编辑页）
+            }
+            if (score > bestScore) {
+                best = link;
+                bestScore = score;
+            }
+        });
+        if (!best) return;
+        var flyout = best.closest('.module-flyout');
+        var titleEl = flyout ? flyout.querySelector('.flyout-title') : null;
+        var moduleName = titleEl ? titleEl.textContent.trim() : '';
+        var pageTitle = (document.title || best.textContent).trim();
+        function addItem(text, href, active) {
+            var li = document.createElement('li');
+            li.className = 'breadcrumb-item' + (active ? ' active' : '');
+            if (active) li.setAttribute('aria-current', 'page');
+            if (href) {
+                var a = document.createElement('a');
+                a.href = href;
+                a.textContent = text;
+                li.appendChild(a);
+            } else {
+                li.textContent = text;
+            }
+            list.appendChild(li);
+        }
+        addItem('首页', '/', false);
+        if (moduleName) addItem(moduleName, null, false);
+        addItem(pageTitle, null, true);
+        nav.hidden = false;
+    });
     </script>
     {% block extra_css %}{% endblock %}
     <!-- BUG-2026-07-31-001: 定时刷新 CSRF token（每 25 分钟，寿命 30 分钟），避免长会话过期 -->
@@ -2578,6 +2659,9 @@
             <div class="tab-frame-wrap" id="tabFrameWrap"></div>
         </div>
         <div class="embedded-content">
+            <nav aria-label="breadcrumb" class="wms-breadcrumb no-print" id="wmsBreadcrumb" hidden>
+                <ol class="breadcrumb" id="wmsBreadcrumbList"></ol>
+            </nav>
             {% block content %}{% endblock %}
         </div>
     </div>
