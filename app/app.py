@@ -363,10 +363,15 @@ def auto_migrate_database():
                 )
                 modified = True
             # AI-OS-APP-001：期初建账日期；旧记录回填为 2023-01-01（建账首日）
-            if op_columns and 'date' not in op_columns:
-                cursor.execute("ALTER TABLE opening_stock ADD COLUMN date DATE")
-                cursor.execute("UPDATE opening_stock SET date = '2023-01-01' WHERE date IS NULL")
-                modified = True
+            # 防御：op_columns 为空时（PRAGMA 异常/表刚创建）直接补列，避免静默跳过
+            if (not op_columns) or ('date' not in op_columns):
+                try:
+                    cursor.execute("ALTER TABLE opening_stock ADD COLUMN date DATE")
+                    cursor.execute("UPDATE opening_stock SET date = '2023-01-01' WHERE date IS NULL")
+                    modified = True
+                except Exception:
+                    # 列已存在时 ALTER 报错，忽略
+                    pass
         if out_item_columns:
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_out_order_item_sales_source "
