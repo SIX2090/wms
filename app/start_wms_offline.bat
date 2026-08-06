@@ -21,12 +21,9 @@ if not defined PYTHON_CMD if exist "%~dp0python\python.exe" set "PYTHON_CMD=%~dp
 if not defined PYTHON_CMD if exist "%~dp0python\Scripts\python.exe" set "PYTHON_CMD=%~dp0python\Scripts\python.exe"
 if not defined PYTHON_CMD if exist "%APP_ROOT%\runtime\Python311\python.exe" set "PYTHON_CMD=%APP_ROOT%\runtime\Python311\python.exe"
 if not defined PYTHON_CMD (
-    where python.exe >nul 2>nul
-    if not errorlevel 1 (
-        set "PYTHON_CMD=python.exe"
-    ) else (
-        where py.exe >nul 2>nul
-        if not errorlevel 1 set "PYTHON_CMD=py.exe -3"
+    for /f "delims=" %%i in ('where python.exe 2^>nul') do set "PYTHON_CMD=%%i"
+    if not defined PYTHON_CMD (
+        for /f "delims=" %%i in ('where py.exe 2^>nul') do set "PYTHON_CMD=%%i -3"
     )
 )
 if not defined PYTHON_CMD (
