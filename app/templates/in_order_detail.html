@@ -391,31 +391,31 @@
             <table class="table order-table mb-0" id="itemTable">
                 <thead>
                     <tr>
-                        <th width="50" class="text-center resizable-th" data-col="seq">序<div class="resize-handle"></div></th>
+                        <th width="50" class="text-center resizable-th" data-col="seq" data-column-key="seq">序<div class="resize-handle"></div></th>
                         {% if order.status == 'pending' %}
-                        <th width="40" data-col="chk"><input type="checkbox" id="selectAll"></th>
+                        <th width="40" data-col="chk" data-column-key="chk"><input type="checkbox" id="selectAll"></th>
                         {% endif %}
-                        <th class="resizable-th" data-col="colCode">物料编码<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colBrand">品牌<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colName">物料名称<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colSpec">规格<div class="resize-handle"></div></th>
-                        {% if order.business_type == '其他入库' %}<th class="text-center" data-col="colCustomerSupplied">客供</th>{% endif %}
-                        <th>合同编号</th>
-                        <th>工程名称</th>
-                        <th class="text-center resizable-th" data-col="colUnit">单位<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colStock">当前库存<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colQty">数量<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colSourcePo">来源采购单<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colSourceQty">采购数量<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colSourcePushed">已下推<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colSourceCompleted">已入库<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colSourceStatus">来源状态<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colPrice">单价<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colAmount">金额<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colRemark">备注<div class="resize-handle"></div></th>
-                        <th class="text-center" width="80" data-col="label">标签</th>
+                        <th class="resizable-th" data-col="colCode" data-column-key="colCode">物料编码<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colBrand" data-column-key="colBrand">品牌<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colName" data-column-key="colName">物料名称<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colSpec" data-column-key="colSpec">规格<div class="resize-handle"></div></th>
+                        {% if order.business_type == '其他入库' %}<th class="text-center" data-col="colCustomerSupplied" data-column-key="colCustomerSupplied">客供</th>{% endif %}
+                        <th data-col="colContractNo" data-column-key="colContractNo">合同编号</th>
+                        <th data-col="colProjectName" data-column-key="colProjectName">工程名称</th>
+                        <th class="text-center resizable-th" data-col="colUnit" data-column-key="colUnit">单位<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colStock" data-column-key="colStock">当前库存<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colQty" data-column-key="colQty">数量<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colSourcePo" data-column-key="colSourcePo">来源采购单<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colSourceQty" data-column-key="colSourceQty">采购数量<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colSourcePushed" data-column-key="colSourcePushed">已下推<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colSourceCompleted" data-column-key="colSourceCompleted">已入库<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colSourceStatus" data-column-key="colSourceStatus">来源状态<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colPrice" data-column-key="colPrice">单价<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th" data-col="colAmount" data-column-key="colAmount">金额<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colRemark" data-column-key="colRemark">备注<div class="resize-handle"></div></th>
+                        <th class="text-center" width="80" data-col="label" data-column-key="label">标签</th>
                         {% if order.status == 'pending' %}
-                        <th class="text-center" width="120" data-col="action">操作</th>
+                        <th class="text-center" width="120" data-col="action" data-column-key="action">操作</th>
                         {% endif %}
                     </tr>
                 </thead>
@@ -1540,7 +1540,6 @@ document.querySelectorAll('.toolbar-btn-danger[data-id]').forEach(btn => {
 });
 </script>
 
-{% if order.status == 'pending' %}
 <script src="{{ url_for('static', filename='js/xlsx.full.min.js') }}"></script>
 <script src="{{ url_for('static', filename='js/excel-table.js') }}"></script>
 <script src="{{ url_for('static', filename='js/excel-import-export.js') }}"></script>
@@ -1557,6 +1556,15 @@ document.addEventListener('DOMContentLoaded', function() {
         remove: function(row) { deleteDetailMaterialRow(row); }
     });
 
+    // 初始化列拖动功能（所有状态都支持）
+    if (window.setupDynamicDetailColumnControls) {
+        window.setupDynamicDetailColumnControls({
+            tableSelector: '#itemTable',
+            storageKey: 'in_order_detail_column_order'
+        });
+    }
+
+    {% if order.status == 'pending' %}
     new ExcelImportExport({
         tableId: 'itemTable',
         fileName: '入库单明细',
@@ -1593,7 +1601,7 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('保存失败:', err);
         }
     });
+    {% endif %}
 });
 </script>
-{% endif %}
 {% endblock %}
