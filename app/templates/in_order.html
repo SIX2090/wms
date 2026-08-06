@@ -182,7 +182,21 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="20" class="text-center text-muted">暂无入库明细</td></tr>
+                <tr>
+                    <td colspan="20" class="text-center text-muted py-4">
+                        <i class="bi bi-inbox d-block mb-2" style="font-size:2rem;color:#adb5bd;"></i>
+                        <div class="mb-3">暂无入库明细</div>
+                        {% if current_user.role in ['admin', 'warehouse'] %}
+                        {% if filters.business_type == '产品入库' %}
+                        <a href="/in_order/add?type=product" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增产品入库</a>
+                        {% elif filters.business_type == '其他入库' %}
+                        <a href="/other_in_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增其他入库</a>
+                        {% else %}
+                        <a href="/in_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增采购入库</a>
+                        {% endif %}
+                        {% endif %}
+                    </td>
+                </tr>
                 {% endfor %}
             </tbody>
         </table>
