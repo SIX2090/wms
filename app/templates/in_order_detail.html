@@ -425,33 +425,33 @@
                     {% set source_order = source_item.purchase_order if source_item and source_item.purchase_order else None %}
                     {% set source_exec = purchase_order_execution.get(source_order.id, {}).get(source_item.id, {}) if source_order and source_item else {} %}
                     <tr data-id="{{ item.id }}" data-material-id="{{ item.material_id }}">
-                        <td class="text-center"><span class="row-num">{{ loop.index }}</span></td>
+                        <td class="text-center" data-column-key="seq"><span class="row-num">{{ loop.index }}</span></td>
                         {% if order.status == 'pending' %}
-                        <td><input type="checkbox" class="itemCheck" value="{{ item.id }}"></td>
+                        <td data-column-key="chk"><input type="checkbox" class="itemCheck" value="{{ item.id }}"></td>
                         {% endif %}
-                        <td class="fw-medium">{{ item.material.code }}</td>
-                        <td>{{ item.material.brand or '-' }}</td>
-                        <td>{{ item.material.name }}</td>
-                        <td>{{ item.material.spec or '-' }}</td>
+                        <td class="fw-medium" data-column-key="colCode">{{ item.material.code }}</td>
+                        <td data-column-key="colBrand">{{ item.material.brand or '-' }}</td>
+                        <td data-column-key="colName">{{ item.material.name }}</td>
+                        <td data-column-key="colSpec">{{ item.material.spec or '-' }}</td>
                         {% if order.business_type == '其他入库' %}
-                        <td class="text-center">{% if item.is_customer_supplied %}<span class="badge bg-info text-dark">客供</span>{% else %}<span class="text-muted">否</span>{% endif %}</td>
+                        <td class="text-center" data-column-key="colCustomerSupplied">{% if item.is_customer_supplied %}<span class="badge bg-info text-dark">客供</span>{% else %}<span class="text-muted">否</span>{% endif %}</td>
                         {% endif %}
-                        <td>{{ item.contract_no or order.contract_no or '-' }}</td>
-                        <td>{{ item.project_name or order.project_name or '-' }}</td>
-                        <td class="text-center">{{ item.material.unit.name if item.material.unit else '-' }}</td>
-                        <td class="text-end">{{ "%.2f"|format(item.material.stock or 0) }}</td>
-                        <td class="text-end fw-medium editable-cell" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
-                        <td data-source-purchase-order-id="{{ source_order.id if source_order else '' }}">
+                        <td data-column-key="colContractNo">{{ item.contract_no or order.contract_no or '-' }}</td>
+                        <td data-column-key="colProjectName">{{ item.project_name or order.project_name or '-' }}</td>
+                        <td class="text-center" data-column-key="colUnit">{{ item.material.unit.name if item.material.unit else '-' }}</td>
+                        <td class="text-end" data-column-key="colStock">{{ "%.2f"|format(item.material.stock or 0) }}</td>
+                        <td class="text-end fw-medium editable-cell" data-column-key="colQty" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
+                        <td data-column-key="colSourcePo" data-source-purchase-order-id="{{ source_order.id if source_order else '' }}">
                             {% if source_order %}
                             <a href="{{ url_for('purchase_order_detail', id=source_order.id) }}">{{ source_order.order_no }}</a>
                             {% else %}
                             <span class="text-muted">手工录入</span>
                             {% endif %}
                         </td>
-                        <td class="text-end" data-source-order-quantity="{{ '%.2f'|format(source_exec.get('order_quantity', source_item.quantity if source_item else 0)) }}">{{ "%.2f"|format(source_exec.get('order_quantity', source_item.quantity if source_item else 0)) if source_item else '-' }}</td>
-                        <td class="text-end" data-source-pushed-quantity="{{ '%.2f'|format(source_exec.get('pushed_quantity', 0)) }}">{{ "%.2f"|format(source_exec.get('pushed_quantity', 0)) if source_item else '-' }}</td>
-                        <td class="text-end" data-source-completed-quantity="{{ '%.2f'|format(source_exec.get('completed_quantity', 0)) }}">{{ "%.2f"|format(source_exec.get('completed_quantity', 0)) if source_item else '-' }}</td>
-                        <td data-source-execution-status="{{ source_exec.get('status', 'manual') }}">
+                        <td class="text-end" data-column-key="colSourceQty" data-source-order-quantity="{{ '%.2f'|format(source_exec.get('order_quantity', source_item.quantity if source_item else 0)) }}">{{ "%.2f"|format(source_exec.get('order_quantity', source_item.quantity if source_item else 0)) if source_item else '-' }}</td>
+                        <td class="text-end" data-column-key="colSourcePushed" data-source-pushed-quantity="{{ '%.2f'|format(source_exec.get('pushed_quantity', 0)) }}">{{ "%.2f"|format(source_exec.get('pushed_quantity', 0)) if source_item else '-' }}</td>
+                        <td class="text-end" data-column-key="colSourceCompleted" data-source-completed-quantity="{{ '%.2f'|format(source_exec.get('completed_quantity', 0)) }}">{{ "%.2f"|format(source_exec.get('completed_quantity', 0)) if source_item else '-' }}</td>
+                        <td data-column-key="colSourceStatus" data-source-execution-status="{{ source_exec.get('status', 'manual') }}">
                             {% if source_exec.get('status') == 'completed' %}
                             <span class="badge bg-success">已入库</span>
                             {% elif source_exec.get('status') == 'partial_completed' %}
@@ -466,20 +466,20 @@
                             <span class="text-muted">-</span>
                             {% endif %}
                         </td>
-                        <td class="text-end editable-cell" data-field="price" data-value="{{ item.price }}">¥{{ "%.2f"|format(item.price) }}</td>
-                        <td class="text-end fw-bold text-danger">¥{{ "%.2f"|format(item.amount) }}</td>
+                        <td class="text-end editable-cell" data-column-key="colPrice" data-field="price" data-value="{{ item.price }}">¥{{ "%.2f"|format(item.price) }}</td>
+                        <td class="text-end fw-bold text-danger" data-column-key="colAmount">¥{{ "%.2f"|format(item.amount) }}</td>
                         {% if order.status == 'pending' %}
-                        <td class="editable-cell" data-field="remark" data-value="{{ item.remark or '' }}">{{ item.remark or '' }}</td>
+                        <td class="editable-cell" data-column-key="colRemark" data-field="remark" data-value="{{ item.remark or '' }}">{{ item.remark or '' }}</td>
                         {% else %}
-                        <td>{{ item.remark or '' }}</td>
+                        <td data-column-key="colRemark">{{ item.remark or '' }}</td>
                         {% endif %}
-                        <td class="text-center">
+                        <td class="text-center" data-column-key="label">
                             <button class="toolbar-btn toolbar-btn-icon" onclick="printLabel({{ item.material_id }})" title="打印标签">
                                 <i class="bi bi-upc-scan"></i>
                             </button>
                         </td>
                         {% if order.status == 'pending' %}
-                        <td class="text-center">
+                        <td class="text-center" data-column-key="action">
                             <button class="toolbar-btn toolbar-btn-icon toolbar-btn-danger" data-id="{{ item.id }}" title="删除">
                                 <i class="bi bi-trash"></i>
                             </button>
@@ -1560,7 +1560,18 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window.setupDynamicDetailColumnControls) {
         window.setupDynamicDetailColumnControls({
             tableSelector: '#itemTable',
-            storageKey: 'in_order_detail_column_order'
+            orderKey: 'in_order_detail_col_order_v1',
+            widthKey: 'in_order_detail_col_widths_v1',
+            lockedColumns: ['seq', 'chk', 'label', 'action'],
+            minWidths: {
+                seq: 50, chk: 40, colCode: 100, colBrand: 80,
+                colName: 120, colSpec: 80, colContractNo: 100,
+                colProjectName: 100, colUnit: 60, colStock: 80,
+                colQty: 80, colSourcePo: 100, colSourceQty: 80,
+                colSourcePushed: 80, colSourceCompleted: 80,
+                colSourceStatus: 80, colPrice: 80, colAmount: 90,
+                colRemark: 100, label: 60, action: 80
+            }
         });
     }
 
