@@ -157,6 +157,7 @@ def register_requisition_routes(app):
             requisition.bom_id = _clean_int(header.get('bom_id'))
             requisition.production_order = (header.get('production_order') or '').strip()
             requisition.purpose = (header.get('purpose') or '').strip()
+            requisition.picker = (header.get('picker') or '').strip()
             requisition.warehouse = warehouse
             requisition.remark = (header.get('remark') or '').strip()
             if not requisition.operator_id:
@@ -202,6 +203,7 @@ def register_requisition_routes(app):
             bom_id = request.form.get('bom_id')
             production_order = (request.form.get('production_order') or '').strip()
             purpose = (request.form.get('purpose') or '').strip()
+            picker = (request.form.get('picker') or '').strip()
             remark = (request.form.get('remark') or '').strip()
             # BUG-2026-08-05-008：仓库必填，未填写时自动带入默认仓库
             warehouse = (request.form.get('warehouse') or '').strip()
@@ -218,6 +220,7 @@ def register_requisition_routes(app):
                 bom_id=int(bom_id) if bom_id else None,
                 production_order=production_order,
                 purpose=purpose,
+                picker=picker,
                 warehouse=warehouse,
                 remark=remark,
                 status='pending',
@@ -248,6 +251,7 @@ def register_requisition_routes(app):
             requisition.bom_id = int(bom_id) if bom_id else None
             requisition.production_order = (request.form.get('production_order') or '').strip()
             requisition.purpose = (request.form.get('purpose') or '').strip()
+            requisition.picker = (request.form.get('picker') or '').strip()
             # BUG-2026-08-05-008：仓库必填，未填写时自动带入默认仓库
             warehouse = (request.form.get('warehouse') or '').strip()
             if not warehouse:

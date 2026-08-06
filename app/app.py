@@ -973,6 +973,10 @@ def auto_migrate_database():
                 except Exception:
                     pass
                 modified = True
+            # 领料人字段（表头）
+            if 'picker' not in pr_cols:
+                cursor.execute("ALTER TABLE production_requisition ADD COLUMN picker VARCHAR(50)")
+                modified = True
 
         if modified:
             conn.commit()
@@ -4095,6 +4099,7 @@ class ProductionRequisition(db.Model):
     bom_id = db.Column(db.Integer, db.ForeignKey('bom.id'))  # BOM ID
     production_order = db.Column(db.String(50))  # Production
     purpose = db.Column(db.String(200))  # Requisition purpose
+    picker = db.Column(db.String(50))  # Pick person (领料人)
     # BUG-2026-08-05-008：工单领料仓库，必填（AGENTS.md 领料出库仓库必填规则）。
     # 模型层保持 nullable=True 以兼容存量数据，必填校验在路由层强制。
     warehouse = db.Column(db.String(100))  # Warehouse name
@@ -21828,6 +21833,7 @@ def _render_requisition_form(requisition=None):
             'bom_id': requisition.bom_id if requisition else '',
             'production_order': requisition.production_order if requisition else '',
             'purpose': requisition.purpose if requisition else '',
+            'picker': requisition.picker if requisition else '',
             # BUG-2026-08-05-008：工单领料单表头带仓库字段
             'warehouse': requisition.warehouse if requisition else '',
             'remark': requisition.remark if requisition else '',

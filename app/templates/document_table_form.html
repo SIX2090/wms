@@ -179,6 +179,12 @@
                 </div>
                 <div class="col-md-3">
                     <div class="mb-2">
+                        <label class="form-label">领料人</label>
+                        <input type="text" class="form-control" name="picker" value="{{ header.picker }}" {% if readonly %}readonly{% endif %}>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
                         <label class="form-label">工单领料用途</label>
                         <input type="text" class="form-control" name="purpose" value="{{ header.purpose }}" {% if readonly %}readonly{% endif %}>
                     </div>
