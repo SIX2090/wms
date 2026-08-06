@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 >nul
 echo ============================================
 echo   WMS 数据库修复：添加 picker 列
 echo ============================================
@@ -24,7 +23,7 @@ echo [INFO] 数据库: %DB_PATH%
 echo [INFO] Python: %PYTHON%
 echo.
 
-"%PYTHON%" "%~dp0_fix_picker_helper.py" "%DB_PATH%"
+"%PYTHON%" "%~dp0fix_picker_helper.py" "%DB_PATH%"
 
 echo.
 echo ============================================
