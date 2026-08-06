@@ -154,6 +154,8 @@
 | BUG-2026-08-04-014 | 采购订单新增页面保存使用原生非 GET `fetch` 提交，违反"所有非 GET 请求必须走 `WMS.api.*`"规则（预提交钩子、CSRF一致性可能不一致） | 迁移原生 `fetch` 为 `WMS.api.post`，复用统一错误处理和CSRF逻辑，保持业务功能不变。lint 规则 `scripts/lint_no_raw_post_fetch.py` 验证通过 |
 | BUG-2026-08-04-016 | `/api/material/search` 返回的物料载荷缺少 `brand` 与 `price` 字段：`in_order_detail.html` 用该接口做物料快速搜索，`fillAddMaterialInfo()` 读取 `material.brand`/`material.price`，导致入库单详情页新增物料时品牌恒为空、单价恒为 0.00，覆盖了物料档案里已维护的品牌与价格 | `api_material_payload()` 补充返回 `brand` 与 `price` 字段（对 `/api/material/search` 与 `/api/material/info` 等所有调用方均为新增字段，向后兼容）。回归测试 `tests/verify_bug_2026_08_04_016_material_search_brand_price.py`（2 场景：搜索结果含 brand/price、info 含 brand/price） |
 
+| BUG-2026-08-06-001 | `auto_migrate_database()` 在 Flask config 加载之前执行，且用硬编码路径 `app/instance/inventory.db` 检查数据库，与 SQLAlchemy 实际使用的数据库（由 `SQLALCHEMY_DATABASE_URI` 决定）不一致，导致老库启动时领料单 `out_order.picker` 等字段未被添加，访问领料单直接报 `no such column: out_order.picker` | `app/app.py:auto_migrate_database()` 将迁移调用移动到 config 加载之后，并新增纯函数 `_resolve_sqlite_db_path()` 从 `app.config['SQLALCHEMY_DATABASE_URI']` 解析真实 sqlite 路径（绝对/相对拼接/内存库/非 sqlite 均正确处理）。回归：`tests/test_auto_migrate_db_path.py` 5 用例全绿（绝对路径原样、相对路径拼接 instance_path、内存库返回 None、非 sqlite 返回 None、config 回退）。commit 见本次提交 |
+
 ## 已确认误报
 
 | 编号 | 原问题 | 误报原因 |

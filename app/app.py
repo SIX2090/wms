@@ -206,20 +206,32 @@ def startup_db_upgrade_disabled():
         or any(os.path.exists(path) for path in no_touch_markers)
     )
 
+def _resolve_sqlite_db_path(uri=None, instance_path=None):
+    """从 SQLALCHEMY_DATABASE_URI 解析实际 sqlite 数据库文件路径。
+
+    返回 None 表示非 sqlite 或内存库（无需/无法做文件迁移）。
+    """
+    try:
+        if uri is None:
+            uri = app.config.get('SQLALCHEMY_DATABASE_URI') or ''
+        if not uri.startswith('sqlite:///') or uri == 'sqlite:///:memory:':
+            return None
+        db_path = uri[len('sqlite:///'):]
+        if not os.path.isabs(db_path):
+            base = instance_path or app.instance_path
+            db_path = os.path.join(base, db_path)
+        return db_path
+    except Exception:
+        return None
+
+
 def auto_migrate_database():
     """自动迁移数据库，添加缺失的字段"""
     conn = None
     try:
         # 优先使用 Flask config 中的数据库路径，避免与 SQLAlchemy 实际使用的数据库不一致
-        try:
-            uri = app.config.get('SQLALCHEMY_DATABASE_URI') or ''
-            if uri.startswith('sqlite:///') and uri != 'sqlite:///:memory:':
-                db_path = uri[len('sqlite:///'):]
-                if not os.path.isabs(db_path):
-                    db_path = os.path.join(app.instance_path, db_path)
-            else:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
-        except Exception:
+        db_path = _resolve_sqlite_db_path()
+        if db_path is None:
             db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
         if not os.path.exists(db_path):
             return

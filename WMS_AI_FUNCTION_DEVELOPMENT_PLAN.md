@@ -1544,3 +1544,4 @@ full 验证结果：
   - `python scripts/lint_wms_rules.py` → 0 违规；`python scripts/lint_no_raw_post_fetch.py` → 通过。
 - 推送验证：提交后推送输出 `To https://github.com/SIX2090/wms.git ... -> main`；本地与 `origin/main` SHA 一致。
 - 剩余风险：`Picker` 字段暂未纳入领料单打印模板与导出模板，如需可在后续子项补充。
+- 后续修复（BUG-2026-08-06-001）：老库访问领料单报 `no such column: out_order.picker`，根因是 `auto_migrate_database()` 在 config 加载前用硬编码路径检查数据库，与实际库路径不一致，`picker` 列未迁移。已把迁移调用移到 config 加载后，并抽 `_resolve_sqlite_db_path()` 从 `SQLALCHEMY_DATABASE_URI` 解析真实路径；回归 `tests/test_auto_migrate_db_path.py` 5 用例全绿。commit 见本次提交。
