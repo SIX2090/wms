@@ -290,7 +290,7 @@ const readonly = {{ readonly|tojson }};
 const materials = {{ materials|tojson }};
 const units = {{ units|tojson }};
 const existingItems = {{ existing_items|tojson }};
-const minRowCount = 15;
+const minRowCount = docType === 'requisition' ? 30 : 15;
 let activeDropdown = null;
 
 function formatQty(value) {
