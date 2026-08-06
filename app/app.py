@@ -1185,6 +1185,22 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+# no-test:reason=启动期配置辅助，读文件 mtime 生成静态资源版本号，行为由页面集成验证覆盖
+# 静态资源缓存破坏：app.js/custom.css 等关键静态文件的 mtime 拼成版本号，
+# 文件一旦修改，base.html 引用的 ?v= 即变化，浏览器立即获取新版本
+# （Flask 静态文件默认缓存 12 小时，固定版本号会导致修复无法及时到达用户）
+def _compute_static_version():
+    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+    mtimes = []
+    for rel in ('js/app.js', 'js/api.js', 'css/custom.css'):
+        try:
+            mtimes.append(str(int(os.path.getmtime(os.path.join(static_dir, rel)))))
+        except OSError:
+            continue
+    return '-'.join(mtimes) or '1.0.0'
+
+app.config['STATIC_VERSION'] = _compute_static_version()
+
 # Database
 from db import db
 db.init_app(app)

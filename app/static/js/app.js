@@ -292,14 +292,56 @@ window.WmsTabs = (function() {
         return normalizeUrl(url).replace(/[^a-zA-Z0-9_-]+/g, '_') || 'home';
     }
 
+    function searchParamsMatch(linkSearch, targetSearch) {
+        // 链接的每个查询参数都出现在当前页面 URL 中且值相等即视为匹配
+        //（容忍代理注入的额外参数，如 ?_port=8080）
+        const linkParams = new URLSearchParams(linkSearch);
+        const targetParams = new URLSearchParams(targetSearch);
+        let matched = true;
+        linkParams.forEach(function(value, key) {
+            if (targetParams.get(key) !== value) matched = false;
+        });
+        return matched;
+    }
+
     function updateActiveMenu(url) {
-        const targetPath = new URL(url, window.location.origin).pathname;
+        let target;
+        try {
+            target = new URL(url, window.location.origin);
+        } catch (e) {
+            return;
+        }
+        const targetPath = target.pathname;
+        const targetSearch = target.search || '';
+        let best = null;
+        let bestScore = -1;
         document.querySelectorAll('.sidebar .nav-link, .sidebar .flyout-link').forEach(function(link) {
+            link.classList.remove('active');
+            if (link.closest('.legacy-menu')) return; // 旧版隐藏菜单不参与高亮
             const href = link.getAttribute('href');
             if (!href || href.startsWith('javascript:')) return;
-            const linkPath = new URL(href, window.location.origin).pathname;
-            link.classList.toggle('active', linkPath === targetPath);
+            let info;
+            try {
+                info = new URL(href, window.location.origin);
+            } catch (e) {
+                return;
+            }
+            const linkPath = info.pathname;
+            const linkSearch = info.search || '';
+            let score = -1;
+            if (linkPath === targetPath && linkSearch && searchParamsMatch(linkSearch, targetSearch)) {
+                score = 100 + linkPath.length; // 路径匹配且链接查询串是当前页面的子集（如 /in_order?type=purchase_in）
+            } else if (linkPath === targetPath && !linkSearch) {
+                score = 50 + linkPath.length; // 纯路径匹配
+            } else if (linkPath !== '/' && targetPath.indexOf(linkPath + '/') === 0) {
+                score = 10 + linkPath.length; // 前缀匹配（详情/编辑页高亮列表菜单）
+            }
+            if (score > bestScore) {
+                best = link;
+                bestScore = score;
+            }
         });
+        if (best) best.classList.add('active');
         document.querySelectorAll('.module-menu').forEach(function(menu) {
             const hasActive = !!menu.querySelector('.flyout-link.active');
             const toggle = menu.querySelector('.module-toggle');
@@ -518,6 +560,7 @@ window.WmsTabs = (function() {
         activate: activate,
         restore: restore,
         getActiveContext: getActiveContext,
+        updateActiveMenu: updateActiveMenu,
         MAX: MAX_TABS
     };
 })();
@@ -3089,15 +3132,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // 高亮当前菜单
+    // 高亮当前菜单（统一走 WmsTabs.updateActiveMenu 的最优匹配逻辑，避免 legacy 隐藏菜单被误高亮）
     document.body.dataset.pageKey = currentPath.replace(/[^a-zA-Z0-9]+/g, '_') || 'home';
-    var navLinks = document.querySelectorAll('.sidebar .nav-link');
-    navLinks.forEach(function(link) {
-        var href = link.getAttribute('href');
-        if (href === currentPath) {
-            link.classList.add('active');
-        }
-    });
+    if (window.WmsTabs && window.WmsTabs.updateActiveMenu) {
+        window.WmsTabs.updateActiveMenu(currentPath + window.location.search);
+    }
 
     if (!isWmsEmbeddedPage()) {
         // 启用多开菜单
