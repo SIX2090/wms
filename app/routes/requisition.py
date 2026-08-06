@@ -52,6 +52,7 @@ def register_requisition_routes(app):
                 ProductionRequisition.req_no.like(search_like),
                 ProductionRequisition.production_order.like(search_like),
                 ProductionRequisition.purpose.like(search_like),
+                ProductionRequisition.warehouse.like(search_like),
                 ProductionRequisition.remark.like(search_like),
                 BOM.bom_no.like(search_like),
                 BOM.product_name.like(search_like),
@@ -107,7 +108,8 @@ def register_requisition_routes(app):
         from app import (ProductionRequisition, ProductionRequisitionItem,
                          _clean_int, _material_from_payload, _parse_form_date,
                          allow_negative_stock, api_error, generate_order_no,
-                         is_stock_sufficient, log_operation,
+                         get_default_warehouse, is_stock_sufficient,
+                         log_operation,
                          normalize_stock_quantity, parse_float_value,
                          round_to_2_decimals)
         data = request.get_json(silent=True) or {}
@@ -118,6 +120,15 @@ def register_requisition_routes(app):
 
         if not items_data:
             return api_error('请至少填写一条工单领料明细')
+
+        # BUG-2026-08-05-008：仓库必填（AGENTS.md 规则），未填写时自动带入默认仓库
+        warehouse = (header.get('warehouse') or data.get('warehouse') or '').strip()
+        if not warehouse:
+            default_wh = get_default_warehouse()
+            if default_wh:
+                warehouse = default_wh.name
+        if not warehouse:
+            return api_error('请选择仓库')
 
         try:
             if order_id:
@@ -146,6 +157,7 @@ def register_requisition_routes(app):
             requisition.bom_id = _clean_int(header.get('bom_id'))
             requisition.production_order = (header.get('production_order') or '').strip()
             requisition.purpose = (header.get('purpose') or '').strip()
+            requisition.warehouse = warehouse
             requisition.remark = (header.get('remark') or '').strip()
             if not requisition.operator_id:
                 requisition.operator_id = current_user.id
@@ -185,12 +197,20 @@ def register_requisition_routes(app):
     def add_requisition():
         from flask_login import current_user
         from app import (ProductionRequisition, api_error, generate_order_no,
-                         log_operation)
+                         get_default_warehouse, log_operation)
         try:
             bom_id = request.form.get('bom_id')
             production_order = (request.form.get('production_order') or '').strip()
             purpose = (request.form.get('purpose') or '').strip()
             remark = (request.form.get('remark') or '').strip()
+            # BUG-2026-08-05-008：仓库必填，未填写时自动带入默认仓库
+            warehouse = (request.form.get('warehouse') or '').strip()
+            if not warehouse:
+                default_wh = get_default_warehouse()
+                if default_wh:
+                    warehouse = default_wh.name
+            if not warehouse:
+                return api_error('请选择仓库')
 
             req_no = generate_order_no('REQ')
             requisition = ProductionRequisition(
@@ -198,6 +218,7 @@ def register_requisition_routes(app):
                 bom_id=int(bom_id) if bom_id else None,
                 production_order=production_order,
                 purpose=purpose,
+                warehouse=warehouse,
                 remark=remark,
                 status='pending',
                 operator_id=current_user.id
@@ -216,7 +237,8 @@ def register_requisition_routes(app):
     @require_role('production')
     @login_required
     def update_requisition(id):
-        from app import (ProductionRequisition, api_error, log_operation)
+        from app import (ProductionRequisition, api_error,
+                         get_default_warehouse, log_operation)
         requisition = ProductionRequisition.query.get_or_404(id)
         if requisition.status != 'pending':
             return api_error('只有草稿状态的工单领料单可以修改')
@@ -226,6 +248,15 @@ def register_requisition_routes(app):
             requisition.bom_id = int(bom_id) if bom_id else None
             requisition.production_order = (request.form.get('production_order') or '').strip()
             requisition.purpose = (request.form.get('purpose') or '').strip()
+            # BUG-2026-08-05-008：仓库必填，未填写时自动带入默认仓库
+            warehouse = (request.form.get('warehouse') or '').strip()
+            if not warehouse:
+                default_wh = get_default_warehouse()
+                if default_wh:
+                    warehouse = default_wh.name
+            if not warehouse:
+                return api_error('请选择仓库')
+            requisition.warehouse = warehouse
             requisition.remark = (request.form.get('remark') or '').strip()
             db.session.commit()
             log_operation('修改工单领料单', f'工单领料单：{requisition.req_no}', 'requisition', id)
@@ -423,7 +454,9 @@ def register_requisition_routes(app):
     def complete_requisition(id):
         from sqlalchemy.orm import selectinload
         from app import (ProductionRequisition, _acquire_order_write_lock,
-                         api_error, deduct_stock, log_operation)
+                         api_error, deduct_location_inventory_atomic,
+                         deduct_stock, get_default_warehouse,
+                         location_management_enabled, log_operation)
         requisition = ProductionRequisition.query.get_or_404(id)
         if requisition.status != 'pending':
             return api_error('当前工单领料单状态不可完结')
@@ -433,6 +466,15 @@ def register_requisition_routes(app):
             if not ok:
                 return api_error('当前工单领料单状态不可完结')
             requisition = locked
+            # BUG-2026-08-05-008：加锁后再做仓库赋值与必填校验，避免锁前修改被 rollback 丢弃
+            if not (requisition.warehouse or '').strip():
+                default_wh = get_default_warehouse()
+                if default_wh:
+                    requisition.warehouse = default_wh.name
+            if not (requisition.warehouse or '').strip():
+                db.session.rollback()
+                return api_error('请选择仓库')
+            use_location = bool(location_management_enabled() and requisition.warehouse)
             for item in requisition.items:
                 ok, error_msg = deduct_stock(item.material, item.quantity or 0,
                                              transaction_type='requisition',
@@ -441,6 +483,15 @@ def register_requisition_routes(app):
                 if not ok:
                     db.session.rollback()
                     return api_error(error_msg or f'物料 {item.material.code} 库存不足')
+                # 原子扣库位（与 out_order 领料出库一致：仓库名即库位维度）
+                if use_location:
+                    ok2, err2 = deduct_location_inventory_atomic(
+                        item.material_id, requisition.warehouse, item.quantity or 0,
+                        material_code_hint=item.material.code if item.material else None,
+                    )
+                    if not ok2:
+                        db.session.rollback()
+                        return api_error(err2 or '库位库存扣减失败')
             requisition.status = 'completed'
             try:
                 db.session.commit()
@@ -463,7 +514,8 @@ def register_requisition_routes(app):
         """工单领料单撤销"""
         from sqlalchemy.orm import selectinload
         from app import (ProductionRequisition, _acquire_order_write_lock,
-                         add_stock, api_error, log_operation)
+                         add_stock, api_error, location_management_enabled,
+                         log_operation, update_location_inventory)
         requisition = ProductionRequisition.query.get_or_404(id)
         if requisition.status != 'completed':
             return api_error('只有已完成的工单领料单可以撤销')
@@ -485,6 +537,12 @@ def register_requisition_routes(app):
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存恢复失败')
+                    # BUG-2026-08-05-008：同步还原库位库存（与 complete_requisition 对称）
+                    if location_management_enabled() and (requisition.warehouse or '').strip():
+                        loc_ok, loc_err = update_location_inventory(item.material, requisition.warehouse, item.quantity or 0)
+                        if not loc_ok:
+                            db.session.rollback()
+                            return api_error(loc_err or '库位库存还原失败')
 
             requisition.status = 'pending'
             try:
@@ -575,6 +633,7 @@ def register_requisition_routes(app):
                 ProductionRequisition.req_no.like(search_like),
                 ProductionRequisition.production_order.like(search_like),
                 ProductionRequisition.purpose.like(search_like),
+                ProductionRequisition.warehouse.like(search_like),
                 ProductionRequisition.remark.like(search_like),
                 BOM.bom_no.like(search_like),
                 BOM.product_name.like(search_like),
@@ -597,6 +656,7 @@ def register_requisition_routes(app):
                     rows.append([
                         order.req_no,
                         order.date.strftime('%Y-%m-%d') if order.date else '',
+                        order.warehouse or '',
                         order.production_order or '',
                         order.purpose or '',
                         order.bom.bom_no if order.bom else '',
@@ -610,11 +670,11 @@ def register_requisition_routes(app):
                         item.remark or order.remark or '',
                     ])
             else:
-                rows.append([order.req_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.production_order or '', order.purpose or '', order.bom.bom_no if order.bom else '', '', '', '', '', 0, 0, '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')), order.remark or ''])
+                rows.append([order.req_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.warehouse or '', order.production_order or '', order.purpose or '', order.bom.bom_no if order.bom else '', '', '', '', '', 0, 0, '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')), order.remark or ''])
         return _workbook_response(
             'requisitions.xlsx',
             '工单领料',
-            ['单据编号', '日期', '工单', '用途', 'BOM编号', '物料编码', '物料名称', '规格', '单位', '数量', '已领数量', '状态', '备注'],
+            ['单据编号', '日期', '仓库', '工单', '用途', 'BOM编号', '物料编码', '物料名称', '规格', '单位', '数量', '已领数量', '状态', '备注'],
             rows,
         )
 
@@ -628,7 +688,8 @@ def register_requisition_routes(app):
                          ProductionRequisitionItem, _find_or_create_material,
                          _get_excel_cell, _get_excel_number, _import_result,
                          _order_no_from_row, _parse_excel_date,
-                         _read_import_sheet, api_error, validate_excel_extension,
+                         _read_import_sheet, api_error, get_default_warehouse,
+                         validate_excel_extension,
                          validate_excel_size)
         file = request.files.get('file')
         if not file:
@@ -639,6 +700,9 @@ def register_requisition_routes(app):
         _size_ok, _size_msg = validate_excel_size(file)
         if not _size_ok:
             return api_error(_size_msg)
+        # BUG-2026-08-05-008：导入的工单领料单自动带入默认仓库
+        _default_wh = get_default_warehouse()
+        import_default_warehouse = _default_wh.name if _default_wh else None
         aliases = {
             'order_no': ['单据编号', '工单领料单号', '订单编号'],
             'date': ['日期'],
@@ -684,6 +748,7 @@ def register_requisition_routes(app):
                         production_order=_get_excel_cell(row, col_map, 'production_order'),
                         purpose=_get_excel_cell(row, col_map, 'purpose'),
                         bom_id=bom.id if bom else None,
+                        warehouse=import_default_warehouse,
                         remark=_get_excel_cell(row, col_map, 'remark'),
                         status='pending',
                         operator_id=current_user.id,
@@ -723,12 +788,13 @@ def register_requisition_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '工单领料单'
-        ws.append(['单据编号', '日期', '工单', '用途', '物料编码', '物料名称', '规格', '单位', '数量', '备注'])
+        ws.append(['单据编号', '日期', '仓库', '工单', '用途', '物料编码', '物料名称', '规格', '单位', '数量', '备注'])
         if order.items:
             for item in order.items:
                 ws.append([
                     order.req_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
+                    order.warehouse or '',
                     order.production_order or '',
                     order.purpose or '',
                     item.material.code if item.material else '',

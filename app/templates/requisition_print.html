@@ -47,6 +47,7 @@
     <div class="meta">
         <div><span class="label">单据编号：</span>{{ requisition.req_no }}</div>
         <div><span class="label">日期：</span>{{ requisition.date }}</div>
+        <div><span class="label">仓库：</span>{{ requisition.warehouse or '-' }}</div>
         <div><span class="label">工单：</span>{{ requisition.production_order or '-' }}</div>
         <div><span class="label">用途：</span>{{ requisition.purpose or '-' }}</div>
         <div><span class="label">BOM：</span>{{ requisition.bom.bom_no if requisition.bom else '-' }}</div>

@@ -954,6 +954,21 @@ def auto_migrate_database():
                     pass
                 modified = True
 
+        # BUG-2026-08-05-008：工单领料单补仓库列，存量数据回填默认仓库名
+        if _table_exists('production_requisition'):
+            cursor.execute("PRAGMA table_info(production_requisition)")
+            pr_cols = [row[1] for row in cursor.fetchall()]
+            if pr_cols and 'warehouse' not in pr_cols:
+                cursor.execute("ALTER TABLE production_requisition ADD COLUMN warehouse VARCHAR(100)")
+                try:
+                    cursor.execute("SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' LIMIT 1")
+                    row = cursor.fetchone()
+                    if row:
+                        cursor.execute("UPDATE production_requisition SET warehouse = ? WHERE warehouse IS NULL OR warehouse = ''", (row[0],))
+                except Exception:
+                    pass
+                modified = True
+
         if modified:
             conn.commit()
     except Exception as e:
@@ -4075,6 +4090,9 @@ class ProductionRequisition(db.Model):
     bom_id = db.Column(db.Integer, db.ForeignKey('bom.id'))  # BOM ID
     production_order = db.Column(db.String(50))  # Production
     purpose = db.Column(db.String(200))  # Requisition purpose
+    # BUG-2026-08-05-008：工单领料仓库，必填（AGENTS.md 领料出库仓库必填规则）。
+    # 模型层保持 nullable=True 以兼容存量数据，必填校验在路由层强制。
+    warehouse = db.Column(db.String(100))  # Warehouse name
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     remark = db.Column(db.String(500))  # Remark
@@ -21801,11 +21819,14 @@ def _render_requisition_form(requisition=None):
             'bom_id': requisition.bom_id if requisition else '',
             'production_order': requisition.production_order if requisition else '',
             'purpose': requisition.purpose if requisition else '',
+            # BUG-2026-08-05-008：工单领料单表头带仓库字段
+            'warehouse': requisition.warehouse if requisition else '',
             'remark': requisition.remark if requisition else '',
         },
         materials=_document_materials_json(),
         units=_document_units_json(),
-        warehouses=[],
+        warehouses=get_active_warehouses(),
+        default_warehouse=get_default_warehouse(),
         boms=boms,
         existing_items=[_material_line_data(item) for item in (requisition.items if requisition else [])],
         can_complete=bool(requisition and requisition.status == 'pending'),
@@ -24107,6 +24128,9 @@ def _build_requisition_report(filters):
         joinedload(ProductionRequisition.operator),
         selectinload(ProductionRequisition.items).joinedload(ProductionRequisitionItem.material),
     )
+    # BUG-2026-08-05-008：模型已补 warehouse 列，按仓库实际过滤
+    if filters.get('warehouse'):
+        query = query.filter(ProductionRequisition.warehouse == filters['warehouse'])
     if filters.get('start_date'):
         query = query.filter(ProductionRequisition.date >= filters['start_date'])
     if filters.get('end_date'):

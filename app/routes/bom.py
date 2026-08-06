@@ -632,14 +632,17 @@ def register_bom_routes(app):
     def create_requisition_from_bom(bom_id):
         from flask_login import current_user
         from app import (BOM, ProductionRequisition, ProductionRequisitionItem,
-                         generate_order_no)
+                         generate_order_no, get_default_warehouse)
         bom = BOM.query.get_or_404(bom_id)
         # 复用 generate_order_no('REQ')，避免原先基于秒级时间戳生成 req_no
         # 在并发或同秒点击时产生重复单号，触发 unique 约束失败
         req_no = generate_order_no('REQ')
+        # BUG-2026-08-05-008：BOM 下推工单领料单自动带入默认仓库
+        _default_wh = get_default_warehouse()
         requisition = ProductionRequisition(
             req_no=req_no,
             bom_id=bom_id,
+            warehouse=_default_wh.name if _default_wh else None,
             status='pending',
             operator_id=current_user.id
         )

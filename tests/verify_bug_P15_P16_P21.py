@@ -328,9 +328,13 @@ class TestBugP21BizReportWarehouseGuard:
                     subcontract_order_id=sc.id, material_id=mat.id, quantity=5,
                 ))
             if ProductionRequisition.query.count() == 0:
+                # BUG-2026-08-05-008：工单领料单已有 warehouse 列并参与报表仓库过滤，
+                # 种子数据需带上当前默认仓库名，否则会被仓库过滤排除
+                _default_wh = Warehouse.query.filter_by(is_default=True, status="active").first()
                 pr = ProductionRequisition(
                     req_no="REQ-001", date=_date.today(),
                     purpose="测试领料", status="pending",
+                    warehouse=_default_wh.name if _default_wh else None,
                 )
                 db.session.add(pr)
                 db.session.flush()

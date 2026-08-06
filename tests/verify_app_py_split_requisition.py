@@ -101,6 +101,11 @@ class TestRequisitionRegister:
     def test_add_requisition(self):
         client = self._setup()
         _login(client)
+        # BUG-2026-08-05-008：仓库必填，无默认仓库时拒绝保存；此处配默认仓库走自动带入
+        with app_module.app.app_context():
+            from app import Warehouse
+            db.session.add(Warehouse(code="RWH0", name="默认仓", status="active", is_default=True))
+            db.session.commit()
         resp = client.post("/requisition/add", data={"purpose": "测试领料", "remark": "备注"})
         data = resp.get_json()
         assert data["status"] == "success", data
@@ -109,3 +114,117 @@ class TestRequisitionRegister:
             assert req is not None
             assert req.status == "pending"
             assert req.purpose == "测试领料"
+            assert req.warehouse == "默认仓"
+
+
+class TestRequisitionWarehouse:
+    """BUG-2026-08-05-008：工单领料单仓库必填回归测试。"""
+
+    def _setup(self, with_default_warehouse=True):
+        with app_module.app.app_context():
+            _reset_db()
+            _seed_admin()
+            if with_default_warehouse:
+                from app import Warehouse
+                db.session.add(Warehouse(code="RWH", name="领料仓", status="active", is_default=True))
+                db.session.commit()
+        return _make_client()
+
+    def _seed_material(self, stock=100):
+        from app import Material, MaterialCategory, Unit
+        cat = MaterialCategory(code="RCAT", name="领料分类")
+        unit = Unit(code="PCS", name="个")
+        db.session.add_all([cat, unit])
+        db.session.flush()
+        mat = Material(code="RM1", name="领料物料", category_id=cat.id,
+                       unit_id=unit.id, stock=stock, price=10)
+        db.session.add(mat)
+        db.session.commit()
+        return mat.id
+
+    def test_add_with_explicit_warehouse(self):
+        client = self._setup()
+        _login(client)
+        resp = client.post("/requisition/add",
+                           data={"purpose": "测试领料", "warehouse": "领料仓"})
+        data = resp.get_json()
+        assert data["status"] == "success", data
+        with app_module.app.app_context():
+            req = db.session.get(ProductionRequisition, data["id"])
+            assert req.warehouse == "领料仓"
+
+    def test_add_falls_back_to_default_warehouse(self):
+        client = self._setup()
+        _login(client)
+        resp = client.post("/requisition/add", data={"purpose": "测试领料"})
+        data = resp.get_json()
+        assert data["status"] == "success", data
+        with app_module.app.app_context():
+            req = db.session.get(ProductionRequisition, data["id"])
+            assert req.warehouse == "领料仓"
+
+    def test_add_without_warehouse_no_default_rejected(self):
+        client = self._setup(with_default_warehouse=False)
+        _login(client)
+        resp = client.post("/requisition/add", data={"purpose": "测试领料"})
+        data = resp.get_json()
+        assert data["status"] == "error", data
+        assert "仓库" in data["msg"]
+
+    def test_save_table_carries_warehouse(self):
+        client = self._setup()
+        _login(client)
+        with app_module.app.app_context():
+            mat_id = self._seed_material()
+        resp = client.post(
+            "/requisition/save_table",
+            json={"header": {"purpose": "表格领料", "warehouse": "领料仓"},
+                  "items": [{"material_id": mat_id, "quantity": 5}]},
+        )
+        data = resp.get_json()
+        assert data["status"] == "success", data
+        with app_module.app.app_context():
+            req = db.session.get(ProductionRequisition, data["id"])
+            assert req.warehouse == "领料仓"
+
+    def test_complete_deducts_stock(self):
+        client = self._setup()
+        _login(client)
+        with app_module.app.app_context():
+            mat_id = self._seed_material(stock=100)
+        resp = client.post(
+            "/requisition/save_table",
+            json={"header": {"purpose": "完工扣减", "warehouse": "领料仓"},
+                  "items": [{"material_id": mat_id, "quantity": 30}]},
+        )
+        req_id = resp.get_json()["id"]
+        resp = client.post(f"/requisition/{req_id}/complete")
+        assert resp.get_json()["status"] == "success"
+        with app_module.app.app_context():
+            from app import Material
+            mat = db.session.get(Material, mat_id)
+            assert float(mat.stock) == 70.0
+            req = db.session.get(ProductionRequisition, req_id)
+            assert req.status == "completed"
+            assert req.warehouse == "领料仓"
+
+    def test_revert_restores_stock(self):
+        client = self._setup()
+        _login(client)
+        with app_module.app.app_context():
+            mat_id = self._seed_material(stock=100)
+        resp = client.post(
+            "/requisition/save_table",
+            json={"header": {"purpose": "反提交还原", "warehouse": "领料仓"},
+                  "items": [{"material_id": mat_id, "quantity": 30}]},
+        )
+        req_id = resp.get_json()["id"]
+        client.post(f"/requisition/{req_id}/complete")
+        resp = client.post(f"/requisition/{req_id}/revert")
+        assert resp.get_json()["status"] == "success"
+        with app_module.app.app_context():
+            from app import Material
+            mat = db.session.get(Material, mat_id)
+            assert float(mat.stock) == 100.0
+            req = db.session.get(ProductionRequisition, req_id)
+            assert req.status == "pending"
