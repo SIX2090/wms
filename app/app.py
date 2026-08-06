@@ -210,7 +210,17 @@ def auto_migrate_database():
     """自动迁移数据库，添加缺失的字段"""
     conn = None
     try:
-        db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        # 优先使用 Flask config 中的数据库路径，避免与 SQLAlchemy 实际使用的数据库不一致
+        try:
+            uri = app.config.get('SQLALCHEMY_DATABASE_URI') or ''
+            if uri.startswith('sqlite:///') and uri != 'sqlite:///:memory:':
+                db_path = uri[len('sqlite:///'):]
+                if not os.path.isabs(db_path):
+                    db_path = os.path.join(app.instance_path, db_path)
+            else:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        except Exception:
+            db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
         if not os.path.exists(db_path):
             return
 
@@ -1006,16 +1016,15 @@ def auto_migrate_database():
 
 app = Flask(__name__)
 
-# Run auto-migration before app configuration unless explicitly disabled.
-if startup_db_upgrade_disabled():
-    # 启动横幅:迁移被环境变量禁用。用 app.logger 替代 print,统一走日志通道。
-    app.logger.info('[DB] Startup database upgrade skipped by environment.')
-else:
-    auto_migrate_database()
-
 # Use config.py settings uniformly
 env = os.environ.get('FLASK_ENV', 'production')
 app.config.from_object(config_dict.get(env, config_dict['default']))
+
+# Run auto-migration AFTER config is loaded so it uses the correct database path.
+if startup_db_upgrade_disabled():
+    app.logger.info('[DB] Startup database upgrade skipped by environment.')
+else:
+    auto_migrate_database()
 if not app.config.get('SECRET_KEY'):
     # 未显式配置 SECRET_KEY 时，尝试从 instance/secret_key 文件读取持久化密钥；
     # 文件不存在则随机生成并写入，避免每次重启 session 失效，同时不依赖硬编码默认值。
