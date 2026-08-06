@@ -6,6 +6,7 @@ echo ============================================
 echo.
 
 set "DB_PATH=c:\wms\app\instance\inventory.db"
+set "PYTHON=C:\Users\Administrator\AppData\Local\Programs\Python\Python311\python.exe"
 
 if not exist "%DB_PATH%" (
     echo [ERROR] 数据库文件不存在: %DB_PATH%
@@ -13,10 +14,17 @@ if not exist "%DB_PATH%" (
     exit /b 1
 )
 
+if not exist "%PYTHON%" (
+    echo [ERROR] Python 不存在: %PYTHON%
+    pause
+    exit /b 1
+)
+
 echo [INFO] 数据库: %DB_PATH%
+echo [INFO] Python: %PYTHON%
 echo.
 
-python "%~dp0_fix_picker_helper.py" "%DB_PATH%"
+"%PYTHON%" "%~dp0_fix_picker_helper.py" "%DB_PATH%"
 
 echo.
 echo ============================================
