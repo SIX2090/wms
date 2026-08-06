@@ -11232,6 +11232,7 @@ def _ai_confirmation_payload(extracted, context=None, document_job_id=None):
 
 def _ai_suggest_material_code(offset=0):
     """Return a short operator-editable code for an OCR-unmatched material."""
+    # AI_TASK: AI-R08-F02 — 未匹配物料人工确认建档时的可编辑 AI 编号建议
     # AI_TASK: AI-R07-F02 — 无分类时的通用流水号兜底
     prefix = f'AI{date.today():%y%m%d}'
     existing = Material.query.filter(Material.code.like(f'{prefix}%')).with_entities(Material.code).all()
@@ -11620,6 +11621,8 @@ def _ai_check_draft_creation_gate(document_job_id):
         app.logger.error(f'门禁校验失败: {e}')
         return True, []  # 校验失败时降级允许创建
 
+# AI_TASK: AI-R08-F02 确认台人工确认后生成入库/出库等单据草稿；
+# inbound_business_type 承载确认台入库类型选择（其他入库/采购入库等）
 def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustment_type='', customer='', source_purchase_order_id=None, confirmation_token=None, document_job_id=None, inbound_business_type='other_in'):
     doc_type = (doc_type or '').strip()
     if doc_type == 'sales_out':
@@ -18492,6 +18495,7 @@ def ai_document_confirm(token):
                 continue
             original_row = (payload.get('rows') or [{}])[idx] if idx < len(payload.get('rows') or []) else {}
             material_id = _clean_int(request.form.get(f'material_id_{idx}'))
+            # AI_TASK: AI-R08-F02 未匹配物料人工确认建档（含可编辑编号、查重守卫）
             if not material_id and request.form.get(f'create_material_{idx}') == '1':
                 code = (request.form.get(f'new_material_code_{idx}') or '').strip().upper()
                 name = (request.form.get(f'new_material_name_{idx}') or '').strip()
@@ -24819,6 +24823,7 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
             if extracted.get('document_type') == 'wechat':
                 extracted['document_type'] = 'in_order'
             matched_rows, unmatched_rows = _ai_match_extracted_items(extracted.get('items') or [])
+            # AI_TASK: AI-R08-F02 拍照 OCR 统一进入确认台（pending_confirmation + 确认页跳转）
             job_status = 'pending_confirmation'
             document_job = _ai_record_document_job(
                 extracted, 'ocr_upload', job_status,
