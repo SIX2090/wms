@@ -137,7 +137,7 @@ def register_in_order_routes(app):
             'contract_no': contract_no_filter,
             'project_name': project_name_filter,
         }
-        page_title = f'{business_type_filter}明细' if business_type_filter else '入库明细'
+        page_title = f'{business_type_filter}明细' if business_type_filter else '采购入库单'
         return render_template(
             'in_order.html',
             items=items,

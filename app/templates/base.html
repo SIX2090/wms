@@ -2100,6 +2100,18 @@
             }, 120);
         });
     });
+
+    // 统一日期输入框显示格式为 YYYY-MM-DD（浏览器默认可能显示 mm/dd/yyyy）
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('input[type="date"]').forEach(function(input) {
+            input.setAttribute('placeholder', 'YYYY-MM-DD');
+            input.setAttribute('lang', 'zh-CN');
+            // 强制使用中文 locale 的日期格式显示
+            if (input.value) {
+                input.style.fontVariantNumeric = 'tabular-nums';
+            }
+        });
+    });
     </script>
     {% block extra_css %}{% endblock %}
     <!-- BUG-2026-07-31-001: 定时刷新 CSRF token（每 25 分钟，寿命 30 分钟），避免长会话过期 -->
@@ -2545,7 +2557,7 @@
     <!-- 主内容区 -->
     <div class="main-content">
         <div class="tab-workspace" id="tabWorkspace">
-            <div class="tab-bar" id="tabBar" aria-label="宸叉墦寮€椤甸潰"></div>
+            <div class="tab-bar" id="tabBar" aria-label="已打开页面"></div>
             <div class="tab-frame-wrap" id="tabFrameWrap"></div>
         </div>
         <div class="embedded-content">
