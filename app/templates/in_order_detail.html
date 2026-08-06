@@ -189,6 +189,9 @@
                 <button class="btn btn-sm btn-outline-secondary" onclick="printOrder()">
                     <i class="bi bi-printer"></i> 打印
                 </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="columnSettingsBtn" title="显示/隐藏及调整明细字段">
+                    <i class="bi bi-layout-three-columns"></i> 栏目设置
+                </button>
                 <a href="/in_order{% if order.business_type %}?business_type={{ order.business_type|urlencode }}{% endif %}" class="btn btn-sm btn-outline-secondary">
                     <i class="bi bi-arrow-left"></i> 返回
                 </a>
