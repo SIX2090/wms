@@ -8,6 +8,7 @@ set "PYTHONUTF8=1"
 set "WMS_ALLOW_AUTO_SECRET_KEY=1"
 set "WMS_NO_DB_TOUCH=1"
 set "PYTHONPATH=%~dp0;%PYTHONPATH%"
+
 echo Starting WMS...
 echo URL: http://127.0.0.1:8080/login
 echo Username: admin
@@ -36,5 +37,11 @@ if not defined PYTHON_CMD (
     pause
     exit /b 1
 )
+
+REM 自动修复数据库字段
+echo [Auto-Fix] 检查并修复数据库字段...
+%PYTHON_CMD% "fix_db_columns.py"
+echo.
+
 %PYTHON_CMD% "run_server.py"
 pause
