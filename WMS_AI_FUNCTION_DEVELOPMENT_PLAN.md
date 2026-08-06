@@ -1521,3 +1521,26 @@ full 验证结果：
 - 子修复（BUG-2026-08-05-001）：拆分迁移 `in_order.py` 时，`create_in_order_push` 使用 `DocumentPushLine` 却漏导入，导致采购入库完成后下推失效（`NameError`）。在 `create_in_order_push` 的 `from app import (...)` 补入 `DocumentPushLine`，与 `out_order.py`/`after_sale_out.py` 一致。回归：`scripts/verify_inbound_push.py` Full PASS。
 - 子修复（BUG-2026-08-05-002）：`complete_in_order` / `update_completed_in_order` / `update_in_order` 三个函数的延迟导入均漏 `InOrder`，点击"完成入库"即抛 `NameError`，单据停在草稿、下推按钮不出现（被 `except` 吞掉）。在三个函数导入补入 `InOrder`，并在 `complete_in_order` 的 `except` 补 `app.logger.exception` 记录堆栈。新增静态检查 `scripts/check_in_order_imports.py` 扫描全部使用 `InOrder` 的函数确保导入覆盖。回归：`scripts/repro_complete_in_order.py`、`tests/verify_bug_2026_08_05_002_complete_in_order_imports.py`（3 用例）、`scripts/verify_inbound_push.py`、`make check` 全 PASS。
 - 子修复（BUG-2026-08-05-003）：`routes/material.py` 迁移时 `delete_material` 的引用完整性校验漏掉 `PurchaseOrderItem` / `SalesOrderItem` / `AIMaterialAlias` / `AIDocumentItem` 四张表，被采购/销售订单明细引用的物料删除时走不到拦截分支，直接 `db.session.delete` 触发外键 `NOT NULL constraint failed`，`except` 捕获后返回晦涩"数据库操作失败: (sqlite3.IntegrityError)..."，用户感知"物料删不掉"。在 `delete_material` 的 `from app import (...)` 补入四模型并在校验里补 `material_id` 检查，与既有引用拦截一致。回归：`scripts/repro_material_delete_ref.py`（PO/SO 引用拦截且明细保留、无引用删除成功）、`tests/verify_app_py_split_material.py::test_delete_material_referenced_by_purchase_order_item`、`make check` 116 passed。
+
+#### REQUISITION-PICKER-F01（已完成）— 领料单表头新增领料人 + 采购入库下推领料单可填领料部门/领料人
+
+- 完成日期：2026-08-06
+- 目标：
+  - 库存管理-领料单（`OutOrder`，`business_type='领料单'`）单据表头仅有领料部门，补齐"领料人(picker)"字段。
+  - 采购入库单下推领料单（`in_order_push.html`）可填写领料部门与领料人，下推生成的目标 `OutOrder` 保存两者。
+  - 工单领料单（`ProductionRequisition`）表头同样补齐领料人（commit `a3900c23`）。
+- 业务边界：仅新增/透传字段，不改密码、权限、事务边界、库存逻辑；不建任何新分支（仅 `main`）。
+- 改动模块：
+  - `app/app.py`：`OutOrder` 模型新增 `picker` 字段；`auto_migrate_database` 对 `out_order` 表新增 `picker VARCHAR(50)` 迁移（`ProductionRequisition.picker` 迁移随 `a3900c23`）。
+  - `app/routes/in_order.py`：`in_order_push_page` 查询并传递 `departments`；`create_in_order_push` 处理 `department_id`/`picker` 并保存到 `OutOrder`，补入 `Department` 导入。
+  - `app/routes/out_order.py`：`add_out_order` 解析并持久化 `picker`；`copy_out_order` 携带 `picker`；`out_order_add_page` prefill 增加 `picker`。
+  - `app/templates/in_order_push.html`：目标类型为"领料单"时显示领料部门下拉框与领料人输入框，并加入下推 payload。
+  - `app/templates/out_order_add.html`：表头新增"领料人"输入框并纳入保存提交。
+  - `app/templates/out_order_detail.html`：单据头部显示领料人；"再建一张"链接携带 `picker`。
+  - `tests/test_out_order_push_picker.py`：新增 3 用例（下推页渲染部门/领料人、下推创建 `OutOrder` 保存部门与领料人、`/out_order/add` 持久化领料人）。
+- 专项验证命令及结果：
+  - `python -m pytest tests/test_out_order_push_picker.py tests/test_requisition_picker.py -q` → 6 passed。
+  - `python -m pytest tests/ -q` → 124 passed。
+  - `python scripts/lint_wms_rules.py` → 0 违规；`python scripts/lint_no_raw_post_fetch.py` → 通过。
+- 推送验证：提交后推送输出 `To https://github.com/SIX2090/wms.git ... -> main`；本地与 `origin/main` SHA 一致。
+- 剩余风险：`Picker` 字段暂未纳入领料单打印模板与导出模板，如需可在后续子项补充。

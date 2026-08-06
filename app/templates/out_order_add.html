@@ -466,6 +466,12 @@ textarea.form-control {
                 </div>
                 <div class="col-md-3">
                     <div class="mb-2">
+                        <label class="form-label">领料人</label>
+                        <input type="text" class="form-control" name="picker" maxlength="50" placeholder="请输入领料人姓名" value="{{ prefill.picker if prefill else '' }}">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
                         <label class="form-label">仓库 <span class="text-danger">*</span></label>
                         <select class="form-select" name="warehouse" required>
                             <option value="">请选择仓库</option>
@@ -1175,6 +1181,7 @@ function submitForm(saveAndNew = false) {
         business_type: document.querySelector('[name="business_type"]').value,
         department_id: departmentId,
         customer: customer,
+        picker: document.querySelector('[name="picker"]').value,
         warehouse: document.querySelector('[name="warehouse"]').value,
         remark: document.querySelector('[name="remark"]').value,
         items: items

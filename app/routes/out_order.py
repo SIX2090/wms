@@ -76,6 +76,7 @@ def register_out_order_routes(app):
                 business_type=business_type,
                 warehouse=source.warehouse or '',
                 purpose=source.purpose,
+                picker=source.picker,
                 source_sales_order_id=None,
                 remark='；'.join(remark_parts)[:200],
                 contract_id=source.contract_id,
@@ -262,6 +263,7 @@ def register_out_order_routes(app):
                                  'remark': (request.args.get('remark') or '').strip(),
                                  'customer': (request.args.get('customer') or '').strip(),
                                  'department_id': (request.args.get('department_id') or '').strip(),
+                                 'picker': (request.args.get('picker') or '').strip(),
                                  'business_type': (request.args.get('business_type') or '').strip(),
                              },
                              order_id=None, order_no=order_no, order_date=order_date,
@@ -307,6 +309,7 @@ def register_out_order_routes(app):
             if department_id is None or str(department_id).strip().lower() in ('', 'none', 'null'):
                 department_id = None
             customer = (data.get('customer') or '').strip()
+            picker = (data.get('picker') or '').strip()
             warehouse = (data.get('warehouse') or '').strip()
             remark = (data.get('remark') or '').strip()
             contract_id = data.get('contract_id')
@@ -371,6 +374,7 @@ def register_out_order_routes(app):
             order.business_type = business_type
             order.department_id = department_id
             order.customer = customer
+            order.picker = picker or None
             order.warehouse = warehouse
             order.remark = remark
             order.contract_id = int(contract_id) if contract_id else None

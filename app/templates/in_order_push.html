@@ -26,6 +26,17 @@
             <label class="form-label">出库原因/用途</label>
             <input id="purpose" class="form-control" maxlength="200" placeholder="其他出库时必填">
         </div>
+        <div class="col-md-3 d-none" id="departmentWrap">
+            <label class="form-label">领料部门</label>
+            <select id="departmentId" class="form-select">
+                <option value="">请选择部门</option>
+                {% for dept in departments %}<option value="{{ dept.id }}">{{ dept.name }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3 d-none" id="pickerWrap">
+            <label class="form-label">领料人</label>
+            <input id="picker" class="form-control" maxlength="50" placeholder="请输入领料人姓名">
+        </div>
         <div class="col-md-3 d-none" id="customerWrap">
             <label class="form-label">售后客户 <span class="text-danger">*</span></label>
             <select id="customerId" class="form-select">
@@ -90,11 +101,16 @@
     const customerWrap = document.getElementById('customerWrap');
     const reasonWrap = document.getElementById('reasonWrap');
     const purposeWrap = document.getElementById('purposeWrap');
+    const departmentWrap = document.getElementById('departmentWrap');
+    const pickerWrap = document.getElementById('pickerWrap');
     function refreshTargetFields() {
         const afterSale = targetType.value === 'after_sale_out';
+        const requisition = targetType.value === 'requisition';
         customerWrap.classList.toggle('d-none', !afterSale);
         reasonWrap.classList.toggle('d-none', !afterSale);
         purposeWrap.classList.toggle('d-none', afterSale);
+        departmentWrap.classList.toggle('d-none', !requisition);
+        pickerWrap.classList.toggle('d-none', !requisition);
     }
     targetType.addEventListener('change', refreshTargetFields);
     refreshTargetFields();
@@ -124,6 +140,8 @@
             target_type: targetType.value,
             request_id: (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random()),
             purpose: document.getElementById('purpose').value.trim(),
+            department_id: document.getElementById('departmentId').value,
+            picker: document.getElementById('picker').value.trim(),
             customer_id: document.getElementById('customerId').value,
             reason: document.getElementById('reason').value.trim(),
             items: items

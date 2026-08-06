@@ -200,7 +200,7 @@ def register_in_order_routes(app):
     @login_required
     def in_order_push_page(id):
         from sqlalchemy.orm import joinedload
-        from app import (Customer, INBOUND_PUSH_TARGETS, InOrder, InOrderItem, Material,
+        from app import (Customer, Department, INBOUND_PUSH_TARGETS, InOrder, InOrderItem, Material,
                          _in_order_push_quantities, _in_order_push_source_type,
                          normalize_stock_quantity)
         order = InOrder.query.options(
@@ -227,6 +227,7 @@ def register_in_order_routes(app):
         return render_template(
             'in_order_push.html', order=order, lines=lines,
             target_types=INBOUND_PUSH_TARGETS, customers=Customer.query.order_by(Customer.code.asc()).all(),
+            departments=Department.query.filter_by(status='active').order_by(Department.code.asc(), Department.id.asc()).all(),
         )
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -239,8 +240,9 @@ def register_in_order_routes(app):
         from flask_login import current_user
         from sqlalchemy.orm import selectinload
         from app import (AfterSaleOutOrder, AfterSaleOutOrderItem, Customer,
-                         DocumentPushLine, INBOUND_PUSH_TARGETS, InOrder, OperationLog,
-                         OutOrder, OutOrderItem, _acquire_order_write_lock, _clean_int,
+                         Department, DocumentPushLine, INBOUND_PUSH_TARGETS,
+                         InOrder, OperationLog, OutOrder, OutOrderItem,
+                         _acquire_order_write_lock, _clean_int,
                          _in_order_push_quantities, _in_order_push_source_type,
                          _push_target_url, generate_order_no, normalize_stock_quantity,
                          round_to_2_decimals)
@@ -333,12 +335,19 @@ def register_in_order_routes(app):
             remark = f'由{source_label} {order.order_no} 下推生成'
             target_items = []
             if target_type in ('requisition', 'other_out'):
+                if target_type == 'requisition':
+                    department_id = _clean_int(payload.get('department_id'))
+                    department = db.session.get(Department, department_id) if department_id else None
+                else:
+                    department = None
                 target = OutOrder(
                     # Both outbound business types share the proven OU sequence;
                     # business_type, not an untracked prefix, distinguishes them.
                     order_no=generate_order_no('OUT'),
                     date=date.today(), business_type=target_definition['business_type'],
                     warehouse=order.warehouse, purpose=(payload.get('purpose') or '').strip() or None,
+                    picker=(payload.get('picker') or '').strip() or None,
+                    department_id=department.id if department else None,
                     customer=(payload.get('party') or '').strip() or None,
                     status='pending', operator_id=current_user.id, remark=remark,
                 )

@@ -255,6 +255,9 @@ def auto_migrate_database():
         if 'customer' not in columns:
             cursor.execute("ALTER TABLE out_order ADD COLUMN customer VARCHAR(100)")
             modified = True
+        if 'picker' not in columns:
+            cursor.execute("ALTER TABLE out_order ADD COLUMN picker VARCHAR(50)")
+            modified = True
         if 'source_sales_order_id' not in columns:
             cursor.execute("ALTER TABLE out_order ADD COLUMN source_sales_order_id INTEGER")
             modified = True
@@ -3885,6 +3888,7 @@ class OutOrder(db.Model):
     business_type = db.Column(db.String(50))  # Business type
     warehouse = db.Column(db.String(100))  # Warehouse name
     purpose = db.Column(db.String(200))  # Outbound purpose
+    picker = db.Column(db.String(50))  # Pick person (领料人)
     source_sales_order_id = db.Column(db.Integer, db.ForeignKey('sales_order.id'))  # 关联销售订单ID（外键，替代 purpose 字符串解析）
     remark = db.Column(db.String(200))  # Remark
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
