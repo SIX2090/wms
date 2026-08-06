@@ -5572,11 +5572,11 @@ MOBILE_SCAN_MODES = {
 
 ANDROID_APK_PATHS = (
     # Packaged APK shipped beside the repository entrypoints.
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app-debug.apk'),
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app-release.apk'),
     # Backward-compatible Android project build output.
     os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
-        'android-native-wms', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk'
+        'android-native-wms', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk'
     ),
 )
 
