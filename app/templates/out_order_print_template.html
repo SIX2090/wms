@@ -134,7 +134,7 @@
                     <div id="htmlEditorArea" class="mb-3" style="display: none;">
                         <label class="form-label">HTML模板内容 *</label>
                         <textarea class="form-control" name="html_content" rows="10" 
-                                  placeholder="输入HTML模板内容，可以使用模板变量如 order.order_no、order.date、order.customer 等"></textarea>
+                                  placeholder="输入HTML模板内容，可以使用模板变量如 order.order_no、order.date、order.customer、order.picker 等"></textarea>
                     </div>
 
                     <button type="submit" class="btn btn-primary">
@@ -262,6 +262,11 @@
                                         <td><code>{order.customer}</code></td>
                                         <td>领料部门</td>
                                         <td>生产部</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{order.picker}</code></td>
+                                        <td>领料人</td>
+                                        <td>张三</td>
                                     </tr>
                                     <tr>
                                         <td><code>{order.purpose}</code></td>

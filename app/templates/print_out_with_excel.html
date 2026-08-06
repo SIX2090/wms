@@ -163,6 +163,10 @@
                 <div class="info-value">{{ order.department.name if order.department else (order.customer or '未指定') }}</div>
             </div>
             <div class="info-row">
+                <div class="info-label">领料人：</div>
+                <div class="info-value">{{ order.picker or '未填写' }}</div>
+            </div>
+            <div class="info-row">
                 <div class="info-label">用途：</div>
                 <div class="info-value">{{ order.business_type or order.purpose or '未填写' }}</div>
             </div>
@@ -217,6 +221,7 @@
                         <li><code>{order.order_no}</code> - 领料单号：{{ order.order_no }}</li>
                         <li><code>{order.date}</code> - 领料日期：{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</li>
                         <li><code>{order.customer}</code> - 领料部门：{{ order.department.name if order.department else (order.customer or '未指定') }}</li>
+                        <li><code>{order.picker}</code> - 领料人：{{ order.picker or '未填写' }}</li>
                         <li><code>{order.purpose}</code> - 用途：{{ order.business_type or order.purpose or '未填写' }}</li>
                         <li><code>{order.warehouse}</code> - 仓库：{{ order.warehouse or '未指定' }}</li>
                         <li><code>{item.material.code}</code> - 物料编码</li>

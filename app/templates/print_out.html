@@ -44,9 +44,10 @@
     </div>
     <div class="info-row">
         <div class="info-item"><span class="info-label">领料部门：</span>{{ order.department.name if order.department else (order.customer or '-') }}</div>
-        <div class="info-item"><span class="info-label">用　　途：</span>{{ order.business_type or order.purpose or '-' }}</div>
+        <div class="info-item"><span class="info-label">领料人：</span>{{ order.picker or '-' }}</div>
     </div>
     <div class="info-row">
+        <div class="info-item"><span class="info-label">用　　途：</span>{{ order.business_type or order.purpose or '-' }}</div>
         <div class="info-item"><span class="info-label">仓　　库：</span>{{ order.warehouse or '-' }}</div>
     </div>
     <div class="info-row">

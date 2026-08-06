@@ -986,7 +986,7 @@ def register_out_order_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '领料单'
-        ws.append(['单据编号', '日期', '领料部门', '用途', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态', '备注'])
+        ws.append(['单据编号', '日期', '领料部门', '领料人', '用途', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态', '备注'])
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
         allowed_sorts = {'order_no', 'date', 'department_id', 'customer', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
         if sort_by not in allowed_sorts:
@@ -1007,6 +1007,7 @@ def register_out_order_routes(app):
                         order.order_no,
                         order.date.strftime('%Y-%m-%d') if order.date else '',
                         order.customer or (order.department.name if order.department else '') or '',
+                        order.picker or '',
                         order.business_type or order.purpose or '',
                         order.warehouse or '',
                         item.material.code if item.material else '',
@@ -1024,6 +1025,7 @@ def register_out_order_routes(app):
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     (order.department.name if order.department else '') or order.customer or '',
+                    order.picker or '',
                     order.business_type or order.purpose or '',
                     order.warehouse or '',
                     '', '', '', '', 0, 0, 0,
@@ -1044,13 +1046,14 @@ def register_out_order_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '领料单'
-        ws.append(['单据编号', '日期', '领料部门', '用途', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '备注'])
+        ws.append(['单据编号', '日期', '领料部门', '领料人', '用途', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '备注'])
         if order.items:
             for item in order.items:
                 ws.append([
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     (order.department.name if order.department else '') or order.customer or '',
+                    order.picker or '',
                     order.business_type or order.purpose or '',
                     order.warehouse or '',
                     item.material.code if item.material else '',

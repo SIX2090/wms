@@ -75,6 +75,8 @@ def register_batch_import_routes(app):
                     col_map['purpose'] = idx
                 elif '部门' in h or '领料' in h:
                     col_map['department'] = idx
+                elif h == '领料人' or '领料人' in h:
+                    col_map['picker'] = idx
                 elif '物料编码' in h or '编码' in h:
                     col_map['material_code'] = idx
                 elif '物料名称' in h or '名称' in h:
@@ -162,6 +164,7 @@ def register_batch_import_routes(app):
                         purpose='领料单' if get_val('purpose') == '生产出库' else get_val('purpose'),
                         business_type='领料单',
                         department_id=department.id if department else None,
+                        picker=get_val('picker') or None,
                         remark=get_val('remark'),
                         operator_id=current_user.id
                     )
