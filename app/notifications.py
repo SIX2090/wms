@@ -316,10 +316,10 @@ def init_notification_scheduler(app, db, Material, User):
                     
                     logging.getLogger(__name__).info(
                         f'AI-R14-F01 清理预览完成: '
-                        f'待删除={preview_result.delete_count}, '
+                        f'待删除={preview_result.to_delete_count}, '
                         f'受保护={preview_result.protected_count}, '
                         f'豁免={preview_result.exempt_count}, '
-                        f'保留={preview_result.keep_count}'
+                        f'保留={preview_result.to_keep_count}'
                     )
                     
                     # 保存预览日志（dry_run=True）
@@ -327,14 +327,14 @@ def init_notification_scheduler(app, db, Material, User):
                     log_entry = CleanupLogEntry(
                         log_id=f'auto-preview-{datetime.now().strftime("%Y%m%d-%H%M%S")}',
                         executed_by=0,  # 系统自动执行
-                        categories=list(preview_result.by_category.keys()),
+                        categories=list(set(item.record.category for item in preview_result.items)),
                         dry_run=True,
                         deleted_count=0,  # 预览模式不删除
-                        kept_count=preview_result.keep_count,
+                        kept_count=preview_result.to_keep_count,
                         exempt_count=preview_result.exempt_count,
                         protected_count=preview_result.protected_count,
                         failed_count=0,
-                        cutoff_date=preview_result.cutoff_date.isoformat(),
+                        cutoff_date=preview_result.generated_at,
                         executed_at=datetime.now().isoformat(),
                         notes='系统自动预览（未实际删除）',
                     )
