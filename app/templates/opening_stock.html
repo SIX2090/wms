@@ -304,16 +304,11 @@ const existingRows = [
 
 let rows = existingRows.length ? existingRows.slice() : [];
 let activeCodeInput = null;
-const minimumRows = 15;
 const gridBody = document.getElementById('openingGridBody');
 const materialMenu = document.getElementById('materialMenu');
 
 function emptyRow() {
     return {material_id: '', warehouse_id: '', warehouse_name: '', material_code: '', material_name: '', spec: '', unit: '', quantity: '', price: '', remark: ''};
-}
-
-function ensureRows() {
-    while (rows.length < minimumRows) rows.push(emptyRow());
 }
 
 function amountOf(row) {
@@ -332,7 +327,11 @@ function warehouseOptionsHtml(selectedId) {
 }
 
 function renderRows() {
-    ensureRows();
+    if (rows.length === 0) {
+        gridBody.innerHTML = '<tr><td colspan="11" class="text-center text-muted" style="padding:18px;">暂无明细，请点击"添加物料"开始录入</td></tr>';
+        updateTotal();
+        return;
+    }
     gridBody.innerHTML = rows.map((row, index) => `
         <tr data-index="${index}">
             <td class="row-no">${index + 1}</td>
