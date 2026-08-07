@@ -806,30 +806,136 @@ document.addEventListener('click', function(e) {
     }
 });
 
+// 列显示/隐藏映射：checkbox value -> column-key
+var colKeyMap = {
+    colCode: 'material_code',
+    colBrand: 'brand',
+    colName: 'material_name',
+    colSpec: 'spec',
+    colUnit: 'unit',
+    colStock: 'stock',
+    colQty: 'quantity',
+    colPrice: 'price',
+    colAmount: 'amount',
+    colRemark: 'remark'
+};
+
 function toggleColumn(colClass) {
-    const cells = document.querySelectorAll('[data-col="' + colClass + '"]');
-    const rows = document.querySelectorAll('#itemTable tbody tr');
-    const index = Array.from(document.querySelectorAll('#itemTable thead th')).findIndex(th => th.dataset.col === colClass);
-    
-    if (index === -1) return;
-    
-    const isVisible = !cells[0]?.classList.contains('d-none');
-    
+    var key = colKeyMap[colClass];
+    if (!key) return;
+    var th = document.querySelector('#itemTable thead th[data-column-key="' + key + '"]');
+    if (!th) return;
+    var index = Array.from(th.parentNode.children).indexOf(th);
+    var table = document.getElementById('itemTable');
     // Toggle header
-    cells.forEach(cell => cell.classList.toggle('d-none'));
-    
+    th.classList.toggle('d-none');
     // Toggle body cells
-    rows.forEach(row => {
-        const cell = row.cells[index];
+    var rows = table.querySelectorAll('tbody tr');
+    rows.forEach(function(row) {
+        var cell = row.cells[index];
         if (cell) cell.classList.toggle('d-none');
     });
-    
     // Toggle footer cells
-    document.querySelectorAll('#itemTable tfoot tr').forEach(row => {
-        const cell = row.cells[index];
+    table.querySelectorAll('tfoot tr').forEach(function(row) {
+        var cell = row.cells[index];
         if (cell) cell.classList.toggle('d-none');
     });
 }
+
+// ==================== 列拖动排序 ====================
+(function() {
+    var dragTh = null;
+    var dragIndex = -1;
+    var table = document.getElementById('itemTable');
+    if (!table) return;
+    var thead = table.querySelector('thead tr');
+    if (!thead) return;
+
+    thead.addEventListener('dragstart', function(e) {
+        var th = e.target.closest('th');
+        if (!th) return;
+        dragTh = th;
+        dragIndex = Array.from(thead.children).indexOf(th);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', dragIndex);
+        setTimeout(function() { th.style.opacity = '0.4'; }, 0);
+    });
+
+    thead.addEventListener('dragend', function(e) {
+        var th = e.target.closest('th');
+        if (th) th.style.opacity = '';
+        dragTh = null;
+        dragIndex = -1;
+    });
+
+    thead.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        var th = e.target.closest('th');
+        if (!th || th === dragTh) return;
+        var rect = th.getBoundingClientRect();
+        var mid = rect.left + rect.width / 2;
+        if (e.clientX < mid) {
+            th.style.borderLeft = '2px solid #4F46E5';
+            th.style.borderRight = '';
+        } else {
+            th.style.borderLeft = '';
+            th.style.borderRight = '2px solid #4F46E5';
+        }
+    });
+
+    thead.addEventListener('dragleave', function(e) {
+        var th = e.target.closest('th');
+        if (th) { th.style.borderLeft = ''; th.style.borderRight = ''; }
+    });
+
+    thead.addEventListener('drop', function(e) {
+        e.preventDefault();
+        var th = e.target.closest('th');
+        if (!th || !dragTh || th === dragTh) return;
+        th.style.borderLeft = ''; th.style.borderRight = '';
+        var fromIndex = dragIndex;
+        var toIndex = Array.from(thead.children).indexOf(th);
+        var rect = th.getBoundingClientRect();
+        if (e.clientX >= rect.left + rect.width / 2) toIndex++;
+        if (fromIndex === toIndex || fromIndex === toIndex - 1) return;
+        // 移动表头
+        if (toIndex > fromIndex) {
+            thead.insertBefore(dragTh, thead.children[toIndex]);
+        } else {
+            thead.insertBefore(dragTh, thead.children[toIndex]);
+        }
+        // 移动表体每一行对应列
+        var rows = table.querySelectorAll('tbody tr');
+        rows.forEach(function(row) {
+            var cells = Array.from(row.children);
+            var cell = cells[fromIndex];
+            if (!cell) return;
+            if (toIndex > fromIndex) {
+                row.insertBefore(cell, cells[toIndex]);
+            } else {
+                row.insertBefore(cell, cells[toIndex]);
+            }
+        });
+        // 移动表脚
+        table.querySelectorAll('tfoot tr').forEach(function(row) {
+            var cells = Array.from(row.children);
+            var cell = cells[fromIndex];
+            if (!cell) return;
+            if (toIndex > fromIndex) {
+                row.insertBefore(cell, cells[toIndex]);
+            } else {
+                row.insertBefore(cell, cells[toIndex]);
+            }
+        });
+    });
+
+    // 给所有 th 添加 draggable
+    Array.from(thead.children).forEach(function(th) {
+        th.draggable = true;
+        th.style.cursor = 'grab';
+    });
+})();
 
 // ==================== 列宽调整 ====================
 let isResizing = false;
