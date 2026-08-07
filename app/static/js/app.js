@@ -3172,7 +3172,69 @@ document.addEventListener('DOMContentLoaded', function() {
     window.addEventListener('resize', function() {
         if (!isMobileViewport()) closeMobileSidebar();
     });
+
+    // 最近访问功能
+    initRecentVisits();
 });
+
+// 最近访问管理
+function initRecentVisits() {
+    const STORAGE_KEY = 'wms:recent-visits';
+    const MAX_VISITS = 10;
+    const currentPath = window.location.pathname;
+
+    // 排除不需要记录的页面
+    if (currentPath === '/' || currentPath.includes('/login') || currentPath.includes('/logout')) {
+        return;
+    }
+
+    // 获取当前页面信息
+    const pageInfo = {
+        path: currentPath,
+        title: document.title || currentPath,
+        timestamp: Date.now()
+    };
+
+    // 读取现有记录
+    let recentVisits = [];
+    try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+            recentVisits = JSON.parse(stored);
+        }
+    } catch (e) {
+        console.warn('读取最近访问记录失败:', e);
+    }
+
+    // 移除重复项
+    recentVisits = recentVisits.filter(item => item.path !== currentPath);
+
+    // 添加到开头
+    recentVisits.unshift(pageInfo);
+
+    // 限制数量
+    if (recentVisits.length > MAX_VISITS) {
+        recentVisits = recentVisits.slice(0, MAX_VISITS);
+    }
+
+    // 保存
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(recentVisits));
+    } catch (e) {
+        console.warn('保存最近访问记录失败:', e);
+    }
+}
+
+// 获取最近访问列表
+function getRecentVisits() {
+    try {
+        const stored = localStorage.getItem('wms:recent-visits');
+        return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+        console.warn('读取最近访问记录失败:', e);
+        return [];
+    }
+}
 
 // Unified document-grid field settings, modelled after mainstream Chinese ERP column settings.
 (function() {

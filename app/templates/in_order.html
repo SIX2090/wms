@@ -120,7 +120,7 @@
                     <td class="text-center"><input type="checkbox" class="check-item" value="{{ item.in_order.id }}" {% if item.in_order.status != 'pending' %}disabled title="已完成单据不能删除"{% endif %}></td>
                     <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
                     <td><a href="{{ url_for('in_order_detail', id=item.in_order.id) }}">{{ item.in_order.order_no }}</a></td>
-                    <td>{{ item.in_order.date }}</td>
+                    <td>{{ item.in_order.date.strftime('%Y-%m-%d') if item.in_order.date else '' }}</td>
                     <td>{{ item.in_order.business_type or '采购入库' }}</td>
                     <td class="text-nowrap" data-source-purchase-order-id="{{ item.source_purchase_order.id if item.source_purchase_order else '' }}">
                         {% if item.source_purchase_order %}

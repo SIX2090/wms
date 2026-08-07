@@ -1547,7 +1547,7 @@ document.addEventListener('click', function(e) {
 document.addEventListener('DOMContentLoaded', function() {
     // Default to 30 empty rows so the table looks complete on first open.
     if (!document.querySelector('#materialTableBody tr')) {
-        for (let i = 0; i < 30; i++) addNewRow();
+        for (let i = 0; i < 5; i++) addNewRow();
     }
     if (window.WMS && window.WMS.ContractAutocomplete) {
         window.WMS.ContractAutocomplete.bindAll();
@@ -2569,6 +2569,204 @@ function showColumnSettings() {
         var arr = (list && list.data && list.data.contracts) ? list.data.contracts : (list && list.contracts) ? list.contracts : (Array.isArray(list) ? list : []);
         arr.forEach(function(c) { contracts.push(c); });
     }).catch(function(err) { console.warn('合同列表加载失败:', err); });
+})();
+</script>
+
+<script>
+// ==================== 草稿自动保存 ====================
+(function() {
+    const DRAFT_KEY = 'wms:in_order_draft';
+    const AUTO_SAVE_INTERVAL = 30000; // 30秒自动保存
+    let autoSaveTimer = null;
+
+    // 保存草稿到 localStorage
+    function saveDraft() {
+        const formData = collectFormData();
+        try {
+            localStorage.setItem(DRAFT_KEY, JSON.stringify({
+                data: formData,
+                timestamp: Date.now()
+            }));
+            showDraftSavedTip();
+        } catch (e) {
+            console.warn('保存草稿失败:', e);
+        }
+    }
+
+    // 收集表单数据
+    function collectFormData() {
+        const rows = [];
+        document.querySelectorAll('#materialTable tbody tr').forEach(function(row) {
+            const rowData = {
+                material_code: row.querySelector('.material-code')?.value || '',
+                material_name: row.querySelector('.material-name')?.value || '',
+                spec: row.querySelector('.material-spec')?.value || '',
+                unit: row.querySelector('.material-unit')?.value || '',
+                quantity: row.querySelector('.material-qty')?.value || '',
+                price: row.querySelector('.material-price')?.value || '',
+                remark: row.querySelector('.material-remark')?.value || ''
+            };
+            if (rowData.material_code || rowData.material_name) {
+                rows.push(rowData);
+            }
+        });
+
+        return {
+            supplier: document.querySelector('#supplierSearch')?.value || '',
+            warehouse: document.querySelector('#warehouseSelect')?.value || '',
+            remark: document.querySelector('#remarkInput')?.value || '',
+            rows: rows
+        };
+    }
+
+    // 恢复草稿
+    function restoreDraft() {
+        try {
+            const stored = localStorage.getItem(DRAFT_KEY);
+            if (!stored) return;
+
+            const draft = JSON.parse(stored);
+            const data = draft.data;
+
+            // 恢复供应商
+            if (data.supplier) {
+                const supplierInput = document.querySelector('#supplierSearch');
+                if (supplierInput) supplierInput.value = data.supplier;
+            }
+
+            // 恢复仓库
+            if (data.warehouse) {
+                const warehouseSelect = document.querySelector('#warehouseSelect');
+                if (warehouseSelect) warehouseSelect.value = data.warehouse;
+            }
+
+            // 恢复备注
+            if (data.remark) {
+                const remarkInput = document.querySelector('#remarkInput');
+                if (remarkInput) remarkInput.value = data.remark;
+            }
+
+            // 恢复明细行
+            if (data.rows && data.rows.length > 0) {
+                // 清空现有空行
+                const tbody = document.querySelector('#materialTable tbody');
+                if (tbody) tbody.innerHTML = '';
+
+                // 添加草稿中的行
+                data.rows.forEach(function(rowData) {
+                    addNewRow();
+                    const lastRow = document.querySelector('#materialTable tbody tr:last-child');
+                    if (lastRow) {
+                        if (rowData.material_code) {
+                            const codeInput = lastRow.querySelector('.material-code');
+                            if (codeInput) codeInput.value = rowData.material_code;
+                        }
+                        if (rowData.material_name) {
+                            const nameInput = lastRow.querySelector('.material-name');
+                            if (nameInput) nameInput.value = rowData.material_name;
+                        }
+                        if (rowData.spec) {
+                            const specInput = lastRow.querySelector('.material-spec');
+                            if (specInput) specInput.value = rowData.spec;
+                        }
+                        if (rowData.unit) {
+                            const unitInput = lastRow.querySelector('.material-unit');
+                            if (unitInput) unitInput.value = rowData.unit;
+                        }
+                        if (rowData.quantity) {
+                            const qtyInput = lastRow.querySelector('.material-qty');
+                            if (qtyInput) qtyInput.value = rowData.quantity;
+                        }
+                        if (rowData.price) {
+                            const priceInput = lastRow.querySelector('.material-price');
+                            if (priceInput) priceInput.value = rowData.price;
+                        }
+                        if (rowData.remark) {
+                            const remarkInput = lastRow.querySelector('.material-remark');
+                            if (remarkInput) remarkInput.value = rowData.remark;
+                        }
+                    }
+                });
+
+                // 计算金额
+                if (typeof calcTotal === 'function') {
+                    calcTotal();
+                }
+            }
+
+            showDraftRestoredTip();
+        } catch (e) {
+            console.warn('恢复草稿失败:', e);
+        }
+    }
+
+    // 显示保存提示
+    function showDraftSavedTip() {
+        const tip = document.createElement('div');
+        tip.className = 'draft-saved-tip';
+        tip.innerHTML = '<i class="bi bi-check-circle"></i> 草稿已自动保存';
+        tip.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#52c41a;color:#fff;padding:8px 16px;border-radius:4px;z-index:9999;font-size:13px;opacity:0;transition:opacity 0.3s;';
+        document.body.appendChild(tip);
+        setTimeout(() => tip.style.opacity = '1', 10);
+        setTimeout(() => {
+            tip.style.opacity = '0';
+            setTimeout(() => tip.remove(), 300);
+        }, 2000);
+    }
+
+    // 显示恢复提示
+    function showDraftRestoredTip() {
+        if (typeof showToast === 'function') {
+            showToast('已恢复上次未保存的草稿', 'info');
+        }
+    }
+
+    // 清除草稿
+    function clearDraft() {
+        try {
+            localStorage.removeItem(DRAFT_KEY);
+        } catch (e) {
+            console.warn('清除草稿失败:', e);
+        }
+    }
+
+    // 页面加载时恢复草稿
+    document.addEventListener('DOMContentLoaded', function() {
+        // 延迟恢复，等待页面完全加载
+        setTimeout(restoreDraft, 500);
+
+        // 启动自动保存
+        autoSaveTimer = setInterval(saveDraft, AUTO_SAVE_INTERVAL);
+
+        // 监听表单变化
+        document.querySelector('#inOrderForm')?.addEventListener('input', function() {
+            // 用户输入后重置自动保存计时器
+            clearInterval(autoSaveTimer);
+            autoSaveTimer = setInterval(saveDraft, AUTO_SAVE_INTERVAL);
+        });
+
+        // 提交表单时清除草稿
+        document.querySelector('#inOrderForm')?.addEventListener('submit', function() {
+            clearDraft();
+            clearInterval(autoSaveTimer);
+        });
+
+        // 离开页面前提示
+        window.addEventListener('beforeunload', function(e) {
+            const form = document.querySelector('#inOrderForm');
+            if (form && form.dataset.modified === 'true') {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
+    });
+
+    // 暴露全局方法
+    window.WmsDraft = {
+        save: saveDraft,
+        restore: restoreDraft,
+        clear: clearDraft
+    };
 })();
 </script>
 {% endblock %}
