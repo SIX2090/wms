@@ -309,3 +309,30 @@ def register_employee_routes(app):
             db.session.rollback()
             current_app.logger.error(f'员工导入异常: {e}')
             return jsonify({'status': 'error', 'msg': f'导入失败：{e}'}), 500
+
+    @app.route('/employee/api/search')
+    @login_required
+    def employee_search():
+        """员工搜索 API，供领料人等字段下拉选择使用。"""
+        from app import Employee
+        keyword = (request.args.get('q') or '').strip()
+        query = Employee.query
+        if keyword:
+            kw = f'%{keyword}%'
+            query = query.filter(
+                db.or_(
+                    Employee.name.like(kw),
+                    Employee.code.like(kw),
+                    Employee.phone.like(kw),
+                )
+            )
+        employees = query.order_by(Employee.name.asc()).limit(50).all()
+        return jsonify({
+            'status': 'success',
+            'data': [
+                {'id': e.id, 'code': e.code or '', 'name': e.name,
+                 'department': e.department.name if e.department else '',
+                 'phone': e.phone or ''}
+                for e in employees
+            ]
+        })

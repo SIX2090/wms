@@ -140,6 +140,83 @@ textarea.form-control {
     color: #1890FF;
 }
 
+/* 领料人搜索下拉 */
+.picker-input {
+    position: relative;
+}
+.picker-input input {
+    width: 100%;
+    border: 1px solid #D9D9D9;
+    border-radius: 2px;
+    padding: 3px 24px 3px 8px;
+    font-size: 12px;
+    height: 28px;
+    background: #fff;
+    color: #333;
+}
+.picker-input input:focus {
+    border-color: #1890FF;
+    box-shadow: 0 0 0 2px rgba(24,144,255,0.1);
+    outline: none;
+}
+.picker-dropdown {
+    position: fixed;
+    min-width: 280px;
+    max-height: 220px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #D9D9D9;
+    border-radius: 3px;
+    z-index: 99999;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+    display: none;
+}
+.picker-dropdown-item {
+    padding: 6px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid #F0F0F0;
+    font-size: 12px;
+}
+.picker-dropdown-item:hover,
+.picker-dropdown-item.active {
+    background-color: #E6F7FF;
+}
+.picker-dropdown-item:last-child {
+    border-bottom: none;
+}
+.picker-dropdown-item .emp-name {
+    font-weight: 600;
+    color: #1890FF;
+}
+.picker-dropdown-item .emp-dept {
+    color: #999;
+    font-size: 11px;
+    margin-left: 6px;
+}
+.picker-dropdown-item .emp-phone {
+    color: #999;
+    font-size: 11px;
+    margin-left: 4px;
+}
+.picker-search-btn {
+    position: absolute;
+    right: 1px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    padding: 1px 4px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #BFBFBF;
+    z-index: 10;
+    height: 20px;
+    line-height: 1;
+}
+.picker-search-btn:hover {
+    color: #1890FF;
+}
+
 /* ==================== T+ 网格线表格 ==================== */
 .tplus-table-wrapper {
     border: 1px solid #D9D9D9;
@@ -467,7 +544,11 @@ textarea.form-control {
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">领料人</label>
-                        <input type="text" class="form-control" name="picker" maxlength="50" placeholder="请输入领料人姓名" value="{{ prefill.picker if prefill else '' }}">
+                        <div class="picker-input">
+                            <input type="text" id="pickerInput" name="picker" maxlength="50" placeholder="输入姓名搜索或点击选择" autocomplete="off" value="{{ prefill.picker if prefill else '' }}">
+                            <button type="button" class="picker-search-btn" id="pickerSearchBtn" title="搜索员工">&#x1F50D;</button>
+                            <div class="picker-dropdown" id="pickerDropdown"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="col-md-3">
@@ -1849,6 +1930,112 @@ function showColumnSettings() {
         var arr = (list && list.data && list.data.contracts) ? list.data.contracts : (list && list.contracts) ? list.contracts : (Array.isArray(list) ? list : []);
         arr.forEach(function(c) { contracts.push(c); });
     }).catch(function(err) { console.warn('合同列表加载失败:', err); });
+})();
+
+// ==================== 领料人搜索下拉 ====================
+(function() {
+    var pickerInput = document.getElementById('pickerInput');
+    var pickerDropdown = document.getElementById('pickerDropdown');
+    var pickerSearchBtn = document.getElementById('pickerSearchBtn');
+    var pickerActiveIndex = -1;
+    var pickerResults = [];
+
+    if (!pickerInput || !pickerDropdown) return;
+
+    function showPickerDropdown(keyword) {
+        fetch('/employee/api/search?q=' + encodeURIComponent(keyword || ''))
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                var data = (res && res.data) ? res.data : [];
+                pickerResults = data;
+                if (data.length === 0) {
+                    pickerDropdown.style.display = 'none';
+                    return;
+                }
+                pickerDropdown.innerHTML = data.map(function(emp, i) {
+                    return '<div class="picker-dropdown-item" data-index="' + i + '">' +
+                        '<span class="emp-name">' + escapeHtml(emp.name) + '</span>' +
+                        (emp.department ? '<span class="emp-dept">' + escapeHtml(emp.department) + '</span>' : '') +
+                        (emp.phone ? '<span class="emp-phone">' + escapeHtml(emp.phone) + '</span>' : '') +
+                        '</div>';
+                }).join('');
+                pickerDropdown.querySelectorAll('.picker-dropdown-item').forEach(function(item) {
+                    item.addEventListener('click', function() {
+                        selectEmployee(parseInt(this.dataset.index));
+                    });
+                });
+                pickerDropdown.style.display = 'block';
+                var rect = pickerInput.getBoundingClientRect();
+                pickerDropdown.style.top = (rect.bottom + 2) + 'px';
+                pickerDropdown.style.left = rect.left + 'px';
+                pickerActiveIndex = -1;
+            })
+            .catch(function(err) { console.warn('员工搜索失败:', err); });
+    }
+
+    function selectEmployee(index) {
+        var emp = pickerResults[index];
+        if (!emp) return;
+        pickerInput.value = emp.name;
+        pickerDropdown.style.display = 'none';
+        pickerActiveIndex = -1;
+    }
+
+    function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+    }
+
+    var searchTimer = null;
+    pickerInput.addEventListener('input', function() {
+        clearTimeout(searchTimer);
+        var val = this.value.trim();
+        if (val.length === 0) {
+            pickerDropdown.style.display = 'none';
+            return;
+        }
+        searchTimer = setTimeout(function() { showPickerDropdown(val); }, 300);
+    });
+
+    pickerInput.addEventListener('focus', function() {
+        if (this.value.trim().length > 0) {
+            showPickerDropdown(this.value.trim());
+        }
+    });
+
+    pickerSearchBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        showPickerDropdown(pickerInput.value.trim());
+    });
+
+    pickerInput.addEventListener('keydown', function(e) {
+        var items = pickerDropdown.querySelectorAll('.picker-dropdown-item');
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            pickerActiveIndex = Math.min(pickerActiveIndex + 1, items.length - 1);
+            items.forEach(function(item, i) { item.classList.toggle('active', i === pickerActiveIndex); });
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            pickerActiveIndex = Math.max(pickerActiveIndex - 1, 0);
+            items.forEach(function(item, i) { item.classList.toggle('active', i === pickerActiveIndex); });
+        } else if (e.key === 'Enter') {
+            if (pickerActiveIndex >= 0 && pickerActiveIndex < pickerResults.length) {
+                e.preventDefault();
+                selectEmployee(pickerActiveIndex);
+            }
+        } else if (e.key === 'Escape') {
+            pickerDropdown.style.display = 'none';
+            pickerActiveIndex = -1;
+        }
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.picker-input')) {
+            pickerDropdown.style.display = 'none';
+            pickerActiveIndex = -1;
+        }
+    });
 })();
 </script>
 {% endblock %}
