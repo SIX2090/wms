@@ -6687,16 +6687,7 @@ def generate_material_copy_name(source_name, source_spec):
     base_name = (source_name or '').strip()
     if not base_name:
         return ''
-
-    for index in range(1, 10000):
-        suffix = '-副本' if index == 1 else f'-副本{index}'
-        candidate = f'{base_name}{suffix}'
-        if len(candidate) > 100:
-            candidate = f'{base_name[:100 - len(suffix)]}{suffix}'
-        if not material_name_spec_exists(candidate, source_spec):
-            return candidate
-
-    raise ValueError('无法生成唯一物料名称，请手动修改')
+    return base_name
 
 def material_name_spec_exists(name, spec, exclude_id=None):
     query = Material.query.filter(
