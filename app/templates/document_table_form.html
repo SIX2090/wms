@@ -28,8 +28,6 @@
 .doc-grid input[readonly] { cursor:default; color:#333; }
 .doc-grid .num-col input { text-align:right; }
 .material-input { position:relative; }
-.material-select-btn { position:absolute; right:1px; top:50%; transform:translateY(-50%); background:transparent; border:none; padding:1px 4px; cursor:pointer; font-size:9px; color:#888; height:20px; line-height:1; }
-.material-select-btn:hover { color:#1890ff; }
 .material-dropdown { position:fixed; min-width:420px; max-height:280px; overflow-y:auto; background:#fff; border:1px solid #d9d9d9; border-radius:3px; z-index:99999; box-shadow:0 2px 12px rgba(0,0,0,.12); }
 .material-dropdown-item { padding:6px 10px; cursor:pointer; border-bottom:1px solid #f0f0f0; font-size:12px; }
 .material-dropdown-item:hover { background:#e6f7ff; }
@@ -376,7 +374,7 @@ function rowCells(item) {
         <td data-column-key="material_code">
             <div class="material-input">
                 <input type="text" class="material-code" ${readonlyAttr}>
-                ${readonly ? '' : '<button type="button" class="material-select-btn">▼</button><div class="material-dropdown" style="display:none;"></div>'}
+                ${readonly ? '' : '<div class="material-dropdown" style="display:none;"></div>'}
             </div>
         </td>
         ${docType === 'requisition' ? '<td data-column-key="brand"><input type="text" class="material-brand" readonly></td>' : ''}
@@ -465,7 +463,6 @@ function bindRowEvents(row) {
             }
         }
     });
-    row.querySelector('.material-select-btn')?.addEventListener('click', function() { showDropdown(row, true); });
     row.querySelectorAll('.line-qty,.line-price,.actual-stock,.system-stock').forEach(function(input) {
         input.addEventListener('input', function() { trimDecimalInput(this); calcRow(row); });
         input.addEventListener('blur', function() { if (this.value) this.value = formatQty(this.value); calcRow(row); });

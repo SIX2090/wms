@@ -125,26 +125,6 @@ textarea.form-control {
     color: #4b5563;
     font-size: 13px;
 }
-.material-select-btn {
-    position: absolute;
-    right: 1px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: transparent;
-    border: none;
-    padding: 1px 4px;
-    cursor: pointer;
-    font-size: 9px;
-    color: #BFBFBF;
-    z-index: 10;
-    transition: color 0.15s;
-    height: 20px;
-    line-height: 1;
-}
-.material-select-btn:hover {
-    color: #1890FF;
-}
-
 /* ==================== T+ 网格线表格 ==================== */
 .tplus-table-wrapper {
     border: 1px solid #D9D9D9;
@@ -361,12 +341,6 @@ textarea.form-control {
         min-height: 44px;
         padding: 10px 12px;
         font-size: 14px;
-    }
-
-    .material-select-btn {
-        width: 34px;
-        height: 30px;
-        font-size: 12px;
     }
 
     .tplus-table-wrapper {
@@ -778,7 +752,6 @@ function addNewRow() {
         <td data-column-key="material_code">
             <div class="material-input">
                 <input type="text" class="form-control material-code" placeholder="">
-                <button type="button" class="material-select-btn">▼</button>
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
@@ -805,9 +778,6 @@ function addNewRow() {
     });
     row.querySelector('.material-code').addEventListener('keydown', function(event) {
         handleKeydown(event, row);
-    });
-    row.querySelector('.material-select-btn').addEventListener('click', function() {
-        showDropdown(row, true);
     });
     row.querySelector('.material-qty').addEventListener('input', function() {
         // 强制保留2位小数
@@ -1074,7 +1044,6 @@ function insertRowBefore(btn) {
         <td data-column-key="material_code">
             <div class="material-input">
                 <input type="text" class="form-control material-code" placeholder="">
-                <button type="button" class="material-select-btn">▼</button>
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
@@ -1101,9 +1070,6 @@ function insertRowBefore(btn) {
     });
     newRow.querySelector('.material-code').addEventListener('keydown', function(event) {
         handleKeydown(event, newRow);
-    });
-    newRow.querySelector('.material-select-btn').addEventListener('click', function() {
-        showDropdown(newRow, true);
     });
     newRow.querySelector('.material-qty').addEventListener('input', function() {
         // 强制保留2位小数

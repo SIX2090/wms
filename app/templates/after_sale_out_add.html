@@ -94,19 +94,6 @@
     color: #999;
     font-size: 11px;
 }
-.material-select-btn {
-    position: absolute;
-    right: 1px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: transparent;
-    border: none;
-    padding: 1px 4px;
-    cursor: pointer;
-    font-size: 9px;
-    color: #BFBFBF;
-    z-index: 10;
-}
 #materialTable {
     margin-bottom: 0 !important;
     border-collapse: collapse !important;
@@ -310,7 +297,6 @@ function addNewRow(insertBeforeRow = null, data = {}) {
         <td data-column-key="material_code">
             <div class="material-input">
                 <input type="text" class="form-control material-code" placeholder="">
-                <button type="button" class="material-select-btn">▼</button>
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
@@ -364,9 +350,6 @@ function bindRow(row) {
             row.querySelector('.material-dropdown').style.display = 'none';
             activeDropdown = null;
         }
-    });
-    row.querySelector('.material-select-btn').addEventListener('click', function() {
-        showDropdown(row, true);
     });
     row.querySelector('.material-qty').addEventListener('input', function() {
         calcAmount(row);

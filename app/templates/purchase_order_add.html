@@ -55,7 +55,6 @@ textarea.form-control {
 
 /* 物料/供应商搜索下拉组件 - 采购订单特有 */
 .material-input-wrap { position: relative; display: flex; gap: 4px; }
-.material-select-btn { flex: 0 0 28px; border: 1px solid #ced4da; background: #fff; border-radius: 4px; }
 .material-dropdown {
     position: fixed; z-index: 1200; min-width: 360px; max-width: min(640px, calc(100vw - 24px));
     max-height: 280px; overflow-y: auto; background: #fff; border: 1px solid #d9e2ef;
@@ -309,11 +308,6 @@ textarea.form-control {
 @media (max-width: 768px) {
     .material-input-wrap {
         min-width: 150px;
-    }
-
-    .material-select-btn {
-        flex-basis: 36px;
-        min-height: 34px;
     }
 
     .material-dropdown,
@@ -666,7 +660,6 @@ function addNewRow(data = {}, insertBeforeRow = null) {
         <td data-column-key="material_code">
             <div class="material-input-wrap">
                 <input class="form-control material-code" value="${escapeHtml(data.material_code || '')}" autocomplete="off">
-                <button type="button" class="material-select-btn" title="选择物料">▼</button>
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
@@ -736,9 +729,6 @@ function bindRow(row) {
     });
     codeInput.addEventListener('focus', function() {
         if (this.value.trim()) showMaterialDropdown(row);
-    });
-    row.querySelector('.material-select-btn').addEventListener('click', function() {
-        showMaterialDropdown(row, true);
     });
     row.querySelector('.material-qty').addEventListener('input', () => calcAmount(row));
     row.querySelector('.material-price').addEventListener('input', () => calcAmount(row));

@@ -155,23 +155,6 @@
 .material-input {
     position: relative;
 }
-.material-select-btn {
-    position: absolute;
-    right: 1px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: transparent;
-    border: none;
-    padding: 1px 4px;
-    cursor: pointer;
-    font-size: 9px;
-    color: #888;
-    height: 20px;
-    line-height: 1;
-}
-.material-select-btn:hover {
-    color: #1890FF;
-}
 .material-dropdown {
     position: fixed;
     min-width: 420px;
@@ -447,9 +430,6 @@ function bindRowEvents(row) {
             }
         }
     });
-    row.querySelector('.material-select-btn').addEventListener('click', function() {
-        showDropdown(row, true);
-    });
     row.querySelector('.adjust-qty').addEventListener('input', function() {
         trimDecimalInput(this);
         calcTotal();
@@ -469,7 +449,7 @@ function createRow(item) {
         <td data-column-key="material_code">
             <div class="material-input">
                 <input type="text" class="material-code" ${readonly ? 'readonly' : ''}>
-                ${readonly ? '' : '<button type="button" class="material-select-btn">▼</button><div class="material-dropdown" style="display:none;"></div>'}
+                ${readonly ? '' : '<div class="material-dropdown" style="display:none;"></div>'}
             </div>
         </td>
         <td data-column-key="material_name"><input type="text" class="material-name" readonly></td>

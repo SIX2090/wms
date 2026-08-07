@@ -120,26 +120,6 @@ textarea.form-control {
     color: #4b5563;
     font-size: 13px;
 }
-.material-select-btn {
-    position: absolute;
-    right: 1px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: transparent;
-    border: none;
-    padding: 1px 4px;
-    cursor: pointer;
-    font-size: 9px;
-    color: #BFBFBF;
-    z-index: 10;
-    transition: color 0.15s;
-    height: 20px;
-    line-height: 1;
-}
-.material-select-btn:hover {
-    color: #1890FF;
-}
-
 /* 领料人搜索下拉 */
 .picker-input {
     position: relative;
@@ -727,7 +707,6 @@ function addNewRow() {
         <td data-column-key="material_code">
             <div class="material-input">
                 <input type="text" class="form-control material-code" placeholder="">
-                <button type="button" class="material-select-btn">▼</button>
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
@@ -753,9 +732,6 @@ function addNewRow() {
     });
     row.querySelector('.material-code').addEventListener('keydown', function(event) {
         handleKeydown(event, row);
-    });
-    row.querySelector('.material-select-btn').addEventListener('click', function() {
-        showDropdown(row, true);
     });
     row.querySelector('.material-qty').addEventListener('input', function() {
         // 强制保留2位小数
@@ -995,7 +971,6 @@ function insertRowBefore(btn) {
         <td data-column-key="material_code">
             <div class="material-input">
                 <input type="text" class="form-control material-code" placeholder="">
-                <button type="button" class="material-select-btn">▼</button>
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
@@ -1021,9 +996,6 @@ function insertRowBefore(btn) {
     });
     newRow.querySelector('.material-code').addEventListener('keydown', function(event) {
         handleKeydown(event, newRow);
-    });
-    newRow.querySelector('.material-select-btn').addEventListener('click', function() {
-        showDropdown(newRow, true);
     });
     newRow.querySelector('.material-qty').addEventListener('input', function() {
         // 强制保留2位小数

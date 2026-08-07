@@ -134,7 +134,6 @@ textarea.form-control {
     color: #999;
     font-size: 11px;
 }
-.material-select-btn,
 .supplier-select-btn {
     position: absolute;
     right: 1px;
@@ -151,7 +150,6 @@ textarea.form-control {
     height: 20px;
     line-height: 1;
 }
-.material-select-btn:hover,
 .supplier-select-btn:hover {
     color: #1890FF;
 }
@@ -563,7 +561,6 @@ function addNewRow(insertBeforeRow = null, data = {}) {
         <td data-column-key="material_code">
             <div class="material-input">
                 <input type="text" class="form-control material-code" autocomplete="off">
-                <button type="button" class="material-select-btn" title="选择物料">▼</button>
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
@@ -622,8 +619,6 @@ function fillRowData(row, data) {
 function bindMaterialInput(row) {
     const input = row.querySelector('.material-code');
     const dropdown = row.querySelector('.material-dropdown');
-    const selectBtn = row.querySelector('.material-select-btn');
-
     input.addEventListener('input', function() {
         const keyword = this.value.trim();
         const material = findMaterialQuickMatch(keyword);
