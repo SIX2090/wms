@@ -52,6 +52,13 @@ const SECTION_COLORS = {
     'supplier_followup_list': 'success',
 };
 
+// XSS 防护：后端返回的 title/subtitle/detail/jump_url 等字段必须转义或校验后才能拼入 innerHTML
+function safeJumpUrl(url) {
+    const u = String(url || '');
+    if (u.startsWith('/') || u.startsWith('http://') || u.startsWith('https://')) return escapeHtml(u);
+    return '#';
+}
+
 async function loadWorkbench() {
     const container = document.getElementById('sectionsContainer');
     const summary = document.getElementById('summaryCards');
@@ -63,7 +70,7 @@ async function loadWorkbench() {
         const data = await resp.json();
 
         if (data.status !== 'success' || !data.workbench) {
-            container.innerHTML = '<div class="alert alert-danger">加载失败：' + (data.msg || '未知错误') + '</div>';
+            container.innerHTML = '<div class="alert alert-danger">加载失败：' + escapeHtml(data.msg || '未知错误') + '</div>';
             summary.innerHTML = '';
             return;
         }
@@ -76,7 +83,7 @@ async function loadWorkbench() {
                 <div class="card h-100 border-primary">
                     <div class="card-body p-2 text-center">
                         <div class="text-muted small">需关注总数</div>
-                        <div class="h4 mb-0 text-primary">${wb.total_attention_count}</div>
+                        <div class="h4 mb-0 text-primary">${escapeHtml(wb.total_attention_count)}</div>
                     </div>
                 </div>
             </div>
@@ -119,14 +126,14 @@ async function loadWorkbench() {
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <i class="bi ${icon}"></i>
-                                <span class="fw-semibold ms-1">${section.title}</span>
-                                <span class="badge ${badgeClass} ms-2">${section.count}</span>
+                                <span class="fw-semibold ms-1">${escapeHtml(section.title)}</span>
+                                <span class="badge ${badgeClass} ms-2">${escapeHtml(section.count)}</span>
                             </div>
-                            <a class="btn btn-outline-secondary btn-sm" href="${section.jump_url}" target="_blank">
+                            <a class="btn btn-outline-secondary btn-sm" href="${safeJumpUrl(section.jump_url)}" target="_blank" rel="noopener">
                                 <i class="bi bi-arrow-up-right-square"></i> 查看全部
                             </a>
                         </div>
-                        ${section.metric_scope ? '<div class="text-muted small mt-1"><i class="bi bi-info-circle"></i> 口径：' + section.metric_scope + ' | 范围：' + (section.time_range || '') + '</div>' : ''}
+                        ${section.metric_scope ? '<div class="text-muted small mt-1"><i class="bi bi-info-circle"></i> 口径：' + escapeHtml(section.metric_scope) + ' | 范围：' + escapeHtml(section.time_range || '') + '</div>' : ''}
                     </div>
                     <div class="card-body p-0">
             `;
@@ -143,12 +150,12 @@ async function loadWorkbench() {
                     html += `
                         <tr class="${rowClass}">
                             <td>
-                                <a href="${item.jump_url}" class="text-decoration-none fw-semibold">${item.title}</a>
+                                <a href="${safeJumpUrl(item.jump_url)}" class="text-decoration-none fw-semibold">${escapeHtml(item.title)}</a>
                             </td>
-                            <td class="text-muted small">${item.subtitle}</td>
-                            <td class="text-muted small">${item.detail}</td>
+                            <td class="text-muted small">${escapeHtml(item.subtitle)}</td>
+                            <td class="text-muted small">${escapeHtml(item.detail)}</td>
                             <td class="text-end">
-                                <a href="${item.jump_url}" class="btn btn-outline-primary btn-sm py-0 px-1" style="font-size:0.75rem">
+                                <a href="${safeJumpUrl(item.jump_url)}" class="btn btn-outline-primary btn-sm py-0 px-1" style="font-size:0.75rem">
                                     查看
                                 </a>
                             </td>
@@ -162,7 +169,7 @@ async function loadWorkbench() {
                 `;
             } else {
                 html += `
-                    <div class="text-center text-muted py-3">${section.empty_hint || '暂无数据'}</div>
+                    <div class="text-center text-muted py-3">${escapeHtml(section.empty_hint || '暂无数据')}</div>
                 `;
             }
 
@@ -176,7 +183,7 @@ async function loadWorkbench() {
         document.getElementById('footerInfo').textContent =
             '生成时间：' + wb.generated_at + '。工作台只读，所有操作需跳转到对应业务流程页面人工执行。催交话术需人工确认后发送。';
     } catch (e) {
-        container.innerHTML = '<div class="alert alert-danger">加载失败：' + e.message + '</div>';
+        container.innerHTML = '<div class="alert alert-danger">加载失败：' + escapeHtml(e.message) + '</div>';
         summary.innerHTML = '';
     }
 }

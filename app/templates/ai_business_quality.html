@@ -256,10 +256,10 @@ function renderMetricsCards(metrics) {
             <div class="col-6 col-md-3 col-xl">
                 <div class="card h-100">
                     <div class="card-body p-2">
-                        <div class="text-muted small">${m.label}</div>
+                        <div class="text-muted small">${escapeHtml(m.label)}</div>
                         <div class="h4 mb-1 ${textClass}">${rate}%</div>
                         <div class="text-muted small">${m.numerator} / ${m.denominator}</div>
-                        <div class="mt-1"><span class="badge ${bgClass}">${m.label}</span></div>
+                        <div class="mt-1"><span class="badge ${bgClass}">${escapeHtml(m.label)}</span></div>
                     </div>
                 </div>
             </div>
@@ -280,8 +280,8 @@ function renderDimensionTable(byDimension) {
     for (const [dim, values] of Object.entries(byDimension)) {
         for (const [value, metrics] of Object.entries(values)) {
             html += `<tr>
-                <td>${dimLabels[dim] || dim}</td>
-                <td>${value || '(空)'}</td>
+                <td>${escapeHtml(dimLabels[dim] || dim)}</td>
+                <td>${escapeHtml(value || '(空)')}</td>
                 <td class="text-end">${(metrics.classification_accuracy * 100).toFixed(1)}%</td>
                 <td class="text-end">${(metrics.header_accuracy * 100).toFixed(1)}%</td>
                 <td class="text-end">${(metrics.line_recall * 100).toFixed(1)}%</td>
@@ -307,7 +307,7 @@ function renderLowQualitySamples(snapshot) {
             const avgRate = Object.values(metrics).reduce((a, b) => a + b, 0) / Object.keys(metrics).length;
             if (avgRate < threshold) {
                 html += `<tr>
-                    <td>${dim}-${value}</td>
+                    <td>${escapeHtml(dim)}-${escapeHtml(value)}</td>
                     <td>-</td>
                     <td>-</td>
                     <td>-</td>
@@ -318,7 +318,7 @@ function renderLowQualitySamples(snapshot) {
                     <td class="text-end">${(metrics.line_recall * 100).toFixed(1)}%</td>
                     <td class="text-end">${(metrics.material_match_rate * 100).toFixed(1)}%</td>
                     <td class="text-end">${(metrics.human_correction_rate * 100).toFixed(1)}%</td>
-                    <td><button class="btn btn-sm btn-outline-primary" onclick="showSampleDetail('${dim}', '${value}')">详情</button></td>
+                    <td><button class="btn btn-sm btn-outline-primary" onclick="showSampleDetail('${escapeHtml(dim)}', '${escapeHtml(value)}')">详情</button></td>
                 </tr>`;
             }
         }
@@ -349,8 +349,8 @@ async function showSampleDetail(dim, value) {
         if (data.status === 'ok' && data.samples && data.samples.length > 0) {
             let html = `
                 <div class="mb-3">
-                    <strong>维度：</strong>${dim}<br>
-                    <strong>值：</strong>${value}<br>
+                    <strong>维度：</strong>${escapeHtml(dim)}<br>
+                    <strong>值：</strong>${escapeHtml(value)}<br>
                     <strong>样本数：</strong>${data.count}
                 </div>
                 <div class="table-responsive">
@@ -372,11 +372,11 @@ async function showSampleDetail(dim, value) {
             for (const sample of data.samples) {
                 html += `
                     <tr>
-                        <td>${sample.id}</td>
-                        <td>${sample.created_at || '-'}</td>
-                        <td>${sample.field_name || '-'}</td>
-                        <td>${sample.original_value || '-'}</td>
-                        <td>${sample.confirmed_value || '-'}</td>
+                        <td>${escapeHtml(sample.id)}</td>
+                        <td>${escapeHtml(sample.created_at || '-')}</td>
+                        <td>${escapeHtml(sample.field_name || '-')}</td>
+                        <td>${escapeHtml(sample.original_value || '-')}</td>
+                        <td>${escapeHtml(sample.confirmed_value || '-')}</td>
                         <td>${sample.adopted ? '是' : '否'}</td>
                         <td>${sample.confidence ? sample.confidence.toFixed(2) : '-'}</td>
                     </tr>
@@ -388,8 +388,8 @@ async function showSampleDetail(dim, value) {
         } else {
             content.innerHTML = `
                 <div class="mb-3">
-                    <strong>维度：</strong>${dim}<br>
-                    <strong>值：</strong>${value}
+                    <strong>维度：</strong>${escapeHtml(dim)}<br>
+                    <strong>值：</strong>${escapeHtml(value)}
                 </div>
                 <div class="alert alert-info">
                     暂无低质量样本记录。
@@ -399,7 +399,7 @@ async function showSampleDetail(dim, value) {
     } catch (e) {
         content.innerHTML = `
             <div class="alert alert-danger">
-                加载失败：${e.message}
+                加载失败：${escapeHtml(e.message)}
             </div>
         `;
     }
@@ -443,8 +443,8 @@ function renderVersionComparison(comparison) {
     const container = document.getElementById('versionComparisonResult');
     let html = `
         <div class="alert alert-info py-2">
-            <strong>${comparison.baseline_version}</strong> → <strong>${comparison.current_version}</strong>
-            <span class="ms-2">生成时间：${comparison.generated_at}</span>
+            <strong>${escapeHtml(comparison.baseline_version)}</strong> → <strong>${escapeHtml(comparison.current_version)}</strong>
+            <span class="ms-2">生成时间：${escapeHtml(comparison.generated_at)}</span>
         </div>
         <div class="table-responsive">
             <table class="table table-sm table-hover align-middle">
@@ -472,7 +472,7 @@ function renderVersionComparison(comparison) {
         
         html += `
             <tr>
-                <td>${baseline.label}</td>
+                <td>${escapeHtml(baseline.label)}</td>
                 <td class="text-end">${(baseline.rate * 100).toFixed(2)}%</td>
                 <td class="text-end">${(current.rate * 100).toFixed(2)}%</td>
                 <td class="text-end text-${color}">${deltaStr > 0 ? '+' : ''}${deltaStr}%</td>

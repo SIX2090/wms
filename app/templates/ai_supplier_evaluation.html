@@ -155,9 +155,9 @@ function loadSupplierEvaluation() {
                 summaryCards.style.display = 'flex';
             }
             
-            // 显示AI分析
+            // 显示AI分析（XSS 防护：AI 生成文本必须转义）
             if (res.ai_analysis) {
-                var analysisHtml = '<div class="text-muted" style="line-height:1.8;white-space:pre-wrap">' + res.ai_analysis + '</div>';
+                var analysisHtml = '<div class="text-muted" style="line-height:1.8;white-space:pre-wrap">' + escapeHtml(res.ai_analysis) + '</div>';
                 aiContent.innerHTML = analysisHtml;
             }
             
@@ -167,15 +167,15 @@ function loadSupplierEvaluation() {
                 renderEvalTable(res.evaluations);
                 evalCard.style.display = 'block';
             } else {
-                aiContent.innerHTML = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle-fill me-2"></i>' + (res.msg || '暂无供应商数据') + '</div>';
+                aiContent.innerHTML = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle-fill me-2"></i>' + escapeHtml(res.msg || '暂无供应商数据') + '</div>';
             }
         } else {
-            aiContent.innerHTML = '<div class="alert alert-warning mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + (res.msg || '生成失败') + '</div>';
+            aiContent.innerHTML = '<div class="alert alert-warning mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + escapeHtml(res.msg || '生成失败') + '</div>';
         }
     })
     .catch(function(err) {
         if (btn) btn.disabled = false;
-        aiContent.innerHTML = '<div class="alert alert-danger mb-0">请求失败：' + err.message + '</div>';
+        aiContent.innerHTML = '<div class="alert alert-danger mb-0">请求失败：' + escapeHtml(err.message) + '</div>';
     });
 }
 
@@ -186,14 +186,15 @@ function renderEvalTable(evalData) {
     var html = '';
     evalData.forEach(function(e) {
         var stabilityBadge = getStabilityBadge(e.price_stability);
-        
-        html += '<tr data-stability="' + e.price_stability + '">';
-        html += '<td><code>' + e.supplier_code + '</code></td>';
-        html += '<td>' + e.supplier_name + '</td>';
-        html += '<td>' + e.contact + '</td>';
-        html += '<td class="text-end"><strong>' + e.order_count + '</strong> 次</td>';
-        html += '<td class="text-end text-muted">' + e.delivery_freq + ' 次/月</td>';
-        html += '<td class="text-end">' + e.material_count + ' 种</td>';
+
+        // XSS 防护：供应商编码/名称/联系人等后端字段必须经 escapeHtml 转义
+        html += '<tr data-stability="' + escapeHtml(e.price_stability) + '">';
+        html += '<td><code>' + escapeHtml(e.supplier_code) + '</code></td>';
+        html += '<td>' + escapeHtml(e.supplier_name) + '</td>';
+        html += '<td>' + escapeHtml(e.contact) + '</td>';
+        html += '<td class="text-end"><strong>' + escapeHtml(e.order_count) + '</strong> 次</td>';
+        html += '<td class="text-end text-muted">' + escapeHtml(e.delivery_freq) + ' 次/月</td>';
+        html += '<td class="text-end">' + escapeHtml(e.material_count) + ' 种</td>';
         html += '<td class="text-end">¥' + e.total_amount.toLocaleString() + '</td>';
         html += '<td>' + stabilityBadge + '</td>';
         html += '<td class="text-end text-muted">' + (e.avg_price_cv * 100).toFixed(1) + '%</td>';

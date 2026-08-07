@@ -329,16 +329,18 @@ function showAiAnomalyAnalysis() {
   fetch('{{ url_for("api_ai_sales_order_anomaly_analysis", id=order.id) }}').then(function(r) { return r.json(); }).then(function(res) {
     if (res.status === 'success' && res.data) {
       const d = res.data;
+      // XSS 防护：AI 分析结果（kind/message/summary/order_no/status）必须经 escapeHtml 转义
       const items = (d.anomalies || []).map(function(a) {
-        return '<div class="alert alert-' + (a.severity === 'high' ? 'danger' : a.severity === 'medium' ? 'warning' : 'info') + ' py-2 mb-2"><strong>' + a.kind + '</strong>：' + a.message + '</div>';
+        const sev = a.severity === 'high' ? 'danger' : a.severity === 'medium' ? 'warning' : 'info';
+        return '<div class="alert alert-' + sev + ' py-2 mb-2"><strong>' + escapeHtml(a.kind) + '</strong>：' + escapeHtml(a.message) + '</div>';
       }).join('');
-      body.innerHTML = '<div class="mb-2 small text-muted">订单：' + (d.order && d.order.order_no || '') + ' · 状态：' + (d.order && d.order.status || '') + '</div>' +
-        '<div class="mb-2"><strong>总结：</strong>' + (d.summary || '无异常') + '</div>' +
+      body.innerHTML = '<div class="mb-2 small text-muted">订单：' + escapeHtml(d.order && d.order.order_no || '') + ' · 状态：' + escapeHtml(d.order && d.order.status || '') + '</div>' +
+        '<div class="mb-2"><strong>总结：</strong>' + escapeHtml(d.summary || '无异常') + '</div>' +
         (items || '<div class="text-muted">未检测到异常</div>');
     } else {
-      body.innerHTML = '<div class="alert alert-danger">' + (res.msg || '分析失败') + '</div>';
+      body.innerHTML = '<div class="alert alert-danger">' + escapeHtml(res.msg || '分析失败') + '</div>';
     }
-  }).catch(function(err) { body.innerHTML = '<div class="alert alert-danger">分析失败：' + err.message + '</div>'; });
+  }).catch(function(err) { body.innerHTML = '<div class="alert alert-danger">分析失败：' + escapeHtml(err.message) + '</div>'; });
 }
 </script>
 {% endblock %}
