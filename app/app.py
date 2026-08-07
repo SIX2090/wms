@@ -17557,15 +17557,20 @@ def ai_ops_dashboard():
 @login_required
 @require_role('admin')
 def ai_data_retention_page():
-    """AI-R14-F01 数据保留管理页面。"""
-    from ai.ops.data_retention import default_retention_config, CATEGORY_CONVERSATIONS, CATEGORY_IMAGES, CATEGORY_TASKS, CATEGORY_FEEDBACK, CATEGORY_AUDIT
-    config_obj = default_retention_config()
+    """AI-R14-F01 数据保留管理页面（展示管理员已保存的保留策略）。"""
+    from ai.ops.data_retention import CATEGORY_CONVERSATIONS, CATEGORY_IMAGES, CATEGORY_TASKS, CATEGORY_FEEDBACK, CATEGORY_AUDIT
+    config_obj = _ai_data_retention_config(dry_run=True)
+
+    def _days(category, fallback):
+        policy = config_obj.get_policy(category)
+        return policy.retention_days if policy else fallback
+
     config = {
-        'conversations_days': (config_obj.get_policy(CATEGORY_CONVERSATIONS) or type('X', (), {'retention_days': 90})()).retention_days,
-        'images_days': (config_obj.get_policy(CATEGORY_IMAGES) or type('X', (), {'retention_days': 30})()).retention_days,
-        'tasks_days': (config_obj.get_policy(CATEGORY_TASKS) or type('X', (), {'retention_days': 180})()).retention_days,
-        'feedback_days': (config_obj.get_policy(CATEGORY_FEEDBACK) or type('X', (), {'retention_days': 365})()).retention_days,
-        'audit_days': (config_obj.get_policy(CATEGORY_AUDIT) or type('X', (), {'retention_days': 0})()).retention_days,
+        'conversations_days': _days(CATEGORY_CONVERSATIONS, 90),
+        'images_days': _days(CATEGORY_IMAGES, 30),
+        'tasks_days': _days(CATEGORY_TASKS, 180),
+        'feedback_days': _days(CATEGORY_FEEDBACK, 365),
+        'audit_days': _days(CATEGORY_AUDIT, 0),
         'dry_run': config_obj.dry_run,
         'enabled': config_obj.enabled,
     }
@@ -25804,13 +25809,12 @@ def api_ai_data_cleanup_preview():
     data = request.get_json(silent=True) or {}
     try:
         from ai.ops.data_retention import (
-            default_retention_config as _dr_default_config,
             preview_cleanup as _dr_preview,
             validate_no_business_data_deleted as _dr_no_biz,
             validate_critical_audit_exempt as _dr_exempt,
             ALL_CATEGORIES as _DR_ALL_CATEGORIES,
         )
-        config = _dr_default_config(dry_run=True)
+        config = _ai_data_retention_config(dry_run=True)
         # 支持自定义保留期限覆盖
         if 'policies' in data:
             from ai.ops.data_retention import RetentionPolicy, RetentionConfig
@@ -25864,13 +25868,12 @@ def api_ai_data_cleanup_execute():
     data = request.get_json(silent=True) or {}
     try:
         from ai.ops.data_retention import (
-            default_retention_config as _dr_default_config,
             execute_cleanup as _dr_execute,
             validate_no_business_data_deleted as _dr_no_biz,
             validate_critical_audit_exempt as _dr_exempt,
             ALL_CATEGORIES as _DR_ALL_CATEGORIES,
         )
-        config = _dr_default_config(dry_run=False)
+        config = _ai_data_retention_config(dry_run=False)
         categories = data.get('categories')
         if categories:
             categories = tuple(c for c in categories if c in _DR_ALL_CATEGORIES)
@@ -25925,20 +25928,48 @@ def api_ai_data_cleanup_logs():
         app.logger.error(f'AI-R14 清理日志查询失败: {e}')
         return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
 
+def _ai_data_retention_config(dry_run=True):
+    """构建 AI 数据保留配置：优先读取 SystemSetting 中管理员保存的值，缺省回退默认。
+
+    持久化键：ai_retention_<category>_days（如 ai_retention_conversations_days）。
+    """
+    from ai.ops.data_retention import (
+        RetentionPolicy,
+        RetentionConfig,
+        DEFAULT_RETENTION_DAYS as _DR_DEFAULT_DAYS,
+        CATEGORY_AUDIT as _DR_AUDIT,
+    )
+    policies = []
+    for category, default_days in _DR_DEFAULT_DAYS.items():
+        raw = get_system_setting(f'ai_retention_{category}_days', '')
+        try:
+            days = int(raw) if raw not in ('', None) else int(default_days)
+        except (TypeError, ValueError):
+            days = int(default_days)
+        if days < 0 or (days == 0 and category != _DR_AUDIT):
+            days = int(default_days)
+        policies.append(RetentionPolicy(
+            category=category,
+            retention_days=days,
+            critical_exempt=(category == _DR_AUDIT),
+            description=f'{category} 保留 {days if days > 0 else "永久"} 天',
+        ))
+    return RetentionConfig(policies=tuple(policies), dry_run=dry_run, enabled=True)
+
+
 @app.route('/api/ai/data_retention_config', methods=['GET'])
 @login_required
 @require_role('admin')
 def api_ai_data_retention_config_get():
-    """AI-R14 保留策略配置查询端点。"""
+    """AI-R14 保留策略配置查询端点（返回管理员已保存的配置）。"""
     try:
         from ai.ops.data_retention import (
-            default_retention_config as _dr_default_config,
             DEFAULT_RETENTION_DAYS as _DR_DEFAULT_DAYS,
             ALL_CATEGORIES as _DR_ALL_CATEGORIES,
             PROTECTED_BUSINESS_DATA as _DR_PROTECTED,
             SENSITIVE_FIELDS as _DR_SENSITIVE,
         )
-        config = _dr_default_config(dry_run=True)
+        config = _ai_data_retention_config(dry_run=True)
         return jsonify({
             'status': 'success',
             'config': config.to_dict(),
@@ -25955,34 +25986,54 @@ def api_ai_data_retention_config_get():
 @login_required
 @require_role('admin')
 def api_ai_data_retention_config_post():
-    """AI-R14-F01 保留策略配置保存端点。"""
+    """AI-R14-F01 保留策略配置保存端点（持久化到 SystemSetting）。"""
     data = request.get_json(silent=True) or {}
     try:
-        # TODO: 持久化到数据库（当前仅验证输入）
-        conversations_days = int(data.get('conversations_days', 90))
-        images_days = int(data.get('images_days', 30))
-        tasks_days = int(data.get('tasks_days', 180))
-        feedback_days = int(data.get('feedback_days', 365))
-        audit_days = int(data.get('audit_days', 0))
-        
-        if conversations_days < 1 or images_days < 1 or tasks_days < 1 or feedback_days < 1 or audit_days < 0:
-            return jsonify({'status': 'error', 'msg': '保留期限必须为正整数（审计可为0表示永久）'}), 400
-        
-        # TODO: 保存到 AIDataRetentionConfig 表
-        app.logger.info(f'AI-R14-F01 保留配置更新：对话={conversations_days}天, 图片={images_days}天, 任务={tasks_days}天, 反馈={feedback_days}天, 审计={audit_days}天')
-        
+        from ai.ops.data_retention import (
+            DEFAULT_RETENTION_DAYS as _DR_DEFAULT_DAYS,
+            CATEGORY_AUDIT as _DR_AUDIT,
+        )
+        field_map = {
+            'conversations_days': 'conversations',
+            'images_days': 'images',
+            'tasks_days': 'tasks',
+            'feedback_days': 'feedback',
+            'audit_days': 'audit',
+        }
+        parsed: dict[str, int] = {}
+        for field, category in field_map.items():
+            try:
+                days = int(data.get(field, _DR_DEFAULT_DAYS.get(category, 0)))
+            except (TypeError, ValueError):
+                return jsonify({'status': 'error', 'msg': f'{field} 必须是整数'}), 400
+            min_ok = 0 if category == _DR_AUDIT else 1
+            if days < min_ok:
+                return jsonify({'status': 'error', 'msg': '保留期限必须为正整数（审计可为0表示永久）'}), 400
+            parsed[category] = days
+
+        for category, days in parsed.items():
+            set_system_setting(f'ai_retention_{category}_days', days)
+        db.session.commit()
+
+        app.logger.info(
+            'AI-R14-F01 保留配置已持久化：对话=%s天, 图片=%s天, 任务=%s天, 反馈=%s天, 审计=%s天',
+            parsed['conversations'], parsed['images'], parsed['tasks'],
+            parsed['feedback'], parsed['audit'],
+        )
+
         return jsonify({
             'status': 'success',
-            'msg': '配置已保存（当前为演示模式，重启后恢复默认值）',
+            'msg': '配置已保存',
             'config': {
-                'conversations_days': conversations_days,
-                'images_days': images_days,
-                'tasks_days': tasks_days,
-                'feedback_days': feedback_days,
-                'audit_days': audit_days,
+                'conversations_days': parsed['conversations'],
+                'images_days': parsed['images'],
+                'tasks_days': parsed['tasks'],
+                'feedback_days': parsed['feedback'],
+                'audit_days': parsed['audit'],
             }
         })
     except Exception as e:
+        db.session.rollback()
         app.logger.error(f'AI-R14-F01 保留配置保存失败: {e}')
         return jsonify({'status': 'error', 'msg': f'保存失败：{str(e)}'}), 500
 
