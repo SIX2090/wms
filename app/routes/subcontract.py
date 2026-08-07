@@ -80,7 +80,9 @@ def register_subcontract_routes(app):
         orders = SubcontractOrder.query.order_by(SubcontractOrder.created_at.desc()).all()
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()
-        return render_template('subcontract_progress.html', orders=orders, materials=materials, units=units)
+        # 构造 progress_data 供模板使用
+        progress_data = [{'order': o} for o in orders]
+        return render_template('subcontract_progress.html', orders=orders, materials=materials, units=units, progress_data=progress_data)
 
     @app.route('/subcontract/<int:id>')
     @login_required
