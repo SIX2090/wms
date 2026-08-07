@@ -3329,7 +3329,12 @@
                 }).then(function(data) {
                     if (data.success) {
                         showToast('任务已重新提交', 'success');
-                        loadDocumentTasks(); // 重新加载任务列表
+                        // 重新加载任务列表（如果当前页面有任务列表容器）
+                        if (typeof loadDocumentTasks === 'function') {
+                            loadDocumentTasks();
+                        } else if (document.querySelector('.ai-document-tasks')) {
+                            location.reload();
+                        }
                     }
                 });
             }
