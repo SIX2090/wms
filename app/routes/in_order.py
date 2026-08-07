@@ -2057,6 +2057,90 @@ def register_in_order_routes(app):
             msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
         return jsonify({'status': 'success', 'msg': msg, 'reverted': reverted})
 
+    @app.route('/in_order/batch_print', methods=['POST'])
+    @login_required
+    def batch_print_in_order():
+        payload = request.get_json(silent=True) or {}
+        ids = payload.get('ids') or request.form.getlist('ids')
+        ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
+        if not ids:
+            return jsonify({'status': 'error', 'msg': '请选择要打印的入库单'})
+        if len(ids) > 100:
+            return jsonify({'status': 'error', 'msg': '单次批量打印不能超过 100 条'}), 400
+        from app import InOrder
+        orders = InOrder.query.filter(InOrder.id.in_(ids)).all()
+        if not orders:
+            return jsonify({'status': 'error', 'msg': '未找到符合条件的入库单'})
+        order_nos = ', '.join([o.order_no for o in orders[:5]])
+        if len(orders) > 5:
+            order_nos += f' 等 {len(orders)} 张'
+        return jsonify({
+            'status': 'success',
+            'msg': f'已选择 {len(orders)} 张入库单进行打印：{order_nos}',
+            'count': len(orders),
+            'redirect': f'/in_order/{orders[0].id}/print'
+        })
+
+    @app.route('/in_order/batch_export', methods=['POST'])
+    @login_required
+    def batch_export_in_order():
+        import io
+        from openpyxl import Workbook
+        from flask import send_file
+        payload = request.get_json(silent=True) or {}
+        ids = payload.get('ids') or request.form.getlist('ids')
+        ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
+        if not ids:
+            return jsonify({'status': 'error', 'msg': '请选择要导出的入库单'})
+        if len(ids) > 1000:
+            return jsonify({'status': 'error', 'msg': '单次批量导出不能超过 1000 条'}), 400
+        from sqlalchemy.orm import joinedload
+        from app import InOrder
+        orders = InOrder.query.options(joinedload(InOrder.items)).filter(InOrder.id.in_(ids)).all()
+        if not orders:
+            return jsonify({'status': 'error', 'msg': '未找到符合条件的入库单'})
+        wb = Workbook()
+        ws = wb.active
+        ws.title = '入库单批量导出'
+        ws.append(['单据编号', '日期', '业务类型', '供应商', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态', '备注'])
+        for order in orders:
+            if order.items:
+                for item in order.items:
+                    ws.append([
+                        order.order_no,
+                        order.date.strftime('%Y-%m-%d') if order.date else '',
+                        order.business_type or '采购入库',
+                        order.supplier.name if order.supplier else '',
+                        order.warehouse or '',
+                        item.material.code if item.material else '',
+                        item.material.name if item.material else '',
+                        item.material.spec if item.material else '',
+                        item.material.unit.name if item.material and item.material.unit else '',
+                        float(item.quantity or 0),
+                        float(item.price or 0),
+                        float(item.amount or 0),
+                        '已完成' if order.status == 'completed' else '待完成',
+                        order.remark or ''
+                    ])
+            else:
+                ws.append([
+                    order.order_no,
+                    order.date.strftime('%Y-%m-%d') if order.date else '',
+                    order.business_type or '采购入库',
+                    order.supplier.name if order.supplier else '',
+                    order.warehouse or '',
+                    '', '', '', '', 0, 0, 0,
+                    '已完成' if order.status == 'completed' else '待完成',
+                    order.remark or ''
+                ])
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        from datetime import datetime
+        filename = f'入库单批量导出_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        return send_file(output, download_name=filename, as_attachment=True,
+                        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
     @app.route('/in_order/<int:id>/preview_template')
     @login_required
     def preview_in_order_template(id):

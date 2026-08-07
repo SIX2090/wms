@@ -5,8 +5,23 @@
 <div class="page-header">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h2 class="mb-0"><i class="bi bi-box-arrow-in-down"></i> {{ page_title or '采购入库单' }}</h2>
+        <div class="d-flex gap-2 align-items-center">
+            <div class="input-group input-group-sm" style="width: 280px;">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" class="form-control" id="quickSearchInput" placeholder="快速搜索单号..." autocomplete="off">
+                <button class="btn btn-outline-secondary" type="button" onclick="quickSearchInOrder()">
+                    <i class="bi bi-arrow-right"></i>
+                </button>
+            </div>
+        </div>
         {% if current_user.role in ['admin', 'warehouse'] %}
         <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+            <button type="button" class="btn btn-outline-info btn-sm" onclick="batchInOrderAction('/in_order/batch_print', '请选择要打印的入库单', '确认打印选中的入库单？', true)">
+                <i class="bi bi-printer"></i> 批量打印
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_export', '请选择要导出的入库单', '确认导出选中的入库单？', true)">
+                <i class="bi bi-file-earmark-excel"></i> 批量导出
+            </button>
             <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchInOrderAction('/in_order/batch_delete', '请选择要删除的入库单', '确认删除选中的入库单？')">
                 <i class="bi bi-trash"></i> 删除已选
             </button>
@@ -92,26 +107,26 @@
         <table class="table table-bordered table-hover table-sm mb-0" id="inOrderTable">
             <thead>
                 <tr>
-                    <th width="56" class="text-center">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
-                    <th width="70">序号</th>
-                    <th data-sortable="order_no" class="sortable-header">入库单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-sortable="business_type" class="sortable-header">入库来源 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th>来源采购单</th>
-                    <th data-sortable="supplier_id" class="sortable-header">往来/生产来源 {% if sort_by=='supplier_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th>物料编号</th>
-                    <th>物料名称</th>
-                    <th>规格</th>
-                    <th>单位</th>
-                    <th>数量</th>
-                    <th>单价</th>
-                    <th data-sortable="total_amount" class="sortable-header">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-sortable="purpose" class="sortable-header">用途 {% if sort_by=='purpose' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th>合同编号</th>
-                    <th>工程名称</th>
-                    <th>来源状态</th>
-                    <th data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th width="90">操作</th>
+                    <th width="56" class="text-center" title="选择">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
+                    <th width="70" title="序号">序号</th>
+                    <th data-sortable="order_no" class="sortable-header" title="入库单号">入库单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="date" class="sortable-header" title="日期">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="business_type" class="sortable-header" title="入库来源">入库来源 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th title="来源采购单">来源采购单</th>
+                    <th data-sortable="supplier_id" class="sortable-header" title="往来/生产来源">往来/生产来源 {% if sort_by=='supplier_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th title="物料编号">物料编号</th>
+                    <th title="物料名称">物料名称</th>
+                    <th title="规格">规格</th>
+                    <th title="单位">单位</th>
+                    <th title="数量">数量</th>
+                    <th title="单价">单价</th>
+                    <th data-sortable="total_amount" class="sortable-header" title="金额">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="purpose" class="sortable-header" title="用途">用途 {% if sort_by=='purpose' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th title="合同编号">合同编号</th>
+                    <th title="工程名称">工程名称</th>
+                    <th title="来源状态">来源状态</th>
+                    <th data-sortable="status" class="sortable-header" title="状态">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th width="90" title="操作">操作</th>
                 </tr>
             </thead>
             <tbody>
@@ -287,7 +302,32 @@ document.addEventListener('DOMContentLoaded', function() {
             window.location.href = url.toString();
         });
     });
+
+    // 快速搜索功能
+    var quickSearchInput = document.getElementById('quickSearchInput');
+    if (quickSearchInput) {
+        quickSearchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                quickSearchInOrder();
+            }
+        });
+    }
 });
+
+// 快速搜索入库单
+function quickSearchInOrder() {
+    var input = document.getElementById('quickSearchInput');
+    if (!input) return;
+    var keyword = input.value.trim();
+    if (!keyword) {
+        showToast('请输入搜索关键词', 'warning');
+        return;
+    }
+    var url = new URL(window.location.href);
+    url.searchParams.set('search', keyword);
+    url.searchParams.set('page', '1');
+    window.location.href = url.toString();
+}
 
 function changePerPage(perPage) {
     var url = new URL(window.location.href);

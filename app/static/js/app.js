@@ -3175,7 +3175,51 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 最近访问功能
     initRecentVisits();
+
+    // 键盘快捷键
+    initKeyboardShortcuts();
 });
+
+// 键盘快捷键管理
+function initKeyboardShortcuts() {
+    document.addEventListener('keydown', function(e) {
+        // 忽略输入框内的快捷键
+        var tagName = (e.target && e.target.tagName) || '';
+        if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
+            return;
+        }
+
+        // Ctrl+S: 保存（阻止默认行为，触发提交）
+        if (e.ctrlKey && e.key === 's') {
+            e.preventDefault();
+            var saveBtn = document.querySelector('[onclick*="submitForm"], button[type="submit"], .btn-save');
+            if (saveBtn) {
+                saveBtn.click();
+                showToast('正在保存...', 'info', 1000);
+            }
+            return;
+        }
+
+        // Ctrl+N: 新增（跳转到新增页面）
+        if (e.ctrlKey && e.key === 'n') {
+            e.preventDefault();
+            var addBtn = document.querySelector('a[href*="/add"], .btn-add, [onclick*="addNewRow"]');
+            if (addBtn) {
+                addBtn.click();
+            }
+            return;
+        }
+
+        // Esc: 返回列表
+        if (e.key === 'Escape') {
+            var backBtn = document.querySelector('a[href*="返回列表"], .btn-back, a[href$="/in_order"], a[href$="/requisition"]');
+            if (backBtn && !document.querySelector('.modal.show')) {
+                backBtn.click();
+            }
+            return;
+        }
+    });
+}
 
 // 最近访问管理
 function initRecentVisits() {
