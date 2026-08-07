@@ -6022,13 +6022,12 @@ def api_subcontract_quick_receive():
     return jsonify({'status': 'success', 'msg': '收货成功'})
 
 def validate_password_strength(password):
-    """Validate password strength rules."""
-    if len(password) < 8:
-        return False, '密码长度不能少于 8 位'
-    if not any(c.isdigit() for c in password):
-        return False, '密码必须包含数字'
-    if not any(c.isalpha() for c in password):
-        return False, '密码必须包含字母'
+    """Validate password strength rules.
+
+    当前策略：仅要求非空，不做长度和复杂度限制。
+    """
+    if not password:
+        return False, '密码不能为空'
     return True, None
 
 

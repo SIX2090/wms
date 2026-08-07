@@ -54,8 +54,6 @@ def register_user_auth_routes(app):
         valid, message = validate_password_strength(new_password)
         if not valid:
             return jsonify({'status': 'error', 'msg': message}), 400
-        if new_password == current_password:
-            return jsonify({'status': 'error', 'msg': '新密码不能与当前密码相同'}), 400
         try:
             current_user.password_hash = generate_password_hash(new_password)
             current_user.must_change_password = False
