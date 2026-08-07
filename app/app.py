@@ -5184,7 +5184,7 @@ def ensure_bootstrap_admin_user():
         role='admin',
         status='normal',
         created_at=datetime.now(),
-        must_change_password=not bool(os.environ.get('WMS_BOOTSTRAP_PASSWORD')),
+        must_change_password=False,
     )
     db.session.add(user)
     try:
@@ -5193,24 +5193,14 @@ def ensure_bootstrap_admin_user():
         db.session.rollback()
         app.logger.error(f"Failed to create bootstrap admin user: {e}")
         raise
-    app.logger.warning("Bootstrap admin account created: username=%s. Please change the password after first login.", username)
+    app.logger.warning("Bootstrap admin account created: username=%s.", username)
     return user
 
 def ensure_admin_user_exists():
     """Ensure admin user exists; create if missing, unlock only if disabled."""
     user = User.query.filter_by(username='admin').first()
     if user:
-        # 不修改现有账号密码；仅识别仍使用固定 bootstrap 密码的账号并强制其自行修改。
-        if (not os.environ.get('WMS_BOOTSTRAP_PASSWORD')
-                and check_password_hash(user.password_hash, 'admin')
-                and not user.must_change_password):
-            user.must_change_password = True
-            try:
-                db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                app.logger.error(f'Failed to mark default admin password for change: {e}')
-        # 如果设置了 WMS_BOOTSTRAP_PASSWORD 环境变量，允许跳过强制修改密码
+        # 不再强制首次登录改密码；保留环境变量覆盖能力（设置 WMS_BOOTSTRAP_PASSWORD 时清除标记）
         if os.environ.get('WMS_BOOTSTRAP_PASSWORD') and user.must_change_password:
             user.must_change_password = False
             try:
@@ -5242,7 +5232,7 @@ def ensure_admin_user_exists():
         role='admin',
         status='normal',
         created_at=datetime.now(),
-        must_change_password=not bool(os.environ.get('WMS_BOOTSTRAP_PASSWORD')),
+        must_change_password=False,
     )
     db.session.add(user)
     try:
