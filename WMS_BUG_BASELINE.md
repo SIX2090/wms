@@ -156,6 +156,7 @@
 
 | BUG-2026-08-06-001 | `auto_migrate_database()` 在 Flask config 加载之前执行，且用硬编码路径 `app/instance/inventory.db` 检查数据库，与 SQLAlchemy 实际使用的数据库（由 `SQLALCHEMY_DATABASE_URI` 决定）不一致，导致老库启动时领料单 `out_order.picker` 等字段未被添加，访问领料单直接报 `no such column: out_order.picker` | `app/app.py:auto_migrate_database()` 将迁移调用移动到 config 加载之后，并新增纯函数 `_resolve_sqlite_db_path()` 从 `app.config['SQLALCHEMY_DATABASE_URI']` 解析真实 sqlite 路径（绝对/相对拼接/内存库/非 sqlite 均正确处理）。回归：`tests/test_auto_migrate_db_path.py` 5 用例全绿（绝对路径原样、相对路径拼接 instance_path、内存库返回 None、非 sqlite 返回 None、config 回退）。commit 见本次提交 |
 | BUG-2026-08-07-001 | 7 个 AI 相关模板把后端/AI 返回字段直接拼入 `innerHTML`，存在存储型 XSS：`ai_sales_workbench.html`/`ai_warehouse_workbench.html`/`ai_purchase_workbench.html`（section.title/count/metric_scope、item.title/subtitle/detail/jump_url）、`sales_order_detail.html`（AI 异常分析 kind/message/summary/order_no/status）、`ai_business_quality.html`（指标 label、维度值、样本字段、版本对比）、`ai_supplier_evaluation.html`（ai_analysis、msg、supplier_code/name/contact 等）、`in_order_detail.html`（异常提醒 a.msg/a.ai_suggestion，更早一批修复） | 所有动态文本统一经 base.html 全局 `escapeHtml()` 转义；三个工作台跳转链接统一走 `safeJumpUrl()` 白名单（仅允许 `/` 或 `http(s)://` 开头，其余回退 `#`）。回归：`tests/verify_bug_2026_08_07_001_ai_templates_xss_escape.py` T1-T6（静态扫描 7 模板转义覆盖 + 未转义危险拼接模式清零） |
+| BUG-2026-08-07-002 | pytest 全量跑时 `test_document_confirmation_golden.py`/`test_fix_db_columns.py`/`test_material_governance_golden.py` 3 个 golden 测试收集报 `ModuleNotFoundError: No module named 'app.ai'; 'app' is not a package`：其他测试模块先 `sys.path.insert(APP_DIR)` + `import app`（命中 app/app.py 模块，无 `__path__`），此后 `from app.fix_db_columns import ...` / `from app.ai... import ...` 包语义导入失败；单跑时 /workspace 在 sys.path，app 以 namespace 包加载故可过——结果依赖导入顺序，属测试隔离缺陷（与 BUG-2026-08-05-007 同类不同因） | `tests/conftest.py` 抢先以模块语义导入 app（与所有业务测试一致），再补 `__path__` 指向 APP_DIR，使 `import app.ai.xxx` / `import app.fix_db_columns` 沿该路径解析，模块/包两种语义共存。回归：`pytest tests/ -q` 139 passed 0 errors（修复前 3 collection errors） |
 
 ## 已确认误报
 
@@ -163,6 +164,7 @@
 |------|--------|----------|
 | BUG-003 | 委外收货数量双倍计算 | 源码已有 autoflush 处理说明，sum 查询没有额外加本次数量 |
 | BUG-008 | 全局确认框变量竞态 | 当前实现已使用确认队列，不存在 resolver 覆盖 |
+| SCAN-2026-08-07-001 | `scan_wms_risks.py` 报 4 个 `\|safe` 候选：`alert.html:237`、`sales_reconciliation_report.html:147`、`print_out_with_html.html:63`、`print_in_with_html.html:67` | 逐个人工判真均为误报：①`alert.html` 全文件无 `\|safe`（行号漂移误匹配）；②`sales_reconciliation_report.html:147` 是 `chart_data\|tojson\|safe`，即 VULN-005 确立的标准安全写法；③两个打印模板的 `rendered_content` 由 `_render_html_print_content()` 生成，已经 `SandboxedEnvironment(autoescape=True)` 沙箱渲染 + `sanitize_print_html()` 白名单净化双重防护（VULN-001 已登记） |
 
 ## 降级或暂缓项
 
