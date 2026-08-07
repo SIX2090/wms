@@ -6018,10 +6018,13 @@ def api_subcontract_quick_receive():
 def validate_password_strength(password):
     """Validate password strength rules.
 
-    当前策略：仅要求非空，不做长度和复杂度限制。
+    策略：最小长度 6 位（可通过环境变量 PASSWORD_MIN_LENGTH 覆盖）。
     """
     if not password:
         return False, '密码不能为空'
+    min_length = int(os.environ.get('PASSWORD_MIN_LENGTH', SYSTEM_CONFIG.get('PASSWORD_MIN_LENGTH', 6)))
+    if len(password) < min_length:
+        return False, f'密码长度不能少于 {min_length} 位'
     return True, None
 
 
