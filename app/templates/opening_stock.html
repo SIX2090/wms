@@ -221,11 +221,11 @@
         </div>
 
         <div class="tabs">
-            <div class="tab active">明细</div>
-            <div class="tab">汇总</div>
+            <div class="tab active" data-tab="detail" onclick="switchTab('detail')">明细</div>
+            <div class="tab" data-tab="summary" onclick="switchTab('summary')">汇总</div>
         </div>
 
-        <div class="opening-grid-wrap">
+        <div id="detailView" class="opening-grid-wrap">
             <table class="opening-grid" id="openingGrid">
                 <thead>
                     <tr>
@@ -243,6 +243,24 @@
                     </tr>
                 </thead>
                 <tbody id="openingGridBody"></tbody>
+            </table>
+        </div>
+        <div id="summaryView" class="opening-grid-wrap" style="display:none;">
+            <table class="opening-grid" id="summaryGrid">
+                <thead>
+                    <tr>
+                        <th style="width:60px;">序号</th>
+                        <th style="width:150px;">仓库</th>
+                        <th style="width:150px;">物料编码</th>
+                        <th>物料名称</th>
+                        <th style="width:100px;">规格</th>
+                        <th style="width:70px;">单位</th>
+                        <th style="width:100px;">总数量</th>
+                        <th style="width:100px;">平均单价</th>
+                        <th style="width:120px;">总金额</th>
+                    </tr>
+                </thead>
+                <tbody id="summaryGridBody"></tbody>
             </table>
         </div>
         <div class="grid-footer">
@@ -538,6 +556,66 @@ function escapeHtml(value) {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+}
+
+function switchTab(tabName) {
+    const detailView = document.getElementById('detailView');
+    const summaryView = document.getElementById('summaryView');
+    const tabs = document.querySelectorAll('.tabs .tab');
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
+    if (tabName === 'summary') {
+        detailView.style.display = 'none';
+        summaryView.style.display = '';
+        renderSummary();
+    } else {
+        detailView.style.display = '';
+        summaryView.style.display = 'none';
+    }
+}
+
+function renderSummary() {
+    const summaryBody = document.getElementById('summaryGridBody');
+    const grouped = {};
+    rows.forEach(row => {
+        if (!row.material_id) return;
+        const key = (row.warehouse_id || '') + '|' + row.material_id;
+        if (!grouped[key]) {
+            grouped[key] = {
+                warehouse_id: row.warehouse_id,
+                warehouse_name: row.warehouse_name || '',
+                material_id: row.material_id,
+                material_code: row.material_code || '',
+                material_name: row.material_name || '',
+                spec: row.spec || '',
+                unit: row.unit || '',
+                total_qty: 0,
+                total_amount: 0
+            };
+        }
+        const g = grouped[key];
+        const qty = Number(row.quantity || 0);
+        g.total_qty += qty;
+        g.total_amount += qty * Number(row.price || 0);
+    });
+    const items = Object.values(grouped);
+    if (!items.length) {
+        summaryBody.innerHTML = '<tr><td colspan="9" class="text-center text-muted" style="padding:18px;">暂无数据，请先在明细中录入物料</td></tr>';
+        return;
+    }
+    summaryBody.innerHTML = items.map((g, i) => {
+        const avgPrice = g.total_qty > 0 ? g.total_amount / g.total_qty : 0;
+        return `<tr>
+            <td class="row-no">${i + 1}</td>
+            <td>${escapeHtml(g.warehouse_name)}</td>
+            <td>${escapeHtml(g.material_code)}</td>
+            <td>${escapeHtml(g.material_name)}</td>
+            <td>${escapeHtml(g.spec)}</td>
+            <td>${escapeHtml(g.unit)}</td>
+            <td class="num">${formatMoney(g.total_qty, false)}</td>
+            <td class="num">${formatMoney(avgPrice, false)}</td>
+            <td class="amount">${formatMoney(g.total_amount, true)}</td>
+        </tr>`;
+    }).join('');
 }
 
 document.addEventListener('click', event => {
