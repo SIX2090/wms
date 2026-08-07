@@ -93,11 +93,27 @@ def eval_js(expr):
 
 print("BEFORE URL:", eval_js("location.href"))
 
+# 先登出
+cdp(s, "Page.navigate", {"url": "http://127.0.0.1:8080/logout"})
+time.sleep(3)
+
 # 导航到登录页
 cdp(s, "Page.navigate", {"url": "http://127.0.0.1:8080/login"})
 time.sleep(4)
 print("LOGIN URL:", eval_js("location.href"))
 print("LOGIN TITLE:", eval_js("document.title"))
+
+# 点击管理员 tab
+eval_js("""
+(function(){
+  var tabs = document.querySelectorAll('[role=tab]');
+  for(var i=0;i<tabs.length;i++){
+    if(tabs[i].textContent.trim()==='管理员'){ tabs[i].click(); return 'clicked_admin'; }
+  }
+  return 'no_admin_tab';
+})()
+""")
+time.sleep(1)
 
 # 填写用户名密码并提交
 result = eval_js("""
@@ -113,8 +129,8 @@ result = eval_js("""
 })()
 """)
 print("FILL:", result)
-time.sleep(4)
+time.sleep(5)
 print("AFTER_URL:", eval_js("location.href"))
 print("AFTER_TITLE:", eval_js("document.title"))
-print("AFTER_BODY:", (eval_js("document.body ? document.body.innerText.slice(0,300) : 'NO_BODY'") or ""))
+print("AFTER_BODY:", (eval_js("document.body ? document.body.innerText.slice(0,500) : 'NO_BODY'") or ""))
 s.close()
