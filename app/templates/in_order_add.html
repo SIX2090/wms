@@ -1547,7 +1547,7 @@ document.addEventListener('click', function(e) {
 document.addEventListener('DOMContentLoaded', function() {
     // Default to 30 empty rows so the table looks complete on first open.
     if (!document.querySelector('#materialTableBody tr')) {
-        for (let i = 0; i < 5; i++) addNewRow();
+        for (let i = 0; i < 30; i++) addNewRow();
     }
     if (window.WMS && window.WMS.ContractAutocomplete) {
         window.WMS.ContractAutocomplete.bindAll();

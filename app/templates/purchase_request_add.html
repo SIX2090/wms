@@ -950,7 +950,12 @@ document.addEventListener('DOMContentLoaded', function() {
             addNewRow(null, item);
         });
     }
-    // 无初始数据时不再预置空明细行，避免打开页面即出现大量空白行。
+    // 无初始数据时默认预置 30 行空白明细行，便于直接录入。
+    if (!initialItems.length) {
+        for (let i = 0; i < 30; i++) {
+            addNewRow();
+        }
+    }
     registerDetailRowActions({
         tableSelector: '#materialTable',
         rowSelector: '#materialTableBody tr',
