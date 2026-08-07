@@ -192,7 +192,7 @@ def _evaluate_rule(rule, db, models: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _create_alert(rule, alert_data: dict[str, Any]):
     """创建告警记录"""
-    from app import AIPatrolAlert
+    from app import AIPatrolAlert, db
 
     # 检查是否已存在相同规则的活跃告警（避免重复）
     existing = AIPatrolAlert.query.filter_by(

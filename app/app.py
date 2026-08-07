@@ -7,7 +7,7 @@ from markupsafe import escape
 from functools import wraps
 from datetime import datetime, date, time, timedelta
 from urllib.parse import urljoin, urlparse, urlencode, quote_plus
-from sqlalchemy import func, false, true, update as sa_update
+from sqlalchemy import func, false, true, update as sa_update, or_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload, selectinload
 import csv

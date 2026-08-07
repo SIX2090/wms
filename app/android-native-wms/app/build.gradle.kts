@@ -25,14 +25,14 @@ android {
         }
     }
 
-    // 固定发布签名：keystore 提交到仓库（wms-release.jks），保证不同 CI 环境构建的
-    // APK 签名一致，可覆盖安装旧版本。密钥存储口令与密钥口令均为 wms123456。
+    // 发布签名：keystore 和密码从环境变量读取，绝不上传仓库。
+    // 构建前需设置：WMS_STORE_FILE, WMS_STORE_PASSWORD, WMS_KEY_ALIAS, WMS_KEY_PASSWORD
     signingConfigs {
         create("release") {
-            storeFile = file("../keystore/wms-release.jks")
-            storePassword = "wms123456"
-            keyAlias = "wms"
-            keyPassword = "wms123456"
+            storeFile = file(System.getenv("WMS_STORE_FILE") ?: "../keystore/wms-release.jks")
+            storePassword = System.getenv("WMS_STORE_PASSWORD") ?: ""
+            keyAlias = System.getenv("WMS_KEY_ALIAS") ?: "wms"
+            keyPassword = System.getenv("WMS_KEY_PASSWORD") ?: ""
         }
     }
 
