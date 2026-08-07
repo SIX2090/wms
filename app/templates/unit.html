@@ -45,7 +45,6 @@
             <thead>
                 <tr>
                     <th width="50"><input type="checkbox" id="checkAll"></th>
-                    {{ sort_th('ID', 'id', sort_by, sort_order) }}
                     {{ sort_th('单位编号', 'code', sort_by, sort_order) }}
                     {{ sort_th('单位名称', 'name', sort_by, sort_order) }}
                     {{ sort_th('创建时间', 'created_at', sort_by, sort_order) }}
@@ -56,7 +55,6 @@
                 {% for unit in units %}
                 <tr>
                     <td><input type="checkbox" class="check-item" value="{{ unit.id }}"></td>
-                    <td>{{ unit.id }}</td>
                     <td>{{ unit.code }}</td>
                     <td>{{ unit.name }}</td>
                     <td>{{ unit.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
@@ -70,7 +68,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="6" class="text-center text-muted">暂无数据，请添加单位</td></tr>
+                <tr><td colspan="5" class="text-center text-muted">暂无数据，请添加单位</td></tr>
                 {% endfor %}
             </tbody>
         </table>
