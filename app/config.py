@@ -62,6 +62,8 @@ class Config:
     SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() in ('true', '1', 'yes')
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
+    # 可信代理列表，仅这些 IP 的 X-Forwarded-For 头会被信任
+    TRUSTED_PROXIES = [ip.strip() for ip in os.environ.get('TRUSTED_PROXIES', '127.0.0.1,::1').split(',') if ip.strip()]
 
 
 # ==================== 开发环境配置 ====================

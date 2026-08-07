@@ -5294,11 +5294,15 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 def get_request_ip():
-    """Return the client IP, respecting reverse proxy headers."""
-    forwarded_for = request.headers.get('X-Forwarded-For', '')
-    if forwarded_for:
-        return forwarded_for.split(',')[0].strip()
-    return request.remote_addr or ''
+    """Return the client IP, respecting reverse proxy headers only from trusted proxies."""
+    # 仅当请求来自可信代理时才信任 X-Forwarded-For
+    trusted_proxies = current_app.config.get('TRUSTED_PROXIES', [])
+    remote_addr = request.remote_addr or ''
+    if remote_addr in trusted_proxies:
+        forwarded_for = request.headers.get('X-Forwarded-For', '')
+        if forwarded_for:
+            return forwarded_for.split(',')[0].strip()
+    return remote_addr
 
 def get_next_target():
     if request.query_string:
