@@ -631,6 +631,9 @@ textarea.form-control {
                 <button type="button" class="btn btn-outline-dark" onclick="batchUpdateField()">
                     <i class="bi bi-pencil-square"></i> 批量修改
                 </button>
+                <button type="button" class="btn btn-outline-secondary" id="columnSettingsBtn" title="设置显示/隐藏字段">
+                    <i class="bi bi-layout-three-columns"></i> 字段设置
+                </button>
             </div>
             
             <div class="table-responsive">
@@ -1205,12 +1208,6 @@ function handleOtherOrderToolbar(action, ev) {
     }
     if (action === 'import-export-template') {
         showImportTemplateHint();
-        return;
-    }
-    if (action === 'settings') {
-        if (typeof openColumnSettingsPanel === 'function') {
-            openColumnSettingsPanel(window.inOrderColumnController, {btn: ev.currentTarget});
-        }
         return;
     }
     if (action === 'smart-share') {
@@ -2456,17 +2453,6 @@ function batchUpdateField() {
     });
     calcTotal();
     alert('已修改 ' + count + ' 行');
-}
-
-function showColumnSettings() {
-    const controller = window.inOrderColumnController;
-    if (!controller) {
-        alert('字段设置暂不可用，请刷新页面后再试');
-        return;
-    }
-    if (typeof openColumnSettingsPanel === 'function') {
-        openColumnSettingsPanel(controller, {btn: document.querySelector('[data-action="settings"]')});
-    }
 }
 
 </script>
