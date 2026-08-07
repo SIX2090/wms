@@ -145,7 +145,6 @@
             <thead>
                 <tr>
                     <th width="50"><input type="checkbox" id="checkAll"></th>
-                    {{ sort_th('ID', 'id', sort_by, sort_order) }}
                     {{ sort_th('分类编码', 'code', sort_by, sort_order) }}
                     {{ sort_th('分类名称', 'name', sort_by, sort_order) }}
                     <th>上级分类</th>
@@ -159,7 +158,6 @@
                 {% set cat = row.category %}
                 <tr>
                     <td><input type="checkbox" class="check-item" value="{{ cat.id }}"></td>
-                    <td>{{ cat.id }}</td>
                     <td>{{ cat.code }}</td>
                     <td class="category-name-cell">
                         {% if row.branch %}<span class="category-branch">{{ row.branch }}</span>{% endif %}
@@ -178,7 +176,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="8" class="text-center text-muted">暂无数据，请添加分类</td></tr>
+                <tr><td colspan="7" class="text-center text-muted">暂无数据，请添加分类</td></tr>
                 {% endfor %}
             </tbody>
         </table>
