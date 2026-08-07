@@ -595,9 +595,6 @@ textarea.form-control {
                 <button type="button" class="btn btn-outline-dark" onclick="batchUpdateField()">
                     <i class="bi bi-pencil-square"></i> 批量修改
                 </button>
-                <button type="button" class="btn btn-outline-secondary" onclick="showColumnSettings()">
-                    <i class="bi bi-layout-three-columns"></i> 字段设置
-                </button>
             </div>
             
             <div class="table-responsive">
@@ -1128,6 +1125,12 @@ function handleOtherOrderToolbar(action, ev) {
     }
     if (action === 'import-export-template') {
         showImportTemplateHint();
+        return;
+    }
+    if (action === 'settings') {
+        if (typeof openColumnSettingsPanel === 'function') {
+            openColumnSettingsPanel(window.outOrderColumnController, {btn: ev.currentTarget});
+        }
         return;
     }
     if (action === 'smart-share') {
@@ -1822,13 +1825,8 @@ function showColumnSettings() {
         alert('字段设置暂不可用，请刷新页面后再试');
         return;
     }
-    const choice = prompt('明细字段设置：\n1. 当前库存放到金额后面\n2. 恢复默认字段位置和列宽\n\n表头也可以直接拖动调整位置，拖动右侧边线调整宽度。');
-    if (choice === '1') {
-        controller.setOrder(['row_no', 'material_code', 'brand', 'material_name', 'spec', 'unit', 'quantity', 'price', 'amount', 'stock', 'actions']);
-        alert('已把当前库存放到金额后面');
-    } else if (choice === '2') {
-        controller.reset();
-        alert('已恢复默认字段位置和列宽');
+    if (typeof openColumnSettingsPanel === 'function') {
+        openColumnSettingsPanel(controller, {btn: document.querySelector('[data-action="settings"]')});
     }
 }
 

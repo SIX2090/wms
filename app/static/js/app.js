@@ -885,6 +885,7 @@ function setupDynamicDetailColumnControls(config) {
 
     const orderKey = config.orderKey || 'wms_detail_column_order_' + (table.id || window.location.pathname);
     const widthKey = config.widthKey || 'wms_detail_column_widths_' + (table.id || window.location.pathname);
+    const visibilityKey = config.visibilityKey || 'wms_detail_column_visibility_' + (table.id || window.location.pathname);
     const lockedColumns = new Set(config.lockedColumns || []);
     const minWidths = config.minWidths || {};
     const defaultHeaderCells = Array.from(headerRow.children);
@@ -1009,6 +1010,20 @@ function setupDynamicDetailColumnControls(config) {
         });
     };
 
+    const applyVisibility = function() {
+        const hidden = new Set(readJson(visibilityKey, []));
+        table.querySelectorAll('thead th').forEach(function(th) {
+            const key = th.dataset.columnKey;
+            if (key) th.classList.toggle('d-none', hidden.has(key));
+        });
+        table.querySelectorAll('tbody tr, tfoot tr').forEach(function(row) {
+            Array.from(row.children).forEach(function(cell) {
+                const key = cell.dataset.columnKey;
+                if (key) cell.classList.toggle('d-none', hidden.has(key));
+            });
+        });
+    };
+
     const applyOrder = function() {
         const savedOrder = normalizeOrder(readJson(orderKey, defaultOrder));
         reorderRow(headerRow, savedOrder);
@@ -1017,6 +1032,7 @@ function setupDynamicDetailColumnControls(config) {
         });
         syncFooterLabel();
         applyWidths();
+        applyVisibility();
     };
 
     const persistCurrentWidths = function() {
@@ -1178,12 +1194,105 @@ function setupDynamicDetailColumnControls(config) {
             saveOrder(order);
             applyOrder();
         },
+        toggleColumn: function(key, visible) {
+            if (lockedColumns.has(key)) return;
+            const hidden = new Set(readJson(visibilityKey, []));
+            if (visible === undefined) visible = !hidden.has(key);
+            if (visible) hidden.delete(key);
+            else hidden.add(key);
+            localStorage.setItem(visibilityKey, JSON.stringify(Array.from(hidden)));
+            applyVisibility();
+            return visible;
+        },
+        getColumnConfig: function() {
+            const hidden = new Set(readJson(visibilityKey, []));
+            return getCurrentOrder().map(function(key) {
+                const th = table.querySelector('thead th[data-column-key="' + CSS.escape(key) + '"]');
+                return {
+                    key: key,
+                    label: th ? th.textContent.replace(/\u2807/g, '').trim() : key,
+                    visible: !hidden.has(key),
+                    locked: lockedColumns.has(key)
+                };
+            });
+        },
         reset: function() {
             localStorage.removeItem(orderKey);
             localStorage.removeItem(widthKey);
+            localStorage.removeItem(visibilityKey);
             applyOrder();
         }
     };
+}
+
+function openColumnSettingsPanel(controller, opts) {
+    opts = opts || {};
+    if (!controller || typeof controller.getColumnConfig !== 'function') {
+        if (typeof showToast === 'function') showToast('列设置暂不可用，请刷新页面后再试', 'info');
+        return;
+    }
+    var existing = document.getElementById('wms-column-settings-panel');
+    if (existing) existing.remove();
+
+    var columns = controller.getColumnConfig();
+    var panel = document.createElement('div');
+    panel.id = 'wms-column-settings-panel';
+    panel.className = 'column-settings-panel';
+    panel.style.cssText = 'position:fixed;background:#fff;border:1px solid #E5E7EB;border-radius:8px;' +
+        'box-shadow:0 10px 40px rgba(0,0,0,0.12);padding:10px;min-width:190px;max-height:70vh;overflow:auto;z-index:10000;';
+    var html = '<div style="font-weight:600;font-size:13px;color:#172b4d;padding:2px 2px 8px;' +
+        'border-bottom:1px solid #f3f4f6;margin-bottom:6px;">明细列设置' +
+        '<span style="font-weight:400;color:#94a3b8;margin-left:6px;font-size:12px;">勾选显示/隐藏，拖动表头排序</span></div>';
+    columns.forEach(function(col) {
+        if (col.locked) return;
+        var id = 'wmscs_' + col.key;
+        html += '<div class="form-check" style="padding:5px 2px;border-bottom:1px solid #f8fafc;font-size:13px;">' +
+            '<input class="form-check-input" type="checkbox" ' + (col.visible ? 'checked' : '') + ' id="' + id + '" data-key="' + col.key + '" style="margin-top:0.25em;">' +
+            '<label class="form-check-label" for="' + id + '" style="cursor:pointer;">' + col.label + '</label></div>';
+    });
+    html += '<div style="padding-top:8px;border-top:1px solid #f3f4f6;margin-top:6px;display:flex;gap:8px;">' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" id="wmscs-reset" style="flex:1;">恢复默认</button>' +
+        '<button type="button" class="btn btn-sm btn-primary" id="wmscs-close" style="flex:1;">关闭</button></div>';
+    panel.innerHTML = html;
+    document.body.appendChild(panel);
+
+    var btn = opts.btn || document.querySelector('[data-action="settings"]');
+    if (btn) {
+        var rect = btn.getBoundingClientRect();
+        panel.style.top = (rect.bottom + 6) + 'px';
+        panel.style.left = Math.max(12, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 12)) + 'px';
+    } else {
+        panel.style.top = '80px';
+        panel.style.right = '20px';
+    }
+
+    panel.querySelectorAll('input[data-key]').forEach(function(input) {
+        input.addEventListener('change', function() {
+            controller.toggleColumn(this.dataset.key, this.checked);
+        });
+    });
+    panel.querySelector('#wmscs-reset').addEventListener('click', function() {
+        controller.reset();
+        var cols = controller.getColumnConfig();
+        panel.querySelectorAll('input[data-key]').forEach(function(input) {
+            var c = null;
+            for (var i = 0; i < cols.length; i++) {
+                if (cols[i].key === input.dataset.key) { c = cols[i]; break; }
+            }
+            if (c) input.checked = c.visible;
+        });
+        if (typeof showToast === 'function') showToast('已恢复默认字段位置、列宽与显隐', 'success');
+    });
+    panel.querySelector('#wmscs-close').addEventListener('click', function() { panel.remove(); });
+
+    setTimeout(function() {
+        document.addEventListener('click', function handler(e) {
+            if (e.target.closest('#wms-column-settings-panel')) return;
+            if (e.target.closest('[data-action="settings"]')) return;
+            panel.remove();
+            document.removeEventListener('click', handler);
+        });
+    }, 0);
 }
 
 function autoSetupResizableTables() {
