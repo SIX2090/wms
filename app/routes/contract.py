@@ -294,8 +294,9 @@ def register_contract_routes(app):
         f = request.files.get('file')
         if not f or not f.filename:
             return jsonify({'status': 'error', 'msg': '请选择文件'}), 400
-        if not validate_excel_extension(f.filename):
-            return jsonify({'status': 'error', 'msg': '仅支持 .xlsx / .xls 文件'}), 400
+        _ext_ok, _ext_msg = validate_excel_extension(f.filename)
+        if not _ext_ok:
+            return jsonify({'status': 'error', 'msg': _ext_msg or '仅支持 .xlsx / .xls 文件'}), 400
         # m-03：限制 Excel 上传 ≤ 5MB
         _size_ok, _size_msg = validate_excel_size(f)
         if not _size_ok:
