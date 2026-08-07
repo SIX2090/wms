@@ -94,7 +94,7 @@ def eval_js(expr):
 print("BEFORE URL:", eval_js("location.href"))
 
 # 导航到登录页
-cdp(s, "Page.navigate", {"url": "http://127.0.0.1:16000/login"})
+cdp(s, "Page.navigate", {"url": "http://127.0.0.1:8080/login"})
 time.sleep(4)
 print("LOGIN URL:", eval_js("location.href"))
 print("LOGIN TITLE:", eval_js("document.title"))
