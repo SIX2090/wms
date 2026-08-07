@@ -15,36 +15,64 @@
             </div>
         </div>
         {% if current_user.role in ['admin', 'warehouse'] %}
-        <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
-            <button type="button" class="btn btn-outline-info btn-sm" onclick="batchInOrderAction('/in_order/batch_print', '请选择要打印的入库单', '确认打印选中的入库单？', true)">
-                <i class="bi bi-printer"></i> 批量打印
-            </button>
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_export', '请选择要导出的入库单', '确认导出选中的入库单？', true)">
-                <i class="bi bi-file-earmark-excel"></i> 批量导出
-            </button>
-            <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchInOrderAction('/in_order/batch_delete', '请选择要删除的入库单', '确认删除选中的入库单？')">
-                <i class="bi bi-trash"></i> 删除已选
-            </button>
-            <button type="button" class="btn btn-outline-success btn-sm" onclick="batchInOrderAction('/in_order/batch_complete', '请选择要完成的入库单', '确认完成选中的入库单？完成后会增加库存。')">
-                <i class="bi bi-check2-circle"></i> 完成已选
-            </button>
-            <a href="/export/template/in_order" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
-            <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('inOrderImportFile').click()">
-                <i class="bi bi-upload"></i> 导入
-            </button>
-            <a href="/in_order/export?status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
-                <i class="bi bi-file-earmark-excel"></i> 导出
-            </a>
-            {% if filters.business_type == '产品入库' %}
-            <a href="/in_order/add?type=product" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增产品入库</a>
-            {% elif filters.business_type == '采购入库' %}
-            <a href="/in_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增采购入库</a>
-            {% elif filters.business_type == '其他入库' %}
-            <a href="/other_in_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增其他入库</a>
-            {% else %}
-            <a href="/in_order/add" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-lg"></i> 采购入库</a>
-            <a href="/in_order/add?type=product" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 产品入库</a>
-            {% endif %}
+        <div class="d-flex gap-3 flex-wrap align-items-center">
+            <!-- 主要操作区 -->
+            <div class="btn-group" role="group" aria-label="主要操作">
+                {% if filters.business_type == '产品入库' %}
+                <a href="/in_order/add?type=product" class="btn btn-primary btn-sm" title="新增产品入库单">
+                    <i class="bi bi-plus-lg"></i> 新增产品入库
+                </a>
+                {% elif filters.business_type == '采购入库' %}
+                <a href="/in_order/add" class="btn btn-primary btn-sm" title="新增采购入库单">
+                    <i class="bi bi-plus-lg"></i> 新增采购入库
+                </a>
+                {% elif filters.business_type == '其他入库' %}
+                <a href="/other_in_order/add" class="btn btn-primary btn-sm" title="新增其他入库单">
+                    <i class="bi bi-plus-lg"></i> 新增其他入库
+                </a>
+                {% else %}
+                <a href="/in_order/add" class="btn btn-primary btn-sm" title="新增采购入库单">
+                    <i class="bi bi-plus-lg"></i> 采购入库
+                </a>
+                <a href="/in_order/add?type=product" class="btn btn-outline-primary btn-sm" title="新增产品入库单">
+                    <i class="bi bi-plus-lg"></i> 产品入库
+                </a>
+                {% endif %}
+            </div>
+
+            <!-- 批量操作区 -->
+            <div class="btn-group" role="group" aria-label="批量操作">
+                <button type="button" class="btn btn-outline-success btn-sm" onclick="batchInOrderAction('/in_order/batch_complete', '请选择要完成的入库单', '确认完成选中的入库单？完成后会增加库存。')" title="批量完成选中的入库单">
+                    <i class="bi bi-check2-circle"></i> 完成已选
+                </button>
+                <button type="button" class="btn btn-outline-info btn-sm" onclick="batchInOrderAction('/in_order/batch_print', '请选择要打印的入库单', '确认打印选中的入库单？', true)" title="批量打印选中的入库单">
+                    <i class="bi bi-printer"></i> 批量打印
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_export', '请选择要导出的入库单', '确认导出选中的入库单？', true)" title="批量导出选中的入库单">
+                    <i class="bi bi-file-earmark-excel"></i> 批量导出
+                </button>
+            </div>
+
+            <!-- 导入导出区 -->
+            <div class="btn-group" role="group" aria-label="导入导出">
+                <a href="/in_order/export?status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm" title="导出当前筛选结果">
+                    <i class="bi bi-file-earmark-excel"></i> 导出
+                </a>
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('inOrderImportFile').click()" title="从Excel文件导入入库单">
+                    <i class="bi bi-upload"></i> 导入
+                </button>
+                <a href="/export/template/in_order" class="btn btn-outline-secondary btn-sm" title="下载导入模板">
+                    <i class="bi bi-download"></i> 模板
+                </a>
+            </div>
+
+            <!-- 危险操作区 -->
+            <div class="btn-group" role="group" aria-label="危险操作">
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchInOrderAction('/in_order/batch_delete', '请选择要删除的入库单', '确认删除选中的入库单？')" title="删除选中的入库单（仅草稿状态）">
+                    <i class="bi bi-trash"></i> 删除已选
+                </button>
+            </div>
+
             <form id="inOrderImportForm" action="/import/in_order" method="post" enctype="multipart/form-data" class="d-none">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="file" id="inOrderImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('inOrderImportForm', 'inOrderImportFile')">

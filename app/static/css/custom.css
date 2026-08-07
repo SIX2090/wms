@@ -657,11 +657,12 @@ body {
 }
 
 .table tbody td {
-    padding: 10px 12px;
+    padding: 12px 12px;
     vertical-align: middle;
     font-size: 13px;
     color: var(--text-color);
     border-bottom: 1px solid #F3F4F6;
+    min-height: 44px;
 }
 
 .table tbody tr:last-child td {
