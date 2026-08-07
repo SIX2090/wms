@@ -122,7 +122,7 @@ result = eval_js("""
   var p = document.querySelector('input[name=password]') || document.querySelector('input[type=password]');
   if(!u || !p) return 'NO_FIELDS';
   u.value='admin'; u.dispatchEvent(new Event('input',{bubbles:true}));
-  p.value='admin123'; p.dispatchEvent(new Event('input',{bubbles:true}));
+  p.value='admin'; p.dispatchEvent(new Event('input',{bubbles:true}));
   var f = u.form || p.form;
   if(f){ f.submit(); return 'SUBMITTED'; }
   return 'NO_FORM';
