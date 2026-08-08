@@ -42,6 +42,26 @@ def fix_columns(db_path=None):
     else:
         logger.info('production_requisition.picker 已存在')
 
+    # BUG-2026-08-08-001：领料单缺 warehouse 列，存量数据回填默认仓库名
+    if 'warehouse' not in pr_cols:
+        conn.execute('ALTER TABLE production_requisition ADD COLUMN warehouse VARCHAR(100)')
+        try:
+            row = conn.execute(
+                "SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' LIMIT 1"
+            ).fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE production_requisition SET warehouse = ? "
+                    "WHERE warehouse IS NULL OR warehouse = ''",
+                    (row[0],),
+                )
+        except Exception:
+            conn.rollback()
+        conn.commit()
+        logger.info('已添加 production_requisition.warehouse')
+    else:
+        logger.info('production_requisition.warehouse 已存在')
+
     conn.close()
 
 

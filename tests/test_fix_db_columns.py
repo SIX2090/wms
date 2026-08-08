@@ -55,6 +55,17 @@ def test_fix_columns_adds_picker_to_production_requisition(temp_db):
     assert 'picker' in cols
 
 
+def test_fix_columns_adds_warehouse_to_production_requisition(temp_db):
+    """fix_columns 应为 production_requisition 添加 warehouse 列（BUG-2026-08-08-001）。"""
+    fix_columns(db_path=temp_db)
+
+    conn = sqlite3.connect(temp_db)
+    cols = [r[1] for r in conn.execute('PRAGMA table_info(production_requisition)').fetchall()]
+    conn.close()
+
+    assert 'warehouse' in cols
+
+
 def test_fix_columns_idempotent(temp_db):
     """fix_columns 多次运行不会报错（幂等性）。"""
     fix_columns(db_path=temp_db)
@@ -83,3 +94,4 @@ def test_fix_columns(temp_db):
 
     assert 'picker' in cols
     assert 'picker' in pr_cols
+    assert 'warehouse' in pr_cols
