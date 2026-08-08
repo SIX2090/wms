@@ -104,10 +104,13 @@ def register_system_settings_routes(app):
             'ai_llm_base_url': (request.form.get('ai_llm_base_url') or '').strip(),
             'ai_llm_model': (request.form.get('ai_llm_model') or '').strip(),
             'ai_llm_vision_enabled': '1' if request.form.get('ai_llm_vision_enabled') == '1' else '0',
-            'ai_llm_api_key': (request.form.get('ai_llm_api_key') or '').strip(),
             'ai_llm_timeout_seconds': (request.form.get('ai_llm_timeout_seconds') or '').strip(),
             'ai_llm_max_tokens': (request.form.get('ai_llm_max_tokens') or '').strip(),
         }
+        # API Key 留空表示保留原值，不要覆盖
+        api_key = (request.form.get('ai_llm_api_key') or '').strip()
+        if api_key:
+            overrides['ai_llm_api_key'] = api_key
         if not _ai_llm_configured(overrides):
             return jsonify({'status': 'error', 'msg': '请先启用大模型并保存 API Key'}), 400
 
