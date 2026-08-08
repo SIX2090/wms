@@ -4,6 +4,52 @@
 
 {% block extra_css %}
 <link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
+<style>
+.sc-material-search {
+    position: relative;
+}
+.sc-material-dropdown {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 3px);
+    max-height: 260px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
+    z-index: 1065;
+}
+.sc-material-item {
+    padding: 7px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+    line-height: 1.45;
+}
+.sc-material-item:last-child {
+    border-bottom: 0;
+}
+.sc-material-item:hover,
+.sc-material-item.active {
+    background: #eef2ff;
+}
+.sc-material-item .code {
+    color: #1d4ed8;
+    font-weight: 700;
+    margin-right: 8px;
+}
+.sc-material-item .meta {
+    color: #6b7280;
+    display: inline-block;
+    margin-right: 10px;
+}
+.sc-material-empty {
+    color: #6b7280;
+    cursor: default;
+}
+</style>
 {% endblock %}
 
 {% block content %}
@@ -350,7 +396,10 @@
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label class="form-label fw-medium">产品编码 <span class="text-danger">*</span></label>
-                        <input class="form-control" id="productCode" placeholder="扫码或输入产品编码">
+                        <div class="sc-material-search">
+                            <input class="form-control" id="productCode" placeholder="输入产品编码/名称/规格快速匹配" autocomplete="off">
+                            <div class="sc-material-dropdown" id="productCodeDropdown" style="display:none;"></div>
+                        </div>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-medium">数量 <span class="text-danger">*</span></label>
@@ -380,11 +429,12 @@
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label class="form-label fw-medium">物料编码 <span class="text-danger">*</span></label>
-                        <div class="input-group">
-                            <input class="form-control" id="issueCode" placeholder="扫码或输入物料编码">
+                        <div class="input-group sc-material-search">
+                            <input class="form-control" id="issueCode" placeholder="输入物料编码/名称/规格快速匹配" autocomplete="off">
                             <button type="button" class="btn btn-outline-primary" id="openSearchBtn">
                                 <i class="bi bi-search"></i>
                             </button>
+                            <div class="sc-material-dropdown" id="issueCodeDropdown" style="display:none;"></div>
                         </div>
                     </div>
                     <div class="col-md-6">
@@ -427,11 +477,12 @@
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label class="form-label fw-medium">产品编码 <span class="text-danger">*</span></label>
-                        <div class="input-group">
-                            <input class="form-control" id="receiveCode" placeholder="扫码或输入产品编码">
+                        <div class="input-group sc-material-search">
+                            <input class="form-control" id="receiveCode" placeholder="输入产品编码/名称/规格快速匹配" autocomplete="off">
                             <button type="button" class="btn btn-outline-primary" id="openReceiveSearchBtn">
                                 <i class="bi bi-search"></i>
                             </button>
+                            <div class="sc-material-dropdown" id="receiveCodeDropdown" style="display:none;"></div>
                         </div>
                     </div>
                     <div class="col-md-6">
@@ -482,6 +533,151 @@ function findSubcontractMaterial(keyword) {
         || subcontractMaterials.find(function(m) { return String(m.name || '').toLowerCase() === normalized; })
         || null;
 }
+
+// ===== 模态框物料/产品编码关键词下拉（复用已注入的 subcontractMaterials，客户端过滤） =====
+function filterSubcontractMaterials(keyword) {
+    const normalized = String(keyword || '').trim().toLowerCase();
+    if (!normalized) return [];
+    return subcontractMaterials.filter(function(m) {
+        return (m.code && String(m.code).toLowerCase().indexOf(normalized) >= 0) ||
+               (m.name && String(m.name).toLowerCase().indexOf(normalized) >= 0) ||
+               (m.spec && String(m.spec).toLowerCase().indexOf(normalized) >= 0);
+    }).slice(0, 20);
+}
+
+function bindScMaterialInput(inputId, dropdownId, onSelect) {
+    const input = document.getElementById(inputId);
+    const dropdown = document.getElementById(dropdownId);
+    if (!input || !dropdown) return;
+    let results = [];
+    let activeIndex = -1;
+    let timer = null;
+
+    function hide() {
+        dropdown.style.display = 'none';
+        activeIndex = -1;
+    }
+
+    function setActive(index) {
+        const items = dropdown.querySelectorAll('.sc-material-item[data-index]');
+        items.forEach(function(item) { item.classList.remove('active'); });
+        if (index >= 0 && index < items.length) {
+            items[index].classList.add('active');
+            items[index].scrollIntoView({block: 'nearest'});
+            activeIndex = index;
+        }
+    }
+
+    function pick(index) {
+        const material = results[index];
+        if (!material) return;
+        input.value = material.code || '';
+        hide();
+        if (typeof onSelect === 'function') onSelect(material);
+    }
+
+    function render(list) {
+        results = list;
+        if (!list.length) {
+            dropdown.innerHTML = '<div class="sc-material-item sc-material-empty">无匹配物料</div>';
+            dropdown.style.display = 'block';
+            return;
+        }
+        dropdown.innerHTML = list.map(function(m, index) {
+            return '<div class="sc-material-item" data-index="' + index + '">' +
+                '<div><span class="code">' + escapeHtml(m.code) + '</span><span>' + escapeHtml(m.name || '') + '</span></div>' +
+                '<div><span class="meta">规格：' + escapeHtml(m.spec || '-') + '</span>' +
+                '<span class="meta">库存：' + escapeHtml(m.stock != null ? m.stock : '-') + '</span></div>' +
+                '</div>';
+        }).join('');
+        dropdown.style.display = 'block';
+        dropdown.querySelectorAll('.sc-material-item[data-index]').forEach(function(item) {
+            item.addEventListener('mousedown', function(e) {
+                e.preventDefault();
+                pick(parseInt(this.dataset.index, 10));
+            });
+        });
+        setActive(list.length === 1 ? 0 : -1);
+    }
+
+    input.addEventListener('input', function() {
+        clearTimeout(timer);
+        const keyword = input.value.trim();
+        if (!keyword) {
+            hide();
+            return;
+        }
+        timer = setTimeout(function() {
+            const list = filterSubcontractMaterials(keyword);
+            const exact = findSubcontractMaterial(keyword);
+            if (exact && typeof onSelect === 'function') onSelect(exact);
+            render(list);
+        }, 150);
+    });
+    input.addEventListener('change', function() {
+        const exact = findSubcontractMaterial(input.value);
+        if (exact && typeof onSelect === 'function') onSelect(exact);
+    });
+    input.addEventListener('keydown', function(e) {
+        const visible = dropdown.style.display !== 'none';
+        if (!visible) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setActive(Math.min(activeIndex + 1, results.length - 1));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActive(Math.max(activeIndex - 1, 0));
+        } else if (e.key === 'Enter') {
+            if (activeIndex >= 0) {
+                e.preventDefault();
+                pick(activeIndex);
+            }
+        } else if (e.key === 'Escape') {
+            hide();
+        }
+    });
+    input.addEventListener('blur', function() {
+        setTimeout(hide, 200);
+    });
+
+    return {
+        show: function() {
+            const keyword = input.value.trim();
+            render(keyword ? filterSubcontractMaterials(keyword) : subcontractMaterials.slice(0, 20));
+        }
+    };
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // 添加委外产品：选中后聚焦数量
+    bindScMaterialInput('productCode', 'productCodeDropdown', function() {
+        const qty = document.getElementById('productQty');
+        if (qty) {
+            qty.focus();
+            qty.select();
+        }
+    });
+    // 发料：回填名称/规格/库存
+    const issueSearch = bindScMaterialInput('issueCode', 'issueCodeDropdown', function(m) {
+        document.getElementById('issueName').value = m.name || '';
+        document.getElementById('issueSpec').value = m.spec || '';
+        document.getElementById('issueStock').value = (m.stock != null ? m.stock : '');
+    });
+    const openSearchBtn = document.getElementById('openSearchBtn');
+    if (openSearchBtn && issueSearch) {
+        openSearchBtn.addEventListener('click', function() { issueSearch.show(); });
+    }
+    // 收货：回填名称/单价
+    const receiveSearch = bindScMaterialInput('receiveCode', 'receiveCodeDropdown', function(m) {
+        document.getElementById('receiveName').value = m.name || '';
+        const priceInput = document.getElementById('receivePrice');
+        if (priceInput && !priceInput.value) priceInput.value = m.price || '';
+    });
+    const openReceiveSearchBtn = document.getElementById('openReceiveSearchBtn');
+    if (openReceiveSearchBtn && receiveSearch) {
+        openReceiveSearchBtn.addEventListener('click', function() { receiveSearch.show(); });
+    }
+});
 
 function clearProductEmptyRow() {
     const body = document.getElementById('productTableBody');
