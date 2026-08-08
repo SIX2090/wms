@@ -93,5 +93,6 @@ data class ExtractedMaterial(
     val name: String?,
     val spec: String?,
     val quantity: Double?,
-    val confidence: Double?
+    val confidence: Double?,
+    val description: String?
 )

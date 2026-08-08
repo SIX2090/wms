@@ -933,6 +933,7 @@ fun ObjectRecognizeScreen(
                                 extracted.code?.let { OcrResultRow("物料编码", it) }
                                 extracted.name?.let { OcrResultRow("物料名称", it) }
                                 extracted.spec?.let { OcrResultRow("规格型号", it) }
+                                extracted.description?.let { OcrResultRow("外观特征", it) }
                                 extracted.quantity?.let { OcrResultRow("数量", formatQuantity(it)) }
                                 extracted.confidence?.let {
                                     OcrResultRow("置信度", "${"%.0f".format(it * 100)}%")
