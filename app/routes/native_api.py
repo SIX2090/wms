@@ -777,3 +777,146 @@ def register_native_api_routes(app):
         from app import Customer, serialize_customer
         customers = Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all()
         return jsonify([serialize_customer(customer) for customer in customers])
+
+    # pydantic:reason=新增移动端识别单据确认端点，按 A8 要求使用 pydantic 输入校验
+    @app.route('/api/mobile/inbound_draft', methods=['POST'])
+    @csrf.exempt
+    @api_role_required('warehouse', 'purchase')
+    @mobile_api_idempotent('inbound_draft')
+    def native_api_inbound_draft(user):
+        """移动端识别单据确认后生成入库草稿（status=pending）。
+
+        拦截未匹配到建档物料的识别行；仓库必填（未传入时尝试自动带入默认仓库）。
+        生成的是 pending 草稿，不直接加库存，需在职员确认后才正式入库。
+        """
+        from datetime import date
+        from pydantic import BaseModel, Field, field_validator
+        from app import (InOrder, InOrderItem, Material, Warehouse,
+                         api_json_error, api_json_success, generate_order_no,
+                         get_default_warehouse, location_management_enabled,
+                         location_required_on_save, purchase_in_order_requires_order,
+                         round_to_2_decimals)
+
+        class InboundDraftLine(BaseModel):
+            material_code: str = Field(min_length=1)
+            quantity: float = Field(gt=0)
+            price: float | None = None
+
+        class InboundDraftRequest(BaseModel):
+            lines: list[InboundDraftLine] = Field(min_length=1)
+            business_type: str = '其他入库'
+            warehouse: str | None = None
+            warehouse_code: str | None = None
+            remark: str | None = None
+
+            @field_validator('business_type')
+            @classmethod
+            def normalize_business_type(cls, v):  # no-test:reason=字段归一化逻辑已在 verify_mobile_inbound_draft_api.py 的确认流程测试中覆盖
+                v = (v or '').strip()
+                if v in ('product', '产品', '产品入库'):
+                    return '产品入库'
+                if v in ('purchase', '采购', '采购入库'):
+                    return '采购入库'
+                return (v or '其他入库')[:50]
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            req = InboundDraftRequest.model_validate(payload)
+        except Exception as exc:  # noqa: BLE001 - pydantic 校验错误统一转为 400
+            return api_json_error(f'参数校验失败：{exc}', 400)
+
+        try:
+            # 解析物料行，未匹配到建档物料的行直接拦截
+            matched = []
+            unmatched = []
+            for line in req.lines:
+                code = (line.material_code or '').strip()
+                material = Material.query.filter_by(code=code).first() if code else None
+                if material is None:
+                    unmatched.append(code or '(空)')
+                    continue
+                price = round_to_2_decimals(
+                    line.price if line.price is not None else (material.price or 0)
+                )
+                matched.append({
+                    'material': material,
+                    'quantity': round_to_2_decimals(line.quantity),
+                    'price': price,
+                })
+            if unmatched:
+                return api_json_error(
+                    '以下物料未建档，无法生成入库草稿，请先建档或转人工处理：'
+                    + '、'.join(dict.fromkeys(unmatched)),
+                    400,
+                )
+            if not matched:
+                return api_json_error('没有可生成草稿的有效物料行', 400)
+
+            # 仓库必填：优先用传入值，否则自动带默认仓库
+            warehouse_code = (req.warehouse_code or req.warehouse or '').strip()
+            warehouse = None
+            if warehouse_code:
+                warehouse = Warehouse.query.filter(
+                    (Warehouse.code == warehouse_code) | (Warehouse.name == warehouse_code)
+                ).first()
+                if warehouse is None:
+                    return api_json_error(f'仓库不存在：{warehouse_code}', 400)
+                if (warehouse.status or 'active') != 'active':
+                    return api_json_error(f'仓库 [{warehouse.name}] 已停用', 403)
+            else:
+                warehouse = get_default_warehouse()
+                if warehouse is None:
+                    return api_json_error('请选择仓库', 400)
+
+            # 库位管理开启且保存强制时，以仓库作为库位兜底
+            if location_management_enabled() and location_required_on_save():
+                if warehouse is None or not (warehouse.name or warehouse.code):
+                    return api_json_error('启用库位管理后，入库草稿必须填写仓库/库位', 400)
+
+            business_type = req.business_type
+            if business_type == '采购入库' and purchase_in_order_requires_order():
+                return api_json_error('系统要求采购入库必须关联采购订单，请从采购订单下推或选单生成', 403)
+
+            order = InOrder(
+                order_no=generate_order_no('IN'),
+                date=date.today(),
+                warehouse=warehouse.name if warehouse else None,
+                business_type=business_type,
+                purpose='移动端识别单据确认',
+                remark=(req.remark or '')[:200] or '移动端拍照识别，经人工确认生成草稿',
+                status='pending',
+                operator_id=user.id,
+                total_amount=0,
+            )
+            db.session.add(order)
+            db.session.flush()
+            total_amount = 0
+            for row in matched:
+                material = row['material']
+                quantity = row['quantity']
+                price = row['price']
+                amount = round_to_2_decimals(quantity * price)
+                total_amount += amount
+                db.session.add(InOrderItem(
+                    in_order_id=order.id,
+                    material_id=material.id,
+                    quantity=quantity,
+                    price=price,
+                    amount=amount,
+                    remark='移动端识别，经人工确认',
+                ))
+            order.total_amount = round_to_2_decimals(total_amount)
+            db.session.commit()
+            return api_json_success({
+                'order_no': order.order_no,
+                'status': 'pending',
+                'items': [
+                    {'code': row['material'].code, 'name': row['material'].name,
+                     'quantity': row['quantity']}
+                    for row in matched
+                ],
+            }, '入库草稿已生成')
+        except Exception as e:  # noqa: BLE001
+            db.session.rollback()
+            app.logger.exception('Mobile inbound draft failed')
+            return api_json_error('入库草稿生成失败', 500)
