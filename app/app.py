@@ -9914,18 +9914,19 @@ def _ai_call_llm_intent(message, overrides=None):
     request_payload = dict(payload, response_format={'type': 'json_object'})
     headers = _ai_llm_headers(overrides)
     try:
+        timeout = max(_ai_llm_timeout_seconds(overrides), 5)
         response = requests.post(
             _ai_llm_endpoint(overrides),
             headers=headers,
             json=request_payload,
-            timeout=min(max(_ai_llm_timeout_seconds(overrides), 2), 6),
+            timeout=timeout,
         )
         if response.status_code == 400:
             response = requests.post(
                 _ai_llm_endpoint(overrides),
                 headers=headers,
                 json=payload,
-                timeout=min(max(_ai_llm_timeout_seconds(overrides), 2), 6),
+                timeout=timeout,
             )
         response.raise_for_status()
         data = response.json()
@@ -19355,7 +19356,7 @@ def _ai_handle_chat_stream_request(payload):
                 headers=headers,
                 json=payload_body,
                 stream=True,
-                timeout=min(max(_ai_llm_timeout_seconds(), 8), 15),
+                timeout=max(_ai_llm_timeout_seconds(), 10),
             ) as resp:
                 if not resp.ok:
                     err_msg = f'大模型请求失败: HTTP {resp.status_code}'
