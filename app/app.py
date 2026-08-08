@@ -20040,7 +20040,9 @@ def _wechat_share_send_image(config, image_path):
                 'receiver_type': config.receiver_type or 'person',
                 'auto_send': '1' if config.auto_send else '0',
             }
-            response = requests.post(helper_url, data=data, files=files, timeout=30)
+            # 调低超时（30s→10s）：避免微信发送助手挂起时占住 Waitress 线程 30s，
+            # 导致线程池被打满、包括下推领料单在内的其它请求排队等待。
+            response = requests.post(helper_url, data=data, files=files, timeout=10)
         if response.ok:
             try:
                 payload = response.json()
