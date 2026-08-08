@@ -66,6 +66,7 @@ WMS_NO_DB_TOUCH.flag
 
 # ===== 外部工具（非项目代码）=====
 codex.cmd
+.trae-html-share-packages/
 
 # ===== 本机/云上运行时与 AI 工具（勿提交，避免脏工作区挡自动更新）=====
 runtime/
