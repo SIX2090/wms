@@ -119,6 +119,7 @@
 | 30 | AI-OS-APP-001 | 已完成 | 手机端期初库存（日期/仓库/扫码建账）+ 移动期初 API + APK 固定签名修复 | AI-OS-MW-001 | 无 |
 | 31 | AI-MOB-OCR-F01 | 已完成 | 手机端识别单据确认识别结果生成入库草稿 | AI-C07、AI-R08 | 无 |
 | 32 | AI-MOB-REC-F01 | 已完成 | 手机端识物：外包装/物品表面文字 + 图形外观识别物料 | AI-C07、AI-R08 | 无 |
+| 33 | AI-MOB-OCR-F02 | 已完成 | 识别送货单自动建档未建档物料生成采购入库草稿 | AI-C07、AI-R08 | 无 |
 
 ## 5. 任务详细定义
 
@@ -422,6 +423,22 @@
 - Android 端 CI `assembleRelease` 校验；识物页拍照后展示"AI 提取信息"（含外观特征）与匹配物料列表。
 
 **记录**：完成日期 2026-08-08；提交 `92750a86`（后端识物增强 + 测试）、`7e3e9696`（Android 端外观特征展示）；涉及模块 app/routes/mobile.py、tests/verify_mobile_recognize_material_api.py、app/android-native-wms/app/src/main/java/com/factory/wms/data/api/WmsApiService.kt、ui/screens/AiScreens.kt。
+
+### AI-MOB-OCR-F02：识别送货单自动建档未建档物料生成采购入库草稿
+
+**目标**：手机识别供应商送货单做采购入库单时，当物料档案没有送货单上的名称/型号，开启"自动建档"后由系统自行建立物料编号，再生成采购入库草稿（`pending`），解决新增物料必须预先人工建档的卡点。
+
+**范围与边界**：
+- 后端 `POST /api/mobile/inbound_draft`：`InboundDraftLine` 增加 `name`/`spec`/`unit`（自动建档字段），`InboundDraftRequest` 增加 `auto_create_material` 标志。匹配链路：先按 code 精确匹配既有建档物料 → 再按名称+规格查重（`_find_material_by_name_spec` 避免重复建档）→ 未命中且开启自动建档时按 name/spec/unit 自动建档（`_resolve_material_unit` 单位解析回退默认单位、`_generate_auto_material_code` 顺序生成 `M` 前缀唯一编码），随后一并生成入库草稿；未开启自动建档时未建档行仍拦截返回 400。
+- 响应新增 `auto_created` 字段，返回自动建档成功的物料清单（code/name）。
+- Android 端：`InboundDraftLine` 增加 name/spec/unit、`InboundDraftRequest` 增加 `autoCreateMaterial`、新增 `AutoCreatedMaterial` 与 `InboundDraftResult.autoCreated`；`AiViewModel.submitInboundDraft` 支持 `autoCreateMaterial` 双模式（开启提交所有有名称识别行，关闭仅提交已匹配行）；`DocumentOcrScreen` 增加"自动建档未识别物料"开关、未建档提示文案更新、开启后按钮启用以全部行计、草稿结果卡展示自动建档物料清单。
+- 边界：自动建档是草稿生成的前置动作，物料档案与草稿同事务提交；自动建档生成的物料不做权限/高风险操作，草稿仍需 WEB 端人工复核后正式入库。
+
+**验收**：
+- `tests/verify_mobile_inbound_draft_api.py` 新增 T7 自动建档并生成草稿（含单位/规格落库）、T8 按名称+规格查重不重复建档、T9 未开启自动建档仍拦截，全部 9 项通过；`scripts/lint_wms_rules.py` 0 违规。
+- Android 端 CI `assembleRelease` 校验；开启开关后未建档识别行可随草稿自动建立物料档案。
+
+**记录**：完成日期 2026-08-08；提交 `4ec33c4e`（后端自动建档 + 测试）、`89346694`（Android 端自动建档开关/流程）；涉及模块 app/routes/native_api.py、tests/verify_mobile_inbound_draft_api.py、app/android-native-wms/app/src/main/java/com/factory/wms/data/model/InboundDraftModels.kt、ui/viewmodel/ai/AiViewModel.kt、ui/screens/AiScreens.kt。
 
 ### AI-MENU-2026-07-30-B1：菜单/页面 title 批量对齐（剩余 9 项 → 0）
 
