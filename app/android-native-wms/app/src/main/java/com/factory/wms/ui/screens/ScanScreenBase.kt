@@ -49,7 +49,10 @@ fun ScanScreenBase(
     onScanBarcode: (String) -> Unit,
     onSubmitClick: () -> Unit,
     submitLabel: String,
-    submitColor: Color
+    submitColor: Color,
+    // 额外的识别类操作入口（如扫码盘点页的"识物盘点"），仅在提供时显示
+    extraActionLabel: String? = null,
+    onExtraAction: (() -> Unit)? = null
 ) {
     var showCameraScanner by remember { mutableStateOf(false) }
     Scaffold(
@@ -303,6 +306,30 @@ fun ScanScreenBase(
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
+
+                    // Extra recognition-type action (e.g. 识物盘点), only when provided
+                    if (extraActionLabel != null && onExtraAction != null) {
+                        OutlinedButton(
+                            onClick = onExtraAction,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(
+                                brush = androidx.compose.ui.graphics.SolidColor(submitColor.copy(alpha = 0.3f))
+                            )
+                        ) {
+                            Icon(
+                                Icons.Outlined.CameraAlt,
+                                null,
+                                modifier = Modifier.size(20.dp),
+                                tint = submitColor
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(extraActionLabel, color = submitColor, fontWeight = FontWeight.Medium)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
 
                     // Action buttons
                     Row(

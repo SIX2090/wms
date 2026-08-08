@@ -10,4 +10,5 @@ sealed class Screen(val route: String) {
     data object OpeningStock : Screen("opening_stock")
     data object DocumentOcr : Screen("document_ocr")
     data object ObjectRecognize : Screen("object_recognize")
+    data object StocktakeRecognize : Screen("stocktake_recognize")
 }

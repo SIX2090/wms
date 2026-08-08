@@ -86,7 +86,8 @@ fun AppNavGraph() {
         composable(Screen.Stocktake.route) {
             StocktakeScreen(
                 viewModel = scanViewModel,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onRecognize = { navController.navigate(Screen.StocktakeRecognize.route) }
             )
         }
 
@@ -107,6 +108,14 @@ fun AppNavGraph() {
         composable(Screen.ObjectRecognize.route) {
             ObjectRecognizeScreen(
                 viewModel = aiViewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.StocktakeRecognize.route) {
+            StocktakeRecognizeScreen(
+                aiViewModel = aiViewModel,
+                scanViewModel = scanViewModel,
                 onBack = { navController.popBackStack() }
             )
         }

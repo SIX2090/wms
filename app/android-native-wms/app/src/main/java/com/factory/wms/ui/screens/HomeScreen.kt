@@ -80,7 +80,7 @@ fun HomeScreen(
             ),
             FunctionCard(
                 title = "扫码盘点",
-                subtitle = "扫描条码 · 快速盘点",
+                subtitle = "扫码/识物 · 快速盘点",
                 icon = Icons.Outlined.Inventory2,
                 gradient = listOf(CardPurple, CardPurpleDark),
                 screen = Screen.Stocktake

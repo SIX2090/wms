@@ -473,7 +473,8 @@ private fun InfoChip(label: String, value: String) {
 @Composable
 fun StocktakeScreen(
     viewModel: ScanViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onRecognize: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showSubmitDialog by remember { mutableStateOf(false) }
@@ -537,7 +538,9 @@ fun StocktakeScreen(
         },
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交盘点",
-        submitColor = CardPurple
+        submitColor = CardPurple,
+        extraActionLabel = "识物盘点",
+        onExtraAction = onRecognize
     )
 
     if (showSubmitDialog) {
