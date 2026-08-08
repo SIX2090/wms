@@ -6,6 +6,61 @@
 <link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
 <link href="{{ url_for('static', filename='css/excel-table.css') }}" rel="stylesheet">
 <style>
+.material-quick-search {
+    position: relative;
+}
+.material-quick-dropdown {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 3px);
+    max-height: 280px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
+    z-index: 1065;
+}
+.material-quick-item {
+    padding: 8px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+    line-height: 1.45;
+}
+.material-quick-item:last-child {
+    border-bottom: 0;
+}
+.material-quick-item:hover,
+.material-quick-item.active {
+    background: #eef2ff;
+}
+.material-quick-item .code {
+    color: #1d4ed8;
+    font-weight: 700;
+    margin-right: 8px;
+}
+.material-quick-item .name {
+    color: #111827;
+    font-weight: 600;
+}
+.material-quick-item .meta {
+    color: #6b7280;
+    display: inline-block;
+    margin-right: 10px;
+}
+.material-quick-empty {
+    color: #6b7280;
+    cursor: default;
+}
+.new-item-row .material-quick-dropdown {
+    position: fixed;
+    left: auto;
+    right: auto;
+    top: auto;
+    min-width: 420px;
+}
 .anomaly-modal-overlay {
     display: none;
     position: fixed;
@@ -356,11 +411,12 @@
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label class="form-label fw-medium">物料编码 <span class="text-danger">*</span></label>
-                        <div class="input-group">
-                            <input class="form-control" id="code" placeholder="扫码或输入物料编码">
+                        <div class="input-group material-quick-search">
+                            <input class="form-control" id="code" placeholder="输入物料编号、名称或规格快速匹配" autocomplete="off">
                             <button type="button" class="btn btn-outline-primary" id="openSearchBtn">
                                 <i class="bi bi-search"></i>
                             </button>
+                            <div class="material-quick-dropdown" id="materialQuickDropdown" style="display:none;"></div>
                         </div>
                     </div>
                     <div class="col-md-6">
@@ -559,7 +615,7 @@ function addInlineMaterialRow(beforeRow) {
     row.innerHTML = `
         <td class="text-center"><span class="row-num"></span></td>
         <td><input type="checkbox" disabled></td>
-        <td><input class="form-control material-code-field" placeholder="编号/名称/规格" autocomplete="off"></td>
+        <td><div class="material-quick-search"><input class="form-control material-code-field" placeholder="编号/名称/规格" autocomplete="off"><div class="material-quick-dropdown" style="display:none;"></div></div></td>
         <td><input class="form-control material-brand-field" readonly></td>
         <td><input class="form-control material-name-field" readonly></td>
         <td><input class="form-control material-spec-field" readonly></td>
@@ -593,29 +649,7 @@ function addInlineMaterialRow(beforeRow) {
 
 function bindInlineMaterialRow(row) {
     var codeInput = row.querySelector('.material-code-field');
-    var lookupTimer = null;
-    codeInput.addEventListener('input', function() {
-        clearTimeout(lookupTimer);
-        lookupTimer = setTimeout(function() {
-            var code = codeInput.value.trim();
-            if (!code) {
-                row.querySelector('.material-brand-field').value = '';
-                row.querySelector('.material-name-field').value = '';
-                row.querySelector('.material-spec-field').value = '';
-                row.querySelector('.material-unit-field').value = '';
-                row.querySelector('.material-stock-field').value = '';
-                return;
-            }
-            fetch('/api/material/info?code=' + encodeURIComponent(code), {credentials: 'same-origin'})
-                .then(function(r) { return r.json(); })
-                .then(function(res) {
-                    if (res.status === 'success' && res.data) {
-                        fillInlineMaterialInfo(row, res.data);
-                    }
-                })
-                .catch(function() {});
-        }, 220);
-    });
+    bindMaterialQuickInput(codeInput);
     row.querySelector('.material-qty-field').addEventListener('input', function() { calcInlineRowAmount(row); });
     row.querySelector('.material-price-field').addEventListener('input', function() { calcInlineRowAmount(row); });
 }
@@ -733,29 +767,133 @@ function copyDetailMaterialRow(row) {
 
 var materialLookupTimer = null;
 var materialLookupToken = 0;
+var materialQuickResults = [];
+var materialQuickActiveIndex = -1;
+var activeMaterialInput = null;
+
+function getMaterialQuickDropdown() {
+    return activeMaterialInput
+        ? activeMaterialInput.closest('.material-quick-search')?.querySelector('.material-quick-dropdown')
+        : document.getElementById('materialQuickDropdown');
+}
+
+function hideMaterialQuickDropdown() {
+    var dropdown = getMaterialQuickDropdown();
+    if (dropdown) dropdown.style.display = 'none';
+    materialQuickActiveIndex = -1;
+}
+
+function setMaterialQuickActive(index) {
+    var dropdown = getMaterialQuickDropdown();
+    if (!dropdown) return;
+    var items = dropdown.querySelectorAll('.material-quick-item[data-index]');
+    items.forEach(function(item) { item.classList.remove('active'); });
+    if (index >= 0 && index < items.length) {
+        items[index].classList.add('active');
+        items[index].scrollIntoView({block: 'nearest'});
+        materialQuickActiveIndex = index;
+    }
+}
+
+function selectAddMaterial(material) {
+    var codeInput = activeMaterialInput || document.getElementById('code');
+    if (!codeInput) return;
+    codeInput.value = material.code || '';
+    var row = codeInput.closest('tr.new-item-row');
+    if (row) {
+        fillInlineMaterialInfo(row, material);
+    } else {
+        fillAddMaterialInfo(material);
+    }
+    hideMaterialQuickDropdown();
+}
+
+function renderMaterialQuickDropdown(results) {
+    var dropdown = getMaterialQuickDropdown();
+    if (!dropdown) return;
+    var input = activeMaterialInput || document.getElementById('code');
+    if (input && input.closest('tr.new-item-row')) {
+        var rect = input.getBoundingClientRect();
+        dropdown.style.width = Math.max(rect.width, 420) + 'px';
+        dropdown.style.left = rect.left + 'px';
+        dropdown.style.top = (rect.bottom + 3) + 'px';
+    }
+    if (!results.length) {
+        dropdown.innerHTML = '<div class="material-quick-item material-quick-empty">无匹配物料</div>';
+        dropdown.style.display = 'block';
+        return;
+    }
+    dropdown.innerHTML = results.map(function(m, index) {
+        return '<div class="material-quick-item" data-index="' + index + '">' +
+            '<div><span class="code">' + escapeHtml(m.code) + '</span><span class="name">' + escapeHtml(m.name) + '</span></div>' +
+            '<div><span class="meta">规格：' + escapeHtml(m.spec || '-') + '</span>' +
+            '<span class="meta">单位：' + escapeHtml(getMaterialUnit(m) || '-') + '</span>' +
+            '<span class="meta">库存：' + formatStock(m.stock) + '</span></div>' +
+            '</div>';
+    }).join('');
+    dropdown.style.display = 'block';
+    dropdown.querySelectorAll('.material-quick-item[data-index]').forEach(function(item) {
+        item.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            var material = materialQuickResults[parseInt(this.dataset.index, 10)];
+            if (material) selectAddMaterial(material);
+        });
+    });
+    setMaterialQuickActive(results.length === 1 ? 0 : -1);
+}
 
 function lookupAddMaterial() {
-    var codeInput = document.getElementById('code');
-    var code = codeInput.value.trim();
+    var codeInput = activeMaterialInput || document.getElementById('code');
+    if (!codeInput) return;
+    activeMaterialInput = codeInput;
+    var row = codeInput.closest('tr.new-item-row');
+    var keyword = codeInput.value.trim();
     var token = ++materialLookupToken;
-    if (!code) {
-        clearAddMaterialInfo();
+    if (!keyword) {
+        materialQuickResults = [];
+        hideMaterialQuickDropdown();
+        if (row) {
+            clearInlineMaterialInfo(row);
+        } else {
+            clearAddMaterialInfo();
+        }
         return;
     }
 
-    fetch('/api/material/info?code=' + encodeURIComponent(code), {credentials: 'same-origin'})
+    fetch('/api/material/search?kw=' + encodeURIComponent(keyword), {credentials: 'same-origin'})
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (token !== materialLookupToken) return;
-            if (res.status === 'success' && res.data) {
-                fillAddMaterialInfo(res.data);
-            } else {
+            materialQuickResults = (res.status === 'success' && Array.isArray(res.data)) ? res.data : [];
+            var exact = materialQuickResults.find(function(m) {
+                return String(m.code || '').toLowerCase() === keyword.toLowerCase();
+            });
+            if (exact) {
+                if (row) {
+                    fillInlineMaterialInfo(row, exact);
+                } else {
+                    fillAddMaterialInfo(exact);
+                }
+            } else if (!row) {
                 clearAddMaterialInfo();
             }
+            renderMaterialQuickDropdown(materialQuickResults.slice(0, 20));
         })
         .catch(function() {
-            if (token === materialLookupToken) clearAddMaterialInfo();
+            if (token === materialLookupToken) {
+                materialQuickResults = [];
+                hideMaterialQuickDropdown();
+                if (!row) clearAddMaterialInfo();
+            }
         });
+}
+
+function clearInlineMaterialInfo(row) {
+    row.querySelector('.material-brand-field').value = '';
+    row.querySelector('.material-name-field').value = '';
+    row.querySelector('.material-spec-field').value = '';
+    row.querySelector('.material-unit-field').value = '';
+    row.querySelector('.material-stock-field').value = '';
 }
 
 function scheduleAddMaterialLookup() {
@@ -763,15 +901,57 @@ function scheduleAddMaterialLookup() {
     materialLookupTimer = setTimeout(lookupAddMaterial, 250);
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    var codeInput = document.getElementById('code');
-    if (codeInput) {
-        codeInput.addEventListener('input', scheduleAddMaterialLookup);
-        codeInput.addEventListener('change', lookupAddMaterial);
+function bindMaterialQuickInput(input) {
+    if (!input || input.dataset.quickBound === '1') return;
+    input.dataset.quickBound = '1';
+    input.addEventListener('input', function() {
+        activeMaterialInput = input;
+        scheduleAddMaterialLookup();
+    });
+    input.addEventListener('change', function() {
+        activeMaterialInput = input;
+        lookupAddMaterial();
+    });
+    input.addEventListener('keydown', function(e) {
+        activeMaterialInput = input;
+        var dropdown = getMaterialQuickDropdown();
+        var visible = dropdown && dropdown.style.display !== 'none';
+        if (!visible) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setMaterialQuickActive(Math.min(materialQuickActiveIndex + 1, materialQuickResults.length - 1));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setMaterialQuickActive(Math.max(materialQuickActiveIndex - 1, 0));
+        } else if (e.key === 'Enter') {
+            if (materialQuickActiveIndex >= 0 && materialQuickResults[materialQuickActiveIndex]) {
+                e.preventDefault();
+                selectAddMaterial(materialQuickResults[materialQuickActiveIndex]);
+            }
+        } else if (e.key === 'Escape') {
+            hideMaterialQuickDropdown();
+        }
+    });
+    input.addEventListener('focus', function() {
+        activeMaterialInput = input;
+        if (materialQuickResults.length) renderMaterialQuickDropdown(materialQuickResults.slice(0, 20));
+    });
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.material-quick-search')) {
+        hideMaterialQuickDropdown();
     }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    bindMaterialQuickInput(document.getElementById('code'));
     var searchBtn = document.getElementById('openSearchBtn');
     if (searchBtn) {
-        searchBtn.addEventListener('click', lookupAddMaterial);
+        searchBtn.addEventListener('click', function() {
+            activeMaterialInput = document.getElementById('code');
+            lookupAddMaterial();
+        });
     }
     var addModal = document.getElementById('addModal');
     if (addModal) {
@@ -780,6 +960,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 var input = document.getElementById(id);
                 if (input) input.value = '';
             });
+            materialQuickResults = [];
+            hideMaterialQuickDropdown();
             clearAddMaterialInfo();
         });
     }
