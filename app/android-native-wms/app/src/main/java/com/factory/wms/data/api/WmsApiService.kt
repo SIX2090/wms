@@ -53,6 +53,9 @@ interface WmsApiService {
 
     @POST("api/opening_stock")
     suspend fun submitOpeningStock(@Body request: OpeningStockRequest): Response<ApiEnvelope<SubmitResult>>
+
+    @POST("api/mobile/inbound_draft")
+    suspend fun createInboundDraft(@Body request: InboundDraftRequest): Response<ApiEnvelope<InboundDraftResult>>
 }
 
 data class OcrItem(
@@ -60,7 +63,9 @@ data class OcrItem(
     val name: String?,
     val spec: String?,
     val quantity: Double?,
-    val price: Double?
+    val price: Double?,
+    val matched: Boolean?,
+    val unit: String?
 )
 
 data class DocumentOcrResult(

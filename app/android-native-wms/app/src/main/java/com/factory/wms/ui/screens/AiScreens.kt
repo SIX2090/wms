@@ -53,6 +53,7 @@ fun DocumentOcrScreen(
     var selectedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+    var warehouseMenuExpanded by remember { mutableStateOf(false) }
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -80,6 +81,10 @@ fun DocumentOcrScreen(
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
             viewModel.clearError()
         }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.loadWarehouses()
     }
 
     Scaffold(
@@ -378,6 +383,24 @@ fun DocumentOcrScreen(
                                                     color = OnSurfaceVariant
                                                 )
                                             }
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(top = 4.dp)
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = if (item.matched == true) PrimaryContainer
+                                                    else ErrorContainer.copy(alpha = 0.6f)
+                                                ) {
+                                                    Text(
+                                                        if (item.matched == true) "已匹配" else "未建档",
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                                        color = if (item.matched == true) Primary else Error,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
+                                            }
                                         }
                                         Box(
                                             modifier = Modifier
@@ -438,6 +461,189 @@ fun DocumentOcrScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = OnSurfaceVariant
                             )
+                        }
+                    }
+                }
+            }
+
+// 确认识别结果 -> 生成入库草稿
+            uiState.ocrResult?.let { result ->
+                if (!result.items.isNullOrEmpty()) {
+                    val unmatchedCount = result.items.count { it.matched != true }
+                    val matchedCount = result.items.count { it.matched == true }
+
+                    // 未匹配物料拦截提示
+                    if (unmatchedCount > 0) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = ErrorContainer.copy(alpha = 0.5f)
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Outlined.Warning,
+                                        null,
+                                        tint = Error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        "存在 $unmatchedCount 行未建档物料",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Error
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    "未匹配到建档物料的识别行无法生成入库草稿，请先建档或转人工处理。已匹配 $matchedCount 行可正常生成草稿。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OnSurfaceVariant,
+                                    lineHeight = 18.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // 仓库选择
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "选择入库仓库",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OnSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ExposedDropdownMenuBox(
+                        expanded = warehouseMenuExpanded,
+                        onExpandedChange = { warehouseMenuExpanded = it }
+                    ) {
+                        OutlinedButton(
+                            onClick = { warehouseMenuExpanded = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(
+                                Icons.Outlined.Warehouse,
+                                null,
+                                tint = Primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                uiState.selectedWarehouse?.let { "${it.name} (${it.code})" }
+                                    ?: "选择仓库",
+                                modifier = Modifier.weight(1f),
+                                fontWeight = FontWeight.Medium
+                            )
+                            Icon(Icons.Filled.ArrowDropDown, null, tint = OnSurfaceVariant)
+                        }
+                        ExposedDropdownMenu(
+                            expanded = warehouseMenuExpanded,
+                            onDismissRequest = { warehouseMenuExpanded = false }
+                        ) {
+                            if (uiState.warehouses.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("暂无可用仓库") },
+                                    onClick = { warehouseMenuExpanded = false }
+                                )
+                            } else {
+                                uiState.warehouses.forEach { wh ->
+                                    DropdownMenuItem(
+                                        text = { Text("${wh.name} (${wh.code})") },
+                                        onClick = {
+                                            viewModel.selectWarehouse(wh)
+                                            warehouseMenuExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 确认生成草稿按钮
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(
+                        onClick = { viewModel.submitInboundDraft("采购入库") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        enabled = !uiState.draftSubmitting && matchedCount > 0,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CardTeal)
+                    ) {
+                        if (uiState.draftSubmitting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("生成中...", fontSize = 16.sp)
+                        } else {
+                            Icon(Icons.Outlined.AssignmentTurnedIn, null, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("确认生成入库草稿", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Text(
+                        "确认后生成 pending 草稿，不直接加库存，需在 WEB 端人工复核后正式入库。",
+                        modifier = Modifier.padding(top = 8.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OnSurfaceVariant
+                    )
+
+                    // 草稿生成结果
+                    uiState.draftResult?.let { draft ->
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = PrimaryContainer.copy(alpha = 0.5f)
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Filled.CheckCircle,
+                                        null,
+                                        tint = Primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        "入库草稿已生成",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Primary
+                                    )
+                                }
+                                draft.orderNo?.let {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        "单号：$it（状态：${draft.status ?: "pending"}）",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = OnSurfaceVariant
+                                    )
+                                }
+                                if (!draft.items.isNullOrEmpty()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        "共 ${draft.items.size} 行物料",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = OnSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
                 }
