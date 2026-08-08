@@ -120,6 +120,7 @@
 | 31 | AI-MOB-OCR-F01 | 已完成 | 手机端识别单据确认识别结果生成入库草稿 | AI-C07、AI-R08 | 无 |
 | 32 | AI-MOB-REC-F01 | 已完成 | 手机端识物：外包装/物品表面文字 + 图形外观识别物料 | AI-C07、AI-R08 | 无 |
 | 33 | AI-MOB-OCR-F02 | 已完成 | 识别送货单自动建档未建档物料生成采购入库草稿 | AI-C07、AI-R08 | 无 |
+| 34 | AI-MOB-REC-F02 | 已完成 | 手机盘点识物：除扫码盘点外，可拍照识别物料/标签加入盘点清单 | AI-MOB-REC-F01 | 无 |
 
 ## 5. 任务详细定义
 
@@ -439,6 +440,22 @@
 - Android 端 CI `assembleRelease` 校验；开启开关后未建档识别行可随草稿自动建立物料档案。
 
 **记录**：完成日期 2026-08-08；提交 `4ec33c4e`（后端自动建档 + 测试）、`89346694`（Android 端自动建档开关/流程）；涉及模块 app/routes/native_api.py、tests/verify_mobile_inbound_draft_api.py、app/android-native-wms/app/src/main/java/com/factory/wms/data/model/InboundDraftModels.kt、ui/viewmodel/ai/AiViewModel.kt、ui/screens/AiScreens.kt。
+
+### AI-MOB-REC-F02：手机盘点识物（除扫码盘点外，拍照识别物料/标签加入盘点清单）
+
+**目标**：让手机盘点除"扫码盘点"外，也支持"识物盘点"——在盘点页提供"识物盘点"入口，用户拍照物料实物、外包装或物品标签，系统通过既有识物（AI-MOB-REC-F01）识别物料，录入实际盘点数量后加入盘点清单，再统一提交盘点，复用既有 `/api/stocktake` 盘点链路。
+
+**范围与边界**：
+- 导航新增 `Screen.StocktakeRecognize`（`stocktake_recognize`）；盘点页 `ScanScreenBase` 新增可选额外操作按钮（`extraActionLabel`/`onExtraAction`，仅提供时显示），`StocktakeScreen` 透传"识物盘点"入口。
+- 新增 `StocktakeRecognizeScreen`：复用 `AiViewModel.recognizeMaterial`（`POST /mobile/api/recognize_material`）识别拍照/选图物料；识别结果展示"AI 提取信息"（编码/名称/规格/外观特征/置信度）与匹配状态；带"- / 数量 / +"编辑实际盘点数量（识别带出数量时作为默认值）；"添加到盘点清单"调用 `ScanViewModel.addScanLine` 加入 `ScanLine(material_code, quantity)` 后返回盘点页。
+- 加入清单的物料编码优先取已建档匹配物料的 `code`，回退到识别 `extracted.code`；未匹配到编码时拦截提示。
+- 边界：识别仅用于加入盘点清单，物料的建档/匹配依赖既有识物链路；盘点提交仍走原 `/api/stocktake`（后端按 code 查既有建档物料，未建档仍 400）；不清空既有盘点清单，可扫码与识物混合盘点。
+
+**验收**：
+- Android 端 CI `assembleRelease` 校验通过；盘点页可见"识物盘点"按钮，拍照识别后可调整数量并加入盘点清单，返回后清单已含该物料。
+- 其余扫码盘点、手动添加、提交盘点流程无回归。
+
+**记录**：完成日期 2026-08-08；提交 `5a2eb8f1`；涉及模块 app/android-native-wms/app/src/main/java/com/factory/wms/ui/navigation/Screen.kt、ui/navigation/NavGraph.kt、ui/screens/ScanScreenBase.kt、ui/screens/ScanScreens.kt、ui/screens/AiScreens.kt、ui/screens/HomeScreen.kt。
 
 ### AI-MENU-2026-07-30-B1：菜单/页面 title 批量对齐（剩余 9 项 → 0）
 
