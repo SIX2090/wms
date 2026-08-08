@@ -191,7 +191,7 @@ fun VoiceAssistantOverlay(
                             Spacer(Modifier.height(12.dp))
                         }
                         if (unrecognized) {
-                            Text("未识别到可执行指令，可点"重试"重新说话。")
+                            Text("未识别到可执行指令，可点「重试」重新说话。")
                         } else {
                             Text(
                                 "即将执行：${pending.label}",

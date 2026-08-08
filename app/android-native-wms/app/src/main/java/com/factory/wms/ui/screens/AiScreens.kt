@@ -1528,14 +1528,18 @@ fun StocktakeRecognizeScreen(
                         val code = materialCode?.trim()
                         val qty = countQty.toDoubleOrNull() ?: 1.0
                         if (code.isNullOrBlank()) {
-                            snackbarHostState.showSnackbar("无法识别物料编码，请重试或手动添加", duration = SnackbarDuration.Short)
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("无法识别物料编码，请重试或手动添加", duration = SnackbarDuration.Short)
+                            }
                             return@Button
                         }
                         scanViewModel.addScanLine(ScanLine(material_code = code, quantity = qty))
-                        snackbarHostState.showSnackbar(
-                            "已加入盘点清单：$code x ${formatQuantity(qty)}",
-                            duration = SnackbarDuration.Short
-                        )
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar(
+                                "已加入盘点清单：$code x ${formatQuantity(qty)}",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
                         onBack()
                     },
                     modifier = Modifier
