@@ -40,6 +40,53 @@ def mobile_material_payload(material):
     }
 
 
+def _match_material_by_description(description, query):
+    """图形/外观识别回退匹配：用外观描述中的型号字母数字或关键词匹配物料库。
+
+    当图片里没有清晰可读的文字（纯外观/图形/logo）时，视觉模型会输出一段
+    description（如"深沟球轴承 6204 金属 银色"）。本函数优先从描述中抽取
+    强标识的字母数字型号（如 6204、M8、SKF），再退化为整段描述关键词匹配
+    Material 的 code/spec/name 字段。返回匹配到的 Material 列表（最多 5 条）。
+    query 为已带 joinedload 的 Material 查询基座，需用 db.or_ 构造新查询。
+    """
+    from app import Material, db
+    description = (description or '').strip()
+    if not description:
+        return []
+
+    def _search(term):
+        if len(term) < 2:
+            return []
+        search = f'%{term}%'
+        return query.filter(
+            db.or_(
+                Material.code.like(search),
+                Material.spec.like(search),
+                Material.name.like(search),
+            )
+        ).limit(5).all()
+
+    # 优先抽取字母数字型号（轴承 6204、螺纹 M8、品牌 SKF6204 等），强标识
+    import re
+    tokens = re.findall(r'[A-Za-z0-9][A-Za-z0-9.\-]*', description)
+    for token in tokens:
+        token = token.strip()
+        if len(token) < 2:
+            continue
+        found = _search(token)
+        if found:
+            return found
+
+    # 退化为中文外观描述匹配：物料名/规格作为外观描述的子串即命中。
+    # 中文描述通常是一整段（如"红色塑料外壳继电器"），而物料名是其中的短片段（"继电器"），
+    # 故用反向子串匹配（description LIKE '%'||name||'%'）。
+    from sqlalchemy import func, literal
+    return query.filter(db.or_(
+        literal(description).like(func.concat('%', Material.name, '%')),
+        literal(description).like(func.concat('%', Material.spec, '%')),
+    )).limit(5).all()
+
+
 # no-test:reason=从 app.py 原样迁移的辅助函数，能力由 mobile_* 各路由测试覆盖
 def find_mobile_material(keyword):
     from app import Material, db, joinedload
@@ -417,17 +464,25 @@ def register_mobile_routes(app):
             img_data = base64.b64encode(file.read()).decode('ascii')
             data_url = f'data:image/{ext};base64,{img_data}'
 
-            prompt = '''请识别这张图片中的物料。如果是物料标签、物料实物或包装，请提取：
+            prompt = '''请识别这张图片中的物料。图片可能是物料的外包装、物品本身、物品表面标签或物品上的图形logo。
+
+识别渠道（三条都要尽力）：
+1. 外包装文字：箱标、唛头、条码旁文字、包装印刷文字等。
+2. 物品表面文字/型号：物品上印刷、刻印的型号与厂商文字（如轴承型号 6204、螺纹规格 M8、品牌 SKF）。
+3. 图形外观：当没有清晰可读文字时，根据物品的形状、颜色、结构、logo、材质等外观特征推断它是什么物料。
+
+请提取：
 1. 物料编码（如有）
 2. 物料名称
 3. 规格型号
 4. 数量（如有）
+5. description：无论文字是否可读，都用一句短语描述外观特征（如"深沟球轴承 6204 金属 银色"、"红色塑料外壳继电器"），供无文字时的外观匹配使用。
 
 请在回答末尾追加 JSON 代码块，格式如下：
 ```json
-{"code": "编码", "name": "名称", "spec": "规格", "quantity": 数量或null, "confidence": 0.8}
+{"code": "编码(无则空串)", "name": "名称(无则空串)", "spec": "规格(无则空串)", "quantity": 数量或null, "confidence": 0.8, "description": "外观描述(无则空串)"}
 ```
-如果无法识别，code和name留空，confidence设为0。'''
+如果完全无法识别，code/name/spec/description 留空，confidence 设为 0。'''
 
             reply, extracted, error = _ai_call_llm_vision(prompt, [{'data_url': data_url}])
             if error:
@@ -438,6 +493,7 @@ def register_mobile_routes(app):
                 code = (extracted.get('code') or '').strip()
                 name = (extracted.get('name') or '').strip()
                 spec = (extracted.get('spec') or '').strip()
+                description = (extracted.get('description') or '').strip()
 
                 query = Material.query.options(
                     joinedload(Material.unit),
@@ -459,6 +515,11 @@ def register_mobile_routes(app):
                 if not matches and spec:
                     search = f'%{spec}%'
                     matches = query.filter(Material.spec.like(search)).limit(5).all()
+
+                # 图形/外观识别回退：前三项文字匹配都失败时，用外观描述中的
+                # 型号字母数字（如 6204、M8、SKF）或描述关键词匹配物料库。
+                if not matches:
+                    matches = _match_material_by_description(description, query)
 
             return jsonify({
                 'status': 'success',
