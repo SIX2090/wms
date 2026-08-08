@@ -119,7 +119,9 @@ def main():
     # 端口/Host 支持环境变量覆盖：CI 测试时用 WMS_PORT=18080 避免与本机服务冲突
     host = os.environ.get("WMS_HOST", app.config.get("HOST", "0.0.0.0"))
     port = int(os.environ.get("WMS_PORT", app.config.get("PORT", 8080)))
-    threads = 8
+    # 线程数 8→16：缓解并发请求打满线程池导致排队（日志曾出现 queue depth 12）。
+    # WAL 下读不持写锁，扩并发读线程是安全的；SQLite 写仍由 BEGIN IMMEDIATE 串行化。
+    threads = int(os.environ.get("WMS_THREADS", "16"))
 
     print("=" * 60, flush=True)
     print("WMS server starting", flush=True)
