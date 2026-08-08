@@ -29,9 +29,60 @@
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
 
+import re
+
 from flask import jsonify, request
 
 from db import db
+
+
+def _resolve_material_unit(unit_name):
+    """解析单位：优先按 name/code 精确匹配，其次忽略大小写，最后回退默认单位。"""
+    from sqlalchemy import func
+    from app import Unit
+    name = (unit_name or '').strip()
+    if name:
+        unit = Unit.query.filter(
+            db.or_(Unit.name == name, Unit.code == name)
+        ).first()
+        if not unit:
+            unit = Unit.query.filter(
+                func.lower(Unit.name) == func.lower(name)
+            ).first()
+        if unit:
+            return unit
+    default = Unit.query.filter_by(name='个').first()
+    return default or Unit.query.first()
+
+
+def _find_material_by_name_spec(name, spec=None):
+    """按名称+规格查既有建档物料，避免自动建档产生重复。"""
+    from sqlalchemy import func
+    from app import Material
+    name = (name or '').strip()
+    if not name:
+        return None
+    return Material.query.filter(
+        Material.name == name,
+        func.coalesce(Material.spec, '') == (spec or '').strip(),
+    ).first()
+
+
+def _generate_auto_material_code(prefix='M'):
+    """为自动建档生成唯一物料编码：{prefix}{四位流水号}（如 M0001）。"""
+    from app import Material
+    max_number = 0
+    for (code,) in Material.query.with_entities(Material.code).filter(
+        Material.code.like(f'{prefix}%')
+    ).all():
+        m = re.match(rf'^{re.escape(prefix)}(\d+)$', code or '')
+        if m:
+            max_number = max(max_number, int(m.group(1)))
+    for n in range(max_number + 1, max_number + 100000):
+        candidate = f'{prefix}{n:04d}'
+        if not Material.query.filter_by(code=candidate).first():
+            return candidate
+    raise ValueError('无法生成唯一物料编码')
 
 
 # no-test:reason=路由注册辅助函数，能力由 native_api_* 与 mobile_api_* 各路由测试覆盖
@@ -801,6 +852,10 @@ def register_native_api_routes(app):
             material_code: str = Field(min_length=1)
             quantity: float = Field(gt=0)
             price: float | None = None
+            # 自动建档字段：当物料档案无此名称/型号时，据 name/spec/unit 自动建档
+            name: str | None = None
+            spec: str | None = None
+            unit: str | None = None
 
         class InboundDraftRequest(BaseModel):
             lines: list[InboundDraftLine] = Field(min_length=1)
@@ -808,6 +863,8 @@ def register_native_api_routes(app):
             warehouse: str | None = None
             warehouse_code: str | None = None
             remark: str | None = None
+            # 置 True 时，未匹配到建档物料的识别行将按 name/spec/unit 自动建档
+            auto_create_material: bool = False
 
             @field_validator('business_type')
             @classmethod
@@ -826,15 +883,38 @@ def register_native_api_routes(app):
             return api_json_error(f'参数校验失败：{exc}', 400)
 
         try:
-            # 解析物料行，未匹配到建档物料的行直接拦截
+            # 解析物料行：能匹配建档物料则使用建档物料；
+            # 未匹配时若启用自动建档则按 name/spec/unit 自动建档，否则拦截。
             matched = []
             unmatched = []
+            auto_created = []
             for line in req.lines:
                 code = (line.material_code or '').strip()
                 material = Material.query.filter_by(code=code).first() if code else None
                 if material is None:
-                    unmatched.append(code or '(空)')
-                    continue
+                    material = _find_material_by_name_spec(line.name, line.spec)
+                if material is None:
+                    if req.auto_create_material:
+                        name = (line.name or '').strip()
+                        if not name:
+                            unmatched.append(code or '(空)')
+                            continue
+                        unit = _resolve_material_unit(line.unit)
+                        new_code = _generate_auto_material_code()
+                        material = Material(
+                            code=new_code,
+                            name=name,
+                            spec=(line.spec or '').strip() or None,
+                            unit_id=unit.id if unit else None,
+                            price=0,
+                            stock=0,
+                        )
+                        db.session.add(material)
+                        db.session.flush()
+                        auto_created.append({'code': new_code, 'name': name})
+                    else:
+                        unmatched.append(code or '(空)')
+                        continue
                 price = round_to_2_decimals(
                     line.price if line.price is not None else (material.price or 0)
                 )
@@ -844,12 +924,14 @@ def register_native_api_routes(app):
                     'price': price,
                 })
             if unmatched:
+                db.session.rollback()
                 return api_json_error(
                     '以下物料未建档，无法生成入库草稿，请先建档或转人工处理：'
                     + '、'.join(dict.fromkeys(unmatched)),
                     400,
                 )
             if not matched:
+                db.session.rollback()
                 return api_json_error('没有可生成草稿的有效物料行', 400)
 
             # 仓库必填：优先用传入值，否则自动带默认仓库
@@ -907,15 +989,19 @@ def register_native_api_routes(app):
                 ))
             order.total_amount = round_to_2_decimals(total_amount)
             db.session.commit()
+            msg = '入库草稿已生成'
+            if auto_created:
+                msg += f'，同时自动建档 {len(auto_created)} 个物料'
             return api_json_success({
                 'order_no': order.order_no,
                 'status': 'pending',
+                'auto_created': auto_created,
                 'items': [
                     {'code': row['material'].code, 'name': row['material'].name,
                      'quantity': row['quantity']}
                     for row in matched
                 ],
-            }, '入库草稿已生成')
+            }, msg)
         except Exception as e:  # noqa: BLE001
             db.session.rollback()
             app.logger.exception('Mobile inbound draft failed')

@@ -76,6 +76,14 @@ def _seed_material(code, name, stock=0, price=5):
     return m.id
 
 
+def _seed_unit(code, name):
+    from app import Unit
+    u = Unit(code=code, name=name)
+    db.session.add(u)
+    db.session.commit()
+    return u.id
+
+
 class TestMobileInboundDraftApi:
     def _setup(self, default_warehouse=False):
         with app_module.app.app_context():
@@ -83,6 +91,8 @@ class TestMobileInboundDraftApi:
             _seed_admin()
             _seed_warehouse("MC", "材料仓", is_default=default_warehouse)
             _seed_warehouse("CP", "成品仓")
+            _seed_unit("PCS", "个")
+            _seed_unit("SET", "套")
             _seed_material("M001", "6204轴承", stock=0, price=12.5)
             _seed_material("M002", "M8螺母", stock=0, price=0.5)
         return _make_client()
@@ -171,6 +181,80 @@ class TestMobileInboundDraftApi:
         }, headers=headers)
         assert r.status_code == 400
 
+    def test_auto_create_material(self):
+        """T7：auto_create_material=True 时，未建档送货单物料自动建档并生成草稿。"""
+        client = self._setup()
+        headers = _bearer(client)
+        payload = {
+            "business_type": "采购入库",
+            "warehouse_code": "MC",
+            "auto_create_material": True,
+            "lines": [
+                {"material_code": "X6204", "name": "6204轴承", "spec": "6204",
+                 "unit": "套", "quantity": 100, "price": 12.5},
+                {"material_code": "M002", "quantity": 500},
+            ],
+        }
+        r = client.post("/api/mobile/inbound_draft", json=payload, headers=headers)
+        assert r.status_code == 200, r.get_data(as_text=True)
+        body = r.get_json()
+        assert body["status"] == "success", body
+        assert body["data"]["status"] == "pending"
+        assert len(body["data"]["auto_created"]) == 1
+        auto = body["data"]["auto_created"][0]
+        assert auto["name"] == "6204轴承"
+        assert auto["code"].startswith("M")
+
+        # 自动建档物料已入库，草稿明细引用了它
+        with app_module.app.app_context():
+            from app import InOrder, InOrderItem, Material
+            m = Material.query.filter_by(code=auto["code"]).first()
+            assert m is not None
+            assert m.name == "6204轴承"
+            assert m.spec == "6204"
+            assert m.unit is not None and m.unit.name == "套"
+            order = InOrder.query.filter_by(order_no=body["data"]["order_no"]).first()
+            assert order is not None
+            assert InOrderItem.query.filter_by(in_order_id=order.id,
+                                               material_id=m.id).count() == 1
+
+    def test_auto_create_skips_existing_by_name_spec(self):
+        """T8：自动建档前按名称+规格查重，同名称规格不重复建档。"""
+        client = self._setup()
+        headers = _bearer(client)
+        # 该行名称规格与已建档 M001 相同，应复用而非新建
+        payload = {
+            "business_type": "采购入库",
+            "warehouse_code": "MC",
+            "auto_create_material": True,
+            "lines": [
+                {"material_code": "NOPE", "name": "6204轴承", "spec": "",
+                 "quantity": 10},
+            ],
+        }
+        r = client.post("/api/mobile/inbound_draft", json=payload, headers=headers)
+        assert r.status_code == 200, r.get_data(as_text=True)
+        body = r.get_json()
+        assert body["data"]["auto_created"] == []
+        with app_module.app.app_context():
+            from app import Material
+            dup = Material.query.filter_by(name="6204轴承").all()
+            assert len(dup) == 1, len(dup)
+
+    def test_auto_create_off_still_blocks(self):
+        """T9：未开启 auto_create_material 时，未建档行仍被拦截。"""
+        client = self._setup()
+        headers = _bearer(client)
+        payload = {
+            "warehouse_code": "MC",
+            "lines": [
+                {"material_code": "X6204", "name": "全新型号轴承", "quantity": 10},
+            ],
+        }
+        r = client.post("/api/mobile/inbound_draft", json=payload, headers=headers)
+        assert r.status_code == 400
+        assert "未建档" in r.get_json()["msg"]
+
 
 def main():
     import traceback
@@ -182,6 +266,9 @@ def main():
         "test_missing_warehouse",
         "test_default_warehouse",
         "test_validation",
+        "test_auto_create_material",
+        "test_auto_create_skips_existing_by_name_spec",
+        "test_auto_create_off_still_blocks",
     ]
     failed = 0
     for name in methods:
