@@ -117,6 +117,7 @@
 | 28 | AI-MENU-2026-07-29-A2 | 已完成 | opening_stock.warehouse_id 自动迁移补齐 | AI-OS-MW-001 | 无 |
 | 29 | AI-MENU-2026-07-29-A3 | 已完成 | 期初库存菜单页面 title 改为「期初库存台账」 | 无 | 无 |
 | 30 | AI-OS-APP-001 | 已完成 | 手机端期初库存（日期/仓库/扫码建账）+ 移动期初 API + APK 固定签名修复 | AI-OS-MW-001 | 无 |
+| 31 | AI-MOB-OCR-F01 | 已完成 | 手机端识别单据确认识别结果生成入库草稿 | AI-C07、AI-R08 | 无 |
 
 ## 5. 任务详细定义
 
@@ -388,6 +389,21 @@
 - 期初库存页面：选择日期、选择仓库、扫码/手动添加物料、提交建账成功提示。
 
 **记录**：完成日期 2026-08-05；提交 `b0b70c34`（期初日期字段）、`c9523acb`（移动期初 API）、`f9c622ed`（Android 端 + 签名修复）；涉及模块 app/app.py、app/routes/opening_stock.py、app/routes/native_api.py、app/android-native-wms/**、.github/workflows/android-build.yml、tests/verify_mobile_opening_stock_api.py。
+
+### AI-MOB-OCR-F01：手机端识别单据确认识别结果生成入库草稿
+
+**目标**：在 Android WMS App 的"识别单据"页，用户拍照识别送货单/入库单后，勾选仓库、确认已匹配的识别行，生成 `pending` 入库草稿（不直接加库存），未匹配到建档物料的识别行在移动端拦截并提示转人工。
+
+**范围与边界**：
+- 后端移动 API：`POST /api/mobile/inbound_draft`（Pydantic `InboundDraftRequest`/`InboundDraftLine` 校验、逐行匹配建档物料、未建档行拦截返回 400、仓库必填/未传带默认仓库、生成 `InOrder`+`InOrderItem` 状态 `pending`），走 `api_role_required('warehouse','purchase')` + `csrf.exempt` + `mobile_api_idempotent('inbound_draft')` 幂等。
+- Android 端：`OcrItem` 增加 `matched`/`unit` 字段；`InboundDraftModels`（InboundDraftLine/Request/Item/Result）；`WmsApiService` 增加 `createInboundDraft`（仓库列表复用已有 `getWarehouses`）；`WmsRepository.createInboundDraft`；`AiViewModel` 增加仓库加载/选择 + `submitInboundDraft`；`DocumentOcrScreen` 增加仓库下拉、识别行"已匹配/未建档"徽标、未建档拦截提示卡、确认生成草稿按钮、草稿生成结果卡。
+- 边界：生成的是 `pending` 草稿，不直接加库存；未匹配行不进入草稿，需先建档或转人工；启用库位管理且保存强制的系统要求仓库/库位。
+
+**验收**：
+- `tests/verify_mobile_inbound_draft_api.py` 覆盖端点注册、有效物料+仓库→pending 草稿且不直接加库存、未建档拦截 400、缺仓库 400、默认仓库、参数校验，全部通过（6 项）。
+- Android 端编译通过（CI `assembleRelease` 校验）；仓库下拉可选、识别行显示匹配状态、未建档行拦截并仅允许已匹配行生成草稿。
+
+**记录**：完成日期 2026-08-08；提交 `4b6666a4`（后端端点 + 测试）、`006de777`（Android 端集成）；涉及模块 app/routes/native_api.py、tests/verify_mobile_inbound_draft_api.py、app/android-native-wms/app/src/main/java/com/factory/wms/data/api/WmsApiService.kt、data/model/InboundDraftModels.kt、data/repository/WmsRepository.kt、ui/viewmodel/ai/AiViewModel.kt、ui/screens/AiScreens.kt。
 
 ### AI-MENU-2026-07-30-B1：菜单/页面 title 批量对齐（剩余 9 项 → 0）
 
