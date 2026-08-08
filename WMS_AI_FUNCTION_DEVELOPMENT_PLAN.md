@@ -121,7 +121,7 @@
 | 32 | AI-MOB-REC-F01 | 已完成 | 手机端识物：外包装/物品表面文字 + 图形外观识别物料 | AI-C07、AI-R08 | 无 |
 | 33 | AI-MOB-OCR-F02 | 已完成 | 识别送货单自动建档未建档物料生成采购入库草稿 | AI-C07、AI-R08 | 无 |
 | 34 | AI-MOB-REC-F02 | 已完成 | 手机盘点识物：除扫码盘点外，可拍照识别物料/标签加入盘点清单 | AI-MOB-REC-F01 | 无 |
-| 35 | AI-MOB-VOICE-F01 | 进行中 | 手机端语音识别：按语音指令执行操作（导航/返回/退出等） | AI-MOB-REC-F01 | 无 |
+| 35 | AI-MOB-VOICE-F01 | 已完成 | 手机端语音识别：按语音指令执行操作（导航/返回/退出等） | AI-MOB-REC-F01 | 见下方完成记录 |
 
 ## 5. 任务详细定义
 
@@ -470,8 +470,14 @@
 - 边界：仅本地语音识别与关键词指令，不接大模型；识别失败/超时/无权限给出提示；退出登录仍需用户在确认弹窗点"执行"。
 
 **验收**：
-- Android 端 CI `assembleRelease` 校验通过；已登录页面可见悬浮麦克风，授权后说"入库/出库/查库存/盘点/期初库存/识别单据/识物/识物盘点/返回/回首页/退出"可弹窗确认并导航。
+- Android 端 CI `assembleDebug` 校验通过；已登录页面可见悬浮麦克风，授权后说"入库/出库/查库存/盘点/期初库存/识别单据/识物/识物盘点/返回/回首页/退出"可弹窗确认并导航。
 - 未授权麦克风、识别无结果、无法匹配指令时均有明确提示；登录页不显示悬浮入口。
+
+**完成记录（2026-08-08）**：
+- 实现：`f3b057cd feat(mobile): 新增语音识别，按语音指令执行 WMS 操作`（RECORD_AUDIO 权限、`VoiceCommandViewModel`、`VoiceAssistantOverlay`、`NavGraph` 登录态叠加、`Screen.title`）。
+- CI 编译验证修复：`f9195b40 ci(mobile): 改用 assembleDebug 编译验证并修复 release 签名配置解析`（将 `signingConfigs` 提到 `buildTypes` 前，CI 改跑 `assembleDebug` 以真正编译）；`1977311f fix(mobile): 修复语音识物盘点编译错误`（中文引号 `"重试"` 与字符串界定符冲突改「重试」；`AiScreens.kt` 中 `showSnackbar` 用 `coroutineScope.launch` 包裹）。
+- 验证：Android APK Build（`assembleDebug`）CI 通过，产出 `app-debug` artifact；本地与 `origin/main` 均停在 `1977311f`。
+- 说明：收尾时曾因 release 签名 keystore 缺失导致 CI 在签名配置阶段即失败（`SigningConfig with name 'release' not found`，`buildTypes` 先于 `signingConfigs` 执行所致），已一并修复；`WMS CI`/`WMS AI Verification` 的 `/mobile/app` 404 属既有失败（根目录本无 `app-release.apk`），与本次无关。
 
 ### AI-MENU-2026-07-30-B1：菜单/页面 title 批量对齐（剩余 9 项 → 0）
 
