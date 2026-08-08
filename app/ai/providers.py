@@ -133,6 +133,28 @@ class OpenAICompatibleConfig:
         }
 
 
+# 思考模型默认开启深度推理，推理过程会消耗大量 token。
+# 如果 max_tokens 太小，推理吃光额度后 content 为空。
+# 对这些模型自动把 max_tokens 提到安全下限（只上调、不下调）。
+_THINKING_MODEL_MIN_TOKENS = 2048
+_THINKING_MODEL_KEYWORDS = (
+    'deepseek-v4', 'deepseek_v4', 'glm-5', 'glm_5',
+)
+
+
+def _is_thinking_model(model: str) -> bool:
+    m = (model or '').lower()
+    return any(kw in m for kw in _THINKING_MODEL_KEYWORDS)
+
+
+def _effective_max_tokens(config: OpenAICompatibleConfig) -> int:
+    """对思考模型自动把 max_tokens 提到安全下限（只上调、不下调）。"""
+    val = config.max_tokens or 0
+    if _is_thinking_model(config.model) and val < _THINKING_MODEL_MIN_TOKENS:
+        return _THINKING_MODEL_MIN_TOKENS
+    return val
+
+
 def build_chat_payload(
     config: OpenAICompatibleConfig,
     messages: list[dict[str, object]],
@@ -146,7 +168,7 @@ def build_chat_payload(
         'model': config.model,
         'messages': messages,
         'temperature': temperature,
-        'max_tokens': config.max_tokens,
+        'max_tokens': _effective_max_tokens(config),
         'stream': stream,
     }
     if response_format:
@@ -240,6 +262,22 @@ def call_llm(
             response.raise_for_status()
             data = response.json()
             content = (((data.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
+
+            # 思考模型可能因 max_tokens 不足返回空 content。
+            # 已自动上调到 2048，若仍为空则关闭推理模式重试一次。
+            if not content and _is_thinking_model(config.model) and attempt == 0:
+                logger.info('Thinking model returned empty content, retrying with thinking disabled')
+                payload_no_think = {k: v for k, v in payload.items() if k != 'thinking'}
+                payload_no_think['thinking'] = {'type': 'disabled'}
+                response = requests.post(
+                    config.endpoint,
+                    headers=headers,
+                    json=payload_no_think,
+                    timeout=timeout,
+                )
+                if response.status_code == 200:
+                    data2 = response.json()
+                    content = (((data2.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
 
             breaker.record_success()
             return content if content else None
