@@ -118,6 +118,7 @@
 | 29 | AI-MENU-2026-07-29-A3 | 已完成 | 期初库存菜单页面 title 改为「期初库存台账」 | 无 | 无 |
 | 30 | AI-OS-APP-001 | 已完成 | 手机端期初库存（日期/仓库/扫码建账）+ 移动期初 API + APK 固定签名修复 | AI-OS-MW-001 | 无 |
 | 31 | AI-MOB-OCR-F01 | 已完成 | 手机端识别单据确认识别结果生成入库草稿 | AI-C07、AI-R08 | 无 |
+| 32 | AI-MOB-REC-F01 | 已完成 | 手机端识物：外包装/物品表面文字 + 图形外观识别物料 | AI-C07、AI-R08 | 无 |
 
 ## 5. 任务详细定义
 
@@ -404,6 +405,23 @@
 - Android 端编译通过（CI `assembleRelease` 校验）；仓库下拉可选、识别行显示匹配状态、未建档行拦截并仅允许已匹配行生成草稿。
 
 **记录**：完成日期 2026-08-08；提交 `4b6666a4`（后端端点 + 测试）、`006de777`（Android 端集成）；涉及模块 app/routes/native_api.py、tests/verify_mobile_inbound_draft_api.py、app/android-native-wms/app/src/main/java/com/factory/wms/data/api/WmsApiService.kt、data/model/InboundDraftModels.kt、data/repository/WmsRepository.kt、ui/viewmodel/ai/AiViewModel.kt、ui/screens/AiScreens.kt。
+
+### AI-MOB-REC-F01：手机端识物（外包装/物品表面文字 + 图形外观识别）
+
+**目标**：在 Android WMS App 的"识物"页，用户拍照物料的外包装、物品本身或物品表面标签/图形 logo，系统通过 LLM 视觉模型读取外包装文字与物品表面图文，并在无清晰文字时依据图形外观特征识别物料，返回匹配的建档物料。
+
+**范围与边界**：
+- 识别渠道（三条并行）：① 外包装文字（箱标/唛头/条码旁文字）；② 物品表面印刷/刻印文字与型号（如轴承 6204、螺纹 M8、品牌 SKF）；③ 图形外观（无清晰文字时按形状/颜色/结构/logo/材质推断）。
+- 后端 `POST /mobile/api/recognize_material`（`@login_required`）：增强视觉提示词新增 `description` 外观描述字段；匹配链路为 code 精确→code 模糊→name→spec→`_match_material_by_description` 回退（先抽取描述中的字母数字型号强匹配，再退化为中文反向子串匹配：物料 name/spec 作为外观描述的子串即命中）。
+- Android 端：`ExtractedMaterial` 增加 `description` 字段；识别结果页新增"外观特征"行，展示 AI 从图片凝练的外观描述。
+- 边界：识别仅返回匹配候选，不自动建单、不动库存；完全无法识别时返回空 matches 不报错；依赖系统设置中启用大模型与图片识别（未启用返回 400）。
+
+**验收**：
+- `tests/verify_mobile_recognize_material_api.py` 覆盖端点注册、文字识别（code 匹配）、图形/外观识别（仅 description 含型号→匹配）、description 中文反向子串回退、完全无法识别返回空、未启用视觉返回 400，全部通过（6 项）。
+- 既有 `tests/verify_mobile_inbound_draft_api.py` 6 项无回归；`scripts/lint_wms_rules.py` 0 违规。
+- Android 端 CI `assembleRelease` 校验；识物页拍照后展示"AI 提取信息"（含外观特征）与匹配物料列表。
+
+**记录**：完成日期 2026-08-08；提交 `92750a86`（后端识物增强 + 测试）、`7e3e9696`（Android 端外观特征展示）；涉及模块 app/routes/mobile.py、tests/verify_mobile_recognize_material_api.py、app/android-native-wms/app/src/main/java/com/factory/wms/data/api/WmsApiService.kt、ui/screens/AiScreens.kt。
 
 ### AI-MENU-2026-07-30-B1：菜单/页面 title 批量对齐（剩余 9 项 → 0）
 
