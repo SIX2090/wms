@@ -14,10 +14,10 @@
     <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
     <!-- Bootstrap Icons (本地) -->
     <link href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}" rel="stylesheet">
-    <!-- Flatpickr (日期控件，支持中文格式) -->
-    <link href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" rel="stylesheet">
-    <!-- Chart.js (CDN) -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- Flatpickr (日期控件，支持中文格式，本地化) -->
+    <link href="{{ url_for('static', filename='cdn/flatpickr.min.css') }}" rel="stylesheet">
+    <!-- Chart.js (本地化) -->
+    <script src="{{ url_for('static', filename='cdn/chart.umd-4.4.1.min.js') }}"></script>
     <!-- 自定义优化样式 -->
     <link href="{{ url_for('static', filename='css/custom.css') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}" rel="stylesheet">
     <!-- jQuery (本地) -->
@@ -3803,8 +3803,8 @@
 
     {% block extra_js %}{% endblock %}
 
-    <!-- Flatpickr JS + 中文日期格式初始化 -->
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <!-- Flatpickr JS + 中文日期格式初始化（本地化） -->
+    <script src="{{ url_for('static', filename='cdn/flatpickr.min.js') }}"></script>
     <script>
     (function() {
         // 将所有原生 date 输入框替换为 flatpickr，显示中文格式 YYYY年MM月DD日
