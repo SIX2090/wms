@@ -54,6 +54,7 @@ fun DocumentOcrScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     var warehouseMenuExpanded by remember { mutableStateOf(false) }
+    var autoCreateMaterial by remember { mutableStateOf(false) }
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -501,7 +502,7 @@ fun DocumentOcrScreen(
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    "未匹配到建档物料的识别行无法生成入库草稿，请先建档或转人工处理。已匹配 $matchedCount 行可正常生成草稿。",
+                                    "存在 $unmatchedCount 行未匹配到建档物料。开启自动建档后，将按识别出的名称/规格自动建立物料档案并生成入库草稿；不开启则这些行会被拦截。",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = OnSurfaceVariant,
                                     lineHeight = 18.sp
@@ -568,14 +569,53 @@ fun DocumentOcrScreen(
                         }
                     }
 
+                    // 自动建档开关
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        color = SurfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Outlined.AutoAwesome,
+                                null,
+                                tint = Primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "自动建档未识别物料",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = OnSurface
+                                )
+                                Text(
+                                    "未建档的识别行按识别名称/规格自动建立物料档案",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OnSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = autoCreateMaterial,
+                                onCheckedChange = { autoCreateMaterial = it }
+                            )
+                        }
+                    }
+
                     // 确认生成草稿按钮
                     Spacer(modifier = Modifier.height(20.dp))
                     Button(
-                        onClick = { viewModel.submitInboundDraft("采购入库") },
+                        onClick = { viewModel.submitInboundDraft("采购入库", autoCreateMaterial = autoCreateMaterial) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp),
-                        enabled = !uiState.draftSubmitting && matchedCount > 0,
+                        enabled = !uiState.draftSubmitting &&
+                            (if (autoCreateMaterial) matchedCount + unmatchedCount > 0 else matchedCount > 0),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = CardTeal)
                     ) {
@@ -641,6 +681,15 @@ fun DocumentOcrScreen(
                                         "共 ${draft.items.size} 行物料",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = OnSurfaceVariant
+                                    )
+                                }
+                                if (!draft.autoCreated.isNullOrEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        "自动建档 ${draft.autoCreated.size} 个物料：${draft.autoCreated.joinToString("、") { "${it.name ?: ""}(${it.code ?: ""})" }}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Primary,
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                             }

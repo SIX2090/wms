@@ -111,15 +111,43 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(selectedWarehouse = warehouse)
     }
 
-    fun submitInboundDraft(businessType: String, remark: String? = null) {
+    fun submitInboundDraft(businessType: String, remark: String? = null, autoCreateMaterial: Boolean = false) {
         val ocr = _uiState.value.ocrResult ?: run {
             _uiState.value = _uiState.value.copy(error = "请先识别单据")
             return
         }
-        val matchedLines = (ocr.items ?: emptyList())
-            .filter { it.matched == true && !it.code.isNullOrBlank() }
-        if (matchedLines.isEmpty()) {
-            _uiState.value = _uiState.value.copy(error = "没有已匹配到建档物料的识别行，无法生成入库草稿")
+        val allItems = ocr.items ?: emptyList()
+        val lines = if (autoCreateMaterial) {
+            // 自动建档模式：所有有名称的行都提交，未匹配行由后端按 name/spec/unit 自动建档
+            allItems
+                .filter { !it.name.isNullOrBlank() }
+                .map {
+                    com.factory.wms.data.model.InboundDraftLine(
+                        materialCode = it.code.orEmpty(),
+                        quantity = it.quantity ?: 1.0,
+                        price = it.price,
+                        name = it.name,
+                        spec = it.spec,
+                        unit = it.unit
+                    )
+                }
+        } else {
+            // 仅提交已匹配建档物料的识别行，未建档行拦截
+            allItems
+                .filter { it.matched == true && !it.code.isNullOrBlank() }
+                .map {
+                    com.factory.wms.data.model.InboundDraftLine(
+                        materialCode = it.code.orEmpty(),
+                        quantity = it.quantity ?: 1.0,
+                        price = it.price
+                    )
+                }
+        }
+        if (lines.isEmpty()) {
+            _uiState.value = _uiState.value.copy(
+                error = if (autoCreateMaterial) "没有可识别的物料行，无法生成入库草稿"
+                else "没有已匹配到建档物料的识别行，无法生成入库草稿"
+            )
             return
         }
         val warehouse = _uiState.value.selectedWarehouse
@@ -128,16 +156,11 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val request = InboundDraftRequest(
-            lines = matchedLines.map {
-                com.factory.wms.data.model.InboundDraftLine(
-                    materialCode = it.code.orEmpty(),
-                    quantity = it.quantity ?: 1.0,
-                    price = it.price
-                )
-            },
+            lines = lines,
             businessType = businessType,
             warehouseCode = warehouse.code,
-            remark = remark
+            remark = remark,
+            autoCreateMaterial = autoCreateMaterial
         )
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(draftSubmitting = true, error = null)
