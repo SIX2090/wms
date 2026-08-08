@@ -1792,7 +1792,7 @@ SYSTEM_SETTING_GROUPS = [
                 'type': 'int',
                 'default': str(int(app.config.get('WMS_LLM_MAX_TOKENS', 300) or 300)),
                 'min': 50,
-                'max': 2000,
+                'max': 4096,
                 'unit': 'tokens',
                 'remark': '当前只让模型输出意图 JSON，通常 300 足够。',
             },
@@ -9746,7 +9746,7 @@ def _ai_llm_max_tokens(overrides=None):
     override = _ai_override_value(overrides, 'ai_llm_max_tokens')
     if override:
         try:
-            return max(50, min(2000, int(override)))
+            return max(50, min(4096, int(override)))
         except ValueError:
             return 300
     return get_system_setting_int('ai_llm_max_tokens', int(app.config.get('WMS_LLM_MAX_TOKENS') or 300))
