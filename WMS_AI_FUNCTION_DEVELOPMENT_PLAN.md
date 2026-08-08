@@ -121,6 +121,7 @@
 | 32 | AI-MOB-REC-F01 | 已完成 | 手机端识物：外包装/物品表面文字 + 图形外观识别物料 | AI-C07、AI-R08 | 无 |
 | 33 | AI-MOB-OCR-F02 | 已完成 | 识别送货单自动建档未建档物料生成采购入库草稿 | AI-C07、AI-R08 | 无 |
 | 34 | AI-MOB-REC-F02 | 已完成 | 手机盘点识物：除扫码盘点外，可拍照识别物料/标签加入盘点清单 | AI-MOB-REC-F01 | 无 |
+| 35 | AI-MOB-VOICE-F01 | 进行中 | 手机端语音识别：按语音指令执行操作（导航/返回/退出等） | AI-MOB-REC-F01 | 无 |
 
 ## 5. 任务详细定义
 
@@ -456,6 +457,21 @@
 - 其余扫码盘点、手动添加、提交盘点流程无回归。
 
 **记录**：完成日期 2026-08-08；提交 `5a2eb8f1`；涉及模块 app/android-native-wms/app/src/main/java/com/factory/wms/ui/navigation/Screen.kt、ui/navigation/NavGraph.kt、ui/screens/ScanScreenBase.kt、ui/screens/ScanScreens.kt、ui/screens/AiScreens.kt、ui/screens/HomeScreen.kt。
+
+### AI-MOB-VOICE-F01：手机端语音识别（按语音指令执行操作）
+
+**目标**：让手机端支持"识别语音、按语音执行指令操作"——在任意已登录页面提供悬浮麦克风入口，点击后调用系统语音识别（`SpeechRecognizer`，中文），将识别文本解析为 WMS 操作指令（导航到扫码入库/扫码出库/查库存/盘点/期初库存/识别单据/识物等，以及返回/回首页/退出登录），识别到指令后弹窗确认再执行，降低误触发风险。
+
+**范围与边界**：
+- 新增 `RECORD_AUDIO` 权限（运行时授权）；新建 `VoiceCommandViewModel`：封装 `SpeechRecognizer` 生命周期、`VoiceUiState`（isListening/partialText/heardText/message/error）、指令解析 `parseCommand`、指令下发（`Channel<VoiceCommand>`）。
+- `VoiceCommand` 密封类：`Navigate(Screen)` / `GoBack` / `GoHome` / `Logout` / `Unrecognized`；`Screen` 增加 `title` 字段用于指令展示。
+- 新建 `VoiceAssistantOverlay`（悬浮麦克风按钮 + 聆听中弹窗 + 指令确认弹窗），在 `NavGraph` 中叠加于 `NavHost` 之上，仅登录态显示；识别指令经 `navController` 执行导航。
+- 指令采用关键词解析并做优先级排序（"识物盘点"先于"盘点"、"识别单据"先于"识物"等），避免包含关系误命中。
+- 边界：仅本地语音识别与关键词指令，不接大模型；识别失败/超时/无权限给出提示；退出登录仍需用户在确认弹窗点"执行"。
+
+**验收**：
+- Android 端 CI `assembleRelease` 校验通过；已登录页面可见悬浮麦克风，授权后说"入库/出库/查库存/盘点/期初库存/识别单据/识物/识物盘点/返回/回首页/退出"可弹窗确认并导航。
+- 未授权麦克风、识别无结果、无法匹配指令时均有明确提示；登录页不显示悬浮入口。
 
 ### AI-MENU-2026-07-30-B1：菜单/页面 title 批量对齐（剩余 9 项 → 0）
 
