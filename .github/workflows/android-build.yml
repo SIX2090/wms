@@ -41,28 +41,14 @@ jobs:
           sed -i '/systemProp.https.proxyPort/d' gradle.properties
           sed -i '/# Proxy settings/d' gradle.properties
 
-      - name: Build Release APK
+      # 方案A：用 assembleDebug 做编译验证（Debug 无需签名，避免 release keystore 缺失导致
+      # 构建在签名配置阶段即失败，从而真正走到 Kotlin 编译，暴露语法/依赖问题）。
+      - name: Build Debug APK
         working-directory: app/android-native-wms
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: app/android-native-wms/app/build/outputs/apk/release/app-release.apk
-
-      # 回传 release APK 到仓库根目录：服务器通过 git pull 即可拿到，
-      # 无需手动下载。仅提交根目录 app-release.apk，不触碰 android-native-wms/**，
-      # 因此不会再次触发本 workflow（死循环），只会触发 verify/ci 的 Python 测试。
-      - name: Commit APK back to repo
-        run: |
-          cp app/android-native-wms/app/build/outputs/apk/release/app-release.apk ./app-release.apk
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app-release.apk
-          if git diff --cached --quiet; then
-            echo "APK unchanged, nothing to commit"
-          else
-            git commit -m "chore(mobile): update release APK [skip ci]"
-            git push
-          fi
+          name: app-debug
+          path: app/android-native-wms/app/build/outputs/apk/debug/app-debug.apk

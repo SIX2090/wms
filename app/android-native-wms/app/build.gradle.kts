@@ -17,22 +17,24 @@ android {
         versionName = "3.0.0"
     }
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("release")
-        }
-    }
-
     // 发布签名：keystore 和密码从环境变量读取，绝不上传仓库。
     // 构建前需设置：WMS_STORE_FILE, WMS_STORE_PASSWORD, WMS_KEY_ALIAS, WMS_KEY_PASSWORD
+    // 注意：signingConfigs 须在 buildTypes 之前声明，否则 buildTypes 引用
+    // signingConfigs.getByName("release") 时因尚未创建而报 "not found"。
     signingConfigs {
         create("release") {
             storeFile = file(System.getenv("WMS_STORE_FILE") ?: "../keystore/wms-release.jks")
             storePassword = System.getenv("WMS_STORE_PASSWORD") ?: ""
             keyAlias = System.getenv("WMS_KEY_ALIAS") ?: "wms"
             keyPassword = System.getenv("WMS_KEY_PASSWORD") ?: ""
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
