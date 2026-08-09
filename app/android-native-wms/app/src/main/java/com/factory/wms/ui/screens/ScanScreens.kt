@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.data.model.WarehouseDto
+import com.factory.wms.ui.components.ScannerDialog
 import com.factory.wms.ui.components.WarehousePickerDialog
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel

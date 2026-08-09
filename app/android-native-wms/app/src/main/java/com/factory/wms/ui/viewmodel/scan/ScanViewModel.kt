@@ -45,6 +45,10 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(scannedMaterial = null, scannedCode = "")
     }
 
+    fun clearScannedCode() {
+        _uiState.value = _uiState.value.copy(scannedCode = "")
+    }
+
     fun addScanLine(line: ScanLine) {
         val current = _uiState.value.scanLines.toMutableList()
         val existingIndex = current.indexOfFirst { it.material_code == line.material_code }
