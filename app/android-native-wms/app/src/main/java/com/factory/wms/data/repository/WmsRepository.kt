@@ -79,8 +79,16 @@ class WmsRepository(private val context: Context) {
     }
 
     suspend fun logout() {
-        // Clear encrypted token
-        encryptedPrefs.edit().remove(KEY_TOKEN).apply()
+        // P2-E: 同步 commit 清空加密 SharedPreferences，确保 token 在闪存上被覆写，
+        // 避免物理文件残留加密 token（虽然无法解出明文，但减少攻击面）。
+        // logout() 流程必须先清空本地凭据，再清空 DataStore + RetrofitClient 内存。
+        // 加密 prefs 的 clear() 是同步操作（commit 而非 apply），保证 logout 返回时数据已落盘。
+        try {
+            encryptedPrefs.edit().clear().commit()
+        } catch (e: Exception) {
+            // 加密 prefs 清空失败不阻塞 logout 流程（已下台仍应可继续）
+            android.util.Log.w("WmsRepo", "清空加密 prefs 失败: ${e.message}")
+        }
         // Clear non-sensitive data
         context.dataStore.edit { it.clear() }
         RetrofitClient.setToken(null)
