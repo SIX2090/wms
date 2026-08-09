@@ -123,7 +123,7 @@
 | 34 | AI-MOB-REC-F02 | 已完成 | 手机盘点识物：除扫码盘点外，可拍照识别物料/标签加入盘点清单 | AI-MOB-REC-F01 | 无 |
 | 35 | AI-MOB-VOICE-F01 | 已完成 | 手机端语音识别：按语音指令执行操作（导航/返回/退出等） | AI-MOB-REC-F01 | 见下方完成记录 |
 | 36 | AI-MOB-HOME-F01 | 已完成 | 手机端首页接入"今日概览"条（复用既有 /api/mobile/dashboard） | AI-MOB-VOICE-F01 | AI-MOB-NAV-F01 |
-| 37 | AI-MOB-NAV-F01 | 待开发 | 手机端底部 Tab 导航（首页/入库/出库/查库存/我的） | AI-MOB-HOME-F01 | AI-MOB-STOCK-F01 |
+| 37 | AI-MOB-NAV-F01 | 已完成 | 手机端底部 Tab 导航（首页/入库/出库/查库存/我的） | AI-MOB-HOME-F01 | AI-MOB-STOCK-F01 |
 | 38 | AI-MOB-STOCK-F01 | 待开发 | 手机端查库存增加列表模式（复用既有 /api/mobile/stock/query） | AI-MOB-NAV-F01 | AI-MOB-CHECK-F01 |
 | 39 | AI-MOB-CHECK-F01 | 待开发 | 手机盘点与 Web 盘点单据流对齐（仓库必填、盘点记录可回查） | AI-MOB-STOCK-F01 | AI-MOB-RPT-F01 |
 | 40 | AI-MOB-RPT-F01 | 待开发 | 手机端只读报表入口（库存汇总/出入库明细只读视图） | AI-MOB-CHECK-F01 | AI-MOB-EMPTY-F01 |
@@ -512,6 +512,8 @@
 **验收**：
 - Android CI `assembleDebug` 通过；五个 Tab 可切换且状态保留；登录页无底部栏；语音导航、退出登录、401 踢回登录均不回归。
 
+**记录**：完成日期 2026-08-09；提交见当次提交；涉及模块 app/android-native-wms/app/src/main/java/com/factory/wms/ui/navigation/Screen.kt（新增 Profile 路由）、ui/screens/ProfileScreen.kt（新增，我的页：账号/服务器信息、语音指令说明、退出登录）、ui/navigation/NavGraph.kt（根 Scaffold + 条件 NavigationBar 底部 5 Tab，Tab 切换走 popUpTo(Home)+saveState/restoreState 单实例 back stack，登录页与二级页不显示底部栏）。验证：用 JDK17 `./gradlew :app:assembleDebug` BUILD SUCCESSFUL；`./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL（仅 ArrowBack/Logout 图标弃用警告，与存量一致）；无后端改动；语音指令导航（VoiceCommand.Navigate/GoHome/Logout）与 401 跳登录逻辑保持原样未改动。
+
 ### AI-MOB-STOCK-F01：手机端查库存增加列表模式
 
 **目标**：对齐橙子库存通"库存列表"体验，查库存页在"扫码查单个物料"之外增加列表模式：按仓库筛选 + 关键字模糊查询，分页展示物料库存（编码/名称/规格/当前库存/单位）。
@@ -691,7 +693,7 @@
 
 ## 11. 当前下一项
 
-**当前下一项：AI-MOB-NAV-F01（手机端底部 Tab 导航）**，其后按第 6 节第 6 批顺序串行推进 AI-MOB-STOCK-F01 → AI-MOB-CHECK-F01 → AI-MOB-RPT-F01 → AI-MOB-EMPTY-F01（手机端体验对齐批，2026-08-09 登记）。AI-MOB-HOME-F01（今日概览条）已完成。
+**当前下一项：AI-MOB-STOCK-F01（手机端查库存增加列表模式）**，其后按第 6 节第 6 批顺序串行推进 AI-MOB-CHECK-F01 → AI-MOB-RPT-F01 → AI-MOB-EMPTY-F01（手机端体验对齐批，2026-08-09 登记）。AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）均已完成。
 
 所有历史 AI 任务已完成；**AI-R07-F02（分类识别+按分类建议编号）已完成**。
 
