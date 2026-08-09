@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -45,6 +46,7 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 @Composable
 fun ScannerDialog(
@@ -60,6 +62,21 @@ fun ScannerDialog(
     // Track the camera provider and preview view for cleanup
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    // Camera object returned by bindToLifecycle, used to control the torch (C1)
+    var camera by remember { mutableStateOf<Camera?>(null) }
+
+    // Reuse the ML Kit scanner and the analysis executor across fibre creations (H2/C2).
+    // They are created once and explicitly shut down on dispose to avoid leaks.
+    val barcodeScanner = remember {
+        BarcodeScanning.getClient(
+            BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
+                .build()
+        )
+    }
+    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    // Thread-safe guard so the scanf callback fires only once per dialog open (H4)
+    val scannedFlag = remember { AtomicBoolean(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -79,10 +96,13 @@ fun ScannerDialog(
         }
     }
 
-    // Cleanup on dismiss
+    // Release all camera resources and the executor/scanner when the dialog is dismissed (C2/H2)
     DisposableEffect(Unit) {
         onDispose {
             cameraProvider?.unbindAll()
+            analysisExecutor.shutdown()
+            barcodeScanner.close()
+            camera = null
             previewView = null
             cameraProvider = null
         }
@@ -120,6 +140,7 @@ fun ScannerDialog(
                         }
                         previewView = view
 
+                        // Initialize camera asynchronously using addListener (non-blocking)
                         val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                         cameraProviderFuture.addListener({
                             try {
@@ -130,12 +151,6 @@ fun ScannerDialog(
                                     it.setSurfaceProvider(view.surfaceProvider)
                                 }
 
-                                val options = BarcodeScannerOptions.Builder()
-                                    .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
-                                    .build()
-                                val scanner = BarcodeScanning.getClient(options)
-
-                                val analysisExecutor = Executors.newSingleThreadExecutor()
                                 val imageAnalysis = ImageAnalysis.Builder()
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                     .build()
@@ -148,19 +163,27 @@ fun ScannerDialog(
                                                     mediaImage,
                                                     imageProxy.imageInfo.rotationDegrees
                                                 )
-                                                scanner.process(image)
-                                                    .addOnSuccessListener { barcodes ->
-                                                        for (barcode in barcodes) {
-                                                            barcode.rawValue?.let { rawValue ->
-                                                                imageProxy.close()
-                                                                onBarcodeScanned(rawValue)
-                                                                return@addOnSuccessListener
+                                                // Only the first match is delivered; the flag prevents
+                                                // duplicate callbacks while the dialog is closing (H4).
+                                                if (scannedFlag.get()) {
+                                                    imageProxy.close()
+                                                } else {
+                                                    barcodeScanner.process(image)
+                                                        .addOnSuccessListener { barcodes ->
+                                                            if (scannedFlag.compareAndSet(false, true)) {
+                                                                for (barcode in barcodes) {
+                                                                    barcode.rawValue?.let { rawValue ->
+                                                                        onBarcodeScanned(rawValue)
+                                                                        return@addOnSuccessListener
+                                                                    }
+                                                                }
                                                             }
                                                         }
-                                                    }
-                                                    .addOnCompleteListener {
-                                                        imageProxy.close()
-                                                    }
+                                                        .addOnCompleteListener {
+                                                            // Close exactly once, here, after success/failure
+                                                            imageProxy.close()
+                                                        }
+                                                }
                                             } else {
                                                 imageProxy.close()
                                             }
@@ -170,7 +193,7 @@ fun ScannerDialog(
                                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
                                 provider.unbindAll()
-                                provider.bindToLifecycle(
+                                camera = provider.bindToLifecycle(
                                     lifecycleOwner,
                                     cameraSelector,
                                     preview,
@@ -187,6 +210,7 @@ fun ScannerDialog(
                     modifier = Modifier.fillMaxSize()
                 )
 
+                // Dark overlay with cutout
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val scanBoxWidth = size.width * 0.7f
                     val scanBoxHeight = scanBoxWidth * 0.6f
@@ -260,6 +284,7 @@ fun ScannerDialog(
                 }
             }
 
+            // Top bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -292,8 +317,16 @@ fun ScannerDialog(
                     fontWeight = FontWeight.Medium
                 )
 
+                // Torch toggle actually drives CameraControl.enableTorch (C1)
                 IconButton(
-                    onClick = { isTorchOn = !isTorchOn },
+                    onClick = {
+                        val cam = camera
+                        if (cam != null && cam.cameraInfo.hasFlashUnit()) {
+                            val newValue = !isTorchOn
+                            cam.cameraControl.enableTorch(newValue)
+                            isTorchOn = newValue
+                        }
+                    },
                     modifier = Modifier
                         .size(44.dp)
                         .background(
@@ -310,6 +343,7 @@ fun ScannerDialog(
                 }
             }
 
+            // Bottom hint
             Text(
                 "将条码对准扫描框，自动识别",
                 modifier = Modifier
