@@ -379,31 +379,12 @@
             }
             zxingCodeReader = null;
         }
-        // Stop any video stream
-        if (zxingStream) {
-            zxingStream.getTracks().forEach(function(track) { track.stop(); });
-            zxingStream = null;
-        }
-        if (barcodeStream) {
-            barcodeStream.getTracks().forEach(function(track) { track.stop(); });
-            barcodeStream = null;
-        }
-        if (barcodeTimer) {
-            window.cancelAnimationFrame(barcodeTimer);
-            barcodeTimer = null;
-        }
-        if (barcodeVideo) barcodeVideo.srcObject = null;
         if (barcodeScanner) barcodeScanner.hidden = true;
     }
 
     function startBarcodeScanner() {
         if (!barcodeScanner || !barcodeVideo) return;
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            setStatus('当前浏览器不支持摄像头，请手动输入编码或使用WMS扫码APP', 'warning');
-            scanCode.focus();
-            return;
-        }
-
+        
         // Check if ZXing library is available
         if (typeof ZXing === 'undefined' || !ZXing.BrowserMultiFormatReader) {
             setStatus('扫码库加载失败，请刷新页面重试', 'error');
@@ -440,85 +421,50 @@
             return;
         }
 
-        // Get available video devices and prefer rear camera
-        navigator.mediaDevices.enumerateDevices().then(function(devices) {
-            var videoDevices = devices.filter(function(d) { return d.kind === 'videoinput'; });
-            var deviceId = null;
+        setStatus('请将条码放入扫描框，自动识别', 'success');
 
-            // Try to find rear-facing camera
-            for (var i = 0; i < videoDevices.length; i++) {
-                var label = (videoDevices[i].label || '').toLowerCase();
-                if (label.indexOf('back') !== -1 || label.indexOf('rear') !== -1 ||
-                    label.indexOf('环境') !== -1 || label.indexOf('后置') !== -1) {
-                    deviceId = videoDevices[i].deviceId;
-                    break;
+        // Wait for video element to be ready before starting camera
+        setTimeout(function() {
+            // Use ZXing's built-in method to handle camera and decoding
+            // This will automatically select the rear camera on mobile devices
+            var scanPromise = zxingCodeReader.decodeFromVideoDevice(null, barcodeVideo, function(result, err) {
+                if (result) {
+                    // Barcode successfully decoded
+                    var code = result.getText().trim();
+                    scanCode.value = code;
+                    // Stop scanner after successful scan
+                    stopBarcodeScanner();
+                    setStatus('已识别条码: ' + code + '，正在查询...', 'success');
+                    lookupMaterial();
+                    return;
                 }
-            }
+                // Continue scanning if no error or if it's just "no barcode found"
+                if (err && err.name !== 'NotFoundException') {
+                    // Real error occurred
+                    stopBarcodeScanner();
+                    setStatus('扫码失败: ' + err.message, 'error');
+                }
+            });
 
-            // If no rear camera found, use last device (often rear on mobile)
-            if (!deviceId && videoDevices.length > 1) {
-                deviceId = videoDevices[videoDevices.length - 1].deviceId;
-            }
-
-            var constraints = {
-                video: {
-                    facingMode: { ideal: 'environment' },
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                },
-                audio: false
-            };
-
-            if (deviceId) {
-                constraints.video.deviceId = { exact: deviceId };
-            }
-
-            return navigator.mediaDevices.getUserMedia(constraints);
-        }).then(function(stream) {
-            zxingStream = stream;
-            barcodeVideo.srcObject = stream;
-            return barcodeVideo.play();
-        }).then(function() {
-            setStatus('请将条码放入扫描框，自动识别', 'success');
-
-            // Start ZXing decoding loop
-            var decodeOnce = function() {
-                if (!zxingCodeReader || barcodeScanner.hidden) return;
-
-                zxingCodeReader.decodeFromVideoElement(barcodeVideo).then(function(result) {
-                    if (result && result.getText()) {
-                        var code = result.getText().trim();
-                        scanCode.value = code;
-                        stopBarcodeScanner();
-                        setStatus('已识别条码: ' + code + '，正在查询...', 'success');
-                        lookupMaterial();
-                        return;
+            // Handle promise rejection (camera access errors)
+            if (scanPromise && typeof scanPromise.catch === 'function') {
+                scanPromise.catch(function(error) {
+                    stopBarcodeScanner();
+                    var errorMsg = '无法打开摄像头';
+                    if (error.name === 'NotAllowedError') {
+                        errorMsg = '摄像头权限被拒绝，请在浏览器设置中允许摄像头访问';
+                    } else if (error.name === 'NotFoundError') {
+                        errorMsg = '未找到摄像头设备';
+                    } else if (error.name === 'NotReadableError') {
+                        errorMsg = '摄像头被其他应用占用';
+                    } else if (error.message) {
+                        errorMsg = error.message;
                     }
-                    // Continue scanning
-                    if (!barcodeScanner.hidden) {
-                        setTimeout(decodeOnce, 100);
-                    }
-                }).catch(function(error) {
-                    // No barcode found in this frame, continue scanning
-                    if (!barcodeScanner.hidden && zxingCodeReader) {
-                        setTimeout(decodeOnce, 100);
-                    }
+                    setStatus(errorMsg + '，请手动输入编码或使用WMS扫码APP', 'error');
+                    scanCode.focus();
                 });
-            };
-
-            // Start the decoding loop after a short delay for video to stabilize
-            setTimeout(decodeOnce, 500);
-        }).catch(function(error) {
-            stopBarcodeScanner();
-            var errorMsg = '无法打开摄像头';
-            if (error.name === 'NotAllowedError') {
-                errorMsg = '摄像头权限被拒绝，请在浏览器设置中允许摄像头访问';
-            } else if (error.name === 'NotFoundError') {
-                errorMsg = '未找到摄像头设备';
             }
-            setStatus(errorMsg + '，请手动输入编码或使用WMS扫码APP', 'error');
-            scanCode.focus();
-        });
+        }, 100);
     }
 
     if (barcodeBtn) barcodeBtn.addEventListener('click', startBarcodeScanner);
