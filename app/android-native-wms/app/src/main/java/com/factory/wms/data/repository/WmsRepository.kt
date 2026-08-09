@@ -129,25 +129,19 @@ class WmsRepository(private val context: Context) {
 
     suspend fun getMaterialInfo(code: String): Result<MaterialDto> {
         return try {
-            // Try Room cache first
-            val cached = materialDao.getByCode(code)
-            if (cached != null) {
-                val dto = cached.toDto()
-                return Result.success(dto)
-            }
-            // Cache miss, call API
+            // 网络优先：查库存要求实时准确，先请求后端，成功后再回写本地缓存
             val response = api.materialInfo(code)
             val result = handleResponse<MaterialDto>(response)
             result.fold(
                 onSuccess = { dto ->
-                    // Cache the result
+                    // 成功后更新缓存
                     materialDao.insert(dto.toEntity())
                 },
                 onFailure = { }
             )
             result
         } catch (e: Exception) {
-            // Network unavailable, try cache as fallback
+            // 网络不可用时，回退到 Room 本地缓存
             val cached = materialDao.getByCode(code)
             if (cached != null) {
                 Result.success(cached.toDto())

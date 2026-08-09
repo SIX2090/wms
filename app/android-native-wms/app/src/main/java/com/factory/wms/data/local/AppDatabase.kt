@@ -26,7 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "wms_database"
                 )
-                    .fallbackToDestructiveMigration()
+                    // 不允许破坏性迁移：schema 变更必须显式升级，避免静默清空本地缓存数据
                     .build()
                 INSTANCE = instance
                 instance

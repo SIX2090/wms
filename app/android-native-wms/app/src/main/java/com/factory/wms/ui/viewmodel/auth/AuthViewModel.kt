@@ -56,6 +56,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             val result = repository.login(username, password, baseUrl)
             result.fold(
                 onSuccess = { data ->
+                    // 登录成功，复位 401 事件门闩，允许下次令牌失效再次触发
+                    AuthEventBus.reset()
                     _uiState.value = _uiState.value.copy(
                         isLoggedIn = true,
                         isLoading = false,
