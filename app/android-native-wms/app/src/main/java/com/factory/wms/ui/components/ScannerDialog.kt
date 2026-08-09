@@ -151,7 +151,9 @@ fun ScannerDialog(
 
                                 val imageAnalysis = ImageAnalysis.Builder()
                                     .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                                    .setTargetResolution(android.util.Size(1280, 720))
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                                     .build()
                                     .also {
                                         it.setAnalyzer(analysisExecutor) { imageProxy: ImageProxy ->

@@ -208,6 +208,8 @@
 {% endblock %}
 
 {% block extra_js %}
+<!-- ZXing Library for cross-browser barcode scanning -->
+<script src="{{ url_for('static', filename='cdn/zxing-library-0.23.0.min.js') }}"></script>
 <script>
 (function() {
     var shell = document.querySelector('.mobile-scan-shell');
@@ -235,6 +237,8 @@
     var closeBarcodeBtn = document.getElementById('closeBarcodeBtn');
     var barcodeStream = null;
     var barcodeTimer = null;
+    var zxingCodeReader = null;
+    var zxingStream = null;
     var batchMode = document.getElementById('batchMode');
     var batchPanel = document.getElementById('batchPanel');
     var batchList = document.getElementById('batchList');
@@ -366,13 +370,27 @@
     }
 
     function stopBarcodeScanner() {
-        if (barcodeTimer) {
-            window.cancelAnimationFrame(barcodeTimer);
-            barcodeTimer = null;
+        // Stop ZXing reader if active
+        if (zxingCodeReader) {
+            try {
+                zxingCodeReader.reset();
+            } catch (e) {
+                // Ignore reset errors
+            }
+            zxingCodeReader = null;
+        }
+        // Stop any video stream
+        if (zxingStream) {
+            zxingStream.getTracks().forEach(function(track) { track.stop(); });
+            zxingStream = null;
         }
         if (barcodeStream) {
             barcodeStream.getTracks().forEach(function(track) { track.stop(); });
             barcodeStream = null;
+        }
+        if (barcodeTimer) {
+            window.cancelAnimationFrame(barcodeTimer);
+            barcodeTimer = null;
         }
         if (barcodeVideo) barcodeVideo.srcObject = null;
         if (barcodeScanner) barcodeScanner.hidden = true;
@@ -385,54 +403,120 @@
             scanCode.focus();
             return;
         }
-        if (!window.BarcodeDetector) {
-            setStatus('当前浏览器不支持自动条码识别，请对准条码后手动输入编码', 'warning');
+
+        // Check if ZXing library is available
+        if (typeof ZXing === 'undefined' || !ZXing.BrowserMultiFormatReader) {
+            setStatus('扫码库加载失败，请刷新页面重试', 'error');
+            return;
         }
+
         barcodeScanner.hidden = false;
         setStatus('正在打开摄像头...', '');
-        navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: 'environment' } },
-            audio: false
+
+        // Stop any existing scanner first
+        stopBarcodeScanner();
+
+        // Create ZXing reader with multiple format support
+        try {
+            var hints = new Map();
+            var formats = [
+                ZXing.BarcodeFormat.CODE_128,
+                ZXing.BarcodeFormat.CODE_39,
+                ZXing.BarcodeFormat.EAN_13,
+                ZXing.BarcodeFormat.EAN_8,
+                ZXing.BarcodeFormat.UPC_A,
+                ZXing.BarcodeFormat.UPC_E,
+                ZXing.BarcodeFormat.QR_CODE,
+                ZXing.BarcodeFormat.DATA_MATRIX,
+                ZXing.BarcodeFormat.PDF_417
+            ];
+            hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+            hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+            zxingCodeReader = new ZXing.BrowserMultiFormatReader(hints);
+        } catch (error) {
+            setStatus('扫码器初始化失败: ' + error.message, 'error');
+            stopBarcodeScanner();
+            return;
+        }
+
+        // Get available video devices and prefer rear camera
+        navigator.mediaDevices.enumerateDevices().then(function(devices) {
+            var videoDevices = devices.filter(function(d) { return d.kind === 'videoinput'; });
+            var deviceId = null;
+
+            // Try to find rear-facing camera
+            for (var i = 0; i < videoDevices.length; i++) {
+                var label = (videoDevices[i].label || '').toLowerCase();
+                if (label.indexOf('back') !== -1 || label.indexOf('rear') !== -1 ||
+                    label.indexOf('环境') !== -1 || label.indexOf('后置') !== -1) {
+                    deviceId = videoDevices[i].deviceId;
+                    break;
+                }
+            }
+
+            // If no rear camera found, use last device (often rear on mobile)
+            if (!deviceId && videoDevices.length > 1) {
+                deviceId = videoDevices[videoDevices.length - 1].deviceId;
+            }
+
+            var constraints = {
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false
+            };
+
+            if (deviceId) {
+                constraints.video.deviceId = { exact: deviceId };
+            }
+
+            return navigator.mediaDevices.getUserMedia(constraints);
         }).then(function(stream) {
-            barcodeStream = stream;
+            zxingStream = stream;
             barcodeVideo.srcObject = stream;
             return barcodeVideo.play();
         }).then(function() {
-            if (!window.BarcodeDetector) {
-                setStatus('摄像头已开启，请对准条码后手动输入编码', '');
-                scanCode.focus();
-                return;
-            }
-            var detector;
-            try {
-                detector = new BarcodeDetector({
-                    formats: ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'qr_code']
-                });
-            } catch (error) {
-                setStatus('摄像头已开启，请对准条码后手动输入编码', '');
-                scanCode.focus();
-                return;
-            }
-            setStatus('请将条码放入扫描框', '');
-            var scanFrame = function() {
-                if (!barcodeStream || barcodeScanner.hidden) return;
-                detector.detect(barcodeVideo).then(function(codes) {
-                    if (codes && codes.length && codes[0].rawValue) {
-                        scanCode.value = codes[0].rawValue.trim();
+            setStatus('请将条码放入扫描框，自动识别', 'success');
+
+            // Start ZXing decoding loop
+            var decodeOnce = function() {
+                if (!zxingCodeReader || barcodeScanner.hidden) return;
+
+                zxingCodeReader.decodeFromVideoElement(barcodeVideo).then(function(result) {
+                    if (result && result.getText()) {
+                        var code = result.getText().trim();
+                        scanCode.value = code;
                         stopBarcodeScanner();
-                        setStatus('已识别条码，正在查询...', 'success');
+                        setStatus('已识别条码: ' + code + '，正在查询...', 'success');
                         lookupMaterial();
                         return;
                     }
-                    barcodeTimer = window.requestAnimationFrame(scanFrame);
-                }).catch(function() {
-                    barcodeTimer = window.requestAnimationFrame(scanFrame);
+                    // Continue scanning
+                    if (!barcodeScanner.hidden) {
+                        setTimeout(decodeOnce, 100);
+                    }
+                }).catch(function(error) {
+                    // No barcode found in this frame, continue scanning
+                    if (!barcodeScanner.hidden && zxingCodeReader) {
+                        setTimeout(decodeOnce, 100);
+                    }
                 });
             };
-            barcodeTimer = window.requestAnimationFrame(scanFrame);
-        }).catch(function() {
+
+            // Start the decoding loop after a short delay for video to stabilize
+            setTimeout(decodeOnce, 500);
+        }).catch(function(error) {
             stopBarcodeScanner();
-            setStatus('无法打开摄像头，请手动输入编码或使用WMS扫码APP', 'error');
+            var errorMsg = '无法打开摄像头';
+            if (error.name === 'NotAllowedError') {
+                errorMsg = '摄像头权限被拒绝，请在浏览器设置中允许摄像头访问';
+            } else if (error.name === 'NotFoundError') {
+                errorMsg = '未找到摄像头设备';
+            }
+            setStatus(errorMsg + '，请手动输入编码或使用WMS扫码APP', 'error');
             scanCode.focus();
         });
     }
