@@ -26,7 +26,9 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "wms_database"
                 )
-                    // 不允许破坏性迁移：schema 变更必须显式升级，避免静默清空本地缓存数据
+                    // 不允许破坏性迁移：schema 变更必须显式升级，避免静默清空本地缓存数据。
+                    // 新增迁移请登记在 DatabaseMigrations.ALL，并同步提升 @Database(version)。
+                    .addMigrations(*DatabaseMigrations.ALL)
                     .build()
                 INSTANCE = instance
                 instance
