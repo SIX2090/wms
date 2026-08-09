@@ -96,7 +96,17 @@ data class DocumentOcrResult(
     val reply: String?,
     val matches: List<MaterialDto>?,
     val match_count: Int?,
-    val extracted: DocumentOcrResult?
+    val extracted: ExtractedDocument?
+)
+
+data class ExtractedDocument(
+    @SerializedName("document_type") val documentType: String?,
+    val supplier: String?,
+    @SerializedName("order_no") val orderNo: String?,
+    @SerializedName("purchase_order_no") val purchaseOrderNo: String?,
+    val date: String?,
+    val items: List<OcrItem>?,
+    val remarks: String?
 )
 
 data class RecognizeMaterialResult(
