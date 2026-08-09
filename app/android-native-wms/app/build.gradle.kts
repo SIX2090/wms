@@ -179,31 +179,32 @@ tasks.register("downloadSherpaModel") {
         targetDir.mkdirs()
         tmpFile.parentFile.mkdirs()
         try {
-            ant.invoke(
-                mapOf(
-                    "taskname" to "get",
+            // Gradle Kotlin DSL 中 AntBuilder 不支持 ant.invoke(mapOf(...)) 的写法；
+            // 官方文档标准写法是 ant.withGroovyBuilder { "task"("attr" to value) }，
+            // 多属性用 vararg Pair 展开，不是 mapOf(...) 包一层。
+            ant.withGroovyBuilder {
+                "get"(
                     "src" to modelUrl,
                     "dest" to tmpFile.absolutePath,
-                    "verbose" to true
+                    "verbose" to true,
+                    "usetimestamp" to true
                 )
-            )
-            ant.invoke(
-                mapOf(
-                    "taskname" to "bunzip2",
+            }
+            ant.withGroovyBuilder {
+                "bunzip2"(
                     "src" to tmpFile.absolutePath
                 )
-            )
+            }
             // 解 bunzip2 后通常得到 .tar
             val tarFile = File(tmpFile.parentFile, "sherpa-model.tar")
             if (tarFile.isFile) {
-                ant.invoke(
-                    mapOf(
-                        "taskname" to "untar",
+                ant.withGroovyBuilder {
+                    "untar"(
                         "src" to tarFile.absolutePath,
                         "dest" to targetDir.absolutePath,
                         "overwrite" to true
                     )
-                )
+                }
                 tarFile.delete()
             }
             tmpFile.delete()
