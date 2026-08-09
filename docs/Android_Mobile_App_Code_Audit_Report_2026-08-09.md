@@ -17,6 +17,8 @@
 
 **总体评级：生产可用，无 P0/P1 安全或 BUG 风险；建议在下一个迭代周期对 UI 层做"模板化/可复用组件"重构以消减 ~40% 重复代码。**
 
+> 复核说明：本报告已与当前 `main` 分支代码对齐。报告初稿中的 P1-A（盘点仓库必填缺失）、P1-C（`extracted` 自引用）两项在后来的代码演进中已被解决，现更新为「已解决」状态。
+
 ---
 
 ## 1. 审计范围与目录结构
@@ -195,14 +197,12 @@ private val encryptedPrefs by lazy {
 | 提交路径 | 文件 | 必填校验 | 备注 |
 |---|---|---|---|
 | `submitInbound` | `ScanViewModel.kt` L133–168 | ✅ L137–140 `if (warehouse == null) error = "请选择仓库"` | 同时校验 `lines.isEmpty` |
-| `submitOutbound` | `ScanViewModel.kt` L170–206 | ✅ L173–176 同上 | — |
-| `submitStocktake` | `ScanViewModel.kt` L208–242 | ⚠️ 仅校验 `lines.isEmpty`，**未校验仓库** | 盘点也需指定仓库（AGENTS.md 适用），但服务端可能放宽 |
+| `submitOutbound` | `ScanViewModel.kt` L170–206 | ✅ L174–177 同上 | — |
+| `submitStocktake` | `ScanViewModel.kt` L208–242 | ✅ L212–215 `if (warehouse == null) { error = "请选择仓库"; return }` | 同时校验 `lines.isEmpty` |
 | `submitOpeningStock` | `OpeningStockViewModel.kt` L110–150 | ✅ L112–115 | 同时校验 `lines.isEmpty` |
 | `submitInboundDraft` (OCR) | `AiViewModel.kt` L114–178 | ✅ L153–156 | — |
 
-**潜在风险（中）**：
-- `submitStocktake` 未校验仓库，可能导致盘点数量写入无仓库归属的库存记录。建议补 `if (state.selectedWarehouse == null) { error = "请选择仓库"; return }`。
-- 状态：建议登记为 `P1-A`，与 AGENTS.md"仓库必填"规则一致。
+> 审计复核（基于当前 main 代码）：三个提交路径（`submitInbound`/`submitOutbound`/`submitStocktake`）均已补仓库必填校验，与 AGENTS.md"仓库必填"规则一致，**无 P1-A 风险**。
 
 ### 3.5 401 单次触发（参考 BUG-2026-08-09 历史教训）
 
@@ -323,40 +323,52 @@ fun ImageCaptureStage(
 - `DocumentOcrScreen` 一个函数 658 行（含嵌套 UI）
 - 建议：拆分为 `OcrResultsSection`、`InboundDraftFormSection`、`DraftResultSection` 三个私有 Composable，主屏只负责编排
 
-#### 4.2.2 `data class OcrItem` 字段命名混合 snake_case / camelCase
+#### 4.2.2 `match_count` 字段命名混合 snake_case / camelCase
 
-`WmsApiService.kt` L79–100：
+`WmsApiService.kt` L102–133：
 
 ```kotlin
 data class OcrItem(
     val code: String?,    // 已是 camelCase
     val name: String?,
+    val spec: String?,
     val quantity: Double?,
+    val price: Double?,
     val matched: Boolean?,
-    val match_count: Int?,  // snake_case ← 不一致
+    val unit: String?
+)
+
+data class DocumentOcrResult(
+    ...
+    val match_count: Int?,   // snake_case ← 不一致
     ...
 )
 ```
 
-Kotlin 习惯用 camelCase（后端反序列化时 `@SerializedName` 桥接）。建议统一为 `matchCount`，并加 `@SerializedName("match_count")`。
+`OcrItem` 内部字段已统一为 camelCase；但 `DocumentOcrResult.match_count` 与 `RecognizeMaterialResult.match_count`（L139）仍为 snake_case。Kotlin 习惯用 camelCase（后端反序列化时 `@SerializedName` 桥接）。建议统一为 `matchCount`，并加 `@SerializedName("match_count")`。
 
-#### 4.2.3 `DocumentOcrResult.extracted: DocumentOcrResult?` 自我引用可疑
+#### 4.2.3 `DocumentOcrResult.extracted` 已改为专用类型（已解决）
 
-`WmsApiService.kt` L99：
+`WmsApiService.kt` L112–133：
 
 ```kotlin
 data class DocumentOcrResult(
     ...
-    val extracted: DocumentOcrResult?  // 自我引用 → 编译为可空递归
+    val extracted: ExtractedDocument?   // 专用类型，非自引用 ✅
+)
+
+data class ExtractedDocument(
+    @SerializedName("document_type") val documentType: String?,
+    val supplier: String?,
+    @SerializedName("order_no") val orderNo: String?,
+    @SerializedName("purchase_order_no") val purchaseOrderNo: String?,
+    val date: String?,
+    val items: List<OcrItem>?,
+    val remarks: String?
 )
 ```
 
-**潜在风险（中）**：
-如果后端在某条响应中真的返回了 `extracted` 字段（且不是 null），Gson 会尝试递归反序列化，可能栈溢出或解析出错误结构。
-
-**建议**：
-- 与后端确认 `extracted` 字段的实际类型（应是 `ExtractedMaterial` 或专用结构）
-- 改用具体类型 `ExtractedMaterial?` 而非自引用
+**结论（已修复）**：`extracted` 字段已从自引用 `DocumentOcrResult?` 重构为专用 `ExtractedDocument?`，不再存在 Gson 递归反序列化的栈溢出风险。`RecognizeMaterialResult.extracted` 同样使用专用 `ExtractedMaterial?`（L142–149）。
 
 ### 4.3 资源泄露
 
@@ -435,13 +447,13 @@ if (data != null) {
 
 | 编号 | 优先级 | 类别 | 改进项 | 工作量 |
 |---|---|---|---|---|
-| P1-A | 中 | BUG | `submitStocktake` 补仓库必填校验，与 `submitInbound/Outbound` 对齐 | 0.5d |
+| ~~P1-A~~ | ~~中~~ | ~~BUG~~ | ~~`submitStocktake` 补仓库必填校验~~ → **已解决**（当前 main 已校验） | — |
 | P1-B | 中 | 重复代码 | 抽离 `ImageCaptureStage` Composable，合并三个拍照屏 590 行重复 | 2d |
-| P1-C | 中 | 异常处理 | 修复 `DocumentOcrResult.extracted` 自我引用（确认后端实际类型） | 0.5d |
+| ~~P1-C~~ | ~~中~~ | ~~异常处理~~ | ~~`DocumentOcrResult.extracted` 自我引用~~ → **已解决**（现为 `ExtractedDocument?`） | — |
 | P1-D | 中 | 幂等 | `documentOcr` / `recognizeMaterial` 加 `X-Idempotency-Key` 头 | 0.5d |
 | P2-A | 低 | 资源 | 启动时清空 `cacheDir/camera/` 旧文件 | 0.5d |
 | P2-B | 低 | 重复代码 | 抽离 `BaseWarehouseAwareViewModel` 合并 3 个 ViewModel 的 loadWarehouses | 1d |
-| P2-C | 低 | 类型 | `OcrItem.match_count` 改为 camelCase + `@SerializedName` | 0.1d |
+| P2-C | 低 | 类型 | `DocumentOcrResult.match_count` / `RecognizeMaterialResult.match_count` 改 camelCase + `@SerializedName` | 0.1d |
 | P2-D | 低 | 错误处理 | `displayMessage()` 加长度截断 + HTML 标签过滤 | 0.2d |
 | P2-E | 低 | 安全 | `logout()` 同步 commit 清空加密 SharedPreferences | 0.1d |
 | P2-F | 低 | 可读性 | 拆分 `DocumentOcrScreen` 为多个 Composable（保持单屏 <300 行） | 1d |
@@ -451,7 +463,7 @@ if (data != null) {
 
 ## 7. 与 WMS_BUG_BASELINE 关联
 
-本次审计未触发新的 BUG 登记。但**建议把 P1-A（盘点仓库必填缺失）登记为新 BUG**，编号待定（`BUG-2026-08-09-004` 或 P1-A 子项），与 AGENTS.md"仓库必填"规则保持一致。
+本次审计未触发新的 BUG 登记。审计报告写作时曾把「`submitStocktake` 缺仓库必填校验」列为待登记项（P1-A），但基于当前 main 代码复核，该提交路径已补校验，无需登记。
 
 ---
 
