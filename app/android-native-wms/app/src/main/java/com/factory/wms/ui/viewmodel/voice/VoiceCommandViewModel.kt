@@ -9,6 +9,8 @@ import android.speech.SpeechRecognizer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.factory.wms.ui.navigation.Screen
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -73,6 +75,14 @@ class VoiceCommandViewModel : ViewModel() {
 
     private var speechRecognizer: SpeechRecognizer? = null
 
+    /**
+     * 语音识别超时保护：
+     * 国内设备 / 无 Google 服务场景下，SpeechRecognizer 可能既不回调 onBeginningOfSpeech
+     * 也不回调 onError，UI 会永远卡在"正在聆听"。在 startListening 时启动 8 秒 Job，
+     * stopListening / dispatchResults / onError 三个出口负责取消该 Job。
+     */
+    private var listenTimeoutJob: Job? = null
+
     fun startListening(context: Context) {
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             _uiState.value = VoiceUiState(error = "当前设备不支持语音识别")
@@ -91,9 +101,28 @@ class VoiceCommandViewModel : ViewModel() {
         }
         _uiState.value = VoiceUiState(isListening = true, message = "正在聆听，请说出指令…")
         recognizer.startListening(intent)
+
+        // 8 秒兜底超时：未收到任何识别/错误回调时主动停掉 recognizer 并提示
+        listenTimeoutJob?.cancel()
+        listenTimeoutJob = viewModelScope.launch {
+            delay(VOICE_LISTEN_TIMEOUT_MS)
+            val recognizerStillAlive = speechRecognizer
+            if (recognizerStillAlive != null) {
+                runCatching { recognizerStillAlive.stopListening() }
+                runCatching { recognizerStillAlive.cancel() }
+                runCatching { recognizerStillAlive.destroy() }
+                speechRecognizer = null
+                _uiState.value = _uiState.value.copy(
+                    isListening = false,
+                    error = "识别超时，请重试"
+                )
+            }
+        }
     }
 
     fun stopListening() {
+        listenTimeoutJob?.cancel()
+        listenTimeoutJob = null
         speechRecognizer?.let { recognizer ->
             runCatching { recognizer.stopListening() }
             runCatching { recognizer.cancel() }
@@ -107,6 +136,8 @@ class VoiceCommandViewModel : ViewModel() {
     }
 
     private fun dispatchResults(texts: List<String>) {
+        listenTimeoutJob?.cancel()
+        listenTimeoutJob = null
         val text = texts.firstOrNull()?.trim().orEmpty()
         val command = parseCommand(text)
         speechRecognizer?.destroy()
@@ -123,6 +154,9 @@ class VoiceCommandViewModel : ViewModel() {
         override fun onReadyForSpeech(params: Bundle?) = Unit
 
         override fun onBeginningOfSpeech() {
+            // 用户开始说话 = 设备麦克风与识别服务都正常，取消超时兜底
+            listenTimeoutJob?.cancel()
+            listenTimeoutJob = null
             _uiState.value = _uiState.value.copy(message = "开始聆听…")
         }
 
@@ -135,6 +169,8 @@ class VoiceCommandViewModel : ViewModel() {
         }
 
         override fun onError(error: Int) {
+            listenTimeoutJob?.cancel()
+            listenTimeoutJob = null
             speechRecognizer?.destroy()
             speechRecognizer = null
             val reason = when (error) {
@@ -143,6 +179,11 @@ class VoiceCommandViewModel : ViewModel() {
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "识别服务繁忙，请稍后重试"
                 SpeechRecognizer.ERROR_AUDIO -> "录音失败，请检查麦克风"
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "缺少麦克风权限"
+                SpeechRecognizer.ERROR_NETWORK -> "网络异常，语音识别需要联网，请检查网络后重试"
+                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "网络超时，请检查网络后重试"
+                SpeechRecognizer.ERROR_SERVER -> "语音服务暂不可用，请稍后重试"
+                SpeechRecognizer.ERROR_CLIENT -> "语音识别服务出错，请重启 App 或安装 Google 服务后重试"
+                SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "请求过于频繁，请稍后再试"
                 else -> "语音识别失败（$error）"
             }
             _uiState.value = _uiState.value.copy(isListening = false, error = reason)
@@ -166,7 +207,14 @@ class VoiceCommandViewModel : ViewModel() {
 
     override fun onCleared() {
         super.onCleared()
+        listenTimeoutJob?.cancel()
+        listenTimeoutJob = null
         speechRecognizer?.destroy()
         speechRecognizer = null
+    }
+
+    companion object {
+        /** 语音识别兜底超时（毫秒）。覆盖国内设备无 Google 服务、recognizer 静默挂起的场景。 */
+        private const val VOICE_LISTEN_TIMEOUT_MS = 8_000L
     }
 }
