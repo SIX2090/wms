@@ -69,12 +69,24 @@
         </div>
 
         <div class="mobile-barcode-scanner" id="barcodeScanner" hidden>
-            <div class="mobile-barcode-scanner-header">
-                <strong>条码扫描</strong>
-                <button type="button" class="btn-close-sm" id="closeBarcodeBtn" title="关闭扫描"><i class="bi bi-x-lg"></i></button>
+            <div class="mobile-barcode-overlay"></div>
+            <div class="mobile-barcode-container">
+                <div class="mobile-barcode-header">
+                    <strong>条码扫描</strong>
+                    <button type="button" class="btn-close-sm" id="closeBarcodeBtn" title="关闭扫描"><i class="bi bi-x-lg"></i></button>
+                </div>
+                <div class="mobile-barcode-viewport">
+                    <video id="barcodeVideo" autoplay muted playsinline></video>
+                    <div class="mobile-barcode-frame">
+                        <span class="mobile-barcode-frame-corner tl"></span>
+                        <span class="mobile-barcode-frame-corner tr"></span>
+                        <span class="mobile-barcode-frame-corner bl"></span>
+                        <span class="mobile-barcode-frame-corner br"></span>
+                        <div class="mobile-barcode-scan-line"></div>
+                    </div>
+                </div>
+                <div class="mobile-barcode-hint" id="barcodeHint">将条码对准扫描框，自动识别</div>
             </div>
-            <video id="barcodeVideo" autoplay muted playsinline></video>
-            <div class="mobile-barcode-hint" id="barcodeHint">请将物料条码放入框中</div>
         </div>
 
         <!-- 拍照识物预览区 -->
@@ -368,18 +380,13 @@
 
     function startBarcodeScanner() {
         if (!barcodeScanner || !barcodeVideo) return;
-        if (!window.BarcodeDetector || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            setStatus('当前浏览器不支持摄像头条码扫描，请使用WMS扫码APP或扫码枪', 'warning');
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setStatus('当前浏览器不支持摄像头，请手动输入编码或使用WMS扫码APP', 'warning');
+            scanCode.focus();
             return;
         }
-        var detector;
-        try {
-            detector = new BarcodeDetector({
-                formats: ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'qr_code']
-            });
-        } catch (error) {
-            setStatus('当前浏览器不支持所需条码格式，请使用WMS扫码APP或扫码枪', 'warning');
-            return;
+        if (!window.BarcodeDetector) {
+            setStatus('当前浏览器不支持自动条码识别，请对准条码后手动输入编码', 'warning');
         }
         barcodeScanner.hidden = false;
         setStatus('正在打开摄像头...', '');
@@ -391,6 +398,21 @@
             barcodeVideo.srcObject = stream;
             return barcodeVideo.play();
         }).then(function() {
+            if (!window.BarcodeDetector) {
+                setStatus('摄像头已开启，请对准条码后手动输入编码', '');
+                scanCode.focus();
+                return;
+            }
+            var detector;
+            try {
+                detector = new BarcodeDetector({
+                    formats: ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'qr_code']
+                });
+            } catch (error) {
+                setStatus('摄像头已开启，请对准条码后手动输入编码', '');
+                scanCode.focus();
+                return;
+            }
             setStatus('请将条码放入扫描框', '');
             var scanFrame = function() {
                 if (!barcodeStream || barcodeScanner.hidden) return;
@@ -410,7 +432,8 @@
             barcodeTimer = window.requestAnimationFrame(scanFrame);
         }).catch(function() {
             stopBarcodeScanner();
-            setStatus('无法打开摄像头，请检查权限或使用WMS扫码APP', 'error');
+            setStatus('无法打开摄像头，请手动输入编码或使用WMS扫码APP', 'error');
+            scanCode.focus();
         });
     }
 
@@ -701,34 +724,116 @@
     font-size: 14px;
 }
 .mobile-barcode-scanner {
-    margin: 16px 0;
-    border: 1px solid #bbf7d0;
-    border-radius: 8px;
-    overflow: hidden;
-    background: #052e16;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    background: #000;
 }
-.mobile-barcode-scanner-header {
-    padding: 8px 12px;
-    color: #ecfdf5;
+.mobile-barcode-scanner[hidden] {
+    display: none !important;
+}
+.mobile-barcode-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1;
+}
+.mobile-barcode-container {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+.mobile-barcode-header {
+    padding: 12px 16px;
+    color: #fff;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    background: rgba(0, 0, 0, 0.6);
+    font-size: 16px;
 }
-.mobile-barcode-scanner-header .btn-close-sm {
-    color: #d1fae5;
+.mobile-barcode-header .btn-close-sm {
+    color: #fff;
+    font-size: 18px;
+    padding: 6px 10px;
 }
-.mobile-barcode-scanner video {
-    display: block;
-    width: 100%;
-    max-height: 320px;
-    object-fit: cover;
+.mobile-barcode-viewport {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
     background: #000;
 }
+.mobile-barcode-viewport video {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.mobile-barcode-frame {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 260px;
+    height: 160px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+}
+.mobile-barcode-frame-corner {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-color: #3b82f6;
+    border-style: solid;
+}
+.mobile-barcode-frame-corner.tl {
+    top: -2px;
+    left: -2px;
+    border-width: 3px 0 0 3px;
+}
+.mobile-barcode-frame-corner.tr {
+    top: -2px;
+    right: -2px;
+    border-width: 3px 3px 0 0;
+}
+.mobile-barcode-frame-corner.bl {
+    bottom: -2px;
+    left: -2px;
+    border-width: 0 0 3px 3px;
+}
+.mobile-barcode-frame-corner.br {
+    bottom: -2px;
+    right: -2px;
+    border-width: 0 3px 3px 0;
+}
+.mobile-barcode-scan-line {
+    position: absolute;
+    top: 0;
+    left: 10%;
+    right: 10%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+    animation: scanLineMove 2s ease-in-out infinite;
+}
+@keyframes scanLineMove {
+    0%, 100% { top: 10%; }
+    50% { top: 85%; }
+}
 .mobile-barcode-hint {
-    padding: 8px 12px;
-    color: #d1fae5;
+    padding: 16px;
+    color: #fff;
     text-align: center;
-    font-size: 13px;
+    font-size: 15px;
+    background: rgba(0, 0, 0, 0.6);
 }
 .mobile-batch-toggle {
     display: inline-flex;
