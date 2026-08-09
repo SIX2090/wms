@@ -52,7 +52,7 @@ interface WmsApiService {
     ): Response<ApiEnvelope<RecognizeMaterialResult>>
 
     @GET("api/warehouses")
-    suspend fun getWarehouses(): Response<ApiEnvelope<List<WarehouseDto>>>
+    suspend fun getWarehouses(): Response<ApiEnvelope<WarehousesListData>>
 
     @GET("api/opening_stock")
     suspend fun getOpeningStock(

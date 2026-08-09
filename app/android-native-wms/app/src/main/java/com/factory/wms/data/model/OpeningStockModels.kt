@@ -43,3 +43,8 @@ data class OpeningStockRequest(
 data class OpeningStockListData(
     val items: List<OpeningStockDto> = emptyList()
 )
+
+/** 仓库列表响应（data.items）。后端 /api/warehouses 返回 {items: [...]} 对象。 */
+data class WarehousesListData(
+    val items: List<WarehouseDto> = emptyList()
+)

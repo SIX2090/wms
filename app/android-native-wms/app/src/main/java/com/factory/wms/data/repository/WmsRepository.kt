@@ -248,7 +248,8 @@ class WmsRepository(private val context: Context) {
     suspend fun getWarehouses(): Result<List<WarehouseDto>> {
         return try {
             val response = api.getWarehouses()
-            handleResponse<List<WarehouseDto>>(response)
+            val data = handleResponse<WarehousesListData>(response).getOrNull()
+            Result.success(data?.items ?: emptyList())
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
