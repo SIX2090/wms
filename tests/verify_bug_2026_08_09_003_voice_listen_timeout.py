@@ -9,25 +9,30 @@ BUG-2026-08-09-003 回归测试：手机 WMS 语音功能卡在"正在聆听"
   初始 message，没有退出路径。onError 也没细分 ERROR_NETWORK / ERROR_SERVER /
   ERROR_CLIENT 等关键错误码。
 
-修复：
+修复（第一阶段，已合入 main）：
   - 引入 listenTimeoutJob：startListening 启动 8 秒兜底超时；
-  - stopListening / dispatchResults / onError 三个出口取消该 Job；
-  - onBeginningOfSpeech 也取消 Job（用户开始说话 = recognizer 工作正常）；
-  - 超时后主动 destroy recognizer 并写入 error="识别超时，请重试"；
-  - onError 新增 ERROR_NETWORK / ERROR_NETWORK_TIMEOUT / ERROR_SERVER /
+  - stopListening / onPartial / onResult / onError 四个出口取消该 Job；
+  - 超时后主动 destroy engine 并写入 error="识别超时，请重试"；
+  - onError（AndroidVoiceSttEngine）保留 ERROR_NETWORK / ERROR_SERVER /
     ERROR_CLIENT / ERROR_TOO_MANY_REQUESTS 五个细分提示。
 
+重构（第二阶段，本文件覆盖）：
+  - 把 SpeechRecognizer 的具体实现抽到 [VoiceSttEngine] 接口里；
+  - ViewModel 只依赖接口 + 工厂，不再直接 import android.speech.*；
+  - 通过 [VoiceSttEngineRegistry] 选引擎，默认走 AndroidVoiceSttEngine，
+    后续步骤会接 SherpaVoiceSttEngine。
+
 具体断言：
-  T1. import 含 kotlinx.coroutines.{Job, delay}；
-  T2. 类内含私有 listenTimeoutJob: Job? 字段；
-  T3. companion object 暴露 VOICE_LISTEN_TIMEOUT_MS = 8_000L；
-  T4. startListening 内启动 listenTimeoutJob（含 delay 调用）；
-  T5. startListening 内超时分支会 destroy recognizer 并写 error；
-  T6. stopListening 内取消 listenTimeoutJob；
-  T7. dispatchResults 内取消 listenTimeoutJob；
-  T8. onError 内取消 listenTimeoutJob；
-  T9. onBeginningOfSpeech 内取消 listenTimeoutJob；
-  T10. onError 内包含 ERROR_NETWORK / ERROR_SERVER / ERROR_CLIENT 三个分支。
+  T1. ViewModel 仍含 listenTimeoutJob: Job? 字段；
+  T2. companion object 暴露 VOICE_LISTEN_TIMEOUT_MS = 8_000L；
+  T3. startListening 启动 listenTimeoutJob（含 delay 调用）；
+  T4. startListening 超时分支会 destroy engine 并写 error="识别超时"；
+  T5. stopListening 取消 listenTimeoutJob；
+  T6. engineListener.onPartial / onResult / onError 都取消 listenTimeoutJob；
+  T7. onCleared 取消 listenTimeoutJob；
+  T8. ViewModel 不再直接 import android.speech.*（已下放给 AndroidVoiceSttEngine）；
+  T9. AndroidVoiceSttEngine 内 onError 保留 ERROR_NETWORK / ERROR_SERVER /
+      ERROR_CLIENT / ERROR_TOO_MANY_REQUESTS 四个细分分支。
 
 使用方法：
   cd /workspace && python -m pytest tests/verify_bug_2026_08_09_003_voice_listen_timeout.py -xvs --noconftest
@@ -38,7 +43,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-VOICE_VM = (
+VOICE_DIR = (
     ROOT
     / "app"
     / "android-native-wms"
@@ -52,40 +57,20 @@ VOICE_VM = (
     / "ui"
     / "viewmodel"
     / "voice"
-    / "VoiceCommandViewModel.kt"
 )
+VOICE_VM = VOICE_DIR / "VoiceCommandViewModel.kt"
+ANDROID_ENGINE = VOICE_DIR / "AndroidVoiceSttEngine.kt"
 
 
-def _read() -> str:
-    assert VOICE_VM.is_file(), f"missing {VOICE_VM}"
-    return VOICE_VM.read_text(encoding="utf-8")
-
-
-def test_t1_imports_job_and_delay() -> None:
-    src = _read()
-    assert "import kotlinx.coroutines.Job" in src, "必须 import kotlinx.coroutines.Job"
-    assert "import kotlinx.coroutines.delay" in src, "必须 import kotlinx.coroutines.delay"
-
-
-def test_t2_listen_timeout_job_field() -> None:
-    src = _read()
-    assert re.search(r"private\s+var\s+listenTimeoutJob\s*:\s*Job\?\s*=", src), \
-        "VoiceCommandViewModel 必须有 private var listenTimeoutJob: Job? 字段"
-
-
-def test_t3_timeout_constant() -> None:
-    src = _read()
-    m = re.search(r"VOICE_LISTEN_TIMEOUT_MS\s*=\s*(\d+_?\d*)L", src)
-    assert m, "必须定义 VOICE_LISTEN_TIMEOUT_MS 常量"
-    raw = m.group(1).replace("_", "")
-    assert raw == "8000", f"VOICE_LISTEN_TIMEOUT_MS 必须 = 8000L（毫秒），实际={raw}"
+def _read(path: Path) -> str:
+    assert path.is_file(), f"missing {path}"
+    return path.read_text(encoding="utf-8")
 
 
 def _extract_function(src: str, signature: str) -> str:
     """通过 brace 计数提取 signature 之后第一个完整函数体。"""
     idx = src.find(signature)
     assert idx != -1, f"找不到 {signature}"
-    # 找到 signature 之后的第一个 '{'
     brace_open = src.find("{", idx)
     assert brace_open != -1, f"{signature} 后找不到 '{{'"
     depth = 1
@@ -101,8 +86,24 @@ def _extract_function(src: str, signature: str) -> str:
     return src[brace_open + 1 : i - 1]
 
 
-def test_t4_start_listening_launches_timeout_job() -> None:
-    src = _read()
+# ---------- ViewModel 层断言 ----------
+
+def test_t1_listen_timeout_job_field() -> None:
+    src = _read(VOICE_VM)
+    assert re.search(r"private\s+var\s+listenTimeoutJob\s*:\s*Job\?\s*=", src), \
+        "VoiceCommandViewModel 必须有 private var listenTimeoutJob: Job? 字段"
+
+
+def test_t2_timeout_constant() -> None:
+    src = _read(VOICE_VM)
+    m = re.search(r"VOICE_LISTEN_TIMEOUT_MS\s*=\s*(\d+_?\d*)L", src)
+    assert m, "必须定义 VOICE_LISTEN_TIMEOUT_MS 常量"
+    raw = m.group(1).replace("_", "")
+    assert raw == "8000", f"VOICE_LISTEN_TIMEOUT_MS 必须 = 8000L（毫秒），实际={raw}"
+
+
+def test_t3_start_listening_launches_timeout_job() -> None:
+    src = _read(VOICE_VM)
     body = _extract_function(src, "fun startListening(")
     assert "listenTimeoutJob?.cancel()" in body, "startListening 必须先取消旧 Job"
     assert "viewModelScope.launch" in body, "startListening 必须用 viewModelScope 启动超时 Job"
@@ -110,62 +111,60 @@ def test_t4_start_listening_launches_timeout_job() -> None:
     assert "识别超时" in body, "startListening 内的 Job 超时分支必须写识别超时提示"
 
 
-def test_t5_timeout_destroys_recognizer() -> None:
-    src = _read()
+def test_t4_timeout_destroys_engine() -> None:
+    src = _read(VOICE_VM)
     body = _extract_function(src, "fun startListening(")
-    # 超时分支必须 stopListening / cancel / destroy recognizer，并把 isListening 改为 false
-    assert "stopListening()" in body, "超时分支需 stopListening"
-    assert "cancel()" in body, "超时分支需 cancel recognizer"
-    assert "destroy()" in body, "超时分支需 destroy recognizer"
+    # 重构后超时分支走 VoiceSttEngine.stop / destroy，不再直接调 recognizer
+    assert "alive.stop()" in body or "alive?.stop()" in body, \
+        "超时分支需 stop engine"
+    assert "alive.destroy()" in body or "alive?.destroy()" in body, \
+        "超时分支需 destroy engine"
     assert "isListening = false" in body, "超时后必须把 isListening 改为 false"
 
 
-def test_t6_stop_listening_cancels_job() -> None:
-    src = _read()
+def test_t5_stop_listening_cancels_job() -> None:
+    src = _read(VOICE_VM)
     body = _extract_function(src, "fun stopListening(")
     assert "listenTimeoutJob?.cancel()" in body, "stopListening 必须取消 listenTimeoutJob"
     assert "listenTimeoutJob = null" in body, "stopListening 必须把 listenTimeoutJob 置 null"
 
 
-def test_t7_dispatch_results_cancels_job() -> None:
-    src = _read()
-    body = _extract_function(src, "private fun dispatchResults(")
-    assert "listenTimeoutJob?.cancel()" in body, "dispatchResults 必须取消 listenTimeoutJob"
-    assert "listenTimeoutJob = null" in body, "dispatchResults 必须把 listenTimeoutJob 置 null"
+def test_t6_engine_listener_cancels_job() -> None:
+    """重构后由 engineListener.onPartial/onResult/onError 三个回调统一取消 Job。"""
+    src = _read(VOICE_VM)
+    listener_block = _extract_function(src, "private val engineListener =")
+    for name in ("override fun onPartial(", "override fun onResult(", "override fun onError("):
+        body = _extract_function(listener_block, name)
+        assert "listenTimeoutJob?.cancel()" in body, \
+            f"engineListener.{name.split('(')[0].split()[-1]} 必须取消 listenTimeoutJob"
+        assert "listenTimeoutJob = null" in body, \
+            f"engineListener.{name.split('(')[0].split()[-1]} 必须把 listenTimeoutJob 置 null"
 
 
-def test_t8_on_error_cancels_job() -> None:
-    src = _read()
-    body = _extract_function(src, "override fun onError(")
-    assert "listenTimeoutJob?.cancel()" in body, "onError 必须取消 listenTimeoutJob"
-    assert "listenTimeoutJob = null" in body, "onError 必须把 listenTimeoutJob 置 null"
-
-
-def test_t9_on_beginning_of_speech_cancels_job() -> None:
-    src = _read()
-    body = _extract_function(src, "override fun onBeginningOfSpeech(")
-    assert "listenTimeoutJob?.cancel()" in body, "onBeginningOfSpeech 必须取消 listenTimeoutJob（用户开始说话 = 识别器正常）"
-    assert "listenTimeoutJob = null" in body, "onBeginningOfSpeech 必须把 listenTimeoutJob 置 null"
-
-
-def test_t10_on_error_has_three_new_branches() -> None:
-    src = _read()
-    body = _extract_function(src, "override fun onError(")
-    # 三个新分支
-    assert "ERROR_NETWORK ->" in body or "ERROR_NETWORK_TIMEOUT ->" in body, \
-        "onError 必须新增 ERROR_NETWORK 系列分支"
-    assert "ERROR_SERVER ->" in body, "onError 必须新增 ERROR_SERVER 分支"
-    assert "ERROR_CLIENT ->" in body, "onError 必须新增 ERROR_CLIENT 分支"
-
-
-def test_t11_on_cleared_cancels_job() -> None:
-    src = _read()
+def test_t7_on_cleared_cancels_job() -> None:
+    src = _read(VOICE_VM)
     body = _extract_function(src, "override fun onCleared(")
     assert "listenTimeoutJob?.cancel()" in body, "onCleared 必须取消 listenTimeoutJob"
 
 
-def test_t12_no_duplicate_error_recognizer_busy() -> None:
-    """修复时容易重复注册 ERROR_RECOGNIZER_BUSY 分支，这里兜底检查。"""
-    src = _read()
-    busy_count = src.count("ERROR_RECOGNIZER_BUSY ->")
-    assert busy_count <= 1, f"ERROR_RECOGNIZER_BUSY 分支只能出现 1 次，实际 {busy_count} 次"
+# ---------- 重构后 ViewModel 与 Engine 分层断言 ----------
+
+def test_t8_viewmodel_does_not_import_android_speech() -> None:
+    """SpeechRecognizer 已被下放到 AndroidVoiceSttEngine，ViewModel 不应再直接依赖。"""
+    src = _read(VOICE_VM)
+    assert "import android.speech" not in src, \
+        "VoiceCommandViewModel 不应直接 import android.speech.*（已下放到 AndroidVoiceSttEngine）"
+    assert "SpeechRecognizer" not in src, \
+        "VoiceCommandViewModel 不应再出现 SpeechRecognizer 引用"
+
+
+def test_t9_android_engine_keeps_four_error_branches() -> None:
+    src = _read(ANDROID_ENGINE)
+    body = _extract_function(src, "private fun mapError(")
+    for branch in (
+        "SpeechRecognizer.ERROR_NETWORK",
+        "SpeechRecognizer.ERROR_SERVER",
+        "SpeechRecognizer.ERROR_CLIENT",
+        "SpeechRecognizer.ERROR_TOO_MANY_REQUESTS",
+    ):
+        assert branch in body, f"AndroidVoiceSttEngine.mapError 缺失 {branch} 分支"

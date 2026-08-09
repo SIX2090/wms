@@ -1,11 +1,6 @@
 package com.factory.wms.ui.viewmodel.voice
 
 import android.content.Context
-import android.content.Intent
-import android.os.Bundle
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.factory.wms.ui.navigation.Screen
@@ -13,6 +8,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,53 +61,57 @@ data class VoiceUiState(
     val error: String? = null
 )
 
-class VoiceCommandViewModel : ViewModel() {
+/**
+ * 语音指令 ViewModel。
+ *
+ * 依赖 [VoiceSttEngine] 抽象，不再直接操作 Android 系统识别 API；
+ * 构造时传入引擎（如 [AndroidVoiceSttEngine] 或 [SherpaVoiceSttEngine]），
+ * ViewModel 只负责 UI 状态、8 秒兜底超时与命令解析。
+ */
+class VoiceCommandViewModel(
+    private val engineFactory: VoiceSttEngineFactory = DefaultEngineFactory
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(VoiceUiState())
     val uiState: StateFlow<VoiceUiState> = _uiState.asStateFlow()
 
     private val _commands = MutableSharedFlow<VoiceCommand>(extraBufferCapacity = 8)
-    val commands = _commands.asSharedFlow()
+    val commands: SharedFlow<VoiceCommand> = _commands.asSharedFlow()
 
-    private var speechRecognizer: SpeechRecognizer? = null
+    private var engine: VoiceSttEngine? = null
 
     /**
      * 语音识别超时保护：
-     * 国内设备 / 无 Google 服务场景下，SpeechRecognizer 可能既不回调 onBeginningOfSpeech
+     * 国内设备 / 无 Google 服务场景下，系统识别 API 可能既不回调 onPartial
      * 也不回调 onError，UI 会永远卡在"正在聆听"。在 startListening 时启动 8 秒 Job，
-     * stopListening / dispatchResults / onError 三个出口负责取消该 Job。
+     * stopListening / 引擎 onResult / onError / onCleared 四个出口负责取消该 Job。
      */
     private var listenTimeoutJob: Job? = null
 
     fun startListening(context: Context) {
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            _uiState.value = VoiceUiState(error = "当前设备不支持语音识别")
+        // 每次进入都重建引擎，避免上次会话的底层实例残留抢麦克风
+        engine?.destroy()
+        val e = engineFactory.create(context.applicationContext)
+        e.setListener(engineListener)
+        engine = e
+
+        if (!e.isAvailable()) {
+            _uiState.value = VoiceUiState(error = SttError.EngineUnavailable.toUserMessage())
             return
         }
-        speechRecognizer?.destroy()
-        val recognizer = SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
-        recognizer.setRecognitionListener(createListener())
-        speechRecognizer = recognizer
 
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-        }
         _uiState.value = VoiceUiState(isListening = true, message = "正在聆听，请说出指令…")
-        recognizer.startListening(intent)
+        e.start(SttConfig())
 
-        // 8 秒兜底超时：未收到任何识别/错误回调时主动停掉 recognizer 并提示
+        // 8 秒兜底超时：未收到任何识别/错误回调时主动停掉引擎并提示
         listenTimeoutJob?.cancel()
         listenTimeoutJob = viewModelScope.launch {
             delay(VOICE_LISTEN_TIMEOUT_MS)
-            val recognizerStillAlive = speechRecognizer
-            if (recognizerStillAlive != null) {
-                runCatching { recognizerStillAlive.stopListening() }
-                runCatching { recognizerStillAlive.cancel() }
-                runCatching { recognizerStillAlive.destroy() }
-                speechRecognizer = null
+            val alive = engine
+            if (alive != null) {
+                runCatching { alive.stop() }
+                runCatching { alive.destroy() }
+                engine = null
                 _uiState.value = _uiState.value.copy(
                     isListening = false,
                     error = "识别超时，请重试"
@@ -123,11 +123,9 @@ class VoiceCommandViewModel : ViewModel() {
     fun stopListening() {
         listenTimeoutJob?.cancel()
         listenTimeoutJob = null
-        speechRecognizer?.let { recognizer ->
-            runCatching { recognizer.stopListening() }
-            runCatching { recognizer.cancel() }
-        }
-        speechRecognizer = null
+        engine?.let { runCatching { it.stop() } }
+        engine?.destroy()
+        engine = null
         _uiState.value = _uiState.value.copy(isListening = false)
     }
 
@@ -135,86 +133,82 @@ class VoiceCommandViewModel : ViewModel() {
         _uiState.value = _uiState.value.copy(heardText = "", message = "", error = null)
     }
 
-    private fun dispatchResults(texts: List<String>) {
-        listenTimeoutJob?.cancel()
-        listenTimeoutJob = null
-        val text = texts.firstOrNull()?.trim().orEmpty()
-        val command = parseCommand(text)
-        speechRecognizer?.destroy()
-        speechRecognizer = null
-        _uiState.value = VoiceUiState(
-            isListening = false,
-            heardText = text,
-            message = if (text.isEmpty()) "未识别到内容" else "识别结果：$text"
-        )
-        viewModelScope.launch { _commands.emit(command) }
-    }
-
-    private fun createListener() = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) = Unit
-
-        override fun onBeginningOfSpeech() {
-            // 用户开始说话 = 设备麦克风与识别服务都正常，取消超时兜底
+    private val engineListener = object : VoiceSttListener {
+        override fun onPartial(text: String) {
+            // 收到 partial 表示识别已经起来，取消兜底超时
             listenTimeoutJob?.cancel()
             listenTimeoutJob = null
-            _uiState.value = _uiState.value.copy(message = "开始聆听…")
+            _uiState.value = _uiState.value.copy(partialText = text)
         }
 
-        override fun onRmsChanged(rmsdB: Float) = Unit
-
-        override fun onBufferReceived(buffer: ByteArray?) = Unit
-
-        override fun onEndOfSpeech() {
-            _uiState.value = _uiState.value.copy(message = "识别中…")
-        }
-
-        override fun onError(error: Int) {
+        override fun onResult(texts: List<String>) {
             listenTimeoutJob?.cancel()
             listenTimeoutJob = null
-            speechRecognizer?.destroy()
-            speechRecognizer = null
-            val reason = when (error) {
-                SpeechRecognizer.ERROR_NO_MATCH -> "没有识别到语音，请重试"
-                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "说话超时，请重试"
-                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "识别服务繁忙，请稍后重试"
-                SpeechRecognizer.ERROR_AUDIO -> "录音失败，请检查麦克风"
-                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "缺少麦克风权限"
-                SpeechRecognizer.ERROR_NETWORK -> "网络异常，语音识别需要联网，请检查网络后重试"
-                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "网络超时，请检查网络后重试"
-                SpeechRecognizer.ERROR_SERVER -> "语音服务暂不可用，请稍后重试"
-                SpeechRecognizer.ERROR_CLIENT -> "语音识别服务出错，请重启 App 或安装 Google 服务后重试"
-                SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "请求过于频繁，请稍后再试"
-                else -> "语音识别失败（$error）"
-            }
-            _uiState.value = _uiState.value.copy(isListening = false, error = reason)
+            val text = texts.firstOrNull()?.trim().orEmpty()
+            val command = parseCommand(text)
+            engine?.destroy()
+            engine = null
+            _uiState.value = VoiceUiState(
+                isListening = false,
+                heardText = text,
+                message = if (text.isEmpty()) "未识别到内容" else "识别结果：$text"
+            )
+            viewModelScope.launch { _commands.emit(command) }
         }
 
-        override fun onResults(results: Bundle?) {
-            val texts = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                ?: java.util.ArrayList()
-            dispatchResults(texts)
+        override fun onError(error: SttError) {
+            listenTimeoutJob?.cancel()
+            listenTimeoutJob = null
+            engine?.destroy()
+            engine = null
+            _uiState.value = _uiState.value.copy(
+                isListening = false,
+                error = error.toUserMessage()
+            )
         }
-
-        override fun onPartialResults(partialResults: Bundle?) {
-            val texts = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                ?: java.util.ArrayList()
-            val partial = texts.firstOrNull()?.trim().orEmpty()
-            _uiState.value = _uiState.value.copy(partialText = partial)
-        }
-
-        override fun onEvent(eventType: Int, params: Bundle?) = Unit
     }
 
     override fun onCleared() {
         super.onCleared()
         listenTimeoutJob?.cancel()
         listenTimeoutJob = null
-        speechRecognizer?.destroy()
-        speechRecognizer = null
+        engine?.destroy()
+        engine = null
     }
 
     companion object {
         /** 语音识别兜底超时（毫秒）。覆盖国内设备无 Google 服务、recognizer 静默挂起的场景。 */
         private const val VOICE_LISTEN_TIMEOUT_MS = 8_000L
     }
+}
+
+/** 引擎工厂；调用方可在测试或特殊机型注入自定义实现。 */
+fun interface VoiceSttEngineFactory {
+    fun create(context: Context): VoiceSttEngine
+}
+
+/** 默认工厂：先尝试 sherpa-onnx（如已配置），否则回落到 Android 系统识别。 */
+object DefaultEngineFactory : VoiceSttEngineFactory {
+    override fun create(context: Context): VoiceSttEngine =
+        VoiceSttEngineRegistry.create(context)
+}
+
+/**
+ * 引擎选择中心。根据设备/模型/配置挑选当前使用的 [VoiceSttEngine]。
+ * 后续步骤会接入 [SherpaVoiceSttEngine]，本步骤只构建骨架。
+ */
+object VoiceSttEngineRegistry {
+    @Volatile
+    private var selector: (Context) -> VoiceSttEngine = ::selectAndroidDefault
+
+    /** 切换全局引擎选择器（单测或用户偏好切换时使用）。 */
+    fun setSelector(selector: (Context) -> VoiceSttEngine) {
+        this.selector = selector
+    }
+
+    fun create(context: Context): VoiceSttEngine = selector(context)
+
+    /** 当前默认选择：仅回落到系统 [AndroidVoiceSttEngine]。 */
+    private fun selectAndroidDefault(context: Context): VoiceSttEngine =
+        AndroidVoiceSttEngine(context)
 }
