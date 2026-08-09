@@ -34,5 +34,7 @@ data class StocktakeLine(
 
 data class StocktakeRequest(
     val lines: List<StocktakeLine>,
-    val mode: String = "scan"
+    val mode: String = "scan",
+    val warehouse: String? = null,
+    @SerializedName("warehouse_code") val warehouseCode: String? = null
 )

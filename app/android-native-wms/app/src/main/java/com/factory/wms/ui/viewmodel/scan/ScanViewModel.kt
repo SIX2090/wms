@@ -207,7 +207,13 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submitStocktake() {
         viewModelScope.launch {
-            val lines = _uiState.value.scanLines
+            val state = _uiState.value
+            val warehouse = state.selectedWarehouse
+            if (warehouse == null) {
+                _uiState.value = _uiState.value.copy(error = "请选择仓库")
+                return@launch
+            }
+            val lines = state.scanLines
             if (lines.isEmpty()) {
                 _uiState.value = _uiState.value.copy(error = "请先扫描盘点物料")
                 return@launch
@@ -220,7 +226,12 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     system_stock = null
                 )
             }
-            val request = StocktakeRequest(lines = stocktakeLines, mode = "scan")
+            val request = StocktakeRequest(
+                lines = stocktakeLines,
+                mode = "scan",
+                warehouse = warehouse.code,
+                warehouseCode = warehouse.code
+            )
             val result = repository.submitStocktake(request)
             result.fold(
                 onSuccess = { submitResult ->
