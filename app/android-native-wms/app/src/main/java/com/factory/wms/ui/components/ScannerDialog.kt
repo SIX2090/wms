@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -81,7 +82,6 @@ fun ScannerDialog(
     // Cleanup on dismiss
     DisposableEffect(Unit) {
         onDispose {
-            // Unbind camera use cases when dialog is dismissed
             cameraProvider?.unbindAll()
             previewView = null
             cameraProvider = null
@@ -113,7 +113,6 @@ fun ScannerDialog(
                 .background(Color.Black)
         ) {
             if (hasCameraPermission && cameraError == null) {
-                // Camera preview with async initialization
                 AndroidView(
                     factory = { ctx ->
                         val view = PreviewView(ctx).apply {
@@ -121,7 +120,6 @@ fun ScannerDialog(
                         }
                         previewView = view
 
-                        // Initialize camera asynchronously using addListener (non-blocking)
                         val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                         cameraProviderFuture.addListener({
                             try {
@@ -132,7 +130,6 @@ fun ScannerDialog(
                                     it.setSurfaceProvider(view.surfaceProvider)
                                 }
 
-                                // Image analysis for barcode scanning
                                 val options = BarcodeScannerOptions.Builder()
                                     .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
                                     .build()
@@ -144,7 +141,7 @@ fun ScannerDialog(
                                     .build()
                                     .also {
                                         it.setAnalyzer(analysisExecutor) { imageProxy: ImageProxy ->
-                                            @androidx.camera.core.ExperimentalGetImage
+                                            @OptIn(ExperimentalGetImage::class)
                                             val mediaImage = imageProxy.image
                                             if (mediaImage != null) {
                                                 val image = InputImage.fromMediaImage(
@@ -190,20 +187,17 @@ fun ScannerDialog(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Dark overlay with cutout
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val scanBoxWidth = size.width * 0.7f
                     val scanBoxHeight = scanBoxWidth * 0.6f
                     val scanBoxLeft = (size.width - scanBoxWidth) / 2f
                     val scanBoxTop = (size.height - scanBoxHeight) / 2f
 
-                    // Dark overlay
                     drawRect(
                         color = Color.Black.copy(alpha = 0.5f),
                         size = size
                     )
 
-                    // Cutout
                     drawRoundRect(
                         color = Color.Transparent,
                         topLeft = Offset(scanBoxLeft, scanBoxTop),
@@ -212,28 +206,22 @@ fun ScannerDialog(
                         blendMode = BlendMode.Clear
                     )
 
-                    // Scan box border
                     val cornerLength = 40f
                     val strokeWidth = 4f
                     val cornerColor = Color(0xFF4361EE)
 
-                    // Top-left corner
                     drawLine(cornerColor, Offset(scanBoxLeft, scanBoxTop + cornerLength), Offset(scanBoxLeft, scanBoxTop), strokeWidth)
                     drawLine(cornerColor, Offset(scanBoxLeft, scanBoxTop), Offset(scanBoxLeft + cornerLength, scanBoxTop), strokeWidth)
 
-                    // Top-right corner
                     drawLine(cornerColor, Offset(scanBoxLeft + scanBoxWidth - cornerLength, scanBoxTop), Offset(scanBoxLeft + scanBoxWidth, scanBoxTop), strokeWidth)
                     drawLine(cornerColor, Offset(scanBoxLeft + scanBoxWidth, scanBoxTop), Offset(scanBoxLeft + scanBoxWidth, scanBoxTop + cornerLength), strokeWidth)
 
-                    // Bottom-left corner
                     drawLine(cornerColor, Offset(scanBoxLeft, scanBoxTop + scanBoxHeight - cornerLength), Offset(scanBoxLeft, scanBoxTop + scanBoxHeight), strokeWidth)
                     drawLine(cornerColor, Offset(scanBoxLeft, scanBoxTop + scanBoxHeight), Offset(scanBoxLeft + cornerLength, scanBoxTop + scanBoxHeight), strokeWidth)
 
-                    // Bottom-right corner
                     drawLine(cornerColor, Offset(scanBoxLeft + scanBoxWidth - cornerLength, scanBoxTop + scanBoxHeight), Offset(scanBoxLeft + scanBoxWidth, scanBoxTop + scanBoxHeight), strokeWidth)
                     drawLine(cornerColor, Offset(scanBoxLeft + scanBoxWidth, scanBoxTop + scanBoxHeight), Offset(scanBoxLeft + scanBoxWidth, scanBoxTop + scanBoxHeight - cornerLength), strokeWidth)
 
-                    // Scanning line
                     val lineY = scanBoxTop + (scanBoxHeight - 4f) * scanLineOffset
                     drawLine(
                         color = Color(0xFF4361EE).copy(alpha = 0.8f),
@@ -243,7 +231,6 @@ fun ScannerDialog(
                     )
                 }
             } else if (cameraError != null) {
-                // Error state - show message and manual input option
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -273,7 +260,6 @@ fun ScannerDialog(
                 }
             }
 
-            // Top bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -324,7 +310,6 @@ fun ScannerDialog(
                 }
             }
 
-            // Bottom hint
             Text(
                 "将条码对准扫描框，自动识别",
                 modifier = Modifier
