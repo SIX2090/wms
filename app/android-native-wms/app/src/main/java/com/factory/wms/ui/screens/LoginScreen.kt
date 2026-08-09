@@ -40,7 +40,7 @@ fun LoginScreen(
     val uiState by viewModel.uiState.collectAsState()
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var baseUrl by remember { mutableStateOf(uiState.baseUrl.ifEmpty { "http://gd2026.top" }) }
+    var baseUrl by remember { mutableStateOf(uiState.baseUrl.ifEmpty { "https://gd2026.top" }) }
     var showPassword by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
