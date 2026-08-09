@@ -219,11 +219,16 @@ object VoiceSttEngineRegistry {
     fun create(context: Context): VoiceSttEngine = selector(context)
 
     /**
-     * 默认选择器：sherpa-onnx 优先，Android 系统识别兜底。
-     * 注意 [SherpaVoiceSttEngine.isAvailable] 内部会做模型存在性 + 反射探测，
-     * 不会因为缺模型就崩，最多返回 false → 这里 fallback。
+     * 默认选择器：云引擎（走后端中转腾讯云）优先，sherpa 本地离线兜底，Android 系统识别最后。
+     * - 云引擎解决国内设备无 Google 服务时系统识别"卡在正在聆听"的痛点；
+     * - [SherpaVoiceSttEngine.isAvailable] 内部会做模型存在性 + 反射探测，
+     *   不会因为缺模型就崩，最多返回 false → 这里 fallback；
+     * - [CloudAsrVoiceSttEngine.isAvailable] 恒为 true，故默认始终走云引擎，
+     *   网络 / 密钥异常在 stop 时异步回调错误，UI 不卡死。
      */
     private fun defaultSelector(context: Context): VoiceSttEngine {
+        val cloud = CloudAsrVoiceSttEngine(context)
+        if (cloud.isAvailable()) return cloud
         val sherpa = SherpaVoiceSttEngine(context)
         return if (sherpa.isAvailable()) sherpa else AndroidVoiceSttEngine(context)
     }

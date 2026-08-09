@@ -75,6 +75,28 @@ interface WmsApiService {
 
     @GET("api/mobile/dashboard")
     suspend fun getDashboard(): Response<ApiEnvelope<DashboardDto>>
+
+    @Multipart
+    @POST("mobile/api/asr")
+    suspend fun asrAudio(
+        @Part audio: MultipartBody.Part
+    ): Response<AsrResult>
+}
+
+/**
+ * 语音指令云识别结果。
+ *
+ * 后端 /mobile/api/asr 走后端中转（腾讯云一句话识别），返回结构不是
+ * [ApiEnvelope] 包裹，而是扁平的 `{status, text, msg}`：
+ * - 成功：`{"status": "success", "text": "入库"}`
+ * - 失败：`{"status": "error", "msg": "..."}`（HTTP 400/500/502）
+ */
+data class AsrResult(
+    @SerializedName("status") val status: String?,
+    @SerializedName("text") val text: String?,
+    @SerializedName("msg") val msg: String?
+) {
+    fun isOk(): Boolean = status == "success"
 }
 
 data class OcrItem(
