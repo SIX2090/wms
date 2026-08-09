@@ -133,7 +133,7 @@ fun ScannerDialog(
                 AndroidView(
                     factory = { ctx ->
                         val view = PreviewView(ctx).apply {
-                            scaleType = PreviewView.ScaleType.FILL_CENTER
+                            scaleType = PreviewView.ScaleType.FIT_CENTER
                         }
                         previewView = view
 
@@ -149,6 +149,7 @@ fun ScannerDialog(
                                 }
 
                                 val imageAnalysis = ImageAnalysis.Builder()
+                                    .setTargetResolution(android.util.Size(1920, 1080))
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                     .build()
                                     .also {
@@ -195,6 +196,11 @@ fun ScannerDialog(
                                     cameraSelector,
                                     preview,
                                     imageAnalysis
+                                )
+
+                                // Enable continuous autofocus for reliable barcode scanning
+                                camera?.cameraControl?.setFocusMode(
+                                    androidx.camera.core.FocusMode.CONTINUOUS_PICTURE
                                 )
                             } catch (e: Exception) {
                                 cameraError = e.message ?: "相机启动失败"
