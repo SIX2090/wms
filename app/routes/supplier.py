@@ -14,6 +14,8 @@
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
 
+import re
+
 from flask import current_app, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 
@@ -22,6 +24,31 @@ from utils import require_role
 
 
 # no-test:reason=路由注册辅助函数，能力由 supplier_* 各路由测试覆盖
+def _next_supplier_code(suppliers):
+    """计算下一个供应商编号：取现有编号中数字后缀最大的，前缀不变、数字+1并补零。
+
+    例：最后一个编号 009 → 010；SUP009 → SUP010；M-08 → M-09。
+    无任何带数字后缀的编号时返回起始编号 '001'。
+    """
+    max_num = -1
+    prefix = ''
+    width = 3
+    for s in suppliers:
+        code = (s.code or '').strip()
+        m = re.match(r'^(.*?)(\d+)$', code)
+        if not m:
+            continue
+        p, digits = m.group(1), m.group(2)
+        n = int(digits)
+        if n > max_num:
+            max_num = n
+            prefix = p
+            width = len(digits)
+    if max_num < 0:
+        return '001'
+    return f"{prefix}{max_num + 1:0{width}d}"
+
+
 def register_supplier_routes(app):
     @app.route('/supplier')
     @login_required
@@ -37,7 +64,9 @@ def register_supplier_routes(app):
         query = _apply_simple_search(Supplier.query, Supplier, search, ['code', 'name', 'contact', 'phone', 'address'])
         query, sort_by = _apply_master_order(query, Supplier, sort_by, sort_order, allowed_sorts, 'code')
         suppliers = query.all()
-        return render_template('supplier.html', suppliers=suppliers, filters={'search': search, 'status': status_filter}, sort_by=sort_by, sort_order=sort_order)
+        # 自动编号基于全量供应商计算（不受当前搜索/筛选影响），供新增弹窗默认带出
+        next_code = _next_supplier_code(Supplier.query.all())
+        return render_template('supplier.html', suppliers=suppliers, filters={'search': search, 'status': status_filter}, sort_by=sort_by, sort_order=sort_order, next_code=next_code)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/supplier/add', methods=['GET', 'POST'])

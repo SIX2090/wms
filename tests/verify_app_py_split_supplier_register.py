@@ -175,3 +175,35 @@ class TestSupplierRegister:
         resp = client.get("/supplier/add")
         assert resp.status_code == 302
         assert "showAddModal=1" in resp.headers["Location"]
+
+    def test_next_supplier_code(self):
+        """自动编号：数字后缀最大的编号 +1 并补零，前缀保留。"""
+        from types import SimpleNamespace
+        from app.routes.supplier import _next_supplier_code
+
+        sup = lambda code: SimpleNamespace(code=code)  # noqa: E731
+        # 纯数字 3 位：009 → 010
+        assert _next_supplier_code([sup("007"), sup("009")]) == "010"
+        # 带前缀：SUP009 → SUP010
+        assert _next_supplier_code([sup("SUP001"), sup("SUP009")]) == "SUP010"
+        # 混合前缀取最大数字（8 进 9 位进位仍补零）
+        assert _next_supplier_code([sup("M-08"), sup("A-03")]) == "M-09"
+        # 跨位数进位：009 → 010 不进位到 4 位
+        assert _next_supplier_code([sup("009")]) == "010"
+        # 无数字后缀的编号被忽略
+        assert _next_supplier_code([sup("ABC"), sup("X")]) == "001"
+        # 无任何编号 → 起始 001
+        assert _next_supplier_code([]) == "001"
+        # 空 code / None 忽略
+        assert _next_supplier_code([sup(""), sup(None)]) == "001"
+
+    def test_supplier_list_renders_next_code(self):
+        """列表页自动带出下一个供应商编号（009 → 010）。"""
+        client = self._setup()
+        _login(client)
+        client.post("/supplier/add", data={"code": "009", "name": "供应商一"})
+        client.post("/supplier/add", data={"code": "010", "name": "供应商二"})
+        resp = client.get("/supplier")
+        html = resp.get_data(as_text=True)
+        assert resp.status_code == 200
+        assert 'value="011"' in html
