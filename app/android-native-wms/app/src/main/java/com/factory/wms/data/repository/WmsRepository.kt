@@ -25,7 +25,8 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 
 class WmsRepository(private val context: Context) {
 
-    private val api: WmsApiService = RetrofitClient.apiService
+    private val api: WmsApiService
+        get() = RetrofitClient.apiService
     private val db: AppDatabase = AppDatabase.getDatabase(context)
     private val materialDao = db.materialDao()
     private val operationLogDao = db.operationLogDao()
