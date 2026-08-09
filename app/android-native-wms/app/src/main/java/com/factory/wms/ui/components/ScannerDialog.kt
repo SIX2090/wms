@@ -7,11 +7,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.AspectRatio
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.*
@@ -149,9 +151,17 @@ fun ScannerDialog(
                                     it.setSurfaceProvider(view.surfaceProvider)
                                 }
 
+                                // BUG-2026-08-09-002: 旧写法同时调用 setTargetAspectRatio + setTargetResolution，
+                                // CameraX 1.3+ 抛 IllegalArgumentException，相机直接绑不上 → "摄像头不可用"。
+                                // 改用官方推荐的 ResolutionSelector：16:9 比例 + 最高可用分辨率，
+                                // 国产机多摄/不同分辨率自动适配，避免崩溃。
+                                val resolutionSelector = ResolutionSelector.Builder()
+                                    .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                                    .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
+                                    .build()
+
                                 val imageAnalysis = ImageAnalysis.Builder()
-                                    .setTargetAspectRatio(AspectRatio.RATIO_16_9)
-                                    .setTargetResolution(android.util.Size(1280, 720))
+                                    .setResolutionSelector(resolutionSelector)
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                     .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                                     .build()
