@@ -122,6 +122,12 @@
 | 33 | AI-MOB-OCR-F02 | 已完成 | 识别送货单自动建档未建档物料生成采购入库草稿 | AI-C07、AI-R08 | 无 |
 | 34 | AI-MOB-REC-F02 | 已完成 | 手机盘点识物：除扫码盘点外，可拍照识别物料/标签加入盘点清单 | AI-MOB-REC-F01 | 无 |
 | 35 | AI-MOB-VOICE-F01 | 已完成 | 手机端语音识别：按语音指令执行操作（导航/返回/退出等） | AI-MOB-REC-F01 | 见下方完成记录 |
+| 36 | AI-MOB-HOME-F01 | 待开发 | 手机端首页接入"今日概览"条（复用既有 /api/mobile/dashboard） | AI-MOB-VOICE-F01 | AI-MOB-NAV-F01 |
+| 37 | AI-MOB-NAV-F01 | 待开发 | 手机端底部 Tab 导航（首页/入库/出库/查库存/我的） | AI-MOB-HOME-F01 | AI-MOB-STOCK-F01 |
+| 38 | AI-MOB-STOCK-F01 | 待开发 | 手机端查库存增加列表模式（复用既有 /api/mobile/stock/query） | AI-MOB-NAV-F01 | AI-MOB-CHECK-F01 |
+| 39 | AI-MOB-CHECK-F01 | 待开发 | 手机盘点与 Web 盘点单据流对齐（仓库必填、盘点记录可回查） | AI-MOB-STOCK-F01 | AI-MOB-RPT-F01 |
+| 40 | AI-MOB-RPT-F01 | 待开发 | 手机端只读报表入口（库存汇总/出入库明细只读视图） | AI-MOB-CHECK-F01 | AI-MOB-EMPTY-F01 |
+| 41 | AI-MOB-EMPTY-F01 | 待开发 | 手机端统一空状态组件与新手引导 | AI-MOB-RPT-F01 | 无 |
 
 ## 5. 任务详细定义
 
@@ -479,6 +485,81 @@
 - 验证：Android APK Build（`assembleDebug`）CI 通过，产出 `app-debug` artifact；本地与 `origin/main` 均停在 `1977311f`。
 - 说明：收尾时曾因 release 签名 keystore 缺失导致 CI 在签名配置阶段即失败（`SigningConfig with name 'release' not found`，`buildTypes` 先于 `signingConfigs` 执行所致），已一并修复；`WMS CI`/`WMS AI Verification` 的 `/mobile/app` 404 属既有失败（根目录本无 `app-release.apk`），与本次无关。
 
+### AI-MOB-HOME-F01：手机端首页接入"今日概览"条
+
+**目标**：对齐橙子库存通首页"今日概览"体验，在 WMS App 首页问候区下方增加"今日概览"条，展示今日入库（笔数/数量）、今日出库（笔数/数量）、待处理入/出库单、库存告警数，让仓库人员打开 App 即看到当日工作量与待办。
+
+**范围与边界**：
+- 重复检查结论：后端 `GET /api/mobile/dashboard`（[native_api.py](app/routes/native_api.py)，返回 today_in_orders/today_in_quantity/today_out_orders/today_out_quantity/pending_in_orders/pending_out_orders/alert_count）已存在且未被 Android 端消费，本任务**只新增 Android 端接入**，不新增/修改后端端点。
+- Android 端：`WmsApiService`/`WmsRepository` 增加 `getDashboard()`；新增 `HomeViewModel` 承载概览加载态；`HomeScreen` 问候区下方新增概览卡片行（今日入库、今日出库、待办单据、库存告警四格数字），数字格点击导航到对应功能页。
+- 边界：仅只读展示，概览接口失败时概览条降级隐藏、不阻塞首页其余功能；不新增任何写操作；数字为 0 时正常显示。
+
+**验收**：
+- 既有 `tests/verify_mobile_opening_stock_api.py`、`tests/verify_mobile_inbound_draft_api.py` 无回归；如新增 ViewModel/仓库层逻辑须补对应单元测试（A9）。
+- Android CI `assembleDebug` 通过；首页可见今日概览条，数据与 `/api/mobile/dashboard` 返回一致，点击可跳转。
+
+### AI-MOB-NAV-F01：手机端底部 Tab 导航
+
+**目标**：对齐橙子库存通底部 Tab 信息架构，把 WMS App 从"首页卡片 + 逐级返回"升级为底部 Tab 导航，一级高频功能一键直达，减少操作层级。
+
+**范围与边界**：
+- Material3 `NavigationBar`（或 `NavigationSuiteScaffold`）底部导航，Tab：首页、入库、出库、查库存、我的；"我的"页承载服务器信息、退出登录、语音指令说明；盘点、期初库存、识别单据、识物仍由首页卡片进入。
+- 导航改造集中在 `AppNavGraph`：登录成功后进入带底部 Tab 的主框架，Tab 切换走单例 back stack（`popUpTo` + `saveState/restoreState`），登录页不显示底部 Tab。
+- 边界：不改变任何既有 Screen 的功能与路由参数；语音指令导航（AI-MOB-VOICE-F01）与 401 跳登录逻辑保持可用。
+
+**验收**：
+- Android CI `assembleDebug` 通过；五个 Tab 可切换且状态保留；登录页无底部栏；语音导航、退出登录、401 踢回登录均不回归。
+
+### AI-MOB-STOCK-F01：手机端查库存增加列表模式
+
+**目标**：对齐橙子库存通"库存列表"体验，查库存页在"扫码查单个物料"之外增加列表模式：按仓库筛选 + 关键字模糊查询，分页展示物料库存（编码/名称/规格/当前库存/单位）。
+
+**范围与边界**：
+- 重复检查结论：后端 `GET /api/mobile/stock/query`（[native_api.py](app/routes/native_api.py)，多条件模糊搜索 + 分页）已存在且未被 Android 端消费，本任务**只新增 Android 端接入**，不新增/修改后端端点；调用必须遵循仓库必填规则（传仓库参数，未选仓库时先引导选择，不拉全量）。
+- Android 端：`StockQueryScreen` 增加"扫码/列表"模式切换；列表模式含仓库选择器、关键字输入、分页加载列表；列表项可查看物料库存详情。
+- 边界：全链路只读；无默认仓库且未选仓库时给出明确提示而非空数据误导。
+
+**验收**：
+- Android CI `assembleDebug` 通过；列表模式可按仓库+关键字查询、分页加载；扫码查询原流程无回归；仓库必填规则在 UI 层有拦截提示。
+
+### AI-MOB-CHECK-F01：手机盘点与 Web 盘点单据流对齐
+
+**目标**：手机盘点从"提交即完成、结果不可回查"补齐为与 Web 盘点一致的单据流体验：提交前必选仓库（遵循仓库必填规则），提交后可查看自己历史盘点记录（盘点单号、日期、差异、调整草稿状态）。
+
+**范围与边界**：
+- 现状：`POST /api/stocktake` 已生成 `InventoryCheckScan`（status=completed）并自动创建库存调整草稿（人工审核后生效），单据闭环后端已具备；缺口在**仓库必填缺失**与**手机端不可回查**。
+- 后端：`/api/stocktake` 请求体增加必填 `warehouse` 字段（未传带默认仓库，无默认仓库拒绝保存，与仓库必填规则一致），`InventoryCheckScan` 关联仓库；新增 `GET /api/mobile/stocktake/list`（仅返回当前用户提交的盘点记录，分页）。
+- Android 端：盘点页提交前增加仓库选择器（默认带入默认仓库）；新增"盘点记录"页展示历史盘点单及调整草稿审核状态。
+- 边界：手机端只提交盘点与查看记录；库存调整草稿的审核/完成仍必须在 Web 端人工执行，AI/手机端不得自动过账库存。
+
+**验收**：
+- `tests/verify_mobile_stocktake_flow.py` 覆盖：缺仓库且无默认仓库 → 400、默认仓库带入、盘点列表仅本人记录、调整草稿仍 Web 端人工完成。
+- 既有盘点相关验证无回归；Android CI `assembleDebug` 通过。
+
+### AI-MOB-RPT-F01：手机端只读报表入口
+
+**目标**：对齐橙子库存通"报表"能力，手机端新增只读报表入口，让管理者在手机上查看库存汇总与出入库明细，而非只能回电脑。
+
+**范围与边界**：
+- 后端优先复用既有报表/库存查询只读接口；如需移动专用聚合，新增 `GET /api/mobile/report/stock_summary`（按仓库必填筛选的库存汇总）与 `GET /api/mobile/report/in_out_detail`（按日期范围 + 仓库必填的出入库明细，分页），均只读。
+- Android 端：首页新增"报表"卡片入口；报表页含库存汇总与出入库明细两个只读视图，仓库为必选筛选。
+- 边界：全部只读，无导出、无任何写操作；遵循仓库必填筛选规则；低带宽分页加载。
+
+**验收**：
+- 新增端点配套 `tests/verify_mobile_report_api.py`（端点注册、权限拦截、仓库必填、只读性）；Android CI `assembleDebug` 通过。
+
+### AI-MOB-EMPTY-F01：手机端统一空状态组件与新手引导
+
+**目标**：对齐橙子库存通"空页面有引导"的细节体验，WMS App 所有列表/查询/识别结果为空时展示统一空状态组件（图标 + 说明 + 引导动作），首次登录提供一次性功能引导，降低新用户上手成本。
+
+**范围与边界**：
+- 新增统一 `EmptyState` Composable（图标、标题、说明、可选引导按钮），替换各页零散的空白/裸文字空态（扫码清单、识别结果、盘点清单、库存列表、盘点记录等）。
+- 首次登录一次性引导：首页功能气泡/蒙层引导（本地 DataStore 标记，仅展示一次，可跳过）。
+- 边界：纯 UI 增强，不新增后端 API；引导不遮挡操作、可跳过；不改变任何业务流程。
+
+**验收**：
+- Android CI `assembleDebug` 通过；各空列表页展示统一空状态与引导动作；首次登录出现引导、跳过/完成后不再出现。
+
 ### AI-MENU-2026-07-30-B1：菜单/页面 title 批量对齐（剩余 9 项 → 0）
 
 **背景**：用户反馈"这就是严重的BUG，让我用不了"——经 `scan_all_menus.py` 验证，已从 74 项错配降到 9 项。剩余 9 项是核心业务菜单（采购入库/产品入库/其他入库/入库明细/采购订单/采购入库明细报表/系统设置/AI质量运营/采购订单列表）点开后的页面 title 与菜单文字语义不一致，最容易让用户迷失方向。本批一次性对齐。
@@ -506,6 +587,7 @@
 3. 角色工作台：`AI-R10`、`AI-R11`。
 4. 生产能力：`AI-R12`～`AI-R15`。
 5. 端到端和灰度：`AI-R16`、`AI-R17`。
+6. 手机端体验对齐批（2026-08-09 登记，按序串行推进）：`AI-MOB-HOME-F01` → `AI-MOB-NAV-F01` → `AI-MOB-STOCK-F01` → `AI-MOB-CHECK-F01` → `AI-MOB-RPT-F01` → `AI-MOB-EMPTY-F01`。
 
 不得跳过依赖直接开发后续任务。紧急缺陷必须建立修复子项并记录原因。
 
@@ -606,6 +688,8 @@
 - [ ] 已提交并推送 `main`。
 
 ## 11. 当前下一项
+
+**当前下一项：AI-MOB-HOME-F01（手机端首页接入"今日概览"条）**，其后按第 6 节第 6 批顺序串行推进 AI-MOB-NAV-F01 → AI-MOB-STOCK-F01 → AI-MOB-CHECK-F01 → AI-MOB-RPT-F01 → AI-MOB-EMPTY-F01（手机端体验对齐批，2026-08-09 登记）。
 
 所有历史 AI 任务已完成；**AI-R07-F02（分类识别+按分类建议编号）已完成**。
 
