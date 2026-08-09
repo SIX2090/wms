@@ -1,6 +1,7 @@
 package com.factory.wms.data.api
 
 import com.factory.wms.data.model.*
+import com.google.gson.annotations.SerializedName
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import retrofit2.Response
