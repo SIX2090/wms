@@ -26,10 +26,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -210,47 +207,42 @@ fun ScannerDialog(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Dark overlay with cutout
+                // Fullscreen scan frame: the whole preview is the scan area.
+                // No dark mask is applied so barcodes can be recognized anywhere on screen.
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    val scanBoxWidth = size.width * 0.7f
-                    val scanBoxHeight = scanBoxWidth * 0.6f
-                    val scanBoxLeft = (size.width - scanBoxWidth) / 2f
-                    val scanBoxTop = (size.height - scanBoxHeight) / 2f
+                    val scanBoxWidth = size.width
+                    val scanBoxHeight = size.height
+                    val scanBoxLeft = 0f
+                    val scanBoxTop = 0f
 
-                    drawRect(
-                        color = Color.Black.copy(alpha = 0.5f),
-                        size = size
-                    )
-
-                    drawRoundRect(
-                        color = Color.Transparent,
-                        topLeft = Offset(scanBoxLeft, scanBoxTop),
-                        size = Size(scanBoxWidth, scanBoxHeight),
-                        cornerRadius = CornerRadius(16f, 16f),
-                        blendMode = BlendMode.Clear
-                    )
-
-                    val cornerLength = 40f
-                    val strokeWidth = 4f
+                    val cornerLength = 48f
+                    val strokeWidth = 5f
                     val cornerColor = Color(0xFF4361EE)
+                    val inset = 24f
 
-                    drawLine(cornerColor, Offset(scanBoxLeft, scanBoxTop + cornerLength), Offset(scanBoxLeft, scanBoxTop), strokeWidth)
-                    drawLine(cornerColor, Offset(scanBoxLeft, scanBoxTop), Offset(scanBoxLeft + cornerLength, scanBoxTop), strokeWidth)
+                    // Corner markers stay near the screen edges to delimit the fullscreen frame
+                    val left = scanBoxLeft + inset
+                    val top = scanBoxTop + inset
+                    val right = scanBoxLeft + scanBoxWidth - inset
+                    val bottom = scanBoxTop + scanBoxHeight - inset
 
-                    drawLine(cornerColor, Offset(scanBoxLeft + scanBoxWidth - cornerLength, scanBoxTop), Offset(scanBoxLeft + scanBoxWidth, scanBoxTop), strokeWidth)
-                    drawLine(cornerColor, Offset(scanBoxLeft + scanBoxWidth, scanBoxTop), Offset(scanBoxLeft + scanBoxWidth, scanBoxTop + cornerLength), strokeWidth)
+                    drawLine(cornerColor, Offset(left, top + cornerLength), Offset(left, top), strokeWidth)
+                    drawLine(cornerColor, Offset(left, top), Offset(left + cornerLength, top), strokeWidth)
 
-                    drawLine(cornerColor, Offset(scanBoxLeft, scanBoxTop + scanBoxHeight - cornerLength), Offset(scanBoxLeft, scanBoxTop + scanBoxHeight), strokeWidth)
-                    drawLine(cornerColor, Offset(scanBoxLeft, scanBoxTop + scanBoxHeight), Offset(scanBoxLeft + cornerLength, scanBoxTop + scanBoxHeight), strokeWidth)
+                    drawLine(cornerColor, Offset(right - cornerLength, top), Offset(right, top), strokeWidth)
+                    drawLine(cornerColor, Offset(right, top), Offset(right, top + cornerLength), strokeWidth)
 
-                    drawLine(cornerColor, Offset(scanBoxLeft + scanBoxWidth - cornerLength, scanBoxTop + scanBoxHeight), Offset(scanBoxLeft + scanBoxWidth, scanBoxTop + scanBoxHeight), strokeWidth)
-                    drawLine(cornerColor, Offset(scanBoxLeft + scanBoxWidth, scanBoxTop + scanBoxHeight), Offset(scanBoxLeft + scanBoxWidth, scanBoxTop + scanBoxHeight - cornerLength), strokeWidth)
+                    drawLine(cornerColor, Offset(left, bottom - cornerLength), Offset(left, bottom), strokeWidth)
+                    drawLine(cornerColor, Offset(left, bottom), Offset(left + cornerLength, bottom), strokeWidth)
 
-                    val lineY = scanBoxTop + (scanBoxHeight - 4f) * scanLineOffset
+                    drawLine(cornerColor, Offset(right - cornerLength, bottom), Offset(right, bottom), strokeWidth)
+                    drawLine(cornerColor, Offset(right, bottom), Offset(right, bottom - cornerLength), strokeWidth)
+
+                    val lineY = top + (bottom - top - 4f) * scanLineOffset
                     drawLine(
                         color = Color(0xFF4361EE).copy(alpha = 0.8f),
-                        start = Offset(scanBoxLeft + 8f, lineY),
-                        end = Offset(scanBoxLeft + scanBoxWidth - 8f, lineY),
+                        start = Offset(left + 8f, lineY),
+                        end = Offset(right - 8f, lineY),
                         strokeWidth = 2f
                     )
                 }
