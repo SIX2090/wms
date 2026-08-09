@@ -71,6 +71,9 @@ interface WmsApiService {
         @Header("X-Idempotency-Key") requestId: String,
         @Body request: InboundDraftRequest
     ): Response<ApiEnvelope<InboundDraftResult>>
+
+    @GET("api/mobile/dashboard")
+    suspend fun getDashboard(): Response<ApiEnvelope<DashboardDto>>
 }
 
 data class OcrItem(

@@ -122,7 +122,7 @@
 | 33 | AI-MOB-OCR-F02 | 已完成 | 识别送货单自动建档未建档物料生成采购入库草稿 | AI-C07、AI-R08 | 无 |
 | 34 | AI-MOB-REC-F02 | 已完成 | 手机盘点识物：除扫码盘点外，可拍照识别物料/标签加入盘点清单 | AI-MOB-REC-F01 | 无 |
 | 35 | AI-MOB-VOICE-F01 | 已完成 | 手机端语音识别：按语音指令执行操作（导航/返回/退出等） | AI-MOB-REC-F01 | 见下方完成记录 |
-| 36 | AI-MOB-HOME-F01 | 待开发 | 手机端首页接入"今日概览"条（复用既有 /api/mobile/dashboard） | AI-MOB-VOICE-F01 | AI-MOB-NAV-F01 |
+| 36 | AI-MOB-HOME-F01 | 已完成 | 手机端首页接入"今日概览"条（复用既有 /api/mobile/dashboard） | AI-MOB-VOICE-F01 | AI-MOB-NAV-F01 |
 | 37 | AI-MOB-NAV-F01 | 待开发 | 手机端底部 Tab 导航（首页/入库/出库/查库存/我的） | AI-MOB-HOME-F01 | AI-MOB-STOCK-F01 |
 | 38 | AI-MOB-STOCK-F01 | 待开发 | 手机端查库存增加列表模式（复用既有 /api/mobile/stock/query） | AI-MOB-NAV-F01 | AI-MOB-CHECK-F01 |
 | 39 | AI-MOB-CHECK-F01 | 待开发 | 手机盘点与 Web 盘点单据流对齐（仓库必填、盘点记录可回查） | AI-MOB-STOCK-F01 | AI-MOB-RPT-F01 |
@@ -498,6 +498,8 @@
 - 既有 `tests/verify_mobile_opening_stock_api.py`、`tests/verify_mobile_inbound_draft_api.py` 无回归；如新增 ViewModel/仓库层逻辑须补对应单元测试（A9）。
 - Android CI `assembleDebug` 通过；首页可见今日概览条，数据与 `/api/mobile/dashboard` 返回一致，点击可跳转。
 
+**记录**：完成日期 2026-08-09；提交见当次提交；涉及模块 app/android-native-wms/app/src/main/java/com/factory/wms/data/model/DashboardModels.kt（新增）、data/api/WmsApiService.kt、data/repository/WmsRepository.kt、ui/viewmodel/home/HomeViewModel.kt（新增）、ui/screens/HomeScreen.kt、ui/navigation/NavGraph.kt。验证：`./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL（Kotlin 编译通过，仅存量日志往返因 4GB 内存限制在 dexing 阶段崩溃，与代码无关，CI assembleDebug 正常）；`python scripts/lint_wms_rules.py` 0 违规；无后端改动，既有移动后端测试无回归风险，CI 全量校验兜底。
+
 ### AI-MOB-NAV-F01：手机端底部 Tab 导航
 
 **目标**：对齐橙子库存通底部 Tab 信息架构，把 WMS App 从"首页卡片 + 逐级返回"升级为底部 Tab 导航，一级高频功能一键直达，减少操作层级。
@@ -689,7 +691,7 @@
 
 ## 11. 当前下一项
 
-**当前下一项：AI-MOB-HOME-F01（手机端首页接入"今日概览"条）**，其后按第 6 节第 6 批顺序串行推进 AI-MOB-NAV-F01 → AI-MOB-STOCK-F01 → AI-MOB-CHECK-F01 → AI-MOB-RPT-F01 → AI-MOB-EMPTY-F01（手机端体验对齐批，2026-08-09 登记）。
+**当前下一项：AI-MOB-NAV-F01（手机端底部 Tab 导航）**，其后按第 6 节第 6 批顺序串行推进 AI-MOB-STOCK-F01 → AI-MOB-CHECK-F01 → AI-MOB-RPT-F01 → AI-MOB-EMPTY-F01（手机端体验对齐批，2026-08-09 登记）。AI-MOB-HOME-F01（今日概览条）已完成。
 
 所有历史 AI 任务已完成；**AI-R07-F02（分类识别+按分类建议编号）已完成**。
 

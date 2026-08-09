@@ -16,6 +16,7 @@ import com.factory.wms.ui.components.VoiceAssistantOverlay
 import com.factory.wms.ui.screens.*
 import com.factory.wms.ui.viewmodel.ai.AiViewModel
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
+import com.factory.wms.ui.viewmodel.home.HomeViewModel
 import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.ui.viewmodel.voice.VoiceCommandViewModel
@@ -28,6 +29,7 @@ fun AppNavGraph() {
     val aiViewModel: AiViewModel = viewModel()
     val openingStockViewModel: OpeningStockViewModel = viewModel()
     val voiceViewModel: VoiceCommandViewModel = viewModel()
+    val homeViewModel: HomeViewModel = viewModel()
 
     val authState by authViewModel.uiState.collectAsState()
 
@@ -58,6 +60,7 @@ fun AppNavGraph() {
             composable(Screen.Home.route) {
                 HomeScreen(
                     authViewModel = authViewModel,
+                    homeViewModel = homeViewModel,
                     onNavigate = { screen ->
                         navController.navigate(screen.route)
                     },

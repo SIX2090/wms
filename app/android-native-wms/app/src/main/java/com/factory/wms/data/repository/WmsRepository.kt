@@ -301,6 +301,15 @@ class WmsRepository(private val context: Context) {
         }
     }
 
+    suspend fun getDashboard(): Result<DashboardDto> {
+        return try {
+            val response = api.getDashboard()
+            handleResponse<DashboardDto>(response)
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
+        }
+    }
+
     private inline fun <reified T> handleResponse(response: Response<ApiEnvelope<T>>): Result<T> {
         return if (response.isSuccessful) {
             val envelope = response.body()

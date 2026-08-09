@@ -30,9 +30,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.factory.wms.data.model.DashboardDto
 import com.factory.wms.ui.navigation.Screen
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
+import com.factory.wms.ui.viewmodel.home.HomeViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -48,10 +50,12 @@ data class FunctionCard(
 @Composable
 fun HomeScreen(
     authViewModel: AuthViewModel,
+    homeViewModel: HomeViewModel,
     onNavigate: (Screen) -> Unit,
     onLogout: () -> Unit
 ) {
     val uiState by authViewModel.uiState.collectAsState()
+    val homeUiState by homeViewModel.uiState.collectAsState()
     var showLogoutDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -240,6 +244,14 @@ fun HomeScreen(
                         }
                     }
                 }
+            }
+
+            // ── 今日概览条 ──
+            if (homeUiState.dashboard != null) {
+                TodayOverviewBar(
+                    dashboard = homeUiState.dashboard!!,
+                    onNavigate = onNavigate
+                )
             }
 
             // ── Card Grid ──
@@ -447,5 +459,164 @@ fun FunctionCardItem(
                 }
             }
         }
+    }
+}
+
+/** 首页"今日概览"条：今日入库/出库（笔数与数量）+ 待处理单据 + 库存告警。 */
+@Composable
+fun TodayOverviewBar(
+    dashboard: DashboardDto,
+    onNavigate: (Screen) -> Unit
+) {
+    val items = listOf(
+        OverviewItem(
+            label = "今日入库",
+            value = formatQty(dashboard.todayInQuantity),
+            sub = "${dashboard.todayInOrders} 单",
+            icon = Icons.Outlined.ArrowDownward,
+            color = CardBlue,
+            screen = Screen.Inbound
+        ),
+        OverviewItem(
+            label = "今日出库",
+            value = formatQty(dashboard.todayOutQuantity),
+            sub = "${dashboard.todayOutOrders} 单",
+            icon = Icons.Outlined.ArrowUpward,
+            color = CardGreen,
+            screen = Screen.Outbound
+        ),
+        OverviewItem(
+            label = "待处理单据",
+            value = "${dashboard.pendingInOrders + dashboard.pendingOutOrders}",
+            sub = "入${dashboard.pendingInOrders} 出${dashboard.pendingOutOrders}",
+            icon = Icons.Outlined.PendingActions,
+            color = CardOrange,
+            screen = null
+        ),
+        OverviewItem(
+            label = "库存告警",
+            value = "${dashboard.alertCount}",
+            sub = "低于安全库存",
+            icon = Icons.Outlined.WarningAmber,
+            color = Error,
+            screen = Screen.StockQuery
+        )
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceVariant.copy(alpha = 0.5f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Outlined.Insights,
+                    contentDescription = null,
+                    tint = Primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "今日概览",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                items.forEach { item ->
+                    OverviewItemCell(
+                        item = item,
+                        modifier = Modifier.weight(1f),
+                        onClicked = {
+                            item.screen?.let(onNavigate)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+private data class OverviewItem(
+    val label: String,
+    val value: String,
+    val sub: String,
+    val icon: ImageVector,
+    val color: Color,
+    val screen: Screen?
+)
+
+@Composable
+private fun OverviewItemCell(
+    item: OverviewItem,
+    modifier: Modifier = Modifier,
+    onClicked: (() -> Unit)? = null
+) {
+    val clickModifier = if (onClicked != null) {
+        Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = onClicked
+        )
+    } else {
+        Modifier
+    }
+    Column(
+        modifier = modifier
+            .padding(horizontal = 6.dp)
+            .then(clickModifier),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            item.icon,
+            contentDescription = null,
+            tint = item.color,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            item.value,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            item.label,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            item.sub,
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+        )
+    }
+}
+
+private fun formatQty(value: Double): String {
+    return if (value == value.toLong().toDouble()) {
+        value.toLong().toString()
+    } else {
+        String.format("%.2f", value)
     }
 }
