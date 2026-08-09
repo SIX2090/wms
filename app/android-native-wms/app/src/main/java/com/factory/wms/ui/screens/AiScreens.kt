@@ -94,8 +94,14 @@ fun DocumentOcrScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        viewModel.loadWarehouses()
+    // BUG-2026-08-09-004: 仓库列表仅在 OCR 识别完成、用户进入"确认生成草稿"阶段展示
+    // 仓库下拉时才需要。原先在页面挂载瞬间 (`LaunchedEffect(Unit)`) 即触发 getWarehouses()，
+    // 未配置 baseUrl 时 (默认 fallback http://127.0.0.1:5000/) 会立即 ConnectException，
+    // 错误经 Snackbar 弹给用户，体感"页面一打开就报错"。改为仅在 ocrResult 非空时再请求。
+    LaunchedEffect(uiState.ocrResult != null) {
+        if (uiState.ocrResult != null) {
+            viewModel.loadWarehouses()
+        }
     }
 
     Scaffold(
