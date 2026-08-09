@@ -1330,6 +1330,7 @@ function submitFormLegacy(saveAndNew = false) {
                 } else {
                     alert('单据已保存但入库失败：' + (completeRes.msg || '未知错误'));
                 }
+                if (typeof clearDraft === 'function') clearDraft();
                 window.location.href = saveAndNew ? returnAddUrl : `/in_order/${data.id}`;
             });
         } else {
@@ -1483,6 +1484,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         if (!completeAfterSave) {
             if (window.showToast) window.showToast('草稿保存成功', 'success');
             else alert('草稿保存成功');
+            if (typeof clearDraft === 'function') clearDraft();
             window.location.href = saveAndNew ? returnAddUrl : `/in_order/${data.id}`;
             return;
         }
@@ -1495,6 +1497,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
                 } else {
                     alert('单据已保存，但完成入库失败：' + (completeRes.msg || '未知错误'));
                 }
+                if (typeof clearDraft === 'function') clearDraft();
                 window.location.href = saveAndNew ? returnAddUrl : `/in_order/${data.id}`;
             });
     })
