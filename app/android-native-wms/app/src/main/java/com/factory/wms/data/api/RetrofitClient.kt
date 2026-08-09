@@ -1,5 +1,6 @@
 package com.factory.wms.data.api
 
+import com.factory.wms.BuildConfig
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -27,8 +28,10 @@ object RetrofitClient {
         response
     }
 
+    // 日志仅在 debug 构建开启，且只记录请求行/响应行，绝不打印 header（避免 Authorization token 泄漏）。
+    // release 构建关闭日志，防止 token、业务数据落入日志。
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.HEADERS
+        level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
     }
 
     private val okHttpClient = OkHttpClient.Builder()

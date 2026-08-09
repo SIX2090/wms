@@ -21,3 +21,25 @@
 # OkHttp
 -dontwarn okhttp3.**
 -dontwarn okio.**
+
+# Kotlin coroutines
+-dontwarn kotlinx.coroutines.**
+-keepnames class kotlinx.coroutines.internal.MainDispatcherFactory { *; }
+-keepnames class kotlinx.coroutines.android.AndroidDispatcherFactory { *; }
+
+# ML Kit barcode / vision
+-keep class com.google.mlkit.** { *; }
+-dontwarn com.google.mlkit.**
+
+# CameraX
+-keep class androidx.camera.** { *; }
+-dontwarn androidx.camera.**
+
+# EncryptedSharedPreferences / security crypto
+-keep class androidx.security.crypto.** { *; }
+-dontwarn androidx.security.crypto.**
+
+# Room
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class *
+-dontwarn androidx.room.**

@@ -30,9 +30,29 @@ android {
         }
     }
 
+    // 发布签名校验：构建 release 时必须提供完整签名参数，缺一个即立即失败，
+    // 避免用空密码/缺 alias 打出无法安装或无法更新的 APK。
+    tasks.configureEach {
+        if (name == "validateSigningRelease" || name == "packageRelease") {
+            doFirst {
+                val pwd = System.getenv("WMS_STORE_PASSWORD")
+                val keyPwd = System.getenv("WMS_KEY_PASSWORD")
+                val alias = System.getenv("WMS_KEY_ALIAS")
+                val storeFile = System.getenv("WMS_STORE_FILE")
+                if (pwd.isNullOrBlank() || keyPwd.isNullOrBlank() || alias.isNullOrBlank() || storeFile.isNullOrBlank()) {
+                    throw GradleException(
+                        "release 构建缺少签名参数。请设置 WMS_STORE_FILE / WMS_STORE_PASSWORD / " +
+                            "WMS_KEY_ALIAS / WMS_KEY_PASSWORD（keystore 与密码绝不上传仓库）。"
+                    )
+                }
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }
@@ -49,6 +69,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
