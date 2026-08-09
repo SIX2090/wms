@@ -40,10 +40,17 @@ fun LoginScreen(
     val uiState by viewModel.uiState.collectAsState()
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var baseUrl by remember { mutableStateOf("http://10.0.2.2:5000") }
+    var baseUrl by remember { mutableStateOf(uiState.baseUrl.ifEmpty { "http://gd2026.top" }) }
     var showPassword by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // 当已保存的服务器地址变化时，同步到输入框
+    LaunchedEffect(uiState.baseUrl) {
+        if (uiState.baseUrl.isNotEmpty() && baseUrl != uiState.baseUrl) {
+            baseUrl = uiState.baseUrl
+        }
+    }
 
     LaunchedEffect(uiState.isLoggedIn) {
         if (uiState.isLoggedIn) {

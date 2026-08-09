@@ -9,7 +9,7 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
 
-    private var baseUrl: String = "http://10.0.2.2:5000/"
+    private var baseUrl: String = ""
     private var authToken: String? = null
 
     var onUnauthorized: (() -> Unit)? = null
@@ -42,7 +42,7 @@ object RetrofitClient {
     private var retrofit: Retrofit = buildRetrofit()
 
     private fun buildRetrofit(): Retrofit = Retrofit.Builder()
-        .baseUrl(if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
+        .baseUrl(if (baseUrl.isBlank()) "http://127.0.0.1:5000/" else if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()

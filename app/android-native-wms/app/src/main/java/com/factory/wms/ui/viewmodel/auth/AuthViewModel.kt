@@ -15,7 +15,7 @@ data class AuthUiState(
     val isLoading: Boolean = false,
     val username: String = "",
     val role: String = "",
-    val baseUrl: String = "http://10.0.2.2:5000",
+    val baseUrl: String = "",
     val error: String? = null
 )
 
