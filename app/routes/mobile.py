@@ -1,6 +1,8 @@
 # 手机端扫码（mobile）域路由：register-on-app 模式，endpoint 名与 app.py 原实现一致。
 # 共享辅助函数（add_stock / deduct_stock / _create_adjustment_drafts_from_check_scan 等）仍留在 app.py，
 # 各路由函数内部延迟导入，避免模块加载期循环导入。
+import os
+
 from flask_login import login_required
 
 from utils import require_role
@@ -551,3 +553,61 @@ def register_mobile_routes(app):
         except Exception as e:
             current_app.logger.error(f'拍照识物失败: {e}')
             return jsonify({'status': 'error', 'msg': '识别失败，请稍后重试'}), 500
+
+    # pydantic:reason=文件上传（multipart/form-data）路由，非 JSON Body，pydantic 输入模型不适用；音频格式/大小在校验逻辑内手工校验
+    @app.route('/mobile/api/asr', methods=['POST'])
+    @_web_or_api_required
+    def mobile_asr():
+        """手机端语音指令：接收音频 -> 调腾讯云一句话识别 -> 返回中文文本。
+
+        音频由 Android 端录音后上传（wav/mp3/m4a 等），短指令（<60s）走
+        一句话识别，返回文本供 App 端做关键词指令解析。腾讯云密钥从环境变量读取：
+        TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY / TENCENTCLOUD_REGION。
+        """
+        from flask import current_app, jsonify, request
+
+        secret_id = os.environ.get('TENCENTCLOUD_SECRET_ID', '').strip()
+        secret_key = os.environ.get('TENCENTCLOUD_SECRET_KEY', '').strip()
+        region = os.environ.get('TENCENTCLOUD_REGION', 'ap-guangzhou').strip()
+        if not secret_id or not secret_key:
+            return jsonify({
+                'status': 'error',
+                'msg': '未配置腾讯云 ASR 密钥（TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY）'
+            }), 400
+
+        if 'audio' not in request.files:
+            return jsonify({'status': 'error', 'msg': '请上传音频文件'}), 400
+
+        file = request.files['audio']
+        if not file.filename:
+            return jsonify({'status': 'error', 'msg': '请选择音频文件'}), 400
+
+        allowed_ext = {'wav', 'mp3', 'm4a', 'aac', 'pcm', 'opus', 'spx', 'silk', 'amr', 'flac', 'ogg', 'wma', 'caf'}
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if ext not in allowed_ext:
+            return jsonify({'status': 'error', 'msg': '不支持的音频格式'}), 400
+
+        file.seek(0, 2)
+        file_size = file.tell()
+        file.seek(0)
+        if file_size > 10 * 1024 * 1024:
+            return jsonify({'status': 'error', 'msg': '音频大小不能超过10MB'}), 400
+
+        try:
+            from tencent_asr import TencentAsrError, sentence_recognition
+            audio_bytes = file.read()
+            text = sentence_recognition(
+                audio_bytes,
+                secret_id=secret_id,
+                secret_key=secret_key,
+                region=region,
+                voice_format=ext,
+                eng_service_type='16k_zh',
+            )
+            return jsonify({'status': 'success', 'text': text})
+        except TencentAsrError as e:
+            current_app.logger.error(f'腾讯云 ASR 失败: {e}')
+            return jsonify({'status': 'error', 'msg': str(e)}), 502
+        except Exception as e:
+            current_app.logger.error(f'语音识别失败: {e}')
+            return jsonify({'status': 'error', 'msg': '语音识别失败，请稍后重试'}), 500

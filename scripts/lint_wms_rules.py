@@ -109,10 +109,20 @@ _JS_COMMENT_LINE = re.compile(r"//[^\n\r]*")
 _HTML_COMMENT_BLOCK = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
+def _space_filler(m):
+    """把匹配内容替换为等长空格，但保留换行符（保证行号映射不漂移）。
+
+    直接用 ``" " * len(m.group(0))`` 会把多行 docstring / 块注释里的换行也
+    一并吞掉，导致 ``stripped`` 的行号相对原始文件偏移，进而让 A8/A9 等
+    依赖行号定位的规则失效（新增路由豁免注释检测不到）。
+    """
+    return re.sub(r"[^\n]", " ", m.group(0))
+
+
 def strip_py_comments(text: str) -> str:
-    """去掉 Python 注释，但保持字符串长度。"""
-    text = _PY_COMMENT_BLOCK.sub(lambda m: " " * len(m.group(0)), text)
-    text = _PY_COMMENT_LINE.sub(lambda m: " " * len(m.group(0)), text)
+    """去掉 Python 注释（行 + 块），保持字符串长度与换行结构不变。"""
+    text = _PY_COMMENT_BLOCK.sub(_space_filler, text)
+    text = _PY_COMMENT_LINE.sub(_space_filler, text)
     return text
 
 
