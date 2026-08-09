@@ -2686,7 +2686,8 @@ function batchUpdateField() {
     // 页面加载时恢复草稿
     document.addEventListener('DOMContentLoaded', function() {
         // 延迟恢复，等待页面完全加载
-        setTimeout(restoreDraft, 500);
+        // 新增页面不自动恢复上次草稿，避免带出上一张已完成单据的数据
+        // 用户仍可手动通过 WmsDraft.restore() 恢复，或通过"清除草稿"按钮清理
 
         // 启动自动保存
         autoSaveTimer = setInterval(saveDraft, AUTO_SAVE_INTERVAL);
