@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -149,7 +150,7 @@ fun ScannerDialog(
                                 }
 
                                 val imageAnalysis = ImageAnalysis.Builder()
-                                    .setTargetResolution(android.util.Size(1920, 1080))
+                                    .setTargetAspectRatio(AspectRatio.RATIO_16_9)
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                     .build()
                                     .also {
@@ -199,9 +200,17 @@ fun ScannerDialog(
                                 )
 
                                 // Enable continuous autofocus for reliable barcode scanning
-                                camera?.cameraControl?.setFocusMode(
-                                    androidx.camera.core.FocusMode.CONTINUOUS_PICTURE
-                                )
+                                camera?.let { cam ->
+                                    @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
+                                    val camera2Control = androidx.camera.camera2.interop.Camera2CameraControl.from(cam.cameraControl)
+                                    val options = androidx.camera.camera2.interop.CaptureRequestOptions.Builder()
+                                        .setCaptureRequestOption(
+                                            android.hardware.camera2.CaptureRequest.CONTROL_AF_MODE,
+                                            android.hardware.camera2.CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE
+                                        )
+                                        .build()
+                                    camera2Control.captureRequestOptions = options
+                                }
                             } catch (e: Exception) {
                                 cameraError = e.message ?: "相机启动失败"
                                 Toast.makeText(ctx, cameraError, Toast.LENGTH_SHORT).show()
