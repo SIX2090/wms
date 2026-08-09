@@ -499,6 +499,16 @@
 - 验证：4 个 pytest 静态断言文件 55 用例全部通过（`verify_sherpa_voice_stt_engine.py` 13 / `verify_sherpa_build_config.py` 12 / `verify_voice_stt_engine_abstract.py` 14 / `verify_sherpa_audio_record_integration.py` 18，AudioRecord 参数 16kHz mono PCM16 + VOICE_RECOGNITION 源 + 100ms 帧 + /32768f 换算 + 异常兜底）；本地与 `origin/main` 均停在 `b946ec30`。
 - 边界：模型目录当前仅支持 `filesDir`（需手动拷贝 assets → filesDir），后续可加 `WmsApplication.onCreate` 一次性 copy；CI 暂未跑端到端识别（缺真机/模拟器自动化）；ProGuard 规则待加（`-keep class com.k2fsa.sherpa.** { *; }`）。详细架构、启用方式、fallback 触发条件见 [SHERPA_INTEGRATION.md](./SHERPA_INTEGRATION.md)。
 
+**子修复 AI-MOB-VOICE-F01-fix2：接云服务器走后端中转 → 腾讯云一句话识别（BUG-2026-08-09-010，2026-08-09）**：
+- 根因：默认构建 sherpa 模型未打包、国内无 Google 服务设备 `SpeechRecognizer` 静默挂起，语音指令只能干等 8s 兜底超时。
+- 方案：用户选择"接云服务器 + 走后端中转"。后端 `/mobile/api/asr` 收音频调腾讯云一句话识别（16k_zh），密钥走 `TENCENTCLOUD_SECRET_ID/TENCENTCLOUD_SECRET_KEY/TENCENTCLOUD_REGION` 环境变量，App 端不暴露密钥。
+- 后端：`app/tencent_asr.py`（TC3-HMAC-SHA256 手工签名 `sentence_recognition`，base64 编码 + 格式/大小校验 + 错误归类）；`app/routes/mobile.py` 新增 `mobile_asr` 路由（multipart 文件上传，voice_format=ext，eng_service_type=16k_zh，成功返回 `{"status":"success","text"}`，失败 400/502/500）。
+- Android：`WmsApiService` 新增 `asrAudio`（`@Multipart @POST("mobile/api/asr")`）+ `AsrResult` 扁平模型（非 ApiEnvelope）；新建 `CloudAsrVoiceSttEngine`（AudioRecord 16kHz mono PCM16 录音 → ByteArrayOutputStream → WAV 封装 → `RetrofitClient.apiService.asrAudio` 上传 → 解析 `{status,text}` → `onResult`）；`VoiceSttEngineRegistry.defaultSelector` 改为「云引擎优先 → sherpa → Android 系统识别」。
+- 关键设计：`CloudAsrVoiceSttEngine.destroy()` **不取消 uploadScope、不清空 listener**——ViewModel 在 `stop()` 后立即 `destroy()`，而云结果是异步上传获得，若在 destroy 取消协程/置空 listener 会丢弃结果（sherpa 的 onResult 是 stop() 内同步触发不受影响，云引擎必须异步保活）；上传协程为单次短任务，完成后自然结束无泄漏。
+- 回归：`tests/verify_tencent_asr_helper.py`（8 用例）+ `tests/verify_mobile_asr_route.py`（8 用例）全绿。
+- 部署依赖：服务端需在环境变量配置腾讯云 SecretId/SecretKey 与 region（默认 ap-guangzhou）；未配置时 `/mobile/api/asr` 返回 400「未配置腾讯云 ASR 密钥」。
+- 验证：Android `assembleDebug` 需在具备 Android SDK + JDK17 的构建机执行（本沙箱无 SDK 且 JDK25 与 AGP8.x 不兼容，无法本地编译），代码已按既有 `recognizeMaterial`/`documentOcr` multipart 模式与语音引擎接口契约审校。提交：见 git log 本次提交。
+
 ### AI-MOB-HOME-F01：手机端首页接入"今日概览"条
 
 **目标**：对齐橙子库存通首页"今日概览"体验，在 WMS App 首页问候区下方增加"今日概览"条，展示今日入库（笔数/数量）、今日出库（笔数/数量）、待处理入/出库单、库存告警数，让仓库人员打开 App 即看到当日工作量与待办。
