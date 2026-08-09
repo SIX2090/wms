@@ -16,14 +16,20 @@ object RetrofitClient {
     var onUnauthorized: (() -> Unit)? = null
 
     private val authInterceptor = Interceptor { chain ->
-        val request = chain.request().newBuilder()
-        authToken?.let { token ->
-            request.addHeader("Authorization", "Bearer $token")
-        }
-        val response = chain.proceed(request.build())
+        val newRequest = chain.request().newBuilder().apply {
+            authToken?.let { token ->
+                addHeader("Authorization", "Bearer $token")
+            }
+        }.build()
+        val response = chain.proceed(newRequest)
         if (response.code == 401) {
-            authToken = null
-            onUnauthorized?.invoke()
+            // 登录接口本身返回 401（如密码错误）不应触发"令牌失效"事件：
+            // 否则会误清空已保存的 baseUrl/token 并重复跳转登录页，干扰登录流程。
+            val isLoginRequest = newRequest.url.encodedPath.endsWith("/api/login")
+            if (!isLoginRequest) {
+                authToken = null
+                onUnauthorized?.invoke()
+            }
         }
         response
     }
