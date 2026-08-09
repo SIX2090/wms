@@ -1,8 +1,12 @@
 package com.factory.wms.ui.viewmodel.voice
 
 import android.content.Context
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.util.Log
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 基于 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 的本地离线中文语音识别引擎。
@@ -16,9 +20,13 @@ import java.io.File
  *   或用户自定义目录（见 [setModelDir]），由 build.gradle 的 `downloadSherpaModel` task 下载。
  * - 国内 Android 设备无 Google 服务时仍可离线识别，无需网络权限（但首次下载模型需联网）。
  *
- * 当前实现状态：骨架已就位，提供完整接口 + 反射 wrapper；AudioRecord 录音 / 实时解码
- * 留给后续 PR（见 TODO 标记）。本 PR 主要目的是让 [VoiceSttEngineRegistry] 接入 sherpa 路径，
- *   并验证 isAvailable / start / stop / destroy 生命周期。
+ * 音频管线（[start] 之后）：
+ *   AudioRecord (16kHz mono PCM16) -> capture thread
+ *     -> Short -> Float [-1,1]
+ *     -> [SherpaRuntime.feed]
+ *     -> [SherpaRuntime.pollPartial] -> [VoiceSttListener.onPartial]
+ *
+ *   [stop] 时：停录音 -> [SherpaRuntime.pollFinal] -> [VoiceSttListener.onResult]
  */
 class SherpaVoiceSttEngine(
     private val appContext: Context,
@@ -27,8 +35,12 @@ class SherpaVoiceSttEngine(
 
     private var listener: VoiceSttListener? = null
     private var runtime: SherpaRuntime? = null
-    private var started = false
     private var modelDir: File? = null
+
+    private val capturing = AtomicBoolean(false)
+    private var audioRecord: AudioRecord? = null
+    private var captureThread: Thread? = null
+    @Volatile private var started = false
 
     override fun isAvailable(): Boolean {
         // 1) 模型文件存在性
@@ -63,11 +75,13 @@ class SherpaVoiceSttEngine(
         }
         try {
             runtime = SherpaRuntime.create(appContext, modelDir!!, config)
+            if (runtime == null) {
+                // 反射初始化失败：典型场景是 AAR 与本地 SDK 不匹配（如缺少 JNI .so）
+                listener?.onError(SttError.EngineUnavailable)
+                return
+            }
             started = true
-            // TODO 第二阶段：启动 AudioRecord 录音线程，把 PCM 16k mono 16-bit 推给
-            //   runtime.feed(stream, samples)，并轮询 runtime.getPartial(stream)
-            //   通过 listener.onPartial 推送。本 PR 仅占位。
-            listener?.onPartial("（sherpa-onnx 引擎待接入音频 pipeline）")
+            startAudioCapture()
         } catch (t: Throwable) {
             Log.e(TAG, "sherpa-onnx start failed", t)
             started = false
@@ -80,11 +94,20 @@ class SherpaVoiceSttEngine(
     override fun stop() {
         if (!started) return
         started = false
-        runtime?.stop()
+        stopAudioCapture()
+        // 拿到当前流式已解码的最终文本作为结果；如果什么都没有就推空列表
+        val finalText = try {
+            runtime?.pollFinal().orEmpty()
+        } catch (t: Throwable) {
+            Log.w(TAG, "pollFinal failed", t)
+            ""
+        }
+        listener?.onResult(if (finalText.isEmpty()) emptyList() else listOf(finalText))
     }
 
     override fun destroy() {
         started = false
+        stopAudioCapture()
         runtime?.destroy()
         runtime = null
         listener = null
@@ -99,6 +122,84 @@ class SherpaVoiceSttEngine(
         modelDir = dir
     }
 
+    // ---------------- 音频采集 ----------------
+
+    private fun startAudioCapture() {
+        val channelConfig = AudioFormat.CHANNEL_IN_MONO
+        val audioFormat = AudioFormat.ENCODING_PCM_16BIT
+        val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, channelConfig, audioFormat)
+        if (minBuf == AudioRecord.ERROR || minBuf == AudioRecord.ERROR_BAD_VALUE) {
+            Log.e(TAG, "AudioRecord.getMinBufferSize failed: $minBuf")
+            listener?.onError(SttError.AudioError)
+            return
+        }
+        val record = try {
+            AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                SAMPLE_RATE,
+                channelConfig,
+                audioFormat,
+                minBuf.coerceAtLeast(FRAME_SAMPLES * 2) * 2
+            )
+        } catch (se: SecurityException) {
+            Log.w(TAG, "AudioRecord permission denied", se)
+            listener?.onError(SttError.PermissionDenied)
+            return
+        } catch (t: Throwable) {
+            Log.e(TAG, "AudioRecord init failed", t)
+            listener?.onError(SttError.AudioError)
+            return
+        }
+        if (record.state != AudioRecord.STATE_INITIALIZED) {
+            Log.e(TAG, "AudioRecord state not initialized: ${record.state}")
+            runCatching { record.release() }
+            listener?.onError(SttError.AudioError)
+            return
+        }
+        record.startRecording()
+        audioRecord = record
+        capturing.set(true)
+        val t = Thread({ captureLoop(record) }, "SherpaAudioCapture")
+        captureThread = t
+        t.start()
+    }
+
+    private fun captureLoop(record: AudioRecord) {
+        val buf = ShortArray(FRAME_SAMPLES)
+        while (capturing.get()) {
+            val n = try {
+                record.read(buf, 0, buf.size)
+            } catch (t: Throwable) {
+                Log.w(TAG, "AudioRecord.read failed", t)
+                -1
+            }
+            if (n <= 0) continue
+            val rt = runtime ?: continue
+            // PCM16 -> Float[-1, 1]
+            val samples = FloatArray(n) { buf[it] / 32768f }
+            try {
+                rt.feed(samples, SAMPLE_RATE)
+                val partial = rt.pollPartial()
+                if (partial.isNotEmpty()) listener?.onPartial(partial)
+            } catch (t: Throwable) {
+                Log.w(TAG, "sherpa feed/poll failed", t)
+            }
+        }
+    }
+
+    private fun stopAudioCapture() {
+        capturing.set(false)
+        captureThread?.let {
+            try { it.join(300) } catch (_: InterruptedException) {}
+        }
+        captureThread = null
+        audioRecord?.let { r ->
+            try { r.stop() } catch (_: Throwable) {}
+            try { r.release() } catch (_: Throwable) {}
+        }
+        audioRecord = null
+    }
+
     private fun defaultModelDir(): File? {
         val base = appContext.filesDir ?: return null
         return File(base, "sherpa-onnx/stream")
@@ -108,5 +209,11 @@ class SherpaVoiceSttEngine(
         private const val TAG = "SherpaVoiceSttEngine"
         // sherpa-onnx 的核心类全限定名，用于反射探测运行时是否已挂入
         const val RUNTIME_CLASS_FQCN = "com.k2fsa.sherpa.onnx.OnlineRecognizer"
+
+        /** 16 kHz mono，与 sherpa-onnx 流式模型默认期望一致。 */
+        private const val SAMPLE_RATE = 16_000
+
+        /** 每次读取 100ms 音频（1600 samples @ 16kHz）。 */
+        private const val FRAME_SAMPLES = 1_600
     }
 }
