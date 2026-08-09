@@ -6,6 +6,26 @@ from flask_login import login_required
 from utils import require_role
 
 
+def _web_or_api_required(f):
+    """Accept a web session or a mobile Bearer token; lazily resolve app deps
+    to avoid import-order issues (register_mobile_routes runs before the
+    app.py auth decorators are defined)."""
+    from functools import wraps
+    from flask import jsonify, request
+    from flask_login import current_user
+
+    # no-test:reason=装饰器包装函数，由 endpoint 测试覆盖
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        from app import get_bearer_user
+        if current_user.is_authenticated:
+            return f(*args, **kwargs)
+        if get_bearer_user():
+            return f(*args, **kwargs)
+        return jsonify({'status': 'error', 'success': False, 'msg': '未登录或 Bearer Token 无效'}), 401
+    return decorated_function
+
+
 # no-test:reason=从 app.py 原样迁移的辅助函数，能力由 mobile_* 各路由测试覆盖
 def mobile_material_payload(material):
     from app import (
@@ -433,7 +453,7 @@ def register_mobile_routes(app):
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/mobile/api/recognize_material', methods=['POST'])
-    @login_required
+    @_web_or_api_required
     def mobile_recognize_material():
         from flask import current_app
         from app import Material, db, joinedload, jsonify, request

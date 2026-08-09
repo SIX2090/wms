@@ -54,7 +54,7 @@ def _make_client():
 
 
 def _login(client):
-    # 该端点用 Flask-Login @login_required（依赖 session），需走 Web 登录表单建立会话。
+    # 该端点支持 Web 会话或 Bearer Token；此函数走 Web 登录表单建立会话。
     r = client.post("/login", data={
         "username": "admin",
         "password": "admin",
@@ -63,6 +63,23 @@ def _login(client):
     })
     assert r.status_code in (200, 302), r.get_data(as_text=True)
     return {}
+
+
+def _bearer_headers(client):
+    # 通过原生登录接口换取 Bearer Token，验证移动端鉴权路径。
+    from datetime import datetime, timedelta
+    import secrets
+    from app import ApiToken, User
+    with app_module.app.app_context():
+        user = User.query.filter_by(username="admin").first()
+        token = ApiToken(
+            token=secrets.token_urlsafe(48),
+            user_id=user.id,
+            expires_at=datetime.now() + timedelta(days=7),
+        )
+        db.session.add(token)
+        db.session.commit()
+        return {"Authorization": f"Bearer {token.token}"}
 
 
 def _seed_admin():
@@ -177,6 +194,52 @@ class TestMobileRecognizeMaterialApi(unittest.TestCase):
                              content_type="multipart/form-data", headers=self.headers)
         self.assertEqual(r.status_code, 400, r.get_data(as_text=True))
         self.assertIn("启用", r.get_json()["msg"])
+
+    def test_bearer_token_auth(self):
+        """T7：移动端 Bearer Token 鉴权可访问识别端点。"""
+        _seed_material("6204", "深沟球轴承", "6204")
+        headers = _bearer_headers(self.client)
+        r = _post_image(self.client, headers,
+                        {"code": "6204", "name": "深沟球轴承", "spec": "6204",
+                         "quantity": 10, "confidence": 0.9, "description": "金属轴承"})
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        body = r.get_json()
+        self.assertEqual(body["status"], "success", body)
+        self.assertGreaterEqual(body["match_count"], 1)
+
+    def test_no_auth_returns_401(self):
+        """T8：无 Web 会话且无 Bearer Token -> 401。"""
+        r = _make_client().post("/mobile/api/recognize_material",
+                                data={"image": (io.BytesIO(_PNG), "material.png")},
+                                content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 401, r.get_data(as_text=True))
+
+    def test_web_or_api_role_required(self):
+        """T9：web_or_api_role_required 拦截非授权业务角色（doc OCR 需 warehouse/purchase）。"""
+        from werkzeug.security import generate_password_hash
+        from app import User
+        with app_module.app.app_context():
+            u = User(username="clerk", password_hash=generate_password_hash("admin"),
+                     role="sales", must_change_password=False)
+            db.session.add(u)
+            db.session.commit()
+            uid = u.id
+        from datetime import datetime, timedelta
+        import secrets
+        from app import ApiToken
+        with app_module.app.app_context():
+            token = ApiToken(token=secrets.token_urlsafe(48), user_id=uid,
+                             expires_at=datetime.now() + timedelta(days=7))
+            db.session.add(token)
+            db.session.commit()
+            tok = token.token
+        r = _make_client().post(
+            "/api/ai/document_ocr",
+            data={"image": (io.BytesIO(_PNG), "material.png")},
+            content_type="multipart/form-data",
+            headers={"Authorization": f"Bearer {tok}"},
+        )
+        self.assertEqual(r.status_code, 403, r.get_data(as_text=True))
 
 
 if __name__ == "__main__":

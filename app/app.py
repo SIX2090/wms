@@ -5448,6 +5448,26 @@ def web_or_api_required(f):
         return jsonify({'status': 'error', 'success': False, 'msg': '未登录或 Bearer Token 无效'}), 401
     return decorated_function
 
+def web_or_api_role_required(*roles):
+    """Require a web session or bearer token user with one of the allowed business roles."""
+    allowed = set(roles or ())
+
+    # no-test:reason=装饰器工厂内部包装，由 web_or_api_role_required 的端点测试覆盖
+    def decorator(f):
+        # no-test:reason=装饰器包装函数，由 endpoint 测试覆盖
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            user = current_user if current_user.is_authenticated else None
+            if user is None:
+                user = get_bearer_user()
+            if user is None:
+                return jsonify({'status': 'error', 'success': False, 'msg': '未登录或 Bearer Token 无效'}), 401
+            if user.role != 'admin' and user.role not in allowed:
+                return jsonify({'status': 'error', 'success': False, 'msg': '当前账号没有权限执行该操作'}), 403
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
 def role_required(*roles):
     """Require one of the given roles for page access."""
     def decorator(f):
@@ -24474,8 +24494,7 @@ def document_ocr_page():
     return render_template('document_ocr.html')
 
 @app.route('/api/ai/document_ocr', methods=['POST'])
-@login_required
-@require_role('warehouse', 'purchase')
+@web_or_api_role_required('warehouse', 'purchase')
 def api_document_ocr():
     """单据OCR识别API：上传图片，AI识别单据内容并生成入库草稿。"""
     if not _ai_llm_configured() or not _ai_llm_vision_enabled():
