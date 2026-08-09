@@ -195,20 +195,36 @@ object DefaultEngineFactory : VoiceSttEngineFactory {
 
 /**
  * 引擎选择中心。根据设备/模型/配置挑选当前使用的 [VoiceSttEngine]。
- * 后续步骤会接入 [SherpaVoiceSttEngine]，本步骤只构建骨架。
+ *
+ * 选择策略：
+ * 1. 若调用方通过 [setSelector] 注入了自定义选择器（如设置页切换 / 单测 mock），
+ *    优先使用注入的选择器。
+ * 2. 否则走 [defaultSelector]：先尝试 [SherpaVoiceSttEngine]（模型齐全 + 运行时
+ *    类加载成功才用），否则回落到 [AndroidVoiceSttEngine]。
+ *
+ * 这样做的好处：
+ * - 国内无 Google 服务的设备：sherpa 不可用时自动 fallback，UI 不退化；
+ * - 海外或装了 Google 服务的设备：默认走系统识别（低资源占用 / 延迟低）；
+ * - 用户可在设置中强制开启"本地识别"（注入 selector）。
  */
 object VoiceSttEngineRegistry {
     @Volatile
-    private var selector: (Context) -> VoiceSttEngine = ::selectAndroidDefault
+    private var selector: (Context) -> VoiceSttEngine = ::defaultSelector
 
-    /** 切换全局引擎选择器（单测或用户偏好切换时使用）。 */
+    /** 切换全局引擎选择器（单测 / 用户偏好切换时使用）。 */
     fun setSelector(selector: (Context) -> VoiceSttEngine) {
         this.selector = selector
     }
 
     fun create(context: Context): VoiceSttEngine = selector(context)
 
-    /** 当前默认选择：仅回落到系统 [AndroidVoiceSttEngine]。 */
-    private fun selectAndroidDefault(context: Context): VoiceSttEngine =
-        AndroidVoiceSttEngine(context)
+    /**
+     * 默认选择器：sherpa-onnx 优先，Android 系统识别兜底。
+     * 注意 [SherpaVoiceSttEngine.isAvailable] 内部会做模型存在性 + 反射探测，
+     * 不会因为缺模型就崩，最多返回 false → 这里 fallback。
+     */
+    private fun defaultSelector(context: Context): VoiceSttEngine {
+        val sherpa = SherpaVoiceSttEngine(context)
+        return if (sherpa.isAvailable()) sherpa else AndroidVoiceSttEngine(context)
+    }
 }
