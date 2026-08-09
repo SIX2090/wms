@@ -15,6 +15,18 @@ android {
         targetSdk = 35
         versionCode = 3
         versionName = "3.0.0"
+
+        // sherpa-onnx 本地语音识别开关：通过 -Pwms.sherpa=true 启用，
+        // 默认 false（保持现有国内 / 离线构建无网络依赖）。启用后会引入
+        // sherpa-onnx AAR 并通过 downloadSherpaModel task 拉取模型。
+        val enableSherpa = (project.findProperty("wms.sherpa") as String?)
+            ?.toBooleanStrictOrNull() ?: false
+        buildConfigField("boolean", "SHERPA_ENABLED", enableSherpa.toString())
+        buildConfigField(
+            "String",
+            "SHERPA_MODEL_DIR",
+            "\"${System.getenv("WMS_SHERPA_MODEL_DIR") ?: "sherpa-onnx/stream"}\""
+        )
     }
 
     // 发布签名：keystore 和密码从环境变量读取，绝不上传仓库。
@@ -111,6 +123,12 @@ dependencies {
     // ML Kit Barcode Scanning
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
+    // sherpa-onnx 本地离线中文语音识别：仅在 -Pwms.sherpa=true 时引入 AAR
+    // （保持默认构建无网络依赖；启用后由 downloadSherpaModel 拉模型）
+    if ((project.findProperty("wms.sherpa") as String?)?.toBooleanStrictOrNull() == true) {
+        implementation("com.k2fsa.sherpaonnx:sherpa-onnx:1.12.13")
+    }
+
     // DataStore (non-sensitive data)
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
@@ -127,4 +145,73 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+// -----------------------------------------------------------------------------
+// sherpa-onnx 模型下载任务
+// -----------------------------------------------------------------------------
+// 用法：
+//   ./gradlew :app:downloadSherpaModel \
+//     -Pwms.sherpa=true \
+//     -PmodelUrl=https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zh-en-2023-06-26.tar.bz2
+//
+// 模型下载到 app/src/main/assets/sherpa-onnx/stream/，运行时会随 APK 一起打包，
+// 在国内 / 无 Google 服务的设备上提供本地离线中文识别。
+// 失败时 task 不抛异常，只 warn；运行时由 SherpaVoiceSttEngine.isAvailable 检测
+// 缺失并 fallback 到 AndroidVoiceSttEngine，保证 UI 不退化。
+// -----------------------------------------------------------------------------
+tasks.register("downloadSherpaModel") {
+    group = "sherpa"
+    description = "下载 sherpa-onnx 中文流式识别模型到 assets/sherpa-onnx/stream/"
+    val defaultUrl =
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" +
+            "sherpa-onnx-streaming-zh-en-2023-06-26.tar.bz2"
+    val modelUrl = (project.findProperty("modelUrl") as String?) ?: defaultUrl
+    val targetDir = file("src/main/assets/sherpa-onnx/stream")
+    val tmpFile = file("build/sherpa-model.tar.bz2")
+
+    doLast {
+        val required = listOf("tokens.txt", "encoder.onnx", "decoder.onnx", "joiner.onnx")
+        if (targetDir.isDirectory && required.all { File(targetDir, it).isFile }) {
+            logger.lifecycle("sherpa-onnx model already present at $targetDir, skipping")
+            return@doLast
+        }
+        targetDir.mkdirs()
+        tmpFile.parentFile.mkdirs()
+        try {
+            ant.invoke(
+                mapOf(
+                    "taskname" to "get",
+                    "src" to modelUrl,
+                    "dest" to tmpFile.absolutePath,
+                    "verbose" to true
+                )
+            )
+            ant.invoke(
+                mapOf(
+                    "taskname" to "bunzip2",
+                    "src" to tmpFile.absolutePath
+                )
+            )
+            // 解 bunzip2 后通常得到 .tar
+            val tarFile = File(tmpFile.parentFile, "sherpa-model.tar")
+            if (tarFile.isFile) {
+                ant.invoke(
+                    mapOf(
+                        "taskname" to "untar",
+                        "src" to tarFile.absolutePath,
+                        "dest" to targetDir.absolutePath,
+                        "overwrite" to true
+                    )
+                )
+                tarFile.delete()
+            }
+            tmpFile.delete()
+            logger.lifecycle("sherpa-onnx model downloaded to $targetDir")
+        } catch (t: Throwable) {
+            logger.warn(
+                "downloadSherpaModel 失败：${t.message}。运行时将 fallback 到 AndroidVoiceSttEngine。"
+            )
+        }
+    }
 }
