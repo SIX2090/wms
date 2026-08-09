@@ -20,6 +20,7 @@ import com.google.gson.Gson
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import retrofit2.Response
+import java.util.UUID
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "wms_settings")
 
@@ -51,6 +52,10 @@ class WmsRepository(private val context: Context) {
         private val KEY_USERNAME = stringPreferencesKey("username")
         private val KEY_ROLE = stringPreferencesKey("role")
     }
+
+    // 幂等键：每次写操作生成唯一 request_id，配合后端 mobile_api_idempotent
+    // 在请求重试/网络抖动时避免重复入库、重复扣库存。
+    private fun newRequestId(): String = UUID.randomUUID().toString()
 
     suspend fun getSavedToken(): String? {
         return encryptedPrefs.getString(KEY_TOKEN, null)
@@ -154,7 +159,7 @@ class WmsRepository(private val context: Context) {
 
     suspend fun submitInbound(request: InboundRequest): Result<SubmitResult> {
         return try {
-            val response = api.submitInbound(request)
+            val response = api.submitInbound(newRequestId(), request)
             val result = handleResponse<SubmitResult>(response)
             result.fold(
                 onSuccess = { submitResult ->
@@ -180,7 +185,7 @@ class WmsRepository(private val context: Context) {
 
     suspend fun submitOutbound(request: OutboundRequest): Result<SubmitResult> {
         return try {
-            val response = api.submitOutbound(request)
+            val response = api.submitOutbound(newRequestId(), request)
             val result = handleResponse<SubmitResult>(response)
             result.fold(
                 onSuccess = { submitResult ->
@@ -205,7 +210,7 @@ class WmsRepository(private val context: Context) {
 
     suspend fun submitStocktake(request: StocktakeRequest): Result<SubmitResult> {
         return try {
-            val response = api.submitStocktake(request)
+            val response = api.submitStocktake(newRequestId(), request)
             val result = handleResponse<SubmitResult>(response)
             result.fold(
                 onSuccess = { submitResult ->
@@ -267,7 +272,7 @@ class WmsRepository(private val context: Context) {
 
     suspend fun submitOpeningStock(request: OpeningStockRequest): Result<String> {
         return try {
-            val response = api.submitOpeningStock(request)
+            val response = api.submitOpeningStock(newRequestId(), request)
             val result = handleResponse<SubmitResult>(response)
             result.fold(
                 onSuccess = { submitResult ->
@@ -295,7 +300,7 @@ class WmsRepository(private val context: Context) {
 
     suspend fun createInboundDraft(request: InboundDraftRequest): Result<InboundDraftResult> {
         return try {
-            val response = api.createInboundDraft(request)
+            val response = api.createInboundDraft(newRequestId(), request)
             handleResponse<InboundDraftResult>(response)
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))

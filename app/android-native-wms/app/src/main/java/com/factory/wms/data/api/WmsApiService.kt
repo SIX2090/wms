@@ -21,13 +21,22 @@ interface WmsApiService {
     suspend fun allMaterials(): Response<ApiEnvelope<List<MaterialDto>>>
 
     @POST("api/inbound")
-    suspend fun submitInbound(@Body request: InboundRequest): Response<ApiEnvelope<SubmitResult>>
+    suspend fun submitInbound(
+        @Header("X-Idempotency-Key") requestId: String,
+        @Body request: InboundRequest
+    ): Response<ApiEnvelope<SubmitResult>>
 
     @POST("api/outbound")
-    suspend fun submitOutbound(@Body request: OutboundRequest): Response<ApiEnvelope<SubmitResult>>
+    suspend fun submitOutbound(
+        @Header("X-Idempotency-Key") requestId: String,
+        @Body request: OutboundRequest
+    ): Response<ApiEnvelope<SubmitResult>>
 
     @POST("api/stocktake")
-    suspend fun submitStocktake(@Body request: StocktakeRequest): Response<ApiEnvelope<SubmitResult>>
+    suspend fun submitStocktake(
+        @Header("X-Idempotency-Key") requestId: String,
+        @Body request: StocktakeRequest
+    ): Response<ApiEnvelope<SubmitResult>>
 
     @Multipart
     @POST("api/ai/document_ocr")
@@ -52,10 +61,16 @@ interface WmsApiService {
     ): Response<ApiEnvelope<OpeningStockListData>>
 
     @POST("api/opening_stock")
-    suspend fun submitOpeningStock(@Body request: OpeningStockRequest): Response<ApiEnvelope<SubmitResult>>
+    suspend fun submitOpeningStock(
+        @Header("X-Idempotency-Key") requestId: String,
+        @Body request: OpeningStockRequest
+    ): Response<ApiEnvelope<SubmitResult>>
 
     @POST("api/mobile/inbound_draft")
-    suspend fun createInboundDraft(@Body request: InboundDraftRequest): Response<ApiEnvelope<InboundDraftResult>>
+    suspend fun createInboundDraft(
+        @Header("X-Idempotency-Key") requestId: String,
+        @Body request: InboundDraftRequest
+    ): Response<ApiEnvelope<InboundDraftResult>>
 }
 
 data class OcrItem(
