@@ -1,7 +1,12 @@
 package com.factory.wms.ui.screens
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -27,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.graphics.scale
 import coil.compose.AsyncImage
 import com.factory.wms.data.api.DocumentOcrResult
@@ -42,6 +49,8 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,17 +76,16 @@ fun DocumentOcrScreen(
         }
     }
 
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap ->
-        bitmap?.let {
-            val path = android.provider.MediaStore.Images.Media.insertImage(
-                context.contentResolver, it, "ocr_${System.currentTimeMillis()}", null
-            )
-            selectedImageUri = android.net.Uri.parse(path)
-            viewModel.clearOcrResult()
+    val launchCamera = rememberCameraLauncherWithPermission(
+        snackbarHostState = snackbarHostState,
+        onImageCaptured = { bitmap ->
+            val uri = saveBitmapToCacheAndGetUri(context, bitmap, "ocr")
+            if (uri != null) {
+                selectedImageUri = uri
+                viewModel.clearOcrResult()
+            }
         }
-    }
+    )
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
@@ -260,7 +268,7 @@ fun DocumentOcrScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     OutlinedButton(
-                        onClick = { cameraLauncher.launch(null) },
+                        onClick = { launchCamera() },
                         modifier = Modifier
                             .weight(1f)
                             .height(52.dp),
@@ -726,17 +734,16 @@ fun ObjectRecognizeScreen(
         }
     }
 
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap ->
-        bitmap?.let {
-            val path = android.provider.MediaStore.Images.Media.insertImage(
-                context.contentResolver, it, "mat_${System.currentTimeMillis()}", null
-            )
-            selectedImageUri = android.net.Uri.parse(path)
-            viewModel.clearRecognizedMaterial()
+    val launchCamera = rememberCameraLauncherWithPermission(
+        snackbarHostState = snackbarHostState,
+        onImageCaptured = { bitmap ->
+            val uri = saveBitmapToCacheAndGetUri(context, bitmap, "mat")
+            if (uri != null) {
+                selectedImageUri = uri
+                viewModel.clearRecognizedMaterial()
+            }
         }
-    }
+    )
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
@@ -911,7 +918,7 @@ fun ObjectRecognizeScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     OutlinedButton(
-                        onClick = { cameraLauncher.launch(null) },
+                        onClick = { launchCamera() },
                         modifier = Modifier
                             .weight(1f)
                             .height(52.dp),
@@ -1141,18 +1148,17 @@ fun StocktakeRecognizeScreen(
         }
     }
 
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap ->
-        bitmap?.let {
-            val path = android.provider.MediaStore.Images.Media.insertImage(
-                context.contentResolver, it, "stk_${System.currentTimeMillis()}", null
-            )
-            selectedImageUri = android.net.Uri.parse(path)
-            countQty = "1"
-            aiViewModel.clearRecognizedMaterial()
+    val launchCamera = rememberCameraLauncherWithPermission(
+        snackbarHostState = snackbarHostState,
+        onImageCaptured = { bitmap ->
+            val uri = saveBitmapToCacheAndGetUri(context, bitmap, "stk")
+            if (uri != null) {
+                selectedImageUri = uri
+                countQty = "1"
+                aiViewModel.clearRecognizedMaterial()
+            }
         }
-    }
+    )
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
@@ -1335,7 +1341,7 @@ fun StocktakeRecognizeScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     OutlinedButton(
-                        onClick = { cameraLauncher.launch(null) },
+                        onClick = { launchCamera() },
                         modifier = Modifier
                             .weight(1f)
                             .height(52.dp),
@@ -1617,4 +1623,103 @@ private suspend fun uriToMultipart(
 
     val requestBody = compressed.toRequestBody("image/jpeg".toMediaTypeOrNull())
     MultipartBody.Part.createFormData(partName, "image_${System.currentTimeMillis()}.jpg", requestBody)
+}
+
+/**
+ * BUG-2026-08-09-003: 把拍照返回的 Bitmap 写入 cacheDir/camera/ 并通过 FileProvider 暴露 Uri。
+ *
+ * 原写法 `MediaStore.Images.Media.insertImage(...)` 在 API 29+ 已废弃且因 scoped storage
+ * 受限可返回 `null`，紧接着 `android.net.Uri.parse(null)` 抛 NPE 直接闪退。这里改写文件到
+ * 应用自身的 cacheDir，配合 AndroidManifest 里注册的 `${applicationId}.fileprovider` 提供
+ * FileProvider Uri 给 AsyncImage 加载，全程不再出现 Uri.parse(null) 路径。
+ *
+ * 失败时返回 null（不抛异常），调用方需要自行处理 null（保持原 selectedImageUri 不变）。
+ */
+private fun saveBitmapToCacheAndGetUri(
+    context: android.content.Context,
+    bitmap: Bitmap,
+    prefix: String
+): Uri? {
+    return try {
+        val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+        val file = File(dir, "${prefix}_${System.currentTimeMillis()}.jpg")
+        FileOutputStream(file).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+        }
+        FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+    } catch (e: Exception) {
+        android.util.Log.e("WmsCamera", "saveBitmapToCacheAndGetUri failed", e)
+        null
+    }
+}
+
+/**
+ * BUG-2026-08-09-003: 拍照按钮的统一入口——先检查/请求 CAMERA 运行时权限，授权后才启动
+ * `TakePicturePreview()`；未授权时通过 Snackbar 提示"请授予相机权限后重试"并附"去设置"动作
+ * 跳到 `Settings.ACTION_APPLICATION_DETAILS_SETTINGS`，避免 OEM 系统相机在未授权时直接
+ * 抛 SecurityException 闪退。
+ *
+ * 用法：
+ * ```
+ * val launchCamera = rememberCameraLauncherWithPermission(
+ *     snackbarHostState = snackbarHostState,
+ *     onImageCaptured = { bitmap -> ... }
+ * )
+ * OutlinedButton(onClick = { launchCamera() }) { Text("拍照") }
+ * ```
+ */
+@Composable
+private fun rememberCameraLauncherWithPermission(
+    snackbarHostState: SnackbarHostState,
+    onImageCaptured: (Bitmap) -> Unit
+): () -> Unit {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) {
+            onImageCaptured(bitmap)
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            cameraLauncher.launch(null)
+        } else {
+            coroutineScope.launch {
+                val result = snackbarHostState.showSnackbar(
+                    message = "请授予相机权限后重试",
+                    actionLabel = "去设置",
+                    duration = SnackbarDuration.Long
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", context.packageName, null)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                }
+            }
+        }
+    }
+
+    return {
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            cameraLauncher.launch(null)
+        } else {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
 }

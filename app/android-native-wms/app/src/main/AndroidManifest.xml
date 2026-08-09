@@ -26,5 +26,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          BUG-2026-08-09-003: 拍照页 TakePicturePreview 回调保存图片到 cacheDir/camera/，
+          用 FileProvider 暴露给 AsyncImage 加载，避免 MediaStore.insertImage 在 API 29+
+          返回 null 引发 NPE。authority 必须等于 BuildConfig.APPLICATION_ID + ".fileprovider"。
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

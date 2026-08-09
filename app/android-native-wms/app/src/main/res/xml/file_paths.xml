@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  BUG-2026-08-09-003: 拍照保存到 app cacheDir，避免 MediaStore.Images.Media.insertImage
+  在 API 29+ 因 scoped storage 返回 null 导致 Uri.parse(null) NPE 闪退。
+  只暴露 cache-path，且限定 cacheDir/camera 子目录，最小权限原则。
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path
+        name="camera_cache"
+        path="camera/" />
+</paths>
