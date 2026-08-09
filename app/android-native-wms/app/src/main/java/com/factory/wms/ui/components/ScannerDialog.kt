@@ -171,14 +171,20 @@ fun ScannerDialog(
                                                 } else {
                                                     barcodeScanner.process(image)
                                                         .addOnSuccessListener { barcodes ->
-                                                            if (scannedFlag.compareAndSet(false, true)) {
-                                                                for (barcode in barcodes) {
-                                                                    barcode.rawValue?.let { rawValue ->
-                                                                        onBarcodeScanned(rawValue)
-                                                                        return@addOnSuccessListener
-                                                                    }
+                                                            // BUG-2026-08-09-001: 只在真正解码出条码时才置位 scannedFlag。
+                                                            // ML Kit 对未识别到条码的帧同样回调成功（barcodes 为空）；
+                                                            // 若无条件置位，相机首帧（几乎必为空结果）会永久关闭
+                                                            // 后续所有帧的分析，表现为"扫码无法识别条码"。
+                                                            for (barcode in barcodes) {
+                                                                val rawValue = barcode.rawValue
+                                                                if (!rawValue.isNullOrEmpty() && scannedFlag.compareAndSet(false, true)) {
+                                                                    onBarcodeScanned(rawValue)
+                                                                    return@addOnSuccessListener
                                                                 }
                                                             }
+                                                        }
+                                                        .addOnFailureListener { e ->
+                                                            android.util.Log.w("ScannerDialog", "条码识别失败，继续分析后续帧", e)
                                                         }
                                                         .addOnCompleteListener {
                                                             // Close exactly once, here, after success/failure
