@@ -485,6 +485,20 @@
 - 验证：Android APK Build（`assembleDebug`）CI 通过，产出 `app-debug` artifact；本地与 `origin/main` 均停在 `1977311f`。
 - 说明：收尾时曾因 release 签名 keystore 缺失导致 CI 在签名配置阶段即失败（`SigningConfig with name 'release' not found`，`buildTypes` 先于 `signingConfigs` 执行所致），已一并修复；`WMS CI`/`WMS AI Verification` 的 `/mobile/app` 404 属既有失败（根目录本无 `app-release.apk`），与本次无关。
 
+**子修复 AI-MOB-VOICE-F01-fix1：SpeechRecognizer 国内静默挂起 → 8s 兜底 + sherpa-onnx 离线引擎可选接入（2026-08-09）**：
+- 根因：国内设备无 Google 服务，`SpeechRecognizer` 既不回调 `onPartial` 也不回调 `onError`，UI 永远停在"正在聆听"。
+- 修复 1（兜底超时，BUG-2026-08-09-003）：`VoiceCommandViewModel` 引入 8s 兜底 Job（`VOICE_LISTEN_TIMEOUT_MS = 8_000L`），`stopListening` / `onResult` / `onError` / `onCleared` 4 个出口取消；超时主动 stop + destroy 引擎 + 推"识别超时，请重试"。
+- 修复 2（引擎抽象）：抽 `VoiceSttEngine` 接口 + `VoiceSttListener` + `SttError` 12 枚举 + `SttConfig`；ViewModel 通过 `VoiceSttEngineFactory` 注入；`VoiceSttEngineRegistry` 提供 setSelector 钩子。
+- 修复 3（sherpa 离线引擎）：新增 `SherpaVoiceSttEngine` + `SherpaRuntime`（反射调用 sherpa-onnx，编译期不硬依赖）+ AudioRecord 16kHz mono PCM16 录音管线（`captureLoop` 100ms 帧 + Short→Float[-1,1] + `feed` + `pollPartial`）。`build.gradle.kts` 暴露 `SHERPA_ENABLED` / `SHERPA_MODEL_DIR` buildConfigField；仅在 `-Pwms.sherpa=true` 时 `implementation("com.k2fsa.sherpaonnx:sherpa-onnx:1.12.13")`；`downloadSherpaModel` task 拉模型到 `src/main/assets/sherpa-onnx/stream/`，失败仅 `logger.warn` 不抛，保证 fallback 路径可用。
+- 提交：
+  - `ef85afae refactor(voice): 抽 VoiceSttEngine 抽象层 + ViewModel 解耦系统识别 API`
+  - `92fd302c feat(voice): 新增 SherpaVoiceSttEngine + 反射 runtime wrapper + 选择器`
+  - `9fbbd78b build(android): 引入 sherpa-onnx AAR + downloadSherpaModel 模型下载 task`
+  - `d1901221 feat(voice): SherpaVoiceSttEngine 接入 AudioRecord 录音 + pytest 覆盖`
+  - `b946ec30 docs: 新增 SHERPA_INTEGRATION.md 集成文档`
+- 验证：4 个 pytest 静态断言文件 55 用例全部通过（`verify_sherpa_voice_stt_engine.py` 13 / `verify_sherpa_build_config.py` 12 / `verify_voice_stt_engine_abstract.py` 14 / `verify_sherpa_audio_record_integration.py` 18，AudioRecord 参数 16kHz mono PCM16 + VOICE_RECOGNITION 源 + 100ms 帧 + /32768f 换算 + 异常兜底）；本地与 `origin/main` 均停在 `b946ec30`。
+- 边界：模型目录当前仅支持 `filesDir`（需手动拷贝 assets → filesDir），后续可加 `WmsApplication.onCreate` 一次性 copy；CI 暂未跑端到端识别（缺真机/模拟器自动化）；ProGuard 规则待加（`-keep class com.k2fsa.sherpa.** { *; }`）。详细架构、启用方式、fallback 触发条件见 [SHERPA_INTEGRATION.md](./SHERPA_INTEGRATION.md)。
+
 ### AI-MOB-HOME-F01：手机端首页接入"今日概览"条
 
 **目标**：对齐橙子库存通首页"今日概览"体验，在 WMS App 首页问候区下方增加"今日概览"条，展示今日入库（笔数/数量）、今日出库（笔数/数量）、待处理入/出库单、库存告警数，让仓库人员打开 App 即看到当日工作量与待办。
