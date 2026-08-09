@@ -1,7 +1,6 @@
 package com.factory.wms.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -24,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.OpeningStockLine
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.components.ScannerDialog
+import com.factory.wms.ui.components.WarehousePickerDialog
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
 import com.factory.wms.util.formatQuantity
@@ -534,72 +534,6 @@ private fun OpeningStockLineCard(
             }
         }
     }
-}
-
-@Composable
-private fun WarehousePickerDialog(
-    warehouses: List<WarehouseDto>,
-    selected: WarehouseDto?,
-    loading: Boolean,
-    onDismiss: () -> Unit,
-    onSelect: (WarehouseDto) -> Unit,
-    onRetry: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        title = { Text("选择仓库", fontWeight = FontWeight.SemiBold) },
-        text = {
-            if (loading) {
-                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = CardTeal)
-                }
-            } else if (warehouses.isEmpty()) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("暂无可用仓库", color = OnSurfaceVariant)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextButton(onClick = onRetry) { Text("重新加载") }
-                }
-            } else {
-                LazyColumn {
-                    itemsIndexed(warehouses) { _, warehouse ->
-                        val isSelected = selected?.id == warehouse.id
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) CardTeal.copy(alpha = 0.08f) else Color.Transparent)
-                                .clickable { onSelect(warehouse) }
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Outlined.Warehouse,
-                                null,
-                                tint = if (isSelected) CardTeal else OnSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "${warehouse.code.orEmpty()} ${warehouse.name.orEmpty()}",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            if (isSelected) {
-                                Icon(Icons.Filled.CheckCircle, null, tint = CardTeal, modifier = Modifier.size(20.dp))
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        }
-    )
 }
 
 @Composable

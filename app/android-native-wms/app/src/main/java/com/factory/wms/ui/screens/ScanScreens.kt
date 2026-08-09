@@ -18,6 +18,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.ScanLine
+import com.factory.wms.data.model.WarehouseDto
+import com.factory.wms.ui.components.WarehousePickerDialog
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.util.formatQuantity
@@ -31,9 +33,16 @@ fun InboundScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showSubmitDialog by remember { mutableStateOf(false) }
     var showScannerDialog by remember { mutableStateOf(false) }
+    var showWarehouseDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(Unit) {
+        if (uiState.warehouses.isEmpty() && !uiState.warehousesLoading) {
+            viewModel.loadWarehouses()
+        }
+    }
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
@@ -90,8 +99,31 @@ fun InboundScreen(
         },
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交入库",
-        submitColor = CardBlue
+        submitColor = CardBlue,
+        header = {
+            WarehouseSelectorCard(
+                warehouse = uiState.selectedWarehouse,
+                accentColor = CardBlue,
+                onClick = { showWarehouseDialog = true },
+                label = "收货仓库"
+            )
+        }
     )
+
+    if (showWarehouseDialog) {
+        WarehousePickerDialog(
+            warehouses = uiState.warehouses,
+            selected = uiState.selectedWarehouse,
+            loading = uiState.warehousesLoading,
+            onDismiss = { showWarehouseDialog = false },
+            onSelect = { warehouse ->
+                viewModel.selectWarehouse(warehouse)
+                showWarehouseDialog = false
+            },
+            onRetry = { viewModel.loadWarehouses() },
+            accentColor = CardBlue
+        )
+    }
 
     if (showSubmitDialog) {
         AlertDialog(
@@ -131,9 +163,16 @@ fun OutboundScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showSubmitDialog by remember { mutableStateOf(false) }
     var showScannerDialog by remember { mutableStateOf(false) }
+    var showWarehouseDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(Unit) {
+        if (uiState.warehouses.isEmpty() && !uiState.warehousesLoading) {
+            viewModel.loadWarehouses()
+        }
+    }
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
@@ -190,8 +229,31 @@ fun OutboundScreen(
         },
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交出库",
-        submitColor = CardGreen
+        submitColor = CardGreen,
+        header = {
+            WarehouseSelectorCard(
+                warehouse = uiState.selectedWarehouse,
+                accentColor = CardGreen,
+                onClick = { showWarehouseDialog = true },
+                label = "出库仓库"
+            )
+        }
     )
+
+    if (showWarehouseDialog) {
+        WarehousePickerDialog(
+            warehouses = uiState.warehouses,
+            selected = uiState.selectedWarehouse,
+            loading = uiState.warehousesLoading,
+            onDismiss = { showWarehouseDialog = false },
+            onSelect = { warehouse ->
+                viewModel.selectWarehouse(warehouse)
+                showWarehouseDialog = false
+            },
+            onRetry = { viewModel.loadWarehouses() },
+            accentColor = CardGreen
+        )
+    }
 
     if (showSubmitDialog) {
         AlertDialog(
@@ -569,5 +631,56 @@ fun StocktakeScreen(
                 }
             }
         )
+    }
+}
+
+/** 出入库页顶部的仓库选择卡片；未选择时提示"请选择"。 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WarehouseSelectorCard(
+    warehouse: WarehouseDto?,
+    accentColor: Color,
+    onClick: () -> Unit,
+    label: String = "仓库"
+) {
+    OutlinedCard(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.outlinedCardColors(containerColor = CardBackground)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Outlined.Warehouse,
+                null,
+                tint = accentColor,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, style = MaterialTheme.typography.labelSmall, color = OnSurfaceVariant)
+                Text(
+                    warehouse?.let { "${it.code} ${it.name.orEmpty()}" } ?: "请选择仓库",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (warehouse != null) OnSurface else OnSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Icon(
+                Icons.Filled.KeyboardArrowDown,
+                null,
+                tint = OnSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }

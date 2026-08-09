@@ -52,7 +52,9 @@ fun ScanScreenBase(
     submitColor: Color,
     // 额外的识别类操作入口（如扫码盘点页的"识物盘点"），仅在提供时显示
     extraActionLabel: String? = null,
-    onExtraAction: (() -> Unit)? = null
+    onExtraAction: (() -> Unit)? = null,
+    // 可选的顶部区域（如出入库的仓库选择），渲染在汇总条之前
+    header: (@Composable () -> Unit)? = null
 ) {
     var showCameraScanner by remember { mutableStateOf(false) }
     Scaffold(
@@ -94,6 +96,9 @@ fun ScanScreenBase(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // 可选的顶部区域（如仓库选择）
+            header?.invoke()
+
             // Summary bar
             if (scanLines.isNotEmpty()) {
                 Card(

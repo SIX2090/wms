@@ -19,7 +19,11 @@ data class ScanUiState(
     val scannedCode: String = "",
     // Scan list for batch operations
     val scanLines: List<ScanLine> = emptyList(),
-    val totalQuantity: Double = 0.0
+    val totalQuantity: Double = 0.0,
+    // 仓库选择（出入库必填，透传给后端）
+    val warehouses: List<WarehouseDto> = emptyList(),
+    val warehousesLoading: Boolean = false,
+    val selectedWarehouse: WarehouseDto? = null
 )
 
 class ScanViewModel(application: Application) : AndroidViewModel(application) {
@@ -71,6 +75,33 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(scanLines = emptyList(), totalQuantity = 0.0)
     }
 
+    fun loadWarehouses() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(warehousesLoading = true, error = null)
+            val result = repository.getWarehouses()
+            result.fold(
+                onSuccess = { warehouses ->
+                    val first = warehouses.firstOrNull() ?: _uiState.value.selectedWarehouse
+                    _uiState.value = _uiState.value.copy(
+                        warehousesLoading = false,
+                        warehouses = warehouses,
+                        selectedWarehouse = first ?: _uiState.value.selectedWarehouse
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(
+                        warehousesLoading = false,
+                        error = e.message
+                    )
+                }
+            )
+        }
+    }
+
+    fun selectWarehouse(warehouse: WarehouseDto) {
+        _uiState.value = _uiState.value.copy(selectedWarehouse = warehouse)
+    }
+
     fun searchMaterialByCode(code: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
@@ -95,9 +126,15 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun submitInbound(businessType: String = "采购入库", warehouse: String? = null) {
+    fun submitInbound(businessType: String = "采购入库") {
         viewModelScope.launch {
-            val lines = _uiState.value.scanLines
+            val state = _uiState.value
+            val warehouse = state.selectedWarehouse
+            if (warehouse == null) {
+                _uiState.value = _uiState.value.copy(error = "请选择仓库")
+                return@launch
+            }
+            val lines = state.scanLines
             if (lines.isEmpty()) {
                 _uiState.value = _uiState.value.copy(error = "请先扫描物料")
                 return@launch
@@ -106,8 +143,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             val request = InboundRequest(
                 lines = lines,
                 businessType = businessType,
-                warehouse = warehouse,
-                warehouseCode = warehouse
+                warehouse = warehouse.code,
+                warehouseCode = warehouse.code
             )
             val result = repository.submitInbound(request)
             result.fold(
@@ -126,9 +163,15 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun submitOutbound(receiver: String? = null, department: String? = null, warehouse: String? = null) {
+    fun submitOutbound(receiver: String? = null, department: String? = null) {
         viewModelScope.launch {
-            val lines = _uiState.value.scanLines
+            val state = _uiState.value
+            val warehouse = state.selectedWarehouse
+            if (warehouse == null) {
+                _uiState.value = _uiState.value.copy(error = "请选择仓库")
+                return@launch
+            }
+            val lines = state.scanLines
             if (lines.isEmpty()) {
                 _uiState.value = _uiState.value.copy(error = "请先扫描物料")
                 return@launch
@@ -138,8 +181,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 lines = lines,
                 receiver = receiver,
                 department = department,
-                warehouse = warehouse,
-                warehouseCode = warehouse
+                warehouse = warehouse.code,
+                warehouseCode = warehouse.code
             )
             val result = repository.submitOutbound(request)
             result.fold(
