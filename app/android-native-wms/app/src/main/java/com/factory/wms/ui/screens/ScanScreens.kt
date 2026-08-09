@@ -292,6 +292,7 @@ fun StockQueryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var manualCode by remember { mutableStateOf("") }
+    var showScannerDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(uiState.error) {
@@ -304,6 +305,12 @@ fun StockQueryScreen(
     LaunchedEffect(uiState.scannedCode) {
         if (uiState.scannedCode.isNotEmpty()) {
             viewModel.searchMaterialByCode(uiState.scannedCode)
+        }
+    }
+
+    LaunchedEffect(showScannerDialog) {
+        if (!showScannerDialog) {
+            viewModel.clearScannedCode()
         }
     }
 
@@ -368,6 +375,15 @@ fun StockQueryScreen(
                             unfocusedBorderColor = Color.Transparent
                         )
                     )
+                    IconButton(
+                        onClick = { showScannerDialog = true },
+                        modifier = Modifier.size(48.dp),
+                        colors = IconButtonDefaults.iconButtonColors(
+                            contentColor = CardOrange
+                        )
+                    ) {
+                        Icon(Icons.Outlined.QrCodeScanner, "扫码", modifier = Modifier.size(24.dp))
+                    }
                     FilledIconButton(
                         onClick = {
                             if (manualCode.isNotBlank()) {
@@ -547,6 +563,17 @@ fun StockQueryScreen(
                 }
             }
         }
+    }
+
+    if (showScannerDialog) {
+        ScannerDialog(
+            onDismiss = { showScannerDialog = false },
+            onBarcodeScanned = { barcode ->
+                showScannerDialog = false
+                manualCode = barcode
+                viewModel.searchMaterialByCode(barcode)
+            }
+        )
     }
 }
 
