@@ -387,6 +387,43 @@ fun StockQueryScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Empty state guidance when no results
+            if (!uiState.isLoading && uiState.scannedMaterial == null) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.Search,
+                            null,
+                            modifier = Modifier.size(64.dp),
+                            tint = OnSurfaceVariant.copy(alpha = 0.3f)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "输入或扫描物料编码",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = OnSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "查询实时库存信息",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OnSurfaceVariant
+                        )
+                    }
+                }
+            } else if (!uiState.isLoading) {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             // Loading
             if (uiState.isLoading) {
                 Box(

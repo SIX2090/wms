@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -53,6 +54,11 @@ fun ScannerDialog(
     val lifecycleOwner = LocalLifecycleOwner.current
     var hasCameraPermission by remember { mutableStateOf(false) }
     var isTorchOn by remember { mutableStateOf(false) }
+    var cameraError by remember { mutableStateOf<String?>(null) }
+
+    // Track the camera provider and preview view for cleanup
+    var previewView by remember { mutableStateOf<PreviewView?>(null) }
+    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -72,6 +78,16 @@ fun ScannerDialog(
         }
     }
 
+    // Cleanup on dismiss
+    DisposableEffect(Unit) {
+        onDispose {
+            // Unbind camera use cases when dialog is dismissed
+            cameraProvider?.unbindAll()
+            previewView = null
+            cameraProvider = null
+        }
+    }
+
     // Scanning animation
     val infiniteTransition = rememberInfiniteTransition(label = "scan_line")
     val scanLineOffset by infiniteTransition.animateFloat(
@@ -86,7 +102,7 @@ fun ScannerDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(
+        properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false
         )
@@ -96,75 +112,80 @@ fun ScannerDialog(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            if (hasCameraPermission) {
-                // Camera preview
+            if (hasCameraPermission && cameraError == null) {
+                // Camera preview with async initialization
                 AndroidView(
                     factory = { ctx ->
-                        val previewView = PreviewView(ctx)
+                        val view = PreviewView(ctx).apply {
+                            scaleType = PreviewView.ScaleType.FILL_CENTER
+                        }
+                        previewView = view
+
+                        // Initialize camera asynchronously using addListener (non-blocking)
                         val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-
                         cameraProviderFuture.addListener({
-                            val cameraProvider = cameraProviderFuture.get()
-                            val preview = Preview.Builder().build().also {
-                                it.setSurfaceProvider(previewView.surfaceProvider)
-                            }
+                            try {
+                                val provider = cameraProviderFuture.get()
+                                cameraProvider = provider
 
-                            // Image analysis for barcode scanning
-                            val options = BarcodeScannerOptions.Builder()
-                                .setBarcodeFormats(
-                                    Barcode.FORMAT_ALL_FORMATS
-                                )
-                                .build()
-                            val scanner = BarcodeScanning.getClient(options)
-
-                            val analysisExecutor = Executors.newSingleThreadExecutor()
-                            val imageAnalysis = ImageAnalysis.Builder()
-                                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                .build()
-                                .also {
-                                    it.setAnalyzer(analysisExecutor) { imageProxy: ImageProxy ->
-                                        @androidx.camera.core.ExperimentalGetImage
-                                        val mediaImage = imageProxy.image
-                                        if (mediaImage != null) {
-                                            val image = InputImage.fromMediaImage(
-                                                mediaImage,
-                                                imageProxy.imageInfo.rotationDegrees
-                                            )
-                                            scanner.process(image)
-                                                .addOnSuccessListener { barcodes ->
-                                                    for (barcode in barcodes) {
-                                                        barcode.rawValue?.let { rawValue ->
-                                                            imageProxy.close()
-                                                            onBarcodeScanned(rawValue)
-                                                            return@addOnSuccessListener
-                                                        }
-                                                    }
-                                                }
-                                                .addOnCompleteListener {
-                                                    imageProxy.close()
-                                                }
-                                        } else {
-                                            imageProxy.close()
-                                        }
-                                    }
+                                val preview = Preview.Builder().build().also {
+                                    it.setSurfaceProvider(view.surfaceProvider)
                                 }
 
-                            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                                // Image analysis for barcode scanning
+                                val options = BarcodeScannerOptions.Builder()
+                                    .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
+                                    .build()
+                                val scanner = BarcodeScanning.getClient(options)
 
-                            try {
-                                cameraProvider.unbindAll()
-                                cameraProvider.bindToLifecycle(
+                                val analysisExecutor = Executors.newSingleThreadExecutor()
+                                val imageAnalysis = ImageAnalysis.Builder()
+                                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                    .build()
+                                    .also {
+                                        it.setAnalyzer(analysisExecutor) { imageProxy: ImageProxy ->
+                                            @androidx.camera.core.ExperimentalGetImage
+                                            val mediaImage = imageProxy.image
+                                            if (mediaImage != null) {
+                                                val image = InputImage.fromMediaImage(
+                                                    mediaImage,
+                                                    imageProxy.imageInfo.rotationDegrees
+                                                )
+                                                scanner.process(image)
+                                                    .addOnSuccessListener { barcodes ->
+                                                        for (barcode in barcodes) {
+                                                            barcode.rawValue?.let { rawValue ->
+                                                                imageProxy.close()
+                                                                onBarcodeScanned(rawValue)
+                                                                return@addOnSuccessListener
+                                                            }
+                                                        }
+                                                    }
+                                                    .addOnCompleteListener {
+                                                        imageProxy.close()
+                                                    }
+                                            } else {
+                                                imageProxy.close()
+                                            }
+                                        }
+                                    }
+
+                                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+                                provider.unbindAll()
+                                provider.bindToLifecycle(
                                     lifecycleOwner,
                                     cameraSelector,
                                     preview,
                                     imageAnalysis
                                 )
-                            } catch (_: Exception) {
-                                Toast.makeText(ctx, "相机启动失败", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                cameraError = e.message ?: "相机启动失败"
+                                Toast.makeText(ctx, cameraError, Toast.LENGTH_SHORT).show()
                             }
                         }, ContextCompat.getMainExecutor(ctx))
 
-                        previewView
+                        view
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -219,6 +240,35 @@ fun ScannerDialog(
                         start = Offset(scanBoxLeft + 8f, lineY),
                         end = Offset(scanBoxLeft + scanBoxWidth - 8f, lineY),
                         strokeWidth = 2f
+                    )
+                }
+            } else if (cameraError != null) {
+                // Error state - show message and manual input option
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        "摄像头不可用",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        cameraError ?: "未知错误",
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "请手动输入物料编码",
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 13.sp
                     )
                 }
             }
