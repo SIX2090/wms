@@ -182,7 +182,6 @@ list_pages = [
     '/ai/agent_tasks',
     '/ai/data-retention',
     '/ai/business_quality',
-    '/mobile/app',
     '/mobile/connect',
     '/mobile/scan',
     '/wechat_share',
