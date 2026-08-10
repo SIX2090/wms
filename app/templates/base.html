@@ -2226,13 +2226,13 @@
     });
     </script>
     {% block extra_css %}{% endblock %}
-    <!-- BUG-2026-07-31-001: 定时刷新 CSRF token（每 25 分钟，寿命 30 分钟），避免长会话过期 -->
+    <!-- BUG-2026-07-31-001: 定时刷新 CSRF token（每 25 分钟，寿命 8 小时），避免长会话过期 -->
     <script>
     (function() {
         var meta = document.querySelector('meta[name="csrf-token"]');
         if (!meta) return;
 
-        // 每 25 分钟主动刷新一次 token（30 分钟寿命，提前 5 分钟保险）
+        // 每 25 分钟主动刷新一次 token（8 小时寿命，频繁刷新更保险）
         var REFRESH_INTERVAL_MS = 25 * 60 * 1000;
         // 防止重入：上一次请求未完成时跳过
         var refreshInFlight = false;
