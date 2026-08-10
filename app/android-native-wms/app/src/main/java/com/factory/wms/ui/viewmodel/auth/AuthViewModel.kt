@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.factory.wms.data.api.AuthEventBus
+import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.repository.WmsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +33,11 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             val baseUrl = repository.getSavedBaseUrl()
             val username = repository.getUsername()
             val role = repository.getRole()
+            // App 重启后必须恢复 RetrofitClient 的 baseUrl，否则所有 API 请求
+            // 会 fallback 到默认值 http://127.0.0.1:5000/（本地回环，手机连不上）。
+            if (!baseUrl.isNullOrBlank()) {
+                RetrofitClient.setBaseUrl(baseUrl)
+            }
             if (token != null && baseUrl != null) {
                 _uiState.value = _uiState.value.copy(
                     isLoggedIn = true,
