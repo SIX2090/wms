@@ -874,6 +874,23 @@ def auto_migrate_database():
             except Exception:
                 pass  # 表可能尚未创建，跳过
 
+        # material_image 表补建：移动端物料档案多图功能依赖此表，
+        # 旧版本数据库可能没有这张表，导致上传/搜索 500。
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS material_image (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    material_id INTEGER NOT NULL,
+                    image VARCHAR(200) NOT NULL,
+                    sort_order INTEGER DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (material_id) REFERENCES material(id)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_material_image_material ON material_image(material_id)")
+        except Exception:
+            pass  # 表可能已存在或创建失败，跳过
+
         # Generic inbound-to-outbound push trace. One row represents one
         # source line allocation and remains as audit evidence after release.
         cursor.execute("""
