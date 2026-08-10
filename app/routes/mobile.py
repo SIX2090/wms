@@ -635,12 +635,13 @@ def register_mobile_routes(app):
     # no-test:reason=从 mobile_* 路由内联 JS 里抽出的辅助函数，能力由 mobile_material_archive_* 路由测试覆盖
     def _archive_material_payload(material):
         from app import MaterialImage, db
+        from sqlalchemy import inspect as sa_inspect
         image_count = 0
         try:
             image_count = MaterialImage.query.filter_by(material_id=material.id).count()
         except Exception:
             # material_image 表可能尚未创建（WMS_SKIP_STARTUP_DB_UPGRADE 场景）
-            if not db.engine.dialect.has_table(db.engine, 'material_image'):
+            if not sa_inspect(db.engine).has_table('material_image'):
                 image_count = 0
             else:
                 raise

@@ -11,6 +11,7 @@ T5. 列出图片：返回物料信息 + 全部图片。
 T6. 删除图片：删除后列表不再包含该图。
 T7. 认证：无 Web 会话且无 Bearer Token -> 401。
 T8. Bearer Token 鉴权可访问。
+T12. material_image 表不存在时搜索不 500（WMS_SKIP_STARTUP_DB_UPGRADE 回归）。
 """
 from __future__ import annotations
 
@@ -245,6 +246,35 @@ class TestMobileMaterialArchiveApi(unittest.TestCase):
         with app_module.app.app_context():
             m = db.session.get(Material, mid)
             self.assertIsNone(m.image)
+
+
+def test_search_when_material_image_table_missing():
+    """T12（回归）：material_image 表不存在时搜索不 500，image_count 返回 0。
+
+    模拟 WMS_SKIP_STARTUP_DB_UPGRADE 场景：db.create_all() 被跳过，
+    material_image 表缺失，搜索接口必须容错返回 0 而非 500。
+    """
+    from app import Material
+    with app_module.app.app_context():
+        # 临时删除 material_image 表模拟缺失场景
+        db.session.execute(db.text("DROP TABLE IF EXISTS material_image"))
+        db.session.commit()
+        # 确认表已删除
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+        assert not inspector.has_table("material_image"), "前置条件：material_image 表应已删除"
+
+        mid = _seed_material("M8-NO-TABLE", "无表回归测试", "M8")
+        client = _make_client()
+        headers = _login(client)
+        r = client.get("/mobile/api/material_archive/search?keyword=M8", headers=headers)
+        assert r.status_code == 200, f"表缺失时搜索不应 500，实际 {r.status_code}: {r.get_data(as_text=True)}"
+        body = r.get_json()
+        assert body["status"] == "success"
+        assert body["data"][0]["image_count"] == 0
+
+        # 恢复表，避免影响后续测试
+        db.create_all()
 
 
 def test_sync_material_primary_image():
