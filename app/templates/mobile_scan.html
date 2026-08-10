@@ -235,10 +235,8 @@
     var barcodeVideo = document.getElementById('barcodeVideo');
     var barcodeBtn = document.getElementById('barcodeBtn');
     var closeBarcodeBtn = document.getElementById('closeBarcodeBtn');
-    var barcodeStream = null;
     var barcodeTimer = null;
     var zxingCodeReader = null;
-    var zxingStream = null;
     var batchMode = document.getElementById('batchMode');
     var batchPanel = document.getElementById('batchPanel');
     var batchList = document.getElementById('batchList');
@@ -253,6 +251,15 @@
             result['X-CSRFToken'] = tokenNode.content;
         }
         return result;
+    }
+
+    // 统一处理 401/419 会话过期：提示并跳转登录，返回错误对象供调用方 throw
+    function sessionExpiredError(response) {
+        if (response.status !== 401 && response.status !== 419) return null;
+        if (window.confirm('登录已过期或会话失效，请重新登录。点击确定跳转到登录页面。')) {
+            window.location.href = '/login';
+        }
+        return { status: response.status, msg: '登录已过期，请重新登录' };
     }
 
     function newRequestId() {
@@ -340,6 +347,8 @@
             credentials: 'same-origin'
         })
             .then(function(response) {
+                var sessErr = sessionExpiredError(response);
+                if (sessErr) throw sessErr;
                 return response.json().then(function(data) {
                     if (!response.ok && data.status !== 'multiple') throw data;
                     return data;
@@ -505,18 +514,22 @@
         });
     }
 
-    function submitBatchQueue() {
+    function submitBatchQueue(total) {
         if (!batchQueue.length || !batchSubmitBtn) return;
         var item = batchQueue[0];
+        if (!total) total = batchQueue.length;
+        var current = total - batchQueue.length + 1;
         batchSubmitBtn.disabled = true;
         if (submitBtn) submitBtn.disabled = true;
-        setStatus('正在提交第1/' + batchQueue.length + '条...', '');
+        setStatus('正在提交第' + current + '/' + total + '条...', '');
         fetch('/mobile/api/scan_submit', {
             method: 'POST',
             headers: csrfHeaders({'Content-Type': 'application/json'}),
             credentials: 'same-origin',
             body: JSON.stringify(item.payload)
         }).then(function(response) {
+            var sessErr = sessionExpiredError(response);
+            if (sessErr) throw sessErr;
             return response.json().then(function(data) {
                 if (!response.ok || data.status !== 'success') throw data;
                 return data;
@@ -526,7 +539,7 @@
             batchQueue.shift();
             renderBatchQueue();
             addHistory(data.msg || '批量扫码提交成功', returnedMaterial);
-            if (batchQueue.length) return submitBatchQueue();
+            if (batchQueue.length) return submitBatchQueue(total);
             setStatus('待提交明细已全部提交', 'success');
         }).catch(function(error) {
             setStatus((error && (error.msg || error.message)) || '批量提交中断，未提交明细已保留', 'error');
@@ -570,6 +583,14 @@
                 return;
             }
 
+            // 仓库/库位必填校验（仅当字段可见时）
+            var warehouseField = warehouseInput ? warehouseInput.closest('.mobile-scan-field') : null;
+            if (warehouseField && !warehouseField.classList.contains('d-none') && !(warehouseInput.value || '').trim()) {
+                setStatus('请选择仓库/库位', 'error');
+                warehouseInput.focus();
+                return;
+            }
+
             submitBtn.disabled = true;
             setStatus('提交中...', '');
             var quantity = quantityInput ? quantityInput.value : '';
@@ -598,6 +619,8 @@
                 body: JSON.stringify(payload)
             })
                 .then(function(response) {
+                    var sessErr = sessionExpiredError(response);
+                    if (sessErr) throw sessErr;
                     return response.json().then(function(data) {
                         if (!response.ok || data.status !== 'success') throw data;
                         return data;
@@ -642,6 +665,11 @@
                 recognizePreview.hidden = false;
                 recognizeLoading.hidden = false;
             };
+            reader.onerror = function() {
+                recognizeLoading.hidden = true;
+                recognizePreview.hidden = true;
+                setStatus('图片读取失败，请重新选择', 'error');
+            };
             reader.readAsDataURL(file);
             
             recognizeMaterialImage(file);
@@ -657,17 +685,25 @@
     }
 
     function recognizeMaterialImage(file) {
+        if (cameraBtn) cameraBtn.disabled = true;
         setStatus('正在识别图片...', '');
         var formData = new FormData();
         formData.append('image', file);
+
+        // 超时控制（60 秒）与防重复提交
+        var controller = new AbortController();
+        var timeoutId = setTimeout(function() { controller.abort(); }, 60000);
 
         fetch('/mobile/api/recognize_material', {
             method: 'POST',
             headers: csrfHeaders(),
             credentials: 'same-origin',
-            body: formData
+            body: formData,
+            signal: controller.signal
         })
         .then(function(response) {
+            var sessErr = sessionExpiredError(response);
+            if (sessErr) throw sessErr;
             return response.json().then(function(data) {
                 if (!response.ok || data.status !== 'success') throw data;
                 return data;
@@ -690,7 +726,15 @@
         })
         .catch(function(error) {
             recognizeLoading.hidden = true;
-            setStatus((error && (error.msg || error.message)) || '识别失败', 'error');
+            if (error && error.name === 'AbortError') {
+                setStatus('识别超时，请重试', 'error');
+            } else {
+                setStatus((error && (error.msg || error.message)) || '识别失败', 'error');
+            }
+        })
+        .finally(function() {
+            clearTimeout(timeoutId);
+            if (cameraBtn) cameraBtn.disabled = false;
         });
     }
 
