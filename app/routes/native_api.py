@@ -129,9 +129,7 @@ def register_native_api_routes(app):
         request_ip = get_request_ip()
 
         user = User.query.filter_by(username=username).first()
-        if not user or not check_password_hash(user.password_hash, password):
-            if user and user.is_active:
-                user.increment_failed_count(request_ip)
+        if not user:
             add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
             try:
                 db.session.commit()
@@ -140,10 +138,25 @@ def register_native_api_routes(app):
             return api_json_error('账号或密码错误', 401)
         if not user.is_active:
             return api_json_error('账号已被禁用', 403)
+        if user.is_locked_for(request_ip):
+            remaining_min = user.login_lock_remaining(request_ip)
+            add_login_log(status='failed', username=username, user=user,
+                          fail_reason=f'locked {remaining_min}')
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            return api_json_error(f'账号已锁定，请 {remaining_min} 分钟后再试', 423)
+        if not check_password_hash(user.password_hash, password):
+            user.increment_failed_count(request_ip)
+            add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            return api_json_error('账号或密码错误', 401)
         if user.must_change_password:
             return api_json_error('请先通过网页登录修改初始密码', 403)
-        if user.is_locked_for(request_ip):
-            return api_json_error(f'账号已锁定，请 {user.login_lock_remaining(request_ip)} 分钟后再试', 423)
 
         token = ApiToken(
             token=secrets.token_urlsafe(48),
