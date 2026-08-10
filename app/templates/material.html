@@ -528,8 +528,8 @@
                     <div class="mb-3">
                         <label class="form-label">物料图片（最多5张，手机/电脑统一）</label>
                         <div id="editMaterialImageGrid" class="material-image-grid"></div>
-                        <input type="file" class="form-control" name="image" accept="image/*">
-                        <small class="text-muted">可上传新图片追加到档案（最多5张）；已上传图片可点击删除</small>
+                        <input type="file" class="form-control" name="image" id="edit_image_upload" accept="image/*" onchange="uploadEditMaterialImage(this)">
+                        <small class="text-muted">选择图片后立即追加到档案（最多5张）；已上传图片可在下方删除。保存修改时选中的图片也会一并上传。</small>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">备注</label>
@@ -1702,26 +1702,37 @@ document.addEventListener('DOMContentLoaded', function() {
     window.deleteEditMaterialImage = function(imageId) {
         if (!confirm('确定删除这张物料图片吗？')) return;
         var editId = document.getElementById('edit_id').value;
-        csrfFetch('/mobile/api/material_archive/images/' + imageId, { method: 'DELETE' })
-            .then(function(r){ return r.json(); })
+        WMS.api.delete('/mobile/api/material_archive/images/' + imageId)
             .then(function(res) {
-                if (res.status === 'success') {
-                    showToast('图片已删除', 'success', 2000);
-                    loadEditMaterialImages(editId);
-                } else {
-                    showToast(res.msg || '删除失败', 'danger', 3600);
-                }
+                showToast('图片已删除', 'success', 2000);
+                loadEditMaterialImages(editId);
             })
-            .catch(function(err){ showToast('删除失败：' + err.message, 'danger', 3600); });
+            .catch(function(err){ showToast((err && (err.msg || err.message)) || '删除失败', 'danger', 3600); });
+    };
+
+    // 编辑物料 - 上传一张档案图片（即时上传，调用移动端统一 upload 接口）
+    window.uploadEditMaterialImage = function(input) {
+        if (!input || !input.files || !input.files.length) return;
+        var editId = document.getElementById('edit_id').value;
+        if (!editId) { showToast('请先选择要编辑的物料', 'danger'); input.value = ''; return; }
+        var file = input.files[0];
+        var formData = new FormData();
+        formData.append('image', file);
+        showToast('正在上传图片...', 'info', 1500);
+        WMS.api.post('/mobile/api/material_archive/' + editId + '/images', formData)
+            .then(function() {
+                showToast('图片已上传', 'success', 2000);
+                input.value = '';
+                loadEditMaterialImages(editId);
+            })
+            .catch(function(err){ showToast((err && (err.msg || err.message)) || '上传失败', 'danger', 3600); input.value = ''; });
     };
 
     window.copyMaterial = function(id) {
-        csrfFetch('/material/' + id + '/copy', { method: 'POST' })
-            .then(function(r){ return r.json(); })
+        WMS.api.post('/material/' + id + '/copy')
             .then(function(res) {
-                if (res.status === 'success') {
-                    var mat = res.material;
-                    var modalEl = document.getElementById('addModal');
+                var mat = res.material;
+                var modalEl = document.getElementById('addModal');
                     var modal = bootstrap.Modal.getInstance(modalEl);
                     if (!modal) {
                         modal = new bootstrap.Modal(modalEl);
@@ -1749,11 +1760,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         setInputValueIfExists('add_remark', mat.remark || '');
                         modal.show();
                     }, 150);
-                } else {
-                    showToast(res.msg || '复制失败', 'danger', 3600);
-                }
             })
-            .catch(function(err){ showToast('复制失败：' + err.message, 'danger', 3600); });
+            .catch(function(err){ showToast((err && (err.msg || err.message)) || '复制失败', 'danger', 3600); });
     };
 
     window.findMaterialImage = function(id) {
