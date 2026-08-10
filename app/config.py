@@ -58,7 +58,7 @@ class Config:
     
     # 会话配置
     PERMANENT_SESSION_LIFETIME = 28800  # 会话有效期8小时
-    WTF_CSRF_TIME_LIMIT = 1800  # CSRF 令牌有效期 30 分钟（BUG-2026-07-29-004：从 8 小时下调，避免被截获后长期滥用）
+    WTF_CSRF_TIME_LIMIT = 28800  # CSRF 令牌有效期 8 小时（与会话有效期一致，避免用户操作中途令牌过期）
     SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() in ('true', '1', 'yes')
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
