@@ -552,6 +552,12 @@
   - `DELETE /mobile/api/material_archive/images/<image_id>`：删除一张图片。
 - Android 端：新增 `MaterialArchiveDto`/`MaterialArchiveImageDto`/`MaterialArchiveImagesData` 模型；`WmsApiService`/`WmsRepository` 新增 搜索/列表/上传/删除 四方法；新增 `MaterialArchiveViewModel`；新增 `MaterialArchiveSearchScreen`（搜索列表）+ `MaterialArchiveDetailScreen`（图片管理，拍照/相册上传、缩略图、删除）；复用 `AiScreens.kt` 中 `uriToMultipart`/`saveBitmapToCacheAndGetUri`/`rememberCameraLauncherWithPermission` 相机工具（访问修饰符 `private`→`internal`）；`Screen.kt`/`NavGraph.kt` 注册 `material_archive` 与 `material_archive_detail` 路由；`HomeScreen.kt` 新增"物料档案"入口卡片。
 - 边界：图片数量上限在前后端双重校验；删除仅删物料档案归档图，不影响 `Material.image` 主图；物料档案图片仅在 App 端展示，Web 端物料档案页展示留待后续迭代。
+- **统一多端存储（2026-08-10）**：按用户要求"电脑端原来就支持上传图片，手机和电脑应该上传统一的位置"，将手机与电脑端物料图片统一到同一套多图归档：
+  - 手机/电脑共用 `MaterialImage` 表与 `static/uploads/material_images/` 目录；`Material.image` 保留为 Web 列表主图。
+  - `utils.py` 新增 `sync_material_primary_image(material)`：把 `material.image` 同步为 `MaterialImage` 首图（主图），空则置 `None`；`MAX_MATERIAL_IMAGES` 常量下沉到 `utils.py`。
+  - `mobile.py`：上传/删除图片后调用 `sync_material_primary_image` 同步主图。
+  - `material.py`：新增物料上传图片改存 `material_images` 子目录并写入 `MaterialImage` 表；编辑物料上传新图追加到 `MaterialImage` 表；两者均同步主图。
+  - `material.html`：编辑弹窗新增多图画廊（`editMaterialImageGrid`），加载并展示/删除已上传档案图片（走既有 `/mobile/api/material_archive/...` 端点）。
 
 **验收**：
 - `tests/verify_mobile_material_archive_api.py` 8 用例全绿：端点注册、搜索、上传、数量上限（第 6 张被拒）、列表、删除、无认证 401、Bearer Token 鉴权。
@@ -559,6 +565,7 @@
 - Android CI `assembleDebug` 需在具备 Android SDK + JDK17 的构建机执行（本沙箱无 SDK 且 JDK25 与 AGP8.x 不兼容，无法本地编译），代码按既有 `recognizeMaterial`/`documentOcr` multipart 模式与相机工具契约审校；后端 API 已通过 pytest 实测。
 
 **记录**：完成日期 2026-08-10；提交见当次提交；涉及模块 app/app.py（新增 MaterialImage 模型）、app/routes/mobile.py（新增 4 端点 + MAX_MATERIAL_IMAGES）、tests/verify_mobile_material_archive_api.py（新增，8 用例）、app/android-native-wms/app/src/main/java/com/factory/wms/data/model/MaterialArchiveModels.kt（新增）、ui/viewmodel/archive/MaterialArchiveViewModel.kt（新增）、ui/screens/MaterialArchiveScreens.kt（新增）、data/api/WmsApiService.kt、data/repository/WmsRepository.kt、ui/navigation/Screen.kt、ui/navigation/NavGraph.kt、ui/screens/HomeScreen.kt、ui/screens/AiScreens.kt（相机工具改 internal）。验证：`python -m pytest tests/verify_mobile_material_archive_api.py -q` 8 passed；`python scripts/lint_wms_rules.py` 0 违规；测试后已清理 `app/uploads/material_images/` 测试残留。
+- **统一多端存储子项（2026-08-10）**：`app/utils.py`（新增 `sync_material_primary_image`、`MAX_MATERIAL_IMAGES`）、`app/routes/mobile.py`（上传/删除后同步主图）、`app/routes/material.py`（新增/编辑物料写入 `MaterialImage` 表并同步主图、改存 `material_images` 子目录）、`app/templates/material.html`（编辑弹窗多图画廊）、`tests/verify_mobile_material_archive_api.py`（新增 T9/T10 主图同步用例 → 10 全绿）。验证：`python -m pytest tests/verify_mobile_material_archive_api.py -q` 10 passed；`python scripts/lint_wms_rules.py` 0 违规；`python scripts/lint_no_raw_post_fetch.py` 通过；测试后已清理 `app/uploads/material_images/` 测试残留。
 
 ### AI-MOB-STOCK-F01：手机端查库存增加列表模式
 

@@ -526,9 +526,10 @@
                         {% endif %}
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">物料图片</label>
+                        <label class="form-label">物料图片（最多5张，手机/电脑统一）</label>
+                        <div id="editMaterialImageGrid" class="material-image-grid"></div>
                         <input type="file" class="form-control" name="image" accept="image/*">
-                        <small class="text-muted">不选择则保留原图</small>
+                        <small class="text-muted">可上传新图片追加到档案（最多5张）；已上传图片可点击删除</small>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">备注</label>
@@ -1654,6 +1655,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     setInputValueIfExists('edit_alert_days', mat.alert_days || 30);
                     setInputValueIfExists('edit_remark', mat.remark || '');
                     
+                    // 统一多图：加载物料档案图片（手机/电脑共用 MaterialImage 表）
+                    loadEditMaterialImages(mat.id);
+                    
                     // 显示编辑弹窗
                     var editModal = new bootstrap.Modal(document.getElementById('editModal'));
                     editModal.show();
@@ -1662,6 +1666,53 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(function(err){ showToast('获取数据失败：' + err.message, 'danger', 3600); });
+    };
+
+    // 编辑物料 - 加载物料档案图片（手机/电脑统一的多图）
+    window.loadEditMaterialImages = function(id) {
+        fetch('/mobile/api/material_archive/' + id + '/images')
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                var grid = document.getElementById('editMaterialImageGrid');
+                if (!grid) return;
+                if (res.status !== 'success') {
+                    grid.innerHTML = '<div class="text-muted small">图片加载失败</div>';
+                    return;
+                }
+                var images = (res.data && res.data.images) || [];
+                if (!images.length) {
+                    grid.innerHTML = '<div class="text-muted small">暂无图片</div>';
+                    return;
+                }
+                var html = '';
+                images.forEach(function(img) {
+                    html += '<div class="material-image-card">'
+                        + '<img src="' + (img.url || img.image) + '" alt="物料图片">'
+                        + '<div class="image-meta">'
+                        + '<button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteEditMaterialImage(' + img.id + ')">删除</button>'
+                        + '</div>'
+                        + '</div>';
+                });
+                grid.innerHTML = html;
+            })
+            .catch(function(){ /* 忽略加载失败 */ });
+    };
+
+    // 编辑物料 - 删除一张档案图片
+    window.deleteEditMaterialImage = function(imageId) {
+        if (!confirm('确定删除这张物料图片吗？')) return;
+        var editId = document.getElementById('edit_id').value;
+        csrfFetch('/mobile/api/material_archive/images/' + imageId, { method: 'DELETE' })
+            .then(function(r){ return r.json(); })
+            .then(function(res) {
+                if (res.status === 'success') {
+                    showToast('图片已删除', 'success', 2000);
+                    loadEditMaterialImages(editId);
+                } else {
+                    showToast(res.msg || '删除失败', 'danger', 3600);
+                }
+            })
+            .catch(function(err){ showToast('删除失败：' + err.message, 'danger', 3600); });
     };
 
     window.copyMaterial = function(id) {

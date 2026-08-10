@@ -5,7 +5,7 @@ import os
 
 from flask_login import login_required
 
-from utils import require_role
+from utils import require_role, sync_material_primary_image
 
 # 物料档案：每个物料最多归档 5 张图片（移动端上传数量上限）
 MAX_MATERIAL_IMAGES = 5
@@ -719,6 +719,8 @@ def register_mobile_routes(app):
         db.session.add(img)
         try:
             db.session.commit()
+            sync_material_primary_image(material)  # 同步 Material.image 主图为首图
+            db.session.commit()
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'保存物料档案图片失败: {e}')
@@ -736,8 +738,11 @@ def register_mobile_routes(app):
         img = db.session.get(MaterialImage, image_id)
         if not img:
             return jsonify({'status': 'error', 'msg': '图片不存在'}), 404
+        material = img.material
         db.session.delete(img)
         try:
+            db.session.commit()
+            sync_material_primary_image(material)  # 删除后重新同步主图
             db.session.commit()
         except Exception as e:
             db.session.rollback()

@@ -218,6 +218,56 @@ class TestMobileMaterialArchiveApi(unittest.TestCase):
         up = _upload(self.client, headers, mid)
         self.assertEqual(up.status_code, 200, up.get_data(as_text=True))
 
+    def test_upload_syncs_primary_image(self):
+        """T9：上传图片后 Material.image 同步为该图（主图）。"""
+        from app import Material
+        mid = _seed_material("6204", "深沟球轴承", "6204")
+        up = _upload(self.client, self.headers, mid).get_json()["data"]
+        with app_module.app.app_context():
+            m = db.session.get(Material, mid)
+            self.assertEqual(m.image, up["image"])
+
+    def test_delete_syncs_primary_image(self):
+        """T10：删除图片后 Material.image 回退为下一张，删空则置空。"""
+        from app import Material
+        mid = _seed_material("6204", "深沟球轴承", "6204")
+        img1 = _upload(self.client, self.headers, mid, filename="a.png").get_json()["data"]
+        img2 = _upload(self.client, self.headers, mid, filename="b.png").get_json()["data"]
+        # 删掉首图 -> 主图回退为第二张
+        self.client.delete(f"/mobile/api/material_archive/images/{img1['id']}",
+                           headers=self.headers)
+        with app_module.app.app_context():
+            m = db.session.get(Material, mid)
+            self.assertEqual(m.image, img2["image"])
+        # 再删掉剩下的 -> 主图置空
+        self.client.delete(f"/mobile/api/material_archive/images/{img2['id']}",
+                           headers=self.headers)
+        with app_module.app.app_context():
+            m = db.session.get(Material, mid)
+            self.assertIsNone(m.image)
+
+
+def test_sync_material_primary_image():
+    """T11：sync_material_primary_image 直接单元测试。"""
+    from app import Material, MaterialImage
+    from utils import sync_material_primary_image
+    with app_module.app.app_context():
+        m = Material(code="SP-01", name="同步测试")
+        db.session.add(m)
+        db.session.commit()
+        assert m.image is None  # 无图时主图置空
+        db.session.add(MaterialImage(material_id=m.id, image="uploads/material_images/a.png", sort_order=0))
+        db.session.add(MaterialImage(material_id=m.id, image="uploads/material_images/b.png", sort_order=1))
+        db.session.commit()
+        sync_material_primary_image(m)
+        assert m.image == "uploads/material_images/a.png"  # 首图为主图
+        db.session.commit()
+        # 删空后主图置空
+        MaterialImage.query.filter_by(material_id=m.id).delete()
+        db.session.commit()
+        sync_material_primary_image(m)
+        assert m.image is None
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

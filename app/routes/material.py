@@ -169,6 +169,7 @@ def register_material_routes(app):
             serialize_supplier,
             serialize_unit,
         )
+        from utils import sync_material_primary_image
         if request.method == 'GET':
             # Add new
             categories = MaterialCategory.query.all()
@@ -225,7 +226,7 @@ def register_material_routes(app):
         image_file = request.files.get('image')
         image_path = None
         if image_file and image_file.filename:
-            image_path, image_error = save_upload_image(image_file)
+            image_path, image_error = save_upload_image(image_file, subfolder='material_images')
             if image_error:
                 return jsonify({'status': 'error', 'msg': image_error}), 400
 
@@ -261,6 +262,13 @@ def register_material_routes(app):
             db.session.rollback()
             current_app.logger.error(f'物料创建失败: {e}')
             return jsonify({'status': 'error', 'msg': '物料创建失败，编码可能已存在'}), 500
+        # 统一多图：新增物料上传的图片写入 material_image 表（与手机端同目录/同表），
+        # 并同步 Material.image 为该图作为 Web 列表主图。
+        if image_path:
+            from app import MaterialImage
+            db.session.add(MaterialImage(material_id=material.id, image=image_path, sort_order=0))
+            sync_material_primary_image(material)
+            db.session.commit()
         # BUG-2026-08-04-009: 新增物料带初始库存时补一条审计流水，保证库存台账/月报
         # 可追溯（与期初库存调整 opening_stock 语义一致）。仅在有初始库存时记录。
         if initial_stock and initial_stock > 0:
@@ -433,6 +441,7 @@ def register_material_routes(app):
             parse_int_value,
             save_upload_image,
         )
+        from utils import sync_material_primary_image
         material = db.session.get(Material, id)
         if not material:
             return api_error('物料不存在')
@@ -472,10 +481,12 @@ def register_material_routes(app):
 
         image_file = request.files.get('image')
         image_path = material.image
+        new_image_path = None
         if image_file and image_file.filename:
-            image_path, image_error = save_upload_image(image_file)
+            new_image_path, image_error = save_upload_image(image_file, subfolder='material_images')
             if image_error:
                 return jsonify({'status': 'error', 'msg': image_error}), 400
+            image_path = new_image_path
 
         expiry_date = request.form.get('expiry_date')
 
@@ -570,6 +581,14 @@ def register_material_routes(app):
             db.session.rollback()
             current_app.logger.error(f'物料更新失败: {e}')
             return jsonify({'status': 'error', 'msg': '物料更新失败'}), 500
+        # 统一多图：编辑物料时上传的新图片追加到 material_image 表（与手机端同目录/同表），
+        # 并同步 Material.image 为该图作为 Web 列表主图。
+        if new_image_path:
+            from app import MaterialImage
+            current_count = MaterialImage.query.filter_by(material_id=id).count()
+            db.session.add(MaterialImage(material_id=id, image=new_image_path, sort_order=current_count))
+            sync_material_primary_image(material)
+            db.session.commit()
 
         msg = '物料更新成功'
         if cascade_info:

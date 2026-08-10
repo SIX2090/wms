@@ -540,6 +540,26 @@ def save_upload_image(file_storage, subfolder='', upload_folder=None):
     return '/'.join(relative_parts), None
 
 
+# 物料档案：每个物料最多归档 MAX_MATERIAL_IMAGES 张图片（手机/电脑统一上限）
+MAX_MATERIAL_IMAGES = 5
+
+
+def sync_material_primary_image(material):
+    """把 material.image 同步为 material_image 表的首图（主图），作为 Web 列表缩略图。
+
+    手机端上传/删除与电脑端新增/编辑后都应调用，保证 Material.image（Web 主图）
+    与 MaterialImage 多图集合保持一致。MaterialImage 为空时置 None。
+    """
+    from app import MaterialImage
+    first = (
+        MaterialImage.query.filter_by(material_id=material.id)
+        .order_by(MaterialImage.sort_order.asc(), MaterialImage.id.asc())
+        .first()
+    )
+    material.image = first.image if first else None
+    return material.image
+
+
 # 常见图片格式的 magic bytes 前缀，用于在不依赖 Pillow 时也能挡掉伪装上传
 _IMAGE_MAGIC_PREFIXES = (
     b'\xff\xd8\xff',              # JPEG: SOI + marker
