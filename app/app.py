@@ -2207,7 +2207,7 @@ def wants_json_error_response():
     # 前端 fetch().then(r => r.json()) 解析失败，丢失错误原因。
     # 现在额外识别 X-Requested-With: XMLHttpRequest 与 Accept: application/json，
     # 让 AJAX 请求统一拿到 JSON 错误响应。
-    if request.path.startswith('/api/'):
+    if request.path.startswith('/api/') or request.path.startswith('/mobile/api/'):
         return True
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return True
