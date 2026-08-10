@@ -20158,6 +20158,37 @@ def _wechat_share_get_helper_health(config):
         health['message'] = f'助手不可用：{exc}'
     return health
 
+def _async_wechat_share_on_complete(app_ref, config_id, order_id, order_no=''):
+    """在后台线程中执行微信分享，不阻塞完成入库请求。
+
+    微信分享包含图片渲染 + HTTP 请求（超时最多 10s），同步执行会让用户
+    在点"完成"后等待数秒甚至超时。改为 daemon 线程后用户立即收到完成响应，
+    分享在后台执行，失败只记日志不影响单据状态。
+    """
+    import threading
+
+    def _run():
+        with app_ref.app_context():
+            try:
+                config = db.session.get(WechatShareConfig, config_id)
+                order = db.session.get(InOrder, order_id)
+                if not config or not order:
+                    app_ref.logger.warning(
+                        '异步微信分享跳过：config或order不存在 config_id=%s order_id=%s',
+                        config_id, order_id,
+                    )
+                    return
+                _wechat_share_order(config, order, trigger_type='completed', force=False)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                app_ref.logger.exception(
+                    '入库单完成后异步微信分享失败: order_id=%s order_no=%s',
+                    order_id, order_no,
+                )
+
+    threading.Thread(target=_run, name='wechat-share-async', daemon=True).start()
+
 def _wechat_share_order(config, order, trigger_type='manual', force=False):
     existing = WechatShareLog.query.filter_by(
         module_key='in_order',

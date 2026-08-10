@@ -1387,12 +1387,13 @@ def register_in_order_routes(app):
                 db.session.commit()
                 share_now_config = WechatShareConfig.query.filter_by(enabled=True, immediate_on_complete=True, share_in_order=True).first()
                 if share_now_config:
-                    try:
-                        _wechat_share_order(share_now_config, order, trigger_type='completed', force=False)
-                        db.session.commit()
-                    except Exception:
-                        db.session.rollback()
-                        app.logger.exception('入库单完成后微信分享失败: %s', order.order_no)
+                    # 异步执行微信分享（图片渲染 + HTTP 请求），不阻塞完成响应
+                    from app import _async_wechat_share_on_complete
+                    from flask import current_app
+                    _async_wechat_share_on_complete(
+                        current_app._get_current_object(),
+                        share_now_config.id, order.id, order.order_no,
+                    )
             except Exception as e:
                 db.session.rollback()
                 app.logger.error(f'数据库操作失败: {e}')
@@ -1992,10 +1993,13 @@ def register_in_order_routes(app):
                 completed += 1
                 share_now_config = WechatShareConfig.query.filter_by(enabled=True, immediate_on_complete=True, share_in_order=True).first()
                 if share_now_config:
-                    try:
-                        _wechat_share_order(share_now_config, order, trigger_type='completed', force=False)
-                    except Exception:
-                        app.logger.exception('批量入库完成后微信分享失败: %s', order.order_no)
+                    # 异步执行微信分享，不阻塞批量完成响应
+                    from app import _async_wechat_share_on_complete
+                    from flask import current_app
+                    _async_wechat_share_on_complete(
+                        current_app._get_current_object(),
+                        share_now_config.id, order.id, order.order_no,
+                    )
             except Exception as e:
                 db.session.rollback()
                 skipped.append(f'{order.order_no}(错误)')
