@@ -1301,6 +1301,16 @@ register_backup_routes(app)
 register_approval_routes(app)
 # 手机端扫码域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_mobile_routes(app)
+
+# BUG-2026-08-10-001: /mobile/api/ 路由使用 Bearer Token 认证，不携带 CSRF token，
+# 但 CSRFProtect 全局启用后所有 POST 请求都需要 CSRF token，导致移动端识物等接口
+# 返回 "请求已过期或缺少安全令牌"。
+# 修复：批量豁免 /mobile/api/ 路由的 CSRF 检查（与 native_api.py 各路由 @csrf.exempt 一致）。
+for _ep, _view_func in list(app.view_functions.items()):
+    for _rule in app.url_map.iter_rules(_ep):
+        if _rule.rule.startswith('/mobile/api/'):
+            csrf.exempt(_view_func)
+            break
 # 微信分享域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_wechat_share_routes(app)
 # 期初库存域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
