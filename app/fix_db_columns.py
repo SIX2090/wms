@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""自动修复数据库：添加缺失的 picker 列。
+"""自动修复数据库：添加缺失的 picker 列 + 创建缺失的新表。
 
 启动脚本调用，确保数据库字段与代码同步。
 """
@@ -8,6 +8,37 @@ import os
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_material_image_table(conn):
+    """创建 material_image 表（移动端物料档案多图）。
+
+    WMS_NO_DB_TOUCH=1 场景下启动时 db.create_all() 被跳过，导致
+    MaterialImage 模型对应的表未创建，移动端 _archive_material_payload
+    查询时会报 no such table: material_image。
+    表结构必须与 app/app.py 中 class MaterialImage(db.Model) 完全一致。
+    """
+    mi_cols = [r[1] for r in conn.execute('PRAGMA table_info(material_image)').fetchall()]
+    if mi_cols:
+        logger.info('material_image 表已存在')
+        return
+    conn.execute(
+        '''
+        CREATE TABLE material_image (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            material_id INTEGER NOT NULL,
+            image VARCHAR(200) NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            created_at DATETIME,
+            FOREIGN KEY (material_id) REFERENCES material(id)
+        )
+        '''
+    )
+    conn.execute(
+        'CREATE INDEX idx_material_image_material ON material_image(material_id)'
+    )
+    conn.commit()
+    logger.info('已创建 material_image 表')
 
 
 def fix_columns(db_path=None):
@@ -61,6 +92,9 @@ def fix_columns(db_path=None):
         logger.info('已添加 production_requisition.warehouse')
     else:
         logger.info('production_requisition.warehouse 已存在')
+
+    # material_image 表（WMS_NO_DB_TOUCH=1 场景下手动建表，避免 no such table）
+    _ensure_material_image_table(conn)
 
     conn.close()
 
