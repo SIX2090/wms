@@ -125,6 +125,9 @@ class TestMobileRecognizeMaterialApi(unittest.TestCase):
         with app_module.app.app_context():
             Material.query.delete()
             db.session.commit()
+        # 重置识图限流状态，避免测试间累计触发 429
+        from app.routes import mobile as mobile_routes
+        mobile_routes._recognize_hits.clear()
         self.client = _make_client()
         self.headers = _login(self.client)
 

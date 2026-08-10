@@ -2,6 +2,9 @@
 # 共享辅助函数（add_stock / deduct_stock / _create_adjustment_drafts_from_check_scan 等）仍留在 app.py，
 # 各路由函数内部延迟导入，避免模块加载期循环导入。
 import os
+import threading
+import time
+from collections import defaultdict
 
 from flask_login import login_required
 
@@ -29,6 +32,27 @@ def _web_or_api_required(f):
             return f(*args, **kwargs)
         return jsonify({'status': 'error', 'success': False, 'msg': '未登录或 Bearer Token 无效'}), 401
     return decorated_function
+
+
+# 识图速率限制：AI 识图耗时且昂贵，限制每个用户每分钟最多调用 N 次，
+# 防止耗尽大模型 API 配额或导致服务超时。
+_RECOGNIZE_RATE_LIMIT = 5
+_RECOGNIZE_WINDOW = 60
+_recognize_hits = defaultdict(list)
+_recognize_lock = threading.Lock()
+
+
+def _recognize_rate_limited(key):
+    """记录一次识图调用并检查限流。超限返回需等待秒数（int），否则返回 None。"""
+    now = time.time()
+    with _recognize_lock:
+        stamps = [t for t in _recognize_hits.get(key, []) if now - t < _RECOGNIZE_WINDOW]
+        if len(stamps) >= _RECOGNIZE_RATE_LIMIT:
+            _recognize_hits[key] = stamps
+            return int(_RECOGNIZE_WINDOW - (now - stamps[0]))
+        stamps.append(now)
+        _recognize_hits[key] = stamps
+        return None
 
 
 # no-test:reason=从 app.py 原样迁移的辅助函数，能力由 mobile_* 各路由测试覆盖
@@ -466,6 +490,15 @@ def register_mobile_routes(app):
         if not _ai_llm_configured() or not _ai_llm_vision_enabled():
             return jsonify({'status': 'error', 'success': False, 'msg': '请先在系统设置中启用大模型和图片识别'}), 400
 
+        # 识图限流：按当前用户（web 会话或 Bearer token）限流，每分钟最多 5 次
+        from flask_login import current_user
+        from app import get_bearer_user
+        _user = current_user if current_user.is_authenticated else get_bearer_user()
+        rate_key = f'user:{_user.id}' if _user else f"ip:{request.remote_addr or 'unknown'}"
+        wait = _recognize_rate_limited(rate_key)
+        if wait is not None:
+            return jsonify({'status': 'error', 'success': False, 'msg': f'识图过于频繁，请 {wait} 秒后再试'}), 429
+
         if 'image' not in request.files:
             return jsonify({'status': 'error', 'success': False, 'msg': '请上传图片'}), 400
 
@@ -558,8 +591,9 @@ def register_mobile_routes(app):
                 'matches': [mobile_material_payload(m) for m in matches],
                 'match_count': len(matches)
             })
-        except Exception as e:
-            current_app.logger.error(f'拍照识物失败: {e}')
+        except Exception:
+            # 记录堆栈但不记录异常字符串，避免大模型 API 响应等敏感信息写入日志
+            current_app.logger.exception('拍照识物失败')
             return jsonify({'status': 'error', 'success': False, 'msg': '识别失败，请稍后重试'}), 500
 
     # pydantic:reason=文件上传（multipart/form-data）路由，非 JSON Body，pydantic 输入模型不适用；音频格式/大小在校验逻辑内手工校验
@@ -614,11 +648,11 @@ def register_mobile_routes(app):
                 eng_service_type='16k_zh',
             )
             return jsonify({'status': 'success', 'success': True, 'text': text})
-        except TencentAsrError as e:
-            current_app.logger.error(f'腾讯云 ASR 失败: {e}')
-            return jsonify({'status': 'error', 'success': False, 'msg': str(e)}), 502
-        except Exception as e:
-            current_app.logger.error(f'语音识别失败: {e}')
+        except TencentAsrError:
+            current_app.logger.exception('腾讯云 ASR 失败')
+            return jsonify({'status': 'error', 'success': False, 'msg': '语音识别失败，请稍后重试'}), 502
+        except Exception:
+            current_app.logger.exception('语音识别失败')
             return jsonify({'status': 'error', 'success': False, 'msg': '语音识别失败，请稍后重试'}), 500
 
     # ───────────────────────── 物料档案（多图） ─────────────────────────
