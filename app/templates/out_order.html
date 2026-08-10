@@ -226,7 +226,8 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     document.querySelectorAll('.sortable-header').forEach(function(th) {
-        th.addEventListener('click', function() {
+        th.addEventListener('click', function(e) {
+            if (e.detail === 1 && this.dataset.dragMoved) { this.dataset.dragMoved = ''; return; }
             var sortField = this.dataset.sortable;
             if (!sortField) return;
             var currentSort = '{{ sort_by }}';
@@ -239,6 +240,86 @@ document.addEventListener('DOMContentLoaded', function() {
             window.location.href = url.toString();
         });
     });
+
+    // 列拖动排序
+    var listTable = document.getElementById('outOrderTable');
+    if (listTable) {
+        var listThead = listTable.querySelector('thead tr');
+        var listDragTh = null, listDragIndex = -1;
+
+        listThead.addEventListener('dragstart', function(e) {
+            var th = e.target.closest('th');
+            if (!th) return;
+            listDragTh = th;
+            listDragIndex = Array.from(listThead.children).indexOf(th);
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', listDragIndex);
+            setTimeout(function() { th.style.opacity = '0.4'; }, 0);
+        });
+
+        listThead.addEventListener('dragend', function(e) {
+            var th = e.target.closest('th');
+            if (th) { th.style.opacity = ''; th.dataset.dragMoved = '1'; }
+            listDragTh = null;
+            listDragIndex = -1;
+        });
+
+        listThead.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            var th = e.target.closest('th');
+            if (!th || th === listDragTh) return;
+            var rect = th.getBoundingClientRect();
+            var mid = rect.left + rect.width / 2;
+            if (e.clientX < mid) {
+                th.style.borderLeft = '2px solid #4F46E5';
+                th.style.borderRight = '';
+            } else {
+                th.style.borderLeft = '';
+                th.style.borderRight = '2px solid #4F46E5';
+            }
+        });
+
+        listThead.addEventListener('dragleave', function(e) {
+            var th = e.target.closest('th');
+            if (th) { th.style.borderLeft = ''; th.style.borderRight = ''; }
+        });
+
+        listThead.addEventListener('drop', function(e) {
+            e.preventDefault();
+            var th = e.target.closest('th');
+            if (!th || !listDragTh || th === listDragTh) return;
+            th.style.borderLeft = ''; th.style.borderRight = '';
+            var fromIndex = listDragIndex;
+            var toIndex = Array.from(listThead.children).indexOf(th);
+            var rect = th.getBoundingClientRect();
+            if (e.clientX >= rect.left + rect.width / 2) toIndex++;
+            if (fromIndex === toIndex || fromIndex === toIndex - 1) return;
+            // 移动表头
+            if (toIndex > fromIndex) {
+                listThead.insertBefore(listDragTh, listThead.children[toIndex + 1] || null);
+            } else {
+                listThead.insertBefore(listDragTh, listThead.children[toIndex]);
+            }
+            // 移动表体
+            var rows = listTable.querySelectorAll('tbody tr');
+            rows.forEach(function(row) {
+                var cells = Array.from(row.children);
+                var cell = cells[fromIndex];
+                if (!cell) return;
+                if (toIndex > fromIndex) {
+                    row.insertBefore(cell, cells[toIndex + 1] || null);
+                } else {
+                    row.insertBefore(cell, cells[toIndex]);
+                }
+            });
+        });
+
+        Array.from(listThead.children).forEach(function(th) {
+            th.draggable = true;
+            th.style.cursor = 'grab';
+        });
+    }
 });
 
 function changePerPage(perPage) {

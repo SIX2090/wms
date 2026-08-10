@@ -1080,9 +1080,9 @@ function toggleColumn(colClass) {
         var rect = th.getBoundingClientRect();
         if (e.clientX >= rect.left + rect.width / 2) toIndex++;
         if (fromIndex === toIndex || fromIndex === toIndex - 1) return;
-        // 移动表头
+        // 移动表头（向右拖动时需 toIndex+1，因为移除元素后后续索引前移）
         if (toIndex > fromIndex) {
-            thead.insertBefore(dragTh, thead.children[toIndex]);
+            thead.insertBefore(dragTh, thead.children[toIndex + 1] || null);
         } else {
             thead.insertBefore(dragTh, thead.children[toIndex]);
         }
@@ -1093,7 +1093,7 @@ function toggleColumn(colClass) {
             var cell = cells[fromIndex];
             if (!cell) return;
             if (toIndex > fromIndex) {
-                row.insertBefore(cell, cells[toIndex]);
+                row.insertBefore(cell, cells[toIndex + 1] || null);
             } else {
                 row.insertBefore(cell, cells[toIndex]);
             }
@@ -1104,7 +1104,7 @@ function toggleColumn(colClass) {
             var cell = cells[fromIndex];
             if (!cell) return;
             if (toIndex > fromIndex) {
-                row.insertBefore(cell, cells[toIndex]);
+                row.insertBefore(cell, cells[toIndex + 1] || null);
             } else {
                 row.insertBefore(cell, cells[toIndex]);
             }
