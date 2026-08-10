@@ -3088,6 +3088,27 @@ class Material(db.Model):
     unit = db.relationship('Unit', backref=db.backref('materials', cascade='save-update, merge'))  # Related unit
     supplier = db.relationship('Supplier', backref=db.backref('materials', cascade='save-update, merge'))  # Related supplier
 
+class MaterialImage(db.Model):
+    """物料档案图片（每个物料最多 MAX_MATERIAL_IMAGES=5 张）。
+
+    与 Material.image 单图字段并存：Material.image 保留给 Web 端"主图"，
+    本表承载移动端物料档案的多图归档。表由 db.create_all() 启动时自动创建。
+    """
+    __tablename__ = 'material_image'
+    __table_args__ = (
+        db.Index('idx_material_image_material', 'material_id'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)
+    image = db.Column(db.String(200), nullable=False)  # 相对路径 uploads/material_images/xxx.jpg
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    material = db.relationship(
+        'Material',
+        backref=db.backref('archive_images', cascade='all, delete-orphan', order_by='MaterialImage.sort_order'),
+    )
+
 class AIMaterialAlias(db.Model):
     """Learned external material name/code mapped to a material."""
     __tablename__ = 'ai_material_alias'

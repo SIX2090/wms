@@ -7,6 +7,9 @@ from flask_login import login_required
 
 from utils import require_role
 
+# 物料档案：每个物料最多归档 5 张图片（移动端上传数量上限）
+MAX_MATERIAL_IMAGES = 5
+
 
 def _web_or_api_required(f):
     """Accept a web session or a mobile Bearer token; lazily resolve app deps
@@ -611,3 +614,133 @@ def register_mobile_routes(app):
         except Exception as e:
             current_app.logger.error(f'语音识别失败: {e}')
             return jsonify({'status': 'error', 'msg': '语音识别失败，请稍后重试'}), 500
+
+    # ───────────────────────── 物料档案（多图） ─────────────────────────
+    # 移动端物料档案：每个物料最多 MAX_MATERIAL_IMAGES 张图片，存于
+    # material_image 表（由 db.create_all() 自动创建）。图片保存到
+    # static/uploads/material_images/ 子目录，路径存 relative，URL 走 url_for。
+    # 认证复用 _web_or_api_required（web 会话或 Bearer token）。
+
+    # no-test:reason=从 mobile_* 路由内联 JS 里抽出的辅助函数，能力由 mobile_material_archive_* 路由测试覆盖
+    def _archive_image_payload(img):
+        from flask import url_for as _url_for
+        return {
+            'id': img.id,
+            'image': img.image,
+            'sort_order': img.sort_order,
+            'created_at': img.created_at.strftime('%Y-%m-%d %H:%M:%S') if img.created_at else '',
+            'url': _url_for('static', filename=img.image),
+        }
+
+    # no-test:reason=从 mobile_* 路由内联 JS 里抽出的辅助函数，能力由 mobile_material_archive_* 路由测试覆盖
+    def _archive_material_payload(material):
+        from app import MaterialImage
+        return {
+            'id': material.id,
+            'code': material.code or '',
+            'name': material.name or '',
+            'spec': material.spec or '',
+            'unit': material.unit.name if material.unit else '',
+            'category': material.category.name if material.category else '',
+            'image_count': MaterialImage.query.filter_by(material_id=material.id).count(),
+        }
+
+    @app.route('/mobile/api/material_archive/search')
+    @_web_or_api_required
+    def mobile_material_archive_search():
+        """按关键字搜索物料（编码/名称/规格/品牌），供物料档案定位目标物料。"""
+        from flask import jsonify, request
+        from app import Material, db
+        keyword = (request.args.get('keyword') or '').strip()
+        query = Material.query
+        if keyword:
+            like = f'%{keyword}%'
+            query = query.filter(db.or_(
+                Material.code.like(like),
+                Material.name.like(like),
+                Material.spec.like(like),
+                Material.brand.like(like),
+            ))
+        materials = query.order_by(Material.code.asc()).limit(50).all()
+        return jsonify({
+            'status': 'success',
+            'data': [_archive_material_payload(m) for m in materials],
+        })
+
+    @app.route('/mobile/api/material_archive/<int:id>/images')
+    @_web_or_api_required
+    def mobile_material_archive_images(id):
+        """列出某物料的全部档案图片。"""
+        from flask import jsonify
+        from app import Material, MaterialImage, db
+        material = db.session.get(Material, id)
+        if not material:
+            return jsonify({'status': 'error', 'msg': '物料不存在'}), 404
+        images = (
+            MaterialImage.query.filter_by(material_id=id)
+            .order_by(MaterialImage.sort_order.asc(), MaterialImage.id.asc())
+            .all()
+        )
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'material': _archive_material_payload(material),
+                'images': [_archive_image_payload(img) for img in images],
+            },
+        })
+
+    # pydantic:reason=文件上传（multipart/form-data）路由，非 JSON Body，pydantic 输入模型不适用；最多 5 张限制在路由内校验
+    @app.route('/mobile/api/material_archive/<int:id>/images', methods=['POST'])
+    @_web_or_api_required
+    def mobile_material_archive_upload(id):
+        """上传一张物料档案图片，超过 MAX_MATERIAL_IMAGES 拒绝。"""
+        from flask import current_app, jsonify, request
+        from app import Material, MaterialImage, db, save_upload_image
+        material = db.session.get(Material, id)
+        if not material:
+            return jsonify({'status': 'error', 'msg': '物料不存在'}), 404
+
+        current_count = MaterialImage.query.filter_by(material_id=id).count()
+        if current_count >= MAX_MATERIAL_IMAGES:
+            return jsonify({
+                'status': 'error',
+                'msg': f'每个物料最多上传 {MAX_MATERIAL_IMAGES} 张图片',
+            }), 400
+
+        file = request.files.get('image')
+        if not file or not file.filename:
+            return jsonify({'status': 'error', 'msg': '请选择要上传的图片'}), 400
+
+        image_path, err = save_upload_image(file, subfolder='material_images')
+        if err:
+            return jsonify({'status': 'error', 'msg': err}), 400
+
+        img = MaterialImage(material_id=id, image=image_path, sort_order=current_count)
+        db.session.add(img)
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f'保存物料档案图片失败: {e}')
+            return jsonify({'status': 'error', 'msg': '保存图片失败'}), 500
+
+        return jsonify({'status': 'success', 'data': _archive_image_payload(img)})
+
+    # pydantic:reason=DELETE 无请求体，pydantic 输入模型不适用
+    @app.route('/mobile/api/material_archive/images/<int:image_id>', methods=['DELETE'])
+    @_web_or_api_required
+    def mobile_material_archive_delete_image(image_id):
+        """删除一张物料档案图片。"""
+        from flask import current_app, jsonify
+        from app import MaterialImage, db
+        img = db.session.get(MaterialImage, image_id)
+        if not img:
+            return jsonify({'status': 'error', 'msg': '图片不存在'}), 404
+        db.session.delete(img)
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f'删除物料档案图片失败: {e}')
+            return jsonify({'status': 'error', 'msg': '删除图片失败'}), 500
+        return jsonify({'status': 'success', 'msg': '图片已删除'})

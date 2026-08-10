@@ -1606,7 +1606,7 @@ private fun docTypeLabel(type: String?): String = when (type) {
     else -> type ?: "未知"
 }
 
-private suspend fun uriToMultipart(
+internal suspend fun uriToMultipart(
     uri: android.net.Uri,
     context: android.content.Context,
     partName: String
@@ -1641,7 +1641,7 @@ private suspend fun uriToMultipart(
  *
  * 失败时返回 null（不抛异常），调用方需要自行处理 null（保持原 selectedImageUri 不变）。
  */
-private fun saveBitmapToCacheAndGetUri(
+internal fun saveBitmapToCacheAndGetUri(
     context: android.content.Context,
     bitmap: Bitmap,
     prefix: String
@@ -1679,7 +1679,7 @@ private fun saveBitmapToCacheAndGetUri(
  * ```
  */
 @Composable
-private fun rememberCameraLauncherWithPermission(
+internal fun rememberCameraLauncherWithPermission(
     snackbarHostState: SnackbarHostState,
     onImageCaptured: (Bitmap) -> Unit
 ): () -> Unit {

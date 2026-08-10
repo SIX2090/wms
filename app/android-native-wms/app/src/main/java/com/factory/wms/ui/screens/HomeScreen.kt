@@ -109,6 +109,13 @@ fun HomeScreen(
                 icon = Icons.Outlined.CameraAlt,
                 gradient = listOf(CardPink, CardPinkDark),
                 screen = Screen.ObjectRecognize
+            ),
+            FunctionCard(
+                title = "物料档案",
+                subtitle = "搜索物料 · 拍照上传档案照片",
+                icon = Icons.Outlined.Badge,
+                gradient = listOf(CardCyan, CardCyanDark),
+                screen = Screen.MaterialArchive
             )
         )
     }
@@ -259,8 +266,9 @@ fun HomeScreen(
 
             val screenWidth = LocalConfiguration.current.screenWidthDp.dp
             val cardWidth = (screenWidth - 56.dp) / 2
+            val rowCount = (cards.size + 1) / 2
 
-            for (row in 0..2) {
+            for (row in 0 until rowCount) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

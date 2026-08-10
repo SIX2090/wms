@@ -24,6 +24,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -33,10 +36,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.factory.wms.data.api.AuthEventBus
+import com.factory.wms.data.model.MaterialArchiveDto
 import com.factory.wms.ui.components.VoiceAssistantOverlay
 import com.factory.wms.ui.screens.*
 import com.factory.wms.ui.theme.Primary
 import com.factory.wms.ui.viewmodel.ai.AiViewModel
+import com.factory.wms.ui.viewmodel.archive.MaterialArchiveViewModel
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.ui.viewmodel.home.HomeViewModel
 import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
@@ -78,6 +83,10 @@ fun AppNavGraph() {
     val openingStockViewModel: OpeningStockViewModel = viewModel()
     val voiceViewModel: VoiceCommandViewModel = viewModel()
     val homeViewModel: HomeViewModel = viewModel()
+    val materialArchiveViewModel: MaterialArchiveViewModel = viewModel()
+
+    // 物料档案详情：选中的物料通过共享状态传递（避免 route 参数序列化 DTO）
+    var selectedMaterialArchive by remember { mutableStateOf<MaterialArchiveDto?>(null) }
 
     val authState by authViewModel.uiState.collectAsState()
 
@@ -204,6 +213,28 @@ fun AppNavGraph() {
                         scanViewModel = scanViewModel,
                         onBack = { navController.popBackStack() }
                     )
+                }
+
+                composable(Screen.MaterialArchive.route) {
+                    MaterialArchiveSearchScreen(
+                        viewModel = materialArchiveViewModel,
+                        onBack = { navController.popBackStack() },
+                        onOpenDetail = { material ->
+                            selectedMaterialArchive = material
+                            navController.navigate(Screen.MaterialArchiveDetail.route)
+                        }
+                    )
+                }
+
+                composable(Screen.MaterialArchiveDetail.route) {
+                    val material = selectedMaterialArchive
+                    if (material != null) {
+                        MaterialArchiveDetailScreen(
+                            material = material,
+                            viewModel = materialArchiveViewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
                 }
 
                 composable(Screen.Profile.route) {

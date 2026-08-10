@@ -319,6 +319,44 @@ class WmsRepository(private val context: Context) {
         }
     }
 
+    // ── 物料档案（多图） ──
+
+    suspend fun searchMaterialArchive(keyword: String): Result<List<MaterialArchiveDto>> {
+        return try {
+            val response = api.searchMaterialArchive(keyword)
+            handleResponse<List<MaterialArchiveDto>>(response)
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
+        }
+    }
+
+    suspend fun getMaterialArchiveImages(id: Int): Result<MaterialArchiveImagesData> {
+        return try {
+            val response = api.getMaterialArchiveImages(id)
+            handleResponse<MaterialArchiveImagesData>(response)
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
+        }
+    }
+
+    suspend fun uploadMaterialArchiveImage(id: Int, imagePart: okhttp3.MultipartBody.Part): Result<MaterialArchiveImageDto> {
+        return try {
+            val response = api.uploadMaterialArchiveImage(id, imagePart)
+            handleResponse<MaterialArchiveImageDto>(response)
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
+        }
+    }
+
+    suspend fun deleteMaterialArchiveImage(imageId: Int): Result<Unit> {
+        return try {
+            val response = api.deleteMaterialArchiveImage(imageId)
+            handleResponse<Unit>(response)
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
+        }
+    }
+
     private inline fun <reified T> handleResponse(response: Response<ApiEnvelope<T>>): Result<T> {
         return if (response.isSuccessful) {
             val envelope = response.body()

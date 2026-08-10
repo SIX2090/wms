@@ -81,6 +81,30 @@ interface WmsApiService {
     suspend fun asrAudio(
         @Part audio: MultipartBody.Part
     ): Response<AsrResult>
+
+    // ── 物料档案（多图） ──
+
+    @GET("mobile/api/material_archive/search")
+    suspend fun searchMaterialArchive(
+        @Query("keyword") keyword: String
+    ): Response<ApiEnvelope<List<MaterialArchiveDto>>>
+
+    @GET("mobile/api/material_archive/{id}/images")
+    suspend fun getMaterialArchiveImages(
+        @Path("id") id: Int
+    ): Response<ApiEnvelope<MaterialArchiveImagesData>>
+
+    @Multipart
+    @POST("mobile/api/material_archive/{id}/images")
+    suspend fun uploadMaterialArchiveImage(
+        @Path("id") id: Int,
+        @Part image: MultipartBody.Part
+    ): Response<ApiEnvelope<MaterialArchiveImageDto>>
+
+    @DELETE("mobile/api/material_archive/images/{imageId}")
+    suspend fun deleteMaterialArchiveImage(
+        @Path("imageId") imageId: Int
+    ): Response<ApiEnvelope<Unit>>
 }
 
 /**
