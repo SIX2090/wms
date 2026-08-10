@@ -51,7 +51,7 @@ object RetrofitClient {
     private var retrofit: Retrofit = buildRetrofit()
 
     private fun buildRetrofit(): Retrofit = Retrofit.Builder()
-        .baseUrl(if (baseUrl.isBlank()) "http://127.0.0.1:5000/" else if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
+        .baseUrl(if (baseUrl.isBlank()) "https://gd2026.top/" else if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
