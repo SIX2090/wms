@@ -489,7 +489,7 @@ def register_mobile_routes(app):
             img_data = base64.b64encode(file.read()).decode('ascii')
             data_url = f'data:image/{ext};base64,{img_data}'
 
-            prompt = '''请识别这张图片中的物料。图片可能是物料的外包装、物品本身、物品表面标签或物品上的图形logo。
+            material_system_prompt = '''你是仓库管理系统里的AI拍照识物助手。用户会上传物料的外包装、物品本身、物品表面标签或物品上的图形logo。
 
 识别渠道（三条都要尽力）：
 1. 外包装文字：箱标、唛头、条码旁文字、包装印刷文字等。
@@ -503,13 +503,17 @@ def register_mobile_routes(app):
 4. 数量（如有）
 5. description：无论文字是否可读，都用一句短语描述外观特征（如"深沟球轴承 6204 金属 银色"、"红色塑料外壳继电器"），供无文字时的外观匹配使用。
 
-请在回答末尾追加 JSON 代码块，格式如下：
+请在回答末尾追加 JSON 代码块（用 ```json 包裹），格式如下：
 ```json
 {"code": "编码(无则空串)", "name": "名称(无则空串)", "spec": "规格(无则空串)", "quantity": 数量或null, "confidence": 0.8, "description": "外观描述(无则空串)"}
 ```
 如果完全无法识别，code/name/spec/description 留空，confidence 设为 0。'''
 
-            reply, extracted, error = _ai_call_llm_vision(prompt, [{'data_url': data_url}])
+            reply, extracted, error = _ai_call_llm_vision(
+                '请识别这张图片中的物料，并输出结构化 JSON。',
+                [{'data_url': data_url}],
+                system_prompt=material_system_prompt,
+            )
             if error:
                 return jsonify({'status': 'error', 'msg': error}), 500
 

@@ -10063,9 +10063,10 @@ def _ai_call_llm_chat(message):
         app.logger.warning('AI chat model unavailable, falling back to rules: %s', exc)
         return None
 
-def _ai_call_llm_vision(message, images, context=None):
+def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
     """调用视觉大模型识别图片，返回 (reply, extracted, error)。
     extracted 为结构化提取结果（dict 或 None），包含 document_type / items 等。
+    可传入自定义 system_prompt 覆盖默认单据提取提示（如拍照识物场景）。
     """
     if not _ai_llm_configured():
         return None, None, '请先启用大模型并保存 API Key'
@@ -10076,7 +10077,8 @@ def _ai_call_llm_vision(message, images, context=None):
 
     page_title = _ai_context_value(context, 'page_title')
     page_url = _ai_context_value(context, 'page_url')
-    system_prompt = (
+    if not system_prompt:
+        system_prompt = (
         '你是仓库管理系统里的AI视觉业务助手。用户会上传仓库系统截图、单据图片、物料照片、标签或异常现场图片。'
         '请结合图片和用户文字判断业务场景，优先识别：物料编码、单号、数量、状态、错误提示、页面位置、需要用户点击的系统入口。'
         '如果图片是系统页面截图，要指出当前页面可能是什么模块，并给下一步操作建议。'

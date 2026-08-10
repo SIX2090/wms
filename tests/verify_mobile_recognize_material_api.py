@@ -102,7 +102,8 @@ def _seed_material(code, name, spec="", stock=5, price=10):
 
 def _post_image(client, headers, extracted):
     """封装修复 captured 的视觉模型返回，POST 图片到识别端点。"""
-    app_module._ai_call_llm_vision = lambda prompt, images: ("识别完成", extracted, "")
+    app_module._ai_call_llm_vision = (
+        lambda message, images, context=None, system_prompt=None: ("识别完成", extracted, ""))
     app_module._ai_llm_configured = lambda: True
     app_module._ai_llm_vision_enabled = lambda: True
     data = {
