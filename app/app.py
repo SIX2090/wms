@@ -21222,6 +21222,10 @@ def _acquire_order_write_lock(model_cls, record_id, expected_status, eager_load=
     expected_status 可为单个字符串或字符串序列（如 ('pending', 'completed')），
     用于允许在多种状态间执行（例如 delete_in_order）。
 
+    eager_load 可为单个 LoaderOption 或 LoaderOption 列表，用于预加载关联
+    （如 selectinload(InOrder.items).selectinload(InOrderItem.material)），
+    消除循环内 N+1 查询。
+
     返回 (order, ok)：
     - ok=True：调用方继续在已加锁的事务中执行库存操作。
     - ok=False：单据已被删除、状态已被修改或锁获取失败；session 已 rollback，调用方应直接返回错误。
@@ -21230,15 +21234,22 @@ def _acquire_order_write_lock(model_cls, record_id, expected_status, eager_load=
         expected_set = set(expected_status)
     else:
         expected_set = {expected_status}
+    # 统一 eager_load 为列表，支持单个选项或列表
+    if eager_load is None:
+        eager_loads = []
+    elif isinstance(eager_load, (list, tuple)):
+        eager_loads = list(eager_load)
+    else:
+        eager_loads = [eager_load]
     try:
         if db.engine.dialect.name == 'sqlite':
             db.session.rollback()
             db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
-            order = db.session.get(model_cls, record_id)
+            order = db.session.get(model_cls, record_id, options=eager_loads) if eager_loads else db.session.get(model_cls, record_id)
         else:
             query = model_cls.query.with_for_update()
-            if eager_load is not None:
-                query = query.options(eager_load)
+            if eager_loads:
+                query = query.options(*eager_loads)
             order = query.get(record_id)
         if not order:
             db.session.rollback()

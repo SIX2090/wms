@@ -1294,12 +1294,16 @@ def register_in_order_routes(app):
     def complete_in_order(id):
         """Complete an inbound order and add stock."""
         from sqlalchemy.orm import selectinload
-        from app import (InOrder, PurchaseOrder, WechatShareConfig, _acquire_order_write_lock,
+        from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem,
+                         WechatShareConfig, _acquire_order_write_lock,
                          _check_in_order_anomalies, _wechat_share_order, add_stock, api_error,
                          get_default_warehouse, is_future_date, location_management_enabled,
                          log_operation, update_location_inventory, update_purchase_order_status,
                          validate_purchase_in_order_source)
-        order = InOrder.query.get_or_404(id)
+        # 预加载 items + material，消除 _check_in_order_anomalies 中的 N+1 查询
+        order = InOrder.query.options(
+            selectinload(InOrder.items).selectinload(InOrderItem.material)
+        ).get_or_404(id)
         if order.status != 'pending':
             return api_error('该入库单已提交，不能重复操作')
 
@@ -1329,8 +1333,13 @@ def register_in_order_routes(app):
                 })
 
         try:
-            # 加写锁并重新读取状态，避免多 worker 并发重复入库
-            locked, ok = _acquire_order_write_lock(InOrder, id, 'pending', selectinload(InOrder.items))
+            # 加写锁并重新读取状态，避免多 worker 并发重复入库。
+            # 预加载 items.material + items.source_purchase_order_item.purchase_order，
+            # 消除循环内逐条 lazy-load 导致的 N+1 查询（每条明细省 3 次查询）。
+            locked, ok = _acquire_order_write_lock(InOrder, id, 'pending', [
+                selectinload(InOrder.items).selectinload(InOrderItem.material),
+                selectinload(InOrder.items).selectinload(InOrderItem.source_purchase_order_item).selectinload(PurchaseOrderItem.purchase_order),
+            ])
             if not ok:
                 return api_error('该入库单已提交，不能重复操作')
             order = locked
@@ -1426,7 +1435,12 @@ def register_in_order_routes(app):
             # 并发编辑已完成入库单或同时反提交（revert_in_order 已加锁）时，
             # 库存调整可能重复执行或对 pending 单据做库存操作。
             # 加锁后重新读取状态并做仓库赋值，与 complete_in_order 对称。
-            locked, ok = _acquire_order_write_lock(InOrder, id, 'completed', selectinload(InOrder.items))
+            # 预加载 items.material + items.source_purchase_order_item.purchase_order，
+            # 消除循环内逐条 lazy-load 导致的 N+1 查询。
+            locked, ok = _acquire_order_write_lock(InOrder, id, 'completed', [
+                selectinload(InOrder.items).selectinload(InOrderItem.material),
+                selectinload(InOrder.items).selectinload(InOrderItem.source_purchase_order_item).selectinload(PurchaseOrderItem.purchase_order),
+            ])
             if not ok:
                 return api_error('该入库单状态已变更，不能修改已入库明细')
             order = locked
@@ -1616,7 +1630,8 @@ def register_in_order_routes(app):
     @login_required
     def delete_in_order(id):
         from sqlalchemy.orm import selectinload
-        from app import (InOrder, PurchaseOrder, _acquire_order_write_lock,
+        from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem,
+                         _acquire_order_write_lock,
                          _source_has_active_push, api_error, log_operation,
                          round_to_2_decimals, update_purchase_order_status)
         order = InOrder.query.get_or_404(id)
@@ -1630,7 +1645,10 @@ def register_in_order_routes(app):
 
         try:
             # 重新锁定并校验草稿状态，防止并发完成后仍被物理删除。
-            locked, ok = _acquire_order_write_lock(InOrder, id, 'pending', selectinload(InOrder.items))
+            # 预加载 items.source_purchase_order_item.purchase_order，消除 N+1 查询。
+            locked, ok = _acquire_order_write_lock(InOrder, id, 'pending', [
+                selectinload(InOrder.items).selectinload(InOrderItem.source_purchase_order_item).selectinload(PurchaseOrderItem.purchase_order),
+            ])
             if not ok:
                 return jsonify({'status': 'error', 'msg': '该入库单状态已变更；已完成单请先反提交后再删除'}), 409
             order = locked
@@ -1665,7 +1683,8 @@ def register_in_order_routes(app):
     @login_required
     def revert_in_order(id):
         from sqlalchemy.orm import selectinload
-        from app import (InOrder, PurchaseOrder, _acquire_order_write_lock,
+        from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem,
+                         _acquire_order_write_lock,
                          _source_has_active_push, allow_negative_stock, api_error,
                          deduct_stock, is_stock_sufficient, location_management_enabled,
                          log_operation, normalize_stock_quantity, recalculate_order_total,
@@ -1686,8 +1705,13 @@ def register_in_order_routes(app):
                 })
 
         try:
-            # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复回退
-            locked, ok = _acquire_order_write_lock(InOrder, id, 'completed', selectinload(InOrder.items))
+            # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复回退。
+            # 预加载 items.material + items.source_purchase_order_item.purchase_order，
+            # 消除循环内逐条 lazy-load 导致的 N+1 查询。
+            locked, ok = _acquire_order_write_lock(InOrder, id, 'completed', [
+                selectinload(InOrder.items).selectinload(InOrderItem.material),
+                selectinload(InOrder.items).selectinload(InOrderItem.source_purchase_order_item).selectinload(PurchaseOrderItem.purchase_order),
+            ])
             if not ok:
                 return api_error('该入库单已反提交，不能重复操作')
             order = locked
@@ -1894,7 +1918,7 @@ def register_in_order_routes(app):
     @login_required
     def batch_complete_in_order():
         from sqlalchemy.orm import joinedload, selectinload
-        from app import (InOrder, WechatShareConfig, _acquire_order_write_lock,
+        from app import (InOrder, InOrderItem, WechatShareConfig, _acquire_order_write_lock,
                          _wechat_share_order, add_stock, api_error, get_default_warehouse,
                          location_management_enabled, update_location_inventory)
         payload = request.get_json(silent=True) or {}
@@ -1926,9 +1950,11 @@ def register_in_order_routes(app):
             if not order.items:
                 skipped.append(f'{order.order_no}(无明细)')
                 continue
-            # 重新加锁并校验状态，避免并发批量/单据完成请求重复审核同一张单据
+            # 重新加锁并校验状态，避免并发批量/单据完成请求重复审核同一张单据。
+            # 预加载 items.material，消除循环内逐条 lazy-load 导致的 N+1 查询。
             locked, lock_ok = _acquire_order_write_lock(
-                InOrder, order_id, 'pending', selectinload(InOrder.items)
+                InOrder, order_id, 'pending',
+                selectinload(InOrder.items).selectinload(InOrderItem.material)
             )
             if not lock_ok or locked is None:
                 skipped.append(f'{order.order_no}(状态已变更)')
