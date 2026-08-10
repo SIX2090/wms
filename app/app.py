@@ -1038,6 +1038,14 @@ def auto_migrate_database():
                 cursor.execute("ALTER TABLE production_requisition ADD COLUMN picker VARCHAR(50)")
                 modified = True
 
+        # api_token.last_used_at：记录 token 最近使用时间，用于滑动过期与清理长期未使用 Token
+        if _table_exists('api_token'):
+            cursor.execute("PRAGMA table_info(api_token)")
+            _api_token_cols = [row[1] for row in cursor.fetchall()]
+            if 'last_used_at' not in _api_token_cols:
+                cursor.execute("ALTER TABLE api_token ADD COLUMN last_used_at DATETIME")
+                modified = True
+
         if modified:
             conn.commit()
     except Exception as e:
@@ -2833,6 +2841,7 @@ class ApiToken(db.Model):
     expires_at = db.Column(db.DateTime, nullable=False)
     revoked = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.now)
+    last_used_at = db.Column(db.DateTime, nullable=True)
 
     user = db.relationship('User', backref='api_tokens')
 
@@ -5424,6 +5433,14 @@ def get_bearer_user():
     token = ApiToken.query.filter_by(token=token_value, revoked=False).first()
     if not token or token.expires_at < datetime.now():
         return None
+    # 滑动过期：每次有效使用都刷新最近使用时间，并将过期时间顺延至 7 天，
+    # 使长期活跃的 token 不会因静默过期而失效（静置 7 天才会过期）。
+    try:
+        token.last_used_at = datetime.now()
+        token.expires_at = datetime.now() + timedelta(days=7)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
     return token.user if token.user and token.user.is_active else None
 
 def api_required(f):
