@@ -120,10 +120,10 @@ fun MaterialArchiveSearchScreen(
                     focusedBorderColor = Primary,
                     focusedLabelColor = Primary
                 ),
-                keyboardOptions = androidx.compose.ui.text.input.KeyboardOptions(
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     imeAction = androidx.compose.ui.text.input.ImeAction.Search
                 ),
-                keyboardActions = androidx.compose.ui.text.input.KeyboardActions(
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
                     onSearch = { viewModel.search() }
                 )
             )
