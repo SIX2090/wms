@@ -464,25 +464,25 @@ def register_mobile_routes(app):
         from app import Material, db, joinedload, jsonify, request
         from app import _ai_call_llm_vision, _ai_llm_configured, _ai_llm_vision_enabled
         if not _ai_llm_configured() or not _ai_llm_vision_enabled():
-            return jsonify({'status': 'error', 'msg': '请先在系统设置中启用大模型和图片识别'}), 400
+            return jsonify({'status': 'error', 'success': False, 'msg': '请先在系统设置中启用大模型和图片识别'}), 400
 
         if 'image' not in request.files:
-            return jsonify({'status': 'error', 'msg': '请上传图片'}), 400
+            return jsonify({'status': 'error', 'success': False, 'msg': '请上传图片'}), 400
 
         file = request.files['image']
         if not file.filename:
-            return jsonify({'status': 'error', 'msg': '请选择图片文件'}), 400
+            return jsonify({'status': 'error', 'success': False, 'msg': '请选择图片文件'}), 400
 
         allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
         ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
         if ext not in allowed_ext:
-            return jsonify({'status': 'error', 'msg': '不支持的图片格式'}), 400
+            return jsonify({'status': 'error', 'success': False, 'msg': '不支持的图片格式'}), 400
 
         file.seek(0, 2)
         file_size = file.tell()
         file.seek(0)
         if file_size > 10 * 1024 * 1024:
-            return jsonify({'status': 'error', 'msg': '图片大小不能超过10MB'}), 400
+            return jsonify({'status': 'error', 'success': False, 'msg': '图片大小不能超过10MB'}), 400
 
         try:
             import base64
@@ -515,7 +515,7 @@ def register_mobile_routes(app):
                 system_prompt=material_system_prompt,
             )
             if error:
-                return jsonify({'status': 'error', 'msg': error}), 500
+                return jsonify({'status': 'error', 'success': False, 'msg': error}), 500
 
             matches = []
             if extracted:
@@ -552,6 +552,7 @@ def register_mobile_routes(app):
 
             return jsonify({
                 'status': 'success',
+                'success': True,
                 'reply': reply,
                 'extracted': extracted,
                 'matches': [mobile_material_payload(m) for m in matches],
@@ -559,7 +560,7 @@ def register_mobile_routes(app):
             })
         except Exception as e:
             current_app.logger.error(f'拍照识物失败: {e}')
-            return jsonify({'status': 'error', 'msg': '识别失败，请稍后重试'}), 500
+            return jsonify({'status': 'error', 'success': False, 'msg': '识别失败，请稍后重试'}), 500
 
     # pydantic:reason=文件上传（multipart/form-data）路由，非 JSON Body，pydantic 输入模型不适用；音频格式/大小在校验逻辑内手工校验
     @app.route('/mobile/api/asr', methods=['POST'])
@@ -579,26 +580,27 @@ def register_mobile_routes(app):
         if not secret_id or not secret_key:
             return jsonify({
                 'status': 'error',
+                'success': False,
                 'msg': '未配置腾讯云 ASR 密钥（TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY）'
             }), 400
 
         if 'audio' not in request.files:
-            return jsonify({'status': 'error', 'msg': '请上传音频文件'}), 400
+            return jsonify({'status': 'error', 'success': False, 'msg': '请上传音频文件'}), 400
 
         file = request.files['audio']
         if not file.filename:
-            return jsonify({'status': 'error', 'msg': '请选择音频文件'}), 400
+            return jsonify({'status': 'error', 'success': False, 'msg': '请选择音频文件'}), 400
 
         allowed_ext = {'wav', 'mp3', 'm4a', 'aac', 'pcm', 'opus', 'spx', 'silk', 'amr', 'flac', 'ogg', 'wma', 'caf'}
         ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
         if ext not in allowed_ext:
-            return jsonify({'status': 'error', 'msg': '不支持的音频格式'}), 400
+            return jsonify({'status': 'error', 'success': False, 'msg': '不支持的音频格式'}), 400
 
         file.seek(0, 2)
         file_size = file.tell()
         file.seek(0)
         if file_size > 10 * 1024 * 1024:
-            return jsonify({'status': 'error', 'msg': '音频大小不能超过10MB'}), 400
+            return jsonify({'status': 'error', 'success': False, 'msg': '音频大小不能超过10MB'}), 400
 
         try:
             from tencent_asr import TencentAsrError, sentence_recognition
@@ -611,13 +613,13 @@ def register_mobile_routes(app):
                 voice_format=ext,
                 eng_service_type='16k_zh',
             )
-            return jsonify({'status': 'success', 'text': text})
+            return jsonify({'status': 'success', 'success': True, 'text': text})
         except TencentAsrError as e:
             current_app.logger.error(f'腾讯云 ASR 失败: {e}')
-            return jsonify({'status': 'error', 'msg': str(e)}), 502
+            return jsonify({'status': 'error', 'success': False, 'msg': str(e)}), 502
         except Exception as e:
             current_app.logger.error(f'语音识别失败: {e}')
-            return jsonify({'status': 'error', 'msg': '语音识别失败，请稍后重试'}), 500
+            return jsonify({'status': 'error', 'success': False, 'msg': '语音识别失败，请稍后重试'}), 500
 
     # ───────────────────────── 物料档案（多图） ─────────────────────────
     # 移动端物料档案：每个物料最多 MAX_MATERIAL_IMAGES 张图片，存于
@@ -678,6 +680,7 @@ def register_mobile_routes(app):
         materials = query.order_by(Material.code.asc()).limit(50).all()
         return jsonify({
             'status': 'success',
+            'success': True,
             'data': [_archive_material_payload(m) for m in materials],
         })
 
@@ -689,7 +692,7 @@ def register_mobile_routes(app):
         from app import Material, MaterialImage, db
         material = db.session.get(Material, id)
         if not material:
-            return jsonify({'status': 'error', 'msg': '物料不存在'}), 404
+            return jsonify({'status': 'error', 'success': False, 'msg': '物料不存在'}), 404
         images = (
             MaterialImage.query.filter_by(material_id=id)
             .order_by(MaterialImage.sort_order.asc(), MaterialImage.id.asc())
@@ -697,6 +700,7 @@ def register_mobile_routes(app):
         )
         return jsonify({
             'status': 'success',
+            'success': True,
             'data': {
                 'material': _archive_material_payload(material),
                 'images': [_archive_image_payload(img) for img in images],
@@ -712,22 +716,23 @@ def register_mobile_routes(app):
         from app import Material, MaterialImage, db, save_upload_image
         material = db.session.get(Material, id)
         if not material:
-            return jsonify({'status': 'error', 'msg': '物料不存在'}), 404
+            return jsonify({'status': 'error', 'success': False, 'msg': '物料不存在'}), 404
 
         current_count = MaterialImage.query.filter_by(material_id=id).count()
         if current_count >= MAX_MATERIAL_IMAGES:
             return jsonify({
                 'status': 'error',
+                'success': False,
                 'msg': f'每个物料最多上传 {MAX_MATERIAL_IMAGES} 张图片',
             }), 400
 
         file = request.files.get('image')
         if not file or not file.filename:
-            return jsonify({'status': 'error', 'msg': '请选择要上传的图片'}), 400
+            return jsonify({'status': 'error', 'success': False, 'msg': '请选择要上传的图片'}), 400
 
         image_path, err = save_upload_image(file, subfolder='material_images')
         if err:
-            return jsonify({'status': 'error', 'msg': err}), 400
+            return jsonify({'status': 'error', 'success': False, 'msg': err}), 400
 
         img = MaterialImage(material_id=id, image=image_path, sort_order=current_count)
         db.session.add(img)
@@ -738,9 +743,9 @@ def register_mobile_routes(app):
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'保存物料档案图片失败: {e}')
-            return jsonify({'status': 'error', 'msg': '保存图片失败'}), 500
+            return jsonify({'status': 'error', 'success': False, 'msg': '保存图片失败'}), 500
 
-        return jsonify({'status': 'success', 'data': _archive_image_payload(img)})
+        return jsonify({'status': 'success', 'success': True, 'data': _archive_image_payload(img)})
 
     # pydantic:reason=DELETE 无请求体，pydantic 输入模型不适用
     @app.route('/mobile/api/material_archive/images/<int:image_id>', methods=['DELETE'])
@@ -751,7 +756,7 @@ def register_mobile_routes(app):
         from app import MaterialImage, db
         img = db.session.get(MaterialImage, image_id)
         if not img:
-            return jsonify({'status': 'error', 'msg': '图片不存在'}), 404
+            return jsonify({'status': 'error', 'success': False, 'msg': '图片不存在'}), 404
         material = img.material
         db.session.delete(img)
         try:
@@ -761,5 +766,5 @@ def register_mobile_routes(app):
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'删除物料档案图片失败: {e}')
-            return jsonify({'status': 'error', 'msg': '删除图片失败'}), 500
-        return jsonify({'status': 'success', 'msg': '图片已删除'})
+            return jsonify({'status': 'error', 'success': False, 'msg': '删除图片失败'}), 500
+        return jsonify({'status': 'success', 'success': True, 'msg': '图片已删除'})
