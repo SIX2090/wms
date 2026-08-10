@@ -856,6 +856,24 @@ def auto_migrate_database():
                                AND ({_header}.contract_id IS NOT NULL OR {_header}.contract_no IS NOT NULL))
             """)
 
+        # 子表外键索引补建：order.items 关系加载、_check_in_order_anomalies
+        # 的 material_id IN(...) 查询、StockTransaction/LocationInventory 的
+        # material_id 查询都依赖这些索引。无索引时全表扫描，入库单明细越多越慢。
+        for _idx_sql in (
+            "CREATE INDEX IF NOT EXISTS idx_in_order_item_in_order_id ON in_order_item(in_order_id)",
+            "CREATE INDEX IF NOT EXISTS idx_in_order_item_material_id ON in_order_item(material_id)",
+            "CREATE INDEX IF NOT EXISTS idx_out_order_item_out_order_id ON out_order_item(out_order_id)",
+            "CREATE INDEX IF NOT EXISTS idx_out_order_item_material_id ON out_order_item(material_id)",
+            "CREATE INDEX IF NOT EXISTS idx_stock_transaction_material_id ON stock_transaction(material_id)",
+            "CREATE INDEX IF NOT EXISTS idx_stock_transaction_ref ON stock_transaction(reference_type, reference_id)",
+            "CREATE INDEX IF NOT EXISTS idx_location_inventory_material_id ON location_inventory(material_id)",
+            "CREATE INDEX IF NOT EXISTS idx_location_inventory_loc ON location_inventory(material_id, location)",
+        ):
+            try:
+                cursor.execute(_idx_sql)
+            except Exception:
+                pass  # 表可能尚未创建，跳过
+
         # Generic inbound-to-outbound push trace. One row represents one
         # source line allocation and remains as audit evidence after release.
         cursor.execute("""
@@ -21223,23 +21241,30 @@ def _check_in_order_anomalies(order):
     
     # 3. 重复单据检测：同一天同物料同供应商
     if order.supplier_id and order.date == today:
-        today_orders = InOrder.query.filter(
-            InOrder.date == today,
-            InOrder.supplier_id == order.supplier_id,
-            InOrder.id != order.id
-        ).all()
-        
+        today_orders = (
+            InOrder.query
+            .options(selectinload(InOrder.items))
+            .filter(
+                InOrder.date == today,
+                InOrder.supplier_id == order.supplier_id,
+                InOrder.id != order.id
+            )
+            .all()
+        )
+
+        order_material_ids = {oi.material_id for oi in order.items if oi.material_id}
         for to in today_orders:
             for ti in to.items:
-                for oi in order.items:
-                    if ti.material_id == oi.material_id:
-                        material_name = oi.material.name or oi.material.code
-                        anomalies.append({
-                            'type': 'duplicate_order',
-                            'material': material_name,
-                            'existing_order': to.order_no,
-                            'msg': f'物料 {material_name} 今天已在单据 {to.order_no} 中入库，请确认是否为重复操作'
-                        })
+                if ti.material_id in order_material_ids:
+                    # order.items 的 material 已在外层 selectinload 预加载
+                    oi = next((x for x in order.items if x.material_id == ti.material_id), None)
+                    material_name = (oi.material.name if oi and oi.material else None) or (oi.material.code if oi and oi.material else '') or str(ti.material_id)
+                    anomalies.append({
+                        'type': 'duplicate_order',
+                        'material': material_name,
+                        'existing_order': to.order_no,
+                        'msg': f'物料 {material_name} 今天已在单据 {to.order_no} 中入库，请确认是否为重复操作'
+                    })
     
     return anomalies
 
