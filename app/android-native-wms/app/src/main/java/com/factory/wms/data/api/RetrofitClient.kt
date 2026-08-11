@@ -10,7 +10,14 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
 
+    // 可变状态并发保护：全部 @Volatile，setBaseUrl 在锁内"先构建后发布"，
+    // 多线程下 apiService 不会读到 baseUrl/retrofit 半更新的中间态。
+    private val lock = Any()
+
+    @Volatile
     private var baseUrl: String = ""
+
+    @Volatile
     private var authToken: String? = null
 
     var onUnauthorized: (() -> Unit)? = null
@@ -48,20 +55,31 @@ object RetrofitClient {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    private var retrofit: Retrofit = buildRetrofit()
+    @Volatile
+    private var retrofit: Retrofit = buildRetrofit("")
 
-    private fun buildRetrofit(): Retrofit = Retrofit.Builder()
-        .baseUrl(if (baseUrl.isBlank()) "https://gd2026.top/" else if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
+    private fun buildRetrofit(url: String): Retrofit = Retrofit.Builder()
+        // baseUrl 未配置时用不可达占位地址（127.0.0.1:9 discard 端口）：
+        // apiService getter 会在 baseUrl 为空时先抛错，该占位永远不会真正收到请求
+        // （更不会携带 Authorization token）。绝不静默 fallback 到任何真实域名，
+        // 避免 baseUrl 未配置时 token 被发往非预期服务器。
+        .baseUrl(if (url.isBlank()) "http://127.0.0.1:9/" else if (url.endsWith("/")) url else "$url/")
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
 
     val apiService: WmsApiService
-        get() = retrofit.create(WmsApiService::class.java)
+        get() {
+            check(baseUrl.isNotBlank()) { "服务器地址未配置，请先登录并填写服务器地址" }
+            return retrofit.create(WmsApiService::class.java)
+        }
 
     fun setBaseUrl(url: String) {
-        baseUrl = url
-        retrofit = buildRetrofit()
+        synchronized(lock) {
+            // 先构建新实例再发布引用，避免读到"新 baseUrl + 旧 retrofit"中间态
+            retrofit = buildRetrofit(url)
+            baseUrl = url
+        }
     }
 
     fun setToken(token: String?) {
