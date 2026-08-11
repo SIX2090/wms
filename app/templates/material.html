@@ -144,7 +144,7 @@
                     <td data-column-key="remark" title="{{ mat.remark or '' }}">{{ (mat.remark[:30] + '...') if mat.remark and mat.remark|length > 30 else (mat.remark or '-') }}</td>
                     <td data-column-key="image">
                         {% if mat.image %}
-                        <img src="{{ url_for('static', filename=mat.image) }}" style="width: 40px; height: 40px; object-fit: cover;" class="img-thumbnail">
+                        <img src="{{ url_for('static', filename=mat.image) }}" style="width: 40px; height: 40px; object-fit: cover; cursor: zoom-in;" class="img-thumbnail" title="点击放大" onclick="previewMaterialImage(this.src)">
                         {% else %}
                         <button type="button" class="btn btn-sm btn-outline-success" onclick="findMaterialImage({{ mat.id }})" title="网上找图">
                             <i class="bi bi-image"></i>
@@ -248,6 +248,20 @@
                 </div>
                 <div id="materialImageStatus" class="text-muted py-3">正在搜索候选图片...</div>
                 <div id="materialImageGrid" class="material-image-grid"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="imagePreviewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title mb-0">物料图片</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="imagePreviewImg" class="img-fluid" alt="物料图片大图" style="max-height: 75vh;">
             </div>
         </div>
     </div>
@@ -1338,6 +1352,15 @@ function toolbarPrint() {
 function toolbarFindImage() {
     var id = getSelectedSingleId();
     if (id) findMaterialImage(id);
+}
+
+// 列表缩略图点击放大预览
+function previewMaterialImage(src) {
+    if (!src) return;
+    document.getElementById('imagePreviewImg').src = src;
+    var modalEl = document.getElementById('imagePreviewModal');
+    var modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+    modal.show();
 }
 
 function toolbarDelete() {
