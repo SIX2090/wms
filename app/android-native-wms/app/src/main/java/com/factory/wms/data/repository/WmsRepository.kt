@@ -278,8 +278,7 @@ class WmsRepository(private val context: Context) {
             val response = api.submitOpeningStock(newRequestId(), request)
             val result = handleResponse<SubmitResult>(response)
             result.fold(
-                onSuccess = { submitResult ->
-                    val msg = submitResult?.let { "期初库存已保存" } ?: "期初库存已保存"
+                onSuccess = {
                     request.lines.forEachIndexed { index, line ->
                         operationLogDao.insert(
                             OperationLogEntity(
@@ -290,7 +289,7 @@ class WmsRepository(private val context: Context) {
                             )
                         )
                     }
-                    Result.success(msg)
+                    Result.success("期初库存已保存")
                 },
                 onFailure = { e ->
                     Result.failure(e)
