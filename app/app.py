@@ -20337,6 +20337,60 @@ def _wechat_share_safe_filename(order_no):
     base = re.sub(r'[^0-9A-Za-z\u4e00-\u9fff_-]+', '_', _share_pdf_text(order_no, 'document')).strip('_')
     return base or 'document'
 
+# BUG-2026-08-11-013：分享图片按 30 天保留期自动清理。
+# 图片每天生成且永久累积，output/wechat_share 目录会无限膨胀；
+# 仅清理符合分享命名规则（YYYYMMDD_HHMMSS_*.png）且 mtime 超过保留期的文件，
+# 其它文件一律不动；被删文件对应的日志记录同步清空 image_path/image_size，
+# 避免列表页出现必然 404 的下载链接。
+_WECHAT_SHARE_IMAGE_RETENTION_DAYS = 30
+_WECHAT_SHARE_IMAGE_NAME_RE = re.compile(r'^\d{8}_\d{6}_.+\.png$')
+# 每日清理守卫：scheduler 每分钟触发，同一进程同一天只清理一次
+_WECHAT_SHARE_CLEANUP_STATE = {'last_run_date': None}
+
+
+def _wechat_share_cleanup_old_images(retention_days=None):
+    """清理超过保留期的分享图片，返回删除文件数。"""
+    days = retention_days if retention_days is not None else _WECHAT_SHARE_IMAGE_RETENTION_DAYS
+    folder = _wechat_share_output_dir()
+    cutoff = datetime.now().timestamp() - days * 86400
+    deleted_paths = []
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return 0
+    for name in names:
+        if not _WECHAT_SHARE_IMAGE_NAME_RE.match(name):
+            continue
+        path = os.path.join(folder, name)
+        try:
+            if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                os.remove(path)
+                deleted_paths.append(path)
+        except OSError:
+            continue
+    if deleted_paths:
+        logs = WechatShareLog.query.filter(WechatShareLog.image_path.in_(deleted_paths)).all()
+        for log in logs:
+            log.image_path = None
+            log.image_size = None
+        db.session.commit()
+        app.logger.info('微信分享图片清理：删除 %d 张超过 %d 天的图片', len(deleted_paths), days)
+    return len(deleted_paths)
+
+
+def _wechat_share_cleanup_old_images_daily():
+    """每日最多执行一次的图片清理（供每分钟 scheduler 调用）。"""
+    today = date.today()
+    if _WECHAT_SHARE_CLEANUP_STATE['last_run_date'] == today:
+        return 0
+    _WECHAT_SHARE_CLEANUP_STATE['last_run_date'] = today
+    try:
+        return _wechat_share_cleanup_old_images()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('微信分享图片每日清理失败')
+        return 0
+
 def _wechat_share_today_in_orders():
     return InOrder.query.options(
         joinedload(InOrder.supplier),
@@ -20624,6 +20678,8 @@ def run_due_wechat_share_jobs():
             return run_due_wechat_share_jobs()
 
     now_text = datetime.now().strftime('%H:%M')
+    # BUG-2026-08-11-013：借助每分钟定时入口做图片 30 天保留清理（每日一次）
+    _wechat_share_cleanup_old_images_daily()
     configs = WechatShareConfig.query.filter_by(enabled=True).all()
     for config in configs:
         if config.share_time != now_text:
