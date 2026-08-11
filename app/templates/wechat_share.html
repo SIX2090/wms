@@ -90,6 +90,11 @@
                         <div class="col-12">
                             <label class="form-label">本机微信发送助手地址</label>
                             <input type="text" class="form-control" name="helper_url" value="{{ share_config.helper_url or 'http://127.0.0.1:8765/send' }}" placeholder="http://127.0.0.1:8765/send">
+                            <div class="form-text">
+                                发送模式有两种，可同时使用互不影响：① <strong>直推</strong>——生成图片后 WMS 立即推送到助手并粘贴到微信窗口；
+                                ② <strong>轮询</strong>——助手以环境变量 <code>WMS_WECHAT_HELPER_POLL=1</code> 启动后，会定时自动拉取「待发送」记录。
+                                仅允许本机回环地址（127.0.0.1 / localhost）。
+                            </div>
                         </div>
                         <div class="col-12 d-flex flex-wrap gap-4">
                             <div class="form-check">
@@ -107,6 +112,13 @@
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" name="auto_send" value="1" id="autoSend" {% if share_config.auto_send %}checked{% endif %}>
                                 <label class="form-check-label" for="autoSend">自动点击发送</label>
+                            </div>
+                        </div>
+                        <div class="col-12" id="autoSendRiskHint" {% if not share_config.auto_send %}style="display:none"{% endif %}>
+                            <div class="alert alert-warning py-2 mb-0 small">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                <strong>自动点击发送已开启：</strong>助手粘贴图片后会直接点击微信「发送」按钮，全程无人工确认，消息发出后无法撤回。
+                                请确认微信主窗口停留在目标聊天窗口；建议先关闭本开关，人工核对几条发送结果无误后再开启。
                             </div>
                         </div>
                     </div>
@@ -161,6 +173,19 @@
                     <span class="text-muted">待发送/失败</span>
                     <span class="fw-semibold">{{ log_counts.pending }} / {{ log_counts.failed }} 条</span>
                 </div>
+                {% if log_counts.pending > 0 %}
+                <div class="alert alert-info py-2 mt-2 mb-0 small">
+                    <i class="bi bi-info-circle"></i>
+                    {{ log_counts.pending }} 条「待发送」：图片已生成但尚未进入微信。消化方式：
+                    ① 助手以轮询模式启动（环境变量 <code>WMS_WECHAT_HELPER_POLL=1</code>）后自动拉取；
+                    ② 在下方分享记录中逐条点击「重发」直推。
+                    {% if helper_health.online and not helper_health.poll_enabled %}
+                    <br><i class="bi bi-exclamation-circle"></i> 当前助手在线但未开启轮询，待发送记录不会被自动消费。
+                    {% elif not helper_health.online %}
+                    <br><i class="bi bi-exclamation-circle"></i> 当前助手不在线，请先启动本机微信发送助手。
+                    {% endif %}
+                </div>
+                {% endif %}
                 {% if latest_log %}
                 <div class="border-bottom py-2">
                     <div class="text-muted mb-1">最近结果</div>
@@ -310,6 +335,10 @@
 
 {% block extra_js %}
 <script>
+document.getElementById('autoSend').addEventListener('change', function () {
+    document.getElementById('autoSendRiskHint').style.display = this.checked ? '' : 'none';
+});
+
 function saveWechatShareConfig() {
     const form = document.getElementById('wechatShareForm');
     const formData = new FormData(form);
