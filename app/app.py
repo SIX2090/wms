@@ -1019,6 +1019,22 @@ def auto_migrate_database():
                     pass
                 modified = True
 
+        # BUG-2026-08-11-021：扫码盘点单补仓库列，存量数据回填默认仓库名
+        if _table_exists('inventory_check_scan'):
+            cursor.execute("PRAGMA table_info(inventory_check_scan)")
+            ics_cols = [row[1] for row in cursor.fetchall()]
+            if ics_cols and 'warehouse' not in ics_cols:
+                cursor.execute("ALTER TABLE inventory_check_scan ADD COLUMN warehouse VARCHAR(100)")
+                # 存量数据回填默认仓库名
+                try:
+                    cursor.execute("SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' LIMIT 1")
+                    row = cursor.fetchone()
+                    if row:
+                        cursor.execute("UPDATE inventory_check_scan SET warehouse = ? WHERE warehouse IS NULL OR warehouse = ''", (row[0],))
+                except Exception:
+                    pass
+                modified = True
+
         # BUG-2026-08-05-008：工单领料单补仓库列，存量数据回填默认仓库名
         if _table_exists('production_requisition'):
             cursor.execute("PRAGMA table_info(production_requisition)")
@@ -4251,6 +4267,7 @@ class InventoryCheckScan(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     check_no = db.Column(db.String(50), unique=True, nullable=False)  # Order number
     date = db.Column(db.Date, default=date.today)  # Date
+    warehouse = db.Column(db.String(100))  # Warehouse name (required by route validation)
     remark = db.Column(db.String(200))  # Remark
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID

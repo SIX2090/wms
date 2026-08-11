@@ -409,17 +409,27 @@ def register_native_api_routes(app):
         from datetime import date
         from app import (InventoryCheckScan, InventoryCheckScanItem, Material,
                          _create_adjustment_drafts_from_check_scan, api_json_error,
-                         api_json_success, generate_order_no, parse_float_value,
-                         round_to_2_decimals)
+                         api_json_success, generate_order_no, get_default_warehouse,
+                         parse_float_value, round_to_2_decimals)
         payload = request.get_json(silent=True) or {}
         lines = payload.get('lines') if isinstance(payload, dict) else None
         if not isinstance(lines, list) or not lines:
             return api_json_error('盘点明细不能为空')
 
+        # BUG-2026-08-11-021：扫码盘点仓库必填，未填写时自动带入默认仓库
+        warehouse = (payload.get('warehouse') or payload.get('warehouse_code') or '').strip()
+        if not warehouse:
+            default_wh = get_default_warehouse()
+            if default_wh:
+                warehouse = default_wh.name
+        if not warehouse:
+            return api_json_error('请选择盘点仓库', 400)
+
         try:
             check = InventoryCheckScan(
                 check_no=generate_order_no('CS'),
                 date=date.today(),
+                warehouse=warehouse,
                 remark=f"Android盘点：{payload.get('mode') or 'all'}",
                 status='completed',
                 operator_id=user.id,

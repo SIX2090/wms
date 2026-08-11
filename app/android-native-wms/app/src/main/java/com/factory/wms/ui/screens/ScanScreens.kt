@@ -606,9 +606,16 @@ fun StocktakeScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showSubmitDialog by remember { mutableStateOf(false) }
     var showScannerDialog by remember { mutableStateOf(false) }
+    var showWarehouseDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(Unit) {
+        if (uiState.warehouses.isEmpty() && !uiState.warehousesLoading) {
+            viewModel.loadWarehouses()
+        }
+    }
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
@@ -667,8 +674,31 @@ fun StocktakeScreen(
         submitLabel = "提交盘点",
         submitColor = CardPurple,
         extraActionLabel = "识物盘点",
-        onExtraAction = onRecognize
+        onExtraAction = onRecognize,
+        header = {
+            WarehouseSelectorCard(
+                warehouse = uiState.selectedWarehouse,
+                accentColor = CardPurple,
+                onClick = { showWarehouseDialog = true },
+                label = "盘点仓库"
+            )
+        }
     )
+
+    if (showWarehouseDialog) {
+        WarehousePickerDialog(
+            warehouses = uiState.warehouses,
+            selected = uiState.selectedWarehouse,
+            loading = uiState.warehousesLoading,
+            onDismiss = { showWarehouseDialog = false },
+            onSelect = { warehouse ->
+                viewModel.selectWarehouse(warehouse)
+                showWarehouseDialog = false
+            },
+            onRetry = { viewModel.loadWarehouses() },
+            accentColor = CardPurple
+        )
+    }
 
     if (showSubmitDialog) {
         AlertDialog(
@@ -676,7 +706,13 @@ fun StocktakeScreen(
             shape = RoundedCornerShape(20.dp),
             title = { Text("确认盘点", fontWeight = FontWeight.SemiBold) },
             text = {
-                Text("共 ${uiState.scanLines.size} 种物料，确认提交盘点？")
+                val wh = uiState.selectedWarehouse
+                Text(
+                    if (wh != null)
+                        "盘点仓库：${wh.code} ${wh.name.orEmpty()}\n共 ${uiState.scanLines.size} 种物料，确认提交盘点？"
+                    else
+                        "尚未选择盘点仓库，请先选择仓库"
+                )
             },
             confirmButton = {
                 Button(
@@ -684,6 +720,7 @@ fun StocktakeScreen(
                         showSubmitDialog = false
                         viewModel.submitStocktake()
                     },
+                    enabled = uiState.selectedWarehouse != null,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CardPurple)
                 ) {
