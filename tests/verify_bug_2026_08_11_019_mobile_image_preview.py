@@ -40,3 +40,14 @@ def test_t3_preview_dialog_fit_and_tap_to_dismiss():
     source = _source()
     assert "ContentScale.Fit" in source
     assert "previewImageUrl = null" in source
+
+
+def test_t4_preview_dialog_supports_pinch_zoom():
+    """T4: 预览大图必须支持双指捏合缩放与拖动平移（graphicsLayer + detectTransformGestures）。"""
+    source = _source()
+    assert "detectTransformGestures" in source
+    assert "var scale by remember { mutableStateOf(1f) }" in source
+    assert "var offset by remember { mutableStateOf(Offset.Zero) }" in source
+    assert "graphicsLayer" in source
+    assert "scaleX = scale" in source
+    assert "scaleY = scale" in source
