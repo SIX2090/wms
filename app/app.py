@@ -20461,6 +20461,13 @@ def _wechat_share_helper_health_url(config):
         return helper_url.rsplit('/send', 1)[0].rstrip('/') + '/health'
     return helper_url.rstrip('/') + '/health'
 
+# BUG-2026-08-11-012：助手健康检查结果 30s 进程内缓存。
+# 分享页每次打开都同步 GET /health（timeout=1.5s），助手离线时每次页面加载
+# 都被卡住 1.5s；缓存后同一地址 30s 内直接命中，助手状态变化最多延迟 30s 可见。
+_WECHAT_SHARE_HEALTH_CACHE = {'url': '', 'at': None, 'health': None}
+_WECHAT_SHARE_HEALTH_CACHE_TTL_SECONDS = 30
+
+
 def _wechat_share_get_helper_health(config):
     health = {
         'configured': bool((config.helper_url or '').strip() or os.environ.get('WMS_WECHAT_HELPER_URL', '').strip()),
@@ -20474,25 +20481,39 @@ def _wechat_share_get_helper_health(config):
     }
     health_url = _wechat_share_helper_health_url(config)
     if not health_url:
+        # 地址未配置时同步清掉缓存，避免换配置后命中旧地址的结果
+        _WECHAT_SHARE_HEALTH_CACHE.update({'url': '', 'at': None, 'health': None})
         return health
+
+    cache = _WECHAT_SHARE_HEALTH_CACHE
+    now = datetime.now()
+    if (
+        cache['url'] == health_url
+        and cache['at'] is not None
+        and (now - cache['at']).total_seconds() < _WECHAT_SHARE_HEALTH_CACHE_TTL_SECONDS
+        and cache['health'] is not None
+    ):
+        return dict(cache['health'])
 
     try:
         import requests
         response = requests.get(health_url, timeout=1.5)
         if not response.ok:
             health['message'] = f'助手返回 HTTP {response.status_code}'
-            return health
-        payload = response.json()
-        health.update({
-            'online': payload.get('status') == 'ok',
-            'wechat_window_found': bool(payload.get('wechat_window_found')),
-            'poll_enabled': bool(payload.get('poll_enabled')),
-            'wms_base_url': payload.get('wms_base_url') or '',
-            'poll_interval': payload.get('poll_interval') or '',
-            'message': '助手在线' if payload.get('status') == 'ok' else (payload.get('msg') or '助手状态异常'),
-        })
+        else:
+            payload = response.json()
+            health.update({
+                'online': payload.get('status') == 'ok',
+                'wechat_window_found': bool(payload.get('wechat_window_found')),
+                'poll_enabled': bool(payload.get('poll_enabled')),
+                'wms_base_url': payload.get('wms_base_url') or '',
+                'poll_interval': payload.get('poll_interval') or '',
+                'message': '助手在线' if payload.get('status') == 'ok' else (payload.get('msg') or '助手状态异常'),
+            })
     except Exception as exc:
         health['message'] = f'助手不可用：{exc}'
+    health['checked_at'] = now
+    cache.update({'url': health_url, 'at': now, 'health': dict(health)})
     return health
 
 def _async_wechat_share_on_complete(app_ref, config_id, order_id, order_no=''):
