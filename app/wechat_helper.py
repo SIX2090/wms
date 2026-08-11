@@ -140,6 +140,21 @@ class INPUT(ctypes.Structure):
 
 user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 user32.SendInput.restype = wintypes.UINT
+user32.GetForegroundWindow.argtypes = []
+user32.GetForegroundWindow.restype = wintypes.HWND
+
+
+class _SendError(RuntimeError):
+    """带机器可读错误码的发送失败，供 WMS 主服务按 code 归类（替代脆弱的关键词匹配）。"""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+# 剪贴板 / 键盘输入 / 前台焦点是全局资源：ThreadingHTTPServer 每请求一线程，
+# 并发 /send 会互相抢焦点、串剪贴板导致发错图发错人，必须全局串行化。
+SEND_LOCK = threading.Lock()
 
 
 def _send_input(*inputs: INPUT) -> None:
@@ -327,13 +342,29 @@ def find_wechat_window() -> int | None:
 def activate_wechat() -> int:
     hwnd = find_wechat_window()
     if not hwnd:
-        raise RuntimeError("未找到已打开的微信主窗口，请先登录微信并把微信主窗口打开到桌面，助手不会自动启动微信")
+        raise _SendError(
+            "wechat_window_not_found",
+            "未找到已打开的微信主窗口，请先登录微信并把微信主窗口打开到桌面，助手不会自动启动微信",
+        )
 
     user32.ShowWindow(hwnd, SW_RESTORE)
     time.sleep(0.2)
     user32.SetForegroundWindow(hwnd)
     time.sleep(0.4)
     return hwnd
+
+
+def _ensure_foreground(hwnd: int) -> None:
+    """确认微信主窗口仍在前台，否则中止本次自动化。
+
+    锁屏、远程桌面断开、弹窗抢焦点时 SendInput 会把 Ctrl+V/回车打进别的窗口，
+    可能把入库单图片粘贴/发送到错误位置，必须在每个关键步骤前校验。
+    """
+    fg = int(user32.GetForegroundWindow() or 0)
+    if not fg:
+        raise _SendError("focus_lost", "无法获取前台窗口（可能已锁屏或会话断开），已中止发送")
+    if fg != hwnd and _window_pid(fg) != _window_pid(hwnd):
+        raise _SendError("focus_lost", "微信窗口不在前台（焦点被其他窗口抢走），已中止发送")
 
 
 def open_contact(receiver_search_key: str) -> None:
@@ -351,29 +382,59 @@ def open_contact(receiver_search_key: str) -> None:
 
 
 def paste_image_and_optionally_send(image_bytes: bytes, receiver_search_key: str, auto_send: bool) -> str:
-    set_clipboard_dib(image_bytes)
-    activate_wechat()
-    open_contact(receiver_search_key)
-    hotkey(VK_CONTROL, VK_V)
+    # 先校验接收人再碰剪贴板/微信窗口，失败时不产生任何 UI 副作用（便于安全重试）
+    receiver_search_key = (receiver_search_key or "").strip()
+    if not receiver_search_key:
+        raise _SendError("no_receiver", "receiver_search_key is empty")
+    try:
+        set_clipboard_dib(image_bytes)
+    except Exception as exc:
+        raise _SendError("clipboard_failed", f"写入剪贴板失败：{exc}") from exc
+    hwnd = activate_wechat()
+    _ensure_foreground(hwnd)
+    try:
+        open_contact(receiver_search_key)
+    except _SendError:
+        raise
+    except Exception as exc:
+        raise _SendError("open_contact_failed", f"打开微信会话失败：{exc}") from exc
+    _ensure_foreground(hwnd)
+    try:
+        hotkey(VK_CONTROL, VK_V)
+    except Exception as exc:
+        raise _SendError("paste_failed", f"粘贴图片失败：{exc}") from exc
     time.sleep(0.5)
     if auto_send:
-        press_key(VK_RETURN)
+        _ensure_foreground(hwnd)
+        try:
+            press_key(VK_RETURN)
+        except Exception as exc:
+            raise _SendError("send_key_failed", f"回车发送失败：{exc}") from exc
         return "sent"
     return "ready"
 
 
-def send_image_task(image_bytes: bytes, task: dict) -> tuple[str, str]:
-    receiver_search_key = (
-        task.get("receiver_search_key")
-        or task.get("receiver_name")
-        or task.get("receiver_wechat_id")
-        or ""
-    )
-    auto_send = bool(task.get("auto_send"))
-    status = paste_image_and_optionally_send(image_bytes, receiver_search_key, auto_send)
-    if status == "sent":
-        return "sent", f"已发送给：{receiver_search_key}"
-    return "ready", f"已粘贴到微信会话：{receiver_search_key}，请人工确认发送"
+def send_image_task(image_bytes: bytes, task: dict) -> tuple[str, str, str]:
+    """执行一次发送任务，返回 (status, code, message)。
+
+    status: sent / ready / error；code 为机器可读错误码（成功时为 ok）。
+    全程持有 SEND_LOCK，串行化剪贴板与键盘输入，避免并发任务互相串扰。
+    """
+    with SEND_LOCK:
+        receiver_search_key = (
+            task.get("receiver_search_key")
+            or task.get("receiver_name")
+            or task.get("receiver_wechat_id")
+            or ""
+        )
+        auto_send = bool(task.get("auto_send"))
+        try:
+            status = paste_image_and_optionally_send(image_bytes, receiver_search_key, auto_send)
+        except _SendError as exc:
+            return "error", exc.code, str(exc)
+        if status == "sent":
+            return "sent", "ok", f"已发送给：{receiver_search_key}"
+        return "ready", "ok", f"已粘贴到微信会话：{receiver_search_key}，请人工确认发送"
 
 
 def helper_headers() -> dict[str, str]:
@@ -405,10 +466,10 @@ def poll_once() -> int:
             image_url = absolute_wms_url(task.get("image_url") or f"/api/wechat_helper/task/{task_id}/image")
             image_response = requests.get(image_url, headers=helper_headers(), timeout=30)
             image_response.raise_for_status()
-            status, message = send_image_task(image_response.content, task)
-            requests.post(report_url, headers=helper_headers(), json={"status": status, "msg": message}, timeout=20).raise_for_status()
+            status, code, message = send_image_task(image_response.content, task)
+            requests.post(report_url, headers=helper_headers(), json={"status": status, "code": code, "msg": message}, timeout=20).raise_for_status()
             processed += 1
-            logger.info("[poll] task %s: %s %s", task_id, status, message)
+            logger.info("[poll] task %s: %s(%s) %s", task_id, status, code, message)
         except Exception as exc:
             message = f"本机微信助手发送失败：{exc}"
             try:
@@ -536,11 +597,11 @@ class Handler(BaseHTTPRequestHandler):
                 "receiver_wechat_id": fields.get("receiver_wechat_id") or "",
                 "auto_send": str(fields.get("auto_send") or "0").lower() in {"1", "true", "yes", "on"},
             }
-            status, message = send_image_task(image_bytes, task)
-            self._json(200, {"status": status, "msg": message})
+            status, code, message = send_image_task(image_bytes, task)
+            self._json(200, {"status": status, "code": code, "msg": message})
         except Exception as exc:
             traceback.print_exc()
-            self._json(500, {"status": "error", "msg": str(exc)})
+            self._json(500, {"status": "error", "code": "send_failed", "msg": str(exc)})
 
     def log_message(self, fmt: str, *args) -> None:
         sys.stdout.write("[%s] %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), fmt % args))
