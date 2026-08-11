@@ -20607,8 +20607,21 @@ def run_due_wechat_share_jobs():
     for config in configs:
         if config.share_time != now_text:
             continue
+        # BUG-2026-08-11-011：同一分钟内 scheduler misfire 补跑或服务重启会造成
+        # 同一 config 在同一 HH:MM 被触发多次；已有今日 scheduled marker 说明
+        # 定时任务今日已执行过，直接跳过，保证每日最多执行一次。
+        already_ran = WechatShareLog.query.filter_by(
+            config_id=config.id,
+            module_key='in_order_daily',
+            share_date=date.today(),
+            trigger_type='scheduled',
+        ).first()
+        if already_ran:
+            continue
         try:
-            result = run_wechat_share_for_today(trigger_type='scheduled', force=True, config=config)
+            # force=False：尊重“今日已有 pending/sent 分享不重复生成”的去重语义，
+            # 防止定时任务对同一入库单重复直推微信。
+            result = run_wechat_share_for_today(trigger_type='scheduled', force=False, config=config)
             marker = WechatShareLog(
                 config_id=config.id,
                 module_key='in_order_daily',
