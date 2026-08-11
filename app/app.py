@@ -139,7 +139,7 @@ from utils import (
     serialize_bom_item, serialize_bom,
     check_stock_sufficient,
     recalculate_order_total,
-    get_default_print_template, save_print_template_file, save_upload_image,
+    get_default_print_template, save_print_template_file, save_upload_image, migrate_legacy_material_images,
     require_role,
     validate_excel_extension,
     validate_excel_size,
@@ -1227,6 +1227,9 @@ UPLOAD_FOLDER = app.config.get('UPLOAD_FOLDER', os.path.join(os.path.dirname(os.
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+migrated_legacy_material_images = migrate_legacy_material_images(UPLOAD_FOLDER)
+if migrated_legacy_material_images:
+    app.logger.info('Migrated %s legacy material images to static uploads', migrated_legacy_material_images)
 
 # no-test:reason=启动期配置辅助，读文件 mtime 生成静态资源版本号，行为由页面集成验证覆盖
 # 静态资源缓存破坏：app.js/custom.css 等关键静态文件的 mtime 拼成版本号，

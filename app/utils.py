@@ -7,12 +7,14 @@
 
 import json
 import os
+import shutil
 import uuid
 import html.parser
+import logging
 from datetime import datetime, date
 from functools import wraps
 
-from flask import request, jsonify, current_app, redirect, url_for, flash
+from flask import request, jsonify, current_app, has_app_context, redirect, url_for, flash
 from flask_login import current_user
 
 from db import db
@@ -477,6 +479,36 @@ def save_print_template_file(file_storage, prefix, static_folder):
 
 # ==================== 图片上传 ====================
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp'}
+
+
+def migrate_legacy_material_images(upload_folder=None):
+    upload_root = upload_folder
+    if upload_root is None:
+        upload_root = current_app.config.get('UPLOAD_FOLDER')
+    if not upload_root:
+        return 0
+    static_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads')
+    legacy_dir = os.path.abspath(os.path.join('uploads', 'material_images'))
+    target_dir = os.path.join(static_root, 'material_images')
+    if os.path.abspath(upload_root) != os.path.abspath(static_root):
+        target_dir = os.path.join(upload_root, 'material_images')
+    if not os.path.isdir(legacy_dir):
+        return 0
+    os.makedirs(target_dir, exist_ok=True)
+    copied = 0
+    for source_path in os.scandir(legacy_dir):
+        if not source_path.is_file():
+            continue
+        target_path = os.path.join(target_dir, source_path.name)
+        if os.path.exists(target_path):
+            continue
+        try:
+            shutil.copy2(source_path.path, target_path)
+            copied += 1
+        except OSError:
+            logger = current_app.logger if has_app_context() else logging.getLogger(__name__)
+            logger.exception('Failed to migrate legacy material image: %s', source_path.name)
+    return copied
 
 
 def save_upload_image(file_storage, subfolder='', upload_folder=None):
