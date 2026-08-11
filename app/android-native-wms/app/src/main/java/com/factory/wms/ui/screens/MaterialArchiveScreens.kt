@@ -19,12 +19,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import com.factory.wms.data.api.RetrofitClient
@@ -317,6 +319,8 @@ fun MaterialArchiveDetailScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+    // 点击图片放大预览的大图地址，null 表示未在预览
+    var previewImageUrl by remember { mutableStateOf<String?>(null) }
 
     // 进入页面即加载该物料的档案图片
     LaunchedEffect(material.id) {
@@ -564,6 +568,7 @@ fun MaterialArchiveDetailScreen(
                         ArchiveImageCard(
                             image = image,
                             deleting = uiState.deletingId == image.id,
+                            onPreview = { previewImageUrl = resolveImageUrl(image.url) },
                             onDelete = {
                                 material.id?.let { mid ->
                                     image.id?.let { viewModel.deleteImage(mid, it) }
@@ -575,12 +580,33 @@ fun MaterialArchiveDetailScreen(
             }
         }
     }
+
+    // 点击图片全屏预览大图，点击任意处或返回键关闭
+    previewImageUrl?.let { url ->
+        Dialog(onDismissRequest = { previewImageUrl = null }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .clickable { previewImageUrl = null },
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = url,
+                    contentDescription = "档案图片大图",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+            }
+        }
+    }
 }
 
 @Composable
 private fun ArchiveImageCard(
     image: MaterialArchiveImageDto,
     deleting: Boolean,
+    onPreview: () -> Unit,
     onDelete: () -> Unit
 ) {
     val imageUrl = resolveImageUrl(image.url)
@@ -601,7 +627,8 @@ private fun ArchiveImageCard(
                 modifier = Modifier
                     .size(72.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(SurfaceVariant),
+                    .background(SurfaceVariant)
+                    .clickable { onPreview() },
                 contentAlignment = Alignment.Center
             ) {
                 if (imageUrl.isBlank()) {
