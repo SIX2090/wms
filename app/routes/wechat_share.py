@@ -173,8 +173,30 @@ def register_wechat_share_routes(app):
             return jsonify({'status': 'error', 'msg': '分享图片不存在，请重新生成今日图片'}), 404
 
         try:
+            # BUG-2026-08-11-014：重发冻结使用日志记录的历史接收人。
+            # 列表"接收人"列展示的是分享时冻结的 receiver，若重发改用当前配置
+            # 接收人，实际收件人与页面展示不一致（配置中途修改后会发错人）。
+            import types as _types
+            frozen_name = (log.receiver_name or '').strip()
+            frozen_id = (log.receiver_wechat_id or '').strip()
+            send_config = config
+            used_frozen_receiver = False
+            if frozen_name or frozen_id:
+                send_config = _types.SimpleNamespace(
+                    helper_url=config.helper_url,
+                    sender_name=config.sender_name,
+                    sender_wechat_id=config.sender_wechat_id,
+                    receiver_name=frozen_name or config.receiver_name,
+                    receiver_wechat_id=frozen_id or config.receiver_wechat_id,
+                    receiver_search_key=frozen_name or frozen_id,
+                    receiver_type=config.receiver_type,
+                    auto_send=config.auto_send,
+                )
+                used_frozen_receiver = True
             # BUG-2026-08-11-010：结构化三元组直取状态，错误码附在 message 便于排查
-            status, result_code, message = _wechat_share_send_image(config, image_path)
+            status, result_code, message = _wechat_share_send_image(send_config, image_path)
+            if used_frozen_receiver:
+                message = f'{message}（按历史接收人 {frozen_name or frozen_id} 重发）'
             log.status = status
             if status == 'failed' and result_code not in ('ok', ''):
                 message = f'{message}（错误码：{result_code}）'
