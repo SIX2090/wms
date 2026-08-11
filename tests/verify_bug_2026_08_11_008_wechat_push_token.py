@@ -77,6 +77,9 @@ class TestDirectPushToken:
     def test_t1_push_carries_helper_token(self, tmp_path, monkeypatch):
         """T1：直推请求携带 X-Wechat-Helper-Token，且状态映射为 sent。"""
         captured = {}
+        # 同进程跑多个 verify 文件时，其它文件的模块级 config 赋值会覆盖本文件的
+        # 模块级 token；测试内用 monkeypatch.setitem 固定，保证用例间相互隔离。
+        monkeypatch.setitem(app_module.app.config, "WECHAT_HELPER_TOKEN", "test-helper-token-008")
 
         def fake_post(url, data=None, files=None, headers=None, timeout=None):
             captured["url"] = url
