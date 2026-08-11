@@ -20363,21 +20363,33 @@ def _wechat_share_helper_url_allowed(helper_url):
 
 
 def _wechat_share_send_image(config, image_path):
+    """直推分享图片到本机微信发送助手，返回 (status, code, message)。
+
+    status 直接写入 WechatShareLog.status：sent / pending / failed。
+    code 为机器可读结果码：ok / helper_not_configured / invalid_helper_url /
+    token_not_configured / helper_offline / helper_timeout / auth_failed /
+    send_error / http_<n>，或助手端透传码（no_receiver / clipboard_failed /
+    wechat_window_not_found / open_contact_failed / paste_failed /
+    send_key_failed / focus_lost / send_failed）。
+
+    BUG-2026-08-11-010：取代脆弱的关键词匹配状态判定，并仅对连接级错误
+    （ConnectionError，请求未到达助手、零副作用）自动重试 1 次；读超时
+    （Timeout）不重试——请求可能已被助手执行，重试会重复粘贴/发送。
+    """
     helper_url = (
         (config.helper_url or '').strip()
         or os.environ.get('WMS_WECHAT_HELPER_URL', '').strip()
     )
     if not helper_url:
-        return False, '个人微信自动发送助手未配置，图片已生成待发送'
+        return 'pending', 'helper_not_configured', '个人微信自动发送助手未配置，图片已生成待发送'
     if not _wechat_share_helper_url_allowed(helper_url):
-        return False, '微信发送助手地址仅允许本机回环地址（http://127.0.0.1 或 http://localhost）'
+        return 'failed', 'invalid_helper_url', '微信发送助手地址仅允许本机回环地址（http://127.0.0.1 或 http://localhost）'
     # BUG-2026-08-11-008：直推必须携带 helper token，否则助手端 _check_auth 一律 403。
     helper_token = str(app.config.get('WECHAT_HELPER_TOKEN') or '').strip()
     if not helper_token:
-        return False, 'WECHAT_HELPER_TOKEN 未配置，无法直推微信发送助手'
+        return 'failed', 'token_not_configured', 'WECHAT_HELPER_TOKEN 未配置，无法直推微信发送助手'
 
-    try:
-        import requests
+    def _post_once():
         with open(image_path, 'rb') as image_file:
             files = {'image': (os.path.basename(image_path), image_file, 'image/png')}
             data = {
@@ -20391,37 +20403,49 @@ def _wechat_share_send_image(config, image_path):
             }
             # 调低超时（30s→10s）：避免微信发送助手挂起时占住 Waitress 线程 30s，
             # 导致线程池被打满、包括下推领料单在内的其它请求排队等待。
-            response = requests.post(
+            return requests.post(
                 helper_url,
                 data=data,
                 files=files,
                 headers={'X-Wechat-Helper-Token': helper_token},
                 timeout=10,
             )
-        if response.ok:
-            try:
-                payload = response.json()
-            except ValueError:
-                payload = {}
-            helper_status = str(payload.get('status') or '').lower()
-            helper_msg = payload.get('msg') or payload.get('message') or '已提交本机微信发送助手'
-            return helper_status == 'sent', helper_msg
-        return False, f'微信发送助手返回错误：HTTP {response.status_code}'
+
+    try:
+        try:
+            response = _post_once()
+        except requests.exceptions.ConnectionError:
+            # 连接被拒绝/未建立：请求未到达助手，无副作用，安全重试一次
+            import time as _time
+            _time.sleep(1)
+            response = _post_once()
+    except requests.exceptions.ConnectionError as exc:
+        app.logger.warning('微信发送助手连接失败（已重试 1 次）: %s', exc)
+        return 'failed', 'helper_offline', f'微信发送助手未运行或连接被拒绝（已自动重试 1 次）：{exc}'
+    except requests.exceptions.Timeout:
+        # 读超时：请求可能已被助手接收并执行，重试会重复发送，禁止自动重试
+        app.logger.warning('微信发送助手响应超时，不做自动重试')
+        return 'failed', 'helper_timeout', '微信发送助手响应超时；为避免重复发送不做自动重试，请确认助手状态后人工重发'
     except Exception as exc:
         app.logger.warning('微信发送助手调用失败: %s', exc)
-        return False, f'微信发送助手调用失败：{exc}'
+        return 'failed', 'send_error', f'微信发送助手调用失败：{exc}'
 
-def _wechat_share_status_from_send_result(sent, message):
-    if sent:
-        return 'sent'
-    message_text = str(message or '').lower()
-    failure_terms = (
-        '失败', '错误', 'http ', '未找到微信窗口', 'unauthorized',
-        'not found', 'openclipboard', 'sendinput', 'executable'
-    )
-    if any(term in message_text for term in failure_terms):
-        return 'failed'
-    return 'pending'
+    if response.ok:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        helper_status = str(payload.get('status') or '').lower()
+        helper_code = str(payload.get('code') or '').strip() or 'ok'
+        helper_msg = payload.get('msg') or payload.get('message') or '已提交本机微信发送助手'
+        if helper_status == 'sent':
+            return 'sent', helper_code, helper_msg
+        if helper_status == 'ready':
+            return 'pending', helper_code, helper_msg
+        return 'failed', helper_code if helper_code != 'ok' else 'send_failed', helper_msg
+    if response.status_code == 403:
+        return 'failed', 'auth_failed', '微信发送助手认证失败（token 不匹配），请检查 WECHAT_HELPER_TOKEN 配置是否一致'
+    return 'failed', f'http_{response.status_code}', f'微信发送助手返回错误：HTTP {response.status_code}'
 
 def _wechat_share_helper_health_url(config):
     helper_url = (
@@ -20520,8 +20544,11 @@ def _wechat_share_order(config, order, trigger_type='manual', force=False):
         file_obj.write(image_bytes.getvalue())
 
     image_size = os.path.getsize(image_path)
-    sent, message = _wechat_share_send_image(config, image_path)
-    status = _wechat_share_status_from_send_result(sent, message)
+    # BUG-2026-08-11-010：直接采用结构化三元组，status 即日志状态，无需关键词猜测
+    status, result_code, message = _wechat_share_send_image(config, image_path)
+    sent = (status == 'sent')
+    if status == 'failed' and result_code not in ('ok', ''):
+        message = f'{message}（错误码：{result_code}）'
     log = WechatShareLog(
         config_id=config.id,
         module_key='in_order',

@@ -154,7 +154,6 @@ def register_wechat_share_routes(app):
             _wechat_share_default_config,
             _wechat_share_output_dir,
             _wechat_share_send_image,
-            _wechat_share_status_from_send_result,
             datetime,
             db,
             jsonify,
@@ -174,13 +173,16 @@ def register_wechat_share_routes(app):
             return jsonify({'status': 'error', 'msg': '分享图片不存在，请重新生成今日图片'}), 404
 
         try:
-            sent, message = _wechat_share_send_image(config, image_path)
-            log.status = _wechat_share_status_from_send_result(sent, message)
+            # BUG-2026-08-11-010：结构化三元组直取状态，错误码附在 message 便于排查
+            status, result_code, message = _wechat_share_send_image(config, image_path)
+            log.status = status
+            if status == 'failed' and result_code not in ('ok', ''):
+                message = f'{message}（错误码：{result_code}）'
             log.message = message
             log.trigger_type = 'manual_resend'
             log.receiver_name = config.receiver_name
             log.receiver_wechat_id = config.receiver_wechat_id
-            log.sent_at = datetime.now() if sent else None
+            log.sent_at = datetime.now() if status == 'sent' else None
             db.session.commit()
             log_operation('重发微信分享', f'记录：{log.id}，单据：{log.order_no or "-"}，状态：{log.status}', 'wechat_share', log.id)
             return jsonify({'status': 'success', 'msg': message or '已重新提交微信助手', 'log_status': log.status})

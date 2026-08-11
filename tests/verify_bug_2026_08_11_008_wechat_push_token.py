@@ -86,10 +86,10 @@ class TestDirectPushToken:
 
         monkeypatch.setattr("requests.post", fake_post)
         with app_module.app.app_context():
-            sent, message = app_module._wechat_share_send_image(
+            status, code, message = app_module._wechat_share_send_image(
                 _make_config(), _make_image(tmp_path)
             )
-        assert sent is True, message
+        assert status == "sent", message
         assert captured["url"] == "http://127.0.0.1:8765/send"
         assert captured["headers"].get("X-Wechat-Helper-Token") == "test-helper-token-008"
 
@@ -98,11 +98,12 @@ class TestDirectPushToken:
         calls = []
         monkeypatch.setattr("requests.post", lambda *a, **kw: calls.append(a))
         with app_module.app.app_context():
-            sent, message = app_module._wechat_share_send_image(
+            status, code, message = app_module._wechat_share_send_image(
                 _make_config(helper_url="http://evil.example.com/send"),
                 _make_image(tmp_path),
             )
-        assert sent is False
+        assert status == "failed"
+        assert code == "invalid_helper_url"
         assert "回环" in message
         assert calls == [], "非回环地址不得发起 HTTP 请求"
 
@@ -114,12 +115,13 @@ class TestDirectPushToken:
             old = app_module.app.config.get("WECHAT_HELPER_TOKEN")
             app_module.app.config["WECHAT_HELPER_TOKEN"] = ""
             try:
-                sent, message = app_module._wechat_share_send_image(
+                status, code, message = app_module._wechat_share_send_image(
                     _make_config(), _make_image(tmp_path)
                 )
             finally:
                 app_module.app.config["WECHAT_HELPER_TOKEN"] = old
-        assert sent is False
+        assert status == "failed"
+        assert code == "token_not_configured"
         assert "TOKEN" in message.upper() or "token" in message
         assert calls == []
 
