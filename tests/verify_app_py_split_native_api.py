@@ -131,3 +131,16 @@ class TestNativeApiRegister:
         data = resp.get_json()
         assert data["status"] == "success", data
         assert "pending_in_orders" in data["data"]
+
+    def test_login_when_tables_missing(self):
+        """BUG-2026-08-11-001 回归：api_token/login_log 表缺失时 /api/login 不 500。"""
+        client = _setup()
+        with app_module.app.app_context():
+            db.session.execute(db.text("DROP TABLE IF EXISTS api_token"))
+            db.session.execute(db.text("DROP TABLE IF EXISTS login_log"))
+            db.session.commit()
+        resp = client.post("/api/login", json={"username": "admin", "password": "admin"})
+        assert resp.status_code == 200, f"缺表时登录不应 500，实际 {resp.status_code}: {resp.get_data(as_text=True)}"
+        data = resp.get_json()
+        assert data["status"] == "success", data
+        assert data["data"]["token"]

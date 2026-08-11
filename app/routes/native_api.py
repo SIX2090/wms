@@ -36,6 +36,67 @@ from flask import jsonify, request
 from db import db
 
 
+def _ensure_login_schema():
+    """确保登录所需的关键表和列存在（WMS_NO_DB_TOUCH=1 场景下兜底）。
+
+    当 WMS_NO_DB_TOUCH=1 时，auto_migrate_database() 和 db.create_all() 均被跳过，
+    老数据库可能缺少 user 表的登录安全列、api_token 表或 login_log 表，
+    导致 /api/login 抛 OperationalError → 500 → nginx 502。
+
+    本函数在首次登录请求时补建缺失的表/列，确保登录功能正常。
+    """
+    from sqlalchemy import inspect as sa_inspect, text
+    from app import db as _db
+    try:
+        inspector = sa_inspect(_db.engine)
+        # 1. 确保 api_token 表存在
+        if not inspector.has_table('api_token'):
+            from app import ApiToken
+            ApiToken.__table__.create(_db.engine, checkfirst=True)
+        # 2. 确保 login_log 表存在
+        if not inspector.has_table('login_log'):
+            from app import LoginLog
+            LoginLog.__table__.create(_db.engine, checkfirst=True)
+        # 3. 确保 user 表缺失的列存在
+        if inspector.has_table('user'):
+            user_cols = {col['name'] for col in inspector.get_columns('user')}
+            missing = {
+                'login_failed_count': 'ALTER TABLE "user" ADD COLUMN login_failed_count INTEGER DEFAULT 0',
+                'locked_until': 'ALTER TABLE "user" ADD COLUMN locked_until DATETIME',
+                'last_login_at': 'ALTER TABLE "user" ADD COLUMN last_login_at DATETIME',
+                'last_login_ip': 'ALTER TABLE "user" ADD COLUMN last_login_ip VARCHAR(50)',
+                'must_change_password': 'ALTER TABLE "user" ADD COLUMN must_change_password BOOLEAN DEFAULT 0',
+                'login_lock_ip': 'ALTER TABLE "user" ADD COLUMN login_lock_ip VARCHAR(50)',
+                'login_ip_failed_count': 'ALTER TABLE "user" ADD COLUMN login_ip_failed_count INTEGER DEFAULT 0',
+                'login_ip_locked_until': 'ALTER TABLE "user" ADD COLUMN login_ip_locked_until DATETIME',
+                'email': 'ALTER TABLE "user" ADD COLUMN email VARCHAR(200)',
+                'phone': 'ALTER TABLE "user" ADD COLUMN phone VARCHAR(30)',
+                'bio': 'ALTER TABLE "user" ADD COLUMN bio VARCHAR(500)',
+            }
+            with _db.engine.connect() as conn:
+                for col_name, ddl in missing.items():
+                    if col_name not in user_cols:
+                        conn.execute(text(ddl))
+                conn.commit()
+        # 4. 确保 api_token 表有 last_used_at 列
+        if inspector.has_table('api_token'):
+            token_cols = {col['name'] for col in inspector.get_columns('api_token')}
+            if 'last_used_at' not in token_cols:
+                with _db.engine.connect() as conn:
+                    conn.execute(text('ALTER TABLE api_token ADD COLUMN last_used_at DATETIME'))
+                    conn.commit()
+        # 5. 确保 login_log 表有 fail_reason 列
+        if inspector.has_table('login_log'):
+            log_cols = {col['name'] for col in inspector.get_columns('login_log')}
+            if 'fail_reason' not in log_cols:
+                with _db.engine.connect() as conn:
+                    conn.execute(text('ALTER TABLE login_log ADD COLUMN fail_reason VARCHAR(200)'))
+                    conn.commit()
+        return True
+    except Exception:
+        return False
+
+
 def _resolve_material_unit(unit_name):
     """解析单位：优先按 name/code 精确匹配，其次忽略大小写，最后回退默认单位。"""
     from sqlalchemy import func
@@ -119,66 +180,76 @@ def register_native_api_routes(app):
         from werkzeug.security import check_password_hash
         from app import (ApiToken, User, add_login_log, api_json_error,
                          api_json_success, get_request_ip)
-        payload = request.get_json(silent=True) or {}
-        username = (payload.get('username') or '').strip()
-        password = payload.get('password') or ''
-        if not username or not password:
-            return api_json_error('请输入账号和密码', 400)
-        if len(username) > 80 or len(password) > 128:
-            return api_json_error('用户名或密码长度不正确', 400)
-        request_ip = get_request_ip()
+        # BUG-2026-08-11-001: WMS_NO_DB_TOUCH=1 时 auto_migrate_database 和
+        # db.create_all 均被跳过，老数据库可能缺 user 登录安全列 / api_token 表 /
+        # login_log 表，导致 /api/login 抛 OperationalError → 500 → nginx 502。
+        # 在此兜底补建缺失的表/列，确保登录功能正常。
+        _ensure_login_schema()
+        try:
+            payload = request.get_json(silent=True) or {}
+            username = (payload.get('username') or '').strip()
+            password = payload.get('password') or ''
+            if not username or not password:
+                return api_json_error('请输入账号和密码', 400)
+            if len(username) > 80 or len(password) > 128:
+                return api_json_error('用户名或密码长度不正确', 400)
+            request_ip = get_request_ip()
 
-        user = User.query.filter_by(username=username).first()
-        if not user:
-            add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
-            try:
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-            return api_json_error('账号或密码错误', 401)
-        if not user.is_active:
-            return api_json_error('账号已被禁用', 403)
-        if user.is_locked_for(request_ip):
-            remaining_min = user.login_lock_remaining(request_ip)
-            add_login_log(status='failed', username=username, user=user,
-                          fail_reason=f'locked {remaining_min}')
-            try:
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-            return api_json_error(f'账号已锁定，请 {remaining_min} 分钟后再试', 423)
-        if not check_password_hash(user.password_hash, password):
-            user.increment_failed_count(request_ip)
-            add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
-            try:
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-            return api_json_error('账号或密码错误', 401)
-        if user.must_change_password:
-            return api_json_error('请先通过网页登录修改初始密码', 403)
+            user = User.query.filter_by(username=username).first()
+            if not user:
+                add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                return api_json_error('账号或密码错误', 401)
+            if not user.is_active:
+                return api_json_error('账号已被禁用', 403)
+            if user.is_locked_for(request_ip):
+                remaining_min = user.login_lock_remaining(request_ip)
+                add_login_log(status='failed', username=username, user=user,
+                              fail_reason=f'locked {remaining_min}')
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                return api_json_error(f'账号已锁定，请 {remaining_min} 分钟后再试', 423)
+            if not check_password_hash(user.password_hash, password):
+                user.increment_failed_count(request_ip)
+                add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                return api_json_error('账号或密码错误', 401)
+            if user.must_change_password:
+                return api_json_error('请先通过网页登录修改初始密码', 403)
 
-        token = ApiToken(
-            token=secrets.token_urlsafe(48),
-            user_id=user.id,
-            expires_at=datetime.now() + timedelta(days=7),
-        )
-        user.last_login_at = datetime.now()
-        user.last_login_ip = get_request_ip()
-        user.reset_failed_count()
-        add_login_log(status='success', username=username, user=user)
-        db.session.add(token)
-        db.session.commit()
-        return api_json_success({
-            'token': token.token,
-            'expires_in': 7 * 24 * 60 * 60,
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'name': user.username,
-                'role': user.role,
-            }
-        }, '登录成功')
+            token = ApiToken(
+                token=secrets.token_urlsafe(48),
+                user_id=user.id,
+                expires_at=datetime.now() + timedelta(days=7),
+            )
+            user.last_login_at = datetime.now()
+            user.last_login_ip = get_request_ip()
+            user.reset_failed_count()
+            add_login_log(status='success', username=username, user=user)
+            db.session.add(token)
+            db.session.commit()
+            return api_json_success({
+                'token': token.token,
+                'expires_in': 7 * 24 * 60 * 60,
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'name': user.username,
+                    'role': user.role,
+                }
+            }, '登录成功')
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'/api/login 异常: {e}', exc_info=True)
+            return api_json_error(f'登录服务异常，请稍后重试: {e}', 500)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/api/inbound', methods=['POST'])
