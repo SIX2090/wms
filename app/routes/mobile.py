@@ -672,19 +672,65 @@ def register_mobile_routes(app):
             'url': _url_for('static', filename=img.image),
         }
 
+    # BUG-2026-08-10-002: material_image 表在 WMS_SKIP_STARTUP_DB_UPGRADE /
+    # WMS_NO_DB_TOUCH 场景下不会由 db.create_all() 自动建好。两个专用端点
+    # (mobile_material_archive_images / _upload) 历史裸调 MaterialImage.query
+    # 一旦缺表直接 500；仅 _archive_material_payload 有 try/except 兜底。
+    # 统一抽出 _safe_material_image_count / _list 复用，list 缺表回退 []、
+    # count 缺表回退 0，与现有 _archive_material_payload 行为一致。
+    def _has_material_image_table():
+        from sqlalchemy import inspect as sa_inspect
+        from app import db
+        try:
+            return bool(sa_inspect(db.engine).has_table('material_image'))
+        except Exception:
+            return False
+
+    # no-test:reason=helper 函数，能力由 _archive_material_payload 已有 T12 + 本次新加 T13/T14 测试覆盖
+    def _safe_material_image_count(material_id):
+        from app import MaterialImage
+        try:
+            return MaterialImage.query.filter_by(material_id=material_id).count()
+        except Exception:
+            if _has_material_image_table():
+                raise
+            return 0
+
+    # no-test:reason=helper 函数，能力由 mobile_material_archive_images T13 测试覆盖
+    def _safe_material_image_list(material_id):
+        from app import MaterialImage
+        try:
+            return (
+                MaterialImage.query.filter_by(material_id=material_id)
+                .order_by(MaterialImage.sort_order.asc(), MaterialImage.id.asc())
+                .all()
+            )
+        except Exception:
+            if _has_material_image_table():
+                raise
+            return []
+
+    # no-test:reason=helper 函数，能力由 mobile_material_archive_upload T14 测试覆盖
+    def _ensure_material_image_table_inline():
+        """缺表时尝试用 SQLAlchemy 现场补建（兼容 sqlite/mysql/postgres）。
+
+        启动期 fix_db_columns._ensure_material_image_table 只走 sqlite3；
+        运行时本 helper 走 SQLAlchemy __table__.create，跨方言。
+        失败返回 False，由调用方决定如何向用户报告。
+        """
+        from flask import current_app
+        if _has_material_image_table():
+            return True
+        try:
+            from app import MaterialImage, db
+            MaterialImage.__table__.create(db.engine, checkfirst=True)
+            return _has_material_image_table()
+        except Exception:
+            current_app.logger.warning('移动端 material_image 表补建失败', exc_info=True)
+            return False
+
     # no-test:reason=从 mobile_* 路由内联 JS 里抽出的辅助函数，能力由 mobile_material_archive_* 路由测试覆盖
     def _archive_material_payload(material):
-        from app import MaterialImage, db
-        from sqlalchemy import inspect as sa_inspect
-        image_count = 0
-        try:
-            image_count = MaterialImage.query.filter_by(material_id=material.id).count()
-        except Exception:
-            # material_image 表可能尚未创建（WMS_SKIP_STARTUP_DB_UPGRADE 场景）
-            if not sa_inspect(db.engine).has_table('material_image'):
-                image_count = 0
-            else:
-                raise
         return {
             'id': material.id,
             'code': material.code or '',
@@ -692,7 +738,7 @@ def register_mobile_routes(app):
             'spec': material.spec or '',
             'unit': material.unit.name if material.unit else '',
             'category': material.category.name if material.category else '',
-            'image_count': image_count,
+            'image_count': _safe_material_image_count(material.id),
         }
 
     @app.route('/mobile/api/material_archive/search')
@@ -723,15 +769,12 @@ def register_mobile_routes(app):
     def mobile_material_archive_images(id):
         """列出某物料的全部档案图片。"""
         from flask import jsonify
-        from app import Material, MaterialImage, db
+        from app import Material, db
         material = db.session.get(Material, id)
         if not material:
             return jsonify({'status': 'error', 'success': False, 'msg': '物料不存在'}), 404
-        images = (
-            MaterialImage.query.filter_by(material_id=id)
-            .order_by(MaterialImage.sort_order.asc(), MaterialImage.id.asc())
-            .all()
-        )
+        # BUG-2026-08-10-002: 缺表时回退空列表，避免 500
+        images = _safe_material_image_list(id)
         return jsonify({
             'status': 'success',
             'success': True,
@@ -752,7 +795,17 @@ def register_mobile_routes(app):
         if not material:
             return jsonify({'status': 'error', 'success': False, 'msg': '物料不存在'}), 404
 
-        current_count = MaterialImage.query.filter_by(material_id=id).count()
+        # BUG-2026-08-10-002: 缺表时先尝试用 SQLAlchemy 现场补建（跨方言），
+        # 仍失败则明确返回 500 提示用户，避免静默 500。
+        if not _has_material_image_table() and not _ensure_material_image_table_inline():
+            return jsonify({
+                'status': 'error',
+                'success': False,
+                'msg': '物料档案表未就绪，请稍后重试或联系管理员',
+            }), 500
+
+        # BUG-2026-08-10-002: 缺表时回退 0，不阻断首张上传
+        current_count = _safe_material_image_count(id)
         if current_count >= MAX_MATERIAL_IMAGES:
             return jsonify({
                 'status': 'error',
