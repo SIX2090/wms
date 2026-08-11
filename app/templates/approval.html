@@ -115,7 +115,7 @@
                             {% elif approval.status == 'rejected' %}
                             <span class="badge bg-danger">已驳回</span>
                             {% else %}
-                            <span class="badge bg-secondary">{{ approval.status }}</span>
+                            <span class="badge bg-secondary">未知</span>
                             {% endif %}
                         </td>
                         <td>
@@ -134,7 +134,7 @@
             </table>
         </div>
         {% if pagination.pages > 1 %}
-        <nav aria-label="Page navigation" class="p-3">
+        <nav aria-label="分页导航" class="p-3">
             <ul class="pagination justify-content-center mb-0">
                 {% if pagination.has_prev %}
                 <li class="page-item"><a class="page-link" href="{{ url_with_query(page=pagination.prev_num, per_page=per_page, sort=sort_by, order=sort_order) }}">上一页</a></li>

@@ -81,7 +81,7 @@
         </div>
         <div class="material-category-tree">
             <a class="material-category-node {{ 'active' if not category_id else '' }}" href="{{ url_for('material_list', search=request.args.get('search', ''), stock_filter=stock_filter, embedded=request.args.get('embedded')) }}">
-                <span class="material-category-code">ALL</span>
+                <span class="material-category-code">全部</span>
                 <i class="bi bi-folder2-open"></i>
                 <span class="material-category-name">全部分类</span>
             </a>
@@ -183,7 +183,7 @@
             </div>
             
             {% if pagination.pages > 1 %}
-            <nav aria-label="Page navigation">
+            <nav aria-label="分页导航">
                 <ul class="pagination justify-content-center mb-0">
                     {% if pagination.has_prev %}
                     <li class="page-item">

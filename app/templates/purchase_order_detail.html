@@ -22,7 +22,7 @@
                         {% elif order.status == 'partial' %}部分入库
                         {% elif order.status == 'completed' %}已完成
                         {% elif order.status == 'closed' %}已关闭
-                        {% else %}{{ order.status }}{% endif %}
+                        {% else %}未知{% endif %}
                     </span>
                 </div>
                 <div class="order-meta">
@@ -170,7 +170,7 @@
                             {% elif in_order.status == 'pending' %}
                             <span class="badge bg-warning text-dark">草稿</span>
                             {% else %}
-                            <span class="badge bg-secondary">{{ in_order.status }}</span>
+                            <span class="badge bg-secondary">未知</span>
                             {% endif %}
                         </td>
                     </tr>

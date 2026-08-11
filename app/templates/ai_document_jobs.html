@@ -12,7 +12,7 @@
             <select name="status" class="form-select form-select-sm" style="width: 170px;">
                 <option value="">全部状态</option>
                 {% for item in ['uploading', 'recognizing', 'recognized', 'pending_confirmation', 'draft_created', 'failed', 'cancelled'] %}
-                <option value="{{ item }}" {% if status == item %}selected{% endif %}>{{ item }}</option>
+                <option value="{{ item }}" {% if status == item %}selected{% endif %}>{{ item|ai_doc_label('job_status') }}</option>
                 {% endfor %}
             </select>
             <button class="btn btn-outline-secondary btn-sm" type="submit">筛选</button>
@@ -56,8 +56,8 @@
                             {{ {'uploading': '上传中', 'recognizing': '识别中', 'recognized': '已识别', 'pending_confirmation': '待确认', 'draft_created': '已生成草稿', 'failed': '失败', 'cancelled': '已取消'}.get(job.status, job.status) }}
                         </span>
                     </td>
-                    <td>{{ job.source }}</td>
-                    <td>{{ job.document_type or '-' }}</td>
+                    <td>{{ job.source|ai_doc_label('source') }}</td>
+                    <td>{{ job.document_type|ai_doc_label('doc_type') if job.document_type else '-' }}</td>
                     <td class="text-truncate" style="max-width: 420px;" title="{{ job.source_text_summary or '' }}">
                         {{ job.source_text_summary or job.order_no or '-' }}
                         {% if job.error_message %}
@@ -67,7 +67,7 @@
                     <td>{{ job.items|length }}</td>
                     <td>
                         {% if job.generated_document_no %}
-                        {{ job.generated_document_type }} {{ job.generated_document_no }}
+                        {{ job.generated_document_type|ai_doc_label('doc_type') }} {{ job.generated_document_no }}
                         {% elif job.source_purchase_order %}
                         采购订单 {{ job.source_purchase_order.order_no }}
                         {% else %}

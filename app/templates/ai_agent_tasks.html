@@ -36,7 +36,7 @@
             <thead class="table-light">
                 <tr>
                     <th style="width: 150px;">时间</th>
-                    <th style="width: 140px;">Agent</th>
+                    <th style="width: 140px;">任务类型</th>
                     <th style="width: 110px;">状态</th>
                     <th>目标</th>
                     <th>摘要</th>
@@ -50,10 +50,10 @@
                 {% for task in tasks %}
                 <tr>
                     <td>{{ task.created_at.strftime('%Y-%m-%d %H:%M') if task.created_at else '-' }}</td>
-                    <td>{{ task.agent_type }}</td>
-                    <td><span class="badge {% if task.status == 'completed' %}bg-success{% elif task.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">{{ task.status }}</span></td>
-                    <td class="text-truncate" style="max-width: 360px;">{{ task.objective }}</td>
-                    <td class="text-truncate" style="max-width: 420px;">{{ task.summary or '-' }}</td>
+                    <td>{{ task.agent_type|ai_agent_label('agent_type') }}</td>
+                    <td><span class="badge {% if task.status == 'completed' %}bg-success{% elif task.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">{{ task.status|ai_agent_label('task_status') }}</span></td>
+                    <td class="text-truncate" style="max-width: 360px;">{{ task.objective|ai_agent_text }}</td>
+                    <td class="text-truncate" style="max-width: 420px;">{{ task.summary|ai_agent_text or '-' }}</td>
                     {% if current_user.role == 'admin' %}
                     <td>{{ task.user.username if task.user else '-' }}</td>
                     {% endif %}

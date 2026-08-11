@@ -7,7 +7,7 @@
         <div>
             <h1 class="h5 mb-1">AI Agent任务详情 #{{ task.id }}</h1>
             <div class="text-muted small">
-                {{ task.agent_type }} · {{ task.status }} · {{ task.created_at.strftime('%Y-%m-%d %H:%M:%S') if task.created_at else '-' }}
+                {{ task.agent_type|ai_agent_label('agent_type') }} · {{ task.status|ai_agent_label('task_status') }} · {{ task.created_at.strftime('%Y-%m-%d %H:%M:%S') if task.created_at else '-' }}
                 {% if current_user.role == 'admin' and task.user %} · {{ task.user.username }}{% endif %}
             </div>
         </div>
@@ -21,10 +21,10 @@
 
     <div class="border rounded p-3 mb-3">
         <div class="text-muted small mb-1">目标</div>
-        <div>{{ task.objective }}</div>
+        <div>{{ task.objective|ai_agent_text }}</div>
         {% if task.summary %}
         <div class="text-muted small mt-3 mb-1">总结</div>
-        <div>{{ task.summary }}</div>
+        <div>{{ task.summary|ai_agent_text }}</div>
         {% endif %}
     </div>
 
@@ -46,17 +46,17 @@
                 {% for step in steps %}
                 <tr>
                     <td>{{ step.step_no }}</td>
-                    <td>{{ step.name }}</td>
-                    <td>{{ step.tool_name or '-' }}</td>
-                    <td>{{ step.risk_level }}</td>
-                    <td>{{ step.status }}</td>
-                    <td>{{ step.data_scope or '-' }}</td>
-                    <td>{{ step.result_summary or step.error_message or '-' }}</td>
+                    <td>{{ step.name|ai_agent_text }}</td>
+                    <td>{{ step.tool_name|ai_agent_label('tool') or '-' }}</td>
+                    <td>{{ step.risk_level|ai_agent_label('risk') }}</td>
+                    <td>{{ step.status|ai_agent_label('step_status') }}</td>
+                    <td>{{ step.data_scope|ai_agent_text or '-' }}</td>
+                    <td>{{ step.result_summary|ai_agent_text or step.error_message|ai_agent_text or '-' }}</td>
                     <td>
                         {% if step.action_url and step.action_url != '#' %}
-                        <a class="btn btn-outline-primary btn-sm" href="{{ step.action_url }}">{{ step.action_label or '打开' }}</a>
+                        <a class="btn btn-outline-primary btn-sm" href="{{ step.action_url }}">{{ step.action_label|ai_agent_text or '打开' }}</a>
                         {% elif step.action_label %}
-                        <span class="text-muted small">{{ step.action_label }}</span>
+                        <span class="text-muted small">{{ step.action_label|ai_agent_text }}</span>
                         {% else %}
                         <span class="text-muted small">-</span>
                         {% endif %}

@@ -17993,6 +17993,228 @@ def ai_acceptance_page():
     # AI_TASK: AI-R18-F02
     return render_template('ai_acceptance.html')
 
+# ── AI Agent 任务界面中文化（BUG-2026-08-11-007）──────────────────────────
+# 历史任务数据（2026-08-11 之前）在 ai_agent_task/ai_agent_step 表里存的是英文，
+# 且 agent_type/status/risk_level/tool_name 是枚举码。这里在渲染层统一转中文：
+# 新数据由 _ai_run_*_agent 直接写中文，旧数据经 ai_agent_text 过滤器翻译展示。
+AI_AGENT_TYPE_LABELS = {
+    'warehouse_patrol': '仓库巡检',
+    'purchase_followup': '采购跟进',
+    'sales_followup': '销售履约跟进',
+}
+AI_AGENT_TASK_STATUS_LABELS = {
+    'running': '运行中',
+    'completed': '已完成',
+    'failed': '失败',
+}
+AI_AGENT_STEP_STATUS_LABELS = {
+    'pending': '待执行',
+    'running': '运行中',
+    'completed': '已完成',
+    'success': '成功',
+    'failed': '失败',
+    'skipped': '已跳过',
+}
+AI_AGENT_RISK_LABELS = {
+    'read': '只读',
+    'draft': '草稿',
+    'write': '写入',
+}
+AI_AGENT_TOOL_LABELS = {
+    'warehouse_insights': '仓库洞察',
+    'purchase_insights': '采购洞察',
+    'sales_insights': '销售洞察',
+    'purchase_request_draft': '采购申请草稿',
+    'replenishment_planning': '补货规划',
+    'warehouse_patrol_agent': '仓库巡检 Agent',
+    'purchase_followup_agent': '采购跟进 Agent',
+    'sales_followup_agent': '销售履约跟进 Agent',
+    'knowledge_base': '知识库',
+    'master_data_insights': '主数据洞察',
+    'admin_insights': '管理洞察',
+}
+_AI_AGENT_LABEL_MAPS = {
+    'agent_type': AI_AGENT_TYPE_LABELS,
+    'task_status': AI_AGENT_TASK_STATUS_LABELS,
+    'step_status': AI_AGENT_STEP_STATUS_LABELS,
+    'risk': AI_AGENT_RISK_LABELS,
+    'tool': AI_AGENT_TOOL_LABELS,
+}
+
+# 历史英文整句（目标/步骤名/数据范围/按钮文案等不含数字的固定串）→ 中文
+AI_AGENT_TEXT_ZH = {
+    'Warehouse daily patrol: stock risks, pending documents, drafts, and purchase arrival blockers.': '仓库每日巡检：库存风险、待处理单据、草稿阻塞和采购到货阻塞。',
+    'Purchase follow-up: overdue orders, due-soon arrivals, pending requests, and low-stock replenishment.': '采购跟进：逾期订单、即将到货、待处理申请和低库存补货。',
+    'Sales follow-up: pending shipments, overdue orders, partial-stalled orders, short stock, customer urgency, merge candidates.': '销售履约跟进：待发货、逾期订单、部分发货停滞、缺货、客户催发货和合单候选。',
+    'Stock risk scan': '库存风险扫描',
+    'Pending document closure scan': '待处理单据闭环扫描',
+    'Draft blocker scan': '草稿阻塞扫描',
+    'Purchase arrival dependency scan': '采购到货依赖扫描',
+    'Open purchase order scan': '在途采购订单扫描',
+    'Due-soon arrival scan': '即将到货扫描',
+    'Purchase request conversion scan': '采购申请转单扫描',
+    'Low-stock replenishment scan': '低库存补货扫描',
+    'Open sales order scan': '待发货销售订单扫描',
+    'Overdue shipment scan': '逾期发货扫描',
+    'Partial stalled scan': '部分发货停滞扫描',
+    'Customer urgency scan': '客户催发货扫描',
+    'material.stock, min_stock and inventory alert settings': '物料库存、最低库存与库存预警设置',
+    'pending inbound, outbound, transfer, stocktake and adjustment documents': '待入库、待出库、调拨、盘点与调整单据',
+    'warehouse draft documents only; no submit/audit/complete actions': '仅仓库草稿单据；不执行提交、审核、完成操作',
+    'open purchase orders linked to warehouse receiving': '关联仓库收货的在途采购订单',
+    'purchase orders with pending or partial status': '待处理或部分入库的采购订单',
+    'purchase orders expected within 3 days': '预计 3 天内到货的采购订单',
+    'pending and approved purchase requests': '待审批和已审批的采购申请',
+    'low-stock materials, open PO remaining quantities, pending purchase requests': '低库存物料、在途采购订单剩余数量、待处理采购申请',
+    'sales orders with pending or partial shipment status': '待发货或部分发货的销售订单',
+    'sales orders with delivery_date < today': '交货日期早于今天的销售订单',
+    'sales orders with shipment_status=partial stalled >7 days': '部分发货且停滞超过 7 天的销售订单',
+    'customers with overdue orders needing follow-up message (manual confirmation required)': '有逾期订单、需要跟进话术的客户（需人工确认）',
+    'No warehouse draft blockers found.': '未发现仓库草稿阻塞。',
+    'Open stock alerts': '打开库存预警',
+    'Open pending center': '打开待办中心',
+    'Open purchase orders': '打开采购订单',
+    'Open purchase requests': '打开采购申请',
+    'Create replenishment draft': '创建补货草稿',
+    'Open sales orders': '打开销售订单',
+    'Open overdue sales orders': '打开逾期销售订单',
+    'Open partial stalled sales orders': '打开部分发货停滞订单',
+    'Generate customer follow-up message (read-only)': '生成客户跟进话术（只读）',
+}
+
+# 历史英文含数字句型（结果/总结）→ 中文，按正则整体替换
+AI_AGENT_TEXT_ZH_PATTERNS = [
+    (re.compile(r'^Negative stock: (\d+); low stock: (\d+)\.$'), '负库存：\\1 项；低库存：\\2 项。'),
+    (re.compile(r'^Pending documents affecting stock closure: (\d+)\.$'), '影响库存闭环的待处理单据：\\1 张。'),
+    (re.compile(r'^Open purchase orders: (\d+); overdue: (\d+)\.$'), '在途采购订单：\\1 张；逾期：\\2 张。'),
+    (re.compile(r'^Warehouse patrol completed\. Stock risks (\d+), pending documents (\d+), open purchase orders (\d+)\.$'), '仓库巡检完成。库存风险 \\1 项，待处理单据 \\2 张，在途采购订单 \\3 张。'),
+    (re.compile(r'^Open orders: (\d+); remaining quantity: ([\d.]+); overdue: (\d+)\.$'), '在途订单：\\1 张；剩余数量：\\2；逾期：\\3 张。'),
+    (re.compile(r'^Due-soon purchase orders: (\d+)\.$'), '3 天内到货采购订单：\\1 张。'),
+    (re.compile(r'^Purchase requests waiting for approval or conversion: (\d+)\.$'), '待审批或待转单的采购申请：\\1 张。'),
+    (re.compile(r'^Low-stock materials requiring review: (\d+)\. Draft creation remains manual or explicit AI draft action\.$'), '需复核的低库存物料：\\1 项。补货草稿仍需人工创建或显式 AI 草稿操作。'),
+    (re.compile(r'^Purchase follow-up completed\. Open orders (\d+), overdue (\d+), due soon (\d+), pending requests (\d+)\.$'), '采购跟进完成。在途订单 \\1 张，逾期 \\2 张，3 天内到货 \\3 张，待处理申请 \\4 张。'),
+    (re.compile(r'^Open sales orders: (\d+)\.$'), '待发货销售订单：\\1 张。'),
+    (re.compile(r'^Overdue sales orders: (\d+)\.$'), '逾期销售订单：\\1 张。'),
+    (re.compile(r'^Partial stalled sales orders: (\d+)\.$'), '部分发货停滞销售订单：\\1 张。'),
+    (re.compile(r'^Customers with overdue orders: (\d+)\. Customer messages are NEVER sent automatically; manual confirmation is required\.$'), '有逾期订单的客户：\\1 家。催发货话术不会自动发送，需人工确认。'),
+    (re.compile(r'^Sales follow-up completed\. Pending (\d+), overdue (\d+), partial stalled (\d+), customers needing follow-up (\d+)\.$'), '销售履约跟进完成。待发货 \\1 张，逾期 \\2 张，部分发货停滞 \\3 张，需跟进客户 \\4 家。'),
+]
+
+# 可嵌入长句中的英文片段（历史草稿阻塞结果 "inbound drafts: 2; ..." 等）
+AI_AGENT_FRAGMENT_ZH = (
+    ('inbound drafts', '入库草稿'),
+    ('outbound drafts', '出库草稿'),
+    ('transfer drafts', '调拨草稿'),
+    ('stocktake drafts', '盘点草稿'),
+    ('adjustment drafts', '调整草稿'),
+)
+
+
+def _ai_agent_text_zh(value):
+    """AI Agent 任务页自由文本中文化：历史英文数据在渲染层翻译为中文。"""
+    if not value:
+        return value
+    text = str(value)
+    if text in AI_AGENT_TEXT_ZH:
+        return AI_AGENT_TEXT_ZH[text]
+    for pattern, replacement in AI_AGENT_TEXT_ZH_PATTERNS:
+        if pattern.match(text):
+            return pattern.sub(replacement, text)
+    for en, zh in AI_AGENT_FRAGMENT_ZH:
+        text = text.replace(en, zh)
+    return text
+
+
+def _ai_agent_label_zh(value, kind):
+    """AI Agent 任务页枚举码中文化（agent_type/status/risk_level/tool_name）。"""
+    if value is None:
+        return value
+    return _AI_AGENT_LABEL_MAPS.get(kind, {}).get(str(value), value)
+
+
+app.jinja_env.filters['ai_agent_text'] = _ai_agent_text_zh
+app.jinja_env.filters['ai_agent_label'] = _ai_agent_label_zh
+
+
+# ── AI 文档任务界面中文化（BUG-2026-08-11-007 同批）──────────────────────────
+# AIDocumentJob/AIDocumentAttempt/AIDocumentFeedback/AIRun 表里存的是英文枚举码，
+# 在渲染层统一转中文展示。
+AI_DOC_SOURCE_LABELS = {
+    'text': '文本',
+    'excel': 'Excel',
+    'ocr_upload': '拍照识别',
+    'wechat': '微信',
+    'image': '图片',
+    'api': '接口',
+    'unknown': '未知',
+}
+AI_DOC_TYPE_LABELS = {
+    'in_order': '入库单',
+    'out_order': '出库单',
+    'sales_out_order': '销售出库单',
+    'transfer': '调拨单',
+    'adjustment': '调整单',
+    'check': '盘点单',
+    'purchase_request': '采购申请',
+}
+AI_DOC_JOB_STATUS_LABELS = {
+    'uploading': '上传中',
+    'recognizing': '识别中',
+    'recognized': '已识别',
+    'pending_confirmation': '待确认',
+    'draft_created': '已生成草稿',
+    'failed': '失败',
+    'cancelled': '已取消',
+}
+AI_DOC_MATCH_STATUS_LABELS = {
+    'matched': '已匹配',
+    'unmatched': '未匹配',
+}
+AI_FEEDBACK_RATING_LABELS = {
+    'helpful': '有帮助',
+    'not_helpful': '无帮助',
+}
+AI_FEEDBACK_ERROR_TYPE_LABELS = {
+    'ocr_error': 'OCR识别错误',
+    'material_match_error': '物料匹配错误',
+    'quantity_error': '数量错误',
+    'purchase_order_error': '采购订单匹配错误',
+    'draft_error': '草稿生成错误',
+    'other': '其他',
+}
+AI_RUN_STATUS_LABELS = {
+    'running': '运行中',
+    'completed': '已完成',
+    'failed': '失败',
+}
+AI_ROLLOUT_MODE_LABELS = {
+    'off': '关闭',
+    'allowlist': '白名单',
+    'role': '按角色',
+    'all': '全部开放',
+}
+_AI_DOC_LABEL_MAPS = {
+    'source': AI_DOC_SOURCE_LABELS,
+    'doc_type': AI_DOC_TYPE_LABELS,
+    'job_status': AI_DOC_JOB_STATUS_LABELS,
+    'match_status': AI_DOC_MATCH_STATUS_LABELS,
+    'rating': AI_FEEDBACK_RATING_LABELS,
+    'error_type': AI_FEEDBACK_ERROR_TYPE_LABELS,
+    'run_status': AI_RUN_STATUS_LABELS,
+    'rollout_mode': AI_ROLLOUT_MODE_LABELS,
+}
+
+
+def _ai_doc_label_zh(value, kind):
+    """AI 文档任务页枚举码中文化（source/document_type/status/match_status/feedback/run）。"""
+    if value is None:
+        return value
+    return _AI_DOC_LABEL_MAPS.get(kind, {}).get(str(value), value)
+
+
+app.jinja_env.filters['ai_doc_label'] = _ai_doc_label_zh
+
+
 def _ai_create_agent_task(agent_type, objective):
     task = AIAgentTask(
         ai_run_id=getattr(g, 'ai_run_id', None),
@@ -18043,17 +18265,17 @@ def _ai_pending_document_count():
 def _ai_run_warehouse_patrol_agent():
     if not _ai_capability_allowed('warehouse_patrol_agent'):
         return None, 'warehouse_patrol_agent denied'
-    task = _ai_create_agent_task('warehouse_patrol', 'Warehouse daily patrol: stock risks, pending documents, drafts, and purchase arrival blockers.')
+    task = _ai_create_agent_task('warehouse_patrol', '仓库每日巡检：库存风险、待处理单据、草稿阻塞和采购到货阻塞。')
     negative_count = Material.query.filter(Material.stock < 0).count()
     low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
     _ai_add_agent_step(
         task,
         1,
-        'Stock risk scan',
+        '库存风险扫描',
         'warehouse_insights',
-        'material.stock, min_stock and inventory alert settings',
-        f'Negative stock: {negative_count}; low stock: {low_count}.',
-        'Open stock alerts',
+        '物料库存、最低库存与库存预警设置',
+        f'负库存：{negative_count} 项；低库存：{low_count} 项。',
+        '打开库存预警',
         url_for('material_list', stock_filter='low'),
     )
 
@@ -18061,33 +18283,33 @@ def _ai_run_warehouse_patrol_agent():
     _ai_add_agent_step(
         task,
         2,
-        'Pending document closure scan',
+        '待处理单据闭环扫描',
         'warehouse_insights',
-        'pending inbound, outbound, transfer, stocktake and adjustment documents',
-        f'Pending documents affecting stock closure: {pending_count}.',
-        'Open pending center',
+        '待入库、待出库、调拨、盘点与调整单据',
+        f'影响库存闭环的待处理单据：{pending_count} 张。',
+        '打开待办中心',
         url_for('pending_documents'),
     )
 
     draft_parts = []
     for label, model, endpoint in (
-        ('inbound drafts', InOrder, 'in_order_list'),
-        ('outbound drafts', OutOrder, 'out_order_list'),
-        ('transfer drafts', TransferOrder, 'transfer_list'),
-        ('stocktake drafts', InventoryCheck, 'check_list'),
-        ('adjustment drafts', AdjustmentOrder, 'adjustment_list'),
+        ('入库草稿', InOrder, 'in_order_list'),
+        ('出库草稿', OutOrder, 'out_order_list'),
+        ('调拨草稿', TransferOrder, 'transfer_list'),
+        ('盘点草稿', InventoryCheck, 'check_list'),
+        ('调整草稿', AdjustmentOrder, 'adjustment_list'),
     ):
         count = model.query.filter_by(status='pending').count()
         if count:
-            draft_parts.append(f'{label}: {count}')
+            draft_parts.append(f'{label}：{count} 张')
     _ai_add_agent_step(
         task,
         3,
-        'Draft blocker scan',
+        '草稿阻塞扫描',
         'warehouse_insights',
-        'warehouse draft documents only; no submit/audit/complete actions',
-        '; '.join(draft_parts) if draft_parts else 'No warehouse draft blockers found.',
-        'Open pending center',
+        '仅仓库草稿单据；不执行提交、审核、完成操作',
+        '；'.join(draft_parts) if draft_parts else '未发现仓库草稿阻塞。',
+        '打开待办中心',
         url_for('pending_documents'),
     )
 
@@ -18095,29 +18317,29 @@ def _ai_run_warehouse_patrol_agent():
     _ai_add_agent_step(
         task,
         4,
-        'Purchase arrival dependency scan',
+        '采购到货依赖扫描',
         'purchase_insights',
-        'open purchase orders linked to warehouse receiving',
-        f'Open purchase orders: {purchase_summary.get("open_count", 0)}; overdue: {purchase_summary.get("overdue_count", 0)}.',
-        'Open purchase orders',
+        '关联仓库收货的在途采购订单',
+        f'在途采购订单：{purchase_summary.get("open_count", 0)} 张；逾期：{purchase_summary.get("overdue_count", 0)} 张。',
+        '打开采购订单',
         url_for('purchase_order_list'),
     )
-    summary = f'Warehouse patrol completed. Stock risks {negative_count + low_count}, pending documents {pending_count}, open purchase orders {purchase_summary.get("open_count", 0)}.'
+    summary = f'仓库巡检完成。库存风险 {negative_count + low_count} 项，待处理单据 {pending_count} 张，在途采购订单 {purchase_summary.get("open_count", 0)} 张。'
     return _ai_finish_agent_task(task, 'completed', summary, url_for('pending_documents')), None
 
 def _ai_run_purchase_followup_agent():
     if not _ai_capability_allowed('purchase_followup_agent'):
         return None, 'purchase_followup_agent denied'
-    task = _ai_create_agent_task('purchase_followup', 'Purchase follow-up: overdue orders, due-soon arrivals, pending requests, and low-stock replenishment.')
+    task = _ai_create_agent_task('purchase_followup', '采购跟进：逾期订单、即将到货、待处理申请和低库存补货。')
     summary = build_purchase_order_todo_summary()
     _ai_add_agent_step(
         task,
         1,
-        'Open purchase order scan',
+        '在途采购订单扫描',
         'purchase_insights',
-        'purchase orders with pending or partial status',
-        f'Open orders: {summary.get("open_count", 0)}; remaining quantity: {normalize_stock_quantity(summary.get("remaining_qty", 0))}; overdue: {summary.get("overdue_count", 0)}.',
-        'Open purchase orders',
+        '待处理或部分入库的采购订单',
+        f'在途订单：{summary.get("open_count", 0)} 张；剩余数量：{normalize_stock_quantity(summary.get("remaining_qty", 0))}；逾期：{summary.get("overdue_count", 0)} 张。',
+        '打开采购订单',
         url_for('purchase_order_list'),
     )
 
@@ -18131,11 +18353,11 @@ def _ai_run_purchase_followup_agent():
     _ai_add_agent_step(
         task,
         2,
-        'Due-soon arrival scan',
+        '即将到货扫描',
         'purchase_insights',
-        'purchase orders expected within 3 days',
-        f'Due-soon purchase orders: {due_soon_count}.',
-        'Open purchase orders',
+        '预计 3 天内到货的采购订单',
+        f'3 天内到货采购订单：{due_soon_count} 张。',
+        '打开采购订单',
         url_for('purchase_order_list'),
     )
 
@@ -18143,11 +18365,11 @@ def _ai_run_purchase_followup_agent():
     _ai_add_agent_step(
         task,
         3,
-        'Purchase request conversion scan',
+        '采购申请转单扫描',
         'purchase_insights',
-        'pending and approved purchase requests',
-        f'Purchase requests waiting for approval or conversion: {pending_request_count}.',
-        'Open purchase requests',
+        '待审批和已审批的采购申请',
+        f'待审批或待转单的采购申请：{pending_request_count} 张。',
+        '打开采购申请',
         url_for('purchase_request_list'),
     )
 
@@ -18155,15 +18377,15 @@ def _ai_run_purchase_followup_agent():
     _ai_add_agent_step(
         task,
         4,
-        'Low-stock replenishment scan',
+        '低库存补货扫描',
         'purchase_request_draft',
-        'low-stock materials, open PO remaining quantities, pending purchase requests',
-        f'Low-stock materials requiring review: {low_count}. Draft creation remains manual or explicit AI draft action.',
-        'Create replenishment draft',
+        '低库存物料、在途采购订单剩余数量、待处理采购申请',
+        f'需复核的低库存物料：{low_count} 项。补货草稿仍需人工创建或显式 AI 草稿操作。',
+        '创建补货草稿',
         '#',
         risk_level='draft',
     )
-    task_summary = f'Purchase follow-up completed. Open orders {summary.get("open_count", 0)}, overdue {summary.get("overdue_count", 0)}, due soon {due_soon_count}, pending requests {pending_request_count}.'
+    task_summary = f'采购跟进完成。在途订单 {summary.get("open_count", 0)} 张，逾期 {summary.get("overdue_count", 0)} 张，3 天内到货 {due_soon_count} 张，待处理申请 {pending_request_count} 张。'
     return _ai_finish_agent_task(task, 'completed', task_summary, url_for('purchase_order_list')), None
 
 def _ai_handle_draft_check_request(payload):
@@ -18230,7 +18452,7 @@ def _ai_run_sales_followup_agent():
     """
     if not _ai_capability_allowed('sales_followup_agent'):
         return None, 'sales_followup_agent denied'
-    task = _ai_create_agent_task('sales_followup', 'Sales follow-up: pending shipments, overdue orders, partial-stalled orders, short stock, customer urgency, merge candidates.')
+    task = _ai_create_agent_task('sales_followup', '销售履约跟进：待发货、逾期订单、部分发货停滞、缺货、客户催发货和合单候选。')
 
     today_value = date.today()
     pending_count = SalesOrder.query.filter(
@@ -18242,11 +18464,11 @@ def _ai_run_sales_followup_agent():
     _ai_add_agent_step(
         task,
         1,
-        'Open sales order scan',
+        '待发货销售订单扫描',
         'sales_insights',
-        'sales orders with pending or partial shipment status',
-        f'Open sales orders: {pending_count}.',
-        'Open sales orders',
+        '待发货或部分发货的销售订单',
+        f'待发货销售订单：{pending_count} 张。',
+        '打开销售订单',
         url_for('sales_order_list'),
     )
 
@@ -18259,11 +18481,11 @@ def _ai_run_sales_followup_agent():
     _ai_add_agent_step(
         task,
         2,
-        'Overdue shipment scan',
+        '逾期发货扫描',
         'sales_insights',
-        'sales orders with delivery_date < today',
-        f'Overdue sales orders: {overdue_count}.',
-        'Open overdue sales orders',
+        '交货日期早于今天的销售订单',
+        f'逾期销售订单：{overdue_count} 张。',
+        '打开逾期销售订单',
         url_for('sales_order_list'),
     )
 
@@ -18275,11 +18497,11 @@ def _ai_run_sales_followup_agent():
     _ai_add_agent_step(
         task,
         3,
-        'Partial stalled scan',
+        '部分发货停滞扫描',
         'sales_insights',
-        'sales orders with shipment_status=partial stalled >7 days',
-        f'Partial stalled sales orders: {stalled_count}.',
-        'Open partial stalled sales orders',
+        '部分发货且停滞超过 7 天的销售订单',
+        f'部分发货停滞销售订单：{stalled_count} 张。',
+        '打开部分发货停滞订单',
         url_for('sales_order_list'),
     )
 
@@ -18297,17 +18519,17 @@ def _ai_run_sales_followup_agent():
     _ai_add_agent_step(
         task,
         4,
-        'Customer urgency scan',
+        '客户催发货扫描',
         'sales_insights',
-        'customers with overdue orders needing follow-up message (manual confirmation required)',
-        f'Customers with overdue orders: {urgency_count}. Customer messages are NEVER sent automatically; manual confirmation is required.',
-        'Generate customer follow-up message (read-only)',
+        '有逾期订单、需要跟进话术的客户（需人工确认）',
+        f'有逾期订单的客户：{urgency_count} 家。催发货话术不会自动发送，需人工确认。',
+        '生成客户跟进话术（只读）',
         '#',
         risk_level='read',
     )
     task_summary = (
-        f'Sales follow-up completed. Pending {pending_count}, overdue {overdue_count}, '
-        f'partial stalled {stalled_count}, customers needing follow-up {urgency_count}.'
+        f'销售履约跟进完成。待发货 {pending_count} 张，逾期 {overdue_count} 张，'
+        f'部分发货停滞 {stalled_count} 张，需跟进客户 {urgency_count} 家。'
     )
     return _ai_finish_agent_task(task, 'completed', task_summary, url_for('sales_order_list')), None
 

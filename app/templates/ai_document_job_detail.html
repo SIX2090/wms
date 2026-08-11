@@ -39,7 +39,7 @@
         <div class="col-md-3">
             <div class="border rounded p-3 h-100">
                 <div class="text-muted small">来源 / 类型</div>
-                <div class="fw-semibold">{{ job.source }} / {{ job.document_type or '-' }}</div>
+                <div class="fw-semibold">{{ job.source|ai_doc_label('source') }} / {{ job.document_type|ai_doc_label('doc_type') if job.document_type else '-' }}</div>
             </div>
         </div>
         <div class="col-md-3">
@@ -53,7 +53,7 @@
                 <div class="text-muted small">生成结果</div>
                 <div class="fw-semibold">
                     {% if job.generated_document_no %}
-                    {{ job.generated_document_type }} {{ job.generated_document_no }}
+                    {{ job.generated_document_type|ai_doc_label('doc_type') }} {{ job.generated_document_no }}
                     {% else %}
                     -
                     {% endif %}
@@ -93,7 +93,7 @@
                     <td>{{ item.line_no }}</td>
                     <td>
                         <span class="badge {% if item.match_status == 'matched' %}bg-success{% else %}bg-warning text-dark{% endif %}">
-                            {{ item.match_status }}
+                            {{ item.match_status|ai_doc_label('match_status') }}
                         </span>
                     </td>
                     <td>
@@ -147,8 +147,8 @@
                             {% for attempt in job.attempts|sort(attribute='attempt_no') %}
                             <tr>
                                 <td>{{ attempt.attempt_no }}</td>
-                                <td>{{ attempt.source }}</td>
-                                <td>{{ attempt.status }}</td>
+                                <td>{{ attempt.source|ai_doc_label('source') }}</td>
+                                <td>{{ attempt.status|ai_doc_label('job_status') }}</td>
                                 <td>{{ attempt.model or '-' }}</td>
                                 <td>{{ attempt.item_count or 0 }} / 匹配 {{ attempt.matched_count or 0 }} / 未匹配 {{ attempt.unmatched_count or 0 }}</td>
                                 <td>{{ attempt.error_message or '-' }}</td>
@@ -201,10 +201,10 @@
                 {% for feedback in job.feedbacks|sort(attribute='created_at', reverse=True) %}
                 <div class="border-bottom pb-2 mb-2">
                     <div class="d-flex justify-content-between gap-2">
-                        <strong>{{ feedback.rating }}</strong>
+                        <strong>{{ feedback.rating|ai_doc_label('rating') }}</strong>
                         <span class="text-muted small">{{ feedback.created_at.strftime('%Y-%m-%d %H:%M') if feedback.created_at else '-' }}</span>
                     </div>
-                    <div class="text-muted small">{{ feedback.error_type or '无问题类型' }}</div>
+                    <div class="text-muted small">{{ feedback.error_type|ai_doc_label('error_type') if feedback.error_type else '无问题类型' }}</div>
                     {% if feedback.note %}<div>{{ feedback.note }}</div>{% endif %}
                 </div>
                 {% else %}

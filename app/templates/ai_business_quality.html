@@ -54,7 +54,7 @@
                     <input type="text" class="form-control form-control-sm" id="model" placeholder="如 qwen-vl-max">
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label small">Schema版本</label>
+                    <label class="form-label small">结构版本</label>
                     <input type="text" class="form-control form-control-sm" id="schema_version" placeholder="如 v1">
                 </div>
                 <div class="col-12 mt-2">
@@ -93,11 +93,11 @@
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small">当前版本筛选</label>
-                    <input type="text" class="form-control form-control-sm" id="current_filter_schema" placeholder="Schema版本（可选）">
+                    <input type="text" class="form-control form-control-sm" id="current_filter_schema" placeholder="结构版本（可选）">
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small">基线版本筛选</label>
-                    <input type="text" class="form-control form-control-sm" id="baseline_filter_schema" placeholder="Schema版本（可选）">
+                    <input type="text" class="form-control form-control-sm" id="baseline_filter_schema" placeholder="结构版本（可选）">
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small">回归阈值</label>
@@ -111,7 +111,7 @@
     <!-- 维度分组 -->
     <div class="card mb-3">
         <div class="card-header py-2">
-            <span class="fw-semibold">维度分组（按角色/来源/模型/提示词/Schema版本）</span>
+            <span class="fw-semibold">维度分组（按角色/来源/模型/提示词/结构版本）</span>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -152,7 +152,7 @@
                             <th>角色</th>
                             <th>来源</th>
                             <th>模型</th>
-                            <th>Schema</th>
+                            <th>结构</th>
                             <th class="text-end">分类</th>
                             <th class="text-end">表头</th>
                             <th class="text-end">行召回</th>
@@ -274,7 +274,7 @@ function renderDimensionTable(byDimension) {
     let html = '';
     const dimLabels = {
         'role': '角色', 'source': '来源', 'model': '模型',
-        'prompt_hash': '提示词', 'schema_version': 'Schema版本'
+        'prompt_hash': '提示词', 'schema_version': '结构版本'
     };
     
     for (const [dim, values] of Object.entries(byDimension)) {

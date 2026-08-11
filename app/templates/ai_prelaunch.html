@@ -60,7 +60,7 @@
                     <td>{{ item.title }}</td>
                     <td>
                         <span class="badge {% if item.status == 'pass' %}bg-success{% elif item.status == 'warn' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-                            {{ item.status }}
+                            {% if item.status == 'pass' %}通过{% elif item.status == 'warn' %}需关注{% else %}异常{% endif %}
                         </span>
                     </td>
                     <td>{{ item.detail }}</td>

@@ -42,7 +42,7 @@
                 <table class="table table-sm mb-0">
                     <tbody>
                         <tr><th>总开关</th><td>{{ '开启' if metrics_7d.global_enabled else '关闭' }}</td></tr>
-                        <tr><th>灰度范围</th><td>{{ metrics_7d.rollout_mode }}</td></tr>
+                        <tr><th>灰度范围</th><td>{{ metrics_7d.rollout_mode|ai_doc_label('rollout_mode') }}</td></tr>
                         <tr><th>草稿能力</th><td>{{ '开启' if metrics_7d.drafts_enabled else '关闭' }}</td></tr>
                         <tr><th>Agent任务</th><td>{{ '开启' if metrics_7d.agents_enabled else '关闭' }}</td></tr>
                         <tr><th>视觉识别</th><td>{{ '开启' if metrics_7d.vision_enabled else '关闭' }}</td></tr>
@@ -65,7 +65,7 @@
                     <tbody>
                         {% for name, count in metrics_7d.tool_rows %}
                         <tr>
-                            <td>{{ name }}</td>
+                            <td>{{ name|ai_agent_label('tool') }}</td>
                             <td class="text-end">{{ count }}</td>
                         </tr>
                         {% endfor %}
@@ -97,7 +97,7 @@
                     <td>{{ run.started_at.strftime('%Y-%m-%d %H:%M') if run.started_at else '-' }}</td>
                     <td>{{ run.user.username if run.user else '-' }}</td>
                     <td>{{ run.endpoint }}</td>
-                    <td><span class="badge {% if run.status == 'completed' %}bg-success{% elif run.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">{{ run.status }}</span></td>
+                    <td><span class="badge {% if run.status == 'completed' %}bg-success{% elif run.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">{{ run.status|ai_doc_label('run_status') }}</span></td>
                     <td>{{ run.duration_ms or 0 }} ms</td>
                     <td>{{ run.model or '-' }}</td>
                     <td class="text-truncate" style="max-width: 360px;">{{ run.error_message or '-' }}</td>
