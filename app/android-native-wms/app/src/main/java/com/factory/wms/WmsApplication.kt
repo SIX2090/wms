@@ -4,9 +4,13 @@ import android.app.Application
 import android.util.Log
 import com.factory.wms.data.api.AuthEventBus
 import com.factory.wms.data.api.RetrofitClient
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.network.okhttp.OkHttpClientFetcherFactory
+import coil.util.DebugLogger
 import java.io.File
 
-class WmsApplication : Application() {
+class WmsApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         RetrofitClient.onUnauthorized = {
@@ -16,6 +20,15 @@ class WmsApplication : Application() {
         // 避免 FileProvider 缓存目录无限累积占用空间。
         cleanupStaleCameraCache()
     }
+
+    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
+        .components {
+            add(OkHttpClientFetcherFactory(RetrofitClient.sharedOkHttpClient()))
+        }
+        .apply {
+            if (BuildConfig.DEBUG) logger(DebugLogger())
+        }
+        .build()
 
     private fun cleanupStaleCameraCache() {
         try {

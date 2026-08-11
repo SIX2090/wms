@@ -89,4 +89,6 @@ object RetrofitClient {
     fun getToken(): String? = authToken
 
     fun getBaseUrl(): String = baseUrl
+
+    fun sharedOkHttpClient(): OkHttpClient = okHttpClient
 }

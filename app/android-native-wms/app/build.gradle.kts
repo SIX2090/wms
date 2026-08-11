@@ -137,6 +137,7 @@ dependencies {
 
     // Coil for image loading
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("io.coil-kt:coil-network-okhttp:2.7.0")
 
     // Room
     implementation("androidx.room:room-runtime:2.6.1")

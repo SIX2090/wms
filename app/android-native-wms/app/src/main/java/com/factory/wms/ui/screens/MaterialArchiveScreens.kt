@@ -24,7 +24,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
 import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.model.MaterialArchiveDto
 import com.factory.wms.data.model.MaterialArchiveImageDto
@@ -593,15 +594,26 @@ private fun ArchiveImageCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = resolveImageUrl(image.url),
-                contentDescription = "档案图片",
+            Box(
                 modifier = Modifier
                     .size(72.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(SurfaceVariant),
-                contentScale = ContentScale.Crop
-            )
+                contentAlignment = Alignment.Center
+            ) {
+                if (imageUrl.isBlank()) {
+                    Text("图片加载失败")
+                } else if (painter.state is AsyncImagePainter.State.Error) {
+                    Text("图片加载失败")
+                } else {
+                    Image(
+                        painter = painter,
+                        contentDescription = "档案图片",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
