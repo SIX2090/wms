@@ -586,10 +586,12 @@ def register_mobile_routes(app):
             return jsonify({
                 'status': 'success',
                 'success': True,
-                'reply': reply,
-                'extracted': extracted,
-                'matches': [mobile_material_payload(m) for m in matches],
-                'match_count': len(matches)
+                'data': {
+                    'reply': reply,
+                    'extracted': extracted,
+                    'matches': [mobile_material_payload(m) for m in matches],
+                    'match_count': len(matches),
+                },
             })
         except Exception:
             # 记录堆栈但不记录异常字符串，避免大模型 API 响应等敏感信息写入日志
