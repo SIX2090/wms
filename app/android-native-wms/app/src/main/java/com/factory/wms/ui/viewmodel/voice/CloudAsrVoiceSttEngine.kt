@@ -15,6 +15,7 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 基于后端中转的云语音识别引擎（腾讯云一句话识别）。
@@ -41,6 +42,10 @@ class CloudAsrVoiceSttEngine(
     // 原因：ViewModel 在 stop() 之后会立即调用 destroy()，而云引擎的识别结果是
     // 异步上传获得的，若在此取消作用域，结果回调会被丢弃，UI 会一直得不到结果。
     private val uploadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // 上传并发计数：uploadScope 不在 destroy() 取消（见 destroy 注释），
+    // 极端频繁触发时可能累积在途上传协程；用计数器加上限防护。
+    private val activeUploads = AtomicInteger(0)
 
     @Volatile private var started = false
 
@@ -72,7 +77,20 @@ class CloudAsrVoiceSttEngine(
             return
         }
         val wavBytes = buildWav(pcm)
-        uploadScope.launch { uploadAndRecognize(wavBytes) }
+        // 并发上限防护：超过 MAX_CONCURRENT_UPLOADS 个在途上传时拒绝新上传，
+        // 避免极端频繁触发导致协程无界累积（每个在途上传最坏 30s readTimeout 才结束）
+        if (activeUploads.incrementAndGet() > MAX_CONCURRENT_UPLOADS) {
+            activeUploads.decrementAndGet()
+            listener?.onError(SttError.TooManyRequests)
+            return
+        }
+        uploadScope.launch {
+            try {
+                uploadAndRecognize(wavBytes)
+            } finally {
+                activeUploads.decrementAndGet()
+            }
+        }
     }
 
     override fun destroy() {
@@ -242,5 +260,7 @@ class CloudAsrVoiceSttEngine(
         private const val BITS_PER_SAMPLE = 16
         /** 每次读取 100ms 音频（1600 samples x 2 bytes @16kHz）。 */
         private const val FRAME_BYTES = 3_200
+        /** 同时在途的识别上传协程上限，超出直接回调 TooManyRequests。 */
+        private const val MAX_CONCURRENT_UPLOADS = 3
     }
 }
