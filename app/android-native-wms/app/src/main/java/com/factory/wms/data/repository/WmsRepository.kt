@@ -363,9 +363,16 @@ class WmsRepository(private val context: Context) {
                 val data = envelope.data
                 if (data != null) {
                     Result.success(data)
-                } else {
+                } else if (T::class == Unit::class) {
+                    // 仅删除类接口（ApiEnvelope<Unit>）允许 success 无 data 时回填 Unit。
+                    // BUG-2026-08-11-006：其他类型绝不能 `Unit as T`——reified 泛型会真实 checkcast，
+                    // 抛 "kotlin.Unit cannot be cast to X"，把服务端漏发 data 的问题变成晦涩崩溃。
                     @Suppress("UNCHECKED_CAST")
                     Result.success(Unit as T)
+                } else {
+                    // success 但 data 缺失（旧版本服务端/代理丢 body 等异常路径）：
+                    // 返回干净失败，UI 展示服务端 msg，而不是 ClassCastException 文本
+                    Result.failure(Exception(envelope.displayMessage()))
                 }
             } else {
                 Result.failure(Exception(envelope?.displayMessage() ?: "请求失败"))
