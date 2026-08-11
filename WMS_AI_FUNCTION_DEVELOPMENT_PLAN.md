@@ -1778,3 +1778,29 @@ full 验证结果：
 - 推送验证：提交后推送输出 `To https://github.com/SIX2090/wms.git ... -> main`；本地与 `origin/main` SHA 一致。
 - 剩余风险：`Picker` 字段暂未纳入领料单打印模板与导出模板，如需可在后续子项补充。
 - 后续修复（BUG-2026-08-06-001）：老库访问领料单报 `no such column: out_order.picker`，根因是 `auto_migrate_database()` 在 config 加载前用硬编码路径检查数据库，与实际库路径不一致，`picker` 列未迁移。已把迁移调用移到 config 加载后，并抽 `_resolve_sqlite_db_path()` 从 `SQLALCHEMY_DATABASE_URI` 解析真实路径；回归 `tests/test_auto_migrate_db_path.py` 5 用例全绿。commit 见本次提交。
+
+#### WECHAT-SHARE-FIX-2026-08-11（已完成）— 微信分享功能缺陷审计全量修复（BUG-2026-08-11-008 ~ 015）
+
+- 完成日期：2026-08-11
+- 目标：修复微信分享功能缺陷审计发现的全部 8 项问题，覆盖直推认证与安全、助手并发健壮性、结果映射与重试、定时任务幂等、页面性能、存储膨胀、重发一致性、界面引导四个维度；所有修复登记 `WMS_BUG_BASELINE.md` 并配套回归测试。
+- 业务边界：仅修复微信分享域缺陷，不改密码、权限、事务边界、库存逻辑；不建任何新分支（仅 `main`）；AI 不自动提交/审核任何单据。
+- 修复清单（BUG ID → commit）：
+  - BUG-2026-08-11-008（commit `0d31b849`）：直推携带 `X-Wechat-Helper-Token` 认证头；helper_url 限制本机回环地址防 token 泄露；token 未配置拒绝直推。子修复 commit `73a1e29c`（T1 测试用 monkeypatch.setitem 隔离模块级 config 污染）。
+  - BUG-2026-08-11-009（commit `cf640084`）：助手端全局 `SEND_LOCK` 串行化发送；`_SendError` 结构化错误码体系；`_ensure_foreground()` 三处前台焦点校验；接收人校验提前到写剪贴板之前。
+  - BUG-2026-08-11-010（commit `a842aac4`）：`_wechat_share_send_image` 改返回 `(status, code, message)` 三元组；仅 ConnectionError 自动重试 1 次、Timeout 不重试防重复发送；删除关键词匹配状态判定。
+  - BUG-2026-08-11-011（commit `cdedb684`）：定时任务改 `force=False` + scheduled marker 检查，同一 config 每日最多执行一次、marker 恰好一条，杜绝重复发送。
+  - BUG-2026-08-11-012（commit `57fe2ae4`）：助手健康检查结果 30s 进程内缓存，消除分享页每次打开 1.5s 阻塞。
+  - BUG-2026-08-11-013（commit `1aa768c0`）：分享图片 30 天保留期自动清理（每日守卫挂入每分钟 scheduler），超期图片删除并同步解绑日志 image_path/image_size。
+  - BUG-2026-08-11-014（commit `a439c7f0`）：重发冻结使用日志记录的历史接收人（SimpleNamespace 发送快照），message 标注"按历史接收人重发"。
+  - BUG-2026-08-11-015（commit `fc26b181`）：分享页补充直推/轮询模式引导、auto_send 风险警示条（JS 实时显隐）、pending 消化引导（按助手在线/轮询状态分支提示）。
+- 改动模块：
+  - `app/wechat_helper.py`：SEND_LOCK / _SendError / _ensure_foreground / 校验顺序。
+  - `app/app.py`：`_wechat_share_send_image` 三元组+token+回环校验+重试、`_wechat_share_helper_url_allowed`、健康检查缓存、图片清理两个函数、定时任务去重。
+  - `app/routes/wechat_share.py`：resend 冻结接收人快照、保存配置回环校验。
+  - `app/templates/wechat_share.html`：模式引导 form-text、`#autoSendRiskHint` 警示条、pending 消化引导 alert。
+  - `tests/verify_bug_2026_08_11_008~015_*.py` 8 个回归测试文件 + `tests/test_wechat_helper_send_image_task.py`。
+- 专项验证命令及结果：
+  - `python -m pytest tests/verify_bug_2026_08_11_008_wechat_push_token.py tests/verify_bug_2026_08_11_009_helper_robustness.py tests/verify_bug_2026_08_11_010_wms_result_mapping.py tests/verify_bug_2026_08_11_011_scheduled_dedup.py tests/verify_bug_2026_08_11_012_helper_health_cache.py tests/verify_bug_2026_08_11_013_image_retention.py tests/verify_bug_2026_08_11_014_resend_frozen_receiver.py tests/verify_bug_2026_08_11_015_share_page_guidance.py tests/test_wechat_helper_send_image_task.py -q` → 45 passed。
+  - 每个 commit 前 pre-commit 钩子（lint_wms_rules + lint_no_raw_post_fetch）→ 全部通过。
+- 推送验证：9 个 commit 均推送输出 `To https://github.com/SIX2090/wms ... -> main`；最终本地与 `origin/main` SHA 一致（`fc26b181`）。
+- 剩余风险：① 助手端 Windows-only 模块（pywin32 等）按仓库惯例仅做静态验证，真机发送链路需人工在 Windows 桌面环境抽验；② `wechat_share.html` 存量 JS 仍直接调 `fetch`（pre-commit 仅拦截新增行），如需收口列入后续技术债子项。
