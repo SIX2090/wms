@@ -18,11 +18,20 @@ def test_t1_retrofit_client_exposes_shared_okhttp_client():
 
 
 def test_t2_application_configures_coil_with_shared_client():
-    """Coil 全局 ImageLoader 必须使用统一 OkHttpClient。"""
+    """Coil 全局 ImageLoader 必须使用统一 OkHttpClient（Coil 2.x callFactory API）。"""
     source = APPLICATION.read_text(encoding="utf-8")
     assert "newImageLoader" in source
     assert "RetrofitClient.sharedOkHttpClient()" in source
-    assert "OkHttpClientFetcherFactory" in source
+    assert ".callFactory {" in source
+    # Coil 3.x 专属 API/构件在 Coil 2.7.0 下不存在，禁止出现
+    assert "OkHttpClientFetcherFactory" not in source
+    assert "coil.network.okhttp" not in source
+
+
+def test_t5_no_coil3_only_artifact_dependency():
+    """io.coil-kt:coil-network-okhttp 是 Coil 3.x 专属构件，Coil 2.7.0 无法解析。"""
+    gradle = (ROOT / "app" / "android-native-wms" / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+    assert "coil-network-okhttp" not in gradle
 
 
 def test_t3_archive_image_error_is_visible_to_operator():

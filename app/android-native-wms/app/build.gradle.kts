@@ -135,9 +135,8 @@ dependencies {
     // EncryptedSharedPreferences (sensitive data like token)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Coil for image loading
+    // Coil for image loading（2.x 网络层内置于 coil-base，用 callFactory 注入共享 OkHttpClient）
     implementation("io.coil-kt:coil-compose:2.7.0")
-    implementation("io.coil-kt:coil-network-okhttp:2.7.0")
 
     // Room
     implementation("androidx.room:room-runtime:2.6.1")

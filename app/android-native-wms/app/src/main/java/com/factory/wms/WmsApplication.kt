@@ -6,7 +6,6 @@ import com.factory.wms.data.api.AuthEventBus
 import com.factory.wms.data.api.RetrofitClient
 import coil.ImageLoader
 import coil.ImageLoaderFactory
-import coil.network.okhttp.OkHttpClientFetcherFactory
 import coil.util.DebugLogger
 import java.io.File
 
@@ -21,10 +20,10 @@ class WmsApplication : Application(), ImageLoaderFactory {
         cleanupStaleCameraCache()
     }
 
+    // Coil 2.x：网络下载走 ImageLoader.Builder.callFactory，
+    // 复用 Retrofit 的 OkHttpClient（含 Bearer Token 拦截器），图片请求与 API 请求认证一致。
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
-        .components {
-            add(OkHttpClientFetcherFactory(RetrofitClient.sharedOkHttpClient()))
-        }
+        .callFactory { RetrofitClient.sharedOkHttpClient() }
         .apply {
             if (BuildConfig.DEBUG) logger(DebugLogger())
         }
