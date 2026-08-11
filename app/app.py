@@ -20347,6 +20347,21 @@ def _wechat_share_today_in_orders():
         InOrder.date == date.today(),
     ).order_by(InOrder.created_at.asc(), InOrder.id.asc()).all()
 
+def _wechat_share_helper_url_allowed(helper_url):
+    """微信发送助手地址仅允许本机回环地址。
+
+    直推请求会携带 WECHAT_HELPER_TOKEN 认证头；若允许配置成任意外网地址，
+    token 会随请求明文泄露给第三方主机，第三方即可借此驱动本机微信发图。
+    """
+    try:
+        parsed = urlparse(str(helper_url or '').strip())
+    except Exception:
+        return False
+    if parsed.scheme not in ('http', 'https'):
+        return False
+    return (parsed.hostname or '').lower() in {'127.0.0.1', 'localhost', '::1'}
+
+
 def _wechat_share_send_image(config, image_path):
     helper_url = (
         (config.helper_url or '').strip()
@@ -20354,6 +20369,12 @@ def _wechat_share_send_image(config, image_path):
     )
     if not helper_url:
         return False, '个人微信自动发送助手未配置，图片已生成待发送'
+    if not _wechat_share_helper_url_allowed(helper_url):
+        return False, '微信发送助手地址仅允许本机回环地址（http://127.0.0.1 或 http://localhost）'
+    # BUG-2026-08-11-008：直推必须携带 helper token，否则助手端 _check_auth 一律 403。
+    helper_token = str(app.config.get('WECHAT_HELPER_TOKEN') or '').strip()
+    if not helper_token:
+        return False, 'WECHAT_HELPER_TOKEN 未配置，无法直推微信发送助手'
 
     try:
         import requests
@@ -20370,7 +20391,13 @@ def _wechat_share_send_image(config, image_path):
             }
             # 调低超时（30s→10s）：避免微信发送助手挂起时占住 Waitress 线程 30s，
             # 导致线程池被打满、包括下推领料单在内的其它请求排队等待。
-            response = requests.post(helper_url, data=data, files=files, timeout=10)
+            response = requests.post(
+                helper_url,
+                data=data,
+                files=files,
+                headers={'X-Wechat-Helper-Token': helper_token},
+                timeout=10,
+            )
         if response.ok:
             try:
                 payload = response.json()

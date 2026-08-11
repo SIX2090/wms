@@ -76,6 +76,7 @@ def register_wechat_share_routes(app):
         from flask import current_app
         from app import (
             _wechat_share_default_config,
+            _wechat_share_helper_url_allowed,
             _wechat_share_time_is_valid,
             api_error,
             datetime,
@@ -104,7 +105,11 @@ def register_wechat_share_routes(app):
         config.immediate_on_complete = request.form.get('immediate_on_complete') == '1'
         config.enabled = request.form.get('enabled') == '1'
         config.auto_send = request.form.get('auto_send') == '1'
-        config.helper_url = (request.form.get('helper_url') or '').strip() or 'http://127.0.0.1:8765/send'
+        helper_url = (request.form.get('helper_url') or '').strip() or 'http://127.0.0.1:8765/send'
+        # BUG-2026-08-11-008：直推会携带 helper token，仅允许本机回环地址，防止 token 泄露给第三方主机
+        if not _wechat_share_helper_url_allowed(helper_url):
+            return api_error('发送助手地址仅允许本机回环地址（http://127.0.0.1 或 http://localhost）')
+        config.helper_url = helper_url
         config.updated_at = datetime.now()
 
         if not config.receiver_search_key:
