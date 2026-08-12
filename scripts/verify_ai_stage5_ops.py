@@ -83,8 +83,19 @@ def main() -> int:
     assert ops.status_code == 200
     ops_html = ops.get_data(as_text=True)
     assert 'AI运维看板' in ops_html
-    assert 'warehouse_insights' in ops_html
     assert 'verify-model' in ops_html
+    # 内部 key 与中文标签分离验证：
+    # 1) 数据库 AIToolCall.tool_name 保存内部 key warehouse_insights
+    with app.app_context():
+        tool_call = wms_app.AIToolCall.query.filter_by(tool_name='warehouse_insights').first()
+        assert tool_call is not None
+        assert tool_call.capability == 'warehouse_insights'
+    # 2) 模板使用 ai_agent_label('tool') 过滤器，页面渲染中文标签而非内部 key
+    template_path = ROOT / 'app' / 'templates' / 'ai_ops_dashboard.html'
+    template_source = template_path.read_text(encoding='utf-8')
+    assert "ai_agent_label('tool')" in template_source
+    assert '仓库洞察' in ops_html
+    assert 'warehouse_insights' not in ops_html
 
     _login(client, warehouse_id)
     forbidden = client.get('/ai/ops')
