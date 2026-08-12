@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -121,15 +122,30 @@ def test_dimension_table_rendering_logic() -> None:
     template_file = ROOT / 'app' / 'templates' / 'ai_business_quality.html'
     content = template_file.read_text(encoding='utf-8')
     
-    # 检查维度标签
+    # 检查维度标签（保留结构化 key，用户可见标签为中文；不绑定历史显示词）
     assert "'role': '角色'" in content or '"role": "角色"' in content, '缺少角色维度标签'
     assert "'source': '来源'" in content or '"source": "来源"' in content, '缺少来源维度标签'
     assert "'model': '模型'" in content or '"model": "模型"' in content, '缺少模型维度标签'
-    assert "'schema_version': 'Schema版本'" in content or '"schema_version": "Schema版本"' in content, '缺少Schema版本维度标签'
-    
+    # schema_version：结构化 key 必须映射到非空中文用户显示标签（当前约定「结构版本」，
+    # 允许等价中文标签）；不得直接输出原始 key，也不得混入英文
+    schema_match = re.search(r"""['"]schema_version['"]\s*:\s*['"]([^'"]+)['"]""", content)
+    assert schema_match, '缺少 schema_version 维度标签映射'
+    schema_label = schema_match.group(1)
+    assert schema_label and schema_label != 'schema_version', \
+        f'schema_version 标签不得为空或直接输出原始 key，实际: {schema_label!r}'
+    assert re.search(r'[\u4e00-\u9fff]', schema_label), \
+        f'schema_version 标签必须为中文用户显示值，实际: {schema_label!r}'
+    assert not re.search(r'[A-Za-z]', schema_label), \
+        f'schema_version 标签不得混入英文，实际: {schema_label!r}'
+
     # 检查表格结构
     assert 'dimensionTable' in content, '缺少维度分组表ID'
     assert 'by_dimension' in content or 'byDimension' in content, '缺少维度分组数据引用'
+    # renderDimensionTable 必须实际使用标签映射渲染维度列
+    func_start = content.find('function renderDimensionTable')
+    assert func_start >= 0, '缺少 renderDimensionTable 函数'
+    func_body = content[func_start:func_start + 2000]
+    assert 'dimLabels[dim]' in func_body, 'renderDimensionTable 未使用维度标签映射渲染维度列'
     
     print('测试6 通过: 维度分组表渲染逻辑正确')
 
