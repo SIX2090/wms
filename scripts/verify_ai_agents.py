@@ -65,22 +65,51 @@ def main() -> int:
         assert any(task.agent_type == 'purchase_followup' and task.status == 'completed' for task in tasks)
         warehouse_task = next(task for task in tasks if task.agent_type == 'warehouse_patrol')
         purchase_task = next(task for task in tasks if task.agent_type == 'purchase_followup')
-        assert wms_app.AIAgentStep.query.filter_by(task_id=warehouse_task.id).count() >= 4
-        assert wms_app.AIAgentStep.query.filter_by(task_id=purchase_task.id).count() >= 4
-        assert wms_app.AIAgentStep.query.filter_by(task_id=purchase_task.id, risk_level='draft').count() == 1
+        step_model = wms_app.AIAgentStep
+        warehouse_steps = (step_model.query.filter_by(task_id=warehouse_task.id)
+                           .order_by(step_model.step_no.asc()).all())
+        purchase_steps = (step_model.query.filter_by(task_id=purchase_task.id)
+                          .order_by(step_model.step_no.asc()).all())
+        # 数据库内部语义（与展示语言无关）：步骤数、序号连续、tool/risk/status 结构化字段
+        assert len(warehouse_steps) >= 4
+        assert len(purchase_steps) >= 4
+        assert [step.step_no for step in warehouse_steps] == list(range(1, len(warehouse_steps) + 1))
+        assert [step.step_no for step in purchase_steps] == list(range(1, len(purchase_steps) + 1))
+        assert all(step.status == 'completed' for step in warehouse_steps + purchase_steps)
+        assert any(step.tool_name == 'warehouse_insights' for step in warehouse_steps)
+        assert all(step.name for step in warehouse_steps + purchase_steps)
+        purchase_draft_steps = [step for step in purchase_steps if step.risk_level == 'draft']
+        assert len(purchase_draft_steps) == 1
+        assert purchase_draft_steps[0].tool_name == 'purchase_request_draft'
         assert wms_app.AIAgentTask.query.filter_by(agent_type='warehouse_patrol').count() >= 2
         assert wms_app.AIAgentTask.query.filter_by(agent_type='purchase_followup').count() >= 2
         warehouse_id = warehouse_task.id
         purchase_id = purchase_task.id
+        warehouse_step_names = [step.name for step in warehouse_steps]
+        purchase_step_names = [step.name for step in purchase_steps]
+        # 渲染层过滤器契约：历史英文内部文案必须经 ai_agent_text/ai_agent_label 翻译为中文
+        text_filter = app.jinja_env.filters['ai_agent_text']
+        label_filter = app.jinja_env.filters['ai_agent_label']
+        assert text_filter('Stock risk scan') == '库存风险扫描'
+        assert text_filter('Low-stock replenishment scan') == '低库存补货扫描'
+        assert label_filter('draft', 'risk') == '草稿'
 
+    # 任务详情页中文渲染契约：数据库中的中文步骤名可见，旧英文内部文案不得泄露
     warehouse_detail = client.get(f'/ai/agent_tasks/{warehouse_id}')
     assert warehouse_detail.status_code == 200
-    assert 'Stock risk scan' in warehouse_detail.get_data(as_text=True)
+    warehouse_html = warehouse_detail.get_data(as_text=True)
+    for step_name in warehouse_step_names:
+        assert step_name in warehouse_html
+    assert 'Stock risk scan' not in warehouse_html
+
     purchase_detail = client.get(f'/ai/agent_tasks/{purchase_id}')
     assert purchase_detail.status_code == 200
     purchase_html = purchase_detail.get_data(as_text=True)
-    assert 'Low-stock replenishment scan' in purchase_html
-    assert 'draft' in purchase_html
+    for step_name in purchase_step_names:
+        assert step_name in purchase_html
+    assert 'Low-stock replenishment scan' not in purchase_html
+    # risk_level='draft' 经 ai_agent_label('risk') 渲染为中文「草稿」单元格
+    assert '草稿</td>' in purchase_html
 
     print('PASS AI-AGENTS: controlled warehouse and purchase agents create auditable tasks and steps')
     return 0
