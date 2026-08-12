@@ -4040,7 +4040,8 @@ class InOrder(db.Model):
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'))  # Other inbound / customer-supplied material owner
     business_type = db.Column(db.String(50), default='采购入库')  # Business type: purchase/product inbound
     purpose = db.Column(db.String(200))  # Inbound purpose
-    warehouse = db.Column(db.String(100))  # Warehouse name
+    warehouse = db.Column(db.String(100), nullable=False, default='')  # Warehouse name (AGENTS.md: 始终必填)
+    location = db.Column(db.String(100), nullable=False, default='')  # 库位（开启库位管理时必填）
     source_purchase_order_id = db.Column(db.Integer, db.ForeignKey('purchase_order.id'))
     remark = db.Column(db.String(200))  # Remark
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
@@ -4092,7 +4093,8 @@ class OutOrder(db.Model):
     department_id = db.Column(db.Integer, db.ForeignKey('department.id'))  # Department ID
     customer = db.Column(db.String(100))  # Legacy customer/department text
     business_type = db.Column(db.String(50))  # Business type
-    warehouse = db.Column(db.String(100))  # Warehouse name
+    warehouse = db.Column(db.String(100), nullable=False, default='')  # Warehouse name (AGENTS.md: 始终必填)
+    location = db.Column(db.String(100), nullable=False, default='')  # 库位（开启库位管理时必填）
     purpose = db.Column(db.String(200))  # Outbound purpose
     picker = db.Column(db.String(50))  # Pick person (领料人)
     source_sales_order_id = db.Column(db.Integer, db.ForeignKey('sales_order.id'))  # 关联销售订单ID（外键，替代 purpose 字符串解析）
@@ -4135,8 +4137,7 @@ class InventoryCheck(db.Model):
     check_no = db.Column(db.String(50), unique=True, nullable=False)  # Order number
     date = db.Column(db.Date, default=date.today)  # Date
     # BUG-2026-08-02-012：盘点仓库，必填（AGENTS.md 规则）。
-    # 模型层保持 nullable=True 以兼容存量数据，必填校验在路由层强制。
-    warehouse = db.Column(db.String(100))
+    warehouse = db.Column(db.String(100), nullable=False, default='')
     remark = db.Column(db.String(200))  # Remark
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
@@ -4311,8 +4312,7 @@ class ProductionRequisition(db.Model):
     purpose = db.Column(db.String(200))  # Requisition purpose
     picker = db.Column(db.String(50))  # Pick person (领料人)
     # BUG-2026-08-05-008：工单领料仓库，必填（AGENTS.md 领料出库仓库必填规则）。
-    # 模型层保持 nullable=True 以兼容存量数据，必填校验在路由层强制。
-    warehouse = db.Column(db.String(100))  # Warehouse name
+    warehouse = db.Column(db.String(100), nullable=False, default='')  # Warehouse name
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     remark = db.Column(db.String(500))  # Remark
@@ -4342,7 +4342,7 @@ class InventoryCheckScan(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     check_no = db.Column(db.String(50), unique=True, nullable=False)  # Order number
     date = db.Column(db.Date, default=date.today)  # Date
-    warehouse = db.Column(db.String(100))  # Warehouse name (required by route validation)
+    warehouse = db.Column(db.String(100), nullable=False, default='')  # Warehouse name (AGENTS.md: 始终必填)
     remark = db.Column(db.String(200))  # Remark
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
@@ -4744,9 +4744,8 @@ class TransferOrder(db.Model):
     # BUG-2026-08-02-012：from_location/to_location 原本存的是仓库名，
     # 仓库与库位概念混淆。新增 from_warehouse/to_warehouse 显式存仓库，
     # from_location/to_location 保留作为库位字段（开启库位管理时使用）。
-    # 模型层保持 nullable=True 以兼容存量数据，必填校验在路由层强制。
-    from_warehouse = db.Column(db.String(100))
-    to_warehouse = db.Column(db.String(100))
+    from_warehouse = db.Column(db.String(100), nullable=False, default='')
+    to_warehouse = db.Column(db.String(100), nullable=False, default='')
     from_location = db.Column(db.String(100), nullable=False)  # Source location（未开库位时存调出仓库名，开库位时存调出库位）
     to_location = db.Column(db.String(100), nullable=False)  # Target location（同上）
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed/cancelled
@@ -4782,8 +4781,7 @@ class AdjustmentOrder(db.Model):
     date = db.Column(db.Date, default=date.today)  # Adjustment date
     adjustment_type = db.Column(db.String(20), nullable=False)  # Type: profit/surplus or loss
     # BUG-2026-08-02-012：调整仓库，必填（AGENTS.md 规则）。
-    # 模型层保持 nullable=True 以兼容存量数据，必填校验在路由层强制。
-    warehouse = db.Column(db.String(100))
+    warehouse = db.Column(db.String(100), nullable=False, default='')
     source_type = db.Column(db.String(50))  # Source type: check/manual
     source_id = db.Column(db.Integer)  # Source ID
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed/cancelled
@@ -4820,7 +4818,7 @@ class AfterSaleOutOrder(db.Model):
     date = db.Column(db.Date, default=date.today)  # Out date
     customer = db.Column(db.String(100))  # Customer name
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'))
-    warehouse = db.Column(db.String(100))
+    warehouse = db.Column(db.String(100), nullable=False, default='')
     contact = db.Column(db.String(50))  # Contact
     phone = db.Column(db.String(20))  # Contact phone
     reason = db.Column(db.String(200))  # After sale reason
@@ -4969,7 +4967,7 @@ class SalesOrder(db.Model):
     order_no = db.Column(db.String(50), unique=True, nullable=False)
     date = db.Column(db.Date, default=date.today)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
-    warehouse = db.Column(db.String(100))
+    warehouse = db.Column(db.String(100), nullable=False, default='')
     warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))
     delivery_date = db.Column(db.Date)
     status = db.Column(db.String(20), default='draft')
