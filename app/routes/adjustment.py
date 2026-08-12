@@ -216,7 +216,8 @@ def register_adjustment_routes(app):
         from datetime import date, datetime
         from flask_login import current_user
         from app import (AdjustmentOrder, AdjustmentOrderItem, Material, allow_negative_stock,
-                         api_error, generate_order_no, get_default_warehouse, is_stock_sufficient,
+                         api_error, generate_order_no, get_default_warehouse,
+                         is_stock_sufficient, location_management_enabled,
                          log_operation, normalize_stock_quantity, round_to_2_decimals)
         # Support both JSON and form data
         if request.is_json:
@@ -352,6 +353,10 @@ def register_adjustment_routes(app):
                     location = (item_data.get('location') or '').strip()
                     reason = (item_data.get('reason') or '').strip()
 
+                    # P1-BUGFIX: 开启库位管理时 item 级 location 必填（AGENTS.md 规则二）
+                    if location_management_enabled() and not location:
+                        return api_error(f'库位管理已启用，物料 {material.code} 请填写库位')
+
                     # Store signed quantity based on adjustment type
                     signed_quantity = quantity if adjustment_type == 'surplus' else -quantity
 
@@ -404,6 +409,15 @@ def register_adjustment_routes(app):
             # P1-1 已为 AdjustmentOrder 加 warehouse 字段，loc_key 优先 adjustment.warehouse
             # （单据级仓库），无则回退 item.location（行级库位）。
             use_location = location_management_enabled()
+            # P1-BUGFIX: 开启库位管理时 item 级 location 必填（AGENTS.md 规则二），
+            # 防止存量草稿或绕过前端校验的请求把仓库名当作库位维度调整。
+            if use_location:
+                for item in adjustment.items:
+                    if not item.material_id:
+                        continue
+                    if not (item.location or '').strip():
+                        db.session.rollback()
+                        return api_error(f'库位管理已启用，物料 {item.material.code if item.material else item.material_id} 请填写库位')
             for item in adjustment.items:
                 if not item.material_id:
                     continue
@@ -433,9 +447,9 @@ def register_adjustment_routes(app):
                         db.session.rollback()
                         return api_error(err)
                 # 库位库存同步：update_location_inventory 内部按 delta 正负自动分发 add/deduct。
-                # loc_key 优先 adjustment.warehouse（单据级仓库），无则回退 item.location（行级库位）。
+                # P1-BUGFIX: 开启库位管理时优先用 item.location（行级库位），未开库位退回 adjustment.warehouse。
                 if use_location and quantity:
-                    loc_key = (adjustment.warehouse or item.location or '').strip()
+                    loc_key = (item.location or '').strip() or (adjustment.warehouse or '').strip()
                     if loc_key:
                         loc_ok, loc_err = update_location_inventory(item.material, loc_key, quantity)
                         if not loc_ok:
@@ -503,8 +517,9 @@ def register_adjustment_routes(app):
                         return api_error(err or '库存恢复失败')
                 # 库位库存对称回退：complete 时 +quantity，revert 时 -quantity；
                 # complete 时 -quantity，revert 时 +quantity。即 -quantity。
+                # P1-BUGFIX: 开启库位管理时优先用 item.location（行级库位），未开库位退回 adjustment.warehouse。
                 if use_location and quantity:
-                    loc_key = (adjustment.warehouse or item.location or '').strip()
+                    loc_key = (item.location or '').strip() or (adjustment.warehouse or '').strip()
                     if loc_key:
                         loc_ok, loc_err = update_location_inventory(item.material, loc_key, -quantity)
                         if not loc_ok:
