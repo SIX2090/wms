@@ -497,17 +497,24 @@ def register_check_routes(app):
     @login_required
     def delete_check(id):
         """删除盘点单"""
-        from app import InventoryCheck, InventoryCheckItem, api_error, log_operation
+        from app import (InventoryCheck, InventoryCheckItem,
+                         _acquire_order_write_lock, api_error, log_operation)
         check = InventoryCheck.query.get_or_404(id)
         if check.status != 'pending':
             return api_error('只有草稿状态的盘点单可以删除')
-        
+
         try:
+            # 重新锁定并校验草稿状态，防止并发完成后仍被物理删除。
+            locked, ok = _acquire_order_write_lock(InventoryCheck, id, 'pending')
+            if not ok:
+                return jsonify({'status': 'error', 'msg': '该盘点单状态已变更；已完成单请先反提交后再删除'}), 409
+            check = locked
+
             # 删除明细
             InventoryCheckItem.query.filter_by(inventory_check_id=id).delete()
             db.session.delete(check)
             db.session.commit()
-            
+
             log_operation('删除盘点单', f'盘点单：{check.check_no}', 'check', id)
             return jsonify({'status': 'success', 'msg': '删除成功'})
         except Exception as e:
@@ -520,7 +527,8 @@ def register_check_routes(app):
     @login_required
     def batch_delete_check():
         """批量删除盘点单"""
-        from app import InventoryCheck, InventoryCheckItem, api_error, log_operation
+        from app import (InventoryCheck, InventoryCheckItem,
+                         _acquire_order_write_lock, api_error, log_operation)
         try:
             data = request.get_json(silent=True) or {}
             ids = data.get('ids')
@@ -528,33 +536,38 @@ def register_check_routes(app):
                 ids = json.loads(request.form.get('ids', '[]'))
             if not ids:
                 return api_error('请选择要删除的盘点单')
-            
+
             deleted_count = 0
-            failed_ids = []
+            skipped = []
+            # 逐条加写锁并独立提交，单点失败仅回滚自身，不影响其余单据。
             for check_id in ids:
-                check = InventoryCheck.query.get(check_id)
-                if not check:
-                    continue
-                if check.status != 'pending':
-                    failed_ids.append(check.check_no)
-                    continue
-                InventoryCheckItem.query.filter_by(inventory_check_id=check_id).delete()
-                db.session.delete(check)
-                deleted_count += 1
-            
-            try:
-                db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                app.logger.error(f'数据库操作失败: {e}')
-                return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
-            
+                check_no = None
+                try:
+                    locked, ok = _acquire_order_write_lock(InventoryCheck, check_id, 'pending')
+                    if not ok or locked is None:
+                        # 重新读取单号用于跳过提示
+                        existing = InventoryCheck.query.get(check_id)
+                        check_no = existing.check_no if existing else f'ID:{check_id}'
+                        skipped.append(f'{check_no}(状态已变更)')
+                        db.session.rollback()
+                        continue
+                    check = locked
+                    check_no = check.check_no
+                    InventoryCheckItem.query.filter_by(inventory_check_id=check_id).delete()
+                    db.session.delete(check)
+                    db.session.commit()
+                    deleted_count += 1
+                except Exception:
+                    db.session.rollback()
+                    skipped.append(f'{check_no or f"ID:{check_id}"}(错误)')
+                    app.logger.exception('批量删除盘点单失败: ID=%s', check_id)
+
             msg = f'成功删除 {deleted_count} 个盘点单'
-            if failed_ids:
-                msg += f'，{len(failed_ids)} 个非草稿状态的盘点单已跳过'
-            
+            if skipped:
+                msg += f'，跳过 {len(skipped)} 个：{", ".join(skipped[:10])}'
+
             log_operation('批量删除盘点单', f'删除 {deleted_count} 个盘点单', 'check', None)
-            return jsonify({'status': 'success', 'msg': msg})
+            return jsonify({'status': 'success', 'msg': msg, 'deleted': deleted_count, 'skipped': skipped})
         except Exception as e:
             db.session.rollback()
             return api_error('删除失败，请稍后重试')
