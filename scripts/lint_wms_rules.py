@@ -906,7 +906,7 @@ class RuleA9NewFuncMustTest(Rule):
     description = "新增业务函数必须在 tests/ 至少有 1 个失败测试"
     enabled = True
     scan_paths = ("app",)
-    exclude_paths = ("app/ai",)
+    exclude_paths = ("app/ai", "app/migrations")
     extensions = (".py",)
 
     # 匹配 ``def function_name(``，行首可有空白。

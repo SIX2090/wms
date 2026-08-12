@@ -1268,6 +1268,10 @@ app.config['STATIC_VERSION'] = _compute_static_version()
 from db import db
 db.init_app(app)
 
+# Flask-Migrate: 版本化数据库迁移，替代启动时手动 ALTER TABLE 补列
+from flask_migrate import Migrate
+migrate = Migrate(app, db)
+
 _original_drop_all = db.drop_all
 
 def guarded_drop_all(*args, **kwargs):
