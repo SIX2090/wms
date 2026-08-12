@@ -129,6 +129,8 @@ def register_requisition_routes(app):
                 warehouse = default_wh.name
         if not warehouse:
             return api_error('请选择仓库')
+        # P1-BUGFIX: 库位（开启库位管理时必填，AGENTS.md 规则二）
+        location = (header.get('location') or data.get('location') or '').strip()
 
         try:
             if order_id:
@@ -159,6 +161,7 @@ def register_requisition_routes(app):
             requisition.purpose = (header.get('purpose') or '').strip()
             requisition.picker = (header.get('picker') or '').strip()
             requisition.warehouse = warehouse
+            requisition.location = location
             requisition.remark = (header.get('remark') or '').strip()
             if not requisition.operator_id:
                 requisition.operator_id = current_user.id
@@ -213,6 +216,8 @@ def register_requisition_routes(app):
                     warehouse = default_wh.name
             if not warehouse:
                 return api_error('请选择仓库')
+            # P1-BUGFIX: 库位（开启库位管理时必填，AGENTS.md 规则二）
+            location = (request.form.get('location') or '').strip()
 
             req_no = generate_order_no('REQ')
             requisition = ProductionRequisition(
@@ -222,6 +227,7 @@ def register_requisition_routes(app):
                 purpose=purpose,
                 picker=picker,
                 warehouse=warehouse,
+                location=location,
                 remark=remark,
                 status='pending',
                 operator_id=current_user.id
@@ -260,7 +266,10 @@ def register_requisition_routes(app):
                     warehouse = default_wh.name
             if not warehouse:
                 return api_error('请选择仓库')
+            # P1-BUGFIX: 库位（开启库位管理时必填，AGENTS.md 规则二）
+            location = (request.form.get('location') or '').strip()
             requisition.warehouse = warehouse
+            requisition.location = location
             requisition.remark = (request.form.get('remark') or '').strip()
             db.session.commit()
             log_operation('修改工单领料单', f'工单领料单：{requisition.req_no}', 'requisition', id)
@@ -478,7 +487,13 @@ def register_requisition_routes(app):
             if not (requisition.warehouse or '').strip():
                 db.session.rollback()
                 return api_error('请选择仓库')
-            use_location = bool(location_management_enabled() and requisition.warehouse)
+            # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
+            if location_management_enabled() and not (requisition.location or '').strip():
+                db.session.rollback()
+                return api_error('库位管理已启用，请选择库位')
+            # P1-BUGFIX: 开启库位管理时优先用 requisition.location，未开库位退回 requisition.warehouse
+            use_location = bool(location_management_enabled() and (requisition.location or requisition.warehouse))
+            loc_dim = (requisition.location or '').strip() or requisition.warehouse
             for item in requisition.items:
                 ok, error_msg = deduct_stock(item.material, item.quantity or 0,
                                              transaction_type='requisition',
@@ -488,9 +503,9 @@ def register_requisition_routes(app):
                     db.session.rollback()
                     return api_error(error_msg or f'物料 {item.material.code} 库存不足')
                 # 原子扣库位（与 out_order 领料出库一致：仓库名即库位维度）
-                if use_location:
+                if use_location and loc_dim:
                     ok2, err2 = deduct_location_inventory_atomic(
-                        item.material_id, requisition.warehouse, item.quantity or 0,
+                        item.material_id, loc_dim, item.quantity or 0,
                         material_code_hint=item.material.code if item.material else None,
                     )
                     if not ok2:
@@ -541,12 +556,15 @@ def register_requisition_routes(app):
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存恢复失败')
-                    # BUG-2026-08-05-008：同步还原库位库存（与 complete_requisition 对称）
-                    if location_management_enabled() and (requisition.warehouse or '').strip():
-                        loc_ok, loc_err = update_location_inventory(item.material, requisition.warehouse, item.quantity or 0)
-                        if not loc_ok:
-                            db.session.rollback()
-                            return api_error(loc_err or '库位库存还原失败')
+                    # BUG-2026-08-05-008：同步还原库位库存（与 complete_requisition 对称）。
+                    # P1-BUGFIX: 开启库位管理时优先用 requisition.location，未开库位退回 requisition.warehouse
+                    if location_management_enabled():
+                        loc_dim = (requisition.location or '').strip() or requisition.warehouse
+                        if loc_dim:
+                            loc_ok, loc_err = update_location_inventory(item.material, loc_dim, item.quantity or 0)
+                            if not loc_ok:
+                                db.session.rollback()
+                                return api_error(loc_err or '库位库存还原失败')
 
             requisition.status = 'pending'
             try:
