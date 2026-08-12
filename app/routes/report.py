@@ -226,17 +226,23 @@ def register_report_routes(app):
     @login_required
     def report_inout_print():
         from openpyxl import Workbook
-        from app import InOrder, OutOrder
+        from app import InOrder, OutOrder, api_error, resolve_request_warehouse
+        # BUG-2026-08-12-005：旧版导出必须按仓库过滤（AGENTS.md 仓库必填）：
+        # 显式 warehouse_id/code/name 校验，缺省时带入默认仓库，无默认仓库 400
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_error(wh_err, 400)
+        warehouse_name = warehouse.name or ''
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
-        
+
         wb = Workbook()
-        
+
         # 入库单sheet
         ws_in = wb.active
         ws_in.title = '入库统计'
         ws_in.append(['单据编号', '日期', '供应商', '物料编码', '物料名称', '数量', '金额'])
-        in_query = InOrder.query
+        in_query = InOrder.query.filter(InOrder.warehouse == warehouse_name)
         if start_date:
             in_query = in_query.filter(InOrder.date >= start_date)
         if end_date:
@@ -256,7 +262,7 @@ def register_report_routes(app):
         # 领料单sheet
         ws_out = wb.create_sheet('领料统计')
         ws_out.append(['单据编号', '日期', '领料部门', '物料编码', '物料名称', '数量', '金额'])
-        out_query = OutOrder.query
+        out_query = OutOrder.query.filter(OutOrder.warehouse == warehouse_name)
         if start_date:
             out_query = out_query.filter(OutOrder.date >= start_date)
         if end_date:
@@ -288,7 +294,14 @@ def register_report_routes(app):
     def report_stock_print():
         from openpyxl import Workbook
         from sqlalchemy.orm import joinedload
-        from app import Material, _material_alert_status_values, inventory_alert_enabled
+        from app import (Material, api_error, get_warehouse_stock_quantities,
+                         inventory_alert_enabled, resolve_request_warehouse)
+        # BUG-2026-08-12-005：库存导出必须输出仓库级库存，不得输出 Material.stock 跨仓总数；
+        # 仓库解析规则与新版报表一致（显式参数校验 + 默认仓库回退，无默认 400）
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_error(wh_err, 400)
+        quantities = get_warehouse_stock_quantities(warehouse)
         wb = Workbook()
         ws = wb.active
         ws.title = '库存报表'
@@ -297,23 +310,34 @@ def register_report_routes(app):
             headers.extend(['最低库存', '安全库存', '库存状态'])
         ws.append(headers)
         materials = Material.query.options(joinedload(Material.unit)).all()
+        status_map = {
+            'low': '低于最低库存',
+            'danger': '低于安全库存',
+            'normal': '正常',
+            'disabled': '未启用预警',
+        }
         for m in materials:
+            stock = quantities.get(m.id, 0)
             row = [
                 m.code or '',
                 m.name or '',
                 m.spec or '',
                 m.unit.name if m.unit else '',
                 m.category.name if m.category else '',
-                m.stock or 0,
+                stock,
             ]
             if inventory_alert_enabled():
-                stock, min_stock, safety_stock, alert_status = _material_alert_status_values(m)
-                status_map = {
-                    'low': '低于最低库存',
-                    'danger': '低于安全库存',
-                    'normal': '正常',
-                    'disabled': '未启用预警',
-                }
+                # 库存状态按仓库级数量判定，口径与 _material_alert_status_values 一致
+                min_stock = m.min_stock or 0
+                safety_stock = max(m.reorder_point or 0, min_stock)
+                if min_stock <= 0 and safety_stock <= 0:
+                    alert_status = 'disabled'
+                elif stock <= min_stock:
+                    alert_status = 'low'
+                elif stock <= safety_stock:
+                    alert_status = 'danger'
+                else:
+                    alert_status = 'normal'
                 row.extend([min_stock, safety_stock, status_map.get(alert_status, '正常')])
             ws.append(row)
         output = io.BytesIO()
