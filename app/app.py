@@ -3017,6 +3017,76 @@ def get_default_warehouse():
         return None
     return Warehouse.query.filter_by(status='active', is_default=True).first()
 
+def resolve_request_warehouse(params):
+    """解析请求中的仓库参数，返回 (warehouse, error)。
+
+    BUG-2026-08-12-004：移动端读取接口统一仓库解析规则（AGENTS.md 仓库必填）。
+    - warehouse_id / warehouse_code / warehouse(name) 显式提供时必须存在且 active；
+    - 未提供时回退 get_default_warehouse()；
+    - 无显式仓库且无默认仓库时返回 (None, '请选择仓库')。
+    params 为 request.args 或任意带 .get 的映射。
+    """
+    def _text(value):
+        return str(value).strip() if value is not None else ''
+
+    warehouse = None
+    raw_id = _text(params.get('warehouse_id'))
+    raw_code = _text(params.get('warehouse_code'))
+    raw_name = _text(params.get('warehouse'))
+
+    if raw_id:
+        try:
+            warehouse = db.session.get(Warehouse, int(raw_id))
+        except (TypeError, ValueError):
+            warehouse = None
+        if not warehouse:
+            return None, f'仓库不存在（ID: {raw_id}）'
+    elif raw_code:
+        warehouse = Warehouse.query.filter_by(code=raw_code).first()
+        if not warehouse:
+            return None, f'仓库不存在（编码: {raw_code}）'
+    elif raw_name:
+        warehouse = Warehouse.query.filter(
+            db.or_(Warehouse.name == raw_name, Warehouse.code == raw_name)
+        ).order_by(Warehouse.id.asc()).first()
+        if not warehouse:
+            return None, f'仓库不存在：{raw_name}'
+
+    if warehouse:
+        if (warehouse.status or 'active') != 'active':
+            return None, f'仓库 [{warehouse.name}] 已停用'
+        return warehouse, None
+
+    default_wh = get_default_warehouse()
+    if default_wh:
+        return default_wh, None
+    return None, '请选择仓库'
+
+def get_warehouse_stock_quantities(warehouse):
+    """按仓库汇总物料库存 {material_id: quantity}，绝不回退全局 Material.stock。
+
+    BUG-2026-08-12-004：移动端库存/告警必须使用仓库级数量。
+    - 库位管理开启：汇总 LocationInventory（location == 仓库名）。
+    - 库位管理关闭：按 StockTransaction.location == 仓库名 的流水净额汇总。
+    - 仓库无任何记录时返回空 dict（调用方对缺失物料按 0 处理）。
+    """
+    if not warehouse:
+        return {}
+    warehouse_key = (warehouse.name or '').strip()
+    if not warehouse_key:
+        return {}
+    if location_management_enabled():
+        rows = (db.session.query(LocationInventory.material_id,
+                                 func.coalesce(func.sum(LocationInventory.quantity), 0))
+                .filter(LocationInventory.location == warehouse_key)
+                .group_by(LocationInventory.material_id).all())
+    else:
+        rows = (db.session.query(StockTransaction.material_id,
+                                 func.coalesce(func.sum(StockTransaction.quantity), 0))
+                .filter(StockTransaction.location == warehouse_key)
+                .group_by(StockTransaction.material_id).all())
+    return {material_id: float(quantity or 0) for material_id, quantity in rows}
+
 def resolve_active_sales_warehouse(value=None, warehouse_id=None):
     """Resolve a sales warehouse from its ID, name, or code.
 

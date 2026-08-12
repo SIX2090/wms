@@ -63,10 +63,12 @@ def _seed_admin():
 
 
 def _seed_base():
-    from app import MaterialCategory, Unit
+    from app import MaterialCategory, Unit, Warehouse
     cat = MaterialCategory(code="ACAT", name="测试分类")
     unit = Unit(code="PCS", name="个")
-    db.session.add_all([cat, unit])
+    # BUG-2026-08-12-004：移动端读取接口仓库必填，补默认仓库契约
+    wh = Warehouse(code="WHD", name="默认仓", status="active", is_default=True)
+    db.session.add_all([cat, unit, wh])
     db.session.commit()
 
 

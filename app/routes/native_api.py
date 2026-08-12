@@ -470,50 +470,62 @@ def register_native_api_routes(app):
     @csrf.exempt
     @web_or_api_required
     def mobile_api_dashboard():
-        """移动端首页概览：今日进出统计、待处理数、库存告警"""
+        """移动端首页概览：今日进出统计、待处理数、库存告警（按仓库隔离）"""
         from datetime import date
         from sqlalchemy import func
         from app import (InOrder, InOrderItem, Material, OutOrder, OutOrderItem,
-                         api_json_success, inventory_alert_enabled)
+                         api_json_error, api_json_success, get_warehouse_stock_quantities,
+                         inventory_alert_enabled, resolve_request_warehouse)
+        # BUG-2026-08-12-004：仓库必填——显式参数校验 + 默认仓库回退
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_json_error(wh_err, 400)
+        warehouse_name = warehouse.name or ''
         today = date.today()
 
-        # 今日入库统计
+        # 今日入库统计（按仓库过滤）
         today_in_count = InOrder.query.filter(
             InOrder.date == today,
             InOrder.status == 'completed',
+            InOrder.warehouse == warehouse_name,
         ).count()
         today_in_items = db.session.query(func.coalesce(func.sum(InOrderItem.quantity), 0)).join(
             InOrder, InOrderItem.in_order_id == InOrder.id
         ).filter(
             InOrder.date == today,
             InOrder.status == 'completed',
+            InOrder.warehouse == warehouse_name,
         ).scalar() or 0
 
-        # 今日出库统计
+        # 今日出库统计（按仓库过滤）
         today_out_count = OutOrder.query.filter(
             OutOrder.date == today,
             OutOrder.status == 'completed',
+            OutOrder.warehouse == warehouse_name,
         ).count()
         today_out_items = db.session.query(func.coalesce(func.sum(OutOrderItem.quantity), 0)).join(
             OutOrder, OutOrderItem.out_order_id == OutOrder.id
         ).filter(
             OutOrder.date == today,
             OutOrder.status == 'completed',
+            OutOrder.warehouse == warehouse_name,
         ).scalar() or 0
 
-        # 待处理入库单
-        pending_in = InOrder.query.filter_by(status='pending').count()
+        # 待处理入库单（按仓库过滤）
+        pending_in = InOrder.query.filter_by(status='pending', warehouse=warehouse_name).count()
 
-        # 待处理出库单
-        pending_out = OutOrder.query.filter_by(status='pending').count()
+        # 待处理出库单（按仓库过滤）
+        pending_out = OutOrder.query.filter_by(status='pending', warehouse=warehouse_name).count()
 
-        # 库存告警
+        # 库存告警（按仓库级数量判定，不读全局 Material.stock）
         alert_count = 0
         if inventory_alert_enabled():
-            alert_count = Material.query.filter(
-                Material.min_stock > 0,
-                Material.stock <= Material.min_stock,
-            ).count()
+            quantities = get_warehouse_stock_quantities(warehouse)
+            candidates = Material.query.filter(Material.min_stock > 0).all()
+            alert_count = sum(
+                1 for m in candidates
+                if quantities.get(m.id, 0) <= (m.min_stock or 0)
+            )
 
         return api_json_success({
             'today_in_orders': today_in_count,
@@ -530,10 +542,16 @@ def register_native_api_routes(app):
     @csrf.exempt
     @web_or_api_required
     def mobile_api_stock_query():
-        """移动端库存查询：多条件模糊搜索 + 分页"""
+        """移动端库存查询：多条件模糊搜索 + 分页（按仓库级数量）"""
         from sqlalchemy.orm import joinedload
         from app import (MOBILE_API_PAGE_SIZE_DEFAULT, Material, _mobile_paginate,
-                         api_json_success, normalize_stock_quantity, round_to_2_decimals)
+                         api_json_error, api_json_success, get_warehouse_stock_quantities,
+                         normalize_stock_quantity, resolve_request_warehouse,
+                         round_to_2_decimals)
+        # BUG-2026-08-12-004：仓库必填
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_json_error(wh_err, 400)
         keyword = (request.args.get('keyword') or request.args.get('kw') or '').strip()
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
@@ -556,6 +574,8 @@ def register_native_api_routes(app):
 
         result = _mobile_paginate(query, page, page_size)
         materials = result['items']
+        # 仓库级数量汇总；无记录的物料按 0 处理，绝不回退全局 Material.stock
+        quantities = get_warehouse_stock_quantities(warehouse)
 
         return api_json_success({
             'items': [
@@ -567,7 +587,7 @@ def register_native_api_routes(app):
                     'unit': m.unit.name if m.unit else '',
                     'category': m.category.name if m.category else '',
                     'supplier': m.supplier.name if m.supplier else '',
-                    'stock': normalize_stock_quantity(m.stock or 0),
+                    'stock': normalize_stock_quantity(quantities.get(m.id, 0)),
                     'price': round_to_2_decimals(m.price or 0),
                     'min_stock': m.min_stock or 0,
                     'reorder_point': m.reorder_point or 0,
@@ -584,10 +604,16 @@ def register_native_api_routes(app):
     @csrf.exempt
     @web_or_api_required
     def mobile_api_alert_list():
-        """移动端库存告警列表：库存低于安全库存 / 最低库存的物料"""
+        """移动端库存告警列表：仓库级库存低于最低库存的物料"""
         from sqlalchemy.orm import joinedload
-        from app import (MOBILE_API_PAGE_SIZE_DEFAULT, Material, _mobile_paginate,
-                         api_json_success, inventory_alert_enabled, normalize_stock_quantity)
+        from app import (MOBILE_API_PAGE_SIZE_DEFAULT, MOBILE_API_PAGE_SIZE_MAX, Material,
+                         api_json_error, api_json_success, get_warehouse_stock_quantities,
+                         inventory_alert_enabled, normalize_stock_quantity,
+                         resolve_request_warehouse)
+        # BUG-2026-08-12-004：仓库必填
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_json_error(wh_err, 400)
         if not inventory_alert_enabled():
             return api_json_success({
                 'items': [],
@@ -599,18 +625,26 @@ def register_native_api_routes(app):
 
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+        page = max(1, page or 1)
+        page_size = min(max(1, page_size or MOBILE_API_PAGE_SIZE_DEFAULT), MOBILE_API_PAGE_SIZE_MAX)
 
-        query = Material.query.options(
+        # 仓库级数量汇总；低库存判定针对解析仓库，不读全局 Material.stock
+        quantities = get_warehouse_stock_quantities(warehouse)
+        candidates = Material.query.options(
             joinedload(Material.unit),
             joinedload(Material.category),
             joinedload(Material.supplier),
         ).filter(
             Material.min_stock > 0,
-            Material.stock <= Material.min_stock,
-        ).order_by(Material.stock.asc(), Material.code.asc())
+        ).order_by(Material.code.asc()).all()
+        alerted = [
+            m for m in candidates
+            if normalize_stock_quantity(quantities.get(m.id, 0)) <= (m.min_stock or 0)
+        ]
+        alerted.sort(key=lambda m: (normalize_stock_quantity(quantities.get(m.id, 0)), m.code or ''))
 
-        result = _mobile_paginate(query, page, page_size)
-        materials = result['items']
+        total = len(alerted)
+        materials = alerted[(page - 1) * page_size: page * page_size]
 
         return api_json_success({
             'items': [
@@ -620,27 +654,32 @@ def register_native_api_routes(app):
                     'name': m.name or '',
                     'spec': m.spec or '',
                     'unit': m.unit.name if m.unit else '',
-                    'stock': normalize_stock_quantity(m.stock or 0),
+                    'stock': normalize_stock_quantity(quantities.get(m.id, 0)),
                     'min_stock': m.min_stock or 0,
                     'reorder_point': m.reorder_point or 0,
-                    'gap': max(0, (m.min_stock or 0) - normalize_stock_quantity(m.stock or 0)),
+                    'gap': max(0, (m.min_stock or 0) - normalize_stock_quantity(quantities.get(m.id, 0))),
                 }
                 for m in materials
             ],
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'total_pages': result['total_pages'],
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': max(1, (total + page_size - 1) // page_size) if total > 0 else 0,
         })
 
     @app.route('/api/mobile/in_order/list')
     @csrf.exempt
     @web_or_api_required
     def mobile_api_in_order_list():
-        """移动端入库单列表：分页 + 状态筛选"""
+        """移动端入库单列表：分页 + 状态筛选（按仓库隔离）"""
         from sqlalchemy.orm import joinedload
         from app import (MOBILE_API_PAGE_SIZE_DEFAULT, InOrder, InOrderItem, Material,
-                         _in_order_payload, _mobile_paginate, api_json_success)
+                         _in_order_payload, _mobile_paginate, api_json_error,
+                         api_json_success, resolve_request_warehouse)
+        # BUG-2026-08-12-004：仓库必填
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_json_error(wh_err, 400)
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
         status = (request.args.get('status') or '').strip()
@@ -649,7 +688,7 @@ def register_native_api_routes(app):
         query = InOrder.query.options(
             joinedload(InOrder.operator),
             joinedload(InOrder.items).joinedload(InOrderItem.material),
-        )
+        ).filter(InOrder.warehouse == (warehouse.name or ''))
 
         if status and status in ('pending', 'completed'):
             query = query.filter(InOrder.status == status)
@@ -674,17 +713,21 @@ def register_native_api_routes(app):
     @csrf.exempt
     @web_or_api_required
     def mobile_api_in_order_detail(order_id):
-        """移动端入库单详情"""
+        """移动端入库单详情（按仓库隔离，跨仓返回 404）"""
         from sqlalchemy.orm import joinedload
         from app import (InOrder, InOrderItem, Material, Unit, _in_order_detail_payload,
-                         api_json_error, api_json_success)
+                         api_json_error, api_json_success, resolve_request_warehouse)
+        # BUG-2026-08-12-004：仓库必填
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_json_error(wh_err, 400)
         order = InOrder.query.options(
             joinedload(InOrder.operator),
             joinedload(InOrder.supplier),
             joinedload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
         ).get(order_id)
 
-        if not order:
+        if not order or (order.warehouse or '') != (warehouse.name or ''):
             return api_json_error('入库单不存在', 404)
 
         return api_json_success(_in_order_detail_payload(order))
@@ -693,10 +736,15 @@ def register_native_api_routes(app):
     @csrf.exempt
     @web_or_api_required
     def mobile_api_out_order_list():
-        """移动端出库单列表：分页 + 状态筛选"""
+        """移动端出库单列表：分页 + 状态筛选（按仓库隔离）"""
         from sqlalchemy.orm import joinedload
         from app import (MOBILE_API_PAGE_SIZE_DEFAULT, OutOrder, OutOrderItem, Material,
-                         _mobile_paginate, _out_order_payload, api_json_success)
+                         _mobile_paginate, _out_order_payload, api_json_error,
+                         api_json_success, resolve_request_warehouse)
+        # BUG-2026-08-12-004：仓库必填
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_json_error(wh_err, 400)
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
         status = (request.args.get('status') or '').strip()
@@ -706,7 +754,7 @@ def register_native_api_routes(app):
             joinedload(OutOrder.operator),
             joinedload(OutOrder.department),
             joinedload(OutOrder.items).joinedload(OutOrderItem.material),
-        )
+        ).filter(OutOrder.warehouse == (warehouse.name or ''))
 
         if status and status in ('pending', 'completed'):
             query = query.filter(OutOrder.status == status)
@@ -731,17 +779,21 @@ def register_native_api_routes(app):
     @csrf.exempt
     @web_or_api_required
     def mobile_api_out_order_detail(order_id):
-        """移动端出库单详情"""
+        """移动端出库单详情（按仓库隔离，跨仓返回 404）"""
         from sqlalchemy.orm import joinedload
         from app import (OutOrder, OutOrderItem, Material, Unit, _out_order_detail_payload,
-                         api_json_error, api_json_success)
+                         api_json_error, api_json_success, resolve_request_warehouse)
+        # BUG-2026-08-12-004：仓库必填
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_json_error(wh_err, 400)
         order = OutOrder.query.options(
             joinedload(OutOrder.operator),
             joinedload(OutOrder.department),
             joinedload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit),
         ).get(order_id)
 
-        if not order:
+        if not order or (order.warehouse or '') != (warehouse.name or ''):
             return api_json_error('出库单不存在', 404)
 
         return api_json_success(_out_order_detail_payload(order))
@@ -783,19 +835,21 @@ def register_native_api_routes(app):
     @app.route('/api/opening_stock')
     @web_or_api_required
     def native_api_opening_stock_list():
-        """移动端期初库存列表：可按仓库筛选，返回建账日期等信息"""
+        """移动端期初库存列表：按解析仓库过滤，返回建账日期等信息"""
         from sqlalchemy.orm import joinedload
-        from app import (OpeningStock, api_json_success, normalize_stock_quantity,
+        from app import (OpeningStock, api_json_error, api_json_success,
+                         normalize_stock_quantity, resolve_request_warehouse,
                          round_to_2_decimals)
-        warehouse_id = request.args.get('warehouse_id', type=int)
+        # BUG-2026-08-12-004：仓库必填——未传参时带入默认仓库，无默认仓库返回 400
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_json_error(wh_err, 400)
         keyword = (request.args.get('keyword') or '').strip()
 
         query = OpeningStock.query.options(
             joinedload(OpeningStock.material),
             joinedload(OpeningStock.warehouse),
-        )
-        if warehouse_id:
-            query = query.filter(OpeningStock.warehouse_id == warehouse_id)
+        ).filter(OpeningStock.warehouse_id == warehouse.id)
         if keyword:
             from app import Material
             like = f'%{keyword}%'
