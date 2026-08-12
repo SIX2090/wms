@@ -1804,3 +1804,33 @@ full 验证结果：
   - 每个 commit 前 pre-commit 钩子（lint_wms_rules + lint_no_raw_post_fetch）→ 全部通过。
 - 推送验证：9 个 commit 均推送输出 `To https://github.com/SIX2090/wms ... -> main`；最终本地与 `origin/main` SHA 一致（`fc26b181`）。
 - 剩余风险：① 助手端 Windows-only 模块（pywin32 等）按仓库惯例仅做静态验证，真机发送链路需人工在 Windows 桌面环境抽验；② `wechat_share.html` 存量 JS 仍直接调 `fetch`（pre-commit 仅拦截新增行），如需收口列入后续技术债子项。
+
+#### SEC-AUDIT-2026-08-13（已完成）— WMS 全量代码审计 P0+P1 高危修复
+
+- 完成日期：2026-08-13
+- 目标：对 WMS 全量代码做安全/正确性审计，按 P0→P1 优先级修复高危问题。P0=2 项（库存数据完整性），P1=9 子项（库位必填规则 + 删除写锁 TOCTOU + 报表仓库必填）。
+- 业务边界：仅修复库存正确性、并发删除、库位/仓库必填校验；不改任何用户/密码；不削弱 CSRF/角色/事务隔离；复用既有 `_acquire_order_write_lock` + `add_stock` + `update_location_inventory`，不引入新并发原语；AI 不自动提交/审核/删除任何已完成单据。
+- 修复清单（原子动作 → commit，均已推送 `main`）：
+  - **P0-1 NaN/Infinity 数量污染**（`26e2240d`）：`parse_float_value`/`round_to_2_decimals`/`add_stock` 补 `math.isfinite` 防护，拒绝 NaN/Inf 写入 `Material.stock` 与库位库存，避免库存被污染为不可见/不可扣。
+  - **P0-2 委外模块缺仓库字段**（`ffc2f9f2`）：`SubcontractOrder`/`SubcontractIssue`/`SubcontractReceive` 三模型补 `warehouse` 列（`nullable=False`）+ 自动迁移 + 全链路保存/完成校验，符合 AGENTS.md 仓库始终必填。
+  - **P1-S7 in/out_order complete/batch_complete 库位必填**（`a78f7bf6`）：完成/批量完成时若启用库位管理则校验 `location` 必填（AGENTS.md 规则二）。
+  - **P1-S8 after_sale_out 补 location 字段+校验**（`e84d0090`）：`AfterSaleOutOrder` 模型补 `location` 列 + 新增/完成路由库位管理启用时必填。
+  - **P1-S9 requisition 补 location 字段+校验**（`be63469f`）：`ProductionRequisition` 模型补 `location` 列 + 保存/新增/编辑/完成路由库位管理启用时必填，完成时优先用 `requisition.location` 同步库位库存。
+  - **P1-S10 transfer 库位必填**（`5f270b9e`）：开启库位管理时 `from_location`/`to_location` 必填（AGENTS.md 规则二）。
+  - **P1-S11 adjustment item 级库位必填**（`14d023c6`）：开启库位管理时每条调整明细 `location` 必填。
+  - **P1-S12 requisition delete 写锁**（`c0f8016f`）：`delete_requisition`/`batch_delete_requisition` 状态预筛后 `_acquire_order_write_lock` 二次校验 pending，防止并发完成后误删已扣库存单；批量逐张加锁独立 commit。
+  - **P1-S13 subcontract delete 写锁**（`8290a132`）：委外加工单/发料单/收货单的 delete 与 batch_delete 补写锁二次校验 pending/draft 状态；批量逐张加锁独立 commit；native_api/mobile 经核查无业务单据删除路由，无需加锁。
+  - **P1-S14 sales delete 写锁**（`f2a314a3`）：`delete_sales_order`/`batch_delete_sales_orders` 补写锁二次校验 draft 状态，防止并发确认后误删已确认订单；批量逐张加锁独立 commit。
+  - **P1-S15 report_api_query 仓库必填**（`21c9c096`）：报表 API 查询未指定仓库且无默认仓库时返回 400，不再跨仓返回数据（AGENTS.md 仓库必填规则）。
+- 改动模块：
+  - `app/utils.py`：NaN/Inf 防护。
+  - `app/app.py`：`AfterSaleOutOrder`/`ProductionRequisition`/`SubcontractOrder`/`SubcontractIssue`/`SubcontractReceive` 补 `location`/`warehouse` 列 + 自动迁移。
+  - `app/routes/`：`in_order.py`、`out_order.py`、`after_sale_out.py`、`requisition.py`、`transfer.py`、`adjustment.py`、`subcontract.py`、`sales.py`、`report.py` 补库位/仓库必填与删除写锁。
+  - `tests/`：`test_p0_nan_quantity_guard.py`、`test_p1_after_sale_out_location_required.py`、`test_p1_requisition_location_required.py`、`test_p1_transfer_location_required.py`、`test_p1_adjustment_item_location_required.py`、`test_p1_requisition_delete_write_lock.py`、`test_p1_subcontract_receive_delete_write_lock.py`、`test_p1_sales_delete_write_lock.py`、`test_p1_report_warehouse_required.py`。
+- 迁移与备份：`AfterSaleOutOrder.location`/`ProductionRequisition.location`/委外三表 `warehouse` 列通过 `auto_migrate_database` 自动 `ALTER TABLE ADD COLUMN`，老库默认空串兼容；未改业务数据/用户/密码；未碰任何已完成单据。
+- 专项验证命令及结果：
+  - `python -m pytest tests/test_p0_nan_quantity_guard.py tests/test_p1_*.py -q` → 50 passed。
+  - 每个 commit 前 pre-commit 钩子（`lint_wms_rules.py` A1-A7 + `lint_no_raw_post_fetch.py`）→ 0 违规 / 通过。
+  - `python -c "import ast; ..."` 语法校验 → OK。
+- 推送验证：11 个 commit 均推送输出 `To https://github.com/SIX2090/wms ... -> main`；最终本地与 `origin/main` SHA 一致（`21c9c096`）。
+- 剩余风险和下一子项：① P2 中低危问题（存量 JS 裸 fetch、pydantic 迁移、报表分页等）留待后续子项；② `_acquire_order_write_lock` 在 SQLite 上用 `BEGIN IMMEDIATE` 串行化写事务，高并发批量删除会排队，切到 PG/MySQL 可用 `SELECT ... FOR UPDATE` 减小锁粒度（已实现该分支，无须改业务代码）。
