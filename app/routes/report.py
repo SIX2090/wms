@@ -188,7 +188,7 @@ def register_report_routes(app):
     @login_required
     def report_api_query(report_type=None):
         from app import (_build_excel_response, _build_report_filters, _build_report_payload,
-                         _get_report_definition)
+                         _get_report_definition, api_error)
         report_type = report_type or (request.args.get('report_type') or '').strip()
         definition = _get_report_definition(report_type)
         if definition is None:
@@ -196,6 +196,9 @@ def register_report_routes(app):
 
         try:
             filters = _build_report_filters()
+            # P1-BUGFIX：AGENTS.md 仓库必填规则——报表查询未指定仓库且无默认仓库时拒绝返回数据
+            if not filters.get('warehouse_id'):
+                return api_error('请选择仓库', 400)
             payload = _build_report_payload(report_type, filters)
         except ValueError as exc:
             return jsonify({'status': 'error', 'msg': str(exc)}), 400
