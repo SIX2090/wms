@@ -45,6 +45,7 @@ from ai.draft_idempotency import (
 )
 from ai.knowledge import is_knowledge_question, search_knowledge_entries
 from ai.orchestrator import dispatch_registered_tool
+from ai.prompts import get_prompt_spec
 from ai.routes import ai_bp
 from ai.streaming import sse_event, stream_response_payload
 # 业务域 Blueprint（试点：单位域）。模块内部对 app 级依赖采用延迟导入，避免循环依赖。
@@ -10064,6 +10065,8 @@ def _ai_call_llm_chat(message):
         return None
 
     system_prompt = (
+        # BUG-2026-08-12-003：统一提示词红线作为基础约束，再拼接页面上下文
+        get_prompt_spec().system_prompt +
         '你是仓库管理系统里的AI业务顾问，不是通用闲聊机器人。'
         '系统模块包括：物料档案、仓库/库位、供应商/客户、采购申请、采购订单、采购入库、领料/出库、盘点、调拨、调整、BOM、委外、库存查询、库存预警、报表、打印模板、手机扫码。'
         '回答任何仓库问题时，先判断业务场景，再给可执行步骤；要尽量引用系统里的页面入口名称，例如库存查询、物料档案、采购申请、采购订单、入库列表、领料列表、待处理中心。'
@@ -19669,6 +19672,8 @@ def _ai_handle_chat_stream_request(payload):
 
     # 构建多轮上下文：系统提示 + 历史 + 当前问题
     system_prompt = (
+        # BUG-2026-08-12-003：统一提示词红线作为基础约束，再拼接页面上下文
+        get_prompt_spec().system_prompt +
         '你是仓库管理系统里的AI业务顾问，不是通用闲聊机器人。'
         '系统模块包括：物料档案、仓库/库位、供应商/客户、采购申请、采购订单、采购入库、领料/出库、盘点、调拨、调整、BOM、委外、库存查询、库存预警、报表、手机扫码。'
         '回答仓库相关问题时，先判断具体业务场景，再给可执行步骤；尽量引用系统里的页面入口名称，例如库存查询、物料档案、采购申请、采购订单、入库列表、领料列表、盘点列表、库存调整、待处理中心。'
