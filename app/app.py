@@ -6730,13 +6730,14 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
 
 
 def _material_image_search_terms(material):
+    """按名称+规格构造搜索词，品牌作为补充，去噪声后缀。
+
+    用户要求：查找要按名称规格找图。
+    """
     parts = [
-        material.brand or '',
         material.name or '',
         material.spec or '',
-        material.purpose or '',
-        material.category.name if material.category else '',
-        '工业品 标准件 产品图片',
+        material.brand or '',
     ]
     tokens = []
     seen = set()
@@ -6747,7 +6748,7 @@ def _material_image_search_terms(material):
                 continue
             seen.add(token.lower())
             tokens.append(token)
-    return ' '.join(tokens[:10]).strip()
+    return ' '.join(tokens[:8]).strip()
 
 def _extract_bing_image_candidates(html, limit=12):
     candidates = []
@@ -6780,19 +6781,81 @@ def _extract_bing_image_candidates(html, limit=12):
                 return candidates
     return candidates
 
+def _extract_baidu_image_candidates(data, limit=12):
+    """解析百度图片 acjson 接口返回的 JSON，提取候选图列表。
+
+    百度返回的 objURL/fromURL 常为编码串不可直接用，
+    取 middleURL（百度缓存中等图）为 image_url，thumbURL 为缩略图。
+    """
+    candidates = []
+    seen = set()
+    items = data.get('data', []) if isinstance(data, dict) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        image_url = (item.get('middleURL') or item.get('thumbURL') or '').strip()
+        if not image_url or image_url in seen:
+            continue
+        if not image_url.lower().startswith(('http://', 'https://')):
+            continue
+        seen.add(image_url)
+        thumb_url = (item.get('thumbURL') or image_url).strip()
+        # fromPageTitle 含 <strong> 等 HTML 标签，需清理
+        title_raw = item.get('fromPageTitle') or item.get('title') or ''
+        title = re.sub(r'<[^>]+>', '', title_raw).strip()[:120]
+        source_url = item.get('fromURL') or ''
+        if not source_url.lower().startswith(('http://', 'https://')):
+            source_url = ''
+        candidates.append({
+            'image_url': image_url,
+            'thumb_url': thumb_url,
+            'source_url': source_url,
+            'title': title,
+        })
+        if len(candidates) >= limit:
+            return candidates
+    return candidates
+
 def _search_material_images_online(material, limit=12):
+    """按名称+规格搜索物料图片。
+
+    搜索方向：国内优先。首选百度图片（JSON API，结果丰富、国内速度快），
+    百度无结果或异常时 fallback 到 Bing 图片（HTML 解析）。
+    """
     query = _material_image_search_terms(material)
     if not query:
         return [], ''
-    url = f'https://www.bing.com/images/search?q={quote_plus(query)}&form=HDRSC2&first=1'
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
                       '(KHTML, like Gecko) Chrome/126.0 Safari/537.36',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.6',
     }
-    response = requests.get(url, headers=headers, timeout=8)
-    response.raise_for_status()
-    return _extract_bing_image_candidates(response.text, limit=limit), query
+
+    # 1) 首选：百度图片 acjson 接口（国内 JSON API）
+    try:
+        baidu_url = (
+            f'https://image.baidu.com/search/acjson?tn=resultjson_com'
+            f'&word={quote_plus(query)}&queryWord={quote_plus(query)}'
+            f'&pn=0&rn={limit}&ie=utf-8&oe=utf-8&cl=2&lm=-1&st=-1&face=0&nc=1'
+        )
+        baidu_headers = {**headers, 'Referer': 'https://image.baidu.com/'}
+        resp = requests.get(baidu_url, headers=baidu_headers, timeout=8)
+        resp.raise_for_status()
+        candidates = _extract_baidu_image_candidates(resp.json(), limit=limit)
+        if candidates:
+            return candidates, query
+        # 百度返回空结果，继续尝试 Bing
+    except Exception:
+        pass  # 百度失败不阻断，继续 fallback
+
+    # 2) Fallback：Bing 图片（HTML 解析）
+    try:
+        bing_url = f'https://www.bing.com/images/search?q={quote_plus(query)}&form=HDRSC2&first=1'
+        resp = requests.get(bing_url, headers=headers, timeout=8)
+        resp.raise_for_status()
+        return _extract_bing_image_candidates(resp.text, limit=limit), query
+    except Exception:
+        return [], query
 
 def _is_private_or_loopback_host(hostname):
     """检查主机名是否指向内网/回环/私有地址，用于阻止 SSRF。
