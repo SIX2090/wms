@@ -465,6 +465,12 @@ def auto_migrate_database():
                 if column not in after_sale_columns:
                     cursor.execute(f"ALTER TABLE after_sale_out_order ADD COLUMN {column} {definition}")
                     modified = True
+            # P1-BUGFIX: 售后出库补 location 列（AGENTS.md 规则二，开启库位管理时必填）
+            if 'location' not in after_sale_columns:
+                cursor.execute(
+                    "ALTER TABLE after_sale_out_order ADD COLUMN location VARCHAR(100) DEFAULT ''"
+                )
+                modified = True
 
         # P0-BUGFIX: subcontract 三张表补 warehouse 列（AGENTS.md: 仓库始终必填）
         for _sc_tbl in ('subcontract_order', 'subcontract_issue', 'subcontract_receive'):
@@ -1061,6 +1067,12 @@ def auto_migrate_database():
             # 领料人字段（表头）
             if 'picker' not in pr_cols:
                 cursor.execute("ALTER TABLE production_requisition ADD COLUMN picker VARCHAR(50)")
+                modified = True
+            # P1-BUGFIX: 工单领料单补 location 列（AGENTS.md 规则二，开启库位管理时必填）
+            if 'location' not in pr_cols:
+                cursor.execute(
+                    "ALTER TABLE production_requisition ADD COLUMN location VARCHAR(100) DEFAULT ''"
+                )
                 modified = True
 
         # api_token.last_used_at：记录 token 最近使用时间，用于滑动过期与清理长期未使用 Token
@@ -4330,6 +4342,8 @@ class ProductionRequisition(db.Model):
     picker = db.Column(db.String(50))  # Pick person (领料人)
     # BUG-2026-08-05-008：工单领料仓库，必填（AGENTS.md 领料出库仓库必填规则）。
     warehouse = db.Column(db.String(100), nullable=False, default='')  # Warehouse name
+    # P1-BUGFIX: 库位（开启库位管理时必填，AGENTS.md 规则二）
+    location = db.Column(db.String(100), nullable=False, default='')
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     remark = db.Column(db.String(500))  # Remark
@@ -4836,6 +4850,8 @@ class AfterSaleOutOrder(db.Model):
     customer = db.Column(db.String(100))  # Customer name
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'))
     warehouse = db.Column(db.String(100), nullable=False, default='')
+    # P1-BUGFIX: 库位（开启库位管理时必填，AGENTS.md 规则二）
+    location = db.Column(db.String(100), nullable=False, default='')
     contact = db.Column(db.String(50))  # Contact
     phone = db.Column(db.String(20))  # Contact phone
     reason = db.Column(db.String(200))  # After sale reason

@@ -237,6 +237,8 @@ def register_after_sale_out_routes(app):
             remark = (data.get('remark') or '').strip()
             # BUG-2026-08-02-005 修复：售后出库仓库必填，模型字段已存在但之前闲置。
             warehouse = (data.get('warehouse') or '').strip()
+            # P1-BUGFIX: 库位（开启库位管理时必填，AGENTS.md 规则二）
+            location = (data.get('location') or '').strip()
             source_sales_order_id = _clean_int(data.get('source_sales_order_id'))
             source_out_order_id = _clean_int(data.get('source_out_order_id'))
             if source_sales_order_id and not db.session.get(SalesOrder, source_sales_order_id):
@@ -286,6 +288,7 @@ def register_after_sale_out_routes(app):
             order.source_sales_order_id = source_sales_order_id
             order.source_out_order_id = source_out_order_id
             order.warehouse = warehouse
+            order.location = location
             order.responsibility = (data.get('responsibility') or '').strip() or None
             order.customer_feedback = (data.get('customer_feedback') or '').strip() or None
             order.remark = remark
@@ -375,6 +378,11 @@ def register_after_sale_out_routes(app):
             if not order.warehouse:
                 return api_error('请选择仓库')
 
+            # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
+            if location_management_enabled() and not (order.location or '').strip():
+                db.session.rollback()
+                return api_error('库位管理已启用，请选择库位')
+
             for item in order.items:
                 material = db.session.get(Material, item.material_id)
                 if material:
@@ -396,14 +404,17 @@ def register_after_sale_out_routes(app):
                         db.session.rollback()
                         return api_error(error_msg or '库存扣减失败')
                     # 同步库位库存（与 batch_complete_out_order 对称），
-                    # 库位管理与总库存独立维护，必须显式同步
-                    if location_management_enabled() and order.warehouse:
-                        loc_ok, loc_err = update_location_inventory(
-                            material, order.warehouse, -(item.quantity or 0)
-                        )
-                        if not loc_ok:
-                            db.session.rollback()
-                            return api_error(loc_err or '库位库存扣减失败')
+                    # 库位管理与总库存独立维护，必须显式同步。
+                    # P1-BUGFIX: 开启库位管理时优先用 order.location，未开库位时退回 order.warehouse
+                    if location_management_enabled():
+                        loc_dim = (order.location or '').strip() or order.warehouse
+                        if loc_dim:
+                            loc_ok, loc_err = update_location_inventory(
+                                material, loc_dim, -(item.quantity or 0)
+                            )
+                            if not loc_ok:
+                                db.session.rollback()
+                                return api_error(loc_err or '库位库存扣减失败')
 
             order.status = 'completed'
             try:
@@ -453,14 +464,17 @@ def register_after_sale_out_routes(app):
                         db.session.rollback()
                         return api_error(err or '库存恢复失败')
                     # 同步还原库位库存（与 complete_after_sale_out_order 对称），
-                    # 库位管理与总库存独立维护，必须显式同步
-                    if location_management_enabled() and order.warehouse:
-                        loc_ok, loc_err = update_location_inventory(
-                            item.material, order.warehouse, item.quantity or 0
-                        )
-                        if not loc_ok:
-                            db.session.rollback()
-                            return api_error(loc_err or '库位库存还原失败')
+                    # 库位管理与总库存独立维护，必须显式同步。
+                    # P1-BUGFIX: 开启库位管理时优先用 order.location，未开库位时退回 order.warehouse
+                    if location_management_enabled():
+                        loc_dim = (order.location or '').strip() or order.warehouse
+                        if loc_dim:
+                            loc_ok, loc_err = update_location_inventory(
+                                item.material, loc_dim, item.quantity or 0
+                            )
+                            if not loc_ok:
+                                db.session.rollback()
+                                return api_error(loc_err or '库位库存还原失败')
 
             order.status = 'pending'
             db.session.commit()
@@ -528,6 +542,7 @@ def register_after_sale_out_routes(app):
                 customer=source.customer,
                 customer_id=source.customer_id,
                 warehouse=source.warehouse or '',
+                location=getattr(source, 'location', '') or '',
                 contact=source.contact,
                 phone=source.phone,
                 reason=source.reason,
