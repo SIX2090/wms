@@ -585,20 +585,32 @@ def register_requisition_routes(app):
     @require_role('production')
     @login_required
     def delete_requisition(id):
-        from app import (ProductionRequisition, ProductionRequisitionItem)
+        from app import (ProductionRequisition, ProductionRequisitionItem,
+                         _acquire_order_write_lock, api_error, log_operation)
+        from sqlalchemy.orm import selectinload
         requisition = ProductionRequisition.query.get_or_404(id)
         # 仅允许删除草稿状态的单据，避免删除已生效单据导致库存丢失
         if requisition.status != 'pending':
             return jsonify({'status': 'error', 'msg': '只能删除草稿状态的工单领料单，已完成的请先反提交'}), 400
-        ProductionRequisitionItem.query.filter_by(requisition_id=id).delete()
-        db.session.delete(requisition)
         try:
+            # P1-BUGFIX: 重新锁定并校验草稿状态，防止并发完成后仍被物理删除
+            # （TOCTOU：锁前 status=pending，锁后另一 worker 已 complete 扣库存，本 worker 删除会导致库存丢失）。
+            locked, ok = _acquire_order_write_lock(
+                ProductionRequisition, id, 'pending',
+                selectinload(ProductionRequisition.items),
+            )
+            if not ok:
+                return jsonify({'status': 'error', 'msg': '该工单领料单状态已变更；已完成单请先反提交后再删除'}), 409
+            requisition = locked
+            ProductionRequisitionItem.query.filter_by(requisition_id=id).delete()
+            db.session.delete(requisition)
             db.session.commit()
+            log_operation('删除工单领料单', f'工单领料单：{requisition.req_no}', 'requisition', id)
+            return jsonify({'status': 'success'})
         except Exception as e:
             db.session.rollback()
-            app.logger.error(f"数据库操作失败: {e}")
+            app.logger.error(f"删除工单领料单失败: {e}")
             return jsonify({"status": "error", "msg": "操作失败"}), 500
-        return jsonify({'status': 'success'})
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/requisition/batch_delete', methods=['POST'])
@@ -606,7 +618,8 @@ def register_requisition_routes(app):
     @login_required
     def batch_delete_requisition():
         from app import (ProductionRequisition, ProductionRequisitionItem,
-                         api_error)
+                         _acquire_order_write_lock, api_error, log_operation)
+        from sqlalchemy.orm import selectinload
         data = request.get_json(silent=True) or {}
         ids = data.get('ids') or request.form.getlist('ids')
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
@@ -618,16 +631,33 @@ def register_requisition_routes(app):
         ]
         if blocked:
             return api_error('只能删除草稿工单领料单：' + '、'.join(blocked))
-        for rid in ids:
-            ProductionRequisitionItem.query.filter_by(requisition_id=rid).delete()
-            ProductionRequisition.query.filter_by(id=rid).delete()
+        deleted = []
         try:
-            db.session.commit()
+            # P1-BUGFIX: 逐张加写锁再校验状态，防止并发完成后仍被物理删除。
+            # 与 delete_requisition 对称：锁前批量预筛 + 锁后逐张二次校验。
+            # 注意：_acquire_order_write_lock 内部会 rollback 再 BEGIN IMMEDIATE，
+            # 因此每张单必须在循环内独立 commit，否则前一张的 delete 会被下一张的 rollback 撤销。
+            for rid in ids:
+                locked, ok = _acquire_order_write_lock(
+                    ProductionRequisition, rid, 'pending',
+                    selectinload(ProductionRequisition.items),
+                )
+                if not ok:
+                    db.session.rollback()
+                    return api_error(f'工单领料单 {rid} 状态已变更，请刷新后重试')
+                requisition = locked
+                ProductionRequisitionItem.query.filter_by(requisition_id=rid).delete()
+                db.session.delete(requisition)
+                req_no = requisition.req_no
+                db.session.commit()
+                deleted.append(req_no)
+            for req_no in deleted:
+                log_operation('批量删除工单领料单', f'工单领料单：{req_no}', 'requisition', None)
+            return jsonify({'status': 'success'})
         except Exception as e:
             db.session.rollback()
-            app.logger.error(f"数据库操作失败: {e}")
+            app.logger.error(f"批量删除工单领料单失败: {e}")
             return jsonify({"status": "error", "msg": "操作失败"}), 500
-        return jsonify({'status': 'success'})
 
     @app.route('/requisition/export')
     @login_required
