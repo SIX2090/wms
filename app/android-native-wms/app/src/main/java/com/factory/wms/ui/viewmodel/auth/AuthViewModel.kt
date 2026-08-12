@@ -39,6 +39,11 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 RetrofitClient.setBaseUrl(baseUrl)
             }
             if (token != null && baseUrl != null) {
+                // 自动登录的关键一步：进程被杀后 RetrofitClient.authToken 是内存态，
+                // 必须把持久化在 EncryptedSharedPreferences 的 token 重新注入内存，
+                // 否则重启后首个请求不带 Authorization → 401 → 拦截器触发登出清凭据，
+                // 用户每次点图标都被迫重新登录。
+                RetrofitClient.setToken(token)
                 _uiState.value = _uiState.value.copy(
                     isLoggedIn = true,
                     username = username ?: "",
