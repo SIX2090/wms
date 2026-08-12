@@ -2522,10 +2522,16 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
     return True, '', mat
 
 def add_stock(material, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None):
-    """增加库存，返回(是否成功, 错误信息)"""
+    """增加库存，返回(是否成功, 错误信息)。
+
+    P0-BUGFIX: 补 qty>0 校验，与 deduct_stock_atomic 对称。
+    原实现无下限校验，负数/NaN 会静默扣减或污染 Material.stock。
+    """
     if not material:
         return False, '物料不存在'
     qty = normalize_stock_quantity(quantity or 0)
+    if qty <= 0:
+        return False, '入库数量必须大于 0'
     rowcount = db.session.execute(
         sa_update(Material)
         .where(Material.id == material.id)

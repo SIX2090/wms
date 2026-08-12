@@ -440,7 +440,7 @@ def register_after_sale_out_routes(app):
             order = locked
 
             for item in order.items:
-                if item.material:
+                if item.material and (item.quantity or 0) > 0:
                     ok, err = add_stock(
                         item.material,
                         item.quantity or 0,

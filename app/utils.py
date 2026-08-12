@@ -11,6 +11,7 @@ import shutil
 import uuid
 import html.parser
 import logging
+import math
 from datetime import datetime, date
 from functools import wraps
 
@@ -22,10 +23,20 @@ from db import db
 
 # ==================== 数值处理 ====================
 def round_to_2_decimals(value):
-    """将数值四舍五入到2位小数"""
+    """将数值四舍五入到2位小数。
+
+    P0-BUGFIX: 拒绝 NaN/Infinity。float('nan') 不抛异常但会污染
+    Material.stock，导致该物料库存永久失效。非有限值统一返回 0.0。
+    """
     if value is None:
         return 0.0
-    return round(float(value) * 100) / 100
+    try:
+        fval = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(fval):
+        return 0.0
+    return round(fval * 100) / 100
 
 
 STOCK_COMPARE_EPSILON = 1e-6
@@ -45,12 +56,17 @@ def is_stock_sufficient(current_stock, required_quantity):
 
 
 def parse_float_value(value, default=0):
-    """安全地解析浮点数值"""
+    """安全地解析浮点数值。
+
+    P0-BUGFIX: 用 math.isfinite 拦截 NaN/Infinity。
+    float('nan') 不抛异常，且 nan <= 0 为 False，会绕过上游
+    `if quantity <= 0` 校验进入库存，导致 Material.stock 被污染为 NaN。
+    """
     try:
         if value is None or value == '':
             return float(default)
         result = float(value)
-        if result < 0:
+        if not math.isfinite(result) or result < 0:
             return float(default)
         return result
     except (TypeError, ValueError):

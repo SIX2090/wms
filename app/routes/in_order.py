@@ -37,6 +37,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 from flask import flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
@@ -1095,6 +1096,10 @@ def register_in_order_routes(app):
             return api_error('只有待处理的入库单可以修改明细')
         old_quantity = item.quantity or 0
         new_quantity = round_to_2_decimals(request.form.get('quantity', item.quantity))
+        # P0-BUGFIX: 数量必须为有限正数。原实现无 >0 校验，0/负数/NaN 可落库，
+        # 经 complete_in_order → add_stock 污染 Material.stock。
+        if not math.isfinite(new_quantity) or new_quantity <= 0:
+            return api_error('数量必须大于 0')
         if is_purchase_in_order(item.in_order) and purchase_in_order_requires_order() and not item.source_purchase_order_item:
             return api_error('采购入库必须关联采购订单，请从采购订单下推或选单生成入库单')
         if item.source_purchase_order_item and should_block_purchase_over_receive():
@@ -1521,7 +1526,7 @@ def register_in_order_routes(app):
                         return api_error(f'物料 {material_code} 不存在')
 
                     quantity = float(item_data['quantity'])
-                    if quantity <= 0:
+                    if not math.isfinite(quantity) or quantity <= 0:
                         return api_error(f'物料 {material_code} 的数量必须大于0')
                     price = float(item_data.get('price', 0))
                     amount = round_to_2_decimals(quantity * price)
@@ -1573,7 +1578,7 @@ def register_in_order_routes(app):
                     if item and item.in_order_id == id:
                         old_qty = item.quantity
                         new_qty = float(item_data['quantity'])
-                        if new_qty <= 0:
+                        if not math.isfinite(new_qty) or new_qty <= 0:
                             material_code = item.material.code if item.material else ''
                             return api_error(f'物料 {material_code} 的数量必须大于0')
                         new_price = float(item_data.get('price', 0))
@@ -1614,6 +1619,7 @@ def register_in_order_routes(app):
                                                    reference_id=order.id,
                                                    remark=f'修改已完成入库单 {order.order_no} 明细数量减少')
                             if not ok:
+                                db.session.rollback()
                                 return api_error(err or '库存回退失败')
                         if location_management_enabled() and (order.location or order.warehouse) and qty_diff != 0:
                             loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, qty_diff)

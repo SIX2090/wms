@@ -721,6 +721,8 @@ def register_out_order_routes(app):
                 return api_error('该领料单已反提交，不能重复操作')
             order = locked
             for item in order.items:
+                if not item.material or (item.quantity or 0) <= 0:
+                    continue
                 ok, err = add_stock(item.material, item.quantity or 0,
                                     transaction_type='revert_out',
                                     reference_type='out_order',

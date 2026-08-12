@@ -532,7 +532,7 @@ def register_requisition_routes(app):
             requisition = locked
             # 恢复库存（走 add_stock 写流水+归一化，与 complete_requisition 对称）
             for item in requisition.items:
-                if item.material:
+                if item.material and (item.quantity or 0) > 0:
                     ok, err = add_stock(item.material, item.quantity or 0,
                                         transaction_type='revert_requisition',
                                         reference_type='requisition',
