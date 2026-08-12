@@ -1834,3 +1834,27 @@ full 验证结果：
   - `python -c "import ast; ..."` 语法校验 → OK。
 - 推送验证：11 个 commit 均推送输出 `To https://github.com/SIX2090/wms ... -> main`；最终本地与 `origin/main` SHA 一致（`21c9c096`）。
 - 剩余风险和下一子项：① P2 中低危问题（存量 JS 裸 fetch、pydantic 迁移、报表分页等）留待后续子项；② `_acquire_order_write_lock` 在 SQLite 上用 `BEGIN IMMEDIATE` 串行化写事务，高并发批量删除会排队，切到 PG/MySQL 可用 `SELECT ... FOR UPDATE` 减小锁粒度（已实现该分支，无须改业务代码）。
+
+#### SEC-AUDIT-P2（已完成）— 中低危问题：模板 raw fetch 收口 + Pydantic 迁移示范
+
+- 完成日期：2026-08-12
+- 目标：按台账「P2 中低危问题」分类落地三项范围：存量 JS 裸 fetch 收口、Pydantic 存量迁移模式、报表分页核查。审计期间确认：① 黄金测试 sys.executable / batch_delete PO 提示 / 报表分页 3 项在 `wms_full_audit_20260802.md` 之后已逐个修完；② 其余 30+ 模板 raw fetch 在 base.html 的 window.fetch 拦截器兜底下 CSRF 注入完整，仅属代码风格债。因此本次落地「范围可控、有示范意义」的两原子修复。
+- 业务边界：不改密码/权限/事务边界；不改 CSRF/库存/状态流转端点语义；仅重构调用风格与入参校验方式；新增路由无。
+- 原子动作（均已推送 main）：
+  - **P2-A `820de39a` 模板 raw fetch 收口为 csrfFetch**：`subcontract_detail.html` 5 处（删明细/删单/复制/提交/反提交）、`user.html` 4 处（新增/编辑/重置密码/状态切换）、`document_table_form.html` 3 处（保存/保存后完成/反提交）合计 12 处原生 `fetch(...,method:POST)` 改为 `csrfFetch(...,method:POST)`，显式依赖 base.html 内声明的 `csrfFetch`，与业务 JS 统一调用风格一致。说明：base.html 已全局重写 `window.fetch` 自动补 `X-CSRFToken`，因此此前调用无 CSRF 漏洞，本次仅属技术债收口（明确依赖、统一行为、便于 lint 扩展）。
+  - **P2-B `5e31c286` 存量路由 Pydantic 迁移示范（A8/A9 模式）**：选最小 POST 路由 `delete_category`（原实现 `request.json.get('ids', [])` 后手工 `{int(id) for id in ids if str(id).isdigit()}` 转 int）重写为：路由体内延迟 import `BaseModel/Field` → 定义 `DeleteCategoryRequest(ids: list[int])` → `model_validate(payload)` 强类型校验 → 失败统一 400。配套 `tests/test_p2_delete_category_pydantic_migration.py` 4 条 A9 测试（合法空列表/非数字串 400/非列表类型 400/有效删除落库）覆盖。此模式可复制到其余 260 条存量标记 `# pydantic:reason=存量路由` 的 POST/PUT/DELETE 路由。
+- 核查为「已修过/无需修」的 P2 关联项：
+  - 报表分页：`report_view.html` 第 474~514 行 `renderPagination` 已实现上一页/下一页/页码/每页条数选择 + `total`/`page`/`page_size` 数据联动，功能完整无需改。
+  - golden 测试 Windows 兼容：`test_lint_wms_rules_a8_a9_golden.py` 第 77 行已用 `sys.executable`（非硬编码 `python3`），已修。
+  - `batch_delete_in_order` PO 状态更新失败提示：`in_order.py` 第 1933-1934 行已拼接 `po_update_failed` 提示，已修。
+- 改动模块：
+  - `app/templates/subcontract_detail.html`、`app/templates/user.html`、`app/templates/document_table_form.html`：12 处 fetch → csrfFetch。
+  - `app/routes/category.py`：`delete_category` Pydantic 迁移示范。
+  - `tests/test_p2_delete_category_pydantic_migration.py`：4 条 A9 测试。
+- 专项验证命令及结果：
+  - `python -m pytest tests/test_p0_nan_quantity_guard.py tests/test_p1_*.py tests/test_p2_*.py -q` → 54 passed。
+  - `python scripts/lint_wms_rules.py` → 0 违规。
+  - `python scripts/lint_no_raw_post_fetch.py` → 通过。
+- 推送验证：2 次 commit 均推送输出 `To https://github.com/SIX2090/wms ... -> main`；最终本地与 `origin/main` SHA 一致（`5e31c286`）。
+- 剩余后续（明确不在本次范围，如需可建独立子项）：
+  ① 其余 30+ 活跃模板 33-12=21 处非 GET raw fetch（base.html 有 CSRF 兜底，非阻塞）；② 其余 259 条 `# pydantic:reason=存量路由` 标记的路由按 P2-B 模式批量迁移（工作量约 5000 行改动，适合作为专项子任务拆分）；③ GitHub 私有仓库免费版分支保护硬限制（BUG-2026-07-31-002）依赖 GitHub 升级到 Team 或转 public，不在代码层修复。
