@@ -136,14 +136,24 @@ def register_category_routes(app):
             return jsonify({'status': 'error', 'msg': '编辑失败'}), 500
         return jsonify({'status': 'success', 'msg': '分类编辑成功'})
 
-    # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/category/delete', methods=['POST'])
     @require_role('warehouse')
     @login_required
     def delete_category():
+        # P2-B: Pydantic BaseModel 存量迁移示范（A8 规则模式）
+        from pydantic import BaseModel, Field
         from app import MaterialCategory, Material, api_error
-        ids = request.json.get('ids', [])
-        id_set = {int(id) for id in ids if str(id).isdigit()}
+
+        class DeleteCategoryRequest(BaseModel):
+            ids: list[int] = Field(default_factory=list, description='待删除分类 ID 列表')
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            req = DeleteCategoryRequest.model_validate(payload)
+        except Exception as exc:
+            return jsonify({'status': 'error', 'msg': f'参数校验失败：{exc}'}), 400
+        ids = req.ids
+        id_set = set(ids)
         for id in ids:
             cat = db.session.get(MaterialCategory, id)
             if cat:
