@@ -587,7 +587,9 @@ def register_subcontract_routes(app):
     @require_role('production')
     @login_required
     def delete_subcontract(id):
-        from app import SubcontractItem, SubcontractOrder, api_error
+        from app import (SubcontractItem, SubcontractOrder, _acquire_order_write_lock,
+                         api_error, log_operation)
+        from sqlalchemy.orm import selectinload
         order = SubcontractOrder.query.get_or_404(id)
         # 仅待处理状态可删除，避免删除已发料/已收货/进行中的委外单造成库存与单据不一致
         if order.status != 'pending':
@@ -597,47 +599,88 @@ def register_subcontract_routes(app):
             return api_error('该委外加工单已有关联发料单，不能删除')
         if order.receive_orders:
             return api_error('该委外加工单已有关联收货单，不能删除')
-        SubcontractItem.query.filter_by(subcontract_order_id=id).delete()
-        db.session.delete(order)
         try:
+            # P1-BUGFIX: 重新锁定并校验 pending 状态，防止并发提交后仍被物理删除
+            locked, ok = _acquire_order_write_lock(
+                SubcontractOrder, id, 'pending',
+                [selectinload(SubcontractOrder.items),
+                 selectinload(SubcontractOrder.issue_orders),
+                 selectinload(SubcontractOrder.receive_orders)],
+            )
+            if not ok:
+                return jsonify({'status': 'error', 'msg': '该委外加工单状态已变更，请刷新后重试'}), 409
+            order = locked
+            if order.issue_orders:
+                db.session.rollback()
+                return api_error('该委外加工单已有关联发料单，不能删除')
+            if order.receive_orders:
+                db.session.rollback()
+                return api_error('该委外加工单已有关联收货单，不能删除')
+            SubcontractItem.query.filter_by(subcontract_order_id=id).delete()
+            db.session.delete(order)
             db.session.commit()
+            log_operation('删除委外加工单', f'委外单：{order.order_no}', 'subcontract_order', id)
+            return jsonify({'status': 'success'})
         except Exception as e:
             db.session.rollback()
-            app.logger.error(f"数据库操作失败: {e}")
+            app.logger.error(f"删除委外加工单失败: {e}")
             return jsonify({"status": "error", "msg": "操作失败"}), 500
-        return jsonify({'status': 'success'})
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/subcontract/batch_delete', methods=['POST'])
     @require_role('production')
     @login_required
     def batch_delete_subcontract():
-        from app import SubcontractItem, SubcontractOrder, api_error
+        from app import (SubcontractItem, SubcontractOrder, _acquire_order_write_lock,
+                         api_error, log_operation)
+        from sqlalchemy.orm import selectinload
         data = request.get_json(silent=True) or {}
         ids = data.get('ids') or request.form.getlist('ids')
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
         if not ids:
             return api_error('请选择要删除的委外加工单')
+        # 预筛：状态与关联校验
         for oid in ids:
             order = db.session.get(SubcontractOrder, oid)
             if not order:
                 continue
-            # 批量删除同样需要状态与关联校验，跳过不符合条件的单据并返回提示
             if order.status != 'pending':
                 return api_error(f'委外加工单“{order.order_no}”非待处理状态，不能删除')
             if order.issue_orders:
                 return api_error(f'委外加工单“{order.order_no}”已有关联发料单，不能删除')
             if order.receive_orders:
                 return api_error(f'委外加工单“{order.order_no}”已有关联收货单，不能删除')
-            SubcontractItem.query.filter_by(subcontract_order_id=oid).delete()
-            db.session.delete(order)
+        deleted = []
         try:
-            db.session.commit()
+            # P1-BUGFIX: 逐张加写锁再校验状态，防止并发提交后仍被物理删除。
+            # _acquire_order_write_lock 内部 rollback 会撤销前一张未提交的 delete，
+            # 因此每张单必须在循环内独立 commit。
+            for oid in ids:
+                locked, ok = _acquire_order_write_lock(
+                    SubcontractOrder, oid, 'pending',
+                    [selectinload(SubcontractOrder.items),
+                     selectinload(SubcontractOrder.issue_orders),
+                     selectinload(SubcontractOrder.receive_orders)],
+                )
+                if not ok:
+                    db.session.rollback()
+                    return api_error(f'委外加工单 {oid} 状态已变更，请刷新后重试')
+                order = locked
+                if order.issue_orders or order.receive_orders:
+                    db.session.rollback()
+                    return api_error(f'委外加工单“{order.order_no}”已有关联单据，不能删除')
+                SubcontractItem.query.filter_by(subcontract_order_id=oid).delete()
+                db.session.delete(order)
+                order_no = order.order_no
+                db.session.commit()
+                deleted.append(order_no)
+            for order_no in deleted:
+                log_operation('批量删除委外加工单', f'委外单：{order_no}', 'subcontract_order', None)
+            return jsonify({'status': 'success'})
         except Exception as e:
             db.session.rollback()
-            app.logger.error(f"数据库操作失败: {e}")
+            app.logger.error(f"批量删除委外加工单失败: {e}")
             return jsonify({"status": "error", "msg": "操作失败"}), 500
-        return jsonify({'status': 'success'})
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/subcontract/batch_update_status', methods=['POST'])
@@ -1257,21 +1300,30 @@ def register_subcontract_routes(app):
     @login_required
     def delete_subcontract_issue(id):
         """删除委外发料单"""
-        from app import SubcontractIssue, SubcontractIssueItem, api_error, log_operation
+        from app import (SubcontractIssue, SubcontractIssueItem, _acquire_order_write_lock,
+                         api_error, log_operation)
+        from sqlalchemy.orm import selectinload
         issue = SubcontractIssue.query.get_or_404(id)
         if issue.status != 'pending':
             return api_error('只有待发料状态可以删除')
-        
         try:
+            # P1-BUGFIX: 重新锁定并校验 pending 状态，防止并发完成后仍被物理删除
+            locked, ok = _acquire_order_write_lock(
+                SubcontractIssue, id, 'pending',
+                selectinload(SubcontractIssue.items),
+            )
+            if not ok:
+                return jsonify({'status': 'error', 'msg': '该委外发料单状态已变更，请刷新后重试'}), 409
+            issue = locked
             # 删除明细
             SubcontractIssueItem.query.filter_by(issue_id=id).delete()
             db.session.delete(issue)
             db.session.commit()
-            
             log_operation('删除委外发料单', f'发料单：{issue.issue_no}', 'subcontract_issue', id)
             return jsonify({'status': 'success', 'msg': '删除成功'})
         except Exception as e:
             db.session.rollback()
+            app.logger.error(f'删除委外发料单失败: {e}')
             return api_error('删除失败，请稍后重试')
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -1281,7 +1333,9 @@ def register_subcontract_routes(app):
     @require_role('production')
     @login_required
     def batch_delete_subcontract_issue():
-        from app import (SubcontractIssue, SubcontractIssueItem, api_error, log_operation)
+        from app import (SubcontractIssue, SubcontractIssueItem, _acquire_order_write_lock,
+                         api_error, log_operation)
+        from sqlalchemy.orm import selectinload
         data = request.get_json(silent=True) or {}
         ids = data.get('ids') or request.form.getlist('ids')
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
@@ -1291,12 +1345,28 @@ def register_subcontract_routes(app):
         blocked = [issue.issue_no for issue in issues if issue.status != 'pending']
         if blocked:
             return api_error('只能删除待发料单据：' + '、'.join(blocked))
+        deleted = []
         try:
-            SubcontractIssueItem.query.filter(SubcontractIssueItem.issue_id.in_(ids)).delete(synchronize_session=False)
-            deleted = SubcontractIssue.query.filter(SubcontractIssue.id.in_(ids)).delete(synchronize_session=False)
-            db.session.commit()
-            log_operation('批量删除委外发料单', f'共删除 {deleted} 张发料单', 'subcontract_issue')
-            return jsonify({'status': 'success', 'msg': f'删除成功，共删除 {deleted} 张委外发料单'})
+            # P1-BUGFIX: 逐张加写锁再校验状态，防止并发完成后仍被物理删除。
+            # _acquire_order_write_lock 内部 rollback 会撤销前一张未提交的 delete，
+            # 因此每张单必须在循环内独立 commit。
+            for issue_id in ids:
+                locked, ok = _acquire_order_write_lock(
+                    SubcontractIssue, issue_id, 'pending',
+                    selectinload(SubcontractIssue.items),
+                )
+                if not ok:
+                    db.session.rollback()
+                    return api_error(f'委外发料单 {issue_id} 状态已变更，请刷新后重试')
+                issue = locked
+                SubcontractIssueItem.query.filter_by(issue_id=issue_id).delete()
+                db.session.delete(issue)
+                issue_no = issue.issue_no
+                db.session.commit()
+                deleted.append(issue_no)
+            for issue_no in deleted:
+                log_operation('批量删除委外发料单', f'发料单：{issue_no}', 'subcontract_issue', None)
+            return jsonify({'status': 'success', 'msg': f'删除成功，共删除 {len(deleted)} 张委外发料单'})
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'批量删除委外发料单失败: {e}')
@@ -1853,21 +1923,32 @@ def register_subcontract_routes(app):
     @login_required
     def delete_subcontract_receive(id):
         """删除委外收货单"""
-        from app import SubcontractReceive, SubcontractReceiveItem, api_error, log_operation
+        from app import (SubcontractReceive, SubcontractReceiveItem, _acquire_order_write_lock,
+                         api_error, log_operation)
+        from sqlalchemy.orm import selectinload
         receive = SubcontractReceive.query.get_or_404(id)
         if receive.status != 'pending':
             return api_error('只有待收货状态可以删除')
-        
+
         try:
+            # P1-BUGFIX: 重新锁定并校验 pending 状态，防止并发完成后仍被物理删除
+            locked, ok = _acquire_order_write_lock(
+                SubcontractReceive, id, 'pending',
+                selectinload(SubcontractReceive.items),
+            )
+            if not ok:
+                return jsonify({'status': 'error', 'msg': '该委外收货单状态已变更，请刷新后重试'}), 409
+            receive = locked
             # 删除明细
             SubcontractReceiveItem.query.filter_by(receive_id=id).delete()
             db.session.delete(receive)
             db.session.commit()
-            
+
             log_operation('删除委外收货单', f'收货单：{receive.receive_no}', 'subcontract_receive', id)
             return jsonify({'status': 'success', 'msg': '删除成功'})
         except Exception as e:
             db.session.rollback()
+            app.logger.error(f'删除委外收货单失败: {e}')
             return api_error('删除失败，请稍后重试')
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -1877,7 +1958,9 @@ def register_subcontract_routes(app):
     @require_role('production')
     @login_required
     def batch_delete_subcontract_receive():
-        from app import (SubcontractReceive, SubcontractReceiveItem, api_error, log_operation)
+        from app import (SubcontractReceive, SubcontractReceiveItem, _acquire_order_write_lock,
+                         api_error, log_operation)
+        from sqlalchemy.orm import selectinload
         data = request.get_json(silent=True) or {}
         ids = data.get('ids') or request.form.getlist('ids')
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
@@ -1887,12 +1970,28 @@ def register_subcontract_routes(app):
         blocked = [receive.receive_no for receive in receives if receive.status != 'pending']
         if blocked:
             return api_error('只能删除待入库单据：' + '、'.join(blocked))
+        deleted = []
         try:
-            SubcontractReceiveItem.query.filter(SubcontractReceiveItem.receive_id.in_(ids)).delete(synchronize_session=False)
-            deleted = SubcontractReceive.query.filter(SubcontractReceive.id.in_(ids)).delete(synchronize_session=False)
-            db.session.commit()
-            log_operation('批量删除委外入库单', f'共删除 {deleted} 张入库单', 'subcontract_receive')
-            return jsonify({'status': 'success', 'msg': f'删除成功，共删除 {deleted} 张委外入库单'})
+            # P1-BUGFIX: 逐张加写锁再校验状态，防止并发完成后仍被物理删除。
+            # _acquire_order_write_lock 内部 rollback 会撤销前一张未提交的 delete，
+            # 因此每张单必须在循环内独立 commit。
+            for receive_id in ids:
+                locked, ok = _acquire_order_write_lock(
+                    SubcontractReceive, receive_id, 'pending',
+                    selectinload(SubcontractReceive.items),
+                )
+                if not ok:
+                    db.session.rollback()
+                    return api_error(f'委外收货单 {receive_id} 状态已变更，请刷新后重试')
+                receive = locked
+                SubcontractReceiveItem.query.filter_by(receive_id=receive_id).delete()
+                db.session.delete(receive)
+                receive_no = receive.receive_no
+                db.session.commit()
+                deleted.append(receive_no)
+            for receive_no in deleted:
+                log_operation('批量删除委外入库单', f'收货单：{receive_no}', 'subcontract_receive', None)
+            return jsonify({'status': 'success', 'msg': f'删除成功，共删除 {len(deleted)} 张委外入库单'})
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'批量删除委外入库单失败: {e}')
