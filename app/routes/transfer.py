@@ -102,7 +102,7 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def save_transfer_table():
-        from app import (TransferOrder, TransferOrderItem, _clean_int, _material_from_payload, _parse_form_date, allow_negative_stock, api_error, generate_order_no, is_stock_sufficient, log_operation, normalize_stock_quantity, parse_float_value, round_to_2_decimals)
+        from app import (TransferOrder, TransferOrderItem, _clean_int, _material_from_payload, _parse_form_date, allow_negative_stock, api_error, generate_order_no, is_stock_sufficient, location_management_enabled, log_operation, normalize_stock_quantity, parse_float_value, round_to_2_decimals)
         from flask import jsonify, request
         data = request.get_json(silent=True) or {}
         order_id = _clean_int(data.get('order_id'))
@@ -123,6 +123,12 @@ def register_transfer_routes(app):
             return api_error('请选择调出仓库')
         if not to_warehouse:
             return api_error('请选择调入仓库')
+        # P1-BUGFIX: 开启库位管理时 from_location/to_location 必填（AGENTS.md 规则二）
+        if location_management_enabled():
+            if not from_location:
+                return api_error('库位管理已启用，请选择调出库位')
+            if not to_location:
+                return api_error('库位管理已启用，请选择调入库位')
         if from_warehouse == to_warehouse and (not from_location or from_location == to_location):
             return api_error('调出仓库和调入仓库不能相同')
         if not items_data:
@@ -194,7 +200,7 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def add_transfer():
-        from app import (TransferOrder, api_error, generate_order_no, log_operation)
+        from app import (TransferOrder, api_error, generate_order_no, location_management_enabled, log_operation)
         from flask import jsonify, request
         """新增库存调拨单"""
         try:
@@ -213,6 +219,12 @@ def register_transfer_routes(app):
                 return api_error('请选择调出仓库')
             if not to_warehouse:
                 return api_error('请选择调入仓库')
+            # P1-BUGFIX: 开启库位管理时 from_location/to_location 必填（AGENTS.md 规则二）
+            if location_management_enabled():
+                if not from_location:
+                    return api_error('库位管理已启用，请选择调出库位')
+                if not to_location:
+                    return api_error('库位管理已启用，请选择调入库位')
             if from_warehouse == to_warehouse and (not from_location or from_location == to_location):
                 return api_error('调出仓库和调入仓库不能相同')
 
@@ -418,6 +430,15 @@ def register_transfer_routes(app):
             # 调拨不改变总库存：开启库位管理时在 from_location 原子扣减、to_location 累加；
             # 未开启时只记录双向流水（审计用），不动 LocationInventory。
             use_location = location_management_enabled()
+            # P1-BUGFIX: 开启库位管理时 from_location/to_location 必填（AGENTS.md 规则二），
+            # 防止存量草稿或绕过前端校验的请求把仓库名当作库位维度扣减。
+            if use_location:
+                if not (transfer.from_location or '').strip():
+                    db.session.rollback()
+                    return api_error('库位管理已启用，请选择调出库位')
+                if not (transfer.to_location or '').strip():
+                    db.session.rollback()
+                    return api_error('库位管理已启用，请选择调入库位')
             for item in transfer.items:
                 if not item.material_id:
                     continue
