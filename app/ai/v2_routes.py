@@ -41,6 +41,29 @@ logger = logging.getLogger(__name__)
 
 v2_bp = Blueprint('ai_v2', __name__, url_prefix='/api/ai/v2')
 
+# BUG-2026-08-12-002：调试接口自定义 system_prompt 长度上限
+_DEBUG_SYSTEM_PROMPT_MAX_LEN = 2000
+
+
+def _resolve_debug_system_prompt(payload: dict, default: str) -> str:
+    """解析调试接口的 system_prompt。
+
+    非 admin 用户（含 user/production 等低权限角色）提交的自定义
+    system_prompt 一律忽略，回落到服务端默认提示词，防止绕过 WMS 角色与
+    业务边界约束；admin 允许自定义（调试用），截断到上限并写审计日志。
+    """
+    custom = payload.get('system_prompt')
+    if not custom or not isinstance(custom, str):
+        return default
+    if getattr(current_user, 'role', None) != 'admin':
+        return default
+    truncated = custom[:_DEBUG_SYSTEM_PROMPT_MAX_LEN]
+    logger.warning(
+        'admin debug system_prompt override: user_id=%s len=%d',
+        getattr(current_user, 'id', None), len(truncated),
+    )
+    return truncated
+
 
 def _safe_int(value, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
     """安全解析整型参数。
@@ -204,7 +227,7 @@ def v2_llm_chat():
     if not config.configured:
         return jsonify({'status': 'error', 'msg': 'LLM not configured'}), 503
 
-    system_prompt = payload.get('system_prompt', '你是仓库管理系统的AI助手。')
+    system_prompt = _resolve_debug_system_prompt(payload, '你是仓库管理系统的AI助手。')
     reply = call_llm_chat(config, system_prompt, message)
     if not reply:
         return jsonify({'status': 'error', 'msg': 'LLM call failed'}), 502
@@ -225,7 +248,7 @@ def v2_llm_intent():
     if not config.configured:
         return jsonify({'status': 'error', 'msg': 'LLM not configured'}), 503
 
-    system_prompt = payload.get('system_prompt', '你是意图解析器，输出JSON。')
+    system_prompt = _resolve_debug_system_prompt(payload, '你是意图解析器，输出JSON。')
     result = call_llm_intent(config, system_prompt, message)
     if not result:
         return jsonify({'status': 'error', 'msg': 'LLM intent call failed'}), 502
