@@ -251,7 +251,7 @@ document.addEventListener('DOMContentLoaded', function() {
         addForm.addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
-            fetch('{{ url_for("add_user") }}', { method: 'POST', body: formData })
+            csrfFetch('{{ url_for("add_user") }}', { method: 'POST', body: formData })
             .then(function(r){ return r.json(); })
             .then(function(res) {
                 if (res.status === 'success') {
@@ -275,7 +275,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (editForm) editForm.addEventListener('submit', function(e) {
         e.preventDefault();
         var id = document.getElementById('editUserId').value;
-        fetch('/user/' + id + '/edit', {method: 'POST', body: new FormData(editForm)})
+        csrfFetch('/user/' + id + '/edit', {method: 'POST', body: new FormData(editForm)})
             .then(function(r){ return r.json(); })
             .then(function(res){ if (res.status === 'success') location.reload(); else showToast(res.msg || '用户编辑失败', 'danger'); })
             .catch(function(){ showToast('用户编辑失败', 'danger'); });
@@ -308,7 +308,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var confirmed = await showConfirm(message, { title: actionText + '确认' });
         if (!confirmed) return;
 
-        fetch('{{ url_for("update_user_status") }}', {
+        csrfFetch('{{ url_for("update_user_status") }}', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ user_id: userId, status: status })
@@ -331,7 +331,7 @@ document.addEventListener('DOMContentLoaded', function() {
         resetForm.addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
-            fetch('{{ url_for("reset_user_password") }}', { method: 'POST', body: formData })
+            csrfFetch('{{ url_for("reset_user_password") }}', { method: 'POST', body: formData })
             .then(function(r){ return r.json(); })
             .then(function(res) {
                 if (res.status === 'success') {

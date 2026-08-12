@@ -652,7 +652,7 @@ function submitForm(completeAfterSave) {
         header: collectHeader(),
         items: result.items
     };
-    fetch(saveUrl, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
+    csrfFetch(saveUrl, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
         .then(r => r.json())
         .then(res => {
             if (res.status !== 'success') throw new Error(res.msg || '保存失败');
@@ -663,7 +663,7 @@ function submitForm(completeAfterSave) {
                 return;
             }
             const actionUrl = completeUrl.replace(/\/0(?=\/|$)/, '/' + res.id);
-            return fetch(actionUrl, {method:'POST'})
+            return csrfFetch(actionUrl, {method:'POST'})
                 .then(r => r.json())
                 .then(done => {
                     if (done.status === 'success') {
@@ -683,7 +683,7 @@ function completeDocument() {
 function revertDocument() {
     if (!revertUrl) return;
     if (!confirm('确认反提交该单据？反提交后库存将恢复。')) return;
-    fetch(revertUrl, {method: 'POST'})
+    csrfFetch(revertUrl, {method: 'POST'})
     .then(r => r.json())
     .then(res => {
         if (res.status === 'success') {

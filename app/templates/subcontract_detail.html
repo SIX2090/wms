@@ -890,7 +890,7 @@ document.querySelectorAll('.delProductBtn').forEach(function(btn) {
         const itemId = this.dataset.id;
         showConfirm('确定要删除该产品明细吗？', {title: '删除委外产品'}).then(function(confirmed) {
             if (!confirmed) return;
-            fetch('/subcontract/{{ order.id }}/item/' + itemId + '/delete', {method: 'POST'})
+            csrfFetch('/subcontract/{{ order.id }}/item/' + itemId + '/delete', {method: 'POST'})
             .then(r => r.json())
             .then(res => {
                 if (res.status === 'success') {
@@ -899,7 +899,7 @@ document.querySelectorAll('.delProductBtn').forEach(function(btn) {
                 } else {
                     showToast(res.msg || '删除失败', 'danger');
                 }
-            });
+            }).catch(function(err) { showToast('删除失败：' + err.message, 'danger'); });
         });
     });
 });
@@ -979,7 +979,7 @@ function confirmReceive() {
 function deleteOrder(id) {
     showConfirm('确定要删除该委外单吗？此操作不可恢复。', {title: '删除委外单'}).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/subcontract/' + id + '/delete', {method: 'POST'})
+        csrfFetch('/subcontract/' + id + '/delete', {method: 'POST'})
         .then(r => r.json())
         .then(res => {
             if (res.status === 'success') {
@@ -988,7 +988,7 @@ function deleteOrder(id) {
             } else {
                 showToast(res.msg || '删除失败', 'danger');
             }
-        });
+        }).catch(function(err) { showToast('删除失败：' + err.message, 'danger'); });
     });
 }
 
@@ -996,7 +996,7 @@ function deleteOrder(id) {
 function copyOrder(id) {
     showConfirm('确定要复制该委外单吗？系统会生成一张新的委外单草稿。', {title: '复制委外单'}).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/subcontract/' + id + '/copy', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+        csrfFetch('/subcontract/' + id + '/copy', {method: 'POST', headers: {'Content-Type': 'application/json'}})
         .then(r => r.json())
         .then(res => {
             if (res.status === 'success') {
@@ -1017,7 +1017,7 @@ function copyOrder(id) {
 function submitOrder(id) {
     showConfirm('确认提交该委外单？提交后单据将进入加工中。', {title: '提交委外单'}).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/subcontract/' + id + '/submit', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+        csrfFetch('/subcontract/' + id + '/submit', {method: 'POST', headers: {'Content-Type': 'application/json'}})
         .then(r => r.json())
         .then(res => {
             if (res.status === 'success') {
@@ -1034,7 +1034,7 @@ function submitOrder(id) {
 function revertToPending(id) {
     showConfirm('确认反提交该委外单？反提交后单据将回到待处理状态。', {title: '反提交委外单'}).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/subcontract/' + id + '/revert_to_pending', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+        csrfFetch('/subcontract/' + id + '/revert_to_pending', {method: 'POST', headers: {'Content-Type': 'application/json'}})
         .then(r => r.json())
         .then(res => {
             if (res.status === 'success') {
