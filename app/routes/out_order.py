@@ -664,7 +664,11 @@ def register_out_order_routes(app):
             if not order.warehouse:
                 db.session.rollback()
                 return api_error('请选择仓库')
-            use_location = bool(location_management_enabled() and order.warehouse)
+            # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
+            if location_management_enabled() and not (order.location or '').strip():
+                db.session.rollback()
+                return api_error('库位管理已启用，请选择库位')
+            use_location = bool(location_management_enabled() and (order.location or order.warehouse))
             for item in order.items:
                 if not item.material_id:
                     continue
@@ -894,6 +898,11 @@ def register_out_order_routes(app):
                     order.warehouse = default_wh.name
             if not order.warehouse:
                 skipped.append(f'{order.order_no}(未填写仓库)')
+                db.session.rollback()
+                continue
+            # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
+            if location_management_enabled() and not (order.location or '').strip():
+                skipped.append(f'{order.order_no}(未填写库位)')
                 db.session.rollback()
                 continue
             stock_ok = True

@@ -1377,6 +1377,10 @@ def register_in_order_routes(app):
             if not order.warehouse:
                 db.session.rollback()
                 return api_error('入库单必须填写仓库')
+            # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
+            if location_management_enabled() and not (order.location or '').strip():
+                db.session.rollback()
+                return api_error('库位管理已启用，请选择库位')
             # BUG-2026-08-04-015 修复：移除 is_recompleted 递增。
             # 反提交（revert_in_order）不再释放 received_quantity 预留，
             # 因此重新完成时无需再次递增，避免 反提交→编辑→重新完成 双计数。
@@ -1993,6 +1997,11 @@ def register_in_order_routes(app):
                     order.warehouse = default_wh.name
             if not order.warehouse:
                 skipped.append(f'{order.order_no}(未填写仓库)')
+                db.session.rollback()
+                continue
+            # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
+            if location_management_enabled() and not (order.location or '').strip():
+                skipped.append(f'{order.order_no}(未填写库位)')
                 db.session.rollback()
                 continue
             try:
