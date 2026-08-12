@@ -476,21 +476,28 @@ def register_after_sale_out_routes(app):
     @require_role('warehouse')
     @login_required
     def delete_after_sale_out_order(id):
-        from app import AfterSaleOutOrder, _release_document_push_lines, api_error, log_operation
+        from app import (AfterSaleOutOrder, _acquire_order_write_lock,
+                         _release_document_push_lines, api_error, log_operation)
+        from sqlalchemy.orm import selectinload
+        order = AfterSaleOutOrder.query.get_or_404(id)
+        # 与其他模块一致：仅草稿状态可删除，用 != 'pending' 而非 == 'completed'
+        if order.status != 'pending':
+            return api_error('只有草稿状态的售后出库单可以删除')
+
         try:
-            order = AfterSaleOutOrder.query.get_or_404(id)
-            if order.status == 'completed':
-                return api_error('已完成的售后出库单不能删除')
+            # 重新锁定并校验草稿状态，防止并发完成后仍被物理删除。
+            locked, ok = _acquire_order_write_lock(AfterSaleOutOrder, id, 'pending', [
+                selectinload(AfterSaleOutOrder.items),
+            ])
+            if not ok:
+                return jsonify({'status': 'error', 'msg': '该售后出库单状态已变更；已完成单请先反提交后再删除'}), 409
+            order = locked
+
             _release_document_push_lines('after_sale_out', order.id, f'目标草稿 {order.order_no} 已删除')
             for item in list(order.items):
                 db.session.delete(item)
             db.session.delete(order)
-            try:
-                db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                app.logger.error(f'数据库操作失败: {e}')
-                return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
+            db.session.commit()
             log_operation('删除售后出库单', f'售后出库单：{order.order_no}', 'after_sale_out_order', order.id)
             return jsonify({'status': 'success', 'msg': '删除成功'})
         except Exception as e:
@@ -581,8 +588,10 @@ def register_after_sale_out_routes(app):
     @require_role('warehouse')
     @login_required
     def batch_delete_after_sale_out():
-        from app import (AfterSaleOutOrder, AfterSaleOutOrderItem, api_error,
+        from app import (AfterSaleOutOrder, AfterSaleOutOrderItem,
+                         _acquire_order_write_lock, api_error,
                          _release_document_push_lines, log_operation)
+        from sqlalchemy.orm import selectinload
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
@@ -590,22 +599,44 @@ def register_after_sale_out_routes(app):
             return api_error('请选择要删除的售后出库单')
 
         orders = AfterSaleOutOrder.query.filter(AfterSaleOutOrder.id.in_(ids)).all()
-        blocked = [order.order_no for order in orders if order.status == 'completed']
+        # 与其他模块一致：仅草稿状态可删除
+        blocked = [order.order_no for order in orders if order.status != 'pending']
         if blocked:
-            return api_error('以下售后出库单已完成，不能删除：' + '、'.join(blocked))
+            return api_error('以下售后出库单非草稿状态，不能删除：' + '、'.join(blocked))
 
-        try:
-            for order in orders:
+        deleted_count = 0
+        skipped = []
+        # 逐条加写锁并独立提交，单点失败仅回滚自身，不影响其余单据。
+        for order_id in ids:
+            order_no = None
+            try:
+                locked, ok = _acquire_order_write_lock(
+                    AfterSaleOutOrder, order_id, 'pending', selectinload(AfterSaleOutOrder.items)
+                )
+                if not ok or locked is None:
+                    existing = AfterSaleOutOrder.query.get(order_id)
+                    order_no = existing.order_no if existing else f'ID:{order_id}'
+                    skipped.append(f'{order_no}(状态已变更)')
+                    db.session.rollback()
+                    continue
+                order = locked
+                order_no = order.order_no
                 _release_document_push_lines('after_sale_out', order.id, f'目标草稿 {order.order_no} 已批量删除')
-            AfterSaleOutOrderItem.query.filter(AfterSaleOutOrderItem.after_sale_out_order_id.in_(ids)).delete(synchronize_session=False)
-            deleted = AfterSaleOutOrder.query.filter(AfterSaleOutOrder.id.in_(ids)).delete(synchronize_session=False)
-            db.session.commit()
-            log_operation('批量删除售后出库单', f'共删除 {deleted} 张售后出库单', 'after_sale_out_order')
-            return jsonify({'status': 'success', 'msg': f'删除成功，共删除 {deleted} 张售后出库单'})
-        except Exception as e:
-            db.session.rollback()
-            app.logger.error(f'批量删除售后出库单失败: {e}')
-            return api_error('删除失败，请稍后重试')
+                for item in list(order.items):
+                    db.session.delete(item)
+                db.session.delete(order)
+                db.session.commit()
+                deleted_count += 1
+            except Exception:
+                db.session.rollback()
+                skipped.append(f'{order_no or f"ID:{order_id}"}(错误)')
+                app.logger.exception('批量删除售后出库单失败: ID=%s', order_id)
+
+        msg = f'批量删除完成，共删除 {deleted_count} 张售后出库单'
+        if skipped:
+            msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
+        log_operation('批量删除售后出库单', f'共删除 {deleted_count} 张售后出库单', 'after_sale_out_order')
+        return jsonify({'status': 'success', 'msg': msg, 'deleted': deleted_count, 'skipped': skipped})
 
     @app.route('/export/template/after_sale_out')
     @login_required
