@@ -562,6 +562,15 @@ textarea.form-control {
                         </select>
                     </div>
                 </div>
+                {% if location_management_enabled %}
+                <div class="col-md-3" id="locationFieldWrap">
+                    <div class="mb-2">
+                        <label class="form-label">库位 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="location" maxlength="100"
+                               placeholder="请输入库位" required>
+                    </div>
+                </div>
+                {% endif %}
                 <div class="col-md-12">
                     <div class="mb-2">
                         <label class="form-label">备注</label>
@@ -1299,6 +1308,7 @@ function submitFormLegacy(saveAndNew = false) {
         purpose: document.querySelector('[name="purpose"]').value.trim(),
         [partyField]: supplierId,
         warehouse: document.querySelector('[name="warehouse"]').value,
+        location: (document.querySelector('[name="location"]') || {}).value || '',
         remark: document.querySelector('[name="remark"]').value,
         items: items
     };
@@ -1405,6 +1415,8 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
     const date = document.querySelector('[name="date"]').value;
     const supplierId = document.querySelector('[name="' + partyField + '"]').value;
     const warehouse = document.querySelector('[name="warehouse"]').value;
+    const locationInput = document.querySelector('[name="location"]');
+    const location = locationInput ? locationInput.value.trim() : '';
     const errors = [];
     const items = [];
     let largeQtyCount = 0;
@@ -1414,6 +1426,8 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
     if (supplierRequired && !supplierId) errors.push({ message: partyLabel + '不能为空，请选择' + partyLabel + '。' });
     // BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
     if (!warehouse) errors.push({ message: '仓库不能为空，请选择仓库。' });
+    // 库位管理启用时库位为必填（AGENTS.md 规则二）
+    if (locationInput && !location) errors.push({ message: '库位不能为空，请输入库位。' });
 
     rows.forEach((row, rowIndex) => {
         const code = row.querySelector('.material-code').value.trim();

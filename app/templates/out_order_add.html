@@ -542,6 +542,15 @@ textarea.form-control {
                         </select>
                     </div>
                 </div>
+                {% if location_management_enabled %}
+                <div class="col-md-3" id="locationFieldWrap">
+                    <div class="mb-2">
+                        <label class="form-label">库位 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="location" maxlength="100"
+                               placeholder="请输入库位" required>
+                    </div>
+                </div>
+                {% endif %}
                 <div class="col-md-12">
                     <div class="mb-2">
                         <label class="form-label">备注</label>
@@ -1219,6 +1228,13 @@ function submitForm(saveAndNew = false) {
         alert('仓库不能为空，请选择仓库');
         return;
     }
+    // 库位管理启用时库位为必填（AGENTS.md 规则二）
+    const locationInput = document.querySelector('[name="location"]');
+    const locationValue = locationInput ? locationInput.value.trim() : '';
+    if (locationInput && !locationValue) {
+        alert('库位不能为空，请输入库位');
+        return;
+    }
 
     // 数量异常大时二次确认；库存只在完成单据时校验。
     if (largeQtyCount > 0) {
@@ -1226,7 +1242,7 @@ function submitForm(saveAndNew = false) {
             return;
         }
     }
-    
+
     const data = {
         order_id: document.querySelector('[name="order_id"]').value,
         order_no: document.querySelector('[name="order_no"]').value,
@@ -1236,6 +1252,7 @@ function submitForm(saveAndNew = false) {
         customer: customer,
         picker: document.querySelector('[name="picker"]').value,
         warehouse: document.querySelector('[name="warehouse"]').value,
+        location: locationValue,
         remark: document.querySelector('[name="remark"]').value,
         items: items
     };

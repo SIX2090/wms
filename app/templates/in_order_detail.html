@@ -250,6 +250,12 @@
                     <span class="info-label">仓库</span>
                     <span class="info-value">{{ order.warehouse or '-' }}</span>
                 </div>
+                {% if order.location %}
+                <div class="info-item">
+                    <span class="info-label">库位</span>
+                    <span class="info-value">{{ order.location }}</span>
+                </div>
+                {% endif %}
                 <div class="info-item">
                     <span class="info-label">来源采购单</span>
                     <span class="info-value">
@@ -568,6 +574,13 @@
                                 {% endif %}
                             </select>
                         </div>
+                        {% if location_management_enabled %}
+                        <div class="col-md-6">
+                            <label class="form-label fw-medium">库位 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="location" maxlength="100"
+                                   value="{{ order.location or '' }}" placeholder="请输入库位" required>
+                        </div>
+                        {% endif %}
                         <div class="col-md-12">
                             <label class="form-label fw-medium">用途</label>
                             <input class="form-control" name="purpose" value="{{ order.purpose or '' }}">

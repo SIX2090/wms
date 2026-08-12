@@ -206,6 +206,12 @@
                     <span class="info-label">仓库</span>
                     <span class="info-value">{{ order.warehouse or '-' }}</span>
                 </div>
+                {% if order.location %}
+                <div class="info-item">
+                    <span class="info-label">库位</span>
+                    <span class="info-value">{{ order.location }}</span>
+                </div>
+                {% endif %}
                 <div class="info-item">
                     <span class="info-label">操作人</span>
                     <span class="info-value">{{ order.operator.username if order.operator else '-' }}</span>

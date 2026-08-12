@@ -75,6 +75,7 @@ def register_out_order_routes(app):
                 customer=source.customer,
                 business_type=business_type,
                 warehouse=source.warehouse or '',
+                location=getattr(source, 'location', '') or '',
                 purpose=source.purpose,
                 picker=source.picker,
                 source_sales_order_id=None,
@@ -224,8 +225,8 @@ def register_out_order_routes(app):
         from datetime import date, datetime
         from app import (Customer, Department, Material, Unit,
                          generate_order_no, get_active_warehouses,
-                         get_default_warehouse, serialize_customer,
-                         serialize_material, serialize_unit)
+                         get_default_warehouse, location_management_enabled,
+                         serialize_customer, serialize_material, serialize_unit)
         from sqlalchemy.orm import joinedload
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()
@@ -244,6 +245,7 @@ def register_out_order_routes(app):
                              departments=departments,
                              warehouses=warehouses,
                              default_warehouse=None if is_sale_order else get_default_warehouse(),
+                             location_management_enabled=location_management_enabled(),
                              is_sale_order=is_sale_order,
                              is_other_out=is_other_out,
                              default_business_type='其他出库' if is_other_out else ('销售出库' if is_sale_order else '领料单'),
@@ -277,7 +279,8 @@ def register_out_order_routes(app):
         from datetime import date
         from app import (DocumentPushLine, Material, OutOrder, OutOrderItem,
                          SalesOrder, api_error, generate_order_no,
-                         get_default_warehouse, is_future_date, log_operation,
+                         get_default_warehouse, is_future_date,
+                         location_management_enabled, log_operation,
                          parse_date_value, parse_float_value,
                          recalculate_order_total, round_to_2_decimals,
                          validate_sales_warehouse)
@@ -311,6 +314,7 @@ def register_out_order_routes(app):
             customer = (data.get('customer') or '').strip()
             picker = (data.get('picker') or '').strip()
             warehouse = (data.get('warehouse') or '').strip()
+            location = (data.get('location') or '').strip()
             remark = (data.get('remark') or '').strip()
             contract_id = data.get('contract_id')
             contract_no = (data.get('contract_no') or '').strip()
@@ -333,6 +337,10 @@ def register_out_order_routes(app):
                         warehouse = default_wh.name
                 if not warehouse:
                     return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
+
+            # AGENTS.md 规则二：开启库位管理时，库位为必填项
+            if location_management_enabled() and not location:
+                return jsonify({'status': 'error', 'msg': '请选择库位'}), 400
 
             # 转换department_id
             if department_id:
@@ -376,6 +384,7 @@ def register_out_order_routes(app):
             order.customer = customer
             order.picker = picker or None
             order.warehouse = warehouse
+            order.location = location
             order.remark = remark
             order.contract_id = int(contract_id) if contract_id else None
             order.contract_no = contract_no or None
@@ -670,10 +679,10 @@ def register_out_order_routes(app):
                 if not ok:
                     db.session.rollback()
                     return api_error(err or f'物料 {material_code} 库存不足')
-                # 原子扣库位
+                # 原子扣库位（优先 order.location，未启用库位管理时回退 order.warehouse）
                 if use_location:
                     ok2, err2 = deduct_location_inventory_atomic(
-                        item.material_id, order.warehouse, item.quantity or 0,
+                        item.material_id, order.location or order.warehouse, item.quantity or 0,
                         material_code_hint=material_code,
                     )
                     if not ok2:
@@ -720,8 +729,8 @@ def register_out_order_routes(app):
                     db.session.rollback()
                     return api_error(err or '库存恢复失败')
                 # 同步还原库位库存（与 complete_out_order 对称），仅启用库位管理且有仓库时
-                if location_management_enabled() and order.warehouse:
-                    loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, item.quantity or 0)
+                if location_management_enabled() and (order.location or order.warehouse):
+                    loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity or 0)
                     if not loc_ok:
                         db.session.rollback()
                         return api_error(loc_err or '库位库存还原失败')
@@ -906,8 +915,8 @@ def register_out_order_routes(app):
                     if not ok:
                         raise ValueError(error_msg or f'物料 {item.material.code if item.material else ""} 库存不足')
                     # 同步库位库存（与单据版 complete_out_order 对称）
-                    if location_management_enabled() and order.warehouse:
-                        loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, -(item.quantity or 0))
+                    if location_management_enabled() and (order.location or order.warehouse):
+                        loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0))
                         if not loc_ok:
                             raise ValueError(loc_err or '库位库存扣减失败')
                 order.status = 'completed'

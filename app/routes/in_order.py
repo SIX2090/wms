@@ -159,7 +159,8 @@ def register_in_order_routes(app):
         from app import (Customer, InOrder, InOrderItem, Material, PurchaseOrderItem,
                          Supplier, _in_order_push_history, _in_order_push_source_type,
                          build_purchase_order_execution, get_active_warehouses,
-                         get_default_warehouse, get_recent_operation_logs)
+                         get_default_warehouse, get_recent_operation_logs,
+                         location_management_enabled)
         order = InOrder.query.options(
             joinedload(InOrder.supplier),
             joinedload(InOrder.source_purchase_order),
@@ -190,6 +191,7 @@ def register_in_order_routes(app):
             warehouses=warehouses,
             warehouse_names=warehouse_names,
             default_warehouse=default_warehouse,
+            location_management_enabled=location_management_enabled(),
             purchase_order_execution=purchase_order_execution,
             today=date.today(),
             operation_logs=get_recent_operation_logs('in_order', id),
@@ -433,8 +435,8 @@ def register_in_order_routes(app):
     def update_in_order(id):
         """Update the header fields of a draft inbound order."""
         from app import (Customer, InOrder, Supplier, _clean_int, api_error, assert_warehouse_active,
-                         get_default_warehouse, is_future_date, log_operation,
-                         parse_date_value, recalculate_order_total)
+                         get_default_warehouse, is_future_date, location_management_enabled,
+                         log_operation, parse_date_value, recalculate_order_total)
         order = InOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有草稿状态的入库单可以编辑')
@@ -481,6 +483,11 @@ def register_in_order_routes(app):
         if not warehouse:
             return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
         order.warehouse = warehouse
+        # 库位管理启用时库位为必填（AGENTS.md 规则二）
+        location = (data.get('location') or '').strip()
+        if location_management_enabled() and not location:
+            return jsonify({'status': 'error', 'msg': '请选择库位'}), 400
+        order.location = location
         order.remark = (data.get('remark') or '').strip()
         # BUG-F02-04 / BUG-2026-08-02-001 修复：保存前校验仓库是否启用/存在
         ok, wh_msg = assert_warehouse_active(order.warehouse, allow_empty=False)
@@ -504,8 +511,8 @@ def register_in_order_routes(app):
         from datetime import date, datetime
         from sqlalchemy.orm import joinedload
         from app import (Customer, Material, Supplier, Unit, generate_order_no,
-                         get_active_warehouses, get_default_warehouse, serialize_customer,
-                         serialize_material, serialize_supplier, serialize_unit)
+                         get_active_warehouses, get_default_warehouse, location_management_enabled,
+                         serialize_customer, serialize_material, serialize_supplier, serialize_unit)
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()
         order_type = 'other_in' if request.path == '/other_in_order/add' else (request.args.get('type') or '').strip().lower()
@@ -524,6 +531,7 @@ def register_in_order_routes(app):
                              suppliers=[serialize_customer(p) if is_other_in else serialize_supplier(p) for p in parties],
                              warehouses=warehouses,
                              default_warehouse=default_warehouse,
+                             location_management_enabled=location_management_enabled(),
                              is_product_in=is_product_in,
                              is_other_in=is_other_in,
                              business_type=business_type,
@@ -562,7 +570,8 @@ def register_in_order_routes(app):
         from app import (Customer, InOrder, InOrderItem, Material, PurchaseOrder,
                          PurchaseOrderItem, api_error, assert_warehouse_active,
                          generate_order_no, get_default_warehouse,
-                         in_order_duplicate_material_mode, is_future_date, log_operation,
+                         in_order_duplicate_material_mode, is_future_date,
+                         location_management_enabled, log_operation,
                          purchase_in_order_requires_order, recalculate_order_total,
                          round_to_2_decimals, update_purchase_order_status,
                          validate_purchase_receive_quantity)
@@ -577,6 +586,7 @@ def register_in_order_routes(app):
             business_type = (data.get('business_type') or '').strip()
             purpose = (data.get('purpose') or data.get('business_type') or '').strip()
             warehouse = (data.get('warehouse') or '').strip()
+            location = (data.get('location') or '').strip()
             remark = (data.get('remark') or '').strip()
             items_data = data.get('items', [])
         else:
@@ -588,6 +598,7 @@ def register_in_order_routes(app):
             business_type = (request.form.get('business_type') or '').strip()
             purpose = (request.form.get('purpose') or '').strip()
             warehouse = (request.form.get('warehouse') or '').strip()
+            location = (request.form.get('location') or '').strip()
             remark = (request.form.get('remark') or '').strip()
             items_data = []
 
@@ -604,6 +615,10 @@ def register_in_order_routes(app):
                 warehouse = default_wh.name
         if not warehouse:
             return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
+
+        # AGENTS.md 规则二：开启库位管理时，库位为必填项
+        if location_management_enabled() and not location:
+            return jsonify({'status': 'error', 'msg': '请选择库位'}), 400
 
         if request.is_json:
             if not isinstance(items_data, list) or not items_data:
@@ -720,6 +735,7 @@ def register_in_order_routes(app):
             order.business_type = business_type
             order.purpose = purpose
             order.warehouse = warehouse
+            order.location = location
             order.remark = remark
             order.contract_id = int(contract_id) if contract_id else None
             order.contract_no = contract_no or None
@@ -1192,6 +1208,7 @@ def register_in_order_routes(app):
                 business_type=business_type,
                 purpose=source.purpose or business_type,
                 warehouse=source.warehouse or '',
+                location=getattr(source, 'location', '') or '',
                 source_purchase_order_id=source.source_purchase_order_id if source_item_updates else None,
                 contract_id=source.contract_id,
                 contract_no=source.contract_no,
@@ -1370,8 +1387,8 @@ def register_in_order_routes(app):
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存增加失败')
-                    if location_management_enabled() and order.warehouse:
-                        loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, item.quantity or 0)
+                    if location_management_enabled() and (order.location or order.warehouse):
+                        loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity or 0)
                         if not loc_ok:
                             db.session.rollback()
                             return api_error(loc_err or '库位库存更新失败')
@@ -1474,8 +1491,8 @@ def register_in_order_routes(app):
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存回退失败')
-                    if location_management_enabled() and order.warehouse:
-                        loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, -(item.quantity or 0))
+                    if location_management_enabled() and (order.location or order.warehouse):
+                        loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0))
                         if not loc_ok:
                             db.session.rollback()
                             return api_error(loc_err or '库位库存回退失败')
@@ -1545,8 +1562,8 @@ def register_in_order_routes(app):
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存增加失败')
-                    if location_management_enabled() and order.warehouse:
-                        loc_ok, loc_err = update_location_inventory(material, order.warehouse, quantity)
+                    if location_management_enabled() and (order.location or order.warehouse):
+                        loc_ok, loc_err = update_location_inventory(material, order.location or order.warehouse, quantity)
                         if not loc_ok:
                             db.session.rollback()
                             return api_error(loc_err or '库位库存更新失败')
@@ -1598,8 +1615,8 @@ def register_in_order_routes(app):
                                                    remark=f'修改已完成入库单 {order.order_no} 明细数量减少')
                             if not ok:
                                 return api_error(err or '库存回退失败')
-                        if location_management_enabled() and order.warehouse and qty_diff != 0:
-                            loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, qty_diff)
+                        if location_management_enabled() and (order.location or order.warehouse) and qty_diff != 0:
+                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, qty_diff)
                             if not loc_ok:
                                 db.session.rollback()
                                 return api_error(loc_err or '库位库存更新失败')
@@ -1726,8 +1743,8 @@ def register_in_order_routes(app):
                     db.session.rollback()
                     return api_error(error_msg or '库存回退失败')
                 # 同步还原库位库存（与 complete_in_order 对称），仅启用库位管理且有仓库时
-                if location_management_enabled() and order.warehouse:
-                    loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, -(item.quantity or 0))
+                if location_management_enabled() and (order.location or order.warehouse):
+                    loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0))
                     if not loc_ok:
                         db.session.rollback()
                         return api_error(loc_err or '库位库存还原失败')
@@ -1982,8 +1999,8 @@ def register_in_order_routes(app):
                         if not ok:
                             raise ValueError(err or '库存增加失败')
                         # 同步库位库存（与 complete_in_order 对称），仅启用库位管理且有仓库时
-                        if location_management_enabled() and order.warehouse:
-                            loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, item.quantity)
+                        if location_management_enabled() and (order.location or order.warehouse):
+                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity)
                             if not loc_ok:
                                 raise ValueError(loc_err or '库位库存更新失败')
                 order.status = 'completed'
@@ -2070,8 +2087,8 @@ def register_in_order_routes(app):
                         if not ok:
                             raise ValueError(error_msg or '库存回退失败')
                         # 同步还原库位库存（与 complete_in_order 对称）
-                        if location_management_enabled() and order.warehouse:
-                            loc_ok, loc_err = update_location_inventory(item.material, order.warehouse, -(item.quantity or 0))
+                        if location_management_enabled() and (order.location or order.warehouse):
+                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0))
                             if not loc_ok:
                                 raise ValueError(loc_err or '库位库存还原失败')
                 order.status = 'pending'
