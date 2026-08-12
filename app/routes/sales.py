@@ -1071,16 +1071,30 @@ def register_sales_routes(app):
     @require_role('warehouse', 'purchase', 'sales')
     @login_required
     def delete_sales_order(id):
-        from app import SalesOrder, log_operation
+        from app import SalesOrder, _acquire_order_write_lock, api_error, log_operation
+        from sqlalchemy.orm import selectinload
         order = SalesOrder.query.get_or_404(id)
         if order.status != 'draft':
             return jsonify({'status': 'error', 'msg': '只有草稿销售订单可以删除'}), 400
-        for item in list(order.items):
-            db.session.delete(item)
-        db.session.delete(order)
-        db.session.commit()
-        log_operation('删除销售订单', f'销售订单：{order.order_no}', 'sales_order', id)
-        return jsonify({'status': 'success', 'msg': '销售订单已删除'})
+        try:
+            # P1-BUGFIX: 重新锁定并校验 draft 状态，防止并发确认后仍被物理删除
+            locked, ok = _acquire_order_write_lock(
+                SalesOrder, id, 'draft',
+                selectinload(SalesOrder.items),
+            )
+            if not ok:
+                return jsonify({'status': 'error', 'msg': '该销售订单状态已变更，请刷新后重试'}), 409
+            order = locked
+            for item in list(order.items):
+                db.session.delete(item)
+            db.session.delete(order)
+            db.session.commit()
+            log_operation('删除销售订单', f'销售订单：{order.order_no}', 'sales_order', id)
+            return jsonify({'status': 'success', 'msg': '销售订单已删除'})
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'删除销售订单失败: {e}')
+            return jsonify({'status': 'error', 'msg': '操作失败'}), 500
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/sales/<int:id>/copy', methods=['POST'])
@@ -1138,31 +1152,53 @@ def register_sales_routes(app):
     @require_role('warehouse', 'purchase', 'sales')
     @login_required
     def batch_delete_sales_orders():
-        from app import SalesOrder, log_operation
+        from app import SalesOrder, _acquire_order_write_lock, api_error, log_operation
+        from sqlalchemy.orm import selectinload
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids', [])
         if not ids:
             return jsonify({'status': 'error', 'msg': '请选择要删除的销售订单'}), 400
-        deleted = 0
-        errors = []
+        # 预筛：状态校验
         for order_id in ids:
-            order = SalesOrder.query.get(order_id)
+            order = db.session.get(SalesOrder, order_id)
             if not order:
                 continue
             if order.status != 'draft':
-                errors.append(f'{order.order_no} 不是草稿状态，无法删除')
-                continue
-            order_no = order.order_no
-            for item in list(order.items):
-                db.session.delete(item)
-            db.session.delete(order)
-            deleted += 1
-            log_operation('批量删除销售订单', f'删除草稿销售订单：{order_no}', 'sales_order', order_id)
-        db.session.commit()
-        msg = f'成功删除 {deleted} 张销售订单'
-        if errors:
-            msg += '；' + '；'.join(errors)
-        return jsonify({'status': 'success', 'msg': msg})
+                return jsonify({'status': 'error', 'msg': f'{order.order_no} 不是草稿状态，无法删除'}), 400
+        deleted = []
+        errors = []
+        try:
+            # P1-BUGFIX: 逐张加写锁再校验状态，防止并发确认后仍被物理删除。
+            # _acquire_order_write_lock 内部 rollback 会撤销前一张未提交的 delete，
+            # 因此每张单必须在循环内独立 commit。
+            for order_id in ids:
+                locked, ok = _acquire_order_write_lock(
+                    SalesOrder, order_id, 'draft',
+                    selectinload(SalesOrder.items),
+                )
+                if not ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': f'销售订单 {order_id} 状态已变更，请刷新后重试'}), 409
+                order = locked
+                if order.status != 'draft':
+                    db.session.rollback()
+                    errors.append(f'{order.order_no} 不是草稿状态，无法删除')
+                    continue
+                order_no = order.order_no
+                for item in list(order.items):
+                    db.session.delete(item)
+                db.session.delete(order)
+                db.session.commit()
+                deleted.append(order_no)
+                log_operation('批量删除销售订单', f'删除草稿销售订单：{order_no}', 'sales_order', order_id)
+            msg = f'成功删除 {len(deleted)} 张销售订单'
+            if errors:
+                msg += '；' + '；'.join(errors)
+            return jsonify({'status': 'success', 'msg': msg})
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'批量删除销售订单失败: {e}')
+            return jsonify({'status': 'error', 'msg': '操作失败'}), 500
 
     @app.route('/sales/export')
     @login_required
