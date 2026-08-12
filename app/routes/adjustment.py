@@ -522,12 +522,19 @@ def register_adjustment_routes(app):
     @require_role('warehouse')
     @login_required
     def delete_adjustment(id):
-        from app import AdjustmentOrder, AdjustmentOrderItem, api_error, log_operation
+        from app import (AdjustmentOrder, AdjustmentOrderItem,
+                         _acquire_order_write_lock, api_error, log_operation)
         adjustment = AdjustmentOrder.query.get_or_404(id)
         if adjustment.status != 'pending':
             return api_error('只有草稿状态的调整单可以删除')
 
         try:
+            # 重新锁定并校验草稿状态，防止并发完成后仍被物理删除。
+            locked, ok = _acquire_order_write_lock(AdjustmentOrder, id, 'pending')
+            if not ok:
+                return jsonify({'status': 'error', 'msg': '该调整单状态已变更；已完成单请先反提交后再删除'}), 409
+            adjustment = locked
+
             AdjustmentOrderItem.query.filter_by(adjustment_order_id=id).delete()
             db.session.delete(adjustment)
             db.session.commit()
@@ -543,7 +550,8 @@ def register_adjustment_routes(app):
     @require_role('warehouse')
     @login_required
     def batch_delete_adjustment():
-        from app import AdjustmentOrder, AdjustmentOrderItem, api_error, log_operation
+        from app import (AdjustmentOrder, AdjustmentOrderItem,
+                         _acquire_order_write_lock, api_error, log_operation)
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
@@ -555,16 +563,35 @@ def register_adjustment_routes(app):
         if blocked:
             return api_error('只能删除草稿调整单：' + '、'.join(blocked))
 
-        try:
-            AdjustmentOrderItem.query.filter(AdjustmentOrderItem.adjustment_order_id.in_(ids)).delete(synchronize_session=False)
-            deleted = AdjustmentOrder.query.filter(AdjustmentOrder.id.in_(ids)).delete(synchronize_session=False)
-            db.session.commit()
-            log_operation('批量删除库存调整单', f'共删除 {deleted} 张调整单', 'adjustment')
-            return jsonify({'status': 'success', 'msg': f'删除成功，共删除 {deleted} 张库存调整单'})
-        except Exception as e:
-            db.session.rollback()
-            app.logger.error(f'批量删除库存调整单失败: {e}')
-            return api_error('删除失败，请稍后重试')
+        deleted_count = 0
+        skipped = []
+        # 逐条加写锁并独立提交，单点失败仅回滚自身，不影响其余单据。
+        for adjustment_id in ids:
+            adjustment_no = None
+            try:
+                locked, ok = _acquire_order_write_lock(AdjustmentOrder, adjustment_id, 'pending')
+                if not ok or locked is None:
+                    existing = AdjustmentOrder.query.get(adjustment_id)
+                    adjustment_no = existing.adjustment_no if existing else f'ID:{adjustment_id}'
+                    skipped.append(f'{adjustment_no}(状态已变更)')
+                    db.session.rollback()
+                    continue
+                adjustment = locked
+                adjustment_no = adjustment.adjustment_no
+                AdjustmentOrderItem.query.filter_by(adjustment_order_id=adjustment_id).delete()
+                db.session.delete(adjustment)
+                db.session.commit()
+                deleted_count += 1
+            except Exception:
+                db.session.rollback()
+                skipped.append(f'{adjustment_no or f"ID:{adjustment_id}"}(错误)')
+                app.logger.exception('批量删除库存调整单失败: ID=%s', adjustment_id)
+
+        msg = f'批量删除完成，共删除 {deleted_count} 张库存调整单'
+        if skipped:
+            msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
+        log_operation('批量删除库存调整单', f'共删除 {deleted_count} 张调整单', 'adjustment')
+        return jsonify({'status': 'success', 'msg': msg, 'deleted': deleted_count, 'skipped': skipped})
 
     @app.route('/adjustment/export')
     @login_required
