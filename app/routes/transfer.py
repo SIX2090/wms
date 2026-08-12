@@ -580,19 +580,26 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def delete_transfer(id):
-        from app import (TransferOrder, TransferOrderItem, api_error, log_operation)
+        from app import (TransferOrder, TransferOrderItem,
+                         _acquire_order_write_lock, api_error, log_operation)
         from flask import jsonify
         """删除调拨单"""
         transfer = TransferOrder.query.get_or_404(id)
         if transfer.status != 'pending':
             return api_error('只有草稿状态的调拨单可以删除')
-    
+
         try:
+            # 重新锁定并校验草稿状态，防止并发完成后仍被物理删除。
+            locked, ok = _acquire_order_write_lock(TransferOrder, id, 'pending')
+            if not ok:
+                return jsonify({'status': 'error', 'msg': '该调拨单状态已变更；已完成单请先反提交后再删除'}), 409
+            transfer = locked
+
             # 删除明细
             TransferOrderItem.query.filter_by(transfer_order_id=id).delete()
             db.session.delete(transfer)
             db.session.commit()
-        
+
             log_operation('删除调拨单', f'调拨单：{transfer.transfer_no}', 'transfer', id)
             return jsonify({'status': 'success', 'msg': '删除成功'})
         except Exception as e:
@@ -604,7 +611,8 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def batch_delete_transfer():
-        from app import (TransferOrder, TransferOrderItem, api_error, log_operation)
+        from app import (TransferOrder, TransferOrderItem,
+                         _acquire_order_write_lock, api_error, log_operation)
         from flask import jsonify, request
         """批量删除草稿调拨单"""
         ids = request.form.getlist('ids[]') or request.form.getlist('ids')
@@ -624,16 +632,35 @@ def register_transfer_routes(app):
         if blocked:
             return api_error('只能删除草稿调拨单：' + '、'.join(blocked))
 
-        try:
-            TransferOrderItem.query.filter(TransferOrderItem.transfer_order_id.in_(ids)).delete(synchronize_session=False)
-            TransferOrder.query.filter(TransferOrder.id.in_(ids)).delete(synchronize_session=False)
-            db.session.commit()
-            log_operation('批量删除调拨单', f'共删除 {len(ids)} 张调拨单', 'transfer')
-            return jsonify({'status': 'success', 'msg': '删除成功'})
-        except Exception as e:
-            db.session.rollback()
-            app.logger.error(f'批量删除调拨单失败: {e}')
-            return api_error('删除失败，请稍后重试')
+        deleted_count = 0
+        skipped = []
+        # 逐条加写锁并独立提交，单点失败仅回滚自身，不影响其余单据。
+        for transfer_id in ids:
+            transfer_no = None
+            try:
+                locked, ok = _acquire_order_write_lock(TransferOrder, transfer_id, 'pending')
+                if not ok or locked is None:
+                    existing = TransferOrder.query.get(transfer_id)
+                    transfer_no = existing.transfer_no if existing else f'ID:{transfer_id}'
+                    skipped.append(f'{transfer_no}(状态已变更)')
+                    db.session.rollback()
+                    continue
+                transfer = locked
+                transfer_no = transfer.transfer_no
+                TransferOrderItem.query.filter_by(transfer_order_id=transfer_id).delete()
+                db.session.delete(transfer)
+                db.session.commit()
+                deleted_count += 1
+            except Exception:
+                db.session.rollback()
+                skipped.append(f'{transfer_no or f"ID:{transfer_id}"}(错误)')
+                app.logger.exception('批量删除调拨单失败: ID=%s', transfer_id)
+
+        msg = f'批量删除完成，共删除 {deleted_count} 张调拨单'
+        if skipped:
+            msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
+        log_operation('批量删除调拨单', f'共删除 {deleted_count} 张调拨单', 'transfer')
+        return jsonify({'status': 'success', 'msg': msg, 'deleted': deleted_count, 'skipped': skipped})
 
     @app.route('/transfer/export')
     @login_required
