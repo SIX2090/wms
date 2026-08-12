@@ -166,8 +166,9 @@ def register_subcontract_routes(app):
     @login_required
     def add_subcontract():
         from flask_login import current_user
-        from app import (SubcontractOrder, api_error, generate_order_no,
-                         log_operation, parse_date_value)
+        from app import (SubcontractOrder, api_error, assert_warehouse_active,
+                         generate_order_no, get_default_warehouse, log_operation,
+                         parse_date_value)
         try:
             supplier_id = request.form.get('supplier_id')
             order_no = (request.form.get('order_no') or '').strip()
@@ -175,6 +176,16 @@ def register_subcontract_routes(app):
             phone = (request.form.get('phone') or '').strip()
             deadline = parse_date_value(request.form.get('deadline'))
             remark = (request.form.get('remark') or '').strip()
+            # P0-BUGFIX: 仓库必填（AGENTS.md 规则一）
+            warehouse = (request.form.get('warehouse') or '').strip()
+            if not warehouse:
+                default_wh = get_default_warehouse()
+                warehouse = default_wh.name if default_wh else ''
+            if not warehouse:
+                return api_error('请选择仓库')
+            wh_ok, wh_err = assert_warehouse_active(warehouse, allow_empty=False)
+            if not wh_ok:
+                return api_error(wh_err)
 
             if not order_no:
                 order_no = generate_order_no('SC')
@@ -185,6 +196,7 @@ def register_subcontract_routes(app):
                 contact=contact,
                 phone=phone,
                 deadline=deadline,
+                warehouse=warehouse,
                 remark=remark,
                 status='pending',
                 operator_id=current_user.id
@@ -281,9 +293,9 @@ def register_subcontract_routes(app):
         from flask_login import current_user
         from app import (Material, SubcontractIssue, SubcontractIssueItem,
                          SubcontractOrder, allow_negative_stock, api_error,
-                         deduct_stock_atomic, generate_order_no, is_stock_sufficient,
-                         log_operation, normalize_stock_quantity, parse_float_value,
-                         round_to_2_decimals)
+                         assert_warehouse_active, deduct_stock_atomic, generate_order_no,
+                         is_stock_sufficient, log_operation, normalize_stock_quantity,
+                         parse_float_value, round_to_2_decimals)
         order = SubcontractOrder.query.get_or_404(id)
         material_code = (request.form.get('material_code') or '').strip()
         quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), 0))
@@ -291,6 +303,14 @@ def register_subcontract_routes(app):
             return api_error('请输入物料编码')
         if quantity <= 0:
             return api_error('发料数量必须大于 0')
+
+        # P0-BUGFIX: 仓库必填，从父委外单继承（AGENTS.md 规则一）
+        warehouse = getattr(order, 'warehouse', '') or ''
+        if not warehouse:
+            return api_error('委外单未指定仓库，请先编辑委外单补充仓库')
+        wh_ok, wh_err = assert_warehouse_active(warehouse, allow_empty=False)
+        if not wh_ok:
+            return api_error(wh_err)
 
         material = Material.query.filter_by(code=material_code).first()
         if not material:
@@ -305,6 +325,7 @@ def register_subcontract_routes(app):
                 issue_no=issue_no,
                 subcontract_order_id=id,
                 supplier_id=order.supplier_id,
+                warehouse=warehouse,
                 status='completed',
                 operator_id=current_user.id
             )
@@ -341,7 +362,8 @@ def register_subcontract_routes(app):
     def quick_receive_subcontract(id):
         from flask_login import current_user
         from app import (Material, SubcontractOrder, SubcontractReceive,
-                         SubcontractReceiveItem, add_stock, api_error, generate_order_no,
+                         SubcontractReceiveItem, add_stock, api_error,
+                         assert_warehouse_active, generate_order_no,
                          log_operation, parse_float_value, round_to_2_decimals)
         order = SubcontractOrder.query.get_or_404(id)
         material_code = (request.form.get('material_code') or '').strip()
@@ -351,6 +373,14 @@ def register_subcontract_routes(app):
             return api_error('请输入产品编码')
         if quantity <= 0:
             return api_error('收货数量必须大于 0')
+
+        # P0-BUGFIX: 仓库必填，从父委外单继承（AGENTS.md 规则一）
+        warehouse = getattr(order, 'warehouse', '') or ''
+        if not warehouse:
+            return api_error('委外单未指定仓库，请先编辑委外单补充仓库')
+        wh_ok, wh_err = assert_warehouse_active(warehouse, allow_empty=False)
+        if not wh_ok:
+            return api_error(wh_err)
 
         material = Material.query.filter_by(code=material_code).first()
         if not material:
@@ -362,6 +392,7 @@ def register_subcontract_routes(app):
                 receive_no=receive_no,
                 subcontract_order_id=id,
                 supplier_id=order.supplier_id,
+                warehouse=warehouse,
                 status='completed',
                 total_quantity=quantity,
                 total_scrap=0,
@@ -904,27 +935,40 @@ def register_subcontract_routes(app):
         """新增委外发料单"""
         from flask_login import current_user
         from app import (Material, SubcontractIssue, SubcontractIssueItem,
-                         SubcontractOrder, api_error, generate_order_no, log_operation,
+                         SubcontractOrder, api_error, assert_warehouse_active,
+                         generate_order_no, get_default_warehouse, log_operation,
                          parse_float_value, round_to_2_decimals)
         try:
             subcontract_order_id = request.form.get('subcontract_order_id')
             issue_no = (request.form.get('issue_no') or '').strip()
             remark = (request.form.get('remark') or '').strip()
-            
+
             if not subcontract_order_id:
                 return api_error('请选择委外加工单')
-            
+
             subcontract_order = SubcontractOrder.query.get(int(subcontract_order_id))
             if not subcontract_order:
                 return api_error('委外加工单不存在')
-            
+
+            # P0-BUGFIX: 仓库必填，优先从父委外单继承（AGENTS.md 规则一）
+            warehouse = (request.form.get('warehouse') or '').strip() or getattr(subcontract_order, 'warehouse', '') or ''
+            if not warehouse:
+                default_wh = get_default_warehouse()
+                warehouse = default_wh.name if default_wh else ''
+            if not warehouse:
+                return api_error('请选择仓库')
+            wh_ok, wh_err = assert_warehouse_active(warehouse, allow_empty=False)
+            if not wh_ok:
+                return api_error(wh_err)
+
             if not issue_no:
                 issue_no = generate_order_no('SF')
-            
+
             issue = SubcontractIssue(
                 issue_no=issue_no,
                 subcontract_order_id=int(subcontract_order_id),
                 supplier_id=subcontract_order.supplier_id,
+                warehouse=warehouse,
                 remark=remark,
                 status='pending',
                 operator_id=current_user.id
@@ -1102,14 +1146,22 @@ def register_subcontract_routes(app):
         """完成委外发料"""
         from sqlalchemy.orm import selectinload
         from app import (SubcontractIssue, _acquire_order_write_lock,
-                         allow_negative_stock, api_error, deduct_stock_atomic,
-                         is_stock_sufficient, log_operation, normalize_stock_quantity)
+                         allow_negative_stock, api_error, assert_warehouse_active,
+                         deduct_stock_atomic, is_stock_sufficient, log_operation,
+                         normalize_stock_quantity)
         issue = SubcontractIssue.query.get_or_404(id)
         if issue.status != 'pending':
             return api_error('只有待发料状态可以完成发料')
 
         if not issue.items:
             return api_error('发料单没有明细，无法完成')
+
+        # P0-BUGFIX: 完成前校验仓库必填（AGENTS.md 规则一）
+        if not getattr(issue, 'warehouse', ''):
+            return api_error('发料单未指定仓库，无法完成')
+        wh_ok, wh_err = assert_warehouse_active(issue.warehouse, allow_empty=False)
+        if not wh_ok:
+            return api_error(wh_err)
 
         try:
             # 加写锁并重新读取状态，避免多 worker 并发重复扣库存
@@ -1458,27 +1510,40 @@ def register_subcontract_routes(app):
         """新增委外收货单"""
         from flask_login import current_user
         from app import (Material, SubcontractOrder, SubcontractReceive,
-                         SubcontractReceiveItem, api_error, generate_order_no,
-                         log_operation, parse_float_value, round_to_2_decimals)
+                         SubcontractReceiveItem, api_error, assert_warehouse_active,
+                         generate_order_no, get_default_warehouse, log_operation,
+                         parse_float_value, round_to_2_decimals)
         try:
             subcontract_order_id = request.form.get('subcontract_order_id')
             receive_no = (request.form.get('receive_no') or '').strip()
             remark = (request.form.get('remark') or '').strip()
-            
+
             if not subcontract_order_id:
                 return api_error('请选择委外加工单')
-            
+
             subcontract_order = SubcontractOrder.query.get(int(subcontract_order_id))
             if not subcontract_order:
                 return api_error('委外加工单不存在')
-            
+
+            # P0-BUGFIX: 仓库必填，优先从父委外单继承（AGENTS.md 规则一）
+            warehouse = (request.form.get('warehouse') or '').strip() or getattr(subcontract_order, 'warehouse', '') or ''
+            if not warehouse:
+                default_wh = get_default_warehouse()
+                warehouse = default_wh.name if default_wh else ''
+            if not warehouse:
+                return api_error('请选择仓库')
+            wh_ok, wh_err = assert_warehouse_active(warehouse, allow_empty=False)
+            if not wh_ok:
+                return api_error(wh_err)
+
             if not receive_no:
                 receive_no = generate_order_no('SR')
-            
+
             receive = SubcontractReceive(
                 receive_no=receive_no,
                 subcontract_order_id=int(subcontract_order_id),
                 supplier_id=subcontract_order.supplier_id,
+                warehouse=warehouse,
                 remark=remark,
                 status='pending',
                 operator_id=current_user.id
@@ -1680,13 +1745,20 @@ def register_subcontract_routes(app):
         """完成委外收货"""
         from sqlalchemy.orm import selectinload
         from app import (SubcontractReceive, _acquire_order_write_lock, add_stock,
-                         api_error, log_operation)
+                         api_error, assert_warehouse_active, log_operation)
         receive = SubcontractReceive.query.get_or_404(id)
         if receive.status != 'pending':
             return api_error('只有待收货状态可以完成收货')
 
         if not receive.items:
             return api_error('收货单没有明细，无法完成')
+
+        # P0-BUGFIX: 完成前校验仓库必填（AGENTS.md 规则一）
+        if not getattr(receive, 'warehouse', ''):
+            return api_error('收货单未指定仓库，无法完成')
+        wh_ok, wh_err = assert_warehouse_active(receive.warehouse, allow_empty=False)
+        if not wh_ok:
+            return api_error(wh_err)
 
         try:
             # 加写锁并重新读取状态，避免多 worker 并发重复入库

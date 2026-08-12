@@ -466,6 +466,14 @@ def auto_migrate_database():
                     cursor.execute(f"ALTER TABLE after_sale_out_order ADD COLUMN {column} {definition}")
                     modified = True
 
+        # P0-BUGFIX: subcontract 三张表补 warehouse 列（AGENTS.md: 仓库始终必填）
+        for _sc_tbl in ('subcontract_order', 'subcontract_issue', 'subcontract_receive'):
+            cursor.execute(f"PRAGMA table_info({_sc_tbl})")
+            _sc_cols = [row[1] for row in cursor.fetchall()]
+            if _sc_cols and 'warehouse' not in _sc_cols:
+                cursor.execute(f"ALTER TABLE {_sc_tbl} ADD COLUMN warehouse VARCHAR(100) DEFAULT ''")
+                modified = True
+
         cursor.execute("PRAGMA table_info(transfer_order_item)")
         tf_item_columns = [row[1] for row in cursor.fetchall()]
         if tf_item_columns and 'remark' not in tf_item_columns:
@@ -4176,6 +4184,7 @@ class SubcontractOrder(db.Model):
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     status = db.Column(db.String(20), default='pending')  # Status: pending/processing/completed
     total_amount = db.Column(db.Float, default=0)  # Amount
+    warehouse = db.Column(db.String(100), nullable=False, default='')  # 仓库（AGENTS.md: 始终必填）
     remark = db.Column(db.String(500))  # Remark
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
@@ -4191,6 +4200,7 @@ class SubcontractIssue(db.Model):
     supplier_id = db.Column(db.Integer, db.ForeignKey('supplier.id'))  # Processing supplier ID
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
+    warehouse = db.Column(db.String(100), nullable=False, default='')  # 仓库（AGENTS.md: 始终必填）
     remark = db.Column(db.String(500))  # Remark
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
@@ -4220,6 +4230,7 @@ class SubcontractReceive(db.Model):
     supplier_id = db.Column(db.Integer, db.ForeignKey('supplier.id'))  # Processing supplier ID
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
+    warehouse = db.Column(db.String(100), nullable=False, default='')  # 仓库（AGENTS.md: 始终必填）
     total_quantity = db.Column(db.Float, default=0)  # Total quantity
     total_scrap = db.Column(db.Float, default=0)  # Total scrap quantity
     remark = db.Column(db.String(500))  # Remark
@@ -6065,6 +6076,11 @@ def api_subcontract_quick_issue():
     if not order:
         return api_error('委外单不存在，请刷新后重试')
 
+    # P0-BUGFIX: 仓库必填，从父委外单继承（AGENTS.md 规则一）
+    warehouse = getattr(order, 'warehouse', '') or ''
+    if not warehouse:
+        return api_error('委外单未指定仓库，请先编辑委外单补充仓库')
+
     validated_items = []
     for item in items:
         material_id = item.get('material_id')
@@ -6096,6 +6112,7 @@ def api_subcontract_quick_issue():
         issue_no=issue_no,
         subcontract_order_id=order_id,
         supplier_id=order.supplier_id,
+        warehouse=warehouse,
         status='completed',
         operator_id=current_user.id
     )
@@ -6158,6 +6175,11 @@ def api_subcontract_quick_receive():
     if not order:
         return api_error('委外单不存在，请刷新后重试')
 
+    # P0-BUGFIX: 仓库必填，从父委外单继承（AGENTS.md 规则一）
+    warehouse = getattr(order, 'warehouse', '') or ''
+    if not warehouse:
+        return api_error('委外单未指定仓库，请先编辑委外单补充仓库')
+
     material = db.session.get(Material, material_id)
     if not material:
         return api_error('成品物料不存在，请刷新后重试')
@@ -6169,6 +6191,7 @@ def api_subcontract_quick_receive():
         receive_no=receive_no,
         subcontract_order_id=order_id,
         supplier_id=order.supplier_id,
+        warehouse=warehouse,
         status='completed',
         operator_id=current_user.id
     )
