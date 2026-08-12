@@ -388,6 +388,8 @@ def register_adjustment_routes(app):
             return api_error('只有草稿状态的调整单可以完成')
         if not adjustment.items:
             return api_error('调整单没有明细，无法完成')
+        if not adjustment.warehouse:
+            return api_error('调整单未指定仓库，无法完成')
 
         try:
             # 加写锁并重新读取状态，避免多 worker 并发重复调整库存

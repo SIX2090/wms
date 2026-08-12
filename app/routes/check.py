@@ -241,6 +241,8 @@ def register_check_routes(app):
 
         if not check.items:
             return api_error('盘点单没有明细，无法完成')
+        if not check.warehouse:
+            return api_error('盘点单未指定仓库，无法完成')
 
         try:
             # 加写锁并重新读取状态，避免多 worker 并发重复生成调整草稿
