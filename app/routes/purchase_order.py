@@ -611,7 +611,8 @@ def register_purchase_order_routes(app):
         from flask_login import current_user
         from sqlalchemy.orm import joinedload
         from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem, api_error,
-                         generate_order_no, log_operation, parse_float_value,
+                         assert_warehouse_active, generate_order_no, get_default_warehouse,
+                         log_operation, parse_float_value,
                          purchase_order_to_in_order_enabled, recalculate_order_total,
                          round_to_2_decimals, update_purchase_order_status,
                          validate_purchase_receive_quantity)
@@ -623,6 +624,13 @@ def register_purchase_order_routes(app):
             return api_error('请选择要转换的采购单明细')
 
         warehouse = (payload.get('warehouse') or '').strip()
+        if not warehouse:
+            warehouse = (get_default_warehouse() or '').strip()
+        if not warehouse:
+            return api_error('请选择仓库')
+        wh_err = assert_warehouse_active(warehouse)
+        if wh_err:
+            return api_error(wh_err)
         remark = (payload.get('remark') or '').strip()
         selected_qty_by_item_id = {}
         for row in selected_items:
