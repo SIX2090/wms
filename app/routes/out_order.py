@@ -740,13 +740,23 @@ def register_out_order_routes(app):
     @require_role('warehouse')
     @login_required
     def delete_out_order(id):
-        from app import (OutOrder, _release_document_push_lines, api_error,
+        from app import (OutOrder, _acquire_order_write_lock,
+                         _release_document_push_lines, api_error,
                          log_operation)
+        from sqlalchemy.orm import selectinload
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有待处理的领料单可以删除')
 
         try:
+            # 重新锁定并校验草稿状态，防止并发完成后仍被物理删除。
+            locked, ok = _acquire_order_write_lock(OutOrder, id, 'pending', [
+                selectinload(OutOrder.items),
+            ])
+            if not ok:
+                return jsonify({'status': 'error', 'msg': '该领料单状态已变更；已完成单请先反提交后再删除'}), 409
+            order = locked
+
             _release_document_push_lines(
                 'other_out' if order.business_type == '其他出库' else 'requisition',
                 order.id, f'目标草稿 {order.order_no} 已删除'
@@ -766,9 +776,10 @@ def register_out_order_routes(app):
     @require_role('warehouse')
     @login_required
     def batch_delete_out_order():
-        from app import (OutOrder, _release_document_push_lines, api_error,
+        from app import (OutOrder, _acquire_order_write_lock,
+                         _release_document_push_lines, api_error,
                          log_operation)
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy.orm import joinedload, selectinload
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
@@ -782,9 +793,22 @@ def register_out_order_routes(app):
         if blocked:
             return api_error('以下领料单已完成，不能删除：' + ', '.join(blocked))
 
-        try:
-            deleted_count = 0
-            for order in orders:
+        deleted_count = 0
+        skipped = []
+        # 逐条加写锁并独立提交，单点失败仅回滚自身，不影响其余单据。
+        for order in list(orders):
+            order_id = order.id
+            order_no = order.order_no
+            try:
+                # 重新加锁并校验草稿状态，防止并发完成/反提交后状态已变更。
+                locked, ok = _acquire_order_write_lock(
+                    OutOrder, order_id, 'pending', selectinload(OutOrder.items)
+                )
+                if not ok or locked is None:
+                    skipped.append(f'{order_no}(状态已变更)')
+                    db.session.rollback()
+                    continue
+                order = locked
                 _release_document_push_lines(
                     'other_out' if order.business_type == '其他出库' else 'requisition',
                     order.id, f'目标草稿 {order.order_no} 已批量删除'
@@ -792,17 +816,23 @@ def register_out_order_routes(app):
                 for item in list(order.items):
                     db.session.delete(item)
                 db.session.delete(order)
-                deleted_count += 1
-            try:
                 db.session.commit()
-            except Exception as e:
+                deleted_count += 1
+                log_operation('批量删除领料单', f'领料单：{order_no}', 'out_order', order_id)
+            except Exception:
                 db.session.rollback()
-                app.logger.error(f'数据库操作失败: {e}')
-                return jsonify({'status': 'error', 'msg': '操作失败'}), 500
-            return jsonify({'status': 'success', 'msg': f'删除成功，共删除 {deleted_count} 张领料单', 'deleted': deleted_count})
-        except Exception as e:
-            db.session.rollback()
-            return api_error('删除失败，请稍后重试')
+                skipped.append(f'{order_no}(错误)')
+                app.logger.exception('批量删除领料单失败: %s', order_no)
+
+        msg = f'批量删除完成，共删除 {deleted_count} 张领料单'
+        if skipped:
+            msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
+        return jsonify({
+            'status': 'success',
+            'msg': msg,
+            'deleted': deleted_count,
+            'skipped': skipped,
+        })
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/out_order/batch_complete', methods=['POST'])
