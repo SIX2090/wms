@@ -214,3 +214,48 @@ class TestDepartmentRegister:
         with app_module.app.app_context():
             assert Department.query.filter_by(code="ID001").first() is not None
             assert Department.query.filter_by(code="ID002").first() is not None
+
+    def test_delete_department_blocks_employee_reference(self):
+        """部门删除时应检查员工档案引用，有员工时拒绝删除。"""
+        client = self._setup()
+        _login(client)
+        _add_department(client, code="D001", name="生产部")
+        with app_module.app.app_context():
+            department = Department.query.filter_by(code="D001").first()
+            assert department is not None
+            from app import Employee
+            db.session.add(Employee(name="张三", department_id=department.id))
+            db.session.commit()
+            department_id = department.id
+        response = client.post(f"/department/{department_id}/delete")
+        data = response.get_json()
+        assert response.status_code == 400, data
+        assert data["status"] == "error", data
+        assert "员工档案" in data["msg"], data
+        with app_module.app.app_context():
+            assert db.session.get(Department, department_id) is not None
+
+    def test_batch_delete_department_blocks_employee_reference(self):
+        """批量删除部门时应检查员工档案引用，有员工的部门拒绝删除。"""
+        client = self._setup()
+        _login(client)
+        _add_department(client, code="D001", name="生产部")
+        _add_department(client, code="D002", name="销售部")
+        with app_module.app.app_context():
+            dept1 = Department.query.filter_by(code="D001").first()
+            dept2 = Department.query.filter_by(code="D002").first()
+            assert dept1 is not None and dept2 is not None
+            from app import Employee
+            db.session.add(Employee(name="张三", department_id=dept1.id))
+            db.session.commit()
+            dept1_id = dept1.id
+            dept2_id = dept2.id
+        response = client.post("/department/delete", json={"ids": [dept1_id, dept2_id]})
+        data = response.get_json()
+        assert response.status_code == 200, data
+        assert data["status"] == "success", data
+        assert "已删除 1 个部门" in data["msg"], data
+        assert "员工档案" in data["msg"], data
+        with app_module.app.app_context():
+            assert db.session.get(Department, dept1_id) is not None
+            assert db.session.get(Department, dept2_id) is None

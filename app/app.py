@@ -7081,6 +7081,7 @@ def _warehouse_delete_blockers(warehouse):
 def _department_delete_blockers(department):
     values = _nonempty_reference_values(department.name, department.code)
     checks = [
+        ('员工档案', Employee.query.filter(Employee.department_id == department.id).count()),
         ('领料单', OutOrder.query.filter(OutOrder.department_id == department.id).count()),
     ]
     if values:
