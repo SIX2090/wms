@@ -118,7 +118,8 @@ def register_check_routes(app):
         from app import (InventoryCheck, InventoryCheckItem, _clean_int,
                          _material_from_payload, _parse_form_date, api_error,
                          generate_order_no, get_default_warehouse, log_operation,
-                         parse_float_value, round_to_2_decimals)
+                         parse_float_value, round_to_2_decimals,
+                         validate_inventory_warehouse)
         data = request.get_json(silent=True) or {}
         order_id = _clean_int(data.get('order_id'))
         check_no = (data.get('order_no') or data.get('check_no') or '').strip() or generate_order_no('CK')
@@ -136,6 +137,11 @@ def register_check_routes(app):
                 warehouse = default_wh.name
         if not warehouse:
             return api_error('请选择仓库')
+        # INV-AUDIT-005：仓库必须存在且 active
+        wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+        if wh_err:
+            return api_error(wh_err)
+        warehouse = wh_obj.name
 
         try:
             if order_id:
@@ -195,7 +201,8 @@ def register_check_routes(app):
     def add_check():
         from flask_login import current_user
         from app import (InventoryCheck, api_error, generate_order_no,
-                         get_default_warehouse, log_operation)
+                         get_default_warehouse, log_operation,
+                         validate_inventory_warehouse)
         try:
             remark = (request.form.get('remark') or '').strip()
             # BUG-2026-08-02-013：仓库必填，未填写时自动带入默认仓库
@@ -206,6 +213,11 @@ def register_check_routes(app):
                     warehouse = default_wh.name
             if not warehouse:
                 return api_error('请选择仓库')
+            # INV-AUDIT-005：仓库必须存在且 active
+            wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+            if wh_err:
+                return api_error(wh_err)
+            warehouse = wh_obj.name
             check_no = generate_order_no('CK')
             check = InventoryCheck(
                 check_no=check_no,

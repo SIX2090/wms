@@ -283,6 +283,7 @@ def register_out_order_routes(app):
                          location_management_enabled, log_operation,
                          parse_date_value, parse_float_value,
                          recalculate_order_total, round_to_2_decimals,
+                         validate_inventory_warehouse,
                          validate_sales_warehouse)
         from flask_login import current_user
         try:
@@ -337,6 +338,11 @@ def register_out_order_routes(app):
                         warehouse = default_wh.name
                 if not warehouse:
                     return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
+                # INV-AUDIT-005：领料单/其他出库仓库必须存在且 active
+                wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+                if wh_err:
+                    return jsonify({'status': 'error', 'msg': wh_err}), 400
+                warehouse = wh_obj.name
 
             # AGENTS.md 规则二：开启库位管理时，库位为必填项
             if location_management_enabled() and not location:

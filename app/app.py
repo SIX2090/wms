@@ -3372,6 +3372,51 @@ def validate_sales_warehouse(value=None, warehouse_id=None):
         return None, '请选择有效且启用的发货仓库'
     return warehouse, None
 
+
+def resolve_active_inventory_warehouse(value=None, warehouse_id=None):
+    """Resolve an inventory warehouse (调拨/盘点/调整/普通出库) by ID, name, or code.
+
+    INV-AUDIT-005：与销售仓库解析对称，但语义为"库存单据仓库"。
+    - warehouse_id 优先解析为整数主键；
+    - 否则用 value（仓库名或编码）匹配 Warehouse.name / Warehouse.code；
+    - 必须存在且 status='active' 才返回，否则返回 None。
+    - 未提供 value 与 warehouse_id 时返回 None（不自动回退默认仓库；
+      回退由调用方决定，避免在多个分支重复默认仓逻辑）。
+    """
+    if warehouse_id:
+        try:
+            warehouse = db.session.get(Warehouse, int(warehouse_id))
+        except (TypeError, ValueError):
+            warehouse = None
+        if warehouse and (warehouse.status or 'active') == 'active':
+            return warehouse
+        return None
+    normalized = (value or '').strip()
+    if not normalized:
+        return None
+    return Warehouse.query.filter(
+        Warehouse.status == 'active',
+        db.or_(Warehouse.name == normalized, Warehouse.code == normalized),
+    ).order_by(Warehouse.id.asc()).first()
+
+
+def validate_inventory_warehouse(value=None, warehouse_id=None):
+    """Validate a non-sales inventory warehouse, returning (warehouse, error).
+
+    INV-AUDIT-005：调拨/盘点/调整/普通出库统一仓库存在性 + active 校验。
+    返回的 warehouse 已确认 active，调用方仍需用 warehouse.name 写入单据
+    字段以兼容历史字符串字段。
+    """
+    warehouse = resolve_active_inventory_warehouse(value, warehouse_id)
+    if not warehouse:
+        if value or warehouse_id:
+            return None, f'仓库不存在或已停用：{value or warehouse_id}'
+        return None, '请选择有效且启用的仓库'
+    if (warehouse.status or 'active') != 'active':
+        return None, f'仓库 [{warehouse.name}] 已停用'
+    return warehouse, None
+
+
 def validate_sales_outbound_warehouse(outbound):
     """Validate the canonical warehouse and every linked sales source row."""
     warehouse, error = validate_sales_warehouse(outbound.warehouse)

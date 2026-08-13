@@ -410,7 +410,8 @@ def register_native_api_routes(app):
         from app import (InventoryCheckScan, InventoryCheckScanItem, Material,
                          _create_adjustment_drafts_from_check_scan, api_json_error,
                          api_json_success, generate_order_no, get_default_warehouse,
-                         parse_float_value, round_to_2_decimals)
+                         parse_float_value, round_to_2_decimals,
+                         validate_inventory_warehouse)
         payload = request.get_json(silent=True) or {}
         lines = payload.get('lines') if isinstance(payload, dict) else None
         if not isinstance(lines, list) or not lines:
@@ -424,6 +425,11 @@ def register_native_api_routes(app):
                 warehouse = default_wh.name
         if not warehouse:
             return api_json_error('请选择盘点仓库', 400)
+        # INV-AUDIT-005：仓库必须存在且 active（与盘点/调整等库存单据对称）
+        wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+        if wh_err:
+            return api_json_error(wh_err, 400)
+        warehouse = wh_obj.name
 
         try:
             check = InventoryCheckScan(

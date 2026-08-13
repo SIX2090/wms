@@ -102,7 +102,7 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def save_transfer_table():
-        from app import (TransferOrder, TransferOrderItem, _clean_int, _material_from_payload, _parse_form_date, allow_negative_stock, api_error, generate_order_no, is_stock_sufficient, location_management_enabled, log_operation, normalize_stock_quantity, parse_float_value, round_to_2_decimals)
+        from app import (TransferOrder, TransferOrderItem, _clean_int, _material_from_payload, _parse_form_date, allow_negative_stock, api_error, generate_order_no, is_stock_sufficient, location_management_enabled, log_operation, normalize_stock_quantity, parse_float_value, round_to_2_decimals, validate_inventory_warehouse)
         from flask import jsonify, request
         data = request.get_json(silent=True) or {}
         order_id = _clean_int(data.get('order_id'))
@@ -123,6 +123,16 @@ def register_transfer_routes(app):
             return api_error('请选择调出仓库')
         if not to_warehouse:
             return api_error('请选择调入仓库')
+        # INV-AUDIT-005：调出/调入仓库必须存在且 active（与销售出库对称）
+        from_wh_obj, from_wh_err = validate_inventory_warehouse(from_warehouse)
+        if from_wh_err:
+            return api_error(from_wh_err)
+        to_wh_obj, to_wh_err = validate_inventory_warehouse(to_warehouse)
+        if to_wh_err:
+            return api_error(to_wh_err)
+        # 用解析后的规范化仓库名回写，避免大小写/编码差异
+        from_warehouse = from_wh_obj.name
+        to_warehouse = to_wh_obj.name
         # P1-BUGFIX: 开启库位管理时 from_location/to_location 必填（AGENTS.md 规则二）
         if location_management_enabled():
             if not from_location:
@@ -200,7 +210,7 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def add_transfer():
-        from app import (TransferOrder, api_error, generate_order_no, location_management_enabled, log_operation)
+        from app import (TransferOrder, api_error, generate_order_no, location_management_enabled, log_operation, validate_inventory_warehouse)
         from flask import jsonify, request
         """新增库存调拨单"""
         try:
@@ -219,6 +229,15 @@ def register_transfer_routes(app):
                 return api_error('请选择调出仓库')
             if not to_warehouse:
                 return api_error('请选择调入仓库')
+            # INV-AUDIT-005：调出/调入仓库必须存在且 active
+            from_wh_obj, from_wh_err = validate_inventory_warehouse(from_warehouse)
+            if from_wh_err:
+                return api_error(from_wh_err)
+            to_wh_obj, to_wh_err = validate_inventory_warehouse(to_warehouse)
+            if to_wh_err:
+                return api_error(to_wh_err)
+            from_warehouse = from_wh_obj.name
+            to_warehouse = to_wh_obj.name
             # P1-BUGFIX: 开启库位管理时 from_location/to_location 必填（AGENTS.md 规则二）
             if location_management_enabled():
                 if not from_location:

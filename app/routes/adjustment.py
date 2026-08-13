@@ -218,7 +218,8 @@ def register_adjustment_routes(app):
         from app import (AdjustmentOrder, AdjustmentOrderItem, Material, allow_negative_stock,
                          api_error, generate_order_no, get_default_warehouse,
                          is_stock_sufficient, location_management_enabled,
-                         log_operation, normalize_stock_quantity, round_to_2_decimals)
+                         log_operation, normalize_stock_quantity, round_to_2_decimals,
+                         validate_inventory_warehouse)
         # Support both JSON and form data
         if request.is_json:
             data = request.get_json(silent=True) or {}
@@ -271,6 +272,11 @@ def register_adjustment_routes(app):
                     warehouse = default_wh.name
             if not warehouse:
                 return api_error('请选择仓库')
+            # INV-AUDIT-005：仓库必须存在且 active
+            wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+            if wh_err:
+                return api_error(wh_err)
+            warehouse = wh_obj.name
 
             if order_id:
                 adjustment = AdjustmentOrder.query.get(order_id)
