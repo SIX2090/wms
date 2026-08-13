@@ -5548,6 +5548,14 @@ def unauthorized():
     next_target = get_next_target()
     return redirect(url_for('login', next=next_target))
 
+# Bearer Token 续期与 last_used_at 刷新策略（BUG-2026-08-13-005）：
+# - LAST_USED_FLUSH_SECONDS：last_used_at 最多每 5 分钟写一次
+# - RENEW_THRESHOLD_SECONDS：仅当剩余有效期 < 1 天才顺延 7 天
+# - TOKEN_TTL_DAYS：每次续期固定 7 天
+LAST_USED_FLUSH_SECONDS = 300
+RENEW_THRESHOLD_SECONDS = 24 * 3600
+TOKEN_TTL_DAYS = 7
+
 # ==================== Permission ====================
 def get_bearer_user():
     auth = request.headers.get('Authorization', '')
@@ -5559,14 +5567,21 @@ def get_bearer_user():
     token = ApiToken.query.filter_by(token=token_value, revoked=False).first()
     if not token or token.expires_at < datetime.now():
         return None
-    # 滑动过期：每次有效使用都刷新最近使用时间，并将过期时间顺延至 7 天，
-    # 使长期活跃的 token 不会因静默过期而失效（静置 7 天才会过期）。
-    try:
-        token.last_used_at = datetime.now()
-        token.expires_at = datetime.now() + timedelta(days=7)
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+    now = datetime.now()
+    need_flush_last_used = (
+        token.last_used_at is None
+        or (now - token.last_used_at).total_seconds() >= LAST_USED_FLUSH_SECONDS
+    )
+    need_renew = (token.expires_at - now).total_seconds() < RENEW_THRESHOLD_SECONDS
+    if need_flush_last_used or need_renew:
+        try:
+            if need_flush_last_used:
+                token.last_used_at = now
+            if need_renew:
+                token.expires_at = now + timedelta(days=TOKEN_TTL_DAYS)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
     return token.user if token.user and token.user.is_active else None
 
 def api_required(f):
@@ -6896,11 +6911,34 @@ def _save_material_image_from_url(material, image_url):
                       '(KHTML, like Gecko) Chrome/126.0 Safari/537.36',
         'Referer': 'https://www.bing.com/',
     }
-    # 限制重定向次数为 5，防止通过 302 链绕过上面的内网校验
-    with requests.get(image_url, headers=headers, timeout=12, stream=True, allow_redirects=True, max_redirects=5) as response:
+    # BUG-2026-08-13-003: requests.get 不接受 max_redirects 参数，改用手动逐跳跟随
+    # BUG-2026-08-13-004: 对每一跳 Location 主机重新做内网校验
+    MAX_REDIRECTS = 5
+    next_url = image_url
+    response = requests.get(next_url, headers=headers, timeout=12, stream=True, allow_redirects=False)
+    redirects = 0
+    while response.is_redirect or response.is_permanent_redirect:
+        if redirects >= MAX_REDIRECTS:
+            response.close()
+            return None, '图片地址重定向次数过多'
+        redirects += 1
+        location = response.headers.get('Location')
+        response.close()
+        if not location:
+            return None, '图片地址重定向目标缺失'
+        next_url = urljoin(next_url, location)
+        redir_parsed = urlparse(next_url)
+        if redir_parsed.scheme not in ('http', 'https'):
+            return None, '不允许的重定向协议'
+        redir_host = redir_parsed.hostname
+        if not redir_host or _is_private_or_loopback_host(redir_host):
+            return None, '不允许访问内网地址'
+        response = requests.get(next_url, headers=headers, timeout=12, stream=True, allow_redirects=False)
+    try:
         response.raise_for_status()
         content_type = (response.headers.get('Content-Type') or '').split(';', 1)[0].lower()
         if content_type and not content_type.startswith('image/'):
+            response.close()
             return None, '远程地址不是图片'
         max_bytes = 8 * 1024 * 1024
         image_bytes = bytearray()
@@ -6909,7 +6947,10 @@ def _save_material_image_from_url(material, image_url):
                 continue
             image_bytes.extend(chunk)
             if len(image_bytes) > max_bytes:
+                response.close()
                 return None, '图片文件过大'
+    finally:
+        response.close()
 
     try:
         from PIL import Image, ImageOps
