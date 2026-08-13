@@ -8,7 +8,9 @@ from collections import defaultdict
 
 from flask_login import login_required
 
-from utils import require_role, sync_material_primary_image
+from utils import sync_material_primary_image
+
+# A2白名单：@_web_or_api_required / @_web_or_api_role_required 会在 lint_wms_rules.py KNOWN_DECORATOR_HINTS 注册
 
 # 物料档案：每个物料最多归档 5 张图片（移动端上传数量上限）
 MAX_MATERIAL_IMAGES = 5
@@ -32,6 +34,32 @@ def _web_or_api_required(f):
             return f(*args, **kwargs)
         return jsonify({'status': 'error', 'success': False, 'msg': '未登录或 Bearer Token 无效'}), 401
     return decorated_function
+
+
+def _web_or_api_role_required(*roles):
+    """Accept a web session or a mobile Bearer token AND require one of the
+    given business roles. Mirrors app.web_or_api_role_required but resolves
+    get_bearer_user lazily (register_mobile_routes runs before the app.py
+    auth decorators are defined). Used to keep mobile write endpoints (e.g.
+    material image upload/delete) consistent with their web-side role gates."""
+    from functools import wraps
+    allowed = set(roles or ())
+
+    # no-test:reason=装饰器工厂，由 endpoint 测试覆盖
+    def decorator(f):
+        @wraps(f)  # no-test:reason=装饰器包装函数，由 endpoint 测试覆盖
+        def decorated_function(*args, **kwargs):
+            from flask import jsonify
+            from flask_login import current_user
+            from app import get_bearer_user
+            user = current_user if current_user.is_authenticated else get_bearer_user()
+            if user is None:
+                return jsonify({'status': 'error', 'success': False, 'msg': '未登录或 Bearer Token 无效'}), 401
+            if user.role != 'admin' and user.role not in allowed:
+                return jsonify({'status': 'error', 'success': False, 'msg': '当前账号没有权限执行该操作'}), 403
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
 
 
 # 识图速率限制：AI 识图耗时且昂贵，限制每个用户每分钟最多调用 N 次，
@@ -246,8 +274,7 @@ def register_mobile_routes(app):
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/mobile/api/scan_submit', methods=['POST'])
-    @require_role('warehouse')
-    @login_required
+    @_web_or_api_role_required('warehouse')
     def mobile_scan_submit():
         from flask import current_app
         from app import (
@@ -269,6 +296,7 @@ def register_mobile_routes(app):
             db,
             deduct_stock,
             generate_order_no,
+            get_bearer_user,
             is_stock_sufficient,
             joinedload,
             jsonify,
@@ -283,6 +311,8 @@ def register_mobile_routes(app):
             update_location_inventory,
             _create_adjustment_drafts_from_check_scan,
         )
+        # BUG-2026-08-13-002：装饰器接受 Web 会话或 Bearer Token 任一，这里解析真实操作人
+        actor = current_user if current_user.is_authenticated else get_bearer_user()
         data = request.get_json(silent=True) or {}
         mode = (data.get('mode') or '').strip()
         code = (data.get('code') or '').strip()
@@ -307,7 +337,8 @@ def register_mobile_routes(app):
                 'data': {'material': mobile_material_payload(material)},
             })
 
-        if current_user.role not in ('admin', 'warehouse'):
+        # BUG-2026-08-13-002：统一用 actor（Web 会话或 Bearer Token）
+        if actor.role not in ('admin', 'warehouse'):
             return jsonify({'status': 'error', 'success': False, 'msg': '当前账号没有仓库操作权限'}), 403
 
         warehouse = (data.get('warehouse') or data.get('location') or '').strip()
@@ -330,7 +361,7 @@ def register_mobile_routes(app):
                     warehouse=warehouse or None,
                     remark=remark or '手机端扫码提交',
                     status='completed',
-                    operator_id=current_user.id,
+                    operator_id=actor.id,
                     total_amount=round_to_2_decimals(quantity * price),
                 )
                 db.session.add(order)
@@ -400,7 +431,7 @@ def register_mobile_routes(app):
                     purpose='手机扫码出库',
                     remark=remark or '手机端扫码提交',
                     status='completed',
-                    operator_id=current_user.id,
+                    operator_id=actor.id,
                     total_amount=round_to_2_decimals(quantity * price),
                 )
                 db.session.add(order)
@@ -443,7 +474,7 @@ def register_mobile_routes(app):
                     date=date.today(),
                     remark=remark or '手机扫码盘点',
                     status='completed',
-                    operator_id=current_user.id,
+                    operator_id=actor.id,
                 )
                 db.session.add(check)
                 db.session.flush()
@@ -788,7 +819,7 @@ def register_mobile_routes(app):
 
     # pydantic:reason=文件上传（multipart/form-data）路由，非 JSON Body，pydantic 输入模型不适用；最多 5 张限制在路由内校验
     @app.route('/mobile/api/material_archive/<int:id>/images', methods=['POST'])
-    @_web_or_api_required
+    @_web_or_api_role_required('warehouse')
     def mobile_material_archive_upload(id):
         """上传一张物料档案图片，超过 MAX_MATERIAL_IMAGES 拒绝。"""
         from flask import current_app, jsonify, request
@@ -838,7 +869,7 @@ def register_mobile_routes(app):
 
     # pydantic:reason=DELETE 无请求体，pydantic 输入模型不适用
     @app.route('/mobile/api/material_archive/images/<int:image_id>', methods=['DELETE'])
-    @_web_or_api_required
+    @_web_or_api_role_required('warehouse')
     def mobile_material_archive_delete_image(image_id):
         """删除一张物料档案图片。"""
         from flask import current_app, jsonify

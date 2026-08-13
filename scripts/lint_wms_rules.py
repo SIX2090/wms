@@ -367,6 +367,7 @@ class RuleA2PostRouteCsrf(Rule):
         "@web_or_api_required",  # 项目自定义:Web 会话或 Bearer Token 任一通过即可
         "@web_or_api_role_required",  # 项目自定义:Web 会话/Bearer Token + 角色权限
         "@_web_or_api_required",  # 项目自定义(mobile.py):Web 会话或 Bearer Token 任一通过即可
+        "@_web_or_api_role_required",  # 项目自定义(mobile.py):Web 会话/Bearer Token + 角色权限
         "@role_required",        # 项目自定义:角色权限
         "@admin_required",       # 项目自定义:管理员权限
     )
