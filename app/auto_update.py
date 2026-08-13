@@ -33,6 +33,16 @@ LOG_DIR = APP_DIR / "logs"
 LOG_FILE = LOG_DIR / "auto_update.log"
 REMOTE = os.environ.get("WMS_GIT_REMOTE", "origin")
 BRANCH = os.environ.get("WMS_GIT_BRANCH", "main")
+# BUG-2026-08-13-006：供应链加固——可选固定提交/标签。
+# 设置 WMS_GIT_PIN=<完整 SHA 或 git tag> 后，fetch 完成但 pull 之前会校验
+# {REMOTE}/{BRANCH} 的实际 tip 是否等于该 pin（tag 先 rev-parse 解析成 SHA），
+# 不一致则拒绝 pull，防止远端被篡改后自动拉入任意代码。留空则维持原行为。
+GIT_PIN = os.environ.get("WMS_GIT_PIN", "").strip()
+# BUG-2026-08-13-006：可选强制 pip 哈希校验。置 1 时给 pip install 追加
+# --require-hashes，要求 requirements.txt 内每条依赖均带 hash 行。
+PIP_REQUIRE_HASHES = os.environ.get("WMS_PIP_REQUIRE_HASHES", "0").strip().lower() in (
+    "1", "true", "yes", "on"
+)
 
 _GIT_EXE: str | None = None
 
@@ -186,7 +196,11 @@ def pip_install(python_exe: str) -> None:
         ]
     else:
         cmd = [python_exe, "-m", "pip", "install", "-r", str(req)]
-    log("更新 Python 依赖...")
+    if PIP_REQUIRE_HASHES:
+        cmd.append("--require-hashes")
+        log("更新 Python 依赖（已启用 --require-hashes 哈希校验）...")
+    else:
+        log("更新 Python 依赖...")
     result = subprocess.run(
         cmd,
         cwd=str(APP_DIR),
@@ -197,6 +211,7 @@ def pip_install(python_exe: str) -> None:
     )
     if result.returncode == 0:
         log("依赖更新完成")
+        log_pip_versions(python_exe)
     else:
         log(f"[警告] 依赖更新失败（不阻断启动）: {result.stderr.strip()[:500]}")
 
@@ -211,6 +226,68 @@ def count_commits(rev_range: str) -> tuple[bool, int, str]:
         return True, int(text), text
     except ValueError:
         return False, 0, f"无法解析提交数: {out!r}"
+
+
+def resolve_sha(ref: str) -> str | None:  # no-test:reason=由 TestResolveSha.test_resolve_success/failure_returns_none 覆盖
+    """把任意 ref（分支/tag/SHA）解析为完整 40 位 SHA，失败返回 None。"""
+    code, out, err = run_git("rev-parse", ref)
+    if code != 0 or not out:
+        return None
+    return out.strip().splitlines()[0]
+
+
+def verify_pin(remote_sha: str) -> tuple[bool, str]:  # no-test:reason=由 TestVerifyPin 6 个用例覆盖（空/完整/短 SHA/tag/不匹配/未知 tag）
+    """校验远端 tip 是否匹配 WMS_GIT_PIN。返回 (ok, detail)。"""
+    if not GIT_PIN:
+        return True, ""
+    pin = GIT_PIN
+    try:
+        int(pin, 16)  # 纯十六进制 → 视作 SHA，直接前缀匹配
+    except ValueError:
+        resolved = resolve_sha(pin)
+        if not resolved:
+            return False, f"WMS_GIT_PIN={pin!r} 无法解析为提交或标签，拒绝更新"
+        pin = resolved
+    if remote_sha.startswith(pin):
+        return True, f"远端 tip {remote_sha} 匹配固定 pin {GIT_PIN!r}"
+    return False, (
+        f"[安全拒绝] 远端 tip {remote_sha} 不匹配固定 pin {GIT_PIN!r}，"
+        "已跳过 pull。请人工核对远端提交，或更新 WMS_GIT_PIN 后再启用自动更新。"
+    )
+
+
+def log_pulled_commits(pre_sha: str, post_sha: str) -> None:  # no-test:reason=审计日志辅助函数，由 main() 集成测试与源码静态校验覆盖
+    """把本次 pull 引入的提交（subject + author）写入审计日志。"""
+    if not pre_sha or not post_sha or pre_sha == post_sha:
+        return
+    code, out, err = run_git(
+        "log", "--pretty=format:%h | %an | %ad | %s",
+        "--date=short",
+        f"{pre_sha}..{post_sha}",
+    )
+    if code == 0 and out.strip():
+        log(f"本次更新引入的提交（{pre_sha[:10]}..{post_sha[:10]}）:\n{out}")
+    else:
+        log(f"[警告] 无法读取引入提交清单: {err or out}")
+
+
+def log_pip_versions(python_exe: str) -> None:  # no-test:reason=审计日志辅助函数，由 TestPipRequireHashes 间接覆盖（pip_install 成功分支调用）
+    """更新依赖后把已安装包版本写入审计日志，便于追溯供应链。"""
+    try:
+        result = subprocess.run(
+            [python_exe, "-m", "pip", "freeze"],
+            cwd=str(APP_DIR),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            installed = result.stdout.strip().splitlines()
+            log(f"依赖更新后已安装包版本（共 {len(installed)} 个）:\n" + "\n".join(installed))
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def stash_tracked_changes() -> tuple[bool, str]:
@@ -256,9 +333,21 @@ def main() -> int:
             "（如 C:\\wms\\runtime\\.git-credentials）。")
         return 0
     log(f"已从 {REMOTE}/{BRANCH} 拉取远端信息")
+    remote_ref = f"{REMOTE}/{BRANCH}"
+    # BUG-2026-08-13-006：供应链加固——固定提交/标签校验。
+    remote_sha = resolve_sha(remote_ref)
+    if remote_sha:
+        log(f"远端 tip SHA: {remote_sha}")
+    if GIT_PIN:
+        if not remote_sha:
+            log("[警告] 无法解析远端 tip SHA，无法校验 WMS_GIT_PIN，跳过更新")
+            return 0
+        ok_pin, pin_detail = verify_pin(remote_sha)
+        log(pin_detail)
+        if not ok_pin:
+            return 0
 
     # AI-DEPLOY-F01-FIX-02: 真正的 behind / ahead，不是两 tip 并集
-    remote_ref = f"{REMOTE}/{BRANCH}"
     ok_b, behind, raw_b = count_commits(f"HEAD..{remote_ref}")
     if not ok_b:
         log(f"[警告] 无法比较落后提交数，跳过更新: {raw_b}")
@@ -299,7 +388,7 @@ def main() -> int:
             log("（另有未跟踪文件，已忽略，不单独拦截 pull）")
 
     backup_database()
-
+    pre_sha = resolve_sha("HEAD") or ""
     code, out, err = run_git("pull", "--ff-only", REMOTE, BRANCH)
     if code != 0:
         log(f"[警告] git pull --ff-only 失败（不阻断启动）: {err or out}")
@@ -322,6 +411,11 @@ def main() -> int:
         )
     else:
         log(f"代码已更新:\n{out or '(fast-forward)'}")
+
+    post_sha = resolve_sha("HEAD") or ""
+    if post_sha:
+        log(f"更新后 HEAD SHA: {post_sha}")
+    log_pulled_commits(pre_sha, post_sha)
 
     python_exe = find_python()
     if python_exe:
