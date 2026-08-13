@@ -117,10 +117,18 @@ def register_stock_query_routes(app):
     @login_required
     def api_query_search():
         """模糊查询物料"""
-        from app import Material, Supplier, MaterialCategory, Unit, api_error
+        from app import (Material, Supplier, MaterialCategory, Unit,
+                         api_error, get_warehouse_stock_quantities,
+                         normalize_stock_quantity, resolve_request_warehouse)
         keyword = request.form.get('keyword', '').strip()
         if not keyword:
             return api_error('请输入搜索关键词')
+
+        # INV-AUDIT-004：仓库必填（AGENTS.md 规则），未提供时回退默认仓库；
+        # 无默认仓库则拒绝查询，避免返回全局 Material.stock。
+        warehouse, wh_error = resolve_request_warehouse(request.form)
+        if wh_error:
+            return api_error(wh_error, 400)
 
         keyword_like = f'%{keyword}%'
         materials = Material.query.outerjoin(Supplier, Material.supplier_id == Supplier.id).outerjoin(
@@ -136,7 +144,10 @@ def register_stock_query_routes(app):
                 Unit.name.like(keyword_like)
             )
         ).order_by(Material.code.asc()).all()
-        
+
+        # INV-AUDIT-004：库存按仓库级返回，不再回退全局 Material.stock
+        warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
+
         data = []
         for m in materials:
             data.append({
@@ -144,9 +155,9 @@ def register_stock_query_routes(app):
                 'code': m.code,
                 'name': m.name,
                 'spec': m.spec or '',
-                'stock': m.stock or 0,
+                'stock': normalize_stock_quantity(warehouse_stock_map.get(m.id) or 0),
                 'unit': m.unit.name if m.unit else '',
                 'supplier': m.supplier.name if m.supplier else ''
             })
-        
+
         return jsonify({'status': 'success', 'data': data})
