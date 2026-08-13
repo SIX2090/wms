@@ -83,11 +83,21 @@ def _seed_material(code, name, stock=10):
     return m.id
 
 
+def _seed_default_warehouse():
+    """INV-AUDIT-003：扫码出入库仓库必填，测试需预置默认仓库。"""
+    from app import Warehouse
+    wh = Warehouse(code="W001", name="默认仓", status="active", is_default=True)
+    db.session.add(wh)
+    db.session.commit()
+    return wh
+
+
 class TestMobileRegister:
     def _setup(self):
         with app_module.app.app_context():
             _reset_db()
             _seed_admin()
+            _seed_default_warehouse()
         return _make_client()
 
     def test_endpoints_and_urls(self):

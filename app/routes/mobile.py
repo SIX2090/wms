@@ -297,6 +297,7 @@ def register_mobile_routes(app):
             deduct_stock,
             generate_order_no,
             get_bearer_user,
+            get_warehouse_stock_quantities,
             is_stock_sufficient,
             joinedload,
             jsonify,
@@ -307,6 +308,7 @@ def register_mobile_routes(app):
             normalize_stock_quantity,
             parse_float_value,
             request,
+            resolve_request_warehouse,
             round_to_2_decimals,
             update_location_inventory,
             _create_adjustment_drafts_from_check_scan,
@@ -341,10 +343,20 @@ def register_mobile_routes(app):
         if actor.role not in ('admin', 'warehouse'):
             return jsonify({'status': 'error', 'success': False, 'msg': '当前账号没有仓库操作权限'}), 403
 
-        warehouse = (data.get('warehouse') or data.get('location') or '').strip()
+        # INV-AUDIT-003：仓库始终必填（AGENTS.md 规则），库位单独解析
+        # 不再用 warehouse 字段同时充当仓库名和库位字符串，避免两者混淆。
+        warehouse, wh_error = resolve_request_warehouse(data)
+        if wh_error:
+            return jsonify({'status': 'error', 'success': False, 'msg': wh_error}), 400
+        # 库位字段独立解析：data.location 或 data.location_name
+        location = (data.get('location') or data.get('location_name') or '').strip()
+        # 兼容旧客户端：未开启库位管理时 location 等同仓库名（保持历史行为）
+        if not location:
+            location = (warehouse.name or '').strip()
+        # 开启库位管理时 location 必填（AGENTS.md 规则二），未填且无默认库位时拒绝保存
+        if mode in ('in', 'out') and location_management_enabled() and location_required_on_save() and not (data.get('location') or data.get('location_name') or '').strip():
+            return jsonify({'status': 'error', 'success': False, 'msg': '启用库位管理后，扫码出入库必须填写库位'}), 400
         remark = (data.get('remark') or '').strip()
-        if mode in ('in', 'out') and location_management_enabled() and location_required_on_save() and not warehouse:
-            return jsonify({'status': 'error', 'success': False, 'msg': '启用库位管理后，扫码出入库必须填写仓库/库位'}), 400
 
         try:
             if mode == 'in':
@@ -358,7 +370,8 @@ def register_mobile_routes(app):
                     date=date.today(),
                     business_type='产品入库',
                     purpose='手机扫码入库',
-                    warehouse=warehouse or None,
+                    warehouse=warehouse.name,
+                    location=location,
                     remark=remark or '手机端扫码提交',
                     status='completed',
                     operator_id=actor.id,
@@ -377,8 +390,8 @@ def register_mobile_routes(app):
                 if not ok:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库存增加失败'}), 500
-                if location_management_enabled() and warehouse:
-                    ok, error_msg = update_location_inventory(material, warehouse, quantity)
+                if location_management_enabled():
+                    ok, error_msg = update_location_inventory(material, location, quantity, warehouse=warehouse)
                     if not ok:
                         db.session.rollback()
                         return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库位库存更新失败'}), 400
@@ -396,24 +409,27 @@ def register_mobile_routes(app):
                 if quantity <= 0:
                     return jsonify({'status': 'error', 'success': False, 'msg': '出库数量必须大于0'}), 400
 
-                current_stock = normalize_stock_quantity(material.stock or 0)
+                # INV-AUDIT-003：优先按仓库级库存校验，避免使用全局 Material.stock
+                warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
+                current_stock = normalize_stock_quantity(warehouse_stock_map.get(material.id) or 0)
                 if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
                     return jsonify({
                         'status': 'error',
                         'success': False,
-                        'msg': f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}',
+                        'msg': f'物料 {material.code} 在仓库 [{warehouse.name}] 库存不足，当前仓库库存：{current_stock:.2f}',
                     }), 400
-                if location_management_enabled() and warehouse and location_available_stock_control() and not allow_negative_location_stock():
+                if location_management_enabled() and location and location_available_stock_control() and not allow_negative_location_stock():
                     location_inventory = LocationInventory.query.filter_by(
                         material_id=material.id,
-                        location=warehouse
+                        warehouse_id=warehouse.id,
+                        location=location,
                     ).first()
                     location_stock = normalize_stock_quantity(location_inventory.quantity if location_inventory else 0)
                     if not is_stock_sufficient(location_stock, quantity):
                         return jsonify({
                             'status': 'error',
                             'success': False,
-                            'msg': f'物料 {material.code} 在 {warehouse} 库位库存不足，当前库位库存：{location_stock:.2f}',
+                            'msg': f'物料 {material.code} 在 {location} 库位库存不足，当前库位库存：{location_stock:.2f}',
                         }), 400
 
                 target = (data.get('target') or data.get('receiver') or '').strip()
@@ -427,7 +443,8 @@ def register_mobile_routes(app):
                     department_id=department.id if department else None,
                     customer=(department.name if department else target) or None,
                     business_type='领料单',
-                    warehouse=warehouse or None,
+                    warehouse=warehouse.name,
+                    location=location,
                     purpose='手机扫码出库',
                     remark=remark or '手机端扫码提交',
                     status='completed',
@@ -447,8 +464,8 @@ def register_mobile_routes(app):
                 if not ok:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库存扣减失败'}), 400
-                if location_management_enabled() and warehouse:
-                    ok, error_msg = update_location_inventory(material, warehouse, -quantity)
+                if location_management_enabled():
+                    ok, error_msg = update_location_inventory(material, location, -quantity, warehouse=warehouse)
                     if not ok:
                         db.session.rollback()
                         return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库位库存扣减失败'}), 400
@@ -468,10 +485,13 @@ def register_mobile_routes(app):
                 if actual_raw is None or str(actual_raw).strip() == '':
                     return jsonify({'status': 'error', 'success': False, 'msg': '请输入盘点数量'}), 400
                 actual_stock = round_to_2_decimals(parse_float_value(actual_raw, 0))
-                system_stock = normalize_stock_quantity(material.stock or 0)
+                # INV-AUDIT-003：盘点按仓库级系统库存生成调整草稿，不再使用全局 Material.stock
+                warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
+                system_stock = normalize_stock_quantity(warehouse_stock_map.get(material.id) or 0)
                 check = InventoryCheckScan(
                     check_no=generate_order_no('CS'),
                     date=date.today(),
+                    warehouse=warehouse.name,
                     remark=remark or '手机扫码盘点',
                     status='completed',
                     operator_id=actor.id,
