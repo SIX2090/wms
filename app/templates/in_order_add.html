@@ -562,6 +562,16 @@ textarea.form-control {
                         </select>
                     </div>
                 </div>
+                {% if not is_product_in and not is_other_in %}
+                <div class="col-md-3">
+                    <div class="mb-2 pt-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="auto_push_requisition" id="autoPushRequisition" value="1">
+                            <label class="form-check-label" for="autoPushRequisition">自动下推领料单</label>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
                 {% if location_management_enabled %}
                 <div class="col-md-3" id="locationFieldWrap">
                     <div class="mb-2">
@@ -1309,6 +1319,7 @@ function submitFormLegacy(saveAndNew = false) {
         [partyField]: supplierId,
         warehouse: document.querySelector('[name="warehouse"]').value,
         location: (document.querySelector('[name="location"]') || {}).value || '',
+        auto_push_requisition: !!document.querySelector('[name="auto_push_requisition"]')?.checked,
         remark: document.querySelector('[name="remark"]').value,
         items: items
     };
@@ -1474,6 +1485,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         purpose: document.querySelector('[name="purpose"]').value.trim(),
         [partyField]: supplierId,
         warehouse: warehouse,
+        auto_push_requisition: !!document.querySelector('[name="auto_push_requisition"]')?.checked,
         remark: document.querySelector('[name="remark"]').value,
         items: items
     };

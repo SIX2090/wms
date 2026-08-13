@@ -308,6 +308,9 @@ def auto_migrate_database():
         if in_columns and 'source_purchase_order_id' not in in_columns:
             cursor.execute("ALTER TABLE in_order ADD COLUMN source_purchase_order_id INTEGER")
             modified = True
+        if in_columns and 'auto_push_requisition' not in in_columns:
+            cursor.execute("ALTER TABLE in_order ADD COLUMN auto_push_requisition BOOLEAN NOT NULL DEFAULT 0")
+            modified = True
         cursor.execute("PRAGMA table_info(user)")
         user_columns = [row[1] for row in cursor.fetchall()]
         if user_columns and 'must_change_password' not in user_columns:
@@ -4340,6 +4343,7 @@ class InOrder(db.Model):
     warehouse = db.Column(db.String(100), nullable=False, default='')  # Warehouse name (AGENTS.md: 始终必填)
     location = db.Column(db.String(100), nullable=False, default='')  # 库位（开启库位管理时必填）
     source_purchase_order_id = db.Column(db.Integer, db.ForeignKey('purchase_order.id'))
+    auto_push_requisition = db.Column(db.Boolean, nullable=False, default=False)
     remark = db.Column(db.String(200))  # Remark
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
     contract_no = db.Column(db.String(50))  # 冗余合同编号（合同变更后历史单据不变）
