@@ -889,6 +889,38 @@ def auto_migrate_database():
             except Exception:
                 pass  # 表可能尚未创建，跳过
 
+        if _table_exists('location_inventory') and _table_exists('warehouse'):
+            cursor.execute("PRAGMA table_info(location_inventory)")
+            _location_inventory_columns = [row[1] for row in cursor.fetchall()]
+            if 'warehouse_id' not in _location_inventory_columns:
+                cursor.execute("ALTER TABLE location_inventory ADD COLUMN warehouse_id INTEGER")
+                modified = True
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_location_inventory_warehouse "
+                "ON location_inventory(warehouse_id)"
+            )
+            cursor.execute(
+                """
+                UPDATE location_inventory
+                   SET warehouse_id = (
+                       SELECT warehouse.id
+                         FROM warehouse
+                        WHERE warehouse.name = TRIM(location_inventory.location)
+                           OR warehouse.code = TRIM(location_inventory.location)
+                   )
+                 WHERE warehouse_id IS NULL
+                   AND TRIM(COALESCE(location_inventory.location, '')) <> ''
+                   AND 1 = (
+                       SELECT COUNT(*)
+                         FROM warehouse
+                        WHERE warehouse.name = TRIM(location_inventory.location)
+                           OR warehouse.code = TRIM(location_inventory.location)
+                   )
+                """
+            )
+            if cursor.rowcount and cursor.rowcount > 0:
+                modified = True
+
         # material_image 表补建：移动端物料档案多图功能依赖此表，
         # 旧版本数据库可能没有这张表，导致上传/搜索 500。
         try:
@@ -4699,15 +4731,18 @@ class LocationInventory(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)  # Material ID
+    warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'), nullable=True)
     location = db.Column(db.String(100), nullable=False)  # Location code
     quantity = db.Column(db.Float, default=0)  # Inventory quantity at this location
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     material = db.relationship('Material', backref='location_inventories')
+    warehouse = db.relationship('Warehouse', backref='location_inventories')
 
     __table_args__ = (
         db.UniqueConstraint('material_id', 'location', name='uix_material_location'),
+        db.Index('idx_location_inventory_warehouse', 'warehouse_id'),
     )
 
 class StockTransaction(db.Model):
