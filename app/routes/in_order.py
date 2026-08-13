@@ -588,6 +588,7 @@ def register_in_order_routes(app):
             purpose = (data.get('purpose') or data.get('business_type') or '').strip()
             warehouse = (data.get('warehouse') or '').strip()
             location = (data.get('location') or '').strip()
+            auto_push_requisition = data.get('auto_push_requisition') in (True, 1, '1', 'true', 'True', 'yes', 'on')
             remark = (data.get('remark') or '').strip()
             items_data = data.get('items', [])
         else:
@@ -600,6 +601,7 @@ def register_in_order_routes(app):
             purpose = (request.form.get('purpose') or '').strip()
             warehouse = (request.form.get('warehouse') or '').strip()
             location = (request.form.get('location') or '').strip()
+            auto_push_requisition = request.form.get('auto_push_requisition') in ('1', 'true', 'True', 'yes', 'on')
             remark = (request.form.get('remark') or '').strip()
             items_data = []
 
@@ -734,6 +736,7 @@ def register_in_order_routes(app):
                 return jsonify({'status': 'error', 'msg': '入库日期不能晚于今天'}), 400
 
             order.business_type = business_type
+            order.auto_push_requisition = bool(auto_push_requisition and business_type == '采购入库')
             order.purpose = purpose
             order.warehouse = warehouse
             order.location = location
@@ -1316,12 +1319,17 @@ def register_in_order_routes(app):
     def complete_in_order(id):
         """Complete an inbound order and add stock."""
         from sqlalchemy.orm import selectinload
-        from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem,
-                         WechatShareConfig, _acquire_order_write_lock,
-                         _check_in_order_anomalies, _wechat_share_order, add_stock, api_error,
-                         get_default_warehouse, is_future_date, location_management_enabled,
-                         log_operation, update_location_inventory, update_purchase_order_status,
-                         validate_purchase_in_order_source)
+        from app import (DocumentPushLine, InOrder, InOrderItem, OutOrder, OutOrderItem,
+                         PurchaseOrder, PurchaseOrderItem, WechatShareConfig,
+                         _acquire_order_write_lock, _check_in_order_anomalies,
+                         _wechat_share_order, add_stock, api_error,
+                         deduct_location_inventory_atomic, deduct_stock_atomic,
+                         generate_order_no, get_default_warehouse, is_future_date,
+                         location_management_enabled, log_operation,
+                         recalculate_order_total, resolve_inventory_warehouse_id,
+                         round_to_2_decimals, update_location_inventory,
+                         update_purchase_order_status, validate_purchase_in_order_source)
+        from flask_login import current_user
         # 预加载 items + material，消除 _check_in_order_anomalies 中的 N+1 查询
         order = InOrder.query.options(
             selectinload(InOrder.items).selectinload(InOrderItem.material)
@@ -1409,6 +1417,66 @@ def register_in_order_routes(app):
             order.total_amount = sum((item.amount or 0) for item in order.items)
             for purchase_order in PurchaseOrder.query.filter(PurchaseOrder.id.in_(affected_purchase_order_ids)).all():
                 update_purchase_order_status(purchase_order)
+            auto_requisition = None
+            if order.auto_push_requisition:
+                if order.business_type != '采购入库':
+                    db.session.rollback()
+                    return api_error('仅采购入库单可以自动下推领料单')
+                request_id = f'auto-requisition-{order.id}'
+                if DocumentPushLine.query.filter_by(
+                    source_document_type='purchase_in_order', source_document_id=order.id,
+                    request_id=request_id,
+                ).first():
+                    db.session.rollback()
+                    return api_error('自动下推领料单已处理，不能重复操作')
+                auto_requisition = OutOrder(
+                    order_no=generate_order_no('OUT'), date=order.date,
+                    business_type='领料单', warehouse=order.warehouse,
+                    location=order.location, purpose='自动下推领料单', status='completed',
+                    operator_id=current_user.id,
+                    remark=f'由采购入库单 {order.order_no} 自动下推并完成领料',
+                )
+                db.session.add(auto_requisition)
+                db.session.flush()
+                use_location = bool(location_management_enabled() and (order.location or order.warehouse))
+                for source_item in order.items:
+                    price = round_to_2_decimals(source_item.material.price or 0) if source_item.material else 0
+                    target_item = OutOrderItem(
+                        out_order_id=auto_requisition.id, material_id=source_item.material_id,
+                        quantity=source_item.quantity, price=price,
+                        amount=round_to_2_decimals((source_item.quantity or 0) * price),
+                        contract_id=source_item.contract_id, contract_no=source_item.contract_no,
+                        project_name=source_item.project_name, remark=source_item.remark,
+                    )
+                    db.session.add(target_item)
+                    db.session.flush()
+                    stock_ok, stock_error, _ = deduct_stock_atomic(
+                        source_item.material_id, source_item.quantity or 0,
+                        transaction_type='out', reference_type='out_order',
+                        reference_id=auto_requisition.id,
+                    )
+                    if not stock_ok:
+                        db.session.rollback()
+                        return api_error(stock_error or '自动下推领料单扣减库存失败')
+                    if use_location:
+                        location_ok, location_error = deduct_location_inventory_atomic(
+                            source_item.material_id, order.location or order.warehouse,
+                            source_item.quantity or 0,
+                            material_code_hint=source_item.material.code if source_item.material else None,
+                            warehouse_id=resolve_inventory_warehouse_id(order.warehouse),
+                        )
+                        if not location_ok:
+                            db.session.rollback()
+                            return api_error(location_error or '自动下推领料单扣减库位库存失败')
+                    db.session.add(DocumentPushLine(
+                        source_document_type='purchase_in_order', source_document_id=order.id,
+                        source_document_no=order.order_no, source_item_id=source_item.id,
+                        target_document_type='requisition', target_document_id=auto_requisition.id,
+                        target_document_no=auto_requisition.order_no, target_item_id=target_item.id,
+                        pushed_quantity=source_item.quantity or 0, status='active',
+                        request_id=request_id, created_by=current_user.id,
+                    ))
+                recalculate_order_total(auto_requisition)
             try:
                 db.session.commit()
                 share_now_config = WechatShareConfig.query.filter_by(enabled=True, immediate_on_complete=True, share_in_order=True).first()
@@ -1426,8 +1494,15 @@ def register_in_order_routes(app):
                 return jsonify({'status': 'error', 'msg': '操作失败'}), 500
 
             log_operation('入库', f'入库单：{order.order_no}', 'in_order', id)
+            if auto_requisition:
+                log_operation('自动完成领料单', f'采购入库单：{order.order_no} 自动下推领料单：{auto_requisition.order_no}', 'out_order', auto_requisition.id)
             app.logger.info(f'入库单完成：{order.order_no}')
-            return jsonify({'status': 'success', 'msg': '提交成功'})
+            return jsonify({
+                'status': 'success',
+                'msg': '提交成功' if not auto_requisition else f'提交成功，已自动下推并完成领料单 {auto_requisition.order_no}',
+                'auto_requisition_id': auto_requisition.id if auto_requisition else None,
+                'auto_requisition_no': auto_requisition.order_no if auto_requisition else None,
+            })
         except Exception as e:
             db.session.rollback()
             app.logger.exception(f'入库单完成异常: order_id={id}, order_no={order.order_no}')
