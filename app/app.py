@@ -921,6 +921,98 @@ def auto_migrate_database():
             if cursor.rowcount and cursor.rowcount > 0:
                 modified = True
 
+            # INV-AUDIT-002 修复：重建唯一约束。
+            # 旧库 location_inventory 表创建时使用 (material_id, location) 唯一约束
+            # （名为 uix_material_location，或表定义内联 UNIQUE）。SQLite 不支持
+            # ALTER TABLE DROP CONSTRAINT，必须按官方推荐流程重建表：
+            #   1) 检测旧唯一约束是否存在（按名或按 sql 模式）
+            #   2) 创建带新约束的 _new 表
+            #   3) INSERT INTO _new SELECT 列映射
+            #   4) DROP 旧表 + RENAME _new -> location_inventory
+            #   5) 重建索引
+            # 整个流程包在事务里，失败回滚不破坏原表。
+            try:
+                _need_rebuild = False
+                # 检查旧表 schema 中是否存在 (material_id, location) 唯一约束
+                cursor.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='location_inventory'"
+                )
+                _ddl_row = cursor.fetchone()
+                _old_ddl = (_ddl_row[0] or '') if _ddl_row else ''
+                # 检查命名唯一约束 uix_material_location 是否存在
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='location_inventory'"
+                )
+                _li_index_names = {row[0] for row in cursor.fetchall()}
+                if 'uix_material_location' in _li_index_names:
+                    _need_rebuild = True
+                # 检查新约束是否已存在；若已存在则跳过
+                if 'uix_material_warehouse_location' in _li_index_names:
+                    _need_rebuild = False
+                # 兜底：表 DDL 内联 UNIQUE(material_id, location) 但未命名时，
+                # 也尝试重建一次（仅当新约束尚不存在）。
+                if not _need_rebuild and 'uix_material_warehouse_location' not in _li_index_names:
+                    _ddl_norm = _old_ddl.replace(' ', '').replace('"', '').replace("'", '').replace('\n', '').upper()
+                    _pat1 = 'UNIQUE(MATERIAL_ID,LOCATION)'
+                    _pat2 = 'UNIQUE("MATERIAL_ID","LOCATION")'.replace(' ', '').replace('"', '').upper()
+                    if _pat1 in _ddl_norm or _pat2 in _ddl_norm:
+                        _need_rebuild = True
+
+                if _need_rebuild:
+                    # SQLite 12 步表重建：begin -> create _new -> insert -> drop -> rename -> index
+                    cursor.execute("DROP TABLE IF EXISTS location_inventory_rebuild_tmp")
+                    cursor.execute("""
+                        CREATE TABLE location_inventory_rebuild_tmp (
+                            id INTEGER PRIMARY KEY,
+                            material_id INTEGER NOT NULL,
+                            warehouse_id INTEGER,
+                            location VARCHAR(100) NOT NULL,
+                            quantity FLOAT,
+                            created_at DATETIME,
+                            updated_at DATETIME,
+                            FOREIGN KEY(material_id) REFERENCES material(id),
+                            FOREIGN KEY(warehouse_id) REFERENCES warehouse(id),
+                            UNIQUE (material_id, warehouse_id, location)
+                        )
+                    """)
+                    cursor.execute("""
+                        INSERT INTO location_inventory_rebuild_tmp
+                            (id, material_id, warehouse_id, location, quantity, created_at, updated_at)
+                        SELECT id, material_id, warehouse_id, location, quantity, created_at, updated_at
+                        FROM location_inventory
+                    """)
+                    cursor.execute("DROP TABLE location_inventory")
+                    cursor.execute(
+                        "ALTER TABLE location_inventory_rebuild_tmp RENAME TO location_inventory"
+                    )
+                    cursor.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_location_inventory_material_id "
+                        "ON location_inventory(material_id)"
+                    )
+                    cursor.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_location_inventory_loc "
+                        "ON location_inventory(material_id, location)"
+                    )
+                    cursor.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_location_inventory_warehouse "
+                        "ON location_inventory(warehouse_id)"
+                    )
+                    modified = True
+                    logging.getLogger(__name__).info(
+                        'INV-AUDIT-002: location_inventory 唯一约束已重建为 '
+                        '(material_id, warehouse_id, location)'
+                    )
+            except Exception as _rebuild_err:
+                # 重建失败不阻塞启动；旧约束继续生效，调用方仍会写入 warehouse_id，
+                # 但跨仓同名库位会因旧约束冲突报错——由人工介入处理。
+                logging.getLogger(__name__).warning(
+                    'location_inventory 唯一约束重建失败，旧约束保留: %s', _rebuild_err
+                )
+                try:
+                    cursor.execute("DROP TABLE IF EXISTS location_inventory_rebuild_tmp")
+                except Exception:
+                    pass
+
         # material_image 表补建：移动端物料档案多图功能依赖此表，
         # 旧版本数据库可能没有这张表，导致上传/搜索 500。
         try:
@@ -2605,21 +2697,65 @@ def add_stock(material, quantity, transaction_type=None, reference_type=None, re
         db.session.add(transaction)
     return True, ''
 
-def update_location_inventory(material, location, quantity_delta):
+def resolve_inventory_warehouse_id(warehouse):
+    """把多种仓库表示解析为 LocationInventory.warehouse_id 用的整数 ID。
+
+    INV-AUDIT-002 / INV-AUDIT-001 修复：库存写入口必须把 warehouse_id
+    写入 location_inventory，避免不同仓库的同名库位被旧 (material_id,
+    location) 唯一约束合并。
+
+    接受：
+      - None / 空字符串：返回 None（历史兼容模式，仅匹配 warehouse_id IS NULL 的行）
+      - Warehouse 实例：返回 warehouse.id
+      - int：直接返回（不查表，由调用方保证有效）
+      - str（仓库名或编码）：按 name / code 查 Warehouse，找不到返回 None
+    """
+    if warehouse is None:
+        return None
+    if isinstance(warehouse, Warehouse):
+        return warehouse.id
+    if isinstance(warehouse, int):
+        return warehouse
+    if isinstance(warehouse, str):
+        text = warehouse.strip()
+        if not text:
+            return None
+        wh = Warehouse.query.filter(
+            db.or_(Warehouse.name == text, Warehouse.code == text)
+        ).order_by(Warehouse.id.asc()).first()
+        return wh.id if wh else None
+    # 未知类型：尝试取 .id 属性，否则放弃
+    return getattr(warehouse, 'id', None)
+
+def update_location_inventory(material, location, quantity_delta, warehouse=None):
     """Update per-location inventory without changing total material stock.
 
     正负 delta 都通过原子条件 UPDATE 修改库位库存，避免 read-modify-write
     并发丢失更新。新增库位记录仍由本函数在原子 UPDATE 失败后补建。
+
+    INV-AUDIT-002 修复：新增 warehouse 参数。传入时会把 warehouse_id
+    写入 location_inventory，并按 (material_id, warehouse_id, location)
+    精确匹配；不传时保持旧行为（仅按 material_id + location 匹配
+    warehouse_id IS NULL 的历史行）。新代码必须显式传入仓库。
     """
     location = (location or '').strip()
     if not material or not location or not quantity_delta:
         return True, ''
 
+    warehouse_id = resolve_inventory_warehouse_id(warehouse)
+
     if quantity_delta < 0:
-        inventory = LocationInventory.query.filter_by(
+        # 校验库位库存记录存在性时也要带 warehouse_id 维度，
+        # 否则不同仓库的同名库位会互相误判。
+        query = LocationInventory.query.filter_by(
             material_id=material.id,
-            location=location
-        ).first()
+            location=location,
+        )
+        if warehouse_id is not None:
+            query = query.filter_by(warehouse_id=warehouse_id)
+        else:
+            query = query.filter(LocationInventory.warehouse_id.is_(None))
+        inventory = query.first()
         if not inventory and not allow_negative_location_stock():
             # BUG-2026-08-04-002 修复：原代码返回 True, ''（静默成功），
             # 导致调用方（如 batch_complete_out_order）在总库存已扣减但
@@ -2633,6 +2769,7 @@ def update_location_inventory(material, location, quantity_delta):
             location,
             abs(quantity_delta),
             material_code_hint=material.code,
+            warehouse_id=warehouse_id,
         )
 
     return add_location_inventory_atomic(
@@ -2640,14 +2777,20 @@ def update_location_inventory(material, location, quantity_delta):
         location,
         quantity_delta,
         material_code_hint=material.code,
+        warehouse_id=warehouse_id,
     )
 
-def add_location_inventory_atomic(material_id, location, quantity, material_code_hint=None):
+def add_location_inventory_atomic(material_id, location, quantity, material_code_hint=None, warehouse_id=None):
     """原子增加库位库存：用条件 UPDATE 避免并发丢失更新。
 
     若库位记录不存在，先用 INSERT 建立基线再 UPDATE；
     若已存在，直接执行原子增量 UPDATE。
     返回 (是否成功, 错误信息)。
+
+    INV-AUDIT-002 修复：warehouse_id 非 None 时按
+    (material_id, warehouse_id, location) 精确匹配并写入 warehouse_id；
+    warehouse_id 为 None 时仅匹配 warehouse_id IS NULL 的历史行
+    （兼容未传仓库的旧调用方）。
     """
     location = (location or '').strip()
     qty = normalize_stock_quantity(quantity or 0)
@@ -2658,10 +2801,27 @@ def add_location_inventory_atomic(material_id, location, quantity, material_code
     if qty < 0:
         return False, 'add_location_inventory_atomic 仅支持非负增量'
 
-    existing = LocationInventory.query.filter_by(
-        material_id=material_id,
-        location=location,
-    ).first()
+    # 规范化 warehouse_id：None / 0 / 负数 视作未提供
+    if warehouse_id is not None:
+        try:
+            wid = int(warehouse_id)
+        except (TypeError, ValueError):
+            wid = None
+        if wid <= 0:
+            wid = None
+    else:
+        wid = None
+
+    filter_clauses = [
+        LocationInventory.material_id == material_id,
+        LocationInventory.location == location,
+    ]
+    if wid is not None:
+        filter_clauses.append(LocationInventory.warehouse_id == wid)
+    else:
+        filter_clauses.append(LocationInventory.warehouse_id.is_(None))
+
+    existing = LocationInventory.query.filter(*filter_clauses).first()
     if not existing:
         # 并发下两个事务可能同时进入此分支，但 SQLite BEGIN IMMEDIATE
         # 已串行化写事务；MySQL/PG 依赖 UNIQUE 约束兜底。
@@ -2673,6 +2833,7 @@ def add_location_inventory_atomic(material_id, location, quantity, material_code
             nested = db.session.begin_nested()
             db.session.add(LocationInventory(
                 material_id=material_id,
+                warehouse_id=wid,
                 location=location,
                 quantity=normalize_stock_quantity(qty),
                 updated_at=datetime.now(),
@@ -2685,10 +2846,7 @@ def add_location_inventory_atomic(material_id, location, quantity, material_code
                 'add_location_inventory_atomic 建账冲突，转 UPDATE: %s', e
             )
             # 保存点已回滚，外层事务仍可继续；重查确认并发对手已建账
-            existing = LocationInventory.query.filter_by(
-                material_id=material_id,
-                location=location,
-            ).first()
+            existing = LocationInventory.query.filter(*filter_clauses).first()
             if not existing:
                 # 对手事务建的行不可见或非唯一冲突异常，安全失败
                 code = material_code_hint or str(material_id)
@@ -2696,10 +2854,7 @@ def add_location_inventory_atomic(material_id, location, quantity, material_code
 
     rowcount = db.session.execute(
         sa_update(LocationInventory)
-        .where(db.and_(
-            LocationInventory.material_id == material_id,
-            LocationInventory.location == location,
-        ))
+        .where(db.and_(*filter_clauses))
         .values(
             quantity=LocationInventory.quantity + qty,
             updated_at=datetime.now(),
@@ -2710,19 +2865,38 @@ def add_location_inventory_atomic(material_id, location, quantity, material_code
         return False, f'物料 {code} 在 {location} 库位库存更新失败或并发冲突'
     return True, ''
 
-def deduct_location_inventory_atomic(material_id, location, quantity, material_code_hint=None):
+def deduct_location_inventory_atomic(material_id, location, quantity, material_code_hint=None, warehouse_id=None):
     """原子扣减库位库存：用条件 UPDATE 避免库位级 TOCTOU。
     不处理"不存在库位记录"的新增加库——那只发生在入库/调入方向。
     返回 (是否成功, 错误信息)。
+
+    INV-AUDIT-002 修复：warehouse_id 非 None 时按
+    (material_id, warehouse_id, location) 精确扣减；为 None 时仅扣减
+    warehouse_id IS NULL 的历史行。
     """
     location = (location or '').strip()
     qty = normalize_stock_quantity(quantity or 0)
     if not location or qty <= 0:
         return True, ''  # 没有库位或零数量时保持旧行为：不改库位账
+
+    if warehouse_id is not None:
+        try:
+            wid = int(warehouse_id)
+        except (TypeError, ValueError):
+            wid = None
+        if wid <= 0:
+            wid = None
+    else:
+        wid = None
+
     condition = db.and_(
         LocationInventory.material_id == material_id,
         LocationInventory.location == location,
     )
+    if wid is not None:
+        condition = db.and_(condition, LocationInventory.warehouse_id == wid)
+    else:
+        condition = db.and_(condition, LocationInventory.warehouse_id.is_(None))
     if not allow_negative_location_stock():
         condition = db.and_(condition, LocationInventory.quantity >= qty)
     rowcount = db.session.execute(
@@ -2735,13 +2909,11 @@ def deduct_location_inventory_atomic(material_id, location, quantity, material_c
     ).rowcount
     if not rowcount:
         if allow_negative_location_stock():
-            inventory = LocationInventory.query.filter_by(
-                material_id=material_id,
-                location=location,
-            ).first()
+            inventory = LocationInventory.query.filter(condition).first()
             if not inventory:
                 db.session.add(LocationInventory(
                     material_id=material_id,
+                    warehouse_id=wid,
                     location=location,
                     quantity=-qty,
                     updated_at=datetime.now(),
@@ -3127,25 +3299,47 @@ def resolve_request_warehouse(params):
 def get_warehouse_stock_quantities(warehouse):
     """按仓库汇总物料库存 {material_id: quantity}，绝不回退全局 Material.stock。
 
-    BUG-2026-08-12-004：移动端库存/告警必须使用仓库级数量。
-    - 库位管理开启：汇总 LocationInventory（location == 仓库名）。
-    - 库位管理关闭：按 StockTransaction.location == 仓库名 的流水净额汇总。
+    INV-AUDIT-001 / INV-AUDIT-002 修复：优先按 warehouse_id 汇总，
+    兼容旧数据（warehouse_id 为 NULL 但 location == 仓库名的历史行）。
+    - 库位管理开启：汇总 LocationInventory
+        * 优先 warehouse_id == warehouse.id
+        * 兼容 OR location == 仓库名/编码 AND warehouse_id IS NULL
+    - 库位管理关闭：按 StockTransaction.location == 仓库名/编码 的流水净额汇总。
     - 仓库无任何记录时返回空 dict（调用方对缺失物料按 0 处理）。
     """
     if not warehouse:
         return {}
     warehouse_key = (warehouse.name or '').strip()
-    if not warehouse_key:
+    warehouse_code = (warehouse.code or '').strip()
+    if not warehouse_key and not warehouse_code:
         return {}
+
     if location_management_enabled():
+        # 优先按 warehouse_id 精确汇总；OR 兼容旧数据：warehouse_id 为 NULL
+        # 且 location 字符串等于仓库名或编码的历史行。
+        name_clauses = [LocationInventory.warehouse_id == warehouse.id]
+        if warehouse_key:
+            name_clauses.append(db.and_(
+                LocationInventory.warehouse_id.is_(None),
+                LocationInventory.location == warehouse_key,
+            ))
+        if warehouse_code and warehouse_code != warehouse_key:
+            name_clauses.append(db.and_(
+                LocationInventory.warehouse_id.is_(None),
+                LocationInventory.location == warehouse_code,
+            ))
         rows = (db.session.query(LocationInventory.material_id,
                                  func.coalesce(func.sum(LocationInventory.quantity), 0))
-                .filter(LocationInventory.location == warehouse_key)
+                .filter(db.or_(*name_clauses))
                 .group_by(LocationInventory.material_id).all())
     else:
+        # 库位管理关闭时仍用流水 location 字符串（仓库名/编码）汇总
+        loc_names = [n for n in (warehouse_key, warehouse_code) if n]
+        if not loc_names:
+            return {}
         rows = (db.session.query(StockTransaction.material_id,
                                  func.coalesce(func.sum(StockTransaction.quantity), 0))
-                .filter(StockTransaction.location == warehouse_key)
+                .filter(StockTransaction.location.in_(loc_names))
                 .group_by(StockTransaction.material_id).all())
     return {material_id: float(quantity or 0) for material_id, quantity in rows}
 
