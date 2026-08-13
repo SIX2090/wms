@@ -4741,7 +4741,12 @@ class LocationInventory(db.Model):
     warehouse = db.relationship('Warehouse', backref='location_inventories')
 
     __table_args__ = (
-        db.UniqueConstraint('material_id', 'location', name='uix_material_location'),
+        # INV-AUDIT-002 修复：唯一约束从 (material_id, location) 改为
+        # (material_id, warehouse_id, location)，禁止不同仓库的同名库位被
+        # 强行合并到同一条库存记录。旧约束名保留在迁移历史中，新写入统一走
+        # 新约束；warehouse_id 为 NULL 的历史行按 SQLite/大多数数据库语义各自
+        # 视为不同值，不会与已归属仓库的行冲突。
+        db.UniqueConstraint('material_id', 'warehouse_id', 'location', name='uix_material_warehouse_location'),
         db.Index('idx_location_inventory_warehouse', 'warehouse_id'),
     )
 
