@@ -406,7 +406,7 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def complete_transfer(id):
-        from app import (TransferOrder, _acquire_order_write_lock, add_stock_transaction, api_error, deduct_location_inventory_atomic, location_management_enabled, log_operation, update_location_inventory)
+        from app import (TransferOrder, _acquire_order_write_lock, add_stock_transaction, api_error, deduct_location_inventory_atomic, location_management_enabled, log_operation, resolve_inventory_warehouse_id, update_location_inventory)
         from sqlalchemy.orm import selectinload
         from flask import jsonify
         """完成调拨"""
@@ -448,12 +448,13 @@ def register_transfer_routes(app):
                     ok, err = deduct_location_inventory_atomic(
                         item.material_id, transfer.from_location, quantity,
                         material_code_hint=material_code,
+                        warehouse_id=resolve_inventory_warehouse_id(transfer.from_warehouse),
                     )
                     if not ok:
                         db.session.rollback()
                         return api_error(err)
                     # 调入方向用老的 update_location_inventory 自动建账即可（非破坏性）
-                    ok_in, err_in = update_location_inventory(item.material, transfer.to_location, quantity)
+                    ok_in, err_in = update_location_inventory(item.material, transfer.to_location, quantity, warehouse=transfer.to_warehouse)
                     if not ok_in:
                         db.session.rollback()
                         return api_error(err_in)
@@ -506,11 +507,11 @@ def register_transfer_routes(app):
                 if item.material:
                     quantity = item.quantity or 0
                     if use_location:
-                        ok, error_msg = update_location_inventory(item.material, transfer.to_location, -quantity)
+                        ok, error_msg = update_location_inventory(item.material, transfer.to_location, -quantity, warehouse=transfer.to_warehouse)
                         if not ok:
                             db.session.rollback()
                             return api_error(error_msg)
-                        loc_ok, loc_err = update_location_inventory(item.material, transfer.from_location, quantity)
+                        loc_ok, loc_err = update_location_inventory(item.material, transfer.from_location, quantity, warehouse=transfer.from_warehouse)
                         if not loc_ok:
                             db.session.rollback()
                             return api_error(loc_err or '来源库位库存恢复失败')

@@ -469,7 +469,8 @@ def register_requisition_routes(app):
         from app import (ProductionRequisition, _acquire_order_write_lock,
                          api_error, deduct_location_inventory_atomic,
                          deduct_stock, get_default_warehouse,
-                         location_management_enabled, log_operation)
+                         location_management_enabled, log_operation,
+                         resolve_inventory_warehouse_id)
         requisition = ProductionRequisition.query.get_or_404(id)
         if requisition.status != 'pending':
             return api_error('当前工单领料单状态不可完结')
@@ -507,6 +508,7 @@ def register_requisition_routes(app):
                     ok2, err2 = deduct_location_inventory_atomic(
                         item.material_id, loc_dim, item.quantity or 0,
                         material_code_hint=item.material.code if item.material else None,
+                        warehouse_id=resolve_inventory_warehouse_id(requisition.warehouse),
                     )
                     if not ok2:
                         db.session.rollback()
@@ -561,7 +563,7 @@ def register_requisition_routes(app):
                     if location_management_enabled():
                         loc_dim = (requisition.location or '').strip() or requisition.warehouse
                         if loc_dim:
-                            loc_ok, loc_err = update_location_inventory(item.material, loc_dim, item.quantity or 0)
+                            loc_ok, loc_err = update_location_inventory(item.material, loc_dim, item.quantity or 0, warehouse=requisition.warehouse)
                             if not loc_ok:
                                 db.session.rollback()
                                 return api_error(loc_err or '库位库存还原失败')

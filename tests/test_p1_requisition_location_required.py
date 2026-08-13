@@ -142,8 +142,13 @@ def test_complete_requisition_succeeds_with_location_when_enabled(client):
     """开启库位管理且填写 location 时，完成应成功。"""
     with app_module.app.app_context():
         set_system_setting("location_management_enabled", "1")
+        # INV-AUDIT-002 修复后，LocationInventory 按 (material_id, warehouse_id, location)
+        # 精确匹配，必须显式设置 warehouse_id 才能被 complete_requisition
+        # 带仓库维度的扣减命中。
         m = Material.query.filter_by(code="M001").first()
-        db.session.add(LocationInventory(material_id=m.id, location="默认仓-A1", quantity=10))
+        wh = Warehouse.query.filter_by(name="默认仓").first()
+        db.session.add(LocationInventory(
+            material_id=m.id, warehouse_id=wh.id, location="默认仓-A1", quantity=10))
         db.session.commit()
     rid = _create_pending_requisition(client, location="默认仓-A1")
     resp = client.post(f"/requisition/{rid}/complete")

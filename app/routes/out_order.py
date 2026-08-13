@@ -614,7 +614,8 @@ def register_out_order_routes(app):
                          deduct_location_inventory_atomic, deduct_stock_atomic,
                          get_default_warehouse, is_future_date,
                          location_management_enabled, log_operation,
-                         recalculate_order_total, sync_sales_order_shipment,
+                         recalculate_order_total, resolve_inventory_warehouse_id,
+                         sync_sales_order_shipment,
                          validate_sales_outbound_warehouse)
         from sqlalchemy.orm import selectinload
         order = OutOrder.query.get_or_404(id)
@@ -688,6 +689,7 @@ def register_out_order_routes(app):
                     ok2, err2 = deduct_location_inventory_atomic(
                         item.material_id, order.location or order.warehouse, item.quantity or 0,
                         material_code_hint=material_code,
+                        warehouse_id=resolve_inventory_warehouse_id(order.warehouse),
                     )
                     if not ok2:
                         db.session.rollback()
@@ -736,7 +738,7 @@ def register_out_order_routes(app):
                     return api_error(err or '库存恢复失败')
                 # 同步还原库位库存（与 complete_out_order 对称），仅启用库位管理且有仓库时
                 if location_management_enabled() and (order.location or order.warehouse):
-                    loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity or 0)
+                    loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity or 0, warehouse=order.warehouse)
                     if not loc_ok:
                         db.session.rollback()
                         return api_error(loc_err or '库位库存还原失败')
@@ -927,7 +929,7 @@ def register_out_order_routes(app):
                         raise ValueError(error_msg or f'物料 {item.material.code if item.material else ""} 库存不足')
                     # 同步库位库存（与单据版 complete_out_order 对称）
                     if location_management_enabled() and (order.location or order.warehouse):
-                        loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0))
+                        loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0), warehouse=order.warehouse)
                         if not loc_ok:
                             raise ValueError(loc_err or '库位库存扣减失败')
                 order.status = 'completed'

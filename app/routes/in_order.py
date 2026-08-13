@@ -1397,7 +1397,7 @@ def register_in_order_routes(app):
                         db.session.rollback()
                         return api_error(err or '库存增加失败')
                     if location_management_enabled() and (order.location or order.warehouse):
-                        loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity or 0)
+                        loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity or 0, warehouse=order.warehouse)
                         if not loc_ok:
                             db.session.rollback()
                             return api_error(loc_err or '库位库存更新失败')
@@ -1501,7 +1501,7 @@ def register_in_order_routes(app):
                         db.session.rollback()
                         return api_error(err or '库存回退失败')
                     if location_management_enabled() and (order.location or order.warehouse):
-                        loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0))
+                        loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0), warehouse=order.warehouse)
                         if not loc_ok:
                             db.session.rollback()
                             return api_error(loc_err or '库位库存回退失败')
@@ -1572,7 +1572,7 @@ def register_in_order_routes(app):
                         db.session.rollback()
                         return api_error(err or '库存增加失败')
                     if location_management_enabled() and (order.location or order.warehouse):
-                        loc_ok, loc_err = update_location_inventory(material, order.location or order.warehouse, quantity)
+                        loc_ok, loc_err = update_location_inventory(material, order.location or order.warehouse, quantity, warehouse=order.warehouse)
                         if not loc_ok:
                             db.session.rollback()
                             return api_error(loc_err or '库位库存更新失败')
@@ -1626,7 +1626,7 @@ def register_in_order_routes(app):
                                 db.session.rollback()
                                 return api_error(err or '库存回退失败')
                         if location_management_enabled() and (order.location or order.warehouse) and qty_diff != 0:
-                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, qty_diff)
+                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, qty_diff, warehouse=order.warehouse)
                             if not loc_ok:
                                 db.session.rollback()
                                 return api_error(loc_err or '库位库存更新失败')
@@ -1754,7 +1754,7 @@ def register_in_order_routes(app):
                     return api_error(error_msg or '库存回退失败')
                 # 同步还原库位库存（与 complete_in_order 对称），仅启用库位管理且有仓库时
                 if location_management_enabled() and (order.location or order.warehouse):
-                    loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0))
+                    loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0), warehouse=order.warehouse)
                     if not loc_ok:
                         db.session.rollback()
                         return api_error(loc_err or '库位库存还原失败')
@@ -2015,7 +2015,7 @@ def register_in_order_routes(app):
                             raise ValueError(err or '库存增加失败')
                         # 同步库位库存（与 complete_in_order 对称），仅启用库位管理且有仓库时
                         if location_management_enabled() and (order.location or order.warehouse):
-                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity)
+                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity, warehouse=order.warehouse)
                             if not loc_ok:
                                 raise ValueError(loc_err or '库位库存更新失败')
                 order.status = 'completed'
@@ -2103,7 +2103,7 @@ def register_in_order_routes(app):
                             raise ValueError(error_msg or '库存回退失败')
                         # 同步还原库位库存（与 complete_in_order 对称）
                         if location_management_enabled() and (order.location or order.warehouse):
-                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0))
+                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0), warehouse=order.warehouse)
                             if not loc_ok:
                                 raise ValueError(loc_err or '库位库存还原失败')
                 order.status = 'pending'

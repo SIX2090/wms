@@ -132,9 +132,14 @@ def test_complete_after_sale_out_succeeds_with_location_when_enabled(client):
     """开启库位管理且填写 location 时，完成应成功。"""
     with app_module.app.app_context():
         set_system_setting("location_management_enabled", "1")
-        # 为物料在 主仓-A1 库位预置库存，避免库位库存扣减失败
+        # 为物料在 主仓-A1 库位预置库存，避免库位库存扣减失败。
+        # INV-AUDIT-002 修复后，LocationInventory 按 (material_id, warehouse_id, location)
+        # 精确匹配，必须显式设置 warehouse_id 才能被 complete_after_sale_out_order
+        # 带仓库维度的扣减命中。
         m = Material.query.filter_by(code="M-ASO").first()
-        db.session.add(LocationInventory(material_id=m.id, location="主仓-A1", quantity=10))
+        wh = Warehouse.query.filter_by(name="主仓").first()
+        db.session.add(LocationInventory(
+            material_id=m.id, warehouse_id=wh.id, location="主仓-A1", quantity=10))
         db.session.commit()
     oid = _create_pending_after_sale_out_order(client, location="主仓-A1")
     resp = client.post(f"/after_sale_out/{oid}/complete")

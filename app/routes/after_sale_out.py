@@ -410,7 +410,8 @@ def register_after_sale_out_routes(app):
                         loc_dim = (order.location or '').strip() or order.warehouse
                         if loc_dim:
                             loc_ok, loc_err = update_location_inventory(
-                                material, loc_dim, -(item.quantity or 0)
+                                material, loc_dim, -(item.quantity or 0),
+                                warehouse=order.warehouse,
                             )
                             if not loc_ok:
                                 db.session.rollback()
@@ -470,7 +471,8 @@ def register_after_sale_out_routes(app):
                         loc_dim = (order.location or '').strip() or order.warehouse
                         if loc_dim:
                             loc_ok, loc_err = update_location_inventory(
-                                item.material, loc_dim, item.quantity or 0
+                                item.material, loc_dim, item.quantity or 0,
+                                warehouse=order.warehouse,
                             )
                             if not loc_ok:
                                 db.session.rollback()

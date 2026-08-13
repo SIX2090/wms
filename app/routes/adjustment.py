@@ -451,7 +451,7 @@ def register_adjustment_routes(app):
                 if use_location and quantity:
                     loc_key = (item.location or '').strip() or (adjustment.warehouse or '').strip()
                     if loc_key:
-                        loc_ok, loc_err = update_location_inventory(item.material, loc_key, quantity)
+                        loc_ok, loc_err = update_location_inventory(item.material, loc_key, quantity, warehouse=adjustment.warehouse)
                         if not loc_ok:
                             db.session.rollback()
                             return api_error(loc_err or '库位库存更新失败')
@@ -521,7 +521,7 @@ def register_adjustment_routes(app):
                 if use_location and quantity:
                     loc_key = (item.location or '').strip() or (adjustment.warehouse or '').strip()
                     if loc_key:
-                        loc_ok, loc_err = update_location_inventory(item.material, loc_key, -quantity)
+                        loc_ok, loc_err = update_location_inventory(item.material, loc_key, -quantity, warehouse=adjustment.warehouse)
                         if not loc_ok:
                             db.session.rollback()
                             return api_error(loc_err or '库位库存回退失败')

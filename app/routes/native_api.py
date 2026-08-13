@@ -314,7 +314,7 @@ def register_native_api_routes(app):
                     db.session.rollback()
                     return api_json_error(msg or '库存增加失败', 500)
                 location = (line.get('warehouse_code') or line.get('location_code') or order.warehouse or '').strip()
-                loc_ok, loc_msg = update_location_inventory(material, location, quantity)
+                loc_ok, loc_msg = update_location_inventory(material, location, quantity, warehouse=order.warehouse)
                 if not loc_ok:
                     db.session.rollback()
                     return api_json_error(loc_msg or '库位库存更新失败', 500)
@@ -388,7 +388,7 @@ def register_native_api_routes(app):
                     db.session.rollback()
                     return api_json_error(msg)
                 location = (line.get('warehouse_code') or line.get('location_code') or order.warehouse or '').strip()
-                ok, msg = update_location_inventory(material, location, -quantity)
+                ok, msg = update_location_inventory(material, location, -quantity, warehouse=order.warehouse)
                 if not ok:
                     db.session.rollback()
                     return api_json_error(msg)
