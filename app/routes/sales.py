@@ -674,14 +674,21 @@ def register_sales_routes(app):
     @login_required
     def create_sales_outbound_draft(id):
         from sqlalchemy.orm import joinedload
-        from app import (SalesOrder, SalesOrderItem, STOCK_COMPARE_EPSILON,
-                         build_sales_outbound_draft, log_operation, parse_float_value,
-                         round_to_2_decimals, validate_sales_warehouse)
-        order = SalesOrder.query.options(joinedload(SalesOrder.items).joinedload(SalesOrderItem.material)).get_or_404(id)
-        if order.status not in ('confirmed', 'closed'):
-            return jsonify({'status': 'error', 'msg': '请先确认销售订单'}), 400
+        from app import (_acquire_order_write_lock, SalesOrder, SalesOrderItem,
+                         STOCK_COMPARE_EPSILON, build_sales_outbound_draft,
+                         log_operation, parse_float_value, round_to_2_decimals,
+                         validate_sales_warehouse)
+        # SALES-AUDIT-003：加写锁并重读状态，防止并发重复下推导致超扣。
+        # 对照 create_sales_outbound_from_selection 的 BEGIN IMMEDIATE / FOR UPDATE。
+        order, lock_ok = _acquire_order_write_lock(
+            SalesOrder, id, ('confirmed', 'closed'),
+            joinedload(SalesOrder.items).joinedload(SalesOrderItem.material),
+        )
+        if not lock_ok:
+            return jsonify({'status': 'error', 'msg': '请先确认销售订单或订单已被并发修改'}), 400
         warehouse, warehouse_error = validate_sales_warehouse(order.warehouse, order.warehouse_id)
         if warehouse_error:
+            db.session.rollback()
             return jsonify({'status': 'error', 'msg': warehouse_error}), 400
         order.warehouse = warehouse.name
         order.warehouse_id = warehouse.id
@@ -702,8 +709,10 @@ def register_sales_routes(app):
                         selected_qty_by_item_id[item_id] = round_to_2_decimals(selected_qty_by_item_id.get(item_id, 0) + quantity)
             outbound, result = build_sales_outbound_draft(order, selected_qty_by_item_id)
             if result == 'invalid_selection':
+                db.session.rollback()
                 return jsonify({'status': 'error', 'msg': '请至少选择一条大于 0 的未发货明细'}), 400
             if result == 'over_quantity':
+                db.session.rollback()
                 return jsonify({'status': 'error', 'msg': '出库数量不能超过销售订单未发货数量'}), 400
             if result == 'completed':
                 db.session.commit()
@@ -754,36 +763,50 @@ def register_sales_routes(app):
     @require_role('warehouse', 'purchase', 'sales')
     @login_required
     def batch_create_sales_outbound():
-        from app import SalesOrder, build_sales_outbound_draft, log_operation, validate_sales_warehouse
+        from app import (_acquire_order_write_lock, SalesOrder, build_sales_outbound_draft,
+                         log_operation, validate_sales_warehouse)
         payload = request.get_json(silent=True) or {}
         raw_ids = payload.get('ids') or request.form.getlist('ids')
         ids = [int(value) for value in raw_ids if str(value).isdigit()]
         if not ids:
             return jsonify({'status': 'error', 'msg': '请先选择销售订单'}), 400
-        orders = SalesOrder.query.filter(SalesOrder.id.in_(ids)).all()
+        # SALES-AUDIT-003：逐张加写锁重读状态后下推，每张订单独立提交，
+        # 防止并发重复生成草稿导致超扣。（_acquire_order_write_lock 内部会
+        # 先 rollback 再 BEGIN IMMEDIATE，因此每张订单必须在同一锁事务内提交。）
+        pre_orders = SalesOrder.query.filter(SalesOrder.id.in_(ids)).all()
+        order_no_by_id = {o.id: o.order_no for o in pre_orders}
         created = []
         skipped = []
-        try:
-            for order in orders:
-                if order.status not in ('confirmed', 'closed') or order.shipment_status == 'shipped':
-                    skipped.append(f'{order.order_no}(状态不允许)')
+        for oid in ids:
+            try:
+                order, lock_ok = _acquire_order_write_lock(
+                    SalesOrder, oid, ('confirmed', 'closed'),
+                )
+                if not lock_ok:
+                    skipped.append(f'{order_no_by_id.get(oid, oid)}(状态不允许或已被并发修改)')
+                    continue
+                if order.shipment_status == 'shipped':
+                    skipped.append(f'{order.order_no}(已全部发货)')
+                    db.session.rollback()
                     continue
                 warehouse, warehouse_error = validate_sales_warehouse(order.warehouse, order.warehouse_id)
                 if warehouse_error:
                     skipped.append(f'{order.order_no}(仓库无效)')
+                    db.session.rollback()
                     continue
                 order.warehouse = warehouse.name
                 order.warehouse_id = warehouse.id
                 outbound, result = build_sales_outbound_draft(order)
                 if result == 'completed':
                     skipped.append(f'{order.order_no}(已全部发货)')
+                    db.session.rollback()
                     continue
+                db.session.commit()
                 created.append({'sales_order_no': order.order_no, 'outbound_id': outbound.id, 'outbound_no': outbound.order_no, 'existing': result == 'existing'})
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            app.logger.exception('批量生成销售出库草稿失败')
-            return jsonify({'status': 'error', 'msg': '批量生成失败，请稍后重试'}), 500
+            except Exception:
+                db.session.rollback()
+                app.logger.exception('批量生成销售出库草稿失败 order_id=%s', oid)
+                skipped.append(f'{order_no_by_id.get(oid, oid)}(生成失败)')
         for item in created:
             log_operation('批量生成销售出库草稿', f"{item['sales_order_no']} -> {item['outbound_no']}", 'out_order', item['outbound_id'])
         return jsonify({'status': 'success', 'msg': f'生成 {len(created)} 张销售出库草稿，跳过 {len(skipped)} 张', 'created': created, 'skipped': skipped})

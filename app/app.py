@@ -28849,7 +28849,17 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
                 sales_item = candidates[0]
         if not sales_item:
             continue
-        sales_item.shipped_quantity = max(0, (sales_item.shipped_quantity or 0) + quantity_sign * (outbound_item.quantity or 0))
+        # SALES-AUDIT-004：原子回写 shipped_quantity，避免并发完成引用同一销售
+        # 订单的多张出库单时发生 read-modify-write 丢失更新（lost update）。
+        # 对照 deduct_stock_atomic 的条件 UPDATE 模式。
+        delta = quantity_sign * (outbound_item.quantity or 0)
+        db.session.execute(
+            sa_update(SalesOrderItem)
+            .where(SalesOrderItem.id == sales_item.id)
+            .values(shipped_quantity=func.max(0, SalesOrderItem.shipped_quantity + delta))
+        )
+        # 让 ORM 实例与 DB 一致，供后续 recalculate_sales_order 读取
+        db.session.expire(sales_item, ['shipped_quantity'])
         affected_orders[sales_item.sales_order_id] = sales_item.sales_order
     for affected_order in affected_orders.values():
         recalculate_sales_order(affected_order)
