@@ -1323,6 +1323,7 @@ def register_in_order_routes(app):
                          PurchaseOrder, PurchaseOrderItem, WechatShareConfig,
                          _acquire_order_write_lock, _check_in_order_anomalies,
                          _wechat_share_order, add_stock, api_error,
+                         assert_warehouse_active,
                          deduct_location_inventory_atomic, deduct_stock_atomic,
                          generate_order_no, get_default_warehouse, is_future_date,
                          location_management_enabled, log_operation,
@@ -1385,6 +1386,11 @@ def register_in_order_routes(app):
             if not order.warehouse:
                 db.session.rollback()
                 return api_error('入库单必须填写仓库')
+            # PUR-AUDIT-003：草稿保存后仓库可能被停用，完成前必须复核 active 状态
+            wh_ok, wh_msg = assert_warehouse_active(order.warehouse, allow_empty=False)
+            if not wh_ok:
+                db.session.rollback()
+                return api_error(wh_msg)
             # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
             if location_management_enabled() and not (order.location or '').strip():
                 db.session.rollback()
@@ -2022,8 +2028,9 @@ def register_in_order_routes(app):
     def batch_complete_in_order():
         from sqlalchemy.orm import joinedload, selectinload
         from app import (InOrder, InOrderItem, WechatShareConfig, _acquire_order_write_lock,
-                         _wechat_share_order, add_stock, api_error, get_default_warehouse,
-                         location_management_enabled, update_location_inventory)
+                         _wechat_share_order, add_stock, api_error, assert_warehouse_active,
+                         get_default_warehouse, location_management_enabled,
+                         update_location_inventory)
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
         select_all = payload.get('select_all', False)
@@ -2072,6 +2079,12 @@ def register_in_order_routes(app):
                     order.warehouse = default_wh.name
             if not order.warehouse:
                 skipped.append(f'{order.order_no}(未填写仓库)')
+                db.session.rollback()
+                continue
+            # PUR-AUDIT-003：草稿保存后仓库可能被停用，完成前必须复核 active 状态
+            wh_ok, wh_msg = assert_warehouse_active(order.warehouse, allow_empty=False)
+            if not wh_ok:
+                skipped.append(f'{order.order_no}(仓库已停用)')
                 db.session.rollback()
                 continue
             # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
