@@ -849,6 +849,9 @@ def register_sales_routes(app):
                 ('发货仓库', order.warehouse or ''),
                 ('业务员', order.salesperson.name if order.salesperson else ''),
                 ('项目号', order.project_no or ''),
+                # SALES-AUDIT-009：补齐合同编号与工程名称
+                ('合同编号', order.contract_no or ''),
+                ('工程名称', order.project_name or ''),
                 ('币别', order.currency or 'CNY'),
                 ('结算方式', order.settlement_method or ''),
                 ('发货状态', sales_shipment_status_label(order.shipment_status)),
@@ -925,7 +928,8 @@ def register_sales_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '销售出库'
-        ws.append(['出库单号', '日期', '客户', '仓库', '来源销售订单', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态'])
+        # SALES-AUDIT-009：补齐合同单号与工程名称（来自关联销售订单）
+        ws.append(['出库单号', '日期', '客户', '合同单号', '工程名称', '仓库', '来源销售订单', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态'])
         status = (request.args.get('status') or '').strip()
         search = (request.args.get('search') or '').strip()
         query = OutOrder.query.filter(OutOrder.business_type == '销售出库', OutOrder.warehouse == warehouse)
@@ -945,6 +949,8 @@ def register_sales_routes(app):
                         order.order_no,
                         order.date.strftime('%Y-%m-%d') if order.date else '',
                         order.customer or '',
+                        (order.source_sales_order.contract_no or '') if order.source_sales_order else '',
+                        (order.source_sales_order.project_name or '') if order.source_sales_order else '',
                         order.warehouse or '',
                         order.source_sales_order.order_no if order.source_sales_order else '',
                         item.material.code if item.material else '',
@@ -957,7 +963,7 @@ def register_sales_routes(app):
                         '已完成' if order.status == 'completed' else '草稿'
                     ])
             else:
-                ws.append([order.order_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.customer or '', order.warehouse or '', '', '', '', '', '', '', '', '', '已完成' if order.status == 'completed' else '草稿'])
+                ws.append([order.order_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.customer or '', (order.source_sales_order.contract_no or '') if order.source_sales_order else '', (order.source_sales_order.project_name or '') if order.source_sales_order else '', order.warehouse or '', order.source_sales_order.order_no if order.source_sales_order else '', '', '', '', '', '', '', '', '已完成' if order.status == 'completed' else '草稿'])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
@@ -1284,12 +1290,15 @@ def register_sales_routes(app):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = '销售订单'
-        sheet.append(['订单号', '订单日期', '客户', '业务员', '项目号', '仓库', '交货日期', '未税金额', '税额', '含税金额', '已发货金额', '待发货金额', '订单状态', '发货状态', '币别', '结算方式', '备注'])
+        # SALES-AUDIT-009：补齐合同单号与工程名称（与 PUR-AUDIT-004 对齐）
+        sheet.append(['订单号', '订单日期', '客户', '合同单号', '工程名称', '业务员', '项目号', '仓库', '交货日期', '未税金额', '税额', '含税金额', '已发货金额', '待发货金额', '订单状态', '发货状态', '币别', '结算方式', '备注'])
         for order in orders:
             sheet.append([
                 order.order_no,
                 order.date.isoformat() if order.date else '',
                 order.customer.name if order.customer else '',
+                order.contract_no or '',
+                order.project_name or '',
                 order.salesperson.name if order.salesperson else '',
                 order.project_no or '',
                 order.warehouse or '',
@@ -1338,7 +1347,8 @@ def register_sales_routes(app):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = '销售订单执行'
-        sheet.append(['销售订单号', '订单日期', '客户', '仓库', '订单状态', '发货状态', '物料编码', '物料名称', '规格', '单位', '订单数量', '已发货数量', '未发货数量', '含税单价', '含税金额', '备注'])
+        # SALES-AUDIT-009：补齐合同单号与工程名称
+        sheet.append(['销售订单号', '订单日期', '客户', '合同单号', '工程名称', '仓库', '订单状态', '发货状态', '物料编码', '物料名称', '规格', '单位', '订单数量', '已发货数量', '未发货数量', '含税单价', '含税金额', '备注'])
         for order in orders:
             for item in order.items:
                 shipped = item.shipped_quantity or 0
@@ -1346,6 +1356,8 @@ def register_sales_routes(app):
                     order.order_no,
                     order.date.isoformat() if order.date else '',
                     order.customer.name if order.customer else '',
+                    order.contract_no or '',
+                    order.project_name or '',
                     order.warehouse or '',
                     sales_status_label(order.status),
                     sales_shipment_status_label(order.shipment_status),
@@ -1668,7 +1680,8 @@ def register_sales_routes(app):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = '销售出库明细'
-        sheet.append(['出库日期', '出库单号', '客户', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '含税单价', '税率', '未税金额', '税额', '含税金额', '状态', '来源', '备注'])
+        # SALES-AUDIT-009：补齐合同单号与工程名称（来自关联销售订单）
+        sheet.append(['出库日期', '出库单号', '客户', '合同单号', '工程名称', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '含税单价', '税率', '未税金额', '税额', '含税金额', '状态', '来源', '备注'])
         for oo in out_orders:
             # 关联销售订单获取税率
             sales_order = None
@@ -1690,6 +1703,8 @@ def register_sales_routes(app):
                     oo.date.isoformat() if oo.date else '',
                     oo.order_no,
                     oo.customer or '',
+                    (sales_order.contract_no or '') if sales_order else '',
+                    (sales_order.project_name or '') if sales_order else '',
                     oo.warehouse or '',
                     material.code if material else '',
                     material.name if material else '',
@@ -1862,9 +1877,12 @@ def register_sales_routes(app):
             shipped_qty = sum((item.shipped_quantity or 0) for item in order.items)
             amount = float(order.total_amount or 0)
             shipped_amount = float(order.shipped_amount or 0)
+            # SALES-AUDIT-009：补齐合同单号与工程名称
             rows.append([
                 order.order_no, order.date.strftime('%Y-%m-%d') if order.date else '',
-                order.customer.name if order.customer else '', order.status,
+                order.customer.name if order.customer else '',
+                order.contract_no or '', order.project_name or '',
+                order.status,
                 round_to_2_decimals(total_qty), round_to_2_decimals(shipped_qty),
                 round_to_2_decimals(max(total_qty - shipped_qty, 0)),
                 round_to_2_decimals(amount), round_to_2_decimals(shipped_amount),
@@ -1874,7 +1892,7 @@ def register_sales_routes(app):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = '销售订单执行'
-        sheet.append(['销售订单号', '订单日期', '客户', '状态', '订单数量', '已发货数量', '待发货数量', '订单金额', '已发货金额', '待发货金额', '金额执行率%'])
+        sheet.append(['销售订单号', '订单日期', '客户', '合同单号', '工程名称', '状态', '订单数量', '已发货数量', '待发货数量', '订单金额', '已发货金额', '待发货金额', '金额执行率%'])
         for row in rows:
             sheet.append(row)
         output = io.BytesIO()
