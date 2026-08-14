@@ -26,7 +26,13 @@ def _is_tracked_but_sparse(path: Path) -> bool:
 
 
 def verify_offline_wheelhouse(wheelhouse: Path = WHEELHOUSE) -> None:
-    """Ask pip to resolve requirements without network or installed packages."""
+    """Validate the Windows offline wheelhouse resolves the locked requirements.
+
+    The wheelhouse ships win_amd64 wheels (deployment target is a Windows host),
+    so dry-run resolution must be pinned to the target wheel platform instead of
+    the host OS. This lets the check run on Linux CI and still prove the bundle
+    is complete for the Windows deployment target.
+    """
     if not REQUIREMENTS.is_file():
         raise SystemExit(f"requirements file is missing: {REQUIREMENTS}")
     if not wheelhouse.is_dir():
@@ -37,9 +43,12 @@ def verify_offline_wheelhouse(wheelhouse: Path = WHEELHOUSE) -> None:
             )
         raise SystemExit(f"wheelhouse is missing: {wheelhouse}")
 
+    # 目标平台：Windows amd64 + CPython 3.11（与 wheelhouse 内 cp311 wheels 一致）。
     result = subprocess.run(
         [sys.executable, "-m", "pip", "install", "--dry-run", "--ignore-installed",
-         "--no-index", "--find-links", str(wheelhouse), "-r", str(REQUIREMENTS)],
+         "--no-index", "--find-links", str(wheelhouse), "-r", str(REQUIREMENTS),
+         "--platform", "win_amd64", "--python-version", "3.11",
+         "--implementation", "cp", "--abi", "cp311", "--only-binary=:all:"],
         cwd=ROOT_DIR,
         check=False,
     )
