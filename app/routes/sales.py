@@ -1056,10 +1056,20 @@ def register_sales_routes(app):
     @require_role('warehouse', 'purchase', 'sales')
     @login_required
     def cancel_sales_order(id):
-        from app import SalesOrder, STOCK_COMPARE_EPSILON, log_operation
+        from app import OutOrder, SalesOrder, STOCK_COMPARE_EPSILON, log_operation
         order = SalesOrder.query.get_or_404(id)
         if order.status not in ('draft', 'confirmed') or any((item.shipped_quantity or 0) > STOCK_COMPARE_EPSILON for item in order.items):
             return jsonify({'status': 'error', 'msg': '已发货或当前状态不允许取消销售订单'}), 400
+        # SALES-AUDIT-002：存在 pending 销售出库草稿时禁止取消，否则会留下
+        # 指向 cancelled 订单的孤儿草稿，完成后触发 SALES-AUDIT-001 复活链。
+        pending_outbound = OutOrder.query.filter_by(
+            source_sales_order_id=order.id, status='pending'
+        ).first()
+        if pending_outbound:
+            return jsonify({
+                'status': 'error',
+                'msg': f'存在未完成的销售出库草稿 {pending_outbound.order_no}，请先处理后再取消'
+            }), 400
         order.status = 'cancelled'
         order.shipment_status = 'pending'
         db.session.commit()
