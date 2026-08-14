@@ -6888,14 +6888,19 @@ def _bulk_delete_model(model_cls):
 def _init_business_data_keep_users_and_settings(include_master_data=False):
     """执行核心清理逻辑。
 
+    注意（SYS-AUDIT-001）：函数名中的 keep_users_and_settings 是历史命名，
+    SystemSetting 实际上在 INIT_LOG_TABLES 中，会被全量删除。调用方
+    （execute_init_business_data 路由）在清理完成后会立即调用
+    ensure_default_system_settings() 恢复默认值，避免设置表空窗期。
+
     1. 全部 completed 单据先变 pending（模拟人工反提交）
     2. 物料库存归零（等价于回退全部库存）
     3. 删除全部业务单据主表 + 明细表
     4. 删除库存流水/下推/期初
-    5. 删除日志表（业务日志/通知/登录/Token/微信分享）
+    5. 删除日志表（业务日志/通知/登录/Token/微信分享，含 SystemSetting）
     6. 删除全部 AI 子表
     7. 可选：删除主数据（物料/分类/单位/供应商/客户/仓库/部门/员工/合同/BOM/模板/字段配置）
-    8. 保留 User、SystemSetting、WechatShareConfig、当前管理员自身
+    8. 保留 User、当前管理员自身（SystemSetting 由调用方恢复默认值）
     9. 最后清空 OperationAudit 自身（init 操作本身的审计需要先写入，所以最后清）
     """
     deleted = {

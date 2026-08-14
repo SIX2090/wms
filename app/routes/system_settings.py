@@ -266,12 +266,23 @@ def register_system_settings_routes(app):
                 app.logger.warning('清理 OperationAudit 历史失败: %s', exc)
                 db.session.rollback()
 
+            # SYS-AUDIT-001：INIT_LOG_TABLES 含 SystemSetting，已被上面的
+            # _init_business_data_keep_users_and_settings 全量删除。此处立即
+            # 调用 ensure_default_system_settings() 恢复默认值，避免设置表
+            # 空窗期导致 AI API Key / LLM 接口地址等配置丢失到下次重启。
+            try:
+                from app import ensure_default_system_settings
+                ensure_default_system_settings()
+            except Exception as exc:
+                app.logger.warning('恢复默认系统参数失败: %s', exc)
+                db.session.rollback()
+
             # 不再调用 log_operation(...)：因为 OperationLog 已被本路由清理，重新写一条会破坏「再次 preview logs 全部为 0」约束。
             # 本次 init 的执行记录已通过 OperationAudit(init_business_data_done) 留下审计，可通过审计页查阅。
 
             return jsonify({
                 'status': 'success',
-                'msg': '业务数据初始化完成，User / SystemSetting / 当前管理员账号已保留',
+                'msg': '业务数据初始化完成，User 账号已保留，系统参数已重置为默认值',
                 'data': deleted,
             })
         except Exception as exc:
