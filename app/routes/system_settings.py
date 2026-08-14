@@ -278,6 +278,43 @@ def register_system_settings_routes(app):
             # 实际上 done 审计在当前事务内，会被下面的 .delete() 影响，所以先 commit，再单独清
             db.session.commit()
 
+            # SYS-AUDIT-006：清空前导出一份 OperationAudit 全量备份到文件，
+            # 避免合规风险（等保/SOX 要求审计日志不可销毁）。
+            backup_path = None
+            try:
+                import json as _json
+                import os as _os
+                from datetime import datetime as _dt
+                backup_dir = _os.path.join(_os.getcwd(), 'output', 'audit_backup')
+                _os.makedirs(backup_dir, exist_ok=True)
+                backup_file = f'audit_backup_{_dt.now().strftime("%Y%m%d_%H%M%S")}.json'
+                backup_path = _os.path.join(backup_dir, backup_file)
+                all_audits = OperationAudit.query.order_by(OperationAudit.id).all()
+                records = []
+                for a in all_audits:
+                    records.append({
+                        'id': a.id,
+                        'user_id': a.user_id,
+                        'username': a.username,
+                        'operation': a.operation,
+                        'target_type': a.target_type,
+                        'target_id': a.target_id,
+                        'target_name': a.target_name,
+                        'old_data': a.old_data,
+                        'new_data': a.new_data,
+                        'operation_time': a.operation_time.isoformat() if a.operation_time else None,
+                        'ip_address': a.ip_address,
+                        'user_agent': a.user_agent,
+                        'status': a.status,
+                        'reason': a.reason,
+                    })
+                with open(backup_path, 'w', encoding='utf-8') as f:
+                    _json.dump(records, f, ensure_ascii=False, default=str, indent=2)
+                app.logger.info('审计备份已导出: %s (%d 条)', backup_path, len(records))
+            except Exception as exc:
+                app.logger.warning('导出审计备份失败: %s', exc)
+                backup_path = None
+
             # 清空历史 OperationAudit（清理除刚才两条外的所有记录）
             try:
                 keep_ids = [preview_audit.id, done_audit.id]
@@ -301,9 +338,13 @@ def register_system_settings_routes(app):
             # 不再调用 log_operation(...)：因为 OperationLog 已被本路由清理，重新写一条会破坏「再次 preview logs 全部为 0」约束。
             # 本次 init 的执行记录已通过 OperationAudit(init_business_data_done) 留下审计，可通过审计页查阅。
 
+            # SYS-AUDIT-006：响应中附带审计备份路径
+            audit_backup_note = ''
+            if backup_path:
+                audit_backup_note = f'；历史审计已备份至 {backup_path}'
             return jsonify({
                 'status': 'success',
-                'msg': '业务数据初始化完成，User 账号已保留，系统参数已重置为默认值',
+                'msg': f'业务数据初始化完成，User 账号已保留，系统参数已重置为默认值{audit_backup_note}',
                 'data': deleted,
             })
         except Exception as exc:
