@@ -410,9 +410,18 @@ def register_out_order_routes(app):
                 return jsonify({'status': 'error', 'msg': '出库单至少需要一条明细'}), 400
 
             if submitted_items:
+                # SALES-AUDIT-005：编辑重建明细前，按 material_id 保留
+                # source_sales_order_item_id 映射，否则重建后丢失来源关联，
+                # sync_sales_order_shipment 无法按行级来源回写 shipped_quantity。
+                source_item_by_material = {}
+                for existing_item in list(order.items):
+                    if getattr(existing_item, 'source_sales_order_item_id', None):
+                        source_item_by_material[existing_item.material_id] = existing_item.source_sales_order_item_id
                 for existing_item in list(order.items):
                     db.session.delete(existing_item)
                 db.session.flush()
+            else:
+                source_item_by_material = {}
 
             for submitted_item in submitted_items:
                 material_code = (submitted_item.get('code') or submitted_item.get('material_code') or '').strip()
@@ -427,6 +436,12 @@ def register_out_order_routes(app):
                     return api_error(f'物料 {material_code} 的数量必须大于0')
 
                 price = round_to_2_decimals(parse_float_value(submitted_item.get('price'), material.price or 0))
+                # SALES-AUDIT-005：优先用前端回传的来源，其次按 material_id 恢复
+                preserved_source_id = (
+                    int(submitted_item['source_sales_order_item_id'])
+                    if submitted_item.get('source_sales_order_item_id')
+                    else source_item_by_material.get(material.id)
+                )
                 db.session.add(OutOrderItem(
                     out_order_id=order.id,
                     material_id=material.id,
@@ -437,6 +452,7 @@ def register_out_order_routes(app):
                     contract_id=int(submitted_item.get('contract_id')) if submitted_item.get('contract_id') else None,
                     contract_no=(submitted_item.get('contract_no') or '').strip() or None,
                     project_name=(submitted_item.get('project_name') or '').strip() or None,
+                    source_sales_order_item_id=preserved_source_id,
                 ))
 
             recalculate_order_total(order)
