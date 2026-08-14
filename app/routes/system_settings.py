@@ -32,16 +32,16 @@ from utils import require_role
 # no-test:reason=路由注册辅助函数，能力由 system_settings_* 各路由测试覆盖
 def register_system_settings_routes(app):
     @app.route('/system_settings')
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def system_settings_page():
         from app import get_grouped_system_settings
         return render_template('system_settings.html', setting_groups=get_grouped_system_settings())
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/system_settings/save', methods=['POST'])
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def save_system_settings():
         from app import (SYSTEM_SETTING_DEFINITIONS, api_error, get_system_setting,
                          log_operation, set_system_setting)
@@ -94,8 +94,8 @@ def register_system_settings_routes(app):
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/system_settings/test_ai_llm', methods=['POST'])
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def test_ai_llm_settings():
         from app import (_ai_call_llm_intent, _ai_llm_configured, _ai_llm_endpoint,
                          _ai_llm_model, _ai_test_llm_vision, log_operation)
@@ -139,11 +139,12 @@ def register_system_settings_routes(app):
             })
         except Exception as exc:
             app.logger.exception('AI大模型连接测试失败')
-            return jsonify({'status': 'error', 'msg': f'连接失败：{exc}'}), 500
+            # SYS-AUDIT-008：不向浏览器暴露原始异常（可能含 API Key/URL）
+            return jsonify({'status': 'error', 'msg': '连接失败，请查看服务器日志获取详情'}), 500
 
     @app.route('/system_settings/init_business_data/preview', methods=['GET'])
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def preview_init_business_data():
         """预览将要清空的记录数。"""
         from app import _init_business_data_preview_stats
@@ -152,8 +153,8 @@ def register_system_settings_routes(app):
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/system_settings/init_business_data/execute', methods=['POST'])
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def execute_init_business_data():
         # 多行 docstring 会触发 lint strip_py_comments 行号偏移，导致下方豁免注释检测失效，故用单行注释替代。
         # 必传参数：admin_password=当前管理员密码、confirm_phrase=INIT_CONFIRM_PHRASE、include_master_data='1'/'0'。
@@ -233,7 +234,7 @@ def register_system_settings_routes(app):
                     db.session.commit()
                 except Exception:
                     db.session.rollback()
-                return jsonify({'status': 'error', 'msg': f'初始化失败：{exc}'}), 500
+                return jsonify({'status': 'error', 'msg': '初始化失败，请查看服务器日志获取详情'}), 500
 
             # 清理成功后写 done 审计
             done_audit = OperationAudit(
@@ -291,7 +292,7 @@ def register_system_settings_routes(app):
                 db.session.rollback()
             except Exception:
                 pass
-            return jsonify({'status': 'error', 'msg': f'初始化异常：{exc}'}), 500
+            return jsonify({'status': 'error', 'msg': '初始化异常，请查看服务器日志获取详情'}), 500
 
     @app.route('/system_settings/add', methods=['GET'])
     @login_required
