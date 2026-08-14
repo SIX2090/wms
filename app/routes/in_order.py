@@ -2252,7 +2252,7 @@ def register_in_order_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '入库单批量导出'
-        ws.append(['单据编号', '日期', '业务类型', '供应商', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态', '备注'])
+        ws.append(['单据编号', '日期', '业务类型', '供应商', '仓库', '物料编码', '物料名称', '规格', '合同单号', '工程名称', '单位', '数量', '单价', '金额', '状态', '备注'])
         for order in orders:
             if order.items:
                 for item in order.items:
@@ -2265,6 +2265,8 @@ def register_in_order_routes(app):
                         item.material.code if item.material else '',
                         item.material.name if item.material else '',
                         item.material.spec if item.material else '',
+                        item.contract_no or '',
+                        item.project_name or '',
                         item.material.unit.name if item.material and item.material.unit else '',
                         float(item.quantity or 0),
                         float(item.price or 0),
@@ -2279,7 +2281,7 @@ def register_in_order_routes(app):
                     order.business_type or '采购入库',
                     order.supplier.name if order.supplier else '',
                     order.warehouse or '',
-                    '', '', '', '', 0, 0, 0,
+                    '', '', '', '', '', 0, 0, 0,
                     '已完成' if order.status == 'completed' else '待完成',
                     order.remark or ''
                 ])
@@ -2416,7 +2418,7 @@ def register_in_order_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '入库单'
-        ws.append(['单据编号', '日期', '用途', '供应商', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '备注'])
+        ws.append(['单据编号', '日期', '用途', '供应商', '仓库', '物料编码', '物料名称', '规格', '合同单号', '工程名称', '单位', '数量', '单价', '金额', '备注'])
         if order.items:
             for item in order.items:
                 ws.append([
@@ -2428,6 +2430,8 @@ def register_in_order_routes(app):
                     item.material.code if item.material else '',
                     item.material.name if item.material else '',
                     item.material.spec if item.material else '',
+                    item.contract_no or '',
+                    item.project_name or '',
                     item.material.unit.name if item.material and item.material.unit else '',
                     item.quantity or 0,
                     item.price or 0,
