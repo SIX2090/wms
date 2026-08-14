@@ -39,7 +39,7 @@ def read_text(relative: str) -> str:
 
 
 # ============== 静态检查 ==============
-app_py = read_text("app/app.py")
+in_order_py = read_text("app/routes/in_order.py")
 in_order_add_html = read_text("app/templates/in_order_add.html")
 in_order_detail_html = read_text("app/templates/in_order_detail.html")
 
@@ -82,11 +82,11 @@ required_funcs = [
 ]
 for func in required_funcs:
     body = ""
-    match = re.search(rf"^def\s+{re.escape(func)}\s*\([^)]*\):", app_py, re.M)
+    match = re.search(rf"^    def\s+{re.escape(func)}\s*\([^)]*\):", in_order_py, re.M)
     if match:
-        next_match = re.search(r"^def\s+\w+\s*\(", app_py[match.end() :], re.M)
-        end = match.end() + next_match.start() if next_match else len(app_py)
-        body = app_py[match.start() : end]
+        next_match = re.search(r"^    def\s+\w+\s*\(", in_order_py[match.end() :], re.M)
+        end = match.end() + next_match.start() if next_match else len(in_order_py)
+        body = in_order_py[match.start() : end]
     has_default = "get_default_warehouse()" in body
     has_required = re.search(r"请选择仓库|必须填写仓库|未填写仓库", body) is not None
     record(

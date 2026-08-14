@@ -27,7 +27,8 @@ def main() -> None:
         wms.db.session.commit()
         orders = []
         for no, quantity in (("ADJUST-PLUS-001", 5), ("ADJUST-MINUS-001", -8), ("ADJUST-TOO-MUCH-001", -20)):
-            order = wms.AdjustmentOrder(adjustment_no=no, date=date.today(), adjustment_type="manual", status="pending", operator_id=user.id)
+            # BUG-2026-08-02-010：调整单是出入库单据，仓库为必填，完成时要求 warehouse 非空。
+            order = wms.AdjustmentOrder(adjustment_no=no, date=date.today(), adjustment_type="manual", status="pending", warehouse="默认测试仓", operator_id=user.id)
             wms.db.session.add(order); wms.db.session.flush()
             wms.db.session.add(wms.AdjustmentOrderItem(adjustment_order_id=order.id, material_id=material.id, quantity=quantity))
             orders.append(order.id)

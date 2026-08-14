@@ -21,6 +21,9 @@ def main() -> None:
     wms.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
     with wms.app.app_context():
         wms.db.create_all()
+        # BUG-2026-08-02-013：未开启库位管理时 complete_transfer 不写 LocationInventory，
+        # 只记审计流水。本测试校验库位余额转移，必须先开启库位管理作为前置条件。
+        wms.set_system_setting("location_management_enabled", "1")
         user = wms.User.query.filter_by(username="transfer_state_machine").first()
         if not user:
             user = wms.User(username="transfer_state_machine", role="warehouse", status="normal", password_hash=generate_password_hash("Password123!"))

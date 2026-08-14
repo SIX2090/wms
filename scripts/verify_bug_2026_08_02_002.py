@@ -43,16 +43,18 @@ def read_text(relative: str) -> str:
 
 
 def extract_function_body(source: str, func_name: str) -> str:
-    match = re.search(rf"^def\s+{re.escape(func_name)}\s*\([^)]*\):", source, re.M)
+    # 路由函数已迁移到 register_*_routes(app) 内，缩进 4 空格。
+    match = re.search(rf"^    def\s+{re.escape(func_name)}\s*\([^)]*\):", source, re.M)
     if not match:
         return ""
-    next_match = re.search(r"^def\s+\w+\s*\(", source[match.end():], re.M)
+    next_match = re.search(r"^    def\s+\w+\s*\(", source[match.end():], re.M)
     end = match.end() + next_match.start() if next_match else len(source)
     return source[match.start():end]
 
 
 # ============== 静态检查 ==============
-app_py = read_text("app/app.py")
+out_order_py = read_text("app/routes/out_order.py")
+after_sale_out_py = read_text("app/routes/after_sale_out.py")
 out_order_add_html = read_text("app/templates/out_order_add.html")
 after_sale_out_add_html = read_text("app/templates/after_sale_out_add.html")
 
@@ -80,16 +82,28 @@ record(
     "售后出库新增页模板支持默认仓库选中",
 )
 
-# 3. app.py 关键函数均含默认仓库逻辑 + 必填校验
-required_funcs = [
+# 3. 关键函数均含默认仓库逻辑 + 必填校验（函数已迁移到 out_order / after_sale_out 路由模块）
+out_funcs = [
     "add_out_order",
     "complete_out_order",
     "batch_complete_out_order",
+]
+for func in out_funcs:
+    body = extract_function_body(out_order_py, func)
+    has_default = "get_default_warehouse()" in body
+    has_required = re.search(r"请选择仓库|未填写仓库", body) is not None
+    record(
+        f"C-{func}",
+        has_default and has_required,
+        f"{func} 含默认仓库逻辑={has_default} 含必填校验={has_required}",
+    )
+
+after_sale_funcs = [
     "add_after_sale_out_order",
     "complete_after_sale_out_order",
 ]
-for func in required_funcs:
-    body = extract_function_body(app_py, func)
+for func in after_sale_funcs:
+    body = extract_function_body(after_sale_out_py, func)
     has_default = "get_default_warehouse()" in body
     has_required = re.search(r"请选择仓库|未填写仓库", body) is not None
     record(

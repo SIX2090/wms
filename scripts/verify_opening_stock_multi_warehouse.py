@@ -29,6 +29,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_PY = (ROOT / "app/app.py").read_text(encoding="utf-8")
+OPENING_ROUTES_PY = (ROOT / "app/routes/opening_stock.py").read_text(encoding="utf-8")
 OPENING_HTML = (ROOT / "app/templates/opening_stock.html").read_text(encoding="utf-8")
 
 
@@ -57,14 +58,33 @@ def extract_function(source: str, name: str) -> str:
 
 
 def extract_route_block(source: str, func_name: str) -> str:
-    match = re.search(rf"@app\.route\([^)]*\)\s*\n(?:@\w[\w\d_\.\(\)']*\s*\n)*def\s+{re.escape(func_name)}\s*\(", source, re.M)
+    # 路由已迁移到 register_*_routes(app) 内，装饰器与 def 均缩进 4 空格。
+    pattern = (
+        rf"^    @app\.route\([^)]*\)\s*\n"
+        rf"(?:^    @\w[\w\d_\.\(\)']*\s*\n)*"
+        rf"^    def\s+{re.escape(func_name)}\s*\("
+    )
+    match = re.search(pattern, source, re.M)
+    if not match:
+        # 兼容顶层（未缩进）形式
+        pattern2 = (
+            rf"^@app\.route\([^)]*\)\s*\n"
+            rf"(?:^@\w[\w\d_\.\(\)']*\s*\n)*"
+            rf"^def\s+{re.escape(func_name)}\s*\("
+        )
+        match = re.search(pattern2, source, re.M)
     if not match:
         return ""
-    rest = source[match.start():]
-    next_match = re.search(r"^@app\.route", rest[1:], re.M)
+    # 从 def 头行结束处开始寻找下一个 @app.route，避免 re-匹配到当前路由自身的装饰器行
+    header_newline = source.find("\n", match.end())
+    if header_newline == -1:
+        return source[match.start():]
+    tail_start = header_newline + 1
+    tail = source[tail_start:]
+    next_match = re.search(r"^[ ]{0,4}@app\.route", tail, re.M)
     if next_match:
-        return rest[: next_match.start() + 1]
-    return rest
+        return source[match.start(): tail_start + next_match.start()]
+    return source[match.start():]
 
 
 # ==================== 静态校验 ====================
@@ -128,9 +148,9 @@ require(
 )
 
 # 4. add/edit/batch_save 按 (material_id, warehouse_id) 锁定
-add_body = extract_route_block(APP_PY, "add_opening_stock")
-edit_body = extract_route_block(APP_PY, "edit_opening_stock")
-batch_body = extract_route_block(APP_PY, "batch_save_opening_stock")
+add_body = extract_route_block(OPENING_ROUTES_PY, "add_opening_stock")
+edit_body = extract_route_block(OPENING_ROUTES_PY, "edit_opening_stock")
+batch_body = extract_route_block(OPENING_ROUTES_PY, "batch_save_opening_stock")
 
 require(
     "material_id=material.id, warehouse_id=warehouse.id" in add_body,
@@ -154,7 +174,7 @@ require(
 )
 
 # 5. 列表路由支持 warehouse_id 筛选
-list_body = extract_route_block(APP_PY, "opening_stock_list")
+list_body = extract_route_block(OPENING_ROUTES_PY, "opening_stock_list")
 require(
     "warehouse_id = request.args.get('warehouse_id', type=int)" in list_body,
     "list 路由支持 warehouse_id 筛选"
