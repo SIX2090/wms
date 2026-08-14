@@ -276,7 +276,7 @@ class TestExecuteInitBusinessDataValidation:
         assert "确认短语" in body.get("msg", "")
 
     def test_missing_password_returns_400(self):
-        """缺密码返回 400。"""
+        """缺密码返回 400（pydantic 校验失败）。"""
         client = self._setup()
         from app import INIT_CONFIRM_PHRASE
         resp = client.post(
@@ -287,7 +287,9 @@ class TestExecuteInitBusinessDataValidation:
         assert resp.status_code == 400, resp.get_data(as_text=True)
         body = resp.get_json()
         assert body["status"] == "error"
-        assert "密码" in body.get("msg", "")
+        # pydantic 校验失败消息或"密码"关键词
+        msg = body.get("msg", "")
+        assert "参数校验失败" in msg or "密码" in msg, msg
 
     def test_wrong_password_returns_403(self):
         """错密码返回 403。"""

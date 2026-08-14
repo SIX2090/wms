@@ -151,32 +151,52 @@ def register_system_settings_routes(app):
         stats = _init_business_data_preview_stats()
         return jsonify({'status': 'success', 'data': stats})
 
-    # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
+    # SYS-AUDIT-003：引入 pydantic BaseModel 校验输入，移除豁免注释
     @app.route('/system_settings/init_business_data/execute', methods=['POST'])
     @login_required
     @require_role('admin')
     def execute_init_business_data():
-        # 多行 docstring 会触发 lint strip_py_comments 行号偏移，导致下方豁免注释检测失效，故用单行注释替代。
+        # 多行 docstring 会触发 lint strip_py_comments 行号偏移，故用单行注释替代。
         # 必传参数：admin_password=当前管理员密码、confirm_phrase=INIT_CONFIRM_PHRASE、include_master_data='1'/'0'。
         from datetime import datetime
         from werkzeug.security import check_password_hash
         from flask_login import current_user
+        from pydantic import BaseModel, Field, field_validator
         from app import (INIT_CONFIRM_PHRASE, OperationAudit,
                          _init_business_data_keep_users_and_settings,
                          _init_business_data_preview_stats)
+
+        class InitBusinessDataExecuteForm(BaseModel):
+            admin_password: str = Field(..., min_length=1, description='当前管理员密码')
+            confirm_phrase: str = Field(..., min_length=1, description='确认短语')
+            include_master_data: str = Field('0', description='是否同时清主数据 1/0')
+
+            @field_validator('include_master_data')
+            @classmethod
+            def validate_include_master_data(cls, v):
+                if v not in ('0', '1'):
+                    raise ValueError('include_master_data 必须为 0 或 1')
+                return v
+
         try:
-            admin_password = (request.form.get('admin_password') or '').strip()
-            confirm_phrase = (request.form.get('confirm_phrase') or '').strip()
-            include_master_data = request.form.get('include_master_data', '0') == '1'
+            form_data = {
+                'admin_password': (request.form.get('admin_password') or '').strip(),
+                'confirm_phrase': (request.form.get('confirm_phrase') or '').strip(),
+                'include_master_data': (request.form.get('include_master_data') or '0'),
+            }
+            try:
+                req = InitBusinessDataExecuteForm.model_validate(form_data)
+            except Exception as exc:
+                return jsonify({'status': 'error', 'msg': f'参数校验失败：{exc}'}), 400
+            admin_password = req.admin_password
+            confirm_phrase = req.confirm_phrase
+            include_master_data = req.include_master_data == '1'
 
             if confirm_phrase != INIT_CONFIRM_PHRASE:
                 return jsonify({
                     'status': 'error',
                     'msg': f'确认短语不正确，请输入：{INIT_CONFIRM_PHRASE}',
                 }), 400
-
-            if not admin_password:
-                return jsonify({'status': 'error', 'msg': '请输入当前管理员密码'}), 400
 
             if not current_user or not current_user.is_authenticated:
                 return jsonify({'status': 'error', 'msg': '未登录'}), 401
