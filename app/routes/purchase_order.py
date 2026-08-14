@@ -628,9 +628,12 @@ def register_purchase_order_routes(app):
             warehouse = (get_default_warehouse() or '').strip()
         if not warehouse:
             return api_error('请选择仓库')
-        wh_err = assert_warehouse_active(warehouse)
-        if wh_err:
-            return api_error(wh_err)
+        # PUR-AUDIT-001 修复：assert_warehouse_active 返回 (ok, msg) 二元组，
+        # 非空元组恒为真，导致 (True, '') 也触发拒绝，选单下推功能不可用。
+        # 必须解构后按 ok 判断，仅在 not ok 时返回 msg。
+        wh_ok, wh_msg = assert_warehouse_active(warehouse, allow_empty=False)
+        if not wh_ok:
+            return api_error(wh_msg)
         remark = (payload.get('remark') or '').strip()
         selected_qty_by_item_id = {}
         for row in selected_items:
