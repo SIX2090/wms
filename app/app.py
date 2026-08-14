@@ -29,7 +29,7 @@ import json
 from pathlib import Path
 
 # Initialize Flask application
-from config import config_dict
+from config import config_dict, validate_production_security_config
 from ai.policies import (
     AI_CAPABILITY_BUSINESS_ENDPOINTS,
     AI_CAPABILITY_ROLES,
@@ -1237,6 +1237,7 @@ app = Flask(__name__)
 
 # Use config.py settings uniformly
 env = os.environ.get('FLASK_ENV', 'production')
+validate_production_security_config(env)
 app.config.from_object(config_dict.get(env, config_dict['default']))
 
 # Run auto-migration AFTER config is loaded so it uses the correct database path.

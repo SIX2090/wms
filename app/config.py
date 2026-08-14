@@ -74,14 +74,22 @@ class DevelopmentConfig(Config):
     SQLALCHEMY_ECHO = os.environ.get('SQLALCHEMY_ECHO', 'false').lower() in ('true', '1', 'yes')  # 按需打印 SQL
 
 
+def _env_flag(name):
+    return os.environ.get(name, 'false').lower() in ('true', '1', 'yes')
+
+
+def validate_production_security_config(environment=None):
+    if (environment or os.environ.get('FLASK_ENV', 'production')) == 'production' and _env_flag('WMS_DISABLE_CSRF'):
+        raise RuntimeError('CSRF protection cannot be disabled in production')
+
+
 # ==================== 生产环境配置 ====================
 class ProductionConfig(Config):
     """生产环境配置"""
     DEBUG = False
     SQLALCHEMY_ECHO = False
     SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() in ('true', '1', 'yes')
-    # 本地 HTTP 调试时可设 WMS_DISABLE_CSRF=1 临时关闭 CSRF，避免浏览器缓存旧令牌导致登录失败
-    WTF_CSRF_ENABLED = os.environ.get('WMS_DISABLE_CSRF', 'false').lower() not in ('true', '1', 'yes')
+    WTF_CSRF_ENABLED = True
     SEND_FILE_MAX_AGE_DEFAULT = 31536000  # 静态文件缓存1年
     PERMANENT_SESSION_LIFETIME = 28800  # 会话8小时过期
     
