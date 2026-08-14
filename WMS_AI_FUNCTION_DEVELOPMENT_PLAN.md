@@ -136,6 +136,9 @@
 | 47 | INV-AUDIT-004 | 已完成 | 旧物料模糊查询接口 /api/query/search 仓库隔离返回仓库级库存 | INV-AUDIT-001 | 无 |
 | 48 | INV-AUDIT-005 | 已完成 | 调拨/盘点/调整/普通出库/stocktake 统一仓库存在性+active 校验 | 无 | 无 |
 | 49 | WMS-PUSH-F01-FIX-01 | 已完成 | 采购入库单可选自动下推并完成领料单 | WMS-PUSH-F01 | 无 |
+| 50 | BUG-2026-08-14-001 | 已完成 | PUR-AUDIT-001：选单下推仓库校验返回值误用修复 | 无 | commit `0e0cd3d3` |
+| 51 | BUG-2026-08-14-002 | 已完成 | PUR-AUDIT-002：多来源入库未阻止采购订单删除修复 | 无 | commit `e32b54d0` |
+| 52 | BUG-2026-08-14-003 | 已完成 | PUR-AUDIT-003：入库完成未复核仓库 active 状态修复 | 无 | commit `c7a9fa9e` |
 
 ## 5. 任务详细定义
 
