@@ -140,6 +140,13 @@
 | 51 | BUG-2026-08-14-002 | 已完成 | PUR-AUDIT-002：多来源入库未阻止采购订单删除修复 | 无 | commit `e32b54d0` |
 | 52 | BUG-2026-08-14-003 | 已完成 | PUR-AUDIT-003：入库完成未复核仓库 active 状态修复 | 无 | commit `c7a9fa9e` |
 | 53 | BUG-2026-08-14-004 | 已完成 | PUR-AUDIT-004：采购入库/领料单明细与导出补齐合同单号、工程名称字段 | 无 | commit `cad73eb8` |
+| 54 | BUG-2026-08-14-005 | 已完成 | SALES-AUDIT-001：阻断 cancelled 销售订单被出库完成静默复活（recalculate_sales_order 状态守卫） | 无 | commit `b88e80f6` |
+| 55 | BUG-2026-08-14-006 | 已完成 | SALES-AUDIT-002：cancel_sales_order 检查 pending 出库草稿 | 无 | commit `b594b558` |
+| 56 | BUG-2026-08-14-007 | 已完成 | SALES-AUDIT-003+004+006：下推草稿加写锁 + 原子回写 shipped_quantity + 完成前校验剩余量（并发与超量一组） | 无 | commit `fbf6b45d`（003+004 加锁与原子回写）；子修复 commit `d43c771f`（006 完成前 remaining 校验） |
+| 57 | BUG-2026-08-14-008 | 已完成 | SALES-AUDIT-005：编辑出库草稿重建明细保留 source_sales_order_item_id | 无 | commit `0d46dc78` |
+| 58 | BUG-2026-08-14-009 | 已完成 | SALES-AUDIT-007：销售报表/导出仓库必填门禁 | 无 | commit `b181ddb6` |
+| 59 | BUG-2026-08-14-010 | 已完成 | SALES-AUDIT-008：销售出库完成前复核仓库 active 状态 | 无 | commit `d247dc04` |
+| 60 | BUG-2026-08-14-011 | 已完成 | SALES-AUDIT-009：销售导出/打印补齐合同单号与工程名称字段 | 无 | commit `50f0b0c6` |
 
 ## 5. 任务详细定义
 
