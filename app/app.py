@@ -2206,7 +2206,9 @@ def get_system_setting(key, default=''):
 
 def set_system_setting(key, value):
     try:
-        setting = SystemSetting.query.filter_by(key=key).first()
+        # SYS-AUDIT-011：加行锁防止并发保存 last-write-wins
+        # SQLite 忽略 with_for_update（no-op），MySQL/PostgreSQL 生效
+        setting = SystemSetting.query.filter_by(key=key).with_for_update().first()
     except OperationalError as exc:
         db.session.rollback()
         if 'system_setting' in str(exc):

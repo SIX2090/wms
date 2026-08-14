@@ -233,6 +233,25 @@ class TestSaveSystemSettingsValidation:
             assert val2 == original, f"留空提交后应保留原值 {original}，实际 {val2}"
 
 
+class TestSetSystemSettingWriteLock:
+    """SYS-AUDIT-011：set_system_setting 加写锁后仍能正常工作。"""
+
+    def test_set_system_setting_with_for_update_works(self):
+        with app_module.app.app_context():
+            _reset_db()
+            _seed_admin()
+            _seed_default_settings()
+            from app import set_system_setting, get_system_setting
+            # 加锁后设置值应正常写入
+            set_system_setting('ai_llm_enabled', '1')
+            db.session.commit()
+            assert get_system_setting('ai_llm_enabled', '0') == '1'
+            # 再次更新
+            set_system_setting('ai_llm_enabled', '0')
+            db.session.commit()
+            assert get_system_setting('ai_llm_enabled', '0') == '0'
+
+
 class TestExecuteInitBusinessDataValidation:
     """SYS-AUDIT-002：execute_init_business_data 失败路径测试。"""
 
