@@ -300,6 +300,105 @@ class TestMobileWarehouseScope(_BaseScope):
         assert "已停用" in resp.get_json()["msg"]
 
 
+class TestMobileWarehouseWriteScope:
+    """移动端写入接口必须在库位管理关闭时仍强制仓库。"""
+
+    def _setup(self, with_default=False, location_enabled=False):
+        client = _BaseScope()._setup(with_default=with_default)
+        with app_module.app.app_context():
+            from app import set_system_setting
+            set_system_setting("location_management_enabled", "1" if location_enabled else "0")
+            db.session.commit()
+        return client
+
+    def _bearer_headers(self, client, username="admin", password="admin"):
+        response = client.post("/api/login", json={"username": username, "password": password})
+        assert response.status_code == 200, response.get_data(as_text=True)
+        token = response.get_json()["data"]["token"]
+        return {"Authorization": f"Bearer {token}"}
+
+    def test_inbound_requires_warehouse_when_location_management_disabled(self):
+        client = self._setup(with_default=False, location_enabled=False)
+        headers = self._bearer_headers(client)
+        with app_module.app.app_context():
+            from app import InOrder, Material
+            before_orders = InOrder.query.count()
+            before_stock = Material.query.filter_by(code="M001").one().stock
+        response = client.post(
+            "/api/inbound",
+            json={"lines": [{"material_code": "M001", "quantity": 1}]},
+            headers=headers,
+        )
+        assert response.status_code == 400, response.get_data(as_text=True)
+        with app_module.app.app_context():
+            from app import InOrder, Material
+            assert InOrder.query.count() == before_orders
+            assert Material.query.filter_by(code="M001").one().stock == before_stock
+
+    def test_outbound_requires_warehouse_when_location_management_disabled(self):
+        client = self._setup(with_default=False, location_enabled=False)
+        headers = self._bearer_headers(client)
+        with app_module.app.app_context():
+            from app import OutOrder, Material
+            before_orders = OutOrder.query.count()
+            before_stock = Material.query.filter_by(code="M001").one().stock
+        response = client.post(
+            "/api/outbound",
+            json={"lines": [{"material_code": "M001", "quantity": 1}]},
+            headers=headers,
+        )
+        assert response.status_code == 400, response.get_data(as_text=True)
+        with app_module.app.app_context():
+            from app import OutOrder, Material
+            assert OutOrder.query.count() == before_orders
+            assert Material.query.filter_by(code="M001").one().stock == before_stock
+
+    def test_inbound_uses_default_warehouse_when_location_management_disabled(self):
+        client = self._setup(with_default=True, location_enabled=False)
+        headers = self._bearer_headers(client)
+        response = client.post(
+            "/api/inbound",
+            json={"lines": [{"material_code": "M001", "quantity": 1}]},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.get_data(as_text=True)
+        with app_module.app.app_context():
+            from app import InOrder
+            order = InOrder.query.filter_by(order_no=response.get_json()["data"]["order_no"]).one()
+            assert order.warehouse == "仓库A"
+
+    def test_outbound_rejects_inactive_warehouse(self):
+        client = self._setup(with_default=False, location_enabled=False)
+        headers = self._bearer_headers(client)
+        with app_module.app.app_context():
+            from app import Material, OutOrder
+            before_orders = OutOrder.query.count()
+            before_stock = Material.query.filter_by(code="M001").one().stock
+        response = client.post(
+            "/api/outbound",
+            json={
+                "warehouse_code": "WHC",
+                "lines": [{"material_code": "M001", "quantity": 1}],
+            },
+            headers=headers,
+        )
+        assert response.status_code == 400, response.get_data(as_text=True)
+        with app_module.app.app_context():
+            from app import Material, OutOrder
+            assert OutOrder.query.count() == before_orders
+            assert Material.query.filter_by(code="M001").one().stock == before_stock
+
+    def test_inbound_requires_location_when_location_management_enabled(self):
+        client = self._setup(with_default=True, location_enabled=True)
+        headers = self._bearer_headers(client)
+        response = client.post(
+            "/api/inbound",
+            json={"warehouse_code": "WHA", "lines": [{"material_code": "M001", "quantity": 1}]},
+            headers=headers,
+        )
+        assert response.status_code == 400, response.get_data(as_text=True)
+
+
 class TestWarehouseScopeHelpers:
     """仓库解析与仓库级库存汇总 helper 的直接单元覆盖。"""
 

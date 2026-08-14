@@ -261,8 +261,8 @@ def register_native_api_routes(app):
         from app import (InOrder, InOrderItem, add_stock, api_json_error,
                          api_json_success, generate_order_no, location_management_enabled,
                          location_required_on_save, parse_api_lines, parse_float_value,
-                         purchase_in_order_requires_order, round_to_2_decimals,
-                         update_location_inventory)
+                         purchase_in_order_requires_order, resolve_request_warehouse,
+                         round_to_2_decimals, update_location_inventory)
         payload = request.get_json(silent=True) or {}
         parsed, error = parse_api_lines(payload)
         if error:
@@ -276,18 +276,21 @@ def register_native_api_routes(app):
             business_type = business_type[:50]
         if business_type == '采购入库' and purchase_in_order_requires_order():
             return api_json_error('系统要求采购入库必须关联采购订单，请从采购订单下推或选单生成入库单', 403)
+        warehouse, warehouse_error = resolve_request_warehouse(payload)
+        if warehouse_error:
+            return api_json_error(warehouse_error, 400)
+        order_warehouse = warehouse.name
         if location_management_enabled() and location_required_on_save():
-            order_warehouse = (payload.get('warehouse_code') or payload.get('warehouse') or '').strip()
             for _material, _quantity, line in parsed:
-                location = (line.get('warehouse_code') or line.get('location_code') or order_warehouse or '').strip()
+                location = (line.get('location_code') or line.get('location') or '').strip()
                 if not location:
-                    return api_json_error('启用库位管理后，入库必须填写仓库/库位')
+                    return api_json_error('启用库位管理后，入库必须填写库位')
 
         try:
             order = InOrder(
                 order_no=generate_order_no('IN'),
                 date=date.today(),
-                warehouse=(payload.get('warehouse_code') or payload.get('warehouse') or '').strip() or None,
+                warehouse=order_warehouse,
                 business_type=business_type,
                 purpose='Android扫码入库',
                 remark='Android原生端提交',
@@ -313,7 +316,7 @@ def register_native_api_routes(app):
                 if not ok:
                     db.session.rollback()
                     return api_json_error(msg or '库存增加失败', 500)
-                location = (line.get('warehouse_code') or line.get('location_code') or order.warehouse or '').strip()
+                location = (line.get('location_code') or line.get('location') or '').strip()
                 loc_ok, loc_msg = update_location_inventory(material, location, quantity, warehouse=order.warehouse)
                 if not loc_ok:
                     db.session.rollback()
@@ -337,17 +340,21 @@ def register_native_api_routes(app):
                          api_json_success, check_stock_sufficient, deduct_stock,
                          generate_order_no, location_management_enabled,
                          location_required_on_save, parse_api_lines, parse_float_value,
-                         round_to_2_decimals, update_location_inventory)
+                         resolve_request_warehouse, round_to_2_decimals,
+                         update_location_inventory)
         payload = request.get_json(silent=True) or {}
         parsed, error = parse_api_lines(payload)
         if error:
             return api_json_error(error)
+        warehouse, warehouse_error = resolve_request_warehouse(payload)
+        if warehouse_error:
+            return api_json_error(warehouse_error, 400)
+        order_warehouse = warehouse.name
         if location_management_enabled() and location_required_on_save():
-            order_warehouse = (payload.get('warehouse_code') or payload.get('warehouse') or '').strip()
             for _material, _quantity, line in parsed:
-                location = (line.get('warehouse_code') or line.get('location_code') or order_warehouse or '').strip()
+                location = (line.get('location_code') or line.get('location') or '').strip()
                 if not location:
-                    return api_json_error('启用库位管理后，出库必须填写仓库/库位')
+                    return api_json_error('启用库位管理后，出库必须填写库位')
 
         if not allow_negative_stock():
             for material, quantity, _line in parsed:
@@ -361,7 +368,7 @@ def register_native_api_routes(app):
                 date=date.today(),
                 customer=(payload.get('receiver') or '').strip() or None,
                 business_type='Android扫码出库',
-                warehouse=(payload.get('warehouse_code') or payload.get('warehouse') or '').strip() or None,
+                warehouse=order_warehouse,
                 purpose=(payload.get('department') or 'Android原生端提交').strip(),
                 remark='Android原生端提交',
                 status='completed',
@@ -387,7 +394,7 @@ def register_native_api_routes(app):
                 if not ok:
                     db.session.rollback()
                     return api_json_error(msg)
-                location = (line.get('warehouse_code') or line.get('location_code') or order.warehouse or '').strip()
+                location = (line.get('location_code') or line.get('location') or '').strip()
                 ok, msg = update_location_inventory(material, location, -quantity, warehouse=order.warehouse)
                 if not ok:
                     db.session.rollback()
