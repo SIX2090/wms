@@ -28800,16 +28800,20 @@ def recalculate_sales_order(order):
     order.tax_amount = round_to_2_decimals(total_tax)
     order.shipped_amount = round_to_2_decimals(shipped_amount)
     order.remaining_amount = round_to_2_decimals(total_included - shipped_amount)
+    # SALES-AUDIT-001：partial/shipped 分支同样不得覆盖 cancelled 状态，
+    # 否则「确认→下推草稿→取消订单→完成草稿」会让 cancelled 订单被出库完成静默复活
     if total_quantity <= 0 or shipped_total_qty <= 0:
         order.shipment_status = 'pending'
         if order.status not in ('draft', 'cancelled'):
             order.status = 'confirmed'
     elif shipped_total_qty + STOCK_COMPARE_EPSILON >= total_quantity:
         order.shipment_status = 'shipped'
-        order.status = 'closed'
+        if order.status not in ('draft', 'cancelled'):
+            order.status = 'closed'
     else:
         order.shipment_status = 'partial'
-        order.status = 'confirmed'
+        if order.status not in ('draft', 'cancelled'):
+            order.status = 'confirmed'
 
 def sync_sales_order_shipment(outbound, quantity_sign=1):
     # 优先使用外键关联，兜底 purpose 字符串解析
@@ -28821,6 +28825,10 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
         if source_match:
             order = SalesOrder.query.filter_by(order_no=source_match.group(1)).first()
     if not order and not any(item.source_sales_order_item_id for item in outbound.items):
+        return None
+    # SALES-AUDIT-001 防御纵深：已取消的销售订单禁止再回写发货进度，
+    # 防止 cancelled 订单通过完成出库草稿被静默复活。
+    if order and order.status == 'cancelled':
         return None
     items_by_material = {}
     if order:
