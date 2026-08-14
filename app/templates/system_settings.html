@@ -117,7 +117,7 @@
     {% set ns.total_settings = ns.total_settings + group.settings|length %}
 {% endfor %}
 
-<form id="systemSettingsForm" class="settings-layout">
+<form id="systemSettingsForm" class="settings-layout" method="post">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="settings-summary">
         <div class="settings-summary-item">
@@ -291,8 +291,7 @@ document.getElementById('systemSettingsForm').addEventListener('submit', functio
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>保存中';
 
-    const fetcher = window.csrfFetch || fetch;
-    fetcher('/system_settings/save', {
+    csrfFetch('/system_settings/save', {
         method: 'POST',
         body: data
     })
@@ -322,8 +321,7 @@ if (testAiLlmBtn) {
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>测试中';
 
-        const fetcher = window.csrfFetch || fetch;
-        fetcher('/system_settings/test_ai_llm', {
+        csrfFetch('/system_settings/test_ai_llm', {
             method: 'POST',
             body: new FormData(document.getElementById('systemSettingsForm'))
         })
@@ -355,8 +353,7 @@ if (testAiVisionBtn) {
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>测试中';
 
-        const fetcher = window.csrfFetch || fetch;
-        fetcher('/system_settings/test_ai_llm', {
+        csrfFetch('/system_settings/test_ai_llm', {
             method: 'POST',
             body: formData
         })
@@ -435,8 +432,7 @@ function renderPreviewTable(stats) {
 async function loadInitPreview() {
     previewArea.innerHTML = '<div class="text-muted text-center py-3"><span class="spinner-border spinner-border-sm me-1"></span>加载中…</div>';
     try {
-        const fetcher = window.csrfFetch || fetch;
-        const res = await fetcher('/system_settings/init_business_data/preview', { method: 'GET' });
+        const res = await csrfFetch('/system_settings/init_business_data/preview', { method: 'GET' });
         const data = await res.json();
         if (!res.ok || data.status !== 'success') {
             throw new Error(data.msg || '预览失败');
@@ -499,8 +495,7 @@ if (confirmBtn) {
             // SYS-AUDIT-009：从前端 checkbox 读取，而非硬编码 '1'
             const includeMaster = document.getElementById('initIncludeMasterData');
             fd.append('include_master_data', includeMaster && includeMaster.checked ? '1' : '0');
-            const fetcher = window.csrfFetch || fetch;
-            const res = await fetcher('/system_settings/init_business_data/execute', {
+            const res = await csrfFetch('/system_settings/init_business_data/execute', {
                 method: 'POST',
                 body: fd,
             });
