@@ -688,6 +688,13 @@ def register_out_order_routes(app):
             if not order.warehouse:
                 db.session.rollback()
                 return api_error('请选择仓库')
+            # SALES-AUDIT-008：草稿保存后仓库可能被停用，完成前必须复核
+            # active 状态（对照 PUR-AUDIT-003 的 in_order.py:1389 修复模式）。
+            if order.business_type == '销售出库':
+                wh_ok, wh_err = validate_sales_outbound_warehouse(order)
+                if not wh_ok:
+                    db.session.rollback()
+                    return api_error(wh_err or '仓库已停用，请先切换有效仓库')
             # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
             if location_management_enabled() and not (order.location or '').strip():
                 db.session.rollback()
