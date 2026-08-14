@@ -161,6 +161,7 @@
 | 72 | BUG-2026-08-14-022 | 已完成 | AUDIT-2026-08-14-003 / FIX-003：修正验证脚本路径漂移（in_order/out_order/opening_stock）与 wheelhouse 跨平台解析 | 无 | commit `36331e7b` + `5facb057` |
 | 73 | BUG-2026-08-14-023 | 已完成 | AUDIT-2026-08-14-004 / FIX-004：修正调拨/调整/盘点状态机测试前置条件（仓库/库位种子） | 无 | commit `36331e7b` |
 | 74 | AUDIT-2026-08-14-005 | 评估后暂缓 | FIX-005：模板内联脚本非 GET 请求评估——存量 raw fetch 由 base.html 全局拦截器兜底 CSRF，均为工程风格风险非真实安全漏洞，仅门禁覆盖缺口，暂缓大范围迁移 | 无 | 暂缓（见报告） |
+| 75 | BUG-2026-08-15-001 | 已完成 | 采购订单列表 `/purchase_order` 与物料列表 `/material` 列表路由补服务端角色门禁 `@require_role('warehouse')`，阻断受限角色（production/viewer）URL 直访越权（与侧边栏可见性对齐） | 无 | commit 见本次提交 |
 
 ## 5. 任务详细定义
 

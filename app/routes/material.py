@@ -30,6 +30,7 @@ from utils import require_role
 # no-test:reason=路由注册辅助函数，能力由 material_* 各路由测试覆盖
 def register_material_routes(app):
     @app.route('/material')
+    @require_role('warehouse')
     @login_required
     def material_list():
         from app import (
