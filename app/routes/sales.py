@@ -916,14 +916,19 @@ def register_sales_routes(app):
         import io
         from openpyxl import Workbook
         from sqlalchemy.orm import joinedload, selectinload
-        from app import Material, OutOrder, OutOrderItem
+        from app import Material, OutOrder, OutOrderItem, _require_report_warehouse
+        # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
+        selected_warehouse, _wh_err = _require_report_warehouse()
+        if not selected_warehouse:
+            return jsonify({'status': 'error', 'msg': _wh_err or '请选择仓库'}), 400
+        warehouse = selected_warehouse.name
         wb = Workbook()
         ws = wb.active
         ws.title = '销售出库'
         ws.append(['出库单号', '日期', '客户', '仓库', '来源销售订单', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态'])
         status = (request.args.get('status') or '').strip()
         search = (request.args.get('search') or '').strip()
-        query = OutOrder.query.filter(OutOrder.business_type == '销售出库')
+        query = OutOrder.query.filter(OutOrder.business_type == '销售出库', OutOrder.warehouse == warehouse)
         if status in ('pending', 'completed'):
             query = query.filter(OutOrder.status == status)
         if search:
@@ -1239,7 +1244,11 @@ def register_sales_routes(app):
         from datetime import datetime
         from sqlalchemy.orm import joinedload
         from app import (Customer, Material, SalesOrder, SalesOrderItem,
-                         sales_shipment_status_label, sales_status_label)
+                         _require_report_warehouse, sales_shipment_status_label, sales_status_label)
+        # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
+        selected_warehouse, _wh_err = _require_report_warehouse()
+        if not selected_warehouse:
+            return jsonify({'status': 'error', 'msg': _wh_err or '请选择仓库'}), 400
         search = (request.args.get('search') or '').strip()
         status = (request.args.get('status') or '').strip()
         customer_id = request.args.get('customer_id', type=int)
@@ -1247,6 +1256,7 @@ def register_sales_routes(app):
         date_start = request.args.get('date_start') or ''
         date_end = request.args.get('date_end') or ''
         query = SalesOrder.query.join(Customer).outerjoin(SalesOrderItem, SalesOrderItem.sales_order_id == SalesOrder.id).outerjoin(Material, SalesOrderItem.material_id == Material.id).distinct()
+        query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
         if search:
             like = f'%{search}%'
             query = query.filter(db.or_(SalesOrder.order_no.like(like), Customer.name.like(like), Customer.code.like(like), Material.code.like(like), Material.name.like(like), SalesOrder.project_no.like(like)))
@@ -1307,21 +1317,23 @@ def register_sales_routes(app):
     def export_sales_report():
         from datetime import date, datetime
         import io
-        from app import (SalesOrder, Warehouse, round_to_2_decimals,
+        from app import (SalesOrder, _require_report_warehouse, round_to_2_decimals,
                          sales_shipment_status_label, sales_status_label)
+        # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
+        selected_warehouse, _wh_err = _require_report_warehouse()
+        if not selected_warehouse:
+            return jsonify({'status': 'error', 'msg': _wh_err or '请选择仓库'}), 400
         date_start = request.args.get('date_start') or date.today().replace(day=1).isoformat()
         date_end = request.args.get('date_end') or date.today().isoformat()
-        warehouse_id = request.args.get('warehouse_id', type=int)
         try:
             start = datetime.strptime(date_start, '%Y-%m-%d').date()
             end = datetime.strptime(date_end, '%Y-%m-%d').date()
         except ValueError:
             return jsonify({'status': 'error', 'msg': '日期格式不正确'}), 400
-        orders = SalesOrder.query.filter(SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled').order_by(SalesOrder.date.asc(), SalesOrder.id.asc()).all()
-        if warehouse_id:
-            selected_warehouse = db.session.get(Warehouse, warehouse_id)
-            if selected_warehouse:
-                orders = [order for order in orders if order.warehouse_id == selected_warehouse.id or (not order.warehouse_id and order.warehouse == selected_warehouse.name)]
+        orders = SalesOrder.query.filter(
+            SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled',
+            db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)),
+        ).order_by(SalesOrder.date.asc(), SalesOrder.id.asc()).all()
         from openpyxl import Workbook
         workbook = Workbook()
         sheet = workbook.active
@@ -1359,14 +1371,20 @@ def register_sales_routes(app):
         from sqlalchemy import func
         from sqlalchemy.orm import selectinload
         from app import (SalesOrder, SalesOrderItem, StockTransaction, Warehouse,
-                         STOCK_COMPARE_EPSILON, round_to_2_decimals)
+                         _require_report_warehouse, STOCK_COMPARE_EPSILON, round_to_2_decimals)
         warehouse_id = request.args.get('warehouse_id', type=int)
-        selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else None
-        query = SalesOrder.query.filter(SalesOrder.status != 'cancelled')
+        selected_warehouse, _wh_err = _require_report_warehouse()
         if selected_warehouse:
+            warehouse_id = selected_warehouse.id
+        # SALES-AUDIT-007：仓库必填，未提供且无默认仓库时返回空结果
+        if not selected_warehouse:
+            orders = []
+        else:
+            query = SalesOrder.query.filter(SalesOrder.status != 'cancelled')
             query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
+            orders = query.options(selectinload(SalesOrder.items), selectinload(SalesOrder.outbound_orders)).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).all()
         rows = []
-        for order in query.options(selectinload(SalesOrder.items), selectinload(SalesOrder.outbound_orders)).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).all():
+        for order in orders:
             completed_orders = [outbound for outbound in order.outbound_orders if outbound.status == 'completed']
             completed_qty = 0
             completed_amount = 0
@@ -1412,13 +1430,14 @@ def register_sales_routes(app):
     def export_sales_reconciliation_report():
         import io
         from sqlalchemy.orm import selectinload
-        from app import SalesOrder, Warehouse, STOCK_COMPARE_EPSILON
+        from app import SalesOrder, _require_report_warehouse, STOCK_COMPARE_EPSILON
         from openpyxl import Workbook
-        warehouse_id = request.args.get('warehouse_id', type=int)
-        selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else None
+        # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
+        selected_warehouse, _wh_err = _require_report_warehouse()
+        if not selected_warehouse:
+            return jsonify({'status': 'error', 'msg': _wh_err or '请选择仓库'}), 400
         query = SalesOrder.query.filter(SalesOrder.status != 'cancelled')
-        if selected_warehouse:
-            query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
+        query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
         workbook = Workbook(); sheet = workbook.active; sheet.title = '销售对账'; sheet.append(['销售订单号', '仓库', '订单已发货数量', '出库完成数量', '订单已发货金额', '对账状态'])
         for order in query.options(selectinload(SalesOrder.items), selectinload(SalesOrder.outbound_orders)).all():
             completed_qty = sum(float(item.quantity or 0) for outbound in order.outbound_orders if outbound.status == 'completed' for item in outbound.items if not item.source_sales_order_item_id or (item.source_sales_order_item and item.source_sales_order_item.sales_order_id == order.id))
@@ -1433,7 +1452,7 @@ def register_sales_routes(app):
     def sales_report():
         from datetime import date, datetime
         from app import (Customer, Employee, Material, SalesOrder, SalesOrderItem, Warehouse,
-                         resolve_active_sales_warehouse, round_to_2_decimals, sales_status_label)
+                         _require_report_warehouse, round_to_2_decimals, sales_status_label)
         date_start = request.args.get('date_start') or (date.today().replace(day=1).isoformat())
         date_end = request.args.get('date_end') or date.today().isoformat()
         drill_customer_id = request.args.get('customer_id', type=int)
@@ -1444,26 +1463,28 @@ def register_sales_routes(app):
         project_no = (request.args.get('project_no') or '').strip()
         warehouse_id = request.args.get('warehouse_id', type=int)
         warehouse = (request.args.get('warehouse') or '').strip()
-        selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(warehouse)
+        selected_warehouse, _wh_err = _require_report_warehouse()
         if selected_warehouse:
             warehouse_id = selected_warehouse.id
             warehouse = selected_warehouse.name
         start = datetime.strptime(date_start, '%Y-%m-%d').date()
         end = datetime.strptime(date_end, '%Y-%m-%d').date()
-        query = SalesOrder.query.filter(SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled')
-        if drill_customer_id:
-            query = query.filter(SalesOrder.customer_id == drill_customer_id)
-        if salesperson_id:
-            query = query.filter(SalesOrder.salesperson_id == salesperson_id)
-        if status:
-            query = query.filter(SalesOrder.status == status)
-        if shipment_status:
-            query = query.filter(SalesOrder.shipment_status == shipment_status)
-        if project_no:
-            query = query.filter(SalesOrder.project_no.like(f'%{project_no}%'))
-        if selected_warehouse:
+        if not selected_warehouse:
+            orders = []
+        else:
+            query = SalesOrder.query.filter(SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled')
+            if drill_customer_id:
+                query = query.filter(SalesOrder.customer_id == drill_customer_id)
+            if salesperson_id:
+                query = query.filter(SalesOrder.salesperson_id == salesperson_id)
+            if status:
+                query = query.filter(SalesOrder.status == status)
+            if shipment_status:
+                query = query.filter(SalesOrder.shipment_status == shipment_status)
+            if project_no:
+                query = query.filter(SalesOrder.project_no.like(f'%{project_no}%'))
             query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
-        orders = query.order_by(SalesOrder.date.asc(), SalesOrder.id.asc()).all()
+            orders = query.order_by(SalesOrder.date.asc(), SalesOrder.id.asc()).all()
         # 明细钻取：按物料筛选时只显示匹配明细行
         drill_material_id = None
         if drill_material_code:
@@ -1529,14 +1550,14 @@ def register_sales_routes(app):
         """销售出库明细表：基于 OutOrder(business_type='销售出库') 的实际出库记录。"""
         from datetime import date, datetime
         import re
-        from app import (OutOrder, SalesOrder, Warehouse, resolve_active_sales_warehouse,
+        from app import (OutOrder, SalesOrder, Warehouse, _require_report_warehouse,
                          round_to_2_decimals, sales_status_label)
         date_start = request.args.get('date_start') or (date.today().replace(day=1).isoformat())
         date_end = request.args.get('date_end') or date.today().isoformat()
         search = (request.args.get('search') or '').strip()
         warehouse_id = request.args.get('warehouse_id', type=int)
         warehouse = (request.args.get('warehouse') or '').strip()
-        selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(warehouse)
+        selected_warehouse, _wh_err = _require_report_warehouse()
         if selected_warehouse:
             warehouse_id = selected_warehouse.id
             warehouse = selected_warehouse.name
@@ -1546,19 +1567,21 @@ def register_sales_routes(app):
             end = datetime.strptime(date_end, '%Y-%m-%d').date()
         except ValueError:
             return jsonify({'status': 'error', 'msg': '日期格式不正确'}), 400
-        query = OutOrder.query.filter(
-            OutOrder.business_type == '销售出库',
-            OutOrder.date >= start,
-            OutOrder.date <= end,
-        )
-        if search:
-            like = f'%{search}%'
-            query = query.filter(db.or_(OutOrder.order_no.like(like), OutOrder.customer.like(like), OutOrder.purpose.like(like), OutOrder.remark.like(like)))
-        if selected_warehouse:
+        if not selected_warehouse:
+            out_orders = []
+        else:
+            query = OutOrder.query.filter(
+                OutOrder.business_type == '销售出库',
+                OutOrder.date >= start,
+                OutOrder.date <= end,
+            )
+            if search:
+                like = f'%{search}%'
+                query = query.filter(db.or_(OutOrder.order_no.like(like), OutOrder.customer.like(like), OutOrder.purpose.like(like), OutOrder.remark.like(like)))
             query = query.filter(OutOrder.warehouse == warehouse)
-        if customer_name:
-            query = query.filter(OutOrder.customer.like(f'%{customer_name}%'))
-        out_orders = query.order_by(OutOrder.date.desc(), OutOrder.id.desc()).all()
+            if customer_name:
+                query = query.filter(OutOrder.customer.like(f'%{customer_name}%'))
+            out_orders = query.order_by(OutOrder.date.desc(), OutOrder.id.desc()).all()
         rows = []
         total_quantity = 0
         total_amount = 0
@@ -1619,16 +1642,15 @@ def register_sales_routes(app):
         import io
         import re
         from openpyxl import Workbook
-        from app import (OutOrder, SalesOrder, Warehouse, resolve_active_sales_warehouse,
-                         round_to_2_decimals)
+        from app import (OutOrder, SalesOrder, _require_report_warehouse, round_to_2_decimals)
+        # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
+        selected_warehouse, _wh_err = _require_report_warehouse()
+        if not selected_warehouse:
+            return jsonify({'status': 'error', 'msg': _wh_err or '请选择仓库'}), 400
+        warehouse = selected_warehouse.name
         date_start = request.args.get('date_start') or (date.today().replace(day=1).isoformat())
         date_end = request.args.get('date_end') or date.today().isoformat()
         search = (request.args.get('search') or '').strip()
-        warehouse_id = request.args.get('warehouse_id', type=int)
-        warehouse = (request.args.get('warehouse') or '').strip()
-        selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(warehouse)
-        if selected_warehouse:
-            warehouse = selected_warehouse.name
         customer_name = (request.args.get('customer') or '').strip()
         try:
             start = datetime.strptime(date_start, '%Y-%m-%d').date()
@@ -1639,8 +1661,7 @@ def register_sales_routes(app):
         if search:
             like = f'%{search}%'
             query = query.filter(db.or_(OutOrder.order_no.like(like), OutOrder.customer.like(like), OutOrder.purpose.like(like), OutOrder.remark.like(like)))
-        if selected_warehouse:
-            query = query.filter(OutOrder.warehouse == warehouse)
+        query = query.filter(OutOrder.warehouse == warehouse)
         if customer_name:
             query = query.filter(OutOrder.customer.like(f'%{customer_name}%'))
         out_orders = query.order_by(OutOrder.date.asc(), OutOrder.id.asc()).all()
@@ -1694,16 +1715,21 @@ def register_sales_routes(app):
     def sales_trend_report():
         """销售趋势分析表：按月聚合销售订单金额、数量和发货进度。"""
         from datetime import date, timedelta
-        from app import (SalesOrder, Warehouse, resolve_active_sales_warehouse, round_to_2_decimals)
+        from app import (SalesOrder, Warehouse, _require_report_warehouse, round_to_2_decimals)
         months_back = request.args.get('months', 12, type=int)
         months_back = max(1, min(months_back, 60))
         warehouse_id = request.args.get('warehouse_id', type=int)
-        selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(request.args.get('warehouse'))
+        selected_warehouse, _wh_err = _require_report_warehouse()
         today = date.today()
         start_month = (today.replace(day=1) - timedelta(days=months_back * 31)).replace(day=1)
-        orders = SalesOrder.query.filter(SalesOrder.date >= start_month, SalesOrder.status != 'cancelled').order_by(SalesOrder.date.asc()).all()
-        if selected_warehouse:
-            orders = [order for order in orders if order.warehouse_id == selected_warehouse.id or (not order.warehouse_id and order.warehouse == selected_warehouse.name)]
+        # SALES-AUDIT-007：仓库必填，未提供且无默认仓库时返回空结果
+        if not selected_warehouse:
+            orders = []
+        else:
+            orders = SalesOrder.query.filter(
+                SalesOrder.date >= start_month, SalesOrder.status != 'cancelled',
+                db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)),
+            ).order_by(SalesOrder.date.asc()).all()
         by_month = {}
         for order in orders:
             if not order.date:
@@ -1743,16 +1769,19 @@ def register_sales_routes(app):
         from datetime import date, timedelta
         import io
         from openpyxl import Workbook
-        from app import (SalesOrder, Warehouse, resolve_active_sales_warehouse, round_to_2_decimals)
+        from app import (SalesOrder, _require_report_warehouse, round_to_2_decimals)
+        # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
+        selected_warehouse, _wh_err = _require_report_warehouse()
+        if not selected_warehouse:
+            return jsonify({'status': 'error', 'msg': _wh_err or '请选择仓库'}), 400
         months_back = request.args.get('months', 12, type=int)
         months_back = max(1, min(months_back, 60))
-        warehouse_id = request.args.get('warehouse_id', type=int)
-        selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(request.args.get('warehouse'))
         today = date.today()
         start_month = (today.replace(day=1) - timedelta(days=months_back * 31)).replace(day=1)
-        orders = SalesOrder.query.filter(SalesOrder.date >= start_month, SalesOrder.status != 'cancelled').all()
-        if selected_warehouse:
-            orders = [order for order in orders if order.warehouse_id == selected_warehouse.id or (not order.warehouse_id and order.warehouse == selected_warehouse.name)]
+        orders = SalesOrder.query.filter(
+            SalesOrder.date >= start_month, SalesOrder.status != 'cancelled',
+            db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)),
+        ).all()
         by_month = {}
         for order in orders:
             if not order.date:

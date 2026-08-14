@@ -29225,13 +29225,42 @@ def api_ai_sales_draft_check(id):
 
 
 
+def _require_report_warehouse():
+    """SALES-AUDIT-007：报表仓库必填门禁。
+
+    依据 AGENTS.md「库存查询、出入库报表、库存台账的查询入口必须将仓库
+    作为必填条件，后端未收到仓库参数时返回空结果或 400」。
+
+    解析顺序：warehouse_id > warehouse 名称 > 默认仓库。
+    返回 (warehouse, error_msg)：
+    - 成功：(Warehouse 实例, None)
+    - 失败：(None, '请选择仓库')
+    """
+    warehouse_id = request.args.get('warehouse_id', type=int)
+    if warehouse_id:
+        wh = db.session.get(Warehouse, warehouse_id)
+        if wh:
+            return wh, None
+    warehouse_name = (request.args.get('warehouse') or '').strip()
+    if warehouse_name:
+        wh = resolve_active_sales_warehouse(warehouse_name)
+        if wh:
+            return wh, None
+    default_wh = get_default_warehouse()
+    if default_wh:
+        return default_wh, None
+    return None, '请选择仓库'
+
 def _sales_report_orders():
     """Return the common filtered order set used by sales execution reports."""
+    # SALES-AUDIT-007：仓库必填，未提供且无默认仓库时返回空列表
+    required_wh, _ = _require_report_warehouse()
+    if not required_wh:
+        return []
     query = SalesOrder.query.filter(SalesOrder.status != 'cancelled')
     date_start = request.args.get('date_start') or ''
     date_end = request.args.get('date_end') or ''
     customer_id = request.args.get('customer_id', type=int)
-    warehouse_id = request.args.get('warehouse_id', type=int)
     material_code = (request.args.get('material_code') or '').strip()
     if date_start:
         parsed = parse_date_value(date_start)
@@ -29243,9 +29272,7 @@ def _sales_report_orders():
             query = query.filter(SalesOrder.date <= parsed)
     if customer_id:
         query = query.filter(SalesOrder.customer_id == customer_id)
-    selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(request.args.get('warehouse'))
-    if selected_warehouse:
-        query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
+    query = query.filter(db.or_(SalesOrder.warehouse_id == required_wh.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == required_wh.name)))
     if material_code:
         query = query.join(SalesOrderItem).join(Material).filter(
             db.or_(Material.code.ilike(f'%{material_code}%'), Material.name.ilike(f'%{material_code}%'))
@@ -29256,15 +29283,14 @@ def _sales_report_orders():
     ).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).all()
 
 def _sales_report_filters_context():
-    warehouse_id = request.args.get('warehouse_id', type=int)
-    selected_warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else resolve_active_sales_warehouse(request.args.get('warehouse'))
+    required_wh, _ = _require_report_warehouse()
     return {
         'date_start': request.args.get('date_start') or '',
         'date_end': request.args.get('date_end') or '',
         'customer_id': request.args.get('customer_id', type=int) or '',
         'material_code': request.args.get('material_code') or '',
-        'warehouse_id': selected_warehouse.id if selected_warehouse else '',
-        'warehouse': selected_warehouse.name if selected_warehouse else '',
+        'warehouse_id': required_wh.id if required_wh else '',
+        'warehouse': required_wh.name if required_wh else '',
     }
 
 
