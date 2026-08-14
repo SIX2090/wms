@@ -257,6 +257,17 @@
                     </div>
                 </div>
 
+                <!-- SYS-AUDIT-009：include_master_data 前端开关 -->
+                <div class="form-check mt-3">
+                    <input class="form-check-input" type="checkbox" id="initIncludeMasterData" checked>
+                    <label class="form-check-label small text-danger" for="initIncludeMasterData">
+                        <strong>同时清空主数据</strong>（物料/分类/单位/供应商/客户/仓库/部门/员工/合同/模板）
+                    </label>
+                    <div class="text-muted" style="font-size: 12px;">
+                        取消勾选则仅清空业务单据与库存流水，保留主数据档案便于重新录单。
+                    </div>
+                </div>
+
                 <div id="initErrorArea" class="alert alert-danger small mt-3 d-none"></div>
             </div>
             <div class="modal-footer">
@@ -485,7 +496,9 @@ if (confirmBtn) {
             const fd = new FormData();
             fd.append('admin_password', pwd);
             fd.append('confirm_phrase', phrase);
-            fd.append('include_master_data', '1');
+            // SYS-AUDIT-009：从前端 checkbox 读取，而非硬编码 '1'
+            const includeMaster = document.getElementById('initIncludeMasterData');
+            fd.append('include_master_data', includeMaster && includeMaster.checked ? '1' : '0');
             const fetcher = window.csrfFetch || fetch;
             const res = await fetcher('/system_settings/init_business_data/execute', {
                 method: 'POST',
