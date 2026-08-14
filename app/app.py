@@ -28865,6 +28865,45 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
         recalculate_sales_order(affected_order)
     return order or next(iter(affected_orders.values()), None)
 
+def sales_outbound_remaining_check(outbound):
+    """SALES-AUDIT-006：完成出库单前校验每条明细数量不超过来源销售订单行未发货数量。
+
+    返回 (ok, error_msg)：
+    - ok=True：所有有来源的明细数量都在 remaining 范围内。
+    - ok=False：存在超量明细，error_msg 描述第一条违规。
+    无来源的明细（source_sales_order_item_id 为空）跳过校验。
+    """
+    from sqlalchemy.orm import selectinload
+    if not outbound or not outbound.items:
+        return True, ''
+    source_item_ids = [
+        item.source_sales_order_item_id
+        for item in outbound.items
+        if getattr(item, 'source_sales_order_item_id', None)
+    ]
+    if not source_item_ids:
+        return True, ''
+    sales_items = {
+        si.id: si
+        for si in SalesOrderItem.query.options(
+            selectinload(SalesOrderItem.sales_order)
+        ).filter(SalesOrderItem.id.in_(source_item_ids)).all()
+    }
+    for item in outbound.items:
+        sid = getattr(item, 'source_sales_order_item_id', None)
+        if not sid:
+            continue
+        si = sales_items.get(sid)
+        if not si:
+            continue
+        remaining = round_to_2_decimals((si.quantity or 0) - (si.shipped_quantity or 0))
+        outbound_qty = round_to_2_decimals(item.quantity or 0)
+        if outbound_qty - remaining > STOCK_COMPARE_EPSILON:
+            so_no = si.sales_order.order_no if si.sales_order else f'item#{sid}'
+            return False, f'出库数量 {outbound_qty} 超过销售订单 {so_no} 的未发货数量 {remaining:.2f}'
+    return True, ''
+
+
 def build_sales_outbound_draft(order, selected_qty_by_item_id=None):
     # 优先通过外键查找待完成草稿，兜底 purpose 字符串
     pending_draft = OutOrder.query.filter(

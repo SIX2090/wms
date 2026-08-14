@@ -637,6 +637,7 @@ def register_out_order_routes(app):
                          get_default_warehouse, is_future_date,
                          location_management_enabled, log_operation,
                          recalculate_order_total, resolve_inventory_warehouse_id,
+                         sales_outbound_remaining_check,
                          sync_sales_order_shipment,
                          validate_sales_outbound_warehouse)
         from sqlalchemy.orm import selectinload
@@ -692,6 +693,13 @@ def register_out_order_routes(app):
                 db.session.rollback()
                 return api_error('库位管理已启用，请选择库位')
             use_location = bool(location_management_enabled() and (order.location or order.warehouse))
+            # SALES-AUDIT-006：完成前校验每条有来源的明细数量不超过销售订单行
+            # 未发货数量，防止"生成小数量草稿→编辑改大→完成"超量出库。
+            if order.business_type == '销售出库':
+                remaining_ok, remaining_err = sales_outbound_remaining_check(order)
+                if not remaining_ok:
+                    db.session.rollback()
+                    return api_error(remaining_err or '出库数量超过销售订单未发货数量')
             for item in order.items:
                 if not item.material_id:
                     continue
