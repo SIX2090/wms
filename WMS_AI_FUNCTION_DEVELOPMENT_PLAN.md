@@ -147,6 +147,15 @@
 | 58 | BUG-2026-08-14-009 | 已完成 | SALES-AUDIT-007：销售报表/导出仓库必填门禁 | 无 | commit `b181ddb6` |
 | 59 | BUG-2026-08-14-010 | 已完成 | SALES-AUDIT-008：销售出库完成前复核仓库 active 状态 | 无 | commit `d247dc04` |
 | 60 | BUG-2026-08-14-011 | 已完成 | SALES-AUDIT-009：销售导出/打印补齐合同单号与工程名称字段 | 无 | commit `50f0b0c6` |
+| 61 | BUG-2026-08-14-012 | 已完成 | SYS-AUDIT-001：init 执行后恢复默认系统参数并纠正响应消息 | 无 | commit `2bdc8904` |
+| 62 | BUG-2026-08-14-013 | 已完成 | SYS-AUDIT-002：测试文件重命名为 test_ 前缀并补充高风险路径测试 | 无 | commit `1a56105e` |
+| 63 | BUG-2026-08-14-014 | 已完成 | SYS-AUDIT-003：execute_init_business_data 迁移到 pydantic BaseModel | 无 | commit `c386663c` |
+| 64 | BUG-2026-08-14-015 | 已完成 | SYS-AUDIT-004+005：表单加 method=post 并去除裸 fetch 回退 | 无 | commit `57b39bb0` |
+| 65 | BUG-2026-08-14-016 | 已完成 | SYS-AUDIT-006：init 清空前导出 OperationAudit 全量备份 | 无 | commit `7ce82f2c` |
+| 66 | BUG-2026-08-14-017 | 已完成 | SYS-AUDIT-007+008：装饰器顺序统一 + 异常信息脱敏 | 无 | commit `da25ff97` |
+| 67 | BUG-2026-08-14-018 | 已完成 | SYS-AUDIT-009：include_master_data 前端开关替代硬编码 | 无 | commit `2dd4efac` |
+| 68 | BUG-2026-08-14-019 | 已完成 | SYS-AUDIT-011：set_system_setting 加行锁防并发 last-write-wins | 无 | commit `5ffafcaf` |
+| 69 | SYS-AUDIT-010 | 评估后暂缓 | SystemSetting 模型迁移到 models.py（P2，A10 不约束模型位置，架构改动大，回归风险高） | 无 | 暂缓 |
 
 ## 5. 任务详细定义
 
