@@ -156,6 +156,11 @@
 | 67 | BUG-2026-08-14-018 | 已完成 | SYS-AUDIT-009：include_master_data 前端开关替代硬编码 | 无 | commit `2dd4efac` |
 | 68 | BUG-2026-08-14-019 | 已完成 | SYS-AUDIT-011：set_system_setting 加行锁防并发 last-write-wins | 无 | commit `5ffafcaf` |
 | 69 | SYS-AUDIT-010 | 评估后暂缓 | SystemSetting 模型迁移到 models.py（P2，A10 不约束模型位置，架构改动大，回归风险高） | 无 | 暂缓 |
+| 70 | BUG-2026-08-14-020 | 已完成 | AUDIT-2026-08-14-001 / FIX-001：移动端 /api/inbound、/api/outbound 补仓库必填 + active 校验 | 无 | commit `9460f68c` |
+| 71 | BUG-2026-08-14-021 | 已完成 | AUDIT-2026-08-14-002 / FIX-002：生产环境禁止通过 WMS_DISABLE_CSRF 关闭 CSRF（fail-fast + 强制开启） | 无 | commit `1f557e63` |
+| 72 | BUG-2026-08-14-022 | 已完成 | AUDIT-2026-08-14-003 / FIX-003：修正验证脚本路径漂移（in_order/out_order/opening_stock）与 wheelhouse 跨平台解析 | 无 | commit `36331e7b` + `5facb057` |
+| 73 | BUG-2026-08-14-023 | 已完成 | AUDIT-2026-08-14-004 / FIX-004：修正调拨/调整/盘点状态机测试前置条件（仓库/库位种子） | 无 | commit `36331e7b` |
+| 74 | AUDIT-2026-08-14-005 | 评估后暂缓 | FIX-005：模板内联脚本非 GET 请求评估——存量 raw fetch 由 base.html 全局拦截器兜底 CSRF，均为工程风格风险非真实安全漏洞，仅门禁覆盖缺口，暂缓大范围迁移 | 无 | 暂缓（见报告） |
 
 ## 5. 任务详细定义
 
