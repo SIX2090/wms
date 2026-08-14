@@ -5423,6 +5423,28 @@ def validate_purchase_receive_quantity(source_item, receive_qty, material_code=N
         return False, f'物料 {code} 入库数量不能大于采购单未入库数量'
     return True, None
 
+def has_inbound_reference(purchase_order_id):
+    """检查采购订单是否被任意采购入库单（表头或行级来源）引用。
+
+    PUR-AUDIT-002：多订单选单生成入库时 InOrder.source_purchase_order_id=None，
+    真实来源仅保存在 InOrderItem.source_purchase_order_item_id。删除采购订单前
+    必须同时检查两层引用，否则可删除仍被入库明细引用的订单，破坏来源追溯
+    和 received_quantity 执行进度。
+
+    返回 True 表示存在引用（不可删除），False 表示无引用。
+    """
+    # 表头级来源：单来源下推入库
+    if InOrder.query.filter_by(source_purchase_order_id=purchase_order_id).first():
+        return True
+    # 行级来源：多来源选单入库
+    referenced = db.session.query(InOrderItem.id).join(
+        PurchaseOrderItem,
+        InOrderItem.source_purchase_order_item_id == PurchaseOrderItem.id
+    ).filter(
+        PurchaseOrderItem.purchase_order_id == purchase_order_id
+    ).first()
+    return referenced is not None
+
 def find_duplicate_in_order_item(order, material_id, source_purchase_order_item_id=None):
     for item in order.items or []:
         if item.material_id != material_id:

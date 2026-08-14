@@ -894,11 +894,12 @@ def register_purchase_order_routes(app):
     def delete_purchase_order(id):
         from sqlalchemy.orm import joinedload
         from app import (InOrder, PurchaseOrder, PurchaseOrderItem, api_error,
-                         log_operation)
+                         has_inbound_reference, log_operation)
         order = PurchaseOrder.query.options(joinedload(PurchaseOrder.items)).get_or_404(id)
         if order.status != 'pending':
             return api_error('只有未入库的采购单可以删除')
-        if InOrder.query.filter_by(source_purchase_order_id=order.id).first():
+        # PUR-AUDIT-002：同时检查表头和行级来源，防止多来源选单入库被遗漏
+        if has_inbound_reference(order.id):
             return api_error('该采购单已有下游入库单，不能删除')
         try:
             order_no = order.order_no
@@ -920,7 +921,8 @@ def register_purchase_order_routes(app):
     def batch_delete_purchase_order():
         from sqlalchemy.orm import joinedload
         from app import (InOrder, PurchaseOrder, PurchaseOrderItem, api_error,
-                         log_operation, purchase_order_status_label)
+                         has_inbound_reference, log_operation,
+                         purchase_order_status_label)
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
@@ -934,7 +936,8 @@ def register_purchase_order_routes(app):
             if order.status != 'pending':
                 blocked.append(f'{order.order_no}（{purchase_order_status_label(order.status)}）')
                 continue
-            if InOrder.query.filter_by(source_purchase_order_id=order.id).first():
+            # PUR-AUDIT-002：同时检查表头和行级来源，防止多来源选单入库被遗漏
+            if has_inbound_reference(order.id):
                 blocked.append(f'{order.order_no}（已有入库单）')
                 continue
             delete_orders.append(order)
