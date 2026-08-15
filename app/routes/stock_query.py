@@ -42,11 +42,13 @@ def register_stock_query_routes(app):
             Supplier,
             MaterialCategory,
             Unit,
+            Warehouse,
             LocationInventory,
             _material_low_stock_filter,
             _material_normal_stock_filter,
             get_default_warehouse,
             get_active_warehouses,
+            get_warehouse_stock_quantities,
             inventory_alert_enabled,
             location_management_enabled,
         )
@@ -73,6 +75,12 @@ def register_stock_query_routes(app):
 
         materials = []
         location_map = {}
+        warehouse_stock_map = {}
+        # BUG-2026-08-16-007：库存按仓库级口径展示，不再用全局 material.stock，
+        # 与 api_query_search 的 get_warehouse_stock_quantities 口径保持一致。
+        warehouse = Warehouse.query.get(warehouse_id) if warehouse_id else None
+        if warehouse:
+            warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
         # AGENTS.md：不指定仓库时不得返回数据
         if warehouse_id:
             query = Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
@@ -100,9 +108,24 @@ def register_stock_query_routes(app):
             sort_col = getattr(Material, sort_by, Material.code)
             query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc())
             materials = query.all()
-            if location_management_enabled() and materials:
+            # 开启库位管理时，库位行只取当前所选仓库的（BUG-2026-08-16-007），
+            # 不再把全仓库库位混入展示；兼容历史 warehouse_id IS NULL 且
+            # location == 仓库名的旧行。
+            if location_management_enabled() and materials and warehouse:
                 material_ids = [material.id for material in materials]
-                rows = LocationInventory.query.filter(LocationInventory.material_id.in_(material_ids)).order_by(
+                filters_expr = [LocationInventory.material_id.in_(material_ids)]
+                name_clauses = [
+                    LocationInventory.warehouse_id == warehouse.id,
+                    db.and_(
+                        LocationInventory.warehouse_id.is_(None),
+                        db.or_(
+                            LocationInventory.location == (warehouse.name or '').strip(),
+                            LocationInventory.location == (warehouse.code or '').strip(),
+                        ),
+                    ),
+                ]
+                filters_expr.append(db.or_(*name_clauses))
+                rows = LocationInventory.query.filter(*filters_expr).order_by(
                     LocationInventory.location.asc()
                 ).all()
                 for row in rows:
@@ -111,7 +134,7 @@ def register_stock_query_routes(app):
                     location_map.setdefault(row.material_id, []).append(row)
         categories = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.name.asc()).all()
         filters = {'search': search, 'category_id': category_id or '', 'stock_filter': stock_filter, 'warehouse_id': warehouse_id or ''}
-        return render_template('stock_query.html', materials=materials, categories=categories, filters=filters, sort_by=sort_by, sort_order=sort_order, location_map=location_map, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
+        return render_template('stock_query.html', materials=materials, categories=categories, filters=filters, sort_by=sort_by, sort_order=sort_order, location_map=location_map, warehouse_stock_map=warehouse_stock_map, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
 
     @app.route('/api/query/search', methods=['POST'])
     @login_required

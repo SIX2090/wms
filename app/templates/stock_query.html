@@ -95,7 +95,9 @@
                 <tbody>
                     {% for material in materials %}
                     {% set alert_enabled = (material.min_stock or 0) > 0 or (material.reorder_point or 0) > 0 %}
-                    <tr class="{% if inventory_alert_enabled and alert_enabled and (material.stock or 0) <= (material.min_stock or 0) %}table-warning{% endif %}">
+                    {# BUG-2026-08-16-007：库存按所选仓库级展示，不再用全局 material.stock #}
+                    {% set wh_stock = warehouse_stock_map.get(material.id) or 0 %}
+                    <tr class="{% if inventory_alert_enabled and alert_enabled and (wh_stock) <= (material.min_stock or 0) %}table-warning{% endif %}">
                         <td>{{ loop.index }}</td>
                         <td><a href="{{ url_for('material_list', search=material.code) }}">{{ material.code }}</a></td>
                         <td>{{ material.name }}</td>
@@ -103,7 +105,7 @@
                         <td>{{ material.category.name if material.category else '-' }}</td>
                         <td>{{ material.unit.name if material.unit else '-' }}</td>
                         <td>{{ material.supplier.name if material.supplier else '-' }}</td>
-                        <td class="{% if inventory_alert_enabled and alert_enabled and (material.stock or 0) <= (material.min_stock or 0) %}text-danger fw-bold{% endif %}">{{ material.stock or 0 }}</td>
+                        <td class="{% if inventory_alert_enabled and alert_enabled and (wh_stock) <= (material.min_stock or 0) %}text-danger fw-bold{% endif %}">{{ "%.2f"|format(wh_stock) }}</td>
                         {% if location_management_enabled %}
                         <td>
                             {% set locations = location_map.get(material.id, []) %}
