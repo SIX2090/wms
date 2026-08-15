@@ -411,6 +411,19 @@ def auto_migrate_database():
                 except Exception:
                     # 列已存在时 ALTER 报错，忽略
                     pass
+        # BUG-2026-08-16-001：委外发料/收货单库位列（开启库位管理时同步库位账）
+        for sc_table in ('subcontract_issue', 'subcontract_receive'):
+            if _table_exists(sc_table):
+                cursor.execute(f"PRAGMA table_info({sc_table})")
+                sc_columns = [row[1] for row in cursor.fetchall()]
+                if (not sc_columns) or ('location' not in sc_columns):
+                    try:
+                        cursor.execute(
+                            f"ALTER TABLE {sc_table} ADD COLUMN location VARCHAR(100) NOT NULL DEFAULT ''")
+                        modified = True
+                    except Exception:
+                        # 列已存在时 ALTER 报错，忽略
+                        pass
         if out_item_columns:
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_out_order_item_sales_source "
@@ -4637,6 +4650,7 @@ class SubcontractIssue(db.Model):
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     warehouse = db.Column(db.String(100), nullable=False, default='')  # 仓库（AGENTS.md: 始终必填）
+    location = db.Column(db.String(100), nullable=False, default='')  # 库位（BUG-2026-08-16-001：开启库位管理时写库位账）
     remark = db.Column(db.String(500))  # Remark
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
@@ -4667,6 +4681,7 @@ class SubcontractReceive(db.Model):
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     warehouse = db.Column(db.String(100), nullable=False, default='')  # 仓库（AGENTS.md: 始终必填）
+    location = db.Column(db.String(100), nullable=False, default='')  # 库位（BUG-2026-08-16-001：开启库位管理时写库位账）
     total_quantity = db.Column(db.Float, default=0)  # Total quantity
     total_scrap = db.Column(db.Float, default=0)  # Total scrap quantity
     remark = db.Column(db.String(500))  # Remark

@@ -294,8 +294,9 @@ def register_subcontract_routes(app):
         from app import (Material, SubcontractIssue, SubcontractIssueItem,
                          SubcontractOrder, allow_negative_stock, api_error,
                          assert_warehouse_active, deduct_stock_atomic, generate_order_no,
-                         is_stock_sufficient, log_operation, normalize_stock_quantity,
-                         parse_float_value, round_to_2_decimals)
+                         is_stock_sufficient, location_management_enabled,
+                         log_operation, normalize_stock_quantity,
+                         parse_float_value, round_to_2_decimals, update_location_inventory)
         order = SubcontractOrder.query.get_or_404(id)
         material_code = (request.form.get('material_code') or '').strip()
         quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), 0))
@@ -319,6 +320,11 @@ def register_subcontract_routes(app):
         if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
             return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
 
+        # BUG-2026-08-16-001：开启库位管理时库位必填（AGENTS.md 规则二）
+        location = (request.form.get('location') or '').strip()
+        if location_management_enabled() and not location:
+            return api_error('请输入库位')
+
         try:
             issue_no = generate_order_no('SF')
             issue = SubcontractIssue(
@@ -326,6 +332,7 @@ def register_subcontract_routes(app):
                 subcontract_order_id=id,
                 supplier_id=order.supplier_id,
                 warehouse=warehouse,
+                location=location,
                 status='completed',
                 operator_id=current_user.id
             )
@@ -345,6 +352,13 @@ def register_subcontract_routes(app):
             if not ok:
                 db.session.rollback()
                 return api_error(error_msg or '库存扣减失败')
+            # BUG-2026-08-16-001：同步扣减库位账，防止总账与库位账分叉
+            if location_management_enabled():
+                loc_ok, loc_err = update_location_inventory(
+                    material, location or warehouse, -quantity, warehouse=warehouse)
+                if not loc_ok:
+                    db.session.rollback()
+                    return api_error(loc_err or '库位库存扣减失败')
             if order.status == 'pending':
                 order.status = 'processing'
             db.session.commit()
@@ -364,7 +378,9 @@ def register_subcontract_routes(app):
         from app import (Material, SubcontractOrder, SubcontractReceive,
                          SubcontractReceiveItem, add_stock, api_error,
                          assert_warehouse_active, generate_order_no,
-                         log_operation, parse_float_value, round_to_2_decimals)
+                         location_management_enabled, log_operation,
+                         parse_float_value, round_to_2_decimals,
+                         update_location_inventory)
         order = SubcontractOrder.query.get_or_404(id)
         material_code = (request.form.get('material_code') or '').strip()
         quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), 0))
@@ -386,6 +402,11 @@ def register_subcontract_routes(app):
         if not material:
             return api_error('产品编码不存在')
 
+        # BUG-2026-08-16-001：开启库位管理时库位必填（AGENTS.md 规则二）
+        location = (request.form.get('location') or '').strip()
+        if location_management_enabled() and not location:
+            return api_error('请输入库位')
+
         try:
             receive_no = generate_order_no('SR')
             receive = SubcontractReceive(
@@ -393,6 +414,7 @@ def register_subcontract_routes(app):
                 subcontract_order_id=id,
                 supplier_id=order.supplier_id,
                 warehouse=warehouse,
+                location=location,
                 status='completed',
                 total_quantity=quantity,
                 total_scrap=0,
@@ -416,6 +438,13 @@ def register_subcontract_routes(app):
             if not ok:
                 db.session.rollback()
                 return jsonify({'status': 'error', 'msg': msg or '库存增加失败'}), 500
+            # BUG-2026-08-16-001：同步增加库位账，防止总账与库位账分叉
+            if location_management_enabled():
+                loc_ok, loc_err = update_location_inventory(
+                    material, location or warehouse, quantity, warehouse=warehouse)
+                if not loc_ok:
+                    db.session.rollback()
+                    return api_error(loc_err or '库位库存增加失败')
 
             total_required = sum((item.quantity or 0) for item in order.items)
             total_received = sum((item.quantity or 0) for receive_order in order.receive_orders for item in receive_order.items) + quantity
@@ -979,7 +1008,8 @@ def register_subcontract_routes(app):
         from flask_login import current_user
         from app import (Material, SubcontractIssue, SubcontractIssueItem,
                          SubcontractOrder, api_error, assert_warehouse_active,
-                         generate_order_no, get_default_warehouse, log_operation,
+                         generate_order_no, get_default_warehouse,
+                         location_management_enabled, log_operation,
                          parse_float_value, round_to_2_decimals)
         try:
             subcontract_order_id = request.form.get('subcontract_order_id')
@@ -1004,6 +1034,11 @@ def register_subcontract_routes(app):
             if not wh_ok:
                 return api_error(wh_err)
 
+            # BUG-2026-08-16-001：开启库位管理时库位必填（AGENTS.md 规则二）
+            location = (request.form.get('location') or '').strip()
+            if location_management_enabled() and not location:
+                return api_error('请输入库位')
+
             if not issue_no:
                 issue_no = generate_order_no('SF')
 
@@ -1012,6 +1047,7 @@ def register_subcontract_routes(app):
                 subcontract_order_id=int(subcontract_order_id),
                 supplier_id=subcontract_order.supplier_id,
                 warehouse=warehouse,
+                location=location,
                 remark=remark,
                 status='pending',
                 operator_id=current_user.id
@@ -1190,8 +1226,9 @@ def register_subcontract_routes(app):
         from sqlalchemy.orm import selectinload
         from app import (SubcontractIssue, _acquire_order_write_lock,
                          allow_negative_stock, api_error, assert_warehouse_active,
-                         deduct_stock_atomic, is_stock_sufficient, log_operation,
-                         normalize_stock_quantity)
+                         deduct_stock_atomic, is_stock_sufficient,
+                         location_management_enabled, log_operation,
+                         normalize_stock_quantity, update_location_inventory)
         issue = SubcontractIssue.query.get_or_404(id)
         if issue.status != 'pending':
             return api_error('只有待发料状态可以完成发料')
@@ -1237,6 +1274,14 @@ def register_subcontract_routes(app):
                     if not ok:
                         db.session.rollback()
                         return api_error(error_msg or '库存扣减失败')
+                    # BUG-2026-08-16-001：同步扣减库位账，防止总账与库位账分叉
+                    if location_management_enabled() and (issue.location or issue.warehouse):
+                        loc_ok, loc_err = update_location_inventory(
+                            item.material, issue.location or issue.warehouse,
+                            -(item.quantity or 0), warehouse=issue.warehouse)
+                        if not loc_ok:
+                            db.session.rollback()
+                            return api_error(loc_err or '库位库存扣减失败')
 
             issue.status = 'completed'
             try:
@@ -1262,7 +1307,8 @@ def register_subcontract_routes(app):
         """反提交委外发料"""
         from sqlalchemy.orm import selectinload
         from app import (SubcontractIssue, _acquire_order_write_lock, add_stock,
-                         api_error, log_operation)
+                         api_error, location_management_enabled, log_operation,
+                         update_location_inventory)
         issue = SubcontractIssue.query.get_or_404(id)
         if issue.status != 'completed':
             return api_error('只有已发料的委外发料单可以反提交')
@@ -1282,6 +1328,14 @@ def register_subcontract_routes(app):
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存恢复失败')
+                    # BUG-2026-08-16-001：同步恢复库位账，与总账回退保持一致
+                    if location_management_enabled() and (issue.location or issue.warehouse):
+                        loc_ok, loc_err = update_location_inventory(
+                            item.material, issue.location or issue.warehouse,
+                            item.quantity or 0, warehouse=issue.warehouse)
+                        if not loc_ok:
+                            db.session.rollback()
+                            return api_error(loc_err or '库位库存恢复失败')
             issue.status = 'pending'
             db.session.commit()
             log_operation('反提交委外发料', f'发料单：{issue.issue_no}', 'subcontract_issue', id)
@@ -1581,7 +1635,8 @@ def register_subcontract_routes(app):
         from flask_login import current_user
         from app import (Material, SubcontractOrder, SubcontractReceive,
                          SubcontractReceiveItem, api_error, assert_warehouse_active,
-                         generate_order_no, get_default_warehouse, log_operation,
+                         generate_order_no, get_default_warehouse,
+                         location_management_enabled, log_operation,
                          parse_float_value, round_to_2_decimals)
         try:
             subcontract_order_id = request.form.get('subcontract_order_id')
@@ -1606,6 +1661,11 @@ def register_subcontract_routes(app):
             if not wh_ok:
                 return api_error(wh_err)
 
+            # BUG-2026-08-16-001：开启库位管理时库位必填（AGENTS.md 规则二）
+            location = (request.form.get('location') or '').strip()
+            if location_management_enabled() and not location:
+                return api_error('请输入库位')
+
             if not receive_no:
                 receive_no = generate_order_no('SR')
 
@@ -1614,6 +1674,7 @@ def register_subcontract_routes(app):
                 subcontract_order_id=int(subcontract_order_id),
                 supplier_id=subcontract_order.supplier_id,
                 warehouse=warehouse,
+                location=location,
                 remark=remark,
                 status='pending',
                 operator_id=current_user.id
@@ -1815,7 +1876,8 @@ def register_subcontract_routes(app):
         """完成委外收货"""
         from sqlalchemy.orm import selectinload
         from app import (SubcontractReceive, _acquire_order_write_lock, add_stock,
-                         api_error, assert_warehouse_active, log_operation)
+                         api_error, assert_warehouse_active, location_management_enabled,
+                         log_operation, update_location_inventory)
         receive = SubcontractReceive.query.get_or_404(id)
         if receive.status != 'pending':
             return api_error('只有待收货状态可以完成收货')
@@ -1853,6 +1915,14 @@ def register_subcontract_routes(app):
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存增加失败')
+                    # BUG-2026-08-16-001：同步增加库位账，防止总账与库位账分叉
+                    if location_management_enabled() and (receive.location or receive.warehouse):
+                        loc_ok, loc_err = update_location_inventory(
+                            item.material, receive.location or receive.warehouse,
+                            item.quantity or 0, warehouse=receive.warehouse)
+                        if not loc_ok:
+                            db.session.rollback()
+                            return api_error(loc_err or '库位库存增加失败')
                     total_quantity += item.quantity or 0
                     total_scrap += item.scrap_quantity or 0
 
@@ -1882,7 +1952,8 @@ def register_subcontract_routes(app):
         """反提交委外收货"""
         from sqlalchemy.orm import selectinload
         from app import (SubcontractReceive, _acquire_order_write_lock, api_error,
-                         deduct_stock, log_operation)
+                         deduct_stock, location_management_enabled, log_operation,
+                         update_location_inventory)
         receive = SubcontractReceive.query.get_or_404(id)
         if receive.status != 'completed':
             return api_error('只有已入库的委外收货单可以反提交')
@@ -1905,6 +1976,14 @@ def register_subcontract_routes(app):
                     if not ok:
                         db.session.rollback()
                         return api_error(error_msg or '库存回退失败')
+                    # BUG-2026-08-16-001：同步回退库位账，与总账回退保持一致
+                    if location_management_enabled() and (receive.location or receive.warehouse):
+                        loc_ok, loc_err = update_location_inventory(
+                            item.material, receive.location or receive.warehouse,
+                            -(item.quantity or 0), warehouse=receive.warehouse)
+                        if not loc_ok:
+                            db.session.rollback()
+                            return api_error(loc_err or '库位库存回退失败')
             receive.status = 'pending'
             db.session.commit()
             log_operation('反提交委外收货', f'收货单：{receive.receive_no}', 'subcontract_receive', id)

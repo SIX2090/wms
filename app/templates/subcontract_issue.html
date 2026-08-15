@@ -169,6 +169,14 @@
                             <input type="text" class="form-control" name="remark" placeholder="选填">
                         </div>
                     </div>
+                    {% if location_management_enabled %}
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">库位 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="location" maxlength="100" placeholder="请输入库位" required>
+                        </div>
+                    </div>
+                    {% endif %}
                     
                     <hr>
                     <h6>发料明细 <button type="button" class="btn btn-sm btn-outline-primary" onclick="addItemRow()"><i class="bi bi-plus"></i> 添加物料</button></h6>

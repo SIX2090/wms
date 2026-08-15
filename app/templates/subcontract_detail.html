@@ -453,6 +453,12 @@
                         <label class="form-label fw-medium">发料数量 <span class="text-danger">*</span></label>
                         <input class="form-control" id="issueQty" type="number" step="0.01" placeholder="请输入发料数量">
                     </div>
+                    {% if location_management_enabled %}
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">库位 <span class="text-danger">*</span></label>
+                        <input class="form-control" id="issueLocation" maxlength="100" placeholder="请输入库位">
+                    </div>
+                    {% endif %}
                 </div>
             </div>
             <div class="modal-footer">
@@ -497,6 +503,12 @@
                         <label class="form-label fw-medium">单价</label>
                         <input class="form-control" id="receivePrice" type="number" step="0.01" placeholder="请输入单价">
                     </div>
+                    {% if location_management_enabled %}
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">库位 <span class="text-danger">*</span></label>
+                        <input class="form-control" id="receiveLocation" maxlength="100" placeholder="请输入库位">
+                    </div>
+                    {% endif %}
                 </div>
             </div>
             <div class="modal-footer">
@@ -913,7 +925,9 @@ function issueMaterial() {
 function confirmIssue() {
     const code = document.getElementById('issueCode').value.trim();
     const qty = parseFloat(document.getElementById('issueQty').value);
-    
+    const locationInput = document.getElementById('issueLocation');
+    const location = locationInput ? locationInput.value.trim() : '';
+
     if (!code) {
         showToast('请输入物料编码', 'warning');
         return;
@@ -922,11 +936,15 @@ function confirmIssue() {
         showToast('请输入有效的数量', 'warning');
         return;
     }
-    
+    if (locationInput && !location) {
+        showToast('请输入库位', 'warning');
+        return;
+    }
+
     fetch('/subcontract/{{ order.id }}/issue', {
         method: 'POST',
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'material_code=' + encodeURIComponent(code) + '&quantity=' + qty
+        body: 'material_code=' + encodeURIComponent(code) + '&quantity=' + qty + '&location=' + encodeURIComponent(location)
     })
     .then(r => r.json())
     .then(res => {
@@ -949,7 +967,9 @@ function confirmReceive() {
     const code = document.getElementById('receiveCode').value.trim();
     const qty = parseFloat(document.getElementById('receiveQty').value);
     const price = parseFloat(document.getElementById('receivePrice').value) || 0;
-    
+    const locationInput = document.getElementById('receiveLocation');
+    const location = locationInput ? locationInput.value.trim() : '';
+
     if (!code) {
         showToast('请输入产品编码', 'warning');
         return;
@@ -958,11 +978,15 @@ function confirmReceive() {
         showToast('请输入有效的数量', 'warning');
         return;
     }
-    
+    if (locationInput && !location) {
+        showToast('请输入库位', 'warning');
+        return;
+    }
+
     fetch('/subcontract/{{ order.id }}/receive', {
         method: 'POST',
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'material_code=' + encodeURIComponent(code) + '&quantity=' + qty + '&price=' + price
+        body: 'material_code=' + encodeURIComponent(code) + '&quantity=' + qty + '&price=' + price + '&location=' + encodeURIComponent(location)
     })
     .then(r => r.json())
     .then(res => {
