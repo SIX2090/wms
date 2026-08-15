@@ -130,3 +130,26 @@ class TestOutOrderRegister:
             assert order.business_type == "领料单"
             assert len(order.items) == 1
             assert order.items[0].quantity == 2
+
+    def test_reverted_draft_can_load_edit_page_with_items(self):
+        client = self._setup()
+        _login(client)
+        created = client.post("/out_order/add", json={
+            "business_type": "领料单",
+            "date": "2026-08-04",
+            "warehouse": "出库仓",
+            "items": [{
+                "code": "OM1", "quantity": 3, "price": 7,
+                "contract_no": "HT-OUT-001", "project_name": "领料工程",
+            }],
+        }).get_json()
+        page = client.get(f"/out_order/add?order_id={created['id']}")
+        assert page.status_code == 200
+        content = page.get_data(as_text=True)
+        assert '"contract_no": "HT-OUT-001"' in content
+        assert '"material_code": "OM1"' in content
+        with app_module.app.app_context():
+            order = db.session.get(OutOrder, created["id"])
+            order.status = "completed"
+            db.session.commit()
+        assert client.get(f"/out_order/add?order_id={created['id']}").status_code == 409

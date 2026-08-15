@@ -39,7 +39,7 @@ from __future__ import annotations
 import json
 import math
 
-from flask import flash, jsonify, redirect, render_template, request, send_file, url_for
+from flask import abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from db import db
@@ -514,14 +514,23 @@ def register_in_order_routes(app):
         from app import (Customer, Material, Supplier, Unit, generate_order_no,
                          get_active_warehouses, get_default_warehouse, location_management_enabled,
                          serialize_customer, serialize_material, serialize_supplier, serialize_unit)
+        from app import InOrder, InOrderItem
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()
+        order_id = request.args.get('order_id', type=int)
+        order = None
+        if order_id:
+            order = InOrder.query.options(
+                joinedload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit)
+            ).get_or_404(order_id)
+            if order.status != 'pending':
+                abort(409, '只有反提交后的草稿入库单可以编辑')
         order_type = 'other_in' if request.path == '/other_in_order/add' else (request.args.get('type') or '').strip().lower()
         source_purchase_order_id = request.args.get('source_purchase_order_id', type=int) or None
-        is_product_in = order_type in ('product', 'product_in')
-        is_other_in = order_type in ('other', 'other_in')
-        business_type = '其他入库' if is_other_in else ('产品入库' if is_product_in else '采购入库')
-        order_no = generate_order_no('OI' if is_other_in else ('PI' if is_product_in else 'IN'))
+        is_product_in = order.business_type == '产品入库' if order else order_type in ('product', 'product_in')
+        is_other_in = order.business_type == '其他入库' if order else order_type in ('other', 'other_in')
+        business_type = order.business_type if order else ('其他入库' if is_other_in else ('产品入库' if is_product_in else '采购入库'))
+        order_no = order.order_no if order else generate_order_no('OI' if is_other_in else ('PI' if is_product_in else 'IN'))
         parties = Customer.query.order_by(Customer.code.asc()).all() if is_other_in else Supplier.query.all()
         warehouses = get_active_warehouses()
         default_warehouse = get_default_warehouse()
@@ -536,7 +545,7 @@ def register_in_order_routes(app):
                              is_product_in=is_product_in,
                              is_other_in=is_other_in,
                              business_type=business_type,
-                             default_purpose='客供料入库' if is_other_in else ('生产完工入库' if is_product_in else '采购到货入库'),
+                             default_purpose=order.purpose if order else ('客供料入库' if is_other_in else ('生产完工入库' if is_product_in else '采购到货入库')),
                              page_title='新增产品入库单' if is_product_in else ('新增其他入库单' if is_other_in else '新增采购入库单'),
                              supplier_required=not is_product_in,
                              party_field='customer_id' if is_other_in else 'supplier_id',
@@ -545,20 +554,30 @@ def register_in_order_routes(app):
                              return_add_url='/other_in_order/add' if is_other_in else ('/in_order/add?type=product' if is_product_in else '/in_order/add'),
                              source_purchase_order_id=source_purchase_order_id,
                              prefill={
-                                 'warehouse': (request.args.get('warehouse') or '').strip(),
-                                 'purpose': (request.args.get('purpose') or '').strip(),
-                                 'contract_id': (request.args.get('contract_id') or '').strip(),
-                                 'contract_no': (request.args.get('contract_no') or '').strip(),
-                                 'project_name': (request.args.get('project_name') or '').strip(),
-                                 'remark': (request.args.get('remark') or '').strip(),
+                                 'warehouse': order.warehouse if order else (request.args.get('warehouse') or '').strip(),
+                                 'location': order.location if order else (request.args.get('location') or '').strip(),
+                                 'purpose': order.purpose if order else (request.args.get('purpose') or '').strip(),
+                                 'contract_id': str(order.contract_id or '') if order else (request.args.get('contract_id') or '').strip(),
+                                 'contract_no': order.contract_no if order else (request.args.get('contract_no') or '').strip(),
+                                 'project_name': order.project_name if order else (request.args.get('project_name') or '').strip(),
+                                 'remark': order.remark if order else (request.args.get('remark') or '').strip(),
                                  'customer': (request.args.get('customer') or '').strip(),
                                  'department_id': (request.args.get('department_id') or '').strip(),
-                                 'supplier_id': (request.args.get('supplier_id') or '').strip(),
-                                 'customer_id': (request.args.get('customer_id') or '').strip(),
+                                 'supplier_id': str(order.supplier_id or '') if order else (request.args.get('supplier_id') or '').strip(),
+                                 'customer_id': str(order.customer_id or '') if order else (request.args.get('customer_id') or '').strip(),
                              },
-                             order_id=None,
+                             order_id=order.id if order else None,
                              order_no=order_no,
-                             order_date=order_date,
+                             order_date=order.date.strftime('%Y-%m-%d') if order and order.date else order_date,
+                             edit_items=[{
+                                 'material_code': item.material.code,
+                                 'source_purchase_order_item_id': item.source_purchase_order_item_id,
+                                 'quantity': item.quantity,
+                                 'price': item.price,
+                                 'contract_no': item.contract_no or '',
+                                 'project_name': item.project_name or '',
+                                 'remark': item.remark or '',
+                             } for item in order.items] if order else [],
                              today=date.today())
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务

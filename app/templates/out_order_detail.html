@@ -154,6 +154,9 @@
                     <i class="bi bi-plus-square"></i> 再建一张
                 </a>
                 {% if order.status == 'pending' %}
+                <a class="btn btn-sm btn-outline-primary" href="/out_order/add?order_id={{ order.id }}">
+                    <i class="bi bi-pencil-square"></i> 编辑明细
+                </a>
                 <button class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})">
                     <i class="bi bi-check-circle"></i> 完成领料
                 </button>

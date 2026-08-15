@@ -138,3 +138,27 @@ class TestInOrderRegister:
             assert order.warehouse == "入库仓"
             assert len(order.items) == 1
             assert order.items[0].quantity == 2
+
+    def test_reverted_draft_can_load_edit_page_with_items(self):
+        client = self._setup()
+        _login(client)
+        created = client.post("/in_order/add", json={
+            "business_type": "采购入库",
+            "supplier_id": _SUPPLIER_ID["id"],
+            "warehouse": "入库仓",
+            "items": [{
+                "code": "IM1", "quantity": 3, "price": 12,
+                "contract_no": "HT-IN-001", "project_name": "入库工程",
+            }],
+        }).get_json()
+        page = client.get(f"/in_order/add?order_id={created['id']}")
+        assert page.status_code == 200
+        content = page.get_data(as_text=True)
+        assert '"contract_no": "HT-IN-001"' in content
+        assert '"material_code": "IM1"' in content
+        assert '"source_purchase_order_item_id": null' in content
+        with app_module.app.app_context():
+            order = db.session.get(InOrder, created["id"])
+            order.status = "completed"
+            db.session.commit()
+        assert client.get(f"/in_order/add?order_id={created['id']}").status_code == 409

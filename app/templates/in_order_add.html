@@ -545,8 +545,8 @@ textarea.form-control {
                     <div class="mb-2">
                         <label class="form-label">{{ party_label or ('生产来源' if is_product_in else '供应商') }}{% if not supplier_required %}<span class="text-muted">（可选）</span>{% endif %}</label>
                         <div class="supplier-input" style="position:relative;">
-                            <input type="text" id="supplierSearch" placeholder="搜索{{ party_label or '供应商' }}..." autocomplete="off" style="width:100%;border:1px solid #d9d9d9;padding:6px 10px;border-radius:4px;font-size:13px;">
-                            <input type="hidden" name="{{ party_field or 'supplier_id' }}" id="supplierIdHidden">
+                            <input type="text" id="supplierSearch" placeholder="搜索{{ party_label or '供应商' }}..." autocomplete="off" value="{% for party in suppliers if party.id|string == prefill.supplier_id|string %}{{ party.name }}{% endfor %}" style="width:100%;border:1px solid #d9d9d9;padding:6px 10px;border-radius:4px;font-size:13px;">
+                            <input type="hidden" name="{{ party_field or 'supplier_id' }}" id="supplierIdHidden" value="{{ prefill.supplier_id if prefill else '' }}">
                             <div id="supplierDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;min-width:100%;max-height:200px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
                         </div>
                     </div>
@@ -577,7 +577,7 @@ textarea.form-control {
                     <div class="mb-2">
                         <label class="form-label">库位 <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="location" maxlength="100"
-                               placeholder="请输入库位" required>
+                               value="{{ prefill.location if prefill and prefill.location else '' }}" placeholder="请输入库位" required>
                     </div>
                 </div>
                 {% endif %}
@@ -1540,8 +1540,23 @@ document.addEventListener('click', function(e) {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Default to 30 empty rows so the table looks complete on first open.
-    if (!document.querySelector('#materialTableBody tr')) {
+    const editItems = {{ edit_items | tojson }};
+    editItems.forEach((item) => {
+        addNewRow();
+        const row = document.querySelector('#materialTableBody tr:last-child');
+        row.querySelector('.material-code').value = item.material_code;
+        if (item.source_purchase_order_item_id) {
+            row.dataset.sourcePurchaseOrderItemId = item.source_purchase_order_item_id;
+        }
+        handleMaterialCodeInput(row);
+        row.querySelector('.material-qty').value = item.quantity;
+        row.querySelector('.material-price').value = item.price;
+        row.querySelector('.line-contract-no').value = item.contract_no;
+        row.querySelector('.line-project-name').value = item.project_name;
+        row.querySelector('.material-remark').value = item.remark;
+        calcAmount(row);
+    });
+    if (!editItems.length && !document.querySelector('#materialTableBody tr')) {
         for (let i = 0; i < 30; i++) addNewRow();
     }
     if (window.WMS && window.WMS.ContractAutocomplete) {

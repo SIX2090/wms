@@ -156,6 +156,9 @@
                     <i class="bi bi-plus-square"></i> 再建一张
                 </a>
                 {% if order.status == 'pending' %}
+                <a class="btn btn-sm btn-outline-primary" href="/in_order/add?order_id={{ order.id }}">
+                    <i class="bi bi-pencil-square"></i> 编辑明细
+                </a>
                 <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editHeaderModal">
                     <i class="bi bi-pencil-square"></i> 编辑单据
                 </button>

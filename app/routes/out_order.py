@@ -26,7 +26,7 @@ from __future__ import annotations
 import io
 import json
 
-from flask import jsonify, render_template, request, send_file, url_for
+from flask import abort, jsonify, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from db import db
@@ -223,7 +223,7 @@ def register_out_order_routes(app):
     @login_required
     def out_order_add_page():
         from datetime import date, datetime
-        from app import (Customer, Department, Material, Unit,
+        from app import (Customer, Department, Material, OutOrder, OutOrderItem, Unit,
                          generate_order_no, get_active_warehouses,
                          get_default_warehouse, location_management_enabled,
                          serialize_customer, serialize_material, serialize_unit)
@@ -231,13 +231,21 @@ def register_out_order_routes(app):
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()
         customers = Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all()
+        order_id = request.args.get('order_id', type=int)
+        order = None
+        if order_id:
+            order = OutOrder.query.options(
+                joinedload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit)
+            ).get_or_404(order_id)
+            if order.status != 'pending':
+                abort(409, '只有反提交后的草稿领料单可以编辑')
         order_type = 'other_out' if request.path == '/other_out_order/add' else (request.args.get('type') or '').strip().lower()
-        is_sale_order = order_type in ('sale', 'sales')
-        is_other_out = order_type in ('other', 'other_out')
+        is_sale_order = order.business_type == '销售出库' if order else order_type in ('sale', 'sales')
+        is_other_out = order.business_type == '其他出库' if order else order_type in ('other', 'other_out')
         departments = Department.query.filter_by(status='active').all()
         warehouses = get_active_warehouses()
-        order_no = generate_order_no('OO' if is_other_out else ('SO' if is_sale_order else 'OUT'))
-        order_date = datetime.now().strftime('%Y-%m-%d')
+        order_no = order.order_no if order else generate_order_no('OO' if is_other_out else ('SO' if is_sale_order else 'OUT'))
+        order_date = order.date.strftime('%Y-%m-%d') if order and order.date else datetime.now().strftime('%Y-%m-%d')
         return render_template('out_order_add.html',
                              materials=[serialize_material(material) for material in materials],
                              units=[serialize_unit(unit) for unit in units],
@@ -257,18 +265,29 @@ def register_out_order_routes(app):
                              return_list_url='/other_out_order' if is_other_out else '/out_order',
                              return_add_url='/other_out_order/add' if is_other_out else '/out_order/add',
                              prefill={
-                                 'warehouse': (request.args.get('warehouse') or '').strip(),
-                                 'purpose': (request.args.get('purpose') or '').strip(),
-                                 'contract_id': (request.args.get('contract_id') or '').strip(),
-                                 'contract_no': (request.args.get('contract_no') or '').strip(),
-                                 'project_name': (request.args.get('project_name') or '').strip(),
-                                 'remark': (request.args.get('remark') or '').strip(),
-                                 'customer': (request.args.get('customer') or '').strip(),
-                                 'department_id': (request.args.get('department_id') or '').strip(),
-                                 'picker': (request.args.get('picker') or '').strip(),
-                                 'business_type': (request.args.get('business_type') or '').strip(),
+                                 'warehouse': order.warehouse if order else (request.args.get('warehouse') or '').strip(),
+                                 'location': order.location if order else (request.args.get('location') or '').strip(),
+                                 'purpose': order.purpose if order else (request.args.get('purpose') or '').strip(),
+                                 'contract_id': str(order.contract_id or '') if order else (request.args.get('contract_id') or '').strip(),
+                                 'contract_no': order.contract_no if order else (request.args.get('contract_no') or '').strip(),
+                                 'project_name': order.project_name if order else (request.args.get('project_name') or '').strip(),
+                                 'remark': order.remark if order else (request.args.get('remark') or '').strip(),
+                                 'customer': order.customer if order else (request.args.get('customer') or '').strip(),
+                                 'department_id': str(order.department_id or '') if order else (request.args.get('department_id') or '').strip(),
+                                 'picker': order.picker if order else (request.args.get('picker') or '').strip(),
+                                 'business_type': order.business_type if order else (request.args.get('business_type') or '').strip(),
                              },
-                             order_id=None, order_no=order_no, order_date=order_date,
+                             order_id=order.id if order else None,
+                             order_no=order_no,
+                             order_date=order_date,
+                             edit_items=[{
+                                 'material_code': item.material.code,
+                                 'quantity': item.quantity,
+                                 'price': item.price,
+                                 'contract_no': item.contract_no or '',
+                                 'project_name': item.project_name or '',
+                                 'remark': item.remark or '',
+                             } for item in order.items] if order else [],
                              today=date.today())
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务

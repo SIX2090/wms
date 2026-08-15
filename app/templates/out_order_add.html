@@ -547,7 +547,7 @@ textarea.form-control {
                     <div class="mb-2">
                         <label class="form-label">库位 <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="location" maxlength="100"
-                               placeholder="请输入库位" required>
+                               value="{{ prefill.location if prefill and prefill.location else '' }}" placeholder="请输入库位" required>
                     </div>
                 </div>
                 {% endif %}
@@ -1293,8 +1293,22 @@ document.addEventListener('click', function(e) {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-    // 默认预置30行空明细行
-    for (var i = 0; i < 30; i++) { addNewRow(); }
+    const editItems = {{ edit_items | tojson }};
+    editItems.forEach((item) => {
+        addNewRow();
+        const row = document.querySelector('#materialTableBody tr:last-child');
+        row.querySelector('.material-code').value = item.material_code;
+        handleMaterialCodeInput(row);
+        row.querySelector('.material-qty').value = item.quantity;
+        row.querySelector('.material-price').value = item.price;
+        row.querySelector('.line-contract-no').value = item.contract_no;
+        row.querySelector('.line-project-name').value = item.project_name;
+        row.querySelector('.material-remark').value = item.remark;
+        calcAmount(row);
+    });
+    if (!editItems.length) {
+        for (var i = 0; i < 30; i++) { addNewRow(); }
+    }
     if (window.WMS && window.WMS.ContractAutocomplete) {
         window.WMS.ContractAutocomplete.bindAll();
     }
