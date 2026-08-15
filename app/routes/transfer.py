@@ -425,7 +425,7 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def complete_transfer(id):
-        from app import (TransferOrder, _acquire_order_write_lock, add_stock_transaction, api_error, deduct_location_inventory_atomic, location_management_enabled, log_operation, resolve_inventory_warehouse_id, update_location_inventory)
+        from app import (TransferOrder, Warehouse, _acquire_order_write_lock, add_stock_transaction, api_error, deduct_location_inventory_atomic, get_warehouse_stock_quantities, location_management_enabled, log_operation, resolve_inventory_warehouse_id, update_location_inventory)
         from sqlalchemy.orm import selectinload
         from flask import jsonify
         """完成调拨"""
@@ -458,6 +458,27 @@ def register_transfer_routes(app):
                 if not (transfer.to_location or '').strip():
                     db.session.rollback()
                     return api_error('库位管理已启用，请选择调入库位')
+            else:
+                # BUG-2026-08-16-008：关库位管理分支校验源仓库库存（依赖 BUG-006
+                # 的仓库级口径 get_warehouse_stock_quantities），防止从 0 库存仓库
+                # "空手套白狼"调出任意数量。找不到仓库主数据时跳过（无法聚合）。
+                from_wh_obj = None
+                if (transfer.from_warehouse or '').strip():
+                    wh_key = transfer.from_warehouse.strip()
+                    from_wh_obj = Warehouse.query.filter(
+                        db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
+                    ).order_by(Warehouse.id.asc()).first()
+                if from_wh_obj:
+                    src_stock = get_warehouse_stock_quantities(from_wh_obj)
+                    for item in transfer.items:
+                        if not item.material_id:
+                            continue
+                        qty = item.quantity or 0
+                        if qty > 0 and (src_stock.get(item.material_id, 0) + 1e-9) < qty:
+                            mat_code = item.material.code if item.material else str(item.material_id)
+                            available = src_stock.get(item.material_id, 0)
+                            db.session.rollback()
+                            return api_error(f'调出仓库 {transfer.from_warehouse} 库存不足：{mat_code}（需要 {qty}，可用 {available:.2f}）')
             for item in transfer.items:
                 if not item.material_id:
                     continue
