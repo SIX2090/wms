@@ -161,6 +161,7 @@ def register_material_routes(app):
             add_stock_transaction,
             api_error,
             get_default_warehouse,
+            location_management_enabled,
             material_name_spec_exists,
             parse_bounded_number,
             parse_float_value,
@@ -169,6 +170,7 @@ def register_material_routes(app):
             save_upload_image,
             serialize_supplier,
             serialize_unit,
+            update_location_inventory,
         )
         from utils import sync_material_primary_image
         if request.method == 'GET':
@@ -257,36 +259,46 @@ def register_material_routes(app):
             image=image_path
         )
         db.session.add(material)
+        # BUG-2026-08-16-003：初始库存审计流水、库位账与物料在同一事务提交，
+        # 消除原"先 commit 物料、再 commit 流水"双提交窗口（中间失败会留下
+        # 库存已涨、流水缺失的不一致状态）。
         try:
+            db.session.flush()
+            # 统一多图：新增物料上传的图片写入 material_image 表（与手机端同目录/同表），
+            # 并同步 Material.image 为该图作为 Web 列表主图。
+            if image_path:
+                from app import MaterialImage
+                db.session.add(MaterialImage(material_id=material.id, image=image_path, sort_order=0))
+                sync_material_primary_image(material)
+            # BUG-2026-08-04-009: 新增物料带初始库存时补一条审计流水，保证库存台账/月报
+            # 可追溯（与期初库存调整 opening_stock 语义一致）。仅在有初始库存时记录。
+            if initial_stock and initial_stock > 0:
+                _loc = None
+                _default_wh = get_default_warehouse()
+                if _default_wh:
+                    _loc = _default_wh.name
+                add_stock_transaction(
+                    material,
+                    initial_stock,
+                    'opening',
+                    reference_type='opening_stock',
+                    reference_id=material.id,
+                    location=_loc,
+                    remark='新增物料初始库存',
+                )
+                # BUG-2026-08-16-003：开启库位管理时同步写库位账（初始库存归默认
+                # 仓库，以仓库名作占位行），防止总账与库位账分叉。
+                if _default_wh and location_management_enabled():
+                    ok_inv, msg_inv = update_location_inventory(
+                        material, _loc, initial_stock, warehouse=_default_wh)
+                    if not ok_inv:
+                        db.session.rollback()
+                        return api_error(f'初始库存写入库位账失败：{msg_inv}')
             db.session.commit()
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'物料创建失败: {e}')
             return jsonify({'status': 'error', 'msg': '物料创建失败，编码可能已存在'}), 500
-        # 统一多图：新增物料上传的图片写入 material_image 表（与手机端同目录/同表），
-        # 并同步 Material.image 为该图作为 Web 列表主图。
-        if image_path:
-            from app import MaterialImage
-            db.session.add(MaterialImage(material_id=material.id, image=image_path, sort_order=0))
-            sync_material_primary_image(material)
-            db.session.commit()
-        # BUG-2026-08-04-009: 新增物料带初始库存时补一条审计流水，保证库存台账/月报
-        # 可追溯（与期初库存调整 opening_stock 语义一致）。仅在有初始库存时记录。
-        if initial_stock and initial_stock > 0:
-            _loc = None
-            _default_wh = get_default_warehouse()
-            if _default_wh:
-                _loc = _default_wh.name
-            add_stock_transaction(
-                material,
-                initial_stock,
-                'opening',
-                reference_type='opening_stock',
-                reference_id=material.id,
-                location=_loc,
-                remark='新增物料初始库存',
-            )
-            db.session.commit()
         current_app.logger.info(f'物料创建成功：{material.code}')
         return jsonify({'status': 'success', 'msg': '物料新增成功'})
 
