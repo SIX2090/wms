@@ -162,6 +162,7 @@ def register_material_routes(app):
             api_error,
             get_default_warehouse,
             location_management_enabled,
+            log_audit,
             material_name_spec_exists,
             parse_bounded_number,
             parse_float_value,
@@ -299,6 +300,23 @@ def register_material_routes(app):
             db.session.rollback()
             current_app.logger.error(f'物料创建失败: {e}')
             return jsonify({'status': 'error', 'msg': '物料创建失败，编码可能已存在'}), 500
+        # BUG-2026-08-16-012：物料新增写结构化变更审计（new_data）
+        log_audit(
+            'add_material', 'material', material.id,
+            target_name=f'{material.code} {material.name}',
+            new_data={
+                'code': material.code,
+                'name': material.name,
+                'spec': material.spec or '',
+                'brand': material.brand or '',
+                'category_id': material.category_id,
+                'unit_id': material.unit_id,
+                'supplier_id': material.supplier_id,
+                'price': material.price or 0,
+                'stock': material.stock or 0,
+                'remark': material.remark or '',
+            },
+        )
         current_app.logger.info(f'物料创建成功：{material.code}')
         return jsonify({'status': 'success', 'msg': '物料新增成功'})
 
@@ -446,6 +464,7 @@ def register_material_routes(app):
             SubcontractItem,
             api_error,
             inventory_alert_enabled,
+            log_audit,
             material_code_editable,
             material_name_spec_exists,
             parse_bounded_number,
@@ -506,6 +525,14 @@ def register_material_routes(app):
         old_code = material.code
         old_name = material.name
         old_spec = material.spec  # BUG-2026-08-04-005: 赋值前捕获旧规格，否则 spec_changed 永为 False
+        # BUG-2026-08-16-012：修改前捕获完整旧值，供结构化变更审计（含单价/角色等敏感字段）
+        _audit_old = {
+            'code': material.code, 'name': material.name, 'spec': material.spec or '',
+            'brand': material.brand or '', 'category_id': material.category_id,
+            'unit_id': material.unit_id, 'supplier_id': material.supplier_id,
+            'price': material.price or 0, 'min_stock': material.min_stock or 0,
+            'max_stock': material.max_stock or 0, 'remark': material.remark or '',
+        }
         code_changed = (old_code != new_code)
         name_changed = (old_name != new_name)
         spec_changed = (old_spec != new_spec)  # 必须在 material.spec = new_spec 之前比较
@@ -594,6 +621,19 @@ def register_material_routes(app):
             db.session.rollback()
             current_app.logger.error(f'物料更新失败: {e}')
             return jsonify({'status': 'error', 'msg': '物料更新失败'}), 500
+        # BUG-2026-08-16-012：物料编辑写结构化变更审计（old_data + new_data，含单价变化）
+        log_audit(
+            'edit_material', 'material', id,
+            target_name=f'{material.code} {material.name}',
+            old_data=_audit_old,
+            new_data={
+                'code': material.code, 'name': material.name, 'spec': material.spec or '',
+                'brand': material.brand or '', 'category_id': material.category_id,
+                'unit_id': material.unit_id, 'supplier_id': material.supplier_id,
+                'price': material.price or 0, 'min_stock': material.min_stock or 0,
+                'max_stock': material.max_stock or 0, 'remark': material.remark or '',
+            },
+        )
         # 统一多图：编辑物料时上传的新图片追加到 material_image 表（与手机端同目录/同表），
         # 并同步 Material.image 为该图作为 Web 列表主图。
         if new_image_path:
@@ -675,6 +715,7 @@ def register_material_routes(app):
             SubcontractReceiveItem,
             TransferOrderItem,
             api_error,
+            log_audit,
             log_operation,
         )
         import json
@@ -694,6 +735,8 @@ def register_material_routes(app):
 
         success_count = 0
         fail_count = 0
+        # BUG-2026-08-16-012：记录被删物料快照，供结构化变更审计
+        _deleted_audit = []
 
         for id in ids:
             material = db.session.get(Material, id)
@@ -738,6 +781,10 @@ def register_material_routes(app):
                         _sa_text("DELETE FROM material WHERE id = :m_id"),
                         {"m_id": id},
                     )
+                    _deleted_audit.append({
+                        'id': id, 'code': material.code, 'name': material.name,
+                        'spec': material.spec or '', 'price': material.price or 0,
+                    })
                     success_count += 1
                 except Exception as e:
                     # 单条删除失败必须 rollback，否则 session 进入 PendingRollback 状态，
@@ -757,6 +804,14 @@ def register_material_routes(app):
 
         # 记录操作日志
         log_operation('删除物料', f'批量删除物料，成功 {success_count} 条，失败 {fail_count} 条', 'material')
+        # BUG-2026-08-16-012：物料删除写结构化变更审计（old_data = 被删物料快照）
+        if _deleted_audit:
+            log_audit(
+                'delete_material', 'material', _deleted_audit[0]['id'],
+                target_name=f'删除物料 {success_count} 条',
+                old_data=_deleted_audit,
+                reason=f'成功 {success_count} 条，失败 {fail_count} 条',
+            )
 
         if success_count == 0:
             return api_error('删除失败，没有物料被删除')
