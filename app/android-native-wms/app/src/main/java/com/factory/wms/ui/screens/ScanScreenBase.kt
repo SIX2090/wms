@@ -24,6 +24,7 @@ import com.factory.wms.data.model.ScanLine
 import com.factory.wms.ui.components.ScannerDialog
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
+import com.factory.wms.ui.viewmodel.scan.SubmittedPrintInfo
 import com.factory.wms.util.formatQuantity
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,7 +55,12 @@ fun ScanScreenBase(
     extraActionLabel: String? = null,
     onExtraAction: (() -> Unit)? = null,
     // 可选的顶部区域（如出入库的仓库选择），渲染在汇总条之前
-    header: (@Composable () -> Unit)? = null
+    header: (@Composable () -> Unit)? = null,
+    // 提交成功后的"打印单据"横幅（提交入库/出库后出现）
+    submittedPrint: SubmittedPrintInfo? = null,
+    printLoading: Boolean = false,
+    onPrintOrder: (() -> Unit)? = null,
+    onDismissPrint: (() -> Unit)? = null
 ) {
     var showCameraScanner by remember { mutableStateOf(false) }
     Scaffold(
@@ -98,6 +104,85 @@ fun ScanScreenBase(
         ) {
             // 可选的顶部区域（如仓库选择）
             header?.invoke()
+
+            // 提交成功后的"打印单据"横幅
+            submittedPrint?.let { info ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = gradient.copy(alpha = 0.08f)
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Outlined.Print,
+                                null,
+                                tint = gradient,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "提交成功",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = OnSurface
+                                )
+                                Text(
+                                    info.orderNo?.let { "单号: $it" } ?: "已生成单据",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OnSurfaceVariant
+                                )
+                            }
+                            if (onDismissPrint != null) {
+                                IconButton(onClick = onDismissPrint, modifier = Modifier.size(32.dp)) {
+                                    Icon(
+                                        Icons.Outlined.Close,
+                                        "关闭",
+                                        tint = OnSurfaceSecondary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { onPrintOrder?.invoke() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            enabled = !printLoading && onPrintOrder != null,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = gradient)
+                        ) {
+                            if (printLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Outlined.Print,
+                                    null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "打印单据",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             // Summary bar
             if (scanLines.isNotEmpty()) {

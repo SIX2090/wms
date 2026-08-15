@@ -34,7 +34,7 @@ from flask_login import current_user, login_required
 from pydantic import BaseModel, field_validator
 
 from db import db
-from utils import require_role
+from utils import print_token_or_login_required, require_role
 
 
 # ==================== pydantic 输入模型（A8） ====================
@@ -49,8 +49,8 @@ class CreatePrintJobRequest(BaseModel):
     @field_validator('job_type')
     @classmethod
     def validate_job_type(cls, v: str) -> str:
-        if v not in ('out_order', 'in_order', 'label'):
-            raise ValueError('job_type 必须是 out_order / in_order / label')
+        if v not in ('out_order', 'in_order', 'label', 'material_archive'):
+            raise ValueError('job_type 必须是 out_order / in_order / label / material_archive')
         return v
 
     @field_validator('copies')
@@ -141,6 +141,8 @@ def _print_url(job):
         url = f'/out_order/{job.target_id}/print'
     elif job.job_type == 'in_order':
         url = f'/in_order/{job.target_id}/print'
+    elif job.job_type == 'material_archive':
+        url = f'/material_archive/{job.target_id}/print'
     else:
         url = f'/label/batch_print?ids={job.target_ids or ""}'
     if job.copies and job.copies > 1:
@@ -207,11 +209,21 @@ def register_print_queue_routes(app):
     from app import csrf  # agent API v1 走工作站令牌鉴权，豁免 CSRF（无 Web 会话）
 
     @app.route('/print_queue/jobs', methods=['POST'])
-    @require_role('warehouse')
-    @login_required
+    # pydantic:reason=请求体经 CreatePrintJobRequest（BaseModel）校验
+    @csrf.exempt
     def print_queue_create_job():
-        """手机端创建打印任务。"""
-        from app import PrintJob
+        """手机端创建打印任务（Web 会话或移动端 Bearer 令牌均可）。
+
+        手机端提交入库/出库后点"打印单据"、或物料档案详情页点"打印"时调用。
+        桌面端 Web 走会话鉴权；移动端走 Bearer 令牌（无 Web 会话，故豁免 CSRF，
+        与 native_api 各移动写接口 @csrf.exempt 一致）。
+        """
+        from app import PrintJob, get_bearer_user
+        user = current_user if current_user.is_authenticated else get_bearer_user()
+        if user is None:
+            return jsonify({'status': 'error', 'success': False, 'msg': '未登录或 Bearer Token 无效'}), 401
+        if user.role != 'admin' and user.role != 'warehouse':
+            return jsonify({'status': 'error', 'success': False, 'msg': '当前账号没有权限执行该操作'}), 403
         try:
             payload = request.get_json(silent=True) or {}
             req = CreatePrintJobRequest(**payload)
@@ -235,6 +247,11 @@ def register_print_queue_routes(app):
             if not target:
                 return jsonify({'status': 'error', 'msg': '采购入库单不存在'}), 404
             warehouse_name = target.warehouse or ''
+        elif req.job_type == 'material_archive':
+            from app import Material
+            target = db.session.get(Material, req.target_id)
+            if not target:
+                return jsonify({'status': 'error', 'msg': '物料不存在'}), 404
         else:
             from app import Material
             ids = [int(value) for value in req.target_ids.split(',') if value.strip().isdigit()]
@@ -248,7 +265,7 @@ def register_print_queue_routes(app):
             target_ids=req.target_ids,
             copies=req.copies,
             status='pending',
-            created_by=current_user.id if current_user.is_authenticated else None,
+            created_by=user.id,
             workstation_id=route.workstation_id if route else None,
             printer_id=route.printer_id if route else None,
             route_rule_id=route.id if route else None,
@@ -376,6 +393,37 @@ def register_print_queue_routes(app):
     def print_queue_station():
         """桌面端打印工作站守护页面。"""
         return render_template('print_station.html')
+
+    @app.route('/material_archive/<int:material_id>/print')
+    @print_token_or_login_required  # PRINT-ROUTING-F01-P3：支持 ptoken 免登录（Windows 打印代理）
+    def print_material_archive(material_id):
+        """物料档案打印页：展示物料基础信息 + 全部档案图片。
+
+        供手机端物料档案"打印"按钮生成的打印队列任务（job_type=material_archive）
+        在桌面打印工作站渲染出纸，同时支持 Web 端直接访问。
+        """
+        from datetime import datetime
+        from sqlalchemy.orm import joinedload
+        from app import Material, MaterialImage
+        material = Material.query.options(
+            joinedload(Material.unit),
+            joinedload(Material.category),
+            joinedload(Material.supplier),
+        ).get_or_404(material_id)
+        try:
+            images = (
+                MaterialImage.query.filter_by(material_id=material_id)
+                .order_by(MaterialImage.sort_order.asc(), MaterialImage.id.asc())
+                .all()
+            )
+        except Exception:
+            images = []
+        return render_template(
+            'material_archive_print.html',
+            material=material,
+            images=images,
+            now=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        )
 
     @app.route('/print_queue/stats')
     @require_role('warehouse')

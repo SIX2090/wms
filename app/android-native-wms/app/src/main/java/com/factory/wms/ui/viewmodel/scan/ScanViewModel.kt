@@ -23,7 +23,19 @@ data class ScanUiState(
     // 仓库选择（出入库必填，透传给后端）
     val warehouses: List<WarehouseDto> = emptyList(),
     val warehousesLoading: Boolean = false,
-    val selectedWarehouse: WarehouseDto? = null
+    val selectedWarehouse: WarehouseDto? = null,
+    // 提交成功后待打印的单据信息（"打印单据"按钮）
+    val submittedPrint: SubmittedPrintInfo? = null,
+    val printLoading: Boolean = false
+)
+
+/** 提交成功后可再次触发打印的单据信息。 */
+data class SubmittedPrintInfo(
+    /** out_order / in_order */
+    val jobType: String,
+    /** 单据主键 ID */
+    val targetId: Int,
+    val orderNo: String?
 )
 
 class ScanViewModel(application: Application) : AndroidViewModel(application) {
@@ -157,7 +169,14 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         isLoading = false,
                         success = "入库成功！单号: ${submitResult.order_no}",
                         scanLines = emptyList(),
-                        totalQuantity = 0.0
+                        totalQuantity = 0.0,
+                        submittedPrint = submitResult.id?.let {
+                            SubmittedPrintInfo(
+                                jobType = "in_order",
+                                targetId = it,
+                                orderNo = submitResult.order_no
+                            )
+                        }
                     )
                 },
                 onFailure = { e ->
@@ -195,11 +214,45 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         isLoading = false,
                         success = "出库成功！单号: ${submitResult.order_no}",
                         scanLines = emptyList(),
-                        totalQuantity = 0.0
+                        totalQuantity = 0.0,
+                        submittedPrint = submitResult.id?.let {
+                            SubmittedPrintInfo(
+                                jobType = "out_order",
+                                targetId = it,
+                                orderNo = submitResult.order_no
+                            )
+                        }
                     )
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                }
+            )
+        }
+    }
+
+    /** 清除提交后待打印信息（新开一单或离开页面时调用）。 */
+    fun clearSubmittedPrint() {
+        _uiState.value = _uiState.value.copy(submittedPrint = null, printLoading = false)
+    }
+
+    /** 对最近一次提交成功的单据创建远程打印任务（"打印单据"按钮）。 */
+    fun printSubmittedOrder() {
+        val info = _uiState.value.submittedPrint ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(printLoading = true, error = null)
+            val result = repository.createPrintJob(
+                PrintJobRequest(jobType = info.jobType, targetId = info.targetId)
+            )
+            result.fold(
+                onSuccess = { _ ->
+                    _uiState.value = _uiState.value.copy(
+                        printLoading = false,
+                        success = "已加入打印队列，请到桌面端打印工作站查看"
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(printLoading = false, error = e.message)
                 }
             )
         }

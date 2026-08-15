@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block title %}打印物料档案{% endblock %}
+
+{% block extra_css %}
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
+        background: #f5f7fa;
+        padding: 20px;
+    }
+    .print-container { max-width: 900px; margin: 0 auto; }
+    .print-header {
+        background: #fff; padding: 16px 20px; border-radius: 8px;
+        margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .print-header h2 { font-size: 18px; color: #333; }
+    .print-actions { display: flex; gap: 10px; }
+    .archive-sheet {
+        background: #fff; padding: 24px; border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .sheet-title {
+        text-align: center; font-size: 20px; font-weight: 700; color: #1a1a1a;
+        border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 16px;
+    }
+    .material-info { margin-bottom: 16px; }
+    .info-table { width: 100%; border-collapse: collapse; }
+    .info-table td, .info-table th {
+        border: 1px solid #e2e2e2; padding: 8px 10px; font-size: 13px; vertical-align: top;
+    }
+    .info-table th {
+        background: #f7f8fa; color: #555; width: 110px; text-align: right; font-weight: 500;
+    }
+    .info-table td .value { color: #1a1a1a; font-weight: 500; }
+    .images-title {
+        font-size: 14px; font-weight: 600; color: #333; margin: 16px 0 10px;
+    }
+    .images-grid {
+        display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
+    }
+    .image-cell {
+        border: 1px solid #e2e2e2; border-radius: 6px; overflow: hidden;
+        page-break-inside: avoid; break-inside: avoid;
+    }
+    .image-cell img { width: 100%; display: block; }
+    .image-cell .caption {
+        padding: 6px 8px; font-size: 12px; color: #888; background: #fafafa; text-align: center;
+    }
+    .no-images {
+        text-align: center; padding: 32px; color: #999; font-size: 14px;
+        border: 1px dashed #d9d9d9; border-radius: 6px;
+    }
+    .print-footer {
+        margin-top: 20px; text-align: right; font-size: 12px; color: #999;
+    }
+    @media print {
+        @page { size: auto; margin: 10mm; }
+        body { background: #fff; padding: 0; }
+        .print-header { display: none !important; }
+        .archive-sheet { box-shadow: none; border-radius: 0; padding: 0; }
+        .image-cell { break-inside: avoid; page-break-inside: avoid; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+    <div class="print-container">
+        <div class="print-header">
+            <h2><i class="bi bi-printer"></i> 打印物料档案</h2>
+            <div class="print-actions">
+                <button class="btn btn-primary" onclick="window.print()">
+                    <i class="bi bi-printer"></i> 打印
+                </button>
+                <a class="btn" href="javascript:history.back()">返回</a>
+            </div>
+        </div>
+
+        <div class="archive-sheet">
+            <div class="sheet-title">物料档案卡</div>
+
+            <div class="material-info">
+                <table class="info-table">
+                    <tr>
+                        <th>物料编码</th>
+                        <td class="value">{{ material.code or '' }}</td>
+                        <th>物料名称</th>
+                        <td class="value">{{ material.name or '' }}</td>
+                    </tr>
+                    <tr>
+                        <th>规格型号</th>
+                        <td class="value">{{ material.spec or '-' }}</td>
+                        <th>品牌</th>
+                        <td class="value">{{ material.brand or '-' }}</td>
+                    </tr>
+                    <tr>
+                        <th>单位</th>
+                        <td class="value">{{ material.unit.name if material.unit else '-' }}</td>
+                        <th>分类</th>
+                        <td class="value">{{ material.category.name if material.category else '-' }}</td>
+                    </tr>
+                    <tr>
+                        <th>供应商</th>
+                        <td class="value">{{ material.supplier.name if material.supplier else '-' }}</td>
+                        <th>参考单价</th>
+                        <td class="value">{{ '%.2f'|format(material.price or 0) }}</td>
+                    </tr>
+                    <tr>
+                        <th>用途说明</th>
+                        <td colspan="3">{{ material.purpose or '-' }}</td>
+                    </tr>
+                    {% if material.remark %}
+                    <tr>
+                        <th>备注</th>
+                        <td colspan="3">{{ material.remark }}</td>
+                    </tr>
+                    {% endif %}
+                </table>
+            </div>
+
+            <div class="images-title">档案图片（{{ images|length }} 张）</div>
+            {% if images %}
+            <div class="images-grid">
+                {% for img in images %}
+                <div class="image-cell">
+                    <img src="{{ url_for('static', filename=img.image) }}" alt="档案图片 {{ loop.index }}">
+                    <div class="caption">第 {{ img.sort_order + 1 }} 张 · {{ img.created_at.strftime('%Y-%m-%d') if img.created_at else '' }}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="no-images">该物料暂无档案图片</div>
+            {% endif %}
+
+            <div class="print-footer">打印时间：{{ now }}</div>
+        </div>
+    </div>
+
+    {% if not request.args.get('autoprint') %}<script>window.print();</script>{% endif %}
+    {% include '_autoprint_script.html' %}
+{% endblock %}

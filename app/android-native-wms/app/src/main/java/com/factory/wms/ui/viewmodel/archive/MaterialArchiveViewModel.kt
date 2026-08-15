@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.factory.wms.data.model.MaterialArchiveDto
 import com.factory.wms.data.model.MaterialArchiveImageDto
 import com.factory.wms.data.model.MaterialArchiveImagesData
+import com.factory.wms.data.model.PrintJobRequest
 import com.factory.wms.data.repository.WmsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +24,10 @@ data class MaterialArchiveUiState(
     val imagesData: MaterialArchiveImagesData? = null,
     val images: List<MaterialArchiveImageDto> = emptyList(),
     val uploading: Boolean = false,
-    val deletingId: Int? = null
+    val deletingId: Int? = null,
+    // 物料档案"打印"（远程打印队列）
+    val printing: Boolean = false,
+    val success: String? = null
 )
 
 class MaterialArchiveViewModel(application: Application) : AndroidViewModel(application) {
@@ -35,6 +39,10 @@ class MaterialArchiveViewModel(application: Application) : AndroidViewModel(appl
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    fun clearSuccess() {
+        _uiState.value = _uiState.value.copy(success = null)
     }
 
     fun onKeywordChange(keyword: String) {
@@ -104,6 +112,27 @@ class MaterialArchiveViewModel(application: Application) : AndroidViewModel(appl
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(error = e.message)
+                }
+            )
+        }
+    }
+
+    /** 把物料档案加入远程打印队列（桌面打印工作站渲染出纸）。 */
+    fun printMaterial(materialId: Int) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(printing = true, error = null)
+            val result = repository.createPrintJob(
+                PrintJobRequest(jobType = "material_archive", targetId = materialId)
+            )
+            result.fold(
+                onSuccess = { _ ->
+                    _uiState.value = _uiState.value.copy(
+                        printing = false,
+                        success = "已加入打印队列，请到桌面端打印工作站查看"
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(printing = false, error = e.message)
                 }
             )
         }

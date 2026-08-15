@@ -326,7 +326,7 @@ def register_native_api_routes(app):
             enqueue_auto_print_job('in_order', order.id, order.warehouse,
                                    created_by=user.id, source_event='scan_inbound')
             db.session.commit()
-            return api_json_success({'order_no': order.order_no}, '入库提交成功')
+            return api_json_success({'id': order.id, 'order_no': order.order_no}, '入库提交成功')
         except Exception as e:
             db.session.rollback()
             app.logger.exception('Android inbound failed')
@@ -407,7 +407,7 @@ def register_native_api_routes(app):
             enqueue_auto_print_job('out_order', order.id, order.warehouse,
                                    created_by=user.id, source_event='scan_outbound')
             db.session.commit()
-            return api_json_success({'order_no': order.order_no}, '出库提交成功')
+            return api_json_success({'id': order.id, 'order_no': order.order_no}, '出库提交成功')
         except Exception:
             db.session.rollback()
             app.logger.exception('Android outbound failed')

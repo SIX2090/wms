@@ -101,6 +101,10 @@ fun InboundScreen(
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交入库",
         submitColor = CardBlue,
+        submittedPrint = uiState.submittedPrint,
+        printLoading = uiState.printLoading,
+        onPrintOrder = { viewModel.printSubmittedOrder() },
+        onDismissPrint = { viewModel.clearSubmittedPrint() },
         header = {
             WarehouseSelectorCard(
                 warehouse = uiState.selectedWarehouse,
@@ -231,6 +235,10 @@ fun OutboundScreen(
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交出库",
         submitColor = CardGreen,
+        submittedPrint = uiState.submittedPrint,
+        printLoading = uiState.printLoading,
+        onPrintOrder = { viewModel.printSubmittedOrder() },
+        onDismissPrint = { viewModel.clearSubmittedPrint() },
         header = {
             WarehouseSelectorCard(
                 warehouse = uiState.selectedWarehouse,

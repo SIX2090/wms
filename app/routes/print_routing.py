@@ -27,11 +27,12 @@ from utils import require_role
 
 # ==================== pydantic 输入模型（A8） ====================
 
-BUSINESS_EVENTS = ('out_order', 'in_order', 'label')
+BUSINESS_EVENTS = ('out_order', 'in_order', 'label', 'material_archive')
 BUSINESS_EVENT_LABELS = {
     'out_order': '领料单/出库单',
     'in_order': '采购入库单',
     'label': '物料标签',
+    'material_archive': '物料档案',
 }
 
 
@@ -117,7 +118,7 @@ class RuleSaveRequest(BaseModel):
     @classmethod
     def validate_business_event(cls, v: str) -> str:
         if v not in BUSINESS_EVENTS:
-            raise ValueError('业务事件必须是 out_order / in_order / label')
+            raise ValueError('业务事件必须是 out_order / in_order / label / material_archive')
         return v
 
     @field_validator('priority')

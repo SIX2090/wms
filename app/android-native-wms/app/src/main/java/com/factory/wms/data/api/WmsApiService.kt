@@ -105,6 +105,13 @@ interface WmsApiService {
     suspend fun deleteMaterialArchiveImage(
         @Path("imageId") imageId: Int
     ): Response<ApiEnvelope<Unit>>
+
+    // ── 远程打印队列（提交入库/出库后"打印单据"、物料档案"打印"） ──
+
+    @POST("print_queue/jobs")
+    suspend fun createPrintJob(
+        @Body request: PrintJobRequest
+    ): Response<ApiEnvelope<PrintJobResult>>
 }
 
 /**

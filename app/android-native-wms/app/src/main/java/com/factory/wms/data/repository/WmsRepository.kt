@@ -356,6 +356,18 @@ class WmsRepository(private val context: Context) {
         }
     }
 
+    // ── 远程打印队列 ──
+
+    /** 创建打印任务（入库/出库单据、物料档案、物料标签）。 */
+    suspend fun createPrintJob(request: PrintJobRequest): Result<PrintJobResult> {
+        return try {
+            val response = api.createPrintJob(request)
+            handleResponse<PrintJobResult>(response)
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
+        }
+    }
+
     private inline fun <reified T> handleResponse(response: Response<ApiEnvelope<T>>): Result<T> {
         return if (response.isSuccessful) {
             val envelope = response.body()

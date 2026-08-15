@@ -2,12 +2,13 @@
 """远程打印队列（print_queue）回归测试。
 
 覆盖：
-- 创建任务（out_order / in_order / label 三种 job_type）
+- 创建任务（out_order / in_order / label / material_archive 四种 job_type）
 - 参数校验（非法 job_type、缺失 target_id、copies 越界）
 - next 拉取顺序（FIFO）+ 状态置 printing
 - complete / fail 状态流转
 - 僵尸任务回收（printing 超时 → pending/failed）
 - 单台电脑场景下不重复拉取
+- 物料档案打印页渲染（/material_archive/<id>/print）
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ os.environ["WMS_DEBUG"] = "0"
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 import app as app_module  # noqa: E402
-from app import (OutOrder, PrintDevice, PrintJob, PrintRouteRule,
+from app import (Material, OutOrder, PrintDevice, PrintJob, PrintRouteRule,
                  PrintWorkstation, User, Warehouse, db)  # noqa: E402
 
 
@@ -136,6 +137,35 @@ def test_create_label_job(client):
         assert job.target_id is None
 
 
+def test_create_material_archive_job(client):
+    """物料档案打印任务创建成功（target_id 为物料 ID）。"""
+    with client.session_transaction() as sess:
+        csrf = sess.get('csrf_token', '')
+    resp = client.post('/print_queue/jobs', json={
+        'job_type': 'material_archive', 'target_id': 1,
+    }, headers={'X-CSRFToken': csrf})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['status'] == 'success'
+    assert data['job_id'] > 0
+    with app_module.app.app_context():
+        job = PrintJob.query.get(data['job_id'])
+        assert job.job_type == 'material_archive'
+        assert job.target_id == 1
+        assert job.status == 'pending'
+
+
+def test_material_archive_nonexistent_material(client):
+    """物料不存在时创建物料档案打印任务返回 404。"""
+    with client.session_transaction() as sess:
+        csrf = sess.get('csrf_token', '')
+    resp = client.post('/print_queue/jobs', json={
+        'job_type': 'material_archive', 'target_id': 99999,
+    }, headers={'X-CSRFToken': csrf})
+    assert resp.status_code == 404
+    assert '物料不存在' in resp.get_json()['msg']
+
+
 # ==================== 参数校验 ====================
 
 def test_invalid_job_type(client):
@@ -224,6 +254,39 @@ def test_label_print_url(client):
     resp = client.get('/print_queue/next')
     data = resp.get_json()
     assert data['job']['print_url'] == '/label/batch_print?ids=1'
+
+
+def test_material_archive_print_url(client):
+    """物料档案任务的 print_url 指向档案打印页。"""
+    with client.session_transaction() as sess:
+        csrf = sess.get('csrf_token', '')
+    client.post('/print_queue/jobs', json={'job_type': 'material_archive', 'target_id': 1},
+                headers={'X-CSRFToken': csrf})
+    resp = client.get('/print_queue/next')
+    data = resp.get_json()
+    assert data['job']['job_type'] == 'material_archive'
+    assert data['job']['print_url'] == '/material_archive/1/print'
+
+
+def test_material_archive_print_page(client):
+    """物料档案打印页可正常渲染（含物料信息与档案图片区）。"""
+    from app import MaterialImage
+    with app_module.app.app_context():
+        material = Material.query.filter_by(code='M001').first()
+        if material and MaterialImage.query.filter_by(material_id=material.id).count() == 0:
+            db.session.add(MaterialImage(material_id=material.id, image='uploads/material_images/test.jpg', sort_order=0))
+            db.session.commit()
+        mat_id = material.id
+    resp = client.get(f'/material_archive/{mat_id}/print')
+    assert resp.status_code == 200
+    assert '物料档案' in resp.get_data(as_text=True)
+    assert 'M001' in resp.get_data(as_text=True)
+
+
+def test_material_archive_print_page_missing(client):
+    """物料不存在时打印页返回 404。"""
+    resp = client.get('/material_archive/99999/print')
+    assert resp.status_code == 404
 
 
 def test_copies_in_url(client):
