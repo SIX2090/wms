@@ -78,3 +78,9 @@ runtime/
 output/
 
 apk_source/
+
+# ===== 大文件/构建产物（勿提交，避免仓库膨胀导致同步超时）=====
+wheelhouse/
+audit_screenshots/
+qa_screenshots/
+wms_source.zip
