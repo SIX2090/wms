@@ -1543,9 +1543,10 @@ def register_in_order_routes(app):
         """Update a completed inbound order and adjust stock differences."""
         from sqlalchemy.orm import selectinload
         from app import (InOrder, InOrderItem, Material, PurchaseOrder, PurchaseOrderItem,
-                         STOCK_COMPARE_EPSILON, _acquire_order_write_lock, add_stock,
-                         allow_negative_stock, api_error, check_stock_sufficient,
-                         deduct_stock, get_default_warehouse, location_management_enabled,
+                         STOCK_COMPARE_EPSILON, Warehouse, _acquire_order_write_lock, add_stock,
+                         allow_negative_stock, api_error,
+                         deduct_stock, get_default_warehouse, get_warehouse_stock_quantities,
+                         is_stock_sufficient, location_management_enabled,
                          recalculate_order_total,
                          round_to_2_decimals, update_location_inventory,
                          update_purchase_order_status)
@@ -1583,16 +1584,27 @@ def register_in_order_routes(app):
                 db.session.rollback()
                 return api_error('入库单必须填写仓库')
 
+            # BUG-2026-08-16-009：删除/减量已完成入库单明细的库存充足校验改仓库级口径，
+            # 避免多仓库下 A 仓库存掩护 B 仓明细回退、打穿 B 仓账面。
+            wh_obj = None
+            if (order.warehouse or '').strip():
+                wh_key = order.warehouse.strip()
+                wh_obj = Warehouse.query.filter(
+                    db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
+                ).order_by(Warehouse.id.asc()).first()
+            warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
+
             affected_purchase_order_ids = set()
             # 1. Delete detail rows and reverse their stock changes
             for item_id in deleted_items:
                 item = db.session.get(InOrderItem, item_id)
                 if item and item.in_order_id == id:
                     if not allow_negative_stock():
-                        sufficient, current_stock, error_msg = check_stock_sufficient(item.material, item.quantity)
-                        if not sufficient:
+                        required = item.quantity or 0
+                        current_stock = warehouse_stock.get(item.material_id, 0)
+                        if not is_stock_sufficient(current_stock, required):
                             db.session.rollback()
-                            return api_error(error_msg)
+                            return api_error(f'物料 {item.material.code if item.material else "-"} 库存不足，当前库存：{current_stock:.2f}，需要：{required:.2f}')
                     # 使用 deduct_stock 写流水+归一化+库位还原，避免直接改 stock
                     ok, err = deduct_stock(item.material, item.quantity or 0,
                                            transaction_type='delete_in_item',
@@ -1694,9 +1706,9 @@ def register_in_order_routes(app):
                         if qty_diff < 0:
                             deduct_qty = abs(qty_diff)
                             if not allow_negative_stock():
-                                sufficient, current_stock, error_msg = check_stock_sufficient(item.material, deduct_qty)
-                                if not sufficient:
-                                    return api_error(error_msg)
+                                current_stock = warehouse_stock.get(item.material_id, 0)
+                                if not is_stock_sufficient(current_stock, deduct_qty):
+                                    return api_error(f'物料 {item.material.code if item.material else "-"} 库存不足，当前库存：{current_stock:.2f}，需要：{deduct_qty:.2f}')
                         if item.source_purchase_order_item and abs(qty_diff) > STOCK_COMPARE_EPSILON:
                             source_item = item.source_purchase_order_item
                             effective_received_before = round_to_2_decimals((source_item.received_quantity or 0) - (old_qty or 0))
@@ -1815,10 +1827,11 @@ def register_in_order_routes(app):
     @login_required
     def revert_in_order(id):
         from sqlalchemy.orm import selectinload
-        from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem,
+        from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem, Warehouse,
                          _acquire_order_write_lock,
                          _source_has_active_push, allow_negative_stock, api_error,
-                         deduct_stock, is_stock_sufficient, location_management_enabled,
+                         deduct_stock, get_warehouse_stock_quantities,
+                         is_stock_sufficient, location_management_enabled,
                          log_operation, normalize_stock_quantity, recalculate_order_total,
                          update_location_inventory, update_purchase_order_status)
         order = InOrder.query.get_or_404(id)
@@ -1827,14 +1840,25 @@ def register_in_order_routes(app):
         if order.status != 'completed':
             return api_error('只有已完成的入库单可以反提交')
 
+        # BUG-2026-08-16-009：反提交库存充足校验改仓库级口径（get_warehouse_stock_quantities），
+        # 避免多仓库下 A 仓库存掩护 B 仓入库单反提交、打穿 B 仓账面。
+        # OFF 模式按流水 location 聚合，ON 模式按 LocationInventory 聚合。
+        wh_obj = None
+        if (order.warehouse or '').strip():
+            wh_key = order.warehouse.strip()
+            wh_obj = Warehouse.query.filter(
+                db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
+            ).order_by(Warehouse.id.asc()).first()
+        warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
         for item in order.items:
-            current_stock = normalize_stock_quantity(item.material.stock or 0)
             quantity = normalize_stock_quantity(item.quantity or 0)
-            if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-                return jsonify({
-                    'status': 'error',
-                    'msg': f'物料 {item.material.code if item.material else "-"} 库存不足，不能反提交'
-                })
+            if not allow_negative_stock():
+                current_stock = warehouse_stock.get(item.material_id, 0)
+                if not is_stock_sufficient(current_stock, quantity):
+                    return jsonify({
+                        'status': 'error',
+                        'msg': f'物料 {item.material.code if item.material else "-"} 库存不足，不能反提交'
+                    })
 
         try:
             # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复回退。
@@ -1852,7 +1876,8 @@ def register_in_order_routes(app):
                 ok, error_msg = deduct_stock(item.material, item.quantity or 0,
                              transaction_type='revert_in',
                              reference_type='in_order',
-                             reference_id=order.id)
+                             reference_id=order.id,
+                             warehouse=order.warehouse)
                 if not ok:
                     db.session.rollback()
                     return api_error(error_msg or '库存回退失败')
