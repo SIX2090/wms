@@ -47,6 +47,55 @@ jobs:
       - name: "Unit tests"
         run: pytest tests/ -q
 
+      # BUG-2026-08-16-017：tests/verify_*.py 回归脚本纳入 CI。
+      # 为什么逐文件独立进程：多文件同进程混跑时 app 模块单例与
+      # db.drop_all 内存库守卫互相干扰，会产生 169 例环境性假失败；
+      # 逐文件执行已本地验证 99/108 文件全过。
+      # KNOWN-FAILURES：以下 9 个文件共 15 例历史真实失败，登记为
+      # BUG-2026-08-16-017 子任务（F1~F9）逐个修复后从此清单移除：
+      #   F1 verify_app_py_split_subcontract.py（1 例）
+      #   F2 verify_bug_2026_08_02_018_report.py（2 例）
+      #   F3 verify_bug_2026_08_02_021_in_order_contract.py（1 例）
+      #   F4 verify_bug_2026_08_04_010_material_api_all_response_key.py（1 例）
+      #   F5 verify_bug_2026_08_09_003_takepicture_permission_and_path.py（2 例）
+      #   F6 verify_bug_2026_08_13_002_scan_submit_bearer.py（1 例）
+      #   F7 verify_bug_P15_P16_P21.py（1 例）
+      #   F8 verify_mobile_asr_route.py（1 例）
+      #   F9 verify_mobile_recognize_material_api.py（5 例）
+      - name: "Verify regression - verify_*.py (BUG-2026-08-16-017)"
+        run: |
+          known_failures=(
+            tests/verify_app_py_split_subcontract.py
+            tests/verify_bug_2026_08_02_018_report.py
+            tests/verify_bug_2026_08_02_021_in_order_contract.py
+            tests/verify_bug_2026_08_04_010_material_api_all_response_key.py
+            tests/verify_bug_2026_08_09_003_takepicture_permission_and_path.py
+            tests/verify_bug_2026_08_13_002_scan_submit_bearer.py
+            tests/verify_bug_P15_P16_P21.py
+            tests/verify_mobile_asr_route.py
+            tests/verify_mobile_recognize_material_api.py
+          )
+          is_known() {
+            for k in "${known_failures[@]}"; do
+              [ "$k" = "$1" ] && return 0
+            done
+            return 1
+          }
+          fails=0
+          for f in tests/verify_*.py; do
+            if is_known "$f"; then
+              echo "SKIP (known failure, BUG-2026-08-16-017 F1~F9 待修): $f"
+              continue
+            fi
+            echo ">> $f"
+            if ! timeout 300 python -m pytest "$f" -q > /tmp/verify_one.log 2>&1; then
+              cat /tmp/verify_one.log
+              fails=$((fails+1))
+            fi
+          done
+          echo "verify_*.py 失败文件数: $fails（已知跳过: ${#known_failures[@]}）"
+          [ "$fails" -eq 0 ]
+
       # 冒烟测试：启动 WMS 服务跑 121 项全量冒烟
       - name: "Smoke test (启动服务跑 121 项)"
         run: python3 scripts/run_smoke_in_ci.py
