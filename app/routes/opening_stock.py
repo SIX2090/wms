@@ -123,11 +123,15 @@ def register_opening_stock_routes(app):
 
         try:
             opening, delta = _apply_opening_stock_balance(
-                None, material, payload['quantity'], payload['price'], payload['amount'], payload['remark'], warehouse, payload.get('date')
+                None, material, payload['quantity'], payload['price'], payload['amount'], payload['remark'], warehouse, payload.get('date'), payload.get('location', '')
             )
             db.session.commit()
             log_operation('新增期初库存', f'{material.code} @ {warehouse.name} 数量 {payload["quantity"]}', 'opening_stock', opening.id)
             return jsonify({'status': 'success', 'msg': '期初库存已保存', 'delta': delta})
+        except ValueError as ve:
+            # BUG-2026-08-16-002：库位账同步失败（如库位库存不足）返回明确原因并整体回滚
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': str(ve)}), 400
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'新增期初库存失败: {e}')
@@ -152,6 +156,7 @@ def register_opening_stock_routes(app):
                 'material_id': opening.material_id,
                 'warehouse_id': opening.warehouse_id,
                 'warehouse_name': opening.warehouse.name if opening.warehouse else '',
+                'location': getattr(opening, 'location', '') or '',
                 'date': opening.date.isoformat() if opening.date else '',
                 'material_code': material.code if material else '',
                 'material_name': material.name if material else '',
@@ -195,11 +200,15 @@ def register_opening_stock_routes(app):
 
         try:
             opening, delta = _apply_opening_stock_balance(
-                opening, payload['material'], payload['quantity'], payload['price'], payload['amount'], payload['remark'], payload['warehouse'], payload.get('date')
+                opening, payload['material'], payload['quantity'], payload['price'], payload['amount'], payload['remark'], payload['warehouse'], payload.get('date'), payload.get('location', '')
             )
             db.session.commit()
             log_operation('编辑期初库存', f'{payload["material"].code} @ {payload["warehouse"].name} 差额 {delta}', 'opening_stock', opening.id)
             return jsonify({'status': 'success', 'msg': '期初库存已更新', 'delta': delta})
+        except ValueError as ve:
+            # BUG-2026-08-16-002：库位账同步失败（如库位库存不足）返回明确原因并整体回滚
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': str(ve)}), 400
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'编辑期初库存失败: {e}')
@@ -274,6 +283,8 @@ def register_opening_stock_routes(app):
                 'material': material,
                 'warehouse': warehouse,
                 'date': _parse_opening_stock_date(item.get('date')),
+                # BUG-2026-08-16-002：期初库位（可选，空则以仓库名占位）
+                'location': ((item.get('location') or '')).strip(),
                 'quantity': normalize_stock_quantity(quantity),
                 'price': round_to_2_decimals(price),
                 'amount': round_to_2_decimals(quantity * price),
@@ -300,12 +311,17 @@ def register_opening_stock_routes(app):
                     item['remark'],
                     warehouse,
                     item['date'],
+                    item.get('location', ''),
                 )
                 if opening is None or abs(delta) > STOCK_COMPARE_EPSILON:
                     changed_count += 1
             db.session.commit()
             log_operation('保存期初库存单据', f'保存 {len(normalized_items)} 行，库存变动 {changed_count} 行', 'opening_stock', None)
             return jsonify({'status': 'success', 'msg': f'期初库存已保存，共 {len(normalized_items)} 行', 'changed_count': changed_count})
+        except ValueError as ve:
+            # BUG-2026-08-16-002：库位账同步失败（如库位库存不足）返回明确原因并整体回滚
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': str(ve)}), 400
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'批量保存期初库存失败: {e}')

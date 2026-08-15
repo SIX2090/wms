@@ -403,6 +403,14 @@ def auto_migrate_database():
                 except Exception:
                     # 列已存在时 ALTER 报错，忽略
                     pass
+            # BUG-2026-08-16-002：期初库位列（开启库位管理时同步库位账）
+            if (not op_columns) or ('location' not in op_columns):
+                try:
+                    cursor.execute("ALTER TABLE opening_stock ADD COLUMN location VARCHAR(100) NOT NULL DEFAULT ''")
+                    modified = True
+                except Exception:
+                    # 列已存在时 ALTER 报错，忽略
+                    pass
         if out_item_columns:
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_out_order_item_sales_source "
@@ -4450,6 +4458,9 @@ class OpeningStock(db.Model):
     warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # AI-OS-MW-001: NULL 表示历史未指定仓库
     # AI-OS-APP-001：期初建账日期（旧记录回填为建账首日 2023-01-01）
     date = db.Column(db.Date, default=date.today)
+    # BUG-2026-08-16-002：期初库位（开启库位管理时同步写入库位账；空表示未指定，
+    # 落库位账时以仓库名作占位行，保证仓库级库存聚合可见）
+    location = db.Column(db.String(100), nullable=False, default='')
     quantity = db.Column(db.Float, nullable=False, default=0)
     price = db.Column(db.Float, nullable=False, default=0)
     amount = db.Column(db.Float, nullable=False, default=0)
@@ -7098,6 +7109,8 @@ def _opening_stock_payload_from_request():
     # AI-OS-APP-001：支持表单日期，缺省当天
     raw_date = (request.form.get('date') or '').strip()
     doc_date = _parse_opening_stock_date(raw_date)
+    # BUG-2026-08-16-002：期初库位（可选，空则以仓库名作占位行落库位账）
+    location = (request.form.get('location') or '').strip()
     try:
         quantity = float(request.form.get('quantity') or '')
     except (TypeError, ValueError):
@@ -7126,6 +7139,7 @@ def _opening_stock_payload_from_request():
         'material': material,
         'warehouse': warehouse,
         'date': doc_date,
+        'location': location,
         'quantity': normalize_stock_quantity(quantity),
         'price': round_to_2_decimals(price),
         'amount': round_to_2_decimals(quantity * price),
@@ -7142,16 +7156,18 @@ def _parse_opening_stock_date(raw):
             pass
     return date.today()
 
-def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new_amount, remark, warehouse=None, doc_date=None):
+def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new_amount, remark, warehouse=None, doc_date=None, location=''):
     old_quantity = normalize_stock_quantity(opening.quantity or 0) if opening else 0
     quantity_delta = normalize_stock_quantity(new_quantity - old_quantity)
     doc_date = doc_date or getattr(opening, 'date', None) or date.today()
+    location = (location or getattr(opening, 'location', '') or '').strip()
 
     if opening is None:
         opening = OpeningStock(
             material_id=material.id,
             warehouse_id=warehouse.id if warehouse else None,
             date=doc_date,
+            location=location,
             quantity=new_quantity,
             price=new_price,
             amount=new_amount,
@@ -7166,6 +7182,7 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
         opening.amount = new_amount
         opening.remark = remark
         opening.date = doc_date
+        opening.location = location
         opening.operator_id = current_user.id if current_user.is_authenticated else None
         opening.updated_at = datetime.now()
         db.session.flush()
@@ -7189,6 +7206,32 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
             operator_id=current_user.id if current_user.is_authenticated else None,
             remark=remark or '期初库存调整'
         ))
+
+    # BUG-2026-08-16-002：开启库位管理时同步库位账，防止 Material.stock 总账与
+    # LocationInventory 库位账分叉（此前期初只改总账，库存查询/报表/移动端全部看不到）。
+    # 未填库位时以仓库名作占位行，保证仓库级库存聚合（get_warehouse_stock_quantities）可见。
+    if location_management_enabled() and warehouse and abs(quantity_delta) > STOCK_COMPARE_EPSILON:
+        effective_location = location or (warehouse.name or '').strip()
+        if effective_location:
+            if quantity_delta < 0 and old_quantity > 0:
+                # 历史数据回填：老库位账缺行时先按旧期初数量补基线再扣差额，
+                # 最终行值 == new_quantity，与 Material.stock 口径一致。
+                legacy_row = LocationInventory.query.filter(
+                    LocationInventory.material_id == material.id,
+                    LocationInventory.location == effective_location,
+                    LocationInventory.warehouse_id == warehouse.id,
+                ).first()
+                if not legacy_row:
+                    ok_backfill, msg_backfill = add_location_inventory_atomic(
+                        material.id, effective_location, old_quantity,
+                        material_code_hint=material.code, warehouse_id=warehouse.id,
+                    )
+                    if not ok_backfill:
+                        raise ValueError(msg_backfill)
+            ok_inv, msg_inv = update_location_inventory(
+                material, effective_location, quantity_delta, warehouse=warehouse)
+            if not ok_inv:
+                raise ValueError(msg_inv)
     return opening, quantity_delta
 
 
