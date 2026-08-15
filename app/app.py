@@ -119,6 +119,7 @@ from routes.stock_query import register_stock_query_routes
 from routes.inventory_alert import register_inventory_alert_routes
 # 标签打印（label）域路由注册函数（register-on-app 模式，endpoint 名不变）。
 from routes.label import register_label_routes
+from routes.print_queue import register_print_queue_routes
 # 待办单据（pending_documents）域路由注册函数（register-on-app 模式，endpoint 名不变）。
 from routes.pending_documents import register_pending_documents_routes
 # 单位/供应商导入导出（unit_supplier_import）域路由注册函数（register-on-app 模式，endpoint 名不变）。
@@ -1552,6 +1553,7 @@ register_stock_query_routes(app)
 register_inventory_alert_routes(app)
 # 标签打印（label）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_label_routes(app)
+register_print_queue_routes(app)
 # 待办单据（pending_documents）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_pending_documents_routes(app)
 # 单位/供应商导入导出（unit_supplier_import）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
@@ -3149,6 +3151,43 @@ class Notification(db.Model):
     content = db.Column(db.Text, nullable=False)
     is_read = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+class PrintJob(db.Model):
+    """远程打印任务队列。
+
+    用于「手机扫码出库 → 本地电脑打印机出纸」场景：
+    手机端通过 POST /print_queue/jobs 写入一条任务，
+    本地电脑打开 /print_queue/station 守护页面轮询拉取并自动打印。
+
+    job_type 取值：
+      - out_order : 领料单/出库单（target_id = OutOrder.id）
+      - in_order  : 采购入库单（target_id = InOrder.id）
+      - label     : 物料标签（target_ids = 逗号分隔的 Material.id 列表）
+
+    状态机：
+      pending  → 桌面端尚未拉取
+      printing → 桌面端已拉取，正在调起浏览器打印
+      done     → 打印对话框已关闭（实际是否出纸由打印机决定）
+      failed   → 拉取后报错（error_msg 记录原因）
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    job_type = db.Column(db.String(20), nullable=False)  # out_order / in_order / label
+    target_id = db.Column(db.Integer)  # 单据 ID（label 时为空）
+    target_ids = db.Column(db.String(500))  # label 场景：逗号分隔的物料 ID
+    status = db.Column(db.String(20), default='pending', nullable=False)  # pending/printing/done/failed
+    copies = db.Column(db.Integer, default=1)  # 打印份数
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'))  # 提交者
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    printed_at = db.Column(db.DateTime)  # 桌面端标记完成时间
+    error_msg = db.Column(db.String(500))  # 失败原因
+    attempts = db.Column(db.Integer, default=0)  # 尝试次数，防止死循环
+
+    __table_args__ = (
+        db.Index('idx_print_job_status', 'status'),
+        db.Index('idx_print_job_created', 'created_at'),
+    )
+
+    operator = db.relationship('User', backref='print_jobs')  # 提交者
 
 class Employee(db.Model):
     """Employee."""

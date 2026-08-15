@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>打印工作站 - WMS</title>
+    <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}" rel="stylesheet">
+    <style>
+        body { background: #f5f6f8; min-height: 100vh; }
+        .station-card { max-width: 900px; margin: 30px auto; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+        .dot-online { background: #198754; animation: pulse 1.5s infinite; }
+        .dot-offline { background: #dc3545; }
+        @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+        .stat-card { text-align: center; padding: 18px; border-radius: 10px; color: #fff; }
+        .stat-pending { background: linear-gradient(135deg, #6c757d, #495057); }
+        .stat-printing { background: linear-gradient(135deg, #0d6efd, #0a58ca); }
+        .stat-done { background: linear-gradient(135deg, #198754, #146c43); }
+        .stat-failed { background: linear-gradient(135deg, #dc3545, #b02a37); }
+        .log-area { height: 320px; overflow-y: auto; background: #1e1e1e; color: #d4d4d4;
+                    font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; padding: 12px; border-radius: 8px; }
+        .log-line { margin-bottom: 4px; line-height: 1.5; }
+        .log-time { color: #6a9955; }
+        .log-info { color: #569cd6; }
+        .log-success { color: #4ec9b0; }
+        .log-warn { color: #dcdcaa; }
+        .log-error { color: #f48771; }
+        .print-iframe { position: absolute; left: -9999px; top: 0; width: 800px; height: 600px; border: 0; }
+        .alert-kiosk { font-size: 13px; }
+    </style>
+</head>
+<body>
+    <div class="container station-card">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-printer"></i> 打印工作站</h5>
+                <span>
+                    <span class="status-dot" id="connDot"></span>
+                    <span id="connText">连接中...</span>
+                </span>
+            </div>
+            <div class="card-body">
+                <!-- 统计卡片 -->
+                <div class="row g-3 mb-3">
+                    <div class="col-3"><div class="stat-card stat-pending"><div class="h3 mb-0" id="statPending">0</div><div>待打印</div></div></div>
+                    <div class="col-3"><div class="stat-card stat-printing"><div class="h3 mb-0" id="statPrinting">0</div><div>打印中</div></div></div>
+                    <div class="col-3"><div class="stat-card stat-done"><div class="h3 mb-0" id="statDone">0</div><div>已完成</div></div></div>
+                    <div class="col-3"><div class="stat-card stat-failed"><div class="h3 mb-0" id="statFailed">0</div><div>失败</div></div></div>
+                </div>
+
+                <!-- kiosk-printing 提示 -->
+                <div class="alert alert-warning alert-kiosk" id="kioskAlert">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>全自动打印配置：</strong>浏览器安全策略禁止网页跳过打印对话框。
+                    要实现「无人值守自动出纸」，请用以下命令启动 Chrome/Edge：
+                    <code>chrome --kiosk-printing --kiosk http://你的WMS地址/print_queue/station</code>
+                    <button type="button" class="btn-close" onclick="document.getElementById('kioskAlert').remove()"></button>
+                </div>
+
+                <!-- 控制按钮 -->
+                <div class="d-flex gap-2 mb-3">
+                    <button class="btn btn-outline-primary btn-sm" id="btnToggle" onclick="togglePolling()">
+                        <i class="bi bi-pause"></i> 暂停轮询
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="clearLog()">
+                        <i class="bi bi-eraser"></i> 清空日志
+                    </button>
+                    <div class="form-check form-switch ms-3">
+                        <input class="form-check-input" type="checkbox" id="autoPrintChk" checked>
+                        <label class="form-check-label" for="autoPrintChk">自动打印</label>
+                    </div>
+                    <span class="text-muted small align-self-center">轮询间隔: <span id="intervalLabel">3</span> 秒</span>
+                </div>
+
+                <!-- 日志 -->
+                <div class="log-area" id="logArea"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 隐藏 iframe 用于加载打印模板 -->
+    <iframe class="print-iframe" id="printFrame" name="printFrame"></iframe>
+
+    <script src="{{ url_for('static', filename='cdn/jquery-3.6.4.min.js') }}"></script>
+    <script>
+    // ==================== 打印工作站守护逻辑 ====================
+    (function() {
+        var POLL_INTERVAL = 3000;  // 轮询间隔（毫秒）
+        var polling = true;
+        var currentJob = null;    // 当前正在打印的任务
+        var timer = null;
+
+        // 统一 CSRF token 注入（所有 POST 请求自动带上）
+        var csrfToken = document.querySelector('meta[name="csrf-token"]');
+        csrfToken = csrfToken ? csrfToken.content : '';
+        $.ajaxSetup({
+            beforeSend: function(xhr) {
+                if (csrfToken) { xhr.setRequestHeader('X-CSRFToken', csrfToken); }
+            }
+        });
+
+        function log(msg, level) {
+            level = level || 'info';
+            var t = new Date();
+            var ts = t.toLocaleTimeString('zh-CN', { hour12: false });
+            var line = '<div class="log-line"><span class="log-time">[' + ts + ']</span> ' +
+                       '<span class="log-' + level + '">' + msg + '</span></div>';
+            $('#logArea').append(line);
+            var $a = $('#logArea');
+            $a.scrollTop($a[0].scrollHeight);
+        }
+
+        window.log = log;
+        window.clearLog = function() { $('#logArea').empty(); log('日志已清空', 'info'); };
+        window.togglePolling = function() {
+            polling = !polling;
+            if (polling) {
+                $('#btnToggle').html('<i class="bi bi-pause"></i> 暂停轮询');
+                log('轮询已恢复', 'success');
+                scheduleNext(500);
+            } else {
+                $('#btnToggle').html('<i class="bi bi-play"></i> 开始轮询');
+                log('轮询已暂停', 'warn');
+                if (timer) { clearTimeout(timer); timer = null; }
+            }
+        };
+
+        function setConn(online) {
+            $('#connDot').removeClass('dot-online dot-offline').addClass(online ? 'dot-online' : 'dot-offline');
+            $('#connText').text(online ? '在线' : '离线');
+        }
+
+        function refreshStats() {
+            $.getJSON('/print_queue/stats').done(function(res) {
+                if (res.status === 'success') {
+                    var s = res.stats;
+                    $('#statPending').text(s.pending);
+                    $('#statPrinting').text(s.printing);
+                    $('#statDone').text(s.done);
+                    $('#statFailed').text(s.failed);
+                }
+            }).fail(function() { setConn(false); });
+        }
+
+        function pollNext() {
+            if (!polling) return;
+            if (currentJob) { scheduleNext(POLL_INTERVAL); return; }  // 上一个还没打完
+            $.getJSON('/print_queue/next').done(function(res) {
+                setConn(true);
+                if (res.status === 'success' && res.job) {
+                    handleJob(res.job);
+                }
+                refreshStats();
+            }).fail(function() {
+                setConn(false);
+                log('轮询失败：网络错误', 'error');
+            }).always(function() {
+                scheduleNext(POLL_INTERVAL);
+            });
+        }
+
+        function scheduleNext(delay) {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(pollNext, delay || POLL_INTERVAL);
+        }
+
+        function handleJob(job) {
+            currentJob = job;
+            log('收到任务 #' + job.id + ' [' + job.job_type + '] ' + job.print_url, 'info');
+            if (!$('#autoPrintChk').prop('checked')) {
+                log('自动打印已关闭，跳过任务 #' + job.id, 'warn');
+                reportComplete(job.id, '自动打印未开启');
+                currentJob = null;
+                return;
+            }
+            loadAndPrint(job);
+        }
+
+        function loadAndPrint(job) {
+            var url = job.print_url;
+            var copies = job.copies || 1;
+            var $frame = $('#printFrame');
+            // 先解绑旧事件，避免重复触发
+            $frame.off('load.print');
+
+            $frame.on('load.print', function() {
+                var doc = this.contentWindow && this.contentWindow.document;
+                if (!doc) {
+                    log('任务 #' + job.id + ' iframe 加载失败', 'error');
+                    reportFail(job.id, 'iframe 加载失败');
+                    currentJob = null;
+                    return;
+                }
+                log('任务 #' + job.id + ' 模板已加载，份数=' + copies + '，正在调起打印...', 'info');
+                // 多份打印：循环调用 window.print()（kiosk 模式下不会弹对话框）
+                printCopies(job, copies, 0);
+            });
+
+            // 加载打印模板 URL
+            $frame.attr('src', url);
+        }
+
+        function printCopies(job, total, idx) {
+            if (idx >= total) {
+                log('任务 #' + job.id + ' 已完成 ' + total + ' 份打印', 'success');
+                reportComplete(job.id);
+                currentJob = null;
+                return;
+            }
+            try {
+                var fw = document.getElementById('printFrame').contentWindow;
+                if (!fw) { throw new Error('打印窗口不可用'); }
+                // 监听打印对话框关闭（afterprint 在对话框关闭/取消后均会触发）
+                var afterHandled = false;
+                var onAfter = function() {
+                    if (afterHandled) return;
+                    afterHandled = true;
+                    fw.removeEventListener('afterprint', onAfter);
+                    log('任务 #' + job.id + ' 第 ' + (idx+1) + '/' + total + ' 份打印对话框已关闭', 'success');
+                    // 继续下一份
+                    setTimeout(function() { printCopies(job, total, idx + 1); }, 300);
+                };
+                fw.addEventListener('afterprint', onAfter);
+                // 兜底：5 秒后 if afterprint 未触发（部分浏览器/驱动行为），强制进入下一份
+                setTimeout(function() {
+                    if (!afterHandled) {
+                        afterHandled = true;
+                        fw.removeEventListener('afterprint', onAfter);
+                        log('任务 #' + job.id + ' 第 ' + (idx+1) + ' 份 afterprint 未触发，按超时继续', 'warn');
+                        printCopies(job, total, idx + 1);
+                    }
+                }, 8000);
+                fw.focus();
+                fw.print();
+            } catch (e) {
+                log('任务 #' + job.id + ' 打印调用异常：' + e.message, 'error');
+                reportFail(job.id, e.message);
+                currentJob = null;
+            }
+        }
+
+        function reportComplete(jobId, note) {
+            $.ajax({
+                url: '/print_queue/jobs/' + jobId + '/complete',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ error_msg: note || null })
+            }).fail(function() { log('上报完成失败 #' + jobId, 'error'); });
+        }
+
+        function reportFail(jobId, errMsg) {
+            $.ajax({
+                url: '/print_queue/jobs/' + jobId + '/fail',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ error_msg: errMsg })
+            }).fail(function() { log('上报失败状态失败 #' + jobId, 'error'); });
+        }
+
+        // 启动
+        log('打印工作站已启动，开始轮询...', 'success');
+        setConn(true);
+        refreshStats();
+        scheduleNext(500);
+    })();
+    </script>
+</body>
+</html>
