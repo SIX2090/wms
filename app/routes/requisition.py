@@ -499,7 +499,8 @@ def register_requisition_routes(app):
                 ok, error_msg = deduct_stock(item.material, item.quantity or 0,
                                              transaction_type='requisition',
                                              reference_type='requisition',
-                                             reference_id=requisition.id)
+                                             reference_id=requisition.id,
+                                             warehouse=requisition.warehouse)
                 if not ok:
                     db.session.rollback()
                     return api_error(error_msg or f'物料 {item.material.code} 库存不足')
@@ -554,7 +555,8 @@ def register_requisition_routes(app):
                                         transaction_type='revert_requisition',
                                         reference_type='requisition',
                                         reference_id=requisition.id,
-                                        remark=f'撤销工单领料单 {requisition.req_no}')
+                                        remark=f'撤销工单领料单 {requisition.req_no}',
+                                        warehouse=requisition.warehouse)
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存恢复失败')

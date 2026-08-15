@@ -2670,7 +2670,7 @@ def generate_order_no(prefix='NO'):
             import time
             time.sleep(0.1)
 
-def deduct_stock(material, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None):
+def deduct_stock(material, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None, warehouse=None):
     """扣减库存，返回(是否成功, 错误信息)"""
     if not material:
         return False, '物料不存在'
@@ -2681,10 +2681,28 @@ def deduct_stock(material, quantity, transaction_type=None, reference_type=None,
         reference_type=reference_type,
         reference_id=reference_id,
         remark=remark,
+        warehouse=warehouse,
     )
     return ok, error_msg
 
-def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None):
+def _stock_location_from_warehouse(warehouse):
+    """把仓库表示解析为流水 location 字符串（关库位管理模式下按仓库聚合）。
+
+    BUG-2026-08-16-006：get_warehouse_stock_quantities 关库位管理分支按
+    StockTransaction.location IN (仓库名/编码) 聚合，而 add_stock /
+    deduct_stock_atomic 写流水时不填 location（NULL 不入列），导致多仓库
+    +关库位管理时仓库级库存恒为 0。调用方传入 warehouse 后，这里把
+    仓库名/编码提取出来作为流水 location 写入。
+    """
+    if warehouse is None:
+        return None
+    if isinstance(warehouse, Warehouse):
+        return (warehouse.name or '').strip() or (warehouse.code or '').strip() or None
+    txt = str(warehouse).strip()
+    return txt or None
+
+
+def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None, warehouse=None):
     """原子扣减库存：用条件 UPDATE 保证并发安全。
     返回 (是否成功, 错误信息, material 对象)。
     仅当 material.stock >= quantity 时才会把库存减掉；并发冲突下 rowcount==0，
@@ -2719,6 +2737,7 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
             material_id=material_id,
             transaction_type=transaction_type,
             quantity=-qty,
+            location=_stock_location_from_warehouse(warehouse),
             reference_type=reference_type or '',
             reference_id=reference_id or 0,
             operator_id=current_user.id if current_user.is_authenticated else None,
@@ -2726,8 +2745,12 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
         ))
     return True, '', mat
 
-def add_stock(material, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None):
+def add_stock(material, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None, warehouse=None):
     """增加库存，返回(是否成功, 错误信息)。
+
+    BUG-2026-08-16-006：新增 warehouse 参数，写流水时把仓库名写入
+    StockTransaction.location，使关库位管理模式下 get_warehouse_stock_quantities
+    能按仓库聚合（否则 NULL 不入列，仓库级库存恒为 0）。
 
     P0-BUGFIX: 补 qty>0 校验，与 deduct_stock_atomic 对称。
     原实现无下限校验，负数/NaN 会静默扣减或污染 Material.stock。
@@ -2750,6 +2773,7 @@ def add_stock(material, quantity, transaction_type=None, reference_type=None, re
             material_id=material.id,
             transaction_type=transaction_type,
             quantity=qty,
+            location=_stock_location_from_warehouse(warehouse),
             reference_type=reference_type or '',
             reference_id=reference_id or 0,
             operator_id=current_user.id if current_user.is_authenticated else None,
@@ -6632,7 +6656,8 @@ def api_subcontract_quick_issue():
         ok, error_msg, _ = deduct_stock_atomic(material.id, quantity,
                      transaction_type='subcontract_issue',
                      reference_type='subcontract_issue',
-                     reference_id=issue.id)
+                     reference_id=issue.id,
+                     warehouse=issue.warehouse)
         if not ok:
             db.session.rollback()
             return jsonify({'status': 'error', 'msg': error_msg or '库存扣减失败'}), 400
@@ -6711,7 +6736,8 @@ def api_subcontract_quick_receive():
     ok, msg = add_stock(material, quantity,
                         transaction_type='subcontract_receive',
                         reference_type='subcontract_receive',
-                        reference_id=receive.id)
+                        reference_id=receive.id,
+                        warehouse=receive.warehouse)
     if not ok:
         db.session.rollback()
         return jsonify({'status': 'error', 'msg': msg or '库存增加失败'}), 500

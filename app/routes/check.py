@@ -330,7 +330,8 @@ def register_check_routes(app):
                         transaction_type='revert_check_in',
                         reference_type='inventory_check',
                         reference_id=check.id,
-                        remark=f'反提交盘点 {check.check_no}'
+                        remark=f'反提交盘点 {check.check_no}',
+                        warehouse=check.warehouse,
                     )
                     if not ok:
                         db.session.rollback()
@@ -342,7 +343,8 @@ def register_check_routes(app):
                         transaction_type='revert_check_out',
                         reference_type='inventory_check',
                         reference_id=check.id,
-                        remark=f'反提交盘点 {check.check_no}'
+                        remark=f'反提交盘点 {check.check_no}',
+                        warehouse=check.warehouse,
                     )
                     if not ok:
                         db.session.rollback()

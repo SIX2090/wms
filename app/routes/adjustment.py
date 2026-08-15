@@ -435,7 +435,8 @@ def register_adjustment_routes(app):
                         transaction_type='adjustment_in',
                         reference_type='adjustment',
                         reference_id=adjustment.id,
-                        remark=item.reason or adjustment.remark or ''
+                        remark=item.reason or adjustment.remark or '',
+                        warehouse=adjustment.warehouse,
                     )
                     if not ok:
                         db.session.rollback()
@@ -447,7 +448,8 @@ def register_adjustment_routes(app):
                         transaction_type='adjustment_out',
                         reference_type='adjustment',
                         reference_id=adjustment.id,
-                        remark=item.reason or adjustment.remark or ''
+                        remark=item.reason or adjustment.remark or '',
+                        warehouse=adjustment.warehouse,
                     )
                     if not ok:
                         db.session.rollback()
@@ -504,7 +506,8 @@ def register_adjustment_routes(app):
                         transaction_type='revert_adjustment_in',
                         reference_type='adjustment',
                         reference_id=adjustment.id,
-                        remark=f'反提交库存调整 {adjustment.adjustment_no}'
+                        remark=f'反提交库存调整 {adjustment.adjustment_no}',
+                        warehouse=adjustment.warehouse,
                     )
                     if not ok:
                         db.session.rollback()
@@ -516,7 +519,8 @@ def register_adjustment_routes(app):
                         transaction_type='revert_adjustment_out',
                         reference_type='adjustment',
                         reference_id=adjustment.id,
-                        remark=f'反提交库存调整 {adjustment.adjustment_no}'
+                        remark=f'反提交库存调整 {adjustment.adjustment_no}',
+                        warehouse=adjustment.warehouse,
                     )
                     if not ok:
                         db.session.rollback()

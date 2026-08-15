@@ -387,7 +387,7 @@ def register_mobile_routes(app):
                     price=price,
                     amount=round_to_2_decimals(quantity * price),
                 ))
-                ok, error_msg = add_stock(material, quantity, 'in', 'in_order', order.id, f'手机扫码入库 {order.order_no}')
+                ok, error_msg = add_stock(material, quantity, 'in', 'in_order', order.id, f'手机扫码入库 {order.order_no}', warehouse=warehouse)
                 if not ok:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库存增加失败'}), 500

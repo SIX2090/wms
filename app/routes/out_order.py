@@ -736,6 +736,7 @@ def register_out_order_routes(app):
                     transaction_type='out',
                     reference_type='out_order',
                     reference_id=order.id,
+                    warehouse=order.warehouse,
                 )
                 if not ok:
                     db.session.rollback()
@@ -788,7 +789,8 @@ def register_out_order_routes(app):
                 ok, err = add_stock(item.material, item.quantity or 0,
                                     transaction_type='revert_out',
                                     reference_type='out_order',
-                                    reference_id=order.id)
+                                    reference_id=order.id,
+                                    warehouse=order.warehouse)
                 if not ok:
                     db.session.rollback()
                     return api_error(err or '库存恢复失败')
@@ -1010,7 +1012,8 @@ def register_out_order_routes(app):
                     ok, error_msg, _ = deduct_stock_atomic(item.material_id, item.quantity or 0,
                                  transaction_type='out',
                                  reference_type='out_order',
-                                 reference_id=order.id)
+                                 reference_id=order.id,
+                                 warehouse=order.warehouse)
                     if not ok:
                         raise ValueError(error_msg or f'物料 {item.material.code if item.material else ""} 库存不足')
                     # 同步库位库存（与单据版 complete_out_order 对称）

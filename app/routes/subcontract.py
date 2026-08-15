@@ -348,7 +348,8 @@ def register_subcontract_routes(app):
             ok, error_msg, _ = deduct_stock_atomic(material.id, quantity,
                          transaction_type='subcontract_issue',
                          reference_type='subcontract_issue',
-                         reference_id=issue.id)
+                         reference_id=issue.id,
+                         warehouse=issue.warehouse)
             if not ok:
                 db.session.rollback()
                 return api_error(error_msg or '库存扣减失败')
@@ -434,7 +435,8 @@ def register_subcontract_routes(app):
             ok, msg = add_stock(material, quantity,
                                 transaction_type='subcontract_receive',
                                 reference_type='subcontract_receive',
-                                reference_id=receive.id)
+                                reference_id=receive.id,
+                                warehouse=receive.warehouse)
             if not ok:
                 db.session.rollback()
                 return jsonify({'status': 'error', 'msg': msg or '库存增加失败'}), 500
@@ -1270,7 +1272,8 @@ def register_subcontract_routes(app):
                     ok, error_msg, _ = deduct_stock_atomic(item.material_id, item.quantity or 0,
                                  transaction_type='subcontract_issue',
                                  reference_type='subcontract_issue',
-                                 reference_id=issue.id)
+                                 reference_id=issue.id,
+                                 warehouse=issue.warehouse)
                     if not ok:
                         db.session.rollback()
                         return api_error(error_msg or '库存扣减失败')
@@ -1324,7 +1327,8 @@ def register_subcontract_routes(app):
                                         transaction_type='revert_subcontract_issue',
                                         reference_type='subcontract_issue',
                                         reference_id=issue.id,
-                                        remark=f'反提交委外发料 {issue.issue_no}')
+                                        remark=f'反提交委外发料 {issue.issue_no}',
+                                        warehouse=issue.warehouse)
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存恢复失败')
@@ -1911,7 +1915,8 @@ def register_subcontract_routes(app):
                                         transaction_type='subcontract_receive',
                                         reference_type='subcontract_receive',
                                         reference_id=receive.id,
-                                        remark=f'完成委外收货 {receive.receive_no}')
+                                        remark=f'完成委外收货 {receive.receive_no}',
+                                        warehouse=receive.warehouse)
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存增加失败')

@@ -1425,7 +1425,8 @@ def register_in_order_routes(app):
                     ok, err = add_stock(item.material, item.quantity,
                                         transaction_type='in',
                                         reference_type='in_order',
-                                        reference_id=order.id)
+                                        reference_id=order.id,
+                                        warehouse=order.warehouse)
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存增加失败')
@@ -1479,6 +1480,7 @@ def register_in_order_routes(app):
                         source_item.material_id, source_item.quantity or 0,
                         transaction_type='out', reference_type='out_order',
                         reference_id=auto_requisition.id,
+                        warehouse=order.warehouse,
                     )
                     if not stock_ok:
                         db.session.rollback()
@@ -1667,7 +1669,8 @@ def register_in_order_routes(app):
                                         transaction_type='add_in_item',
                                         reference_type='in_order',
                                         reference_id=order.id,
-                                        remark=f'已完成入库单 {order.order_no} 新增明细')
+                                        remark=f'已完成入库单 {order.order_no} 新增明细',
+                                        warehouse=order.warehouse)
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存增加失败')
@@ -1712,7 +1715,8 @@ def register_in_order_routes(app):
                                                 transaction_type='adjust_in_item',
                                                 reference_type='in_order',
                                                 reference_id=order.id,
-                                                remark=f'修改已完成入库单 {order.order_no} 明细数量增加')
+                                                remark=f'修改已完成入库单 {order.order_no} 明细数量增加',
+                                                warehouse=order.warehouse)
                             if not ok:
                                 db.session.rollback()
                                 return api_error(err or '库存增加失败')
@@ -2161,7 +2165,8 @@ def register_in_order_routes(app):
                         ok, err = add_stock(item.material, item.quantity,
                                             transaction_type='in',
                                             reference_type='in_order',
-                                            reference_id=order.id)
+                                            reference_id=order.id,
+                                            warehouse=order.warehouse)
                         if not ok:
                             raise ValueError(err or '库存增加失败')
                         # 同步库位库存（与 complete_in_order 对称），仅启用库位管理且有仓库时
@@ -2249,7 +2254,8 @@ def register_in_order_routes(app):
                         ok, error_msg, _ = deduct_stock_atomic(item.material_id, item.quantity or 0,
                                      transaction_type='revert_in',
                                      reference_type='in_order',
-                                     reference_id=order.id)
+                                     reference_id=order.id,
+                                     warehouse=order.warehouse)
                         if not ok:
                             raise ValueError(error_msg or '库存回退失败')
                         # 同步还原库位库存（与 complete_in_order 对称）

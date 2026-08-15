@@ -399,7 +399,8 @@ def register_after_sale_out_routes(app):
                         transaction_type='after_sale_out',
                         reference_type='after_sale_out_order',
                         reference_id=order.id,
-                        remark=f'After-sales outbound order {order.order_no}')
+                        remark=f'After-sales outbound order {order.order_no}',
+                        warehouse=order.warehouse)
                     if not ok:
                         db.session.rollback()
                         return api_error(error_msg or '库存扣减失败')
@@ -459,7 +460,8 @@ def register_after_sale_out_routes(app):
                         transaction_type='revert_after_sale_out',
                         reference_type='after_sale_out_order',
                         reference_id=order.id,
-                        remark=f'反提交售后出库 {order.order_no}'
+                        remark=f'反提交售后出库 {order.order_no}',
+                        warehouse=order.warehouse,
                     )
                     if not ok:
                         db.session.rollback()

@@ -313,7 +313,7 @@ def register_native_api_routes(app):
                     price=price,
                     amount=amount,
                 ))
-                ok, msg = add_stock(material, quantity, 'in', 'in_order', order.id, f'Android入库 {order.order_no}')
+                ok, msg = add_stock(material, quantity, 'in', 'in_order', order.id, f'Android入库 {order.order_no}', warehouse=order.warehouse)
                 if not ok:
                     db.session.rollback()
                     return api_json_error(msg or '库存增加失败', 500)
