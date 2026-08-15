@@ -1,0 +1,453 @@
+{% extends "base.html" %}
+{% block title %}打印工作台路由{% endblock %}
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2><i class="bi bi-pc-display"></i> 打印工作台路由</h2>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#wsAddModal">
+                <i class="bi bi-plus-lg"></i> 新增工作站
+            </button>
+            <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#ruleAddModal" onclick="prepareRuleModal()">
+                <i class="bi bi-diagram-3"></i> 新增路由规则
+            </button>
+            <a href="/print_queue/station" class="btn btn-outline-secondary btn-sm" target="_blank">
+                <i class="bi bi-printer"></i> 守护页(旧)
+            </a>
+        </div>
+    </div>
+
+    <div class="alert alert-info py-2 small">
+        <i class="bi bi-info-circle"></i>
+        每台负责出纸的本地电脑 = 一个工作站。在电脑上运行 <b>Windows 打印代理</b>（<code>tools/print_agent/wms_print_agent.py</code>），
+        填入工作站令牌即可：代理自动上报心跳与打印机列表，扫码后系统按下方路由规则把打印任务派发到指定工作站和打印机，代理自动出纸。
+    </div>
+
+    <!-- 工作站与打印机 -->
+    <div class="row g-3 mb-4">
+        {% for ws in workstations %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center
+                            {% if ws.enabled and ws.status == 'online' %}bg-success text-white{% elif ws.enabled %}bg-warning{% else %}bg-secondary text-white{% endif %}">
+                    <span>
+                        <i class="bi bi-pc-display"></i>
+                        <b>{{ ws.code }}</b> {{ ws.name }}
+                    </span>
+                    <span class="badge {% if not ws.enabled %}bg-dark{% elif ws.status == 'online' %}bg-light text-success{% else %}bg-light text-warning{% endif %}">
+                        {% if not ws.enabled %}已停用{% elif ws.status == 'online' %}在线{% else %}离线{% endif %}
+                    </span>
+                </div>
+                <div class="card-body py-2">
+                    <div class="small text-muted mb-1">
+                        仓库：{{ ws.warehouse.name if ws.warehouse else '全部仓库' }}
+                        {% if ws.last_heartbeat %}｜心跳：{{ ws.last_heartbeat.strftime('%m-%d %H:%M:%S') }}{% endif %}
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small text-muted mb-1">工作站令牌（复制到打印代理配置）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control font-monospace" id="token-{{ ws.id }}" value="{{ ws.auth_token or '（未生成）' }}" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="copyToken({{ ws.id }})">
+                                <i class="bi bi-clipboard"></i> 复制
+                            </button>
+                        </div>
+                    </div>
+                    <table class="table table-sm table-bordered mb-2">
+                        <thead>
+                            <tr class="small">
+                                <th>打印机（系统名）</th><th>类型</th><th>状态</th><th>启用</th><th width="90">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in ws.print_devices %}
+                            <tr class="small">
+                                <td title="{{ p.system_name }}">{{ p.display_name }}{% if p.is_default %} <span class="badge bg-primary">默认</span>{% endif %}</td>
+                                <td>{{ {'label':'标签','document':'单据','mixed':'混合'}[p.printer_type] }}</td>
+                                <td>
+                                    {% if p.status == 'online' %}<span class="badge bg-success">在线</span>
+                                    {% elif p.status == 'error' %}<span class="badge bg-danger">异常</span>
+                                    {% else %}<span class="badge bg-secondary">离线</span>{% endif %}
+                                </td>
+                                <td>{{ '是' if p.enabled else '否' }}</td>
+                                <td>
+                                    <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="editPrinter({{ p.id }}, {{ p.display_name | tojson }}, {{ p.printer_type | tojson }}, {{ 1 if p.enabled else 0 }})">
+                                        编辑
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="deletePrinter({{ p.id }}, {{ p.display_name | tojson }})">删</button>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="5" class="text-muted text-center small">暂无打印机（启动打印代理后自动注册）</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card-footer text-end py-1">
+                    <button class="btn btn-outline-primary btn-sm" onclick='editWs({{ ws.id }}, {{ ws.name | tojson }}, {{ ws.warehouse_id | tojson }})'>编辑</button>
+                    <button class="btn btn-outline-warning btn-sm" onclick="resetToken({{ ws.id }})">重置令牌</button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="deleteWs({{ ws.id }}, {{ ws.code | tojson }})">删除</button>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="col-12"><div class="alert alert-secondary">还没有工作站，点击右上角「新增工作站」开始配置。</div></div>
+        {% endfor %}
+    </div>
+
+    <!-- 路由规则 -->
+    <div class="card">
+        <div class="card-header"><i class="bi bi-diagram-3"></i> 路由规则（数字越小优先级越高；仓库留空 = 匹配所有仓库）</div>
+        <div class="card-body">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>规则名称</th><th>业务事件</th><th>仓库</th><th>工作站</th><th>打印机</th>
+                        <th>优先级</th><th>启用</th><th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rules %}
+                    <tr>
+                        <td>{{ r.name }}</td>
+                        <td><span class="badge bg-info text-dark">{{ event_labels.get(r.business_event, r.business_event) }}</span></td>
+                        <td>{{ r.warehouse.name if r.warehouse else '全部' }}</td>
+                        <td>{{ r.workstation.code }}</td>
+                        <td>{{ r.printer.display_name if r.printer else '-' }}</td>
+                        <td>{{ r.priority }}</td>
+                        <td>{{ '是' if r.enabled else '否' }}</td>
+                        <td>
+                            <button class="btn btn-outline-primary btn-sm py-0 px-1"
+                                    onclick='editRule({{ r.id }}, {{ r.name | tojson }}, {{ r.business_event | tojson }}, {{ r.warehouse_id | tojson }}, {{ r.workstation_id | tojson }}, {{ r.printer_id | tojson }}, {{ r.priority }})'>编辑</button>
+                            <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="deleteRule({{ r.id }}, {{ r.name | tojson }})">删除</button>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-muted text-center">暂无路由规则：扫码入库/出库不会自动创建定向打印任务</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 新增工作站 -->
+<div class="modal fade" id="wsAddModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">新增工作站</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">工作站编码 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="wsCode" placeholder="如 RECEIVING-PC" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="wsName" placeholder="如 收货台电脑" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">所属仓库（留空 = 不限）</label>
+                    <select class="form-select" id="wsWarehouse">
+                        <option value="">不限仓库</option>
+                        {% for w in warehouses %}<option value="{{ w.id }}">{{ w.code }} {{ w.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="alert alert-warning small mb-0">创建后自动生成工作站令牌，请复制到该电脑的打印代理配置。</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="addWs()">创建</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑工作站 -->
+<div class="modal fade" id="wsEditModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">编辑工作站</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <input type="hidden" id="wsEditId">
+                <div class="mb-3">
+                    <label class="form-label">名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="wsEditName" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">所属仓库</label>
+                    <select class="form-select" id="wsEditWarehouse">
+                        <option value="">不限仓库</option>
+                        {% for w in warehouses %}<option value="{{ w.id }}">{{ w.code }} {{ w.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="wsEditEnabled">
+                    <label class="form-check-label" for="wsEditEnabled">启用（停用后不再接收打印任务）</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveWs()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑打印机 -->
+<div class="modal fade" id="printerEditModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">编辑打印机</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <input type="hidden" id="printerEditId">
+                <div class="mb-3">
+                    <label class="form-label">显示名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="printerEditName" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">类型</label>
+                    <select class="form-select" id="printerEditType">
+                        <option value="mixed">混合</option>
+                        <option value="label">标签机</option>
+                        <option value="document">单据机</option>
+                    </select>
+                </div>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="printerEditEnabled">
+                    <label class="form-check-label" for="printerEditEnabled">启用</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="savePrinter()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 新增/编辑路由规则 -->
+<div class="modal fade" id="ruleAddModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title" id="ruleModalTitle">新增路由规则</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <input type="hidden" id="ruleEditId" value="">
+                <div class="mb-3">
+                    <label class="form-label">规则名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="ruleName" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">业务事件 <span class="text-danger">*</span></label>
+                    <select class="form-select" id="ruleEvent" required>
+                        <option value="out_order">领料单/出库单（out_order）</option>
+                        <option value="in_order">采购入库单（in_order）</option>
+                        <option value="label">物料标签（label）</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">仓库（留空 = 匹配所有仓库）</label>
+                    <select class="form-select" id="ruleWarehouse">
+                        <option value="">全部仓库</option>
+                        {% for w in warehouses %}<option value="{{ w.id }}">{{ w.code }} {{ w.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">工作站 <span class="text-danger">*</span></label>
+                    <select class="form-select" id="ruleWorkstation" onchange="onRuleWorkstationChange()" required>
+                        <option value="">-- 选择工作站 --</option>
+                        {% for ws in workstations %}
+                        <option value="{{ ws.id }}" data-ws="{{ ws.id }}">{{ ws.code }} {{ ws.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">打印机 <span class="text-danger">*</span></label>
+                    <select class="form-select" id="rulePrinter" required>
+                        <option value="">-- 先选择工作站 --</option>
+                    </select>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">优先级（越小越优先）</label>
+                        <input type="number" class="form-control" id="rulePriority" value="100" min="1" max="9999">
+                    </div>
+                    <div class="col-6 d-flex align-items-end">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="ruleEnabled" checked>
+                            <label class="form-check-label" for="ruleEnabled">启用</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveRule()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// 打印机数据（服务端一次性下发，供规则弹窗联动）
+var WS_PRINTERS = {
+    {% for ws in workstations %}
+    {{ ws.id }}: [{% for p in ws.print_devices %}{id: {{ p.id }}, name: {{ p.display_name | tojson }}, enabled: {{ 1 if p.enabled else 0 }} }{% if not loop.last %},{% endif %}{% endfor %}],
+    {% endfor %}
+};
+
+function copyToken(wsId) {
+    var input = document.getElementById('token-' + wsId);
+    input.select();
+    navigator.clipboard.writeText(input.value).catch(function () {
+        document.execCommand('copy');
+    });
+    if (typeof showToast === 'function') { showToast('令牌已复制'); }
+}
+
+function addWs() {
+    var data = {
+        code: document.getElementById('wsCode').value,
+        name: document.getElementById('wsName').value,
+        warehouse_id: document.getElementById('wsWarehouse').value || null,
+    };
+    if (!data.code || !data.name) { alert('请填写工作站编码和名称'); return; }
+    WMS.api.post('/print_routing/workstations', data).then(function (res) {
+        if (typeof showToast === 'function') { showToast(res.msg); }
+        if (res.token) {
+            navigator.clipboard && navigator.clipboard.writeText(res.token);
+            alert('工作站令牌已生成并复制（请粘贴到打印代理 agent_config.ini）：\n\n' + res.token);
+        }
+        location.reload();
+    }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '新增失败', 'danger'); } });
+}
+
+function editWs(id, name, warehouseId) {
+    document.getElementById('wsEditId').value = id;
+    document.getElementById('wsEditName').value = name;
+    document.getElementById('wsEditWarehouse').value = warehouseId || '';
+    var modal = new bootstrap.Modal(document.getElementById('wsEditModal'));
+    modal.show();
+}
+
+function saveWs() {
+    var data = {
+        name: document.getElementById('wsEditName').value,
+        warehouse_id: document.getElementById('wsEditWarehouse').value || null,
+        enabled: document.getElementById('wsEditEnabled').checked,
+    };
+    WMS.api.post('/print_routing/workstations/' + document.getElementById('wsEditId').value + '/edit', data)
+        .then(function (res) { if (typeof showToast === 'function') { showToast(res.msg); } location.reload(); })
+        .catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '保存失败', 'danger'); } });
+}
+
+function resetToken(wsId) {
+    if (!confirm('重置令牌后，该工作站正在使用的打印代理将立即失联，需要更新代理配置。确定重置？')) return;
+    WMS.api.post('/print_routing/workstations/' + wsId + '/reset_token', {}).then(function (res) {
+        alert('新令牌（请更新打印代理配置）：\n\n' + res.token);
+        location.reload();
+    }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '重置失败', 'danger'); } });
+}
+
+function deleteWs(wsId, code) {
+    if (!confirm('确定删除工作站 ' + code + '？（存在打印任务或路由规则时将被拒绝）')) return;
+    WMS.api.post('/print_routing/workstations/' + wsId + '/delete', {}).then(function (res) {
+        if (typeof showToast === 'function') { showToast(res.msg); } location.reload();
+    }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '删除失败', 'danger'); } });
+}
+
+function editPrinter(id, name, type, enabled) {
+    document.getElementById('printerEditId').value = id;
+    document.getElementById('printerEditName').value = name;
+    document.getElementById('printerEditType').value = type;
+    document.getElementById('printerEditEnabled').checked = !!enabled;
+    new bootstrap.Modal(document.getElementById('printerEditModal')).show();
+}
+
+function savePrinter() {
+    var data = {
+        display_name: document.getElementById('printerEditName').value,
+        printer_type: document.getElementById('printerEditType').value,
+        enabled: document.getElementById('printerEditEnabled').checked,
+    };
+    WMS.api.post('/print_routing/printers/' + document.getElementById('printerEditId').value + '/edit', data)
+        .then(function (res) { if (typeof showToast === 'function') { showToast(res.msg); } location.reload(); })
+        .catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '保存失败', 'danger'); } });
+}
+
+function deletePrinter(id, name) {
+    if (!confirm('确定删除打印机「' + name + '」？（被路由规则引用时将被拒绝）')) return;
+    WMS.api.post('/print_routing/printers/' + id + '/delete', {}).then(function (res) {
+        if (typeof showToast === 'function') { showToast(res.msg); } location.reload();
+    }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '删除失败', 'danger'); } });
+}
+
+function onRuleWorkstationChange() {
+    var wsId = document.getElementById('ruleWorkstation').value;
+    var sel = document.getElementById('rulePrinter');
+    sel.innerHTML = '<option value="">-- 选择打印机 --</option>';
+    (WS_PRINTERS[wsId] || []).forEach(function (p) {
+        if (!p.enabled) return;
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        sel.appendChild(opt);
+    });
+}
+
+function prepareRuleModal() {
+    document.getElementById('ruleEditId').value = '';
+    document.getElementById('ruleModalTitle').textContent = '新增路由规则';
+    document.getElementById('ruleName').value = '';
+    document.getElementById('ruleEvent').value = 'out_order';
+    document.getElementById('ruleWarehouse').value = '';
+    document.getElementById('ruleWorkstation').value = '';
+    document.getElementById('rulePriority').value = 100;
+    document.getElementById('ruleEnabled').checked = true;
+    onRuleWorkstationChange();
+}
+
+function editRule(id, name, event, warehouseId, wsId, printerId, priority) {
+    prepareRuleModal();
+    document.getElementById('ruleEditId').value = id;
+    document.getElementById('ruleModalTitle').textContent = '编辑路由规则';
+    document.getElementById('ruleName').value = name;
+    document.getElementById('ruleEvent').value = event;
+    document.getElementById('ruleWarehouse').value = warehouseId || '';
+    document.getElementById('ruleWorkstation').value = wsId;
+    onRuleWorkstationChange();
+    document.getElementById('rulePrinter').value = printerId;
+    document.getElementById('rulePriority').value = priority;
+    new bootstrap.Modal(document.getElementById('ruleAddModal')).show();
+}
+
+function saveRule() {
+    var data = {
+        name: document.getElementById('ruleName').value,
+        business_event: document.getElementById('ruleEvent').value,
+        warehouse_id: document.getElementById('ruleWarehouse').value || null,
+        workstation_id: parseInt(document.getElementById('ruleWorkstation').value, 10),
+        printer_id: parseInt(document.getElementById('rulePrinter').value, 10),
+        priority: parseInt(document.getElementById('rulePriority').value, 10) || 100,
+        enabled: document.getElementById('ruleEnabled').checked,
+    };
+    if (!data.name || !data.workstation_id || !data.printer_id) {
+        alert('请填写规则名称并选择工作站和打印机'); return;
+    }
+    var ruleId = document.getElementById('ruleEditId').value;
+    var url = ruleId ? '/print_routing/rules/' + ruleId + '/edit' : '/print_routing/rules';
+    WMS.api.post(url, data).then(function (res) {
+        if (typeof showToast === 'function') { showToast(res.msg); } location.reload();
+    }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '保存失败', 'danger'); } });
+}
+
+function deleteRule(id, name) {
+    if (!confirm('确定删除路由规则「' + name + '」？')) return;
+    WMS.api.post('/print_routing/rules/' + id + '/delete', {}).then(function (res) {
+        if (typeof showToast === 'function') { showToast(res.msg); } location.reload();
+    }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '删除失败', 'danger'); } });
+}
+</script>
+{% endblock %}
