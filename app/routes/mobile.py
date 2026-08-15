@@ -313,6 +313,7 @@ def register_mobile_routes(app):
             update_location_inventory,
             _create_adjustment_drafts_from_check_scan,
         )
+        from routes.print_queue import enqueue_auto_print_job
         # BUG-2026-08-13-002：装饰器接受 Web 会话或 Bearer Token 任一，这里解析真实操作人
         actor = current_user if current_user.is_authenticated else get_bearer_user()
         data = request.get_json(silent=True) or {}
@@ -395,6 +396,10 @@ def register_mobile_routes(app):
                     if not ok:
                         db.session.rollback()
                         return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库位库存更新失败'}), 400
+                enqueue_auto_print_job(
+                    'in_order', order.id, order.warehouse,
+                    created_by=actor.id, source_event='scan_submit_in',
+                )
                 db.session.commit()
                 log_operation('手机扫码入库', f'入库单：{order.order_no}', 'in_order', order.id)
                 return jsonify({
@@ -469,6 +474,10 @@ def register_mobile_routes(app):
                     if not ok:
                         db.session.rollback()
                         return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库位库存扣减失败'}), 400
+                enqueue_auto_print_job(
+                    'out_order', order.id, order.warehouse,
+                    created_by=actor.id, source_event='scan_submit_out',
+                )
                 db.session.commit()
                 log_operation('手机扫码出库', f'领料单：{order.order_no}', 'out_order', order.id)
                 return jsonify({

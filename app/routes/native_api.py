@@ -263,6 +263,7 @@ def register_native_api_routes(app):
                          location_required_on_save, parse_api_lines, parse_float_value,
                          purchase_in_order_requires_order, resolve_request_warehouse,
                          round_to_2_decimals, update_location_inventory)
+        from routes.print_queue import enqueue_auto_print_job
         payload = request.get_json(silent=True) or {}
         parsed, error = parse_api_lines(payload)
         if error:
@@ -322,6 +323,8 @@ def register_native_api_routes(app):
                     db.session.rollback()
                     return api_json_error(loc_msg or '库位库存更新失败', 500)
             order.total_amount = round_to_2_decimals(total_amount)
+            enqueue_auto_print_job('in_order', order.id, order.warehouse,
+                                   created_by=user.id, source_event='scan_inbound')
             db.session.commit()
             return api_json_success({'order_no': order.order_no}, '入库提交成功')
         except Exception as e:
@@ -342,6 +345,7 @@ def register_native_api_routes(app):
                          location_required_on_save, parse_api_lines, parse_float_value,
                          resolve_request_warehouse, round_to_2_decimals,
                          update_location_inventory)
+        from routes.print_queue import enqueue_auto_print_job
         payload = request.get_json(silent=True) or {}
         parsed, error = parse_api_lines(payload)
         if error:
@@ -400,6 +404,8 @@ def register_native_api_routes(app):
                     db.session.rollback()
                     return api_json_error(msg)
             order.total_amount = round_to_2_decimals(total_amount)
+            enqueue_auto_print_job('out_order', order.id, order.warehouse,
+                                   created_by=user.id, source_event='scan_outbound')
             db.session.commit()
             return api_json_success({'order_no': order.order_no}, '出库提交成功')
         except Exception:

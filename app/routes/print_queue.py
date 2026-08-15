@@ -101,6 +101,35 @@ def _print_url(job):
     return url
 
 
+def enqueue_auto_print_job(job_type, target_id, warehouse_name, target_ids=None,
+                           copies=1, created_by=None, source_event='auto'):
+    """扫码入库/出库或手机扫码提交成功后，按路由规则自动创建定向打印任务。
+
+    - 无匹配路由规则（或目标工作站/打印机不在线）时返回 None，不阻塞业务操作。
+    - 有匹配路由时创建 pending 定向任务并加入当前会话（flush），由调用方同一
+      事务提交，保证单据与打印任务原子写入。
+    """
+    from app import PrintJob
+    route = _resolve_print_route(job_type, warehouse_name)
+    if not route:
+        return None
+    job = PrintJob(
+        job_type=job_type,
+        target_id=target_id,
+        target_ids=target_ids,
+        copies=copies,
+        status='pending',
+        created_by=created_by,
+        workstation_id=route.workstation_id,
+        printer_id=route.printer_id,
+        route_rule_id=route.id,
+        source_event=source_event,
+    )
+    db.session.add(job)
+    db.session.flush()
+    return job
+
+
 # no-test:reason=路由注册辅助函数，能力由各 print_queue_* 路由测试覆盖
 def register_print_queue_routes(app):
     # pydantic:reason=本模块所有 POST 路由均使用 pydantic BaseModel 校验输入

@@ -167,6 +167,7 @@
 | 77 | BUG-2026-08-15-004 | 已完成 | 采购入库和领料单反提交后可进入草稿编辑，修改数量、单价、合同编号、工程名称等明细字段 | 无 | 验证入库/领料草稿加载、完成单 409 拦截及采购收货进度不双计；提交见 git log |
 | 78 | BUG-2026-08-15-005 | 已完成 | 手机端远程打印 JSON 请求契约与桌面工作站回写权限修复；桌面端无人值守自动打印 | 无 | `tests/test_print_queue.py` 21 passed；两项 lint 通过；隔离服务三种任务入队和工作站轮询通过；无人值守由 Chrome/Edge `--kiosk-printing` 启动参数保障；提交见 git log |
 | 79 | PRINT-ROUTING-F01-P1 | 已完成 | 多工作站、多打印机定向打印阶段 1：数据模型、路由规则解析、定向任务和工作站专属队列服务 | BUG-2026-08-15-005 | 提交 `d9e9d4b`；验证 `pytest tests/test_print_queue.py -q`（23 passed）、两项 lint 通过；遗留阶段 2 扫码自动路由、阶段 3 Windows 本地打印代理 |
+| 80 | PRINT-ROUTING-F01-P2 | 已完成 | 多工作站、多打印机定向打印阶段 2：Android 原生扫码入库/出库与手机网页扫码提交成功后，按路由规则自动创建定向打印任务（in_order/out_order），未配置路由时不阻塞业务操作 | 无 | 提交见 git log；验证 `pytest tests/test_print_queue.py tests/test_print_auto_after_scan.py -q`（28 passed）、两项 lint 通过；遗留阶段 3 Windows 本地打印代理与工作站令牌鉴权 |
 
 ## 5. 任务详细定义
 
