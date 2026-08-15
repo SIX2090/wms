@@ -51,7 +51,7 @@
             'X-Requested-With': 'XMLHttpRequest'
         };
         if (hasBody && !(extraHeaders && extraHeaders['Content-Type'])) {
-            // 让浏览器自动设 Content-Type（特别是 FormData 时）
+            headers['Content-Type'] = 'application/json';
         }
         if (extraHeaders) {
             for (var k in extraHeaders) {
@@ -98,7 +98,8 @@
         options = options || {};
         var data = options.data;
         var query = options.query;
-        var headers = buildHeaders(options.headers, data != null);
+        var isFormData = data instanceof FormData;
+        var headers = buildHeaders(options.headers, data != null && !isFormData);
         var body = buildBody(data);
 
         // 拼接 query string

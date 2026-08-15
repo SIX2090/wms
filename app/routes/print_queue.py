@@ -184,6 +184,7 @@ def register_print_queue_routes(app):
         })
 
     @app.route('/print_queue/jobs/<int:job_id>/complete', methods=['POST'])
+    @require_role('warehouse')
     @login_required
     def print_queue_complete(job_id):
         """桌面端标记任务完成。"""
@@ -203,6 +204,7 @@ def register_print_queue_routes(app):
         return jsonify({'status': 'success', 'msg': '已标记完成'})
 
     @app.route('/print_queue/jobs/<int:job_id>/fail', methods=['POST'])
+    @require_role('warehouse')
     @login_required
     def print_queue_fail(job_id):
         """桌面端标记任务失败。"""

@@ -34,10 +34,10 @@ import app as app_module  # noqa: E402
 from app import OutOrder, PrintJob, User, Warehouse, db  # noqa: E402
 
 
-def _login(client):
+def _login(client, username='admin'):
     return client.post(
         "/login",
-        data={"username": "admin", "password": "admin"},
+        data={"username": username, "password": "admin"},
         content_type="application/x-www-form-urlencoded",
     )
 
@@ -363,3 +363,27 @@ def test_unauthenticated_create_rejected(client):
     resp = c.post('/print_queue/jobs', json={'job_type': 'out_order', 'target_id': 1})
     # flask_login 默认 302 重定向到 /login
     assert resp.status_code in (302, 401)
+
+
+def test_non_warehouse_user_cannot_report_print_result(client):
+    with app_module.app.app_context():
+        db.session.add(User(
+            username='production',
+            password_hash=generate_password_hash('admin'),
+            role='production', must_change_password=False,
+        ))
+        db.session.commit()
+    c = app_module.app.test_client()
+    _login(c, username='production')
+    resp = c.post(
+        '/print_queue/jobs/1/complete',
+        json={},
+        headers={'X-Requested-With': 'XMLHttpRequest'},
+    )
+    assert resp.status_code == 403
+
+
+def test_api_client_posts_json_with_content_type():
+    api_js = (APP_DIR / 'static' / 'js' / 'api.js').read_text(encoding='utf-8')
+    assert "headers['Content-Type'] = 'application/json';" in api_js
+    assert 'data != null && !isFormData' in api_js
