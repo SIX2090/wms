@@ -109,7 +109,7 @@
 | 20 | AI-DEPLOY-F01-FIX-01 | 已完成 | 启动自动更新默认关闭修复子项 | AI-DEPLOY-F01 | 无 |
 | 21 | AI-DEPLOY-F01-FIX-02 | 已完成 | 启动自动更新可用性修复子项 | AI-DEPLOY-F01 | 无 |
 | 22 | AI-SALES-F02 | 已完成 | 销售履约跟进 AI 工作台 | AI-SALES-F01 | 无 |
-| 22a | AI-DEPLOY-F01-FIX-04 | 进行中 | 清理反编译 APK 副产物以消除代码库同步超时 | AI-DEPLOY-F01 | 无 |
+| 22a | AI-DEPLOY-F01-FIX-04 | 已完成 | 清理反编译 APK 副产物以消除代码库同步超时；提交 `fef9e59a`，验证 `verify_sync_artifacts.py`、防 BUG lint 与启动自动更新专项检查通过 | AI-DEPLOY-F01 | 无 |
 | 23 | AI-R07-F02-FIX-01 | 已完成 | 物料分类与流水编码修复子项 | AI-R07-F02 | 无 |
 | 24 | AI-OS-MW-001 | 已完成 | 期初库存多仓库支持 | AI-F02-04 | 无 |
 | 25 | AI-OS-LD-001 | 已完成 | 库存台账按单一物料查询与物料信息显示 | AI-OS-MW-001 | 无 |
