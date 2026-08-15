@@ -41,7 +41,7 @@ from utils import require_role
 # no-test:reason=路由注册辅助函数，能力由 purchase_order_* 各路由测试覆盖
 def register_purchase_order_routes(app):
     @app.route('/purchase_order')
-    @require_role('warehouse')
+    @require_role('warehouse', 'purchase')
     @login_required
     def purchase_order_list():
         from datetime import date

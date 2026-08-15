@@ -16,7 +16,8 @@ T3. viewer     @ /material        -> 302 跳回首页（拒绝）。
 T4. viewer     @ /purchase_order  -> 302 跳回首页（拒绝）。
 T5. warehouse  @ /purchase_order  -> 200（允许）。
 T6. warehouse  @ /material        -> 200（允许）。
-T7. admin      @ /purchase_order / /material -> 200（允许）。
+T7. purchase   @ /purchase_order  -> 200（允许，支撑 AI 采购洞察权限判定）。
+T8. admin      @ /purchase_order / /material -> 200（允许）。
 """
 from __future__ import annotations
 
@@ -106,6 +107,11 @@ class TestPurchaseMaterialListRole(unittest.TestCase):
 
     def test_warehouse_purchase_order_allowed(self):
         self._assert_allowed("warehouse", "/purchase_order")
+
+    def test_purchase_purchase_order_allowed(self):
+        # BUG-2026-08-15-001 补充：采购角色可访问采购订单列表，
+        # 以支撑 AI 采购洞察（purchase_insights）权限判定。
+        self._assert_allowed("purchase", "/purchase_order")
 
     def test_warehouse_material_allowed(self):
         self._assert_allowed("warehouse", "/material")
