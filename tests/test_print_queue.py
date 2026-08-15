@@ -31,7 +31,8 @@ os.environ["WMS_DEBUG"] = "0"
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 import app as app_module  # noqa: E402
-from app import OutOrder, PrintJob, User, Warehouse, db  # noqa: E402
+from app import (OutOrder, PrintDevice, PrintJob, PrintRouteRule,
+                 PrintWorkstation, User, Warehouse, db)  # noqa: E402
 
 
 def _login(client, username='admin'):
@@ -387,3 +388,70 @@ def test_api_client_posts_json_with_content_type():
     api_js = (APP_DIR / 'static' / 'js' / 'api.js').read_text(encoding='utf-8')
     assert "headers['Content-Type'] = 'application/json';" in api_js
     assert 'data != null && !isFormData' in api_js
+
+
+def test_routed_job_can_only_be_claimed_by_target_workstation(client):
+    with app_module.app.app_context():
+        warehouse = Warehouse.query.filter_by(code='RWH0').first()
+        target = PrintWorkstation(
+            code='RECEIVING-PC', name='收货台电脑', device_id='device-receiving',
+            warehouse_id=warehouse.id, status='online', enabled=True,
+        )
+        other = PrintWorkstation(
+            code='ISSUE-PC', name='发料台电脑', device_id='device-issue',
+            warehouse_id=warehouse.id, status='online', enabled=True,
+        )
+        db.session.add_all([target, other])
+        db.session.flush()
+        printer = PrintDevice(
+            workstation_id=target.id, system_name='Zebra ZD421',
+            display_name='收货标签机', printer_type='label', enabled=True,
+            status='online',
+        )
+        db.session.add(printer)
+        db.session.flush()
+        db.session.add(PrintRouteRule(
+            name='主仓领料单', business_event='out_order', warehouse_id=warehouse.id,
+            workstation_id=target.id, printer_id=printer.id, priority=10, enabled=True,
+        ))
+        target_id = target.id
+        other_id = other.id
+        printer_id = printer.id
+        db.session.commit()
+
+    with client.session_transaction() as sess:
+        csrf = sess.get('csrf_token', '')
+    created = client.post('/print_queue/jobs', json={
+        'job_type': 'out_order', 'target_id': 1,
+    }, headers={'X-CSRFToken': csrf}).get_json()
+    with app_module.app.app_context():
+        job = db.session.get(PrintJob, created['job_id'])
+        assert job.workstation_id == target_id
+        assert job.printer_id == printer_id
+        assert job.route_rule_id is not None
+
+    denied = client.get(f'/print_queue/workstations/{other_id}/next')
+    assert denied.status_code == 200
+    assert denied.get_json()['status'] == 'empty'
+
+    claimed = client.get(f'/print_queue/workstations/{target_id}/next')
+    assert claimed.status_code == 200
+    assert claimed.get_json()['job']['id'] == created['job_id']
+    assert claimed.get_json()['job']['printer_id'] == printer_id
+    assert claimed.get_json()['job']['printer_system_name'] == 'Zebra ZD421'
+
+
+def test_workstation_queue_requires_admin(client):
+    with app_module.app.app_context():
+        db.session.add(User(
+            username='warehouse-user',
+            password_hash=generate_password_hash('admin'),
+            role='warehouse', must_change_password=False,
+        ))
+        db.session.commit()
+    c = app_module.app.test_client()
+    _login(c, username='warehouse-user')
+    response = c.get('/print_queue/workstations/1/next', headers={
+        'X-Requested-With': 'XMLHttpRequest',
+    })
+    assert response.status_code == 403

@@ -1203,6 +1203,24 @@ def auto_migrate_database():
                 )
                 modified = True
 
+        # PRINT-ROUTING-F01-P1：既有打印任务补齐定向工作站、打印机和路由规则字段。
+        if _table_exists('print_job'):
+            cursor.execute("PRAGMA table_info(print_job)")
+            _print_job_cols = [row[1] for row in cursor.fetchall()]
+            if 'workstation_id' not in _print_job_cols:
+                cursor.execute("ALTER TABLE print_job ADD COLUMN workstation_id INTEGER")
+                modified = True
+            if 'printer_id' not in _print_job_cols:
+                cursor.execute("ALTER TABLE print_job ADD COLUMN printer_id INTEGER")
+                modified = True
+            if 'route_rule_id' not in _print_job_cols:
+                cursor.execute("ALTER TABLE print_job ADD COLUMN route_rule_id INTEGER")
+                modified = True
+            if 'source_event' not in _print_job_cols:
+                cursor.execute("ALTER TABLE print_job ADD COLUMN source_event VARCHAR(30) DEFAULT 'manual'")
+                modified = True
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_print_job_workstation_status ON print_job(workstation_id, status)")
+
         # api_token.last_used_at：记录 token 最近使用时间，用于滑动过期与清理长期未使用 Token
         if _table_exists('api_token'):
             cursor.execute("PRAGMA table_info(api_token)")
@@ -3152,6 +3170,54 @@ class Notification(db.Model):
     is_read = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
+class PrintWorkstation(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(64), unique=True, nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    device_id = db.Column(db.String(128), unique=True, nullable=False)
+    warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))
+    status = db.Column(db.String(20), default='offline', nullable=False)
+    enabled = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+    warehouse = db.relationship('Warehouse', backref='print_workstations')
+
+
+class PrintDevice(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    workstation_id = db.Column(db.Integer, db.ForeignKey('print_workstation.id'), nullable=False)
+    system_name = db.Column(db.String(200), nullable=False)
+    display_name = db.Column(db.String(100), nullable=False)
+    printer_type = db.Column(db.String(20), default='mixed', nullable=False)
+    status = db.Column(db.String(20), default='offline', nullable=False)
+    enabled = db.Column(db.Boolean, default=True, nullable=False)
+    is_default = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+    workstation = db.relationship('PrintWorkstation', backref='print_devices')
+    __table_args__ = (db.UniqueConstraint('workstation_id', 'system_name', name='uq_print_device_system_name'),)
+
+
+class PrintRouteRule(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    business_event = db.Column(db.String(30), nullable=False)
+    warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))
+    workstation_id = db.Column(db.Integer, db.ForeignKey('print_workstation.id'), nullable=False)
+    printer_id = db.Column(db.Integer, db.ForeignKey('print_device.id'), nullable=False)
+    priority = db.Column(db.Integer, default=100, nullable=False)
+    enabled = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+    warehouse = db.relationship('Warehouse', backref='print_route_rules')
+    workstation = db.relationship('PrintWorkstation', backref='print_route_rules')
+    printer = db.relationship('PrintDevice', backref='print_route_rules')
+    __table_args__ = (db.Index('idx_print_route_match', 'business_event', 'warehouse_id', 'priority'),)
+
+
 class PrintJob(db.Model):
     """远程打印任务队列。
 
@@ -3181,13 +3247,21 @@ class PrintJob(db.Model):
     printed_at = db.Column(db.DateTime)  # 桌面端标记完成时间
     error_msg = db.Column(db.String(500))  # 失败原因
     attempts = db.Column(db.Integer, default=0)  # 尝试次数，防止死循环
+    workstation_id = db.Column(db.Integer, db.ForeignKey('print_workstation.id'))
+    printer_id = db.Column(db.Integer, db.ForeignKey('print_device.id'))
+    route_rule_id = db.Column(db.Integer, db.ForeignKey('print_route_rule.id'))
+    source_event = db.Column(db.String(30), default='manual', nullable=False)
 
     __table_args__ = (
         db.Index('idx_print_job_status', 'status'),
         db.Index('idx_print_job_created', 'created_at'),
+        db.Index('idx_print_job_workstation_status', 'workstation_id', 'status'),
     )
 
     operator = db.relationship('User', backref='print_jobs')  # 提交者
+    workstation = db.relationship('PrintWorkstation', backref='print_jobs')
+    printer = db.relationship('PrintDevice', backref='print_jobs')
+    route_rule = db.relationship('PrintRouteRule', backref='print_jobs')
 
 class Employee(db.Model):
     """Employee."""

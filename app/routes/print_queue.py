@@ -74,6 +74,33 @@ PRINTING_TIMEOUT = timedelta(minutes=5)  # printing 状态超过此时间视为�
 MAX_ATTEMPTS = 5  # 同一任务最多尝试次数，超过则标记 failed
 
 
+def _resolve_print_route(job_type, warehouse_name):
+    from app import PrintRouteRule, Warehouse
+    warehouse = None
+    if warehouse_name:
+        warehouse = Warehouse.query.filter_by(name=warehouse_name).first()
+    rules = PrintRouteRule.query.filter_by(business_event=job_type, enabled=True).order_by(
+        PrintRouteRule.priority.asc(), PrintRouteRule.id.asc()).all()
+    for rule in rules:
+        if rule.warehouse_id is None or (warehouse and rule.warehouse_id == warehouse.id):
+            if (rule.workstation.enabled and rule.workstation.status == 'online'
+                    and rule.printer.enabled and rule.printer.status == 'online'):
+                return rule
+    return None
+
+
+def _print_url(job):
+    if job.job_type == 'out_order':
+        url = f'/out_order/{job.target_id}/print'
+    elif job.job_type == 'in_order':
+        url = f'/in_order/{job.target_id}/print'
+    else:
+        url = f'/label/batch_print?ids={job.target_ids or ""}'
+    if job.copies and job.copies > 1:
+        url += ('&' if '?' in url else '?') + f'copies={job.copies}'
+    return url
+
+
 # no-test:reason=路由注册辅助函数，能力由各 print_queue_* 路由测试覆盖
 def register_print_queue_routes(app):
     # pydantic:reason=本模块所有 POST 路由均使用 pydantic BaseModel 校验输入
@@ -94,20 +121,26 @@ def register_print_queue_routes(app):
         if err:
             return jsonify({'status': 'error', 'msg': err}), 400
 
+        warehouse_name = ''
         if req.job_type == 'out_order':
             from app import OutOrder
-            if not db.session.get(OutOrder, req.target_id):
+            target = db.session.get(OutOrder, req.target_id)
+            if not target:
                 return jsonify({'status': 'error', 'msg': '领料单不存在'}), 404
+            warehouse_name = target.warehouse or ''
         elif req.job_type == 'in_order':
             from app import InOrder
-            if not db.session.get(InOrder, req.target_id):
+            target = db.session.get(InOrder, req.target_id)
+            if not target:
                 return jsonify({'status': 'error', 'msg': '采购入库单不存在'}), 404
+            warehouse_name = target.warehouse or ''
         else:
             from app import Material
             ids = [int(value) for value in req.target_ids.split(',') if value.strip().isdigit()]
             if not ids or Material.query.filter(Material.id.in_(ids)).count() != len(set(ids)):
                 return jsonify({'status': 'error', 'msg': '标签物料不存在或格式无效'}), 400
 
+        route = _resolve_print_route(req.job_type, warehouse_name)
         job = PrintJob(
             job_type=req.job_type,
             target_id=req.target_id,
@@ -115,6 +148,9 @@ def register_print_queue_routes(app):
             copies=req.copies,
             status='pending',
             created_by=current_user.id if current_user.is_authenticated else None,
+            workstation_id=route.workstation_id if route else None,
+            printer_id=route.printer_id if route else None,
+            route_rule_id=route.id if route else None,
         )
         db.session.add(job)
         db.session.commit()
@@ -149,7 +185,7 @@ def register_print_queue_routes(app):
         if stale_jobs:
             db.session.commit()
 
-        job = PrintJob.query.filter_by(status='pending').order_by(PrintJob.created_at.asc()).first()
+        job = PrintJob.query.filter_by(status='pending', workstation_id=None).order_by(PrintJob.created_at.asc()).first()
         if not job:
             return jsonify({'status': 'empty', 'msg': '队列为空'})
 
@@ -157,18 +193,7 @@ def register_print_queue_routes(app):
         job.attempts = (job.attempts or 0) + 1
         db.session.commit()
 
-        # 构造打印 URL（桌面端 iframe 加载该 URL 后调 window.print()）
-        if job.job_type == 'out_order':
-            print_url = f'/out_order/{job.target_id}/print'
-        elif job.job_type == 'in_order':
-            print_url = f'/in_order/{job.target_id}/print'
-        else:  # label
-            ids = job.target_ids or ''
-            print_url = f'/label/batch_print?ids={ids}'
-        # copies 通过 URL 参数透传，由桌面端 JS 控制循环打印
-        if job.copies and job.copies > 1:
-            separator = '&' if '?' in print_url else '?'
-            print_url += f'{separator}copies={job.copies}'
+        print_url = _print_url(job)
 
         return jsonify({
             'status': 'success',
@@ -182,6 +207,28 @@ def register_print_queue_routes(app):
                 'created_at': job.created_at.strftime('%Y-%m-%d %H:%M:%S') if job.created_at else '',
             }
         })
+
+    @app.route('/print_queue/workstations/<int:workstation_id>/next', methods=['GET'])
+    @require_role('admin')
+    @login_required
+    def print_queue_workstation_next(workstation_id):
+        from app import PrintJob, PrintWorkstation
+        workstation = db.session.get(PrintWorkstation, workstation_id)
+        if not workstation or not workstation.enabled or workstation.status != 'online':
+            return jsonify({'status': 'empty', 'msg': '工作站不可用'})
+        job = PrintJob.query.filter_by(
+            status='pending', workstation_id=workstation_id).order_by(PrintJob.created_at.asc()).first()
+        if not job:
+            return jsonify({'status': 'empty', 'msg': '队列为空'})
+        job.status = 'printing'
+        job.attempts = (job.attempts or 0) + 1
+        db.session.commit()
+        return jsonify({'status': 'success', 'job': {
+            'id': job.id, 'job_type': job.job_type, 'target_id': job.target_id,
+            'target_ids': job.target_ids, 'copies': job.copies, 'print_url': _print_url(job),
+            'printer_id': job.printer_id,
+            'printer_system_name': job.printer.system_name if job.printer else '',
+        }})
 
     @app.route('/print_queue/jobs/<int:job_id>/complete', methods=['POST'])
     @require_role('warehouse')
