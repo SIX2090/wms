@@ -67,10 +67,7 @@
                     <button class="btn btn-outline-secondary btn-sm" onclick="clearLog()">
                         <i class="bi bi-eraser"></i> 清空日志
                     </button>
-                    <div class="form-check form-switch ms-3">
-                        <input class="form-check-input" type="checkbox" id="autoPrintChk" checked>
-                        <label class="form-check-label" for="autoPrintChk">自动打印</label>
-                    </div>
+                    <span class="badge text-bg-success ms-3 align-self-center">自动打印已启用</span>
                     <span class="text-muted small align-self-center">轮询间隔: <span id="intervalLabel">3</span> 秒</span>
                 </div>
 
@@ -84,6 +81,7 @@
     <iframe class="print-iframe" id="printFrame" name="printFrame"></iframe>
 
     <script src="{{ url_for('static', filename='cdn/jquery-3.6.4.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
     <script>
     // ==================== 打印工作站守护逻辑 ====================
     (function() {
@@ -169,12 +167,6 @@
         function handleJob(job) {
             currentJob = job;
             log('收到任务 #' + job.id + ' [' + job.job_type + '] ' + job.print_url, 'info');
-            if (!$('#autoPrintChk').prop('checked')) {
-                log('自动打印已关闭，跳过任务 #' + job.id, 'warn');
-                reportComplete(job.id, '自动打印未开启');
-                currentJob = null;
-                return;
-            }
             loadAndPrint(job);
         }
 
@@ -242,21 +234,15 @@
         }
 
         function reportComplete(jobId, note) {
-            $.ajax({
-                url: '/print_queue/jobs/' + jobId + '/complete',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({ error_msg: note || null })
-            }).fail(function() { log('上报完成失败 #' + jobId, 'error'); });
+            WMS.api.post('/print_queue/jobs/' + jobId + '/complete', {
+                error_msg: note || null
+            }).catch(function() { log('上报完成失败 #' + jobId, 'error'); });
         }
 
         function reportFail(jobId, errMsg) {
-            $.ajax({
-                url: '/print_queue/jobs/' + jobId + '/fail',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({ error_msg: errMsg })
-            }).fail(function() { log('上报失败状态失败 #' + jobId, 'error'); });
+            WMS.api.post('/print_queue/jobs/' + jobId + '/fail', {
+                error_msg: errMsg
+            }).catch(function() { log('上报失败状态失败 #' + jobId, 'error'); });
         }
 
         // 启动
