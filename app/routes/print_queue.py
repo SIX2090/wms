@@ -9,6 +9,13 @@
 #   - 桌面端：POST /print_queue/jobs/<id>/complete  标记完成
 #   - 桌面端：POST /print_queue/jobs/<id>/fail     标记失败
 #
+# PRINT-ROUTING-F01-P3：Windows 本地打印代理（agent API v1，工作站令牌鉴权）：
+#   - 代理端：POST /print_queue/api/v1/claim            认领本工作站下一条任务
+#   - 代理端：POST /print_queue/api/v1/jobs/<id>/complete  上报打印完成
+#   - 代理端：POST /print_queue/api/v1/jobs/<id>/fail       上报打印失败
+#   - 代理端：POST /print_queue/api/v1/heartbeat          心跳上报在线状态 + 本地打印机列表
+#   鉴权方式：Authorization: Bearer <工作站令牌>（管理页生成，免账号密码）
+#
 # 设计要点：
 #   - 单台电脑方案：next 直接返回最早的 pending 任务，不做工作站路由
 #   - 状态机：pending → printing → done/failed，attempts 防止死循环
@@ -20,8 +27,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from functools import wraps
 
-from flask import jsonify, render_template, request
+from flask import g, jsonify, render_template, request
 from flask_login import current_user, login_required
 from pydantic import BaseModel, field_validator
 
@@ -68,10 +76,49 @@ class JobStatusRequest(BaseModel):
     error_msg: str | None = None
 
 
+class AgentClaimRequest(BaseModel):
+    """打印代理认领任务请求体（当前无参数，保留扩展位）。"""
+
+
+class AgentHeartbeatPrinter(BaseModel):
+    """心跳上报的单台本地打印机。"""
+    system_name: str
+    status: str = 'ready'
+    is_default: bool = False
+
+    @field_validator('system_name')
+    @classmethod
+    def validate_system_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v or len(v) > 200:
+            raise ValueError('打印机系统名不能为空且不超过 200 字符')
+        return v
+
+
+class AgentHeartbeatRequest(BaseModel):
+    """打印代理心跳请求体：代理版本 + 本地打印机列表。"""
+    version: str | None = None
+    printers: list[AgentHeartbeatPrinter] = []
+
+
 # ==================== 常量 ====================
 
 PRINTING_TIMEOUT = timedelta(minutes=5)  # printing 状态超过此时间视为僵尸任务，回收
 MAX_ATTEMPTS = 5  # 同一任务最多尝试次数，超过则标记 failed
+WORKSTATION_ONLINE_WINDOW = timedelta(minutes=5)  # 心跳超过此窗口视为工作站离线
+
+
+def workstation_is_online(ws):
+    """工作站是否可派发任务：启用 + online 且心跳未超窗。
+
+    last_heartbeat 为 NULL 时视为兼容模式（手工置 online、无代理心跳的部署，
+    如阶段 1/2 的存量数据），仍按 status 字段判定，避免存量路由失效。
+    """
+    if not ws or not ws.enabled or ws.status != 'online':
+        return False
+    if ws.last_heartbeat is None:
+        return True
+    return (datetime.now() - ws.last_heartbeat) <= WORKSTATION_ONLINE_WINDOW
 
 
 def _resolve_print_route(job_type, warehouse_name):
@@ -83,7 +130,7 @@ def _resolve_print_route(job_type, warehouse_name):
         PrintRouteRule.priority.asc(), PrintRouteRule.id.asc()).all()
     for rule in rules:
         if rule.warehouse_id is None or (warehouse and rule.warehouse_id == warehouse.id):
-            if (rule.workstation.enabled and rule.workstation.status == 'online'
+            if (workstation_is_online(rule.workstation)
                     and rule.printer.enabled and rule.printer.status == 'online'):
                 return rule
     return None
@@ -130,9 +177,34 @@ def enqueue_auto_print_job(job_type, target_id, warehouse_name, target_ids=None,
     return job
 
 
+def _workstation_from_token():
+    """从 Authorization: Bearer <token> 解析工作站；无效返回 None。"""
+    from app import PrintWorkstation
+    auth = request.headers.get('Authorization', '')
+    if not auth.startswith('Bearer '):
+        return None
+    token_value = auth.split(' ', 1)[1].strip()
+    if not token_value:
+        return None
+    return PrintWorkstation.query.filter_by(auth_token=token_value, enabled=True).first()
+
+
+def _workstation_token_required(f):
+    """打印代理 API 鉴权装饰器：工作站令牌有效时挂到 g.print_workstation。"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):  # no-test:reason=装饰器内部函数，能力由 print_queue_api_v1_* 路由测试覆盖
+        ws = _workstation_from_token()
+        if not ws:
+            return jsonify({'status': 'error', 'msg': '工作站令牌无效或工作站已停用'}), 401
+        g.print_workstation = ws
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 # no-test:reason=路由注册辅助函数，能力由各 print_queue_* 路由测试覆盖
 def register_print_queue_routes(app):
     # pydantic:reason=本模块所有 POST 路由均使用 pydantic BaseModel 校验输入
+    from app import csrf  # agent API v1 走工作站令牌鉴权，豁免 CSRF（无 Web 会话）
 
     @app.route('/print_queue/jobs', methods=['POST'])
     @require_role('warehouse')
@@ -318,4 +390,127 @@ def register_print_queue_routes(app):
         return jsonify({
             'status': 'success',
             'stats': {'pending': pending, 'printing': printing, 'done': done, 'failed': failed}
+        })
+
+    # ==================== agent API v1（Windows 打印代理，工作站令牌鉴权） ====================
+
+    @app.route('/print_queue/api/v1/claim', methods=['POST'])
+    # pydantic:reason=请求体经 AgentClaimRequest（BaseModel）校验
+    @csrf.exempt
+    @_workstation_token_required
+    def print_queue_api_v1_claim():
+        """打印代理认领本工作站最早的 pending 任务（认领即置 printing）。"""
+        from app import PrintJob
+        try:
+            AgentClaimRequest(**(request.get_json(silent=True) or {}))
+        except Exception as e:
+            return jsonify({'status': 'error', 'msg': f'参数错误：{e}'}), 400
+        ws = g.print_workstation
+        if not workstation_is_online(ws):
+            return jsonify({'status': 'empty', 'msg': '工作站离线或心跳超时，请先上报心跳'})
+        job = PrintJob.query.filter_by(
+            status='pending', workstation_id=ws.id).order_by(PrintJob.created_at.asc()).first()
+        if not job:
+            return jsonify({'status': 'empty', 'msg': '队列为空'})
+        job.status = 'printing'
+        job.attempts = (job.attempts or 0) + 1
+        db.session.commit()
+        return jsonify({'status': 'success', 'job': {
+            'id': job.id,
+            'job_type': job.job_type,
+            'target_id': job.target_id,
+            'target_ids': job.target_ids,
+            'copies': job.copies,
+            'print_url': _print_url(job),
+            'printer_id': job.printer_id,
+            'printer_system_name': job.printer.system_name if job.printer else '',
+        }})
+
+    @app.route('/print_queue/api/v1/jobs/<int:job_id>/complete', methods=['POST'])
+    # pydantic:reason=请求体经 JobStatusRequest（BaseModel）校验
+    @csrf.exempt
+    @_workstation_token_required
+    def print_queue_api_v1_complete(job_id):
+        """打印代理上报打印完成（仅允许本工作站的任务）。"""
+        from app import PrintJob
+        try:
+            req = JobStatusRequest(**(request.get_json(silent=True) or {}))
+        except Exception as e:
+            return jsonify({'status': 'error', 'msg': f'参数错误：{e}'}), 400
+        job = db.session.get(PrintJob, job_id)
+        if not job or job.workstation_id != g.print_workstation.id:
+            return jsonify({'status': 'error', 'msg': '任务不存在或不属于本工作站'}), 404
+        job.status = 'done'
+        job.printed_at = datetime.now()
+        if req.error_msg:
+            job.error_msg = req.error_msg[:500]
+        db.session.commit()
+        return jsonify({'status': 'success', 'msg': '已标记完成'})
+
+    @app.route('/print_queue/api/v1/jobs/<int:job_id>/fail', methods=['POST'])
+    # pydantic:reason=请求体经 JobStatusRequest（BaseModel）校验
+    @csrf.exempt
+    @_workstation_token_required
+    def print_queue_api_v1_fail(job_id):
+        """打印代理上报打印失败（仅允许本工作站的任务）。"""
+        from app import PrintJob
+        try:
+            req = JobStatusRequest(**(request.get_json(silent=True) or {}))
+        except Exception as e:
+            return jsonify({'status': 'error', 'msg': f'参数错误：{e}'}), 400
+        job = db.session.get(PrintJob, job_id)
+        if not job or job.workstation_id != g.print_workstation.id:
+            return jsonify({'status': 'error', 'msg': '任务不存在或不属于本工作站'}), 404
+        job.status = 'failed'
+        job.error_msg = (req.error_msg or '打印代理上报失败')[:500]
+        job.printed_at = datetime.now()
+        db.session.commit()
+        return jsonify({'status': 'success', 'msg': '已标记失败'})
+
+    @app.route('/print_queue/api/v1/heartbeat', methods=['POST'])
+    # pydantic:reason=请求体经 AgentHeartbeatRequest（BaseModel）校验
+    @csrf.exempt
+    @_workstation_token_required
+    def print_queue_api_v1_heartbeat():
+        """打印代理心跳：刷新在线状态并同步本地打印机列表。
+
+        - 上报的打印机 upsert 到 PrintDevice（按 workstation_id + system_name 匹配）
+        - 本次未上报的本工作站打印机置 offline（已停用 enabled=False 的不动）
+        """
+        from app import PrintDevice
+        try:
+            req = AgentHeartbeatRequest(**(request.get_json(silent=True) or {}))
+        except Exception as e:
+            return jsonify({'status': 'error', 'msg': f'参数错误：{e}'}), 400
+        ws = g.print_workstation
+        now = datetime.now()
+        ws.status = 'online'
+        ws.last_heartbeat = now
+        reported = {p.system_name: p for p in req.printers}
+        existing = {d.system_name: d for d in PrintDevice.query.filter_by(workstation_id=ws.id).all()}
+        created, online = 0, 0
+        for name, p in reported.items():
+            device = existing.get(name)
+            if not device:
+                device = PrintDevice(
+                    workstation_id=ws.id, system_name=name, display_name=name,
+                    printer_type='mixed', enabled=True,
+                )
+                db.session.add(device)
+                created += 1
+            device.status = 'online' if p.status != 'error' else 'error'
+            device.is_default = bool(p.is_default)
+            online += 1
+        for name, device in existing.items():
+            if name not in reported and device.enabled:
+                device.status = 'offline'
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '心跳处理失败，请稍后重试'}), 500
+        return jsonify({
+            'status': 'success',
+            'msg': '心跳已记录',
+            'data': {'workstation': ws.code, 'printers_online': online, 'printers_created': created},
         })

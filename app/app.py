@@ -1221,6 +1221,18 @@ def auto_migrate_database():
                 modified = True
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_print_job_workstation_status ON print_job(workstation_id, status)")
 
+        # PRINT-ROUTING-F01-P3：工作站补令牌与心跳字段（Windows 打印代理鉴权与在线判定）。
+        if _table_exists('print_workstation'):
+            cursor.execute("PRAGMA table_info(print_workstation)")
+            _print_ws_cols = [row[1] for row in cursor.fetchall()]
+            if 'auth_token' not in _print_ws_cols:
+                cursor.execute("ALTER TABLE print_workstation ADD COLUMN auth_token VARCHAR(128)")
+                modified = True
+            if 'last_heartbeat' not in _print_ws_cols:
+                cursor.execute("ALTER TABLE print_workstation ADD COLUMN last_heartbeat DATETIME")
+                modified = True
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_print_workstation_auth_token ON print_workstation(auth_token)")
+
         # api_token.last_used_at：记录 token 最近使用时间，用于滑动过期与清理长期未使用 Token
         if _table_exists('api_token'):
             cursor.execute("PRAGMA table_info(api_token)")
@@ -3171,6 +3183,12 @@ class Notification(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
 class PrintWorkstation(db.Model):
+    """打印工作站：一台负责实际出纸的本地电脑（Windows 打印代理运行处）。
+
+    PRINT-ROUTING-F01-P3：新增 auth_token（工作站令牌，供 Windows 打印代理
+    免账号密码调用 agent API）与 last_heartbeat（最近心跳时间，超过在线窗口
+    视为离线，路由解析不再向其派发任务）。
+    """
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(64), unique=True, nullable=False)
     name = db.Column(db.String(100), nullable=False)
@@ -3178,6 +3196,8 @@ class PrintWorkstation(db.Model):
     warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))
     status = db.Column(db.String(20), default='offline', nullable=False)
     enabled = db.Column(db.Boolean, default=True, nullable=False)
+    auth_token = db.Column(db.String(128), unique=True)  # 工作站令牌（agent API 鉴权）
+    last_heartbeat = db.Column(db.DateTime)  # Windows 打印代理最近心跳时间
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
 
