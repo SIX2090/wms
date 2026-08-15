@@ -2047,9 +2047,12 @@ def register_in_order_routes(app):
     def batch_complete_in_order():
         from sqlalchemy.orm import joinedload, selectinload
         from app import (InOrder, InOrderItem, WechatShareConfig, _acquire_order_write_lock,
-                         _wechat_share_order, add_stock, api_error, assert_warehouse_active,
-                         get_default_warehouse, location_management_enabled,
-                         update_location_inventory)
+                         _check_in_order_anomalies, _wechat_share_order, add_stock,
+                         api_error, assert_warehouse_active, get_default_warehouse,
+                         is_future_date, location_management_enabled,
+                         update_location_inventory,
+                         validate_purchase_in_order_source,
+                         validate_purchase_receive_quantity)
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
         select_all = payload.get('select_all', False)
@@ -2080,16 +2083,32 @@ def register_in_order_routes(app):
                 skipped.append(f'{order.order_no}(无明细)')
                 continue
             # 重新加锁并校验状态，避免并发批量/单据完成请求重复审核同一张单据。
-            # 预加载 items.material，消除循环内逐条 lazy-load 导致的 N+1 查询。
+            # 预加载 items.material 与来源采购单链，消除循环内逐条 lazy-load 的 N+1 查询。
             locked, lock_ok = _acquire_order_write_lock(
                 InOrder, order_id, 'pending',
-                selectinload(InOrder.items).selectinload(InOrderItem.material)
+                [
+                    selectinload(InOrder.items).selectinload(InOrderItem.material),
+                    selectinload(InOrder.items).selectinload(InOrderItem.source_purchase_order_item),
+                ]
             )
             if not lock_ok or locked is None:
                 skipped.append(f'{order.order_no}(状态已变更)')
                 db.session.rollback()
                 continue
             order = locked
+            # BUG-2026-08-16-005 修复：批量完成补齐与单据版 complete_in_order
+            # 一致的业务校验，防止批量入口绕过单据完成门禁。
+            # ① 未来日期拒绝（BUG-DATE-2026-07-27-001 同款规则）
+            if is_future_date(order.date):
+                skipped.append(f'{order.order_no}(入库日期晚于今天)')
+                db.session.rollback()
+                continue
+            # ② 采购入库须关联采购订单（开关开启时）
+            valid_source, source_msg = validate_purchase_in_order_source(order)
+            if not valid_source:
+                skipped.append(f'{order.order_no}({source_msg})')
+                db.session.rollback()
+                continue
             # BUG-2026-08-02-001 修复：批量完成时入库单也必须有仓库。
             # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
             if not order.warehouse:
@@ -2109,6 +2128,31 @@ def register_in_order_routes(app):
             # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
             if location_management_enabled() and not (order.location or '').strip():
                 skipped.append(f'{order.order_no}(未填写库位)')
+                db.session.rollback()
+                continue
+            # ③ 超收复核：草稿期间来源 PO 的未入库数量可能被其他单推进，
+            # 完成时按行级来源复核（与新增明细 validate_purchase_receive_quantity 同口径）
+            over_qty = False
+            for item in order.items:
+                if not item.source_purchase_order_item_id:
+                    continue
+                source_item = item.source_purchase_order_item
+                if not source_item:
+                    continue
+                valid_qty, qty_msg = validate_purchase_receive_quantity(
+                    source_item, item.quantity or 0,
+                    item.material.code if item.material else str(item.material_id))
+                if not valid_qty:
+                    skipped.append(f'{order.order_no}({qty_msg})')
+                    over_qty = True
+                    break
+            if over_qty:
+                db.session.rollback()
+                continue
+            # ④ 异常检测：批量无 force 交互通道，异常单一律跳过转人工单独审核
+            anomalies = _check_in_order_anomalies(order)
+            if anomalies:
+                skipped.append(f'{order.order_no}(检测到异常，请单独审核)')
                 db.session.rollback()
                 continue
             try:
