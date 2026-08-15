@@ -142,6 +142,14 @@ class TestMaterialRegister:
         assert resp.status_code == 200
         assert "物料" in resp.get_data(as_text=True)
 
+    def test_specification_fields_use_wide_layout(self):
+        client = self._setup()
+        _login(client)
+        page = client.get("/material").get_data(as_text=True)
+        assert 'class="col-md-6"' in page
+        assert 'name="spec" id="add_spec" maxlength="100"' in page
+        assert 'name="spec" id="edit_spec" maxlength="100"' in page
+
     def test_add_material(self):
         """S4：新增成功、编码必填、重复被拒绝。"""
         client = self._setup()
