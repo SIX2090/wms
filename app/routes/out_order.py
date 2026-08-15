@@ -913,11 +913,14 @@ def register_out_order_routes(app):
     @login_required
     def batch_complete_out_order():
         from app import (OutOrder, _acquire_order_write_lock,
-                         allow_negative_stock, api_error, deduct_stock_atomic,
-                         get_default_warehouse, is_stock_sufficient,
+                         _check_out_order_anomalies, allow_negative_stock,
+                         api_error, deduct_stock_atomic, get_default_warehouse,
+                         is_future_date, is_stock_sufficient,
                          location_management_enabled, log_operation,
                          normalize_stock_quantity, recalculate_order_total,
-                         sync_sales_order_shipment, update_location_inventory)
+                         sales_outbound_remaining_check,
+                         sync_sales_order_shipment, update_location_inventory,
+                         validate_sales_outbound_warehouse)
         from sqlalchemy.orm import joinedload, selectinload
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
@@ -948,6 +951,13 @@ def register_out_order_routes(app):
                 db.session.rollback()
                 continue
             order = locked
+            # BUG-2026-08-16-004 修复：批量完成补齐与单据版 complete_out_order
+            # 一致的业务校验，防止批量入口绕过单据完成门禁。
+            # ① 未来日期拒绝（BUG-DATE-2026-07-27-001 同款规则）
+            if is_future_date(order.date):
+                skipped.append(f'{order.order_no}(出库日期晚于今天)')
+                db.session.rollback()
+                continue
             # BUG-2026-08-02-004 修复：批量完成时仓库必填校验，与单据版 complete_out_order 一致。
             # 未填仓库时自动带入默认仓库，无默认仓库则跳过本单（不阻断整批）。
             if not order.warehouse:
@@ -958,9 +968,29 @@ def register_out_order_routes(app):
                 skipped.append(f'{order.order_no}(未填写仓库)')
                 db.session.rollback()
                 continue
+            # ② 销售出库仓库有效性 + 与来源销售订单一致（SALES-AUDIT-008）
+            if order.business_type == '销售出库':
+                wh_ok, wh_err = validate_sales_outbound_warehouse(order)
+                if not wh_ok:
+                    skipped.append(f'{order.order_no}({wh_err or "仓库无效"})')
+                    db.session.rollback()
+                    continue
             # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
             if location_management_enabled() and not (order.location or '').strip():
                 skipped.append(f'{order.order_no}(未填写库位)')
+                db.session.rollback()
+                continue
+            # ③ 销售出库超发拦截（SALES-AUDIT-006）：草稿改大后批量放行会超发
+            if order.business_type == '销售出库':
+                remaining_ok, remaining_err = sales_outbound_remaining_check(order)
+                if not remaining_ok:
+                    skipped.append(f'{order.order_no}({remaining_err or "出库数量超过销售订单未发货数量"})')
+                    db.session.rollback()
+                    continue
+            # ④ 异常检测：批量无 force 交互通道，异常单一律跳过转人工单独审核
+            anomalies = _check_out_order_anomalies(order)
+            if anomalies:
+                skipped.append(f'{order.order_no}(检测到异常，请单独审核)')
                 db.session.rollback()
                 continue
             stock_ok = True
