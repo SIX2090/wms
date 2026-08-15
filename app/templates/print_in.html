@@ -106,6 +106,8 @@
         <div>日　期：__________</div>
     </div>
 
-    <script>window.print();</script>
+    {# autoprint=1 时由 _autoprint_script 按份数循环打印，抑制此处的立即打印 #}
+    {% if not request.args.get('autoprint') %}<script>window.print();</script>{% endif %}
+    {% include '_autoprint_script.html' %}
 </body>
 </html>

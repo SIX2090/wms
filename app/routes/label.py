@@ -16,11 +16,13 @@ from __future__ import annotations
 from flask import render_template, request
 from flask_login import login_required
 
+from utils import print_token_or_login_required
+
 
 # no-test:reason=路由注册辅助函数，能力由 print_batch_labels 路由测试覆盖
 def register_label_routes(app):
     @app.route('/label/batch_print')
-    @login_required
+    @print_token_or_login_required  # PRINT-ROUTING-F01-P3：支持 ptoken 免登录（Windows 打印代理）
     def print_batch_labels():
         from datetime import datetime
         from sqlalchemy.orm import joinedload

@@ -694,3 +694,51 @@ def range_filter(n):
 def add_filter(a, b):
     """Add two values for templates."""
     return int(a) + int(b)
+
+
+# ==================== 打印页临时令牌（PRINT-ROUTING-F01-P3） ====================
+
+PRINT_TOKEN_MAX_AGE = 600  # 打印令牌有效期：10 分钟（claim 后代理立即使用）
+
+
+def _print_token_serializer():
+    """打印令牌序列化器（绑定应用 SECRET_KEY，独立盐防混用）。"""
+    from itsdangerous import URLSafeTimedSerializer
+    return URLSafeTimedSerializer(current_app.secret_key, salt='wms-print-token')
+
+
+def generate_print_token(job_id, workstation_id):
+    """为指定打印任务签发短时效打印令牌（ptoken）。
+
+    Windows 打印代理认领任务后，用带 ptoken 的打印 URL 打开浏览器打印页，
+    打印页据此免登录渲染（10 分钟内有效），代理无需保存任何账号密码。
+    """
+    return _print_token_serializer().dumps({'jid': job_id, 'ws': workstation_id})
+
+
+def verify_print_token(token):
+    """校验打印令牌；有效返回 payload dict，无效/过期返回 None。"""
+    if not token:
+        return None
+    try:
+        return _print_token_serializer().loads(token, max_age=PRINT_TOKEN_MAX_AGE)
+    except Exception:
+        return None
+
+
+def print_token_or_login_required(f):
+    """打印页鉴权装饰器：Web 会话已登录 或 ptoken 有效 任一通过。
+
+    - 浏览器（工作站守护页 iframe）：走原 @login_required 会话
+    - Windows 打印代理拉起的浏览器：URL 带 ?ptoken=（短时效，服务端签发）
+    其余情况跳转登录页。
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):  # no-test:reason=装饰器内部函数，能力由 test_print_token_or_login_required 覆盖
+        if current_user.is_authenticated:
+            return f(*args, **kwargs)
+        payload = verify_print_token(request.args.get('ptoken', ''))
+        if payload:
+            return f(*args, **kwargs)
+        return current_app.login_manager.unauthorized()
+    return decorated_function

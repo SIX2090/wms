@@ -1,0 +1,37 @@
+{% if request.args.get('autoprint') %}
+{# PRINT-ROUTING-F01-P3：Windows 打印代理拉起浏览器打开打印页时（URL 带 autoprint=1），
+   页面加载完成后自动按 copies 份数循环调起 window.print()。
+   kiosk-printing 模式下无打印对话框，直接出纸；普通浏览器则逐份弹对话框。
+   __wmsAutoprint 幂等标记防止模板嵌套（with_html → 基础模板 include）重复打印。 #}
+<script>
+(function () {
+    if (window.__wmsAutoprint) { return; }
+    window.__wmsAutoprint = true;
+    var copies = {{ request.args.get('copies', 1, type=int) }};
+    if (!copies || copies < 1 || copies > 99) { copies = 1; }
+    var printed = 0;
+    function firePrint() {
+        if (printed >= copies) { return; }
+        printed += 1;
+        try { window.print(); } catch (e) { return; }
+        setTimeout(firePrint, 800);
+    }
+    // 标签批量打印页为异步渲染（labelsContainer 子元素就绪才算加载完成），轮询等待
+    var waited = 0;
+    function waitAndPrint() {
+        var container = document.getElementById('labelsContainer');
+        if (!container || container.children.length > 0 || waited >= 15000) {
+            setTimeout(firePrint, 400);
+            return;
+        }
+        waited += 300;
+        setTimeout(waitAndPrint, 300);
+    }
+    if (document.readyState === 'complete') {
+        waitAndPrint();
+    } else {
+        window.addEventListener('load', waitAndPrint);
+    }
+})();
+</script>
+{% endif %}

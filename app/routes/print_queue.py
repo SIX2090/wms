@@ -415,13 +415,18 @@ def register_print_queue_routes(app):
         job.status = 'printing'
         job.attempts = (job.attempts or 0) + 1
         db.session.commit()
+        # 打印 URL 附短时效 ptoken（免登录渲染）与 autoprint=1（页面加载后自动打印）
+        from utils import generate_print_token
+        print_url = _print_url(job)
+        sep = '&' if '?' in print_url else '?'
+        print_url += f'{sep}ptoken={generate_print_token(job.id, ws.id)}&autoprint=1'
         return jsonify({'status': 'success', 'job': {
             'id': job.id,
             'job_type': job.job_type,
             'target_id': job.target_id,
             'target_ids': job.target_ids,
             'copies': job.copies,
-            'print_url': _print_url(job),
+            'print_url': print_url,
             'printer_id': job.printer_id,
             'printer_system_name': job.printer.system_name if job.printer else '',
         }})

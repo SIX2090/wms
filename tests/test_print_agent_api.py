@@ -135,7 +135,7 @@ def test_agent_claim_returns_and_locks_job(client):
     assert body["status"] == "success"
     assert body["job"]["id"] == job_id
     assert body["job"]["job_type"] == "out_order"
-    assert body["job"]["print_url"] == f"/out_order/11/print"
+    assert body["job"]["print_url"].startswith("/out_order/11/print?ptoken=")
     # 再次认领：任务已 printing，队列为空
     resp2 = client.post("/print_queue/api/v1/claim", json={}, headers=_hdr("tok-ws-1"))
     assert resp2.get_json()["status"] == "empty"
@@ -274,6 +274,76 @@ def test_workstation_is_online():
         # 心跳超窗 → False
         ws.last_heartbeat = datetime.now() - timedelta(minutes=30)
         assert workstation_is_online(ws) is False
+
+
+# ==================== 打印令牌（ptoken）与免登录打印页 ====================
+
+def test_generate_print_token():
+    from utils import generate_print_token, verify_print_token
+    with app_module.app.app_context():
+        token = generate_print_token(7, 3)
+        assert isinstance(token, str) and token
+        payload = verify_print_token(token)
+        assert payload == {'jid': 7, 'ws': 3}
+
+
+def test_verify_print_token():
+    from utils import generate_print_token, verify_print_token
+    with app_module.app.app_context():
+        assert verify_print_token('') is None
+        assert verify_print_token(None) is None
+        assert verify_print_token('not-a-token') is None
+        token = generate_print_token(1, 1)
+        # 篡改令牌 → 校验失败
+        assert verify_print_token(token[:-4] + 'XXXX') is None
+
+
+def test_print_token_or_login_required(client):
+    """带 ptoken 免登录访问打印页；无会话无 ptoken 跳转登录。"""
+    from app import OutOrder
+    from utils import generate_print_token
+    with app_module.app.app_context():
+        db.session.add(OutOrder(order_no='OUT-PT1', warehouse='默认仓', status='pending'))
+        db.session.commit()
+        token = generate_print_token(1, 1)
+    # 无会话客户端（不登录）
+    c = app_module.app.test_client()
+    resp = c.get('/out_order/1/print')
+    assert resp.status_code == 302  # 未登录 → 跳转登录
+    resp = c.get(f'/out_order/1/print?ptoken={token}')
+    assert resp.status_code == 200
+    assert '领 料 单'.replace(' ', '').encode() in resp.data or '领料单'.encode() in resp.data or b'OUT-PT1' in resp.data
+    # autoprint=1 时模板注入自动打印脚本且抑制立即打印
+    resp = c.get(f'/out_order/1/print?ptoken={token}&autoprint=1')
+    assert resp.status_code == 200
+    assert b'__wmsAutoprint' in resp.data
+    assert b'<script>window.print();</script>' not in resp.data
+    # 已登录会话（已登录 client）不受影响，且无 autoprint 时不注入脚本
+    resp = client.get('/out_order/1/print')
+    assert resp.status_code == 200
+    assert b'__wmsAutoprint' not in resp.data
+    assert b'<script>window.print();</script>' in resp.data
+
+
+def test_agent_claim_url_contains_ptoken_and_autoprint(client):
+    with app_module.app.app_context():
+        wh = Warehouse.query.filter_by(code="RWH0").first()
+        ws = _seed_workstation(wh)
+        job = _seed_job(ws)
+        job_id = job.id
+        ws_id = ws.id
+    resp = client.post("/print_queue/api/v1/claim", json={}, headers=_hdr("tok-ws-1"))
+    body = resp.get_json()
+    url = body["job"]["print_url"]
+    assert "autoprint=1" in url
+    assert "ptoken=" in url
+    from urllib.parse import parse_qs, urlparse
+    qs = parse_qs(urlparse(url).query)
+    from utils import verify_print_token
+    with app_module.app.app_context():
+        payload = verify_print_token(qs["ptoken"][0])
+    assert payload["jid"] == job_id
+    assert payload["ws"] == ws_id
 
 
 # ==================== 路由解析感知心跳超窗 ====================

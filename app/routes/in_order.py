@@ -43,7 +43,7 @@ from flask import abort, flash, jsonify, redirect, render_template, request, sen
 from flask_login import login_required
 
 from db import db
-from utils import require_role
+from utils import print_token_or_login_required, require_role
 
 
 # no-test:reason=路由注册辅助函数，能力由 in_order_* 各路由测试覆盖
@@ -2337,9 +2337,9 @@ def register_in_order_routes(app):
         )
         return jsonify({'status': 'success', 'msg': '操作完成', 'type': 'html', 'content': rendered})
 
-    @app.route('/in_order/<int:id>/print_with_template')
-    @login_required
-    def print_in_order_with_template(id):
+    def _render_in_order_print(id):
+        # PRINT-ROUTING-F01-P3：抽出的未装饰实现，供 /print（ptoken 免登录）复用，
+        # 避免直接调用带 @login_required 的视图函数导致 ptoken 通过外层仍被内层重定向。
         from datetime import datetime
         from app import (InOrder, InOrderPrintTemplate, _render_html_print_content,
                          get_default_print_template)
@@ -2353,12 +2353,15 @@ def register_in_order_routes(app):
                 return render_template('print_in_with_html.html', order=order, template=template, rendered_content=rendered_content)
         return render_template('print_in.html', order=order)
 
-    @app.route('/in_order/<int:id>/print')
+    @app.route('/in_order/<int:id>/print_with_template')
     @login_required
+    def print_in_order_with_template(id):
+        return _render_in_order_print(id)
+
+    @app.route('/in_order/<int:id>/print')
+    @print_token_or_login_required  # PRINT-ROUTING-F01-P3：支持 ptoken 免登录（Windows 打印代理）
     def print_in_order(id):
-        from app import InOrder
-        order = InOrder.query.get_or_404(id)
-        return print_in_order_with_template(id)
+        return _render_in_order_print(id)
 
     @app.route('/in_order/<int:id>/print_direct')
     @login_required
