@@ -59,6 +59,46 @@ def try_login(username, password):
     return False
 
 
+def get_warehouse_id():
+    """返回一个可用仓库 id；若不存在则创建一个。
+
+    用于销售导出端点（按 AGENTS.md 仓库必填规则，未传仓库且无默认仓库时返回 400）。
+    解析 /api/warehouses 返回结构与其他测试脚本保持一致的容错写法。
+    """
+    def _first_id(js):
+        data = js.get('data') or {}
+        rows = data.get('items') if isinstance(data, dict) else data
+        if not isinstance(rows, list):
+            rows = js.get('warehouses') or js.get('items') or []
+        if isinstance(rows, list) and rows:
+            return rows[0].get('id')
+        return None
+
+    try:
+        r = s.get(BASE + '/api/warehouses', timeout=10)
+        wid = _first_id(r.json())
+        if wid:
+            return wid
+    except Exception:
+        pass
+    # 无仓库则通过表单创建一个
+    try:
+        g = s.get(BASE + '/warehouse')
+        tok = get_csrf_from_html(g.text)
+        if not tok:
+            return None
+        code = 'SMOKE' + str(int(time.time()))
+        s.post(BASE + '/warehouse/add', data={
+            'code': code, 'name': '冒烟测试仓库', 'type': 'normal',
+            'location': '', 'status': 'active', 'remark': '',
+            'csrf_token': tok,
+        }, allow_redirects=False)
+        r = s.get(BASE + '/api/warehouses', timeout=10)
+        return _first_id(r.json())
+    except Exception:
+        return None
+
+
 # ─────────── 1. 登录页 ───────────
 print('=== 1. Login page ===')
 r = s.get(BASE + '/login')
@@ -248,9 +288,20 @@ export_pages = [
     '/subcontract/export',
 ]
 
+# 销售报表导出端点遵循「仓库必填」（AGENTS.md）：无仓库参数且无默认仓库时返回 400。
+# 调用前确保存在一个仓库，并为这些端点附加 warehouse_id 参数。
+smoke_warehouse_id = get_warehouse_id()
+if smoke_warehouse_id:
+    record('/api/warehouses (ensure)', 200, True, f'warehouse_id={smoke_warehouse_id}')
+else:
+    record('/api/warehouses (ensure)', 0, False, '无法获取/创建仓库，销售报表导出可能 400')
+
 for path in export_pages:
     try:
-        r = s.get(BASE + path, timeout=15, allow_redirects=True)
+        url = BASE + path
+        if path.startswith('/sales/') and path.endswith('/export') and smoke_warehouse_id:
+            url += f'?warehouse_id={smoke_warehouse_id}'
+        r = s.get(url, timeout=15, allow_redirects=True)
         ok = r.status_code == 200
         ct = r.headers.get('Content-Type', '')[:50]
         note = f'content-type={ct} len={len(r.content)}'
