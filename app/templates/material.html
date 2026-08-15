@@ -19,6 +19,9 @@
             <button class="btn btn-outline-info btn-sm" id="toolbarPrintBtn" onclick="toolbarPrint()" disabled title="打印标签">
                 <i class="bi bi-printer"></i> 打印
             </button>
+            <button class="btn btn-outline-primary btn-sm" id="toolbarRemotePrintBtn" onclick="sendLabelsToPrintStation()" disabled title="发送标签到桌面打印工作站">
+                <i class="bi bi-printer-fill"></i> 发送打印
+            </button>
             <button class="btn btn-outline-success btn-sm" id="toolbarFindImageBtn" onclick="toolbarFindImage()" disabled title="网上找图">
                 <i class="bi bi-image"></i> 找图
             </button>
@@ -1321,6 +1324,7 @@ function updateToolbarButtons() {
     document.getElementById('toolbarEditBtn').disabled = !hasSelection;
     document.getElementById('toolbarCopyBtn').disabled = !hasSelection;
     document.getElementById('toolbarPrintBtn').disabled = !hasSelection;
+    document.getElementById('toolbarRemotePrintBtn').disabled = !hasSelection;
     document.getElementById('toolbarFindImageBtn').disabled = !hasSelection;
     document.getElementById('toolbarDeleteBtn').disabled = !hasSelection;
 }
@@ -1351,6 +1355,18 @@ function toolbarCopy() {
 function toolbarPrint() {
     var id = getSelectedSingleId();
     if (id) printSingleLabel(id);
+}
+
+function sendLabelsToPrintStation() {
+    var id = getSelectedSingleId();
+    if (!id) return;
+    WMS.api.post('/print_queue/jobs', {job_type: 'label', target_ids: String(id)})
+    .then(function(res) {
+        showToast(res.msg || '已发送标签到打印工作站', 'success');
+    })
+    .catch(function(err) {
+        showToast('发送打印任务失败：' + err.message, 'danger');
+    });
 }
 
 function toolbarFindImage() {

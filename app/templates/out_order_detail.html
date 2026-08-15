@@ -171,6 +171,9 @@
                 <button class="btn btn-sm btn-outline-secondary" onclick="printOrder()">
                     <i class="bi bi-printer"></i> 打印
                 </button>
+                <button class="btn btn-sm btn-outline-primary" onclick="sendToPrintStation('out_order', {{ order.id }})" title="发送到已启动的桌面打印工作站">
+                    <i class="bi bi-printer-fill"></i> 发送打印
+                </button>
                 <button class="btn btn-sm btn-outline-info" onclick="showAiAnomalyAnalysis()">
                     <i class="bi bi-robot"></i> AI异常分析
                 </button>
@@ -1350,6 +1353,16 @@ function copyOrder(id) {
 // ==================== 打印 ====================
 function printOrder() {
     window.open('/out_order/{{ order.id }}/print', '_blank');
+}
+
+function sendToPrintStation(jobType, targetId) {
+    WMS.api.post('/print_queue/jobs', {job_type: jobType, target_id: targetId})
+    .then(function(res) {
+        showToast(res.msg || '已发送到打印工作站', 'success');
+    })
+    .catch(function(err) {
+        showToast('发送打印任务失败：' + err.message, 'danger');
+    });
 }
 
 function printLabel(materialId) {

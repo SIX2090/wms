@@ -58,18 +58,19 @@ def _seed_admin():
 
 def _seed_out_order():
     """建一张草稿出库单用于打印测试。"""
-    from app import OutOrderItem, Material, Unit
+    from app import InOrder, OutOrderItem, Material, Unit
     wh = Warehouse(code="RWH0", name="默认仓", status="active", is_default=True)
     unit = Unit(code="U1", name="个")
     db.session.add_all([wh, unit])
     db.session.flush()
     mat = Material(code="M001", name="测试物料", spec="S1", unit=unit, stock=100)
-    db.session.add(mat)
+    in_order = InOrder(order_no="IN-TEST-001", warehouse="默认仓", status="completed")
+    db.session.add_all([mat, in_order])
     db.session.flush()
     order = OutOrder(order_no="OUT-TEST-001", warehouse="默认仓", status="completed")
     db.session.add(order)
     db.session.flush()
-    db.session.add(OutOrderItem(out_order_id=order.id, material_id=mat.id, quantity=10, unit_price=5))
+    db.session.add(OutOrderItem(out_order_id=order.id, material_id=mat.id, quantity=10, price=5, amount=50))
     db.session.commit()
     return order
 
@@ -124,13 +125,13 @@ def test_create_label_job(client):
     with client.session_transaction() as sess:
         csrf = sess.get('csrf_token', '')
     resp = client.post('/print_queue/jobs', json={
-        'job_type': 'label', 'target_ids': '1,2,3',
+        'job_type': 'label', 'target_ids': '1',
     }, headers={'X-CSRFToken': csrf})
     assert resp.status_code == 200
     data = resp.get_json()
     with app_module.app.app_context():
         job = PrintJob.query.get(data['job_id'])
-        assert job.target_ids == '1,2,3'
+        assert job.target_ids == '1'
         assert job.target_id is None
 
 
@@ -217,11 +218,11 @@ def test_next_no_pending_returns_empty(client):
 def test_label_print_url(client):
     with client.session_transaction() as sess:
         csrf = sess.get('csrf_token', '')
-    client.post('/print_queue/jobs', json={'job_type': 'label', 'target_ids': '5,6'},
+    client.post('/print_queue/jobs', json={'job_type': 'label', 'target_ids': '1'},
                 headers={'X-CSRFToken': csrf})
     resp = client.get('/print_queue/next')
     data = resp.get_json()
-    assert data['job']['print_url'] == '/label/batch_print?ids=5,6'
+    assert data['job']['print_url'] == '/label/batch_print?ids=1'
 
 
 def test_copies_in_url(client):

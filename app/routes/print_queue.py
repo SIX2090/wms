@@ -26,6 +26,7 @@ from flask_login import current_user, login_required
 from pydantic import BaseModel, field_validator
 
 from db import db
+from utils import require_role
 
 
 # ==================== pydantic 输入模型（A8） ====================
@@ -78,6 +79,7 @@ def register_print_queue_routes(app):
     # pydantic:reason=本模块所有 POST 路由均使用 pydantic BaseModel 校验输入
 
     @app.route('/print_queue/jobs', methods=['POST'])
+    @require_role('warehouse')
     @login_required
     def print_queue_create_job():
         """手机端创建打印任务。"""
@@ -91,6 +93,20 @@ def register_print_queue_routes(app):
         err = req.validate_target()
         if err:
             return jsonify({'status': 'error', 'msg': err}), 400
+
+        if req.job_type == 'out_order':
+            from app import OutOrder
+            if not db.session.get(OutOrder, req.target_id):
+                return jsonify({'status': 'error', 'msg': '领料单不存在'}), 404
+        elif req.job_type == 'in_order':
+            from app import InOrder
+            if not db.session.get(InOrder, req.target_id):
+                return jsonify({'status': 'error', 'msg': '采购入库单不存在'}), 404
+        else:
+            from app import Material
+            ids = [int(value) for value in req.target_ids.split(',') if value.strip().isdigit()]
+            if not ids or Material.query.filter(Material.id.in_(ids)).count() != len(set(ids)):
+                return jsonify({'status': 'error', 'msg': '标签物料不存在或格式无效'}), 400
 
         job = PrintJob(
             job_type=req.job_type,
@@ -109,6 +125,7 @@ def register_print_queue_routes(app):
         })
 
     @app.route('/print_queue/next', methods=['GET'])
+    @require_role('warehouse')
     @login_required
     def print_queue_next():
         """桌面端守护页面轮询：返回最早的 pending 任务，并将其置为 printing。
@@ -150,7 +167,8 @@ def register_print_queue_routes(app):
             print_url = f'/label/batch_print?ids={ids}'
         # copies 通过 URL 参数透传，由桌面端 JS 控制循环打印
         if job.copies and job.copies > 1:
-            print_url += f'&copies={job.copies}'
+            separator = '&' if '?' in print_url else '?'
+            print_url += f'{separator}copies={job.copies}'
 
         return jsonify({
             'status': 'success',
@@ -203,12 +221,14 @@ def register_print_queue_routes(app):
         return jsonify({'status': 'success', 'msg': '已标记失败'})
 
     @app.route('/print_queue/station')
+    @require_role('warehouse')
     @login_required
     def print_queue_station():
         """桌面端打印工作站守护页面。"""
         return render_template('print_station.html')
 
     @app.route('/print_queue/stats')
+    @require_role('warehouse')
     @login_required
     def print_queue_stats():
         """打印队列统计（守护页面展示用）。"""

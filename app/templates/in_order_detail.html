@@ -192,6 +192,9 @@
                 <button class="btn btn-sm btn-outline-secondary" onclick="printOrder()">
                     <i class="bi bi-printer"></i> 打印
                 </button>
+                <button class="btn btn-sm btn-outline-primary" onclick="sendToPrintStation('in_order', {{ order.id }})" title="发送到已启动的桌面打印工作站">
+                    <i class="bi bi-printer-fill"></i> 发送打印
+                </button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="columnSettingsBtn" title="显示/隐藏及调整明细字段">
                     <i class="bi bi-layout-three-columns"></i> 栏目设置
                 </button>
@@ -1431,6 +1434,16 @@ function doDeleteIn(id, showToastFn) {
 // ==================== 打印 ====================
 function printOrder() {
     window.open('/in_order/{{ order.id }}/print', '_blank');
+}
+
+function sendToPrintStation(jobType, targetId) {
+    WMS.api.post('/print_queue/jobs', {job_type: jobType, target_id: targetId})
+    .then(function(res) {
+        showToast(res.msg || '已发送到打印工作站', 'success');
+    })
+    .catch(function(err) {
+        showToast('发送打印任务失败：' + err.message, 'danger');
+    });
 }
 
 function printLabel(materialId) {
