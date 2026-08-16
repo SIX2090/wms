@@ -29,6 +29,10 @@ def require_ai_role(f):
 
 AI_CAPABILITY_ROLES = {
     'out_order_draft': frozenset({'warehouse'}),
+    # BUG-2026-08-16-019：sales_out_draft 是已废弃别名，行为等同 after_sale_out_draft，
+    # 仅为向后兼容保留。其声明的 sales 角色实际不可用——映射业务路由
+    # add_after_sale_out_order 仅 require_role('warehouse')，effective_ai_capability_roles
+    # 取交集后只会收窄为 warehouse。新增 AI 调用应使用 after_sale_out_draft 或 sales_outbound_draft。
     'sales_out_draft': frozenset({'warehouse', 'sales'}),
     # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft
     'after_sale_out_draft': frozenset({'warehouse', 'sales'}),

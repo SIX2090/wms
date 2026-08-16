@@ -43,8 +43,8 @@ def register_system_settings_routes(app):
     @login_required
     @require_role('admin')
     def save_system_settings():
-        from app import (SYSTEM_SETTING_DEFINITIONS, api_error, get_system_setting,
-                         log_operation, set_system_setting)
+        from app import (SYSTEM_SETTING_DEFINITIONS, _secret_encrypt, api_error,
+                         get_system_setting, log_operation, set_system_setting)
         try:
             changed = []
             for key, definition in SYSTEM_SETTING_DEFINITIONS.items():
@@ -73,7 +73,8 @@ def register_system_settings_routes(app):
                     raw_value = (request.form.get(key) or '').strip()
                     if not raw_value and get_system_setting(key, ''):
                         continue
-                    value = raw_value
+                    # BUG-2026-08-16-019：API Key 对称加密后再落库，避免明文存储
+                    value = _secret_encrypt(raw_value)
                 else:
                     value = (request.form.get(key) or '').strip()
 

@@ -249,7 +249,8 @@ def register_native_api_routes(app):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'/api/login 异常: {e}', exc_info=True)
-            return api_json_error(f'登录服务异常，请稍后重试: {e}', 500)
+            # BUG-2026-08-16-019：不把内部异常细节返回客户端，避免泄露内部路径/堆栈
+            return api_json_error('登录服务异常，请稍后重试', 500)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/api/inbound', methods=['POST'])

@@ -89,11 +89,15 @@ def _safe_int(value, default: int, minimum: int | None = None, maximum: int | No
 
 def _get_llm_config() -> OpenAICompatibleConfig:
     """从系统设置构建 LLM 配置。"""
-    from app import SystemSetting
+    from app import SystemSetting, _secret_decrypt
 
     def _get(key, default=''):
         s = SystemSetting.query.filter_by(key=key).first()
-        return s.value if s and s.value else default
+        value = s.value if s and s.value else default
+        # BUG-2026-08-16-019：API Key 为加密存储，读取时解密
+        if key == 'ai_llm_api_key':
+            return _secret_decrypt(value)
+        return value
 
     return OpenAICompatibleConfig(
         enabled=_get('ai_llm_enabled', '0') == '1',

@@ -1350,6 +1350,11 @@ if not app.config.get('WECHAT_HELPER_TOKEN'):
         _persisted_wh_token = None
     if _persisted_wh_token and len(_persisted_wh_token) >= 16:
         app.config['WECHAT_HELPER_TOKEN'] = _persisted_wh_token
+        # BUG-2026-08-16-019：存量/历史 token 文件若由旧版本创建未设权限，读取时补 chmod 600
+        try:
+            os.chmod(_wh_token_file, 0o600)
+        except OSError:
+            pass
     else:
         _new_wh_token = secrets.token_hex(16)
         app.config['WECHAT_HELPER_TOKEN'] = _new_wh_token
@@ -3037,7 +3042,8 @@ def log_audit(operation, target_type, target_id, target_name=None, old_data=None
             target_name=target_name,
             old_data=json.dumps(old_data, ensure_ascii=False) if old_data else None,
             new_data=json.dumps(new_data, ensure_ascii=False) if new_data else None,
-            ip_address=request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr),
+            # BUG-2026-08-16-019：复用 get_request_ip 信任代理逻辑，避免 XFF 可被客户端伪造
+            ip_address=get_request_ip(),
             user_agent=request.headers.get('User-Agent', '')[:500],
             status=status,
             reason=reason
@@ -10591,11 +10597,52 @@ def _ai_llm_enabled(overrides=None):
         return override == '1'
     return get_system_setting_bool('ai_llm_enabled', bool(app.config.get('WMS_LLM_ENABLED', True)))
 
+def _secret_encrypt(plain):
+    """BUG-2026-08-16-019：用 Fernet 对称加密 API Key 等敏感配置。
+
+    密钥由 SECRET_KEY 派生（SHA-256 后 base64），SECRET_KEY 由环境变量或
+    instance/secret_key 持久化文件提供，同一实例内稳定。返回值带 'enc:' 前缀。
+    加密失败时原样返回不阻断功能（调用方负责告警）。
+    """
+    if not plain:
+        return plain
+    try:
+        import hashlib
+        from cryptography.fernet import Fernet
+        _raw = str(app.config.get('SECRET_KEY') or '')
+        _key = base64.urlsafe_b64encode(hashlib.sha256(_raw.encode('utf-8')).digest())
+        return 'enc:' + Fernet(_key).encrypt(plain.encode('utf-8')).decode('ascii')
+    except Exception:
+        app.logger.warning('secret 加密失败，将以明文保存（请检查 SECRET_KEY 配置）', exc_info=True)
+        return plain
+
+def _secret_decrypt(stored):
+    """解密 'enc:' 前缀的密文；无前缀的值（历史明文）原样返回，向后兼容。"""
+    if not stored:
+        return ''
+    if not stored.startswith('enc:'):
+        return stored
+    try:
+        import hashlib
+        from cryptography.fernet import Fernet, InvalidToken
+        _raw = str(app.config.get('SECRET_KEY') or '')
+        _key = base64.urlsafe_b64encode(hashlib.sha256(_raw.encode('utf-8')).digest())
+        return Fernet(_key).decrypt(stored[4:].encode('ascii')).decode('utf-8')
+    except InvalidToken:
+        app.logger.warning('SECRET_KEY 变更导致 secret 无法解密，返回空值')
+        return ''
+    except Exception:
+        app.logger.warning('secret 解密失败，返回空值', exc_info=True)
+        return ''
+
 def _ai_llm_api_key(overrides=None):
     override = _ai_override_value(overrides, 'ai_llm_api_key')
     if override:
         return override
-    return (get_system_setting('ai_llm_api_key', '') or str(app.config.get('WMS_LLM_API_KEY') or '')).strip()
+    stored = get_system_setting('ai_llm_api_key', '')
+    if stored:
+        return _secret_decrypt(stored).strip()
+    return str(app.config.get('WMS_LLM_API_KEY') or '').strip()
 
 def _ai_llm_model(overrides=None):
     override = _ai_override_value(overrides, 'ai_llm_model')

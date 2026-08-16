@@ -201,7 +201,9 @@ def register_report_routes(app):
                 return api_error('请选择仓库', 400)
             payload = _build_report_payload(report_type, filters)
         except ValueError as exc:
-            return jsonify({'status': 'error', 'msg': str(exc)}), 400
+            # BUG-2026-08-16-019：业务异常详细记录，不把内部细节返回客户端
+            app.logger.error(f'report_api_query ValueError({report_type}): {exc}', exc_info=True)
+            return jsonify({'status': 'error', 'msg': '报表数据生成失败，请检查查询条件'}), 400
 
         if filters['export'] == 'excel':
             return _build_excel_response(report_type, payload['columns'], payload['all_rows'])
