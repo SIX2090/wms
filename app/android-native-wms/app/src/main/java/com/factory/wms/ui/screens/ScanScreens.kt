@@ -18,6 +18,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.ScanLine
+import com.factory.wms.data.model.SubmittedPrintInfo
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.components.ScannerDialog
 import com.factory.wms.ui.components.WarehousePickerDialog
@@ -37,6 +38,7 @@ fun InboundScreen(
     var showWarehouseDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
+    var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
@@ -115,6 +117,20 @@ fun InboundScreen(
         }
     )
 
+    uiState.submittedPrint?.let { printInfo ->
+        if (acknowledgedPrintTargetId != printInfo.targetId) {
+            PrintConfirmationDialog(
+                info = printInfo,
+                loading = uiState.printLoading,
+                onPrint = {
+                    acknowledgedPrintTargetId = printInfo.targetId
+                    viewModel.printSubmittedOrder()
+                },
+                onLater = { acknowledgedPrintTargetId = printInfo.targetId }
+            )
+        }
+    }
+
     if (showWarehouseDialog) {
         WarehousePickerDialog(
             warehouses = uiState.warehouses,
@@ -171,6 +187,7 @@ fun OutboundScreen(
     var showWarehouseDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
+    var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
@@ -249,6 +266,20 @@ fun OutboundScreen(
         }
     )
 
+    uiState.submittedPrint?.let { printInfo ->
+        if (acknowledgedPrintTargetId != printInfo.targetId) {
+            PrintConfirmationDialog(
+                info = printInfo,
+                loading = uiState.printLoading,
+                onPrint = {
+                    acknowledgedPrintTargetId = printInfo.targetId
+                    viewModel.printSubmittedOrder()
+                },
+                onLater = { acknowledgedPrintTargetId = printInfo.targetId }
+            )
+        }
+    }
+
     if (showWarehouseDialog) {
         WarehousePickerDialog(
             warehouses = uiState.warehouses,
@@ -291,6 +322,58 @@ fun OutboundScreen(
             }
         )
     }
+}
+
+@Composable
+private fun PrintConfirmationDialog(
+    info: SubmittedPrintInfo,
+    loading: Boolean,
+    onPrint: () -> Unit,
+    onLater: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onLater,
+        shape = RoundedCornerShape(20.dp),
+        icon = {
+            Icon(
+                Icons.Outlined.Print,
+                null,
+                tint = Primary,
+                modifier = Modifier.size(30.dp)
+            )
+        },
+        title = { Text("单据提交成功", fontWeight = FontWeight.SemiBold) },
+        text = {
+            Text(
+                info.orderNo?.let { "单号：$it\n现在加入打印队列？" }
+                    ?: "现在加入打印队列？"
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onPrint,
+                enabled = !loading,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                if (loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(Icons.Outlined.Print, null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("打印单据")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onLater) {
+                Text("稍后打印")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
