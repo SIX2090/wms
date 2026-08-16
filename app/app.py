@@ -26,6 +26,7 @@ import ipaddress
 import socket
 import base64
 import json
+import threading
 from pathlib import Path
 
 # Initialize Flask application
@@ -2593,6 +2594,19 @@ def generate_order_no(prefix='NO'):
     if prefix == 'OUT':
         prefix = 'OU'
 
+    # BUG-2026-08-16-020：SQLite 下 with_for_update 是 no-op，并发取号可能撞号，
+    # 而撞号在调用方 INSERT/commit 时才暴露（约束兜底但用户吃 500）。
+    # 这里用进程内互斥锁把「读末号 + 算新号」串行化，单进程（WMS 常见部署）
+    # 不再撞号；多进程仍由库表唯一约束兜底。
+    with _order_no_generation_lock:
+        return _generate_order_no_locked(prefix)
+
+
+# 模块级取号锁：串行化 read-seq+1，避免 SQLite 并发撞号
+_order_no_generation_lock = threading.Lock()
+
+
+def _generate_order_no_locked(prefix):
     now = datetime.now()
     year_month = now.strftime('%y%m')
 

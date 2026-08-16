@@ -399,11 +399,15 @@ def register_native_api_routes(app):
                 if not ok:
                     db.session.rollback()
                     return api_json_error(msg)
-                location = (line.get('location_code') or line.get('location') or '').strip()
-                ok, msg = update_location_inventory(material, location, -quantity, warehouse=order.warehouse)
-                if not ok:
-                    db.session.rollback()
-                    return api_json_error(msg)
+                # BUG-2026-08-16-020：仅开库位管理时写库位账。
+                # 关闭状态下客户端若传 location，无条件写 LocationInventory 会造隐形库位账，
+                # 使关库位管理的库存聚合把客户端随手填的文本当成真实库位。
+                if location_management_enabled():
+                    location = (line.get('location_code') or line.get('location') or '').strip()
+                    ok, msg = update_location_inventory(material, location, -quantity, warehouse=order.warehouse)
+                    if not ok:
+                        db.session.rollback()
+                        return api_json_error(msg)
             order.total_amount = round_to_2_decimals(total_amount)
             enqueue_auto_print_job('out_order', order.id, order.warehouse,
                                    created_by=user.id, source_event='scan_outbound')

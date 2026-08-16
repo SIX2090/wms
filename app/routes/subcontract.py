@@ -292,7 +292,8 @@ def register_subcontract_routes(app):
     def quick_issue_subcontract(id):
         from flask_login import current_user
         from app import (Material, SubcontractIssue, SubcontractIssueItem,
-                         SubcontractOrder, allow_negative_stock, api_error,
+                         SubcontractOrder, _acquire_order_write_lock,
+                         allow_negative_stock, api_error,
                          assert_warehouse_active, deduct_stock_atomic, generate_order_no,
                          is_stock_sufficient, location_management_enabled,
                          log_operation, normalize_stock_quantity,
@@ -326,6 +327,11 @@ def register_subcontract_routes(app):
             return api_error('请输入库位')
 
         try:
+            # BUG-2026-08-16-020：加写锁后复核状态，防止并发发料/收货竞态改主单状态
+            order, ok = _acquire_order_write_lock(
+                SubcontractOrder, id, ('pending', 'processing', 'completed'))
+            if not ok:
+                return api_error('委外单状态已变化或已被删除，请刷新后重试')
             issue_no = generate_order_no('SF')
             issue = SubcontractIssue(
                 issue_no=issue_no,
@@ -377,7 +383,8 @@ def register_subcontract_routes(app):
     def quick_receive_subcontract(id):
         from flask_login import current_user
         from app import (Material, SubcontractOrder, SubcontractReceive,
-                         SubcontractReceiveItem, add_stock, api_error,
+                         SubcontractReceiveItem, _acquire_order_write_lock,
+                         add_stock, api_error,
                          assert_warehouse_active, generate_order_no,
                          location_management_enabled, log_operation,
                          parse_float_value, round_to_2_decimals,
@@ -409,6 +416,11 @@ def register_subcontract_routes(app):
             return api_error('请输入库位')
 
         try:
+            # BUG-2026-08-16-020：加写锁后复核状态，防止并发发料/收货竞态改主单状态
+            order, ok = _acquire_order_write_lock(
+                SubcontractOrder, id, ('pending', 'processing', 'completed'))
+            if not ok:
+                return api_error('委外单状态已变化或已被删除，请刷新后重试')
             receive_no = generate_order_no('SR')
             receive = SubcontractReceive(
                 receive_no=receive_no,

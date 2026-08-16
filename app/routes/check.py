@@ -295,9 +295,8 @@ def register_check_routes(app):
     @login_required
     def revert_check(id):
         from sqlalchemy.orm import selectinload
-        from app import (AdjustmentOrder, InventoryCheck, StockTransaction,
-                         _acquire_order_write_lock, add_stock, api_error,
-                         deduct_stock_atomic, log_operation, normalize_stock_quantity)
+        from app import (AdjustmentOrder, InventoryCheck,
+                         _acquire_order_write_lock, api_error, log_operation)
         check = InventoryCheck.query.get_or_404(id)
         if check.status != 'completed':
             return api_error('只有已完成的盘点单可以反提交')
@@ -313,42 +312,11 @@ def register_check_routes(app):
                 db.session.rollback()
                 return api_error('该盘点单生成的调整单已提交，不能直接反提交盘点单：' + ', '.join(completed_adjustments))
 
-            transactions = StockTransaction.query.filter(
-                StockTransaction.reference_type == 'inventory_check',
-                StockTransaction.reference_id == check.id,
-                StockTransaction.transaction_type.in_(('check_in', 'check_out'))
-            ).all()
-            for transaction in transactions:
-                material = transaction.material
-                if not material:
-                    continue
-                quantity = normalize_stock_quantity(transaction.quantity or 0)
-                if quantity > 0:
-                    ok, err, _ = deduct_stock_atomic(
-                        material.id,
-                        quantity,
-                        transaction_type='revert_check_in',
-                        reference_type='inventory_check',
-                        reference_id=check.id,
-                        remark=f'反提交盘点 {check.check_no}',
-                        warehouse=check.warehouse,
-                    )
-                    if not ok:
-                        db.session.rollback()
-                        return api_error(err)
-                elif quantity < 0:
-                    ok, err = add_stock(
-                        material,
-                        abs(quantity),
-                        transaction_type='revert_check_out',
-                        reference_type='inventory_check',
-                        reference_id=check.id,
-                        remark=f'反提交盘点 {check.check_no}',
-                        warehouse=check.warehouse,
-                    )
-                    if not ok:
-                        db.session.rollback()
-                        return api_error(err or '库存恢复失败')
+            # BUG-2026-08-16-020：删除死分支——全库无任何代码写入 check_in/check_out
+            # 类型流水，原 316-351 行按 transaction_type.in_(('check_in','check_out'))
+            # 查询并回退库存的分支永不执行。盘点库存变动真实路径是：盘点单生成
+            # 未提交调整单草稿 → 人工完成调整单作用于库存。故反提交只需删除未提交的
+            # 调整草稿即可恢复，删除该死代码避免误导后续维护者以为存在独立库存回退。
             for order in linked_adjustments:
                 if order.status == 'pending':
                     for item in list(order.items):
@@ -357,8 +325,6 @@ def register_check_routes(app):
             check.status = 'pending'
             db.session.commit()
             log_operation('反提交盘点', f'盘点单：{check.check_no}', 'check', id)
-            if transactions:
-                return jsonify({'status': 'success', 'msg': '反提交成功，库存已恢复到盘点前'})
             return jsonify({'status': 'success', 'msg': '反提交成功，已删除未提交的库存调整草稿'})
         except Exception as e:
             db.session.rollback()

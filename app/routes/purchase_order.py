@@ -894,8 +894,8 @@ def register_purchase_order_routes(app):
     @login_required
     def delete_purchase_order(id):
         from sqlalchemy.orm import joinedload
-        from app import (InOrder, PurchaseOrder, PurchaseOrderItem, api_error,
-                         has_inbound_reference, log_operation)
+        from app import (InOrder, PurchaseOrder, PurchaseOrderItem, _acquire_order_write_lock,
+                         api_error, has_inbound_reference, log_operation)
         order = PurchaseOrder.query.options(joinedload(PurchaseOrder.items)).get_or_404(id)
         if order.status != 'pending':
             return api_error('只有未入库的采购单可以删除')
@@ -903,6 +903,14 @@ def register_purchase_order_routes(app):
         if has_inbound_reference(order.id):
             return api_error('该采购单已有下游入库单，不能删除')
         try:
+            # BUG-2026-08-16-020：加写锁后复核 status 与下游引用，防止并发入库产生孤儿引用竞态
+            order, ok = _acquire_order_write_lock(
+                PurchaseOrder, id, 'pending', joinedload(PurchaseOrder.items))
+            if not ok:
+                return api_error('采购单状态已变化或已被删除，请刷新后重试')
+            if has_inbound_reference(order.id):
+                db.session.rollback()
+                return api_error('该采购单已有下游入库单，不能删除')
             order_no = order.order_no
             for item in list(order.items):
                 db.session.delete(item)
@@ -921,8 +929,8 @@ def register_purchase_order_routes(app):
     @login_required
     def batch_delete_purchase_order():
         from sqlalchemy.orm import joinedload
-        from app import (InOrder, PurchaseOrder, PurchaseOrderItem, api_error,
-                         has_inbound_reference, log_operation,
+        from app import (InOrder, PurchaseOrder, PurchaseOrderItem, _acquire_order_write_lock,
+                         api_error, has_inbound_reference, log_operation,
                          purchase_order_status_label)
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
@@ -946,8 +954,20 @@ def register_purchase_order_routes(app):
             return api_error('以下采购单不能删除：' + '、'.join(blocked))
 
         try:
-            deleted = 0
+            # BUG-2026-08-16-020：逐单加写锁并复核 status/引用后统一删除，防止并发入库孤儿引用
+            locked = []
             for order in delete_orders:
+                order, ok = _acquire_order_write_lock(
+                    PurchaseOrder, order.id, 'pending', joinedload(PurchaseOrder.items))
+                if not ok:
+                    db.session.rollback()
+                    return api_error('采购单状态已变化或已被删除，请刷新后重试')
+                if has_inbound_reference(order.id):
+                    db.session.rollback()
+                    return api_error(f'采购单 {order.order_no} 已有下游入库单，不能删除')
+                locked.append(order)
+            deleted = 0
+            for order in locked:
                 for item in list(order.items):
                     db.session.delete(item)
                 db.session.delete(order)
