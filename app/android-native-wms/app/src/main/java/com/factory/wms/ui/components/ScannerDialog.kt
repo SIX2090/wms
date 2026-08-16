@@ -48,6 +48,7 @@ import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
+@OptIn(ExperimentalGetImage::class)
 @Composable
 fun ScannerDialog(
     onDismiss: () -> Unit,
@@ -167,7 +168,6 @@ fun ScannerDialog(
                                     .build()
                                     .also {
                                         it.setAnalyzer(analysisExecutor) { imageProxy: ImageProxy ->
-                                            @OptIn(ExperimentalGetImage::class)
                                             val mediaImage = imageProxy.image
                                             if (mediaImage != null) {
                                                 val image = InputImage.fromMediaImage(
