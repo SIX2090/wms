@@ -204,7 +204,8 @@ class TestSaveSystemSettingsValidation:
     def test_secret_empty_preserves_original(self):
         """secret 字段留空时保留原值。"""
         client = self._setup()
-        from app import SYSTEM_SETTING_DEFINITIONS, get_system_setting
+        from app import (SYSTEM_SETTING_DEFINITIONS, SystemSetting, _secret_decrypt,
+                         get_system_setting)
         secret_key = None
         for key, defn in SYSTEM_SETTING_DEFINITIONS.items():
             if defn.get('type') == 'secret':
@@ -220,17 +221,20 @@ class TestSaveSystemSettingsValidation:
             content_type="application/x-www-form-urlencoded",
         )
         with app_module.app.app_context():
-            val = get_system_setting(secret_key, "")
-            assert val == original, f"设置 secret 后值应为 {original}，实际 {val}"
-        # 留空提交，应保留原值
+            stored = get_system_setting(secret_key, "")
+            assert stored != original, "secret 不得以明文存储"
+            assert stored.startswith("enc:"), "secret 应使用 enc: 前缀密文存储"
+            assert _secret_decrypt(stored) == original
+        # 留空提交，应保留原密文，不触发重新加密。
         client.post(
             "/system_settings/save",
             data={secret_key: ""},
             content_type="application/x-www-form-urlencoded",
         )
         with app_module.app.app_context():
-            val2 = get_system_setting(secret_key, "")
-            assert val2 == original, f"留空提交后应保留原值 {original}，实际 {val2}"
+            stored_after_empty_submit = SystemSetting.query.filter_by(key=secret_key).first().value
+            assert stored_after_empty_submit == stored
+            assert _secret_decrypt(stored_after_empty_submit) == original
 
 
 class TestSetSystemSettingWriteLock:
