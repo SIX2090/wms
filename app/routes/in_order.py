@@ -1776,7 +1776,7 @@ def register_in_order_routes(app):
         from sqlalchemy.orm import selectinload
         from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem,
                          _acquire_order_write_lock,
-                         _source_has_active_push, api_error, log_operation,
+                         _source_has_active_push, api_error, log_audit, log_operation,
                          round_to_2_decimals, update_purchase_order_status)
         order = InOrder.query.get_or_404(id)
         if _source_has_active_push(id):
@@ -1815,6 +1815,13 @@ def register_in_order_routes(app):
                 update_purchase_order_status(purchase_order)
             db.session.commit()
             log_operation('删除入库单', f'入库单：{order.order_no}', 'in_order', id)
+            # BUG-2026-08-16-012：删除入库单写结构化审计（old_data = 单号/仓库）
+            log_audit(
+                'delete_in_order', 'in_order', id,
+                target_name=order.order_no,
+                old_data={'order_no': order.order_no, 'warehouse': order.warehouse or ''},
+                reason='草稿删除',
+            )
             app.logger.info(f'入库单删除：{order.order_no}')
             return jsonify({'status': 'success', 'msg': '删除成功'})
         except Exception as e:
@@ -1832,7 +1839,7 @@ def register_in_order_routes(app):
                          _source_has_active_push, allow_negative_stock, api_error,
                          deduct_stock, get_warehouse_stock_quantities,
                          is_stock_sufficient, location_management_enabled,
-                         log_operation, normalize_stock_quantity, recalculate_order_total,
+                         log_audit, log_operation, normalize_stock_quantity, recalculate_order_total,
                          update_location_inventory, update_purchase_order_status)
         order = InOrder.query.get_or_404(id)
         if _source_has_active_push(id):
@@ -1902,6 +1909,13 @@ def register_in_order_routes(app):
                 update_purchase_order_status(purchase_order)
             db.session.commit()
             log_operation('反提交入库单', f'入库单：{order.order_no}', 'in_order', id)
+            # BUG-2026-08-16-012：反提交入库单写结构化审计
+            log_audit(
+                'revert_in_order', 'in_order', id,
+                target_name=order.order_no,
+                old_data={'status': 'completed'},
+                new_data={'status': 'pending'},
+            )
             return jsonify({'status': 'success', 'msg': '操作完成'})
         except Exception as e:
             db.session.rollback()

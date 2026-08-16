@@ -770,7 +770,7 @@ def register_out_order_routes(app):
     def revert_out_order(id):
         from app import (OutOrder, _acquire_order_write_lock, add_stock,
                          api_error, location_management_enabled,
-                         log_operation, recalculate_order_total,
+                         log_audit, log_operation, recalculate_order_total,
                          sync_sales_order_shipment, update_location_inventory)
         from sqlalchemy.orm import selectinload
         order = OutOrder.query.get_or_404(id)
@@ -805,6 +805,13 @@ def register_out_order_routes(app):
             recalculate_order_total(order)
             db.session.commit()
             log_operation('反提交领料单', f'领料单：{order.order_no}', 'out_order', id)
+            # BUG-2026-08-16-012：反提交领料单写结构化审计
+            log_audit(
+                'revert_out_order', 'out_order', id,
+                target_name=order.order_no,
+                old_data={'status': 'completed'},
+                new_data={'status': 'pending'},
+            )
             return jsonify({'status': 'success', 'msg': '操作完成'})
         except Exception as e:
             db.session.rollback()
@@ -817,7 +824,7 @@ def register_out_order_routes(app):
     def delete_out_order(id):
         from app import (OutOrder, _acquire_order_write_lock,
                          _release_document_push_lines, api_error,
-                         log_operation)
+                         log_audit, log_operation)
         from sqlalchemy.orm import selectinload
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
@@ -841,6 +848,13 @@ def register_out_order_routes(app):
             db.session.delete(order)
             db.session.commit()
             log_operation('删除领料单', f'领料单：{order.order_no}', 'out_order', id)
+            # BUG-2026-08-16-012：删除领料单写结构化审计
+            log_audit(
+                'delete_out_order', 'out_order', id,
+                target_name=order.order_no,
+                old_data={'order_no': order.order_no, 'warehouse': order.warehouse or ''},
+                reason='草稿删除',
+            )
             return jsonify({'status': 'success', 'msg': '删除成功'})
         except Exception as e:
             db.session.rollback()

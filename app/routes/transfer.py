@@ -527,7 +527,7 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def revert_transfer(id):
-        from app import (TransferOrder, _acquire_order_write_lock, add_stock_transaction, api_error, location_management_enabled, log_operation, update_location_inventory)
+        from app import (TransferOrder, _acquire_order_write_lock, add_stock_transaction, api_error, location_management_enabled, log_audit, log_operation, update_location_inventory)
         from sqlalchemy.orm import selectinload
         from flask import jsonify
         """反提交调拨单"""
@@ -573,6 +573,13 @@ def register_transfer_routes(app):
             transfer.status = 'pending'
             db.session.commit()
             log_operation('反提交调拨', f'调拨单：{transfer.transfer_no}', 'transfer', id)
+            # BUG-2026-08-16-012：反提交调拨写结构化审计
+            log_audit(
+                'revert_transfer', 'transfer', id,
+                target_name=transfer.transfer_no,
+                old_data={'status': 'completed'},
+                new_data={'status': 'pending'},
+            )
             return jsonify({'status': 'success', 'msg': '反提交成功'})
         except Exception as e:
             db.session.rollback()
@@ -643,7 +650,7 @@ def register_transfer_routes(app):
     @login_required
     def delete_transfer(id):
         from app import (TransferOrder, TransferOrderItem,
-                         _acquire_order_write_lock, api_error, log_operation)
+                         _acquire_order_write_lock, api_error, log_audit, log_operation)
         from flask import jsonify
         """删除调拨单"""
         transfer = TransferOrder.query.get_or_404(id)
@@ -663,6 +670,15 @@ def register_transfer_routes(app):
             db.session.commit()
 
             log_operation('删除调拨单', f'调拨单：{transfer.transfer_no}', 'transfer', id)
+            # BUG-2026-08-16-012：删除调拨单写结构化审计
+            log_audit(
+                'delete_transfer', 'transfer', id,
+                target_name=transfer.transfer_no,
+                old_data={'transfer_no': transfer.transfer_no,
+                          'from_warehouse': transfer.from_warehouse or '',
+                          'to_warehouse': transfer.to_warehouse or ''},
+                reason='草稿删除',
+            )
             return jsonify({'status': 'success', 'msg': '删除成功'})
         except Exception as e:
             db.session.rollback()
