@@ -156,6 +156,7 @@ def register_after_sale_out_routes(app):
                               customers=[serialize_customer(customer) for customer in customers],
                               warehouses=get_active_warehouses(),
                               default_warehouse=get_default_warehouse(),
+                              location_management_enabled=location_management_enabled(),
                               order_id=None, order_no=order_no, order_date=order_date,
                               initial_items=[])
 
@@ -198,6 +199,7 @@ def register_after_sale_out_routes(app):
             customers=[serialize_customer(customer) for customer in customers],
             warehouses=get_active_warehouses(),
             default_warehouse=get_default_warehouse(),
+            location_management_enabled=location_management_enabled(),
             order_id=order.id,
             order_no=order.order_no,
             order_date=(order.date if order.date else date.today()).strftime('%Y-%m-%d'),
@@ -210,8 +212,10 @@ def register_after_sale_out_routes(app):
     def add_after_sale_out_order():
         from datetime import date
         from app import (AfterSaleOutOrder, AfterSaleOutOrderItem, DocumentPushLine,
-                         Material, OutOrder, SalesOrder, _clean_int, api_error,
-                         generate_order_no, get_default_warehouse, log_operation,
+                         Material, OutOrder, SalesOrder, _clean_int,
+                         assert_warehouse_active, api_error,
+                         generate_order_no, get_default_warehouse, location_management_enabled,
+                         log_operation,
                          parse_date_value, parse_float_value, round_to_2_decimals)
         from flask_login import current_user
         try:
@@ -253,6 +257,14 @@ def register_after_sale_out_routes(app):
                     warehouse = default_wh.name
             if not warehouse:
                 return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
+            # BUG-2026-08-16-014：仓库必须处于启用状态（与完成路由/其他单据一致）
+            wh_ok, wh_msg = assert_warehouse_active(warehouse, allow_empty=False)
+            if not wh_ok:
+                return jsonify({'status': 'error', 'msg': wh_msg}), 400
+            # BUG-2026-08-16-014：库位管理启用时库位必填（AGENTS.md 规则二），
+            # 否则草稿无法录入库位，完成路由的库位门禁会卡死工作流。
+            if location_management_enabled() and not location:
+                return jsonify({'status': 'error', 'msg': '库位管理已启用，请选择库位'}), 400
 
             if order_id:
                 order = db.session.get(AfterSaleOutOrder, order_id)

@@ -111,11 +111,30 @@ def test_add_after_sale_out_persists_location(client):
 
 
 def test_complete_after_sale_out_rejects_missing_location_when_enabled(client):
-    """开启库位管理时，未填 location 的草稿不得被完成。"""
+    """开启库位管理时，未填 location 的草稿不得被完成。
+
+    BUG-2026-08-16-014 后，/after_sale_out/add 已直接拒绝无库位草稿；此处直接
+    通过 DB 注入一条无库位草稿（模拟历史遗留/旁路数据），验证完成路由的兜底门禁仍在。
+    """
     with app_module.app.app_context():
         set_system_setting("location_management_enabled", "1")
         db.session.commit()
-    oid = _create_pending_after_sale_out_order(client, location="")
+    with app_module.app.app_context():
+        from datetime import date as _date
+        order = AfterSaleOutOrder(
+            order_no=generate_order_no("ASO"), status="pending",
+            date=_date(2026, 8, 16), customer="测试客户", warehouse="主仓", location="",
+            operator_id=User.query.filter_by(username="admin").first().id,
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add(AfterSaleOutOrderItem(
+            after_sale_out_order_id=order.id,
+            material_id=Material.query.filter_by(code="M-ASO").first().id,
+            quantity=1, price=1, amount=1,
+        ))
+        oid = order.id
+        db.session.commit()
     resp = client.post(f"/after_sale_out/{oid}/complete")
     # api_error 默认 400
     assert resp.status_code in (200, 400)
