@@ -7,6 +7,7 @@ import com.google.gson.annotations.SerializedName
  *
  * 手机端提交入库/出库成功后，或物料档案详情页点"打印"时，调用该接口
  * 在打印队列生成一条任务，由桌面打印工作站（本地电脑）取走渲染出纸。
+ * 注意：需先启动桌面打印工作站代理并保持 online，否则任务停留在 pending。
  */
 data class PrintJobRequest(
     /** out_order / in_order / material_archive / label */
