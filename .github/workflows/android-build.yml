@@ -47,6 +47,16 @@ jobs:
         working-directory: app/android-native-wms
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
+      # BUG-2026-08-16-021：Android CI 仅 assembleDebug 无 lint/单测，补 lint+test 门禁。
+      # lintDebug 检查静态问题（无用资源/API 误用/可访问性等），testDebugUnitTest 跑 JVM 单测。
+      - name: Lint (BUG-2026-08-16-021)
+        working-directory: app/android-native-wms
+        run: ./gradlew lintDebug --no-daemon --stacktrace
+
+      - name: Unit tests (BUG-2026-08-16-021)
+        working-directory: app/android-native-wms
+        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
+
       - name: Upload APK
         uses: actions/upload-artifact@v5
         with:
