@@ -5209,6 +5209,9 @@ class StockTransaction(db.Model):
         db.Index('idx_stock_txn_type', 'transaction_type'),
         db.Index('idx_stock_txn_created', 'created_at'),
         db.Index('idx_stock_txn_ref', 'reference_type', 'reference_id'),
+        # BUG-2026-08-16-021：关库位管理分支按 location 聚合仓库库存，全表扫太慢，
+        # 加单列索引加速 IN (仓库名/编码) 聚合。
+        db.Index('idx_stock_txn_location', 'location'),
     )
     id = db.Column(db.Integer, primary_key=True)
     material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)  # Material ID

@@ -362,7 +362,8 @@ def register_after_sale_out_routes(app):
     @login_required
     def complete_after_sale_out_order(id):
         from app import (AfterSaleOutOrder, _acquire_order_write_lock, allow_negative_stock,
-                         api_error, deduct_stock_atomic, get_default_warehouse,
+                         api_error, assert_warehouse_active, deduct_stock_atomic,
+                         get_default_warehouse,
                          is_stock_sufficient, location_management_enabled, log_operation,
                          normalize_stock_quantity, update_location_inventory)
         from app import Material
@@ -373,6 +374,12 @@ def register_after_sale_out_routes(app):
                 return api_error('该售后出库单已提交，不能重复操作')
             if not order.items:
                 return api_error('请至少添加一条售后出库明细')
+
+            # BUG-2026-08-16-021：完成前复核仓库 active，防止草稿保存后仓库被停用
+            if (order.warehouse or '').strip():
+                wh_ok, wh_err = assert_warehouse_active(order.warehouse, allow_empty=False)
+                if not wh_ok:
+                    return api_error(wh_err or '仓库已停用，请先切换有效仓库')
 
             locked, ok = _acquire_order_write_lock(
                 AfterSaleOutOrder, id, 'pending', selectinload(AfterSaleOutOrder.items)

@@ -652,6 +652,7 @@ def register_out_order_routes(app):
     def complete_out_order(id):
         from app import (OutOrder, _acquire_order_write_lock,
                          _check_out_order_anomalies, api_error,
+                         assert_warehouse_active,
                          deduct_location_inventory_atomic, deduct_stock_atomic,
                          get_default_warehouse, is_future_date,
                          location_management_enabled, log_operation,
@@ -707,6 +708,12 @@ def register_out_order_routes(app):
             if not order.warehouse:
                 db.session.rollback()
                 return api_error('请选择仓库')
+            # BUG-2026-08-16-021：完成前复核仓库 active（销售出库走专属校验，其余走通用断言）
+            if order.business_type != '销售出库':
+                wh_ok, wh_err = assert_warehouse_active(order.warehouse, allow_empty=False)
+                if not wh_ok:
+                    db.session.rollback()
+                    return api_error(wh_err or '仓库已停用，请先切换有效仓库')
             # SALES-AUDIT-008：草稿保存后仓库可能被停用，完成前必须复核
             # active 状态（对照 PUR-AUDIT-003 的 in_order.py:1389 修复模式）。
             if order.business_type == '销售出库':

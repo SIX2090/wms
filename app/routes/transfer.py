@@ -425,7 +425,7 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def complete_transfer(id):
-        from app import (TransferOrder, Warehouse, _acquire_order_write_lock, add_stock_transaction, api_error, deduct_location_inventory_atomic, get_warehouse_stock_quantities, location_management_enabled, log_operation, resolve_inventory_warehouse_id, update_location_inventory)
+        from app import (TransferOrder, Warehouse, _acquire_order_write_lock, add_stock_transaction, api_error, assert_warehouse_active, deduct_location_inventory_atomic, get_warehouse_stock_quantities, location_management_enabled, log_operation, resolve_inventory_warehouse_id, update_location_inventory)
         from sqlalchemy.orm import selectinload
         from flask import jsonify
         """完成调拨"""
@@ -435,6 +435,18 @@ def register_transfer_routes(app):
 
         if not transfer.items:
             return api_error('调拨单没有明细，无法完成')
+
+        # BUG-2026-08-16-021：完成前复核仓库 active 状态，防止草稿保存后仓库被停用
+        from_warehouse = (transfer.from_warehouse or '').strip()
+        to_warehouse = (transfer.to_warehouse or '').strip()
+        if from_warehouse:
+            wh_ok, wh_err = assert_warehouse_active(from_warehouse, allow_empty=False)
+            if not wh_ok:
+                return api_error(f'调出{wh_err}')
+        if to_warehouse:
+            wh_ok, wh_err = assert_warehouse_active(to_warehouse, allow_empty=False)
+            if not wh_ok:
+                return api_error(f'调入{wh_err}')
 
         try:
             # 加写锁并重新读取状态，避免多 worker 并发重复扣库位库存

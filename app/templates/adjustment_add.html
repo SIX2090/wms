@@ -457,7 +457,7 @@ function createRow(item) {
         <td data-column-key="unit"><input type="text" class="material-unit" readonly></td>
         <td class="num-col" data-column-key="stock"><input type="text" class="material-stock" readonly></td>
         <td class="num-col" data-column-key="adjust_qty"><input type="number" class="adjust-qty" min="0" step="0.01" ${readonly ? 'readonly' : ''}></td>
-        <td data-column-key="location"><input type="text" class="adjust-location" ${readonly ? 'readonly' : ''}></td>
+        <td data-column-key="location"><input type="text" class="adjust-location" ${readonly ? 'readonly' : ''} {% if location_management_enabled %}required{% endif %}></td>
         <td data-column-key="reason"><input type="text" class="adjust-reason" ${readonly ? 'readonly' : ''}></td>
         ${readonly ? '' : `<td class="action-col" data-column-key="actions">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>

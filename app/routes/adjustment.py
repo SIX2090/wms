@@ -93,7 +93,7 @@ def register_adjustment_routes(app):
         from datetime import date
         from sqlalchemy.orm import joinedload
         from app import (Material, Unit, generate_order_no, get_active_warehouses,
-                         get_default_warehouse, serialize_material)
+                         get_default_warehouse, location_management_enabled, serialize_material)
         adjustment_no = generate_order_no('ADJ')
         materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()
         materials_json = [serialize_material(m) for m in materials]
@@ -115,6 +115,7 @@ def register_adjustment_routes(app):
                              default_warehouse=get_default_warehouse(),
                              existing_items=[],
                              readonly=False,
+                             location_management_enabled=location_management_enabled(),
                              page_title='新增库存调整单')
 
     @app.route('/adjustment/<int:id>')
@@ -125,7 +126,7 @@ def register_adjustment_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (AdjustmentOrder, AdjustmentOrderItem, Material, Unit,
                          _serialize_adjustment_item_for_form, get_active_warehouses,
-                         get_default_warehouse, serialize_material)
+                         get_default_warehouse, location_management_enabled, serialize_material)
         adjustment = AdjustmentOrder.query.options(
             joinedload(AdjustmentOrder.operator),
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.material).joinedload(Material.unit),
@@ -152,6 +153,7 @@ def register_adjustment_routes(app):
                              default_warehouse=get_default_warehouse(),
                              existing_items=[_serialize_adjustment_item_for_form(item) for item in adjustment.items],
                              readonly=readonly,
+                             location_management_enabled=location_management_enabled(),
                              page_title=('查看库存调整单' if readonly else '编辑库存调整单'))
 
     @app.route('/adjustment/<int:id>/print')
