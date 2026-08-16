@@ -571,7 +571,7 @@ def register_user_auth_routes(app):
     def edit_user(user_id):
         from flask_login import current_user
         from app import (User, DISABLED_USER_STATUSES, _normalize_user_status,
-                         _has_other_active_admin, log_operation)
+                         _has_other_active_admin, log_audit, log_operation)
         # Edit non-password user profile fields with last-admin protection.
         target = db.session.get(User, user_id)
         if not target:
@@ -593,6 +593,7 @@ def register_user_auth_routes(app):
         if target.id == current_user.id and (role != 'admin' or status in DISABLED_USER_STATUSES):
             return jsonify({'status': 'error', 'msg': '不能降级或禁用当前登录管理员'}), 400
         before = f'用户名={target.username}，角色={target.role}，状态={_normalize_user_status(target.status)}'
+        old_username, old_role, old_status = target.username, target.role, _normalize_user_status(target.status)
         target.username, target.role, target.status = username, role, status
         try:
             db.session.commit()
@@ -600,6 +601,13 @@ def register_user_auth_routes(app):
             db.session.rollback()
             app.logger.error('编辑用户失败: %s', exc)
             return jsonify({'status': 'error', 'msg': '用户编辑失败'}), 500
+        # BUG-2026-08-16-012：用户角色/状态变更写结构化审计（old_data + new_data）
+        log_audit(
+            'edit_user', 'user', target.id,
+            target_name=target.username,
+            old_data={'username': old_username, 'role': old_role, 'status': old_status},
+            new_data={'username': username, 'role': role, 'status': status},
+        )
         # BUG-F02-06 修复：审计 log_operation 显式带 last_modified_by=current_user.username
         log_operation(
             '编辑用户',
@@ -656,7 +664,7 @@ def register_user_auth_routes(app):
     def update_user_status():
         from flask_login import current_user
         from app import (User, DISABLED_USER_STATUSES, _normalize_user_status,
-                         _user_status_label, _has_other_active_admin, log_operation, api_error)
+                         _user_status_label, _has_other_active_admin, log_audit, log_operation, api_error)
         data = request.get_json(silent=True) if request.is_json else request.form
         data = data or {}
         user_id = data.get('user_id') or data.get('id')
@@ -694,6 +702,13 @@ def register_user_auth_routes(app):
 
         action = '启用用户' if new_status == 'normal' else '禁用用户'
         log_operation(action, f'用户：{user.username}，{_user_status_label(old_status)} -> {_user_status_label(new_status)}', 'user', user.id)
+        # BUG-2026-08-16-012：用户启用/禁用写结构化审计
+        log_audit(
+            action, 'user', user.id,
+            target_name=user.username,
+            old_data={'status': old_status},
+            new_data={'status': new_status},
+        )
         msg = '用户已启用，可以重新登录' if new_status == 'normal' else '用户已禁用，禁用后不能登录'
         return jsonify({'status': 'success', 'msg': msg})
 
@@ -759,6 +774,7 @@ def register_user_auth_routes(app):
         user_id = request.form.get('user_id')
         new_password = request.form.get('new_password', '').strip()
         # BUG-2026-07-28-004 修复：禁止自助重置自己密码；重置 admin 目标必须二次确认
+        from app import log_audit as _log_audit_reset
         if not user_id or not new_password:
             return api_error('缺少用户 ID 或新密码')
         # 重置密码必须复用 validate_password_strength，避免管理员重置出弱密码
@@ -790,4 +806,11 @@ def register_user_auth_routes(app):
             db.session.rollback()
             app.logger.error(f"数据库操作失败: {e}")
             return jsonify({"status": "error", "msg": "操作失败"}), 500
+        # BUG-2026-08-16-012：密码重置写结构化审计（不落明文密码，仅标记事件）
+        _log_audit_reset(
+            'reset_user_password', 'user', user.id,
+            target_name=user.username,
+            new_data={'password_changed': True, 'must_change_password': True},
+            reason=f'管理员 {current_user.username} 重置密码',
+        )
         return jsonify({'status': 'success', 'msg': '密码重置成功，被重置用户下次登录需修改密码'})
