@@ -146,9 +146,11 @@
             <form id="addForm">
                 <div class="modal-body">
                     {# BUG-2026-08-02-016：调出仓库必填，新建时预选默认仓库 #}
+                    {# BUG-2026-08-16-015：仓库与库位双字段语义——from_warehouse/to_warehouse 存仓库，#}
+                    {# from_location/to_location 存库位（开启库位管理时条件显隐） #}
                     <div class="mb-3">
                         <label class="form-label">调出仓库 <span class="text-danger">*</span></label>
-                        <select class="form-select" name="from_location" required>
+                        <select class="form-select" name="from_warehouse" required>
                             <option value="">请选择调出仓库</option>
                             {% for warehouse in warehouses %}
                             <option value="{{ warehouse.name }}" {% if default_warehouse and default_warehouse.name == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
@@ -157,13 +159,25 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">调入仓库 <span class="text-danger">*</span></label>
-                        <select class="form-select" name="to_location" required>
+                        <select class="form-select" name="to_warehouse" required>
                             <option value="">请选择调入仓库</option>
                             {% for warehouse in warehouses %}
                             <option value="{{ warehouse.name }}">{{ warehouse.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
+                    {% if location_management_enabled %}
+                    <div class="mb-3">
+                        <label class="form-label">调出库位 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="from_location" maxlength="100"
+                               placeholder="请输入调出库位" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">调入库位 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="to_location" maxlength="100"
+                               placeholder="请输入调入库位" required>
+                    </div>
+                    {% endif %}
                     <div class="mb-3">
                         <label class="form-label">备注（可选）</label>
                         <textarea class="form-control" name="remark" rows="2"></textarea>

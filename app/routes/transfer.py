@@ -32,7 +32,7 @@ def register_transfer_routes(app):
     @app.route('/transfer')
     @login_required
     def transfer_list():
-        from app import (Material, TransferOrder, TransferOrderItem, _apply_status_date_filters, _get_order_list_filters, _status_from_search_keyword, get_active_warehouses, get_default_warehouse)
+        from app import (Material, TransferOrder, TransferOrderItem, _apply_status_date_filters, _get_order_list_filters, _status_from_search_keyword, get_active_warehouses, get_default_warehouse, location_management_enabled)
         from sqlalchemy.orm import joinedload, selectinload
         from flask import render_template, request
         """库存调拨单列表"""
@@ -76,7 +76,7 @@ def register_transfer_routes(app):
             'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
             'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
         }
-        return render_template('transfer.html', transfers=transfers, pagination=pagination, warehouses=warehouses, default_warehouse=get_default_warehouse(), filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page)
+        return render_template('transfer.html', transfers=transfers, pagination=pagination, warehouses=warehouses, default_warehouse=get_default_warehouse(), filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page, location_management_enabled=location_management_enabled())
 
     @app.route('/transfer/add', methods=['GET'])
     @login_required
