@@ -91,7 +91,7 @@ def _seed_admin():
 
 def _seed_base():
     """Create category / unit / two warehouses / material master data."""
-    from app import MaterialCategory, Unit, Warehouse
+    from app import MaterialCategory, StockTransaction, Unit, Warehouse
     cat = MaterialCategory(code="CAT1", name="分类1")
     unit = Unit(code="PCS", name="个")
     wh_from = Warehouse(code="WH001", name="材料仓", status="active", is_default=True)
@@ -100,6 +100,16 @@ def _seed_base():
     db.session.flush()
     mat = Material(code="M1", name="轴承", category_id=cat.id, unit_id=unit.id, stock=100, price=10)
     db.session.add(mat)
+    db.session.flush()
+    db.session.add(StockTransaction(
+        material_id=mat.id,
+        transaction_type="in",
+        quantity=100,
+        location=wh_from.name,
+        reference_type="test_seed",
+        reference_id=0,
+        remark=""
+    ))
     db.session.commit()
     return mat.id
 
