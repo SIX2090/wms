@@ -62,15 +62,15 @@ fun HomeScreen(
     val cards = remember {
         listOf(
             FunctionCard(
-                title = "扫码入库",
-                subtitle = "扫描条码 · 快速入库",
+                title = "入库",
+                subtitle = "手工/扫码 · 多物料入库",
                 icon = Icons.Outlined.ArrowDownward,
                 gradient = listOf(CardBlue, CardBlueDark),
                 screen = Screen.Inbound
             ),
             FunctionCard(
-                title = "扫码出库",
-                subtitle = "扫描条码 · 快速出库",
+                title = "出库",
+                subtitle = "手工/扫码 · 多物料出库",
                 icon = Icons.Outlined.ArrowUpward,
                 gradient = listOf(CardGreen, CardGreenDark),
                 screen = Screen.Outbound

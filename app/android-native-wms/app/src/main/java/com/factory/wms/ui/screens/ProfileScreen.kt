@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.factory.wms.BuildConfig
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 
@@ -98,6 +99,16 @@ fun ProfileScreen(
                     icon = Icons.Outlined.Dns,
                     label = "服务器地址",
                     value = uiState.baseUrl
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            ProfileSectionCard("应用信息") {
+                ProfileRow(
+                    icon = Icons.Outlined.Info,
+                    label = "版本",
+                    value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
                 )
             }
 
