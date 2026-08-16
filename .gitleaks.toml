@@ -1,0 +1,12 @@
+[allowlist]
+paths = [
+  '''app/templates/in_order_add\.html''',
+  '''app/templates/in_order_detail\.html''',
+  '''app/templates/material\.html''',
+  '''app/templates/purchase_order_add\.html''',
+  '''scripts/verify_ai_data_retention\.py''',
+  '''scripts/verify_ai_document_confirmation\.py''',
+  '''scripts/verify_ai_provider_evaluation\.py''',
+  '''scripts/verify_ai_rollout_control\.py''',
+  '''scripts/verify_ai_security\.py'''
+]
