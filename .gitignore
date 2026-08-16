@@ -13,6 +13,7 @@ build/
 venv/
 env/
 .venv/
+.testvenv/
 ENV/
 
 # ===== WMS 运行期敏感数据（密钥/数据库/日志/备份，绝不上传） =====
