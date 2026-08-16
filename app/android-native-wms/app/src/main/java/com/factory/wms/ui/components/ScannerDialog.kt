@@ -48,7 +48,12 @@ import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-@androidx.annotation.OptIn(markerClass = [ExperimentalGetImage::class])
+@androidx.annotation.OptIn(
+    markerClass = [
+        ExperimentalGetImage::class,
+        androidx.camera.camera2.interop.ExperimentalCamera2Interop::class
+    ]
+)
 @Composable
 fun ScannerDialog(
     onDismiss: () -> Unit,
@@ -219,7 +224,6 @@ fun ScannerDialog(
 
                                 // Enable continuous autofocus for reliable barcode scanning
                                 camera?.let { cam ->
-                                    @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
                                     val camera2Control = androidx.camera.camera2.interop.Camera2CameraControl.from(cam.cameraControl)
                                     val options = androidx.camera.camera2.interop.CaptureRequestOptions.Builder()
                                         .setCaptureRequestOption(
