@@ -11,6 +11,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
+from ai.policies import require_ai_role
 from ai.providers import (
     OpenAICompatibleConfig,
     call_llm_chat,
@@ -216,6 +217,7 @@ def v2_usage_help():
 
 @v2_bp.post('/llm/chat')
 @login_required
+@require_ai_role
 def v2_llm_chat():
     """直接调用 LLM 对话（调试用）。"""
     payload = request.get_json(silent=True) or {}
@@ -237,6 +239,7 @@ def v2_llm_chat():
 
 @v2_bp.post('/llm/intent')
 @login_required
+@require_ai_role
 def v2_llm_intent():
     """直接调用 LLM 意图解析（调试用）。"""
     payload = request.get_json(silent=True) or {}

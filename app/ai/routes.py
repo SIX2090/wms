@@ -6,6 +6,7 @@ from flask_login import current_user, login_required
 from ai.handlers import handle_chat_stream, handle_draft_check, handle_warehouse_assistant
 from ai.history import clear_history
 from ai.idempotency import ai_idempotent_request
+from ai.policies import require_ai_role
 from ai.tools.registry import list_ai_tools_for_role
 from ai.audit import (
     create_conversation,
@@ -82,6 +83,7 @@ def chat_clear():
 
 @ai_bp.post('/draft_check')
 @login_required
+@require_ai_role
 def draft_check():
     """Run the current page draft pre-submit check."""
     payload = request.get_json(silent=True) or {}
@@ -90,6 +92,7 @@ def draft_check():
 
 @ai_bp.post('/warehouse_assistant')
 @login_required
+@require_ai_role
 @ai_idempotent_request
 def warehouse_assistant():
     """Handle the main AI assistant request."""
@@ -99,6 +102,7 @@ def warehouse_assistant():
 
 @ai_bp.post('/chat/stream')
 @login_required
+@require_ai_role
 @ai_idempotent_request
 def chat_stream():
     """Handle the SSE AI chat request."""

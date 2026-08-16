@@ -3,6 +3,29 @@
 """
 from __future__ import annotations
 
+from functools import wraps
+
+from flask import jsonify
+from flask_login import current_user
+
+
+# BUG-2026-08-16-013：AI 助手使用角色白名单。
+# 排除只读的 viewer/user，防止其直接调用 LLM 端点刷计费；
+# admin 与各业务角色（warehouse/purchase/production/sales）允许。
+AI_USE_ROLES = frozenset({'admin', 'warehouse', 'purchase', 'production', 'sales'})
+
+
+def require_ai_role(f):
+    """门禁消耗 LLM 计费的 AI 端点，仅允许 AI 使用角色访问。"""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not getattr(current_user, 'is_authenticated', False):
+            return jsonify({'status': 'error', 'msg': '请先登录'}), 401
+        if getattr(current_user, 'role', '') not in AI_USE_ROLES:
+            return jsonify({'status': 'error', 'msg': '当前账号没有权限使用 AI 助手'}), 403
+        return f(*args, **kwargs)
+    return wrapper
+
 
 AI_CAPABILITY_ROLES = {
     'out_order_draft': frozenset({'warehouse'}),
