@@ -140,7 +140,8 @@ def register_after_sale_out_routes(app):
         from datetime import datetime
         from app import (Customer, Material, Unit, generate_order_no,
                          get_active_warehouses, get_default_warehouse,
-                         serialize_customer, serialize_material, serialize_unit)
+                         location_management_enabled, serialize_customer,
+                         serialize_material, serialize_unit)
         from sqlalchemy.orm import joinedload
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()

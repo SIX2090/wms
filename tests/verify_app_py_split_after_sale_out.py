@@ -156,8 +156,16 @@ class TestAfterSaleOutRegister:
         assert resp.status_code == 200
         assert "售后出库" in resp.get_data(as_text=True)
 
+    def test_add_page(self):
+        """S4：新增售后出库页面可渲染。"""
+        client = self._setup()
+        _login(client)
+        resp = client.get("/after_sale_out/add")
+        assert resp.status_code == 200
+        assert "新增售后出库单" in resp.get_data(as_text=True)
+
     def test_add_order(self):
-        """S4：新增售后出库单成功。"""
+        """S5：新增售后出库单成功。"""
         client = self._setup()
         _login(client)
         resp = _add_after_sale_out(client, order_no="ASO-TEST-001")
