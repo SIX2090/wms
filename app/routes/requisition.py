@@ -33,7 +33,9 @@ def register_requisition_routes(app):
     def requisition_list():
         from app import (BOM, Material, ProductionRequisition,
                          ProductionRequisitionItem, _apply_status_date_filters,
-                         _get_order_list_filters, _status_from_search_keyword)
+                         _get_order_list_filters, _status_from_search_keyword,
+                         get_active_warehouses, get_default_warehouse,
+                         location_management_enabled)
         from sqlalchemy.orm import joinedload, selectinload
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
         allowed_sorts = {'req_no', 'date', 'production_order', 'purpose', 'status', 'created_at'}
@@ -74,7 +76,7 @@ def register_requisition_routes(app):
             'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
             'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
         }
-        return render_template('requisition.html', requisitions=requisitions, boms=boms, filters=filters, sort_by=sort_by, sort_order=sort_order)
+        return render_template('requisition.html', requisitions=requisitions, boms=boms, filters=filters, sort_by=sort_by, sort_order=sort_order, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse(), location_management_enabled=location_management_enabled())
 
     @app.route('/production_requisition/add')
     @app.route('/production_requisition')
@@ -107,9 +109,10 @@ def register_requisition_routes(app):
         from flask_login import current_user
         from app import (ProductionRequisition, ProductionRequisitionItem,
                          _clean_int, _material_from_payload, _parse_form_date,
-                         allow_negative_stock, api_error, generate_order_no,
+                         allow_negative_stock, api_error,
+                         assert_warehouse_active, generate_order_no,
                          get_default_warehouse, is_stock_sufficient,
-                         log_operation,
+                         location_management_enabled, log_operation,
                          normalize_stock_quantity, parse_float_value,
                          round_to_2_decimals)
         data = request.get_json(silent=True) or {}
@@ -129,8 +132,15 @@ def register_requisition_routes(app):
                 warehouse = default_wh.name
         if not warehouse:
             return api_error('请选择仓库')
+        # BUG-2026-08-16-016：仓库必须处于启用状态（与其他出入库单据一致）
+        wh_ok, wh_msg = assert_warehouse_active(warehouse, allow_empty=False)
+        if not wh_ok:
+            return api_error(wh_msg)
         # P1-BUGFIX: 库位（开启库位管理时必填，AGENTS.md 规则二）
         location = (header.get('location') or data.get('location') or '').strip()
+        # BUG-2026-08-16-016：库位管理启用时库位必填，避免无库位草稿被完成路由卡死
+        if location_management_enabled() and not location:
+            return api_error('库位管理已启用，请选择库位')
 
         try:
             if order_id:
@@ -200,8 +210,10 @@ def register_requisition_routes(app):
     @login_required
     def add_requisition():
         from flask_login import current_user
-        from app import (ProductionRequisition, api_error, generate_order_no,
-                         get_default_warehouse, log_operation)
+        from app import (ProductionRequisition, api_error,
+                         assert_warehouse_active, generate_order_no,
+                         get_default_warehouse, location_management_enabled,
+                         log_operation)
         try:
             bom_id = request.form.get('bom_id')
             production_order = (request.form.get('production_order') or '').strip()
@@ -216,8 +228,15 @@ def register_requisition_routes(app):
                     warehouse = default_wh.name
             if not warehouse:
                 return api_error('请选择仓库')
+            # BUG-2026-08-16-016：仓库必须处于启用状态（与其他出入库单据一致）
+            wh_ok, wh_msg = assert_warehouse_active(warehouse, allow_empty=False)
+            if not wh_ok:
+                return api_error(wh_msg)
             # P1-BUGFIX: 库位（开启库位管理时必填，AGENTS.md 规则二）
             location = (request.form.get('location') or '').strip()
+            # BUG-2026-08-16-016：库位管理启用时库位必填，避免无库位草稿被完成路由卡死
+            if location_management_enabled() and not location:
+                return api_error('库位管理已启用，请选择库位')
 
             req_no = generate_order_no('REQ')
             requisition = ProductionRequisition(

@@ -216,6 +216,23 @@
                         <label for="production_order" class="form-label">工单号</label>
                         <input type="text" class="form-control" id="production_order" name="production_order">
                     </div>
+                    {# BUG-2026-08-16-016：领料单补仓库 select 与条件库位字段，避免只能默认仓库回退 #}
+                    <div class="mb-3">
+                        <label for="warehouse" class="form-label">仓库 <span class="text-danger">*</span></label>
+                        <select class="form-select" id="warehouse" name="warehouse" required>
+                            <option value="">请选择仓库</option>
+                            {% for warehouse in warehouses %}
+                            <option value="{{ warehouse.name }}" {% if default_warehouse and default_warehouse.name == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% if location_management_enabled %}
+                    <div class="mb-3">
+                        <label for="location" class="form-label">库位 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="location" name="location" maxlength="100"
+                               placeholder="请输入库位" required>
+                    </div>
+                    {% endif %}
                     <div class="mb-3">
                         <label for="purpose" class="form-label">工单领料用途</label>
                         <input type="text" class="form-control" id="purpose" name="purpose">

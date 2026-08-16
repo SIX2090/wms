@@ -123,11 +123,32 @@ def test_save_table_persists_location(client):
 
 
 def test_complete_requisition_rejects_missing_location_when_enabled(client):
-    """开启库位管理时，未填 location 的草稿不得被完成。"""
+    """开启库位管理时，未填 location 的草稿不得被完成。
+
+    BUG-2026-08-16-016 后，/requisition/save_table 与 /requisition/add 已直接拒绝
+    无库位草稿；此处直接 DB 注入一条无库位草稿（模拟历史遗留/旁路数据），
+    验证完成路由的兜底门禁仍在。
+    """
     with app_module.app.app_context():
         set_system_setting("location_management_enabled", "1")
         db.session.commit()
-    rid = _create_pending_requisition(client, location="")
+    with app_module.app.app_context():
+        from datetime import date as _date
+        order = ProductionRequisition(
+            req_no=generate_order_no("REQ"), status="pending",
+            date=_date(2026, 8, 16), warehouse="默认仓", location="",
+            purpose="测试领料", picker="张三",
+            operator_id=User.query.filter_by(username="admin").first().id,
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add(ProductionRequisitionItem(
+            requisition_id=order.id,
+            material_id=Material.query.filter_by(code="M001").first().id,
+            quantity=1, unit_id=Unit.query.first().id,
+        ))
+        rid = order.id
+        db.session.commit()
     resp = client.post(f"/requisition/{rid}/complete")
     assert resp.status_code in (200, 400)
     data = resp.get_json()
