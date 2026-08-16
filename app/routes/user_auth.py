@@ -522,8 +522,8 @@ def register_user_auth_routes(app):
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/user/add', methods=['POST'])
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     @role_required('admin')
     def add_user():
         from datetime import datetime
@@ -565,8 +565,8 @@ def register_user_auth_routes(app):
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/user/<int:user_id>/edit', methods=['POST'])
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     @role_required('admin')
     def edit_user(user_id):
         from flask_login import current_user
@@ -658,8 +658,8 @@ def register_user_auth_routes(app):
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/user/status', methods=['POST'])
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     @role_required('admin')
     def update_user_status():
         from flask_login import current_user
@@ -714,8 +714,8 @@ def register_user_auth_routes(app):
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/user/delete', methods=['POST'])
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     @role_required('admin')
     def delete_user():
         from flask_login import current_user
@@ -763,8 +763,8 @@ def register_user_auth_routes(app):
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/user/reset_password', methods=['POST'])
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     @role_required('admin')
     def reset_user_password():
         import os

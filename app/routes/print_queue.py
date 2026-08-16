@@ -279,8 +279,8 @@ def register_print_queue_routes(app):
         })
 
     @app.route('/print_queue/next', methods=['GET'])
-    @require_role('warehouse')
     @login_required
+    @require_role('warehouse')
     def print_queue_next():
         """桌面端守护页面轮询：返回最早的 pending 任务，并将其置为 printing。
 
@@ -327,8 +327,8 @@ def register_print_queue_routes(app):
         })
 
     @app.route('/print_queue/workstations/<int:workstation_id>/next', methods=['GET'])
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def print_queue_workstation_next(workstation_id):
         from app import PrintJob, PrintWorkstation
         workstation = db.session.get(PrintWorkstation, workstation_id)
@@ -349,8 +349,8 @@ def register_print_queue_routes(app):
         }})
 
     @app.route('/print_queue/jobs/<int:job_id>/complete', methods=['POST'])
-    @require_role('warehouse')
     @login_required
+    @require_role('warehouse')
     def print_queue_complete(job_id):
         """桌面端标记任务完成。"""
         from app import PrintJob
@@ -369,8 +369,8 @@ def register_print_queue_routes(app):
         return jsonify({'status': 'success', 'msg': '已标记完成'})
 
     @app.route('/print_queue/jobs/<int:job_id>/fail', methods=['POST'])
-    @require_role('warehouse')
     @login_required
+    @require_role('warehouse')
     def print_queue_fail(job_id):
         """桌面端标记任务失败。"""
         from app import PrintJob
@@ -388,8 +388,8 @@ def register_print_queue_routes(app):
         return jsonify({'status': 'success', 'msg': '已标记失败'})
 
     @app.route('/print_queue/station')
-    @require_role('warehouse')
     @login_required
+    @require_role('warehouse')
     def print_queue_station():
         """桌面端打印工作站守护页面。"""
         return render_template('print_station.html')
@@ -426,8 +426,8 @@ def register_print_queue_routes(app):
         )
 
     @app.route('/print_queue/stats')
-    @require_role('warehouse')
     @login_required
+    @require_role('warehouse')
     def print_queue_stats():
         """打印队列统计（守护页面展示用）。"""
         from app import PrintJob

@@ -144,8 +144,8 @@ def register_print_routing_routes(app):
     # pydantic:reason=本模块所有 POST 路由均使用 pydantic BaseModel 校验输入
 
     @app.route('/print_routing')
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def print_routing_page():
         from app import PrintRouteRule, PrintWorkstation, Warehouse
         workstations = PrintWorkstation.query.order_by(PrintWorkstation.code).all()
@@ -158,8 +158,8 @@ def register_print_routing_routes(app):
 
     @app.route('/print_routing/workstations', methods=['POST'])
     # pydantic:reason=请求体经 WorkstationCreateRequest（BaseModel）校验
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def print_routing_workstation_add():
         from app import PrintWorkstation
         try:
@@ -180,8 +180,8 @@ def register_print_routing_routes(app):
 
     @app.route('/print_routing/workstations/<int:ws_id>/edit', methods=['POST'])
     # pydantic:reason=请求体经 WorkstationEditRequest（BaseModel）校验
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def print_routing_workstation_edit(ws_id):
         from app import PrintWorkstation
         try:
@@ -199,8 +199,8 @@ def register_print_routing_routes(app):
 
     @app.route('/print_routing/workstations/<int:ws_id>/reset_token', methods=['POST'])
     # pydantic:reason=无请求体，令牌由服务端 secrets.token_urlsafe 生成
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def print_routing_workstation_reset_token(ws_id):
         from app import PrintWorkstation
         ws = db.session.get(PrintWorkstation, ws_id)
@@ -213,8 +213,8 @@ def register_print_routing_routes(app):
 
     @app.route('/print_routing/workstations/<int:ws_id>/delete', methods=['POST'])
     # pydantic:reason=无请求体，仅路径参数 ws_id（int）执行删除
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def print_routing_workstation_delete(ws_id):
         from app import PrintWorkstation
         ws = db.session.get(PrintWorkstation, ws_id)
@@ -230,8 +230,8 @@ def register_print_routing_routes(app):
 
     @app.route('/print_routing/printers/<int:printer_id>/edit', methods=['POST'])
     # pydantic:reason=请求体经 PrinterEditRequest（BaseModel）校验
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def print_routing_printer_edit(printer_id):
         from app import PrintDevice
         try:
@@ -249,8 +249,8 @@ def register_print_routing_routes(app):
 
     @app.route('/print_routing/printers/<int:printer_id>/delete', methods=['POST'])
     # pydantic:reason=无请求体，仅路径参数 printer_id（int）执行删除
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def print_routing_printer_delete(printer_id):
         from app import PrintDevice
         printer = db.session.get(PrintDevice, printer_id)
@@ -265,8 +265,8 @@ def register_print_routing_routes(app):
 
     @app.route('/print_routing/rules', methods=['POST'])
     # pydantic:reason=请求体经 RuleSaveRequest（BaseModel）校验
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def print_routing_rule_add():
         from app import PrintDevice, PrintRouteRule, PrintWorkstation
         try:
@@ -288,8 +288,8 @@ def register_print_routing_routes(app):
 
     @app.route('/print_routing/rules/<int:rule_id>/edit', methods=['POST'])
     # pydantic:reason=请求体经 RuleSaveRequest（BaseModel）校验
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def print_routing_rule_edit(rule_id):
         from app import PrintDevice, PrintRouteRule
         try:
@@ -314,8 +314,8 @@ def register_print_routing_routes(app):
 
     @app.route('/print_routing/rules/<int:rule_id>/delete', methods=['POST'])
     # pydantic:reason=无请求体，仅路径参数 rule_id（int）执行删除
-    @require_role('admin')
     @login_required
+    @require_role('admin')
     def print_routing_rule_delete(rule_id):
         from app import PrintRouteRule
         rule = db.session.get(PrintRouteRule, rule_id)
