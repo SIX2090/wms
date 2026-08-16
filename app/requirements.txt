@@ -65,3 +65,6 @@ numpy==2.4.4
 tzdata==2026.1
 six==1.17.0
 
+# Test coverage (BUG-2026-08-16-018)
+pytest-cov==5.0.0
+

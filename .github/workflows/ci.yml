@@ -43,9 +43,26 @@ jobs:
       - name: "Static regression - verify_wms_bugs"
         run: python3 scripts/verify_wms_bugs.py
 
-      # 单元测试
-      - name: "Unit tests"
-        run: pytest tests/ -q
+      # 单元测试 + 覆盖率（BUG-2026-08-16-018）
+      # 覆盖率阈值宽松起步（fail-under=0 先可见），后续按产出报告逐步收紧
+      - name: "Unit tests + coverage"
+        run: pytest tests/ -q --cov=app --cov-report=term --cov-report=xml --cov-fail-under=0
+
+      # BUG-2026-08-16-018：依赖漏洞扫描（pip-audit）。
+      # continue-on-error 起步：依赖漏洞先可见、人工判真后收紧为门禁。
+      - name: "Security scan - pip-audit (BUG-2026-08-16-018)"
+        continue-on-error: true
+        run: |
+          python -m pip install --upgrade pip-audit
+          pip-audit -r app/requirements.txt
+
+      # BUG-2026-08-16-018：密钥泄露扫描（gitleaks）。
+      # continue-on-error 起步：先产出报告，后续收紧为门禁。
+      - name: "Security scan - gitleaks (BUG-2026-08-16-018)"
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # BUG-2026-08-16-017：tests/verify_*.py 回归脚本纳入 CI。
       # 为什么逐文件独立进程：多文件同进程混跑时 app 模块单例与
