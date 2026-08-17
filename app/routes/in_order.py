@@ -1601,7 +1601,12 @@ def register_in_order_routes(app):
                 if item and item.in_order_id == id:
                     if not allow_negative_stock():
                         required = item.quantity or 0
-                        current_stock = warehouse_stock.get(item.material_id, 0)
+                        # BUG-2026-08-17-002：与 revert_in_order 同根因，仓库解析
+                        # 失败时回退全局 Material.stock 口径。
+                        if wh_obj is not None:
+                            current_stock = warehouse_stock.get(item.material_id, 0)
+                        else:
+                            current_stock = item.material.stock if item.material else 0
                         if not is_stock_sufficient(current_stock, required):
                             db.session.rollback()
                             return api_error(f'物料 {item.material.code if item.material else "-"} 库存不足，当前库存：{current_stock:.2f}，需要：{required:.2f}')
@@ -1860,7 +1865,14 @@ def register_in_order_routes(app):
         for item in order.items:
             quantity = normalize_stock_quantity(item.quantity or 0)
             if not allow_negative_stock():
-                current_stock = warehouse_stock.get(item.material_id, 0)
+                if wh_obj is not None:
+                    current_stock = warehouse_stock.get(item.material_id, 0)
+                else:
+                    # BUG-2026-08-17-002：老数据无仓库/仓库解析失败时，仓库级取数
+                    # 不可用（warehouse_stock={} 会恒判库存不足），回退到全局
+                    # Material.stock 口径——与 batch_revert_in_order、deduct_stock
+                    # 实际回退口径一致，避免“有库存却拒绝反提交”。
+                    current_stock = item.material.stock if item.material else 0
                 if not is_stock_sufficient(current_stock, quantity):
                     return jsonify({
                         'status': 'error',
