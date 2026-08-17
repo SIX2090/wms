@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -101,11 +102,57 @@ class TestReportRegister:
         assert resp.status_code == 200
         assert "report" in resp.get_data(as_text=True).lower()
 
-    def test_purchase_report_page(self):
+    def test_report_purchase_report_page(self):
         client = self._setup()
         _login(client)
         resp = client.get("/purchase_report")
         assert resp.status_code == 200
+
+    def _seed_purchase_report_data(self):
+        from app import (Customer, InOrder, InOrderItem, Material,
+                         MaterialCategory, Supplier, Unit, Warehouse)
+        db.session.add_all([
+            Unit(name="个", code="PCS"),
+            MaterialCategory(name="默认分类", code="CAT-DEFAULT"),
+            Supplier(code="SUP001", name="供应商甲"),
+            Customer(code="CUS001", name="客户甲"),
+            Warehouse(code="WHA", name="一号仓库", is_default=True, status="active"),
+        ])
+        db.session.flush()
+        mat = Material(code="M001", name="轴承", spec="6204",
+                       category_id=1, unit_id=1, supplier_id=1, stock=0, price=10)
+        db.session.add(mat)
+        db.session.flush()
+        pur = InOrder(order_no="IN-PUR", date=date.today(), warehouse="一号仓库",
+                      business_type="采购入库", supplier_id=1, status="completed")
+        other = InOrder(order_no="IN-OTHER", date=date.today(), warehouse="一号仓库",
+                        business_type="其他入库", customer_id=1, status="completed")
+        db.session.add_all([pur, other])
+        db.session.flush()
+        db.session.add_all([
+            InOrderItem(in_order_id=pur.id, material_id=mat.id, quantity=5, price=10, amount=50),
+            InOrderItem(in_order_id=other.id, material_id=mat.id, quantity=9, price=10, amount=90),
+        ])
+        db.session.commit()
+        return Warehouse.query.filter_by(code="WHA").first()
+
+    def test_purchase_report_excludes_other_inbound(self):
+        """BUG-2026-08-18-001：采购入库明细报表剔除其他入库，且业务类型/客供字段保真。"""
+        client = self._setup()
+        _login(client)
+        with app_module.app.app_context():
+            wh = self._seed_purchase_report_data()
+            warehouse_id = wh.id
+        resp = client.get(
+            f"/report/api/query?report_type=in_detail&warehouse_id={warehouse_id}")
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        payload = resp.get_json()
+        assert payload.get("status") == "success", payload
+        data = payload.get("data") or []
+        order_nos = [row.get("order_no") for row in data]
+        assert "IN-PUR" in order_nos, order_nos
+        assert "IN-OTHER" not in order_nos, order_nos
+        assert all(row.get("business_type") == "采购入库" for row in data), data
 
     def test_report_print_not_implemented(self):
         client = self._setup()
