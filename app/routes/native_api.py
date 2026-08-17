@@ -395,7 +395,7 @@ def register_native_api_routes(app):
                     amount=amount,
                     remark=(line.get('remark') or '').strip() or None,
                 ))
-                ok, msg = deduct_stock(material, quantity, 'out', 'out_order', order.id, f'Android出库 {order.order_no}')
+                ok, msg = deduct_stock(material, quantity, 'out', 'out_order', order.id, f'Android出库 {order.order_no}', warehouse=order.warehouse)
                 if not ok:
                     db.session.rollback()
                     return api_json_error(msg)

@@ -1988,7 +1988,8 @@ def register_subcontract_routes(app):
                         transaction_type='revert_subcontract_receive',
                         reference_type='subcontract_receive',
                         reference_id=receive.id,
-                        remark=f'反提交委外收货 {receive.receive_no}'
+                        remark=f'反提交委外收货 {receive.receive_no}',
+                        warehouse=receive.warehouse
                     )
                     if not ok:
                         db.session.rollback()

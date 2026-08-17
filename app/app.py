@@ -3549,6 +3549,11 @@ def get_warehouse_stock_quantities(warehouse):
                 .group_by(LocationInventory.material_id).all())
     else:
         # 库位管理关闭时仍用流水 location 字符串（仓库名/编码）汇总
+        # BUG-2026-08-17-00X fallback：系统仅一个仓库时，所有库存必然属于该
+        # 仓库，直接以全局 Material.stock 为准，避免历史 NULL-location 流水
+        # 无法按 location 聚合导致"有库存查不出来"。
+        if Warehouse.query.count() == 1:
+            return {m.id: float(m.stock or 0) for m in Material.query.all()}
         loc_names = [n for n in (warehouse_key, warehouse_code) if n]
         if not loc_names:
             return {}
@@ -24344,20 +24349,24 @@ def _build_report_filters():
     # BUG-2026-08-02-014：报表仓库必填筛选，未指定时带入默认仓库
     warehouse_id = _parse_positive_int(request.args.get('warehouse_id'), 0)
     warehouse_name = ''
+    warehouse_code = ''
     if not warehouse_id:
         default_wh = get_default_warehouse()
         if default_wh:
             warehouse_id = default_wh.id
             warehouse_name = default_wh.name
+            warehouse_code = default_wh.code or ''
     else:
         wh = Warehouse.query.get(warehouse_id)
         if wh:
             warehouse_name = wh.name
+            warehouse_code = wh.code or ''
     return {
         'start_date': _parse_date_arg('start_date'),
         'end_date': _parse_date_arg('end_date'),
         'warehouse_id': warehouse_id,
         'warehouse': warehouse_name,
+        'warehouse_code': warehouse_code,
         'material_code': (request.args.get('material_code') or '').strip(),
         'supplier_id': _parse_positive_int(request.args.get('supplier_id'), 0),
         'supplier': (request.args.get('supplier') or '').strip(),
@@ -24698,6 +24707,12 @@ def _collect_inventory_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return []
+    # BUG-2026-08-17-00X：库存报表按仓库级口径展示（与库存查询一致），
+    # 不再使用跨仓的 Material.stock 全局数。
+    warehouse = None
+    if filters.get('warehouse_id'):
+        warehouse = Warehouse.query.get(filters['warehouse_id'])
+    warehouse_stock_map = get_warehouse_stock_quantities(warehouse) if warehouse else {}
     query = Material.query.order_by(Material.code.asc(), Material.id.asc())
     if filters['supplier_id']:
         query = query.filter(Material.supplier_id == filters['supplier_id'])
@@ -24710,7 +24725,7 @@ def _collect_inventory_rows(filters):
 
     rows = []
     for material in query.all():
-        stock = _safe_float(material.stock)
+        stock = _safe_float(warehouse_stock_map.get(material.id) or 0)
         price = _safe_float(material.price)
         rows.append({
             'code': material.code or '',
@@ -24900,9 +24915,12 @@ def _collect_ledger_rows(filters):
         joinedload(StockTransaction.material),
         joinedload(StockTransaction.operator)
     )
-    # BUG-2026-08-02-014：库存台账按仓库过滤（通过 StockTransaction.location 匹配仓库名）
+    # BUG-2026-08-02-014：库存台账按仓库过滤（通过 StockTransaction.location 匹配仓库名/编码）
     if filters.get('warehouse'):
-        query = query.filter(StockTransaction.location == filters['warehouse'])
+        loc_names = [filters['warehouse']]
+        if filters.get('warehouse_code'):
+            loc_names.append(filters['warehouse_code'])
+        query = query.filter(StockTransaction.location.in_(loc_names))
     if filters.get('end_date'):
         query = query.filter(StockTransaction.created_at <= datetime.combine(filters['end_date'], time.max))
     material_clause = _material_filter_clause(filters.get('material_code'))
@@ -25319,8 +25337,13 @@ def _build_warehouse_monthly_report(filters):
     end_month = _month_start(end_date)
     final_cutoff = datetime.combine(_month_end(end_month), time.max)
 
-    # BUG-2026-08-02-014：仓库月报表按仓库过滤（StockTransaction.location 存仓库名）
-    warehouse_filter = StockTransaction.location == filters['warehouse'] if filters.get('warehouse') else None
+    # BUG-2026-08-02-014：仓库月报表按仓库过滤（StockTransaction.location 存仓库名/编码）
+    warehouse_filter = None
+    if filters.get('warehouse'):
+        loc_names = [filters['warehouse']]
+        if filters.get('warehouse_code'):
+            loc_names.append(filters['warehouse_code'])
+        warehouse_filter = StockTransaction.location.in_(loc_names)
 
     future_rows_query = db.session.query(
         StockTransaction.material_id,
@@ -25334,8 +25357,14 @@ def _build_warehouse_monthly_report(filters):
     future_rows = future_rows_query.group_by(StockTransaction.material_id).all()
     future_net_by_material = {material_id: _safe_float(quantity) for material_id, quantity in future_rows}
 
+    # BUG-2026-08-17-00X：月报期末库存按仓库级口径（与库存查询/库存报表一致），
+    # 不再使用跨仓的 Material.stock 全局数，避免多仓库时串仓。
+    warehouse = None
+    if filters.get('warehouse_id'):
+        warehouse = Warehouse.query.get(filters['warehouse_id'])
+    warehouse_stock_map = get_warehouse_stock_quantities(warehouse) if warehouse else {}
     current_stock_by_material = {
-        material.id: _safe_float(material.stock) - future_net_by_material.get(material.id, 0.0)
+        material.id: _safe_float(warehouse_stock_map.get(material.id, 0.0)) - future_net_by_material.get(material.id, 0.0)
         for material in materials
     }
 

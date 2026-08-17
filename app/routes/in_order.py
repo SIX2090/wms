@@ -1615,7 +1615,8 @@ def register_in_order_routes(app):
                                            transaction_type='delete_in_item',
                                            reference_type='in_order',
                                            reference_id=order.id,
-                                           remark=f'删除已完成入库单 {order.order_no} 明细回退库存')
+                                           remark=f'删除已完成入库单 {order.order_no} 明细回退库存',
+                                           warehouse=order.warehouse)
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存回退失败')
@@ -1742,7 +1743,8 @@ def register_in_order_routes(app):
                                                    transaction_type='adjust_in_item',
                                                    reference_type='in_order',
                                                    reference_id=order.id,
-                                                   remark=f'修改已完成入库单 {order.order_no} 明细数量减少')
+                                                   remark=f'修改已完成入库单 {order.order_no} 明细数量减少',
+                                                   warehouse=order.warehouse)
                             if not ok:
                                 db.session.rollback()
                                 return api_error(err or '库存回退失败')
