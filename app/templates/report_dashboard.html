@@ -8,6 +8,17 @@
             <h2 class="mb-1"><i class="bi bi-bar-chart-line"></i> 数据仪表盘</h2>
             <div class="text-muted">查看本月出入库、库存分布和近期开单趋势。</div>
         </div>
+        <form class="d-flex flex-wrap align-items-center gap-2" method="get">
+            <label class="visually-hidden" for="warehouse_id">仓库</label>
+            <select class="form-select" id="warehouse_id" name="warehouse_id" required onchange="this.form.submit()">
+                <option value="">请选择仓库</option>
+                {% for warehouse in warehouses %}
+                <option value="{{ warehouse.id }}" {% if selected_warehouse_id == warehouse.id %}selected{% endif %}>
+                    {{ warehouse.code }} - {{ warehouse.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </form>
         <div class="d-flex gap-2">
             <button class="btn btn-primary" onclick="requestAiInsights()" id="aiInsightsBtn">
                 <i class="bi bi-stars"></i> AI解读
@@ -19,6 +30,7 @@
     </div>
 </div>
 
+{% if stats %}
 <div class="row g-3 mb-4">
     <div class="col-md-3 col-6">
         <div class="card border-0 shadow-sm metric-card metric-in">
@@ -139,32 +151,36 @@
     <div class="card-body">
         <div class="row g-3">
             <div class="col-md-3">
-                <a href="{{ url_for('report_view', report_type='inventory') }}" class="btn btn-outline-primary w-100 quick-link">
+                <a href="{{ url_for('report_view', report_type='inventory', warehouse_id=selected_warehouse_id) }}" class="btn btn-outline-primary w-100 quick-link">
                     <i class="bi bi-box-seam"></i> 库存报表
                 </a>
             </div>
             <div class="col-md-3">
-                <a href="{{ url_for('report_view', report_type='in_detail') }}" class="btn btn-outline-success w-100 quick-link">
+                <a href="{{ url_for('report_view', report_type='in_detail', warehouse_id=selected_warehouse_id) }}" class="btn btn-outline-success w-100 quick-link">
                     <i class="bi bi-box-arrow-in-down"></i> 入库明细
                 </a>
             </div>
             <div class="col-md-3">
-                <a href="{{ url_for('report_view', report_type='out_detail') }}" class="btn btn-outline-info w-100 quick-link">
+                <a href="{{ url_for('report_view', report_type='out_detail', warehouse_id=selected_warehouse_id) }}" class="btn btn-outline-info w-100 quick-link">
                     <i class="bi bi-box-arrow-up"></i> 领料明细
                 </a>
             </div>
             <div class="col-md-3">
-                <a href="{{ url_for('report_api_query', report_type='summary', export='excel') }}" class="btn btn-outline-warning w-100 quick-link">
+                <a href="{{ url_for('report_api_query', report_type='summary', export='excel', warehouse_id=selected_warehouse_id) }}" class="btn btn-outline-warning w-100 quick-link">
                     <i class="bi bi-download"></i> 导出汇总
                 </a>
             </div>
         </div>
     </div>
 </div>
+{% else %}
+<div class="alert alert-info mb-0">请先选择仓库后查看仪表盘数据。</div>
+{% endif %}
 
 {% endblock %}
 
 {% block extra_js %}
+{% if stats %}
 <script src="{{ url_for('static', filename='cdn/chart.umd-4.4.1.min.js') }}"></script>
 <script>
 const trendData = {{ chart_data.trend|tojson }};
@@ -301,14 +317,13 @@ function requestAiInsights() {
     content.innerHTML = '<div class="text-center text-muted py-4"><div class="spinner-border text-primary mb-2" role="status"></div><div>正在生成洞察...</div></div>';
     if (btn) btn.disabled = true;
 
-    fetch('/report/dashboard/ai_insights', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || ''
-        }
-    })
-    .then(r => r.json())
+    var warehouseId = document.getElementById('warehouse_id')?.value || '';
+    if (!warehouseId) {
+        if (btn) btn.disabled = false;
+        showToast('请选择仓库', 'warning');
+        return;
+    }
+    WMS.api.post('/report/dashboard/ai_insights?warehouse_id=' + encodeURIComponent(warehouseId), {})
     .then(res => {
         if (btn) btn.disabled = false;
         if (res.status === 'success') {
@@ -330,6 +345,7 @@ function requestAiInsights() {
     });
 }
 </script>
+{% endif %}
 
 <style>
 .metric-card {
@@ -389,6 +405,10 @@ function requestAiInsights() {
 .quick-link {
     padding-top: 0.85rem;
     padding-bottom: 0.85rem;
+}
+
+#warehouse_id {
+    min-width: 190px;
 }
 </style>
 {% endblock %}

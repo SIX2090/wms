@@ -114,19 +114,39 @@ def register_report_routes(app):
     @app.route('/report/dashboard')
     @login_required
     def report_dashboard():
-        from app import build_report_dashboard_context
-        stats, chart_data = build_report_dashboard_context()
-        return render_template('report_dashboard.html', stats=stats, chart_data=chart_data)
+        from app import (build_report_dashboard_context, get_active_warehouses,
+                         get_default_warehouse, resolve_request_warehouse)
+        warehouses = get_active_warehouses()
+        warehouse, warehouse_error = resolve_request_warehouse(request.args)
+        if warehouse is None:
+            return render_template(
+                'report_dashboard.html',
+                stats=None,
+                chart_data=None,
+                warehouses=warehouses,
+                selected_warehouse_id=None,
+            )
+        stats, chart_data = build_report_dashboard_context(warehouse)
+        return render_template(
+            'report_dashboard.html',
+            stats=stats,
+            chart_data=chart_data,
+            warehouses=warehouses,
+            selected_warehouse_id=warehouse.id,
+        )
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/report/dashboard/ai_insights', methods=['POST'])
     @login_required
     def report_dashboard_ai_insights():
         from app import (_ai_call_llm_chat, _ai_llm_configured, api_error,
-                         build_report_dashboard_context)
+                         build_report_dashboard_context, resolve_request_warehouse)
+        warehouse, warehouse_error = resolve_request_warehouse(request.args)
+        if warehouse is None:
+            return api_error(warehouse_error or '请选择仓库', 400)
         if not _ai_llm_configured():
             return api_error('请先在系统设置中配置大模型API')
-        stats, chart_data = build_report_dashboard_context()
+        stats, chart_data = build_report_dashboard_context(warehouse)
         
         # 计算环比增长率
         in_amount_mom = ((stats['month_in_amount'] - stats['last_month_in_amount']) / stats['last_month_in_amount'] * 100) if stats['last_month_in_amount'] > 0 else 0

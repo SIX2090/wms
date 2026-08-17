@@ -24130,7 +24130,14 @@ def _shift_month_start(month_start, offset):
     month = month_index % 12 + 1
     return date(year, month, 1)
 
-def build_report_dashboard_context():
+def build_report_dashboard_context(warehouse):
+    """构建指定仓库的数据仪表盘统计与图表数据。"""
+    warehouse_name = (warehouse.name or '').strip()
+    warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
+    stocked_material_ids = [
+        material_id for material_id, quantity in warehouse_stock_map.items()
+        if _safe_float(quantity) > 0
+    ]
     today = date.today()
     month_start = today.replace(day=1)
     next_month_start = _shift_month_start(month_start, 1)
@@ -24138,56 +24145,46 @@ def build_report_dashboard_context():
 
     month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
         InOrder.date >= month_start,
-        InOrder.date < next_month_start
+        InOrder.date < next_month_start,
+        InOrder.warehouse == warehouse_name,
     ).scalar() or 0
     month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
         OutOrder.date >= month_start,
-        OutOrder.date < next_month_start
+        OutOrder.date < next_month_start,
+        OutOrder.warehouse == warehouse_name,
     ).scalar() or 0
     month_in_count = db.session.query(func.count(InOrder.id)).filter(
         InOrder.date >= month_start,
-        InOrder.date < next_month_start
+        InOrder.date < next_month_start,
+        InOrder.warehouse == warehouse_name,
     ).scalar() or 0
     month_out_count = db.session.query(func.count(OutOrder.id)).filter(
         OutOrder.date >= month_start,
-        OutOrder.date < next_month_start
+        OutOrder.date < next_month_start,
+        OutOrder.warehouse == warehouse_name,
     ).scalar() or 0
     
     # 上月数据用于环比分析
     last_month_start = _shift_month_start(month_start, -1)
     last_month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
         InOrder.date >= last_month_start,
-        InOrder.date < month_start
+        InOrder.date < month_start,
+        InOrder.warehouse == warehouse_name,
     ).scalar() or 0
     last_month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
         OutOrder.date >= last_month_start,
-        OutOrder.date < month_start
+        OutOrder.date < month_start,
+        OutOrder.warehouse == warehouse_name,
     ).scalar() or 0
     last_month_in_count = db.session.query(func.count(InOrder.id)).filter(
         InOrder.date >= last_month_start,
-        InOrder.date < month_start
+        InOrder.date < month_start,
+        InOrder.warehouse == warehouse_name,
     ).scalar() or 0
     last_month_out_count = db.session.query(func.count(OutOrder.id)).filter(
         OutOrder.date >= last_month_start,
-        OutOrder.date < month_start
-    ).scalar() or 0
-
-    # 上月数据
-    last_month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
-        InOrder.date >= last_month_start,
-        InOrder.date < month_start
-    ).scalar() or 0
-    last_month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
-        OutOrder.date >= last_month_start,
-        OutOrder.date < month_start
-    ).scalar() or 0
-    last_month_in_count = db.session.query(func.count(InOrder.id)).filter(
-        InOrder.date >= last_month_start,
-        InOrder.date < month_start
-    ).scalar() or 0
-    last_month_out_count = db.session.query(func.count(OutOrder.id)).filter(
-        OutOrder.date >= last_month_start,
-        OutOrder.date < month_start
+        OutOrder.date < month_start,
+        OutOrder.warehouse == warehouse_name,
     ).scalar() or 0
 
     # 计算环比增长率
@@ -24201,11 +24198,13 @@ def build_report_dashboard_context():
     in_count_mom = _calc_mom_rate(int(month_in_count), int(last_month_in_count))
     out_count_mom = _calc_mom_rate(int(month_out_count), int(last_month_out_count))
 
-    total_stock = db.session.query(func.coalesce(func.sum(Material.stock), 0)).scalar() or 0
-    material_count = db.session.query(func.count(Material.id)).scalar() or 0
-    stock_value = db.session.query(
-        func.coalesce(func.sum(func.coalesce(Material.stock, 0) * func.coalesce(Material.price, 0)), 0)
-    ).scalar() or 0
+    material_rows = Material.query.filter(Material.id.in_(stocked_material_ids)).all() if stocked_material_ids else []
+    total_stock = sum(_safe_float(warehouse_stock_map.get(material.id)) for material in material_rows)
+    material_count = len(material_rows)
+    stock_value = sum(
+        _safe_float(warehouse_stock_map.get(material.id)) * _safe_float(material.price)
+        for material in material_rows
+    )
 
     stats = {
         'month_in_amount': float(month_in_amount),
@@ -24231,14 +24230,16 @@ def build_report_dashboard_context():
         func.coalesce(func.sum(InOrderItem.quantity), 0)
     ).join(InOrderItem, InOrderItem.in_order_id == InOrder.id).filter(
         InOrder.date >= trend_start,
-        InOrder.date <= today
+        InOrder.date <= today,
+        InOrder.warehouse == warehouse_name,
     ).group_by(InOrder.date).all()
     out_trend_rows = db.session.query(
         OutOrder.date,
         func.coalesce(func.sum(OutOrderItem.quantity), 0)
     ).join(OutOrderItem, OutOrderItem.out_order_id == OutOrder.id).filter(
         OutOrder.date >= trend_start,
-        OutOrder.date <= today
+        OutOrder.date <= today,
+        OutOrder.warehouse == warehouse_name,
     ).group_by(OutOrder.date).all()
     in_trend_map = {row[0]: float(row[1] or 0) for row in in_trend_rows}
     out_trend_map = {row[0]: float(row[1] or 0) for row in out_trend_rows}
@@ -24255,11 +24256,13 @@ def build_report_dashboard_context():
     category_rows = db.session.query(
         MaterialCategory.name,
         func.count(Material.id)
-    ).outerjoin(Material, Material.category_id == MaterialCategory.id).group_by(
+    ).join(Material, Material.category_id == MaterialCategory.id).filter(
+        Material.id.in_(stocked_material_ids)
+    ).group_by(
         MaterialCategory.id,
         MaterialCategory.name
     ).all()
-    uncategorized_count = db.session.query(func.count(Material.id)).filter(Material.category_id.is_(None)).scalar() or 0
+    uncategorized_count = sum(1 for material in material_rows if material.category_id is None)
     category_labels = []
     category_values = []
     for name, count in category_rows:
@@ -24269,18 +24272,24 @@ def build_report_dashboard_context():
         category_labels.append('Uncategorized')
         category_values.append(int(uncategorized_count))
 
-    top_stock_rows = Material.query.order_by(Material.stock.desc(), Material.id.desc()).limit(10).all()
+    top_stock_rows = sorted(
+        material_rows,
+        key=lambda material: (_safe_float(warehouse_stock_map.get(material.id)), material.id),
+        reverse=True,
+    )[:10]
     top_stock_labels = [m.code or m.name or f'Material-{m.id}' for m in top_stock_rows]
-    top_stock_values = [float(m.stock or 0) for m in top_stock_rows]
+    top_stock_values = [_safe_float(warehouse_stock_map.get(m.id)) for m in top_stock_rows]
 
     monthly_start = _shift_month_start(month_start, -5)
     in_amount_rows = db.session.query(InOrder.date, InOrder.total_amount).filter(
         InOrder.date >= monthly_start,
-        InOrder.date < next_month_start
+        InOrder.date < next_month_start,
+        InOrder.warehouse == warehouse_name,
     ).all()
     out_amount_rows = db.session.query(OutOrder.date, OutOrder.total_amount).filter(
         OutOrder.date >= monthly_start,
-        OutOrder.date < next_month_start
+        OutOrder.date < next_month_start,
+        OutOrder.warehouse == warehouse_name,
     ).all()
     in_amount_map = {}
     out_amount_map = {}
