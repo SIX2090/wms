@@ -45,7 +45,7 @@ def register_check_routes(app):
         from app import (InventoryCheck, InventoryCheckItem, Material,
                          _apply_status_date_filters, _get_order_list_filters,
                          _status_from_search_keyword, get_active_warehouses,
-                         get_default_warehouse)
+                         get_default_warehouse, resolve_request_warehouse)
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
         page = max(1, request.args.get('page', default=1, type=int))
         per_page = request.args.get('per_page', default=20, type=int)
@@ -59,6 +59,11 @@ def register_check_routes(app):
             selectinload(InventoryCheck.items).joinedload(InventoryCheckItem.material)
         )
         query = _apply_status_date_filters(query, InventoryCheck, status_filter, date_start, date_end)
+        warehouse, warehouse_error = resolve_request_warehouse(request.args)
+        if warehouse:
+            query = query.filter(InventoryCheck.warehouse == warehouse.name)
+        elif warehouse_error:
+            query = query.filter(db.false())
         if search:
             search_like = f'%{search}%'
             status_from_search = _status_from_search_keyword(search, ('pending', 'completed'))
@@ -83,6 +88,7 @@ def register_check_routes(app):
             'search': search,
             'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
             'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
+            'warehouse_id': warehouse.id if warehouse else '',
         }
         return render_template(
             'check.html',
@@ -586,7 +592,8 @@ def register_check_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (InventoryCheck, InventoryCheckItem, Material,
                          _apply_status_date_filters, _get_order_list_filters,
-                         _status_from_search_keyword, _workbook_response)
+                         _status_from_search_keyword, _workbook_response,
+                         resolve_request_warehouse)
         rows = []
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
         allowed_sorts = {'check_no', 'date', 'status', 'created_at'}
@@ -596,6 +603,11 @@ def register_check_routes(app):
             selectinload(InventoryCheck.items).joinedload(InventoryCheckItem.material).joinedload(Material.unit)
         )
         query = _apply_status_date_filters(query, InventoryCheck, status_filter, date_start, date_end)
+        warehouse, warehouse_error = resolve_request_warehouse(request.args)
+        if warehouse_error:
+            from app import api_error
+            return api_error(warehouse_error, 400)
+        query = query.filter(InventoryCheck.warehouse == warehouse.name)
         if search:
             search_like = f'%{search}%'
             status_from_search = _status_from_search_keyword(search, ('pending', 'completed'))
@@ -621,6 +633,7 @@ def register_check_routes(app):
                     rows.append([
                         check.check_no,
                         check.date.strftime('%Y-%m-%d') if check.date else '',
+                        check.warehouse or '',
                         material.code if material else '',
                         material.name if material else '',
                         material.spec if material else '',
@@ -633,11 +646,11 @@ def register_check_routes(app):
                         check.remark or '',
                     ])
             else:
-                rows.append([check.check_no, check.date.strftime('%Y-%m-%d') if check.date else '', '', '', '', '', 0, 0, 0, '', '草稿' if check.status == 'pending' else ('已完成' if check.status == 'completed' else (check.status or '')), check.remark or ''])
+                rows.append([check.check_no, check.date.strftime('%Y-%m-%d') if check.date else '', check.warehouse or '', '', '', '', '', 0, 0, 0, '', '草稿' if check.status == 'pending' else ('已完成' if check.status == 'completed' else (check.status or '')), check.remark or ''])
         return _workbook_response(
             'inventory_checks.xlsx',
             '库存盘点',
-            ['单据编号', '日期', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异数量', '差异原因', '状态', '备注'],
+            ['单据编号', '日期', '仓库', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异数量', '差异原因', '状态', '备注'],
             rows,
         )
 

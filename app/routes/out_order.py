@@ -136,7 +136,8 @@ def register_out_order_routes(app):
         from app import (Material, OutOrder, OutOrderItem,
                          _apply_header_or_item_contract_filters,
                          _apply_out_order_search, _apply_status_date_filters,
-                         _get_order_list_filters)
+                         _get_order_list_filters, get_active_warehouses,
+                         get_default_warehouse, resolve_request_warehouse)
         from sqlalchemy.orm import joinedload
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 20, type=int)
@@ -155,6 +156,11 @@ def register_out_order_routes(app):
             joinedload(OutOrderItem.material).joinedload(Material.unit),
         )
         query = _apply_status_date_filters(query, OutOrder, status_filter, date_start, date_end)
+        warehouse, warehouse_error = resolve_request_warehouse(request.args)
+        if warehouse:
+            query = query.filter(OutOrder.warehouse == warehouse.name)
+        elif warehouse_error:
+            query = query.filter(db.false())
         query = _apply_out_order_search(query, search)
         contract_no_filter = (request.args.get('contract_no') or '').strip()
         project_name_filter = (request.args.get('project_name') or '').strip()
@@ -195,9 +201,10 @@ def register_out_order_routes(app):
             'business_type': explicit_bt,
             'contract_no': contract_no_filter,
             'project_name': project_name_filter,
+            'warehouse_id': warehouse.id if warehouse else '',
         }
         page_title = '其他出库明细' if explicit_bt == '其他出库' else '领料明细'
-        return render_template('out_order.html', items=items, pagination=pagination, sort_by=sort_by, sort_order=sort_order, per_page=per_page, filters=filters, page_title=page_title)
+        return render_template('out_order.html', items=items, pagination=pagination, sort_by=sort_by, sort_order=sort_order, per_page=per_page, filters=filters, page_title=page_title, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
 
     @app.route('/out_order/<int:id>')
     @login_required
@@ -1145,7 +1152,7 @@ def register_out_order_routes(app):
     def export_out_order():
         from app import (Material, OutOrder, OutOrderItem,
                          _apply_out_order_search, _apply_status_date_filters,
-                         _get_order_list_filters)
+                         _get_order_list_filters, resolve_request_warehouse)
         from openpyxl import Workbook
         from sqlalchemy.orm import joinedload, selectinload
         wb = Workbook()
@@ -1162,6 +1169,11 @@ def register_out_order_routes(app):
         )
         query = _apply_status_date_filters(query, OutOrder, status_filter, date_start, date_end)
         query = _apply_out_order_search(query, search)
+        warehouse, warehouse_error = resolve_request_warehouse(request.args)
+        if warehouse_error:
+            from app import api_error
+            return api_error(warehouse_error, 400)
+        query = query.filter(OutOrder.warehouse == warehouse.name)
         sort_col = getattr(OutOrder, sort_by, OutOrder.created_at)
         query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc(), OutOrder.id.desc()).distinct()
         orders = query.all()

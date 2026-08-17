@@ -44,8 +44,6 @@ def register_stock_query_routes(app):
             Unit,
             Warehouse,
             LocationInventory,
-            _material_low_stock_filter,
-            _material_normal_stock_filter,
             get_default_warehouse,
             get_active_warehouses,
             get_warehouse_stock_quantities,
@@ -101,13 +99,22 @@ def register_stock_query_routes(app):
                 ).outerjoin(Unit, Material.unit_id == Unit.id)
             if category_id:
                 query = query.filter(Material.category_id == category_id)
-            if stock_filter == 'low':
-                query = query.filter(_material_low_stock_filter())
-            elif stock_filter == 'normal':
-                query = query.filter(_material_normal_stock_filter())
             sort_col = getattr(Material, sort_by, Material.code)
             query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc())
             materials = query.all()
+            # 库存状态必须按当前仓库的可用数量判断，不能使用跨仓汇总的 Material.stock。
+            if stock_filter == 'low':
+                materials = [
+                    material for material in materials
+                    if (material.min_stock or 0) > 0
+                    and (warehouse_stock_map.get(material.id) or 0) <= material.min_stock
+                ]
+            elif stock_filter == 'normal':
+                materials = [
+                    material for material in materials
+                    if (material.min_stock or 0) <= 0
+                    or (warehouse_stock_map.get(material.id) or 0) > material.min_stock
+                ]
             # 开启库位管理时，库位行只取当前所选仓库的（BUG-2026-08-16-007），
             # 不再把全仓库库位混入展示；兼容历史 warehouse_id IS NULL 且
             # location == 仓库名的旧行。

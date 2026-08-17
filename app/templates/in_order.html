@@ -55,7 +55,7 @@
 
             <!-- 导入导出区 -->
             <div class="btn-group" role="group" aria-label="导入导出">
-                <a href="/in_order/export?status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm" title="导出当前筛选结果">
+                <a href="/in_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm" title="导出当前筛选结果">
                     <i class="bi bi-file-earmark-excel"></i> 导出
                 </a>
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('inOrderImportFile').click()" title="从Excel文件导入入库单">
@@ -91,6 +91,12 @@
             {% if filters.type_param %}
             <input type="hidden" name="type" value="{{ filters.type_param }}">
             {% endif %}
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">仓库</label>
+                <select name="warehouse_id" class="form-select form-select-sm" required>
+                    {% for warehouse in warehouses %}<option value="{{ warehouse.id }}" {% if filters.warehouse_id == warehouse.id %}selected{% endif %}>{{ warehouse.code }} - {{ warehouse.name }}</option>{% endfor %}
+                </select>
+            </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">状态</label>
                 <select name="status" class="form-select form-select-sm">

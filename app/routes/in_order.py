@@ -56,7 +56,8 @@ def register_in_order_routes(app):
         from app import (InOrder, InOrderItem, Material, PurchaseOrderItem, Supplier,
                          _apply_header_or_item_contract_filters, _apply_in_order_search,
                          _apply_status_date_filters, _get_order_list_filters,
-                         purchase_order_status_label)
+                         get_active_warehouses, get_default_warehouse,
+                         purchase_order_status_label, resolve_request_warehouse)
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 20, type=int)
         # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
@@ -93,6 +94,11 @@ def register_in_order_routes(app):
             joinedload(InOrderItem.source_purchase_order_item).joinedload(PurchaseOrderItem.purchase_order),
         )
         query = _apply_status_date_filters(query, InOrder, status_filter, date_start, date_end)
+        warehouse, warehouse_error = resolve_request_warehouse(request.args)
+        if warehouse:
+            query = query.filter(InOrder.warehouse == warehouse.name)
+        elif warehouse_error:
+            query = query.filter(db.false())
         if business_type_filter:
             query = query.filter(InOrder.business_type == business_type_filter)
         query = _apply_in_order_search(query, search)
@@ -137,6 +143,7 @@ def register_in_order_routes(app):
             'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
             'contract_no': contract_no_filter,
             'project_name': project_name_filter,
+            'warehouse_id': warehouse.id if warehouse else '',
         }
         page_title = f'{business_type_filter}明细' if business_type_filter else '采购入库单'
         return render_template(
@@ -150,6 +157,8 @@ def register_in_order_routes(app):
             filters=filters,
             page_title=page_title,
             purchase_order_status_label=purchase_order_status_label,
+            warehouses=get_active_warehouses(),
+            default_warehouse=get_default_warehouse(),
         )
 
     @app.route('/in_order/<int:id>')

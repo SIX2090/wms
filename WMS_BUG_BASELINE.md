@@ -18,6 +18,7 @@
 
 | 编号 | 问题 | 回归检查 |
 |------|------|----------|
+| BUG-2026-08-17-005 | 库存查询低库存/正常库存按全局 `Material.stock` 判断，旧入库/出库/盘点/调整列表导出未按仓库过滤 | 已修复：`stock_query` 按仓库库存判断；四类列表导出按仓库隔离并补齐盘点/调整仓库列；回归测试 `tests/test_bug_2026_08_17_005_warehouse_stock_status_and_legacy_exports.py`，专项 3 passed，lint/verify/compileall 通过 |
 | BUG-001 | commit 失败后仍返回 success | `scripts/verify_wms_bugs.py` 检查高风险回归模式 |
 | BUG-002 | 库存扣减无事务隔离 | 检查 `deduct_stock()` 委托原子扣减，避免读改写扣减 |
 | BUG-004 | 仓库/部门新增编辑删除缺异常处理 | 人工代码审查加自动高风险扫描 |

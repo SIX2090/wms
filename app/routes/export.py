@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import io
 
-from flask import send_file
+from flask import request, send_file
 from flask_login import login_required
 
 
@@ -141,6 +141,7 @@ def register_export_routes(app):
             _apply_in_order_search,
             _apply_status_date_filters,
             _get_order_list_filters,
+            resolve_request_warehouse,
         )
         from db import db
         wb = Workbook()
@@ -157,6 +158,11 @@ def register_export_routes(app):
         )
         query = _apply_status_date_filters(query, InOrder, status_filter, date_start, date_end)
         query = _apply_in_order_search(query, search)
+        warehouse, warehouse_error = resolve_request_warehouse(request.args)
+        if warehouse_error:
+            from app import api_error
+            return api_error(warehouse_error, 400)
+        query = query.filter(InOrder.warehouse == warehouse.name)
         sort_col = getattr(InOrder, sort_by, InOrder.created_at)
         query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc(), InOrder.id.desc()).distinct()
         orders = query.all()

@@ -13,7 +13,7 @@
             <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('adjustmentImportFile').click()">
                 <i class="bi bi-upload"></i> 导入
             </button>
-            <a href="/adjustment/export?status={{ filters.status }}&search={{ filters.search|urlencode }}&adjustment_type={{ filters.adjustment_type }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
+            <a href="/adjustment/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&adjustment_type={{ filters.adjustment_type }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
                 <i class="bi bi-file-earmark-excel"></i> 导出
             </a>
             <a href="/adjustment/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增调整单</a>
@@ -32,6 +32,12 @@
             {% if request.args.get('embedded') == '1' %}
             <input type="hidden" name="embedded" value="1">
             {% endif %}
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">仓库</label>
+                <select name="warehouse_id" class="form-select form-select-sm" required>
+                    {% for warehouse in warehouses %}<option value="{{ warehouse.id }}" {% if filters.warehouse_id == warehouse.id %}selected{% endif %}>{{ warehouse.code }} - {{ warehouse.name }}</option>{% endfor %}
+                </select>
+            </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">状态</label>
                 <select name="status" class="form-select form-select-sm">

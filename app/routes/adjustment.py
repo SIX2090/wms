@@ -40,7 +40,8 @@ def register_adjustment_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (AdjustmentOrder, AdjustmentOrderItem, Material,
                          _apply_status_date_filters, _get_order_list_filters,
-                         _status_from_search_keyword)
+                         _status_from_search_keyword, get_active_warehouses,
+                         get_default_warehouse, resolve_request_warehouse)
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed', 'cancelled'))
         adjustment_type = (request.args.get('adjustment_type') or '').strip()
         page = max(1, request.args.get('page', default=1, type=int))
@@ -55,6 +56,11 @@ def register_adjustment_routes(app):
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.material).joinedload(Material.unit)
         )
         query = _apply_status_date_filters(query, AdjustmentOrder, status_filter, date_start, date_end)
+        warehouse, warehouse_error = resolve_request_warehouse(request.args)
+        if warehouse:
+            query = query.filter(AdjustmentOrder.warehouse == warehouse.name)
+        elif warehouse_error:
+            query = query.filter(db.false())
         if adjustment_type in ('surplus', 'loss'):
             query = query.filter(AdjustmentOrder.adjustment_type == adjustment_type)
         if search:
@@ -83,8 +89,9 @@ def register_adjustment_routes(app):
             'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
             'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
             'adjustment_type': adjustment_type,
+            'warehouse_id': warehouse.id if warehouse else '',
         }
-        return render_template('adjustment.html', adjustments=adjustments, pagination=pagination, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page)
+        return render_template('adjustment.html', adjustments=adjustments, pagination=pagination, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
 
     @app.route('/adjustment/add', methods=['GET'])
     @login_required
@@ -627,7 +634,8 @@ def register_adjustment_routes(app):
     def export_adjustment():
         from sqlalchemy.orm import joinedload, selectinload
         from app import (AdjustmentOrder, AdjustmentOrderItem, Material, _apply_status_date_filters,
-                         _get_order_list_filters, _status_from_search_keyword, _workbook_response)
+                         _get_order_list_filters, _status_from_search_keyword, _workbook_response,
+                         resolve_request_warehouse)
         rows = []
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed', 'cancelled'))
         adjustment_type_filter = (request.args.get('adjustment_type') or '').strip()
@@ -639,6 +647,11 @@ def register_adjustment_routes(app):
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.unit),
         )
         query = _apply_status_date_filters(query, AdjustmentOrder, status_filter, date_start, date_end)
+        warehouse, warehouse_error = resolve_request_warehouse(request.args)
+        if warehouse_error:
+            from app import api_error
+            return api_error(warehouse_error, 400)
+        query = query.filter(AdjustmentOrder.warehouse == warehouse.name)
         if adjustment_type_filter in ('surplus', 'loss'):
             query = query.filter(AdjustmentOrder.adjustment_type == adjustment_type_filter)
         if search:
@@ -670,6 +683,7 @@ def register_adjustment_routes(app):
                         order.adjustment_no,
                         order.date.strftime('%Y-%m-%d') if order.date else '',
                         order_type,
+                        order.warehouse or '',
                         material.code if material else '',
                         material.name if material else '',
                         material.spec if material else '',
@@ -681,11 +695,11 @@ def register_adjustment_routes(app):
                         order.remark or '',
                     ])
             else:
-                rows.append([order.adjustment_no, order.date.strftime('%Y-%m-%d') if order.date else '', order_type, '', '', '', '', 0, '', '', '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')), order.remark or ''])
+                rows.append([order.adjustment_no, order.date.strftime('%Y-%m-%d') if order.date else '', order_type, order.warehouse or '', '', '', '', '', 0, '', '', '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')), order.remark or ''])
         return _workbook_response(
             'adjustment_orders.xlsx',
             '库存调整',
-            ['单据编号', '日期', '调整类型', '物料编码', '物料名称', '规格', '单位', '数量', '库位', '原因', '状态', '备注'],
+            ['单据编号', '日期', '调整类型', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '库位', '原因', '状态', '备注'],
             rows,
         )
 
