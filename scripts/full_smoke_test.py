@@ -288,7 +288,7 @@ export_pages = [
     '/subcontract/export',
 ]
 
-# 销售报表导出端点遵循「仓库必填」（AGENTS.md）：无仓库参数且无默认仓库时返回 400。
+# 仓库业务报表与列表导出遵循「仓库必填」（AGENTS.md）：
 # 调用前确保存在一个仓库，并为这些端点附加 warehouse_id 参数。
 smoke_warehouse_id = get_warehouse_id()
 if smoke_warehouse_id:
@@ -299,7 +299,9 @@ else:
 for path in export_pages:
     try:
         url = BASE + path
-        if path.startswith('/sales/') and path.endswith('/export') and smoke_warehouse_id:
+        if path in ('/in_order/export', '/out_order/export', '/check/export') and smoke_warehouse_id:
+            url += f'?warehouse_id={smoke_warehouse_id}'
+        elif path.startswith('/sales/') and path.endswith('/export') and smoke_warehouse_id:
             url += f'?warehouse_id={smoke_warehouse_id}'
         r = s.get(url, timeout=15, allow_redirects=True)
         ok = r.status_code == 200
