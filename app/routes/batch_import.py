@@ -91,6 +91,10 @@ def register_batch_import_routes(app):
                     col_map['price'] = idx
                 elif '金额' in h or '总额' in h:
                     col_map['amount'] = idx
+                elif '客供' in h:
+                    col_map['customer_supplied'] = idx
+                elif '合同编号' in h or '合同单号' in h:
+                    col_map['contract_no'] = idx
                 elif '备注' in h:
                     col_map['remark'] = idx
             if 'order_no' not in col_map:
@@ -251,11 +255,16 @@ def register_batch_import_routes(app):
         from app import (
             InOrder,
             InOrderItem,
+            Customer,
             Material,
             Supplier,
             Unit,
+            Warehouse,
             api_error,
+            assert_warehouse_active,
             current_user,
+            get_default_warehouse,
+            location_management_enabled,
         )
         file = request.files.get('file')
         if not file:
@@ -289,10 +298,20 @@ def register_batch_import_routes(app):
                     col_map['order_no'] = idx
                 elif h == '日期' or '日期' in h:
                     col_map['date'] = idx
+                elif '业务类型' in h or '入库类型' in h or '入库来源' in h:
+                    col_map['business_type'] = idx
                 elif h == '用途' or '用途' in h:
                     col_map['purpose'] = idx
+                elif h == '仓库' or '仓库' in h:
+                    col_map['warehouse'] = idx
+                elif h == '库位' or '库位' in h:
+                    col_map['location'] = idx
                 elif '供应商' in h:
                     col_map['supplier'] = idx
+                elif h == '客户' or '客户' in h or '客供方' in h:
+                    col_map['customer'] = idx
+                elif '工程名称' in h:
+                    col_map['project_name'] = idx
                 elif '物料编码' in h or '编码' in h:
                     col_map['material_code'] = idx
                 elif '物料名称' in h or '名称' in h:
@@ -307,6 +326,12 @@ def register_batch_import_routes(app):
                     col_map['price'] = idx
                 elif '金额' in h or '总额' in h:
                     col_map['amount'] = idx
+                elif '客供' in h:
+                    col_map['customer_supplied'] = idx
+                elif '合同编号' in h or '合同单号' in h:
+                    col_map['contract_no'] = idx
+                elif '工程名称' in h:
+                    col_map['project_name'] = idx
                 elif '备注' in h:
                     col_map['remark'] = idx
             if 'order_no' not in col_map:
@@ -350,7 +375,28 @@ def register_batch_import_routes(app):
                     current_order = None
                     current_items = []
                 if not current_order:
+                    business_type = get_val('business_type') or '采购入库'
+                    if business_type not in ('采购入库', '产品入库', '其他入库'):
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：业务类型无效')
+                        continue
+                    warehouse = get_val('warehouse') or (get_default_warehouse().name if get_default_warehouse() else '')
+                    if not warehouse:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：仓库为空且未配置默认仓库')
+                        continue
+                    warehouse_ok, warehouse_msg = assert_warehouse_active(warehouse, allow_empty=False)
+                    if not warehouse_ok:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：{warehouse_msg}')
+                        continue
+                    location = get_val('location')
+                    if location_management_enabled() and not location:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：库位为空')
+                        continue
                     supplier_name = get_val('supplier')
+                    customer_name = get_val('customer')
                     supplier = Supplier.query.filter_by(name=supplier_name).first() if supplier_name else None
                     if not supplier and supplier_name:
                         supplier = Supplier.query.filter_by(code=supplier_name).first()
@@ -359,6 +405,22 @@ def register_batch_import_routes(app):
                         db.session.add(supplier)
                         db.session.flush()
                         warnings.append(f'自动创建供应商：{supplier_name}')
+                    customer = Customer.query.filter_by(name=customer_name).first() if customer_name else None
+                    if not customer and customer_name:
+                        customer = Customer.query.filter_by(code=customer_name).first()
+                    if not customer and customer_name:
+                        customer = Customer(code=customer_name, name=customer_name)
+                        db.session.add(customer)
+                        db.session.flush()
+                        warnings.append(f'自动创建客户：{customer_name}')
+                    if business_type == '采购入库' and not supplier:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：采购入库缺少供应商')
+                        continue
+                    if business_type == '其他入库' and not customer:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：其他入库缺少客户')
+                        continue
                     date_str = get_val('date')
                     date_val = None
                     if date_str:
@@ -382,8 +444,14 @@ def register_batch_import_routes(app):
                     current_order = InOrder(
                         order_no=order_no,
                         date=date_val,
+                        business_type=business_type,
                         purpose=get_val('purpose'),
+                        warehouse=warehouse,
+                        location=location,
                         supplier_id=supplier.id if supplier else None,
+                        customer_id=customer.id if customer else None,
+                        contract_no=get_val('contract_no') or None,
+                        project_name=get_val('project_name') or None,
                         remark=get_val('remark'),
                         operator_id=current_user.id
                     )
@@ -422,12 +490,18 @@ def register_batch_import_routes(app):
                     amt = get_num('amount')
                     if amt == 0:
                         amt = round_to_2_decimals(qty * prc)
+                    customer_supplied = get_val('customer_supplied').strip().lower() in ('是', 'yes', 'y', 'true', '1')
+                    if customer_supplied and current_order.business_type != '其他入库':
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：客供料只能用于其他入库')
+                        continue
                     item = InOrderItem(
                         in_order_id=current_order.id,
                         material_id=material.id if material else None,
                         quantity=qty,
                         price=prc,
-                        amount=amt
+                        amount=amt,
+                        is_customer_supplied=customer_supplied
                     )
                     current_items.append(item)
             if current_order and current_items:

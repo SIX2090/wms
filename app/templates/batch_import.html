@@ -46,7 +46,7 @@
         <div class="card {% if module_type == 'in_order' or module_type == 'inbound' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入采购入库单</h5></div>
             <div class="card-body">
-                <p class="text-muted small">按表头名称自动匹配列。表头需含：单据编号、日期、用途、供应商、物料编码、物料名称、规格、单位、数量、单价、金额、备注</p>
+                <p class="text-muted small">按表头名称自动匹配列。表头需含：单据编号、日期、业务类型、用途、仓库、库位、供应商/客户、物料编码、物料名称、规格、单位、数量、单价、金额、客供、合同编号、工程名称、备注</p>
                 <form class="import-form" data-url="/import/in_order" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">

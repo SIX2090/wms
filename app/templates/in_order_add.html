@@ -545,8 +545,8 @@ textarea.form-control {
                     <div class="mb-2">
                         <label class="form-label">{{ party_label or ('生产来源' if is_product_in else '供应商') }}{% if not supplier_required %}<span class="text-muted">（可选）</span>{% endif %}</label>
                         <div class="supplier-input" style="position:relative;">
-                            <input type="text" id="supplierSearch" placeholder="搜索{{ party_label or '供应商' }}..." autocomplete="off" value="{% for party in suppliers if party.id|string == prefill.supplier_id|string %}{{ party.name }}{% endfor %}" style="width:100%;border:1px solid #d9d9d9;padding:6px 10px;border-radius:4px;font-size:13px;">
-                            <input type="hidden" name="{{ party_field or 'supplier_id' }}" id="supplierIdHidden" value="{{ prefill.supplier_id if prefill else '' }}">
+                            <input type="text" id="supplierSearch" placeholder="搜索{{ party_label or '供应商' }}..." autocomplete="off" value="{% set selected_party_id = prefill.customer_id if party_field == 'customer_id' else prefill.supplier_id %}{% for party in suppliers if party.id|string == selected_party_id|string %}{{ party.name }}{% endfor %}" style="width:100%;border:1px solid #d9d9d9;padding:6px 10px;border-radius:4px;font-size:13px;">
+                            <input type="hidden" name="{{ party_field or 'supplier_id' }}" id="supplierIdHidden" value="{{ prefill.customer_id if party_field == 'customer_id' else prefill.supplier_id if prefill else '' }}">
                             <div id="supplierDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;min-width:100%;max-height:200px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
                         </div>
                     </div>

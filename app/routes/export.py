@@ -138,6 +138,7 @@ def register_export_routes(app):
             InOrder,
             InOrderItem,
             Material,
+            _apply_header_or_item_contract_filters,
             _apply_in_order_search,
             _apply_status_date_filters,
             _get_order_list_filters,
@@ -147,22 +148,39 @@ def register_export_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '入库单'
-        ws.append(['单据编号', '日期', '用途', '供应商', '仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态', '备注'])
+        ws.append(['单据编号', '日期', '业务类型', '用途', '供应商', '客户', '仓库', '库位', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '客供', '合同编号', '工程名称', '状态', '备注'])
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
+        type_alias = {'purchase_in': '采购入库', 'product_in': '产品入库', 'other_in': '其他入库'}
+        business_type_filter = type_alias.get((request.args.get('type') or '').strip(), (request.args.get('business_type') or '').strip())
+        if business_type_filter not in ('采购入库', '产品入库', '其他入库'):
+            business_type_filter = ''
+        contract_no_filter = (request.args.get('contract_no') or '').strip()
+        project_name_filter = (request.args.get('project_name') or '').strip()
         allowed_sorts = {'order_no', 'date', 'supplier_id', 'purpose', 'status', 'created_at', 'total_amount'}
         if sort_by not in allowed_sorts:
             sort_by = 'created_at'
         query = db.session.query(InOrder).outerjoin(InOrderItem, InOrderItem.in_order_id == InOrder.id).options(
             joinedload(InOrder.supplier),
+            joinedload(InOrder.customer),
             selectinload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
         )
         query = _apply_status_date_filters(query, InOrder, status_filter, date_start, date_end)
         query = _apply_in_order_search(query, search)
+        if business_type_filter:
+            query = query.filter(InOrder.business_type == business_type_filter)
+        query = _apply_header_or_item_contract_filters(
+            query, InOrder, InOrderItem, 'in_order_id',
+            contract_no_filter=contract_no_filter,
+            project_name_filter=project_name_filter,
+        )
         warehouse, warehouse_error = resolve_request_warehouse(request.args)
-        if warehouse_error:
+        if warehouse_error and request.args.get('warehouse_id'):
             from app import api_error
             return api_error(warehouse_error, 400)
-        query = query.filter(InOrder.warehouse == warehouse.name)
+        if warehouse:
+            query = query.filter(InOrder.warehouse == warehouse.name)
+        else:
+            query = query.filter(db.false())
         sort_col = getattr(InOrder, sort_by, InOrder.created_at)
         query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc(), InOrder.id.desc()).distinct()
         orders = query.all()
@@ -172,9 +190,12 @@ def register_export_routes(app):
                     ws.append([
                         order.order_no,
                         order.date.strftime('%Y-%m-%d') if order.date else '',
+                        order.business_type or '采购入库',
                         order.purpose or '',
                         order.supplier.name if order.supplier else '',
+                        order.customer.name if order.customer else '',
                         order.warehouse or '',
+                        order.location or '',
                         item.material.code if item.material else '',
                         item.material.name if item.material else '',
                         item.material.spec if item.material else '',
@@ -182,6 +203,9 @@ def register_export_routes(app):
                         item.quantity or 0,
                         item.price or 0,
                         item.amount or 0,
+                        '是' if item.is_customer_supplied else '否',
+                        item.contract_no or order.contract_no or '',
+                        item.project_name or order.project_name or '',
                         '未审核/待完成' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
                         order.remark or ''
                     ])
@@ -376,8 +400,8 @@ def register_export_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '入库单导入模板'
-        ws.append(['单据编号', '日期', '用途', '供应商', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '备注'])
-        ws.append(['RK20240101001', '2024-01-01', '采购入库', '示例供应商', 'MAT001', '示例物料', '规格A', '个', '100', '10.00', '1000.00', '示例备注'])
+        ws.append(['单据编号', '日期', '业务类型', '用途', '仓库', '库位', '供应商', '客户', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '客供', '合同编号', '工程名称', '备注'])
+        ws.append(['RK20240101001', '2024-01-01', '采购入库', '采购到货', '一号仓库', '', '示例供应商', '', 'MAT001', '示例物料', '规格A', '个', '100', '10.00', '1000.00', '否', 'HT-001', '项目A', '示例备注'])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

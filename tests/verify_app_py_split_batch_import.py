@@ -164,10 +164,12 @@ def test_import_out_order_valid_excel_succeeds():
 def test_import_in_order_valid_excel_succeeds():
     client = _setup()
     # 构造合法入库单 Excel（含基础数据：供应商、物料、单位、入库单）
-    from app import InOrder, InOrderItem, Material, Supplier, Unit
+    from app import InOrder, InOrderItem, Material, Supplier, Unit, Customer, Warehouse
     with app_module.app.app_context():
         sup = Supplier(code="SUP-001", name="示例供应商")
-        db.session.add(sup)
+        customer = Customer(code="CUS-001", name="示例客户")
+        warehouse = Warehouse(code="WH-001", name="一号仓库", is_default=True, status="active")
+        db.session.add_all([sup, customer, warehouse])
         db.session.commit()
 
         mat = Material(code="MAT002", name="入库物料", spec="规格B")
@@ -181,8 +183,8 @@ def test_import_in_order_valid_excel_succeeds():
     wb = Workbook()
     ws = wb.active
     ws.title = "入库单"
-    ws.append(["单据编号", "日期", "用途", "供应商", "物料编码", "物料名称", "规格", "单位", "数量", "单价", "金额", "备注"])
-    ws.append(["RK20240101001", "2024-01-01", "采购入库", "示例供应商", "MAT002", "入库物料", "规格B", "个", "100", "10.00", "1000.00", ""])
+    ws.append(["单据编号", "日期", "业务类型", "用途", "仓库", "供应商", "客户", "物料编码", "物料名称", "规格", "单位", "数量", "单价", "金额", "客供", "合同编号", "工程名称", "备注"])
+    ws.append(["RK20240101001", "2024-01-01", "采购入库", "采购到货", "一号仓库", "示例供应商", "", "MAT002", "入库物料", "规格B", "个", "100", "10.00", "1000.00", "否", "HT-001", "项目A", ""])
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -199,6 +201,45 @@ def test_import_in_order_valid_excel_succeeds():
     assert payload is not None
     assert payload.get("status") == "success", payload
     assert payload.get("count") == 1, payload
+    with app_module.app.app_context():
+        order = InOrder.query.filter_by(order_no="RK20240101001").one()
+        item = InOrderItem.query.filter_by(in_order_id=order.id).one()
+        assert order.business_type == "采购入库"
+        assert order.warehouse == "一号仓库"
+        assert order.supplier.name == "示例供应商"
+        assert order.contract_no == "HT-001"
+        assert order.project_name == "项目A"
+        assert item.is_customer_supplied is False
+
+
+def test_import_in_order_other_type_preserves_customer_and_customer_supplied():
+    client = _setup()
+    from app import Customer, InOrder, InOrderItem, Material, Unit, Warehouse
+    with app_module.app.app_context():
+        customer = Customer(code="CUS-002", name="客供客户")
+        warehouse = Warehouse(code="WH-002", name="二号仓库", is_default=True, status="active")
+        unit = Unit(code="个", name="个")
+        material = Material(code="MAT003", name="客供物料", spec="规格C", unit=unit)
+        db.session.add_all([customer, warehouse, unit, material])
+        db.session.commit()
+
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["单据编号", "日期", "业务类型", "用途", "仓库", "供应商", "客户", "物料编码", "数量", "单价", "客供"])
+    ws.append(["OI20240101001", "2024-01-01", "其他入库", "客供料", "二号仓库", "", "客供客户", "MAT003", "5", "2", "是"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    resp = client.post("/import/in_order", data={"file": (buf, "other_in_order.xlsx")}, content_type="multipart/form-data", headers={"X-Requested-With": "XMLHttpRequest"})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    with app_module.app.app_context():
+        order = InOrder.query.filter_by(order_no="OI20240101001").one()
+        item = InOrderItem.query.filter_by(in_order_id=order.id).one()
+        assert order.business_type == "其他入库"
+        assert order.customer.name == "客供客户"
+        assert order.supplier_id is None
+        assert item.is_customer_supplied is True
 
 
 def test_stub_routes_redirect():

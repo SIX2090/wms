@@ -557,6 +557,7 @@
                             <select class="form-select" name="business_type">
                                 <option value="采购入库" {% if (order.business_type or '采购入库') == '采购入库' %}selected{% endif %}>采购入库</option>
                                 <option value="产品入库" {% if order.business_type == '产品入库' %}selected{% endif %}>产品入库</option>
+                                <option value="其他入库" {% if order.business_type == '其他入库' %}selected{% endif %}>其他入库</option>
                             </select>
                         </div>
                         <div class="col-md-6">

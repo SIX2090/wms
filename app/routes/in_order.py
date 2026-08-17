@@ -2272,8 +2272,8 @@ def register_in_order_routes(app):
     @login_required
     def batch_revert_in_order():
         from sqlalchemy.orm import joinedload, selectinload
-        from app import (InOrder, _acquire_order_write_lock, allow_negative_stock,
-                         api_error, deduct_stock_atomic, is_stock_sufficient,
+        from app import (InOrder, Warehouse, _acquire_order_write_lock, allow_negative_stock,
+                         api_error, deduct_stock_atomic, get_warehouse_stock_quantities, is_stock_sufficient,
                          location_management_enabled, normalize_stock_quantity,
                          recalculate_order_total, update_location_inventory)
         payload = request.get_json(silent=True) or {}
@@ -2306,9 +2306,18 @@ def register_in_order_routes(app):
                 db.session.rollback()
                 continue
             order = locked
+            wh_obj = None
+            if (order.warehouse or '').strip():
+                wh_key = order.warehouse.strip()
+                wh_obj = Warehouse.query.filter(
+                    db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
+                ).order_by(Warehouse.id.asc()).first()
+            warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
             stock_insufficient = False
             for item in order.items:
-                stock = normalize_stock_quantity(item.material.stock or 0)
+                stock = normalize_stock_quantity(
+                    warehouse_stock.get(item.material_id, 0) if wh_obj else (item.material.stock if item.material else 0)
+                )
                 quantity = normalize_stock_quantity(item.quantity or 0)
                 if item.material and not allow_negative_stock() and not is_stock_sufficient(stock, quantity):
                     skipped.append(f'{order.order_no}(库存不足)')

@@ -24539,7 +24539,12 @@ def _in_detail_columns():
     return [
         {'field': 'date', 'title': '日期'},
         {'field': 'order_no', 'title': '入库单号', 'link_field': 'order_url'},
+        {'field': 'business_type', 'title': '业务类型'},
         {'field': 'supplier', 'title': '供应商'},
+        {'field': 'customer', 'title': '客户'},
+        {'field': 'warehouse', 'title': '仓库'},
+        {'field': 'location', 'title': '库位'},
+        {'field': 'is_customer_supplied', 'title': '客供'},
         {'field': 'material_code', 'title': '物料编码'},
         {'field': 'material_name', 'title': '物料名称'},
         {'field': 'spec', 'title': '规格型号'},
@@ -24757,6 +24762,7 @@ def _collect_in_detail_rows(filters):
         return []
     query = InOrderItem.query.join(InOrder).join(Material, InOrderItem.material_id == Material.id).options(
         joinedload(InOrderItem.in_order).joinedload(InOrder.supplier),
+        joinedload(InOrderItem.in_order).joinedload(InOrder.customer),
         joinedload(InOrderItem.in_order).joinedload(InOrder.operator),
         joinedload(InOrderItem.material).joinedload(Material.unit)
     ).order_by(
@@ -24764,6 +24770,7 @@ def _collect_in_detail_rows(filters):
         InOrder.order_no.desc(),
         InOrderItem.id.desc()
     )
+    query = query.filter(InOrder.business_type == '采购入库')
     # BUG-2026-08-02-014：入库明细按仓库过滤
     if filters.get('warehouse'):
         query = query.filter(InOrder.warehouse == filters['warehouse'])
@@ -24794,7 +24801,12 @@ def _collect_in_detail_rows(filters):
             'date': order.date.isoformat() if order.date else '',
             'order_no': order.order_no or '',
             'order_url': _report_detail_url('in_order_detail', order.id),
+            'business_type': order.business_type or '采购入库',
             'supplier': order.supplier.name if order.supplier else '',
+            'customer': order.customer.name if order.customer else '',
+            'warehouse': order.warehouse or '',
+            'location': order.location or '',
+            'is_customer_supplied': '是' if item.is_customer_supplied else '否',
             'material_code': material.code or '',
             'material_name': material.name or '',
             'spec': material.spec or '',
