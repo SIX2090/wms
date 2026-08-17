@@ -55,7 +55,7 @@ fun InboundScreen(
     }
     LaunchedEffect(uiState.success) {
         uiState.success?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Long)
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
             viewModel.clearSuccess()
         }
     }
@@ -204,7 +204,7 @@ fun OutboundScreen(
     }
     LaunchedEffect(uiState.success) {
         uiState.success?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Long)
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
             viewModel.clearSuccess()
         }
     }
