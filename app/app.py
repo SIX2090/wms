@@ -25000,6 +25000,22 @@ def _purchase_order_item_query(filters):
     material_clause = _material_filter_clause(filters.get('material_code'))
     if material_clause is not None:
         query = query.filter(material_clause)
+    # 采购订单本身不记录仓库；以来源采购入库明细或入库单主表关联的
+    # 入库单仓库作为报表归属口径。未发生入库的采购订单尚无可确认的
+    # 仓库归属，因此不纳入。
+    if filters.get('warehouse'):
+        query = query.outerjoin(
+            InOrderItem,
+            InOrderItem.source_purchase_order_item_id == PurchaseOrderItem.id,
+        ).outerjoin(
+            InOrder,
+            db.or_(
+                InOrderItem.in_order_id == InOrder.id,
+                InOrder.source_purchase_order_id == PurchaseOrder.id,
+            ),
+        ).filter(
+            InOrder.warehouse == filters['warehouse']
+        ).distinct()
     return query
 
 def _collect_purchase_order_execution_rows(filters):
@@ -25508,6 +25524,8 @@ def _build_subcontract_report(filters):
         query = query.join(Supplier, SubcontractOrder.supplier_id == Supplier.id).filter(supplier_clause)
     if filters.get('status'):
         query = query.filter(SubcontractOrder.status == filters['status'])
+    if filters.get('warehouse'):
+        query = query.filter(SubcontractOrder.warehouse == filters['warehouse'])
     
     orders = query.order_by(SubcontractOrder.date.desc()).all()
     rows = []
