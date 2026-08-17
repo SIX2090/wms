@@ -1790,7 +1790,7 @@ def register_in_order_routes(app):
     @login_required
     def delete_in_order(id):
         from sqlalchemy.orm import selectinload
-        from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem,
+        from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem, StockTransaction,
                          _acquire_order_write_lock,
                          _source_has_active_push, api_error, log_audit, log_operation,
                          round_to_2_decimals, update_purchase_order_status)
@@ -1826,6 +1826,11 @@ def register_in_order_routes(app):
 
             for item in list(order.items):
                 db.session.delete(item)
+            # 已反提交的单据可物理删除；同步清理完成与反提交产生的库存流水，
+            # 避免库存台账保留指向已删除入库单的悬挂引用。
+            StockTransaction.query.filter_by(
+                reference_type='in_order', reference_id=order.id
+            ).delete(synchronize_session=False)
             db.session.delete(order)
             for purchase_order in PurchaseOrder.query.filter(PurchaseOrder.id.in_(affected_purchase_order_ids)).all():
                 update_purchase_order_status(purchase_order)
@@ -2019,7 +2024,7 @@ def register_in_order_routes(app):
     @login_required
     def batch_delete_in_order():
         from sqlalchemy.orm import joinedload, selectinload
-        from app import (InOrder, PurchaseOrder, _acquire_order_write_lock,
+        from app import (InOrder, PurchaseOrder, StockTransaction, _acquire_order_write_lock,
                          _source_has_active_push, api_error, log_operation,
                          round_to_2_decimals, update_purchase_order_status)
         payload = request.get_json(silent=True) or {}
@@ -2070,6 +2075,9 @@ def register_in_order_routes(app):
                         if source_item.purchase_order:
                             affected_purchase_order_ids.add(source_item.purchase_order.id)
                     db.session.delete(item)
+                StockTransaction.query.filter_by(
+                    reference_type='in_order', reference_id=order.id
+                ).delete(synchronize_session=False)
                 db.session.delete(order)
                 # 每张单据独立提交，保证单点失败仅回滚自身
                 db.session.commit()
