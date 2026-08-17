@@ -12,6 +12,7 @@ P4. 数据导出（/export/in_order 等）在登录后返回 xlsx（200）。
 """
 from __future__ import annotations
 
+import io
 import os
 import sys
 from pathlib import Path
