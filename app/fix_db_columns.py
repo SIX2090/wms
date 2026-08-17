@@ -41,6 +41,14 @@ def _ensure_material_image_table(conn):
     logger.info('已创建 material_image 表')
 
 
+def _table_exists(conn, table):
+    """返回表是否存在（全新空库时表尚未由 db.create_all 创建，跳过 ALTER）。"""
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()
+    return row is not None
+
+
 def fix_columns(db_path=None):
     """修复数据库缺失字段。
 
@@ -63,6 +71,34 @@ def fix_columns(db_path=None):
         logger.info('已添加 out_order.picker')
     else:
         logger.info('out_order.picker 已存在')
+
+    # BUG-2026-08-17-001: WMS_NO_DB_TOUCH=1 时 app.auto_migrate_database 被跳过，
+    # 而本脚本（启动时强制运行）缺少 location 补列，导致旧库 in_order/out_order
+    # 永远缺 location 列，首页 index() 查询报 no such column: in_order.location。
+    # 与 app/app.py auto_migrate_database() 的 ALTER 语句保持一致。
+    if _table_exists(conn, 'in_order'):
+        in_cols = [r[1] for r in conn.execute('PRAGMA table_info(in_order)').fetchall()]
+        if 'location' not in in_cols:
+            conn.execute("ALTER TABLE in_order ADD COLUMN location VARCHAR(100) NOT NULL DEFAULT ''")
+            conn.commit()
+            logger.info('已添加 in_order.location')
+        else:
+            logger.info('in_order.location 已存在')
+        if 'auto_push_requisition' not in in_cols:
+            conn.execute('ALTER TABLE in_order ADD COLUMN auto_push_requisition BOOLEAN NOT NULL DEFAULT 0')
+            conn.commit()
+            logger.info('已添加 in_order.auto_push_requisition')
+        else:
+            logger.info('in_order.auto_push_requisition 已存在')
+
+    if _table_exists(conn, 'out_order'):
+        out_cols = [r[1] for r in conn.execute('PRAGMA table_info(out_order)').fetchall()]
+        if 'location' not in out_cols:
+            conn.execute("ALTER TABLE out_order ADD COLUMN location VARCHAR(100) NOT NULL DEFAULT ''")
+            conn.commit()
+            logger.info('已添加 out_order.location')
+        else:
+            logger.info('out_order.location 已存在')
 
     # 修复 production_requisition 表
     pr_cols = [r[1] for r in conn.execute('PRAGMA table_info(production_requisition)').fetchall()]

@@ -27,6 +27,13 @@ def temp_db():
             req_no TEXT
         )
     ''')
+    conn.execute('''
+        CREATE TABLE in_order (
+            id INTEGER PRIMARY KEY,
+            order_no TEXT,
+            date TEXT
+        )
+    ''')
     conn.commit()
     conn.close()
     yield path
@@ -95,3 +102,64 @@ def test_fix_columns(temp_db):
     assert 'picker' in cols
     assert 'picker' in pr_cols
     assert 'warehouse' in pr_cols
+
+
+def test_fix_columns_adds_location_to_in_order(temp_db):
+    """fix_columns 应为 in_order 添加 location 列（BUG-2026-08-17-001）。"""
+    fix_columns(db_path=temp_db)
+
+    conn = sqlite3.connect(temp_db)
+    cols = [r[1] for r in conn.execute('PRAGMA table_info(in_order)').fetchall()]
+    conn.close()
+
+    assert 'location' in cols
+
+
+def test_fix_columns_adds_auto_push_requisition_to_in_order(temp_db):
+    """fix_columns 应为 in_order 添加 auto_push_requisition 列（BUG-2026-08-17-001）。"""
+    fix_columns(db_path=temp_db)
+
+    conn = sqlite3.connect(temp_db)
+    cols = [r[1] for r in conn.execute('PRAGMA table_info(in_order)').fetchall()]
+    conn.close()
+
+    assert 'auto_push_requisition' in cols
+
+
+def test_fix_columns_adds_location_to_out_order(temp_db):
+    """fix_columns 应为 out_order 添加 location 列（BUG-2026-08-17-001）。"""
+    fix_columns(db_path=temp_db)
+
+    conn = sqlite3.connect(temp_db)
+    cols = [r[1] for r in conn.execute('PRAGMA table_info(out_order)').fetchall()]
+    conn.close()
+
+    assert 'location' in cols
+
+
+def test_fix_columns_location_backfills_default(temp_db):
+    """in_order.location 列应为 NOT NULL DEFAULT ''，已有行回填空串（BUG-2026-08-17-001）。"""
+    conn = sqlite3.connect(temp_db)
+    conn.execute("INSERT INTO in_order (order_no) VALUES ('PI-TEST-001')")
+    conn.commit()
+    conn.close()
+
+    fix_columns(db_path=temp_db)
+
+    conn = sqlite3.connect(temp_db)
+    row = conn.execute("SELECT location, auto_push_requisition FROM in_order WHERE order_no='PI-TEST-001'").fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] == ''
+    assert row[1] == 0
+
+
+def test_fix_columns_skips_missing_tables(temp_db):
+    """in_order 表不存在时不应报错（全新空库防御，BUG-2026-08-17-001）。"""
+    conn = sqlite3.connect(temp_db)
+    conn.execute('DROP TABLE in_order')
+    conn.commit()
+    conn.close()
+
+    fix_columns(db_path=temp_db)  # 不应抛出异常
