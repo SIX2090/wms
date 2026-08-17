@@ -301,6 +301,9 @@ def auto_migrate_database():
                 """)
             except Exception:
                 pass  # 回填失败不阻塞启动，sync 函数仍有 purpose 字符串兜底
+        if 'location' not in columns:
+            cursor.execute("ALTER TABLE out_order ADD COLUMN location VARCHAR(100) NOT NULL DEFAULT ''")
+            modified = True
 
         # in_order 字段迁移
         cursor.execute("PRAGMA table_info(in_order)")
@@ -313,6 +316,9 @@ def auto_migrate_database():
             modified = True
         if in_columns and 'auto_push_requisition' not in in_columns:
             cursor.execute("ALTER TABLE in_order ADD COLUMN auto_push_requisition BOOLEAN NOT NULL DEFAULT 0")
+            modified = True
+        if in_columns and 'location' not in in_columns:
+            cursor.execute("ALTER TABLE in_order ADD COLUMN location VARCHAR(100) NOT NULL DEFAULT ''")
             modified = True
         cursor.execute("PRAGMA table_info(user)")
         user_columns = [row[1] for row in cursor.fetchall()]
@@ -851,6 +857,9 @@ def auto_migrate_database():
         if _in_order_columns and 'customer_id' not in _in_order_columns:
             cursor.execute("ALTER TABLE in_order ADD COLUMN customer_id INTEGER")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_in_order_customer_id ON in_order(customer_id)")
+            modified = True
+        if _in_order_columns and 'location' not in _in_order_columns:
+            cursor.execute("ALTER TABLE in_order ADD COLUMN location VARCHAR(100) NOT NULL DEFAULT ''")
             modified = True
         for _tbl in ('in_order_item', 'out_order_item', 'purchase_order_item', 'sales_order_item'):
             cursor.execute(f"PRAGMA table_info({_tbl})")
