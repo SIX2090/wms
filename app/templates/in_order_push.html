@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}下推出库单 - {{ order.order_no }}{% endblock %}
+{% block title %}下推领料单 - {{ order.order_no }}{% endblock %}
 
 {% block content %}
 <div class="container-fluid px-3 py-3">
@@ -103,6 +103,11 @@
     const purposeWrap = document.getElementById('purposeWrap');
     const departmentWrap = document.getElementById('departmentWrap');
     const pickerWrap = document.getElementById('pickerWrap');
+    const targetLabels = {
+        requisition: '下推领料单',
+        other_out: '下推出库单',
+        after_sale_out: '下推售后出库单'
+    };
     function refreshTargetFields() {
         const afterSale = targetType.value === 'after_sale_out';
         const requisition = targetType.value === 'requisition';
@@ -111,6 +116,8 @@
         purposeWrap.classList.toggle('d-none', afterSale);
         departmentWrap.classList.toggle('d-none', !requisition);
         pickerWrap.classList.toggle('d-none', !requisition);
+        const label = targetLabels[targetType.value] || '下推领料单';
+        document.title = label + ' - {{ order.order_no }}';
     }
     targetType.addEventListener('change', refreshTargetFields);
     refreshTargetFields();
