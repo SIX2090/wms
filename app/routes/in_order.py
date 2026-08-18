@@ -1895,6 +1895,24 @@ def register_in_order_routes(app):
                     # batch_revert_in_order 同一兜底）。
                     if not is_stock_sufficient(current_stock, quantity) and _material_stock_unattributed(item.material_id):
                         current_stock = item.material.stock if item.material else 0
+                    # BUG-2026-08-18-002-fix：仓库级不足但全局充足时，检查该物料
+                    # 是否有未归属流水（location 为空），如果有则把本单关联的未归属
+                    # 流水修正到本单仓库，然后允许反提交。不碰其他仓库的已归属库存。
+                    if not is_stock_sufficient(current_stock, quantity):
+                        global_stock = item.material.stock if item.material else 0
+                        if is_stock_sufficient(global_stock, quantity):
+                            unattributed = StockTransaction.query.filter(
+                                StockTransaction.material_id == item.material_id,
+                                db.or_(StockTransaction.location.is_(None), StockTransaction.location == ''),
+                            ).count()
+                            if unattributed > 0:
+                                StockTransaction.query.filter_by(
+                                    reference_type='in_order', reference_id=order.id,
+                                    material_id=item.material_id,
+                                ).filter(
+                                    db.or_(StockTransaction.location.is_(None), StockTransaction.location == '')
+                                ).update({'location': order.warehouse.strip()}, synchronize_session=False)
+                                current_stock = global_stock
                 else:
                     # BUG-2026-08-17-002：老数据无仓库/仓库解析失败时，仓库级取数
                     # 不可用（warehouse_stock={} 会恒判库存不足），回退到全局
@@ -2284,7 +2302,7 @@ def register_in_order_routes(app):
     @login_required
     def batch_revert_in_order():
         from sqlalchemy.orm import joinedload, selectinload
-        from app import (InOrder, Warehouse, _acquire_order_write_lock, _material_stock_unattributed,
+        from app import (InOrder, StockTransaction, Warehouse, _acquire_order_write_lock, _material_stock_unattributed,
                          allow_negative_stock,
                          api_error, deduct_stock_atomic, get_warehouse_stock_quantities, is_stock_sufficient,
                          location_management_enabled, normalize_stock_quantity,
@@ -2337,6 +2355,24 @@ def register_in_order_routes(app):
                     # update_completed_in_order 同一兜底）。
                     if not is_stock_sufficient(stock, quantity) and item.material and _material_stock_unattributed(item.material_id):
                         stock = normalize_stock_quantity(item.material.stock or 0)
+                    # BUG-2026-08-18-002-fix：仓库级不足但全局充足时，检查该物料
+                    # 是否有未归属流水（location 为空），如果有则把本单关联的未归属
+                    # 流水修正到本单仓库，然后允许反提交。不碰其他仓库的已归属库存。
+                    if not is_stock_sufficient(stock, quantity) and item.material:
+                        global_stock = normalize_stock_quantity(item.material.stock or 0)
+                        if is_stock_sufficient(global_stock, quantity):
+                            unattributed = StockTransaction.query.filter(
+                                StockTransaction.material_id == item.material_id,
+                                db.or_(StockTransaction.location.is_(None), StockTransaction.location == ''),
+                            ).count()
+                            if unattributed > 0:
+                                StockTransaction.query.filter_by(
+                                    reference_type='in_order', reference_id=order.id,
+                                    material_id=item.material_id,
+                                ).filter(
+                                    db.or_(StockTransaction.location.is_(None), StockTransaction.location == '')
+                                ).update({'location': order.warehouse.strip()}, synchronize_session=False)
+                                stock = global_stock
                 else:
                     stock = normalize_stock_quantity(item.material.stock if item.material else 0)
                 if item.material and not allow_negative_stock() and not is_stock_sufficient(stock, quantity):
