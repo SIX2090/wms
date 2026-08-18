@@ -1263,6 +1263,31 @@
             background: #e5e7eb;
         }
 
+        /* 库存管理 3 列 flyout */
+        .module-flyout.flyout-inventory {
+            width: 700px;
+        }
+        .module-flyout.flyout-inventory .flyout-grid-3col {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+        .module-flyout.flyout-inventory .flyout-col {
+            padding: 0 4px;
+            min-width: 0;
+        }
+        .module-flyout.flyout-inventory .flyout-col + .flyout-col {
+            border-left: 1px solid #e5e7eb;
+            padding-left: 8px;
+        }
+        .module-flyout.flyout-inventory .flyout-col-title {
+            padding: 6px 10px 5px;
+            font-size: .75rem;
+            color: #4f46e5;
+            font-weight: 700;
+            letter-spacing: .3px;
+            text-transform: uppercase;
+        }
+
 
         .main-content {
             flex: 1;
@@ -2009,6 +2034,22 @@
                 background: rgba(255,255,255,.12);
             }
 
+            /* 库存管理 3 列 → 移动端单列 */
+            .module-flyout.flyout-inventory {
+                width: auto;
+            }
+            .module-flyout.flyout-inventory .flyout-grid-3col {
+                display: block;
+            }
+            .module-flyout.flyout-inventory .flyout-col + .flyout-col {
+                border-left: none;
+                padding-left: 0;
+                margin-top: 4px;
+            }
+            .module-flyout.flyout-inventory .flyout-col-title {
+                color: rgba(255,255,255,.62);
+            }
+
             .main-content {
                 padding: 0;
                 overflow: visible;
@@ -2378,42 +2419,50 @@
                     <span class="module-title"><i class="bi bi-box-seam"></i> 库存管理</span>
                     <i class="bi bi-chevron-right module-arrow"></i>
                 </button>
-                <div class="module-flyout">
+                <div class="module-flyout flyout-inventory">
                     <div class="flyout-title">库存管理</div>
-                    <a class="flyout-link" href="/in_order/add?type=product"><i class="bi bi-box-arrow-in-down"></i> 产品入库</a>
-                    <a class="flyout-link" href="/out_order/add"><i class="bi bi-box-arrow-up"></i> 领料单</a>
-                    <a class="flyout-link" href="/other_in_order/add"><i class="bi bi-box-arrow-in-down"></i> 其他入库单</a>
-                    <a class="flyout-link" href="/other_out_order/add"><i class="bi bi-box-arrow-up"></i> 其他出库单</a>
-                    <div class="flyout-divider"></div>
-                    <a class="flyout-link" href="/transfer"><i class="bi bi-arrow-left-right"></i> 库存调拨</a>
-                    {% if location_management_enabled %}
-                    <a class="flyout-link" href="/adjustment"><i class="bi bi-sliders"></i> 库存调整</a>
-                    {% endif %}
-                    <a class="flyout-link" href="/check"><i class="bi bi-clipboard-check"></i> 库存盘点</a>
-                    <a class="flyout-link" href="/in_order"><i class="bi bi-card-list"></i> 入库明细</a>
-                    <a class="flyout-link" href="/out_order"><i class="bi bi-card-list"></i> 领料明细</a>
-                    <a class="flyout-link" href="/other_in_order"><i class="bi bi-card-list"></i> 其他入库明细</a>
-                    <a class="flyout-link" href="/other_out_order"><i class="bi bi-card-list"></i> 其他出库明细</a>
-                    <div class="flyout-divider"></div>
-                    <a class="flyout-link" href="/bom"><i class="bi bi-diagram-3"></i> BOM管理</a>
-                    <a class="flyout-link" href="/requisition"><i class="bi bi-file-earmark-text"></i> 工单领料</a>
-                    <a class="flyout-link" href="/subcontract"><i class="bi bi-truck"></i> 委外管理</a>
-                    <div class="flyout-divider"></div>
-                    <a class="flyout-link" href="/report/dashboard"><i class="bi bi-bar-chart-line"></i> 数据仪表盘</a>
-                    <a class="flyout-link" href="/ai/replenishment_smart"><i class="bi bi-stars"></i> 智能补货建议</a>
-                    <a class="flyout-link" href="/ai/inventory_health"><i class="bi bi-heart-pulse"></i> 库存健康度</a>
-                    <a class="flyout-link" href="/ai/document_ocr"><i class="bi bi-file-earmark-text"></i> 单据OCR识别</a>
-                    <a class="flyout-link" href="/ai/supplier_evaluation"><i class="bi bi-building"></i> 供应商智能评估</a>
-                    <a class="flyout-link" href="/ai/location_recommendation"><i class="bi bi-geo-alt"></i> 智能库位推荐</a>
-                    <a class="flyout-link" href="/ai/demand_forecast"><i class="bi bi-graph-up"></i> 需求预测</a>
-                    <a class="flyout-link" href="/report/view/inventory"><i class="bi bi-box-seam"></i> 库存报表</a>
-                    <a class="flyout-link" href="/report/view/out_detail"><i class="bi bi-box-arrow-up"></i> 领料明细报表</a>
-                    <a class="flyout-link" href="/report/view/summary"><i class="bi bi-clipboard-data"></i> 出入库汇总报表</a>
-                    <a class="flyout-link" href="/report/view/check"><i class="bi bi-clipboard-check"></i> 盘点报表</a>
-                    <a class="flyout-link" href="/report/view/ledger"><i class="bi bi-journal-text"></i> 库存台账</a>
-                    <a class="flyout-link" href="/report/view/warehouse_monthly"><i class="bi bi-calendar3"></i> 仓库月报表</a>
-                    <a class="flyout-link" href="/report/view/requisition"><i class="bi bi-file-earmark-text"></i> 工单领料报表</a>
-                    <a class="flyout-link" href="/report/view/subcontract"><i class="bi bi-tools"></i> 委外加工报表</a>
+                    <div class="flyout-grid-3col">
+                        <div class="flyout-col">
+                            <div class="flyout-col-title">表单</div>
+                            <a class="flyout-link" href="/in_order/add?type=product"><i class="bi bi-box-arrow-in-down"></i> 产品入库</a>
+                            <a class="flyout-link" href="/out_order/add"><i class="bi bi-box-arrow-up"></i> 领料单</a>
+                            <a class="flyout-link" href="/other_in_order/add"><i class="bi bi-box-arrow-in-down"></i> 其他入库单</a>
+                            <a class="flyout-link" href="/other_out_order/add"><i class="bi bi-box-arrow-up"></i> 其他出库单</a>
+                            <a class="flyout-link" href="/transfer"><i class="bi bi-arrow-left-right"></i> 库存调拨</a>
+                            {% if location_management_enabled %}
+                            <a class="flyout-link" href="/adjustment"><i class="bi bi-sliders"></i> 库存调整</a>
+                            {% endif %}
+                            <a class="flyout-link" href="/check"><i class="bi bi-clipboard-check"></i> 库存盘点</a>
+                            <a class="flyout-link" href="/bom"><i class="bi bi-diagram-3"></i> BOM管理</a>
+                            <a class="flyout-link" href="/requisition"><i class="bi bi-file-earmark-text"></i> 工单领料</a>
+                            <a class="flyout-link" href="/subcontract"><i class="bi bi-truck"></i> 委外管理</a>
+                        </div>
+                        <div class="flyout-col">
+                            <div class="flyout-col-title">列表 / 报表</div>
+                            <a class="flyout-link" href="/report/dashboard"><i class="bi bi-bar-chart-line"></i> 数据仪表盘</a>
+                            <a class="flyout-link" href="/in_order"><i class="bi bi-card-list"></i> 入库明细</a>
+                            <a class="flyout-link" href="/out_order"><i class="bi bi-card-list"></i> 领料明细</a>
+                            <a class="flyout-link" href="/other_in_order"><i class="bi bi-card-list"></i> 其他入库明细</a>
+                            <a class="flyout-link" href="/other_out_order"><i class="bi bi-card-list"></i> 其他出库明细</a>
+                            <a class="flyout-link" href="/report/view/inventory"><i class="bi bi-box-seam"></i> 库存报表</a>
+                            <a class="flyout-link" href="/report/view/out_detail"><i class="bi bi-box-arrow-up"></i> 领料明细报表</a>
+                            <a class="flyout-link" href="/report/view/summary"><i class="bi bi-clipboard-data"></i> 出入库汇总报表</a>
+                            <a class="flyout-link" href="/report/view/check"><i class="bi bi-clipboard-check"></i> 盘点报表</a>
+                            <a class="flyout-link" href="/report/view/ledger"><i class="bi bi-journal-text"></i> 库存台账</a>
+                            <a class="flyout-link" href="/report/view/warehouse_monthly"><i class="bi bi-calendar3"></i> 仓库月报表</a>
+                            <a class="flyout-link" href="/report/view/requisition"><i class="bi bi-file-earmark-text"></i> 工单领料报表</a>
+                            <a class="flyout-link" href="/report/view/subcontract"><i class="bi bi-tools"></i> 委外加工报表</a>
+                        </div>
+                        <div class="flyout-col">
+                            <div class="flyout-col-title">AI 功能</div>
+                            <a class="flyout-link" href="/ai/replenishment_smart"><i class="bi bi-stars"></i> 智能补货建议</a>
+                            <a class="flyout-link" href="/ai/inventory_health"><i class="bi bi-heart-pulse"></i> 库存健康度</a>
+                            <a class="flyout-link" href="/ai/document_ocr"><i class="bi bi-file-earmark-text"></i> 单据OCR识别</a>
+                            <a class="flyout-link" href="/ai/supplier_evaluation"><i class="bi bi-building"></i> 供应商智能评估</a>
+                            <a class="flyout-link" href="/ai/location_recommendation"><i class="bi bi-geo-alt"></i> 智能库位推荐</a>
+                            <a class="flyout-link" href="/ai/demand_forecast"><i class="bi bi-graph-up"></i> 需求预测</a>
+                        </div>
+                    </div>
                 </div>
             </li>
             {% endif %}
