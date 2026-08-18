@@ -102,6 +102,15 @@
             </div>
             {% endif %}
 
+            {% if report_type == 'inventory' %}
+            <div class="col-md-3 d-flex align-items-end">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="hideZero" name="hide_zero" value="1">
+                    <label class="form-check-label" for="hideZero">库存等于0不显示</label>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="col-12 d-flex flex-wrap gap-2">
                 <button class="btn btn-primary" type="submit">
                     <i class="bi bi-search"></i> 查询

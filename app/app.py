@@ -24548,6 +24548,7 @@ def _build_report_filters():
         'sort_order': 'desc' if (request.args.get('sort_order') or '').lower() == 'desc' else 'asc',
         'page': _parse_positive_int(request.args.get('page'), 1),
         'page_size': min(_parse_positive_int(request.args.get('page_size'), 20), 500),
+        'hide_zero': request.args.get('hide_zero', '').lower() in ('1', 'true', 'on'),
         'export': (request.args.get('export') or '').strip().lower(),
     }
 
@@ -24904,6 +24905,9 @@ def _collect_inventory_rows(filters):
     for material in query.all():
         stock = _safe_float(warehouse_stock_map.get(material.id) or 0)
         price = _safe_float(material.price)
+        # BUG-2026-08-18-00X：hide_zero 选项过滤掉库存为 0 的行
+        if filters.get('hide_zero') and stock == 0:
+            continue
         rows.append({
             'code': material.code or '',
             'name': material.name or '',
