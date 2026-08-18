@@ -1296,6 +1296,128 @@ def auto_migrate_database():
             except Exception:
                 pass
 
+
+def backfill_empty_warehouse_documents(db_path: str | None = None):
+    """启动期自动回填历史无仓库单据到默认仓库（BUG-2026-08-18-005）。
+
+    系统早期采购入库单/领料单未强制选择仓库，单据 warehouse 为空字符串，
+    报表按仓库过滤后这些历史单据“有数据也查不出来”。启动时若存在默认仓库，
+    则把 warehouse/location 为空的 in_order、production_requisition 及其
+    关联 stock_transaction.location 回填为默认仓库名，无需人工执行命令。
+
+    幂等：只处理 NULL/空串行，重复执行无变化；无默认仓库则跳过不写库。
+    对应手工核对脚本 scripts/backfill_document_warehouse.py（dry-run 用）。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=60000')
+
+        default_wh = cur.execute(
+            "SELECT name FROM warehouse "
+            "WHERE is_default = 1 AND status = 'active' "
+            "ORDER BY id LIMIT 1"
+        ).fetchone()
+        if not default_wh:
+            logging.getLogger(__name__).info('[DB] 未配置默认仓库，跳过历史单据仓库回填')
+            return
+        wh_name = default_wh['name']
+
+        cur.execute('BEGIN EXCLUSIVE')
+        total_docs = 0
+        total_txns = 0
+
+        # 采购入库单 in_order：warehouse 为空 -> 默认仓库
+        cur.execute(
+            "SELECT id FROM in_order "
+            "WHERE warehouse IS NULL OR TRIM(warehouse) = ''"
+        )
+        in_doc_ids = [r['id'] for r in cur.fetchall()]
+        if in_doc_ids:
+            cur.executemany(
+                "UPDATE in_order SET warehouse = ? WHERE id = ?",
+                [(wh_name, did) for did in in_doc_ids],
+            )
+            total_docs += len(in_doc_ids)
+            for did in in_doc_ids:
+                cur.execute(
+                    "SELECT id FROM stock_transaction "
+                    "WHERE reference_type = ? AND reference_id = ? "
+                    "AND (location IS NULL OR TRIM(location) = '')",
+                    ('in_order', did),
+                )
+                txn_ids = [r['id'] for r in cur.fetchall()]
+                if txn_ids:
+                    cur.executemany(
+                        "UPDATE stock_transaction SET location = ? WHERE id = ?",
+                        [(wh_name, tid) for tid in txn_ids],
+                    )
+                    total_txns += len(txn_ids)
+
+        # 领料单 production_requisition：warehouse 为空 -> 默认仓库
+        cur.execute(
+            "SELECT id FROM production_requisition "
+            "WHERE warehouse IS NULL OR TRIM(warehouse) = ''"
+        )
+        req_doc_ids = [r['id'] for r in cur.fetchall()]
+        if req_doc_ids:
+            cur.executemany(
+                "UPDATE production_requisition SET warehouse = ? WHERE id = ?",
+                [(wh_name, did) for did in req_doc_ids],
+            )
+            total_docs += len(req_doc_ids)
+            for did in req_doc_ids:
+                cur.execute(
+                    "SELECT id FROM stock_transaction "
+                    "WHERE reference_type = ? AND reference_id = ? "
+                    "AND (location IS NULL OR TRIM(location) = '')",
+                    ('requisition', did),
+                )
+                txn_ids = [r['id'] for r in cur.fetchall()]
+                if txn_ids:
+                    cur.executemany(
+                        "UPDATE stock_transaction SET location = ? WHERE id = ?",
+                        [(wh_name, tid) for tid in txn_ids],
+                    )
+                    total_txns += len(txn_ids)
+
+        if total_docs or total_txns:
+            conn.commit()
+            logging.getLogger(__name__).info(
+                f'[DB] 历史单据仓库回填完成：单据 {total_docs} 条、'
+                f'流水 {total_txns} 条 -> 默认仓库 [{wh_name}]'
+            )
+        else:
+            logging.getLogger(__name__).info('[DB] 无空仓库历史单据，跳过回填')
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'backfill_empty_warehouse_documents 回填失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 app = Flask(__name__)
 
 # Use config.py settings uniformly
@@ -1308,6 +1430,9 @@ if startup_db_upgrade_disabled():
     app.logger.info('[DB] Startup database upgrade skipped by environment.')
 else:
     auto_migrate_database()
+    # BUG-2026-08-18-005：启动期自动把历史无仓库采购入库单/领料单回填到默认仓库，
+    # 无需人工执行脚本（手工核对脚本 scripts/backfill_document_warehouse.py 仍可 dry-run）。
+    backfill_empty_warehouse_documents()
 if not app.config.get('SECRET_KEY'):
     # 未显式配置 SECRET_KEY 时，尝试从 instance/secret_key 文件读取持久化密钥；
     # 文件不存在则随机生成并写入，避免每次重启 session 失效，同时不依赖硬编码默认值。
