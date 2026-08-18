@@ -351,9 +351,17 @@ def register_mobile_routes(app):
             return jsonify({'status': 'error', 'success': False, 'msg': wh_error}), 400
         # 库位字段独立解析：data.location 或 data.location_name
         location = (data.get('location') or data.get('location_name') or '').strip()
-        # 兼容旧客户端：未开启库位管理时 location 等同仓库名（保持历史行为）
+        # BUG-2026-08-18-003：手机端传仓库编号（如 WH001）作为 location，
+        # 但 add_stock 会把 warehouse 对象转为仓库名写入流水，导致
+        # 历史流水 location 不一致（有的写编号、有的写名称）。
+        # 规范化：未开启库位管理时，location 统一用仓库名。
         if not location:
             location = (warehouse.name or '').strip()
+        elif not location_management_enabled():
+            # 关库位管理时 location 应等于仓库名；若客户端传的是仓库编号，
+            # 检查是否匹配当前仓库的 code，是则替换为仓库名。
+            if (warehouse.code or '').strip() and location == (warehouse.code or '').strip():
+                location = (warehouse.name or '').strip()
         # 开启库位管理时 location 必填（AGENTS.md 规则二），未填且无默认库位时拒绝保存
         if mode in ('in', 'out') and location_management_enabled() and location_required_on_save() and not (data.get('location') or data.get('location_name') or '').strip():
             return jsonify({'status': 'error', 'success': False, 'msg': '启用库位管理后，扫码出入库必须填写库位'}), 400

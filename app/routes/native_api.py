@@ -319,6 +319,12 @@ def register_native_api_routes(app):
                     db.session.rollback()
                     return api_json_error(msg or '库存增加失败', 500)
                 location = (line.get('location_code') or line.get('location') or '').strip()
+                # BUG-2026-08-18-003：客户端可能传仓库编号作为 location，
+                # 关库位管理时统一为仓库名，避免流水 location 不一致。
+                if location and not location_management_enabled():
+                    wh_code = (order.warehouse.code or '').strip() if hasattr(order.warehouse, 'code') else ''
+                    if wh_code and location == wh_code:
+                        location = (order.warehouse.name or '').strip()
                 loc_ok, loc_msg = update_location_inventory(material, location, quantity, warehouse=order.warehouse)
                 if not loc_ok:
                     db.session.rollback()

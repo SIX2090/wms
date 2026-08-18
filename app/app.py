@@ -3554,6 +3554,8 @@ def get_warehouse_stock_quantities(warehouse):
         # 无法按 location 聚合导致"有库存查不出来"。
         if Warehouse.query.count() == 1:
             return {m.id: float(m.stock or 0) for m in Material.query.all()}
+        # BUG-2026-08-18-003：历史数据 location 可能写的是仓库编号（如 WH001）
+        # 而不是仓库名，需要同时匹配编号和名称。
         loc_names = [n for n in (warehouse_key, warehouse_code) if n]
         if not loc_names:
             return {}
