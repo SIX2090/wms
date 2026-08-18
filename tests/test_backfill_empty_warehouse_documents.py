@@ -162,6 +162,11 @@ def test_t5_startup_wiring_runs_backfill_even_when_no_db_touch(tmp_path):
     )
     assert result.returncode == 0, f"app import failed:\n{result.stdout}\n{result.stderr}"
 
+    # 回填确认日志必须出现在启动输出（回填调用放在日志配置之后，日志行不丢失）
+    assert "历史单据仓库回填完成" in result.stdout, (
+        f"启动输出缺少回填完成日志:\n{result.stdout}\n{result.stderr}"
+    )
+
     assert _read(db_path, "SELECT order_no, warehouse FROM in_order ORDER BY id") == [
         ('IN-OLD-1', '材料仓'), ('IN-OLD-2', '材料仓'), ('IN-NEW', '材料仓')
     ]
