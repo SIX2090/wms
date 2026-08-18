@@ -3563,6 +3563,31 @@ def get_warehouse_stock_quantities(warehouse):
                 .group_by(StockTransaction.material_id).all())
     return {material_id: float(quantity or 0) for material_id, quantity in rows}
 
+def _material_stock_unattributed(material_id):
+    """物料库存是否全部为无法归属到具体仓库的历史遗留数据。
+
+    用于反提交/完成单明细删除的库存校验兜底（BUG-2026-08-18-002）：
+    - 关库位管理：StockTransaction.location 全为空（NULL/''），流水无法按仓库聚合；
+    - 开库位管理：LocationInventory.warehouse_id 全为 NULL，无法按仓库聚合。
+
+    此时 get_warehouse_stock_quantities 对该物料仓库级查不到，但 Material.stock
+    实际有库存，反提交会误报“库存不足”导致单据卡在 completed、无法删除。
+    返回 True 时调用方回退全局 Material.stock 口径；存在任何可归属流水时返回
+    False，保持仓库级严格校验，避免 A 仓掩护 B 仓（BUG-2026-08-16-009）。
+    """
+    if location_management_enabled():
+        attributed = db.session.query(LocationInventory.id).filter(
+            LocationInventory.material_id == material_id,
+            LocationInventory.warehouse_id.isnot(None),
+        ).first()
+    else:
+        attributed = db.session.query(StockTransaction.id).filter(
+            StockTransaction.material_id == material_id,
+            StockTransaction.location.isnot(None),
+            StockTransaction.location != '',
+        ).first()
+    return attributed is None
+
 def resolve_active_sales_warehouse(value=None, warehouse_id=None):
     """Resolve a sales warehouse from its ID, name, or code.
 

@@ -20,6 +20,7 @@
 
 | 编号 | 问题 | 回归检查 |
 |------|------|----------|
+| BUG-2026-08-18-002 | 多仓库+关库位管理下，历史 NULL-location 流水无法按仓库聚合，单张/批量反提交误报“库存不足”，单据卡在 completed 无法删除 | 已修复：`revert_in_order` / `batch_revert_in_order` / `update_completed_in_order` 在仓库级校验失败且该物料库存全部为未归属流水（`_material_stock_unattributed`）时回退全局 `Material.stock` 口径；存在可归属流水仍保持仓库级严格校验（防 A 仓掩护 B 仓）；回归测试 `tests/test_bug_2026_08_18_002_revert_legacy_unattributed_stock.py`，专项 3 passed |
 | BUG-2026-08-17-006 | 采购入库单反提交后删除，库存流水未随物理删除清理，库存台账显示已删除单据 | 已修复：单张/批量删除均清理该入库单关联流水；历史遗留数据使用 `scripts/cleanup_orphan_in_order_transactions.py`，默认预演、须 `--confirm-delete` 执行；回归测试覆盖预演与删除安全边界 |
 | BUG-2026-08-17-005 | 库存查询低库存/正常库存按全局 `Material.stock` 判断，旧入库/出库/盘点/调整列表导出未按仓库过滤 | 已修复：`stock_query` 按仓库库存判断；四类列表导出按仓库隔离并补齐盘点/调整仓库列；回归测试 `tests/test_bug_2026_08_17_005_warehouse_stock_status_and_legacy_exports.py`，专项 3 passed，lint/verify/compileall 通过 |
 | BUG-001 | commit 失败后仍返回 success | `scripts/verify_wms_bugs.py` 检查高风险回归模式 |

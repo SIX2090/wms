@@ -1552,7 +1552,8 @@ def register_in_order_routes(app):
         """Update a completed inbound order and adjust stock differences."""
         from sqlalchemy.orm import selectinload
         from app import (InOrder, InOrderItem, Material, PurchaseOrder, PurchaseOrderItem,
-                         STOCK_COMPARE_EPSILON, Warehouse, _acquire_order_write_lock, add_stock,
+                         STOCK_COMPARE_EPSILON, Warehouse, _acquire_order_write_lock,
+                         _material_stock_unattributed, add_stock,
                          allow_negative_stock, api_error,
                          deduct_stock, get_default_warehouse, get_warehouse_stock_quantities,
                          is_stock_sufficient, location_management_enabled,
@@ -1614,6 +1615,11 @@ def register_in_order_routes(app):
                         # 失败时回退全局 Material.stock 口径。
                         if wh_obj is not None:
                             current_stock = warehouse_stock.get(item.material_id, 0)
+                            # BUG-2026-08-18-002：仓库级聚合查不到该物料且其库存
+                            # 全部为历史未归属流水（location 为空）时回退全局口径，
+                            # 避免“明明有库存却拒绝删除明细/反提交”。
+                            if not is_stock_sufficient(current_stock, required) and _material_stock_unattributed(item.material_id):
+                                current_stock = item.material.stock if item.material else 0
                         else:
                             current_stock = item.material.stock if item.material else 0
                         if not is_stock_sufficient(current_stock, required):
@@ -1856,7 +1862,7 @@ def register_in_order_routes(app):
     def revert_in_order(id):
         from sqlalchemy.orm import selectinload
         from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem, Warehouse,
-                         _acquire_order_write_lock,
+                         _acquire_order_write_lock, _material_stock_unattributed,
                          _source_has_active_push, allow_negative_stock, api_error,
                          deduct_stock, get_warehouse_stock_quantities,
                          is_stock_sufficient, location_management_enabled,
@@ -1883,6 +1889,12 @@ def register_in_order_routes(app):
             if not allow_negative_stock():
                 if wh_obj is not None:
                     current_stock = warehouse_stock.get(item.material_id, 0)
+                    # BUG-2026-08-18-002：仓库级聚合查不到该物料且其库存
+                    # 全部为历史未归属流水（location 为空）时回退全局口径，
+                    # 避免“明明有库存却拒绝反提交”（与 update_completed_in_order、
+                    # batch_revert_in_order 同一兜底）。
+                    if not is_stock_sufficient(current_stock, quantity) and _material_stock_unattributed(item.material_id):
+                        current_stock = item.material.stock if item.material else 0
                 else:
                     # BUG-2026-08-17-002：老数据无仓库/仓库解析失败时，仓库级取数
                     # 不可用（warehouse_stock={} 会恒判库存不足），回退到全局
@@ -2272,7 +2284,8 @@ def register_in_order_routes(app):
     @login_required
     def batch_revert_in_order():
         from sqlalchemy.orm import joinedload, selectinload
-        from app import (InOrder, Warehouse, _acquire_order_write_lock, allow_negative_stock,
+        from app import (InOrder, Warehouse, _acquire_order_write_lock, _material_stock_unattributed,
+                         allow_negative_stock,
                          api_error, deduct_stock_atomic, get_warehouse_stock_quantities, is_stock_sufficient,
                          location_management_enabled, normalize_stock_quantity,
                          recalculate_order_total, update_location_inventory)
@@ -2315,10 +2328,17 @@ def register_in_order_routes(app):
             warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
             stock_insufficient = False
             for item in order.items:
-                stock = normalize_stock_quantity(
-                    warehouse_stock.get(item.material_id, 0) if wh_obj else (item.material.stock if item.material else 0)
-                )
                 quantity = normalize_stock_quantity(item.quantity or 0)
+                if wh_obj is not None:
+                    stock = normalize_stock_quantity(warehouse_stock.get(item.material_id, 0))
+                    # BUG-2026-08-18-002：仓库级聚合查不到该物料且其库存
+                    # 全部为历史未归属流水（location 为空）时回退全局口径，
+                    # 避免“明明有库存却被批量反提交跳过”（与 revert_in_order、
+                    # update_completed_in_order 同一兜底）。
+                    if not is_stock_sufficient(stock, quantity) and item.material and _material_stock_unattributed(item.material_id):
+                        stock = normalize_stock_quantity(item.material.stock or 0)
+                else:
+                    stock = normalize_stock_quantity(item.material.stock if item.material else 0)
                 if item.material and not allow_negative_stock() and not is_stock_sufficient(stock, quantity):
                     skipped.append(f'{order.order_no}(库存不足)')
                     stock_insufficient = True
