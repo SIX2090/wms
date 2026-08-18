@@ -5,7 +5,7 @@
 - Android 原生扫码入库（/api/inbound）成功后按路由规则自动创建 in_order 定向任务
 - Android 原生扫码出库（/api/outbound）成功后按路由规则自动创建 out_order 定向任务
 - 手机网页扫码提交（/mobile/api/scan_submit）mode=in/out 成功后自动创建定向任务
-- 未配置路由规则时不阻塞业务操作，且不产生打印任务
+- 未配置路由规则时回退创建未定向任务（workstation_id=None），供桌面打印工作站认领
 """
 from __future__ import annotations
 
@@ -124,7 +124,7 @@ def client():
 # ==================== Android 原生扫码入库 ====================
 
 def test_enqueue_auto_print_job(client):
-    """enqueue_auto_print_job 有路由时创建定向任务，无路由时返回 None。"""
+    """enqueue_auto_print_job 有路由时创建定向任务，无路由时回退创建未定向任务。"""
     from routes.print_queue import enqueue_auto_print_job
     with app_module.app.app_context():
         wh = Warehouse.query.filter_by(code='RWH0').first()
@@ -136,13 +136,16 @@ def test_enqueue_auto_print_job(client):
         assert job is not None
         assert job.workstation_id == ws_id
         assert job.printer_id == printer_id
+        assert job.route_rule_id is not None
         assert job.source_event == 'scan_inbound'
         db.session.commit()
-        # 无路由（out_order 未配置）：返回 None 且不新增任务
-        pre_count = PrintJob.query.count()
-        none_job = enqueue_auto_print_job('out_order', 999, wh.name, source_event='scan_outbound')
-        assert none_job is None
-        assert PrintJob.query.count() == pre_count
+        # 无路由（out_order 未配置）：回退创建未定向任务，供桌面工作站认领
+        fallback = enqueue_auto_print_job('out_order', 999, wh.name, source_event='scan_outbound')
+        assert fallback is not None
+        assert fallback.workstation_id is None
+        assert fallback.printer_id is None
+        assert fallback.route_rule_id is None
+        assert fallback.status == 'pending'
         db.session.rollback()
 
 
@@ -237,9 +240,30 @@ def test_mobile_scan_submit_out_auto_creates_directed_job(client):
         ).count() == 1
 
 
-# ==================== 未配置路由时不阻塞且不产生任务 ====================
+def test_mobile_scan_submit_no_route_picked_by_desktop_station(client):
+    """无路由时手机提交生成的未定向任务，桌面打印工作站 /print_queue/next 可认领（端到端）。"""
+    with app_module.app.app_context():
+        _seed_no_location()
+    resp = client.post("/mobile/api/scan_submit", json={
+        "mode": "in", "code": "M001", "quantity": 3,
+    })
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    order_no = resp.get_json()["data"]["order_no"]
+    # 桌面端拉取
+    next_resp = client.get("/print_queue/next")
+    data = next_resp.get_json()
+    assert data["status"] == "success"
+    with app_module.app.app_context():
+        from app import InOrder
+        order = InOrder.query.filter_by(order_no=order_no).one()
+        job = PrintJob.query.filter_by(target_id=order.id, job_type='in_order').one()
+        assert data["job"]["id"] == job.id
+        assert data["job"]["print_url"] == f'/in_order/{order.id}/print'
 
-def test_android_inbound_no_route_still_succeeds_without_job(client):
+
+# ==================== 未配置路由时回退创建未定向任务 ====================
+
+def test_android_inbound_no_route_creates_unassigned_job(client):
     headers = _bearer_headers(client)
     resp = client.post("/api/inbound", json={
         "lines": [{"material_code": "M001", "quantity": 1}],
@@ -249,4 +273,8 @@ def test_android_inbound_no_route_still_succeeds_without_job(client):
     with app_module.app.app_context():
         from app import InOrder
         order = InOrder.query.filter_by(order_no=order_no).one()
-        assert PrintJob.query.filter_by(target_id=order.id).count() == 0
+        job = PrintJob.query.filter_by(target_id=order.id, job_type='in_order').one()
+        assert job.status == 'pending'
+        assert job.workstation_id is None
+        assert job.printer_id is None
+        assert job.route_rule_id is None

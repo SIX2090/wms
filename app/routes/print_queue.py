@@ -152,16 +152,18 @@ def _print_url(job):
 
 def enqueue_auto_print_job(job_type, target_id, warehouse_name, target_ids=None,
                            copies=1, created_by=None, source_event='auto'):
-    """扫码入库/出库或手机扫码提交成功后，按路由规则自动创建定向打印任务。
+    """扫码/手工入库出库成功后自动创建打印任务，供桌面打印工作站或定向代理出纸。
 
-    - 无匹配路由规则（或目标工作站/打印机不在线）时返回 None，不阻塞业务操作。
-    - 有匹配路由时创建 pending 定向任务并加入当前会话（flush），由调用方同一
-      事务提交，保证单据与打印任务原子写入。
+    - 有匹配路由规则且目标工作站/打印机在线时：创建「定向」任务（workstation_id /
+      printer_id / route_rule_id 指向指定工作站），由该工作站的打印代理或专属队列
+      （/print_queue/workstations/<id>/next）认领。
+    - 无匹配路由规则（未配置，或目标工作站/打印机不在线）时：回退创建「未定向」任务
+      （workstation_id=None），任意桌面打印工作站（/print_queue/next）即可认领并自动
+      出纸，满足「手机提交 → 本地电脑自动打印、仅需两端同时登录」的轻量场景。
+    - 任务始终创建，不阻塞业务操作；由调用方同一事务提交，保证单据与打印任务原子写入。
     """
     from app import PrintJob
     route = _resolve_print_route(job_type, warehouse_name)
-    if not route:
-        return None
     job = PrintJob(
         job_type=job_type,
         target_id=target_id,
@@ -169,9 +171,9 @@ def enqueue_auto_print_job(job_type, target_id, warehouse_name, target_ids=None,
         copies=copies,
         status='pending',
         created_by=created_by,
-        workstation_id=route.workstation_id,
-        printer_id=route.printer_id,
-        route_rule_id=route.id,
+        workstation_id=route.workstation_id if route else None,
+        printer_id=route.printer_id if route else None,
+        route_rule_id=route.id if route else None,
         source_event=source_event,
     )
     db.session.add(job)

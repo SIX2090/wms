@@ -368,9 +368,12 @@ def test_route_resolution_skips_stale_heartbeat_workstation(client):
             workstation_id=stale.id, printer_id=printer.id, priority=10, enabled=True,
         ))
         db.session.commit()
-        # 心跳超窗：enqueue 不定向（返回 None），任务不创建
-        assert enqueue_auto_print_job("out_order", 99, wh.name,
-                                      source_event="scan_outbound") is None
+        # 心跳超窗：enqueue 不定向，回退走公共队列（创建未定向任务，不指向该工作站）
+        fallback = enqueue_auto_print_job("out_order", 99, wh.name,
+                                          source_event="scan_outbound")
+        assert fallback is not None
+        assert fallback.workstation_id is None
+        assert fallback.route_rule_id is None
         # 心跳恢复后：同一路由规则恢复派发
         stale.last_heartbeat = datetime.now()
         db.session.commit()
