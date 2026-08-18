@@ -157,6 +157,9 @@
                 <a class="btn btn-sm btn-outline-primary" href="/out_order/add?order_id={{ order.id }}">
                     <i class="bi bi-pencil-square"></i> 编辑明细
                 </a>
+                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editHeaderModal">
+                    <i class="bi bi-pencil-square"></i> 编辑单据
+                </button>
                 <button class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})">
                     <i class="bi bi-check-circle"></i> 完成领料
                 </button>
@@ -218,6 +221,14 @@
                     <span class="info-value">{{ order.location }}</span>
                 </div>
                 {% endif %}
+                <div class="info-item">
+                    <span class="info-label">合同编号</span>
+                    <span class="info-value">{{ order.contract_no or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">工程名称</span>
+                    <span class="info-value">{{ order.project_name or '-' }}</span>
+                </div>
                 <div class="info-item">
                     <span class="info-label">操作人</span>
                     <span class="info-value">{{ order.operator.username if order.operator else '-' }}</span>
@@ -520,6 +531,94 @@ MAT003,20,10.00"></textarea>
             </div>
         </div>
     </div>
+
+<!-- 编辑单据信息模态框 -->
+<div class="modal fade" id="editHeaderModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="bi bi-pencil-square"></i> 编辑单据信息</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editHeaderForm">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-medium">单据编号</label>
+                            <input class="form-control" value="{{ order.order_no }}" readonly>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-medium">出库日期 <span class="text-danger">*</span></label>
+                            <input class="form-control" name="date" type="date" value="{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}" max="{{ today }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-medium">{{ '客户/领用单位' if order.business_type == '其他出库' else ('客户名称' if order.business_type == '销售出库' else '领料部门') }}</label>
+                            {% if order.business_type in ('其他出库', '销售出库') %}
+                            <input type="text" class="form-control" name="customer" maxlength="100" value="{{ order.customer or '' }}" placeholder="请输入客户名称">
+                            <input type="hidden" name="department_id" value="">
+                            {% else %}
+                            <select class="form-select" name="department_id">
+                                <option value="">请选择</option>
+                                {% for dept in departments %}
+                                <option value="{{ dept.id }}" {% if order.department_id == dept.id %}selected{% endif %}>{{ dept.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <input type="hidden" name="customer" value="">
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-medium">领料人</label>
+                            <input type="text" class="form-control" name="picker" maxlength="50" value="{{ order.picker or '' }}">
+                        </div>
+                        {% if order.business_type != '销售出库' %}
+                        <div class="col-md-6">
+                            <label class="form-label fw-medium">仓库 <span class="text-danger">*</span></label>
+                            <select class="form-select" name="warehouse" required>
+                                <option value="">请选择仓库</option>
+                                {% for warehouse in warehouses %}
+                                <option value="{{ warehouse.name }}" {% if order.warehouse == warehouse.name or (not order.warehouse and default_warehouse and default_warehouse.name == warehouse.name) %}selected{% endif %}>{{ warehouse.name }}</option>
+                                {% endfor %}
+                                {% if order.warehouse and order.warehouse not in warehouses|map(attribute='name')|list %}
+                                <option value="{{ order.warehouse }}" selected>{{ order.warehouse }}</option>
+                                {% endif %}
+                            </select>
+                        </div>
+                        {% if location_management_enabled %}
+                        <div class="col-md-6">
+                            <label class="form-label fw-medium">库位 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="location" maxlength="100"
+                                   value="{{ order.location or '' }}" placeholder="请输入库位" required>
+                        </div>
+                        {% endif %}
+                        {% endif %}
+                        <div class="col-md-12">
+                            <label class="form-label fw-medium">用途</label>
+                            <input class="form-control" name="purpose" maxlength="200" value="{{ order.purpose or '' }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-medium">合同编号</label>
+                            <input class="form-control" name="contract_no" maxlength="50" value="{{ order.contract_no or '' }}" placeholder="请输入合同编号">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-medium">工程名称</label>
+                            <input class="form-control" name="project_name" maxlength="200" value="{{ order.project_name or '' }}" placeholder="请输入工程名称">
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label fw-medium">备注</label>
+                            <textarea class="form-control" name="remark" rows="2">{{ order.remark or '' }}</textarea>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" onclick="saveHeader()">
+                    <i class="bi bi-save"></i> 保存
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- 异常检测弹窗 -->
 <div class="anomaly-modal-overlay" id="anomalyModal">
@@ -1347,6 +1446,40 @@ function copyOrder(id) {
         .catch(function(err) {
             _showToast('复制失败：' + err.message, 'danger');
         });
+    });
+}
+
+// ==================== 保存单据头 ====================
+function saveHeader() {
+    var form = document.getElementById('editHeaderForm');
+    if (!form) return;
+    var data = {};
+    Array.prototype.forEach.call(new FormData(form).entries(), function(entry) {
+        data[entry[0]] = entry[1];
+    });
+    if (!data.date) {
+        _showToast('请选择出库日期', 'warning');
+        return;
+    }
+    csrfFetch('/out_order/{{ order.id }}/update', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+    })
+    .then(function(res) {
+        if (res.status === 'success') {
+            _showToast(res.msg || '保存成功', 'success');
+            setTimeout(function() { location.reload(); }, 500);
+        } else {
+            _showToast(res.msg || '保存失败', 'danger');
+        }
+    })
+    .catch(function(err) {
+        _showToast('保存失败：' + err.message, 'danger');
     });
 }
 

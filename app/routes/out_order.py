@@ -209,8 +209,11 @@ def register_out_order_routes(app):
     @app.route('/out_order/<int:id>')
     @login_required
     def out_order_detail(id):
-        from app import (DocumentPushLine, Material, OutOrder, OutOrderItem,
-                         get_recent_operation_logs)
+        from datetime import date
+        from app import (Department, DocumentPushLine, Material, OutOrder,
+                         OutOrderItem, get_active_warehouses,
+                         get_default_warehouse, get_recent_operation_logs,
+                         location_management_enabled)
         from sqlalchemy.orm import joinedload
         order = OutOrder.query.options(joinedload(OutOrder.department), joinedload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit)).get_or_404(id)
         source_sales_orders = {}
@@ -223,7 +226,77 @@ def register_out_order_routes(app):
         push_source = DocumentPushLine.query.filter_by(
             target_document_id=order.id, status='active'
         ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out'))).first()
-        return render_template('out_order_detail.html', order=order, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id))
+        return render_template('out_order_detail.html', order=order, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id), departments=Department.query.filter_by(status='active').order_by(Department.code.asc(), Department.id.asc()).all(), warehouses=get_active_warehouses(), default_warehouse=None if order.business_type == '销售出库' else get_default_warehouse(), location_management_enabled=location_management_enabled(), today=date.today())
+
+    # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
+    @app.route('/out_order/<int:id>/update', methods=['POST'])
+    @require_role('warehouse')
+    @login_required
+    def update_out_order(id):
+        """Update the header fields of a draft out/requisition order (items untouched)."""
+        from app import (Department, OutOrder, api_error, assert_warehouse_active,
+                         get_default_warehouse, is_future_date,
+                         location_management_enabled, log_operation,
+                         parse_date_value)
+        order = OutOrder.query.get_or_404(id)
+        if order.status != 'pending':
+            return api_error('只有草稿状态的出库/领料单可以编辑')
+
+        payload = request.get_json(silent=True)
+        data = payload if isinstance(payload, dict) else request.form
+
+        order_date = parse_date_value(data.get('date'), None)
+        if not order_date:
+            return api_error('日期格式不正确，请重新选择日期')
+        if is_future_date(order_date):
+            return jsonify({'status': 'error', 'msg': '出库日期不能晚于今天'}), 400
+
+        # 销售出库单保持仓库与来源销售订单一致，不允许在此修改仓库/库位
+        is_sale = order.business_type == '销售出库'
+        if not is_sale:
+            warehouse = (data.get('warehouse') or '').strip()
+            if not warehouse:
+                default_wh = get_default_warehouse()
+                if default_wh:
+                    warehouse = default_wh.name
+            if not warehouse:
+                return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
+            ok, wh_msg = assert_warehouse_active(warehouse, allow_empty=False)
+            if not ok:
+                return jsonify({'status': 'error', 'msg': wh_msg}), 400
+            order.warehouse = warehouse
+            location = (data.get('location') or '').strip()
+            if location_management_enabled() and not location:
+                return jsonify({'status': 'error', 'msg': '请选择库位'}), 400
+            order.location = location
+
+        order.date = order_date
+        department_id = (data.get('department_id') or '').strip()
+        if department_id in ('', 'None', 'null'):
+            order.department_id = None
+        else:
+            try:
+                department_id = int(department_id)
+            except (TypeError, ValueError):
+                department_id = None
+            department = db.session.get(Department, department_id) if department_id else None
+            order.department_id = department.id if department else None
+        order.customer = (data.get('customer') or '').strip() or None
+        order.picker = (data.get('picker') or '').strip() or None
+        order.purpose = (data.get('purpose') or '').strip() or None
+        # 合同编号/工程名称：领料单（含下推生成的草稿）允许修改
+        order.contract_no = (data.get('contract_no') or '').strip() or None
+        order.project_name = (data.get('project_name') or '').strip() or None
+        order.remark = (data.get('remark') or '').strip()
+
+        try:
+            db.session.commit()
+            log_operation('编辑出库单', f'{order.business_type or "领料单"}：{order.order_no}', 'out_order', id)
+            return jsonify({'status': 'success', 'msg': '保存成功'})
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'编辑出库单失败: {e}')
+            return api_error('保存失败，请稍后重试')
 
     @app.route('/out_order/add')
     @app.route('/other_out_order/add')
