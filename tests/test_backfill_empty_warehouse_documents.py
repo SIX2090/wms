@@ -10,13 +10,20 @@ app.backfill_empty_warehouse_documents 在系统启动时把 warehouse/location
   T2. 无默认仓库：跳过不写库
   T3. 幂等：重复执行无变化
   T4. 已归属仓库的单据/流水保持不变
+  T5. 启动接线：即使 WMS_NO_DB_TOUCH=1（start_wms_offline.bat 默认设置、
+     会跳过 auto_migrate_database），回填仍在 app 导入启动时执行
 """
 from __future__ import annotations
 
+import os
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 from app import backfill_empty_warehouse_documents
+
+APP_DIR = Path(__file__).resolve().parents[1] / "app"
 
 
 def _create_db(path: Path):
@@ -127,3 +134,42 @@ def test_t4_preserves_existing_attribution(tmp_path):
 
     assert _read(db_path, "SELECT warehouse FROM in_order WHERE id = 3") == [('材料仓',)]
     assert _read(db_path, "SELECT location FROM stock_transaction WHERE id = 102") == [('材料仓',)]
+
+
+def test_t5_startup_wiring_runs_backfill_even_when_no_db_touch(tmp_path):
+    """T5：生产启动脚本 start_wms_offline.bat 默认设置 WMS_NO_DB_TOUCH=1，
+    会跳过 auto_migrate_database。回填必须不受该开关影响，否则生产重启永远不生效
+    （本次线上真 bug）。通过子进程 `import app` 模拟完整启动，校验 DB 被回填。"""
+    db_path = tmp_path / "inventory.db"
+    _create_db(db_path)
+
+    env = dict(os.environ)
+    env["WMS_NO_DB_TOUCH"] = "1"
+    env["WMS_SKIP_STARTUP_DB_UPGRADE"] = "1"
+    env["DATABASE_URL"] = f"sqlite:///{db_path}"
+    env["WMS_BOOTSTRAP_PASSWORD"] = "admin"
+    env["WMS_SKIP_AUTO_UPDATE"] = "1"
+    env["WMS_DEBUG"] = "0"
+    env["WMS_ALLOW_AUTO_SECRET_KEY"] = "1"
+
+    result = subprocess.run(
+        [sys.executable, "-c", "import app"],
+        cwd=str(APP_DIR),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"app import failed:\n{result.stdout}\n{result.stderr}"
+
+    assert _read(db_path, "SELECT order_no, warehouse FROM in_order ORDER BY id") == [
+        ('IN-OLD-1', '材料仓'), ('IN-OLD-2', '材料仓'), ('IN-NEW', '材料仓')
+    ]
+    assert _read(db_path, "SELECT req_no, warehouse FROM production_requisition ORDER BY id") == [
+        ('REQ-OLD', '材料仓'), ('REQ-NEW', '材料仓')
+    ]
+    assert _read(db_path, "SELECT id, location FROM stock_transaction ORDER BY id") == [
+        (100, '材料仓'), (101, '材料仓'), (102, '材料仓'),
+        (103, None),
+        (110, '材料仓'), (111, None),
+    ]

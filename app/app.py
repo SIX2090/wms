@@ -1430,9 +1430,12 @@ if startup_db_upgrade_disabled():
     app.logger.info('[DB] Startup database upgrade skipped by environment.')
 else:
     auto_migrate_database()
-    # BUG-2026-08-18-005：启动期自动把历史无仓库采购入库单/领料单回填到默认仓库，
-    # 无需人工执行脚本（手工核对脚本 scripts/backfill_document_warehouse.py 仍可 dry-run）。
-    backfill_empty_warehouse_documents()
+
+# BUG-2026-08-18-005：启动期自动把历史无仓库采购入库单/领料单回填到默认仓库。
+# 必须独立于 schema 迁移开关执行：start_wms_offline.bat 默认设置 WMS_NO_DB_TOUCH=1
+# 会跳过 auto_migrate_database，若回填也放进同一分支，生产重启时永远不会生效。
+# 函数自身安全：无默认仓库/无空单据跳过、幂等、异常只记日志不中断启动。
+backfill_empty_warehouse_documents()
 if not app.config.get('SECRET_KEY'):
     # 未显式配置 SECRET_KEY 时，尝试从 instance/secret_key 文件读取持久化密钥；
     # 文件不存在则随机生成并写入，避免每次重启 session 失效，同时不依赖硬编码默认值。
