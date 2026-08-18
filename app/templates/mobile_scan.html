@@ -136,6 +136,9 @@
                 </div>
             </dl>
             <div class="mobile-location-list" id="locationList" hidden></div>
+            <button type="button" class="btn btn-outline-primary mobile-scan-print" id="printLabelBtn" hidden>
+                <i class="bi bi-printer"></i> 打印物料标签
+            </button>
         </article>
 
         <form class="mobile-scan-form" id="scanForm">
@@ -224,6 +227,7 @@
     var materialCard = document.getElementById('materialCard');
     var scanForm = document.getElementById('scanForm');
     var submitBtn = document.getElementById('submitBtn');
+    var printLabelBtn = document.getElementById('printLabelBtn');
     var quantityInput = document.getElementById('quantityInput');
     var warehouseInput = document.getElementById('warehouseInput');
     var targetInput = document.getElementById('targetInput');
@@ -280,6 +284,7 @@
     function renderMaterial(material) {
         selectedMaterial = material;
         materialCard.hidden = false;
+        if (printLabelBtn) printLabelBtn.hidden = false;
         document.getElementById('materialCode').textContent = material.code || '-';
         document.getElementById('materialName').textContent = material.name || '-';
         document.getElementById('materialSpec').textContent = material.spec || '-';
@@ -358,6 +363,7 @@
                 if (data.status === 'multiple') {
                     selectedMaterial = null;
                     materialCard.hidden = true;
+                    if (printLabelBtn) printLabelBtn.hidden = true;
                     renderMatches((data.data && data.data.matches) || []);
                     setStatus('找到多个物料，请点选一个', '');
                     return null;
@@ -373,6 +379,7 @@
             .catch(function(error) {
                 selectedMaterial = null;
                 materialCard.hidden = true;
+                if (printLabelBtn) printLabelBtn.hidden = true;
                 setStatus((error && (error.msg || error.message)) || '查询失败', 'error');
                 return null;
             });
@@ -557,6 +564,7 @@
         scanCode.value = '';
         selectedMaterial = null;
         materialCard.hidden = true;
+        if (printLabelBtn) printLabelBtn.hidden = true;
         matchList.hidden = true;
         quantityInput.value = '1';
         scanCode.focus();
@@ -571,6 +579,41 @@
             event.preventDefault();
             lookupMaterial();
         }
+    });
+
+    if (printLabelBtn) printLabelBtn.addEventListener('click', function() {
+        if (!selectedMaterial || !selectedMaterial.id) {
+            setStatus('请先查询并选中物料', 'error');
+            return;
+        }
+        printLabelBtn.disabled = true;
+        setStatus('已发送打印任务...', '');
+        fetch('/print_queue/jobs', {
+            method: 'POST',
+            headers: csrfHeaders({'Content-Type': 'application/json'}),
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                job_type: 'label',
+                target_ids: String(selectedMaterial.id)
+            })
+        })
+            .then(function(response) {
+                var sessErr = sessionExpiredError(response);
+                if (sessErr) throw sessErr;
+                return response.json().then(function(data) {
+                    if (!response.ok || data.status !== 'success') throw data;
+                    return data;
+                });
+            })
+            .then(function(data) {
+                setStatus(data.msg || '打印任务已发送，桌面工作站将自动打印', 'success');
+            })
+            .catch(function(error) {
+                setStatus((error && (error.msg || error.message)) || '发送打印任务失败', 'error');
+            })
+            .finally(function() {
+                if (printLabelBtn) printLabelBtn.disabled = false;
+            });
     });
 
     scanForm.addEventListener('submit', function(event) {

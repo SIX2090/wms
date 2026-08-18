@@ -6,6 +6,8 @@
 - Android 原生扫码出库（/api/outbound）成功后按路由规则自动创建 out_order 定向任务
 - 手机网页扫码提交（/mobile/api/scan_submit）mode=in/out 成功后自动创建定向任务
 - 未配置路由规则时回退创建未定向任务（workstation_id=None），供桌面打印工作站认领
+- 手机网页物料查询页渲染「打印物料标签」按钮
+- 手机提交物料标签打印任务（/print_queue/jobs job_type=label）
 """
 from __future__ import annotations
 
@@ -278,3 +280,38 @@ def test_android_inbound_no_route_creates_unassigned_job(client):
         assert job.workstation_id is None
         assert job.printer_id is None
         assert job.route_rule_id is None
+
+
+# ==================== 手机打印物料标签 ====================
+
+def test_mobile_scan_page_renders_print_label_button(client):
+    """手机物料查询页渲染「打印物料标签」按钮。"""
+    resp = client.get("/mobile/scan?mode=query")
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert "打印物料标签" in resp.get_data(as_text=True)
+    assert 'id="printLabelBtn"' in resp.get_data(as_text=True)
+
+
+def test_mobile_label_print_job_unassigned(client):
+    """手机查询物料后提交 label 打印任务：无路由时创建未定向 pending 任务（桌面工作站认领）。"""
+    with app_module.app.app_context():
+        from app import Material
+        mat = Material.query.filter_by(code="M001").one()
+        mat_id = mat.id
+    resp = client.post("/print_queue/jobs", json={
+        "job_type": "label",
+        "target_ids": str(mat_id),
+        "copies": 1,
+    })
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert resp.get_json()["status"] == "success"
+    with app_module.app.app_context():
+        job = PrintJob.query.filter_by(job_type='label', target_ids=str(mat_id)).one()
+        assert job.status == 'pending'
+        assert job.workstation_id is None
+        assert job.printer_id is None
+    # 桌面打印工作站可认领
+    data = client.get("/print_queue/next").get_json()
+    assert data["status"] == "success"
+    assert data["job"]["job_type"] == "label"
+    assert data["job"]["print_url"] == f'/label/batch_print?ids={mat_id}'
