@@ -280,18 +280,47 @@ def register_label_barcode_routes(app):
 
     @app.route('/api/qrcode/<path:data>')
     def api_qrcode_image(data):
-        """生成二维码图片（PNG格式）"""
-        from app import io, jsonify, send_file
+        """生成二维码图片（PNG格式）
+        
+        支持查询参数：
+        - size: 图片尺寸（像素，默认 200）
+        - error_correction: 纠错级别 L/M/Q/H（默认 M）
+        - border: 边框宽度（模块数，默认 1）
+        """
+        from app import io, jsonify, request, send_file
         if not data:
             return jsonify({'status': 'error', 'msg': '缺少二维码内容'}), 400
         try:
             import qrcode
             from PIL import Image
 
-            qr = qrcode.QRCode(version=1, box_size=10, border=2)
+            # 解析参数
+            size = request.args.get('size', '200')
+            try:
+                size = max(100, min(600, int(size)))
+            except (ValueError, TypeError):
+                size = 200
+
+            ec_level = request.args.get('error_correction', 'M').upper()
+            ec_map = {'L': qrcode.constants.ERROR_CORRECT_L,
+                      'M': qrcode.constants.ERROR_CORRECT_M,
+                      'Q': qrcode.constants.ERROR_CORRECT_Q,
+                      'H': qrcode.constants.ERROR_CORRECT_H}
+            error_correction = ec_map.get(ec_level, qrcode.constants.ERROR_CORRECT_M)
+
+            border = request.args.get('border', '1')
+            try:
+                border = max(0, min(4, int(border)))
+            except (ValueError, TypeError):
+                border = 1
+
+            # 自动适配版本（fit=True 根据数据长度自动选择）
+            qr = qrcode.QRCode(version=None, box_size=10, border=border, error_correction=error_correction)
             qr.add_data(data)
             qr.make(fit=True)
             img = qr.make_image(fill_color='black', back_color='white')
+            # 等比例缩放到目标尺寸
+            img = img.resize((size, size), Image.LANCZOS)
             output = io.BytesIO()
             img.save(output, format='PNG')
             output.seek(0)

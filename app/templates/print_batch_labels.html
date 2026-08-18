@@ -340,9 +340,10 @@
                         td.appendChild(img);
                     } else if (fieldName === 'qrcode' && fieldVal) {
                         var qrImg = document.createElement('img');
-                        qrImg.src = '/api/qrcode/' + encodeURIComponent(fieldVal);
-                        qrImg.alt = '二维码';
                         var qrSize = Math.min(W * 0.4, H * 0.5);
+                        var qrPxSize = Math.max(100, Math.min(400, Math.round(qrSize * 3.78)));
+                        qrImg.src = '/api/qrcode/' + encodeURIComponent(fieldVal) + '?size=' + qrPxSize;
+                        qrImg.alt = '二维码';
                         qrImg.style.width = qrSize + 'mm';
                         qrImg.style.height = qrSize + 'mm';
                         qrImg.style.display = 'block';

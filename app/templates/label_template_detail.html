@@ -106,6 +106,32 @@ body {
             font-weight: 500;
         }
         
+        .margin-input {
+            width: 60px;
+            padding: 3px 6px;
+            font-size: 12px;
+            border: 1px solid #d9d9d9;
+            border-radius: 4px;
+            text-align: center;
+        }
+        
+        .margin-input:focus {
+            outline: none;
+            border-color: #1890ff;
+        }
+        
+        .margin-label {
+            font-size: 11px;
+            color: #999;
+            margin: 0 2px;
+        }
+        
+        .margin-group {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
         .label-preview-container {
             display: flex;
             justify-content: center;
@@ -376,6 +402,17 @@ body {
                     <span>尺寸: {{ template.width }}×{{ template.height }}mm</span>
                     <span>网格: {{ template.cols }}×{{ template.rows }}</span>
                 </div>
+                <div class="margin-group">
+                    <span class="margin-label">边距:</span>
+                    <input type="number" class="margin-input" id="marginTop" value="0" min="0" max="10" title="上边距(mm)">
+                    <span class="margin-label">上</span>
+                    <input type="number" class="margin-input" id="marginRight" value="0" min="0" max="10" title="右边距(mm)">
+                    <span class="margin-label">右</span>
+                    <input type="number" class="margin-input" id="marginBottom" value="0" min="0" max="10" title="下边距(mm)">
+                    <span class="margin-label">下</span>
+                    <input type="number" class="margin-input" id="marginLeft" value="0" min="0" max="10" title="左边距(mm)">
+                    <span class="margin-label">左</span>
+                </div>
                 <button class="btn btn-outline-danger btn-sm" onclick="clearLayout()">
                     <i class="bi bi-trash"></i> 清空
                 </button>
@@ -442,6 +479,33 @@ body {
         <div class="form-group">
             <label>字体颜色</label>
             <input type="color" class="form-control form-control-sm" id="styleColor" value="#333333" style="height: 35px;">
+        </div>
+        
+        <div class="form-group" id="mergeGroup" style="display:none;">
+            <label>跨列合并</label>
+            <div class="d-flex gap-2 align-items-center">
+                <input type="number" class="form-control form-control-sm" id="colSpan" min="1" max="5" value="1" style="width:70px;">
+                <span style="font-size:12px;color:#999;">列</span>
+                <button class="btn btn-sm btn-outline-info" onclick="applyColSpan()" title="跨列合并单元格">
+                    <i class="bi bi-arrows-expand"></i> 合并
+                </button>
+            </div>
+            <div class="form-text" style="font-size:11px;">合并后该单元格将占据多列宽度</div>
+        </div>
+        
+        <div class="form-group" id="barcodeSizeGroup" style="display:none;">
+            <label>条码/二维码尺寸</label>
+            <div class="d-flex gap-2 align-items-center">
+                <div>
+                    <label style="font-size:11px;font-weight:normal;">宽度(mm)</label>
+                    <input type="number" class="form-control form-control-sm" id="bcWidth" min="10" max="100" value="50" style="width:70px;">
+                </div>
+                <div>
+                    <label style="font-size:11px;font-weight:normal;">高度(mm)</label>
+                    <input type="number" class="form-control form-control-sm" id="bcHeight" min="10" max="100" value="25" style="width:70px;">
+                </div>
+            </div>
+            <div class="form-text" style="font-size:11px;">仅对条码/二维码字段生效，超出标签尺寸时自动缩小</div>
         </div>
         
         <div class="d-flex gap-2 mt-3">
@@ -619,6 +683,21 @@ body {
                 }
             });
             
+            // 显示/隐藏合并面板
+            const mergeGroup = document.getElementById('mergeGroup');
+            mergeGroup.style.display = 'block';
+            document.getElementById('colSpan').value = data.colSpan || 1;
+            
+            // 显示/隐藏条码/二维码尺寸面板
+            const barcodeSizeGroup = document.getElementById('barcodeSizeGroup');
+            if (data.field === 'barcode' || data.field === 'qrcode') {
+                barcodeSizeGroup.style.display = 'block';
+                document.getElementById('bcWidth').value = data.barcodeWidth || (data.field === 'qrcode' ? 25 : 50);
+                document.getElementById('bcHeight').value = data.barcodeHeight || (data.field === 'qrcode' ? 25 : 15);
+            } else {
+                barcodeSizeGroup.style.display = 'none';
+            }
+            
             document.getElementById('stylePanel').classList.add('show');
         }
         
@@ -638,6 +717,23 @@ body {
             });
         }
         
+        // 应用跨列合并
+        function applyColSpan() {
+            if (!currentCell) return;
+            const { row, col } = currentCell;
+            const cellKey = `${row}-${col}`;
+            const data = layoutData[cellKey];
+            if (!data) return;
+            
+            const span = parseInt(document.getElementById('colSpan').value) || 1;
+            data.colSpan = Math.max(1, Math.min(span, {{ template.cols }} - parseInt(col)));
+            const cell = document.getElementById(`cell-${row}-${col}`);
+            if (cell) {
+                cell.colSpan = data.colSpan;
+            }
+            showToast('已设置跨列合并为 ' + data.colSpan + ' 列', 'success');
+        }
+        
         // 应用样式
         function applyStyle() {
             if (!currentCell) return;
@@ -655,6 +751,19 @@ body {
             };
             
             data.style = style;
+            
+            // 保存colSpan
+            if (document.getElementById('mergeGroup').style.display !== 'none') {
+                const span = parseInt(document.getElementById('colSpan').value) || 1;
+                data.colSpan = Math.max(1, Math.min(span, {{ template.cols }} - parseInt(col)));
+            }
+            
+            // 保存条码/二维码尺寸
+            if (document.getElementById('barcodeSizeGroup').style.display !== 'none') {
+                data.barcodeWidth = parseInt(document.getElementById('bcWidth').value) || 25;
+                data.barcodeHeight = parseInt(document.getElementById('bcHeight').value) || 25;
+            }
+            
             renderCell(row, col, data.field, data.label, style);
             closeStylePanel();
         }
@@ -684,10 +793,18 @@ body {
             }
             _savingLayout = true;
             try {
+                // 收集边距数据
+                const margins = {
+                    marginTop: parseInt(document.getElementById('marginTop').value) || 0,
+                    marginRight: parseInt(document.getElementById('marginRight').value) || 0,
+                    marginBottom: parseInt(document.getElementById('marginBottom').value) || 0,
+                    marginLeft: parseInt(document.getElementById('marginLeft').value) || 0
+                };
+                const payload = { layout: { ...layoutData, ...margins } };
                 const resp = await fetch(`/label_template/{{ template.id }}/save_layout`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                    body: JSON.stringify({ layout: layoutData })
+                    body: JSON.stringify(payload)
                 });
                 let data = {};
                 try { data = await resp.json(); } catch (parseErr) {
@@ -720,9 +837,21 @@ body {
         
         // 加载已有布局
         function loadLayout() {
+            // 恢复边距
+            if (layoutData.marginTop !== undefined) document.getElementById('marginTop').value = layoutData.marginTop;
+            if (layoutData.marginRight !== undefined) document.getElementById('marginRight').value = layoutData.marginRight;
+            if (layoutData.marginBottom !== undefined) document.getElementById('marginBottom').value = layoutData.marginBottom;
+            if (layoutData.marginLeft !== undefined) document.getElementById('marginLeft').value = layoutData.marginLeft;
+            
             for (const [cellKey, data] of Object.entries(layoutData)) {
+                if (cellKey.startsWith('margin')) continue; // 跳过边距属性
                 const [row, col] = cellKey.split('-');
                 renderCell(row, col, data.field, data.label, data.style || {});
+                // 恢复colSpan
+                if (data.colSpan > 1) {
+                    const cell = document.getElementById(`cell-${row}-${col}`);
+                    if (cell) cell.colSpan = data.colSpan;
+                }
             }
         }
         
@@ -741,4 +870,3 @@ body {
         });
     </script>
 {% endblock %}
-

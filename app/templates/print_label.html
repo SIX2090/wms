@@ -223,29 +223,43 @@
         
         <div class="labels-preview" id="labelsPreview">
             {% if materials and materials|length > 0 %}
+            {% set ns = namespace(skip_map={}) %}
             {% for material in materials %}
             <div class="label-item-wrapper" data-material-id="{{ material.id }}">
                 <div class="label-sheet" style="width: {{ (template.width * 3.78) | round(0) }}px;">
                     <table class="label-table">
                         {% set layout = template.layout | default('{}') | from_json %}
+                        {% set margin_top = layout.get('marginTop', 0) %}
+                        {% set margin_right = layout.get('marginRight', 0) %}
+                        {% set margin_bottom = layout.get('marginBottom', 0) %}
+                        {% set margin_left = layout.get('marginLeft', 0) %}
                         {% for row in range(template.rows) %}
+                        {% set row_skip = namespace(skip=0) %}
                         <tr style="height: {{ (template.height * 3.78 / template.rows) | round(0) }}px;">
                             {% for col in range(template.cols) %}
-                            <td>
-                                {% set cell_key = row|string + '-' + col|string %}
-                                {% set cell_data = layout.get(cell_key) %}
-                                {% if cell_data %}
-                                {% set style = cell_data.style | default({}) %}
+                            {% if row_skip.skip > 0 %}
+                            {% set row_skip.skip = row_skip.skip - 1 %}
+                            {% continue %}
+                            {% endif %}
+                            {% set cell_key = row|string + '-' + col|string %}
+                            {% set cell_data = layout.get(cell_key) %}
+                            {% if cell_data %}
+                            {% set style = cell_data.style | default({}) %}
+                            {% set col_span = cell_data.get('colSpan', 1) %}
+                            {% set row_skip.skip = col_span - 1 %}
+                            <td{% if col_span > 1 %} colspan="{{ col_span }}"{% endif %}>
                                 <div class="cell-content" style="
                                     text-align: {{ style.get('textAlign', 'center') }};
                                     font-size: {{ style.get('fontSize', 12) }}px;
                                     font-family: {{ style.get('fontFamily', 'Microsoft YaHei') }};
                                     color: {{ style.get('color', '#333333') }};
+                                    {% if margin_top or margin_left or margin_right or margin_bottom %}padding: {{ margin_top }}mm {{ margin_right }}mm {{ margin_bottom }}mm {{ margin_left }}mm;{% endif %}
                                 ">
                                     {% if cell_data.field == 'barcode' %}
                                     <img src="/api/barcode/{{ material.code }}" alt="条码" class="barcode-img">
                                     {% elif cell_data.field == 'qrcode' %}
-                                    <img src="/api/qrcode/{{ material.code }}" alt="二维码" class="qrcode-img" style="width: 25mm; height: 25mm;">
+                                    {% set qr_size = cell_data.get('barcodeHeight', 25) %}
+                                    <img src="/api/qrcode/{{ material.code }}?size=200" alt="二维码" class="qrcode-img" style="width: {{ qr_size }}mm; height: {{ qr_size }}mm;">
                                     {% elif cell_data.field == 'code' %}
                                     <span class="cell-value">{{ material.code }}</span>
                                     {% elif cell_data.field == 'name' %}
@@ -264,12 +278,14 @@
                                     <span class="cell-value"></span>
                                     {% endif %}
                                 </div>
-                                {% else %}
-                                <div class="cell-content">
+                            </td>
+                            {% else %}
+                            <td>
+                                <div class="cell-content"{% if margin_top or margin_left or margin_right or margin_bottom %} style="padding: {{ margin_top }}mm {{ margin_right }}mm {{ margin_bottom }}mm {{ margin_left }}mm;"{% endif %}>
                                     <span style="color: #bfbfbf; font-size: 11px;">{{ row + 1 }}-{{ col + 1 }}</span>
                                 </div>
-                                {% endif %}
                             </td>
+                            {% endif %}
                             {% endfor %}
                         </tr>
                         {% endfor %}
@@ -361,4 +377,3 @@
         }
     </script>
 {% endblock %}
-
