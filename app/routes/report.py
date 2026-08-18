@@ -251,13 +251,24 @@ def register_report_routes(app):
     @login_required
     def report_inout_print():
         from openpyxl import Workbook
-        from app import InOrder, OutOrder, api_error, resolve_request_warehouse
+        from app import InOrder, OutOrder, api_error, db, resolve_request_warehouse
         # BUG-2026-08-12-005：旧版导出必须按仓库过滤（AGENTS.md 仓库必填）：
         # 显式 warehouse_id/code/name 校验，缺省时带入默认仓库，无默认仓库 400
         warehouse, wh_err = resolve_request_warehouse(request.args)
         if wh_err:
             return api_error(wh_err, 400)
         warehouse_name = warehouse.name or ''
+        warehouse_code = warehouse.code or ''
+        # BUG-2026-08-18-004：单据 warehouse 字段可能存仓库名或编号（历史数据不统一），
+        # 按任一匹配，避免"有入库记录但报表/导出查不出"。
+        _wh_clause = db.or_(
+            InOrder.warehouse == warehouse_name,
+            InOrder.warehouse == warehouse_code,
+        )
+        _wh_clause_out = db.or_(
+            OutOrder.warehouse == warehouse_name,
+            OutOrder.warehouse == warehouse_code,
+        )
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
 
@@ -267,7 +278,7 @@ def register_report_routes(app):
         ws_in = wb.active
         ws_in.title = '入库统计'
         ws_in.append(['单据编号', '日期', '供应商', '物料编码', '物料名称', '数量', '金额'])
-        in_query = InOrder.query.filter(InOrder.warehouse == warehouse_name)
+        in_query = InOrder.query.filter(_wh_clause)
         if start_date:
             in_query = in_query.filter(InOrder.date >= start_date)
         if end_date:
@@ -287,7 +298,7 @@ def register_report_routes(app):
         # 领料单sheet
         ws_out = wb.create_sheet('领料统计')
         ws_out.append(['单据编号', '日期', '领料部门', '物料编码', '物料名称', '数量', '金额'])
-        out_query = OutOrder.query.filter(OutOrder.warehouse == warehouse_name)
+        out_query = OutOrder.query.filter(_wh_clause_out)
         if start_date:
             out_query = out_query.filter(OutOrder.date >= start_date)
         if end_date:

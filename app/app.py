@@ -24160,6 +24160,7 @@ def _shift_month_start(month_start, offset):
 def build_report_dashboard_context(warehouse):
     """构建指定仓库的数据仪表盘统计与图表数据。"""
     warehouse_name = (warehouse.name or '').strip()
+    warehouse_code = (warehouse.code or '').strip()
     warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
     stocked_material_ids = [
         material_id for material_id, quantity in warehouse_stock_map.items()
@@ -24173,22 +24174,22 @@ def build_report_dashboard_context(warehouse):
     month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
         InOrder.date >= month_start,
         InOrder.date < next_month_start,
-        InOrder.warehouse == warehouse_name,
+        db.or_(InOrder.warehouse == warehouse_name, InOrder.warehouse == warehouse_code),
     ).scalar() or 0
     month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
         OutOrder.date >= month_start,
         OutOrder.date < next_month_start,
-        OutOrder.warehouse == warehouse_name,
+        db.or_(OutOrder.warehouse == warehouse_name, OutOrder.warehouse == warehouse_code),
     ).scalar() or 0
     month_in_count = db.session.query(func.count(InOrder.id)).filter(
         InOrder.date >= month_start,
         InOrder.date < next_month_start,
-        InOrder.warehouse == warehouse_name,
+        db.or_(InOrder.warehouse == warehouse_name, InOrder.warehouse == warehouse_code),
     ).scalar() or 0
     month_out_count = db.session.query(func.count(OutOrder.id)).filter(
         OutOrder.date >= month_start,
         OutOrder.date < next_month_start,
-        OutOrder.warehouse == warehouse_name,
+        db.or_(OutOrder.warehouse == warehouse_name, OutOrder.warehouse == warehouse_code),
     ).scalar() or 0
     
     # 上月数据用于环比分析
@@ -24196,22 +24197,22 @@ def build_report_dashboard_context(warehouse):
     last_month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
         InOrder.date >= last_month_start,
         InOrder.date < month_start,
-        InOrder.warehouse == warehouse_name,
+        db.or_(InOrder.warehouse == warehouse_name, InOrder.warehouse == warehouse_code),
     ).scalar() or 0
     last_month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
         OutOrder.date >= last_month_start,
         OutOrder.date < month_start,
-        OutOrder.warehouse == warehouse_name,
+        db.or_(OutOrder.warehouse == warehouse_name, OutOrder.warehouse == warehouse_code),
     ).scalar() or 0
     last_month_in_count = db.session.query(func.count(InOrder.id)).filter(
         InOrder.date >= last_month_start,
         InOrder.date < month_start,
-        InOrder.warehouse == warehouse_name,
+        db.or_(InOrder.warehouse == warehouse_name, InOrder.warehouse == warehouse_code),
     ).scalar() or 0
     last_month_out_count = db.session.query(func.count(OutOrder.id)).filter(
         OutOrder.date >= last_month_start,
         OutOrder.date < month_start,
-        OutOrder.warehouse == warehouse_name,
+        db.or_(OutOrder.warehouse == warehouse_name, OutOrder.warehouse == warehouse_code),
     ).scalar() or 0
 
     # 计算环比增长率
@@ -24397,12 +24398,19 @@ def _build_report_filters():
         if wh:
             warehouse_name = wh.name
             warehouse_code = wh.code or ''
+    raw_business_type = (request.args.get('business_type') or '').strip()
+    # BUG-2026-08-18-004：入库明细报表此前硬编码只查"采购入库"，
+    # 手机端"产品入库"、网页端"其他入库"永远查不出来。改为可选筛选，
+    # 空值表示全部入库类型。
+    if raw_business_type not in ('采购入库', '产品入库', '其他入库'):
+        raw_business_type = ''
     return {
         'start_date': _parse_date_arg('start_date'),
         'end_date': _parse_date_arg('end_date'),
         'warehouse_id': warehouse_id,
         'warehouse': warehouse_name,
         'warehouse_code': warehouse_code,
+        'business_type': raw_business_type,
         'material_code': (request.args.get('material_code') or '').strip(),
         'supplier_id': _parse_positive_int(request.args.get('supplier_id'), 0),
         'supplier': (request.args.get('supplier') or '').strip(),
@@ -24797,10 +24805,21 @@ def _collect_in_detail_rows(filters):
         InOrder.order_no.desc(),
         InOrderItem.id.desc()
     )
-    query = query.filter(InOrder.business_type == '采购入库')
-    # BUG-2026-08-02-014：入库明细按仓库过滤
-    if filters.get('warehouse'):
-        query = query.filter(InOrder.warehouse == filters['warehouse'])
+    # BUG-2026-08-18-004：此前硬编码只查"采购入库"，手机端"产品入库"、
+    # 网页端"其他入库"在入库明细报表里永远查不出来。改为可选筛选，
+    # business_type 为空表示全部入库类型。
+    business_type = (filters.get('business_type') or '').strip()
+    if business_type:
+        query = query.filter(InOrder.business_type == business_type)
+    # BUG-2026-08-02-014：入库明细按仓库过滤；兼容历史数据仓库名/编号不统一
+    if filters.get('warehouse') or filters.get('warehouse_code'):
+        # 用户手机端手工录入仓库编号（如 WH001）、网页端用仓库名，
+        # 单据 warehouse 字段可能存名称也可能存编号，任一匹配。
+        match_any = [InOrder.warehouse == filters['warehouse']] if filters.get('warehouse') else []
+        if filters.get('warehouse_code'):
+            match_any.append(InOrder.warehouse == filters['warehouse_code'])
+        if match_any:
+            query = query.filter(db.or_(*match_any))
     if filters['start_date']:
         query = query.filter(InOrder.date >= filters['start_date'])
     if filters['end_date']:
