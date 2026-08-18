@@ -1861,8 +1861,8 @@ def register_in_order_routes(app):
     @login_required
     def revert_in_order(id):
         from sqlalchemy.orm import selectinload
-        from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem, Warehouse,
-                         _acquire_order_write_lock, _material_stock_unattributed,
+        from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem, StockTransaction,
+                         Warehouse, _acquire_order_write_lock, _material_stock_unattributed,
                          _source_has_active_push, allow_negative_stock, api_error,
                          deduct_stock, get_warehouse_stock_quantities,
                          is_stock_sufficient, location_management_enabled,
