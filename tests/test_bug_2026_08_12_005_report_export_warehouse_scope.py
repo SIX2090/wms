@@ -168,8 +168,9 @@ class TestInoutExportWarehouseScope(_BaseExport):
         assert [row[0] for row in in_rows] == ["IN-B-01"], in_rows
         assert [row[0] for row in out_rows] == ["OUT-B-01"], out_rows
         # 仓库 B 的数量必须出现，仓库 A 的数量不得混入
-        assert [row[5] for row in in_rows] == [20], in_rows
-        assert [row[5] for row in out_rows] == [7], out_rows
+        # 列结构：单据编号(0), 日期(1), 供应商/领料部门(2), 合同编号(3), 工程名称(4), 物料编码(5), 物料名称(6), 数量(7), 金额(8)
+        assert [row[7] for row in in_rows] == [20], in_rows
+        assert [row[7] for row in out_rows] == [7], out_rows
 
     def test_inout_print_default_warehouse_fallback(self):
         self._setup(with_default=True)

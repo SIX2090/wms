@@ -277,7 +277,7 @@ def register_report_routes(app):
         # 入库单sheet
         ws_in = wb.active
         ws_in.title = '入库统计'
-        ws_in.append(['单据编号', '日期', '供应商', '物料编码', '物料名称', '数量', '金额'])
+        ws_in.append(['单据编号', '日期', '供应商', '合同编号', '工程名称', '物料编码', '物料名称', '数量', '金额'])
         in_query = InOrder.query.filter(_wh_clause)
         if start_date:
             in_query = in_query.filter(InOrder.date >= start_date)
@@ -289,6 +289,8 @@ def register_report_routes(app):
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     order.supplier.name if order.supplier else '',
+                    order.contract_no or '',
+                    order.project_name or '',
                     item.material.code if item.material else '',
                     item.material.name if item.material else '',
                     item.quantity or 0,
@@ -297,7 +299,7 @@ def register_report_routes(app):
         
         # 领料单sheet
         ws_out = wb.create_sheet('领料统计')
-        ws_out.append(['单据编号', '日期', '领料部门', '物料编码', '物料名称', '数量', '金额'])
+        ws_out.append(['单据编号', '日期', '领料部门', '合同编号', '工程名称', '物料编码', '物料名称', '数量', '金额'])
         out_query = OutOrder.query.filter(_wh_clause_out)
         if start_date:
             out_query = out_query.filter(OutOrder.date >= start_date)
@@ -309,6 +311,8 @@ def register_report_routes(app):
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     order.customer or '',
+                    order.contract_no or '',
+                    order.project_name or '',
                     item.material.code if item.material else '',
                     item.material.name if item.material else '',
                     item.quantity or 0,
