@@ -16,6 +16,8 @@
 
 ## 已修复并纳入回归
 
+| BUG-2026-08-18-004 | 入库明细/汇总报表只查「采购入库」，手机端「产品入库」「其他入库」永远查不出；仓库只按名称匹配，手机端存仓库编号（WH001）的历史单据也查不出 | 已修复：`_collect_in_detail_rows` 移除硬编码 `business_type=='采购入库'`，改为可选筛选（空=全部类型）；仓库过滤 `db.or_(name, code)`；`_build_report_filters` 透传 `business_type/warehouse_code`；仪表盘 8 处统计与 `report_inout_print` 导出同样兼容仓库编号；回归测试 `tests/test_report_in_detail_business_type_warehouse.py`，2 passed |
+
 | BUG-2026-08-18-001 | 入库 Excel 导入、其他入库编辑/导出/采购报表及批量反提交与仓库和业务类型口径不一致 | 修复导入字段保真、列表筛选条件传递、采购报表业务类型隔离、批量反提交仓库级库存校验；回归测试覆盖导入、导出、报表和多仓反提交 |
 
 | 编号 | 问题 | 回归检查 |
