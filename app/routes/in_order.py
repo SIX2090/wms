@@ -483,6 +483,9 @@ def register_in_order_routes(app):
 
         order.date = order_date
         order.purpose = (data.get('purpose') or '').strip()
+        # 合同编号/工程名称：入库单（含反提交后的草稿）允许修改
+        order.contract_no = (data.get('contract_no') or '').strip() or None
+        order.project_name = (data.get('project_name') or '').strip() or None
         warehouse = (data.get('warehouse') or '').strip()
         # BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
         # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。

@@ -253,6 +253,14 @@
                     <span class="info-value">{{ order.purpose or '-' }}</span>
                 </div>
                 <div class="info-item">
+                    <span class="info-label">合同编号</span>
+                    <span class="info-value">{{ order.contract_no or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">工程名称</span>
+                    <span class="info-value">{{ order.project_name or '-' }}</span>
+                </div>
+                <div class="info-item">
                     <span class="info-label">仓库</span>
                     <span class="info-value">{{ order.warehouse or '-' }}</span>
                 </div>
@@ -591,6 +599,14 @@
                         <div class="col-md-12">
                             <label class="form-label fw-medium">用途</label>
                             <input class="form-control" name="purpose" value="{{ order.purpose or '' }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-medium">合同编号</label>
+                            <input class="form-control" name="contract_no" maxlength="50" value="{{ order.contract_no or '' }}" placeholder="请输入合同编号">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-medium">工程名称</label>
+                            <input class="form-control" name="project_name" maxlength="200" value="{{ order.project_name or '' }}" placeholder="请输入工程名称">
                         </div>
                         <div class="col-md-12">
                             <label class="form-label fw-medium">备注</label>
