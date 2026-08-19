@@ -180,6 +180,7 @@
 | 89 | BUG-2026-08-19-009 | 已完成 | autoprint 打印完成后页面不自关，代理等浏览器进程退出才算完成→等满 print_timeout（默认 120s）强杀进程并把已出纸任务上报 failed。修复：打完全部份数后 setTimeout(window.close, 800)（--app 模式生效，人工标签页浏览器忽略自关不受影响） | 无 | 提交 `f50f7ec`；验证 `pytest tests/test_print_queue.py -q`；已登记 WMS_BUG_BASELINE |
 | 90 | BUG-2026-08-19-010 | 已完成 | 僵尸任务回收两缺陷：v1 claim 无任何回收（代理崩溃后任务永久卡 printing）；legacy next 按 created_at 判超时→积压 >5min 的 pending 任务认领后立即被回收无限循环。修复：PrintJob 新增 printing_started_at（含启动迁移），统一 _recover_zombie_printing_jobs 按认领时间判定（NULL 退回 created_at 近似，未达 MAX_ATTEMPTS 重置 pending、达到置 failed），三条认领路径均记录认领时间且认领前先回收本工作站僵尸 | 无 | 提交 `5d47c48`；验证 `pytest tests/test_print_agent_api.py tests/test_print_queue.py -q`（认领回收/次数耗尽/跨站不回收/积压不误回收）、全量 `pytest tests/ -q` 627 passed、lint 0 违规；已登记 WMS_BUG_BASELINE |
 | 91 | BUG-2026-08-19-011 | 已完成 | 编辑打印机不能改 system_name，手填错系统名的打印机只能删除重建（被路由规则引用时删除也被拒）。修复：PrinterEditRequest 新增 system_name（留空=保持不变，同工作站重名 400），前端编辑弹窗新增系统名称字段复用 knownPrinterList datalist 下拉 | 无 | 提交 `3db8bdc`；验证 `pytest tests/test_print_routing_admin.py -q`（test_printer_edit_system_name 修正/重名 400/留空保持 3 场景）、全量 `pytest tests/ -q` 627 passed、lint_wms_rules 0 违规、lint_no_raw_post_fetch 通过、verify_wms_bugs 回归通过；已登记 WMS_BUG_BASELINE |
+| 92 | AI-LOGIN-F02 | 已完成 | 手机/网页登录"一直登录"：登录启用 Flask-Login remember=True 下发持久 Cookie（默认 365 天，WMS_REMEMBER_LOGIN_DAYS 可调，设 0 关闭），8 小时会话过期后手机浏览器凭它自动恢复登录免重复输密码；同步修复 logout 中 session.clear() 冲掉 _remember='clear' 标记导致退出不清持久 Cookie（共用手机退出即自动回登）的问题，改为先 session.clear() 再 logout_user()。安卓 App 的 Bearer 令牌本就 7 天滚动续期（BUG-2026-08-13-005），无需改动 | 无 | 提交 `44385da`；验证 `pytest tests/test_remember_login.py -q`（4 passed：时长配置/下发 Cookie/会话过期恢复/退出清除）、全量 `pytest tests/ -q` 631 passed、lint_wms_rules 0 违规、lint_no_raw_post_fetch 通过 |
 
 ## 5. 任务详细定义
 
@@ -1748,6 +1749,21 @@ full 验证结果：
 - 真实用户/数据验收：admin 账号 6 次成功登录 + 1 次错密码（E2E 测），login_log 7 条记录完整
 - 破坏性测试：错误密码仍触发 401 + 失败计数；无 CSRF/usage_consent/密码长度绕过
 - 剩余风险和下一子项：usage_consent 字段保留供审计/合规（仅日志）；后续如需真正合规留存可对接企业微信同意服务并把日志改为结构化事件
+
+#### AI-LOGIN-F02（已完成）— 手机/网页登录"一直登录"（记住我持久 Cookie）
+
+- 完成日期：2026-08-19
+- 提交 SHA：`44385da feat(login): AI-LOGIN-F02 手机/网页登录持久化（记住我）`（已推送 main）
+- 业务边界：仅延长网页/手机浏览器登录保持时间；不修改任何用户密码，不触碰账号锁定、CSRF、角色校验、must_change_password 强制改密逻辑；退出登录行为不变（仍需点退出）。
+- 需求：用户要求手机登录系统后一直保持登录，不反复输密码。
+- 现状与方案：原网页登录是 8 小时滑动会话（浏览器关闭/超 8 小时即失效需重登）；安卓 App 的 Bearer 令牌已有 7 天滚动续期（BUG-2026-08-13-005），无需改动。网页侧启用 Flask-Login `login_user(user, remember=True)`：登录时下发 `remember_token` 持久 Cookie（默认 365 天，环境变量 `WMS_REMEMBER_LOGIN_DAYS` 可调、设 0 关闭长登录），会话过期后自动恢复登录态。
+- 连带修复：`/logout` 原实现 `logout_user()` 之后再 `session.clear()`，会把 logout_user 写入 session 的 `_remember='clear'` 标记冲掉，after_request 钩子便不下发清 Cookie 头——启用记住我后退出登录不清持久 Cookie，共用手机上"退出"立即被自动回登。改为先 `session.clear()` 再 `logout_user()`。
+- 改动模块：`app/routes/user_auth.py`（login 路由 remember=True；logout 顺序修复）、`app/config.py`（REMEMBER_COOKIE_DURATION 配置）、`tests/test_remember_login.py`（新增 4 项回归）。
+- 迁移与备份：无数据库迁移；未改用户/密码/令牌数据。
+- 权限与人工确认：未触碰密码（规则：密码操作需显式授权）；长登录开关交给环境变量，默认开启满足用户需求。
+- 专项验证：`pytest tests/test_remember_login.py -q`（4 passed：时长配置 365 天 / 登录下发 remember_token / 删除会话 Cookie 后凭 remember_token 恢复登录 200 / 退出清除 remember_token 且未登录 302）。
+- 全量验证：`pytest tests/ -q` 631 passed；`lint_wms_rules` 0 违规；`lint_no_raw_post_fetch` 通过。
+- 剩余风险和下一子项：手机丢失/共用设备场景下长登录有滞留风险，敏感操作（提交/作废单据）仍受角色与人工确认边界约束；如需收紧可设 `WMS_REMEMBER_LOGIN_DAYS=30`（30 天）或 `0`（关闭）；后续可考虑在登录页加"记住我"勾选让用户自选。
 
 #### POST-COMMIT-SCAN-2026-08-01（已完成）— 入库/出库批量并发+售后库位同步 4 项原子修复
 
