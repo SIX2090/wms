@@ -5,7 +5,12 @@
 {% block content %}
 <div class="page-header">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <h2 class="mb-0"><i class="bi bi-box-arrow-up"></i> {{ page_title or '领料明细' }}</h2>
+        <h2 class="mb-0"><i class="bi bi-box-arrow-up"></i> {{ page_title or '领料明细表' }}</h2>
+        <div class="d-flex gap-2 align-items-center">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="columnSettingsBtn" title="显示/隐藏、调整顺序及修改显示名称">
+                <i class="bi bi-layout-three-columns"></i> 字段设置
+            </button>
+        </div>
         {% if current_user.role in ['admin', 'warehouse'] %}
         <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
             <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchOutOrderAction('/out_order/batch_delete', '请选择要删除的领料单', '确认删除选中的领料单？')">
@@ -92,47 +97,47 @@
         <table class="table table-bordered table-hover table-sm mb-0" id="outOrderTable">
             <thead>
                 <tr>
-                    <th width="56" class="text-center">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
-                    <th width="70">序号</th>
-                    <th data-sortable="order_no" class="sortable-header">领料单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-sortable="customer" class="sortable-header">领料部门 {% if sort_by=='customer' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th>物料编号</th>
-                    <th>物料名称</th>
-                    <th>规格</th>
-                    <th>单位</th>
-                    <th>数量</th>
-                    <th>单价</th>
-                    <th data-sortable="total_amount" class="sortable-header">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-sortable="business_type" class="sortable-header">业务类型 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th>合同编号</th>
-                    <th>工程名称</th>
-                    <th data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th width="90">操作</th>
+                    <th data-column-key="chk" width="56" class="text-center">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
+                    <th data-column-key="row_no" width="70">序号</th>
+                    <th data-column-key="order_no" data-sortable="order_no" class="sortable-header">领料单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="date" data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="customer" data-sortable="customer" class="sortable-header">领料部门 {% if sort_by=='customer' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="material_code">物料编号</th>
+                    <th data-column-key="material_name">物料名称</th>
+                    <th data-column-key="spec">规格</th>
+                    <th data-column-key="unit">单位</th>
+                    <th data-column-key="quantity">数量</th>
+                    <th data-column-key="price">单价</th>
+                    <th data-column-key="amount" data-sortable="total_amount" class="sortable-header">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="business_type" data-sortable="business_type" class="sortable-header">业务类型 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="contract_no">合同编号</th>
+                    <th data-column-key="project_name">工程名称</th>
+                    <th data-column-key="status" data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="actions" width="90">操作</th>
                 </tr>
             </thead>
             <tbody>
                 {% for item in items %}
                 <tr>
-                    <td class="text-center"><input type="checkbox" class="check-item" value="{{ item.out_order.id }}" {% if item.out_order.status != 'pending' %}disabled title="已完成单据不能删除"{% endif %}></td>
-                    <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
-                    <td><a href="{{ url_for('out_order_detail', id=item.out_order.id) }}">{{ item.out_order.order_no }}</a></td>
-                    <td>{{ item.out_order.date.strftime('%Y-%m-%d') if item.out_order.date else '-' }}</td>
-                    <td>{{ item.out_order.customer or (item.out_order.department.name if item.out_order.department else '-') }}</td>
-                    <td>{{ item.material.code if item.material else '-' }}</td>
-                    <td>{{ item.material.name if item.material else '-' }}</td>
-                    <td>{{ item.material.spec if item.material else '-' }}</td>
-                    <td>{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
-                    <td>{{ "%.2f"|format(item.quantity) if item.material else '-' }}</td>
-                    <td>{% if item.material %}¥{{ "%.2f"|format(item.price) }}{% else %}-{% endif %}</td>
-                    <td>{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
-                    <td>{{ item.out_order.business_type or item.out_order.purpose or '-' }}</td>
-                    <td>{{ item.contract_no or item.out_order.contract_no or '-' }}</td>
-                    <td>{{ item.project_name or item.out_order.project_name or '-' }}</td>
-                    <td>
+                    <td data-column-key="chk" class="text-center"><input type="checkbox" class="check-item" value="{{ item.out_order.id }}" {% if item.out_order.status != 'pending' %}disabled title="已完成单据不能删除"{% endif %}></td>
+                    <td data-column-key="row_no">{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
+                    <td data-column-key="order_no"><a href="{{ url_for('out_order_detail', id=item.out_order.id) }}">{{ item.out_order.order_no }}</a></td>
+                    <td data-column-key="date">{{ item.out_order.date.strftime('%Y-%m-%d') if item.out_order.date else '-' }}</td>
+                    <td data-column-key="customer">{{ item.out_order.customer or (item.out_order.department.name if item.out_order.department else '-') }}</td>
+                    <td data-column-key="material_code">{{ item.material.code if item.material else '-' }}</td>
+                    <td data-column-key="material_name">{{ item.material.name if item.material else '-' }}</td>
+                    <td data-column-key="spec">{{ item.material.spec if item.material else '-' }}</td>
+                    <td data-column-key="unit">{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
+                    <td data-column-key="quantity">{{ "%.2f"|format(item.quantity) if item.material else '-' }}</td>
+                    <td data-column-key="price">{% if item.material %}¥{{ "%.2f"|format(item.price) }}{% else %}-{% endif %}</td>
+                    <td data-column-key="amount">{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
+                    <td data-column-key="business_type">{{ item.out_order.business_type or item.out_order.purpose or '-' }}</td>
+                    <td data-column-key="contract_no">{{ item.contract_no or item.out_order.contract_no or '-' }}</td>
+                    <td data-column-key="project_name">{{ item.project_name or item.out_order.project_name or '-' }}</td>
+                    <td data-column-key="status">
                         {{ list_macros.status_badge(item.out_order.status, 'outbound') }}
                     </td>
-                    <td>
+                    <td data-column-key="actions">
                         <a href="{{ url_for('out_order_detail', id=item.out_order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情">
                             <i class="bi bi-eye"></i>
                         </a>

@@ -203,7 +203,7 @@ def register_out_order_routes(app):
             'project_name': project_name_filter,
             'warehouse_id': warehouse.id if warehouse else '',
         }
-        page_title = '其他出库明细' if explicit_bt == '其他出库' else '领料明细'
+        page_title = '其他出库明细表' if explicit_bt == '其他出库' else '领料明细表'
         return render_template('out_order.html', items=items, pagination=pagination, sort_by=sort_by, sort_order=sort_order, per_page=per_page, filters=filters, page_title=page_title, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
 
     @app.route('/out_order/<int:id>')
