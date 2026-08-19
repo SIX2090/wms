@@ -1251,6 +1251,10 @@ def auto_migrate_database():
             if 'source_event' not in _print_job_cols:
                 cursor.execute("ALTER TABLE print_job ADD COLUMN source_event VARCHAR(30) DEFAULT 'manual'")
                 modified = True
+            # BUG-2026-08-19-010：僵尸回收判定字段（认领时间）
+            if 'printing_started_at' not in _print_job_cols:
+                cursor.execute("ALTER TABLE print_job ADD COLUMN printing_started_at DATETIME")
+                modified = True
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_print_job_workstation_status ON print_job(workstation_id, status)")
 
         # PRINT-ROUTING-F01-P3：工作站补令牌与心跳字段（Windows 打印代理鉴权与在线判定）。
@@ -3471,6 +3475,9 @@ class PrintJob(db.Model):
     printed_at = db.Column(db.DateTime)  # 桌面端标记完成时间
     error_msg = db.Column(db.String(500))  # 失败原因
     attempts = db.Column(db.Integer, default=0)  # 尝试次数，防止死循环
+    # BUG-2026-08-19-010：认领（置 printing）时间。僵尸回收按此判定；
+    # 原按 created_at 近似会把积压 >5min 的 pending 任务认领后立即回收，无限循环
+    printing_started_at = db.Column(db.DateTime)
     workstation_id = db.Column(db.Integer, db.ForeignKey('print_workstation.id'))
     printer_id = db.Column(db.Integer, db.ForeignKey('print_device.id'))
     route_rule_id = db.Column(db.Integer, db.ForeignKey('print_route_rule.id'))

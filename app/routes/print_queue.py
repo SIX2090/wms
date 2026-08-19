@@ -121,6 +121,37 @@ def workstation_is_online(ws):
     return (datetime.now() - ws.last_heartbeat) <= WORKSTATION_ONLINE_WINDOW
 
 
+def _recover_zombie_printing_jobs(workstation_id=None):
+    """回收 printing 超时的僵尸任务（代理/守护页崩溃后任务卡 printing）。
+
+    BUG-2026-08-19-010：
+    - v1 claim 原本无任何回收 → 代理崩溃后其任务永久卡 printing；
+    - legacy next 按 created_at 回收 → 队列积压 >5min 的 pending 任务一旦被
+      认领（置 printing），下次轮询立即按 created_at<回收线 重置回 pending，
+      无限循环永远打不出。
+    统一改按 printing_started_at（认领时间）判定；存量行该字段为 NULL 时退回
+    created_at 近似。未达 MAX_ATTEMPTS 重置 pending，达到则 failed。
+    workstation_id 限定只回收该工作站的僵尸（各代理只管自家任务）。
+    """
+    from app import PrintJob
+    cutoff = datetime.now() - PRINTING_TIMEOUT
+    query = PrintJob.query.filter_by(status='printing')
+    if workstation_id is not None:
+        query = query.filter_by(workstation_id=workstation_id)
+    stale_jobs = [j for j in query.all()
+                  if (j.printing_started_at or j.created_at) < cutoff]
+    for j in stale_jobs:
+        if (j.attempts or 0) < MAX_ATTEMPTS:
+            j.status = 'pending'
+            j.printing_started_at = None
+        else:
+            j.status = 'failed'
+            j.error_msg = '打印超时且尝试次数过多'
+    if stale_jobs:
+        db.session.commit()
+    return len(stale_jobs)
+
+
 def _resolve_print_route(job_type, warehouse_name):
     from app import PrintRouteRule, Warehouse
     warehouse = None
@@ -286,24 +317,11 @@ def register_print_queue_routes(app):
     def print_queue_next():
         """桌面端守护页面轮询：返回最早的 pending 任务，并将其置为 printing。
 
-        同时回收 printing 超过 5 分钟的僵尸任务。
+        同时回收 printing 超过 5 分钟的僵尸任务（BUG-2026-08-19-010：
+        按 printing_started_at 判定，不再按 created_at 误回收积压任务）。
         """
         from app import PrintJob
-        now = datetime.now()
-        stale_cutoff = now - PRINTING_TIMEOUT
-
-        # 回收僵尸任务：printing 超过 5 分钟未确认 → 重置 pending（未达最大尝试次数）或 failed
-        # 由于没有 printing_started_at 字段，借用 created_at 近似（5 分钟回收窗口足够覆盖正常打印流程）
-        printing_jobs = PrintJob.query.filter_by(status='printing').all()
-        stale_jobs = [j for j in printing_jobs if j.created_at and j.created_at < stale_cutoff]
-        for j in stale_jobs:
-            if (j.attempts or 0) < MAX_ATTEMPTS:
-                j.status = 'pending'
-            else:
-                j.status = 'failed'
-                j.error_msg = '打印超时且尝试次数过多'
-        if stale_jobs:
-            db.session.commit()
+        _recover_zombie_printing_jobs()
 
         job = PrintJob.query.filter_by(status='pending', workstation_id=None).order_by(PrintJob.created_at.asc()).first()
         if not job:
@@ -311,6 +329,7 @@ def register_print_queue_routes(app):
 
         job.status = 'printing'
         job.attempts = (job.attempts or 0) + 1
+        job.printing_started_at = datetime.now()
         db.session.commit()
 
         print_url = _print_url(job)
@@ -336,12 +355,14 @@ def register_print_queue_routes(app):
         workstation = db.session.get(PrintWorkstation, workstation_id)
         if not workstation or not workstation.enabled or workstation.status != 'online':
             return jsonify({'status': 'empty', 'msg': '工作站不可用'})
+        _recover_zombie_printing_jobs(workstation_id=workstation_id)
         job = PrintJob.query.filter_by(
             status='pending', workstation_id=workstation_id).order_by(PrintJob.created_at.asc()).first()
         if not job:
             return jsonify({'status': 'empty', 'msg': '队列为空'})
         job.status = 'printing'
         job.attempts = (job.attempts or 0) + 1
+        job.printing_started_at = datetime.now()
         db.session.commit()
         return jsonify({'status': 'success', 'job': {
             'id': job.id, 'job_type': job.job_type, 'target_id': job.target_id,
@@ -458,12 +479,15 @@ def register_print_queue_routes(app):
         ws = g.print_workstation
         if not workstation_is_online(ws):
             return jsonify({'status': 'empty', 'msg': '工作站离线或心跳超时，请先上报心跳'})
+        # BUG-2026-08-19-010：认领前回收本工作站僵尸任务（代理崩溃后卡 printing）
+        _recover_zombie_printing_jobs(workstation_id=ws.id)
         job = PrintJob.query.filter_by(
             status='pending', workstation_id=ws.id).order_by(PrintJob.created_at.asc()).first()
         if not job:
             return jsonify({'status': 'empty', 'msg': '队列为空'})
         job.status = 'printing'
         job.attempts = (job.attempts or 0) + 1
+        job.printing_started_at = datetime.now()
         db.session.commit()
         # 打印 URL 附短时效 ptoken（免登录渲染）与 autoprint=1（页面加载后自动打印）
         from utils import generate_print_token

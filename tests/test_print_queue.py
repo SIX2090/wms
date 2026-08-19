@@ -378,8 +378,8 @@ def test_stale_printing_job_recycled_to_pending(client):
     client.get('/print_queue/next')  # 置 printing
     with app_module.app.app_context():
         job = PrintJob.query.get(r['job_id'])
-        # 模拟 6 分钟前创建并已拉取
-        job.created_at = datetime.now() - timedelta(minutes=6)
+        # 模拟 6 分钟前认领（BUG-2026-08-19-010：按 printing_started_at 判定）
+        job.printing_started_at = datetime.now() - timedelta(minutes=6)
         job.attempts = 1
         db.session.commit()
     # 再次 next 应回收并重新拉取
@@ -390,6 +390,7 @@ def test_stale_printing_job_recycled_to_pending(client):
     with app_module.app.app_context():
         job = PrintJob.query.get(r['job_id'])
         assert job.status == 'printing'
+        assert job.printing_started_at is not None
 
 
 def test_stale_printing_job_failed_after_max_attempts(client):
@@ -402,7 +403,7 @@ def test_stale_printing_job_failed_after_max_attempts(client):
     client.get('/print_queue/next')
     with app_module.app.app_context():
         job = PrintJob.query.get(r['job_id'])
-        job.created_at = datetime.now() - timedelta(minutes=6)
+        job.printing_started_at = datetime.now() - timedelta(minutes=6)
         job.attempts = MAX_ATTEMPTS
         db.session.commit()
     resp = client.get('/print_queue/next')
@@ -411,6 +412,31 @@ def test_stale_printing_job_failed_after_max_attempts(client):
         job = PrintJob.query.get(r['job_id'])
         assert job.status == 'failed'
         assert '超时' in (job.error_msg or '')
+
+
+def test_stale_pending_job_not_recycled_after_claim(client):
+    """BUG-2026-08-19-010：积压 >5min 的 pending 任务认领后不得被回收。
+
+    旧逻辑按 created_at 判僵尸：pending 积压超 5 分钟的任务一旦认领置
+    printing，下一次轮询立即按 created_at<回收线 重置回 pending，无限
+    循环永远打不出。改按 printing_started_at 判定后此场景不再复发。"""
+    with client.session_transaction() as sess:
+        csrf = sess.get('csrf_token', '')
+    r = client.post('/print_queue/jobs', json={'job_type': 'out_order', 'target_id': 1},
+                    headers={'X-CSRFToken': csrf}).get_json()
+    with app_module.app.app_context():
+        job = PrintJob.query.get(r['job_id'])
+        job.created_at = datetime.now() - timedelta(minutes=10)  # 模拟长期积压
+        db.session.commit()
+    # 第一次 next：认领成功
+    resp = client.get('/print_queue/next')
+    assert resp.get_json()['job']['id'] == r['job_id']
+    # 第二次 next：任务 printing 中且认领时间新鲜，不得回收 → 队列空
+    assert client.get('/print_queue/next').get_json()['status'] == 'empty'
+    with app_module.app.app_context():
+        job = PrintJob.query.get(r['job_id'])
+        assert job.status == 'printing'
+        assert job.printing_started_at is not None
 
 
 # ==================== 单台电脑不重复拉取 ====================

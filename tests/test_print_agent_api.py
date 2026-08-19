@@ -158,6 +158,68 @@ def test_agent_claim_rejects_stale_heartbeat_workstation(client):
     assert resp.get_json()["status"] == "empty"
 
 
+# ==================== 僵尸任务回收（BUG-2026-08-19-010） ====================
+
+def test_agent_claim_recovers_zombie_printing_job(client):
+    """v1 claim 回收本工作站 printing 超时任务：重置 pending 后重新认领。
+
+    旧 v1 claim 无任何回收：代理打印中崩溃/断电后其任务永久卡 printing，
+    代理重启也不再认领。"""
+    with app_module.app.app_context():
+        wh = Warehouse.query.filter_by(code="RWH0").first()
+        ws = _seed_workstation(wh)
+        job = _seed_job(ws, status="printing")
+        job.printing_started_at = datetime.now() - timedelta(minutes=6)
+        job.attempts = 1
+        db.session.commit()
+        job_id = job.id
+    resp = client.post("/print_queue/api/v1/claim", json={}, headers=_hdr("tok-ws-1"))
+    body = resp.get_json()
+    assert body["status"] == "success"
+    assert body["job"]["id"] == job_id
+    with app_module.app.app_context():
+        job = db.session.get(PrintJob, job_id)
+        assert job.status == "printing"
+        assert job.attempts == 2  # 回收重置 pending 后重新认领 +1
+        assert job.printing_started_at is not None
+
+
+def test_agent_claim_zombie_failed_after_max_attempts(client):
+    """僵尸任务尝试次数耗尽 → 标记 failed，不再派发。"""
+    from routes.print_queue import MAX_ATTEMPTS
+    with app_module.app.app_context():
+        wh = Warehouse.query.filter_by(code="RWH0").first()
+        ws = _seed_workstation(wh)
+        job = _seed_job(ws, status="printing")
+        job.printing_started_at = datetime.now() - timedelta(minutes=6)
+        job.attempts = MAX_ATTEMPTS
+        db.session.commit()
+        job_id = job.id
+    resp = client.post("/print_queue/api/v1/claim", json={}, headers=_hdr("tok-ws-1"))
+    assert resp.get_json()["status"] == "empty"
+    with app_module.app.app_context():
+        job = db.session.get(PrintJob, job_id)
+        assert job.status == "failed"
+        assert "超时" in (job.error_msg or "")
+
+
+def test_agent_claim_does_not_recover_other_workstation_zombies(client):
+    """回收只作用于本工作站，不动别家任务。"""
+    with app_module.app.app_context():
+        wh = Warehouse.query.filter_by(code="RWH0").first()
+        _seed_workstation(wh)  # tok-ws-1
+        other = _seed_workstation(wh, code="WS-2", token="tok-2")
+        job = _seed_job(other, status="printing")
+        job.printing_started_at = datetime.now() - timedelta(minutes=6)
+        db.session.commit()
+        job_id = job.id
+    resp = client.post("/print_queue/api/v1/claim", json={}, headers=_hdr("tok-ws-1"))
+    assert resp.get_json()["status"] == "empty"
+    with app_module.app.app_context():
+        job = db.session.get(PrintJob, job_id)
+        assert job.status == "printing"  # 原样保留，由 WS-2 自己回收
+
+
 # ==================== complete / fail ====================
 
 def test_agent_complete_and_fail_own_job_only(client):
