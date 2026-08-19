@@ -216,3 +216,24 @@ def test_printer_edit(client):
         "display_name": "x", "printer_type": "photo", "enabled": True,
     })
     assert resp.status_code == 400
+
+
+def test_print_routing_page_selfheals_missing_tables(client):
+    """BUG-2026-08-19-003：老库缺 print 系列表时 /print_routing 曾抛
+    "no such table" 直接 500（页面显示"服务器内部错误"）。修复后路由惰性
+    create_all 补齐缺表再重试，页面仍 200 且 print 表被自动重建。"""
+    from sqlalchemy import inspect
+    from sqlalchemy.exc import NoSuchTableError
+    with app_module.app.app_context():
+        for model in (PrintRouteRule, PrintJob, PrintDevice, PrintWorkstation):
+            try:
+                model.__table__.drop(db.engine)
+            except NoSuchTableError:
+                pass
+        db.session.commit()
+    resp = client.get("/print_routing")
+    assert resp.status_code == 200
+    assert "打印工作台路由".encode() in resp.data
+    with app_module.app.app_context():
+        assert inspect(db.engine).has_table("print_workstation")
+        assert inspect(db.engine).has_table("print_route_rule")

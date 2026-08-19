@@ -20,6 +20,7 @@ import secrets
 from flask import jsonify, render_template, request
 from flask_login import login_required
 from pydantic import BaseModel, field_validator
+from sqlalchemy.exc import OperationalError
 
 from db import db
 from utils import require_role
@@ -148,10 +149,21 @@ def register_print_routing_routes(app):
     @require_role('admin')
     def print_routing_page():
         from app import PrintRouteRule, PrintWorkstation, Warehouse
-        workstations = PrintWorkstation.query.order_by(PrintWorkstation.code).all()
-        rules = PrintRouteRule.query.order_by(
-            PrintRouteRule.business_event, PrintRouteRule.priority).all()
-        warehouses = Warehouse.query.filter_by(status='active').order_by(Warehouse.code).all()
+        # BUG-2026-08-19-003：老库若缺 print 系列表（启动时 create_all 未跑，
+        # 如 WMS_SKIP_STARTUP_DB_UPGRADE / WMS_NO_DB_TOUCH），首条查询抛
+        # "no such table" 直接 500，页面显示"服务器内部错误"。按代码库既有模式
+        # （缺失表交给 db.create_all() 处理）惰性补齐缺表后重试，杜绝进入报错。
+        try:
+            workstations = PrintWorkstation.query.order_by(PrintWorkstation.code).all()
+            rules = PrintRouteRule.query.order_by(
+                PrintRouteRule.business_event, PrintRouteRule.priority).all()
+            warehouses = Warehouse.query.filter_by(status='active').order_by(Warehouse.code).all()
+        except OperationalError:
+            db.create_all()
+            workstations = PrintWorkstation.query.order_by(PrintWorkstation.code).all()
+            rules = PrintRouteRule.query.order_by(
+                PrintRouteRule.business_event, PrintRouteRule.priority).all()
+            warehouses = Warehouse.query.filter_by(status='active').order_by(Warehouse.code).all()
         return render_template(
             'print_routing.html', workstations=workstations, rules=rules,
             warehouses=warehouses, event_labels=BUSINESS_EVENT_LABELS)
