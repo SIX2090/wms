@@ -78,7 +78,7 @@
                                 </td>
                                 <td>{{ '是' if p.enabled else '否' }}</td>
                                 <td>
-                                    <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick='editPrinter({{ p.id }}, {{ p.display_name | tojson }}, {{ p.printer_type | tojson }}, {{ 1 if p.enabled else 0 }})'>
+                                    <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick='editPrinter({{ ws.id }}, {{ p.id }}, {{ p.system_name | tojson }}, {{ p.display_name | tojson }}, {{ p.printer_type | tojson }}, {{ 1 if p.enabled else 0 }})'>
                                         编辑
                                     </button>
                                     <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick='deletePrinter({{ p.id }}, {{ p.display_name | tojson }})'>删</button>
@@ -214,6 +214,12 @@
                 <div class="mb-3">
                     <label class="form-label">显示名称 <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" id="printerEditName" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">系统名称（留空 = 保持不变）</label>
+                    <input type="text" class="form-control" id="printerEditSystemName"
+                           list="knownPrinterList" placeholder="从下拉选该电脑上报过的打印机，或手填正确系统名">
+                    <div class="form-text">定向打印按系统名称匹配本机打印机；手填错名会导致出纸落到默认打印机，可在此修正。</div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">类型</label>
@@ -371,7 +377,7 @@ function addWs() {
         if (typeof showToast === 'function') { showToast(res.msg); }
         if (res.token) {
             navigator.clipboard && navigator.clipboard.writeText(res.token);
-            alert('工作站令牌已生成并复制（请粘贴到打印代理 agent_config.ini）：\n\n' + res.token);
+            alert('工作站令牌已生成并复制（请粘贴到打印代理 agent_config.json）：\n\n' + res.token);
         }
         location.reload();
     }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '新增失败', 'danger'); } });
@@ -411,17 +417,20 @@ function deleteWs(wsId, code) {
     }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '删除失败', 'danger'); } });
 }
 
-function editPrinter(id, name, type, enabled) {
+function editPrinter(wsId, id, systemName, name, type, enabled) {
     document.getElementById('printerEditId').value = id;
+    document.getElementById('printerEditSystemName').value = systemName || '';
     document.getElementById('printerEditName').value = name;
     document.getElementById('printerEditType').value = type;
     document.getElementById('printerEditEnabled').checked = !!enabled;
+    loadKnownPrinters(wsId);  // 填充系统名称下拉（该电脑代理上报过的打印机）
     new bootstrap.Modal(document.getElementById('printerEditModal')).show();
 }
 
 function savePrinter() {
     var data = {
         display_name: document.getElementById('printerEditName').value,
+        system_name: document.getElementById('printerEditSystemName').value,
         printer_type: document.getElementById('printerEditType').value,
         enabled: document.getElementById('printerEditEnabled').checked,
     };

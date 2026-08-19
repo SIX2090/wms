@@ -275,6 +275,49 @@ def test_printer_edit(client):
     assert resp.status_code == 400
 
 
+def test_printer_edit_system_name(client):
+    """BUG-2026-08-19-011：编辑打印机可修正 system_name。
+
+    原编辑接口不能改 system_name，手填错系统名的打印机只能删除重建
+    （且被路由规则引用时删除也被拒绝）。"""
+    _add_workstation(client)
+    with app_module.app.app_context():
+        ws = PrintWorkstation.query.filter_by(code="WS-1").one()
+        p1 = PrintDevice(workstation_id=ws.id, system_name="错名打印机",
+                         display_name="标签机1", status="online", enabled=True)
+        p2 = PrintDevice(workstation_id=ws.id, system_name="Zebra ZD421",
+                         display_name="标签机2", status="online", enabled=True)
+        db.session.add_all([p1, p2])
+        db.session.commit()
+        p1_id, p2_id = p1.id, p2.id
+    # 修正 system_name → 成功
+    resp = client.post(f"/print_routing/printers/{p1_id}/edit", json={
+        "display_name": "标签机1", "system_name": "Zebra ZD421 (副本)",
+        "printer_type": "label", "enabled": True,
+    })
+    assert resp.status_code == 200
+    with app_module.app.app_context():
+        p1 = db.session.get(PrintDevice, p1_id)
+        assert p1.system_name == "Zebra ZD421 (副本)"
+    # 与同工作站其他打印机重名 → 400
+    resp = client.post(f"/print_routing/printers/{p1_id}/edit", json={
+        "display_name": "标签机1", "system_name": "Zebra ZD421",
+        "printer_type": "label", "enabled": True,
+    })
+    assert resp.status_code == 400
+    # 留空 = 保持不变
+    resp = client.post(f"/print_routing/printers/{p1_id}/edit", json={
+        "display_name": "标签机1改", "system_name": "",
+        "printer_type": "label", "enabled": True,
+    })
+    assert resp.status_code == 200
+    with app_module.app.app_context():
+        p1 = db.session.get(PrintDevice, p1_id)
+        assert p1.system_name == "Zebra ZD421 (副本)"
+        assert p1.display_name == "标签机1改"
+        assert db.session.get(PrintDevice, p2_id).system_name == "Zebra ZD421"
+
+
 def test_printer_add_manual(client):
     """手工新增打印机：正常创建 + 重名拒绝 + 非法工作站 404 + 非法类型 400。"""
     _add_workstation(client)

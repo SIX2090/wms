@@ -109,8 +109,13 @@ class PrinterCreateRequest(BaseModel):
 
 
 class PrinterEditRequest(BaseModel):
-    """编辑打印机。"""
+    """编辑打印机。
+
+    BUG-2026-08-19-011：原编辑不能改 system_name，手填错系统名的打印机
+    只能删除重建（还会被路由规则引用挡住）。system_name 留空 = 保持不变。
+    """
     display_name: str
+    system_name: str | None = ''
     printer_type: str = 'mixed'
     enabled: bool = True
 
@@ -120,6 +125,14 @@ class PrinterEditRequest(BaseModel):
         v = v.strip()
         if not v or len(v) > 100:
             raise ValueError('打印机名称必填且不超过 100 字符')
+        return v
+
+    @field_validator('system_name', mode='before')
+    @classmethod
+    def validate_system_name(cls, v: str | None) -> str:
+        v = v.strip() if v else ''
+        if len(v) > 200:
+            raise ValueError('系统名称不超过 200 字符')
         return v
 
     @field_validator('printer_type')
@@ -388,6 +401,17 @@ def register_print_routing_routes(app):
         printer = db.session.get(PrintDevice, printer_id)
         if not printer:
             return jsonify({'status': 'error', 'msg': '打印机不存在'}), 404
+        new_system_name = req.system_name or ''
+        if new_system_name and new_system_name != printer.system_name:
+            dup = PrintDevice.query.filter(
+                PrintDevice.workstation_id == printer.workstation_id,
+                PrintDevice.system_name == new_system_name,
+                PrintDevice.id != printer.id,
+            ).first()
+            if dup:
+                return jsonify({'status': 'error',
+                                'msg': '该工作站下同名系统名称的打印机已存在'}), 400
+            printer.system_name = new_system_name
         printer.display_name = req.display_name
         printer.printer_type = req.printer_type
         printer.enabled = req.enabled
