@@ -327,6 +327,29 @@ def register_print_routing_routes(app):
         db.session.commit()
         return jsonify({'status': 'success', 'msg': '删除成功'})
 
+    @app.route('/print_routing/workstations/<int:ws_id>/printers/known', methods=['GET'])
+    @login_required
+    @require_role('admin')
+    def print_routing_workstation_known_printers(ws_id):
+        """返回指定工作站已知的本机系统打印机名列表（代理心跳上报/历史登记过）。
+
+        供「新增打印机」弹窗「系统名称」下拉选择，避免手填晦涩的 Windows 系统名。
+        """
+        from app import PrintDevice, PrintWorkstation
+        ws = db.session.get(PrintWorkstation, ws_id)
+        if not ws:
+            return jsonify({'status': 'error', 'msg': '工作站不存在'}), 404
+        names = sorted({d.system_name for d in PrintDevice.query
+                        .filter_by(workstation_id=ws.id).all() if d.system_name})
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'workstation_id': ws_id,
+                'known_printers': names,
+                'proxy_seen': bool(ws.last_heartbeat),
+            },
+        })
+
     @app.route('/print_routing/printers', methods=['POST'])
     # pydantic:reason=请求体经 PrinterCreateRequest（BaseModel）校验
     @login_required

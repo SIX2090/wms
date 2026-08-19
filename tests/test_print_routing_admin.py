@@ -340,3 +340,26 @@ def test_print_routing_page_selfheals_missing_tables(client):
     with app_module.app.app_context():
         assert inspect(db.engine).has_table("print_workstation")
         assert inspect(db.engine).has_table("print_route_rule")
+
+
+def test_known_printers_returns_reported_system_names(client):
+    """「新增打印机」系统名称下拉数据源：返回该工作站代理上报/登记过的
+    本机系统打印机名列表（去重、排序），避免手填晦涩的系统名。"""
+    _add_workstation(client)
+    with app_module.app.app_context():
+        ws = PrintWorkstation.query.filter_by(code="WS-1").one()
+        ws_id = ws.id
+        db.session.add(PrintDevice(workstation_id=ws_id, system_name="HP LaserJet 1020",
+                                   display_name="HP", status="online", enabled=True))
+        db.session.add(PrintDevice(workstation_id=ws_id, system_name="TSC TTP-244",
+                                   display_name="TSC", status="online", enabled=True))
+        db.session.commit()
+    resp = client.get(f"/print_routing/workstations/{ws_id}/printers/known")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["status"] == "success"
+    names = body["data"]["known_printers"]
+    assert names == ["HP LaserJet 1020", "TSC TTP-244"]
+    # 不存在的 id → 404
+    resp = client.get("/print_routing/workstations/99999/printers/known")
+    assert resp.status_code == 404

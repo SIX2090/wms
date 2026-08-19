@@ -254,7 +254,10 @@
                 </div>
                 <div class="mb-3">
                     <label class="form-label">系统名称（留空则与打印机名称相同）</label>
-                    <input type="text" class="form-control" id="printerAddSystemName" placeholder="Windows 打印机系统名，留空自动取名称">
+                    <input type="text" class="form-control" id="printerAddSystemName"
+                           list="knownPrinterList" placeholder="从下拉选该电脑上报过的打印机，或手填系统名">
+                    <datalist id="knownPrinterList"></datalist>
+                    <div class="form-text" id="printerAddSystemNameHint">正在读取该电脑已检测到的打印机…</div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">类型</label>
@@ -434,6 +437,27 @@ function deletePrinter(id, name) {
     }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '删除失败', 'danger'); } });
 }
 
+function loadKnownPrinters(wsId) {
+    var dl = document.getElementById('knownPrinterList');
+    var hint = document.getElementById('printerAddSystemNameHint');
+    dl.innerHTML = '';
+    hint.textContent = '正在读取该电脑已检测到的打印机…';
+    WMS.api.get('/print_routing/workstations/' + wsId + '/printers/known').then(function (res) {
+        var names = (res.data && res.data.known_printers) || [];
+        names.forEach(function (n) {
+            var opt = document.createElement('option');
+            opt.value = n;
+            dl.appendChild(opt);
+        });
+        hint.textContent = names.length
+            ? '下拉可选该电脑上报过的打印机；也可手填系统名。'
+            : '该电脑暂未上报任何打印机，请先在那台电脑上运行打印代理自动识别，或手填系统名。';
+    }).catch(function (e) {
+        dl.innerHTML = '';
+        hint.textContent = e.message || '读取打印机列表失败';
+    });
+}
+
 function openAddPrinter(wsId, wsCode) {
     document.getElementById('printerAddWsId').value = wsId;
     document.getElementById('printerAddWsName').value = wsCode;
@@ -441,6 +465,7 @@ function openAddPrinter(wsId, wsCode) {
     document.getElementById('printerAddSystemName').value = '';
     document.getElementById('printerAddType').value = 'mixed';
     document.getElementById('printerAddEnabled').checked = true;
+    loadKnownPrinters(wsId);
     new bootstrap.Modal(document.getElementById('printerAddModal')).show();
 }
 
