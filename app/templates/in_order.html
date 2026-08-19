@@ -13,6 +13,9 @@
                     <i class="bi bi-arrow-right"></i>
                 </button>
             </div>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="columnSettingsBtn" title="显示/隐藏、调整顺序及修改显示名称">
+                <i class="bi bi-layout-three-columns"></i> 字段设置
+            </button>
         </div>
         {% if current_user.role in ['admin', 'warehouse'] %}
         <div class="d-flex gap-3 flex-wrap align-items-center">
@@ -141,53 +144,53 @@
         <table class="table table-bordered table-hover table-sm mb-0" id="inOrderTable">
             <thead>
                 <tr>
-                    <th width="56" class="text-center" title="选择">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
-                    <th width="70" title="序号">序号</th>
-                    <th data-sortable="order_no" class="sortable-header" title="入库单号">入库单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-sortable="date" class="sortable-header" title="日期">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-sortable="business_type" class="sortable-header" title="入库来源">入库来源 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th title="来源采购单">来源采购单</th>
-                    <th data-sortable="supplier_id" class="sortable-header" title="往来/生产来源">往来/生产来源 {% if sort_by=='supplier_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th title="物料编号">物料编号</th>
-                    <th title="物料名称">物料名称</th>
-                    <th title="规格">规格</th>
-                    <th title="单位">单位</th>
-                    <th title="数量">数量</th>
-                    <th title="单价">单价</th>
-                    <th data-sortable="total_amount" class="sortable-header" title="金额">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-sortable="purpose" class="sortable-header" title="用途">用途 {% if sort_by=='purpose' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th title="合同编号">合同编号</th>
-                    <th title="工程名称">工程名称</th>
-                    <th title="来源状态">来源状态</th>
-                    <th data-sortable="status" class="sortable-header" title="状态">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th width="90" title="操作">操作</th>
+                    <th data-column-key="chk" width="56" class="text-center" title="选择">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
+                    <th data-column-key="row_no" width="70" title="序号">序号</th>
+                    <th data-column-key="order_no" data-sortable="order_no" class="sortable-header" title="入库单号">入库单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="date" data-sortable="date" class="sortable-header" title="日期">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="business_type" data-sortable="business_type" class="sortable-header" title="入库来源">入库来源 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="source_po" title="来源采购单">来源采购单</th>
+                    <th data-column-key="source_name" data-sortable="supplier_id" class="sortable-header" title="往来/生产来源">往来/生产来源 {% if sort_by=='supplier_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="material_code" title="物料编号">物料编号</th>
+                    <th data-column-key="material_name" title="物料名称">物料名称</th>
+                    <th data-column-key="spec" title="规格">规格</th>
+                    <th data-column-key="unit" title="单位">单位</th>
+                    <th data-column-key="quantity" title="数量">数量</th>
+                    <th data-column-key="price" title="单价">单价</th>
+                    <th data-column-key="amount" data-sortable="total_amount" class="sortable-header" title="金额">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="purpose" data-sortable="purpose" class="sortable-header" title="用途">用途 {% if sort_by=='purpose' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="contract_no" title="合同编号">合同编号</th>
+                    <th data-column-key="project_name" title="工程名称">工程名称</th>
+                    <th data-column-key="source_status" title="来源状态">来源状态</th>
+                    <th data-column-key="status" data-sortable="status" class="sortable-header" title="状态">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="actions" width="90" title="操作">操作</th>
                 </tr>
             </thead>
             <tbody>
                 {% for item in items %}
                 <tr>
-                    <td class="text-center"><input type="checkbox" class="check-item" value="{{ item.in_order.id }}" {% if item.in_order.status != 'pending' %}disabled title="已完成单据不能删除"{% endif %}></td>
-                    <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
-                    <td><a href="{{ url_for('in_order_detail', id=item.in_order.id) }}">{{ item.in_order.order_no }}</a></td>
-                    <td>{{ item.in_order.date.strftime('%Y-%m-%d') if item.in_order.date else '' }}</td>
-                    <td>{{ item.in_order.business_type or '采购入库' }}</td>
-                    <td class="text-nowrap" data-source-purchase-order-id="{{ item.source_purchase_order.id if item.source_purchase_order else '' }}">
+                    <td data-column-key="chk" class="text-center"><input type="checkbox" class="check-item" value="{{ item.in_order.id }}" {% if item.in_order.status != 'pending' %}disabled title="已完成单据不能删除"{% endif %}></td>
+                    <td data-column-key="row_no">{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
+                    <td data-column-key="order_no"><a href="{{ url_for('in_order_detail', id=item.in_order.id) }}">{{ item.in_order.order_no }}</a></td>
+                    <td data-column-key="date">{{ item.in_order.date.strftime('%Y-%m-%d') if item.in_order.date else '' }}</td>
+                    <td data-column-key="business_type">{{ item.in_order.business_type or '采购入库' }}</td>
+                    <td data-column-key="source_po" class="text-nowrap" data-source-purchase-order-id="{{ item.source_purchase_order.id if item.source_purchase_order else '' }}">
                         {% if item.source_purchase_order %}
                         <a href="{{ url_for('purchase_order_detail', id=item.source_purchase_order.id) }}">{{ item.source_purchase_order.order_no }}</a>
                         {% else %}-{% endif %}
                     </td>
-                    <td>{{ item.in_order.customer.name if item.in_order.customer else (item.in_order.supplier.name if item.in_order.supplier else '-') }}</td>
-                    <td>{{ item.material.code if item.material else '-' }}</td>
-                    <td>{{ item.material.name if item.material else '-' }}</td>
-                    <td>{{ item.material.spec if item.material else '-' }}</td>
-                    <td>{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
-                    <td>{{ "%.2f"|format(item.quantity) if item.material else '-' }}</td>
-                    <td>{% if item.material %}¥{{ "%.2f"|format(item.price) }}{% else %}-{% endif %}</td>
-                    <td>{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
-                    <td>{{ item.in_order.purpose or '-' }}</td>
-                    <td>{{ item.contract_no or item.in_order.contract_no or '-' }}</td>
-                    <td>{{ item.project_name or item.in_order.project_name or '-' }}</td>
-                    <td data-source-status="{{ item.source_purchase_order.status if item.source_purchase_order else '' }}">
+                    <td data-column-key="source_name">{{ item.in_order.customer.name if item.in_order.customer else (item.in_order.supplier.name if item.in_order.supplier else '-') }}</td>
+                    <td data-column-key="material_code">{{ item.material.code if item.material else '-' }}</td>
+                    <td data-column-key="material_name">{{ item.material.name if item.material else '-' }}</td>
+                    <td data-column-key="spec">{{ item.material.spec if item.material else '-' }}</td>
+                    <td data-column-key="unit">{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
+                    <td data-column-key="quantity">{{ "%.2f"|format(item.quantity) if item.material else '-' }}</td>
+                    <td data-column-key="price">{% if item.material %}¥{{ "%.2f"|format(item.price) }}{% else %}-{% endif %}</td>
+                    <td data-column-key="amount">{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
+                    <td data-column-key="purpose">{{ item.in_order.purpose or '-' }}</td>
+                    <td data-column-key="contract_no">{{ item.contract_no or item.in_order.contract_no or '-' }}</td>
+                    <td data-column-key="project_name">{{ item.project_name or item.in_order.project_name or '-' }}</td>
+                    <td data-column-key="source_status" data-source-status="{{ item.source_purchase_order.status if item.source_purchase_order else '' }}">
                         {% if item.source_purchase_order %}
                             {% if item.source_purchase_order.status == 'completed' %}
                             <span class="badge bg-success">{{ purchase_order_status_label(item.source_purchase_order.status) }}</span>

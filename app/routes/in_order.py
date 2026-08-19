@@ -145,7 +145,7 @@ def register_in_order_routes(app):
             'project_name': project_name_filter,
             'warehouse_id': warehouse.id if warehouse else '',
         }
-        page_title = f'{business_type_filter}明细' if business_type_filter else '采购入库单'
+        page_title = f'{business_type_filter}明细表' if business_type_filter else '采购入库单'
         return render_template(
             'in_order.html',
             items=items,
