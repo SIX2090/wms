@@ -177,6 +177,18 @@ def check_field_settings_scroll() -> tuple[bool, str]:
     return True, "字段设置弹窗字段多时出现滚动条（BUG-2026-08-19-001 回归）"
 
 
+def check_col_resize_sync() -> tuple[bool, str]:
+    """BUG-2026-08-19-002: 列宽拖动必须与字段设置重排/隐藏同步，colgroup 按当前表头重建。"""
+    app_js = read_text("app/static/js/app.js")
+    if "ensureColgroup" in app_js:
+        return False, "旧的静态 colgroup 逻辑(ensureColgroup)仍存在，重排后 col 索引会错位"
+    if "wms-field-column-hidden" not in app_js:
+        return False, "applyWidths 必须跳过字段设置隐藏的列"
+    if "new MutationObserver(function() { applyWidths(); })" not in app_js:
+        return False, "表头重排/隐藏后必须经 MutationObserver 重建 colgroup"
+    return True, "列宽拖动与字段设置重排/隐藏同步（BUG-2026-08-19-002 回归）"
+
+
 def main() -> int:
     app_py = read_text("app/app.py")
     config_py = read_text("app/config.py")
@@ -317,6 +329,9 @@ def main() -> int:
 
     ok, message = check_field_settings_scroll()
     checks.append(("BUG-2026-08-19-001", ok, message))
+
+    ok, message = check_col_resize_sync()
+    checks.append(("BUG-2026-08-19-002", ok, message))
 
     mobile_scan_body = app_function_body("mobile_scan_submit")
     checks.append((

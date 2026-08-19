@@ -679,46 +679,43 @@ function setupResizableTable(config) {
             rowFrags.push({ row: row, frag: rowFrag });
         });
         rowFrags.forEach(function(item) { item.row.appendChild(item.frag); });
-        ensureColgroup();
     };
 
-    const ensureColgroup = function() {
+    // BUG-2026-08-19-002: 列宽按当前表头顺序(data-column-key)应用，并跳过被字段设置隐藏的列；
+    // colgroup 每次按当前可见表头重建，避免字段设置重排/隐藏后 col 索引错位导致部分列拖不动。
+    const applyWidths = function() {
+        const theadRow = table.querySelector('thead tr');
+        if (!theadRow) return;
+        const ths = Array.from(theadRow.querySelectorAll('th')).filter(function(th) {
+            return !th.classList.contains('wms-field-column-hidden');
+        });
         let colgroup = table.querySelector('colgroup');
         if (!colgroup) {
             colgroup = document.createElement('colgroup');
-            const colCount = headerCells.length;
-            for (let i = 0; i < colCount; i++) {
-                const col = document.createElement('col');
-                colgroup.appendChild(col);
-            }
             table.insertBefore(colgroup, table.firstChild);
         }
-        return colgroup;
-    };
-
-    const applyWidths = function() {
-        const colgroup = ensureColgroup();
-        const cols = Array.from(colgroup.querySelectorAll('col'));
-        columns.forEach(function(column) {
-            let width = state.widths && state.widths[column.key];
-            const columnMinWidth = getColumnMinWidth(column);
+        while (colgroup.children.length > ths.length) colgroup.removeChild(colgroup.lastChild);
+        while (colgroup.children.length < ths.length) colgroup.appendChild(document.createElement('col'));
+        const cols = Array.from(colgroup.children);
+        ths.forEach(function(th, index) {
+            const key = th.dataset.columnKey;
+            const column = columns.find(function(item) { return item.key === key; });
+            const columnMinWidth = column ? getColumnMinWidth(column) : minWidth;
+            let width = state.widths && state.widths[key];
             if (width && width < columnMinWidth) {
                 width = columnMinWidth;
-                state.widths[column.key] = width;
+                state.widths[key] = width;
             }
-            const col = cols[column.index];
-            if (!col) return;
+            const col = cols[index];
             if (width) {
                 col.style.width = width + 'px';
-                column.th.style.width = width + 'px';
-                column.th.style.minWidth = columnMinWidth + 'px';
-                col.style.minWidth = columnMinWidth + 'px';
+                th.style.width = width + 'px';
             } else {
                 col.style.width = '';
-                column.th.style.width = '';
-                column.th.style.minWidth = columnMinWidth + 'px';
-                col.style.minWidth = columnMinWidth + 'px';
+                th.style.width = '';
             }
+            th.style.minWidth = columnMinWidth + 'px';
+            col.style.minWidth = columnMinWidth + 'px';
         });
     };
 
@@ -856,6 +853,13 @@ function setupResizableTable(config) {
             document.addEventListener('mouseup', onMouseUp);
         });
     });
+
+    // BUG-2026-08-19-002: 字段设置重排/隐藏表头后重建 colgroup 与列宽，避免 col 索引错位。
+    if (table.tHead && typeof MutationObserver !== 'undefined') {
+        new MutationObserver(function() { applyWidths(); }).observe(table.tHead, {
+            childList: true, subtree: true, attributes: true, attributeFilter: ['class']
+        });
+    }
 
     applyWidths();
     return {
