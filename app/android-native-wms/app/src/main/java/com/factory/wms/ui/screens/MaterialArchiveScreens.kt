@@ -481,7 +481,7 @@ fun MaterialArchiveDetailScreen(
                         } else {
                             Icon(Icons.Outlined.Print, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("打印档案", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("打印标签", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         }
                     }
                 }
