@@ -194,7 +194,9 @@ def register_user_auth_routes(app):
 
         if check_password_hash(user.password_hash, password):
             session.clear()
-            login_user(user)
+            # AI-LOGIN-F02：remember=True 下发持久 Cookie（默认 365 天），8 小时会话
+            # 过期后手机浏览器凭它自动恢复登录，无需重复输密码；退出登录会清除。
+            login_user(user, remember=True)
             session.permanent = True
             session['login_at'] = datetime.now().isoformat()
             user.last_login_at = datetime.now()
@@ -253,8 +255,12 @@ def register_user_auth_routes(app):
     @login_required
     def logout():
         from flask_login import logout_user
-        logout_user()
+        # AI-LOGIN-F02：必须先 session.clear() 再 logout_user()。logout_user 会检测
+        # request.cookies 里的 remember_token 并在 session 标记 _remember='clear'，
+        # 供 after_request 钩子下发清 Cookie 头；后置的 session.clear() 会把这个标记
+        # 冲掉，导致启用"记住我"后退出登录不清持久 Cookie、共用手机退出即自动回登。
         session.clear()
+        logout_user()
         return redirect(url_for('login'))
 
     @app.route('/admin/console')

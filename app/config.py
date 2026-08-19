@@ -58,6 +58,9 @@ class Config:
     
     # 会话配置
     PERMANENT_SESSION_LIFETIME = 28800  # 会话有效期8小时
+    # AI-LOGIN-F02：登录"记住我"持久 Cookie 有效期（手机浏览器关掉后仍免登录）。
+    # 默认 365 天，每次重新登录自动顺延；环境变量 WMS_REMEMBER_LOGIN_DAYS 可调，设 0 关闭长登录。
+    REMEMBER_COOKIE_DURATION = timedelta(days=int(os.environ.get('WMS_REMEMBER_LOGIN_DAYS', '365') or 0))
     WTF_CSRF_TIME_LIMIT = 28800  # CSRF 令牌有效期 8 小时（与会话有效期一致，避免用户操作中途令牌过期）
     SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() in ('true', '1', 'yes')
     SESSION_COOKIE_HTTPONLY = True
