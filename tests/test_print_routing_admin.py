@@ -139,6 +139,35 @@ def test_workstation_delete_blocked_by_jobs_or_rules(client):
     assert resp.status_code == 400
 
 
+def test_download_agent_prefills_single_workstation_token(client):
+    """下载代理部署包：仅一个工作站时 agent_config.json 自动预填其令牌，
+    ?ws= 指定编码时同样预填；多工作站且未指定时才用占位符。"""
+    import io
+    import json as jsonlib
+    import zipfile
+
+    _add_workstation(client, code="1")
+    resp = client.get("/print_routing/download_agent")
+    assert resp.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(resp.data))
+    cfg = jsonlib.loads(zf.read("agent_config.json").decode("utf-8"))
+    with app_module.app.app_context():
+        token = PrintWorkstation.query.filter_by(code="1").one().auth_token
+    assert cfg["token"] == token
+    # 指定 ws 编码同样预填
+    resp = client.get("/print_routing/download_agent?ws=1")
+    zf = zipfile.ZipFile(io.BytesIO(resp.data))
+    cfg = jsonlib.loads(zf.read("agent_config.json").decode("utf-8"))
+    assert cfg["token"] == token
+    assert cfg["server_url"].startswith("http")
+    # 多工作站且未指定 → 占位符
+    _add_workstation(client, code="WS-2")
+    resp = client.get("/print_routing/download_agent")
+    zf = zipfile.ZipFile(io.BytesIO(resp.data))
+    cfg = jsonlib.loads(zf.read("agent_config.json").decode("utf-8"))
+    assert "在此粘贴工作站令牌" in cfg["token"]
+
+
 def test_rule_crud_and_printer_ownership(client):
     _add_workstation(client)
     _add_workstation(client, code="WS-2")
