@@ -23,8 +23,13 @@
             <i class="bi bi-clipboard-check"></i>
             <span>盘点</span>
         </a>
+        <a class="mobile-scan-tab {% if mode == 'confirm' %}active{% endif %}" href="{{ url_for('mobile_scan', mode='confirm') }}">
+            <i class="bi bi-inbox"></i>
+            <span>待确认</span>
+        </a>
     </nav>
 
+    {% if mode != 'confirm' %}
     <section class="mobile-scan-panel">
         <div class="mobile-scan-heading">
             <span class="mobile-scan-heading-icon"><i class="bi {{ mode_config.icon }}"></i></span>
@@ -207,6 +212,26 @@
         <h3>本次操作</h3>
         <div id="historyList"></div>
     </section>
+    {% else %}
+    <section class="mobile-confirm-panel" id="confirmPanel">
+        <div class="mobile-scan-heading">
+            <span class="mobile-scan-heading-icon"><i class="bi bi-inbox"></i></span>
+            <div>
+                <h2>待确认草稿</h2>
+                <p>入库/出库草稿确认后才动库存并发送打印任务</p>
+            </div>
+        </div>
+        <div class="mobile-confirm-toolbar">
+            <button type="button" class="btn btn-primary" id="confirmRefreshBtn">
+                <i class="bi bi-arrow-clockwise"></i> 刷新
+            </button>
+        </div>
+        <div class="mobile-confirm-list" id="confirmList">
+            <p class="mobile-confirm-empty">加载中...</p>
+        </div>
+        <p class="mobile-confirm-tip">提示：草稿由「扫码提交」产生，需人工确认后才会正式入库/出库并自动打印。</p>
+    </section>
+    {% endif %}
 </div>
 {% endblock %}
 
@@ -521,19 +546,31 @@
         });
     }
 
-    function submitBatchQueue(total) {
+    function submitBatchQueue() {
         if (!batchQueue.length || !batchSubmitBtn) return;
-        var item = batchQueue[0];
-        if (!total) total = batchQueue.length;
-        var current = total - batchQueue.length + 1;
         batchSubmitBtn.disabled = true;
         if (submitBtn) submitBtn.disabled = true;
-        setStatus('正在提交第' + current + '/' + total + '条...', '');
-        fetch('/mobile/api/scan_submit', {
+
+        var lines = batchQueue.map(function(item) {
+            return {
+                material_code: item.payload.code,
+                quantity: item.payload.quantity,
+                location: item.payload.location || '',
+                target: item.payload.target || ''
+            };
+        });
+
+        setStatus('正在提交' + lines.length + '条明细，生成待确认草稿...', '');
+        fetch('/mobile/api/scan_batch_draft', {
             method: 'POST',
             headers: csrfHeaders({'Content-Type': 'application/json'}),
             credentials: 'same-origin',
-            body: JSON.stringify(item.payload)
+            body: JSON.stringify({
+                mode: mode,
+                lines: lines,
+                warehouse: warehouseInput ? warehouseInput.value : '',
+                remark: remarkInput ? remarkInput.value : ''
+            })
         }).then(function(response) {
             var sessErr = sessionExpiredError(response);
             if (sessErr) throw sessErr;
@@ -542,14 +579,12 @@
                 return data;
             });
         }).then(function(data) {
-            var returnedMaterial = data.data && data.data.material ? data.data.material : item.material;
-            batchQueue.shift();
+            batchQueue = [];
             renderBatchQueue();
-            addHistory(data.msg || '批量扫码提交成功', returnedMaterial);
-            if (batchQueue.length) return submitBatchQueue(total);
-            setStatus('待提交明细已全部提交', 'success');
+            setStatus((data.msg || '已生成待确认草稿') + '，请到「待确认」页确认后正式入库/出库', 'success');
+            addHistory(data.msg || '已生成待确认草稿', null);
         }).catch(function(error) {
-            setStatus((error && (error.msg || error.message)) || '批量提交中断，未提交明细已保留', 'error');
+            setStatus((error && (error.msg || error.message)) || '批量提交失败，明细已保留', 'error');
             renderBatchQueue();
         }).finally(function() {
             if (submitBtn && !batchQueue.length) submitBtn.disabled = false;
@@ -787,6 +822,135 @@
 })();
 </script>
 
+<script>
+(function() {
+    var confirmPanel = document.getElementById('confirmPanel');
+    if (!confirmPanel) return;
+
+    var listEl = document.getElementById('confirmList');
+    var refreshBtn = document.getElementById('confirmRefreshBtn');
+
+    function tokenHeader() {
+        var headers = {};
+        var tokenNode = document.querySelector('meta[name="csrf-token"]');
+        if (tokenNode && tokenNode.content) headers['X-CSRFToken'] = tokenNode.content;
+        return headers;
+    }
+
+    function sessionRedirect(response) {
+        if (response.status === 401 || response.status === 419) {
+            window.location.href = '/login';
+            return true;
+        }
+        return false;
+    }
+
+    function showTip(html) {
+        listEl.innerHTML = html;
+    }
+
+    function loadPending() {
+        showTip('<p class="mobile-confirm-empty">加载中...</p>');
+        // 仓库必填，未显式选择时由后端默认仓库兜底
+        var base = '';
+        Promise.all([
+            fetch('/api/mobile/in_order/list?status=pending' + base, {credentials: 'same-origin'})
+                .then(function(r) { if (sessionRedirect(r)) throw new Error('login'); return r.json(); }),
+            fetch('/api/mobile/out_order/list?status=pending' + base, {credentials: 'same-origin'})
+                .then(function(r) { if (sessionRedirect(r)) throw new Error('login'); return r.json(); })
+        ]).then(function(results) {
+            var inItems = [];
+            var outItems = [];
+            ['in', 'out'].forEach(function(kind, i) {
+                var d = results[i];
+                if (d && d.status === 'success' && d.data && d.data.items) {
+                    if (kind === 'in') inItems = d.data.items;
+                    else outItems = d.data.items;
+                }
+            });
+            renderList(inItems, outItems);
+        }).catch(function(error) {
+            if (error && error.message === 'login') return;
+            showTip('<p class="mobile-confirm-empty">加载待确认草稿失败，请点击刷新重试</p>');
+        });
+    }
+
+    function renderList(inItems, outItems) {
+        if (!inItems.length && !outItems.length) {
+            showTip('<p class="mobile-confirm-empty">暂无待确认草稿</p>');
+            return;
+        }
+        var html = '';
+        inItems.forEach(function(o) { html += draftCard('in', o, '入库'); });
+        outItems.forEach(function(o) { html += draftCard('out', o, '出库'); });
+        listEl.innerHTML = html;
+
+        Array.prototype.forEach.call(listEl.querySelectorAll('[data-confirm]'), function(btn) {
+            btn.addEventListener('click', function() {
+                confirmDraft(btn);
+            });
+        });
+    }
+
+    function draftCard(orderType, o, label) {
+        var count = Number(o.item_count) || 0;
+        return '<article class="mobile-confirm-card">'
+            + '<div class="mobile-confirm-card-head">'
+            + '<span class="mobile-confirm-tag mobile-confirm-tag-' + orderType + '">' + label + '</span>'
+            + '<strong>' + esc(o.order_no) + '</strong>'
+            + '</div>'
+            + '<div class="mobile-confirm-card-meta">'
+            + '<span>仓库：' + esc(o.warehouse || '-') + '</span>'
+            + '<span>明细：' + count + ' 项</span>'
+            + '<span>时间：' + esc((o.created_at || '').slice(0, 16) || '-') + '</span>'
+            + '</div>'
+            + '<div class="mobile-confirm-card-actions">'
+            + '<button type="button" class="btn btn-success btn-sm w-100" data-confirm="1" data-type="' + orderType + '" data-id="' + o.id + '">'
+            + '<i class="bi bi-check2-circle"></i> 确认' + label + '并打印</button>'
+            + '</div>'
+            + '</article>';
+    }
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+            return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+        });
+    }
+
+    function confirmDraft(btn) {
+        var type = btn.dataset.type;
+        var id = btn.dataset.id;
+        var label = type === 'in' ? '入库' : '出库';
+        if (!window.confirm('确认该' + label + '草稿？将立即更新库存并发送打印任务。')) return;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 确认中...';
+        fetch('/mobile/api/scan_draft_confirm/' + id, {
+            method: 'POST',
+            headers: tokenHeader(),
+            credentials: 'same-origin',
+            body: JSON.stringify({order_type: type})
+        }).then(function(response) {
+            if (sessionRedirect(response)) throw new Error('login');
+            return response.json().then(function(data) {
+                if (!response.ok || data.status !== 'success') throw data;
+                return data;
+            });
+        }).then(function(data) {
+            if (window.showToast) window.showToast((data.msg || '确认成功') + '，请到桌面打印工作站查看打印结果', 'success');
+            loadPending();
+        }).catch(function(error) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check2-circle"></i> 确认' + label + '并打印';
+            if (error && error.message === 'login') return;
+            if (window.showToast) window.showToast((error && error.msg) || '确认失败，请重试', 'danger');
+        });
+    }
+
+    if (refreshBtn) refreshBtn.addEventListener('click', loadPending);
+    loadPending();
+})();
+</script>
+
 <style>
 .mobile-recognize-preview {
     margin: 16px 0;
@@ -986,5 +1150,43 @@
 .mobile-batch-row-index { color: #6b7280; }
 .mobile-batch-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-batch-row > span:nth-of-type(2) { color: #6b7280; white-space: nowrap; }
+
+/* 待确认草稿面板 */
+.mobile-confirm-panel { padding: 4px 2px; }
+.mobile-confirm-toolbar { margin: 12px 0 14px; }
+.mobile-confirm-list { display: flex; flex-direction: column; gap: 12px; }
+.mobile-confirm-empty { color: #6b7280; text-align: center; padding: 24px 0; }
+.mobile-confirm-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: #fff;
+}
+.mobile-confirm-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.mobile-confirm-card-head strong { color: #111827; font-size: 15px; }
+.mobile-confirm-tag {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: #fff;
+    white-space: nowrap;
+}
+.mobile-confirm-tag-in { background: #16a34a; }
+.mobile-confirm-tag-out { background: #ea580c; }
+.mobile-confirm-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    color: #6b7280;
+    font-size: 13px;
+    margin-bottom: 12px;
+}
+.mobile-confirm-card-actions button { font-size: 14px; }
+.mobile-confirm-tip { margin-top: 16px; color: #9ca3af; font-size: 12px; }
 </style>
 {% endblock %}
