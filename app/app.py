@@ -5330,17 +5330,30 @@ def ensure_default_print_templates():
     if not label_default:
         db.session.add(LabelTemplate(
             name='系统默认物料标签模板',
-            width=70,
-            height=45,
+            width=90,
+            height=50,
             cols=1,
             rows=5,
             layout=json.dumps(DEFAULT_LABEL_LAYOUT, ensure_ascii=False),
             is_default=not has_label_default,
         ))
+        # 物料标签默认打印模板统一为 90×50mm（手机端 / 电脑端共用 print_batch_labels.html）。
+        label_default = LabelTemplate.query.filter_by(name='系统默认物料标签模板').first()
         changed = True
     elif not has_label_default:
         label_default.is_default = True
         changed = True
+
+    # 存量库：把「系统默认物料标签模板」强制对齐到默认尺寸 90×50mm，
+    # 并确保其为默认模板，保证物料标签打印默认出纸为 90×50（幂等）。
+    if label_default:
+        if (label_default.width or 0) != 90 or (label_default.height or 0) != 50:
+            label_default.width = 90
+            label_default.height = 50
+            changed = True
+        if not label_default.is_default and not has_label_default:
+            label_default.is_default = True
+            changed = True
 
     if changed:
         db.session.commit()

@@ -195,13 +195,13 @@
                     opt.textContent = t.name + ' (' + t.width + 'x' + t.height + 'mm)';
                     select.appendChild(opt);
                 });
-                var defaultTmpl = res.templates.find(function(t){ return t.is_default; });
-                if (defaultTmpl) {
-                    select.value = defaultTmpl.id;
-                    switchTemplate(defaultTmpl.id);
-                } else if (res.templates.length > 0) {
-                    select.selectedIndex = 1;
-                    switchTemplate(res.templates[0].id);
+                // 物料标签默认打印模板优先 90×50mm；其次默认模板；再退回第一个模板。
+                var preferred = res.templates.find(function(t){ return t.width == 90 && t.height == 50; })
+                    || res.templates.find(function(t){ return t.is_default; })
+                    || res.templates[0];
+                if (preferred) {
+                    select.value = preferred.id;
+                    switchTemplate(preferred.id);
                 }
             })
             .catch(function(err){
