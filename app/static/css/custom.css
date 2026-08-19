@@ -2893,8 +2893,10 @@ body.cb-form-actionbar .wms-entry-header.page-header {
 .wms-field-settings__tab.active{background:#fff;border-color:#b7c1cd;position:relative;top:1px;color:#0b5cad;font-weight:600}
 .wms-field-settings__tools{display:flex;align-items:center;gap:8px;padding:10px 14px}
 .wms-field-settings__search{width:250px;height:30px;border:1px solid #b9c2cc;padding:4px 8px}
-.wms-field-settings__content{display:grid;grid-template-columns:minmax(0,1fr) 52px;gap:10px;padding:0 14px;min-height:0;flex:1}
-.wms-field-settings__table-wrap{border:1px solid #adb8c4;overflow:auto;min-height:260px}
+.wms-field-settings__content{display:grid;grid-template-columns:minmax(0,1fr) 52px;grid-template-rows:minmax(0,1fr);gap:10px;padding:0 14px;min-height:0;flex:1}
+.wms-field-settings__panel{display:grid;grid-template-columns:minmax(0,1fr) 52px;grid-template-rows:minmax(0,1fr);gap:10px;min-height:0;grid-column:1/-1}
+.wms-field-settings__panel>.wms-field-settings__empty{grid-column:1/-1}
+.wms-field-settings__table-wrap{border:1px solid #adb8c4;overflow:auto;min-height:0}
 .wms-field-settings__table{width:100%;border-collapse:collapse;table-layout:fixed}
 .wms-field-settings__table th,.wms-field-settings__table td{border-right:1px solid #c4ccd5;border-bottom:1px solid #c4ccd5;height:32px;padding:4px 8px}
 .wms-field-settings__table th{background:#d9e8f7;font-weight:500;text-align:left}
@@ -2914,7 +2916,7 @@ body.cb-form-actionbar .wms-entry-header.page-header {
 .wms-fill-down-btn{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin-left:5px;padding:0;border:1px solid #9bb8d2;background:#f7fbff;color:#1769aa;vertical-align:middle;line-height:1}
 .wms-fill-down-btn:hover{background:#e5f2ff;border-color:#4388c2}
 .wms-fill-down-btn i{font-size:12px;pointer-events:none}
-@media(max-width:640px){.wms-field-settings{height:92vh}.wms-field-settings__content{grid-template-columns:minmax(0,1fr) 42px}.wms-field-settings__search{width:100%;flex:1}.wms-field-settings__tools{flex-wrap:wrap}}
+@media(max-width:640px){.wms-field-settings{height:92vh}.wms-field-settings__content,.wms-field-settings__panel{grid-template-columns:minmax(0,1fr) 42px}.wms-field-settings__search{width:100%;flex:1}.wms-field-settings__tools{flex-wrap:wrap}}
 
 /* ==================== 窄屏移动端 (375/414) 出入库按钮回归 ==================== */
 /* BUG-MOBILE-2026-07-27-001: 确保入库/出库 列表页+详情页 26 类按钮在 375/414 宽度下可见、可点、无遮挡、无溢出 */

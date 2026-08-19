@@ -161,6 +161,22 @@ def check_web_login_csrf() -> tuple[bool, str]:
     return True, "Web /login 强制 CSRF；/api/login 保持豁免；无 token 登录被拒绝"
 
 
+def check_field_settings_scroll() -> tuple[bool, str]:
+    """BUG-2026-08-19-001: 字段设置弹窗字段多时必须出现滚动条，列表不能溢出弹窗。"""
+    css = read_text("app/static/css/custom.css")
+    app_js = read_text("app/static/js/app.js")
+
+    content = re.search(r"\.wms-field-settings__content\{([^}]*)\}", css)
+    if not content or "grid-template-rows:minmax(0,1fr)" not in content.group(1):
+        return False, "字段设置内容区必须用 minmax(0,1fr) 行约束，否则表格撑破弹窗"
+    wrap = re.search(r"\.wms-field-settings__table-wrap\{([^}]*)\}", css)
+    if not wrap or "overflow:auto" not in wrap.group(1) or "min-height:0" not in wrap.group(1):
+        return False, "字段设置表格容器必须 overflow:auto + min-height:0 才能出现滚动条"
+    if "display:contents" in app_js:
+        return False, "明细面板不得再用 display:contents（会绕过行约束导致无滚动条）"
+    return True, "字段设置弹窗字段多时出现滚动条（BUG-2026-08-19-001 回归）"
+
+
 def main() -> int:
     app_py = read_text("app/app.py")
     config_py = read_text("app/config.py")
@@ -298,6 +314,9 @@ def main() -> int:
 
     ok, message = check_web_login_csrf()
     checks.append(("LOGIN-CSRF-001", ok, message))
+
+    ok, message = check_field_settings_scroll()
+    checks.append(("BUG-2026-08-19-001", ok, message))
 
     mobile_scan_body = app_function_body("mobile_scan_submit")
     checks.append((
