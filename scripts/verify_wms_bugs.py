@@ -189,6 +189,20 @@ def check_col_resize_sync() -> tuple[bool, str]:
     return True, "列宽拖动与字段设置重排/隐藏同步（BUG-2026-08-19-002 回归）"
 
 
+def check_onclick_tojson_quotes() -> tuple[bool, str]:
+    """BUG-2026-08-19-004: onclick 双引号属性内嵌 | tojson 会被其输出的双引号截断，
+    渲染成 onclick="fn(1, "1")" → 点击 JS 语法错误、按钮无反应。
+    含 tojson 的 onclick 必须用单引号做属性定界符（tojson 已把内容中的 ' 转义为 \\u0027）。"""
+    offenders: list[str] = []
+    for path in sorted(Path("app/templates").rglob("*.html")):
+        content = path.read_text(encoding="utf-8", errors="ignore")
+        for m in re.finditer(r'onclick="[^"]*\|\s*tojson[^"]*"', content):
+            offenders.append(f"{path}:{content.count(chr(10), 0, m.start()) + 1}")
+    if offenders:
+        return False, "onclick 双引号属性内含 | tojson（属性被截断，点击报 JS 语法错误）: " + ", ".join(offenders)
+    return True, "onclick 属性与 tojson 引号安全（BUG-2026-08-19-004 回归）"
+
+
 def main() -> int:
     app_py = read_text("app/app.py")
     config_py = read_text("app/config.py")
@@ -332,6 +346,9 @@ def main() -> int:
 
     ok, message = check_col_resize_sync()
     checks.append(("BUG-2026-08-19-002", ok, message))
+
+    ok, message = check_onclick_tojson_quotes()
+    checks.append(("BUG-2026-08-19-004", ok, message))
 
     mobile_scan_body = app_function_body("mobile_scan_submit")
     checks.append((

@@ -53,7 +53,7 @@
                         </div>
                     </div>
                     <div class="d-flex justify-content-end mb-1">
-                        <button class="btn btn-outline-success btn-sm py-0 px-2" onclick="openAddPrinter({{ ws.id }}, {{ ws.code | tojson }})">
+                        <button class="btn btn-outline-success btn-sm py-0 px-2" onclick='openAddPrinter({{ ws.id }}, {{ ws.code | tojson }})'>
                             <i class="bi bi-plus-lg"></i> 新增打印机
                         </button>
                     </div>
@@ -75,10 +75,10 @@
                                 </td>
                                 <td>{{ '是' if p.enabled else '否' }}</td>
                                 <td>
-                                    <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="editPrinter({{ p.id }}, {{ p.display_name | tojson }}, {{ p.printer_type | tojson }}, {{ 1 if p.enabled else 0 }})">
+                                    <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick='editPrinter({{ p.id }}, {{ p.display_name | tojson }}, {{ p.printer_type | tojson }}, {{ 1 if p.enabled else 0 }})'>
                                         编辑
                                     </button>
-                                    <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="deletePrinter({{ p.id }}, {{ p.display_name | tojson }})">删</button>
+                                    <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick='deletePrinter({{ p.id }}, {{ p.display_name | tojson }})'>删</button>
                                 </td>
                             </tr>
                             {% else %}
@@ -90,7 +90,7 @@
                 <div class="card-footer text-end py-1">
                     <button class="btn btn-outline-primary btn-sm" onclick='editWs({{ ws.id }}, {{ ws.name | tojson }}, {{ ws.warehouse_id | tojson }})'>编辑</button>
                     <button class="btn btn-outline-warning btn-sm" onclick="resetToken({{ ws.id }})">重置令牌</button>
-                    <button class="btn btn-outline-danger btn-sm" onclick="deleteWs({{ ws.id }}, {{ ws.code | tojson }})">删除</button>
+                    <button class="btn btn-outline-danger btn-sm" onclick='deleteWs({{ ws.id }}, {{ ws.code | tojson }})'>删除</button>
                 </div>
             </div>
         </div>
@@ -123,7 +123,7 @@
                         <td>
                             <button class="btn btn-outline-primary btn-sm py-0 px-1"
                                     onclick='editRule({{ r.id }}, {{ r.name | tojson }}, {{ r.business_event | tojson }}, {{ r.warehouse_id | tojson }}, {{ r.workstation_id | tojson }}, {{ r.printer_id | tojson }}, {{ r.priority }})'>编辑</button>
-                            <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="deleteRule({{ r.id }}, {{ r.name | tojson }})">删除</button>
+                            <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick='deleteRule({{ r.id }}, {{ r.name | tojson }})'>删除</button>
                         </td>
                     </tr>
                     {% else %}
