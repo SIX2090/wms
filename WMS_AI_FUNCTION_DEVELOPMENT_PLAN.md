@@ -1966,3 +1966,23 @@ full 验证结果：
   - `python -m pytest tests/ -q` → 607 passed。
   - pre-commit 钩子：0 违规，通过。
 - 推送验证：修复提交 push 输出 `472d4e2..0dd3c2e main -> main`；本登记提交随后推送，最终本地与 `origin/main` SHA 一致。
+
+#### BUG-2026-08-19-002-FIX（已完成）— 采购入库明细表列宽拖动部分列拖不动
+
+- 完成日期：2026-08-19
+- 提交 SHA：`edb700e`
+- 目标：修复采购入库明细表（及同类列表页）用鼠标拖动列宽时"有的字段拖不动"的问题。
+- 根因：`setupResizableTable`（`app/static/js/app.js`）的 `applyWidths` 用**初始列序**的静态 colgroup（`cols[column.index]`）应用宽度；字段设置重排/隐藏列（或表头拖拽重排）后 `<col>` 索引错位，而 `table-layout:fixed` 下 `<col>` 宽度优先于 `<th>`，导致拖动某列实际改到别的列或无效果。
+- 业务边界：仅改前端列宽应用逻辑；不改后端/路由/库存/状态流转；不改字段设置数据模型与 localStorage 结构（宽度仍按 data-column-key 存于原 storageKey）。
+- 改动模块：
+  - `app/static/js/app.js`：`applyWidths` 改为按当前可见表头顺序（`data-column-key`）重建 colgroup、跳过 `wms-field-column-hidden` 列；删除静态 `ensureColgroup`；新增 thead `MutationObserver`（childList/subtree/class 属性）在重排/隐藏后自动重建列宽。
+  - `scripts/verify_wms_bugs.py`：新增 `check_col_resize_sync`（BUG-2026-08-19-002 回归：无 ensureColgroup、跳过隐藏列、MutationObserver 重建）。
+  - `WMS_BUG_BASELINE.md`：登记 BUG-2026-08-19-002 为已修复并纳入回归。
+- 专项验证命令及结果：
+  - `node --check app/static/js/app.js` → 语法通过。
+  - `python scripts/verify_wms_bugs.py` → 回归检查通过（含 BUG-2026-08-19-002 新检查）。
+  - `python scripts/lint_wms_rules.py` → 0 违规。
+  - `python scripts/lint_no_raw_post_fetch.py` → 通过。
+  - `python -m pytest tests/ -q` → 607 passed。
+- 推送验证：push 输出 `87a769b..edb700e main -> main`；本地与 `origin/main` SHA 一致（`edb700e`）。
+- 备注：期间发现并行会话曾以无关提交信息（feat: 库存管理模块子菜单三列展开）误提交本修复的未暂存改动；已用 `commit --amend` 修正为规范信息 `fix(ui): BUG-2026-08-19-002 ...` 后推送（该提交此前未推送，amend 不影响远端历史）。
