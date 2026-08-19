@@ -289,6 +289,23 @@ def test_material_archive_print_page_missing(client):
     assert resp.status_code == 404
 
 
+def test_autoprint_page_renders(client):
+    """BUG-2026-08-19-008：autoprint 打印页渲染即 500。
+
+    _autoprint_script.html 原 `request.args.get('copies', 1, type=int)` 在
+    Jinja 作用域里 int 未定义，带 autoprint=1（代理认领任务后必带）打开
+    任何打印页都抛 UndefinedError → 500，整条代理静默打印链路断裂。"""
+    with app_module.app.app_context():
+        material = Material.query.filter_by(code='M001').first()
+        mat_id = material.id
+    resp = client.get(f'/material_archive/{mat_id}/print?autoprint=1&copies=2&ptoken=x')
+    assert resp.status_code == 200
+    assert 'var copies = 2;' in resp.get_data(as_text=True)
+    # 同一 include 的出库单/入库单打印页同样必须可渲染
+    for url in ('/out_order/1/print?autoprint=1', '/in_order/1/print?autoprint=1'):
+        assert client.get(url).status_code == 200
+
+
 def test_copies_in_url(client):
     with client.session_transaction() as sess:
         csrf = sess.get('csrf_token', '')

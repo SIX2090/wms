@@ -7,7 +7,9 @@
 (function () {
     if (window.__wmsAutoprint) { return; }
     window.__wmsAutoprint = true;
-    var copies = {{ request.args.get('copies', 1, type=int) }};
+    {# BUG-2026-08-19-008：Jinja 模板作用域没有 Python 内建名 int（只有 |int 过滤器），
+       原 type=int 渲染即抛 UndefinedError → 代理带 autoprint=1 打开任何打印页都是 500。 #}
+    var copies = {{ request.args.get('copies', 1) | int }};
     if (!copies || copies < 1 || copies > 99) { copies = 1; }
     var printed = 0;
     function firePrint() {
