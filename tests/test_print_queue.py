@@ -306,6 +306,24 @@ def test_autoprint_page_renders(client):
         assert client.get(url).status_code == 200
 
 
+def test_autoprint_page_closes_window_after_print(client):
+    """BUG-2026-08-19-009：autoprint 打印页打完份数后必须 window.close()。
+
+    打印代理以 kiosk-printing 打开打印页并等待浏览器进程退出；页面不
+    自关则代理等满 print_timeout（默认 120s）后强杀进程，并把已出纸的
+    任务上报为 failed。"""
+    with app_module.app.app_context():
+        material = Material.query.filter_by(code='M001').first()
+        mat_id = material.id
+    resp = client.get(f'/material_archive/{mat_id}/print?autoprint=1&copies=2&ptoken=x')
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert 'window.close' in html
+    # 只在 autoprint 模式自关，人工打开打印页不受影响
+    resp = client.get(f'/material_archive/{mat_id}/print')
+    assert 'window.close' not in resp.get_data(as_text=True)
+
+
 def test_copies_in_url(client):
     with client.session_transaction() as sess:
         csrf = sess.get('csrf_token', '')

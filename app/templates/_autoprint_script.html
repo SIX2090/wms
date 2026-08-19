@@ -13,7 +13,14 @@
     if (!copies || copies < 1 || copies > 99) { copies = 1; }
     var printed = 0;
     function firePrint() {
-        if (printed >= copies) { return; }
+        if (printed >= copies) {
+            // BUG-2026-08-19-009：打印代理等浏览器进程退出才算完成；页面不自关
+            // 则代理等满 print_timeout（默认 120s）强杀进程并把已出纸任务上报
+            // 为 failed。--app 模式下 window.close() 生效；人工打开的标签页
+            // 浏览器会忽略自关，不受影响。
+            setTimeout(function () { window.close(); }, 800);
+            return;
+        }
         printed += 1;
         try { window.print(); } catch (e) { return; }
         setTimeout(firePrint, 800);
