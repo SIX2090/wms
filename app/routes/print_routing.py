@@ -251,17 +251,54 @@ def register_print_routing_routes(app):
                 "====================\n"
                 f"agent_config.json 的 token {token_note}\n\n"
                 "1. 解压到任意目录（如 C:\\wms_agent\\）\n"
-                "2. 双击 run.bat 启动代理（首次建议用 run.bat，稳定后改用 start.bat 后台运行）\n"
+                "2. 双击 run.bat 启动代理（bat 会自动查找 Python：PATH → 常见安装目录 →\n"
+                "   py 启动器；找不到会提示先安装 Python 3.8+ 并勾选 Add Python to PATH）。\n"
+                "   首次建议用 run.bat，稳定后改用 start.bat 后台运行\n"
                 "3. 验证：打开 /print_routing 页面，工作站状态应变为「在线」\n\n"
                 "开机自启（推荐）：\n"
                 "  schtasks /Create /TN \"WMS Print Agent\" /SC ONSTART /RU SYSTEM ^\n"
                 "    /TR \"\\\"C:\\Path\\To\\pythonw.exe\\\" C:\\wms_agent\\wms_print_agent.py --config C:\\wms_agent\\agent_config.json\"\n"
             )
             zf.writestr('README.txt', readme)
-            run_bat = "@echo off\r\npython wms_print_agent.py --config agent_config.json\r\npause\r\n"
-            zf.writestr('run.bat', run_bat)
-            start_bat = "@echo off\r\nstart /min pythonw wms_print_agent.py --config agent_config.json\r\n"
-            zf.writestr('start.bat', start_bat)
+            # BUG-2026-08-19-012：原 bat 裸调 python/pythonw，Python 未加入 PATH 的电脑
+            # （如 Win7 手动装 3.8 没勾 Add to PATH）双击即报「'python' 不是内部或外部
+            # 命令」。改为自动定位：PATH（排除 WindowsApps 商店假 python）→ 常见安装
+            # 目录 → py 启动器；仍找不到则给中文指引。bat 用 GBK 编码（zh-CN 默认
+            # cp936 下中文可读），CRLF 行尾。
+            py_detect = [
+                '@echo off',
+                'setlocal',
+                'cd /d "%~dp0"',
+                'set "PY="',
+                'for /f "delims=" %%i in (\'where python.exe 2^>nul ^| findstr /v /i "WindowsApps"\') do if not defined PY set "PY=%%i"',
+                r'if not defined PY for /f "delims=" %%i in (\'dir /b /s "%LocalAppData%\Programs\Python\Python3*\python.exe" 2^>nul\') do if not defined PY set "PY=%%i"',
+                r'if not defined PY for /f "delims=" %%i in (\'dir /b /s "%ProgramFiles%\Python3*\python.exe" 2^>nul\') do if not defined PY set "PY=%%i"',
+                r'if not defined PY for /f "delims=" %%i in (\'dir /b /s "C:\Python3*\python.exe" 2^>nul\') do if not defined PY set "PY=%%i"',
+                'if not defined PY (',
+                '  where py.exe >nul 2>nul && set "PY=py"',
+                ')',
+                'if not defined PY (',
+                '  echo [错误] 未找到 Python（python.exe）。',
+                '  echo 请安装 Python 3.8+ 时勾选 "Add Python to PATH"，',
+                '  echo 或把 python.exe 所在目录加入环境变量 PATH 后重新双击本文件。',
+                '  pause',
+                '  exit /b 1',
+                ')',
+            ]
+            run_bat = "\r\n".join(
+                py_detect + [
+                    'echo 使用 Python：%PY%',
+                    '"%PY%" wms_print_agent.py --config agent_config.json',
+                    'pause',
+                ]) + "\r\n"
+            zf.writestr('run.bat', run_bat.encode('gbk'))
+            start_bat = "\r\n".join(
+                py_detect + [
+                    'set "PYW=%PY:python.exe=pythonw.exe%"',
+                    'if not exist "%PYW%" set "PYW=%PY%"',
+                    'start "" /min "%PYW%" wms_print_agent.py --config agent_config.json',
+                ]) + "\r\n"
+            zf.writestr('start.bat', start_bat.encode('gbk'))
         buf.seek(0)
         suffix = f"_{ws.code}" if ws else ""
         return send_file(buf, mimetype='application/zip',

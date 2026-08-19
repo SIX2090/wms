@@ -168,6 +168,43 @@ def test_download_agent_prefills_single_workstation_token(client):
     assert "在此粘贴工作站令牌" in cfg["token"]
 
 
+def test_download_agent_bats_autolocate_python(client):
+    """BUG-2026-08-19-012：部署包内 run.bat/start.bat 不得裸调 python/pythonw。
+
+    Python 未加入 PATH 的电脑（如 Win7 手动装 3.8 没勾 Add to PATH）双击旧 bat
+    即报「'python' 不是内部或外部命令」。新 bat 必须自动定位 Python（PATH 排除
+    WindowsApps 假 python → 常见安装目录 → py 启动器），找不到时给中文指引。"""
+    import io
+    import zipfile
+
+    _add_workstation(client, code="WS-1")
+    resp = client.get("/print_routing/download_agent")
+    assert resp.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(resp.data))
+    run_bat = zf.read("run.bat").decode("gbk")
+    start_bat = zf.read("start.bat").decode("gbk")
+    for bat in (run_bat, start_bat):
+        # 自动定位链
+        assert 'where python.exe' in bat
+        assert 'findstr /v /i "WindowsApps"' in bat  # 排除 Win10 商店假 python
+        assert '%LocalAppData%\\Programs\\Python\\Python3*\\python.exe' in bat
+        assert 'C:\\Python3*\\python.exe' in bat
+        assert 'py.exe' in bat  # py 启动器兜底
+        # 找不到时的中文指引 + 退出
+        assert '未找到 Python' in bat
+        assert 'Add Python to PATH' in bat
+        assert 'exit /b 1' in bat
+        # 不再裸调 python/pythonw（旧 BUG 形态）
+        assert '\npython wms_print_agent.py' not in bat
+        assert '\npythonw wms_print_agent.py' not in bat
+        assert bat.startswith('@echo off\r\n')  # CRLF 行尾
+    assert '"%PY%" wms_print_agent.py --config agent_config.json' in run_bat
+    # start.bat 用同目录 pythonw 后台运行，取不到时回退 python
+    assert '%PY:python.exe=pythonw.exe%' in start_bat
+    assert 'if not exist "%PYW%" set "PYW=%PY%"' in start_bat
+    assert 'start "" /min "%PYW%"' in start_bat
+
+
 def test_add_printer_system_name_none_accepted(client):
     """BUG-2026-08-19-005：前端 system_name 留空时传 None，
     PrinterCreateRequest 应接受并自动用打印机名称填充，不应报 422。"""
