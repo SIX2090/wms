@@ -136,8 +136,10 @@ class TestReportRegister:
         db.session.commit()
         return Warehouse.query.filter_by(code="WHA").first()
 
-    def test_purchase_report_excludes_other_inbound(self):
-        """BUG-2026-08-18-001：采购入库明细报表剔除其他入库，且业务类型/客供字段保真。"""
+    def test_purchase_report_business_type(self):
+        """入库明细报表：默认包含全部入库类型（BUG-2026-08-18-004），
+        指定 business_type 时按类型过滤，保留业务类型/客供字段保真（BUG-2026-08-18-001 收窄为过滤语义）。
+        """
         client = self._setup()
         _login(client)
         with app_module.app.app_context():
@@ -150,9 +152,17 @@ class TestReportRegister:
         assert payload.get("status") == "success", payload
         data = payload.get("data") or []
         order_nos = [row.get("order_no") for row in data]
+        # BUG-2026-08-18-004：business_type 为空=全部入库类型，含采购入库与其他入库
         assert "IN-PUR" in order_nos, order_nos
-        assert "IN-OTHER" not in order_nos, order_nos
-        assert all(row.get("business_type") == "采购入库" for row in data), data
+        assert "IN-OTHER" in order_nos, order_nos
+        # 指定 business_type=采购入库 时只返回采购入库，剔除其他入库
+        filt = client.get(
+            f"/report/api/query?report_type=in_detail&warehouse_id={warehouse_id}&business_type=采购入库")
+        fdata = filt.get_json().get("data") or []
+        f_nos = [row.get("order_no") for row in fdata]
+        assert "IN-PUR" in f_nos, f_nos
+        assert "IN-OTHER" not in f_nos, f_nos
+        assert all(row.get("business_type") == "采购入库" for row in fdata), fdata
 
     def test_report_print_not_implemented(self):
         client = self._setup()
