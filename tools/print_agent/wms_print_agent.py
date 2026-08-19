@@ -270,19 +270,38 @@ def _to_int(v):
         return None
 
 
+def _ps_quote(value: str) -> str:
+    """转义为 PowerShell 单引号字符串字面量（单引号翻倍）。"""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 def get_default_printer() -> str:
-    """读取当前 Windows 默认打印机名（读不到返回空串）。"""
+    """读取当前 Windows 默认打印机名（读不到返回空串）。
+
+    BUG-2026-08-19-007：Get-CimInstance 需 PS 3.0+，Win7 PS 2.0 下返回
+    空串 → process_job 误以为读取失败、定向打印后原默认打印机永不恢复。
+    回退 Get-WmiObject（PS 2.0 可用）。
+    """
     raw = _run_powershell(
         "(Get-CimInstance Win32_Printer -Filter 'Default=True').Name")
+    if not raw:
+        raw = _run_powershell(
+            "(Get-WmiObject Win32_Printer -Filter 'Default=True').Name")
     return raw.strip().strip('"')
 
 
 def set_default_printer(name: str) -> bool:
-    """临时切换 Windows 默认打印机（WScript.Network COM，无需管理员权限）。"""
+    """临时切换 Windows 默认打印机（WScript.Network COM，无需管理员权限）。
+
+    BUG-2026-08-19-007：SetDefaultPrinter 成功时 PowerShell 无任何输出，
+    原 bool(stdout) 恒为 False → process_job 误判切换失败、不恢复原默认
+    打印机。命令末尾按 $? 显式回写 OK 作为成功标记；打印机名单引号转义。
+    """
     if not name:
         return False
     ok = bool(_run_powershell(
-        f"(New-Object -ComObject WScript.Network).SetDefaultPrinter('{name}')"))
+        f"(New-Object -ComObject WScript.Network).SetDefaultPrinter({_ps_quote(name)}); "
+        "if ($?) { Write-Output OK }"))
     if ok:
         log.info("默认打印机已切换为：%s", name)
     else:

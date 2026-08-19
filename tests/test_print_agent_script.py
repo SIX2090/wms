@@ -118,6 +118,54 @@ class TestEnumeratePrinters:
         assert len(calls) == 3
 
 
+class TestDefaultPrinter:
+    """BUG-2026-08-19-007：Win7 PS 2.0 定向打印后默认打印机永不恢复。"""
+
+    def test_get_default_printer_falls_back_to_wmi(self, monkeypatch):
+        """Get-CimInstance 在 PS 2.0 不存在（空串），必须回退 Get-WmiObject。"""
+        calls = []
+
+        def fake_run(command):
+            calls.append(command)
+            if "Get-CimInstance" in command:
+                return ""
+            return "HP LaserJet 1020"
+
+        monkeypatch.setattr(agent, "_run_powershell", fake_run)
+        assert agent.get_default_printer() == "HP LaserJet 1020"
+        assert any("Get-WmiObject" in c for c in calls)
+
+    def test_set_default_printer_success_marker(self, monkeypatch):
+        """SetDefaultPrinter 成功时 PowerShell 无输出（空串），命令必须显式
+        回写成功标记，否则 bool('') 误判为失败、原默认打印机永不恢复。"""
+        seen = {}
+
+        def fake_run(command):
+            seen["cmd"] = command
+            return "OK"
+
+        monkeypatch.setattr(agent, "_run_powershell", fake_run)
+        assert agent.set_default_printer("HP LaserJet 1020") is True
+        assert "$?" in seen["cmd"]  # 命令含成功判定
+
+    def test_set_default_printer_failure_returns_false(self, monkeypatch):
+        monkeypatch.setattr(agent, "_run_powershell", lambda cmd: "")
+        assert agent.set_default_printer("HP") is False
+
+    def test_set_default_printer_escapes_single_quotes(self, monkeypatch):
+        """打印机名含单引号（如 O'Brien）时必须转义为 PS 单引号字符串内的
+        两个单引号，否则命令被截断/注入。"""
+        seen = {}
+
+        def fake_run(command):
+            seen["cmd"] = command
+            return "OK"
+
+        monkeypatch.setattr(agent, "_run_powershell", fake_run)
+        assert agent.set_default_printer("O'Brien 1100") is True
+        assert "O''Brien 1100" in seen["cmd"]
+
+
 class TestLoadConfig:
     def test_missing_server_token_exits(self, tmp_path, monkeypatch):
         monkeypatch.delenv("WMS_AGENT_SERVER_URL", raising=False)
