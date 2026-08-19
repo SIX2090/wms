@@ -6520,6 +6520,7 @@ MOBILE_SCAN_MODES = {
     'out': {'title': '手机出库', 'icon': 'bi-box-arrow-up'},
     'query': {'title': '手机查询', 'icon': 'bi-search'},
     'check': {'title': '手机盘点', 'icon': 'bi-clipboard-check'},
+    'confirm': {'title': '待确认', 'icon': 'bi-inbox'},
 }
 
 ANDROID_APK_PATHS = (

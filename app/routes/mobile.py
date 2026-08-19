@@ -548,6 +548,226 @@ def register_mobile_routes(app):
 
         return jsonify({'status': 'error', 'success': False, 'msg': '扫码类型不正确'}), 400
 
+    # ───────────────────────── 手机扫码出入库草稿制 ─────────────────────────
+    # 目标：扫码出入库提交时先生成 status='pending' 草稿，不动库存、不打印；
+    # 在手机端"待确认草稿清单"里人工核对确认后，才 add_stock/deduct_stock 动账 +
+    # enqueue_auto_print_job 打印。降低手机端误扫/误输直接动库存的风险（A8 用 pydantic）。
+
+    # 批量提交：一次扫码队列生成一张草稿（含多条明细），与"AUDIT 入库单"草稿流程一致
+    @app.route('/mobile/api/scan_batch_draft', methods=['POST'])
+    @_web_or_api_role_required('warehouse')
+    def mobile_scan_batch_draft():
+        from typing import Optional
+        from pydantic import BaseModel, Field, field_validator
+        from app import (InOrder, InOrderItem, Material, OutOrder, OutOrderItem,
+                         current_user, date, db, generate_order_no,
+                         get_bearer_user, jsonify, location_management_enabled,
+                         location_required_on_save, request,
+                         resolve_request_warehouse, round_to_2_decimals,
+                         parse_float_value)
+
+        class DraftLine(BaseModel):
+            material_code: str = Field(min_length=1)
+            quantity: float = Field(gt=0)
+            price: Optional[float] = None
+            location: Optional[str] = None
+            target: Optional[str] = None
+
+        class BatchDraftRequest(BaseModel):
+            mode: str = 'in'
+            lines: list[DraftLine] = Field(min_length=1)
+            warehouse: Optional[str] = None
+            warehouse_code: Optional[str] = None
+            location: Optional[str] = None
+            remark: Optional[str] = None
+
+            @field_validator('mode')
+            @classmethod
+            def _norm_mode(cls, v):
+                v = (v or '').strip()
+                return v if v in ('in', 'out') else 'in'
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            req = BatchDraftRequest.model_validate(payload)
+        except Exception as exc:
+            return jsonify({'status': 'error', 'success': False, 'msg': f'参数校验失败：{exc}'}), 400
+
+        # 仓库必填（未传时默认仓库兜底），库位独立解析
+        resolve_data = dict(payload)
+        if not resolve_data.get('warehouse') and not resolve_data.get('warehouse_code'):
+            # 无法从 lines 推断仓库，保持原样由 resolve_request_warehouse 兜底
+            pass
+        warehouse, wh_error = resolve_request_warehouse(resolve_data)
+        if wh_error:
+            return jsonify({'status': 'error', 'success': False, 'msg': wh_error}), 400
+        location = (req.location or '').strip()
+        if not location:
+            location = (warehouse.name or '').strip()
+
+        # 解析物料
+        resolved = []
+        for idx, line in enumerate(req.lines, start=1):
+            code = (line.material_code or '').strip()
+            material = Material.query.filter_by(code=code).first()
+            if not material:
+                return jsonify({'status': 'error', 'success': False, 'msg': f'第 {idx} 行物料不存在：{code}'}), 404
+            resolved.append((material, line))
+
+        actor = current_user if current_user.is_authenticated else get_bearer_user()
+
+        try:
+            if req.mode == 'in':
+                order = InOrder(
+                    order_no=generate_order_no('IN'),
+                    date=date.today(),
+                    business_type='产品入库',
+                    purpose='手机扫码入库（待确认）',
+                    warehouse=warehouse.name,
+                    location=location,
+                    remark=(req.remark or '手机端扫码提交，待确认')[:200],
+                    status='pending',  # 草稿：暂不动库存，人工确认后才 add_stock
+                    operator_id=actor.id,
+                )
+                db.session.add(order)
+                db.session.flush()
+                for material, line in resolved:
+                    price = round_to_2_decimals(parse_float_value(line.price, material.price or 0))
+                    db.session.add(InOrderItem(
+                        in_order_id=order.id,
+                        material_id=material.id,
+                        quantity=round_to_2_decimals(line.quantity),
+                        price=price,
+                        amount=round_to_2_decimals(round_to_2_decimals(line.quantity) * price),
+                    ))
+            else:
+                order = OutOrder(
+                    order_no=generate_order_no('OU'),
+                    date=date.today(),
+                    business_type='领料单',
+                    warehouse=warehouse.name,
+                    location=location,
+                    purpose=(req.remark or '手机扫码出库（待确认）')[:200] or '手机扫码出库（待确认）',
+                    remark='手机端扫码提交，待确认',
+                    status='pending',  # 草稿：人工确认后才 deduct_stock
+                    operator_id=actor.id,
+                )
+                db.session.add(order)
+                db.session.flush()
+                for material, line in resolved:
+                    price = round_to_2_decimals(parse_float_value(line.price, material.price or 0))
+                    db.session.add(OutOrderItem(
+                        out_order_id=order.id,
+                        material_id=material.id,
+                        quantity=round_to_2_decimals(line.quantity),
+                        price=price,
+                        amount=round_to_2_decimals(round_to_2_decimals(line.quantity) * price),
+                        remark=(line.target or '').strip() or None,
+                    ))
+            order.total_amount = sum(item.amount or 0 for item in order.items)
+            db.session.commit()
+            return jsonify({
+                'status': 'success',
+                'success': True,
+                'msg': f'已生成待确认草稿：{order.order_no}',
+                'data': {
+                    'order_type': req.mode,
+                    'order_id': order.id,
+                    'order_no': order.order_no,
+                    'item_count': len(resolved),
+                },
+            })
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception('Mobile scan batch draft failed')
+            return jsonify({'status': 'error', 'success': False, 'msg': '生成草稿失败，请稍后重试'}), 500
+
+    # 确认草稿：仅 status='pending' 且 admin/warehouse 角色可确认，动库存+打印
+    @app.route('/mobile/api/scan_draft_confirm/<int:order_id>', methods=['POST'])
+    @_web_or_api_role_required('warehouse')
+    def mobile_scan_draft_confirm(order_id):
+        from typing import Optional
+        from pydantic import BaseModel, Field
+        from sqlalchemy.orm import selectinload
+        from flask import current_app
+        from app import (InOrder, InOrderItem, OutOrder, OutOrderItem,
+                         add_stock,
+                         current_user, db, deduct_stock, get_bearer_user,
+                         jsonify, location_management_enabled, normalize_stock_quantity,
+                         request, update_location_inventory,
+                         _acquire_order_write_lock)
+
+        class ConfirmRequest(BaseModel):
+            order_type: str = Field(pattern='^(in|out)$')
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            c_req = ConfirmRequest.model_validate(payload)
+        except Exception as exc:
+            return jsonify({'status': 'error', 'success': False, 'msg': f'参数校验失败：{exc}'}), 400
+
+        from routes.print_queue import enqueue_auto_print_job
+        actor = current_user if current_user.is_authenticated else get_bearer_user()
+
+        try:
+            if c_req.order_type == 'in':
+                locked, ok = _acquire_order_write_lock(InOrder, order_id, 'pending', [
+                    selectinload(InOrder.items).selectinload(InOrderItem.material),
+                ])
+                if not ok:
+                    return jsonify({'status': 'error', 'success': False, 'msg': '该入库草稿已提交或不存在'}), 400
+                order = locked
+                if not order.items:
+                    return jsonify({'status': 'error', 'success': False, 'msg': '入库草稿没有明细，无法确认'}), 400
+                for item in order.items:
+                    if item.material:
+                        ok, err = add_stock(item.material, item.quantity,
+                                            'in', 'in_order', order.id,
+                                            f'手机确认入库 {order.order_no}', warehouse=order.warehouse)
+                        if not ok:
+                            db.session.rollback()
+                            return jsonify({'status': 'error', 'success': False, 'msg': err or '库存增加失败'}), 500
+                        if location_management_enabled() and (order.location or order.warehouse):
+                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity, warehouse=order.warehouse)
+                            if not loc_ok:
+                                db.session.rollback()
+                                return jsonify({'status': 'error', 'success': False, 'msg': loc_err or '库位库存更新失败'}), 400
+                order.status = 'completed'
+                enqueue_auto_print_job('in_order', order.id, order.warehouse, created_by=actor.id, source_event='scan_draft_confirm_in')
+                db.session.commit()
+                order_no = order.order_no
+            else:
+                locked, ok = _acquire_order_write_lock(OutOrder, order_id, 'pending', [
+                    selectinload(OutOrder.items).selectinload(OutOrderItem.material),
+                ])
+                if not ok:
+                    return jsonify({'status': 'error', 'success': False, 'msg': '该出库草稿已提交或不存在'}), 400
+                order = locked
+                if not order.items:
+                    return jsonify({'status': 'error', 'success': False, 'msg': '出库草稿没有明细，无法确认'}), 400
+                for item in order.items:
+                    if item.material:
+                        ok, err = deduct_stock(item.material, item.quantity,
+                                               'out', 'out_order', order.id,
+                                               f'手机确认出库 {order.order_no}', warehouse=order.warehouse)
+                        if not ok:
+                            db.session.rollback()
+                            return jsonify({'status': 'error', 'success': False, 'msg': err or '库存扣减失败'}), 400
+                        if location_management_enabled() and (order.location or order.warehouse):
+                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -item.quantity, warehouse=order.warehouse)
+                            if not loc_ok:
+                                db.session.rollback()
+                                return jsonify({'status': 'error', 'success': False, 'msg': loc_err or '库位库存扣减失败'}), 400
+                order.status = 'completed'
+                enqueue_auto_print_job('out_order', order.id, order.warehouse, created_by=actor.id, source_event='scan_draft_confirm_out')
+                db.session.commit()
+                order_no = order.order_no
+            return jsonify({'status': 'success', 'success': True, 'msg': f'确认成功：{order_no}', 'data': {'order_no': order_no}})
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception('Mobile scan draft confirm failed')
+            return jsonify({'status': 'error', 'success': False, 'msg': '确认失败，请稍后重试'}), 500
+
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/mobile/api/recognize_material', methods=['POST'])
     @_web_or_api_required
