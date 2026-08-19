@@ -1909,3 +1909,40 @@ full 验证结果：
 - 推送验证：2 次 commit 均推送输出 `To https://github.com/SIX2090/wms ... -> main`；最终本地与 `origin/main` SHA 一致（`5e31c286`）。
 - 剩余后续（明确不在本次范围，如需可建独立子项）：
   ① 其余 30+ 活跃模板 33-12=21 处非 GET raw fetch（base.html 有 CSRF 兜底，非阻塞）；② 其余 259 条 `# pydantic:reason=存量路由` 标记的路由按 P2-B 模式批量迁移（工作量约 5000 行改动，适合作为专项子任务拆分）；③ GitHub 私有仓库免费版分支保护硬限制（BUG-2026-07-31-002）依赖 GitHub 升级到 Team 或转 public，不在代码层修复。
+
+#### MENU-FIELDSET-INORDER-2026-08-19（已完成）
+
+- 完成日期：2026-08-19
+- 提交 SHA：`6d5c67c`
+- 目标：采购管理子菜单"采购入库明细"改为"采购入库明细表"，并为采购入库明细表列表页新增"字段设置"功能（复用采购入库单同款全局字段设置框架：列显示/隐藏、顺序调整、显示名修改、localStorage 持久化）。
+- 去重结论：字段设置共享能力已由 `app/static/js/app.js` 的 `WmsFieldSettings` 实现，本任务仅在其载体 `in_order.html` 上接入，不做重复开发。
+- 业务边界：仅改菜单文案、页面 title 与 `in_order.html` 添加按钮 + `data-column-key` 属性；不改任何后端业务逻辑/路由/库存/状态流转端点。
+- 改动模块：
+  - `app/templates/base.html`：采购管理子菜单"采购入库明细"→"采购入库明细表"。
+  - `app/routes/in_order.py`：`page_title` 改为 `f'{business_type_filter}明细表'`，与菜单一致。
+  - `app/templates/in_order.html`：页头新增 `#columnSettingsBtn`"字段设置"按钮；全部 `<th>`/`<td>` 补 `data-column-key`。
+- 专项验证命令及结果：
+  - `python scripts/lint_wms_rules.py` → 0 违规。
+  - `python scripts/lint_no_raw_post_fetch.py` → 通过。
+  - `python -m pytest tests/ -q` → 607 passed。
+  - pre-commit 钩子：0 违规，通过。
+- 推送验证：push 输出 `fd17f61..6d5c67c main -> main`；本地与 `origin/main` SHA 一致（`6d5c67c`）。
+
+#### MENU-FIELDSET-OUTORDER-2026-08-19（已完成）
+
+- 完成日期：2026-08-19
+- 提交 SHA：`55ef279`
+- 目标：库存管理子菜单"领料明细"改为"领料明细表"，并为领料明细表列表页新增"字段设置"功能（复用与采购入库单一致的全局字段设置框架）。
+- 去重结论：字段设置共享能力由 `app/static/js/app.js` 的 `WmsFieldSettings` 实现，本任务仅在其载体 `out_order.html` 上接入；存储按 `location.pathname + table.id`（`/out_order` + `outOrderTable`）隔离，与其它页面不冲突。
+- 业务边界：仅改菜单文案（桌面+移动端）、页面 title 与 `out_order.html` 添加按钮 + `data-column-key` 属性；不改任何后端业务逻辑/路由/库存/状态流转端点。
+- 改动模块：
+  - `app/templates/base.html`：库存管理子菜单"领料明细"→"领料明细表"（桌面 `flyout-link` 与移动端 `nav-link` 两处）。
+  - `app/routes/out_order.py`：`page_title` 改为 `'其他出库明细表' if explicit_bt=='其他出库' else '领料明细表'`。
+  - `app/templates/out_order.html`：页头新增 `#columnSettingsBtn`"字段设置"按钮（所有角色可见）；全部 `<th>`/`<td>` 补 `data-column-key`（chk/row_no/order_no/date/customer/material_code/material_name/spec/unit/quantity/price/amount/business_type/contract_no/project_name/status/actions）。
+- 专项验证命令及结果：
+  - `python scripts/lint_wms_rules.py` → 0 违规。
+  - `python scripts/lint_no_raw_post_fetch.py` → 通过。
+  - `python -m pytest tests/ -q` → 607 passed。
+  - pre-commit 钩子：0 违规，通过。
+- 推送验证：push 输出 `6d5c67c..55ef279 main -> main`；本地与 `origin/main` SHA 一致（`55ef279`）。
+- 备注：用户明确要求"每次改动都要登记"，本任务与其上一任务（`MENU-FIELDSET-INORDER-2026-08-19`）均在完成后立即登记至本台账。
