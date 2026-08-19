@@ -168,6 +168,34 @@ def test_download_agent_prefills_single_workstation_token(client):
     assert "在此粘贴工作站令牌" in cfg["token"]
 
 
+def test_add_printer_system_name_none_accepted(client):
+    """BUG-2026-08-19-005：前端 system_name 留空时传 None，
+    PrinterCreateRequest 应接受并自动用打印机名称填充，不应报 422。"""
+    _add_workstation(client, code="WS-1")
+    with app_module.app.app_context():
+        ws_id = PrintWorkstation.query.filter_by(code="WS-1").one().id
+    # system_name 传 None（前端留空）
+    resp = client.post("/print_routing/printers", json={
+        "workstation_id": ws_id,
+        "display_name": "HP LaserJet",
+        "system_name": None,
+        "printer_type": "mixed",
+        "enabled": True,
+    })
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert body["status"] == "success"
+    # system_name 为空字符串时也应成功
+    resp = client.post("/print_routing/printers", json={
+        "workstation_id": ws_id,
+        "display_name": "HP LaserJet 2",
+        "system_name": "",
+        "printer_type": "mixed",
+        "enabled": True,
+    })
+    assert resp.status_code == 200
+
+
 def test_rule_crud_and_printer_ownership(client):
     _add_workstation(client)
     _add_workstation(client, code="WS-2")

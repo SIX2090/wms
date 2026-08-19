@@ -83,7 +83,7 @@ class PrinterCreateRequest(BaseModel):
     """手工新增打印机。"""
     workstation_id: int
     display_name: str
-    system_name: str = ''
+    system_name: str | None = ''
     printer_type: str = 'mixed'
     enabled: bool = True
 
@@ -95,9 +95,9 @@ class PrinterCreateRequest(BaseModel):
             raise ValueError('打印机名称必填且不超过 100 字符')
         return v
 
-    @field_validator('system_name')
+    @field_validator('system_name', mode='before')
     @classmethod
-    def validate_system_name(cls, v: str) -> str:
+    def validate_system_name(cls, v: str | None) -> str:
         return v.strip() if v else ''
 
     @field_validator('printer_type')
