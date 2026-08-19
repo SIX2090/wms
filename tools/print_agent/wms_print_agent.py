@@ -50,6 +50,7 @@ import json
 import logging
 import os
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -109,6 +110,20 @@ def load_config(args: argparse.Namespace) -> dict:
 
 # ==================== HTTP ====================
 
+class _PostRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """重定向时保持 POST 方法。
+
+    服务器常见 http→https 301 跳转，urllib 默认跟随 301/302 会把 POST
+    降级为 GET，POST-only 的 agent API 随即返回 405。此处对 POST 请求
+    强制以 POST 重发到新地址。"""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_req is not None and req.get_method() == "POST":
+            new_req.get_method = lambda: "POST"
+        return new_req
+
+
 def _join_url(server_url: str, path: str) -> str:
     """拼接服务端地址与 API 路径（server_url 已去除尾部斜杠）。"""
     return f"{server_url.rstrip('/')}/{path.lstrip('/')}"
@@ -126,11 +141,31 @@ def api_call(server_url: str, token: str, path: str, payload: dict | None = None
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        opener = urllib.request.build_opener(_PostRedirectHandler)
+        with opener.open(req, timeout=15) as resp:
             return resp.status, _parse_json(resp.read())
     except urllib.error.HTTPError as e:
         return e.code, _parse_json(e.read())
-    except (urllib.error.URLError, OSError, TimeoutError) as e:
+    except urllib.error.URLError as e:
+        if isinstance(getattr(e, "reason", None), ssl.SSLCertVerificationError):
+            # Win7 等老系统根证书过期导致 https 验证失败：内部打印系统
+            # 降级为不验证证书重试一次（打警告），不阻断打印链路。
+            log.warning("SSL 证书验证失败（老系统根证书过期），降级为不验证证书重试")
+            ctx = ssl._create_unverified_context()
+            opener = urllib.request.build_opener(
+                _PostRedirectHandler, urllib.request.HTTPSHandler(context=ctx))
+            try:
+                with opener.open(req, timeout=15) as resp:
+                    return resp.status, _parse_json(resp.read())
+            except urllib.error.HTTPError as e2:
+                return e2.code, _parse_json(e2.read())
+            except (urllib.error.URLError, OSError, TimeoutError) as e2:
+                log.error("无法连接服务器 %s：%s", server_url, e2)
+                return 0, {}
+            return 0, {}
+        log.error("无法连接服务器 %s：%s", server_url, e)
+        return 0, {}
+    except (OSError, TimeoutError) as e:
         log.error("无法连接服务器 %s：%s", server_url, e)
         return 0, {}
 
