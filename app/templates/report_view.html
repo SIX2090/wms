@@ -151,6 +151,12 @@
 </section>
 
 <section class="card border-0 shadow-sm">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <span class="small text-muted">查询明细</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="columnSettingsBtn" title="显示/隐藏及调整明细字段">
+            <i class="bi bi-list-columns"></i> 栏目设置
+        </button>
+    </div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0" id="reportTable">
@@ -434,6 +440,7 @@ function renderTable(columns, rows) {
     tableHeaderRow.innerHTML = '';
     columns.forEach((column) => {
         const th = document.createElement('th');
+        th.dataset.columnKey = column.field;
         th.className = 'sortable-header';
         th.innerHTML = `${escapeHtml(column.title)} <span class="sort-marker">${currentSortField === column.field ? (currentSortOrder === 'asc' ? '↑' : '↓') : ''}</span>`;
         th.addEventListener('click', () => {
@@ -458,26 +465,68 @@ function renderTable(columns, rows) {
 
     const html = rows.map((row) => {
         const cells = columns.map((column) => {
+            const key = column.field;
             const value = row[column.field];
             if (column.type === 'status') {
                 if (value === 'completed') {
-                    return '<td><span class="badge bg-success">已完成</span></td>';
+                    return `<td data-column-key="${escapeHtml(key)}"><span class="badge bg-success">已完成</span></td>`;
                 }
                 if (value === 'pending') {
-                    return '<td><span class="badge bg-warning text-dark">待处理</span></td>';
+                    return `<td data-column-key="${escapeHtml(key)}"><span class="badge bg-warning text-dark">待处理</span></td>`;
                 }
             }
             const displayValue = formatValue(value, column.type);
             const link = column.link_field ? row[column.link_field] : '';
             if (link && value !== null && value !== undefined && value !== '') {
-                return `<td><a class="report-doc-link" href="${escapeHtml(link)}">${escapeHtml(displayValue)}</a></td>`;
+                return `<td data-column-key="${escapeHtml(key)}"><a class="report-doc-link" href="${escapeHtml(link)}">${escapeHtml(displayValue)}</a></td>`;
             }
-            return `<td>${escapeHtml(displayValue)}</td>`;
+            return `<td data-column-key="${escapeHtml(key)}">${escapeHtml(displayValue)}</td>`;
         }).join('');
         return `<tr>${cells}</tr>`;
     }).join('');
 
     tableBody.innerHTML = html;
+    // 字段设置：应用已保存的列隐藏 / 排序 / 显示名（报表表格为动态渲染，需每次渲染后重新接管）。
+    applyReportFieldSettings();
+}
+
+// 字段设置：读取 localStorage 中该报表已保存的列设置，应用到当前渲染的表格。
+// 与 app.js 的 WmsFieldSettings 共用同一存储键格式（按 pathname + 表 id 隔离），
+// 这里的隐藏使用同一隐藏列 class，保证与「栏目设置」弹窗保存的结果一致。
+function applyReportFieldSettings() {
+    const t = document.getElementById('reportTable');
+    if (!t || !t.tHead || !t.tHead.rows.length) return;
+    let state;
+    try {
+        state = JSON.parse(localStorage.getItem('wms:field-settings:v3:' + location.pathname + ':reportTable') || 'null');
+    } catch (e) { state = null; }
+    if (!state || !Array.isArray(state.order)) return;
+    const order = state.order;
+    const hidden = Array.isArray(state.hidden) ? state.hidden : [];
+    const labels = state.labels && typeof state.labels === 'object' ? state.labels : {};
+    // 排序：表头行与数据行按已保存顺序重排，保证 thead 与 tbody 列对齐
+    Array.from(t.rows).forEach((row) => {
+        const cells = Array.from(row.children).filter((c) => c.dataset && c.dataset.columnKey);
+        order.forEach((key) => {
+            const cell = cells.find((c) => c.dataset.columnKey === key);
+            if (cell) row.appendChild(cell);
+        });
+    });
+    // 隐藏列
+    hidden.forEach((key) => {
+        t.querySelectorAll('[data-column-key="' + CSS.escape(key) + '"]').forEach((cell) => {
+            cell.classList.add('wms-field-column-hidden');
+        });
+    });
+    // 显示名
+    Object.keys(labels).forEach((key) => {
+        const label = labels[key];
+        if (!label) return;
+        const th = t.querySelector('thead th[data-column-key="' + CSS.escape(key) + '"]');
+        if (!th) return;
+        const textNode = Array.from(th.childNodes).find((n) => n.nodeType === 3);
+        if (textNode) textNode.textContent = label;
+    });
 }
 
 function renderPagination(total) {

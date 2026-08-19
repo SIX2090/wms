@@ -73,10 +73,15 @@
   <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
       <span>物料钻取明细：{{ drill_material_name }}（{{ drill_material_code }}）</span>
-      <span class="text-muted small">共 {{ drill_items|length }} 条明细</span>
+      <span class="d-flex align-items-center gap-2">
+        <span class="text-muted small">共 {{ drill_items|length }} 条明细</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" title="显示/隐藏及调整明细字段">
+          <i class="bi bi-list-columns"></i> 栏目设置
+        </button>
+      </span>
     </div>
     <div class="table-responsive">
-      <table class="table table-sm table-hover mb-0">
+      <table class="table table-sm table-hover mb-0" id="salesReportDrillTable">
         <thead><tr><th>订单号</th><th>日期</th><th>客户</th><th>业务员</th><th class="text-end">数量</th><th class="text-end">已发货</th><th class="text-end">含税单价</th><th class="text-end">税率</th><th class="text-end">未税金额</th><th class="text-end">税额</th><th class="text-end">含税金额</th></tr></thead>
         <tbody>
           {% for it in drill_items %}
@@ -112,9 +117,12 @@
   <div class="row g-3">
     <div class="col-lg-4">
       <div class="card">
-        <div class="card-header">客户销售汇总（点击钻取）</div>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span>客户销售汇总（点击钻取）</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" title="显示/隐藏及调整明细字段"><i class="bi bi-list-columns"></i> 栏目设置</button>
+        </div>
         <div class="table-responsive">
-          <table class="table table-sm mb-0">
+          <table class="table table-sm mb-0" id="salesReportCustomerTable">
             <thead><tr><th>客户</th><th>订单数</th><th>数量</th><th class="text-end">未税</th><th class="text-end">税额</th><th class="text-end">含税金额</th></tr></thead>
             <tbody>
               {% for row in by_customer %}
@@ -136,9 +144,12 @@
     </div>
     <div class="col-lg-4">
       <div class="card">
-        <div class="card-header">物料销售汇总（点击钻取）</div>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span>物料销售汇总（点击钻取）</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" title="显示/隐藏及调整明细字段"><i class="bi bi-list-columns"></i> 栏目设置</button>
+        </div>
         <div class="table-responsive">
-          <table class="table table-sm mb-0">
+          <table class="table table-sm mb-0" id="salesReportMaterialTable">
             <thead><tr><th>编码</th><th>名称</th><th>数量</th><th class="text-end">未税</th><th class="text-end">税额</th><th class="text-end">含税金额</th></tr></thead>
             <tbody>
               {% for row in by_material %}
@@ -160,9 +171,12 @@
     </div>
     <div class="col-lg-4">
       <div class="card">
-        <div class="card-header">业务员销售汇总</div>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span>业务员销售汇总</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" title="显示/隐藏及调整明细字段"><i class="bi bi-list-columns"></i> 栏目设置</button>
+        </div>
         <div class="table-responsive">
-          <table class="table table-sm mb-0">
+          <table class="table table-sm mb-0" id="salesReportSalespersonTable">
             <thead><tr><th>业务员</th><th>订单数</th><th class="text-end">未税</th><th class="text-end">税额</th><th class="text-end">含税金额</th></tr></thead>
             <tbody>
               {% for row in by_salesperson %}

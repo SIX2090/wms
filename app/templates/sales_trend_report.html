@@ -57,7 +57,12 @@
   <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
       <span>月度销售趋势</span>
-      <span class="text-muted small">共 {{ rows|length }} 个月</span>
+      <span class="d-flex align-items-center gap-2">
+        <span class="text-muted small">共 {{ rows|length }} 个月</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="columnSettingsBtn" title="显示/隐藏及调整明细字段">
+          <i class="bi bi-list-columns"></i> 栏目设置
+        </button>
+      </span>
     </div>
     <div class="table-responsive">
       <table class="table table-sm table-hover mb-0">
