@@ -218,6 +218,52 @@ def test_printer_edit(client):
     assert resp.status_code == 400
 
 
+def test_printer_add_manual(client):
+    """手工新增打印机：正常创建 + 重名拒绝 + 非法工作站 404 + 非法类型 400。"""
+    _add_workstation(client)
+    with app_module.app.app_context():
+        ws = PrintWorkstation.query.filter_by(code="WS-1").one()
+        ws_id = ws.id
+    # 正常新增
+    resp = client.post("/print_routing/printers", json={
+        "workstation_id": ws_id, "display_name": "HP LaserJet",
+        "system_name": "HP LaserJet Pro", "printer_type": "document", "enabled": True,
+    })
+    assert resp.status_code == 200
+    assert resp.get_json()["status"] == "success"
+    with app_module.app.app_context():
+        printer = PrintDevice.query.filter_by(display_name="HP LaserJet").one()
+        printer_id = printer.id
+        assert printer.system_name == "HP LaserJet Pro"
+        assert printer.printer_type == "document"
+        assert printer.status == "offline"
+    # 同一工作站下同 system_name 重名 → 400
+    resp = client.post("/print_routing/printers", json={
+        "workstation_id": ws_id, "display_name": "HP 2",
+        "system_name": "HP LaserJet Pro", "printer_type": "mixed",
+    })
+    assert resp.status_code == 400
+    # system_name 留空 → 自动取 display_name
+    resp = client.post("/print_routing/printers", json={
+        "workstation_id": ws_id, "display_name": "标签机A",
+        "printer_type": "label",
+    })
+    assert resp.status_code == 200
+    with app_module.app.app_context():
+        p2 = PrintDevice.query.filter_by(display_name="标签机A").one()
+        assert p2.system_name == "标签机A"
+    # 非法工作站 → 404
+    resp = client.post("/print_routing/printers", json={
+        "workstation_id": 99999, "display_name": "x", "printer_type": "mixed",
+    })
+    assert resp.status_code == 404
+    # 非法类型 → 400
+    resp = client.post("/print_routing/printers", json={
+        "workstation_id": ws_id, "display_name": "x", "printer_type": "photo",
+    })
+    assert resp.status_code == 400
+
+
 def test_print_routing_page_selfheals_missing_tables(client):
     """BUG-2026-08-19-003：老库缺 print 系列表时 /print_routing 曾抛
     "no such table" 直接 500（页面显示"服务器内部错误"）。修复后路由惰性

@@ -75,6 +75,35 @@ class WorkstationEditRequest(BaseModel):
         return v
 
 
+class PrinterCreateRequest(BaseModel):
+    """手工新增打印机。"""
+    workstation_id: int
+    display_name: str
+    system_name: str = ''
+    printer_type: str = 'mixed'
+    enabled: bool = True
+
+    @field_validator('display_name')
+    @classmethod
+    def validate_display_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v or len(v) > 100:
+            raise ValueError('打印机名称必填且不超过 100 字符')
+        return v
+
+    @field_validator('system_name')
+    @classmethod
+    def validate_system_name(cls, v: str) -> str:
+        return v.strip() if v else ''
+
+    @field_validator('printer_type')
+    @classmethod
+    def validate_printer_type(cls, v: str) -> str:
+        if v not in ('label', 'document', 'mixed'):
+            raise ValueError('打印机类型必须是 label / document / mixed')
+        return v
+
+
 class PrinterEditRequest(BaseModel):
     """编辑打印机。"""
     display_name: str
@@ -239,6 +268,31 @@ def register_print_routing_routes(app):
         db.session.delete(ws)
         db.session.commit()
         return jsonify({'status': 'success', 'msg': '删除成功'})
+
+    @app.route('/print_routing/printers', methods=['POST'])
+    # pydantic:reason=请求体经 PrinterCreateRequest（BaseModel）校验
+    @login_required
+    @require_role('admin')
+    def print_routing_printer_add():
+        from app import PrintDevice, PrintWorkstation
+        try:
+            req = PrinterCreateRequest(**(request.get_json(silent=True) or {}))
+        except Exception as e:
+            return jsonify({'status': 'error', 'msg': f'参数错误：{e}'}), 400
+        ws = db.session.get(PrintWorkstation, req.workstation_id)
+        if not ws:
+            return jsonify({'status': 'error', 'msg': '工作站不存在'}), 404
+        system_name = req.system_name or req.display_name
+        if PrintDevice.query.filter_by(workstation_id=ws.id, system_name=system_name).first():
+            return jsonify({'status': 'error', 'msg': '该工作站下同名打印机已存在'}), 400
+        printer = PrintDevice(
+            workstation_id=ws.id, system_name=system_name,
+            display_name=req.display_name, printer_type=req.printer_type,
+            status='offline', enabled=req.enabled,
+        )
+        db.session.add(printer)
+        db.session.commit()
+        return jsonify({'status': 'success', 'msg': '新增成功'})
 
     @app.route('/print_routing/printers/<int:printer_id>/edit', methods=['POST'])
     # pydantic:reason=请求体经 PrinterEditRequest（BaseModel）校验

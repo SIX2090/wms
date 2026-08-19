@@ -52,6 +52,11 @@
                             </button>
                         </div>
                     </div>
+                    <div class="d-flex justify-content-end mb-1">
+                        <button class="btn btn-outline-success btn-sm py-0 px-2" onclick="openAddPrinter({{ ws.id }}, {{ ws.code | tojson }})">
+                            <i class="bi bi-plus-lg"></i> 新增打印机
+                        </button>
+                    </div>
                     <table class="table table-sm table-bordered mb-2">
                         <thead>
                             <tr class="small">
@@ -77,7 +82,7 @@
                                 </td>
                             </tr>
                             {% else %}
-                            <tr><td colspan="5" class="text-muted text-center small">暂无打印机（启动打印代理后自动注册）</td></tr>
+                            <tr><td colspan="5" class="text-muted text-center small">暂无打印机（可手工新增或启动打印代理自动注册）</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>
@@ -222,6 +227,47 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
                 <button type="button" class="btn btn-primary" onclick="savePrinter()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 新增打印机 -->
+<div class="modal fade" id="printerAddModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">新增打印机</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <input type="hidden" id="printerAddWsId">
+                <div class="mb-3">
+                    <label class="form-label">所属工作站</label>
+                    <input type="text" class="form-control" id="printerAddWsName" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">打印机名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="printerAddName" placeholder="如 HP LaserJet" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">系统名称（留空则与打印机名称相同）</label>
+                    <input type="text" class="form-control" id="printerAddSystemName" placeholder="Windows 打印机系统名，留空自动取名称">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">类型</label>
+                    <select class="form-select" id="printerAddType">
+                        <option value="mixed">混合</option>
+                        <option value="label">标签机</option>
+                        <option value="document">单据机</option>
+                    </select>
+                </div>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="printerAddEnabled" checked>
+                    <label class="form-check-label" for="printerAddEnabled">启用</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="addPrinter()">创建</button>
             </div>
         </div>
     </div>
@@ -382,6 +428,30 @@ function deletePrinter(id, name) {
     WMS.api.post('/print_routing/printers/' + id + '/delete', {}).then(function (res) {
         if (typeof showToast === 'function') { showToast(res.msg); } location.reload();
     }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '删除失败', 'danger'); } });
+}
+
+function openAddPrinter(wsId, wsCode) {
+    document.getElementById('printerAddWsId').value = wsId;
+    document.getElementById('printerAddWsName').value = wsCode;
+    document.getElementById('printerAddName').value = '';
+    document.getElementById('printerAddSystemName').value = '';
+    document.getElementById('printerAddType').value = 'mixed';
+    document.getElementById('printerAddEnabled').checked = true;
+    new bootstrap.Modal(document.getElementById('printerAddModal')).show();
+}
+
+function addPrinter() {
+    var data = {
+        workstation_id: parseInt(document.getElementById('printerAddWsId').value, 10),
+        display_name: document.getElementById('printerAddName').value,
+        system_name: document.getElementById('printerAddSystemName').value || null,
+        printer_type: document.getElementById('printerAddType').value,
+        enabled: document.getElementById('printerAddEnabled').checked,
+    };
+    if (!data.display_name) { if (typeof showToast === 'function') { showToast('请填写打印机名称', 'danger'); } return; }
+    WMS.api.post('/print_routing/printers', data).then(function (res) {
+        if (typeof showToast === 'function') { showToast(res.msg); } location.reload();
+    }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '新增失败', 'danger'); } });
 }
 
 function onRuleWorkstationChange() {
