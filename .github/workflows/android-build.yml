@@ -3,8 +3,6 @@ name: Android APK Build
 on:
   push:
     branches: [main]
-    paths:
-      - 'app/android-native-wms/**'
   workflow_dispatch:
 
 jobs:
