@@ -46,6 +46,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import logging
 import os
@@ -188,7 +190,11 @@ def _run_powershell(command: str) -> str:
         result = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
             capture_output=True, text=True, timeout=30, encoding="utf-8", errors="replace")
-        return result.stdout.strip() if result.returncode == 0 else ""
+        if result.returncode != 0:
+            log.warning("PowerShell 命令失败（exit=%s）：%s",
+                        result.returncode, (result.stderr or "").strip()[:300])
+            return ""
+        return result.stdout.strip()
     except (OSError, subprocess.SubprocessError) as e:
         log.warning("PowerShell 执行失败：%s", e)
         return ""
@@ -205,28 +211,63 @@ def _map_printer_status(printer_status, work_offline) -> str:
 
 
 def enumerate_printers() -> list[dict]:
-    """枚举本机打印机，转换为心跳上报格式 [{system_name, status, is_default}]。"""
-    raw = _run_powershell(
-        "Get-CimInstance Win32_Printer | Select-Object Name, Default, "
-        "PrinterStatus, WorkOffline | ConvertTo-Json -Compress")
-    if not raw:
-        return []
+    """枚举本机打印机，转换为心跳上报格式 [{system_name, status, is_default}]。
+
+    BUG-2026-08-19-006：Get-CimInstance / ConvertTo-Json 均需 PowerShell 3.0+，
+    Win7 默认 PowerShell 2.0 两个命令都没有（退出码非 0 → 空串），导致打印
+    机列表为空、全部显示离线。回退链：CimInstance+Json → WmiObject+Json →
+    WmiObject+Csv（PS 2.0 自带 ConvertTo-Csv）。
+    """
+    query = "Win32_Printer | Select-Object Name, Default, PrinterStatus, WorkOffline"
+    commands = [
+        f"Get-CimInstance {query} | ConvertTo-Json -Compress",
+        f"Get-WmiObject {query} | ConvertTo-Json -Compress",
+        f"Get-WmiObject {query} | ConvertTo-Csv -NoTypeInformation",
+    ]
+    for cmd in commands:
+        raw = _run_powershell(cmd)
+        if not raw:
+            continue
+        printers = _parse_printer_output(raw)
+        if printers:
+            return printers
+    return []
+
+
+def _parse_printer_output(raw: str) -> list[dict]:
+    """解析 PowerShell 输出（JSON 或 CSV）为心跳上报打印机列表；失败返回 []。"""
+    rows: list[dict]
     try:
         data = json.loads(raw)
+        rows = data if isinstance(data, list) else [data]
     except ValueError:
-        return []
-    printers = data if isinstance(data, list) else [data]
+        try:
+            rows = list(csv.DictReader(io.StringIO(raw)))
+        except Exception:
+            return []
     result = []
-    for p in printers:
+    for p in rows:
         name = str(p.get("Name") or "").strip()
         if not name or len(name) > 200:
             continue
         result.append({
             "system_name": name,
-            "status": _map_printer_status(p.get("PrinterStatus"), p.get("WorkOffline")),
-            "is_default": bool(p.get("Default")),
+            "status": _map_printer_status(
+                _to_int(p.get("PrinterStatus")), _to_bool(p.get("WorkOffline"))),
+            "is_default": _to_bool(p.get("Default")),
         })
     return result
+
+
+def _to_bool(v) -> bool:
+    return str(v).strip().lower() in ("true", "1")
+
+
+def _to_int(v):
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
 
 
 def get_default_printer() -> str:
@@ -434,11 +475,18 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     if args.list_printers:
         setup_logging(True, None)
-        for p in enumerate_printers():
+        printers = enumerate_printers()
+        for p in printers:
             mark = " *" if p["is_default"] else ""
             print(f"{p['system_name']}{mark}  [{p['status']}]")
-        if os.name != "nt":
-            print("（当前非 Windows 系统，仅返回空列表）")
+        if not printers:
+            if os.name == "nt":
+                print("未检测到任何打印机，请依次检查：")
+                print("  1) 控制面板 → 设备和打印机 里是否已安装打印机")
+                print("  2) 打印服务 Print Spooler 是否正在运行（services.msc）")
+                print("  3) 手动验证：powershell -Command \"Get-WmiObject Win32_Printer | Select Name\"")
+            else:
+                print("（当前非 Windows 系统，仅返回空列表）")
         return 0
     setup_logging(args.verbose, args.log_file)
     cfg = load_config(args)

@@ -56,6 +56,67 @@ class TestEnumeratePrinters:
             pytest.skip("仅验证非 Windows 环境的空列表行为")
         assert agent.enumerate_printers() == []
 
+    def test_parses_single_printer_object(self, monkeypatch):
+        """ConvertTo-Json 只有一台打印机时输出单个对象而非数组，必须能解析。"""
+        monkeypatch.setattr(agent, "_run_powershell", lambda cmd: json.dumps(
+            {"Name": "HP LaserJet 1020", "Default": True,
+             "PrinterStatus": 3, "WorkOffline": False}))
+        printers = agent.enumerate_printers()
+        assert printers == [{"system_name": "HP LaserJet 1020",
+                             "status": "ready", "is_default": True}]
+
+    def test_parses_multiple_printers_array(self, monkeypatch):
+        monkeypatch.setattr(agent, "_run_powershell", lambda cmd: json.dumps([
+            {"Name": "HP", "Default": True, "PrinterStatus": 3, "WorkOffline": False},
+            {"Name": "TSC", "Default": False, "PrinterStatus": 7, "WorkOffline": True},
+        ]))
+        printers = agent.enumerate_printers()
+        assert [p["system_name"] for p in printers] == ["HP", "TSC"]
+        assert printers[1]["status"] == "error"
+
+    def test_falls_back_to_wmi_on_powershell2(self, monkeypatch):
+        """BUG-2026-08-19-006：Win7 默认 PowerShell 2.0 无 Get-CimInstance，
+        首选命令执行失败（返回空串）时必须回退 Get-WmiObject（PS2.0 可用）。"""
+        calls = []
+
+        def fake_run(command):
+            calls.append(command)
+            if "Get-CimInstance" in command:
+                return ""  # PS2.0：Get-CimInstance 不识别，退出码非 0 → 空串
+            return json.dumps([
+                {"Name": "HP", "Default": True, "PrinterStatus": 3,
+                 "WorkOffline": False}])
+
+        monkeypatch.setattr(agent, "_run_powershell", fake_run)
+        printers = agent.enumerate_printers()
+        assert printers == [{"system_name": "HP", "status": "ready",
+                             "is_default": True}]
+        assert len(calls) == 2
+        assert "Get-WmiObject" in calls[1]
+
+    def test_falls_back_to_csv_on_powershell2(self, monkeypatch):
+        """PS 2.0 连 ConvertTo-Json 也没有，最终回退 ConvertTo-Csv 输出，
+        由 _parse_printer_output 用 csv 模块解析（字符串 True/数字均需转换）。"""
+        calls = []
+
+        def fake_run(command):
+            calls.append(command)
+            if "ConvertTo-Csv" in command:
+                return ('"Name","Default","PrinterStatus","WorkOffline"\r\n'
+                        '"HP LaserJet 1020","True","3","False"\r\n'
+                        '"TSC TTP-244","False","7","True"\r\n')
+            return ""  # 两个 Json 命令均失败
+
+        monkeypatch.setattr(agent, "_run_powershell", fake_run)
+        printers = agent.enumerate_printers()
+        assert printers == [
+            {"system_name": "HP LaserJet 1020", "status": "ready",
+             "is_default": True},
+            {"system_name": "TSC TTP-244", "status": "error",
+             "is_default": False},
+        ]
+        assert len(calls) == 3
+
 
 class TestLoadConfig:
     def test_missing_server_token_exits(self, tmp_path, monkeypatch):
