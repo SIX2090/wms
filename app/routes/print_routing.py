@@ -15,9 +15,13 @@
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
 
+import io
+import json
+import os
 import secrets
+import zipfile
 
-from flask import jsonify, render_template, request
+from flask import jsonify, render_template, request, send_file
 from flask_login import login_required
 from pydantic import BaseModel, field_validator
 from sqlalchemy.exc import OperationalError
@@ -196,6 +200,46 @@ def register_print_routing_routes(app):
         return render_template(
             'print_routing.html', workstations=workstations, rules=rules,
             warehouses=warehouses, event_labels=BUSINESS_EVENT_LABELS)
+
+    @app.route('/print_routing/download_agent')
+    @login_required
+    @require_role('admin')
+    def print_routing_download_agent():
+        """下载打印代理部署包（zip）：含 wms_print_agent.py + 预填配置的 agent_config.json。"""
+        agent_src = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                                 'tools', 'print_agent', 'wms_print_agent.py')
+        if not os.path.isfile(agent_src):
+            return jsonify({'status': 'error', 'msg': '代理脚本不存在'}), 500
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.write(agent_src, 'wms_print_agent.py')
+            cfg = {
+                'server_url': request.host_url.rstrip('/'),
+                'token': '在此粘贴工作站令牌（从 /print_routing 页面复制）',
+                'poll_interval': 3,
+                'heartbeat_interval': 60,
+                'print_timeout': 120,
+            }
+            zf.writestr('agent_config.json', json.dumps(cfg, ensure_ascii=False, indent=2))
+            readme = (
+                "WMS 打印代理部署包\n"
+                "====================\n"
+                "1. 解压到任意目录（如 C:\\wms_agent\\）\n"
+                "2. 编辑 agent_config.json，把 token 替换为 /print_routing 页面复制的令牌\n"
+                "3. 双击 run.bat 启动代理（首次建议用 run.bat，稳定后改用 start.bat 后台运行）\n"
+                "4. 验证：打开 /print_routing 页面，工作站状态应变为「在线」\n\n"
+                "开机自启（推荐）：\n"
+                "  schtasks /Create /TN \"WMS Print Agent\" /SC ONSTART /RU SYSTEM ^\n"
+                "    /TR \"\\\"C:\\Path\\To\\pythonw.exe\\\" C:\\wms_agent\\wms_print_agent.py --config C:\\wms_agent\\agent_config.json\"\n"
+            )
+            zf.writestr('README.txt', readme)
+            run_bat = "@echo off\r\npython wms_print_agent.py --config agent_config.json\r\npause\r\n"
+            zf.writestr('run.bat', run_bat)
+            start_bat = "@echo off\r\nstart /min pythonw wms_print_agent.py --config agent_config.json\r\n"
+            zf.writestr('start.bat', start_bat)
+        buf.seek(0)
+        return send_file(buf, mimetype='application/zip',
+                         as_attachment=True, download_name='wms_print_agent.zip')
 
     @app.route('/print_routing/workstations', methods=['POST'])
     # pydantic:reason=请求体经 WorkstationCreateRequest（BaseModel）校验
