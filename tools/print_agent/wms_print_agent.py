@@ -99,7 +99,7 @@ def load_config(args: argparse.Namespace) -> dict:
         value = getattr(args, key, None)
         if value is not None:
             cfg[key] = value
-    cfg["server_url"] = str(cfg["server_url"] or "").rstrip("/")
+    cfg["server_url"] = str(cfg["server_url"] or "").strip().strip("`").rstrip("/")
     if not cfg["server_url"] or not cfg["token"]:
         raise SystemExit(
             "缺少 server_url / token：请用 --server/--token、环境变量或配置文件提供")
