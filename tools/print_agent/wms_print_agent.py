@@ -85,7 +85,8 @@ def load_config(args: argparse.Namespace) -> dict:
                                        "agent_config.json")
     if os.path.isfile(path):
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            # utf-8-sig 兼容记事本等编辑器保存的 UTF-8 BOM 文件，避免 "Unexpected UTF-8 BOM" 解析失败
+            with open(path, "r", encoding="utf-8-sig") as f:
                 cfg.update({k: v for k, v in json.load(f).items() if k in cfg})
             log.info("已加载配置文件 %s", path)
         except (OSError, ValueError) as e:
