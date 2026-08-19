@@ -1946,3 +1946,23 @@ full 验证结果：
   - pre-commit 钩子：0 违规，通过。
 - 推送验证：push 输出 `6d5c67c..55ef279 main -> main`；本地与 `origin/main` SHA 一致（`55ef279`）。
 - 备注：用户明确要求"每次改动都要登记"，本任务与其上一任务（`MENU-FIELDSET-INORDER-2026-08-19`）均在完成后立即登记至本台账。
+
+#### BUG-2026-08-19-001-FIX（已完成）— 字段设置弹窗字段多时无滚动条
+
+- 完成日期：2026-08-19
+- 提交 SHA：`0dd3c2e`
+- 目标：修复字段设置（栏目设置）弹窗在字段数量多时列表溢出弹窗、无滚动条、底部按钮遮挡行的问题，要求字段多时出现滚动条。
+- 根因：`.wms-field-settings__content` 为 grid 且行高 auto，明细面板用内联 `display:contents` 使表格直接成为内容区子项，表格自然高度撑破固定高度弹窗；`__table-wrap` 的 `overflow:auto` 因 `min-height:260px` 与无高度上限而不生效。
+- 业务边界：仅改字段设置弹窗 CSS 布局与面板内联样式；不改任何后端/路由/库存/状态流转逻辑；不改字段设置数据模型与 localStorage 结构。
+- 改动模块：
+  - `app/static/css/custom.css`：`__content` 加 `grid-template-rows:minmax(0,1fr)`；新增 `__panel` 网格行约束（`minmax(0,1fr)` + `grid-column:1/-1`）；`__table-wrap` 改 `overflow:auto;min-height:0`（移除 `min-height:260px`）；移动端媒体查询同步面板列宽。
+  - `app/static/js/app.js`：明细面板移除 `style="display:contents"`，使面板作为网格项参与行约束。
+  - `scripts/verify_wms_bugs.py`：新增 `check_field_settings_scroll`（BUG-2026-08-19-001 回归：内容区行约束 + 表格容器 overflow:auto/min-height:0 + 禁止 display:contents）。
+  - `WMS_BUG_BASELINE.md`：登记 BUG-2026-08-19-001 为已修复并纳入回归。
+- 专项验证命令及结果：
+  - `python scripts/verify_wms_bugs.py` → 回归检查通过（含 BUG-2026-08-19-001 新检查）。
+  - `python scripts/lint_wms_rules.py` → 0 违规。
+  - `python scripts/lint_no_raw_post_fetch.py` → 通过。
+  - `python -m pytest tests/ -q` → 607 passed。
+  - pre-commit 钩子：0 违规，通过。
+- 推送验证：修复提交 push 输出 `472d4e2..0dd3c2e main -> main`；本登记提交随后推送，最终本地与 `origin/main` SHA 一致。
