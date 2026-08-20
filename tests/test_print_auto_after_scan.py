@@ -141,7 +141,7 @@ def test_enqueue_auto_print_job(client):
         assert job.route_rule_id is not None
         assert job.source_event == 'scan_inbound'
         db.session.commit()
-        # 无路由（out_order 未配置）：回退创建未定向任务，供桌面工作站认领
+        # 完全没有启用路由时：回退创建未定向任务，供桌面工作站认领
         fallback = enqueue_auto_print_job('out_order', 999, wh.name, source_event='scan_outbound')
         assert fallback is not None
         assert fallback.workstation_id is None

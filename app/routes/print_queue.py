@@ -184,7 +184,10 @@ def _claim_result_matches(job, lease_token):
 def _claim_pending_job(PrintJob, workstation_id=None):
     """以条件更新原子认领一条任务，避免并发代理拿到同一任务。"""
     query = PrintJob.query.filter_by(status='pending', workstation_id=workstation_id)
-    candidate = query.order_by(PrintJob.created_at.asc()).first()
+    candidates = query.order_by(PrintJob.created_at.asc()).all()
+    candidate = next((item for item in candidates if (
+        not item.printer_id or (item.printer and item.printer.enabled
+                                 and item.printer.status == 'online'))), None)
     if not candidate:
         return None
     lease_token = secrets.token_urlsafe(24)
@@ -201,18 +204,21 @@ def _claim_pending_job(PrintJob, workstation_id=None):
     return db.session.get(PrintJob, candidate.id)
 
 
-def _resolve_print_route(job_type, warehouse_name):
+def _resolve_print_route(job_type, warehouse_name, include_unavailable=False):
     from app import PrintRouteRule, Warehouse
     warehouse = None
     if warehouse_name:
         warehouse = Warehouse.query.filter_by(name=warehouse_name).first()
     rules = PrintRouteRule.query.filter_by(business_event=job_type, enabled=True).order_by(
         PrintRouteRule.priority.asc(), PrintRouteRule.id.asc()).all()
-    for rule in rules:
-        if rule.warehouse_id is None or (warehouse and rule.warehouse_id == warehouse.id):
-            if (workstation_is_online(rule.workstation)
-                    and rule.printer.enabled and rule.printer.status == 'online'):
-                return rule
+    matching_rules = [rule for rule in rules if (
+        rule.warehouse_id is None or (warehouse and rule.warehouse_id == warehouse.id))]
+    if include_unavailable:
+        return matching_rules[0] if matching_rules else None
+    for rule in matching_rules:
+        if (workstation_is_online(rule.workstation)
+                and rule.printer.enabled and rule.printer.status == 'online'):
+            return rule
     return None
 
 
@@ -244,6 +250,8 @@ def enqueue_auto_print_job(job_type, target_id, warehouse_name, target_ids=None,
     """
     from app import PrintJob
     route = _resolve_print_route(job_type, warehouse_name)
+    assignment_route = route or _resolve_print_route(
+        job_type, warehouse_name, include_unavailable=True)
     job = PrintJob(
         job_type=job_type,
         target_id=target_id,
@@ -251,9 +259,9 @@ def enqueue_auto_print_job(job_type, target_id, warehouse_name, target_ids=None,
         copies=copies,
         status='pending',
         created_by=created_by,
-        workstation_id=route.workstation_id if route else None,
-        printer_id=route.printer_id if route else None,
-        route_rule_id=route.id if route else None,
+        workstation_id=assignment_route.workstation_id if assignment_route else None,
+        printer_id=assignment_route.printer_id if assignment_route else None,
+        route_rule_id=assignment_route.id if assignment_route else None,
         source_event=source_event,
     )
     db.session.add(job)
@@ -341,6 +349,8 @@ def register_print_queue_routes(app):
                 return jsonify({'status': 'error', 'msg': '标签物料不存在或格式无效'}), 400
 
         route = _resolve_print_route(req.job_type, warehouse_name)
+        assignment_route = route or _resolve_print_route(
+            req.job_type, warehouse_name, include_unavailable=True)
         job = PrintJob(
             job_type=req.job_type,
             target_id=req.target_id,
@@ -348,9 +358,9 @@ def register_print_queue_routes(app):
             copies=req.copies,
             status='pending',
             created_by=user.id,
-            workstation_id=route.workstation_id if route else None,
-            printer_id=route.printer_id if route else None,
-            route_rule_id=route.id if route else None,
+            workstation_id=assignment_route.workstation_id if assignment_route else None,
+            printer_id=assignment_route.printer_id if assignment_route else None,
+            route_rule_id=assignment_route.id if assignment_route else None,
         )
         db.session.add(job)
         db.session.commit()

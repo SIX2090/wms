@@ -445,8 +445,8 @@ def test_agent_claim_url_contains_ptoken_and_autoprint(client):
 
 # ==================== 路由解析感知心跳超窗 ====================
 
-def test_route_resolution_skips_stale_heartbeat_workstation(client):
-    """心跳超窗的工作站不再接收新任务（enqueue 不定向，走公共队列）。"""
+def test_route_resolution_keeps_stale_workstation_job_targeted(client):
+    """已配置但离线的路由不应回退到其他公共工作站。"""
     from routes.print_queue import enqueue_auto_print_job
     with app_module.app.app_context():
         wh = Warehouse.query.filter_by(code="RWH0").first()
@@ -465,12 +465,12 @@ def test_route_resolution_skips_stale_heartbeat_workstation(client):
             workstation_id=stale.id, printer_id=printer.id, priority=10, enabled=True,
         ))
         db.session.commit()
-        # 心跳超窗：enqueue 不定向，回退走公共队列（创建未定向任务，不指向该工作站）
+        # 心跳超窗：任务仍绑定原工作站，等待其恢复在线
         fallback = enqueue_auto_print_job("out_order", 99, wh.name,
                                           source_event="scan_outbound")
         assert fallback is not None
-        assert fallback.workstation_id is None
-        assert fallback.route_rule_id is None
+        assert fallback.workstation_id == stale.id
+        assert fallback.route_rule_id is not None
         # 心跳恢复后：同一路由规则恢复派发
         stale.last_heartbeat = datetime.now()
         db.session.commit()
