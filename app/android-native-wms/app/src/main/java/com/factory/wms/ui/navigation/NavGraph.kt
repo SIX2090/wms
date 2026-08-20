@@ -78,7 +78,10 @@ private fun bottomTabs(): List<BottomTab> = listOf(
 fun AppNavGraph() {
     val navController = rememberNavController()
     val authViewModel: AuthViewModel = viewModel()
-    val scanViewModel: ScanViewModel = viewModel()
+    val inboundScanViewModel: ScanViewModel = viewModel(key = "inbound_scan")
+    val outboundScanViewModel: ScanViewModel = viewModel(key = "outbound_scan")
+    val stockQueryViewModel: ScanViewModel = viewModel(key = "stock_query")
+    val stocktakeViewModel: ScanViewModel = viewModel(key = "stocktake")
     val aiViewModel: AiViewModel = viewModel()
     val openingStockViewModel: OpeningStockViewModel = viewModel()
     val voiceViewModel: VoiceCommandViewModel = viewModel()
@@ -159,28 +162,28 @@ fun AppNavGraph() {
 
                 composable(Screen.Inbound.route) {
                     InboundScreen(
-                        viewModel = scanViewModel,
+                        viewModel = inboundScanViewModel,
                         onBack = { navController.popBackStack() }
                     )
                 }
 
                 composable(Screen.Outbound.route) {
                     OutboundScreen(
-                        viewModel = scanViewModel,
+                        viewModel = outboundScanViewModel,
                         onBack = { navController.popBackStack() }
                     )
                 }
 
                 composable(Screen.StockQuery.route) {
                     StockQueryScreen(
-                        viewModel = scanViewModel,
+                        viewModel = stockQueryViewModel,
                         onBack = { navController.popBackStack() }
                     )
                 }
 
                 composable(Screen.Stocktake.route) {
                     StocktakeScreen(
-                        viewModel = scanViewModel,
+                        viewModel = stocktakeViewModel,
                         onBack = { navController.popBackStack() },
                         onRecognize = { navController.navigate(Screen.StocktakeRecognize.route) }
                     )
@@ -210,7 +213,7 @@ fun AppNavGraph() {
                 composable(Screen.StocktakeRecognize.route) {
                     StocktakeRecognizeScreen(
                         aiViewModel = aiViewModel,
-                        scanViewModel = scanViewModel,
+                        scanViewModel = stocktakeViewModel,
                         onBack = { navController.popBackStack() }
                     )
                 }
