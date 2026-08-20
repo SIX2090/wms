@@ -5199,77 +5199,68 @@ class OutOrderPrintTemplate(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
+# BUG-2026-08-20-003：按用户提供的样式图重写默认入库单模板——
+# 标题"采购入库单"（无副标题），表头仅供应商/采购单号/日期三栏，
+# 表格列为 物料编码|品牌|物料名称|规格|单位|数量|单价|金额|合同编号，
+# 底部仅留"收货："签名位，整体干净简洁。
 DEFAULT_IN_ORDER_HTML_TEMPLATE = """<div class="print-document">
     <style>
         .print-document { font-family: "Microsoft YaHei", SimSun, serif; color: #111; }
-        .print-title { text-align: center; font-size: 24px; font-weight: 700; margin-bottom: 6px; }
-        .print-subtitle { text-align: center; color: #666; margin-bottom: 22px; }
-        .print-info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 18px; margin-bottom: 18px; font-size: 13px; }
+        .print-title { text-align: center; font-size: 26px; font-weight: 700; margin-bottom: 16px; }
+        .print-header { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 13px; }
+        .print-header span { flex: 1; }
         .print-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .print-table th, .print-table td { border: 1px solid #333; padding: 7px 8px; }
-        .print-table th { background: #f3f4f6; text-align: center; }
+        .print-table th, .print-table td { border: 1px solid #333; padding: 6px 8px; text-align: center; }
+        .print-table th { background: #fff; font-weight: bold; }
         .text-right { text-align: right; }
-        .signature-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 42px; font-size: 13px; }
+        .signature-row { text-align: right; margin-top: 50px; font-size: 13px; padding-right: 40px; }
     </style>
-    <div class="print-title">入 库 单</div>
-    <div class="print-subtitle">RECEIPT</div>
-    <div class="print-info">
-        <div><strong>入库单号：</strong>{{ order.order_no }}</div>
-        <div><strong>日期：</strong>{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</div>
-        <div><strong>状态：</strong>{{ '已完成' if order.status == 'completed' else '草稿' if order.status == 'pending' else order.status }}</div>
-        <div><strong>供应商：</strong>{{ order.supplier.name if order.supplier else '-' }}</div>
-        <div><strong>业务类型：</strong>{{ order.business_type or '-' }}</div>
-        <div><strong>仓库：</strong>{{ order.warehouse or '-' }}</div>
-        <div><strong>用途：</strong>{{ order.purpose or '-' }}</div>
-        <div><strong>制单人：</strong>{{ order.operator.username if order.operator else '-' }}</div>
-        <div><strong>打印时间：</strong>{{ now.strftime('%Y-%m-%d %H:%M') }}</div>
-        <div style="grid-column: 1 / -1;"><strong>备注：</strong>{{ order.remark or '' }}</div>
+    <div class="print-title">采购入库单</div>
+    <div class="print-header">
+        <span>供应商：{{ order.supplier.name if order.supplier else '' }}</span>
+        <span>采购单号：{{ order.order_no }}</span>
+        <span>日期：{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</span>
     </div>
     <table class="print-table">
         <thead>
             <tr>
-                <th style="width:42px;">序号</th>
                 <th>物料编码</th>
+                <th>品牌</th>
                 <th>物料名称</th>
                 <th>规格</th>
                 <th>单位</th>
                 <th>数量</th>
                 <th>单价</th>
                 <th>金额</th>
-                <th>备注</th>
+                <th>合同编号</th>
             </tr>
         </thead>
         <tbody>
             {% for item in order.items %}
             <tr>
-                <td style="text-align:center;">{{ loop.index }}</td>
                 <td>{{ item.material.code if item.material else '' }}</td>
+                <td>{{ item.material.brand if item.material else '' }}</td>
                 <td>{{ item.material.name if item.material else '' }}</td>
                 <td>{{ item.material.spec if item.material else '' }}</td>
                 <td>{{ item.material.unit.name if item.material and item.material.unit else '' }}</td>
-                <td class="text-right">{{ '%.2f'|format(item.quantity or 0) }}</td>
-                <td class="text-right">{{ '%.2f'|format(item.price or 0) }}</td>
-                <td class="text-right">{{ '%.2f'|format(item.amount or 0) }}</td>
-                <td>{{ item.remark or '' }}</td>
+                <td>{{ '%.2f'|format(item.quantity or 0) }}</td>
+                <td>{{ '%.2f'|format(item.price or 0) }}</td>
+                <td>{{ '%.2f'|format(item.amount or 0) }}</td>
+                <td>{{ item.contract_no or order.contract_no or '' }}</td>
             </tr>
             {% endfor %}
         </tbody>
         <tfoot>
             <tr>
                 <td colspan="5" class="text-right"><strong>合计</strong></td>
-                <td class="text-right"><strong>{{ '%.2f'|format(order.items|sum(attribute='quantity', start=0)) }}</strong></td>
+                <td><strong>{{ '%.2f'|format(order.items|sum(attribute='quantity', start=0)) }}</strong></td>
                 <td></td>
-                <td class="text-right"><strong>{{ '%.2f'|format(order.items|sum(attribute='amount', start=0)) }}</strong></td>
+                <td><strong>{{ '%.2f'|format(order.items|sum(attribute='amount', start=0)) }}</strong></td>
                 <td></td>
             </tr>
         </tfoot>
     </table>
-    <div class="signature-row">
-        <div>制单：</div>
-        <div>收货：</div>
-        <div>质检：</div>
-        <div>仓库：</div>
-    </div>
+    <div class="signature-row">收货：</div>
 </div>"""
 
 DEFAULT_OUT_ORDER_HTML_TEMPLATE = """<div class="print-document">
@@ -5403,7 +5394,14 @@ def _normalize_label_template_layout(layout):
     return normalized
 
 def ensure_default_print_templates():
-    """Create the built-in print templates when an installation has none."""
+    """Create the built-in print templates when an installation has none.
+
+    BUG-2026-08-20-003：存量库的「系统默认入库单模板」内容仍是旧样式
+    （含副标题 RECEIPT、序号列、备注列、四格签名行），用户已按样式图
+    重写 DEFAULT_IN_ORDER_HTML_TEMPLATE。此处对「系统默认」模板做内容
+    对齐：若 html_template_content 与常量不一致则覆盖更新，保证重启
+    后默认模板自动同步到新样式，同时保留用户自建模板不动。
+    """
     changed = False
     defaults = (
         (InOrderPrintTemplate, '系统默认入库单模板', DEFAULT_IN_ORDER_HTML_TEMPLATE),
@@ -5422,6 +5420,9 @@ def ensure_default_print_templates():
             changed = True
         elif not has_default:
             existing.is_default = True
+            changed = True
+        elif (existing.html_template_content or '') != content:
+            existing.html_template_content = content
             changed = True
 
     label_default = LabelTemplate.query.filter_by(name='系统默认物料标签模板').first()
