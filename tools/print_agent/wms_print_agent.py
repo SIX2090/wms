@@ -369,8 +369,12 @@ def send_heartbeat(cfg: dict) -> bool:
                           "/print_queue/api/v1/heartbeat", payload)
     if code == 200 and body.get("status") == "success":
         data = body.get("data") or {}
-        log.info("心跳成功：本机打印机 %s 台（在线 %s）",
-                 len(payload["printers"]), data.get("printers_online", "?"))
+        # 本地统计就绪台数（status != error），便于核对服务端 printers_online：
+        # 若本地就绪>0 而服务端在线=0，说明服务端是旧版本、未正确接收打印机列表。
+        local_online = sum(1 for p in payload["printers"] if p.get("status") != "error")
+        log.info("心跳成功：本机打印机 %s 台（本地就绪 %s，服务端在线 %s）",
+                 len(payload["printers"]), local_online,
+                 data.get("printers_online", "?"))
         return True
     if code == 401:
         log.error("工作站令牌无效或已停用：请在 /print_routing 管理页核对令牌")
