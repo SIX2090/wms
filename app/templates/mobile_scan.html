@@ -155,15 +155,21 @@
                 <input id="quantityInput" class="form-control" type="number" step="0.01" min="0" inputmode="decimal" value="1">
             </div>
 
-            <div class="mobile-scan-field {% if mode not in ['in', 'out'] or not location_management_enabled %}d-none{% endif %}">
-                <label class="mobile-scan-label" for="warehouseInput">仓库/库位</label>
-                <input id="warehouseInput" class="form-control" list="warehouseOptions" autocomplete="off" placeholder="选择或输入库位">
+            <div class="mobile-scan-field {% if mode not in ['in', 'out'] %}d-none{% endif %}">
+                <label class="mobile-scan-label" for="warehouseInput">仓库</label>
+                <input id="warehouseInput" class="form-control" list="warehouseOptions" autocomplete="off" placeholder="选择仓库">
                 <datalist id="warehouseOptions">
                     {% for warehouse in warehouses %}
                     <option value="{{ warehouse.name }}">{{ warehouse.code }} {{ warehouse.name }}</option>
                     {% endfor %}
                 </datalist>
             </div>
+            {% if location_management_enabled %}
+            <div class="mobile-scan-field {% if mode not in ['in', 'out'] %}d-none{% endif %}">
+                <label class="mobile-scan-label" for="locationInput">库位</label>
+                <input id="locationInput" class="form-control" type="text" autocomplete="off" placeholder="选择或输入库位">
+            </div>
+            {% endif %}
 
             <div class="mobile-scan-field {% if mode != 'out' %}d-none{% endif %}">
                 <label class="mobile-scan-label" for="targetInput">领用对象</label>
@@ -226,6 +232,14 @@
                 <i class="bi bi-arrow-clockwise"></i> 刷新
             </button>
         </div>
+        <div class="mobile-confirm-toolbar" style="margin-top:8px;">
+            <label class="mobile-scan-label" for="confirmWarehouseSelect" style="margin:0 8px 0 0;white-space:nowrap;">仓库</label>
+            <select id="confirmWarehouseSelect" class="form-control" style="flex:1;">
+                {% for warehouse in warehouses %}
+                <option value="{{ warehouse.name }}">{{ warehouse.code }} {{ warehouse.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
         <div class="mobile-confirm-list" id="confirmList">
             <p class="mobile-confirm-empty">加载中...</p>
         </div>
@@ -255,6 +269,7 @@
     var printLabelBtn = document.getElementById('printLabelBtn');
     var quantityInput = document.getElementById('quantityInput');
     var warehouseInput = document.getElementById('warehouseInput');
+    var locationInput = document.getElementById('locationInput');
     var targetInput = document.getElementById('targetInput');
     var remarkInput = document.getElementById('remarkInput');
     var historyWrap = document.getElementById('scanHistory');
@@ -661,10 +676,10 @@
                 return;
             }
 
-            // 仓库/库位必填校验（仅当字段可见时）
+            // 仓库必填校验（AGENTS.md：未开库位管理时仓库也必填）
             var warehouseField = warehouseInput ? warehouseInput.closest('.mobile-scan-field') : null;
             if (warehouseField && !warehouseField.classList.contains('d-none') && !(warehouseInput.value || '').trim()) {
-                setStatus('请选择仓库/库位', 'error');
+                setStatus('请选择仓库', 'error');
                 warehouseInput.focus();
                 return;
             }
@@ -679,6 +694,7 @@
                 quantity: quantity,
                 actual_stock: mode === 'check' ? quantity : undefined,
                 warehouse: warehouseInput ? warehouseInput.value : '',
+                location: locationInput ? locationInput.value : '',
                 target: targetInput ? targetInput.value : '',
                 remark: remarkInput ? remarkInput.value : ''
             };
@@ -829,6 +845,7 @@
 
     var listEl = document.getElementById('confirmList');
     var refreshBtn = document.getElementById('confirmRefreshBtn');
+    var confirmWarehouseSelect = document.getElementById('confirmWarehouseSelect');
 
     function tokenHeader() {
         var headers = {};
@@ -851,12 +868,12 @@
 
     function loadPending() {
         showTip('<p class="mobile-confirm-empty">加载中...</p>');
-        // 仓库必填，未显式选择时由后端默认仓库兜底
-        var base = '';
+        // 仓库必填：按选中的仓库查询待确认草稿（AGENTS.md 仓库必填）
+        var qs = '&warehouse=' + encodeURIComponent(confirmWarehouseSelect ? confirmWarehouseSelect.value : '');
         Promise.all([
-            fetch('/api/mobile/in_order/list?status=pending' + base, {credentials: 'same-origin'})
+            fetch('/api/mobile/in_order/list?status=pending' + qs, {credentials: 'same-origin'})
                 .then(function(r) { if (sessionRedirect(r)) throw new Error('login'); return r.json(); }),
-            fetch('/api/mobile/out_order/list?status=pending' + base, {credentials: 'same-origin'})
+            fetch('/api/mobile/out_order/list?status=pending' + qs, {credentials: 'same-origin'})
                 .then(function(r) { if (sessionRedirect(r)) throw new Error('login'); return r.json(); })
         ]).then(function(results) {
             var inItems = [];
@@ -947,6 +964,7 @@
     }
 
     if (refreshBtn) refreshBtn.addEventListener('click', loadPending);
+    if (confirmWarehouseSelect) confirmWarehouseSelect.addEventListener('change', loadPending);
     loadPending();
 })();
 </script>

@@ -257,3 +257,35 @@ class TestScanDraftConfirm:
         # in 草稿用 out 确认 → 加锁失败
         resp2 = client.post(f"/mobile/api/scan_draft_confirm/{order_id}", json={"order_type": "out"})
         assert resp2.status_code == 400
+
+
+class TestConfirmWarehouseIsolation:
+    """待确认列表必须按仓库隔离（AGENTS.md 仓库必填 + BUG-2026-08-12-004）。"""
+
+    def test_pending_list_filtered_by_warehouse(self, client):
+        from app import Warehouse
+        with app_module.app.app_context():
+            _seed_warehouse("W002", "第二仓", is_default=False)
+            _seed_material("M001", "物料A", stock=0)
+        # 在第二仓生成待确认草稿
+        resp = client.post(
+            "/mobile/api/scan_batch_draft",
+            json={
+                "mode": "in",
+                "warehouse": "第二仓",
+                "lines": [{"material_code": "M001", "quantity": 2}],
+            },
+        )
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+
+        # 查第二仓：应返回该草稿
+        in_list = client.get("/api/mobile/in_order/list?status=pending&warehouse=%E7%AC%AC%E4%BA%8C%E4%BB%93")
+        assert in_list.status_code == 200, in_list.get_data(as_text=True)
+        body = in_list.get_json()
+        assert body["status"] == "success"
+        assert body["data"]["total"] == 1
+
+        # 查默认仓：不应返回第二仓的草稿
+        default_list = client.get("/api/mobile/in_order/list?status=pending&warehouse=%E9%BB%98%E8%AE%A4%E4%BB%93")
+        assert default_list.status_code == 200
+        assert default_list.get_json()["data"]["total"] == 0
