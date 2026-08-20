@@ -579,3 +579,40 @@ def test_workstation_queue_requires_admin(client):
         'X-Requested-With': 'XMLHttpRequest',
     })
     assert response.status_code == 403
+
+
+def test_v1_claim_clear_migration_error_when_column_missing(client):
+    """BUG：print_job 缺 printing_started_at 列（服务端未重启迁移）时，
+    v1 claim 必须返回 503 + 明确提示，而不是误导性的 500「服务器内部错误」。
+
+    代理日志里"认领失败：HTTP 500"正是旧实现缺列抛 SQL 异常的排查盲区。
+
+    与 monkeypatch 方案（会因 test/conftest 的 app.app 双模块语义导致补丁打在
+    错误模块对象上而失效）不同，这里真实 DROP 该列 + 放一个 printing 任务，
+    让 _recover_zombie_printing_jobs 读取缺列时真正抛 OperationalError，
+    从生产等价路径验证 claim 的 try 能捕获并给中文提示，而不是冒泡成 500。"""
+    from sqlalchemy import text
+    with app_module.app.app_context():
+        ws = PrintWorkstation(
+            code='PROD-WS', name='生产代理机', device_id='device-prod',
+            warehouse_id=Warehouse.query.filter_by(code='RWH0').first().id,
+            status='online', enabled=True, auth_token='tok-prod-missing-col',
+            last_heartbeat=datetime.now(),
+        )
+        db.session.add(ws)
+        db.session.flush()
+        # 先放一个 printing 任务（正常建列），随后 DROP 该列模拟未迁移的旧库。
+        # claim 里的 _recover_zombie_printing_jobs 会读取 printing_started_at →
+        # 触发「no such column」OperationalError。
+        db.session.execute(text(
+            "INSERT INTO print_job (job_type,target_id,status,copies,created_by,"
+            "workstation_id,source_event,created_at,attempts) VALUES "
+            "('out_order',9,'printing',1,1,:ws,'scan_outbound',datetime('now'),1)"),
+            {"ws": ws.id})
+        db.session.execute(text("ALTER TABLE print_job DROP COLUMN printing_started_at"))
+        db.session.commit()
+
+    resp = client.post('/print_queue/api/v1/claim', json={},
+                       headers={'Authorization': 'Bearer tok-prod-missing-col'})
+    assert resp.status_code == 503
+    assert '重启' in resp.get_json()['msg']

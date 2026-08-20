@@ -479,23 +479,28 @@ def register_print_queue_routes(app):
         ws = g.print_workstation
         if not workstation_is_online(ws):
             return jsonify({'status': 'empty', 'msg': '工作站离线或心跳超时，请先上报心跳'})
-        # BUG-2026-08-19-010：认领前回收本工作站僵尸任务（代理崩溃后卡 printing）。
-        # 列不存在时（服务器未重启迁移）跳过回收，不阻塞正常认领。
+        # 认领前的数据库操作（僵尸回收 + 查询 pending + 置 printing）统一包在一个
+        # try 里：若 print_job 表尚未迁移出 printing_started_at 列（服务端未重启，
+        # 启动时会自动 ALTER 补列），给出明确错误而非误导性 500，便于运营定位。
         try:
+            # BUG-2026-08-19-010：认领前回收本工作站僵尸任务（代理崩溃后卡 printing）
             _recover_zombie_printing_jobs(workstation_id=ws.id)
-        except Exception:
-            pass
-        job = PrintJob.query.filter_by(
-            status='pending', workstation_id=ws.id).order_by(PrintJob.created_at.asc()).first()
-        if not job:
-            return jsonify({'status': 'empty', 'msg': '队列为空'})
-        job.status = 'printing'
-        job.attempts = (job.attempts or 0) + 1
-        try:
+            job = PrintJob.query.filter_by(
+                status='pending', workstation_id=ws.id).order_by(PrintJob.created_at.asc()).first()
+            if not job:
+                return jsonify({'status': 'empty', 'msg': '队列为空'})
+            job.status = 'printing'
+            job.attempts = (job.attempts or 0) + 1
             job.printing_started_at = datetime.now()
-        except Exception:
-            pass  # 列不存在时跳过，不影响认领
-        db.session.commit()
+            db.session.commit()
+        except Exception as e:
+            from flask import current_app as _cap
+            _cap.logger.error("print claim 失败（workstation=%s）：%s", ws.id, e)
+            msg = str(e)
+            if 'printing_started_at' in msg or 'no such column' in msg:
+                return jsonify({'status': 'error',
+                                'msg': '打印队列表待迁移：请重启 WMS 服务（启动会自动补列）'}), 503
+            return jsonify({'status': 'error', 'msg': f'认领任务失败：{msg}'}), 500
         # 打印 URL 附短时效 ptoken（免登录渲染）与 autoprint=1（页面加载后自动打印）
         from utils import generate_print_token
         print_url = _print_url(job)
