@@ -311,15 +311,66 @@ def set_default_printer(name: str) -> bool:
 
 # ==================== 浏览器静默打印 ====================
 
+def _registry_chrome_path() -> str | None:
+    """从 Windows 注册表（卸载项）读取 Chrome 实际安装路径。
+
+    只在 Windows 上生效；取的是 HKLM/HKCU 的 uninstall 键里 DisplayIcon /
+    InstallLocation（Chrome 15+ 无 Submit 时用 InstallLocation）。相比只查
+    %ProgramFiles% 固定目录，能覆盖用户目录安装、从企业包部署等所有位置。
+    """
+    if os.name != "nt":
+        return None
+    import winreg
+    keys = [
+        (winreg.HKEY_LOCAL_MACHINE,
+         r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome"),
+        (winreg.HKEY_LOCAL_MACHINE,
+         r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome"),
+        (winreg.HKEY_CURRENT_USER,
+         r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome"),
+        (winreg.HKEY_CURRENT_USER,
+         r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe"),
+    ]
+    for hive, subkey in keys:
+        try:
+            with winreg.OpenKey(hive, subkey) as k:
+                for value_name in ("DisplayIcon", "InstallLocation", ""):
+                    try:
+                        val, _ = winreg.QueryValueEx(k, value_name)
+                    except OSError:
+                        continue
+                    if isinstance(val, str) and val.strip():
+                        # 卸载项的 DisplayIcon 可能是带引号的完整路径，去掉引号再判断
+                        val = val.strip().strip('"').strip()
+                        numpart, _, _ = val.partition(",")  # 可能带图标索引 ",0"
+                        val = numpart.strip('"').strip()
+                        # App Paths 的默认值就是完整 exe 路径；InstallLocation 是目录
+                        if value_name == "InstallLocation":
+                            val = os.path.join(val, "chrome.exe")
+                        if os.path.isfile(val):
+                            return val
+        except OSError:
+            continue
+    return None
+
+
 def find_browser() -> str | None:
-    """定位 Edge / Chrome 可执行文件（kiosk-printing 支持静默出纸）。"""
+    """定位 Edge / Chrome 可执行文件（kiosk-printing 支持静默出纸）。
+
+    BUG-2026-08-20-005：旧实现只查 %ProgramFiles%/%ProgramFiles(x86)% 两个固定
+    目录，依赖 %ProgramFiles% 环境变量，用户从非默认目录、用户目录或企业包安装
+    Chrome 时永远检测不到，于是退化为系统默认程序打开（可能非静默）。新增注册表
+    回退覆盖所有安装位置。
+    """
     candidates = []
     if os.name == "nt":
         candidates = [
-            os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
-            os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+            # 用户目录安装优先（占位符会正常展开）
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
             os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
             os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
         ]
     else:  # 开发联调：Linux 上找 chromium/chrome/google-chrome
         candidates = [shutil.which(n) or "" for n in
@@ -327,6 +378,9 @@ def find_browser() -> str | None:
     for path in candidates:
         if path and os.path.isfile(path):
             return path
+    reg = _registry_chrome_path()
+    if reg:
+        return reg
     return shutil.which("msedge") or shutil.which("chrome") or None
 
 
