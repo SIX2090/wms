@@ -5263,77 +5263,67 @@ DEFAULT_IN_ORDER_HTML_TEMPLATE = """<div class="print-document">
     <div class="signature-row">收货：</div>
 </div>"""
 
+# BUG-2026-08-20-004：按用户提供的样式图重写默认领料单模板——
+# 标题"领料单"（无副标题），表头仅领料部门/日期两栏，
+# 表格列为 物料编码|品牌|物料名称|规格|单位|数量|单价|金额|合同编号，
+# 底部仅留"领料："签名位，与采购入库单模板风格统一。
 DEFAULT_OUT_ORDER_HTML_TEMPLATE = """<div class="print-document">
     <style>
         .print-document { font-family: "Microsoft YaHei", SimSun, serif; color: #111; }
-        .print-title { text-align: center; font-size: 24px; font-weight: 700; margin-bottom: 6px; }
-        .print-subtitle { text-align: center; color: #666; margin-bottom: 22px; }
-        .print-info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 18px; margin-bottom: 18px; font-size: 13px; }
+        .print-title { text-align: center; font-size: 26px; font-weight: 700; margin-bottom: 16px; }
+        .print-header { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 13px; }
+        .print-header span { flex: 1; }
         .print-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .print-table th, .print-table td { border: 1px solid #333; padding: 7px 8px; }
-        .print-table th { background: #f3f4f6; text-align: center; }
+        .print-table th, .print-table td { border: 1px solid #333; padding: 6px 8px; text-align: center; }
+        .print-table th { background: #fff; font-weight: bold; }
         .text-right { text-align: right; }
-        .signature-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 42px; font-size: 13px; }
+        .signature-row { text-align: right; margin-top: 50px; font-size: 13px; padding-right: 40px; }
     </style>
-    <div class="print-title">领 料 单</div>
-    <div class="print-subtitle">MATERIAL REQUISITION</div>
-    <div class="print-info">
-        <div><strong>领料单号：</strong>{{ order.order_no }}</div>
-        <div><strong>日期：</strong>{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</div>
-        <div><strong>状态：</strong>{{ '已完成' if order.status == 'completed' else '草稿' if order.status == 'pending' else order.status }}</div>
-        <div><strong>领料部门：</strong>{{ order.department.name if order.department else (order.customer or '-') }}</div>
-        <div><strong>业务类型：</strong>{{ order.business_type or '-' }}</div>
-        <div><strong>仓库：</strong>{{ order.warehouse or '-' }}</div>
-        <div><strong>用途：</strong>{{ order.purpose or '-' }}</div>
-        <div><strong>制单人：</strong>{{ order.operator.username if order.operator else '-' }}</div>
-        <div><strong>打印时间：</strong>{{ now.strftime('%Y-%m-%d %H:%M') }}</div>
-        <div style="grid-column: 1 / -1;"><strong>备注：</strong>{{ order.remark or '' }}</div>
+    <div class="print-title">领料单</div>
+    <div class="print-header">
+        <span>领料部门：{{ order.department.name if order.department else (order.customer or '') }}</span>
+        <span>日期：{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</span>
     </div>
     <table class="print-table">
         <thead>
             <tr>
-                <th style="width:42px;">序号</th>
                 <th>物料编码</th>
+                <th>品牌</th>
                 <th>物料名称</th>
                 <th>规格</th>
                 <th>单位</th>
                 <th>数量</th>
                 <th>单价</th>
                 <th>金额</th>
-                <th>备注</th>
+                <th>合同编号</th>
             </tr>
         </thead>
         <tbody>
             {% for item in order.items %}
             <tr>
-                <td style="text-align:center;">{{ loop.index }}</td>
                 <td>{{ item.material.code if item.material else '' }}</td>
+                <td>{{ item.material.brand if item.material else '' }}</td>
                 <td>{{ item.material.name if item.material else '' }}</td>
                 <td>{{ item.material.spec if item.material else '' }}</td>
                 <td>{{ item.material.unit.name if item.material and item.material.unit else '' }}</td>
-                <td class="text-right">{{ '%.2f'|format(item.quantity or 0) }}</td>
-                <td class="text-right">{{ '%.2f'|format(item.price or 0) }}</td>
-                <td class="text-right">{{ '%.2f'|format(item.amount or 0) }}</td>
-                <td>{{ item.remark or '' }}</td>
+                <td>{{ '%.2f'|format(item.quantity or 0) }}</td>
+                <td>{{ '%.2f'|format(item.price or 0) }}</td>
+                <td>{{ '%.2f'|format(item.amount or 0) }}</td>
+                <td>{{ item.contract_no or order.contract_no or '' }}</td>
             </tr>
             {% endfor %}
         </tbody>
         <tfoot>
             <tr>
                 <td colspan="5" class="text-right"><strong>合计</strong></td>
-                <td class="text-right"><strong>{{ '%.2f'|format(order.items|sum(attribute='quantity', start=0)) }}</strong></td>
+                <td><strong>{{ '%.2f'|format(order.items|sum(attribute='quantity', start=0)) }}</strong></td>
                 <td></td>
-                <td class="text-right"><strong>{{ '%.2f'|format(order.items|sum(attribute='amount', start=0)) }}</strong></td>
+                <td><strong>{{ '%.2f'|format(order.items|sum(attribute='amount', start=0)) }}</strong></td>
                 <td></td>
             </tr>
         </tfoot>
     </table>
-    <div class="signature-row">
-        <div>制单：</div>
-        <div>领料：</div>
-        <div>审批：</div>
-        <div>仓库：</div>
-    </div>
+    <div class="signature-row">领料：</div>
 </div>"""
 
 DEFAULT_LABEL_CELLS = [
