@@ -271,9 +271,13 @@ def register_print_routing_routes(app):
                 'cd /d "%~dp0"',
                 'set "PY="',
                 'for /f "delims=" %%i in (\'where python.exe 2^>nul ^| findstr /v /i "WindowsApps"\') do if not defined PY set "PY=%%i"',
-                r'if not defined PY for /f "delims=" %%i in (\'dir /b /s "%LocalAppData%\Programs\Python\Python3*\python.exe" 2^>nul\') do if not defined PY set "PY=%%i"',
-                r'if not defined PY for /f "delims=" %%i in (\'dir /b /s "%ProgramFiles%\Python3*\python.exe" 2^>nul\') do if not defined PY set "PY=%%i"',
-                r'if not defined PY for /f "delims=" %%i in (\'dir /b /s "C:\Python3*\python.exe" 2^>nul\') do if not defined PY set "PY=%%i"',
+                # BUG-2026-08-20-002：这三行必须用「非 raw」字符串。raw 字符串里 \' 不会被
+                # 折叠成 '，生成到 run.bat/start.bat 后变成 in (\'dir ...\')，cmd 无法识别
+                # for /f 的单引号命令形式，把它当作文件执行 → 报「系统找不到文件 'dir」。
+                # 非 raw 字符串里 \' → '、路径里的 \\ → \，生成的行才是 in ('dir ...')。
+                'if not defined PY for /f "delims=" %%i in (\'dir /b /s "%LocalAppData%\\Programs\\Python\\Python3*\\python.exe" 2^>nul\') do if not defined PY set "PY=%%i"',
+                'if not defined PY for /f "delims=" %%i in (\'dir /b /s "%ProgramFiles%\\Python3*\\python.exe" 2^>nul\') do if not defined PY set "PY=%%i"',
+                'if not defined PY for /f "delims=" %%i in (\'dir /b /s "C:\\Python3*\\python.exe" 2^>nul\') do if not defined PY set "PY=%%i"',
                 'if not defined PY (',
                 '  where py.exe >nul 2>nul && set "PY=py"',
                 ')',
