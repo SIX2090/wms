@@ -145,6 +145,22 @@ class TestScanBatchDraft:
         assert resp.status_code == 400
         assert resp.get_json()["status"] == "error"
 
+    def test_batch_draft_rejects_check_mode(self, client):
+        """盘点(check)模式不应被批量接口静默当成入库，必须校验失败。"""
+        with app_module.app.app_context():
+            _seed_material("M001", "物料A", stock=0)
+        resp = client.post(
+            "/mobile/api/scan_batch_draft",
+            json={"mode": "check", "lines": [{"material_code": "M001", "quantity": 1}]},
+        )
+        assert resp.status_code == 400
+        assert resp.get_json()["status"] == "error"
+        # 不应生成任何待确认草稿
+        from app import InOrder, OutOrder
+        with app_module.app.app_context():
+            assert InOrder.query.filter_by(purpose="手机扫码入库（待确认）").count() == 0
+            assert OutOrder.query.filter_by(purpose="手机扫码出库（待确认）").count() == 0
+
 
 class TestScanDraftConfirm:
     """确认草稿才动库存并打印。"""

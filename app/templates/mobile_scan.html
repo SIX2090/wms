@@ -188,7 +188,7 @@
                 <i class="bi {{ mode_config.icon }}"></i>
                 <span>{% if mode == 'query' %}查询库存{% elif mode == 'check' %}保存盘点{% elif mode == 'out' %}确认出库{% else %}确认入库{% endif %}</span>
             </button>
-            {% if mode != 'query' %}
+            {% if mode in ('in', 'out') %}
             <label class="mobile-batch-toggle" for="batchMode">
                 <input type="checkbox" id="batchMode">
                 <span>连续批量扫码</span>

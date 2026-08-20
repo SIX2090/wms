@@ -585,7 +585,11 @@ def register_mobile_routes(app):
             @classmethod
             def _norm_mode(cls, v):
                 v = (v or '').strip()
-                return v if v in ('in', 'out') else 'in'
+                # FIX: BUG-2026-08-20-009 批量扫码仅支持入库/出库；
+                # 盘点(check)等其它模式不应被静默当成入库，直接校验失败
+                if v not in ('in', 'out'):
+                    raise ValueError('批量扫码仅支持入库/出库模式')
+                return v
 
         payload = request.get_json(silent=True) or {}
         try:
