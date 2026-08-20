@@ -313,16 +313,38 @@ def register_mobile_routes(app):
             update_location_inventory,
             _create_adjustment_drafts_from_check_scan,
         )
+        from typing import Optional
+        from pydantic import BaseModel, Field, field_validator
         from routes.print_queue import enqueue_auto_print_job
+
+        # A8：提交参数用 pydantic 输入校验，避免数据类型 BUG / 字段漂移。
+        # 仅校验核心必填字段（mode/code），其余字段沿用 data 原样解析以保持行为兼容。
+        class ScanSubmitRequest(BaseModel):
+            mode: str = Field(min_length=1)
+            code: str = Field(min_length=1)
+            quantity: Optional[str | float | int] = None
+            target: Optional[str] = None
+            receiver: Optional[str] = None
+
+            @field_validator('mode')
+            @classmethod
+            def _norm_mode(cls, v):
+                v = (v or '').strip()
+                if v not in MOBILE_SCAN_MODES:
+                    raise ValueError('扫码类型不正确')
+                return v
+
+        payload = request.get_json(silent=True) or {}
+        data = dict(payload)
+        try:
+            req = ScanSubmitRequest.model_validate(payload)
+        except Exception as exc:
+            return jsonify({'status': 'error', 'success': False, 'msg': f'参数校验失败：{exc}'}), 400
+
+        mode = req.mode
+        code = req.code
         # BUG-2026-08-13-002：装饰器接受 Web 会话或 Bearer Token 任一，这里解析真实操作人
         actor = current_user if current_user.is_authenticated else get_bearer_user()
-        data = request.get_json(silent=True) or {}
-        mode = (data.get('mode') or '').strip()
-        code = (data.get('code') or '').strip()
-        if mode not in MOBILE_SCAN_MODES:
-            return jsonify({'status': 'error', 'success': False, 'msg': '扫码类型不正确'}), 400
-        if not code:
-            return jsonify({'status': 'error', 'success': False, 'msg': '请输入物料编码'}), 400
 
         material = (
             Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))

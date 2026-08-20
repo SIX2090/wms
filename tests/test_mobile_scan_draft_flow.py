@@ -289,3 +289,45 @@ class TestConfirmWarehouseIsolation:
         default_list = client.get("/api/mobile/in_order/list?status=pending&warehouse=%E9%BB%98%E8%AE%A4%E4%BB%93")
         assert default_list.status_code == 200
         assert default_list.get_json()["data"]["total"] == 0
+
+
+class TestScanSubmitPydanticValidation:
+    """主扫码提交流程 /mobile/api/scan_submit 必须用 pydantic 输入校验（A8）：
+
+    1. mode 非法 → 400 参数校验失败，而不是静默走到错误分支。
+    2. code 缺失/为空 → 400 参数校验失败。
+    3. 合法参数仍能正常入库（兼容性）。
+    """
+
+    def test_invalid_mode_rejected_by_pydantic(self, client):
+        resp = client.post(
+            "/mobile/api/scan_submit",
+            json={"mode": "not-a-mode", "code": "M001", "quantity": 1},
+        )
+        assert resp.status_code == 400
+        body = resp.get_json()
+        assert body["status"] == "error"
+        assert "参数校验失败" in body["msg"]
+
+    def test_missing_code_rejected_by_pydantic(self, client):
+        resp = client.post(
+            "/mobile/api/scan_submit",
+            json={"mode": "in", "code": "", "quantity": 1},
+        )
+        assert resp.status_code == 400
+        body = resp.get_json()
+        assert body["status"] == "error"
+        assert "参数校验失败" in body["msg"]
+
+    def test_valid_in_submit_still_works(self, client):
+        with app_module.app.app_context():
+            _seed_material("M001", "物料A", stock=0)
+        resp = client.post(
+            "/mobile/api/scan_submit",
+            json={"mode": "in", "code": "M001", "quantity": 3},
+        )
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        assert resp.get_json()["status"] == "success"
+        from app import InOrder
+        with app_module.app.app_context():
+            assert InOrder.query.filter_by(purpose="手机扫码入库").count() == 1
