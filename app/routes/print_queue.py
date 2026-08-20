@@ -152,6 +152,16 @@ def _recover_zombie_printing_jobs(workstation_id=None):
     return len(stale_jobs)
 
 
+def _migration_error_response(e):
+    """print_job 表缺 printing_started_at 列（服务端未重启迁移）时给 503 明确
+    提示，其余 DB 异常给 500，避免误导性的「服务器内部错误」。"""
+    msg = str(e)
+    if 'printing_started_at' in msg or 'no such column' in msg:
+        return jsonify({'status': 'error',
+                        'msg': '打印队列表待迁移：请重启 WMS 服务（启动会自动补列）'}), 503
+    return jsonify({'status': 'error', 'msg': f'处理失败：{msg}'}), 500
+
+
 def _resolve_print_route(job_type, warehouse_name):
     from app import PrintRouteRule, Warehouse
     warehouse = None
@@ -321,16 +331,20 @@ def register_print_queue_routes(app):
         按 printing_started_at 判定，不再按 created_at 误回收积压任务）。
         """
         from app import PrintJob
-        _recover_zombie_printing_jobs()
+        # 缺列时（服务端未重启迁移）给 503 明确提示，而非冒泡成 500
+        try:
+            _recover_zombie_printing_jobs()
 
-        job = PrintJob.query.filter_by(status='pending', workstation_id=None).order_by(PrintJob.created_at.asc()).first()
-        if not job:
-            return jsonify({'status': 'empty', 'msg': '队列为空'})
+            job = PrintJob.query.filter_by(status='pending', workstation_id=None).order_by(PrintJob.created_at.asc()).first()
+            if not job:
+                return jsonify({'status': 'empty', 'msg': '队列为空'})
 
-        job.status = 'printing'
-        job.attempts = (job.attempts or 0) + 1
-        job.printing_started_at = datetime.now()
-        db.session.commit()
+            job.status = 'printing'
+            job.attempts = (job.attempts or 0) + 1
+            job.printing_started_at = datetime.now()
+            db.session.commit()
+        except Exception as e:
+            return _migration_error_response(e)
 
         print_url = _print_url(job)
 
@@ -355,15 +369,19 @@ def register_print_queue_routes(app):
         workstation = db.session.get(PrintWorkstation, workstation_id)
         if not workstation or not workstation.enabled or workstation.status != 'online':
             return jsonify({'status': 'empty', 'msg': '工作站不可用'})
-        _recover_zombie_printing_jobs(workstation_id=workstation_id)
-        job = PrintJob.query.filter_by(
-            status='pending', workstation_id=workstation_id).order_by(PrintJob.created_at.asc()).first()
-        if not job:
-            return jsonify({'status': 'empty', 'msg': '队列为空'})
-        job.status = 'printing'
-        job.attempts = (job.attempts or 0) + 1
-        job.printing_started_at = datetime.now()
-        db.session.commit()
+        # 缺列时（服务端未重启迁移）给 503 明确提示，而非冒泡成 500
+        try:
+            _recover_zombie_printing_jobs(workstation_id=workstation_id)
+            job = PrintJob.query.filter_by(
+                status='pending', workstation_id=workstation_id).order_by(PrintJob.created_at.asc()).first()
+            if not job:
+                return jsonify({'status': 'empty', 'msg': '队列为空'})
+            job.status = 'printing'
+            job.attempts = (job.attempts or 0) + 1
+            job.printing_started_at = datetime.now()
+            db.session.commit()
+        except Exception as e:
+            return _migration_error_response(e)
         return jsonify({'status': 'success', 'job': {
             'id': job.id, 'job_type': job.job_type, 'target_id': job.target_id,
             'target_ids': job.target_ids, 'copies': job.copies, 'print_url': _print_url(job),
@@ -496,11 +514,7 @@ def register_print_queue_routes(app):
         except Exception as e:
             from flask import current_app as _cap
             _cap.logger.error("print claim 失败（workstation=%s）：%s", ws.id, e)
-            msg = str(e)
-            if 'printing_started_at' in msg or 'no such column' in msg:
-                return jsonify({'status': 'error',
-                                'msg': '打印队列表待迁移：请重启 WMS 服务（启动会自动补列）'}), 503
-            return jsonify({'status': 'error', 'msg': f'认领任务失败：{msg}'}), 500
+            return _migration_error_response(e)
         # 打印 URL 附短时效 ptoken（免登录渲染）与 autoprint=1（页面加载后自动打印）
         from utils import generate_print_token
         print_url = _print_url(job)
@@ -528,14 +542,18 @@ def register_print_queue_routes(app):
             req = JobStatusRequest(**(request.get_json(silent=True) or {}))
         except Exception as e:
             return jsonify({'status': 'error', 'msg': f'参数错误：{e}'}), 400
-        job = db.session.get(PrintJob, job_id)
-        if not job or job.workstation_id != g.print_workstation.id:
-            return jsonify({'status': 'error', 'msg': '任务不存在或不属于本工作站'}), 404
-        job.status = 'done'
-        job.printed_at = datetime.now()
-        if req.error_msg:
-            job.error_msg = req.error_msg[:500]
-        db.session.commit()
+        # 缺列时（服务端未重启迁移）给 503 明确提示，而非冒泡成 500
+        try:
+            job = db.session.get(PrintJob, job_id)
+            if not job or job.workstation_id != g.print_workstation.id:
+                return jsonify({'status': 'error', 'msg': '任务不存在或不属于本工作站'}), 404
+            job.status = 'done'
+            job.printed_at = datetime.now()
+            if req.error_msg:
+                job.error_msg = req.error_msg[:500]
+            db.session.commit()
+        except Exception as e:
+            return _migration_error_response(e)
         return jsonify({'status': 'success', 'msg': '已标记完成'})
 
     @app.route('/print_queue/api/v1/jobs/<int:job_id>/fail', methods=['POST'])
