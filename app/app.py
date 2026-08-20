@@ -1422,6 +1422,92 @@ def backfill_empty_warehouse_documents(db_path: str | None = None):
                 pass
 
 
+def ensure_print_job_columns(db_path: str | None = None):
+    """启动期无条件补齐 print_job 表的迁移列（BUG-2026-08-20-001）。
+
+    start_wms_offline.bat / start_wms_auto.bat 默认设置 WMS_NO_DB_TOUCH=1，
+    start_wms_offline.bat 强制先跑 fix_db_columns.py、但 fix_db_columns.py
+    没有 print_job 补列，start_wms_auto.bat 连 fix_db_columns.py 都不跑；
+    而 auto_migrate_database() 也被 WMS_NO_DB_TOUCH=1 跳过。三者叠加导致
+    print_job 缺 printing_started_at / workstation_id / printer_id /
+    route_rule_id / source_event 列的线上库即使重启也无法补列，打印代理
+    claim 一直报 no such column。
+
+    本函数仿照 backfill_empty_warehouse_documents，用独立 sqlite 连接、
+    独立于 schema 迁移开关无条件执行、幂等（只补缺失列），保证
+    start_wms_*.bat（WMS_NO_DB_TOUCH=1）与正常启动两种情况都能补列。
+    列片段与 auto_migrate_database() 的 ALTER 语句保持一致。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            return
+        if not _sqlite_table_has_print_job(db_path):
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=60000')
+        cur.execute("PRAGMA table_info(print_job)")
+        cols = {r['name'] for r in cur.fetchall()}
+        _print_migrations = (
+            # (列名, ALTER 语句)
+            ('workstation_id', 'ALTER TABLE print_job ADD COLUMN workstation_id INTEGER'),
+            ('printer_id', 'ALTER TABLE print_job ADD COLUMN printer_id INTEGER'),
+            ('route_rule_id', 'ALTER TABLE print_job ADD COLUMN route_rule_id INTEGER'),
+            ("source_event", "ALTER TABLE print_job ADD COLUMN source_event VARCHAR(30) DEFAULT 'manual'"),
+            ("printing_started_at", "ALTER TABLE print_job ADD COLUMN printing_started_at DATETIME"),
+        )
+        added = False
+        for col, stmt in _print_migrations:
+            if col not in cols:
+                cur.execute(stmt)
+                added = True
+        if added:
+            conn.commit()
+            logging.getLogger(__name__).info('[DB] print_job 已补缺列（含 printing_started_at）')
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_print_job_columns 补列失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _sqlite_table_has_print_job(db_path: str) -> bool:
+    """返回 sqlite 库里是否存在 print_job 表（避免全新空库时无谓 PRAGMA）。"""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(db_path, timeout=30)
+        try:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='print_job'"
+            ).fetchone()
+            return row is not None
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 - 读不到判为无表，交给后续迁移兜底
+        return False
+
+
 app = Flask(__name__)
 
 # Use config.py settings uniformly
@@ -1569,6 +1655,12 @@ app.logger.info("Flask config loaded: env=%s, DEBUG=%s", env, app.config.get('DE
 # 会跳过 auto_migrate_database，若回填也放进同一分支，生产重启时永远不会生效。
 # 必须放在日志配置之后调用，回填结果才能在控制台/日志文件可见（否则日志行丢失）。
 backfill_empty_warehouse_documents()
+
+# BUG-2026-08-20-001：start_wms_*.bat 默认 WMS_NO_DB_TOUCH=1 会跳过
+# auto_migrate_database，且 fix_db_columns.py 不含 print_job 补列，导致
+# 线上 print_job 缺 printing_started_at 等迁移列重启也补不上。与回填一样
+# 独立于迁移开关无条件执行，幂等补列。
+ensure_print_job_columns()
 
 if env == 'production':
     if not app.config.get('SESSION_COOKIE_SECURE'):
