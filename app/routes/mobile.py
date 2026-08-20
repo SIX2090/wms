@@ -313,18 +313,16 @@ def register_mobile_routes(app):
             update_location_inventory,
             _create_adjustment_drafts_from_check_scan,
         )
-        from typing import Optional
         from pydantic import BaseModel, Field, field_validator
         from routes.print_queue import enqueue_auto_print_job
 
         # A8：提交参数用 pydantic 输入校验，避免数据类型 BUG / 字段漂移。
-        # 仅校验核心必填字段（mode/code），其余字段沿用 data 原样解析以保持行为兼容。
+        # 仅校验核心必填字段（mode/code）；其余业务字段（quantity/target/
+        # receiver/remark 等）仍由下方 data 原样解析，保持行为兼容，
+        # 不在此声明以免造成"已校验"的误导。
         class ScanSubmitRequest(BaseModel):
             mode: str = Field(min_length=1)
             code: str = Field(min_length=1)
-            quantity: Optional[str | float | int] = None
-            target: Optional[str] = None
-            receiver: Optional[str] = None
 
             @field_validator('mode')
             @classmethod
