@@ -450,11 +450,12 @@ def claim_job(cfg: dict) -> dict | None:
     return None
 
 
-def report_result(cfg: dict, job_id: int, ok: bool, error_msg: str = "") -> None:
+def report_result(cfg: dict, job_id: int, ok: bool, error_msg: str = "",
+                  lease_token: str = "") -> None:
     """上报打印结果（complete/fail）；失败仅记日志，不影响主循环。"""
     path = f"/print_queue/api/v1/jobs/{job_id}/{'complete' if ok else 'fail'}"
     code, body = api_call(cfg["server_url"], cfg["token"], path,
-                          {"error_msg": error_msg or None})
+                          {"error_msg": error_msg or None, "lease_token": lease_token or None})
     if code == 200 and body.get("status") == "success":
         log.info("任务 #%s 已上报%s", job_id, "完成" if ok else "失败")
     else:
@@ -480,10 +481,11 @@ def process_job(cfg: dict, job: dict, browser: str) -> None:
     try:
         ok = print_via_browser(browser, url, int(cfg["print_timeout"]))
         report_result(cfg, job_id, ok,
-                      "" if ok else f"浏览器打印超时（{cfg['print_timeout']}s）")
+                      "" if ok else f"浏览器打印超时（{cfg['print_timeout']}s）",
+                      job.get("lease_token", ""))
     except Exception as e:  # noqa: BLE001 代理进程不允许因单任务异常退出
         log.exception("任务 #%s 处理异常", job_id)
-        report_result(cfg, job_id, False, f"代理异常：{e}")
+        report_result(cfg, job_id, False, f"代理异常：{e}", job.get("lease_token", ""))
     finally:
         if switched_from:
             set_default_printer(switched_from)
@@ -509,7 +511,7 @@ def run_agent(cfg: dict, once: bool = False) -> None:
             else:
                 import webbrowser
                 webbrowser.open(_join_url(cfg["server_url"], job.get("print_url", "")))
-                report_result(cfg, job["id"], True, "无浏览器内核，已用系统默认程序打开")
+                report_result(cfg, job["id"], False, "未找到支持静默打印的浏览器内核")
             if once:
                 break
             continue  # 队列可能还有任务，立即再认领

@@ -235,13 +235,15 @@
 
         function reportComplete(jobId, note) {
             WMS.api.post('/print_queue/jobs/' + jobId + '/complete', {
-                error_msg: note || null
+                error_msg: note || null,
+                lease_token: currentJob && currentJob.lease_token
             }).catch(function() { log('上报完成失败 #' + jobId, 'error'); });
         }
 
         function reportFail(jobId, errMsg) {
             WMS.api.post('/print_queue/jobs/' + jobId + '/fail', {
-                error_msg: errMsg
+                error_msg: errMsg,
+                lease_token: currentJob && currentJob.lease_token
             }).catch(function() { log('上报失败状态失败 #' + jobId, 'error'); });
         }
 

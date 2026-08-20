@@ -237,24 +237,59 @@ def test_agent_complete_and_fail_own_job_only(client):
     resp = client.post(f"/print_queue/api/v1/jobs/{job_id}/fail",
                        json={"error_msg": "x"}, headers=_hdr("tok-b"))
     assert resp.status_code == 404
+    claim = client.post("/print_queue/api/v1/claim", json={}, headers=_hdr("tok-a"))
+    assert claim.status_code == 200
+    lease_token = claim.get_json()["job"]["lease_token"]
     # 本工作站：complete 成功
     resp = client.post(f"/print_queue/api/v1/jobs/{job_id}/complete",
-                       json={}, headers=_hdr("tok-a"))
+                       json={"lease_token": lease_token}, headers=_hdr("tok-a"))
     assert resp.status_code == 200
     with app_module.app.app_context():
         assert db.session.get(PrintJob, job_id).status == "done"
-    # fail：再造一条任务
-    with app_module.app.app_context():
-        ws1 = db.session.get(PrintWorkstation, ws1_id)
-        job2 = _seed_job(ws1)
+        job2 = _seed_job(db.session.get(PrintWorkstation, ws1_id))
         job2_id = job2.id
+    claim2 = client.post("/print_queue/api/v1/claim", json={}, headers=_hdr("tok-a"))
+    assert claim2.status_code == 200
+    lease_token2 = claim2.get_json()["job"]["lease_token"]
     resp = client.post(f"/print_queue/api/v1/jobs/{job2_id}/fail",
-                       json={"error_msg": "缺纸"}, headers=_hdr("tok-a"))
+                       json={"error_msg": "缺纸", "lease_token": lease_token2},
+                       headers=_hdr("tok-a"))
     assert resp.status_code == 200
     with app_module.app.app_context():
         job2 = db.session.get(PrintJob, job2_id)
         assert job2.status == "failed"
         assert job2.error_msg == "缺纸"
+
+
+def test_agent_rejects_result_from_expired_claim_lease(client):
+    """Expired claim lease must not update a newer claim."""
+    with app_module.app.app_context():
+        wh = Warehouse.query.filter_by(code="RWH0").first()
+        ws = _seed_workstation(wh)
+        job = _seed_job(ws)
+        job_id = job.id
+
+    first_claim = client.post("/print_queue/api/v1/claim", json={}, headers=_hdr("tok-ws-1"))
+    assert first_claim.status_code == 200
+    first_lease = first_claim.get_json()["job"]["lease_token"]
+
+    with app_module.app.app_context():
+        job = db.session.get(PrintJob, job_id)
+        job.printing_started_at = datetime.now() - timedelta(minutes=6)
+        db.session.commit()
+
+    second_claim = client.post("/print_queue/api/v1/claim", json={}, headers=_hdr("tok-ws-1"))
+    assert second_claim.status_code == 200
+    second_lease = second_claim.get_json()["job"]["lease_token"]
+    assert second_lease != first_lease
+
+    stale_result = client.post(
+        f"/print_queue/api/v1/jobs/{job_id}/complete",
+        json={"lease_token": first_lease}, headers=_hdr("tok-ws-1"),
+    )
+    assert stale_result.status_code == 409
+    with app_module.app.app_context():
+        assert db.session.get(PrintJob, job_id).status == "printing"
 
 
 # ==================== heartbeat ====================

@@ -1255,6 +1255,9 @@ def auto_migrate_database():
             if 'printing_started_at' not in _print_job_cols:
                 cursor.execute("ALTER TABLE print_job ADD COLUMN printing_started_at DATETIME")
                 modified = True
+            if 'lease_token' not in _print_job_cols:
+                cursor.execute("ALTER TABLE print_job ADD COLUMN lease_token VARCHAR(128)")
+                modified = True
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_print_job_workstation_status ON print_job(workstation_id, status)")
 
         # PRINT-ROUTING-F01-P3：工作站补令牌与心跳字段（Windows 打印代理鉴权与在线判定）。
@@ -1463,6 +1466,7 @@ def ensure_print_job_columns(db_path: str | None = None):
             ('route_rule_id', 'ALTER TABLE print_job ADD COLUMN route_rule_id INTEGER'),
             ("source_event", "ALTER TABLE print_job ADD COLUMN source_event VARCHAR(30) DEFAULT 'manual'"),
             ("printing_started_at", "ALTER TABLE print_job ADD COLUMN printing_started_at DATETIME"),
+            ("lease_token", "ALTER TABLE print_job ADD COLUMN lease_token VARCHAR(128)"),
         )
         added = False
         for col, stmt in _print_migrations:
@@ -3570,6 +3574,7 @@ class PrintJob(db.Model):
     # BUG-2026-08-19-010：认领（置 printing）时间。僵尸回收按此判定；
     # 原按 created_at 近似会把积压 >5min 的 pending 任务认领后立即回收，无限循环
     printing_started_at = db.Column(db.DateTime)
+    lease_token = db.Column(db.String(128))
     workstation_id = db.Column(db.Integer, db.ForeignKey('print_workstation.id'))
     printer_id = db.Column(db.Integer, db.ForeignKey('print_device.id'))
     route_rule_id = db.Column(db.Integer, db.ForeignKey('print_route_rule.id'))

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from functools import wraps
+import secrets
 
 from flask import g, jsonify, render_template, request
 from flask_login import current_user, login_required
@@ -74,6 +75,14 @@ class CreatePrintJobRequest(BaseModel):
 class JobStatusRequest(BaseModel):
     """桌面端上报打印结果请求体。"""
     error_msg: str | None = None
+    lease_token: str | None = None
+
+    @field_validator('lease_token')
+    @classmethod
+    def validate_lease_token(cls, v: str | None) -> str | None:
+        if v is not None and (not v.strip() or len(v) > 128):
+            raise ValueError('打印租约无效')
+        return v.strip() if v else None
 
 
 class AgentClaimRequest(BaseModel):
@@ -144,6 +153,7 @@ def _recover_zombie_printing_jobs(workstation_id=None):
         if (j.attempts or 0) < MAX_ATTEMPTS:
             j.status = 'pending'
             j.printing_started_at = None
+            j.lease_token = None
         else:
             j.status = 'failed'
             j.error_msg = '打印超时且尝试次数过多'
@@ -160,6 +170,35 @@ def _migration_error_response(e):
         return jsonify({'status': 'error',
                         'msg': '打印队列表待迁移：请重启 WMS 服务（启动会自动补列）'}), 503
     return jsonify({'status': 'error', 'msg': f'处理失败：{msg}'}), 500
+
+
+def _claim_result_matches(job, lease_token):
+    """仅允许当前 printing 租约上报结果，防止超时旧代理覆盖新认领。"""
+    if job.status != 'printing':
+        return False
+    if not job.lease_token and not lease_token:
+        return True
+    return bool(lease_token) and secrets.compare_digest(job.lease_token or '', lease_token)
+
+
+def _claim_pending_job(PrintJob, workstation_id=None):
+    """以条件更新原子认领一条任务，避免并发代理拿到同一任务。"""
+    query = PrintJob.query.filter_by(status='pending', workstation_id=workstation_id)
+    candidate = query.order_by(PrintJob.created_at.asc()).first()
+    if not candidate:
+        return None
+    lease_token = secrets.token_urlsafe(24)
+    updated = query.filter(PrintJob.id == candidate.id).update({
+        'status': 'printing',
+        'attempts': (candidate.attempts or 0) + 1,
+        'printing_started_at': datetime.now(),
+        'lease_token': lease_token,
+    }, synchronize_session=False)
+    if updated != 1:
+        db.session.rollback()
+        return None
+    db.session.commit()
+    return db.session.get(PrintJob, candidate.id)
 
 
 def _resolve_print_route(job_type, warehouse_name):
@@ -335,14 +374,9 @@ def register_print_queue_routes(app):
         try:
             _recover_zombie_printing_jobs()
 
-            job = PrintJob.query.filter_by(status='pending', workstation_id=None).order_by(PrintJob.created_at.asc()).first()
+            job = _claim_pending_job(PrintJob)
             if not job:
                 return jsonify({'status': 'empty', 'msg': '队列为空'})
-
-            job.status = 'printing'
-            job.attempts = (job.attempts or 0) + 1
-            job.printing_started_at = datetime.now()
-            db.session.commit()
         except Exception as e:
             return _migration_error_response(e)
 
@@ -357,6 +391,7 @@ def register_print_queue_routes(app):
                 'target_ids': job.target_ids,
                 'copies': job.copies,
                 'print_url': print_url,
+                'lease_token': job.lease_token,
                 'created_at': job.created_at.strftime('%Y-%m-%d %H:%M:%S') if job.created_at else '',
             }
         })
@@ -372,19 +407,15 @@ def register_print_queue_routes(app):
         # 缺列时（服务端未重启迁移）给 503 明确提示，而非冒泡成 500
         try:
             _recover_zombie_printing_jobs(workstation_id=workstation_id)
-            job = PrintJob.query.filter_by(
-                status='pending', workstation_id=workstation_id).order_by(PrintJob.created_at.asc()).first()
+            job = _claim_pending_job(PrintJob, workstation_id)
             if not job:
                 return jsonify({'status': 'empty', 'msg': '队列为空'})
-            job.status = 'printing'
-            job.attempts = (job.attempts or 0) + 1
-            job.printing_started_at = datetime.now()
-            db.session.commit()
         except Exception as e:
             return _migration_error_response(e)
         return jsonify({'status': 'success', 'job': {
             'id': job.id, 'job_type': job.job_type, 'target_id': job.target_id,
             'target_ids': job.target_ids, 'copies': job.copies, 'print_url': _print_url(job),
+            'lease_token': job.lease_token,
             'printer_id': job.printer_id,
             'printer_system_name': job.printer.system_name if job.printer else '',
         }})
@@ -402,6 +433,8 @@ def register_print_queue_routes(app):
             return jsonify({'status': 'error', 'msg': f'参数错误：{e}'}), 400
 
         job = PrintJob.query.get_or_404(job_id)
+        if job.status != 'printing' or (req.lease_token and not _claim_result_matches(job, req.lease_token)):
+            return jsonify({'status': 'error', 'msg': '任务已重新认领或租约失效'}), 409
         job.status = 'done'
         job.printed_at = datetime.now()
         if req.error_msg:
@@ -422,6 +455,8 @@ def register_print_queue_routes(app):
             return jsonify({'status': 'error', 'msg': f'参数错误：{e}'}), 400
 
         job = PrintJob.query.get_or_404(job_id)
+        if job.status != 'printing' or (req.lease_token and not _claim_result_matches(job, req.lease_token)):
+            return jsonify({'status': 'error', 'msg': '任务已重新认领或租约失效'}), 409
         job.status = 'failed'
         job.error_msg = (req.error_msg or '桌面端打印失败')[:500]
         job.printed_at = datetime.now()
@@ -503,14 +538,9 @@ def register_print_queue_routes(app):
         try:
             # BUG-2026-08-19-010：认领前回收本工作站僵尸任务（代理崩溃后卡 printing）
             _recover_zombie_printing_jobs(workstation_id=ws.id)
-            job = PrintJob.query.filter_by(
-                status='pending', workstation_id=ws.id).order_by(PrintJob.created_at.asc()).first()
+            job = _claim_pending_job(PrintJob, ws.id)
             if not job:
                 return jsonify({'status': 'empty', 'msg': '队列为空'})
-            job.status = 'printing'
-            job.attempts = (job.attempts or 0) + 1
-            job.printing_started_at = datetime.now()
-            db.session.commit()
         except Exception as e:
             from flask import current_app as _cap
             _cap.logger.error("print claim 失败（workstation=%s）：%s", ws.id, e)
@@ -527,6 +557,7 @@ def register_print_queue_routes(app):
             'target_ids': job.target_ids,
             'copies': job.copies,
             'print_url': print_url,
+            'lease_token': job.lease_token,
             'printer_id': job.printer_id,
             'printer_system_name': job.printer.system_name if job.printer else '',
         }})
@@ -547,6 +578,8 @@ def register_print_queue_routes(app):
             job = db.session.get(PrintJob, job_id)
             if not job or job.workstation_id != g.print_workstation.id:
                 return jsonify({'status': 'error', 'msg': '任务不存在或不属于本工作站'}), 404
+            if not _claim_result_matches(job, req.lease_token):
+                return jsonify({'status': 'error', 'msg': '任务已重新认领或租约失效'}), 409
             job.status = 'done'
             job.printed_at = datetime.now()
             if req.error_msg:
@@ -570,6 +603,8 @@ def register_print_queue_routes(app):
         job = db.session.get(PrintJob, job_id)
         if not job or job.workstation_id != g.print_workstation.id:
             return jsonify({'status': 'error', 'msg': '任务不存在或不属于本工作站'}), 404
+        if not _claim_result_matches(job, req.lease_token):
+            return jsonify({'status': 'error', 'msg': '任务已重新认领或租约失效'}), 409
         job.status = 'failed'
         job.error_msg = (req.error_msg or '打印代理上报失败')[:500]
         job.printed_at = datetime.now()
