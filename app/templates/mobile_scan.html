@@ -435,6 +435,18 @@
             }
             zxingCodeReader = null;
         }
+        // BUG-2026-08-20-012：zxing.reset() 只停止解码，不会关闭摄像头。
+        // 主动停掉 video 上的媒体轨道并清空 srcObject，否则停止扫码后
+        // 摄像头指示灯常亮、页面关闭扫描框后仍在录制，浪费电量与隐私风险。
+        if (barcodeVideo && barcodeVideo.srcObject) {
+            var stream = barcodeVideo.srcObject;
+            if (stream && typeof stream.getTracks === 'function') {
+                stream.getTracks().forEach(function(track) {
+                    try { track.stop(); } catch (e) { /* 忽略单条轨道停止失败 */ }
+                });
+            }
+            barcodeVideo.srcObject = null;
+        }
         if (barcodeScanner) barcodeScanner.hidden = true;
     }
 

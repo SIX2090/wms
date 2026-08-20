@@ -627,9 +627,15 @@ def register_mobile_routes(app):
         warehouse, wh_error = resolve_request_warehouse(resolve_data)
         if wh_error:
             return jsonify({'status': 'error', 'success': False, 'msg': wh_error}), 400
+        # BUG-2026-08-20-011：位置字段与 scan_submit 采用同一套规范化，保持一致。
+        # 未开启库位管理时，库位应等于仓库名；若客户端传的是仓库编号，
+        # 检查是否匹配当前仓库的 code，是则替换为仓库名。
         location = (req.location or '').strip()
         if not location:
             location = (warehouse.name or '').strip()
+        elif not location_management_enabled():
+            if (warehouse.code or '').strip() and location == (warehouse.code or '').strip():
+                location = (warehouse.name or '').strip()
 
         # 解析物料
         resolved = []

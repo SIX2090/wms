@@ -331,3 +331,51 @@ class TestScanSubmitPydanticValidation:
         from app import InOrder
         with app_module.app.app_context():
             assert InOrder.query.filter_by(purpose="手机扫码入库").count() == 1
+
+
+class TestBatchDraftLocationNameConsistency:
+    """批量草稿库位/仓库名一致性（BUG-2026-08-20-011）：
+
+    未开启库位管理时，草稿 location 应等于仓库名；若客户端把仓库编号
+    当作 location 传入，须规范化为仓库名，避免与流水/后续确认不一致。
+    """
+
+    def test_warehouse_code_as_location_normalized_to_name(self, client):
+        from app import InOrder
+        with app_module.app.app_context():
+            _seed_material("M001", "物料A", stock=0)
+        # warehouse 传仓库编号 W001，location 也传编号 W001
+        resp = client.post(
+            "/mobile/api/scan_batch_draft",
+            json={
+                "mode": "in",
+                "warehouse": "W001",
+                "location": "W001",
+                "lines": [{"material_code": "M001", "quantity": 2}],
+            },
+        )
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        order_id = resp.get_json()["data"]["order_id"]
+        with app_module.app.app_context():
+            order = InOrder.query.get(order_id)
+            assert order.warehouse == "默认仓"
+            # location 被规范化为仓库名而不是编号
+            assert order.location == "默认仓"
+
+    def test_explicit_warehouse_name_location_preserved(self, client):
+        from app import InOrder
+        with app_module.app.app_context():
+            _seed_material("M001", "物料A", stock=0)
+        resp = client.post(
+            "/mobile/api/scan_batch_draft",
+            json={
+                "mode": "in",
+                "warehouse": "默认仓",
+                "location": "默认仓",
+                "lines": [{"material_code": "M001", "quantity": 1}],
+            },
+        )
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        order_id = resp.get_json()["data"]["order_id"]
+        with app_module.app.app_context():
+            assert InOrder.query.get(order_id).location == "默认仓"
