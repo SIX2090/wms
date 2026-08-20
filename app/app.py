@@ -22876,7 +22876,8 @@ def material_search_api():
             db.or_(
                 Material.code.like(f'%{keyword}%'),
                 Material.name.like(f'%{keyword}%'),
-                Material.spec.like(f'%{keyword}%')
+                Material.spec.like(f'%{keyword}%'),
+                Material.brand.like(f'%{keyword}%')
             )
         )
     materials = query.order_by(Material.code.asc()).limit(100).all()

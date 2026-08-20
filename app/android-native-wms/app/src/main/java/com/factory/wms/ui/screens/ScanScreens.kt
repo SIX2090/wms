@@ -72,11 +72,23 @@ fun InboundScreen(
         isLoading = uiState.isLoading,
         showScannerDialog = showScannerDialog,
         onShowScanner = { showScannerDialog = true },
-        onDismissScanner = { showScannerDialog = false },
+        onDismissScanner = {
+            showScannerDialog = false
+            viewModel.clearMaterialSuggestions()
+        },
         manualCode = manualCode,
         manualQty = manualQty,
-        onManualCodeChange = { manualCode = it },
+        onManualCodeChange = {
+            manualCode = it
+            viewModel.searchMaterialSuggestions(it)
+        },
         onManualQtyChange = { manualQty = it },
+        materialSuggestions = uiState.materialSuggestions,
+        materialSuggestionsLoading = uiState.materialSuggestionsLoading,
+        onMaterialSuggestionSelected = { material ->
+            manualCode = material.code.orEmpty()
+            viewModel.clearMaterialSuggestions()
+        },
         onManualAdd = {
             if (manualCode.isNotBlank()) {
                 viewModel.addScanLine(
@@ -87,6 +99,7 @@ fun InboundScreen(
                 )
                 manualCode = ""
                 manualQty = "1"
+                viewModel.clearMaterialSuggestions()
                 showScannerDialog = false
             }
         },
@@ -221,11 +234,23 @@ fun OutboundScreen(
         isLoading = uiState.isLoading,
         showScannerDialog = showScannerDialog,
         onShowScanner = { showScannerDialog = true },
-        onDismissScanner = { showScannerDialog = false },
+        onDismissScanner = {
+            showScannerDialog = false
+            viewModel.clearMaterialSuggestions()
+        },
         manualCode = manualCode,
         manualQty = manualQty,
-        onManualCodeChange = { manualCode = it },
+        onManualCodeChange = {
+            manualCode = it
+            viewModel.searchMaterialSuggestions(it)
+        },
         onManualQtyChange = { manualQty = it },
+        materialSuggestions = uiState.materialSuggestions,
+        materialSuggestionsLoading = uiState.materialSuggestionsLoading,
+        onMaterialSuggestionSelected = { material ->
+            manualCode = material.code.orEmpty()
+            viewModel.clearMaterialSuggestions()
+        },
         onManualAdd = {
             if (manualCode.isNotBlank()) {
                 viewModel.addScanLine(
@@ -590,6 +615,14 @@ fun StockQueryScreen(
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 "规格: ${material.spec}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (!material.brand.isNullOrBlank()) {
+                            Text(
+                                material.brand,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

@@ -519,6 +519,20 @@ private fun OpeningStockLineCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                val materialDetails = listOfNotNull(
+                    line.materialName?.takeIf { it.isNotBlank() },
+                    line.materialSpec?.takeIf { it.isNotBlank() },
+                    line.materialBrand?.takeIf { it.isNotBlank() }
+                ).joinToString()
+                if (materialDetails.isNotBlank()) {
+                    Text(
+                        materialDetails,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Text(
                     "数量: ${formatQuantity(line.quantity)}" +
                         (line.price?.let { "  单价: ¥${"%.2f".format(it)}" } ?: ""),

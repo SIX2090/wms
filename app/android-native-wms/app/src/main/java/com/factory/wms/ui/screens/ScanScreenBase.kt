@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.factory.wms.data.model.MaterialDto
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.ui.components.ScannerDialog
 import com.factory.wms.ui.theme.*
@@ -60,7 +61,10 @@ fun ScanScreenBase(
     submittedPrint: SubmittedPrintInfo? = null,
     printLoading: Boolean = false,
     onPrintOrder: (() -> Unit)? = null,
-    onDismissPrint: (() -> Unit)? = null
+    onDismissPrint: (() -> Unit)? = null,
+    materialSuggestions: List<MaterialDto> = emptyList(),
+    materialSuggestionsLoading: Boolean = false,
+    onMaterialSuggestionSelected: (MaterialDto) -> Unit = {}
 ) {
     var showCameraScanner by remember { mutableStateOf(false) }
     Scaffold(
@@ -294,6 +298,20 @@ fun ScanScreenBase(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    val materialDetails = listOfNotNull(
+                                        line.material_name?.takeIf { it.isNotBlank() },
+                                        line.material_spec?.takeIf { it.isNotBlank() },
+                                        line.material_brand?.takeIf { it.isNotBlank() }
+                                    ).joinToString()
+                                    if (materialDetails.isNotBlank()) {
+                                        Text(
+                                            materialDetails,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                     Text(
                                         "数量: ${formatQuantity(line.quantity)}",
                                         style = MaterialTheme.typography.bodySmall,
@@ -395,6 +413,30 @@ fun ScanScreenBase(
                         }
                     }
 
+                    if (materialSuggestionsLoading) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            color = submitColor,
+                            trackColor = submitColor.copy(alpha = 0.12f)
+                        )
+                    }
+                    if (manualCode.isNotBlank()) {
+                        materialSuggestions.take(5).forEach { material ->
+                            TextButton(
+                                onClick = { onMaterialSuggestionSelected(material) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Text(material.code.orEmpty())
+                                    Text(material.name.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                                    Text(material.spec.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                                    Text(material.brand.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(12.dp))
 
                     // Extra recognition-type action (e.g. 识物盘点), only when provided

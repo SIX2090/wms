@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.factory.wms.data.model.*
 import com.factory.wms.data.repository.WmsRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +20,8 @@ data class ScanUiState(
     val scannedMaterial: MaterialDto? = null,
     val scannedCode: String = "",
     // Scan list for batch operations
+    val materialSuggestions: List<MaterialDto> = emptyList(),
+    val materialSuggestionsLoading: Boolean = false,
     val scanLines: List<ScanLine> = emptyList(),
     val totalQuantity: Double = 0.0,
     // 仓库选择（出入库必填，透传给后端）
@@ -44,6 +48,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(ScanUiState())
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
+    private var materialSearchSequence = 0
+    private var materialSearchJob: Job? = null
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
@@ -61,6 +67,51 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(scannedCode = "")
     }
 
+    fun searchMaterialSuggestions(keyword: String) {
+        val normalizedKeyword = keyword.trim()
+        val searchSequence = ++materialSearchSequence
+        materialSearchJob?.cancel()
+        if (normalizedKeyword.isBlank()) {
+            _uiState.value = _uiState.value.copy(
+                materialSuggestions = emptyList(),
+                materialSuggestionsLoading = false
+            )
+            return
+        }
+
+        materialSearchJob = viewModelScope.launch {
+            delay(180)
+            _uiState.value = _uiState.value.copy(materialSuggestionsLoading = true)
+            repository.searchMaterial(normalizedKeyword).fold(
+                onSuccess = { materials ->
+                    if (searchSequence == materialSearchSequence) {
+                        _uiState.value = _uiState.value.copy(
+                            materialSuggestions = materials,
+                            materialSuggestionsLoading = false
+                        )
+                    }
+                },
+                onFailure = {
+                    if (searchSequence == materialSearchSequence) {
+                        _uiState.value = _uiState.value.copy(
+                            materialSuggestions = emptyList(),
+                            materialSuggestionsLoading = false
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun clearMaterialSuggestions() {
+        materialSearchSequence += 1
+        materialSearchJob?.cancel()
+        _uiState.value = _uiState.value.copy(
+            materialSuggestions = emptyList(),
+            materialSuggestionsLoading = false
+        )
+    }
+
     fun addScanLine(line: ScanLine) {
         val current = _uiState.value.scanLines.toMutableList()
         val existingIndex = current.indexOfFirst { it.material_code == line.material_code }
@@ -74,6 +125,28 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             scanLines = current,
             totalQuantity = current.sumOf { it.quantity }
         )
+
+        if (line.material_name.isNullOrBlank() || line.material_spec.isNullOrBlank()) {
+            viewModelScope.launch {
+                val material = repository.getMaterialInfo(line.material_code).getOrNull()
+                    ?: repository.searchMaterial(line.material_code).getOrNull()?.firstOrNull()
+                material?.let {
+                    val enriched = _uiState.value.scanLines.map { existing ->
+                        if (existing.material_code == line.material_code) {
+                            existing.copy(
+                                material_code = it.code ?: existing.material_code,
+                                material_name = it.name,
+                                material_spec = it.spec,
+                                material_brand = it.brand
+                            )
+                        } else {
+                            existing
+                        }
+                    }
+                    _uiState.value = _uiState.value.copy(scanLines = enriched)
+                }
+            }
+        }
     }
 
     fun removeScanLine(index: Int) {

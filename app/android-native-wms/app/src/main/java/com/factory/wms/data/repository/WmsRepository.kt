@@ -417,6 +417,7 @@ private fun MaterialEntity.toDto(): MaterialDto = MaterialDto(
     id = null,
     code = code,
     name = name,
+    brand = null,
     spec = spec,
     unit = unit,
     category = category,

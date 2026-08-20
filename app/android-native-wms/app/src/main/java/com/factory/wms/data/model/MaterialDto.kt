@@ -6,6 +6,7 @@ data class MaterialDto(
     val id: Int?,
     val code: String?,
     val name: String?,
+    val brand: String?,
     val spec: String?,
     val unit: String?,
     val category: String?,

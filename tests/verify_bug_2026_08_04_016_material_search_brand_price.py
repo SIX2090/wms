@@ -101,6 +101,18 @@ class TestMaterialSearchPayloadBrandPrice:
             assert float(item["price"]) == 12.34, \
                 f"BUG: /api/material/search 未返回 price，实际 {item.get('price')!r}"
 
+    def test_search_matches_material_brand(self):
+        with app_module.app.app_context():
+            _reset_db()
+            seeds = _seed()
+            mat = seeds['mat']
+            client = _make_client()
+
+            resp = client.get('/api/material/search?keyword=' + mat.brand)
+            assert resp.status_code == 200, resp.get_data(as_text=True)
+            items = (resp.get_json() or {}).get('data') or []
+            assert [item['code'] for item in items] == [mat.code]
+
     def test_info_returns_brand_and_price(self):
         with app_module.app.app_context():
             _reset_db()

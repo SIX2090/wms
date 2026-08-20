@@ -29,7 +29,10 @@ data class OpeningStockLine(
     @SerializedName("material_code") val materialCode: String,
     val quantity: Double,
     val price: Double? = null,
-    val remark: String? = null
+    val remark: String? = null,
+    @Transient val materialName: String? = null,
+    @Transient val materialSpec: String? = null,
+    @Transient val materialBrand: String? = null
 )
 
 /** 期初建账提交请求。 */

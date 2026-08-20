@@ -7,7 +7,10 @@ data class ScanLine(
     val quantity: Double,
     val price: Double? = null,
     val warehouse_code: String? = null,
-    val location_code: String? = null
+    val location_code: String? = null,
+    @Transient val material_name: String? = null,
+    @Transient val material_spec: String? = null,
+    @Transient val material_brand: String? = null
 )
 
 data class InboundRequest(

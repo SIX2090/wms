@@ -93,6 +93,26 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
             current.add(OpeningStockLine(materialCode = trimmed, quantity = quantity))
         }
         _uiState.value = _uiState.value.copy(lines = current, error = null)
+
+        viewModelScope.launch {
+            val material = repository.getMaterialInfo(trimmed).getOrNull()
+                ?: repository.searchMaterial(trimmed).getOrNull()?.firstOrNull()
+            material?.let {
+                val enriched = _uiState.value.lines.map { existing ->
+                    if (existing.materialCode == trimmed) {
+                        existing.copy(
+                            materialCode = it.code ?: existing.materialCode,
+                            materialName = it.name,
+                            materialSpec = it.spec,
+                            materialBrand = it.brand
+                        )
+                    } else {
+                        existing
+                    }
+                }
+                _uiState.value = _uiState.value.copy(lines = enriched)
+            }
+        }
     }
 
     fun removeLine(index: Int) {
