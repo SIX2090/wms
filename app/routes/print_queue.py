@@ -479,15 +479,22 @@ def register_print_queue_routes(app):
         ws = g.print_workstation
         if not workstation_is_online(ws):
             return jsonify({'status': 'empty', 'msg': '工作站离线或心跳超时，请先上报心跳'})
-        # BUG-2026-08-19-010：认领前回收本工作站僵尸任务（代理崩溃后卡 printing）
-        _recover_zombie_printing_jobs(workstation_id=ws.id)
+        # BUG-2026-08-19-010：认领前回收本工作站僵尸任务（代理崩溃后卡 printing）。
+        # 列不存在时（服务器未重启迁移）跳过回收，不阻塞正常认领。
+        try:
+            _recover_zombie_printing_jobs(workstation_id=ws.id)
+        except Exception:
+            pass
         job = PrintJob.query.filter_by(
             status='pending', workstation_id=ws.id).order_by(PrintJob.created_at.asc()).first()
         if not job:
             return jsonify({'status': 'empty', 'msg': '队列为空'})
         job.status = 'printing'
         job.attempts = (job.attempts or 0) + 1
-        job.printing_started_at = datetime.now()
+        try:
+            job.printing_started_at = datetime.now()
+        except Exception:
+            pass  # 列不存在时跳过，不影响认领
         db.session.commit()
         # 打印 URL 附短时效 ptoken（免登录渲染）与 autoprint=1（页面加载后自动打印）
         from utils import generate_print_token
