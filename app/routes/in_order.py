@@ -240,7 +240,11 @@ def register_in_order_routes(app):
             })()
             for order, item in pagination.items
         ]
-        suppliers = Supplier.query.all()
+        # 序列化为可 JSON 的 dict，供 in_order.html 的 {{ suppliers|tojson }} 快速匹配下拉使用
+        suppliers = [
+            {'id': s.id, 'name': s.name, 'code': s.code}
+            for s in Supplier.query.order_by(Supplier.name.asc(), Supplier.id.asc()).all()
+        ]
         # 反向映射：中文业务类型 -> 英文 URL 参数，供模板生成分页/清除链接
         _type_reverse = {'采购入库': 'purchase_in', '产品入库': 'product_in', '其他入库': 'other_in'}
         filters = {
