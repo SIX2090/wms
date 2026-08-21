@@ -93,19 +93,36 @@ def test_upload_excel_without_file_rejected(client):
     assert 'Excel template file is required' in resp.get_data(as_text=True)
 
 
-def test_create_html_template_success(client):
-    """HTML 类型模板上传保存应成功。"""
+def test_create_html_only_template_rejected(client):
+    """仅提交 HTML 内容（无 Excel 文件）应被拒绝，打印模板仅允许 Excel。"""
     resp = client.post('/in_order_print_template/add', data={
-        'name': 'HTML回归模板',
+        'name': 'HTML模板',
         'template_type': 'html',
         'html_content': '<h1>入库单</h1>',
+    }, content_type='multipart/form-data')
+
+    assert resp.status_code == 400
+    assert 'Excel template file is required' in resp.get_data(as_text=True)
+
+    with app_module.app.app_context():
+        assert InOrderPrintTemplate.query.filter_by(name='HTML模板').first() is None
+
+
+def test_create_template_ignores_html_type_saved_as_excel(client):
+    """即使传入 template_type=html，只要提供 Excel 文件也应落库为 Excel 模板。"""
+    resp = client.post('/in_order_print_template/add', data={
+        'name': '传入HTML类型',
+        'template_type': 'html',
+        'html_content': '<h1>应被忽略</h1>',
+        'excel_file': (_xlsx_bytes(), '传入HTML类型.xlsx'),
     }, content_type='multipart/form-data')
 
     assert resp.status_code == 200, resp.get_data(as_text=True)
     assert '"status":"success"' in resp.get_data(as_text=True)
 
     with app_module.app.app_context():
-        t = InOrderPrintTemplate.query.filter_by(name='HTML回归模板').first()
+        t = InOrderPrintTemplate.query.filter_by(name='传入HTML类型').first()
         assert t is not None
-        assert t.template_type == 'html'
-        assert t.html_template_content == '<h1>入库单</h1>'
+        assert t.template_type == 'excel'
+        assert t.excel_template_path
+        assert not t.html_template_content

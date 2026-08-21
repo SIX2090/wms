@@ -22561,7 +22561,8 @@ def _print_template_query_from_args(model):
     type_filter = (request.args.get('type') or '').strip()
     if status_filter not in ('default', 'normal'):
         status_filter = ''
-    if type_filter not in ('excel', 'html'):
+    # 打印模板仅允许 Excel，类型过滤只接受 excel
+    if type_filter != 'excel':
         type_filter = ''
     allowed_sorts = {'name', 'template_type', 'is_default', 'created_at', 'updated_at'}
     query = model.query
@@ -29357,25 +29358,20 @@ def _render_html_print_content(content, **context):
         return f'<div style="color:#b91c1c;border:1px solid #fecaca;padding:12px;">打印模板渲染失败：{escape(str(exc))}</div>'
 
 def create_print_template(model, prefix):
+    # 打印模板仅允许 Excel：忽略前端传入的 template_type/html_content，
+    # 一律按 Excel 模板保存，杜绝 HTML 模板（防存储型 XSS 且统一为 Excel 版式）。
     name = (request.form.get('name') or '').strip()
-    template_type = (request.form.get('template_type') or 'excel').strip().lower()
+    template_type = 'excel'
     is_default = bool(request.form.get('is_default'))
 
     if not name:
         return api_error('Template name is required')
 
-    excel_template_path = ''
+    excel_file = request.files.get('excel_file')
+    if not excel_file or not excel_file.filename:
+        return api_error('Excel template file is required')
+    excel_template_path = save_print_template_file(excel_file, prefix, app.static_folder)
     html_template_content = ''
-
-    if template_type == 'excel':
-        excel_file = request.files.get('excel_file')
-        if not excel_file or not excel_file.filename:
-            return api_error('Excel template file is required')
-        excel_template_path = save_print_template_file(excel_file, prefix, app.static_folder)
-    else:
-        html_template_content = (request.form.get('html_content') or '').strip()
-        if not html_template_content:
-            return api_error('HTML template content is required')
 
     try:
         if is_default:

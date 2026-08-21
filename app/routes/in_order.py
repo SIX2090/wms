@@ -2618,8 +2618,7 @@ def register_in_order_routes(app):
     @app.route('/in_order/<int:id>/preview_template')
     @login_required
     def preview_in_order_template(id):
-        from datetime import datetime
-        from app import (InOrder, InOrderPrintTemplate, _render_html_print_content,
+        from app import (InOrder, InOrderPrintTemplate,
                          get_default_print_template)
         order = InOrder.query.get_or_404(id)
         template = get_default_print_template(InOrderPrintTemplate)
@@ -2632,28 +2631,20 @@ def register_in_order_routes(app):
                 'template_path': template.excel_template_path
             })
 
-        rendered = render_template(
-            'print_in_with_html.html' if template and template.template_type == 'html' else 'print_in.html',
-            order=order,
-            template=template,
-            rendered_content=_render_html_print_content(template.html_template_content, order=order, template=template, now=datetime.now()) if template and template.template_type == 'html' else ''
-        )
-        return jsonify({'status': 'success', 'msg': '操作完成', 'type': 'html', 'content': rendered})
+        # 打印模板仅允许 Excel：无 Excel 模板时预览内置打印页
+        return jsonify({'status': 'success', 'msg': '操作完成', 'type': 'html',
+                        'content': render_template('print_in.html', order=order)})
 
     def _render_in_order_print(id):
         # PRINT-ROUTING-F01-P3：抽出的未装饰实现，供 /print（ptoken 免登录）复用，
         # 避免直接调用带 @login_required 的视图函数导致 ptoken 通过外层仍被内层重定向。
-        from datetime import datetime
-        from app import (InOrder, InOrderPrintTemplate, _render_html_print_content,
+        from app import (InOrder, InOrderPrintTemplate,
                          get_default_print_template)
         order = InOrder.query.get_or_404(id)
         template = get_default_print_template(InOrderPrintTemplate)
-        if template:
-            if template.template_type == 'excel':
-                return render_template('print_in_with_excel.html', order=order, template=template)
-            if template.template_type == 'html':
-                rendered_content = _render_html_print_content(template.html_template_content, order=order, template=template, now=datetime.now())
-                return render_template('print_in_with_html.html', order=order, template=template, rendered_content=rendered_content)
+        # 打印模板仅允许 Excel：历史 HTML 模板不再渲染，一律回退内置打印页
+        if template and template.template_type == 'excel':
+            return render_template('print_in_with_excel.html', order=order, template=template)
         return render_template('print_in.html', order=order)
 
     @app.route('/in_order/<int:id>/print_with_template')
@@ -2669,15 +2660,74 @@ def register_in_order_routes(app):
     @app.route('/in_order/<int:id>/print_excel')
     @login_required
     def print_in_order_excel(id):
-        """按用户指定样式生成采购入库单 Excel 并下载（无合计行）。"""
-        from app import InOrder
+        """按用户选定（或默认）Excel 打印模板填充并下载；无模板时回退内置版式。"""
+        from app import InOrder, InOrderPrintTemplate
+        from utils import resolve_print_template
         order = InOrder.query.get_or_404(id)
+        template = resolve_print_template(InOrderPrintTemplate, request.args.get('template_id', type=int))
+        if template and template.excel_template_path:
+            import os
+            from print_fill import build_filled_print_excel, template_file_abspath
+            template_path = template_file_abspath(template.excel_template_path, app.static_folder)
+            if template_path and os.path.exists(template_path):
+                from datetime import datetime
+                output = build_filled_print_excel(
+                    template_path, order,
+                    date_str=datetime.now().strftime('%Y-%m-%d'),
+                )
+                filename = f'{template.name or "采购入库单"}_{order.order_no or id}.xlsx'
+                return send_file(
+                    output,
+                    download_name=filename,
+                    as_attachment=True,
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
         output = _build_in_order_excel(order)
         filename = f'采购入库单_{order.order_no or id}.xlsx'
         return send_file(
             output,
             download_name=filename,
             as_attachment=True,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+    @app.route('/in_order_print_templates.json')
+    @login_required
+    def in_order_print_templates_json():
+        """返回可选的 Excel 打印模板列表（用于打印时选择模板）。"""
+        from app import InOrderPrintTemplate
+        templates = InOrderPrintTemplate.query.filter_by(template_type='excel').order_by(
+            InOrderPrintTemplate.is_default.desc(), InOrderPrintTemplate.updated_at.desc()
+        ).all()
+        return jsonify({
+            'status': 'success',
+            'templates': [{
+                'id': t.id,
+                'name': t.name,
+                'is_default': bool(t.is_default),
+                'has_file': bool(t.excel_template_path),
+            } for t in templates],
+        })
+
+    @app.route('/in_order_print_template/<int:template_id>/download')
+    @login_required
+    def download_in_order_print_template(template_id):
+        """下载指定打印模板的 Excel 文件。"""
+        import os
+        from app import InOrderPrintTemplate, api_error
+        from print_fill import template_file_abspath
+        template = InOrderPrintTemplate.query.get_or_404(template_id)
+        if not template.excel_template_path:
+            return api_error('打印模板缺少 Excel 文件'), 404
+        template_path = template_file_abspath(template.excel_template_path, app.static_folder)
+        if not template_path or not os.path.exists(template_path):
+            return api_error('打印模板文件不存在'), 404
+        from flask import send_from_directory
+        return send_from_directory(
+            os.path.dirname(template_path) or '.',
+            os.path.basename(template_path),
+            as_attachment=True,
+            download_name=f'{template.name or "打印模板"}.xlsx',
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
 

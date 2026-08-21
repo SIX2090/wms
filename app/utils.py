@@ -474,6 +474,15 @@ def get_default_print_template(model):
         model.query.order_by(model.updated_at.desc()).first()
 
 
+def resolve_print_template(model, template_id):
+    """返回指定 id 的打印模板；未指定或不存在时返回默认模板。"""
+    if template_id:
+        template = model.query.get(template_id)
+        if template:
+            return template
+    return get_default_print_template(model)
+
+
 def save_print_template_file(file_storage, prefix, static_folder):
     if not file_storage or not file_storage.filename:
         return ''
