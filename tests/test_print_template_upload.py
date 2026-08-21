@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import sys
 from pathlib import Path
@@ -53,6 +54,17 @@ def _xlsx_bytes():
     from openpyxl import Workbook
     wb = Workbook()
     wb.active["A1"] = "采购入库单"
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def _xlsx_with_cells(cells):
+    from openpyxl import Workbook
+    wb = Workbook()
+    for (ref, value) in cells:
+        wb.active[ref] = value
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -126,3 +138,74 @@ def test_create_template_ignores_html_type_saved_as_excel(client):
         assert t.template_type == 'excel'
         assert t.excel_template_path
         assert not t.html_template_content
+
+
+def _msg(resp):
+    """从 JSON 响应中取出 msg（jsonify 默认把中文转义成 unicode 转义序列，直接断言可读文本更方便）。"""
+    return json.loads(resp.get_data(as_text=True)).get('msg', '')
+
+
+def _post(_client, name, filename, data):
+    return _client.post('/in_order_print_template/add', data={
+        'name': name,
+        'template_type': 'excel',
+        'is_default': 'on',
+        'excel_file': (data, filename),
+    }, content_type='multipart/form-data')
+
+
+def test_upload_non_xlsx_extension_rejected(client):
+    """扩展名非 .xlsx（如 .html）应 400 拒绝，即使字节是合法 xlsx 亦然。"""
+    resp = _post(client, 'HTML伪装', '伪装模板.html', _xlsx_bytes())
+    assert resp.status_code == 400
+    assert '仅支持 .xlsx' in _msg(resp)
+
+    with app_module.app.app_context():
+        assert InOrderPrintTemplate.query.filter_by(name='HTML伪装').first() is None
+
+
+def test_upload_xls_extension_rejected(client):
+    """.xls（OLE 旧格式，openpyxl 无法解析）应 400 拒绝。"""
+    resp = _post(client, '老格式XLS', '老模板.xls', _xlsx_bytes())
+    assert resp.status_code == 400
+    assert '仅支持 .xlsx' in _msg(resp)
+
+    with app_module.app.app_context():
+        assert InOrderPrintTemplate.query.filter_by(name='老格式XLS').first() is None
+
+
+def test_upload_corrupt_xlsx_rejected(client):
+    """扩展名是 .xlsx 但内容不是合法 zip/xlsx 应 400 明确报错。"""
+    resp = _post(client, '损坏模板', '损坏.xlsx', io.BytesIO(b'not-a-real-xlsx-bytes'))
+    assert resp.status_code == 400
+    assert '不是有效的 Excel' in _msg(resp)
+
+    with app_module.app.app_context():
+        assert InOrderPrintTemplate.query.filter_by(name='损坏模板').first() is None
+
+
+def test_upload_unsupported_placeholder_rejected(client):
+    """模板含引擎不支持的 {占位符} 应 400，避免打印时静默输出原文。"""
+    bad = _xlsx_with_cells([('A1', '{order.order_no}'), ('A2', '{not_supported_token}')])
+    resp = _post(client, '坏占位符', '坏占位符.xlsx', bad)
+    assert resp.status_code == 400
+    assert '不支持的占位符' in _msg(resp)
+    assert 'not_supported_token' in _msg(resp)
+
+    with app_module.app.app_context():
+        assert InOrderPrintTemplate.query.filter_by(name='坏占位符').first() is None
+
+
+def test_upload_valid_placeholders_accepted(client):
+    """order.*/item.*/total_*/print_date 等合法占位符应正常落库。"""
+    cells = [
+        ('A1', '{order.order_no}'), ('A2', '{order.supplier.name}'),
+        ('A3', '{item.material.name}'), ('A4', '{total_quantity}'),
+        ('A5', '{total_amount}'), ('A6', '{print_date}'),
+    ]
+    resp = _post(client, '合法占位符', '合法占位符.xlsx', _xlsx_with_cells(cells))
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert '"status":"success"' in resp.get_data(as_text=True)
+
+    with app_module.app.app_context():
+        assert InOrderPrintTemplate.query.filter_by(name='合法占位符').first() is not None

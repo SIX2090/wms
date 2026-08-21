@@ -239,6 +239,21 @@ def test_template_file_abspath():
     assert template_file_abspath(None, sf) is None
 
 
+def test_validate_template_file():
+    from print_fill import validate_template_file
+    # 空
+    assert validate_template_file(b'') == '打印模板文件为空'
+    # 非 zip
+    assert '不是有效的 Excel' in validate_template_file(b'not-a-zip')
+    # 合法 xlsx + 合法占位符
+    ok = _xlsx_bytes([(1, 1, '{order.order_no}'), (2, 1, '{item.material.name}')])
+    assert validate_template_file(ok.read()) == ''
+    # 非法占位符
+    bad = _xlsx_bytes([(1, 1, '{order.order_no}'), (2, 1, '{unknown_thing}')])
+    msg = validate_template_file(bad.read())
+    assert '不支持的占位符' in msg and 'unknown_thing' in msg
+
+
 def test_build_filled_print_excel(tmp_path, seeded_db):
     from openpyxl import load_workbook
     tpl = tmp_path / "canon.xlsx"

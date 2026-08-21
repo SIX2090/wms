@@ -29370,6 +29370,20 @@ def create_print_template(model, prefix):
     excel_file = request.files.get('excel_file')
     if not excel_file or not excel_file.filename:
         return api_error('Excel template file is required')
+
+    # 仅接受 .xlsx：.xls（OLE 格式，openpyxl 无法解析）与其他格式一律拒绝
+    ext = os.path.splitext(excel_file.filename)[1].lower()
+    if ext != '.xlsx':
+        return api_error('仅支持 .xlsx 格式的 Excel 模板（.xls/HTML 等其他格式不支持）')
+
+    # 内容校验：损坏/超大(含解压炸弹)/非法占位符在上传即拒绝，而非打印时静默出错
+    from print_fill import validate_template_file
+    raw = excel_file.read()
+    excel_file.stream.seek(0)
+    validate_msg = validate_template_file(raw)
+    if validate_msg:
+        return api_error(validate_msg)
+
     excel_template_path = save_print_template_file(excel_file, prefix, app.static_folder)
     html_template_content = ''
 

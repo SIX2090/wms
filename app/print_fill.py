@@ -23,6 +23,7 @@ from __future__ import annotations
 import io
 import os
 import re
+import zipfile
 from copy import copy
 from datetime import datetime
 
@@ -31,6 +32,59 @@ from openpyxl import load_workbook
 _PLACEHOLDER_RE = re.compile(r'\{([^{}]+)\}')
 # 明细扩展时判断"明细块结束边界"用到的订单级占位符前缀
 _ORDER_LEVEL_HINTS = ('{total_', '{order.', '{print_date}', '{today}')
+
+# 合法占位符：order.* / item.* 为通配（按属性路径解析），其余为显式白名单
+_EXPLICIT_TOKENS = ('total_quantity', 'total_amount', 'print_date', 'today')
+
+# 上传时防超大/解压炸弹/畸形文件的安全阈值
+_MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024  # 50MB 解压后上限
+_MAX_TEMPLATE_ROWS = 2000
+_MAX_TEMPLATE_COLS = 100
+
+
+def _is_supported_placeholder(token):
+    return token.startswith('order.') or token.startswith('item.') or token in _EXPLICIT_TOKENS
+
+
+def validate_template_file(raw: bytes) -> str:
+    """校验上传的打印模板原始字节，返回错误信息；合法则返回空串。
+
+    覆盖三类问题：
+    - 损坏/非 xlsx（openpyxl 打开失败或解压非法）→ 明确报错而非运行时失败
+    - 超大文件 / zip 解压炸弹（解压后体积超限）→ 拒绝
+    - 模板里含引擎不支持的 {占位符} → 拒绝，避免打印时静默输出原文
+    """
+    if not raw:
+        return '打印模板文件为空'
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(raw))
+        total = sum(i.file_size for i in zf.infolist())
+        zf.close()
+    except zipfile.BadZipFile:
+        return '不是有效的 Excel 文件（仅支持 .xlsx）'
+    if total > _MAX_UNCOMPRESSED_BYTES:
+        return '打印模板文件解压后过大，请压缩后重新上传'
+    try:
+        workbook = load_workbook(io.BytesIO(raw), read_only=False)
+    except zipfile.BadZipFile:
+        return '不是有效的 Excel 文件（仅支持 .xlsx）'
+    except Exception:  # noqa: BLE001 开放异常：解析层面的任何失败都按坏文件处理
+        return 'Excel 文件损坏或无法解析，请重新上传有效的 .xlsx 模板'
+    try:
+        for ws in workbook.worksheets:
+            if (ws.max_row or 0) > _MAX_TEMPLATE_ROWS or (ws.max_column or 0) > _MAX_TEMPLATE_COLS:
+                return f'工作表「{ws.title}」规模过大（行>%d 或列>%d），请精简模板' % (
+                    _MAX_TEMPLATE_ROWS, _MAX_TEMPLATE_COLS)
+            for row in ws.iter_rows():
+                for cell in row:
+                    if isinstance(cell.value, str):
+                        for token in _PLACEHOLDER_RE.findall(cell.value):
+                            if not _is_supported_placeholder(token):
+                                return '模板包含不支持的占位符 {%s}，请使用 order.* / item.* / %s' % (
+                                    token, ' / '.join(_EXPLICIT_TOKENS))
+    finally:
+        workbook.close()
+    return ''
 
 
 def template_file_abspath(excel_template_path, static_folder):
