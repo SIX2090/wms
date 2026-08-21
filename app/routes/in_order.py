@@ -141,7 +141,8 @@ def _build_in_order_excel(order):
         row += 1
 
     ws.merge_cells(f'F{row}:I{row}')
-    ws.cell(row=row, column=6, value='收货：').alignment = right_align
+    ws.cell(row=row, column=6, value='收货：').alignment = Alignment(
+        horizontal='right', vertical='center', indent=20)
     for col in range(6, 10):
         ws.cell(row=row, column=col).font = body_font
     ws.row_dimensions[row].height = 22
