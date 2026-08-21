@@ -205,6 +205,43 @@ def test_download_agent_bats_autolocate_python(client):
     assert 'start "" /min "%PYW%"' in start_bat
 
 
+def test_download_agent_install_service_bat(client):
+    """85-C2：部署包含 install-service.bat —— 一键注册开机自启。
+
+    双击后自动提权（schtasks 需管理员）、自动定位 Python/pythonw、
+    自动带 --config agent_config.json 注册「WMS Print Agent」开机自启；
+    不得裸调 python/pythonw。"""
+    import io
+    import zipfile
+
+    _add_workstation(client, code="WS-1")
+    resp = client.get("/print_routing/download_agent")
+    assert resp.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(resp.data))
+    bat = zf.read("install-service.bat").decode("gbk")
+    # 自动提权（首行即 @echo off，CRLF 行尾）
+    assert bat.startswith('@echo off\r\n')
+    assert 'net session >nul 2>&1' in bat
+    assert 'Verb RunAs' in bat
+    # 复用自动定位 Python 链
+    assert 'where python.exe' in bat
+    assert 'WindowsApps' in bat
+    assert '未找到 Python' in bat
+    assert 'Add Python to PATH' in bat
+    # 推导 pythonw 后台运行
+    assert '%PY:python.exe=pythonw.exe%' in bat
+    # 注册开机自启：schtasks + WMS Print Agent + ONSTART + SYSTEM + 带配置
+    assert 'schtasks /Create /F /TN "WMS Print Agent" /SC ONSTART /RU SYSTEM' in bat
+    assert 'wms_print_agent.py' in bat
+    assert '--config "%~dp0agent_config.json"' in bat
+    # 成功/失败提示
+    assert '已注册开机自启任务 WMS Print Agent' in bat
+    assert '[失败] 注册失败' in bat
+    # 不裸调 python/pythonw
+    assert '\npython wms_print_agent.py' not in bat
+    assert '\npythonw wms_print_agent.py' not in bat
+
+
 def test_add_printer_system_name_none_accepted(client):
     """BUG-2026-08-19-005：前端 system_name 留空时传 None，
     PrinterCreateRequest 应接受并自动用打印机名称填充，不应报 422。"""

@@ -258,6 +258,8 @@ def register_print_routing_routes(app):
                 "开机自启（推荐）：\n"
                 "  schtasks /Create /TN \"WMS Print Agent\" /SC ONSTART /RU SYSTEM ^\n"
                 "    /TR \"\\\"C:\\Path\\To\\pythonw.exe\\\" C:\\wms_agent\\wms_print_agent.py --config C:\\wms_agent\\agent_config.json\"\n"
+                "  更省事：双击包内 install-service.bat 即可一键注册开机自启（自动提权、\n"
+                "  自动定位 pythonw、自动带配置路径），上面的命令可省略。\n"
             )
             zf.writestr('README.txt', readme)
             # BUG-2026-08-19-012：原 bat 裸调 python/pythonw，Python 未加入 PATH 的电脑
@@ -303,6 +305,42 @@ def register_print_routing_routes(app):
                     'start "" /min "%PYW%" wms_print_agent.py --config agent_config.json',
                 ]) + "\r\n"
             zf.writestr('start.bat', start_bat.encode('gbk'))
+            # PRINT-ROUTING-F01-P5 / 85-C2：一键注册开机自启的 install-service.bat。
+            # 复用 py_detect 自动定位 Python（排除 WindowsApps 假 python → 常见安装
+            # 目录 → py 启动器）；自动提权（schtasks 注册需管理员）；python.exe 推导
+            # pythonw.exe 后台运行；自动带 --config agent_config.json。GBK + CRLF。
+            install_service = [
+                '@echo off',
+                'setlocal',
+                'rem --- 管理员权限自检与提权（schtasks 注册需要管理员） ---',
+                'net session >nul 2>&1',
+                'if %errorlevel% neq 0 (',
+                '  echo 需要管理员权限注册开机自启，正在申请提权...',
+                "  powershell -NoProfile -Command \"Start-Process -FilePath \'%~f0\' -Verb RunAs\"",
+                '  exit /b',
+                ')',
+            ] + py_detect[2:] + [
+                'rem --- 定位 pythonw.exe（后台运行，取不到回退 python） ---',
+                'set "PYW=%PY:python.exe=pythonw.exe%"',
+                'if not exist "%PYW%" set "PYW=%PY%"',
+                'echo 使用 PythonW：%PYW%',
+                'rem --- 注册开机自启任务（已存在则覆盖，/F） ---',
+                'schtasks /Create /F /TN "WMS Print Agent" /SC ONSTART /RU SYSTEM /TR ""%PYW%" "%~dp0wms_print_agent.py" --config "%~dp0agent_config.json""',
+                'if %errorlevel% equ 0 (',
+                '  echo.',
+                '  echo [成功] 已注册开机自启任务 WMS Print Agent。',
+                '  echo        开机后代理将自动在后台运行。',
+                '  pause',
+                '  exit /b 0',
+                ') else (',
+                '  echo.',
+                '  echo [失败] 注册失败，请查看上方报错。',
+                '  echo        如需手动注册，可参考 README.txt 的 schtasks 命令。',
+                '  pause',
+                '  exit /b 1',
+                ')',
+            ]
+            zf.writestr('install-service.bat', ("\r\n".join(install_service)).encode('gbk'))
         buf.seek(0)
         suffix = f"_{ws.code}" if ws else ""
         return send_file(buf, mimetype='application/zip',
