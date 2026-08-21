@@ -29268,7 +29268,7 @@ def create_print_template(model, prefix):
         excel_file = request.files.get('excel_file')
         if not excel_file or not excel_file.filename:
             return api_error('Excel template file is required')
-        excel_template_path = save_print_template_file(excel_file, prefix)
+        excel_template_path = save_print_template_file(excel_file, prefix, app.static_folder)
     else:
         html_template_content = (request.form.get('html_content') or '').strip()
         if not html_template_content:
