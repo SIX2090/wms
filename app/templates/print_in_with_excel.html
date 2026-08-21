@@ -2,175 +2,92 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>使用Excel模板打印入库单 - {{ order.order_no }}</title>
+    <title>采购入库单 - {{ order.order_no }}</title>
     <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}">
     <style>
         body { background: #fff; padding: 20px; }
-        .print-title { text-align: center; font-size: 24px; font-weight: bold; margin-bottom: 5px; }
-        .print-subtitle { text-align: center; color: #666; margin-bottom: 20px; }
-        .info-row { display: flex; margin-bottom: 10px; }
-        .info-item { margin-right: 30px; }
-        .info-label { font-weight: bold; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid #333; padding: 8px 12px; text-align: center; }
-        th { background-color: #f0f0f0; font-weight: bold; }
-        .text-left { text-align: left; }
-        .text-right { text-align: right; }
-        .footer-area { margin-top: 30px; display: flex; justify-content: space-between; }
-        .footer-area div { min-width: 150px; }
-        tfoot td { font-weight: bold; }
         @media print {
             .no-print { display: none !important; }
             body { padding: 0; }
         }
-        .template-info {
-            background-color: #f8f9fa;
-            border-left: 4px solid #0d6efd;
-            padding: 15px;
-            margin-bottom: 20px;
-            border-radius: 4px;
-        }
+        .doc { font-family: "Microsoft YaHei", SimSun, serif; color: #111; }
+        .doc-title { text-align: center; font-size: 26px; font-weight: 700; margin-bottom: 16px; }
+        .doc-header { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 13px; }
+        .doc-header span { flex: 1; }
+        .doc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .doc-table th, .doc-table td { border: 1px solid #333; padding: 6px 8px; text-align: center; height: 24px; }
+        .doc-table th { background: #fff; font-weight: bold; }
+        .signature-row { text-align: right; margin-top: 50px; font-size: 13px; padding-right: 40px; }
     </style>
 </head>
 <body>
     <div class="no-print" style="margin-bottom: 15px;">
         <div class="d-flex justify-content-between align-items-center">
             <div>
+                <a href="{{ url_for('print_in_order_excel', id=order.id) }}" class="btn btn-success">
+                    <i class="bi bi-download"></i> 下载 Excel 打印文件
+                </a>
                 <button class="btn btn-secondary" onclick="window.print()">
-                    <i class="bi bi-printer"></i> 打印
+                    <i class="bi bi-printer"></i> 打印预览
                 </button>
                 <button class="btn btn-outline-dark" onclick="window.close()">
                     <i class="bi bi-x-lg"></i> 关闭
                 </button>
-                {% if template.excel_template_path %}
-                <a href="{{ template.excel_template_path }}" class="btn btn-outline-success" download>
-                    <i class="bi bi-download"></i> 下载Excel模板
-                </a>
-                {% endif %}
             </div>
             <div>
-                <span class="badge bg-info">使用模板：{{ template.name }}</span>
+                <span class="badge bg-info">Excel模板：{{ template.name }}</span>
             </div>
         </div>
-        
-        <div class="template-info mt-3">
-            <h6><i class="bi bi-info-circle"></i> 模板信息</h6>
-            <div class="row">
-                <div class="col-md-4">
-                    <small class="text-muted">模板名称：</small>
-                    <strong>{{ template.name }}</strong>
-                </div>
-                <div class="col-md-4">
-                    <small class="text-muted">模板类型：</small>
-                    <strong>Excel模板</strong>
-                </div>
-                <div class="col-md-4">
-                    <small class="text-muted">创建时间：</small>
-                    <strong>{{ template.created_at.strftime('%Y-%m-%d %H:%M') }}</strong>
-                </div>
-            </div>
-            {% if template.excel_template_path %}
-            <div class="mt-2">
-                <small class="text-muted">模板文件：</small>
-                <a href="{{ template.excel_template_path }}" target="_blank">{{ template.excel_template_path.split('/')[-1] }}</a>
-            </div>
-            {% endif %}
+        <div class="alert alert-info mt-3 mb-0" style="font-size: 14px;">
+            以下为 Excel 打印文件预览，点击「下载 Excel 打印文件」可获得按模板填充好数据的 .xlsx 文件。
         </div>
     </div>
 
-    <div class="print-title">入 库 单</div>
-    <div class="print-subtitle">入库凭证（使用模板：{{ template.name }}）</div>
-
-    <div class="info-row">
-        <div class="info-item"><span class="info-label">入库单号：</span>{{ order.order_no }}</div>
-        <div class="info-item"><span class="info-label">日　　期：</span>{{ order.date }}</div>
-    </div>
-    <div class="info-row">
-        <div class="info-item"><span class="info-label">供应商：</span>{{ order.supplier.name if order.supplier else '-' }}</div>
-        <div class="info-item"><span class="info-label">用　　途：</span>{{ order.purpose or '-' }}</div>
-    </div>
-    <div class="info-row">
-        <div class="info-item"><span class="info-label">仓　　库：</span>{{ order.warehouse or '-' }}</div>
-    </div>
-    <div class="info-row">
-        <div class="info-item"><span class="info-label">操作员：</span>{{ order.operator.username if order.operator else '-' }}</div>
-        <div class="info-item"><span class="info-label">状　　态：</span>
-            {% if order.status == 'pending' %}待入库{% elif order.status == 'completed' %}已完成{% else %}未知{% endif %}
+    <div class="doc">
+        <div class="doc-title">采购入库单</div>
+        <div class="doc-header">
+            <span>供应商：{{ order.supplier.name if order.supplier else '' }}</span>
+            <span>采购单号：{{ order.order_no }}</span>
+            <span>日期：{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</span>
         </div>
+        <table class="doc-table">
+            <thead>
+                <tr>
+                    <th>物料编码</th>
+                    <th>品牌</th>
+                    <th>物料名称</th>
+                    <th>规格</th>
+                    <th>单位</th>
+                    <th>数量</th>
+                    <th>单价</th>
+                    <th>金额</th>
+                    <th>合同编号</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in order.items %}
+                <tr>
+                    <td>{{ item.material.code if item.material else '' }}</td>
+                    <td>{{ item.material.brand if item.material else '' }}</td>
+                    <td>{{ item.material.name if item.material else '' }}</td>
+                    <td>{{ item.material.spec if item.material else '' }}</td>
+                    <td>{{ item.material.unit.name if item.material and item.material.unit else '' }}</td>
+                    <td>{{ '%.2f'|format(item.quantity or 0) }}</td>
+                    <td>{{ '%.2f'|format(item.price or 0) }}</td>
+                    <td>{{ '%.2f'|format(item.amount or 0) }}</td>
+                    <td>{{ item.contract_no or order.contract_no or '' }}</td>
+                </tr>
+                {% endfor %}
+                {% for _ in range([8 - (order.items|length), 0]|max) %}
+                <tr>
+                    <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                    <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div class="signature-row">收货：</div>
     </div>
-
-    <table class="mt-4">
-        <thead>
-            <tr>
-                <th>序号</th>
-                <th>物料编码</th>
-                <th>物料名称</th>
-                <th>规格</th>
-                <th>单位</th>
-                <th>数量</th>
-                <th>单价</th>
-                <th>金额</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for item in order.items %}
-            <tr>
-                <td>{{ loop.index }}</td>
-                <td>{{ item.material.code }}</td>
-                <td>{{ item.material.name }}</td>
-                <td>{{ item.material.spec or '-' }}</td>
-                <td>{{ item.material.unit.name if item.material.unit else '-' }}</td>
-                <td>{{ item.quantity }}</td>
-                <td>¥{{ "%.2f"|format(item.price) }}</td>
-                <td>¥{{ "%.2f"|format(item.amount) }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-        <tfoot>
-            <tr>
-                <td colspan="5" class="text-right"><strong>合计：</strong></td>
-                <td><strong>{{ order.items|sum(attribute='quantity') }}</strong></td>
-                <td></td>
-                <td><strong>¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</strong></td>
-            </tr>
-        </tfoot>
-    </table>
-
-    <div class="footer-area">
-        <div>
-            <div>制单人：{{ order.operator.username if order.operator else '-' }}</div>
-            <div>打印时间：{{ now.strftime('%Y-%m-%d %H:%M') }}</div>
-        </div>
-        <div>
-            <div>供应商签收：</div>
-            <div style="height: 40px; margin-top: 30px;"></div>
-        </div>
-        <div>
-            <div>仓库签收：</div>
-            <div style="height: 40px; margin-top: 30px;"></div>
-        </div>
-    </div>
-
-    <div class="mt-4 no-print">
-        <div class="alert alert-info">
-            <h6><i class="bi bi-lightbulb"></i> 使用说明</h6>
-            <ul class="mb-0">
-                <li>此页面使用Excel模板打印入库单，数据已按照模板格式显示</li>
-                <li>点击"打印"按钮可打印当前页面</li>
-                <li>点击"下载Excel模板"可下载模板文件用于数据导入</li>
-                <li>如需使用其他模板，请返回模板管理页面选择</li>
-            </ul>
-        </div>
-    </div>
-
-    <script>
-        // 自动触发打印（可选）
-        // window.onload = function() {
-        //     setTimeout(function() {
-        //         window.print();
-        //     }, 1000);
-        // };
-    </script>
 </body>
 </html>

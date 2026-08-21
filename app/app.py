@@ -5255,15 +5255,6 @@ DEFAULT_IN_ORDER_HTML_TEMPLATE = """<div class="print-document">
             </tr>
             {% endfor %}
         </tbody>
-        <tfoot>
-            <tr>
-                <td colspan="5" class="text-right"><strong>合计</strong></td>
-                <td><strong>{{ '%.2f'|format(order.items|sum(attribute='quantity', start=0)) }}</strong></td>
-                <td></td>
-                <td><strong>{{ '%.2f'|format(order.items|sum(attribute='amount', start=0)) }}</strong></td>
-                <td></td>
-            </tr>
-        </tfoot>
     </table>
     <div class="signature-row">收货：</div>
 </div>"""
@@ -5399,26 +5390,30 @@ def ensure_default_print_templates():
     """
     changed = False
     defaults = (
-        (InOrderPrintTemplate, '系统默认入库单模板', DEFAULT_IN_ORDER_HTML_TEMPLATE),
-        (OutOrderPrintTemplate, '系统默认领料单模板', DEFAULT_OUT_ORDER_HTML_TEMPLATE),
+        (InOrderPrintTemplate, '系统默认入库单模板', DEFAULT_IN_ORDER_HTML_TEMPLATE, 'excel'),
+        (OutOrderPrintTemplate, '系统默认领料单模板', DEFAULT_OUT_ORDER_HTML_TEMPLATE, 'html'),
     )
-    for model, name, content in defaults:
+    for model, name, content, template_type in defaults:
         existing = model.query.filter_by(name=name).first()
         has_default = bool(model.query.filter_by(is_default=True).first())
         if not existing:
             db.session.add(model(
                 name=name,
-                template_type='html',
+                template_type=template_type,
                 html_template_content=content,
                 is_default=not has_default,
             ))
             changed = True
-        elif not has_default:
-            existing.is_default = True
-            changed = True
-        elif (existing.html_template_content or '') != content:
-            existing.html_template_content = content
-            changed = True
+        else:
+            if not has_default:
+                existing.is_default = True
+                changed = True
+            if (existing.html_template_content or '') != content:
+                existing.html_template_content = content
+                changed = True
+            if (existing.template_type or '') != template_type:
+                existing.template_type = template_type
+                changed = True
 
     label_default = LabelTemplate.query.filter_by(name='系统默认物料标签模板').first()
     has_label_default = bool(LabelTemplate.query.filter_by(is_default=True).first())

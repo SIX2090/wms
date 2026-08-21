@@ -46,6 +46,112 @@ from db import db
 from utils import print_token_or_login_required, require_role
 
 
+def _build_in_order_excel(order):
+    """按用户指定样式生成采购入库单 Excel（无合计行）。
+
+    列：物料编码|品牌|物料名称|规格|单位|数量|单价|金额|合同编号；
+    表头：供应商/采购单号/日期；底部：收货。返回填充好数据的 .xlsx 字节流。
+    """
+    import io as _io
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '采购入库单'
+
+    thin = Side(style='thin', color='000000')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    left_align = Alignment(horizontal='left', vertical='center')
+    right_align = Alignment(horizontal='right', vertical='center')
+    title_font = Font(name='微软雅黑', size=16, bold=True)
+    body_font = Font(name='微软雅黑', size=11)
+    header_font = Font(name='微软雅黑', size=11, bold=True)
+
+    for idx, width in enumerate([12, 10, 20, 14, 6, 8, 10, 10, 12], start=1):
+        ws.column_dimensions[get_column_letter(idx)].width = width
+
+    ws.merge_cells('A1:I1')
+    ws['A1'] = '采购入库单'
+    ws['A1'].font = title_font
+    ws['A1'].alignment = center
+    ws.row_dimensions[1].height = 26
+
+    supplier = order.supplier.name if getattr(order, 'supplier', None) else ''
+    order_no = getattr(order, 'order_no', None) or ''
+    date_str = ''
+    if getattr(order, 'date', None):
+        try:
+            date_str = order.date.strftime('%Y-%m-%d')
+        except Exception:
+            date_str = str(order.date)
+    contract_no = getattr(order, 'contract_no', None) or ''
+
+    ws.merge_cells('A2:C2')
+    ws['A2'] = f'供应商：{supplier or ""}'
+    ws.merge_cells('D2:F2')
+    ws['D2'] = f'采购单号：{order_no}'
+    ws.merge_cells('G2:I2')
+    ws['G2'] = f'日期：{date_str}'
+    for cell in ('A2', 'D2', 'G2'):
+        ws[cell].font = body_font
+        ws[cell].alignment = left_align
+
+    headers = ['物料编码', '品牌', '物料名称', '规格', '单位', '数量', '单价', '金额', '合同编号']
+    for col, text in enumerate(headers, start=1):
+        c = ws.cell(row=3, column=col, value=text)
+        c.font = header_font
+        c.alignment = center
+        c.border = border
+
+    row = 4
+    for item in list(getattr(order, 'items', None) or []):
+        material = getattr(item, 'material', None)
+        vals = [
+            (material.code if material is not None and getattr(material, 'code', None) else '') or '',
+            (material.brand if material is not None and getattr(material, 'brand', None) else '') or '',
+            (material.name if material is not None and getattr(material, 'name', None) else '') or '',
+            (material.spec if material is not None and getattr(material, 'spec', None) else '') or '',
+        ]
+        unit = ''
+        if material is not None and getattr(material, 'unit', None):
+            unit = material.unit.name or ''
+        for col, value in enumerate(vals, start=1):
+            ws.cell(row=row, column=col, value=value)
+        ws.cell(row=row, column=5, value=unit)
+        ws.cell(row=row, column=6, value=float(getattr(item, 'quantity', None) or 0)).number_format = '0.##'
+        ws.cell(row=row, column=7, value=float(getattr(item, 'price', None) or 0)).number_format = '0.00'
+        ws.cell(row=row, column=8, value=float(getattr(item, 'amount', None) or 0)).number_format = '0.00'
+        ws.cell(row=row, column=9, value=(getattr(item, 'contract_no', None) or contract_no or ''))
+        for col in range(1, 10):
+            c = ws.cell(row=row, column=col)
+            c.font = body_font
+            c.border = border
+            c.alignment = right_align if col in (6, 7, 8) else center
+        row += 1
+
+    # 预留空白明细行（至少补到第 11 行结束，便于打印/手写补录）
+    while row < 12:
+        for col in range(1, 10):
+            c = ws.cell(row=row, column=col)
+            c.border = border
+            c.font = body_font
+        row += 1
+
+    ws.merge_cells(f'F{row}:I{row}')
+    ws.cell(row=row, column=6, value='收货：').alignment = right_align
+    for col in range(6, 10):
+        ws.cell(row=row, column=col).font = body_font
+    ws.row_dimensions[row].height = 22
+
+    output = _io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+
 # no-test:reason=路由注册辅助函数，能力由 in_order_* 各路由测试覆盖
 def register_in_order_routes(app):
     @app.route('/in_order')
@@ -2554,6 +2660,21 @@ def register_in_order_routes(app):
     @print_token_or_login_required  # PRINT-ROUTING-F01-P3：支持 ptoken 免登录（Windows 打印代理）
     def print_in_order(id):
         return _render_in_order_print(id)
+
+    @app.route('/in_order/<int:id>/print_excel')
+    @login_required
+    def print_in_order_excel(id):
+        """按用户指定样式生成采购入库单 Excel 并下载（无合计行）。"""
+        from app import InOrder
+        order = InOrder.query.get_or_404(id)
+        output = _build_in_order_excel(order)
+        filename = f'采购入库单_{order.order_no or id}.xlsx'
+        return send_file(
+            output,
+            download_name=filename,
+            as_attachment=True,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
 
     @app.route('/in_order/<int:id>/print_direct')
     @login_required
