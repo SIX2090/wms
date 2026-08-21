@@ -22748,14 +22748,14 @@ def _apply_header_or_item_contract_filters(query, header_model, item_model, orde
         item_exists = db.session.query(item_model.id).filter(
             fk_col == header_model.id,
             item_model.contract_no.like(like),
-        ).exists()
+        ).correlate(header_model).exists()
         query = query.filter(db.or_(header_model.contract_no.like(like), item_exists))
     if project_name_filter:
         like = f'%{project_name_filter}%'
         item_exists = db.session.query(item_model.id).filter(
             fk_col == header_model.id,
             item_model.project_name.like(like),
-        ).exists()
+        ).correlate(header_model).exists()
         query = query.filter(db.or_(header_model.project_name.like(like), item_exists))
     return query
 
