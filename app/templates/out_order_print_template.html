@@ -92,9 +92,9 @@
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label class="form-label">模板类型</label>
-                                <select class="form-select" name="template_type" id="templateType">
+                                <input type="hidden" name="template_type" value="excel">
+                                <select class="form-select" disabled>
                                     <option value="excel" selected>Excel模板</option>
-                                    <option value="html">HTML模板</option>
                                 </select>
                             </div>
                         </div>
@@ -130,13 +130,6 @@
                         </div>
                     </div>
 
-                    <!-- HTML模板编辑区域 -->
-                    <div id="htmlEditorArea" class="mb-3" style="display: none;">
-                        <label class="form-label">HTML模板内容 *</label>
-                        <textarea class="form-control" name="html_content" rows="10" 
-                                  placeholder="输入HTML模板内容，可以使用模板变量如 order.order_no、order.date、order.customer、order.picker 等"></textarea>
-                    </div>
-
                     <button type="submit" class="btn btn-primary">
                         <i class="bi bi-save"></i> 保存模板
                     </button>
@@ -153,7 +146,6 @@
                     <select name="type" class="form-select form-select-sm">
                         <option value="" {% if not filters.type %}selected{% endif %}>全部类型</option>
                         <option value="excel" {% if filters.type == 'excel' %}selected{% endif %}>Excel模板</option>
-                        <option value="html" {% if filters.type == 'html' %}selected{% endif %}>HTML模板</option>
                     </select>
                 </div>
                 <div class="col-md-2">
@@ -348,35 +340,6 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <h6>HTML模板示例：</h6>
-                        <pre class="bg-light p-3"><code>&lt;table&gt;
-    &lt;tr&gt;
-        &lt;td&gt;单号：{{ '{{ order.order_no }}' }}&lt;/td&gt;
-        &lt;td&gt;日期：{{ '{{ order.date }}' }}&lt;/td&gt;
-    &lt;/tr&gt;
-    &lt;tr&gt;
-        &lt;td&gt;合同编号：{{ '{{ order.contract_no }}' }}&lt;/td&gt;
-        &lt;td&gt;工程名称：{{ '{{ order.project_name }}' }}&lt;/td&gt;
-    &lt;/tr&gt;
-    &lt;tr&gt;
-        &lt;td&gt;客户：{{ '{{ order.customer|default(\'未指定\') }}' }}&lt;/td&gt;
-        &lt;td&gt;用途：{{ '{{ order.purpose|default(\'未填写\') }}' }}&lt;/td&gt;
-    &lt;/tr&gt;
-    {% raw %}{% for item in order.items %}{% endraw %}
-    &lt;tr&gt;
-        &lt;td&gt;{{ '{{ item.material.name }}' }}&lt;/td&gt;
-        &lt;td&gt;{{ '{{ item.quantity }}' }}&lt;/td&gt;
-        &lt;td&gt;{{ '{{ item.price }}' }}&lt;/td&gt;
-        &lt;td&gt;{{ '{{ item.amount }}' }}&lt;/td&gt;
-    &lt;/tr&gt;
-    {% raw %}{% endfor %}{% endraw %}
-    &lt;tr&gt;
-        &lt;td colspan="3"&gt;总计：&lt;/td&gt;
-        &lt;td&gt;{{ '{{ order.items|sum(attribute=\'amount\') }}' }}&lt;/td&gt;
-    &lt;/tr&gt;
-&lt;/table&gt;</code></pre>
-                    </div>
-                    <div class="col-md-6">
                         <h6>Excel模板示例：</h6>
                         <pre class="bg-light p-3"><code>A1: 领料单
 B1: {{ '{{ order.order_no }}' }}
@@ -396,13 +359,6 @@ A6: {{ '{{ item.material.code }}' }}  {{ '{{ item.material.name }}' }}  {{ '{{ i
     <script>
         const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
         const csrfHeaders = { 'X-CSRFToken': csrfToken };
-
-        // 模板类型切换
-        document.getElementById('templateType').addEventListener('change', function() {
-            const type = this.value;
-            document.getElementById('excelUploadArea').style.display = type === 'excel' ? 'block' : 'none';
-            document.getElementById('htmlEditorArea').style.display = type === 'html' ? 'block' : 'none';
-        });
 
         // 文件拖拽处理
         function handleDragOver(e) {
@@ -468,15 +424,9 @@ A6: {{ '{{ item.material.code }}' }}  {{ '{{ item.material.name }}' }}  {{ '{{ i
             e.preventDefault();
             
             const formData = new FormData(this);
-            const templateType = document.getElementById('templateType').value;
             
-            if (templateType === 'excel' && !formData.get('excel_file')) {
+            if (!formData.get('excel_file')) {
                 alert('请选择Excel模板文件');
-                return;
-            }
-            
-            if (templateType === 'html' && !formData.get('html_content')) {
-                alert('请输入HTML模板内容');
                 return;
             }
             

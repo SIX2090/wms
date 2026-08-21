@@ -226,9 +226,9 @@
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label class="form-label">模板类型</label>
-                                <select class="form-select" name="template_type" id="templateType">
+                                <input type="hidden" name="template_type" value="excel">
+                                <select class="form-select" disabled>
                                     <option value="excel" selected>Excel模板</option>
-                                    <option value="html">HTML模板</option>
                                 </select>
                             </div>
                         </div>
@@ -261,27 +261,6 @@
                         </div>
                     </div>
 
-                    <!-- HTML模板编辑区域 -->
-                    <div id="htmlEditorArea" class="mb-3" style="display: none;">
-                        <label class="form-label">HTML模板内容 *</label>
-                        <textarea class="form-control" name="html_content" rows="10" 
-                                  placeholder="输入HTML模板内容，可以使用模板变量如 order.order_no、order.date 等"></textarea>
-                        <div class="mt-2">
-                            <small class="text-muted">常用变量（实际使用时需根据具体订单数据）：</small>
-                            <div class="d-flex flex-wrap gap-2 mt-1">
-                                <span class="badge bg-secondary">order.order_no</span>
-                                <span class="badge bg-secondary">order.date</span>
-                                <span class="badge bg-secondary">order.supplier.name</span>
-                                <span class="badge bg-secondary">order.purpose</span>
-                                <span class="badge bg-secondary">item.material.code</span>
-                                <span class="badge bg-secondary">item.material.name</span>
-                                <span class="badge bg-secondary">item.quantity</span>
-                                <span class="badge bg-secondary">item.price</span>
-                                <span class="badge bg-secondary">item.amount</span>
-                            </div>
-                        </div>
-                    </div>
-
                     <div class="d-flex justify-content-end">
                         <button type="button" class="btn btn-secondary me-2" onclick="resetForm()">重置</button>
                         <button type="submit" class="btn btn-primary">
@@ -304,7 +283,6 @@
                         <select name="type" class="form-select form-select-sm">
                             <option value="" {% if not filters.type %}selected{% endif %}>全部类型</option>
                             <option value="excel" {% if filters.type == 'excel' %}selected{% endif %}>Excel模板</option>
-                            <option value="html" {% if filters.type == 'html' %}selected{% endif %}>HTML模板</option>
                         </select>
                     </div>
                     <div class="col-md-2">
@@ -495,31 +473,6 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <h6>HTML模板示例：</h6>
-                        <pre class="bg-light p-3"><code>&lt;table&gt;
-    &lt;tr&gt;
-        &lt;td&gt;单号：{{ '{{ order.order_no }}' }}&lt;/td&gt;
-        &lt;td&gt;日期：{{ '{{ order.date }}' }}&lt;/td&gt;
-    &lt;/tr&gt;
-    &lt;tr&gt;
-        &lt;td&gt;合同编号：{{ '{{ order.contract_no }}' }}&lt;/td&gt;
-        &lt;td&gt;工程名称：{{ '{{ order.project_name }}' }}&lt;/td&gt;
-    &lt;/tr&gt;
-    {% raw %}{% for item in order.items %}{% endraw %}
-    &lt;tr&gt;
-        &lt;td&gt;{{ '{{ item.material.name }}' }}&lt;/td&gt;
-        &lt;td&gt;{{ '{{ item.quantity }}' }}&lt;/td&gt;
-        &lt;td&gt;{{ '{{ item.price }}' }}&lt;/td&gt;
-        &lt;td&gt;{{ '{{ item.amount }}' }}&lt;/td&gt;
-    &lt;/tr&gt;
-    {% raw %}{% endfor %}{% endraw %}
-    &lt;tr&gt;
-        &lt;td colspan="3"&gt;总计：&lt;/td&gt;
-        &lt;td&gt;{{ '{{ order.items|sum(attribute=\'amount\') }}' }}&lt;/td&gt;
-    &lt;/tr&gt;
-&lt;/table&gt;</code></pre>
-                    </div>
-                    <div class="col-md-6">
                         <h6>Excel模板示例：</h6>
                         <pre class="bg-light p-3"><code>A1: 入库单
 B1: {order.order_no}
@@ -539,13 +492,6 @@ A6: {item.material.code}  {item.material.name}  {item.quantity}  {item.price}  {
     <script>
         const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
         const csrfHeaders = { 'X-CSRFToken': csrfToken };
-
-        // 模板类型切换
-        document.getElementById('templateType').addEventListener('change', function() {
-            const type = this.value;
-            document.getElementById('excelUploadArea').style.display = type === 'excel' ? 'block' : 'none';
-            document.getElementById('htmlEditorArea').style.display = type === 'html' ? 'block' : 'none';
-        });
 
         // 文件拖拽处理
         function handleDragOver(e) {
@@ -611,15 +557,9 @@ A6: {item.material.code}  {item.material.name}  {item.quantity}  {item.price}  {
             e.preventDefault();
             
             const formData = new FormData(this);
-            const templateType = document.getElementById('templateType').value;
             
-            if (templateType === 'excel' && !formData.get('excel_file')) {
+            if (!formData.get('excel_file')) {
                 alert('请选择Excel模板文件');
-                return;
-            }
-            
-            if (templateType === 'html' && !formData.get('html_content')) {
-                alert('请输入HTML模板内容');
                 return;
             }
             
@@ -653,7 +593,6 @@ A6: {item.material.code}  {item.material.name}  {item.quantity}  {item.price}  {
             document.getElementById('addTemplateForm').reset();
             clearFile();
             document.getElementById('excelUploadArea').style.display = 'block';
-            document.getElementById('htmlEditorArea').style.display = 'none';
         }
 
         // 模板操作函数
