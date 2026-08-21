@@ -39,6 +39,7 @@ ENDPOINTS = [
     "revert_out_order", "delete_out_order", "batch_delete_out_order",
     "batch_complete_out_order", "export_out_order", "export_single_out_order",
     "out_order_print_template_list", "print_out_order",
+    "print_out_order_excel",
 ]
 
 

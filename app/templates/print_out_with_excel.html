@@ -2,276 +2,91 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>领料单打印 - {{ order.order_no }}</title>
+    <title>领料单 - {{ order.order_no }}</title>
+    <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}">
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            padding: 20px;
-            background: #f5f5f5;
+        body { background: #fff; padding: 20px; }
+        @media print {
+            .no-print { display: none !important; }
+            body { padding: 0; }
         }
-        .container {
-            background: white;
-            padding: 30px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-            border-bottom: 2px solid #333;
-            padding-bottom: 10px;
-        }
-        .title {
-            font-size: 24px;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-        .subtitle {
-            font-size: 14px;
-            color: #666;
-        }
-        .info-section {
-            margin-bottom: 20px;
-        }
-        .info-row {
-            display: flex;
-            margin-bottom: 10px;
-        }
-        .info-label {
-            width: 100px;
-            font-weight: bold;
-        }
-        .info-value {
-            flex: 1;
-        }
-        .download-section {
-            text-align: center;
-            margin: 40px 0;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 8px;
-        }
-        .download-title {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 15px;
-        }
-        .download-desc {
-            margin-bottom: 20px;
-            color: #666;
-        }
-        .download-btn {
-            display: inline-block;
-            padding: 12px 30px;
-            background: #28a745;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            font-size: 16px;
-            transition: background 0.3s;
-        }
-        .download-btn:hover {
-            background: #218838;
-        }
-        .instructions {
-            margin-top: 30px;
-            padding: 20px;
-            background: #e9ecef;
-            border-radius: 8px;
-        }
-        .instructions h4 {
-            margin-top: 0;
-            color: #333;
-        }
-        .instructions ol {
-            padding-left: 20px;
-        }
-        .instructions li {
-            margin-bottom: 10px;
-        }
-        .actions {
-            text-align: center;
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #ddd;
-        }
-        .btn {
-            display: inline-block;
-            padding: 10px 20px;
-            margin: 0 10px;
-            border: 1px solid transparent;
-            border-radius: 8px;
-            cursor: pointer;
-            text-decoration: none;
-            font-size: 14px;
-            transition: all 0.2s;
-        }
-        .btn-primary {
-            background: linear-gradient(135deg, #4338CA 0%, #4F46E5 50%, #6366F1 100%);
-            color: white;
-            box-shadow: 0 2px 6px -1px rgba(79, 70, 229, 0.35);
-        }
-        .btn-primary:hover {
-            background: linear-gradient(135deg, #3730A3 0%, #4338CA 50%, #4F46E5 100%);
-            box-shadow: 0 6px 16px -2px rgba(79, 70, 229, 0.45);
-            transform: translateY(-1px);
-        }
-        .btn-secondary {
-            background: #fff;
-            color: #374151;
-            border: 1.5px solid #D1D5DB;
-        }
-        .btn-secondary:hover {
-            background: #F9FAFB;
-            border-color: #9CA3AF;
-            transform: translateY(-1px);
-        }
-        .btn-outline {
-            background: white;
-            color: #333;
-            border: 1.5px solid #D1D5DB;
-        }
-        .btn-outline:hover {
-            background: #F9FAFB;
-            border-color: #9CA3AF;
-            transform: translateY(-1px);
-        }
+        .doc { font-family: "Microsoft YaHei", SimSun, serif; color: #111; }
+        .doc-title { text-align: center; font-size: 26px; font-weight: 700; margin-bottom: 16px; }
+        .doc-header { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 13px; }
+        .doc-header span { flex: 1; }
+        .doc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .doc-table th, .doc-table td { border: 1px solid #333; padding: 6px 8px; text-align: center; height: 24px; }
+        .doc-table th { background: #fff; font-weight: bold; }
+        .signature-row { text-align: right; margin-top: 50px; font-size: 13px; padding-right: 40px; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- 头部信息 -->
-        <div class="header">
-            <div class="title">领料单打印</div>
-            <div class="subtitle">使用Excel模板打印</div>
-        </div>
-
-        <!-- 单据信息 -->
-        <div class="info-section">
-            <div class="info-row">
-                <div class="info-label">领料单号：</div>
-                <div class="info-value">{{ order.order_no }}</div>
+    <div class="no-print" style="margin-bottom: 15px;">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <a href="{{ url_for('print_out_order_excel', id=order.id) }}" class="btn btn-success">
+                    <i class="bi bi-download"></i> 下载 Excel 打印文件
+                </a>
+                <button class="btn btn-secondary" onclick="window.print()">
+                    <i class="bi bi-printer"></i> 打印预览
+                </button>
+                <button class="btn btn-outline-dark" onclick="window.close()">
+                    <i class="bi bi-x-lg"></i> 关闭
+                </button>
             </div>
-            <div class="info-row">
-                <div class="info-label">领料日期：</div>
-                <div class="info-value">{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">领料部门：</div>
-                <div class="info-value">{{ order.department.name if order.department else (order.customer or '未指定') }}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">领料人：</div>
-                <div class="info-value">{{ order.picker or '未填写' }}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">用途：</div>
-                <div class="info-value">{{ order.business_type or order.purpose or '未填写' }}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">仓库：</div>
-                <div class="info-value">{{ order.warehouse or '未指定' }}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">操作员：</div>
-                <div class="info-value">{{ order.operator.username if order.operator else '未知' }}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">打印时间：</div>
-                <div class="info-value">{{ now.strftime('%Y-%m-%d %H:%M:%S') if now else '' }}</div>
+            <div>
+                <span class="badge bg-info">Excel模板：{{ template.name }}</span>
             </div>
         </div>
-
-        <!-- Excel模板下载 -->
-        <div class="download-section">
-            <div class="download-title">Excel模板文件</div>
-            <div class="download-desc">
-                模板名称：{{ template.name }}<br>
-                模板类型：{{ 'Excel模板' if template.template_type == 'excel' else 'HTML模板' }}<br>
-                {% if template.is_default %}
-                <span style="color: #28a745; font-weight: bold;">（默认模板）</span>
-                {% endif %}
-            </div>
-            
-            {% if template.excel_template_path %}
-            <a href="{{ template.excel_template_path }}" class="download-btn" download>
-                <i class="bi bi-download"></i> 下载Excel模板文件
-            </a>
-            {% else %}
-            <div style="color: #dc3545; padding: 10px;">
-                <i class="bi bi-exclamation-triangle"></i> 模板文件不存在或已删除
-            </div>
-            {% endif %}
-            
-            <div style="margin-top: 15px; font-size: 14px; color: #666;">
-                文件大小：{{ template.excel_template_path|filesize if template.excel_template_path else '未知' }}
-            </div>
-        </div>
-
-        <!-- 使用说明 -->
-        <div class="instructions">
-            <h4>Excel模板使用说明：</h4>
-            <ol>
-                <li><strong>下载模板文件</strong>：点击上方按钮下载Excel模板文件</li>
-                <li><strong>打开模板文件</strong>：使用Microsoft Excel或WPS Office打开下载的文件</li>
-                <li><strong{>填写数据</strong>：在模板中使用以下变量格式填写数据：
-                    <ul style="margin-top: 10px;">
-                        <li><code>{order.order_no}</code> - 领料单号：{{ order.order_no }}</li>
-                        <li><code>{order.date}</code> - 领料日期：{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</li>
-                        <li><code>{order.customer}</code> - 领料部门：{{ order.department.name if order.department else (order.customer or '未指定') }}</li>
-                        <li><code>{order.picker}</code> - 领料人：{{ order.picker or '未填写' }}</li>
-                        <li><code>{order.purpose}</code> - 用途：{{ order.business_type or order.purpose or '未填写' }}</li>
-                        <li><code>{order.warehouse}</code> - 仓库：{{ order.warehouse or '未指定' }}</li>
-                        <li><code>{item.material.code}</code> - 物料编码</li>
-                        <li><code>{item.material.name}</code> - 物料名称</li>
-                        <li><code>{item.quantity}</code> - 数量</li>
-                        <li><code>{item.price}</code> - 单价</li>
-                        <li><code>{item.amount}</code> - 金额</li>
-                        <li><code>{total_quantity}</code> - 总数量</li>
-                        <li><code>{total_amount}</code> - 总金额</li>
-                    </ul>
-                </li>
-                <li><strong>打印文件</strong>：在Excel中设置打印格式，然后打印</li>
-                <li><strong>保存模板</strong>：可以修改模板后保存为新的模板文件，上传到系统中使用</li>
-            </ol>
-        </div>
-
-        <!-- 操作按钮 -->
-        <div class="actions">
-            {% if template.excel_template_path %}
-            <button onclick="window.open('{{ template.excel_template_path }}')" class="btn btn-primary">
-                <i class="bi bi-file-earmark-excel"></i> 打开模板文件
-            </button>
-            {% endif %}
-            
-            <button onclick="window.print()" class="btn btn-outline">
-                <i class="bi bi-printer"></i> 打印此页面
-            </button>
-            
-            <button onclick="window.history.back()" class="btn btn-secondary">
-                <i class="bi bi-arrow-left"></i> 返回
-            </button>
-            
-            <a href="{{ url_for('out_order_print_template_list') }}" class="btn btn-outline">
-                <i class="bi bi-gear"></i> 管理打印模板
-            </a>
+        <div class="alert alert-info mt-3 mb-0" style="font-size: 14px;">
+            以下为 Excel 打印文件预览，点击「下载 Excel 打印文件」可获得按模板填充好数据的 .xlsx 文件。
         </div>
     </div>
 
-    <script>
-        // 检查文件大小
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
-        
-        // 获取文件大小（需要后端支持）
-        // 这里只是示例，实际需要后端提供文件大小信息
-    </script>
+    <div class="doc">
+        <div class="doc-title">领料单</div>
+        <div class="doc-header">
+            <span>领料部门：{{ order.department.name if order.department else (order.customer or '') }}</span>
+            <span>日期：{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</span>
+        </div>
+        <table class="doc-table">
+            <thead>
+                <tr>
+                    <th>物料编码</th>
+                    <th>品牌</th>
+                    <th>物料名称</th>
+                    <th>规格</th>
+                    <th>单位</th>
+                    <th>数量</th>
+                    <th>单价</th>
+                    <th>金额</th>
+                    <th>合同编号</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in order.items %}
+                <tr>
+                    <td>{{ item.material.code if item.material else '' }}</td>
+                    <td>{{ item.material.brand if item.material else '' }}</td>
+                    <td>{{ item.material.name if item.material else '' }}</td>
+                    <td>{{ item.material.spec if item.material else '' }}</td>
+                    <td>{{ item.material.unit.name if item.material and item.material.unit else '' }}</td>
+                    <td>{{ '%.2f'|format(item.quantity or 0) }}</td>
+                    <td>{{ '%.2f'|format(item.price or 0) }}</td>
+                    <td>{{ '%.2f'|format(item.amount or 0) }}</td>
+                    <td>{{ item.contract_no or order.contract_no or '' }}</td>
+                </tr>
+                {% endfor %}
+                {% for _ in range([8 - (order.items|length), 0]|max) %}
+                <tr>
+                    <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                    <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div class="signature-row">领料：</div>
+    </div>
 </body>
 </html>
