@@ -114,9 +114,9 @@
                              id="dropZone">
                             <i class="bi bi-cloud-arrow-up fs-1 text-muted"></i>
                             <p class="mt-2">点击或拖拽Excel文件到这里</p>
-                            <p class="small text-muted">支持 .xlsx, .xls 格式</p>
+                            <p class="small text-muted">仅支持 .xlsx 格式（不支持 .xls）</p>
                         </div>
-                        <input type="file" id="excelFile" name="excel_file" accept=".xlsx,.xls" style="display: none;" 
+                        <input type="file" id="excelFile" name="excel_file" accept=".xlsx" style="display: none;" 
                                onchange="handleFileSelect(this)">
                         
                         <!-- 文件信息显示 -->
@@ -391,8 +391,8 @@ A6: {{ '{{ item.material.code }}' }}  {{ '{{ item.material.name }}' }}  {{ '{{ i
         }
 
         function handleFile(file) {
-            if (!file.name.match(/\.(xlsx|xls)$/i)) {
-                alert('请选择Excel文件 (.xlsx, .xls)');
+            if (!file.name.match(/\.(xlsx)$/i)) {
+                alert('请选择 .xlsx 格式的Excel模板（不支持 .xls）');
                 return;
             }
             
