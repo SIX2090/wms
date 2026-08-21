@@ -99,6 +99,9 @@ def register_in_order_routes(app):
             query = query.filter(InOrder.warehouse == warehouse.name)
         elif warehouse_error:
             query = query.filter(db.false())
+        supplier_id = request.args.get('supplier_id', type=int) or 0
+        if supplier_id:
+            query = query.filter(InOrder.supplier_id == supplier_id)
         if business_type_filter:
             query = query.filter(InOrder.business_type == business_type_filter)
         query = _apply_in_order_search(query, search)
@@ -144,6 +147,7 @@ def register_in_order_routes(app):
             'contract_no': contract_no_filter,
             'project_name': project_name_filter,
             'warehouse_id': warehouse.id if warehouse else '',
+            'supplier_id': supplier_id,
         }
         page_title = f'{business_type_filter}明细表' if business_type_filter else '采购入库单'
         return render_template(

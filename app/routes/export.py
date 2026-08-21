@@ -166,6 +166,9 @@ def register_export_routes(app):
         )
         query = _apply_status_date_filters(query, InOrder, status_filter, date_start, date_end)
         query = _apply_in_order_search(query, search)
+        supplier_id = request.args.get('supplier_id', type=int) or 0
+        if supplier_id:
+            query = query.filter(InOrder.supplier_id == supplier_id)
         if business_type_filter:
             query = query.filter(InOrder.business_type == business_type_filter)
         query = _apply_header_or_item_contract_filters(
