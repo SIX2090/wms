@@ -5439,6 +5439,109 @@ def ensure_default_print_templates():
     if changed:
         db.session.commit()
 
+
+def _ensure_default_print_templates_unconditional(db_path=None):
+    """启动期无条件同步内置打印模板类型/内容（BUG-2026-08-21-002）。
+
+    ensure_default_print_templates() 仅在 initialize_database() 未被
+    WMS_NO_DB_TOUCH=1 / WMS_SKIP_STARTUP_DB_UPGRADE=1 / *.flag 跳过时才运行；
+    而 start_wms_offline.bat / start_wms_auto.bat 默认 WMS_NO_DB_TOUCH=1，
+    导致「系统默认入库单模板」「系统默认领料单模板」的 template_type 始终为
+    'html'、内容仍是旧样式（RECEIPT 副标题、序号/备注列、合计行、四格签名），
+    修改后的 Excel 默认模板在线上永远不生效。
+
+    本函数仿照 backfill_empty_warehouse_documents，用独立 sqlite 连接、独立于
+    迁移开关无条件执行、幂等：把两个内置模板的 template_type 对齐为 'excel'、
+    html_template_content 对齐为常量，并保证各自表内存在 is_default=1。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA busy_timeout=60000')
+
+        # 表名单一、逻辑一致；表名来自下方固定白名单（非用户输入），
+        # 仅作标识符拼接，值全部走 ? 参数化，无注入风险。
+        builtins = (
+            ('in_order_print_template', '系统默认入库单模板', DEFAULT_IN_ORDER_HTML_TEMPLATE),
+            ('out_order_print_template', '系统默认领料单模板', DEFAULT_OUT_ORDER_HTML_TEMPLATE),
+        )
+        changed = False
+        for table, name, content in builtins:
+            tbl = cur.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone()
+            if not tbl:
+                continue
+            row = cur.execute(
+                "SELECT id, template_type, html_template_content FROM "
+                + table + " WHERE name=?",
+                (name,),
+            ).fetchone()
+            if row is None:
+                has_default = cur.execute(
+                    "SELECT 1 FROM " + table + " WHERE is_default=1 LIMIT 1"
+                ).fetchone() is not None
+                cur.execute(
+                    "INSERT INTO " + table +
+                    " (name, template_type, html_template_content, is_default, created_at, updated_at)"
+                    " VALUES (?, 'excel', ?, ?, datetime('now'), datetime('now'))",
+                    (name, content, 0 if has_default else 1),
+                )
+                changed = True
+            else:
+                tid = row['id']
+                if (row['template_type'] or '') != 'excel':
+                    cur.execute(
+                        "UPDATE " + table + " SET template_type='excel', updated_at=datetime('now') WHERE id=?",
+                        (tid,),
+                    )
+                    changed = True
+                if (row['html_template_content'] or '') != content:
+                    cur.execute(
+                        "UPDATE " + table + " SET html_template_content=?, updated_at=datetime('now') WHERE id=?",
+                        (content, tid),
+                    )
+                    changed = True
+            default_row = cur.execute(
+                "SELECT 1 FROM " + table + " WHERE is_default=1 LIMIT 1"
+            ).fetchone()
+            if default_row is None:
+                cur.execute("UPDATE " + table + " SET is_default=1 WHERE name=?", (name,))
+                changed = True
+        if changed:
+            conn.commit()
+            logging.getLogger(__name__).info('[DB] 内置打印模板已同步为 Excel 默认样式')
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'_ensure_default_print_templates_unconditional 同步失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+_ensure_default_print_templates_unconditional()
+
+
 class LocationInventory(db.Model):
     """Inventory quantity by location."""
     __tablename__ = 'location_inventory'
