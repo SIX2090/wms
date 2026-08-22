@@ -85,3 +85,6 @@ wheelhouse/
 audit_screenshots/
 qa_screenshots/
 wms_source.zip
+
+# ===== AI 工作记忆（本地状态，勿提交）=====
+.workbuddy/
