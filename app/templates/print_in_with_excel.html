@@ -18,7 +18,8 @@
         .doc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
         .doc-table th, .doc-table td { border: 1px solid #333; padding: 6px 8px; text-align: center; height: 24px; }
         .doc-table th { background: #fff; font-weight: bold; }
-        .signature-row { text-align: right; margin-top: 50px; font-size: 13px; padding-right: 40px; }
+        /* 收货签名行：无边框，从"单价"列开始并向右延伸，留出签字空间 */
+        .doc-table td.sig-cell { border: none; text-align: left; vertical-align: bottom; height: 60px; font-size: 13px; }
     </style>
 </head>
 <body>
@@ -85,7 +86,7 @@
         <div class="doc-title">采购入库单</div>
         <div class="doc-header">
             <span>供应商：{{ order.supplier.name if order.supplier else '' }}</span>
-            <span>采购单号：{{ order.order_no }}</span>
+            <span>采购入库单号：{{ order.order_no }}</span>
             <span>日期：{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</span>
         </div>
         <table class="doc-table">
@@ -123,8 +124,13 @@
                 </tr>
                 {% endfor %}
             </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="6" class="sig-cell"></td>
+                    <td colspan="3" class="sig-cell">收货：</td>
+                </tr>
+            </tfoot>
         </table>
-        <div class="signature-row">收货：</div>
     </div>
 </body>
 </html>
