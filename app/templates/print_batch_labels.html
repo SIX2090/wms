@@ -332,6 +332,7 @@
                         img.style.height = bcH + 'mm';
                         img.style.display = 'block';
                         img.style.maxWidth = '100%';
+                        img.style.imageRendering = 'pixelated';
                         var barcodeText = fieldVal;
                         img.onerror = function(){
                             this.style.display='none';
@@ -348,6 +349,7 @@
                         qrImg.style.height = qrSize + 'mm';
                         qrImg.style.display = 'block';
                         qrImg.style.maxWidth = '100%';
+                        qrImg.style.imageRendering = 'pixelated';
                         td.style.padding = '1mm';
                         qrImg.onerror = function(){ this.style.display='none'; };
                         td.appendChild(qrImg);

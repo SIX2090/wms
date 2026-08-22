@@ -271,7 +271,9 @@ def register_label_barcode_routes(app):
             Code128 = barcode.get_barcode_class('code128')
             code128 = Code128(code, writer=ImageWriter())
             output = io.BytesIO()
-            code128.write(output, {'module_width': 0.3, 'module_height': 15.0, 'font_size': 8, 'text_distance': 6, 'quiet_zone': 1})
+            # BUG-2026-08-22-001：600 DPI 高分辨率输出，避免浏览器/打印机
+            # 把低分辨率 PNG 放大到毫米级尺寸时产生模糊灰边
+            code128.write(output, {'module_width': 0.33, 'module_height': 15.0, 'font_size': 10, 'text_distance': 5, 'quiet_zone': 2, 'dpi': 600})
             output.seek(0)
             return send_file(output, mimetype='image/png')
         except Exception as e:
@@ -292,7 +294,6 @@ def register_label_barcode_routes(app):
             return jsonify({'status': 'error', 'msg': '缺少二维码内容'}), 400
         try:
             import qrcode
-            from PIL import Image
 
             # 解析参数
             size = request.args.get('size', '200')
@@ -318,9 +319,11 @@ def register_label_barcode_routes(app):
             qr = qrcode.QRCode(version=None, box_size=10, border=border, error_correction=error_correction)
             qr.add_data(data)
             qr.make(fit=True)
+            # BUG-2026-08-22-001：二维码禁止 LANCZOS 重采样（灰边导致打印模糊），
+            # 改用整数 box_size 让输出尺寸恰好是模块数的整数倍，边缘 100% 锐利
+            total_modules = qr.modules_count + border * 2
+            qr.box_size = max(4, -(-size // total_modules))  # 向上取整，不小于请求尺寸
             img = qr.make_image(fill_color='black', back_color='white')
-            # 等比例缩放到目标尺寸
-            img = img.resize((size, size), Image.LANCZOS)
             output = io.BytesIO()
             img.save(output, format='PNG')
             output.seek(0)

@@ -196,6 +196,7 @@ body {
             max-width: 100%;
             height: 25px;
             display: block;
+            image-rendering: pixelated;
         }
         
         /* 删除按钮 */
@@ -623,7 +624,7 @@ body {
             if (field === 'barcode') {
                 content = `<img src="/api/barcode/${sampleValue}" alt="条码" class="barcode-img">`;
             } else if (field === 'qrcode') {
-                content = `<img src="/api/qrcode/${sampleValue}" alt="二维码" style="max-width:100%;max-height:60px;display:block;">`;
+                content = `<img src="/api/qrcode/${sampleValue}" alt="二维码" style="max-width:100%;max-height:60px;display:block;image-rendering:pixelated;">`;
             } else {
                 content = `<span class="cell-data">${sampleValue}</span>`;
             }
