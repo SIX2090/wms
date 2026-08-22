@@ -300,8 +300,8 @@ fun ScanScreenBase(
                                     )
                                     val materialDetails = listOfNotNull(
                                         line.material_name?.takeIf { it.isNotBlank() },
-                                        line.material_spec?.takeIf { it.isNotBlank() },
-                                        line.material_brand?.takeIf { it.isNotBlank() }
+                                        line.material_brand?.takeIf { it.isNotBlank() },
+                                        line.material_spec?.takeIf { it.isNotBlank() }
                                     ).joinToString()
                                     if (materialDetails.isNotBlank()) {
                                         Text(

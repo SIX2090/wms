@@ -521,8 +521,8 @@ private fun OpeningStockLineCard(
                 )
                 val materialDetails = listOfNotNull(
                     line.materialName?.takeIf { it.isNotBlank() },
-                    line.materialSpec?.takeIf { it.isNotBlank() },
-                    line.materialBrand?.takeIf { it.isNotBlank() }
+                    line.materialBrand?.takeIf { it.isNotBlank() },
+                    line.materialSpec?.takeIf { it.isNotBlank() }
                 ).joinToString()
                 if (materialDetails.isNotBlank()) {
                     Text(
