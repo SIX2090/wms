@@ -79,15 +79,17 @@ class PrintTemplateGridRequest(BaseModel):
 _META = {
     'in_order': {'label': '入库单'},
     'out_order': {'label': '领料单/出库单'},
+    'global': {'label': '通用 Excel 模板'},
 }
 
 
 def _model_for(prefix):
     """按前缀延迟解析模板模型（请求期才 import app，避免模块加载期循环导入）。"""
-    from app import InOrderPrintTemplate, OutOrderPrintTemplate
+    from app import ExcelPrintTemplate, InOrderPrintTemplate, OutOrderPrintTemplate
     return {
         'in_order': InOrderPrintTemplate,
         'out_order': OutOrderPrintTemplate,
+        'global': ExcelPrintTemplate,
     }.get(prefix)
 
 
@@ -203,7 +205,7 @@ def register_print_template_editor_routes(app):
 
     覆盖入库与出库打印模板；其他单据的打印模板接入时在此追加前缀即可。
     """
-    for prefix in ('in_order', 'out_order'):
+    for prefix in ('in_order', 'out_order', 'global'):
         _install(app, prefix)
 
 

@@ -46,7 +46,7 @@
             </div>
         </div>
         <div class="d-flex gap-2">
-            <a href="/{{ prefix }}_print_template" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> 返回模板列表</a>
+            {% if prefix == "global" %}<a href="/print_templates" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> 返回模板中心</a>{% else %}<a href="/{{ prefix }}_print_template" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> 返回模板列表</a>{% endif %}
             <button class="btn btn-primary btn-sm" onclick="onSave()"><i class="bi bi-save"></i> 保存模板</button>
         </div>
     </div>

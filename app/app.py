@@ -123,6 +123,7 @@ from routes.label import register_label_routes
 from routes.print_queue import register_print_queue_routes
 from routes.print_routing import register_print_routing_routes
 from routes.print_template_editor import register_print_template_editor_routes
+from routes.print_template_center import register_print_template_center_routes
 # 待办单据（pending_documents）域路由注册函数（register-on-app 模式，endpoint 名不变）。
 from routes.pending_documents import register_pending_documents_routes
 # 单位/供应商导入导出（unit_supplier_import）域路由注册函数（register-on-app 模式，endpoint 名不变）。
@@ -1852,6 +1853,7 @@ register_label_routes(app)
 register_print_queue_routes(app)
 register_print_routing_routes(app)
 register_print_template_editor_routes(app)
+register_print_template_center_routes(app)
 # 待办单据（pending_documents）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_pending_documents_routes(app)
 # 单位/供应商导入导出（unit_supplier_import）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
@@ -5206,6 +5208,18 @@ class OutOrderPrintTemplate(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
+class ExcelPrintTemplate(db.Model):
+    """通用单据、列表、报表 Excel 打印模板。"""
+    __tablename__ = 'excel_print_template'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    target_type = db.Column(db.String(30), nullable=False, index=True)
+    target_code = db.Column(db.String(80), nullable=False, index=True)
+    template_type = db.Column(db.String(20), nullable=False, default='excel')
+    excel_template_path = db.Column(db.String(500), nullable=False)
+    is_default = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 # BUG-2026-08-20-003：按用户提供的样式图重写默认入库单模板——
 # 标题"采购入库单"（无副标题），表头仅供应商/采购单号/日期三栏，
 # 表格列为 物料编码|品牌|物料名称|规格|单位|数量|单价|金额|合同编号，
