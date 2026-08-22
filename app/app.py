@@ -5501,10 +5501,12 @@ def ensure_default_print_templates():
             if (existing.template_type or '') != template_type:
                 existing.template_type = template_type
                 changed = True
-            # BUG-2026-08-22-002：内置模板缺 Excel 文件时补静态示例副本
-            if not (existing.excel_template_path or '').strip():
+            # BUG-2026-08-22-002：内置模板缺 Excel 文件时补静态示例副本；
+            # builtin_* 前缀为系统管理的内置副本，随内置版式升级
+            cur_path = (existing.excel_template_path or '').strip()
+            if not cur_path or cur_path.startswith('/static/uploads/print_templates/builtin_'):
                 excel_path = _ensure_builtin_excel_template_file(table)
-                if excel_path:
+                if excel_path and excel_path != cur_path:
                     existing.excel_template_path = excel_path
                     changed = True
 
@@ -5555,7 +5557,7 @@ def _ensure_builtin_excel_template_file(table):
     excel_template_path 的 /static/... URL；源文件缺失或异常返回 None。
     """
     sources = {
-        'in_order_print_template': ('入库单打印模板示例.xlsx', 'builtin_in_order_default.xlsx'),
+        'in_order_print_template': ('入库单打印模板示例.xlsx', 'builtin_in_order_default_v2.xlsx'),
         'out_order_print_template': ('领料单打印模板示例.xlsx', 'builtin_out_order_default.xlsx'),
     }
     spec = sources.get(table)
@@ -5652,10 +5654,12 @@ def _ensure_default_print_templates_unconditional(db_path=None):
                     )
                     changed = True
                 # BUG-2026-08-22-002：内置模板缺 Excel 文件时补静态示例副本，
-                # 下载/在线编辑/Excel 填充打印即刻可用；用户已换过自己文件的覆盖不动。
-                if not (row['excel_template_path'] or '').strip():
+                # 下载/在线编辑/Excel 填充打印即刻可用；builtin_* 前缀为系统
+                # 管理的内置副本，随内置版式升级；用户自己上传的文件不动。
+                cur_path = (row['excel_template_path'] or '').strip()
+                if not cur_path or cur_path.startswith('/static/uploads/print_templates/builtin_'):
                     excel_path = _ensure_builtin_excel_template_file(table)
-                    if excel_path:
+                    if excel_path and excel_path != cur_path:
                         cur.execute(
                             "UPDATE " + table + " SET excel_template_path=?, updated_at=datetime('now') WHERE id=?",
                             (excel_path, tid),

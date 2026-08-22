@@ -541,16 +541,15 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <h6>Excel模板示例：</h6>
-                        <pre class="bg-light p-3"><code>A1: 入库单
-B1: {order.order_no}
-C1: 日期：{order.date}
+                        <h6>Excel模板示例（与内置默认模板版式一致）：</h6>
+                        <pre class="bg-light p-3"><code>A1: 采购入库单（A1:I1 合并居中）
+A2: 供应商：{order.supplier.name}    D2: 采购入库单号：{order.order_no}    G2: 日期：{order.date}
 
-A3: 供应商：{order.supplier.name}
-B3: 联系人：{order.supplier.contact}
+第3行表头：物料编码 | 品牌 | 物料名称 | 规格 | 单位 | 数量 | 单价 | 金额 | 合同编号
+第4行明细：{item.material.code} {item.material.brand} {item.material.name} {item.material.spec}
+          {item.material.unit.name} {item.quantity} {item.price} {item.amount} {item.contract_no}
 
-A5: 物料编码    物料名称    数量    单价    金额
-A6: {item.material.code}  {item.material.name}  {item.quantity}  {item.price}  {item.amount}</code></pre>
+G12: 收货：（起点对齐"单价"列，G:I 合并留签字空间）</code></pre>
                     </div>
                 </div>
             </div>

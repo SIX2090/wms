@@ -75,7 +75,7 @@ def test_builtin_templates_get_excel_file(tmp_path):
     m._ensure_default_print_templates_unconditional(db_path=str(db_path))
 
     for table, expect_name in (
-        ('in_order_print_template', 'builtin_in_order_default.xlsx'),
+        ('in_order_print_template', 'builtin_in_order_default_v2.xlsx'),
         ('out_order_print_template', 'builtin_out_order_default.xlsx'),
     ):
         path = _get_path(db_path, table)

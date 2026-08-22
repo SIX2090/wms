@@ -50,7 +50,8 @@ def _build_in_order_excel(order):
     """按用户指定样式生成采购入库单 Excel（无合计行）。
 
     列：物料编码|品牌|物料名称|规格|单位|数量|单价|金额|合同编号；
-    表头：供应商/采购单号/日期；底部：收货。返回填充好数据的 .xlsx 字节流。
+    表头：供应商/采购入库单号/日期；底部：收货（起点对齐单价列）。
+    返回填充好数据的 .xlsx 字节流。
     """
     import io as _io
     from openpyxl import Workbook
@@ -92,7 +93,7 @@ def _build_in_order_excel(order):
     ws.merge_cells('A2:C2')
     ws['A2'] = f'供应商：{supplier or ""}'
     ws.merge_cells('D2:F2')
-    ws['D2'] = f'采购单号：{order_no}'
+    ws['D2'] = f'采购入库单号：{order_no}'
     ws.merge_cells('G2:I2')
     ws['G2'] = f'日期：{date_str}'
     for cell in ('A2', 'D2', 'G2'):
@@ -140,10 +141,11 @@ def _build_in_order_excel(order):
             c.font = body_font
         row += 1
 
-    ws.merge_cells(f'F{row}:I{row}')
-    ws.cell(row=row, column=6, value='收货：').alignment = Alignment(
-        horizontal='right', vertical='center', indent=20)
-    for col in range(6, 10):
+    # 「收货：」签名行：起点对齐「单价」列（G 列），向右延伸留出签字空间
+    ws.merge_cells(f'G{row}:I{row}')
+    ws.cell(row=row, column=7, value='收货：').alignment = Alignment(
+        horizontal='left', vertical='center')
+    for col in range(7, 10):
         ws.cell(row=row, column=col).font = body_font
     ws.row_dimensions[row].height = 22
 
