@@ -140,6 +140,16 @@ def main():
         app.logger.exception("Database initialization failed")
         raise
 
+    # SERVER-AUTOPRINT-01：内置本机打印代理（无人值守自动打印）。
+    # 随服务进程常驻：自动心跳/认领定向到本机的打印任务并 kiosk 静默出纸，
+    # 无需再打开「打印工作站」网页。WMS_LOCAL_PRINT_AGENT=0 可关闭。
+    # 失败不阻断 WMS 主服务。
+    try:
+        from local_print_agent import start_local_print_agent
+        start_local_print_agent(app, base_url=f"http://127.0.0.1:{port}")
+    except Exception:
+        app.logger.exception("Local print agent failed to start")
+
     global _scheduler
     try:
         _scheduler = init_notification_scheduler(app, db, Material, User)

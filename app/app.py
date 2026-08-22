@@ -1747,6 +1747,12 @@ ensure_print_job_columns()
 # 独立于迁移开关无条件执行，幂等建表（已有表不动）。
 ensure_excel_print_template_table()
 
+# SERVER-AUTOPRINT-01：内置本机打印代理的配套兜底——无条件确保内置工作站
+# （LOCAL-SERVER）与 print 系列表存在。独立于迁移开关、幂等（已存在不动，
+# 含 auth_token 不重新生成），start_wms_*.bat（WMS_NO_DB_TOUCH=1）同样生效。
+from local_print_agent import ensure_builtin_print_workstation  # noqa: E402
+ensure_builtin_print_workstation()
+
 if env == 'production':
     if not app.config.get('SESSION_COOKIE_SECURE'):
         app.logger.warning(
@@ -2574,6 +2580,22 @@ def inventory_alert_enabled():
     return get_system_setting('inventory_alert_enabled', default) == '1'
 
 def get_system_setting(key, default=''):
+    # BUG-2026-08-23-002：请求级缓存。库存批量操作的每条明细都会读
+    # location_management_enabled / allow_negative_stock 等开关——100 明细的
+    # “提交采购入库单+自动下推领料单”曾触发 202 次 system_setting 查询
+    # （占该请求全部 SQL 的 24%），在生产机（杀软扫盘/低配 CPU/写锁排队）上
+    # 放大为秒级卡顿。flask.g 随请求销毁，跨请求无陈旧；set_system_setting
+    # 会同步更新缓存，保证同请求内写后读一致。非请求线程（调度器/打印代理）
+    # 维持原每次查询行为。
+    cache = None
+    if has_request_context():
+        cache = getattr(g, '_system_setting_cache', None)
+        if cache is None:
+            cache = {}
+            g._system_setting_cache = cache
+        elif key in cache:
+            value = cache[key]
+            return default if value is None else value
     try:
         setting = SystemSetting.query.filter_by(key=key).first()
     except OperationalError as exc:
@@ -2582,9 +2604,10 @@ def get_system_setting(key, default=''):
             app.logger.warning('System settings table is missing; using default for %s.', key)
             return default
         raise
-    if not setting:
-        return default
-    return setting.value if setting.value is not None else default
+    value = setting.value if setting and setting.value is not None else None
+    if cache is not None:
+        cache[key] = value
+    return default if value is None else value
 
 def set_system_setting(key, value):
     try:
@@ -2601,6 +2624,13 @@ def set_system_setting(key, value):
         db.session.add(setting)
     setting.value = str(value)
     setting.updated_at = datetime.now()
+    # BUG-2026-08-23-002：同步请求级缓存，保证同请求写后读一致
+    if has_request_context():
+        cache = getattr(g, '_system_setting_cache', None)
+        if cache is None:
+            cache = {}
+            g._system_setting_cache = cache
+        cache[key] = setting.value
     return setting
 
 def location_management_enabled():
@@ -30237,6 +30267,14 @@ if __name__ == '__main__':
         print("[OK] scheduler started")
     except Exception as e:
         print("[WARN] scheduler failed")
+
+    # SERVER-AUTOPRINT-01：内置本机打印代理（与 run_server.py 入口行为一致）；
+    # 失败不阻断主服务。WMS_LOCAL_PRINT_AGENT=0 可关闭。
+    try:
+        from local_print_agent import start_local_print_agent
+        start_local_print_agent(app, base_url="http://127.0.0.1:8080")
+    except Exception:
+        app.logger.exception("Local print agent failed to start")
 
     # Use Waitress in production to avoid Flask development server issues.
     from waitress import serve

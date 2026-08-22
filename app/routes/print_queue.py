@@ -16,6 +16,11 @@
 #   - 代理端：POST /print_queue/api/v1/heartbeat          心跳上报在线状态 + 本地打印机列表
 #   鉴权方式：Authorization: Bearer <工作站令牌>（管理页生成，免账号密码）
 #
+# SERVER-AUTOPRINT-01：内置本机打印代理（local_print_agent 模块，服务进程内
+# 后台线程）复用本文件的认领/回收/派发/ptoken 逻辑；sync_workstation_printers /
+# build_agent_print_url / mark_job_printed / _resolve_job_assignment 为两处共用的
+# 单一事实来源；_resolve_job_assignment 在无任何路由规则时兜底到内置代理。
+#
 # 设计要点：
 #   - 单台电脑方案：next 直接返回最早的 pending 任务，不做工作站路由
 #   - 状态机：pending → printing → done/failed，attempts 防止死循环
@@ -222,6 +227,97 @@ def _resolve_print_route(job_type, warehouse_name, include_unavailable=False):
     return None
 
 
+def _resolve_job_assignment(job_type, warehouse_name):
+    """解析打印任务派发目标，返回 dict(workstation_id, printer_id, route_rule_id)。
+
+    优先级（SERVER-AUTOPRINT-01）：
+      1. 匹配且在线的路由规则 → 定向到规则指定工作站/打印机
+      2. 匹配但离线/不可用的路由规则 → 仍定向到该工作站（等其上线补打，
+         不降级到别处，保证专用打印机场景不串台）
+      3. 无任何规则 → 内置本机打印代理可用（在线 + 有可用打印机）时兜底到内置
+         工作站，实现「零配置开箱即自动打印」
+      4. 以上都不满足 → 非定向（workstation_id=None），由网页打印工作站认领
+    """
+    route = _resolve_print_route(job_type, warehouse_name)
+    if route:
+        return {'workstation_id': route.workstation_id,
+                'printer_id': route.printer_id, 'route_rule_id': route.id}
+    offline_route = _resolve_print_route(job_type, warehouse_name, include_unavailable=True)
+    if offline_route:
+        return {'workstation_id': offline_route.workstation_id,
+                'printer_id': offline_route.printer_id, 'route_rule_id': offline_route.id}
+    from local_print_agent import builtin_local_assignment
+    builtin = builtin_local_assignment()
+    if builtin:
+        return {'workstation_id': builtin[0], 'printer_id': builtin[1],
+                'route_rule_id': None}
+    return {'workstation_id': None, 'printer_id': None, 'route_rule_id': None}
+
+
+def sync_workstation_printers(ws, printers):
+    """心跳同步打印机列表：upsert PrintDevice，未上报的本工作站打印机置 offline。
+
+    返回 (created, online)。agent API v1 心跳路由与内置本机打印代理
+    （local_print_agent）共用，保证两处设备台账行为一致。
+    printers 元素支持 pydantic 对象（.system_name/.status/.is_default）或
+    同键 dict（内置代理本机枚举结果）。
+    """
+    from app import PrintDevice
+
+    def _payload(p):
+        if isinstance(p, dict):
+            return (str(p.get('system_name') or '').strip(),
+                    p.get('status'), p.get('is_default'))
+        return p.system_name, p.status, p.is_default
+
+    reported = {}
+    for p in printers:
+        name, _status, _is_default = _payload(p)
+        if name:
+            reported[name] = (_status, _is_default)
+    existing = {d.system_name: d for d in PrintDevice.query.filter_by(workstation_id=ws.id).all()}
+    created, online = 0, 0
+    for name, (p_status, p_is_default) in reported.items():
+        device = existing.get(name)
+        if not device:
+            device = PrintDevice(
+                workstation_id=ws.id, system_name=name, display_name=name,
+                printer_type='mixed', enabled=True,
+            )
+            db.session.add(device)
+            created += 1
+        device.status = 'online' if p_status != 'error' else 'error'
+        device.is_default = bool(p_is_default)
+        online += 1
+    for name, device in existing.items():
+        if name not in reported and device.enabled:
+            device.status = 'offline'
+    return created, online
+
+
+def build_agent_print_url(job):
+    """构造代理打印 URL：打印页路径 + 短时效 ptoken（免登录渲染）+ autoprint=1。
+
+    agent API v1 claim 路由与内置本机打印代理共用。
+    """
+    from utils import generate_print_token
+    print_url = _print_url(job)
+    sep = '&' if '?' in print_url else '?'
+    return f'{print_url}{sep}ptoken={generate_print_token(job.id, job.workstation_id)}&autoprint=1'
+
+
+def mark_job_printed(job, ok, error_msg=None):
+    """认领后回写打印结果（done/failed + printed_at + error_msg）并提交。
+
+    调用方负责租约/归属校验（路由层）或本身就是认领方（内置代理）。
+    """
+    job.status = 'done' if ok else 'failed'
+    job.printed_at = datetime.now()
+    if error_msg:
+        job.error_msg = error_msg[:500]
+    db.session.commit()
+
+
 def _print_url(job):
     if job.job_type == 'out_order':
         url = f'/out_order/{job.target_id}/print'
@@ -246,12 +342,12 @@ def enqueue_auto_print_job(job_type, target_id, warehouse_name, target_ids=None,
     - 无匹配路由规则（未配置，或目标工作站/打印机不在线）时：回退创建「未定向」任务
       （workstation_id=None），任意桌面打印工作站（/print_queue/next）即可认领并自动
       出纸，满足「手机提交 → 本地电脑自动打印、仅需两端同时登录」的轻量场景。
+      SERVER-AUTOPRINT-01：无任何规则时若内置本机打印代理在线且有可用打印机，
+      优先兜底定向到内置代理（零配置自动打印），再退化为未定向任务。
     - 任务始终创建，不阻塞业务操作；由调用方同一事务提交，保证单据与打印任务原子写入。
     """
     from app import PrintJob
-    route = _resolve_print_route(job_type, warehouse_name)
-    assignment_route = route or _resolve_print_route(
-        job_type, warehouse_name, include_unavailable=True)
+    assignment = _resolve_job_assignment(job_type, warehouse_name)
     job = PrintJob(
         job_type=job_type,
         target_id=target_id,
@@ -259,9 +355,9 @@ def enqueue_auto_print_job(job_type, target_id, warehouse_name, target_ids=None,
         copies=copies,
         status='pending',
         created_by=created_by,
-        workstation_id=assignment_route.workstation_id if assignment_route else None,
-        printer_id=assignment_route.printer_id if assignment_route else None,
-        route_rule_id=assignment_route.id if assignment_route else None,
+        workstation_id=assignment['workstation_id'],
+        printer_id=assignment['printer_id'],
+        route_rule_id=assignment['route_rule_id'],
         source_event=source_event,
     )
     db.session.add(job)
@@ -348,9 +444,7 @@ def register_print_queue_routes(app):
             if not ids or Material.query.filter(Material.id.in_(ids)).count() != len(set(ids)):
                 return jsonify({'status': 'error', 'msg': '标签物料不存在或格式无效'}), 400
 
-        route = _resolve_print_route(req.job_type, warehouse_name)
-        assignment_route = route or _resolve_print_route(
-            req.job_type, warehouse_name, include_unavailable=True)
+        assignment = _resolve_job_assignment(req.job_type, warehouse_name)
         job = PrintJob(
             job_type=req.job_type,
             target_id=req.target_id,
@@ -358,9 +452,9 @@ def register_print_queue_routes(app):
             copies=req.copies,
             status='pending',
             created_by=user.id,
-            workstation_id=assignment_route.workstation_id if assignment_route else None,
-            printer_id=assignment_route.printer_id if assignment_route else None,
-            route_rule_id=assignment_route.id if assignment_route else None,
+            workstation_id=assignment['workstation_id'],
+            printer_id=assignment['printer_id'],
+            route_rule_id=assignment['route_rule_id'],
         )
         db.session.add(job)
         db.session.commit()
@@ -556,10 +650,7 @@ def register_print_queue_routes(app):
             _cap.logger.error("print claim 失败（workstation=%s）：%s", ws.id, e)
             return _migration_error_response(e)
         # 打印 URL 附短时效 ptoken（免登录渲染）与 autoprint=1（页面加载后自动打印）
-        from utils import generate_print_token
-        print_url = _print_url(job)
-        sep = '&' if '?' in print_url else '?'
-        print_url += f'{sep}ptoken={generate_print_token(job.id, ws.id)}&autoprint=1'
+        print_url = build_agent_print_url(job)
         return jsonify({'status': 'success', 'job': {
             'id': job.id,
             'job_type': job.job_type,
@@ -590,11 +681,7 @@ def register_print_queue_routes(app):
                 return jsonify({'status': 'error', 'msg': '任务不存在或不属于本工作站'}), 404
             if not _claim_result_matches(job, req.lease_token):
                 return jsonify({'status': 'error', 'msg': '任务已重新认领或租约失效'}), 409
-            job.status = 'done'
-            job.printed_at = datetime.now()
-            if req.error_msg:
-                job.error_msg = req.error_msg[:500]
-            db.session.commit()
+            mark_job_printed(job, True, req.error_msg)
         except Exception as e:
             return _migration_error_response(e)
         return jsonify({'status': 'success', 'msg': '已标记完成'})
@@ -615,10 +702,7 @@ def register_print_queue_routes(app):
             return jsonify({'status': 'error', 'msg': '任务不存在或不属于本工作站'}), 404
         if not _claim_result_matches(job, req.lease_token):
             return jsonify({'status': 'error', 'msg': '任务已重新认领或租约失效'}), 409
-        job.status = 'failed'
-        job.error_msg = (req.error_msg or '打印代理上报失败')[:500]
-        job.printed_at = datetime.now()
-        db.session.commit()
+        mark_job_printed(job, False, req.error_msg or '打印代理上报失败')
         return jsonify({'status': 'success', 'msg': '已标记失败'})
 
     @app.route('/print_queue/api/v1/heartbeat', methods=['POST'])
@@ -626,38 +710,19 @@ def register_print_queue_routes(app):
     @csrf.exempt
     @_workstation_token_required
     def print_queue_api_v1_heartbeat():
-        """打印代理心跳：刷新在线状态并同步本地打印机列表。
+        """        打印代理心跳：刷新在线状态并同步本地打印机列表。
 
         - 上报的打印机 upsert 到 PrintDevice（按 workstation_id + system_name 匹配）
         - 本次未上报的本工作站打印机置 offline（已停用 enabled=False 的不动）
         """
-        from app import PrintDevice
         try:
             req = AgentHeartbeatRequest(**(request.get_json(silent=True) or {}))
         except Exception as e:
             return jsonify({'status': 'error', 'msg': f'参数错误：{e}'}), 400
         ws = g.print_workstation
-        now = datetime.now()
         ws.status = 'online'
-        ws.last_heartbeat = now
-        reported = {p.system_name: p for p in req.printers}
-        existing = {d.system_name: d for d in PrintDevice.query.filter_by(workstation_id=ws.id).all()}
-        created, online = 0, 0
-        for name, p in reported.items():
-            device = existing.get(name)
-            if not device:
-                device = PrintDevice(
-                    workstation_id=ws.id, system_name=name, display_name=name,
-                    printer_type='mixed', enabled=True,
-                )
-                db.session.add(device)
-                created += 1
-            device.status = 'online' if p.status != 'error' else 'error'
-            device.is_default = bool(p.is_default)
-            online += 1
-        for name, device in existing.items():
-            if name not in reported and device.enabled:
-                device.status = 'offline'
+        ws.last_heartbeat = datetime.now()
+        created, online = sync_workstation_printers(ws, req.printers)
         try:
             db.session.commit()
         except Exception:
