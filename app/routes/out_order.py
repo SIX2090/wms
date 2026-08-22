@@ -125,10 +125,11 @@ def _build_out_order_excel(order):
             c.font = body_font
         row += 1
 
-    ws.merge_cells(f'F{row}:I{row}')
-    ws.cell(row=row, column=6, value='领料：').alignment = Alignment(
-        horizontal='right', vertical='center', indent=20)
-    for col in range(6, 10):
+    # 「领料：」签名行：起点对齐「单价」列（G 列），向右延伸留出签字空间
+    ws.merge_cells(f'G{row}:I{row}')
+    ws.cell(row=row, column=7, value='领料：').alignment = Alignment(
+        horizontal='left', vertical='center')
+    for col in range(7, 10):
         ws.cell(row=row, column=col).font = body_font
     ws.row_dimensions[row].height = 22
 

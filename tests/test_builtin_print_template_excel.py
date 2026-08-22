@@ -76,7 +76,7 @@ def test_builtin_templates_get_excel_file(tmp_path):
 
     for table, expect_name in (
         ('in_order_print_template', 'builtin_in_order_default_v2.xlsx'),
-        ('out_order_print_template', 'builtin_out_order_default.xlsx'),
+        ('out_order_print_template', 'builtin_out_order_default_v2.xlsx'),
     ):
         path = _get_path(db_path, table)
         assert path and path.endswith(expect_name), f"{table} 未回填: {path}"

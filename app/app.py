@@ -5558,7 +5558,7 @@ def _ensure_builtin_excel_template_file(table):
     """
     sources = {
         'in_order_print_template': ('入库单打印模板示例.xlsx', 'builtin_in_order_default_v2.xlsx'),
-        'out_order_print_template': ('领料单打印模板示例.xlsx', 'builtin_out_order_default.xlsx'),
+        'out_order_print_template': ('领料单打印模板示例.xlsx', 'builtin_out_order_default_v2.xlsx'),
     }
     spec = sources.get(table)
     if spec is None:

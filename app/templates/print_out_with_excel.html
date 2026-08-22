@@ -18,7 +18,8 @@
         .doc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
         .doc-table th, .doc-table td { border: 1px solid #333; padding: 6px 8px; text-align: center; height: 24px; }
         .doc-table th { background: #fff; font-weight: bold; }
-        .signature-row { text-align: right; margin-top: 50px; font-size: 13px; padding-right: 40px; }
+        /* 领料签名行：无边框，从"单价"列开始并向右延伸，留出签字空间 */
+        .doc-table td.sig-cell { border: none; text-align: left; vertical-align: bottom; height: 60px; font-size: 13px; }
     </style>
 </head>
 <body>
@@ -122,8 +123,13 @@
                 </tr>
                 {% endfor %}
             </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="6" class="sig-cell"></td>
+                    <td colspan="3" class="sig-cell">领料：</td>
+                </tr>
+            </tfoot>
         </table>
-        <div class="signature-row">领料：</div>
     </div>
 </body>
 </html>
