@@ -1514,6 +1514,80 @@ def _sqlite_table_has_print_job(db_path: str) -> bool:
         return False
 
 
+def ensure_excel_print_template_table(db_path: str | None = None):
+    """启动期无条件创建 excel_print_template 表（BUG-2026-08-22-001）。
+
+    ExcelPrintTemplate 模型只挂在 db.create_all()（initialize_database）里，
+    而 start_wms_offline.bat / start_wms_auto.bat 默认 WMS_NO_DB_TOUCH=1 会
+    跳过 initialize_database()/auto_migrate_database()，强制运行的
+    fix_db_columns.py 又不含该表——功能上线前创建的存量库重启也建不出表，
+    打开「Excel打印模板中心」（/print_templates）即抛
+    no such table: excel_print_template → 500。
+
+    本函数仿照 ensure_print_job_columns，用独立 sqlite 连接、独立于迁移
+    开关无条件执行、幂等（CREATE TABLE/INDEX IF NOT EXISTS），已有表与
+    数据一律不动。列定义与 ExcelPrintTemplate 模型保持一致。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            # 全新部署：库文件都还没有，交给 initialize_database/create_all 建全量表
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        cur = conn.cursor()
+        cur.execute('PRAGMA busy_timeout=60000')
+        exists = cur.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='excel_print_template'"
+        ).fetchone()
+        if exists:
+            return
+        # 表名/列名均为固定白名单标识符（非用户输入），无注入风险。
+        cur.execute(
+            'CREATE TABLE IF NOT EXISTS excel_print_template ('
+            'id INTEGER PRIMARY KEY, '
+            'name VARCHAR(100) NOT NULL, '
+            'target_type VARCHAR(30) NOT NULL, '
+            'target_code VARCHAR(80) NOT NULL, '
+            "template_type VARCHAR(20) NOT NULL DEFAULT 'excel', "
+            'excel_template_path VARCHAR(500) NOT NULL, '
+            'is_default BOOLEAN, '
+            'created_at DATETIME, '
+            'updated_at DATETIME)'
+        )
+        cur.execute(
+            'CREATE INDEX IF NOT EXISTS ix_excel_print_template_target_type '
+            'ON excel_print_template (target_type)'
+        )
+        cur.execute(
+            'CREATE INDEX IF NOT EXISTS ix_excel_print_template_target_code '
+            'ON excel_print_template (target_code)'
+        )
+        conn.commit()
+        logging.getLogger(__name__).info('[DB] excel_print_template 缺表已补建')
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_excel_print_template_table 建表失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 app = Flask(__name__)
 
 # Use config.py settings uniformly
@@ -1667,6 +1741,11 @@ backfill_empty_warehouse_documents()
 # 线上 print_job 缺 printing_started_at 等迁移列重启也补不上。与回填一样
 # 独立于迁移开关无条件执行，幂等补列。
 ensure_print_job_columns()
+
+# BUG-2026-08-22-001：同理，WMS_NO_DB_TOUCH=1 跳过 db.create_all() 时，
+# 存量库永远建不出 excel_print_template 表，「Excel打印模板中心」打开即 500。
+# 独立于迁移开关无条件执行，幂等建表（已有表不动）。
+ensure_excel_print_template_table()
 
 if env == 'production':
     if not app.config.get('SESSION_COOKIE_SECURE'):
