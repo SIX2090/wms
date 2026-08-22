@@ -243,6 +243,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
+                                    <tr class="table-secondary"><td colspan="3"><strong>单据字段</strong>（每张单填充一次）</td></tr>
                                     <tr>
                                         <td><code>{order.order_no}</code></td>
                                         <td>领料单号</td>
@@ -269,6 +270,22 @@
                                         <td>工单领料</td>
                                     </tr>
                                     <tr>
+                                        <td><code>{order.warehouse}</code></td>
+                                        <td>仓库</td>
+                                        <td>主仓库</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{order.remark}</code></td>
+                                        <td>备注</td>
+                                        <td>加急领料</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{order.operator.username}</code></td>
+                                        <td>操作员</td>
+                                        <td>admin</td>
+                                    </tr>
+                                    <tr class="table-secondary"><td colspan="3"><strong>明细字段</strong>（按物料逐行填充，写在同一行）</td></tr>
+                                    <tr>
                                         <td><code>{item.material.code}</code></td>
                                         <td>物料编码</td>
                                         <td>MAT-001</td>
@@ -277,6 +294,21 @@
                                         <td><code>{item.material.name}</code></td>
                                         <td>物料名称</td>
                                         <td>螺丝刀</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{item.material.brand}</code></td>
+                                        <td>品牌</td>
+                                        <td>博世</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{item.material.spec}</code></td>
+                                        <td>规格型号</td>
+                                        <td>十字，6mm</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{item.material.unit.name}</code></td>
+                                        <td>单位</td>
+                                        <td>个</td>
                                     </tr>
                                     <tr>
                                         <td><code>{item.quantity}</code></td>
@@ -292,6 +324,37 @@
                                         <td><code>{item.amount}</code></td>
                                         <td>金额</td>
                                         <td>500.00</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{item.contract_no}</code></td>
+                                        <td>合同编号（明细级）</td>
+                                        <td>HT-2026-001</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{item.project_name}</code></td>
+                                        <td>工程名称（明细级）</td>
+                                        <td>一期厂房</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{item.remark}</code></td>
+                                        <td>明细备注</td>
+                                        <td>检验合格</td>
+                                    </tr>
+                                    <tr class="table-secondary"><td colspan="3"><strong>合计与其他</strong></td></tr>
+                                    <tr>
+                                        <td><code>{total_quantity}</code></td>
+                                        <td>数量合计</td>
+                                        <td>180.00</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{total_amount}</code></td>
+                                        <td>金额合计</td>
+                                        <td>1260.00</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>{print_date}</code></td>
+                                        <td>打印日期</td>
+                                        <td>2026-08-22</td>
                                     </tr>
                                 </tbody>
                             </table>
