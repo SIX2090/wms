@@ -5476,10 +5476,10 @@ def ensure_default_print_templates():
     """
     changed = False
     defaults = (
-        (InOrderPrintTemplate, '系统默认入库单模板', DEFAULT_IN_ORDER_HTML_TEMPLATE, 'excel'),
-        (OutOrderPrintTemplate, '系统默认领料单模板', DEFAULT_OUT_ORDER_HTML_TEMPLATE, 'excel'),
+        (InOrderPrintTemplate, '系统默认入库单模板', DEFAULT_IN_ORDER_HTML_TEMPLATE, 'excel', 'in_order_print_template'),
+        (OutOrderPrintTemplate, '系统默认领料单模板', DEFAULT_OUT_ORDER_HTML_TEMPLATE, 'excel', 'out_order_print_template'),
     )
-    for model, name, content, template_type in defaults:
+    for model, name, content, template_type, table in defaults:
         existing = model.query.filter_by(name=name).first()
         has_default = bool(model.query.filter_by(is_default=True).first())
         if not existing:
@@ -5487,6 +5487,7 @@ def ensure_default_print_templates():
                 name=name,
                 template_type=template_type,
                 html_template_content=content,
+                excel_template_path=_ensure_builtin_excel_template_file(table),
                 is_default=not has_default,
             ))
             changed = True
@@ -5500,6 +5501,12 @@ def ensure_default_print_templates():
             if (existing.template_type or '') != template_type:
                 existing.template_type = template_type
                 changed = True
+            # BUG-2026-08-22-002：内置模板缺 Excel 文件时补静态示例副本
+            if not (existing.excel_template_path or '').strip():
+                excel_path = _ensure_builtin_excel_template_file(table)
+                if excel_path:
+                    existing.excel_template_path = excel_path
+                    changed = True
 
     label_default = LabelTemplate.query.filter_by(name='系统默认物料标签模板').first()
     has_label_default = bool(LabelTemplate.query.filter_by(is_default=True).first())
@@ -5533,6 +5540,42 @@ def ensure_default_print_templates():
 
     if changed:
         db.session.commit()
+
+
+def _ensure_builtin_excel_template_file(table):
+    """内置默认打印模板补 Excel 模板文件（BUG-2026-08-22-002）。
+
+    「系统默认入库单模板」「系统默认领料单模板」历史只有
+    html_template_content、excel_template_path 为空，导致模板管理页
+    下载/在线编辑按钮不显示、「下载当前默认打印模板」入口隐藏、
+    Excel 填充打印只能回退内置版式。
+
+    把 static/templates 下的示例 xlsx 复制为 uploads/print_templates 下的
+    内置模板副本（在线编辑改写副本，不动静态示例原件），返回应写入
+    excel_template_path 的 /static/... URL；源文件缺失或异常返回 None。
+    """
+    sources = {
+        'in_order_print_template': ('入库单打印模板示例.xlsx', 'builtin_in_order_default.xlsx'),
+        'out_order_print_template': ('领料单打印模板示例.xlsx', 'builtin_out_order_default.xlsx'),
+    }
+    spec = sources.get(table)
+    if spec is None:
+        return None
+    src_name, dst_name = spec
+    try:
+        static_root = os.path.join(os.path.dirname(__file__), 'static')
+        src = os.path.join(static_root, 'templates', src_name)
+        if not os.path.exists(src):
+            return None
+        dst_dir = os.path.join(static_root, 'uploads', 'print_templates')
+        os.makedirs(dst_dir, exist_ok=True)
+        dst = os.path.join(dst_dir, dst_name)
+        if not os.path.exists(dst):
+            import shutil
+            shutil.copyfile(src, dst)
+        return '/static/uploads/print_templates/' + dst_name
+    except Exception:  # noqa: BLE001 - 补文件失败不阻断启动，下载仍按原逻辑 404
+        return None
 
 
 def _ensure_default_print_templates_unconditional(db_path=None):
@@ -5577,7 +5620,7 @@ def _ensure_default_print_templates_unconditional(db_path=None):
             if not tbl:
                 continue
             row = cur.execute(
-                "SELECT id, template_type, html_template_content FROM "
+                "SELECT id, template_type, html_template_content, excel_template_path FROM "
                 + table + " WHERE name=?",
                 (name,),
             ).fetchone()
@@ -5587,9 +5630,11 @@ def _ensure_default_print_templates_unconditional(db_path=None):
                 ).fetchone() is not None
                 cur.execute(
                     "INSERT INTO " + table +
-                    " (name, template_type, html_template_content, is_default, created_at, updated_at)"
-                    " VALUES (?, 'excel', ?, ?, datetime('now'), datetime('now'))",
-                    (name, content, 0 if has_default else 1),
+                    " (name, template_type, html_template_content, excel_template_path,"
+                    " is_default, created_at, updated_at)"
+                    " VALUES (?, 'excel', ?, ?, ?, datetime('now'), datetime('now'))",
+                    (name, content, _ensure_builtin_excel_template_file(table),
+                     0 if has_default else 1),
                 )
                 changed = True
             else:
@@ -5606,6 +5651,16 @@ def _ensure_default_print_templates_unconditional(db_path=None):
                         (content, tid),
                     )
                     changed = True
+                # BUG-2026-08-22-002：内置模板缺 Excel 文件时补静态示例副本，
+                # 下载/在线编辑/Excel 填充打印即刻可用；用户已换过自己文件的覆盖不动。
+                if not (row['excel_template_path'] or '').strip():
+                    excel_path = _ensure_builtin_excel_template_file(table)
+                    if excel_path:
+                        cur.execute(
+                            "UPDATE " + table + " SET excel_template_path=?, updated_at=datetime('now') WHERE id=?",
+                            (excel_path, tid),
+                        )
+                        changed = True
             default_row = cur.execute(
                 "SELECT 1 FROM " + table + " WHERE is_default=1 LIMIT 1"
             ).fetchone()
