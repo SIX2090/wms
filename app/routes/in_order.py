@@ -1549,6 +1549,10 @@ def register_in_order_routes(app):
             # 采购单 received_quantity 由 /in_order/add 保存、update_completed、
             # delete_in_order 处维护，完成仅代表库存入账，不改变接收数量。
             affected_purchase_order_ids = set()
+            # BUG-2026-08-23-002：location 开关提升到循环外，避免每条明细
+            # 重复查询 system_setting（与 get_system_setting 请求级缓存叠加，
+            # 双保险消除循环内重复设置读取）
+            location_enabled_for_in = location_management_enabled()
             for item in order.items:
                 if item.material:
                     ok, err = add_stock(item.material, item.quantity,
@@ -1559,7 +1563,7 @@ def register_in_order_routes(app):
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存增加失败')
-                    if location_management_enabled() and (order.location or order.warehouse):
+                    if location_enabled_for_in and (order.location or order.warehouse):
                         loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity or 0, warehouse=order.warehouse)
                         if not loc_ok:
                             db.session.rollback()
