@@ -122,6 +122,7 @@ from routes.inventory_alert import register_inventory_alert_routes
 from routes.label import register_label_routes
 from routes.print_queue import register_print_queue_routes
 from routes.print_routing import register_print_routing_routes
+from routes.print_template_editor import register_print_template_editor_routes
 # 待办单据（pending_documents）域路由注册函数（register-on-app 模式，endpoint 名不变）。
 from routes.pending_documents import register_pending_documents_routes
 # 单位/供应商导入导出（unit_supplier_import）域路由注册函数（register-on-app 模式，endpoint 名不变）。
@@ -1850,6 +1851,7 @@ register_inventory_alert_routes(app)
 register_label_routes(app)
 register_print_queue_routes(app)
 register_print_routing_routes(app)
+register_print_template_editor_routes(app)
 # 待办单据（pending_documents）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_pending_documents_routes(app)
 # 单位/供应商导入导出（unit_supplier_import）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。

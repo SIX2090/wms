@@ -202,6 +202,9 @@
                         <a href="{{ template.excel_template_path }}" class="btn btn-sm btn-outline-success" download>
                             <i class="bi bi-download"></i> 下载
                         </a>
+                        <a href="/out_order_print_template/{{ template.id }}/edit" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-pencil-square"></i> 在线编辑
+                        </a>
                         {% endif %}
                         {% if not template.is_default %}
                         <button class="btn btn-sm btn-outline-warning" onclick="setDefault({{ template.id }})">
@@ -309,9 +312,14 @@
                     </div>
                     <div class="card-body">
                         <p class="card-text">下载示例Excel模板，然后根据需要进行修改：</p>
-                        <div class="d-grid gap-2">
+                        <div class="d-grid gap-2 mb-2">
+                            {% if default_template and default_template.excel_template_path %}
+                            <a href="/out_order_print_template/{{ default_template.id }}/download" class="btn btn-primary">
+                                <i class="bi bi-download"></i> 下载当前默认打印模板 ({{ default_template.name }})
+                            </a>
+                            {% endif %}
                             <a href="/static/templates/领料单打印模板示例.xlsx" class="btn btn-success" download>
-                                <i class="bi bi-download"></i> 下载Excel模板文件 (.xlsx)
+                                <i class="bi bi-download"></i> 下载示例Excel模板文件 (.xlsx)
                             </a>
                             <a href="/static/templates/领料单Excel模板使用指南.md" class="btn btn-outline-success" download>
                                 <i class="bi bi-file-text"></i> 下载模板使用指南

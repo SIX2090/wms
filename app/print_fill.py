@@ -314,3 +314,154 @@ def build_filled_print_excel(template_path, order, items=None, date_str=None):
     workbook.save(output)
     output.seek(0)
     return output
+
+
+# ==================== 在线网格编辑（PRINT-TEMPLATE-F02） ====================
+#
+# 浏览器"在线修改打印模板"：把 .xlsx 模板序列化为 JSON 网格供前端编辑，
+# 前端改完单元格值后回写。合并单元格只在左上角锚点处可编辑，样式/合并保持
+# 原样，不在此处增删——避免前端破坏版式。
+
+_SCALAR_TYPES = (str, int, float, bool)
+
+
+def _cell_to_json(value):
+    """把单元格值转为可 JSON 序列化的标量；其他类型（公式对象等）转字符串。"""
+    if isinstance(value, _SCALAR_TYPES) and value is not None:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, float):
+            from math import isfinite
+            return value if isfinite(value) else None
+        return value
+    if value is None:
+        return None
+    return str(value)
+
+
+def _sheet_merge_anchors(ws):
+    """返回该工作表所有合并区域的锚点（左上角单元格）集合 {(min_row, min_col)}。"""
+    anchors = set()
+    for rng in ws.merged_cells.ranges:
+        anchors.add((rng.min_row, rng.min_col))
+    return anchors
+
+
+def serialize_print_template_grid(template_path):
+    """把打印模板 .xlsx 序列化为浏览器网格 JSON。
+
+    返回：{sheets: [{name, max_row, max_col, merges, cells}]}
+    - merges: [{row, col, rowspan, colspan}]（仅给前端展示只读提示，编辑锚点=左上角）
+    - cells: [{row, col, value, merged}]，只含非空单元格；合并区仅在锚点给出。
+    """
+    workbook = load_workbook(template_path, data_only=False)
+    try:
+        sheets = []
+        for ws in workbook.worksheets:
+            anchors = _sheet_merge_anchors(ws)
+            merges = []
+            for rng in ws.merged_cells.ranges:
+                merges.append({
+                    'row': rng.min_row,
+                    'col': rng.min_col,
+                    'rowspan': rng.max_row - rng.min_row + 1,
+                    'colspan': rng.max_col - rng.min_col + 1,
+                })
+            cells = []
+            for r in range(1, (ws.max_row or 1) + 1):
+                for c in range(1, (ws.max_column or 1) + 1):
+                    if (r, c) in anchors:
+                        continue  # 非锚点合并格，值在锚点处读取
+                    cell = ws.cell(r, c)
+                    value = _cell_to_json(cell.value)
+                    if value is not None and value != '':
+                        cells.append({
+                            'row': r, 'col': c, 'value': value,
+                            'merged': False,
+                        })
+            # 合并锚点单元格（值为本身就是该区域的值）
+            for (r, c) in sorted(anchors):
+                value = _cell_to_json(ws.cell(r, c).value)
+                cells.append({'row': r, 'col': c,
+                              'value': value if value is not None else '',
+                              'merged': True})
+            cells.sort(key=lambda x: (x['row'], x['col']))
+            sheets.append({
+                'name': ws.title,
+                'max_row': ws.max_row or 1,
+                'max_col': ws.max_column or 1,
+                'merges': merges,
+                'cells': cells,
+            })
+        return {'sheets': sheets}
+    finally:
+        workbook.close()
+
+
+def _validate_grid_value(value):
+    """校验网格待回写值，返回错误信息；合法返回空串。"""
+    if value is None:
+        return ''
+    if isinstance(value, bool):
+        return ''
+    if isinstance(value, (int, float)):
+        return ''
+    if isinstance(value, str):
+        if len(value) > 32767:
+            return '单元格文本过长，单格最多 32767 字符'
+        for token in _PLACEHOLDER_RE.findall(value):
+            if not _is_supported_placeholder(token):
+                return '模板包含不支持的占位符 {%s}，请使用 order.* / item.* / %s' % (
+                    token, ' / '.join(_EXPLICIT_TOKENS))
+        return ''
+    return '不支持的单元格值类型'
+
+
+def apply_print_template_grid(template_path, sheets_data):
+    """把前端编辑后的网格写回 .xlsx 模板。
+
+    sheets_data: [{name, upserts:[[row, col, value], ...], del_rows:[row, ...]}]
+    - upserts 写/覆盖单元格值（'' 或 None 清除单元格）；保留样式与合并。
+    - del_rows 删除指定行（整行，序号由小到大），用于清理多余示例行。
+    全程占位符白名单校验，任何非法占位符立即报错且不落盘（原子性）。
+    """
+    sheets_data = sheets_data or []
+    workbook = load_workbook(template_path)
+    try:
+        sheets_map = {ws.title: ws for ws in workbook.worksheets}
+        for sheet in sheets_data:
+            name = (sheet.get('name') or '').strip()
+            ws = sheets_map.get(name)
+            if ws is None:
+                raise ValueError(f'工作表「{name}」不存在')
+            row_map = {}
+            for (r, c, value) in (sheet.get('upserts') or []):
+                r = int(r)
+                c = int(c)
+                if r < 1 or c < 1:
+                    raise ValueError(f'单元格坐标无效：第{r}行第{c}列')
+                if r > _MAX_TEMPLATE_ROWS or c > _MAX_TEMPLATE_COLS:
+                    raise ValueError(f'单元格坐标超出上限：第{r}行第{c}列')
+                msg = _validate_grid_value(value)
+                if msg:
+                    raise ValueError(f'第{r}行第{c}列：{msg}')
+                row_map.setdefault(r, {})[c] = value
+            # 先处理单元格值（行索引删除前基于原始行号）
+            for r, cols in sorted(row_map.items()):
+                for c, value in cols.items():
+                    cell = ws.cell(r, c)
+                    if value is None or (isinstance(value, str) and value.strip() == ''):
+                        cell.value = None
+                    else:
+                        cell.value = value
+            del_rows = sorted(set(int(x) for x in (sheet.get('del_rows') or [])), reverse=True)
+            for r in del_rows:
+                if r < 1:
+                    continue
+                ws.delete_rows(r, 1)
+        output = io.BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        return output
+    finally:
+        workbook.close()

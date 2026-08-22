@@ -2770,9 +2770,11 @@ def register_in_order_routes(app):
     @login_required
     def in_order_print_template_list():
         from app import InOrderPrintTemplate, _print_template_query_from_args
+        from utils import get_default_print_template
         query, filters, sort_by, sort_order = _print_template_query_from_args(InOrderPrintTemplate)
         templates = query.all()
-        return render_template('in_order_print_template.html', templates=templates, filters=filters, sort_by=sort_by, sort_order=sort_order)
+        default_template = get_default_print_template(InOrderPrintTemplate)
+        return render_template('in_order_print_template.html', templates=templates, filters=filters, sort_by=sort_by, sort_order=sort_order, default_template=default_template)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/in_order_print_template/add', methods=['POST'])
