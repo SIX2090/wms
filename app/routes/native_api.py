@@ -828,6 +828,136 @@ def register_native_api_routes(app):
 
         return api_json_success(_out_order_detail_payload(order))
 
+    @app.route('/api/mobile/report/daily_detail')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_report_daily_detail():
+        """移动端每日明细报表：按日期 + 业务类型查看明细行（按仓库隔离）。
+
+        供手机端报表页使用：
+        - type=purchase_in  → 当日采购入库单明细
+        - type=requisition  → 当日领料单明细
+        仅统计已完成单据；汇总基于全集（不受分页影响）。
+        """
+        from datetime import date as _date, datetime as _dt
+        from sqlalchemy import func
+        from sqlalchemy.orm import joinedload
+        from app import (MOBILE_API_PAGE_SIZE_DEFAULT, InOrder, InOrderItem, Material,
+                         OutOrder, OutOrderItem, _mobile_paginate, api_json_error,
+                         api_json_success, normalize_stock_quantity,
+                         resolve_request_warehouse, round_to_2_decimals)
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_json_error(wh_err, 400)
+
+        TYPE_DEFS = {
+            'purchase_in': {
+                'label': '采购入库', 'order_model': InOrder, 'item_model': InOrderItem,
+                'join_cond': InOrderItem.in_order_id == InOrder.id,
+                'business_type': '采购入库', 'party_key': 'supplier',
+            },
+            'requisition': {
+                'label': '领料单', 'order_model': OutOrder, 'item_model': OutOrderItem,
+                'join_cond': OutOrderItem.out_order_id == OutOrder.id,
+                'business_type': '领料单', 'party_key': 'department',
+            },
+        }
+        report_type = (request.args.get('type') or '').strip()
+        cfg = TYPE_DEFS.get(report_type)
+        if cfg is None:
+            return api_json_error('报表类型无效，支持 purchase_in（采购入库）/ requisition（领料单）', 400)
+
+        raw_date = (request.args.get('date') or '').strip()
+        if raw_date:
+            try:
+                target_date = _dt.strptime(raw_date, '%Y-%m-%d').date()
+            except ValueError:
+                return api_json_error('日期格式无效，应为 YYYY-MM-DD', 400)
+        else:
+            target_date = _date.today()
+
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+
+        OrderModel, ItemModel = cfg['order_model'], cfg['item_model']
+        wh_name = warehouse.name or ''
+        base_filters = [
+            OrderModel.warehouse == wh_name,
+            OrderModel.business_type == cfg['business_type'],
+            OrderModel.status == 'completed',
+            OrderModel.date == target_date,
+        ]
+
+        # 汇总基于全集：单据数 / 明细数 / 总数量 / 总金额
+        agg = db.session.query(
+            func.count(ItemModel.id),
+            func.coalesce(func.sum(ItemModel.quantity), 0.0),
+            func.coalesce(func.sum(ItemModel.amount), 0.0),
+            func.count(func.distinct(OrderModel.id)),
+        ).join(OrderModel, cfg['join_cond']).filter(*base_filters).one()
+
+        if report_type == 'purchase_in':
+            query = (ItemModel.query
+                     .join(InOrder, InOrderItem.in_order_id == InOrder.id)
+                     .join(Material, ItemModel.material_id == Material.id)
+                     .options(
+                         joinedload(InOrderItem.in_order).joinedload(InOrder.supplier),
+                         joinedload(InOrderItem.in_order).joinedload(InOrder.operator),
+                         joinedload(InOrderItem.material).joinedload(Material.unit),
+                     )
+                     .filter(*base_filters)
+                     .order_by(InOrder.order_no.desc(), InOrderItem.id.desc()))
+        else:
+            query = (ItemModel.query
+                     .join(OutOrder, OutOrderItem.out_order_id == OutOrder.id)
+                     .join(Material, ItemModel.material_id == Material.id)
+                     .options(
+                         joinedload(OutOrderItem.out_order).joinedload(OutOrder.department),
+                         joinedload(OutOrderItem.out_order).joinedload(OutOrder.operator),
+                         joinedload(OutOrderItem.material).joinedload(Material.unit),
+                     )
+                     .filter(*base_filters)
+                     .order_by(OutOrder.order_no.desc(), OutOrderItem.id.desc()))
+
+        result = _mobile_paginate(query, page, page_size)
+        rows = []
+        for item in result['items']:
+            order = item.in_order if report_type == 'purchase_in' else item.out_order
+            material = item.material
+            party = order.supplier if report_type == 'purchase_in' else order.department
+            rows.append({
+                'order_id': order.id,
+                'order_no': order.order_no or '',
+                'date': order.date.isoformat() if order.date else '',
+                'material_code': material.code if material else '',
+                'material_name': material.name if material else '',
+                'spec': material.spec if material else '',
+                'unit': material.unit.name if material and material.unit else '',
+                'quantity': normalize_stock_quantity(item.quantity or 0),
+                'price': round_to_2_decimals(item.price or 0),
+                'amount': round_to_2_decimals(item.amount or 0),
+                cfg['party_key']: party.name if party else '',
+                'operator': order.operator.username if order.operator else '',
+                'remark': item.remark or '',
+            })
+
+        return api_json_success({
+            'date': target_date.isoformat(),
+            'type': report_type,
+            'type_label': cfg['label'],
+            'summary': {
+                'order_count': agg[3],
+                'item_count': agg[0],
+                'quantity': round_to_2_decimals(agg[1]),
+                'amount': round_to_2_decimals(agg[2]),
+            },
+            'items': rows,
+            'total': result['total'],
+            'page': result['page'],
+            'page_size': result['page_size'],
+            'total_pages': result['total_pages'],
+        })
+
     @app.route('/api/mobile/profile')
     @csrf.exempt
     @web_or_api_required
