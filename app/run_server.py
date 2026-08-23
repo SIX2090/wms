@@ -161,6 +161,24 @@ def main():
             replace_existing=True,
             max_instances=1,
         )
+        # PRINT-ROUTING-F01-P7：打印链路健康巡检（任务滞留/工作站离线告警）。
+        # 失败不阻断调度器；告警内部独立事务且当日去重。
+        def _print_health_check():
+            with app.app_context():
+                try:
+                    from routes.print_alerts import check_print_health
+                    check_print_health()
+                except Exception:
+                    app.logger.exception("Print health check failed")
+
+        _scheduler.add_job(
+            _print_health_check,
+            "interval",
+            minutes=1,
+            id="print_health_check",
+            replace_existing=True,
+            max_instances=1,
+        )
         app.logger.info("Notification scheduler started")
     except Exception:
         app.logger.exception("Notification scheduler failed to start")

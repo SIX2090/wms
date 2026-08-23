@@ -122,6 +122,8 @@ from routes.inventory_alert import register_inventory_alert_routes
 from routes.label import register_label_routes
 from routes.print_queue import register_print_queue_routes
 from routes.print_routing import register_print_routing_routes
+# 打印告警（print_alerts）域路由注册函数（register-on-app 模式，endpoint 名不变）。
+from routes.print_alerts import register_print_alert_routes
 from routes.print_template_editor import register_print_template_editor_routes
 from routes.print_template_center import register_print_template_center_routes
 # 待办单据（pending_documents）域路由注册函数（register-on-app 模式，endpoint 名不变）。
@@ -1937,6 +1939,8 @@ register_inventory_alert_routes(app)
 register_label_routes(app)
 register_print_queue_routes(app)
 register_print_routing_routes(app)
+# 打印告警（print_alerts）域路由：PRINT-ROUTING-F01-P7，失败/滞留/离线告警与列表页。
+register_print_alert_routes(app)
 register_print_template_editor_routes(app)
 register_print_template_center_routes(app)
 # 待办单据（pending_documents）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
@@ -2341,6 +2345,22 @@ SYSTEM_SETTING_GROUPS = [
                 'type': 'bool',
                 'default': '0',
                 'remark': '用于后续列表打印时合并重复表头或重复字段。',
+            },
+            {
+                'key': 'print_alert_enabled',
+                'label': '打印告警',
+                'type': 'bool',
+                'default': '1',
+                'remark': '无人值守打印的告警总开关。开启后，打印失败、任务滞留超时、工作站离线且仍有定向任务时会产生系统内通知（右上角铃铛与「系统管理 → 打印告警」页可见）。关闭后不产生新告警，历史告警仍可查看。',
+            },
+            {
+                'key': 'print_alert_pending_timeout_min',
+                'label': '打印任务滞留告警阈值（分钟）',
+                'type': 'int',
+                'default': '10',
+                'min': 1,
+                'max': 1440,
+                'remark': '打印任务超过该时长仍无人认领（pending）时产生「任务滞留」告警，通常意味着本地打印代理不在线或路由规则未配置。同一任务当日只告警一次。',
             },
         ],
     },

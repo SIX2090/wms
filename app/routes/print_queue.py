@@ -154,6 +154,7 @@ def _recover_zombie_printing_jobs(workstation_id=None):
         query = query.filter_by(workstation_id=workstation_id)
     stale_jobs = [j for j in query.all()
                   if (j.printing_started_at or j.created_at) < cutoff]
+    failed_jobs = []
     for j in stale_jobs:
         if (j.attempts or 0) < MAX_ATTEMPTS:
             j.status = 'pending'
@@ -162,8 +163,16 @@ def _recover_zombie_printing_jobs(workstation_id=None):
         else:
             j.status = 'failed'
             j.error_msg = '打印超时且尝试次数过多'
+            failed_jobs.append(j)
     if stale_jobs:
         db.session.commit()
+    # PRINT-ROUTING-F01-P7：次数耗尽置 failed 的任务补告警（commit 后、独立事务）
+    for j in failed_jobs:
+        try:
+            from routes.print_alerts import notify_print_failed
+            notify_print_failed(j)
+        except Exception:
+            pass
     return len(stale_jobs)
 
 
@@ -310,12 +319,19 @@ def mark_job_printed(job, ok, error_msg=None):
     """认领后回写打印结果（done/failed + printed_at + error_msg）并提交。
 
     调用方负责租约/归属校验（路由层）或本身就是认领方（内置代理）。
+    失败时在 commit 后挂 PRINT-ROUTING-F01-P7 告警（独立事务，绝不阻断回写）。
     """
     job.status = 'done' if ok else 'failed'
     job.printed_at = datetime.now()
     if error_msg:
         job.error_msg = error_msg[:500]
     db.session.commit()
+    if not ok:
+        try:
+            from routes.print_alerts import notify_print_failed
+            notify_print_failed(job)
+        except Exception:
+            pass
 
 
 def _print_url(job):

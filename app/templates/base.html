@@ -402,6 +402,49 @@
             background: rgba(79, 140, 255, 0.1);
             border-left-color: rgba(79, 140, 255, 0.6);
         }
+        /* PRINT-ROUTING-F01-P7：打印告警铃铛（浮动在 AI 助手按钮上方） */
+        .print-alert-bell {
+            position: fixed;
+            right: 28px;
+            bottom: 96px;
+            z-index: 2199;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: #fff;
+            color: #6c757d;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+        .print-alert-bell:hover {
+            color: #c0392b;
+            transform: translateY(-2px);
+        }
+        .print-alert-bell.has-unread {
+            color: #c0392b;
+            border-color: rgba(192, 57, 43, 0.35);
+        }
+        .print-alert-bell .print-alert-badge {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 5px;
+            border-radius: 10px;
+            background: #c0392b;
+            color: #fff;
+            font-size: 12px;
+            line-height: 20px;
+            text-align: center;
+            font-weight: 600;
+        }
         .ai-assistant-button {
             position: fixed;
             right: 22px;
@@ -2521,6 +2564,7 @@
                     <div class="flyout-title">系统管理</div>
                     <a class="flyout-link" href="/system_settings"><i class="bi bi-sliders"></i> 系统设置</a>
                     <a class="flyout-link" href="/print_routing"><i class="bi bi-pc-display"></i> 打印工作台路由</a>
+                    <a class="flyout-link" href="/print_alerts"><i class="bi bi-bell"></i> 打印告警</a>
                     <a class="flyout-link" href="/print_templates"><i class="bi bi-file-earmark-spreadsheet"></i> Excel打印模板中心</a>
                     <a class="flyout-link" href="/ai/ops"><i class="bi bi-activity"></i> AI运维看板</a>
                     <a class="flyout-link" href="/ai/business_quality"><i class="bi bi-graph-up"></i> AI质量运营</a>
@@ -2700,6 +2744,7 @@
                 <ul class="submenu-list">
                     <li><a class="nav-link" href="/system_settings"><i class="bi bi-circle"></i> 系统设置</a></li>
                     <li><a class="nav-link" href="/print_routing"><i class="bi bi-circle"></i> 打印工作台路由</a></li>
+                    <li><a class="nav-link" href="/print_alerts"><i class="bi bi-circle"></i> 打印告警</a></li>
                     <li><a class="nav-link" href="/user"><i class="bi bi-circle"></i> 用户管理</a></li>
                     <li><a class="nav-link" href="/approval"><i class="bi bi-circle"></i> 审批中心</a></li>
                     <li><a class="nav-link" href="/operation_audit"><i class="bi bi-circle"></i> 操作审计</a></li>
@@ -2749,6 +2794,14 @@
     </div>
 
     {% if current_user.is_authenticated %}
+    {% if current_user.role in ['admin', 'warehouse'] %}
+    <a href="/print_alerts" class="print-alert-bell no-print {% if print_alert_unread_count %}has-unread{% endif %}" title="打印告警" aria-label="打印告警">
+        <i class="bi bi-bell"></i>
+        {% if print_alert_unread_count %}
+        <span class="print-alert-badge">{{ print_alert_unread_count if print_alert_unread_count <= 99 else '99+' }}</span>
+        {% endif %}
+    </a>
+    {% endif %}
     <button type="button" class="ai-assistant-button" id="aiAssistantButton" title="AI助手">
         <i class="bi bi-robot"></i>
     </button>
