@@ -116,6 +116,13 @@ fun HomeScreen(
                 icon = Icons.Outlined.Badge,
                 gradient = listOf(CardCyan, CardCyanDark),
                 screen = Screen.MaterialArchive
+            ),
+            FunctionCard(
+                title = "每日报表",
+                subtitle = "采购入库 · 领料单明细",
+                icon = Icons.Outlined.Assessment,
+                gradient = listOf(CardPinkLight, CardPinkDark),
+                screen = Screen.DailyReport
             )
         )
     }

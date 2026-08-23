@@ -45,6 +45,7 @@ import com.factory.wms.ui.viewmodel.archive.MaterialArchiveViewModel
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.ui.viewmodel.home.HomeViewModel
 import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
+import com.factory.wms.ui.viewmodel.report.ReportViewModel
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.ui.viewmodel.voice.VoiceCommandViewModel
 
@@ -87,6 +88,7 @@ fun AppNavGraph() {
     val voiceViewModel: VoiceCommandViewModel = viewModel()
     val homeViewModel: HomeViewModel = viewModel()
     val materialArchiveViewModel: MaterialArchiveViewModel = viewModel()
+    val reportViewModel: ReportViewModel = viewModel()
 
     // 物料档案详情：选中的物料通过共享状态传递（避免 route 参数序列化 DTO）
     var selectedMaterialArchive by remember { mutableStateOf<MaterialArchiveDto?>(null) }
@@ -238,6 +240,13 @@ fun AppNavGraph() {
                             onBack = { navController.popBackStack() }
                         )
                     }
+                }
+
+                composable(Screen.DailyReport.route) {
+                    DailyReportScreen(
+                        viewModel = reportViewModel,
+                        onBack = { navController.popBackStack() }
+                    )
                 }
 
                 composable(Screen.Profile.route) {

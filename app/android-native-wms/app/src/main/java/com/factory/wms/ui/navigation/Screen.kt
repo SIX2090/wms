@@ -13,5 +13,6 @@ sealed class Screen(val route: String, val title: String) {
     data object StocktakeRecognize : Screen("stocktake_recognize", "识物盘点")
     data object MaterialArchive : Screen("material_archive", "物料档案")
     data object MaterialArchiveDetail : Screen("material_archive_detail", "物料档案图片")
+    data object DailyReport : Screen("daily_report", "每日报表")
     data object Profile : Screen("profile", "我的")
 }

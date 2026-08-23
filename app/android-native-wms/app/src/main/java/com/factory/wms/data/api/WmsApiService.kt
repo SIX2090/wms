@@ -55,6 +55,15 @@ interface WmsApiService {
     @GET("api/warehouses")
     suspend fun getWarehouses(): Response<ApiEnvelope<WarehousesListData>>
 
+    /** 每日明细报表：type=purchase_in（采购入库）/ requisition（领料单），date 缺省为今天 */
+    @GET("api/mobile/report/daily_detail")
+    suspend fun dailyReportDetail(
+        @Query("type") type: String,
+        @Query("date") date: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 20
+    ): Response<ApiEnvelope<DailyReportData>>
+
     @GET("api/opening_stock")
     suspend fun getOpeningStock(
         @Query("warehouse_id") warehouseId: Int? = null,

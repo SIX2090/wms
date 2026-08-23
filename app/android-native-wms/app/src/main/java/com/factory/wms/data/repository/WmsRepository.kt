@@ -263,6 +263,16 @@ class WmsRepository(private val context: Context) {
         }
     }
 
+    /** 每日明细报表：type=purchase_in / requisition，date 为 yyyy-MM-dd，null 表示今天 */
+    suspend fun getDailyReport(type: String, date: String? = null): Result<DailyReportData> {
+        return try {
+            val response = api.dailyReportDetail(type, date)
+            handleResponse<DailyReportData>(response)
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
+        }
+    }
+
     suspend fun getOpeningStock(warehouseId: Int? = null, keyword: String? = null): Result<List<OpeningStockDto>> {
         return try {
             val response = api.getOpeningStock(warehouseId, keyword)
