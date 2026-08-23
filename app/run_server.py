@@ -73,6 +73,12 @@ def _shutdown_scheduler(signum=None, frame=None):
         _scheduler = None
 
 
+def _is_addr_in_use_error(exc: OSError) -> bool:
+    """判断 OSError 是否为端口占用（Linux Errno 98 / Windows WinError 10048 / macOS 48）。"""
+    return (getattr(exc, 'errno', None) in (98, 10048, 48)
+            or 'address already in use' in str(exc).lower())
+
+
 def _github_auto_update_setting_enabled() -> bool:
     """Read system setting github_auto_update_enabled; default False if unavailable."""
     try:
@@ -197,6 +203,19 @@ def main():
     try:
         app.logger.info("Starting Waitress on %s:%s with %s threads", host, port, threads)
         serve(app, host=host, port=port, threads=threads)
+    except OSError as exc:
+        if _is_addr_in_use_error(exc):
+            # 端口占用是现场最高频的启动失败原因（旧实例未退出）。
+            # 给操作员可读指引，而不是一串英文 traceback。
+            app.logger.error("端口 %s 已被占用，WMS 启动失败", port)
+            print(flush=True)
+            print(f"[启动失败] 端口 {port} 已被占用：很可能有旧的 WMS 实例还在运行。", flush=True)
+            print("处理方法：", flush=True)
+            print("  1. 先运行 stop_wms_offline.bat 停止旧实例，再重新启动；", flush=True)
+            print("  2. 或换端口启动：先执行 set WMS_PORT=18080（Linux: export WMS_PORT=18080）再启动。", flush=True)
+            sys.exit(1)
+        app.logger.exception("Server failed to start")
+        raise
     except Exception:
         app.logger.exception("Server failed to start")
         raise
