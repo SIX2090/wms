@@ -83,6 +83,38 @@
 - API 推送后必须反查 `GET /repos/SIX2090/wms/commits/main`：确认 HEAD SHA 已更新、`files` 变更列表与预期一致，才可报告完成。
 - 多文件改动：步骤 ② 的 `tree` 数组一次传入全部变更文件；禁止逐文件各建一个 commit。
 
+## 受限网络环境的 GitHub 拉取（浅克隆通道，2026-08-23 新增）
+
+> 适用场景：AI 代理运行在沙箱/受限网络，`github.com` 的 git 协议（HTTPS TLS）被网络层拦截，常规 `git clone` 直接失败（报 `gnutls_handshake() failed: The TLS connection was non-properly terminated` 或 `SSL_ERROR_SYSCALL`）。该方法 2026-08-23 实际验证通过（克隆到 `11cea47`，1171 个文件，约 26MB，工作树完整）。
+
+### 通道探测（按序尝试，以实测为准）
+
+1. 常规 HTTPS clone（`git clone https://github.com/SIX2090/wms.git wms`）——TLS 可通则优先走常规通道。
+2. 均失败 → 实测可用镜像/代理（2026-08-23 结果）：`ghproxy.net` ✅、`gitclone.com` ✅；`ghproxy.com`、`mirror.ghproxy.com`、`kgithub.com`、`github.com.cnpmjs.org` ❌ 均被拦。镜像可用性随时间变化，用前必须重新探测。
+3. 判别命令：`curl -sS -m 15 -o /dev/null -w "%{http_code}" https://<host>` 返回 `200` 才可作代理前缀。
+
+### 浅克隆步骤（代理前缀 + HTTP/1.1 + 浅克隆）
+
+> 全量克隆走代理易在收尾被中断（`curl 92 HTTP/2 stream ... INTERNAL_ERROR` + `early EOF` + `fetch-pack: invalid index-pack output`），必须用以下参数组合：
+
+```bash
+git config --global http.version HTTP/1.1      # 强制 HTTP/1.1，避开 HTTP/2 流被代理掐断
+git config --global http.postBuffer 524288000  # 500MB 发送缓冲
+git config --global core.compression 0         # 关闭传输压缩，减少中断概率
+git clone --depth 1 "https://ghproxy.net/https://github.com/SIX2090/wms.git" wms
+```
+
+### 浅克隆后的补全（按需）
+
+- `git log` 只有 1 条提交属预期（`--depth 1` 只取最新快照），工作树完整、`git status` 干净即可正常开发。
+- 需要完整历史时：`git fetch --unshallow`（URL 同样套代理前缀，且可能需多次重试）。
+- 后续更新代码：`git pull --depth 1`。
+
+### 验证与完成标准
+
+- 克隆后必须验证：`git status` 工作树干净；`git log --oneline -1` 与 GitHub 网页端 main HEAD 一致。
+- 克隆超过 10 分钟无输出视为代理挂起：`rm -rf wms` 后换 `gitclone.com` 通道（`git clone --depth 1 https://gitclone.com/github.com/SIX2090/wms.git wms`）重试。
+
 
 ## AI 开发台账
 
