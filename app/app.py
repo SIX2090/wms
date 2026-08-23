@@ -6554,11 +6554,18 @@ def initialize_database():
         return
 
     # SQLite 并发优化：WAL 允许读写并发，busy_timeout 避免短暂写锁直接失败。
+    # PERF-2026-08-23-001：WAL 默认 synchronous=FULL，每次 commit 强制 fsync；
+    # Windows + 杀软实时扫描 + 机械盘下单次 fsync 可达几十~几百毫秒，且写锁
+    # 在事务提交前不释放，导致"完成/下推"等写请求排队卡顿（实测：持锁 2 秒
+    # 期间发起的请求等待 1797ms）。改为 NORMAL（WAL 官方推荐组合）：commit
+    # 不再逐次强制刷盘，仅在 checkpoint 时同步；代价为掉电丢最后数百毫秒
+    # 事务（系统有幂等键 + 单据可重推兜底），换取慢盘写性能 5~50 倍提升。
     from sqlalchemy import event as sa_event
     @sa_event.listens_for(db.engine, 'connect')
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute('PRAGMA journal_mode=WAL')
+        cursor.execute('PRAGMA synchronous=NORMAL')
         cursor.execute('PRAGMA busy_timeout=30000')
         cursor.execute('PRAGMA foreign_keys=ON')
         cursor.close()
