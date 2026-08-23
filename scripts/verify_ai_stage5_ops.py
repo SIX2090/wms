@@ -22,6 +22,13 @@ def _set_setting(key: str, value: str) -> None:
         row = wms_app.SystemSetting(key=key)
         wms_app.db.session.add(row)
     row.value = value
+    # BUG-2026-08-23-002 请求级缓存同步：脚本在同一个 app_context 内嵌套多个
+    # test_request_context，Flask 的 g 跨请求上下文共享；若只改库不同步
+    # g._system_setting_cache，后续断言会读到陈旧值（如 admin_only 被旧 all 遮蔽）。
+    # 与产品 set_system_setting 的“写后读一致”语义保持一致。
+    cache = getattr(wms_app.g, '_system_setting_cache', None)
+    if cache is not None:
+        cache[key] = value
 
 
 def _login(client, user_id: int) -> None:
