@@ -52,6 +52,21 @@ BUILTIN_WS_DEVICE_ID = 'local-server'
 POLL_INTERVAL = 3            # 认领轮询间隔（秒）
 HEARTBEAT_INTERVAL = 60      # 心跳间隔（秒），服务端在线窗口 300 秒
 PRINT_TIMEOUT = 120          # 单任务浏览器打印超时（秒）
+SCHEMA_WAIT_INTERVAL = 60    # 数据库 schema 未就绪时的低频静默重试间隔（秒）
+
+# schema 未就绪类错误关键字（sqlite OperationalError: no such table / no such column）
+_SCHEMA_NOT_READY_KEYWORDS = ('no such table', 'no such column')
+
+
+def _is_schema_not_ready(exc) -> bool:
+    """判断异常是否属于数据库 schema 未就绪（缺表/缺列）的等待态。
+
+    数据库文件丢失、路径错配或被外部重建时，代理轮询会持续撞 sqlite
+    OperationalError；这类"等待数据库就绪"场景不该按通用异常每 3s 刷
+    完整 traceback（启动窗口刷屏正是用户误报的"启动报错"）。
+    """
+    text = str(exc).lower()
+    return any(keyword in text for keyword in _SCHEMA_NOT_READY_KEYWORDS)
 
 _DISABLE_VALUES = ('0', 'false', 'no', 'off')
 _started = False             # start_local_print_agent 幂等标记
@@ -482,9 +497,21 @@ def _agent_loop(app, base_url):
                         state['next_heartbeat'] = now + 30
                 result = _claim_and_print(base_url, browser)
                 _db.session.remove()
+            if state.pop('schema_waiting', False):
+                log.info('内置打印代理：数据库 schema 已就绪，恢复正常轮询')
             if result is not None:
                 continue  # 刚打完一张，队列可能还有，立即再认领
-        except Exception:  # noqa: BLE001 守护线程不允许退出
+        except Exception as exc:  # noqa: BLE001 守护线程不允许退出
+            if _is_schema_not_ready(exc):
+                # schema 未就绪：只打一条警告，转低频静默重试，不再每轮刷 traceback
+                if not state.get('schema_waiting'):
+                    state['schema_waiting'] = True
+                    summary = str(exc).split('\n', 1)[0][:120]
+                    log.warning('内置打印代理：数据库 schema 未就绪（%s）；转为每 %ss '
+                                '静默重试，就绪后自动恢复，不影响 WMS 主服务',
+                                summary, SCHEMA_WAIT_INTERVAL)
+                time.sleep(SCHEMA_WAIT_INTERVAL)
+                continue
             log.exception('内置打印代理本轮异常，%ss 后重试', POLL_INTERVAL)
         time.sleep(POLL_INTERVAL)
 

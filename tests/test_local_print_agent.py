@@ -435,3 +435,54 @@ def test_start_local_print_agent(monkeypatch):
     assert thread is not None and started == ['wms-local-print-agent']
     assert lpa.start_local_print_agent(app_module.app, 'http://127.0.0.1:8080') is None
     assert started == ['wms-local-print-agent']  # 幂等
+
+
+# ==================== schema 未就绪静默等待（BUG-2026-08-23-003） ====================
+
+def test__is_schema_not_ready():
+    """缺表/缺列识别为等待态（大小写不敏感）；其他异常不误判。"""
+    import sqlite3
+
+    assert lpa._is_schema_not_ready(sqlite3.OperationalError('no such table: print_workstation'))
+    assert lpa._is_schema_not_ready(sqlite3.OperationalError('no such column: print_job.route_rule_id'))
+    assert lpa._is_schema_not_ready(RuntimeError('NO SUCH TABLE: foo'))
+    assert not lpa._is_schema_not_ready(sqlite3.OperationalError('database is locked'))
+    assert not lpa._is_schema_not_ready(ValueError('boom'))
+
+
+def test__agent_loop_schema_wait_quiet(app_ctx, monkeypatch, caplog):
+    """schema 未就绪：仅首条警告 + SCHEMA_WAIT_INTERVAL 静默重试，不刷 traceback；
+    就绪后打一条恢复日志并回到正常轮询。"""
+    import sqlite3
+    import logging as _logging
+
+    calls = {'claim': 0, 'sleeps': []}
+
+    def fake_claim(base_url, browser):
+        calls['claim'] += 1
+        n = calls['claim']
+        if n <= 2:
+            raise sqlite3.OperationalError('no such table: print_workstation')
+        if n == 3:
+            return None  # 数据库就绪，正常空轮
+        raise KeyboardInterrupt  # 终止循环（BaseException 不被代理兜底捕获）
+
+    monkeypatch.setattr(lpa, 'find_kiosk_browser', lambda: None)
+    monkeypatch.setattr(lpa, '_heartbeat', lambda state: True)
+    monkeypatch.setattr(lpa, '_claim_and_print', fake_claim)
+    monkeypatch.setattr(lpa.time, 'sleep', lambda s: calls['sleeps'].append(s))
+
+    with caplog.at_level(_logging.INFO, logger='wms.local_print_agent'):
+        with pytest.raises(KeyboardInterrupt):
+            lpa._agent_loop(app_module.app, 'http://127.0.0.1:8080')
+
+    schema_warnings = [r for r in caplog.records
+                       if r.levelname == 'WARNING' and 'schema 未就绪' in r.getMessage()]
+    recoveries = [r for r in caplog.records
+                  if r.levelname == 'INFO' and '已就绪' in r.getMessage()]
+    with_traceback = [r for r in caplog.records if r.exc_info]
+    assert len(schema_warnings) == 1        # 只警告一次，不刷屏
+    assert len(recoveries) == 1             # 就绪后恢复提示
+    assert len(with_traceback) == 0         # schema 等待期间不 log.exception
+    assert calls['sleeps'].count(lpa.SCHEMA_WAIT_INTERVAL) == 2   # 两轮等待各睡 60s
+    assert calls['sleeps'].count(lpa.POLL_INTERVAL) == 1          # 正常一轮睡 3s
