@@ -112,6 +112,12 @@ def create_print_alert(alert_type, target_id, title, content):
         )
         db.session.add(notification)
         db.session.commit()
+        # 微信推送（可选，默认关）；推送异常不阻断通知落库
+        try:
+            push_print_alert_wechat(notification)
+        except Exception:
+            from flask import current_app
+            current_app.logger.exception('Print alert wechat push failed')
         return notification
     except Exception:
         db.session.rollback()
@@ -195,6 +201,132 @@ def check_print_health():
             ):
                 stats['workstation_offline'] += 1
     return stats
+
+
+# ==================== 微信推送（PRINT-ROUTING-F01-P7-A2） ====================
+
+def push_print_alert_wechat(notification):
+    """可选微信推送：Pillow 渲染告警卡片图 → 微信分享管道（直推/轮询双通道）。
+
+    - 开关 print_alert_wechat_enabled 默认关；开启后按
+      print_alert_wechat_interval_min（默认 10 分钟）全局限流防轰炸。
+    - 直推仅限回环地址（安全红线不动，见 BUG-2026-08-11-008）；云服务器拓扑
+      直推连不上本机助手时保持 pending，由助手轮询 /api/wechat_helper/tasks 取走。
+    - 返回 True=已建分享任务（含 pending），False=未推送（关开关/限流/渲染失败）。
+    """
+    from app import get_system_setting_bool, get_system_setting_int
+    if not get_system_setting_bool('print_alert_wechat_enabled', False):
+        return False
+
+    from app import WechatShareLog
+    interval_min = max(1, get_system_setting_int('print_alert_wechat_interval_min', 10))
+    recent = WechatShareLog.query.filter(
+        WechatShareLog.module_key == 'print_alert',
+        WechatShareLog.created_at >= datetime.now() - timedelta(minutes=interval_min),
+    ).first()
+    if recent:
+        return False
+
+    image_path = _render_alert_image(notification)
+    if not image_path:
+        return False
+
+    import os as _os
+    from app import _wechat_share_default_config, _wechat_share_send_image
+    config = _wechat_share_default_config()
+    status, result_code, message = _wechat_share_send_image(config, image_path)
+    # 连接级不可用（助手不在本机/未配置/地址非法）说明是云服务器拓扑，
+    # 改记 pending 交给本机助手轮询拉取；助手真实执行失败才记 failed。
+    if status == 'failed' and result_code in (
+            'helper_not_configured', 'invalid_helper_url', 'helper_offline'):
+        status = 'pending'
+        message = f'直推不可用（{result_code}），待本机微信助手轮询拉取'
+    elif status == 'failed' and result_code:
+        message = f'{message}（错误码：{result_code}）'
+    log = WechatShareLog(
+        config_id=config.id if config else None,
+        module_key='print_alert',
+        order_id=0,  # 告警无业务单据，沿用 in_order_daily 的 0 占位先例
+        order_no=(notification.title or '')[:80],
+        share_date=date.today(),
+        trigger_type='auto',
+        status=status,
+        message=(message or '')[:500],
+        image_path=image_path,
+        image_size=_os.path.getsize(image_path) if _os.path.exists(image_path) else 0,
+        receiver_name=(config.receiver_name if config else None),
+        receiver_wechat_id=(config.receiver_wechat_id if config else None),
+        sent_at=datetime.now() if status == 'sent' else None,
+    )
+    db.session.add(log)
+    db.session.commit()
+    return True
+
+
+def _render_alert_image(notification):
+    """Pillow 渲染告警卡片 PNG，落微信分享输出目录；失败返回 None。
+
+    文件名对齐分享图保留期清理规则（YYYYMMDD_HHMMSS_*.png，30 天自动清理）。
+    中文字体在 Linux 云服务器上可能缺失（豆腐块），此时降级输出 ASCII
+    关键信息（时间 / 类型码 / 目标 ID），保证图可生成、信息可读。
+    """
+    try:
+        import os
+        from PIL import Image, ImageDraw
+        from app import _share_image_font, _wechat_share_output_dir
+
+        width, height = 800, 420
+        image = Image.new('RGB', (width, height), '#fff8f6')
+        draw = ImageDraw.Draw(image)
+        draw.rectangle([0, 0, width, 84], fill='#c0392b')
+
+        title_font = _share_image_font(34, bold=True)
+        body_font = _share_image_font(24)
+        small_font = _share_image_font(20)
+
+        type_label = ALERT_TYPE_LABELS.get(notification.type, notification.type)
+        now_text = datetime.now().strftime('%Y-%m-%d %H:%M')
+        lines = [
+            (notification.title or '')[:40],
+            '',
+            (notification.content or '')[:110],
+            '',
+            f'时间：{now_text}',
+        ]
+        ascii_lines = [
+            f'WMS PRINT ALERT [{notification.type}]',
+            '',
+            f'Target: {notification.target_id}  Time: {now_text}',
+            (notification.title or '')[:60].encode('ascii', 'replace').decode('ascii'),
+        ]
+
+        draw.text((30, 22), 'WMS 打印告警', fill='#ffffff', font=title_font)
+        y = 110
+        # 字体 probe：渲染宽度为 0 说明字体不含可用字形，降级 ASCII
+        try:
+            probe = lines[0] or type_label
+            box = draw.textbbox((0, 0), probe, font=body_font)
+            use_ascii = (box[2] - box[0]) <= 0
+        except Exception:
+            use_ascii = True
+        for line in (ascii_lines if use_ascii else lines):
+            draw.text((30, y), line, fill='#333333', font=body_font)
+            y += 46
+        draw.text((30, height - 44), type_label, fill='#c0392b', font=small_font)
+
+        output_dir = _wechat_share_output_dir()
+        os.makedirs(output_dir, exist_ok=True)
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        path = os.path.join(output_dir, f'{stamp}_print_alert_{notification.id}.png')
+        image.save(path, 'PNG')
+        return path
+    except Exception:
+        try:
+            from flask import current_app
+            current_app.logger.exception('Render print alert image failed')
+        except Exception:
+            pass
+        return None
 
 
 # ==================== 路由注册 ====================

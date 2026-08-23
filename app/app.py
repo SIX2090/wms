@@ -2362,6 +2362,22 @@ SYSTEM_SETTING_GROUPS = [
                 'max': 1440,
                 'remark': '打印任务超过该时长仍无人认领（pending）时产生「任务滞留」告警，通常意味着本地打印代理不在线或路由规则未配置。同一任务当日只告警一次。',
             },
+            {
+                'key': 'print_alert_wechat_enabled',
+                'label': '打印告警微信推送',
+                'type': 'bool',
+                'default': '0',
+                'remark': '开启后打印告警会渲染成图片经微信发送助手推送（复用「微信分享」的助手配置与接收人）。WMS 与助手同机时直推；云服务器部署时由本机助手轮询拉取（助手需开启轮询模式）。需先开启「打印告警」总开关。',
+            },
+            {
+                'key': 'print_alert_wechat_interval_min',
+                'label': '微信推送限流间隔（分钟）',
+                'type': 'int',
+                'default': '10',
+                'min': 1,
+                'max': 1440,
+                'remark': '两次打印告警微信推送的最小间隔，间隔内的新告警只建系统内通知、不重复推送，防止异常时微信被刷屏。',
+            },
         ],
     },
     {
@@ -22321,6 +22337,13 @@ def _share_image_font(size, bold=False):
         r'C:\Windows\Fonts\msyhbd.ttc' if bold else r'C:\Windows\Fonts\msyh.ttc',
         r'C:\Windows\Fonts\simhei.ttf' if bold else r'C:\Windows\Fonts\simsun.ttc',
         r'C:\Windows\Fonts\arial.ttf',
+        # Linux 云服务器中文字体（PRINT-ROUTING-F01-P7）：无中文字体时 PIL
+        # load_default() 渲染中文全部豆腐块，告警/分享图信息全失
+        '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc' if bold else '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+        '/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc' if bold else '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
+        '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+        '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf' if bold else '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
     ]
     for path in candidates:
         if path and os.path.exists(path):
@@ -22616,7 +22639,8 @@ def wechat_helper_tasks():
     limit = request.args.get('limit', 5, type=int)
     limit = max(1, min(limit or 5, 20))
     logs = WechatShareLog.query.options(joinedload(WechatShareLog.config)).filter(
-        WechatShareLog.module_key == 'in_order',
+        # PRINT-ROUTING-F01-P7：print_alert 告警图片同样走轮询通道（云服务器拓扑）
+        WechatShareLog.module_key.in_(['in_order', 'print_alert']),
         WechatShareLog.status == 'pending',
         WechatShareLog.image_path.isnot(None),
     ).order_by(WechatShareLog.created_at.asc()).limit(limit).all()
