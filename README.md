@@ -1,6 +1,6 @@
 # WMS 仓库管理系统
 
-> 最近更新：2026-07-31 — 新增 7 条防 BUG 规则、CSRF 客户端自动刷新、统一 HTTP 层 `app/static/js/api.js`、清理 14 个过期文件
+> 最近更新：2026-08-23 — 打印工作站路由与无人值守自动打印（PRINT-ROUTING-F01 系列）、手机 APP 扫码→打印全链路审计（3 高危 + 5 中危 + 4 低危）、SQLite `synchronous=NORMAL` 下推卡顿性能修复（PERF-2026-08-23-001）
 > 当前重点：基于 Flask 的单人 WMS，面向低压成套电气设备企业，重点是拍照识别 + AI 物料治理 + 出入库草稿生成。
 
 ## ⚠️ Code Review SLA（开发者必读）
@@ -54,6 +54,8 @@ bash .githooks/install-hooks.sh
 - 数据导入导出：Excel 表格导入、导出和前端表格处理。
 - 单据效率：明细字段设置、复制行、合同/工程/仓库向下填充，合同编号和工程名称按明细行保存。
 - 单据下推：采购入库和其他入库可按明细及数量下推领料单、其他出库单或售后出库草稿。
+- 打印体系：打印队列与重试、打印工作站路由管理（`/print_routing`）、本地/内置打印代理无人值守出纸、打印失败/滞留/离线告警与微信推送（详见 `app/routes/print_queue.py`、`app/routes/print_routing.py`、`app/local_print_agent.py`、`tools/print_agent/`）。
+- 移动端 APP：Android 原生 APP（`app/android-native-wms/`）扫码入库/出库/盘点，提交即自动触发打印任务。
 - 客供登记：其他入库明细可勾选客供并选择客户；当前尚未做库存所有权隔离，客供行禁止直接下推普通出库。
 - AI 单据助手：上传照片或截图后识别明细、匹配已有物料、人工确认新物料编码，并生成入库或出库草稿。
 - AI 物料治理：中文归一化、名称+规格加权、别名命中、低置信度二次确认（详见 `app/ai/documents/material_governance.py`）。
@@ -251,9 +253,14 @@ WMS_BASE_URL                WMS 主服务地址
 WMS_SKIP_AUTO_UPDATE        跳过 auto_update.py，默认 0
 WMS_SKIP_DB_UPGRADE         跳过启动时自动迁移，默认 0
 WMS_PORT                    HTTP 端口，默认 8080
+WMS_THREADS                 Waitress 并发线程数，默认 16
+WMS_LOCAL_PRINT_AGENT       是否随服务启动内置本机打印代理，默认 1
+WMS_LOCAL_PRINT_BASE_URL    内置打印代理回连地址，默认 http://127.0.0.1
 ```
 
 生产环境应显式设置 `SECRET_KEY` 和相关访问令牌，不要使用弱默认值。
+
+SQLite 连接已内置 PRAGMA：`journal_mode=WAL` + `synchronous=NORMAL` + `busy_timeout=30s`（PERF-2026-08-23-001）。`NORMAL` 是 WAL 官方推荐组合：commit 不逐次强制刷盘，慢盘写性能提升 5~50 倍；代价是掉电丢最后数百毫秒事务（有幂等键 + 单据重推兜底）。仍感到写操作卡顿时，优先检查杀毒软件实时扫描白名单与磁盘（建议 SSD）。
 
 ## 项目结构
 
@@ -328,6 +335,7 @@ http://127.0.0.1:8080
 | `WMS_BUSINESS_SCOPE.md` | 当前单人 WMS 业务口径和客供料处理边界 |
 | `PRODUCTION_DEPLOYMENT_CHECKLIST.md` | 每次生产发布前重新填写的验收模板 |
 | `WMS_BUG_BASELINE.md` | 已核验 BUG、风险、误报和暂缓项基线 |
+| `wms_mobile_app_print_audit_20260823.md` | 手机 APP 扫码→入库/出库→无人值守打印全链路审计（2026-08-23，含 12 项分级问题与修复建议） |
 | `WMS_QUALITY_REPORT.md` | BUG 质量月报（类型分布、模块分布、Top 根因） |
 | `DEVELOPMENT_RULES.md` | 开发规范：加功能 checklist、修复 BUG 流程、CI/pre-commit 门禁、防 BUG 规则清单 |
 | `AGENTS.md` | AI 和开发代理必须遵守的项目规则 |
