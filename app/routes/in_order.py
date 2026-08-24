@@ -2659,7 +2659,7 @@ def register_in_order_routes(app):
         return _render_in_order_print(id)
 
     @app.route('/in_order/<int:id>/print')
-    @print_token_or_login_required  # PRINT-ROUTING-F01-P3：支持 ptoken 免登录（Windows 打印代理）
+    @print_token_or_login_required(job_type='in_order')  # PRINT-ROUTING-F01-P3 + BUG-2026-08-24-002：ptoken 绑定目标入库单
     def print_in_order(id):
         return _render_in_order_print(id)
 

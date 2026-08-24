@@ -22,7 +22,7 @@ from utils import print_token_or_login_required
 # no-test:reason=路由注册辅助函数，能力由 print_batch_labels 路由测试覆盖
 def register_label_routes(app):
     @app.route('/label/batch_print')
-    @print_token_or_login_required  # PRINT-ROUTING-F01-P3：支持 ptoken 免登录（Windows 打印代理）
+    @print_token_or_login_required(job_type='label')  # PRINT-ROUTING-F01-P3 + BUG-2026-08-24-002：ptoken 绑定目标物料集合
     def print_batch_labels():
         from datetime import datetime
         from sqlalchemy.orm import joinedload

@@ -396,27 +396,38 @@ def test_verify_print_token():
 
 
 def test_print_token_or_login_required(client):
-    """带 ptoken 免登录访问打印页；无会话无 ptoken 跳转登录。"""
+    """带 ptoken 免登录访问打印页；无会话无 ptoken 跳转登录。
+
+    BUG-2026-08-24-002 起：ptoken 必须绑定与 URL 一致的打印任务目标单据，
+    同一 ptoken 访问非绑定单据被拒绝。
+    """
     from app import OutOrder
     from utils import generate_print_token
     with app_module.app.app_context():
         db.session.add(OutOrder(order_no='OUT-PT1', warehouse='默认仓', status='pending'))
+        db.session.flush()
+        out_id = db.session.query(OutOrder).filter_by(order_no='OUT-PT1').first().id
+        job = PrintJob(job_type='out_order', target_id=out_id, status='printing', created_by=1)
+        db.session.add(job)
         db.session.commit()
-        token = generate_print_token(1, 1)
+        token = generate_print_token(job.id, job.workstation_id)
     # 无会话客户端（不登录）
     c = app_module.app.test_client()
-    resp = c.get('/out_order/1/print')
+    resp = c.get(f'/out_order/{out_id}/print')
     assert resp.status_code == 302  # 未登录 → 跳转登录
-    resp = c.get(f'/out_order/1/print?ptoken={token}')
+    resp = c.get(f'/out_order/{out_id}/print?ptoken={token}')
     assert resp.status_code == 200
     assert '领 料 单'.replace(' ', '').encode() in resp.data or '领料单'.encode() in resp.data or b'OUT-PT1' in resp.data
+    # BUG-2026-08-24-002：同一 ptoken 访问非绑定单据 → 拒绝（修复前直达视图）
+    resp = c.get(f'/out_order/{out_id + 999}/print?ptoken={token}')
+    assert resp.status_code == 302
     # autoprint=1 时模板注入自动打印脚本且抑制立即打印
-    resp = c.get(f'/out_order/1/print?ptoken={token}&autoprint=1')
+    resp = c.get(f'/out_order/{out_id}/print?ptoken={token}&autoprint=1')
     assert resp.status_code == 200
     assert b'__wmsAutoprint' in resp.data
     assert b'<script>window.print();</script>' not in resp.data
     # 已登录会话（已登录 client）不受影响，且无 autoprint 时不注入脚本
-    resp = client.get('/out_order/1/print')
+    resp = client.get(f'/out_order/{out_id}/print')
     assert resp.status_code == 200
     assert b'__wmsAutoprint' not in resp.data
     assert b'<script>window.print();</script>' in resp.data

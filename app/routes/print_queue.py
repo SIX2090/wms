@@ -591,7 +591,7 @@ def register_print_queue_routes(app):
         return render_template('print_station.html')
 
     @app.route('/material_archive/<int:material_id>/print')
-    @print_token_or_login_required  # PRINT-ROUTING-F01-P3：支持 ptoken 免登录（Windows 打印代理）
+    @print_token_or_login_required(job_type='material_archive')  # PRINT-ROUTING-F01-P3 + BUG-2026-08-24-002：ptoken 绑定目标物料档案
     def print_material_archive(material_id):
         """物料档案打印页：展示物料基础信息 + 全部档案图片。
 

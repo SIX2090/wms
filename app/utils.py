@@ -735,19 +735,51 @@ def verify_print_token(token):
         return None
 
 
-def print_token_or_login_required(f):
-    """打印页鉴权装饰器：Web 会话已登录 或 ptoken 有效 任一通过。
+def _print_token_job_matches(payload, job_type, view_kwargs, query_args):
+    """校验 ptoken 绑定的打印任务与本次请求的目标单据一致（BUG-2026-08-24-002）。
 
-    - 浏览器（工作站守护页 iframe）：走原 @login_required 会话
-    - Windows 打印代理拉起的浏览器：URL 带 ?ptoken=（短时效，服务端签发）
-    其余情况跳转登录页。
+    最小授权：ptoken 只能打开其签发时所绑定打印任务对应的那一份单据打印页，
+    防止一个泄露的 ptoken 在 10 分钟有效期内枚举任意单据打印页。
+
+    - job_type 为 None（路由未声明绑定）时保持原行为：token 有效即放行；
+    - in_order / out_order / material_archive：PrintJob.target_id 必须等于
+      路径参数 id / material_id；
+    - label：PrintJob.target_ids（逗号分隔）必须与查询参数 ids 的物料集合
+      完全一致（无序、按可解析数字比对）。
+    job 不存在、类型不符或单据不匹配一律返回 False。
     """
-    @wraps(f)
-    def decorated_function(*args, **kwargs):  # no-test:reason=装饰器内部函数，能力由 test_print_token_or_login_required 覆盖
-        if current_user.is_authenticated:
-            return f(*args, **kwargs)
-        payload = verify_print_token(request.args.get('ptoken', ''))
-        if payload:
-            return f(*args, **kwargs)
-        return current_app.login_manager.unauthorized()
-    return decorated_function
+    if job_type is None:
+        return True
+    from app import PrintJob  # 延迟导入，避免 app.py ↔ utils.py 循环导入
+    job = PrintJob.query.get(payload.get('jid'))
+    if job is None or job.job_type != job_type:
+        return False
+    if job_type == 'label':
+        job_ids = {int(x) for x in (job.target_ids or '').split(',') if x.strip().isdigit()}
+        req_ids = {int(x) for x in query_args.get('ids', '').split(',') if x.strip().isdigit()}
+        return job_ids == req_ids
+    id_param = 'material_id' if job_type == 'material_archive' else 'id'
+    return job.target_id is not None and job.target_id == view_kwargs.get(id_param)
+
+
+def print_token_or_login_required(f=None, *, job_type=None):
+    """打印页鉴权装饰器：Web 会话已登录 或 ptoken 有效且绑定单据一致 任一通过。
+
+    - 浏览器（工作站守护页 iframe）：走原 @login_required 会话（不做绑定校验）
+    - Windows 打印代理拉起的浏览器：URL 带 ?ptoken=（短时效，服务端签发），
+      且按 job_type 校验 ptoken 绑定的 PrintJob 目标单据与请求路径一致
+      （BUG-2026-08-24-002），其余情况跳转登录页。
+    """
+    def decorator(func):  # no-test:reason=装饰器工厂内部函数，能力由 test_print_token_or_login_required 覆盖
+        @wraps(func)
+        def decorated_function(*args, **kwargs):  # no-test:reason=装饰器内部函数，能力由 test_print_token_or_login_required 覆盖
+            if current_user.is_authenticated:
+                return func(*args, **kwargs)
+            payload = verify_print_token(request.args.get('ptoken', ''))
+            if payload and _print_token_job_matches(payload, job_type, kwargs, request.args):
+                return func(*args, **kwargs)
+            return current_app.login_manager.unauthorized()
+        return decorated_function
+    if f is None:
+        return decorator
+    return decorator(f)

@@ -1278,7 +1278,7 @@ def register_out_order_routes(app):
         return _render_out_order_print(id)
 
     @app.route('/out_order/<int:id>/print')
-    @print_token_or_login_required  # PRINT-ROUTING-F01-P3：支持 ptoken 免登录（Windows 打印代理）
+    @print_token_or_login_required(job_type='out_order')  # PRINT-ROUTING-F01-P3 + BUG-2026-08-24-002：ptoken 绑定目标出库单
     def print_out_order(id):
         return _render_out_order_print(id)
 
