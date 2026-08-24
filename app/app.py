@@ -6547,20 +6547,31 @@ def ensure_admin_user_exists():
     app.logger.warning("Admin user created with default password 'admin'. Please set WMS_BOOTSTRAP_PASSWORD for a secure password.")
     return user
 
-def initialize_database():
-    """Create missing tables and ensure the bootstrap admin account exists."""
-    if startup_db_upgrade_disabled():
-        app.logger.warning('Startup database initialization skipped by environment.')
-        return
+# BUG-2026-08-24-003：connect 期 PRAGMA（WAL/synchronous/busy_timeout/foreign_keys）
+# 只关乎「连接行为」，与 schema 迁移无关，此前却放在 initialize_database() 的
+# startup_db_upgrade_disabled() 早退之后——start_wms_offline.bat/start_wms_auto.bat
+# 默认 WMS_NO_DB_TOUCH=1 时 initialize_database() 提前 return，监听器从不注册，
+# 生产 ORM 连接退回 sqlite3 默认 5s busy_timeout，打印心跳等高频写与其他写事务
+# 相撞即抛 database is locked（心跳 500）。故拆成独立函数并在早退之前无条件注册。
+_SQLITE_PRAGMA_REGISTERED = False
 
-    # SQLite 并发优化：WAL 允许读写并发，busy_timeout 避免短暂写锁直接失败。
-    # PERF-2026-08-23-001：WAL 默认 synchronous=FULL，每次 commit 强制 fsync；
-    # Windows + 杀软实时扫描 + 机械盘下单次 fsync 可达几十~几百毫秒，且写锁
-    # 在事务提交前不释放，导致"完成/下推"等写请求排队卡顿（实测：持锁 2 秒
-    # 期间发起的请求等待 1797ms）。改为 NORMAL（WAL 官方推荐组合）：commit
-    # 不再逐次强制刷盘，仅在 checkpoint 时同步；代价为掉电丢最后数百毫秒
-    # 事务（系统有幂等键 + 单据可重推兜底），换取慢盘写性能 5~50 倍提升。
+
+def _register_sqlite_pragma_listener():
+    """为 ORM 引擎注册 SQLite connect 期 PRAGMA（幂等，与 schema 迁移开关解耦）。
+
+    SQLite 并发优化：WAL 允许读写并发，busy_timeout 避免短暂写锁直接失败。
+    PERF-2026-08-23-001：WAL 默认 synchronous=FULL，每次 commit 强制 fsync；
+    Windows + 杀软实时扫描 + 机械盘下单次 fsync 可达几十~几百毫秒，且写锁
+    在事务提交前不释放，导致"完成/下推"等写请求排队卡顿（实测：持锁 2 秒
+    期间发起的请求等待 1797ms）。改为 NORMAL（WAL 官方推荐组合）：commit
+    不再逐次强制刷盘，仅在 checkpoint 时同步；代价为掉电丢最后数百毫秒
+    事务（系统有幂等键 + 单据可重推兜底），换取慢盘写性能 5~50 倍提升。
+    """
+    global _SQLITE_PRAGMA_REGISTERED
+    if _SQLITE_PRAGMA_REGISTERED:
+        return
     from sqlalchemy import event as sa_event
+
     @sa_event.listens_for(db.engine, 'connect')
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
@@ -6569,6 +6580,21 @@ def initialize_database():
         cursor.execute('PRAGMA busy_timeout=30000')
         cursor.execute('PRAGMA foreign_keys=ON')
         cursor.close()
+
+    _SQLITE_PRAGMA_REGISTERED = True
+
+
+# no-test:reason=存量函数非新增；BUG-2026-08-24-003 改动行为由
+# tests/test_bug_2026_08_24_003_sqlite_pragma_gating.py 专项覆盖
+def initialize_database():
+    """Create missing tables and ensure the bootstrap admin account exists."""
+    # BUG-2026-08-24-003：PRAGMA 注册与 schema 迁移解耦，WMS_NO_DB_TOUCH=1 跳过
+    # 迁移时也必须生效（否则生产连接只有 sqlite3 默认 5s busy_timeout，心跳写库 500）。
+    _register_sqlite_pragma_listener()
+
+    if startup_db_upgrade_disabled():
+        app.logger.warning('Startup database initialization skipped by environment.')
+        return
 
     db.create_all()
     ensure_bootstrap_admin_user()
