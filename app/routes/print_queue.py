@@ -110,9 +110,16 @@ class AgentHeartbeatPrinter(BaseModel):
 
 
 class AgentHeartbeatRequest(BaseModel):
-    """打印代理心跳请求体：代理版本 + 本地打印机列表。"""
+    """打印代理心跳请求体：代理版本 + 本地打印机列表。
+
+    printers 三态语义（BUG-2026-08-24-005）：
+    - None（缺省/null）：代理未上报或本机枚举失败（Print Spooler 停止/WMI 异常），
+      服务端只保活工作站、不动打印机状态（避免把已有打印机误标 offline）；
+    - 非空列表：正常 upsert，未上报的本工作站打印机置 offline；
+    - 空列表 []：本机确实无打印机，按上报结果把已有打印机置 offline（此时是对的）。
+    """
     version: str | None = None
-    printers: list[AgentHeartbeatPrinter] = []
+    printers: list[AgentHeartbeatPrinter] | None = None
 
 
 # ==================== 常量 ====================
@@ -738,7 +745,12 @@ def register_print_queue_routes(app):
         ws = g.print_workstation
         ws.status = 'online'
         ws.last_heartbeat = datetime.now()
-        created, online = sync_workstation_printers(ws, req.printers)
+        if req.printers is None:
+            # BUG-2026-08-24-005：代理本机枚举失败/未上报 → 只保活工作站，不调用
+            # sync_workstation_printers，避免空上报把已有打印机误标 offline。
+            created, online = 0, None
+        else:
+            created, online = sync_workstation_printers(ws, req.printers)
         try:
             db.session.commit()
         except Exception:

@@ -51,43 +51,45 @@ class TestParseJson:
 
 
 class TestEnumeratePrinters:
-    def test_non_windows_returns_empty(self):
+    def test_non_windows_returns_none(self):
+        """非 Windows 无法枚举（_run_powershell_status 全 False）→ 返回 None（=枚举失败），
+        而非空列表，避免服务端把已有打印机误标 offline（BUG-2026-08-24-005）。"""
         if os.name == "nt":
-            pytest.skip("仅验证非 Windows 环境的空列表行为")
-        assert agent.enumerate_printers() == []
+            pytest.skip("仅验证非 Windows 环境的枚举失败行为")
+        assert agent.enumerate_printers() is None
 
     def test_parses_single_printer_object(self, monkeypatch):
         """ConvertTo-Json 只有一台打印机时输出单个对象而非数组，必须能解析。"""
-        monkeypatch.setattr(agent, "_run_powershell", lambda cmd: json.dumps(
+        monkeypatch.setattr(agent, "_run_powershell_status", lambda cmd: (True, json.dumps(
             {"Name": "HP LaserJet 1020", "Default": True,
-             "PrinterStatus": 3, "WorkOffline": False}))
+             "PrinterStatus": 3, "WorkOffline": False})))
         printers = agent.enumerate_printers()
         assert printers == [{"system_name": "HP LaserJet 1020",
                              "status": "ready", "is_default": True}]
 
     def test_parses_multiple_printers_array(self, monkeypatch):
-        monkeypatch.setattr(agent, "_run_powershell", lambda cmd: json.dumps([
+        monkeypatch.setattr(agent, "_run_powershell_status", lambda cmd: (True, json.dumps([
             {"Name": "HP", "Default": True, "PrinterStatus": 3, "WorkOffline": False},
             {"Name": "TSC", "Default": False, "PrinterStatus": 7, "WorkOffline": True},
-        ]))
+        ])))
         printers = agent.enumerate_printers()
         assert [p["system_name"] for p in printers] == ["HP", "TSC"]
         assert printers[1]["status"] == "error"
 
     def test_falls_back_to_wmi_on_powershell2(self, monkeypatch):
         """BUG-2026-08-19-006：Win7 默认 PowerShell 2.0 无 Get-CimInstance，
-        首选命令执行失败（返回空串）时必须回退 Get-WmiObject（PS2.0 可用）。"""
+        首选命令执行失败（ok=False）时必须回退 Get-WmiObject（PS2.0 可用）。"""
         calls = []
 
         def fake_run(command):
             calls.append(command)
             if "Get-CimInstance" in command:
-                return ""  # PS2.0：Get-CimInstance 不识别，退出码非 0 → 空串
-            return json.dumps([
+                return False, ""  # PS2.0：Get-CimInstance 不识别，退出码非 0
+            return True, json.dumps([
                 {"Name": "HP", "Default": True, "PrinterStatus": 3,
                  "WorkOffline": False}])
 
-        monkeypatch.setattr(agent, "_run_powershell", fake_run)
+        monkeypatch.setattr(agent, "_run_powershell_status", fake_run)
         printers = agent.enumerate_printers()
         assert printers == [{"system_name": "HP", "status": "ready",
                              "is_default": True}]
@@ -102,12 +104,12 @@ class TestEnumeratePrinters:
         def fake_run(command):
             calls.append(command)
             if "ConvertTo-Csv" in command:
-                return ('"Name","Default","PrinterStatus","WorkOffline"\r\n'
-                        '"HP LaserJet 1020","True","3","False"\r\n'
-                        '"TSC TTP-244","False","7","True"\r\n')
-            return ""  # 两个 Json 命令均失败
+                return True, ('"Name","Default","PrinterStatus","WorkOffline"\r\n'
+                              '"HP LaserJet 1020","True","3","False"\r\n'
+                              '"TSC TTP-244","False","7","True"\r\n')
+            return False, ""  # 两个 Json 命令均失败
 
-        monkeypatch.setattr(agent, "_run_powershell", fake_run)
+        monkeypatch.setattr(agent, "_run_powershell_status", fake_run)
         printers = agent.enumerate_printers()
         assert printers == [
             {"system_name": "HP LaserJet 1020", "status": "ready",
@@ -116,6 +118,56 @@ class TestEnumeratePrinters:
              "is_default": False},
         ]
         assert len(calls) == 3
+
+    def test_returns_empty_list_when_no_printers(self, monkeypatch):
+        """命令成功但本机确实无打印机 → []（可与失败 None 区分，此时上报空列表才对）。"""
+        monkeypatch.setattr(agent, "_run_powershell_status", lambda cmd: (True, ""))
+        assert agent.enumerate_printers() == []
+
+    def test_returns_none_when_all_commands_fail(self, monkeypatch):
+        """三条命令全部失败（Print Spooler 停止/WMI 异常）→ None，不得误当「无打印机」。"""
+        monkeypatch.setattr(agent, "_run_powershell_status", lambda cmd: (False, ""))
+        assert agent.enumerate_printers() is None
+
+
+class TestSendHeartbeat:
+    """BUG-2026-08-24-005：枚举失败时上报 printers=None（非空列表），并按状态翻转节流告警。"""
+
+    def _cfg(self):
+        return {"server_url": "http://h", "token": "t"}
+
+    def test_enum_failure_sends_null_and_throttles(self, monkeypatch, caplog):
+        import logging
+        sent = []
+        monkeypatch.setattr(agent, "enumerate_printers", lambda: None)
+        monkeypatch.setattr(agent, "api_call",
+                            lambda *a: sent.append(a[3]) or (200, {"status": "success", "data": {}}))
+        monkeypatch.setattr(agent, "_printer_enum_failed", False)
+        with caplog.at_level(logging.INFO, logger="wms_print_agent"):
+            assert agent.send_heartbeat(self._cfg()) is True
+            assert agent.send_heartbeat(self._cfg()) is True  # 连续失败第二轮
+        # 两次心跳 payload 的 printers 都是 None（不上报空列表，服务端据此保留状态）
+        assert len(sent) == 2 and all(p["printers"] is None for p in sent)
+        warns = [r for r in caplog.records
+                 if r.levelname == "WARNING" and "枚举失败" in r.getMessage()]
+        assert len(warns) == 1  # 节流：进入失败只打一条
+        assert agent._printer_enum_failed is True
+
+    def test_recovery_sends_list_and_logs(self, monkeypatch, caplog):
+        import logging
+        monkeypatch.setattr(agent, "_printer_enum_failed", True)  # 之前处于失败态
+        plist = [{"system_name": "HP", "status": "ready", "is_default": True}]
+        monkeypatch.setattr(agent, "enumerate_printers", lambda: plist)
+        sent = []
+        monkeypatch.setattr(agent, "api_call",
+                            lambda *a: sent.append(a[3]) or
+                            (200, {"status": "success", "data": {"printers_online": 1}}))
+        with caplog.at_level(logging.INFO, logger="wms_print_agent"):
+            assert agent.send_heartbeat(self._cfg()) is True
+        assert sent[0]["printers"] == plist  # 恢复后正常上报列表
+        assert agent._printer_enum_failed is False
+        recov = [r for r in caplog.records if "已恢复" in r.getMessage()]
+        assert len(recov) == 1
 
 
 class TestDefaultPrinter:

@@ -343,6 +343,43 @@ def test_agent_heartbeat_syncs_workstation_and_printers(client):
         assert devices2["HP LaserJet"].status == "offline"    # 第二次未上报 → 离线
 
 
+def test_agent_heartbeat_null_printers_preserves_devices(client):
+    """BUG-2026-08-24-005：代理枚举失败上报 printers=None（或缺省）时，服务端只保活
+    工作站、不动打印机状态（不误标 offline）；显式 printers=[] 才按「真无打印机」置 offline。"""
+    with app_module.app.app_context():
+        wh = Warehouse.query.filter_by(code="RWH0").first()
+        ws = _seed_workstation(wh, status="offline")
+        ws_id = ws.id
+        db.session.add(PrintDevice(
+            workstation_id=ws.id, system_name="KeepPrinter", display_name="保留打印机",
+            status="online", enabled=True,
+        ))
+        db.session.commit()
+
+    # printers 缺省（None）：保活工作站，打印机不被误标 offline
+    resp = client.post("/print_queue/api/v1/heartbeat", json={"version": "1.0.0"},
+                       headers=_hdr("tok-ws-1"))
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["status"] == "success"
+    assert body["data"]["printers_online"] is None  # 未同步打印机
+    with app_module.app.app_context():
+        ws = db.session.get(PrintWorkstation, ws_id)
+        assert ws.status == "online" and ws.last_heartbeat is not None
+        dev = PrintDevice.query.filter_by(
+            workstation_id=ws_id, system_name="KeepPrinter").one()
+        assert dev.status == "online"  # 关键：未被误标 offline
+
+    # 显式 printers=[]：本机确实无打印机 → 按上报置 offline（这是对的）
+    resp2 = client.post("/print_queue/api/v1/heartbeat", json={"printers": []},
+                        headers=_hdr("tok-ws-1"))
+    assert resp2.status_code == 200
+    with app_module.app.app_context():
+        dev = PrintDevice.query.filter_by(
+            workstation_id=ws_id, system_name="KeepPrinter").one()
+        assert dev.status == "offline"
+
+
 def test_agent_heartbeat_rejects_bad_payload(client):
     with app_module.app.app_context():
         wh = Warehouse.query.filter_by(code="RWH0").first()
