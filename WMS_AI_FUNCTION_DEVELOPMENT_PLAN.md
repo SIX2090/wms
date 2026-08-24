@@ -188,6 +188,8 @@
 | 95 | PRINT-TEMPLATE-F02 | 已完成 | 打印模板在线编辑（浏览器 Excel 网格编辑）：`print_fill.py` 新增 `serialize_print_template_grid`（读取 xlsx 为网格 JSON，合并单元格锚点可编辑）与 `apply_print_template_grid`（写回单元格值、保留合并/样式、占位符白名单校验、原子替换落盘）；新增 `routes/print_template_editor.py` 通用网格读写路由（GET/POST `/{in_order|out_order}_print_template/<id>/grid`，pydantic `PrintTemplateGridRequest` 输入校验，POST 仅 admin）；入库/出库模板管理页每张模板卡新增「在线编辑」按钮
 并新增「下载默认模板」入口；新增 `print_template_editor.html` 网格编辑器（分工作表标签、单元格输入、末尾插行、删除选中行、占位符速插、XSS 转义、改动 DIFF 提交）。修复 openpyxl `MergedCellRange` 无 `min_column/max_column` 属性导致合并模板解析报错的缺陷 | 后台（入库/出库模板在线编辑，保存走 admin 权限 | 验证 `pytest tests/test_print_template_grid_editor.py -q`（9 passed，含路由读写/非法占位符不落盘/不存在工作表 400/删除行/引擎 serialize-apply 合并单元格、注册函数挂载）、`pytest tests/test_print_template_upload.py tests/test_print_template_excel_only.py tests/test_print_template_sync.py -q`（26 passed）、lint_wms_rules 0 违规、lint_no_raw_post_fetch 通过、pre-commit 全过；提交 `64906a3`（feat，9 文件 967 insertions）。剩余子项（另列任务）：将在线编辑覆盖到其他单据/列表/报表打印模板，提供统一的模板管理入口 |
 
+| 97 | BUG-2026-08-24-001 | 进行中 | 依赖 CVE 修复（AUDIT-2026-08-24 P1-001）：requirements.txt 9 个含漏洞包按栈分组升级至 OSV 清零版本（Web 栈 Flask/Werkzeug/Jinja2/itsdangerous/click；加密与 HTTP 栈 cryptography/requests/urllib3/PyMySQL；图像栈 Pillow 12.3.0），并把 CI pip-audit 门禁从 advisory 收紧为阻塞 | 无 | 无 |
+
 ## 5. 任务详细定义
 
 ### AI-LOGIN-F01：登录页可用性、安全提示与响应式验收修复
