@@ -192,6 +192,10 @@
 
 | 98 | BUG-2026-08-24-002 | 已完成 | 打印 ptoken 资源绑定（AUDIT-2026-08-24 P2-001）：`print_token_or_login_required` 增加 `job_type` 绑定校验（in_order/out_order/material_archive 按 `target_id` 对路径 id、label 按 `target_ids` 对查询 ids 集合），4 条打印路由声明绑定类型，Web 会话路径不变 | 登记 `a25db3c`；修复 `367474d`（app/utils.py + 4 路由 + 新增 8 项绑定回归 + 修正 1 项旧契约用例） | 2026-08-24 完成：`make check`（lint A1-A10 0 违规 + verify_wms_bugs 86 项 + pytest 773 passed）；`run_smoke_in_ci.py` 全新库 121/121 通过 |
 
+| 99 | BUG-2026-08-24-003 | 已完成 | 打印心跳写库间歇 500「database is locked」（根因表 A）：connect 期 PRAGMA（WAL/synchronous/busy_timeout=30000/foreign_keys）注册放在 initialize_database() 的 startup_db_upgrade_disabled() 早退之后，生产 start_wms_offline.bat/start_wms_auto.bat 默认 WMS_NO_DB_TOUCH=1 时 initialize_database() 提前 return、监听器从不注册，ORM 连接退回 sqlite3 默认 5s busy_timeout，心跳等高频写与其他写事务相撞即抛锁 | 无 | 修复 `fd09ecd`（本地）→ 受限网络 Git Data API 重放远程 `366fa25`：app.py 拆 `_register_sqlite_pragma_listener()`（幂等）并在早退之前无条件调用（连接行为与 schema 迁移解耦，WMS_NO_DB_TOUCH=1 跳迁移时连接仍拿到 busy_timeout=30000） | 2026-08-24 完成：lint A1-A10 0 违规 + verify_wms_bugs 86 项（CONF-004 PASS）+ pytest 776 passed；回归 tests/test_bug_2026_08_24_003_sqlite_pragma_gating.py（2 passed：早退路径仍注册 / connect 处理器 busy_timeout=30000、foreign_keys=ON 生效且幂等）；推送反查远程 main HEAD 已更新 |
+
+| 100 | BUG-2026-08-24-004 | 已完成 | 内置打印代理在 Print Spooler 停止/WMI 异常时每 60s 刷 3 条 PowerShell stderr，且把本机打印机全部误标 offline（根因表 B）：enumerate_local_printers 枚举失败返回 [] 与「真无打印机」不可区分，sync_workstation_printers(ws, []) 把已有打印机全置 offline、打印路由瘫痪；每条失败命令都 WARNING | 无 | 修复 `d843a6e`（本地）→ 受限网络 Git Data API 重放远程 `0c21432`：新增 `_run_powershell_status` 返回 (ok, stdout) 区分「命令失败/成功但无打印机」（`_run_powershell` 对外行为不变、与独立代理同步）；enumerate_local_printers 三态 list/[]/None；_heartbeat 枚举失败(None)只保活工作站、不同步打印机（不误标 offline），按状态翻转节流告警（失败一条 WARNING、恢复一条 INFO） | 2026-08-24 完成：lint 0 违规 + verify_wms_bugs + pytest 776 passed；回归 tests/test_local_print_agent.py（18 passed：三态枚举 + 心跳误标/连续失败节流/恢复重同步）；遗留（后续单独处理）：独立代理 tools/print_agent/wms_print_agent.py 经 HTTP 心跳的同类空上报误标 offline 需服务端心跳契约配合 |
+
 ## 5. 任务详细定义
 
 ### AI-LOGIN-F01：登录页可用性、安全提示与响应式验收修复
