@@ -8,8 +8,8 @@ WTForms==3.0.1
 
 # Database
 Flask-Migrate==4.0.5
-PyMySQL==1.1.0
-cryptography==42.0.4
+PyMySQL==1.1.1
+cryptography==50.0.0
 
 # Frontend
 Jinja2==3.1.6
@@ -24,8 +24,8 @@ itsdangerous==2.2.0
 openpyxl==3.1.2
 
 # HTTP
-requests==2.31.0
-urllib3==2.0.7
+requests==2.33.0
+urllib3==2.7.0
 
 # PDF
 reportlab==4.4.10
