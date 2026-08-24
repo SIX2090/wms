@@ -75,22 +75,42 @@ _started_lock = threading.Lock()
 
 # ==================== Windows 打印机原语（与独立代理保持同步） ====================
 
-def _run_powershell(command: str) -> str:
-    """执行 PowerShell 命令并返回 stdout（非 Windows 或执行失败返回空串）。"""
+def _run_powershell_status(command: str, *, log_failure: bool = False) -> tuple[bool, str]:
+    """执行 PowerShell 命令，返回 (ok, stdout)。
+
+    ok=True：进程退出码为 0（stdout 可能为空，如本机确实一台打印机都没有）。
+    ok=False：非 Windows / 进程异常 / 退出码非 0——典型如 Print Spooler 服务停止、
+    WMI 库损坏，此时 Get-CimInstance/Get-WmiObject Win32_Printer 直接报错。
+    枚举场景必须靠 ok 区分「命令失败」与「成功但无打印机」，不能只看 stdout 空。
+    log_failure=True 时对失败打 WARNING（逐条回退探测传 False，由调用方统一告警，
+    避免每轮心跳刷 3 条 stderr）。
+    """
     if os.name != 'nt':
-        return ''
+        return False, ''
     try:
         result = subprocess.run(
             ['powershell', '-NoProfile', '-NonInteractive', '-Command', command],
             capture_output=True, text=True, timeout=30, encoding='utf-8', errors='replace')
         if result.returncode != 0:
-            log.warning('PowerShell 命令失败（exit=%s）：%s',
-                        result.returncode, (result.stderr or '').strip()[:300])
-            return ''
-        return result.stdout.strip()
+            if log_failure:
+                log.warning('PowerShell 命令失败（exit=%s）：%s',
+                            result.returncode, (result.stderr or '').strip()[:300])
+            return False, ''
+        return True, result.stdout.strip()
     except (OSError, subprocess.SubprocessError) as e:
-        log.warning('PowerShell 执行失败：%s', e)
-        return ''
+        if log_failure:
+            log.warning('PowerShell 执行失败：%s', e)
+        return False, ''
+
+
+def _run_powershell(command: str) -> str:
+    """执行 PowerShell 命令并返回 stdout（非 Windows 或执行失败返回空串）。
+
+    对外行为与独立代理 tools/print_agent/wms_print_agent.py 保持一致（失败即空串
+    并打 WARNING）；需要区分「失败」与「空结果」的调用方改用 _run_powershell_status。
+    """
+    _ok, out = _run_powershell_status(command, log_failure=True)
+    return out
 
 
 def _to_bool(v) -> bool:
@@ -140,8 +160,13 @@ def _parse_printer_output(raw: str) -> list[dict]:
     return result
 
 
-def enumerate_local_printers() -> list[dict]:
-    """枚举本机打印机 [{system_name, status, is_default}]。
+def enumerate_local_printers():
+    """枚举本机打印机。返回值三态，调用方据 None 与 [] 做不同处理。
+
+    - list[dict]：成功枚举到打印机 [{system_name, status, is_default}]；
+    - []：命令执行成功但本机确实一台打印机都没有（此时把已有打印机置 offline 是对的）；
+    - None：枚举失败——三条命令全部退出码非 0（Print Spooler 服务停止 / WMI 库损坏）。
+      与 [] 严格区分：BUG-2026-08-24-004，调用方不得据 None 将打印机置 offline。
 
     BUG-2026-08-19-006 回退链：CimInstance+Json（PS 3.0+）→ WmiObject+Json
     → WmiObject+Csv（Win7 PS 2.0 自带 ConvertTo-Csv）。
@@ -152,14 +177,18 @@ def enumerate_local_printers() -> list[dict]:
         f'Get-WmiObject {query} | ConvertTo-Json -Compress',
         f'Get-WmiObject {query} | ConvertTo-Csv -NoTypeInformation',
     ]
+    saw_success = False
     for cmd in commands:
-        raw = _run_powershell(cmd)
-        if not raw:
+        # 逐条静默探测（log_failure=False）：失败由 _heartbeat 按状态翻转统一告警，
+        # 避免 Spooler 停止时每 60s 刷 3 条 PowerShell stderr。
+        ok, raw = _run_powershell_status(cmd)
+        if not ok:
             continue
+        saw_success = True
         printers = _parse_printer_output(raw)
         if printers:
             return printers
-    return []
+    return [] if saw_success else None
 
 
 def get_default_printer() -> str:
@@ -426,9 +455,23 @@ def _heartbeat(state):
     printers = enumerate_local_printers()
     ws.status = 'online'
     ws.last_heartbeat = datetime.now()
-    created, online = sync_workstation_printers(ws, printers)
+    if printers is None:
+        # BUG-2026-08-24-004：枚举失败（Print Spooler 停止/WMI 异常）时只保活工作站，
+        # 不调用 sync_workstation_printers——否则空上报会把已有打印机全部误标 offline、
+        # 打印路由随之瘫痪。保留上次已知状态；按状态翻转节流告警（进入失败打一条
+        # WARNING、恢复打一条 INFO），不再每 60s 刷 PowerShell stderr。
+        created, online = 0, None
+        if not state.get('printer_enum_failed'):
+            state['printer_enum_failed'] = True
+            log.warning('内置打印代理：本机打印机枚举失败（可能 Print Spooler 服务未运行或 '
+                        'WMI 异常），已保留现有打印机状态、不置 offline；请在服务器 '
+                        'services.msc 启动 "Print Spooler" 服务，恢复后自动重新同步')
+    else:
+        if state.pop('printer_enum_failed', False):
+            log.info('内置打印代理：本机打印机枚举已恢复，重新同步打印机状态')
+        created, online = sync_workstation_printers(ws, printers)
     db.session.commit()
-    if created or state.get('first_heartbeat'):
+    if online is not None and (created or state.get('first_heartbeat')):
         log.info('内置打印代理心跳：本机打印机 %s 台在线（新增 %s）', online, created)
         state['first_heartbeat'] = False
     return True

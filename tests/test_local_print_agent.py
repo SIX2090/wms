@@ -75,23 +75,28 @@ def _seed_builtin_ws(online=True, with_printer=True):
 # ==================== 打印机枚举与解析 ====================
 
 def test_enumerate_local_printers(monkeypatch):
-    """三条 PowerShell 回退链：前两条失败时取第三条 CSV；全部失败返回 []。"""
+    """三条 PowerShell 回退链：前两条失败取第三条 CSV；三态区分 list/[]/None。"""
     csv_payload = 'Name,Default,PrinterStatus,WorkOffline\n"HP LaserJet",True,3,False\n'
     calls = []
 
     def fake_ps(cmd):
         calls.append(cmd)
         if 'ConvertTo-Csv' in cmd:
-            return csv_payload
-        return ''
+            return True, csv_payload
+        return False, ''  # 前两条命令失败（退出码非 0）
 
-    monkeypatch.setattr(lpa, '_run_powershell', fake_ps)
+    monkeypatch.setattr(lpa, '_run_powershell_status', fake_ps)
     printers = lpa.enumerate_local_printers()
     assert printers == [{'system_name': 'HP LaserJet', 'status': 'ready', 'is_default': True}]
     assert len(calls) == 3  # 前两条 JSON 路线失败后才走 CSV
 
-    monkeypatch.setattr(lpa, '_run_powershell', lambda cmd: '')
+    # 命令执行成功但本机确实无打印机 → []（可与失败 None 区分，此时置 offline 才对）
+    monkeypatch.setattr(lpa, '_run_powershell_status', lambda cmd: (True, ''))
     assert lpa.enumerate_local_printers() == []
+
+    # 三条命令全部失败（Print Spooler 停止 / WMI 异常）→ None，不得误当「无打印机」
+    monkeypatch.setattr(lpa, '_run_powershell_status', lambda cmd: (False, ''))
+    assert lpa.enumerate_local_printers() is None
 
 
 def test_get_default_printer(monkeypatch):
@@ -358,6 +363,43 @@ def test__heartbeat(app_ctx, monkeypatch):
     db.session.commit()
     assert lpa._heartbeat(state) is False
     assert state['disabled_noted'] is True
+
+
+def test__heartbeat_printer_enum_failure_keeps_devices(app_ctx, monkeypatch, caplog):
+    """BUG-2026-08-24-004：枚举失败（None）只保活工作站、不把已有打印机误标 offline；
+    进入失败打一条 WARNING、连续失败不刷屏、恢复打一条 INFO 并重新同步。"""
+    import logging as _logging
+    ws, printer = _seed_builtin_ws(online=False, with_printer=True)
+
+    # 枚举失败 → None：工作站保活在线，打印机保持原状态（关键：不被误标 offline）
+    monkeypatch.setattr(lpa, 'enumerate_local_printers', lambda: None)
+    state = {'first_heartbeat': True}
+    with caplog.at_level(_logging.INFO, logger='wms.local_print_agent'):
+        assert lpa._heartbeat(state) is True
+    db.session.refresh(ws)
+    db.session.refresh(printer)
+    assert ws.status == 'online' and ws.last_heartbeat is not None
+    assert printer.status == 'online'  # 未被误标 offline（证明未走 sync 空上报）
+    assert state['printer_enum_failed'] is True
+    warns = [r for r in caplog.records if r.levelname == 'WARNING' and '枚举失败' in r.getMessage()]
+    assert len(warns) == 1  # 进入失败仅一条
+
+    # 连续失败第二轮：状态未翻转，不再重复告警（节流，不每 60s 刷屏）
+    caplog.clear()
+    with caplog.at_level(_logging.INFO, logger='wms.local_print_agent'):
+        assert lpa._heartbeat(state) is True
+    warns2 = [r for r in caplog.records if r.levelname == 'WARNING' and '枚举失败' in r.getMessage()]
+    assert len(warns2) == 0
+
+    # 枚举恢复 → 重新同步打印机并打一条恢复日志
+    monkeypatch.setattr(lpa, 'enumerate_local_printers', lambda: [
+        {'system_name': 'HP LaserJet', 'status': 'ready', 'is_default': True}])
+    caplog.clear()
+    with caplog.at_level(_logging.INFO, logger='wms.local_print_agent'):
+        assert lpa._heartbeat(state) is True
+    recovers = [r for r in caplog.records if r.levelname == 'INFO' and '已恢复' in r.getMessage()]
+    assert len(recovers) == 1
+    assert 'printer_enum_failed' not in state
 
 
 def test__claim_and_print(app_ctx, monkeypatch):
