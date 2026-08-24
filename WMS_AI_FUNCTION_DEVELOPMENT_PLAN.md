@@ -190,6 +190,8 @@
 
 | 97 | BUG-2026-08-24-001 | 已完成 | 依赖 CVE 修复（AUDIT-2026-08-24 P1-001）：requirements.txt 9 个含漏洞包按栈分组升级至 OSV 清零版本（Web 栈 Flask 3.1.3/Werkzeug 3.1.6/Jinja2 3.1.6/itsdangerous 2.2.0/click 8.3.3；加密与 HTTP 栈 cryptography 50.0.0/requests 2.33.0/urllib3 2.7.0/PyMySQL 1.1.1；图像栈 Pillow 12.3.0），并把 CI pip-audit 门禁从 advisory 收紧为阻塞 | 提交 `deefde5`（登记）、`2e2b4d3`（Web 栈）、`d76dd74`（加密 HTTP 栈）、`2b5d391`（Pillow）、`53963dc`（CI 门禁收紧） | 验证：`make check`（lint 0 违规 + 86 项静态回归 + pytest 765 passed）×3 组、`run_smoke_in_ci.py` 全新库 121/121×3、OSV 逐包复核 10 个变更钉包 0 漏洞、venv 全量依赖闭包（84 包）pip-audit 0 漏洞、升级前基线 pip-audit 实测 83 漏洞/9 包 |
 
+| 98 | BUG-2026-08-24-002 | 进行中 | 打印 ptoken 资源绑定（AUDIT-2026-08-24 P2-001）：`print_token_or_login_required` 增加 `job_type` 绑定校验（in_order/out_order/material_archive 按 `target_id` 对路径 id、label 按 `target_ids` 对查询 ids 集合），4 条打印路由声明绑定类型，Web 会话路径不变 | 无 | 无 |
+
 ## 5. 任务详细定义
 
 ### AI-LOGIN-F01：登录页可用性、安全提示与响应式验收修复
