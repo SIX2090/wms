@@ -49,9 +49,11 @@ jobs:
         run: pytest tests/ -q --cov=app --cov-report=term --cov-report=xml --cov-fail-under=0
 
       # BUG-2026-08-16-018：依赖漏洞扫描（pip-audit）。
-      # continue-on-error 起步：依赖漏洞先可见、人工判真后收紧为门禁。
-      - name: "Security scan - pip-audit (BUG-2026-08-16-018)"
-        continue-on-error: true
+      # BUG-2026-08-24-001：按"先可见、人工判真后收紧"既定意图，已完成依赖升级
+      # （requirements.txt 全部钉包经 OSV 复核清零、全量依赖闭包 pip-audit 0 漏洞），
+      # 本步骤收紧为阻塞门禁：任何引入已知漏洞的依赖变更将使 CI 失败。
+      # 若未来出现无修复版本的漏洞，需显式加 --ignore-vuln <ID> 并注明理由，不得整体退回 advisory。
+      - name: "Security scan - pip-audit (BUG-2026-08-16-018 阻塞门禁)"
         run: |
           python -m pip install --upgrade pip-audit
           pip-audit -r app/requirements.txt
