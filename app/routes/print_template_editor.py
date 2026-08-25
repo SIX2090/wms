@@ -277,6 +277,32 @@ def _static_folder():
         return None
 
 
+def _preview_data(prefix, template_id):
+    """打印预览示例数据（PRINT-TEMPLATE-F05-A5，GET 无需 pydantic）。"""
+    from app import api_error
+    from print_preview import build_preview_context
+
+    model = _model_for(prefix)
+    template = db.session.get(model, template_id)
+    if template is None:
+        return api_error('模板不存在', 404)
+    if prefix in ('in_order', 'out_order'):
+        target_type, target_code = prefix, ''
+    else:
+        target_type = getattr(template, 'target_type', '') or ''
+        target_code = getattr(template, 'target_code', '') or ''
+    try:
+        context = build_preview_context(target_type, target_code)
+    except Exception as e:  # noqa: BLE001 预览数据失败不给 500 详情
+        return api_error(f'预览数据生成失败：{e}', 400)
+    return jsonify({
+        'status': 'success',
+        'context': context,
+        'target_type': target_type,
+        'target_code': target_code,
+    })
+
+
 def _grid_write(prefix, template_id):
     import os
     import tempfile
@@ -343,6 +369,7 @@ def _install(app, prefix):
     page_ep = f'{prefix}_print_template_editor_page'
     read_ep = f'{prefix}_print_template_grid_read'
     write_ep = f'{prefix}_print_template_grid_write'
+    preview_ep = f'{prefix}_print_template_preview_data'
 
     @app.route(f'/{prefix}_print_template/<int:template_id>/edit', endpoint=page_ep)
     @login_required
@@ -360,3 +387,9 @@ def _install(app, prefix):
     @require_role('admin')
     def _write_grid(template_id, _prefix=prefix):
         return _grid_write(_prefix, template_id)
+
+    @app.route(f'/{prefix}_print_template/<int:template_id>/preview_data',
+               endpoint=preview_ep)
+    @login_required
+    def _preview(template_id, _prefix=prefix):
+        return _preview_data(_prefix, template_id)
