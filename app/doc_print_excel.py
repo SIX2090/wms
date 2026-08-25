@@ -11,6 +11,8 @@
 架构：
 - DOC_EXCEL_PRINT_TYPES：单据注册表（表头字段 + 明细列 + 加载器）
 - TABLE_EXCEL_PRINT_TYPES：列表/报表注册表（平铺行，{item.*} 逐行填充）
+- LABEL_EXCEL_PRINT_TYPES：标签注册表（PRINT-TEMPLATE-F04，每物料一行 +
+  {img_barcode:item.*} 条码图片列，打印出口 /label/batch_print_excel）
 - generate_builtin_template()：按注册表生成规范的内置 .xlsx 模板
   （标题合并居中 + 表头字段区 + 明细占位符行 + 签名行；明细行下方不做
   合并单元格，避免 openpyxl insert_rows 不移动合并区导致版式错位）
@@ -156,6 +158,20 @@ DOC_EXCEL_PRINT_TYPES = {
     },
 }
 
+# 标签注册表（PRINT-TEMPLATE-F04）：物料标签 Excel 模板，每物料一行，
+# 条码列用 {img_barcode:item.<路径>} 图片占位符（填充时嵌入 600DPI 条码 PNG）。
+# columns: [(列名, 行属性, 列宽)]；barcode_column: (列名, 行属性, 列宽)
+LABEL_EXCEL_PRINT_TYPES = {
+    'material_label': {
+        'label': '物料标签',
+        'columns': [('物料编码', 'code', 14), ('物料名称', 'name', 22),
+                    ('规格型号', 'spec', 16), ('单位', 'unit_name', 8),
+                    ('分类', 'category_name', 12), ('供应商', 'supplier_name', 18),
+                    ('单价', 'price', 10), ('当前库存', 'stock', 10)],
+        'barcode_column': ('条码', 'barcode', 20),
+    },
+}
+
 # 列表/报表注册表：行数据为平铺命名空间，{item.<列key>} 逐行填充。
 # sheets: [{name, columns:[(列名, 行属性, 列宽)]}]（报表可多工作表）
 TABLE_EXCEL_PRINT_TYPES = {
@@ -280,6 +296,38 @@ def _write_sheet_layout(ws, title, header, columns, totals):
     return ws
 
 
+def _write_label_sheet_layout(ws, spec):
+    """绘制内置标签模板版式：标题 + 字段表头 + 明细占位符行（含条码图片列）。"""
+    barcode_col = spec.get('barcode_column')
+    columns = list(spec['columns']) + ([barcode_col] if barcode_col else [])
+    ncols = len(columns)
+    for idx, (_, _, width) in enumerate(columns, start=1):
+        ws.column_dimensions[get_column_letter(idx)].width = width
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
+    ws.cell(1, 1, spec['label']).font = _TITLE_FONT
+    ws.cell(1, 1).alignment = _CENTER
+    ws.row_dimensions[1].height = 30
+
+    for c, (name, _, _) in enumerate(columns, start=1):
+        cell = ws.cell(2, c, name)
+        cell.font = _HEADER_FONT
+        cell.alignment = _CENTER
+        cell.border = _BORDER
+
+    for c, (_, path, _) in enumerate(columns, start=1):
+        if barcode_col and path == barcode_col[1]:
+            value = '{img_barcode:item.%s}' % path
+        else:
+            value = '{item.%s}' % path
+        cell = ws.cell(3, c, value)
+        cell.font = _BODY_FONT
+        cell.alignment = _CENTER
+        cell.border = _BORDER
+    ws.row_dimensions[3].height = 48  # 为条码图片预留行高
+    return ws
+
+
 def generate_builtin_template(target_code):
     """按注册表生成内置默认 .xlsx 模板字节流；未注册的 target_code 返回 None。"""
     if target_code in DOC_EXCEL_PRINT_TYPES:
@@ -289,6 +337,12 @@ def generate_builtin_template(target_code):
         ws.title = spec['label']
         _write_sheet_layout(ws, spec['label'], spec['header'], spec['columns'],
                             spec.get('totals') or ())
+    elif target_code in LABEL_EXCEL_PRINT_TYPES:
+        spec = LABEL_EXCEL_PRINT_TYPES[target_code]
+        wb = Workbook()
+        ws = wb.active
+        ws.title = spec['label']
+        _write_label_sheet_layout(ws, spec)
     elif target_code in TABLE_EXCEL_PRINT_TYPES:
         spec = TABLE_EXCEL_PRINT_TYPES[target_code]
         wb = Workbook()
@@ -378,6 +432,8 @@ def ensure_builtin_excel_doc_templates(db_path=None, static_folder=None):
                     for code, spec in DOC_EXCEL_PRINT_TYPES.items()]
         registry += [(code, spec['target_type'], spec['label'])
                      for code, spec in TABLE_EXCEL_PRINT_TYPES.items()]
+        registry += [(code, 'label', spec['label'])
+                     for code, spec in LABEL_EXCEL_PRINT_TYPES.items()]
 
         conn = sqlite3.connect(db_path, timeout=60)
         conn.row_factory = sqlite3.Row
@@ -551,6 +607,45 @@ def render_table_excel_print(target_code, sheet_rows, template_id=None,
     filler_rows = sheet_rows or {}
     for ws in wb.worksheets:
         _Filler(order, filler_rows.get(ws.title, []),
+                date_str or datetime.now().strftime('%Y-%m-%d')).fill(ws)
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    filename = f"{spec['label']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return output, filename
+
+
+def render_label_excel_print(target_code, rows, template_id=None,
+                             static_folder=None, date_str=None):
+    """按注册表填充标签 Excel 模板（每物料一行，含条码图片）。
+
+    rows: dict 或 SimpleNamespace 行（字段与 LABEL 注册表 columns 对齐：
+    code/name/spec/unit_name/category_name/supplier_name/stock/price/barcode）。
+    返回 (BytesIO, 文件名)；未注册返回 None。
+    """
+    spec = LABEL_EXCEL_PRINT_TYPES.get(target_code)
+    if spec is None:
+        return None
+    from datetime import datetime
+    from openpyxl import load_workbook
+    from print_fill import _Filler  # 复用引擎内核（同包私有工具）
+    path = _template_path_or_builtin(
+        resolve_excel_template('label', target_code, template_id),
+        static_folder, target_code)
+    if not path:
+        return None
+    normalized = []
+    for row in rows or []:
+        if isinstance(row, dict):
+            normalized.append(SimpleNamespace(**row))
+        else:
+            normalized.append(row)
+    order = SimpleNamespace(
+        title=spec['label'], operator=SimpleNamespace(username=''),
+        total_amount=0)
+    wb = load_workbook(path)
+    for ws in wb.worksheets:
+        _Filler(order, normalized,
                 date_str or datetime.now().strftime('%Y-%m-%d')).fill(ws)
     output = io.BytesIO()
     wb.save(output)

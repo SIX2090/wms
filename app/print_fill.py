@@ -13,6 +13,10 @@
   {item.material.brand}、{item.material.unit.name}、{item.quantity}、
   {item.price}、{item.amount}、{item.contract_no}、{item.project_name}、
   {item.remark}
+- 图片级（PRINT-TEMPLATE-F04，标签/单据条码）：
+  {img_barcode:item.barcode}、{img_qrcode:item.code}、{img_barcode:order.order_no}
+  ——单元格内容恰好是图片占位符时，填充为 600DPI 条码/二维码 PNG 图片；
+  数据为空或图片生成失败时回退为数据文本，绝不输出占位符原文
 
 模板内第一处含 `{item.` 的行视为"明细模板行"，其下方到首个含订单级占位符
 （如 {total_*} / {order.} / {print_date}）之前的行为"示例数据行"。填充时按实际
@@ -36,6 +40,12 @@ _ORDER_LEVEL_HINTS = ('{total_', '{order.', '{print_date}', '{today}')
 # 合法占位符：order.* / item.* 为通配（按属性路径解析），其余为显式白名单
 _EXPLICIT_TOKENS = ('total_quantity', 'total_amount', 'print_date', 'today')
 
+# 图片占位符（PRINT-TEMPLATE-F04）：{img_barcode:item.barcode} /
+# {img_qrcode:item.code} / {img_barcode:order.order_no}，填充时嵌入 PNG 图片
+_IMG_PLACEHOLDER_RE = re.compile(
+    r'^img_(barcode|qrcode):(item|order)\.[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$')
+_IMG_ITEM_HINTS = ('{img_barcode:item.', '{img_qrcode:item.')
+
 # 上传时防超大/解压炸弹/畸形文件的安全阈值
 _MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024  # 50MB 解压后上限
 _MAX_TEMPLATE_ROWS = 2000
@@ -43,7 +53,77 @@ _MAX_TEMPLATE_COLS = 100
 
 
 def _is_supported_placeholder(token):
-    return token.startswith('order.') or token.startswith('item.') or token in _EXPLICIT_TOKENS
+    if token.startswith('order.') or token.startswith('item.') \
+            or token in _EXPLICIT_TOKENS:
+        return True
+    return bool(_IMG_PLACEHOLDER_RE.match(token))
+
+
+def _has_item_placeholder(text):
+    """文本是否含明细级占位符（含图片型），用于定位明细模板行。"""
+    if not isinstance(text, str):
+        return False
+    if '{item.' in text:
+        return True
+    return any(hint in text for hint in _IMG_ITEM_HINTS)
+
+
+def _match_image_cell(text):
+    """单元格内容恰好是一个图片占位符时返回 (kind, scope, attr_path)，否则 None。"""
+    if not isinstance(text, str):
+        return None
+    full = _PLACEHOLDER_RE.fullmatch(text.strip())
+    if not full:
+        return None
+    match = _IMG_PLACEHOLDER_RE.match(full.group(1))
+    if not match:
+        return None
+    path = full.group(1).split(':', 1)[1].split('.', 1)[1]
+    return match.group(1), match.group(2), path
+
+
+def _render_placeholder_image(kind, data):
+    """把图片占位符的数据渲染为 PIL Image；数据为空/生成失败返回 None。"""
+    text = str(data or '').strip()
+    if not text:
+        return None
+    try:
+        buf = io.BytesIO()
+        if kind == 'barcode':
+            import barcode
+            from barcode.writer import ImageWriter
+            code128 = barcode.get_barcode_class('code128')
+            code128(text, writer=ImageWriter()).write(buf, {
+                'module_width': 0.33, 'module_height': 15.0, 'font_size': 10,
+                'text_distance': 5, 'quiet_zone': 2, 'dpi': 600})
+        else:
+            import qrcode
+            qrcode.make(text).save(buf, format='PNG')
+        buf.seek(0)
+        from PIL import Image as PILImage
+        return PILImage.open(buf)
+    except Exception:  # noqa: BLE001 图片生成失败一律回退文本
+        return None
+
+
+def _embed_placeholder_image(ws, row, col, kind, data, fallback_text):
+    """在指定单元格嵌入条码/二维码图片；失败时回退写入数据文本。"""
+    cell = ws.cell(row, col)
+    image = _render_placeholder_image(kind, data)
+    if image is None:
+        cell.value = fallback_text
+        return
+    from openpyxl.drawing.image import Image as XLImage
+    from openpyxl.utils import get_column_letter
+    xl_image = XLImage(image)
+    if kind == 'barcode':
+        xl_image.width, xl_image.height = 180, 48
+    else:
+        xl_image.width = xl_image.height = 72
+    cell.value = None
+    ws.add_image(xl_image, f'{get_column_letter(col)}{row}')
+    if ws.row_dimensions[row].height is None:
+        ws.row_dimensions[row].height = 40 if kind == 'barcode' else 58
 
 
 def validate_template_file(raw: bytes) -> str:
@@ -147,9 +227,11 @@ class _Filler:
 
     # ---------- 解析 ----------
     def order_value(self, token):
-        """解析订单级占位符；明细占位符返回 _KEEP 哨兵。"""
+        """解析订单级占位符；明细/图片占位符返回 _KEEP 哨兵。"""
         if token.startswith('item.'):
             return _KEEP
+        if _IMG_PLACEHOLDER_RE.match(token):
+            return _KEEP  # 图片占位符由 _embed 阶段单独处理
         if token == 'total_quantity':
             return _fmt(sum(_num(i.quantity) for i in self.items))
         if token == 'total_amount':
@@ -163,6 +245,8 @@ class _Filler:
     def item_value(self, token, item):
         if token.startswith('item.'):
             return _fmt(_resolve_path(item, token.split('.')[1:]))
+        if _IMG_PLACEHOLDER_RE.match(token):
+            return _KEEP  # 图片占位符由 _embed 阶段单独处理
         return self.order_value(token)
 
     @staticmethod
@@ -200,8 +284,7 @@ class _Filler:
         col_cells = {}
         for r in range(1, max_row + 1):
             has_item = any(
-                isinstance(ws.cell(r, c).value, str)
-                and '{item.' in ws.cell(r, c).value
+                _has_item_placeholder(ws.cell(r, c).value)
                 for c in range(1, max_col + 1)
             )
             if has_item:
@@ -215,11 +298,12 @@ class _Filler:
                     cell = ws.cell(r, c)
                     if isinstance(cell.value, str):
                         cell.value = self._replace_cell(cell.value, self.order_value)
+            self._embed_order_images(ws)
             return
 
         for c in range(1, max_col + 1):
             v = ws.cell(template_row, c).value
-            if isinstance(v, str) and '{item.' in v:
+            if _has_item_placeholder(v):
                 col_cells[c] = v
 
         # 边界须在订单级填充（step 2）之前基于原始模板计算：
@@ -243,6 +327,7 @@ class _Filler:
         if item_count == 0:
             for c, orig in col_cells.items():
                 ws.cell(template_row, c).value = self._replace_cell(orig, lambda t: '')
+            self._embed_order_images(ws)
             return
 
         capacity = sample_count + 1
@@ -254,6 +339,19 @@ class _Filler:
             ws.insert_rows(template_row + sample_count + 1, item_count - capacity)
 
         self._write_items(ws, template_row, col_cells, item_count)
+        self._embed_order_images(ws)
+
+    def _embed_order_images(self, ws):
+        """嵌入工作表中残留的订单级图片占位符（行扩展完成后调用）。"""
+        for row in ws.iter_rows():
+            for cell in row:
+                parsed = _match_image_cell(cell.value)
+                if not parsed or parsed[1] != 'order':
+                    continue
+                kind, _, path = parsed
+                data = _resolve_path(self.order, path.split('.'))
+                _embed_placeholder_image(
+                    ws, cell.row, cell.column, kind, data, _fmt(data))
 
     def _find_boundary(self, ws, template_row, max_row, max_col):
         """返回明细块结束边界的第一个订单级占位符行号（不含）；找不到返回 None。"""
@@ -279,9 +377,17 @@ class _Filler:
                 ws.row_dimensions[row_idx].height = template_height
             for c, orig in col_cells.items():
                 cell = ws.cell(row_idx, c)
-                cell.value = self._replace_cell(
-                    orig, lambda t, item=item: self.item_value(t, item)
-                )
+                parsed = _match_image_cell(orig)
+                if parsed and parsed[1] == 'item':
+                    # 明细级图片占位符：按本行明细数据嵌入条码/二维码
+                    kind, _, path = parsed
+                    data = _resolve_path(item, path.split('.'))
+                    _embed_placeholder_image(
+                        ws, row_idx, c, kind, data, _fmt(data))
+                else:
+                    cell.value = self._replace_cell(
+                        orig, lambda t, item=item: self.item_value(t, item)
+                    )
                 source = ws.cell(template_row, c)
                 cell._style = copy(source._style)
 

@@ -37,7 +37,8 @@ from print_fill import validate_template_file  # noqa: E402
 # -------------------- T1：内置模板生成合法性 --------------------
 
 ALL_TARGET_CODES = sorted(
-    list(dpe.DOC_EXCEL_PRINT_TYPES) + list(dpe.TABLE_EXCEL_PRINT_TYPES))
+    list(dpe.DOC_EXCEL_PRINT_TYPES) + list(dpe.TABLE_EXCEL_PRINT_TYPES)
+    + list(dpe.LABEL_EXCEL_PRINT_TYPES))
 
 
 @pytest.mark.parametrize("target_code", ALL_TARGET_CODES)
