@@ -26,7 +26,9 @@ data class OutboundRequest(
     val warehouse: String? = null,
     @SerializedName("warehouse_code") val warehouseCode: String? = null,
     val receiver: String? = null,
-    val department: String? = null
+    val department: String? = null,
+    /** 合同编号（选填）：命中合同档案由后端回填 contract_id/工程名称 */
+    @SerializedName("contract_no") val contractNo: String? = null
 )
 
 data class StocktakeLine(

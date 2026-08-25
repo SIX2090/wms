@@ -283,6 +283,18 @@ class WmsRepository(private val context: Context) {
         }
     }
 
+    /** 合同编号模糊搜索（出库选填合同字段快速匹配）。 */
+    suspend fun searchContracts(keyword: String): Result<List<ContractDto>> {
+        return try {
+            ensureSession()
+            val response = api.searchContracts(keyword)
+            val data = handleResponse<ContractsListData>(response).getOrNull()
+            Result.success(data?.items ?: emptyList())
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
+        }
+    }
+
     /** 每日明细报表：type=purchase_in / requisition，date 为 yyyy-MM-dd，null 表示今天 */
     suspend fun getDailyReport(type: String, date: String? = null): Result<DailyReportData> {
         return try {

@@ -282,12 +282,22 @@ fun OutboundScreen(
         onPrintOrder = { viewModel.printSubmittedOrder() },
         onDismissPrint = { viewModel.clearSubmittedPrint() },
         header = {
-            WarehouseSelectorCard(
-                warehouse = uiState.selectedWarehouse,
-                accentColor = CardGreen,
-                onClick = { showWarehouseDialog = true },
-                label = "出库仓库"
-            )
+            Column {
+                WarehouseSelectorCard(
+                    warehouse = uiState.selectedWarehouse,
+                    accentColor = CardGreen,
+                    onClick = { showWarehouseDialog = true },
+                    label = "出库仓库"
+                )
+                ContractInputCard(
+                    contractNo = uiState.contractNo,
+                    suggestions = uiState.contractSuggestions,
+                    loading = uiState.contractSuggestionsLoading,
+                    onContractNoChange = { viewModel.onContractNoChange(it) },
+                    onSelect = { viewModel.selectContract(it) },
+                    accentColor = CardGreen
+                )
+            }
         }
     )
 
@@ -857,6 +867,84 @@ fun StocktakeScreen(
                 }
             }
         )
+    }
+}
+
+/** 出库页合同编号输入卡片（选填）：输入片段实时模糊匹配合同档案，
+ * 如输入 0709 可匹配 HD260709；点击建议项回填完整合同编号。 */
+@Composable
+private fun ContractInputCard(
+    contractNo: String,
+    suggestions: List<com.factory.wms.data.model.ContractDto>,
+    loading: Boolean,
+    onContractNoChange: (String) -> Unit,
+    onSelect: (com.factory.wms.data.model.ContractDto) -> Unit,
+    accentColor: Color
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBackground),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            OutlinedTextField(
+                value = contractNo,
+                onValueChange = onContractNoChange,
+                label = { Text("合同编号（选填）") },
+                placeholder = { Text("输入片段快速匹配，如 0709") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                leadingIcon = {
+                    Icon(
+                        Icons.Outlined.Description,
+                        null,
+                        tint = accentColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = accentColor,
+                            strokeWidth = 2.dp
+                        )
+                    }
+                }
+            )
+            if (suggestions.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                suggestions.forEach { contract ->
+                    TextButton(
+                        onClick = { onSelect(contract) },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                contract.contractNo.orEmpty(),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                color = OnSurface
+                            )
+                            if (!contract.projectName.isNullOrBlank()) {
+                                Text(
+                                    contract.projectName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OnSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

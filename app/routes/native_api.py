@@ -361,6 +361,18 @@ def register_native_api_routes(app):
         if warehouse_error:
             return api_json_error(warehouse_error, 400)
         order_warehouse = warehouse.name
+        # 合同编号（选填）：命中合同档案则回填 contract_id/project_name，
+        # 未命中仍保留用户输入文本（与 Web 端单据头口径一致）。
+        from app import Contract
+        contract_no_input = (payload.get('contract_no') or '').strip()
+        contract = None
+        if contract_no_input:
+            contract = Contract.query.filter(
+                db.func.lower(Contract.contract_no) == contract_no_input.lower()
+            ).first()
+        order_contract_id = contract.id if contract else None
+        order_contract_no = (contract.contract_no if contract else contract_no_input) or None
+        order_project_name = (contract.project_name if contract else None) or None
         if location_management_enabled() and location_required_on_save():
             for _material, _quantity, line in parsed:
                 location = (line.get('location_code') or line.get('location') or '').strip()
@@ -384,6 +396,9 @@ def register_native_api_routes(app):
                 remark='Android原生端提交',
                 status='completed',
                 operator_id=user.id,
+                contract_id=order_contract_id,
+                contract_no=order_contract_no,
+                project_name=order_project_name,
                 total_amount=0,
             )
             db.session.add(order)
@@ -400,6 +415,11 @@ def register_native_api_routes(app):
                     price=price,
                     amount=amount,
                     remark=(line.get('remark') or '').strip() or None,
+                    # 明细级冗余合同字段（与存量单据「表头→明细」口径一致，
+                    # 报表/导出读取 item.contract_no 时无需回退表头）
+                    contract_id=order_contract_id,
+                    contract_no=order_contract_no,
+                    project_name=order_project_name,
                 ))
                 ok, msg = deduct_stock(material, quantity, 'out', 'out_order', order.id, f'Android出库 {order.order_no}', warehouse=order.warehouse)
                 if not ok:
@@ -827,6 +847,33 @@ def register_native_api_routes(app):
             return api_json_error('出库单不存在', 404)
 
         return api_json_success(_out_order_detail_payload(order))
+
+    @app.route('/api/mobile/contracts')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_contracts_search():
+        """移动端合同编号模糊搜索（出库单等选填合同字段的快速匹配）。
+
+        keyword 片段大小写不敏感包含匹配 contract_no / project_name：
+        如输入 0709 可匹配 HD260709。仅返回启用状态合同，最多 20 条。
+        """
+        from app import Contract, api_json_success
+        keyword = (request.args.get('keyword') or request.args.get('q') or '').strip()
+        query = Contract.query.filter(Contract.status == 'active')
+        if keyword:
+            like = f'%{keyword}%'
+            query = query.filter(db.or_(
+                Contract.contract_no.ilike(like),
+                Contract.project_name.ilike(like),
+            ))
+        contracts = query.order_by(Contract.contract_no).limit(20).all()
+        return api_json_success({
+            'items': [{
+                'id': c.id,
+                'contract_no': c.contract_no or '',
+                'project_name': c.project_name or '',
+            } for c in contracts]
+        })
 
     @app.route('/api/mobile/report/daily_detail')
     @csrf.exempt

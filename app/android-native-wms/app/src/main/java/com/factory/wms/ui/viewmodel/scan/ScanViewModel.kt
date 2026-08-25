@@ -28,6 +28,10 @@ data class ScanUiState(
     val warehouses: List<WarehouseDto> = emptyList(),
     val warehousesLoading: Boolean = false,
     val selectedWarehouse: WarehouseDto? = null,
+    // 合同编号（出库选填）：输入片段快速匹配完整合同编号（如 0709 → HD260709）
+    val contractNo: String = "",
+    val contractSuggestions: List<ContractDto> = emptyList(),
+    val contractSuggestionsLoading: Boolean = false,
     // 提交成功后待打印的单据信息（"打印单据"按钮）
     val submittedPrint: SubmittedPrintInfo? = null,
     val printLoading: Boolean = false
@@ -50,6 +54,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
     private var materialSearchSequence = 0
     private var materialSearchJob: Job? = null
+    private var contractSearchSequence = 0
+    private var contractSearchJob: Job? = null
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
@@ -191,6 +197,65 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(selectedWarehouse = warehouse)
     }
 
+    // ── 合同编号（出库选填）快速匹配 ──
+
+    /** 输入变化时调用：防抖 180ms 后模糊搜索合同（片段如 0709 可匹配 HD260709）。 */
+    fun onContractNoChange(text: String) {
+        _uiState.value = _uiState.value.copy(contractNo = text)
+        val keyword = text.trim()
+        val searchSequence = ++contractSearchSequence
+        contractSearchJob?.cancel()
+        if (keyword.isBlank()) {
+            _uiState.value = _uiState.value.copy(
+                contractSuggestions = emptyList(),
+                contractSuggestionsLoading = false
+            )
+            return
+        }
+        contractSearchJob = viewModelScope.launch {
+            delay(180)
+            _uiState.value = _uiState.value.copy(contractSuggestionsLoading = true)
+            repository.searchContracts(keyword).fold(
+                onSuccess = { contracts ->
+                    if (searchSequence == contractSearchSequence) {
+                        _uiState.value = _uiState.value.copy(
+                            contractSuggestions = contracts,
+                            contractSuggestionsLoading = false
+                        )
+                    }
+                },
+                onFailure = {
+                    if (searchSequence == contractSearchSequence) {
+                        _uiState.value = _uiState.value.copy(
+                            contractSuggestions = emptyList(),
+                            contractSuggestionsLoading = false
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    /** 选中建议项：回填完整合同编号并收起建议列表。 */
+    fun selectContract(contract: ContractDto) {
+        contractSearchSequence += 1
+        contractSearchJob?.cancel()
+        _uiState.value = _uiState.value.copy(
+            contractNo = contract.contractNo.orEmpty(),
+            contractSuggestions = emptyList(),
+            contractSuggestionsLoading = false
+        )
+    }
+
+    fun clearContractSuggestions() {
+        contractSearchSequence += 1
+        contractSearchJob?.cancel()
+        _uiState.value = _uiState.value.copy(
+            contractSuggestions = emptyList(),
+            contractSuggestionsLoading = false
+        )
+    }
+
     fun searchMaterialByCode(code: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
@@ -278,7 +343,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 receiver = receiver,
                 department = department,
                 warehouse = warehouse.code,
-                warehouseCode = warehouse.code
+                warehouseCode = warehouse.code,
+                contractNo = state.contractNo.trim().ifBlank { null }
             )
             val result = repository.submitOutbound(request)
             result.fold(
@@ -288,6 +354,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         success = "出库成功！单号: ${submitResult.order_no}",
                         scanLines = emptyList(),
                         totalQuantity = 0.0,
+                        contractNo = "",
+                        contractSuggestions = emptyList(),
                         submittedPrint = submitResult.id?.let {
                             SubmittedPrintInfo(
                                 jobType = "out_order",

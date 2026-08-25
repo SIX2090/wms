@@ -55,6 +55,12 @@ interface WmsApiService {
     @GET("api/warehouses")
     suspend fun getWarehouses(): Response<ApiEnvelope<WarehousesListData>>
 
+    /** 合同编号模糊搜索（选填合同字段快速匹配：如 0709 匹配 HD260709） */
+    @GET("api/mobile/contracts")
+    suspend fun searchContracts(
+        @Query("keyword") keyword: String? = null
+    ): Response<ApiEnvelope<ContractsListData>>
+
     /** 每日明细报表：type=purchase_in（采购入库）/ requisition（领料单），date 缺省为今天 */
     @GET("api/mobile/report/daily_detail")
     suspend fun dailyReportDetail(
