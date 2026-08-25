@@ -186,7 +186,9 @@
 | 93 | BUG-2026-08-19-012 | 已完成 | 打印代理部署包 run.bat/start.bat 裸调 python/pythonw，Python 未加入 PATH 的电脑（Win7 手动装 3.8 没勾 Add to PATH）双击即报"不是内部或外部命令"。修复：bat 自动定位 Python（PATH 排除 WindowsApps 假 python → LocalAppData/ProgramFiles/C:\Python3* 常见目录 → py 启动器兜底），找不到给中文指引；start.bat 优先 pythonw 后台运行取不到回退 python；GBK 编码+CRLF | 无 | 提交 `93ef3f7`；验证 `pytest tests/test_print_routing_admin.py -q`（12 passed，含 test_download_agent_bats_autolocate_python）、全量 `pytest tests/ -q` 632 passed、lint_wms_rules 0 违规；已登记 WMS_BUG_BASELINE |
 | 94 | PRINT-TEMPLATE-F01 | 已完成 | 打印模板全部改为 Excel 模板（禁用 HTML）：新增 `app/print_fill.py` 占位符填充引擎（`{order.*}` / `{item.*}` / `{total_*}` / `{print_date}`，明细模板行扩展并保留样式）；`create_print_template` 一律按 Excel 保存并强校验 `excel_file`（缺失 400 拒绝，杜绝 HTML 模板）；打印页新增模板下拉（/in_order|out_order_print_templates.json）+ 按 `?template_id=` 选择模板下载 xlsx（/in_order|out_order/<id>/print_excel，无模板回退内置版式）；模板管理页新增/下载/设默认/删除，type 过滤仅 Excel | 无 | 提交 `16572af`（后端填充引擎+模板管理）、`bff9a8f`（前端）；验证 `pytest tests/test_print_template_upload.py tests/test_print_template_excel_only.py tests/test_print_template_sync.py -q`（14 passed）、lint_wms_rules 0 违规、pre-commit 全过；后续加固：`9b81154`(上传校验 .xlsx 真实性/大小/占位符白名单，ref 26 passed)、`6235c3a`(前端仅收 .xlsx) |
 | 95 | PRINT-TEMPLATE-F02 | 已完成 | 打印模板在线编辑（浏览器 Excel 网格编辑）：`print_fill.py` 新增 `serialize_print_template_grid`（读取 xlsx 为网格 JSON，合并单元格锚点可编辑）与 `apply_print_template_grid`（写回单元格值、保留合并/样式、占位符白名单校验、原子替换落盘）；新增 `routes/print_template_editor.py` 通用网格读写路由（GET/POST `/{in_order|out_order}_print_template/<id>/grid`，pydantic `PrintTemplateGridRequest` 输入校验，POST 仅 admin）；入库/出库模板管理页每张模板卡新增「在线编辑」按钮
-并新增「下载默认模板」入口；新增 `print_template_editor.html` 网格编辑器（分工作表标签、单元格输入、末尾插行、删除选中行、占位符速插、XSS 转义、改动 DIFF 提交）。修复 openpyxl `MergedCellRange` 无 `min_column/max_column` 属性导致合并模板解析报错的缺陷 | 后台（入库/出库模板在线编辑，保存走 admin 权限 | 验证 `pytest tests/test_print_template_grid_editor.py -q`（9 passed，含路由读写/非法占位符不落盘/不存在工作表 400/删除行/引擎 serialize-apply 合并单元格、注册函数挂载）、`pytest tests/test_print_template_upload.py tests/test_print_template_excel_only.py tests/test_print_template_sync.py -q`（26 passed）、lint_wms_rules 0 违规、lint_no_raw_post_fetch 通过、pre-commit 全过；提交 `64906a3`（feat，9 文件 967 insertions）。剩余子项（另列任务）：将在线编辑覆盖到其他单据/列表/报表打印模板，提供统一的模板管理入口 |
+并新增「下载默认模板」入口；新增 `print_template_editor.html` 网格编辑器（分工作表标签、单元格输入、末尾插行、删除选中行、占位符速插、XSS 转义、改动 DIFF 提交）。修复 openpyxl `MergedCellRange` 无 `min_column/max_column` 属性导致合并模板解析报错的缺陷 | 后台（入库/出库模板在线编辑，保存走 admin 权限 | 验证 `pytest tests/test_print_template_grid_editor.py -q`（9 passed，含路由读写/非法占位符不落盘/不存在工作表 400/删除行/引擎 serialize-apply 合并单元格、注册函数挂载）、`pytest tests/test_print_template_upload.py tests/test_print_template_excel_only.py tests/test_print_template_sync.py -q`（26 passed）、lint_wms_rules 0 违规、lint_no_raw_post_fetch 通过、pre-commit 全过；提交 `64906a3`（feat，9 文件 967 insertions）。剩余子项（另列任务）：将在线编辑覆盖到其他单据/列表/报表打印模板，提供统一的模板管理入口（已由 PRINT-TEMPLATE-F04 接续） |
+
+| 96 | PRINT-TEMPLATE-F03 | 已完成 | 全模块内置 Excel 打印模板注册表与打印路由（补登：2026-08-25 提交当时未登记台账）：`app/doc_print_excel.py` 新增 DOC_EXCEL_PRINT_TYPES（盘点/调拨/领料申请/采购订单/销售订单/库存调整/委外加工/委外发料/委外收货/售后出库 10 种单据的表头字段+明细列+合计注册表）与 TABLE_EXCEL_PRINT_TYPES（库存查询列表/库存报表/出入库统计报表），`generate_builtin_template()` 生成规范内置 .xlsx（标题合并居中+表头字段区+明细占位符行+签名行），`ensure_builtin_excel_doc_templates()` 启动幂等同步进 excel_print_template 表（独立 raw sqlite 连接，WMS_NO_DB_TOUCH=1 也能同步）；`routes/doc_print_excel.py` 注册 10 条 `/{prefix}/<id>/print_excel` 模板打印路由 + `/doc_print_templates/<target_code>.json` 打印页选择器；模板中心 `/global_print_template/<id>/edit` 可在线编辑全部内置模板；模板缺失/解析失败回退内置模板文件，行为不回退 | 无 | 提交 `2dc1eda1`（A1 注册表+启动幂等同步）、`6b830d94`（A2 十种单据打印路由）；验证 `pytest tests/test_builtin_print_template_excel.py tests/test_doc_print_excel_builtin.py tests/test_doc_print_excel_routes.py -q`、lint_wms_rules 0 违规；剩余子项（由 PRINT-TEMPLATE-F04 接续）：标签 Excel 模板、列表/报表模板打印出口、统一模板设计中心 |
 
 | 97 | BUG-2026-08-24-001 | 已完成 | 依赖 CVE 修复（AUDIT-2026-08-24 P1-001）：requirements.txt 9 个含漏洞包按栈分组升级至 OSV 清零版本（Web 栈 Flask 3.1.3/Werkzeug 3.1.6/Jinja2 3.1.6/itsdangerous 2.2.0/click 8.3.3；加密与 HTTP 栈 cryptography 50.0.0/requests 2.33.0/urllib3 2.7.0/PyMySQL 1.1.1；图像栈 Pillow 12.3.0），并把 CI pip-audit 门禁从 advisory 收紧为阻塞 | 提交 `deefde5`（登记）、`2e2b4d3`（Web 栈）、`d76dd74`（加密 HTTP 栈）、`2b5d391`（Pillow）、`53963dc`（CI 门禁收紧） | 验证：`make check`（lint 0 违规 + 86 项静态回归 + pytest 765 passed）×3 组、`run_smoke_in_ci.py` 全新库 121/121×3、OSV 逐包复核 10 个变更钉包 0 漏洞、venv 全量依赖闭包（84 包）pip-audit 0 漏洞、升级前基线 pip-audit 实测 83 漏洞/9 包 |
 
@@ -197,6 +199,8 @@
 | 100 | BUG-2026-08-24-004 | 已完成 | 内置打印代理在 Print Spooler 停止/WMI 异常时每 60s 刷 3 条 PowerShell stderr，且把本机打印机全部误标 offline（根因表 B）：enumerate_local_printers 枚举失败返回 [] 与「真无打印机」不可区分，sync_workstation_printers(ws, []) 把已有打印机全置 offline、打印路由瘫痪；每条失败命令都 WARNING | 无 | 修复 `d843a6e`（本地）→ 受限网络 Git Data API 重放远程 `0c21432`：新增 `_run_powershell_status` 返回 (ok, stdout) 区分「命令失败/成功但无打印机」（`_run_powershell` 对外行为不变、与独立代理同步）；enumerate_local_printers 三态 list/[]/None；_heartbeat 枚举失败(None)只保活工作站、不同步打印机（不误标 offline），按状态翻转节流告警（失败一条 WARNING、恢复一条 INFO） | 2026-08-24 完成：lint 0 违规 + verify_wms_bugs + pytest 776 passed；回归 tests/test_local_print_agent.py（18 passed：三态枚举 + 心跳误标/连续失败节流/恢复重同步）；遗留（后续单独处理）：独立代理 tools/print_agent/wms_print_agent.py 经 HTTP 心跳的同类空上报误标 offline 需服务端心跳契约配合（已由 BUG-2026-08-24-005 闭环） |
 
 | 101 | BUG-2026-08-24-005 | 已完成 | 独立代理 HTTP 心跳空上报误标打印机 offline（云端部署 + 本地打印机形态的真实风险）：仓库本地电脑跑独立代理 wms_print_agent.py 时，本机枚举失败（Print Spooler 停止/WMI 异常）经 /print_queue/api/v1/heartbeat 上报空 printers 列表，服务端 sync_workstation_printers(ws, []) 把已有打印机全部误标 offline、打印路由瘫痪 | 无 | 修复 `4eecbd5`（本地）→ 受限网络 Git Data API 重放远程 `054ca49`：服务端 `AgentHeartbeatRequest.printers` 改 Optional（None=未上报/枚举失败只保活工作站、跳过同步，[]=真无打印机置 offline）；独立代理 `enumerate_printers` 三态 list/[]/None + 新增 `_run_powershell_status` 区分「命令失败/成功但无打印机」（`_run_powershell` 对外行为不变、与内置代理同步），`send_heartbeat` 枚举失败改上报 `printers=None` 并本地告警节流，`--list-printers` 枚举失败给排查指引返回非 0 | 2026-08-24 完成：lint A1-A10 0 违规 + verify_wms_bugs + pytest 781 passed；回归 tests/test_print_agent_api.py（null 保活/空列表置 offline）+ tests/test_print_agent_script.py（三态枚举 + 心跳 null/节流/恢复）；部署提示：云端无打印机时设 `WMS_LOCAL_PRINT_AGENT=0` 关内置代理，仓库本地电脑跑独立代理并在该机启动 Print Spooler |
+
+| 102 | PRINT-TEMPLATE-F04 | 开发中 | 统一打印模板设计中心（需求 2026-08-25：所有打印模板支持 Excel 在线编辑，参考简道云打印模板，单据/报表/列表/标签都在一个中心设计）：①引擎支持 `{img_barcode:item.*}`/`{img_qrcode:item.*}` 图片占位符（填充时嵌入条码/二维码 PNG）；②标签 Excel 模板（material_label 内置模板+启动同步+`/label/batch_print_excel` 打印出口+批量标签页模板下拉）；③报表统一模板打印出口（`/report/<type>/print_excel`，target_code=`report_<type>`，按报表 columns 动态生成内置模板）；④模板中心升级（标签分类、在线新建免上传、target_code 分类联动、入库/出库/标签设计器统一入口）；⑤库存查询列表接入模板打印 | 无 | 进行中，原子动作 A1-A7 分别提交推送 |
 
 ## 5. 任务详细定义
 
@@ -705,6 +709,26 @@
 - `python3 scripts/audit/scan_all_menus.py` 不匹配项 ≤ 1（即只有"AI质量运营"放行项）。
 - 关键菜单 GET 后实际 title 与菜单业务词一致：采购入库→含"采购入库"，产品入库→含"产品入库"，其他入库单→含"其他入库"，入库明细→含"入库明细"，系统设置→"系统设置"，新增采购订单→含"采购订单"。
 - 修复后端到端跑一次：分别点击这 6 个菜单，浏览器 title 与预期一致。
+
+### PRINT-TEMPLATE-F04：统一打印模板设计中心（单据/报表/列表/标签全部支持 Excel 在线编辑）
+
+**目标**：参考简道云 Excel 打印模板的做法，所有打印模板（单据、报表、列表、标签）统一在「Excel 打印模板中心」在线设计；打印出口全部支持按所选（或默认）模板生成 .xlsx；无模板时回退内置/原有版式，行为不回退。
+
+**范围**：
+
+- 引擎：`print_fill.py` 新增 `{img_barcode:item.<路径>}` / `{img_qrcode:item.<路径>}` 图片占位符（填充时嵌入 600DPI 条码/二维码 PNG，上传与在线编辑白名单同步放行）。
+- 标签：`doc_print_excel.py` 新增 LABEL_EXCEL_PRINT_TYPES（material_label 内置物料标签模板）+ 启动幂等同步；`/label/batch_print_excel?ids=&template_id=` 打印出口（ptoken 绑定 label 物料集合）；批量标签打印页加模板下拉与「下载Excel标签」。
+- 报表：`/report/<report_type>/print_excel` 通用模板打印出口（复用 `_build_report_filters` + 仓库必填校验 + `_build_report_payload`，target_code=`report_<report_type>`，按报表 columns 动态生成内置模板）；报表页加「按模板打印Excel」入口。
+- 列表：`/report/stock/print` 支持 `?template_id=` 走 stock_query 模板填充（无 template_id 保持原硬编码导出兼容）；库存查询页打印按钮加模板下拉。
+- 模板中心：分类加「标签打印」；「在线新建」免上传（复制内置/动态模板生成新模板并直达在线编辑器）；target_code 按分类联动 datalist；入库单/出库单模板管理与旧标签网格设计器入口统一到中心。
+
+**边界**：不改动 LabelTemplate 旧网格设计器的行为与数据；不改变任何单据/报表数据口径；模板编辑/新建/设默认/删除仍仅 admin；打印下载沿用现有登录/打印 token 权限。
+
+**验收**：
+
+- 每个原子动作对应 pytest 通过 + `scripts/lint_wms_rules.py` 0 违规 + `scripts/lint_no_raw_post_fetch.py` 通过 + pre-commit 全过。
+- 标签 Excel 含条码图片可打开且占位符全部填充；报表模板打印遵守仓库必填（无仓库 400）。
+- 台账登记完成日期、提交哈希、变更模块、验证命令。
 
 ## 6. 执行顺序
 
