@@ -64,6 +64,12 @@ fun DailyReportScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // BUG-2026-08-24-006：进入报表页时才加载（ViewModel 在 App 启动时即被创建，
+    // 不能依赖 init 加载）；再次进入也会按当前日期/类型刷新，保证数据不过期。
+    LaunchedEffect(Unit) {
+        viewModel.load()
+    }
+
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)

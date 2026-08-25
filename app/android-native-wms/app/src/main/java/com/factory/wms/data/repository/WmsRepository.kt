@@ -65,6 +65,26 @@ class WmsRepository(private val context: Context) {
         return context.dataStore.data.map { it[KEY_BASE_URL] }.first()
     }
 
+    /**
+     * 会话兜底恢复（BUG-2026-08-24-006）：App 冷启动时 AuthViewModel 异步还原
+     * baseUrl/token 依赖 DataStore + EncryptedSharedPreferences 首轮读取（数百毫秒），
+     * 而 AppNavGraph 组合阶段即创建各 ViewModel 并发起请求，存在竞态——请求若先于
+     * 会话还原完成，RetrofitClient.apiService 会抛「服务器地址未配置」。
+     * 在发起网络请求前调用：若内存 baseUrl 为空，则从持久化存储同步还原 baseUrl
+     * 与 token（token 必须先于请求注入，否则首个请求 401 会误触发强制登出）。
+     * 已登录/已还原时调用为零开销 no-op，可安全重复调用。
+     */
+    suspend fun ensureSession() {
+        if (RetrofitClient.getBaseUrl().isNotBlank()) return
+        val savedBaseUrl = getSavedBaseUrl()
+        if (savedBaseUrl.isNullOrBlank()) return
+        val savedToken = getSavedToken()
+        if (!savedToken.isNullOrBlank()) {
+            RetrofitClient.setToken(savedToken)
+        }
+        RetrofitClient.setBaseUrl(savedBaseUrl)
+    }
+
     suspend fun saveLoginInfo(token: String, baseUrl: String, username: String, role: String) {
         // Token stored in EncryptedSharedPreferences
         encryptedPrefs.edit().putString(KEY_TOKEN, token).apply()
@@ -266,6 +286,7 @@ class WmsRepository(private val context: Context) {
     /** 每日明细报表：type=purchase_in / requisition，date 为 yyyy-MM-dd，null 表示今天 */
     suspend fun getDailyReport(type: String, date: String? = null): Result<DailyReportData> {
         return try {
+            ensureSession()
             val response = api.dailyReportDetail(type, date)
             handleResponse<DailyReportData>(response)
         } catch (e: Exception) {
@@ -321,6 +342,7 @@ class WmsRepository(private val context: Context) {
 
     suspend fun getDashboard(): Result<DashboardDto> {
         return try {
+            ensureSession()
             val response = api.getDashboard()
             handleResponse<DashboardDto>(response)
         } catch (e: Exception) {

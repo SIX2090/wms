@@ -37,8 +37,11 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
     private val apiDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     init {
+        // BUG-2026-08-24-006：不在 init 自动加载。reportViewModel 在 AppNavGraph
+        // 组合阶段（App 启动时）即被创建，此时可能尚未登录或会话尚未还原，
+        // 提前加载只会留下过期错误态，等用户首次进入报表页时弹出误导性报错。
+        // 加载统一由 DailyReportScreen 进入时触发（LaunchedEffect）。
         _uiState.value = _uiState.value.copy(date = apiDateFormat.format(Date()))
-        load()
     }
 
     fun load() {
