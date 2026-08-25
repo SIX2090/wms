@@ -42,5 +42,7 @@ data class DailyReportItem(
     /** 领料单时返回领用部门名称 */
     @SerializedName("department") val department: String? = null,
     @SerializedName("operator") val operator: String,
+    /** 合同编号（明细级优先，服务端回退单据头；手机端报表展示该字段） */
+    @SerializedName("contract_no") val contractNo: String = "",
     @SerializedName("remark") val remark: String
 )

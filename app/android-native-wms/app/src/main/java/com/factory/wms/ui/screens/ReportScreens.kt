@@ -189,7 +189,6 @@ fun DailyReportScreen(
                         SummaryCell("单据", "${report.summary.orderCount}")
                         SummaryCell("明细", "${report.summary.itemCount}")
                         SummaryCell("总数量", formatReportQty(report.summary.quantity))
-                        SummaryCell("总金额", "¥%.2f".format(Locale.US, report.summary.amount))
                     }
                 }
                 Spacer(modifier = Modifier.height(10.dp))
@@ -284,42 +283,32 @@ private fun DailyReportItemRow(item: DailyReportItem, isPurchase: Boolean) {
                     }
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        "${formatReportQty(item.quantity)} ${item.unit}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = Primary
-                    )
-                    Text(
-                        "¥%.2f".format(Locale.US, item.amount),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                // 手机端报表不显示金额（用户需求：隐藏单价/金额、操作人、单据编号）
+                Text(
+                    "${formatReportQty(item.quantity)} ${item.unit}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = Primary
+                )
+            }
+            // 底部行：合同编号 + 往来单位（供应商/部门），不显示单据编号与操作人
+            val partyLabel = if (isPurchase) "供应商" else "部门"
+            val partyValue = (if (isPurchase) item.supplier else item.department) ?: ""
+            val bottomText = buildString {
+                if (item.contractNo.isNotBlank()) append("合同 ${item.contractNo}")
+                if (partyValue.isNotBlank()) {
+                    if (isNotEmpty()) append(" · ")
+                    append("$partyLabel $partyValue")
                 }
             }
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                val partyLabel = if (isPurchase) "供应商" else "部门"
-                val partyValue = (if (isPurchase) item.supplier else item.department) ?: ""
+            if (bottomText.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    item.orderNo,
+                    bottomText,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    buildString {
-                        if (partyValue.isNotBlank()) append("$partyLabel $partyValue")
-                        if (item.operator.isNotBlank()) {
-                            if (isNotEmpty()) append(" · ")
-                            append(item.operator)
-                        }
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

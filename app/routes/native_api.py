@@ -938,6 +938,8 @@ def register_native_api_routes(app):
                 'amount': round_to_2_decimals(item.amount or 0),
                 cfg['party_key']: party.name if party else '',
                 'operator': order.operator.username if order.operator else '',
+                # 手机端报表展示合同编号（明细级优先，回退单据头）
+                'contract_no': (item.contract_no or order.contract_no or ''),
                 'remark': item.remark or '',
             })
 

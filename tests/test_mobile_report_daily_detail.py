@@ -201,3 +201,54 @@ class TestDailyDetailReport:
         assert len(data["items"]) == 1
         # 汇总仍基于全集
         assert data["summary"]["quantity"] == 15
+
+
+class TestDailyDetailContractNo:
+    """手机端报表展示合同编号：明细行返回 contract_no（明细级优先，回退单据头）。"""
+
+    def _seed_contract_rows(self):
+        from app import Contract, InOrder, InOrderItem, Material, OutOrder, OutOrderItem
+        with app_module.app.app_context():
+            contract = Contract(contract_no="HD260709", project_name="城东配电工程", status="active")
+            db.session.add(contract)
+            db.session.flush()
+            material = Material.query.filter_by(code="MAT001").one()
+            # 入库单：仅单据头有合同编号
+            in_order = InOrder(order_no="IN-CT-01", date=TODAY, business_type="采购入库",
+                               warehouse="材料仓", status="completed", operator_id=1,
+                               contract_id=contract.id, contract_no="HD260709",
+                               project_name="城东配电工程", total_amount=0)
+            db.session.add(in_order)
+            db.session.flush()
+            db.session.add(InOrderItem(in_order_id=in_order.id, material_id=material.id,
+                                       quantity=1, price=1.5, amount=1.5))
+            # 出库单（领料单）：明细级合同编号覆盖单据头
+            out_order = OutOrder(order_no="OUT-CT-01", date=TODAY, business_type="领料单",
+                                 warehouse="材料仓", status="completed", operator_id=1,
+                                 contract_no="HD260700", total_amount=0)
+            db.session.add(out_order)
+            db.session.flush()
+            db.session.add(OutOrderItem(out_order_id=out_order.id, material_id=material.id,
+                                        quantity=2, price=1.5, amount=3.0,
+                                        contract_no="HD260709"))
+            db.session.commit()
+
+    def test_purchase_in_row_has_contract_no_from_header(self, client):
+        self._seed_contract_rows()
+        resp, body = _get(client, type="purchase_in")
+        assert resp.status_code == 200
+        row = next(r for r in body["data"]["items"] if r["order_no"] == "IN-CT-01")
+        assert row["contract_no"] == "HD260709"
+
+    def test_requisition_row_item_contract_overrides_header(self, client):
+        self._seed_contract_rows()
+        resp, body = _get(client, type="requisition")
+        assert resp.status_code == 200
+        row = next(r for r in body["data"]["items"] if r["order_no"] == "OUT-CT-01")
+        assert row["contract_no"] == "HD260709"
+
+    def test_row_without_contract_returns_empty_string(self, client):
+        resp, body = _get(client, type="purchase_in")
+        assert resp.status_code == 200
+        row = next(r for r in body["data"]["items"] if r["order_no"] == "IN-TODAY-01")
+        assert row["contract_no"] == ""
