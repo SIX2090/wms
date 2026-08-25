@@ -1749,6 +1749,13 @@ ensure_print_job_columns()
 # 独立于迁移开关无条件执行，幂等建表（已有表不动）。
 ensure_excel_print_template_table()
 
+# PRINT-TEMPLATE-F03：所有单据/列表/报表打印模块支持在线 Excel 模板编辑。
+# excel_print_template 表刚由上一行无条件建好，紧接着用 raw sqlite 幂等
+# 同步各模块内置默认模板（缺行补行、内置副本丢失补文件）；ORM 版同步会
+# 被 WMS_NO_DB_TOUCH=1 跳过，故此处无条件执行。失败仅记日志不阻断启动。
+from doc_print_excel import ensure_builtin_excel_doc_templates  # noqa: E402
+ensure_builtin_excel_doc_templates()
+
 # SERVER-AUTOPRINT-01：内置本机打印代理的配套兜底——无条件确保内置工作站
 # （LOCAL-SERVER）与 print 系列表存在。独立于迁移开关、幂等（已存在不动，
 # 含 auth_token 不重新生成），start_wms_*.bat（WMS_NO_DB_TOUCH=1）同样生效。
@@ -6602,6 +6609,10 @@ def initialize_database():
     ensure_default_warehouses()
     ensure_default_system_settings()
     ensure_default_print_templates()
+    # PRINT-TEMPLATE-F03：全新部署时模块级无条件同步早于 create_all 执行，
+    # 彼时 excel_print_template 表还不存在会被跳过；此处表已建好，再跑一次
+    # raw sqlite 幂等同步（函数自身容忍表/库缺失，重复执行无变化）。
+    ensure_builtin_excel_doc_templates()
     ensure_material_category_tree_defaults()
     _wechat_share_default_config()
     # 修复已有物料的空分类/单位
