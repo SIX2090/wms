@@ -70,7 +70,7 @@
                                 <input type="checkbox" class="itemCheck check-item" value="{{ bom.id }}">
                             </td>
                             <td class="text-center text-muted">{{ loop.index }}</td>
-                            <td><a href="{{ url_for('bom_detail', id=bom.id) }}"><code class="text-primary">{{ bom.bom_no }}</code></a></td>
+                            <td><a href="{{ url_for('bom_detail', id=bom.id) }}" target="_blank" rel="noopener"><code class="text-primary">{{ bom.bom_no }}</code></a></td>
                             <td>{{ bom.product_code }}</td>
                             <td class="fw-medium">{{ bom.product_name }}</td>
                             <td class="text-center">{{ bom.version }}</td>
@@ -93,7 +93,7 @@
                                 <button class="btn btn-outline-success btn-sm py-0 px-2 btn-calculate-cost" data-id="{{ bom.id }}" title="计算成本">
                                     <i class="bi bi-calculator"></i>
                                 </button>
-                                <a class="btn btn-outline-primary btn-sm py-0 px-2" href="{{ url_for('bom_detail', id=bom.id) }}" title="编辑">
+                                <a class="btn btn-outline-primary btn-sm py-0 px-2" href="{{ url_for('bom_detail', id=bom.id) }}" title="编辑" target="_blank" rel="noopener">
                                     <i class="bi bi-pencil"></i>
                                 </a>
                                 <button class="btn btn-outline-danger btn-sm py-0 px-2 btn-delete" data-id="{{ bom.id }}" title="删除">

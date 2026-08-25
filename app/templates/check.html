@@ -91,7 +91,7 @@
                 {% for check in checks %}
                 <tr data-id="{{ check.id }}">
                     <td><input type="checkbox" class="itemCheck check-item" value="{{ check.id }}"></td>
-                    <td><a href="{{ url_for('check_detail', id=check.id) }}">{{ check.check_no }}</a></td>
+                    <td><a href="{{ url_for('check_detail', id=check.id) }}" target="_blank" rel="noopener">{{ check.check_no }}</a></td>
                     <td>{{ check.date }}</td>
                     <td>{{ check.remark or '' }}</td>
                     <td>{{ check.operator.username if check.operator else '-' }}</td>
@@ -105,7 +105,7 @@
                         {% endif %}
                     </td>
                     <td>
-                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('check_detail', id=check.id) }}" title="{{ '编辑' if check.status == 'pending' else '查看' }}">
+                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('check_detail', id=check.id) }}" title="{{ '编辑' if check.status == 'pending' else '查看' }}" target="_blank" rel="noopener">
                             <i class="bi bi-pencil"></i>
                         </a>
                         <a class="btn btn-sm btn-outline-info" href="{{ url_for('print_single_check', id=check.id) }}" target="_blank" title="打印">

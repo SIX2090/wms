@@ -87,7 +87,7 @@
                 <tr>
                     <td>{{ loop.index }}</td>
                     <td>{{ r.out_date.strftime('%Y-%m-%d') if r.out_date else '-' }}</td>
-                    <td><a href="{{ url_for('out_order_detail', id=r.out_order_id) }}">{{ r.out_order_no }}</a></td>
+                    <td><a href="{{ url_for('out_order_detail', id=r.out_order_id) }}" target="_blank" rel="noopener">{{ r.out_order_no }}</a></td>
                     <td>{{ r.customer or '-' }}</td>
                     <td>{{ r.warehouse or '-' }}</td>
                     <td>{{ r.material_code or '-' }}</td>

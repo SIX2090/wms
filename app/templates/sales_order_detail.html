@@ -217,7 +217,7 @@
         <tbody>
         {% for outbound in related_sales_out_orders %}
           <tr>
-            <td><a href="{{ url_for('out_order_detail', id=outbound.id) }}">{{ outbound.order_no }}</a></td>
+            <td><a href="{{ url_for('out_order_detail', id=outbound.id) }}" target="_blank" rel="noopener">{{ outbound.order_no }}</a></td>
             <td>{{ outbound.date or '-' }}</td>
             <td>{{ outbound.warehouse or '-' }}</td>
             <td><span class="badge {% if outbound.status == 'completed' %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ '已完成' if outbound.status == 'completed' else '待处理' }}</span></td>
@@ -245,7 +245,7 @@
         <tbody>
         {% for after_sale in related_after_sale_orders %}
           <tr>
-            <td><a href="{{ url_for('after_sale_out_detail', id=after_sale.id) }}">{{ after_sale.order_no }}</a></td>
+            <td><a href="{{ url_for('after_sale_out_detail', id=after_sale.id) }}" target="_blank" rel="noopener">{{ after_sale.order_no }}</a></td>
             <td>{{ after_sale.date or '-' }}</td>
             <td>{{ after_sale.customer or '-' }}</td>
             <td>{{ after_sale.reason or '-' }}</td>

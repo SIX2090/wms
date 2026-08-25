@@ -78,7 +78,7 @@
                     <td>{{ job.user.username if job.user else '-' }}</td>
                     {% endif %}
                     <td>
-                        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('ai_document_job_detail', id=job.id) }}">详情</a>
+                        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('ai_document_job_detail', id=job.id) }}" target="_blank" rel="noopener">详情</a>
                     </td>
                 </tr>
                 {% endfor %}

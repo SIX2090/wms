@@ -77,20 +77,20 @@
                     <tr>
                         <td><input type="checkbox" class="sales-outbound-check check-item" value="{{ order.id }}" {% if order.status != 'pending' %}disabled{% endif %}></td>
                         <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
-                        <td><a href="{{ url_for('out_order_detail', id=order.id) }}">{{ order.order_no }}</a></td>
+                        <td><a href="{{ url_for('out_order_detail', id=order.id) }}" target="_blank" rel="noopener">{{ order.order_no }}</a></td>
                         <td>{{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</td>
                         <td>{{ order.customer or '-' }}</td>
                         <td>{{ order.warehouse or '-' }}</td>
                         <td>
                             {% if order.source_sales_order %}
-                            <a href="{{ url_for('sales_order_detail', id=order.source_sales_order.id) }}">{{ order.source_sales_order.order_no }}</a>
+                            <a href="{{ url_for('sales_order_detail', id=order.source_sales_order.id) }}" target="_blank" rel="noopener">{{ order.source_sales_order.order_no }}</a>
                             {% else %}多订单/明细来源{% endif %}
                         </td>
                         <td class="text-end">{{ "%.2f"|format(order.items|sum(attribute='quantity')) }}</td>
                         <td class="text-end">¥{{ "%.2f"|format(order.total_amount or 0) }}</td>
                         <td>{{ list_macros.status_badge(order.status, 'outbound') }}</td>
                         <td>
-                            <a href="{{ url_for('out_order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情" aria-label="查看出库单详情">
+                            <a href="{{ url_for('out_order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情" aria-label="查看出库单详情" target="_blank" rel="noopener">
                                 <i class="bi bi-eye"></i>
                             </a>
                             {% if order.status == 'pending' and current_user.role in ['admin', 'warehouse'] %}

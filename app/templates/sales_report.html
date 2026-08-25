@@ -86,7 +86,7 @@
         <tbody>
           {% for it in drill_items %}
           <tr>
-            <td><a href="{{ url_for('sales_order_detail', id=it.order_id) }}">{{ it.order_no }}</a></td>
+            <td><a href="{{ url_for('sales_order_detail', id=it.order_id) }}" target="_blank" rel="noopener">{{ it.order_no }}</a></td>
             <td>{{ it.date }}</td>
             <td>{{ it.customer }}</td>
             <td>{{ it.salesperson }}</td>

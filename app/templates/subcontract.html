@@ -137,7 +137,7 @@
                             <td>{{ order.total_amount }}</td>
                             <td>{{ order.operator.username if order.operator else '' }}</td>
                             <td>
-                                <a href="{{ url_for('subcontract_detail', id=order.id) }}" class="btn btn-info btn-sm">详情</a>
+                                <a href="{{ url_for('subcontract_detail', id=order.id) }}" class="btn btn-info btn-sm" target="_blank" rel="noopener">详情</a>
                                 <a class="btn btn-sm btn-outline-info" href="{{ url_for('print_subcontract', id=order.id) }}" target="_blank" title="打印">
                                     <i class="bi bi-printer"></i>
                                 </a>

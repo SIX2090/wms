@@ -97,7 +97,7 @@
                     <tr>
                         <td>{{ loop.index }}</td>
                         <td><i class="bi {{ row.icon }}"></i> {{ row.module_label }}</td>
-                        <td><a href="{{ row.detail_url }}">{{ row.number }}</a></td>
+                        <td><a href="{{ row.detail_url }}" target="_blank" rel="noopener">{{ row.number }}</a></td>
                         <td>{{ row.date_text or '-' }}</td>
                         <td>{{ row.title or '-' }}</td>
                         <td>
@@ -113,7 +113,7 @@
                         </td>
                         <td>{{ row.action_label }}</td>
                         <td>
-                            <a class="btn btn-sm btn-outline-primary" href="{{ row.detail_url }}">
+                            <a class="btn btn-sm btn-outline-primary" href="{{ row.detail_url }}" target="_blank" rel="noopener">
                                 <i class="bi bi-arrow-right"></i> 进入
                             </a>
                         </td>

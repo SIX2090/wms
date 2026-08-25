@@ -41,7 +41,7 @@
                         {% for item in progress_data %}
                         <tr>
                             <td>{{ loop.index }}</td>
-                            <td><a href="{{ url_for('subcontract_detail', id=item.order.id) }}">{{ item.order.order_no }}</a></td>
+                            <td><a href="{{ url_for('subcontract_detail', id=item.order.id) }}" target="_blank" rel="noopener">{{ item.order.order_no }}</a></td>
                             <td>{{ item.order.date }}</td>
                             <td>{{ item.order.supplier.name if item.order.supplier else '-' }}</td>
                             <td>
@@ -86,7 +86,7 @@
                             </td>
                             <td>{{ item.order.total_amount or 0 }}</td>
                             <td>
-                                <a href="{{ url_for('subcontract_detail', id=item.order.id) }}" class="btn btn-info btn-sm">详情</a>
+                                <a href="{{ url_for('subcontract_detail', id=item.order.id) }}" class="btn btn-info btn-sm" target="_blank" rel="noopener">详情</a>
                                 {% if item.order.status == 'pending' %}
                                 <a href="/subcontract/issue" class="btn btn-primary btn-sm">去发料</a>
                                 {% elif item.order.status == 'processing' %}

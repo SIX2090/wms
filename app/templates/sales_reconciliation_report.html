@@ -120,7 +120,7 @@
                 <tbody>
                     {% for row in rows %}
                     <tr {% if not row.ok %}class="table-danger table-danger-subtle"{% endif %}>
-                        <td><a href="{{ url_for('sales_order_detail', id=row.order.id) }}">{{ row.order.order_no }}</a></td>
+                        <td><a href="{{ url_for('sales_order_detail', id=row.order.id) }}" target="_blank" rel="noopener">{{ row.order.order_no }}</a></td>
                         <td>{{ row.order.warehouse or '-' }}</td>
                         <td class="text-end">{{ row.shipped_qty }}</td>
                         <td class="text-end">{{ row.completed_qty }}</td>

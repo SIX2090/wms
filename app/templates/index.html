@@ -786,7 +786,7 @@
                 </div>
                 <div class="todo-list">
                     {% for order in in_progress_orders %}
-                    <a href="{{ url_for('in_order_detail', id=order.id) }}" class="todo-item">
+                    <a href="{{ url_for('in_order_detail', id=order.id) }}" class="todo-item" target="_blank" rel="noopener">
                         <div>
                             <div class="fw-semibold">{{ order.order_no }}</div>
                             <div class="meta">{{ order.date }} · {{ order.supplier.name if order.supplier else '未选择供应商' }}</div>
@@ -805,7 +805,7 @@
                 </div>
                 <div class="todo-list">
                     {% for order in out_progress_orders %}
-                    <a href="{{ url_for('out_order_detail', id=order.id) }}" class="todo-item">
+                    <a href="{{ url_for('out_order_detail', id=order.id) }}" class="todo-item" target="_blank" rel="noopener">
                         <div>
                             <div class="fw-semibold">{{ order.order_no }}</div>
                             <div class="meta">{{ order.date }} · {{ order.customer or '未填写领用对象' }}</div>
@@ -824,7 +824,7 @@
                 </div>
                 <div class="todo-list">
                     {% for order in purchase_pending_orders %}
-                    <a href="{{ url_for('purchase_request_detail', id=order.id) }}" class="todo-item">
+                    <a href="{{ url_for('purchase_request_detail', id=order.id) }}" class="todo-item" target="_blank" rel="noopener">
                         <div>
                             <div class="fw-semibold">{{ order.request_no }}</div>
                             <div class="meta">{{ order.date }} · {{ order.applicant or '未填写申请人' }}</div>

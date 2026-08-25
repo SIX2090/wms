@@ -102,7 +102,7 @@
                     {% set total_quantity = adjustment.items|sum(attribute='quantity', start=0) %}
                     <tr data-id="{{ adjustment.id }}">
                         <td class="text-center"><input type="checkbox" class="check-item" value="{{ adjustment.id }}" {% if adjustment.status != 'pending' %}disabled title="只能删除草稿单据"{% endif %}></td>
-                        <td><a href="{{ url_for('adjustment_detail', id=adjustment.id) }}">{{ adjustment.adjustment_no }}</a></td>
+                        <td><a href="{{ url_for('adjustment_detail', id=adjustment.id) }}" target="_blank" rel="noopener">{{ adjustment.adjustment_no }}</a></td>
                         <td>{{ adjustment.date }}</td>
                         <td>
                             {% if adjustment.adjustment_type == 'surplus' %}
@@ -134,7 +134,7 @@
                             {% endif %}
                         </td>
                         <td>
-                            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('adjustment_detail', id=adjustment.id) }}" title="查看/编辑">
+                            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('adjustment_detail', id=adjustment.id) }}" title="查看/编辑" target="_blank" rel="noopener">
                                 <i class="bi bi-pencil-square"></i>
                             </a>
                             <a class="btn btn-sm btn-outline-info" href="{{ url_for('print_adjustment', id=adjustment.id) }}" target="_blank" title="打印">

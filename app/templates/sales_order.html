@@ -146,7 +146,7 @@
                     <tr>
                         <td><input type="checkbox" class="sales-order-check check-item" value="{{ order.id }}"></td>
                         <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
-                        <td><a href="{{ url_for('sales_order_detail', id=order.id) }}">{{ order.order_no }}</a></td>
+                        <td><a href="{{ url_for('sales_order_detail', id=order.id) }}" target="_blank" rel="noopener">{{ order.order_no }}</a></td>
                         <td>{{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</td>
                         <td>{{ order.customer.name if order.customer else '-' }}</td>
                         <td>{{ order.salesperson.name if order.salesperson else '-' }}</td>
@@ -171,7 +171,7 @@
                             {{ list_macros.status_badge(order.status, 'sales') }}
                         </td>
                         <td>
-                            <a href="{{ url_for('sales_order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情">
+                            <a href="{{ url_for('sales_order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情" target="_blank" rel="noopener">
                                 <i class="bi bi-eye"></i>
                             </a>
                             {% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}
@@ -179,7 +179,7 @@
                                 <i class="bi bi-files"></i>
                             </button>
                             {% if order.status == 'draft' %}
-                            <a href="{{ url_for('sales_order_edit_page', id=order.id) }}" class="btn btn-sm btn-outline-secondary" title="编辑">
+                            <a href="{{ url_for('sales_order_edit_page', id=order.id) }}" class="btn btn-sm btn-outline-secondary" title="编辑" target="_blank" rel="noopener">
                                 <i class="bi bi-pencil-square"></i>
                             </a>
                             <button type="button" class="btn btn-sm btn-outline-danger" title="删除" data-action="deleteOne" data-id="{{ order.id }}">

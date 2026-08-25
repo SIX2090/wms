@@ -141,12 +141,12 @@
                     <tr>
                         <td><input type="checkbox" class="purchase-order-check check-item" value="{{ order.id }}"></td>
                         <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
-                        <td><a href="{{ url_for('purchase_order_detail', id=order.id) }}">{{ order.order_no }}</a></td>
+                        <td><a href="{{ url_for('purchase_order_detail', id=order.id) }}" target="_blank" rel="noopener">{{ order.order_no }}</a></td>
                         <td>{{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</td>
                         <td>{{ order.supplier.name if order.supplier else '-' }}</td>
                         <td class="text-nowrap">
                             {% if order.purchase_request %}
-                            <a href="{{ url_for('purchase_request_detail', id=order.purchase_request.id) }}">{{ order.purchase_request.request_no }}</a>
+                            <a href="{{ url_for('purchase_request_detail', id=order.purchase_request.id) }}" target="_blank" rel="noopener">{{ order.purchase_request.request_no }}</a>
                             {% else %}-{% endif %}
                         </td>
                         <td>{{ order.contract_no or '-' }}</td>
@@ -189,14 +189,14 @@
                             {% endif %}
                         </td>
                         <td>
-                            <a href="{{ url_for('purchase_order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情">
+                            <a href="{{ url_for('purchase_order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情" target="_blank" rel="noopener">
                                 <i class="bi bi-eye"></i>
                             </a>
                             <button type="button" class="btn btn-sm btn-outline-info" title="复制" onclick="copyPurchaseOrder({{ order.id }})">
                                 <i class="bi bi-files"></i>
                             </button>
                             {% if order.status == 'pending' %}
-                            <a href="{{ url_for('purchase_order_edit_page', id=order.id) }}" class="btn btn-sm btn-outline-secondary" title="编辑">
+                            <a href="{{ url_for('purchase_order_edit_page', id=order.id) }}" class="btn btn-sm btn-outline-secondary" title="编辑" target="_blank" rel="noopener">
                                 <i class="bi bi-pencil-square"></i>
                             </a>
                             <button type="button" class="btn btn-sm btn-outline-danger" title="删除" onclick="deletePurchaseOrder({{ order.id }})">
@@ -208,7 +208,7 @@
                                 <i class="bi bi-box-arrow-in-down"></i>
                             </a>
                             {% endif %}
-                            <a href="{{ url_for('purchase_order_detail', id=order.id) }}#documentTrace" class="btn btn-sm btn-outline-dark" title="单据联查">
+                            <a href="{{ url_for('purchase_order_detail', id=order.id) }}#documentTrace" class="btn btn-sm btn-outline-dark" title="单据联查" target="_blank" rel="noopener">
                                 <i class="bi bi-diagram-3"></i>
                             </a>
                         </td>

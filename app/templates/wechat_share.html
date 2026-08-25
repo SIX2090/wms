@@ -229,7 +229,7 @@
                         <td>{{ order.supplier.name if order.supplier else '-' }}</td>
                         <td>{{ order.warehouse or '-' }}</td>
                         <td>¥{{ "%.2f"|format(order.total_amount or 0) }}</td>
-                        <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('in_order_detail', id=order.id) }}">查看</a></td>
+                        <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('in_order_detail', id=order.id) }}" target="_blank" rel="noopener">查看</a></td>
                     </tr>
                     {% else %}
                     <tr><td colspan="6" class="text-center text-muted py-3">今天暂无已完成入库单</td></tr>

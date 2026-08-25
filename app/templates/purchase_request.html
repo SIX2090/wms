@@ -92,7 +92,7 @@
                 <tr>
                     <td><input type="checkbox" class="order-check check-item" value="{{ order.id }}"></td>
                     <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
-                    <td><a href="{{ url_for('purchase_request_detail', id=order.id) }}">{{ order.request_no }}</a></td>
+                    <td><a href="{{ url_for('purchase_request_detail', id=order.id) }}" target="_blank" rel="noopener">{{ order.request_no }}</a></td>
                     <td>{{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</td>
                     <td>{{ order.applicant or '-' }}</td>
                     <td>{{ order.department or '-' }}</td>
@@ -141,7 +141,7 @@
                         {% endif %}
                     </td>
                     <td>
-                        <a href="{{ url_for('purchase_request_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情">
+                        <a href="{{ url_for('purchase_request_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情" target="_blank" rel="noopener">
                             <i class="bi bi-eye"></i>
                         </a>
                         {% if order.status == 'pending' %}

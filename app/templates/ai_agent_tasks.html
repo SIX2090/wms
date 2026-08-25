@@ -57,7 +57,7 @@
                     {% if current_user.role == 'admin' %}
                     <td>{{ task.user.username if task.user else '-' }}</td>
                     {% endif %}
-                    <td><a class="btn btn-outline-primary btn-sm" href="{{ url_for('ai_agent_task_detail', id=task.id) }}">详情</a></td>
+                    <td><a class="btn btn-outline-primary btn-sm" href="{{ url_for('ai_agent_task_detail', id=task.id) }}" target="_blank" rel="noopener">详情</a></td>
                 </tr>
                 {% endfor %}
                 {% if not tasks %}

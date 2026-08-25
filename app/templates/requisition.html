@@ -131,7 +131,7 @@
                             </td>
                             <td class="text-center">{{ loop.index }}</td>
                             <td>
-                                <a class="order-no" href="{{ url_for('requisition_detail', id=requisition.id) }}">{{ requisition.req_no }}</a>
+                                <a class="order-no" href="{{ url_for('requisition_detail', id=requisition.id) }}" target="_blank" rel="noopener">{{ requisition.req_no }}</a>
                             </td>
                             <td>{{ requisition.date }}</td>
                             <td>{{ requisition.warehouse or '-' }}</td>
@@ -153,13 +153,13 @@
                             <td>{{ requisition.operator.username if requisition.operator else '-' }}</td>
                             <td class="text-center">
                                 <div class="btn-group btn-group-sm requisition-actions" role="group">
-                                    <a href="{{ url_for('requisition_detail', id=requisition.id) }}" class="btn btn-outline-primary" title="{{ '编辑明细' if requisition.status == 'pending' else '查看明细' }}">
+                                    <a href="{{ url_for('requisition_detail', id=requisition.id) }}" class="btn btn-outline-primary" title="{{ '编辑明细' if requisition.status == 'pending' else '查看明细' }}" target="_blank" rel="noopener">
                                         <i class="bi bi-list-ul"></i><span class="d-none d-xl-inline">{{ '明细' if requisition.status == 'pending' else '查看' }}</span>
                                     </a>
                                     {% if requisition.status == 'pending' %}
                                     <a class="btn btn-outline-secondary"
                                             href="{{ url_for('requisition_detail', id=requisition.id) }}"
-                                            title="编辑">
+                                            title="编辑" target="_blank" rel="noopener">
                                         <i class="bi bi-pencil-square"></i><span class="d-none d-xl-inline">修改</span>
                                     </a>
                                     <button class="btn btn-outline-success complete-btn" data-id="{{ requisition.id }}" title="完成工单领料">

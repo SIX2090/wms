@@ -104,7 +104,7 @@
                     <tr>
                         <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
                         <td>{{ approval.type }}</td>
-                        <td><a href="{{ approval.detail_url }}">{{ approval.order_no }}</a></td>
+                        <td><a href="{{ approval.detail_url }}" target="_blank" rel="noopener">{{ approval.order_no }}</a></td>
                         <td>{{ approval.applicant }}</td>
                         <td>{{ approval.created_at.strftime('%Y-%m-%d %H:%M') if approval.created_at else '-' }}</td>
                         <td>

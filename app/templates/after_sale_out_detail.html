@@ -11,7 +11,7 @@
 {% if push_source %}
 <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span><i class="bi bi-diagram-3"></i> 来源入库单：{{ push_source.source_document_no }}（下推生成草稿）</span>
-    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('in_order_detail', id=push_source.source_document_id) }}">查看来源单</a>
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('in_order_detail', id=push_source.source_document_id) }}" target="_blank" rel="noopener">查看来源单</a>
 </div>
 {% endif %}
 <div class="page-header d-flex justify-content-between align-items-center">
@@ -74,8 +74,8 @@
             </div>
             <div class="col-md-3">
                 <p><strong>售后原因：</strong>{{ order.reason or '-' }}</p>
-                <p><strong>原销售订单：</strong>{% if order.source_sales_order %}<a href="{{ url_for('sales_order_detail', id=order.source_sales_order.id) }}">{{ order.source_sales_order.order_no }}</a>{% else %}-{% endif %}</p>
-                <p><strong>原销售出库：</strong>{% if order.source_out_order %}<a href="{{ url_for('out_order_detail', id=order.source_out_order.id) }}">{{ order.source_out_order.order_no }}</a>{% else %}-{% endif %}</p>
+                <p><strong>原销售订单：</strong>{% if order.source_sales_order %}<a href="{{ url_for('sales_order_detail', id=order.source_sales_order.id) }}" target="_blank" rel="noopener">{{ order.source_sales_order.order_no }}</a>{% else %}-{% endif %}</p>
+                <p><strong>原销售出库：</strong>{% if order.source_out_order %}<a href="{{ url_for('out_order_detail', id=order.source_out_order.id) }}" target="_blank" rel="noopener">{{ order.source_out_order.order_no }}</a>{% else %}-{% endif %}</p>
                 <p><strong>责任归属：</strong>{{ order.responsibility or '-' }}</p>
             </div>
             <div class="col-md-3">

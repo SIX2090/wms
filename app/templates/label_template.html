@@ -78,7 +78,7 @@
                         <td>{{ template.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                         <td>
                             {% if current_user.role in ['admin', 'warehouse'] %}
-                            <a href="{{ url_for('label_template_detail', id=template.id) }}" class="btn btn-sm btn-outline-primary">
+                            <a href="{{ url_for('label_template_detail', id=template.id) }}" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">
                                 <i class="bi bi-pencil"></i> 设计
                             </a>
                             {% endif %}

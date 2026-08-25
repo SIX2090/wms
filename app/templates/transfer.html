@@ -88,7 +88,7 @@
                 {% for transfer in transfers %}
                 <tr data-id="{{ transfer.id }}">
                     <td><input type="checkbox" class="itemCheck check-item" value="{{ transfer.id }}"></td>
-                    <td><a href="{{ url_for('transfer_detail', id=transfer.id) }}">{{ transfer.transfer_no }}</a></td>
+                    <td><a href="{{ url_for('transfer_detail', id=transfer.id) }}" target="_blank" rel="noopener">{{ transfer.transfer_no }}</a></td>
                     <td>{{ transfer.date }}</td>
                     <td>{{ transfer.from_location or '-' }}</td>
                     <td>{{ transfer.to_location or '-' }}</td>
@@ -104,7 +104,7 @@
                         {% endif %}
                     </td>
                     <td>
-                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('transfer_detail', id=transfer.id) }}" title="{{ '编辑' if transfer.status == 'pending' else '查看' }}">
+                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('transfer_detail', id=transfer.id) }}" title="{{ '编辑' if transfer.status == 'pending' else '查看' }}" target="_blank" rel="noopener">
                             <i class="bi bi-pencil"></i>
                         </a>
                         <a class="btn btn-sm btn-outline-info" href="{{ url_for('print_single_transfer', id=transfer.id) }}" target="_blank" title="打印">

@@ -133,7 +133,7 @@
                     <tr>
                         <td>{{ loop.index }}</td>
                         <td><span class="badge bg-primary">下游</span></td>
-                        <td><a href="{{ url_for('purchase_order_detail', id=po.id) }}">{{ po.order_no }}</a></td>
+                        <td><a href="{{ url_for('purchase_order_detail', id=po.id) }}" target="_blank" rel="noopener">{{ po.order_no }}</a></td>
                         <td>{{ po.supplier.name if po.supplier else '-' }}</td>
                         <td>{{ po.expected_date.strftime('%Y-%m-%d') if po.expected_date else '-' }}</td>
                         <td class="text-end">¥{{ "%.2f"|format(po.total_amount or 0) }}</td>
@@ -241,7 +241,7 @@
                             </td>
                             <td>
                                 {% for po in item_purchase_orders.get(item.id, []) %}
-                                <a href="{{ url_for('purchase_order_detail', id=po.id) }}">{{ po.order_no }}</a>{% if not loop.last %}, {% endif %}
+                                <a href="{{ url_for('purchase_order_detail', id=po.id) }}" target="_blank" rel="noopener">{{ po.order_no }}</a>{% if not loop.last %}, {% endif %}
                                 {% else %}
                                 -
                                 {% endfor %}

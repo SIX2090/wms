@@ -150,12 +150,12 @@ async function loadWorkbench() {
                     html += `
                         <tr class="${rowClass}">
                             <td>
-                                <a href="${safeJumpUrl(item.jump_url)}" class="text-decoration-none fw-semibold">${escapeHtml(item.title)}</a>
+                                <a href="${safeJumpUrl(item.jump_url)}" class="text-decoration-none fw-semibold" target="_blank" rel="noopener">${escapeHtml(item.title)}</a>
                             </td>
                             <td class="text-muted small">${escapeHtml(item.subtitle)}</td>
                             <td class="text-muted small">${escapeHtml(item.detail)}</td>
                             <td class="text-end">
-                                <a href="${safeJumpUrl(item.jump_url)}" class="btn btn-outline-primary btn-sm py-0 px-1" style="font-size:0.75rem">
+                                <a href="${safeJumpUrl(item.jump_url)}" class="btn btn-outline-primary btn-sm py-0 px-1" style="font-size:0.75rem" target="_blank" rel="noopener">
                                     查看
                                 </a>
                             </td>

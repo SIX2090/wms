@@ -111,7 +111,7 @@
                     <span class="info-label">来源申请</span>
                     <span class="info-value">
                         {% if order.purchase_request %}
-                        <a href="{{ url_for('purchase_request_detail', id=order.purchase_request.id) }}">{{ order.purchase_request.request_no }}</a>
+                        <a href="{{ url_for('purchase_request_detail', id=order.purchase_request.id) }}" target="_blank" rel="noopener">{{ order.purchase_request.request_no }}</a>
                         {% else %}-{% endif %}
                     </span>
                 </div>
@@ -160,7 +160,7 @@
                     <tr>
                         <td>{{ loop.index }}</td>
                         <td><span class="badge bg-primary">下游</span></td>
-                        <td><a href="{{ url_for('in_order_detail', id=in_order.id) }}">{{ in_order.order_no }}</a></td>
+                        <td><a href="{{ url_for('in_order_detail', id=in_order.id) }}" target="_blank" rel="noopener">{{ in_order.order_no }}</a></td>
                         <td>{{ in_order.date.strftime('%Y-%m-%d') if in_order.date else '-' }}</td>
                         <td>{{ in_order.warehouse or '-' }}</td>
                         <td class="text-end">¥{{ "%.2f"|format(in_order.total_amount or 0) }}</td>
