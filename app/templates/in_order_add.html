@@ -1736,7 +1736,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (type === 'unit_updated' || type === 'material_updated') {
                     refreshMaterials({ silent: true });
                 }
-                if (type === 'supplier_updated') {
+                // BUG-2026-08-25-001 修复：其他入库单往来单位是客户，须监听 customer_updated；
+                // supplier_updated 只在供应商模式（采购入库）下刷新，避免客户列表被供应商数据覆盖。
+                if (type === 'supplier_updated' && partyField !== 'customer_id') {
+                    refreshSuppliers({ silent: true });
+                }
+                if (type === 'customer_updated' && partyField === 'customer_id') {
                     refreshSuppliers({ silent: true });
                 }
                 if (type === 'warehouse_updated') {
@@ -1797,16 +1802,19 @@ function refreshMaterials(options) {
 
 function refreshSuppliers(options) {
     const silent = !!(options && options.silent);
-    fetch('/api/suppliers')
+    // BUG-2026-08-25-001 修复：客户模式（其他入库单）必须请求 /api/customers，
+    // 否则客户列表会被供应商数据覆盖，跨页新建客户后也刷新不到。
+    const url = partyField === 'customer_id' ? '/api/customers' : '/api/suppliers';
+    fetch(url)
         .then(function(r){ return r.json(); })
         .then(function(list) {
             if (Array.isArray(list)) {
                 suppliers.length = 0;
                 list.forEach(function(s){ suppliers.push(s); });
-                notifyMaterialRefresh('供应商列表已更新，共 ' + suppliers.length + ' 条', 'success', silent);
+                notifyMaterialRefresh(partyLabel + '列表已更新，共 ' + suppliers.length + ' 条', 'success', silent);
             }
         })
-        .catch(function(err){ notifyMaterialRefresh('供应商刷新失败：' + err.message, 'danger', silent); });
+        .catch(function(err){ notifyMaterialRefresh(partyLabel + '刷新失败：' + err.message, 'danger', silent); });
 }
 
 function refreshWarehouses(options) {
