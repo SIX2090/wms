@@ -42,6 +42,20 @@
         .ph-chip:hover { background: #e7f1ff; }
         .toast-slot { position: fixed; top: 16px; right: 16px; z-index: 2000; }
         .status-bar { padding: 6px 20px; background: #f9fafb; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; display: flex; justify-content: space-between; }
+        /* 打印预览（PRINT-TEMPLATE-F05-A6） */
+        #previewArea { display: none; }
+        #previewContent table.pv { border-collapse: collapse; table-layout: fixed; margin-bottom: 24px; }
+        #previewContent table.pv td { padding: 2px 6px; font-size: 12px; }
+        #previewContent .pv-sheet-name { font-size: 12px; color: #6b7280; margin: 8px 0 4px; }
+        #previewContent .img-ph { display: inline-block; border: 1px dashed #94a3b8; color: #64748b; font-size: 11px; padding: 4px 10px; text-align: center; min-width: 80px; }
+        #previewContent .ph-miss { color: #9ca3af; }
+        @media print {
+            body * { visibility: hidden; }
+            #previewArea, #previewArea * { visibility: visible; }
+            #previewArea { position: absolute; left: 0; top: 0; width: 100%; display: block !important; padding: 0; background: #fff; }
+            #previewArea .no-print, #previewArea .no-print * { visibility: hidden !important; }
+            @page { size: A4; margin: 12mm; }
+        }
     </style>
 </head>
 <body>
@@ -55,13 +69,14 @@
         </div>
         <div class="d-flex gap-2">
             {% if prefix == "global" %}<a href="/print_templates" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> 返回模板中心</a>{% else %}<a href="/{{ prefix }}_print_template" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> 返回模板列表</a>{% endif %}
+            <button class="btn btn-outline-primary btn-sm" onclick="enterPreview()"><i class="bi bi-printer"></i> 打印预览</button>
             <button class="btn btn-primary btn-sm" onclick="onSave()"><i class="bi bi-save"></i> 保存模板</button>
         </div>
     </div>
 
     <div class="toast-slot" id="toastSlot"></div>
 
-    <div class="editor-body">
+    <div class="editor-body" id="editorArea">
         <!-- 格式工具栏（PRINT-TEMPLATE-F05-A4） -->
         <div class="fmt-toolbar" id="fmtToolbar">
             <select id="tbFontName" class="form-select form-select-sm" title="字体" onchange="onFontNameChange(this.value)">
@@ -136,6 +151,16 @@
         <div class="grid-wrap">
             <table class="grid" id="gridTable"></table>
         </div>
+    </div>
+
+    <!-- 打印预览视图（PRINT-TEMPLATE-F05-A6） -->
+    <div class="editor-body" id="previewArea">
+        <div class="toolbar no-print">
+            <button class="btn btn-sm btn-outline-secondary" onclick="exitPreview()"><i class="bi bi-arrow-left"></i> 返回编辑</button>
+            <button class="btn btn-sm btn-primary" onclick="doPrint()"><i class="bi bi-printer"></i> 打印</button>
+            <span class="muted small">示例数据预览（含当前未保存改动；{item.*} 按 3 条示例明细展开，条码/二维码以虚线框示意）</span>
+        </div>
+        <div id="previewContent"></div>
     </div>
 
     <div class="status-bar">
@@ -790,6 +815,262 @@
                     toast(escapeHtml(err.message || '保存失败'), 'error');
                 });
             }
+
+            // ============ 打印预览（PRINT-TEMPLATE-F05-A6） ============
+
+            let previewCtx = null;
+
+            function resolvePath(obj, path) {
+                let node = obj;
+                const parts = path.split('.');
+                for (let i = 0; i < parts.length; i++) {
+                    if (node == null || typeof node !== 'object') return undefined;
+                    node = node[parts[i]];
+                }
+                return node;
+            }
+
+            // 占位符替换（返回 HTML）：命中取值，未命中保留原文并灰色提示
+            function replaceTokensHtml(text, item, ctx) {
+                const s = String(text == null ? '' : text);
+                let out = '';
+                let last = 0;
+                const re = /\{([^{}]+)\}/g;
+                let m;
+                while ((m = re.exec(s)) !== null) {
+                    out += escapeHtml(s.slice(last, m.index));
+                    last = m.index + m[0].length;
+                    const token = m[1];
+                    let val;
+                    if (token.indexOf('item.') === 0) {
+                        val = item ? resolvePath(item, token.slice(5)) : undefined;
+                    } else if (token.indexOf('order.') === 0) {
+                        val = resolvePath(ctx.order || {}, token.slice(6));
+                    } else if (Object.prototype.hasOwnProperty.call(ctx, token)) {
+                        val = ctx[token];
+                    } else {
+                        val = undefined;
+                    }
+                    if (val === undefined || val === null) {
+                        out += '<span class="ph-miss">' + escapeHtml(m[0]) + '</span>';
+                    } else {
+                        out += escapeHtml(String(val));
+                    }
+                }
+                out += escapeHtml(s.slice(last));
+                return out;
+            }
+
+            function fillCellHtml(text, item, ctx) {
+                const s = String(text == null ? '' : text);
+                const imgMatch = s.trim().match(/^\{img_(barcode|qrcode):((?:item|order)\.[A-Za-z0-9_.]+)\}$/);
+                if (imgMatch) {
+                    const path = imgMatch[2];
+                    const scope = path.split('.')[0];
+                    const val = resolvePath(scope === 'item' ? (item || {}) : (ctx.order || {}),
+                                            path.slice(scope.length + 1));
+                    const label = imgMatch[1] === 'barcode' ? '条码' : '二维码';
+                    return '<div class="img-ph">' + label + '<br>' +
+                        escapeHtml(val == null ? '' : String(val)) + '</div>';
+                }
+                return replaceTokensHtml(s, item, ctx);
+            }
+
+            function styleToCssText(style) {
+                style = style || {};
+                let css = '';
+                if (style.bold) css += 'font-weight:700;';
+                if (style.italic) css += 'font-style:italic;';
+                if (style.underline) css += 'text-decoration:underline;';
+                if (style.font_name) css += "font-family:'" + style.font_name + "';";
+                if (style.font_size) css += 'font-size:' + style.font_size + 'pt;';
+                if (style.font_color) css += 'color:' + style.font_color + ';';
+                if (style.bg_color) css += 'background:' + style.bg_color + ';';
+                if (style.h_align) css += 'text-align:' + style.h_align + ';';
+                css += 'vertical-align:' + (style.v_align === 'center' ? 'middle' : (style.v_align || 'middle')) + ';';
+                if (style.wrap) css += 'white-space:pre-wrap;';
+                const b = style.border || {};
+                ['top', 'right', 'bottom', 'left'].forEach(function(e) {
+                    const v = borderEdgeCss(b[e]);
+                    if (v) css += 'border-' + e + ':' + v + ';';
+                });
+                return css;
+            }
+
+            // 明细行扩展：镜像引擎 _Filler 规则——首个含 {item. 的行为模板行，
+            // 其下首个含 {total_/{order./{print_date}/{today} 的行为边界，
+            // 整块（模板行+示例行）替换为 N 条示例明细。
+            function expandSheetForPreview(sheet, ctx) {
+                const items = ctx.items || [];
+                let tplRow = 0;
+                let boundRow = 0;
+                for (let r = 1; r <= sheet.renderRow; r++) {
+                    if (sheet.deleted.has(r)) continue;
+                    let rowText = '';
+                    for (let c = 1; c <= sheet.renderCol; c++) {
+                        const cell = sheet.cellMap.get(key(r, c));
+                        if (cell && cell.value != null) rowText += String(cell.value);
+                    }
+                    if (!tplRow && (rowText.indexOf('{item.') >= 0 ||
+                            rowText.indexOf('{img_barcode:item.') >= 0 ||
+                            rowText.indexOf('{img_qrcode:item.') >= 0)) {
+                        tplRow = r;
+                    } else if (tplRow && !boundRow && (
+                            rowText.indexOf('{total_') >= 0 ||
+                            rowText.indexOf('{order.') >= 0 ||
+                            rowText.indexOf('{print_date}') >= 0 ||
+                            rowText.indexOf('{today}') >= 0)) {
+                        boundRow = r;
+                    }
+                }
+                // rows: [{row, item|null}]；merges: [{row,col,rowspan,colspan}]
+                const rows = [];
+                const merges = [];
+                const rowHeights = {};
+                if (!tplRow) {
+                    for (let r = 1; r <= sheet.renderRow; r++) {
+                        if (sheet.deleted.has(r)) continue;
+                        rows.push({ row: r, item: null });
+                    }
+                    sheet.anchors.forEach(function(m, k) {
+                        const p = k.split(':');
+                        merges.push({ row: parseInt(p[0], 10), col: parseInt(p[1], 10),
+                                      rowspan: m.rowspan, colspan: m.colspan });
+                    });
+                    Object.keys(sheet.rowHeights).forEach(function(k) {
+                        rowHeights[k] = sheet.rowHeights[k];
+                    });
+                    return { rows: rows, merges: merges, rowHeights: rowHeights };
+                }
+                const blockSize = boundRow ? (boundRow - tplRow) : 1;
+                const delta = items.length - blockSize;
+                for (let r = 1; r < tplRow; r++) {
+                    if (sheet.deleted.has(r)) continue;
+                    rows.push({ row: r, item: null });
+                    if (sheet.rowHeights[String(r)]) rowHeights[String(r)] = sheet.rowHeights[String(r)];
+                }
+                items.forEach(function(item, i) {
+                    rows.push({ row: tplRow + i, item: item, srcRow: tplRow });
+                    if (sheet.rowHeights[String(tplRow)]) {
+                        rowHeights[String(tplRow + i)] = sheet.rowHeights[String(tplRow)];
+                    }
+                });
+                for (let r = tplRow + blockSize; r <= sheet.renderRow; r++) {
+                    if (sheet.deleted.has(r)) continue;
+                    rows.push({ row: r + delta, item: null, srcRow: r });
+                    if (sheet.rowHeights[String(r)]) rowHeights[String(r + delta)] = sheet.rowHeights[String(r)];
+                }
+                sheet.anchors.forEach(function(m, k) {
+                    const p = k.split(':');
+                    const r = parseInt(p[0], 10);
+                    const c = parseInt(p[1], 10);
+                    if (r < tplRow) {
+                        merges.push({ row: r, col: c, rowspan: m.rowspan, colspan: m.colspan });
+                    } else if (r >= tplRow + blockSize) {
+                        merges.push({ row: r + delta, col: c, rowspan: m.rowspan, colspan: m.colspan });
+                    } else if (r === tplRow && m.rowspan === 1) {
+                        items.forEach(function(_, i) {
+                            merges.push({ row: tplRow + i, col: c, rowspan: 1, colspan: m.colspan });
+                        });
+                    }
+                });
+                return { rows: rows, merges: merges, rowHeights: rowHeights };
+            }
+
+            function renderPreviewSheet(sheet, ctx) {
+                const expanded = expandSheetForPreview(sheet, ctx);
+                const covered = new Set();
+                const anchorMap = new Map();
+                expanded.merges.forEach(function(m) {
+                    anchorMap.set(key(m.row, m.col), m);
+                    for (let i = 0; i < m.rowspan; i++) {
+                        for (let j = 0; j < m.colspan; j++) {
+                            covered.add(key(m.row + i, m.col + j));
+                        }
+                    }
+                });
+                let html = '<div class="pv-sheet-name">工作表：' + escapeHtml(sheet.name) + '</div>';
+                html += '<table class="pv"><colgroup>';
+                for (let c = 1; c <= sheet.renderCol; c++) {
+                    const w = sheet.colWidths[String(c)];
+                    html += '<col' + (w ? ' style="width:' + Math.round(w * 7 + 5) + 'px"' : '') + '>';
+                }
+                html += '</colgroup><tbody>';
+                expanded.rows.forEach(function(rowInfo) {
+                    const srcRow = rowInfo.srcRow || rowInfo.row;
+                    const rh = expanded.rowHeights[String(rowInfo.row)];
+                    html += '<tr' + (rh ? ' style="height:' + Math.round(rh * 4 / 3) + 'px"' : '') + '>';
+                    for (let c = 1; c <= sheet.renderCol; c++) {
+                        const k = key(rowInfo.row, c);
+                        if (covered.has(k) && !anchorMap.has(k)) continue;
+                        const m = anchorMap.get(k);
+                        const cell = sheet.cellMap.get(key(srcRow, c));
+                        const raw = cell && cell.value != null ? cell.value : '';
+                        const css = cell && cell.style ? styleToCssText(cell.style) : '';
+                        html += '<td' + (m ? ' colspan="' + m.colspan + '" rowspan="' + m.rowspan + '"' : '') +
+                            (css ? ' style="' + css + '"' : '') + '>' +
+                            fillCellHtml(raw, rowInfo.item, ctx) + '</td>';
+                    }
+                    html += '</tr>';
+                });
+                html += '</tbody></table>';
+                return html;
+            }
+
+            // 预览前把输入框中的最新编辑同步回 cellMap（含未保存改动）
+            function syncInputsToCellMap() {
+                sheets.forEach(function(sheet) {
+                    (sheet.inputs || []).forEach(function(input) {
+                        const r = parseInt(input.dataset.r, 10);
+                        const c = parseInt(input.dataset.c, 10);
+                        let cell = sheet.cellMap.get(key(r, c));
+                        if (!cell) {
+                            cell = { value: '', merged: false, style: {} };
+                            sheet.cellMap.set(key(r, c), cell);
+                        }
+                        cell.value = input.value;
+                    });
+                });
+            }
+
+            function renderPreview() {
+                syncInputsToCellMap();
+                const wrap = document.getElementById('previewContent');
+                let html = '';
+                sheets.forEach(function(sheet) {
+                    html += renderPreviewSheet(sheet, previewCtx);
+                });
+                wrap.innerHTML = html;
+            }
+
+            function enterPreview() {
+                const done = function() {
+                    renderPreview();
+                    document.getElementById('editorArea').style.display = 'none';
+                    document.getElementById('previewArea').style.display = 'block';
+                };
+                if (previewCtx) { done(); return; }
+                WMS.api.get('/' + PREFIX + '_print_template/' + TEMPLATE_ID + '/preview_data')
+                    .then(function(res) {
+                        previewCtx = res.context || {};
+                        done();
+                    }).catch(function(err) {
+                        toast(escapeHtml(err.message || '预览数据加载失败'), 'error');
+                    });
+            }
+
+            function exitPreview() {
+                document.getElementById('previewArea').style.display = 'none';
+                document.getElementById('editorArea').style.display = '';
+            }
+
+            function doPrint() {
+                window.print();
+            }
+
+            window.enterPreview = enterPreview;
+            window.exitPreview = exitPreview;
+            window.doPrint = doPrint;
 
             window.onSave = onSave;
             window.addRow = addRow;
