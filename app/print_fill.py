@@ -457,12 +457,116 @@ def _sheet_merge_anchors(ws):
     return anchors
 
 
+# ==================== 网格样式序列化（PRINT-TEMPLATE-F05-A1） ====================
+
+_GRID_COLOR_RE = re.compile(r'^[0-9A-Fa-f]{6}$')
+_GRID_H_ALIGN = ('left', 'center', 'right')
+_GRID_V_ALIGN = ('top', 'center', 'bottom')
+_GRID_BORDER_EDGES = ('top', 'right', 'bottom', 'left')
+
+
+def _color_to_hex(color):
+    """openpyxl Color → '#RRGGBB'；theme/indexed/非法值返回 None。"""
+    if color is None or getattr(color, 'type', None) != 'rgb':
+        return None
+    rgb = color.rgb
+    if not isinstance(rgb, str):
+        return None
+    if len(rgb) == 8:
+        rgb = rgb[2:]
+    if not _GRID_COLOR_RE.match(rgb):
+        return None
+    return '#' + rgb.upper()
+
+
+def _cell_style_to_json(cell):
+    """提取单元格样式为网格 JSON style 对象；无显式样式返回 None。
+
+    输出键（全可选）：bold/italic/underline、font_name、font_size、
+    font_color/bg_color（#RRGGBB）、h_align/v_align、wrap、
+    border={top/right/bottom/left: 边样式}。
+    """
+    if not getattr(cell, 'has_style', False):
+        return None
+    style = {}
+    font = cell.font
+    if font is not None:
+        if font.bold:
+            style['bold'] = True
+        if font.italic:
+            style['italic'] = True
+        if font.underline:
+            style['underline'] = True
+        if font.name:
+            style['font_name'] = str(font.name)
+        if font.size:
+            try:
+                style['font_size'] = float(font.size)
+            except (TypeError, ValueError):
+                pass
+        font_color = _color_to_hex(font.color)
+        if font_color:
+            style['font_color'] = font_color
+    fill = cell.fill
+    if fill is not None and getattr(fill, 'patternType', None) == 'solid':
+        bg_color = _color_to_hex(fill.fgColor)
+        if bg_color:
+            style['bg_color'] = bg_color
+    alignment = cell.alignment
+    if alignment is not None:
+        if alignment.horizontal in _GRID_H_ALIGN:
+            style['h_align'] = alignment.horizontal
+        if alignment.vertical in _GRID_V_ALIGN:
+            style['v_align'] = alignment.vertical
+        if alignment.wrap_text:
+            style['wrap'] = True
+    border = cell.border
+    if border is not None:
+        edges = {}
+        for edge in _GRID_BORDER_EDGES:
+            side = getattr(border, edge, None)
+            side_style = getattr(side, 'style', None) if side is not None else None
+            if side_style:
+                edges[edge] = side_style
+        if edges:
+            style['border'] = edges
+    return style or None
+
+
+def _sheet_dimensions_to_json(ws):
+    """提取显式设置的列宽/行高：{列号: 宽} / {行号: 高}（仅 customWidth/显式行高）。"""
+    from openpyxl.utils import column_index_from_string
+    col_widths = {}
+    for letter, dim in (ws.column_dimensions or {}).items():
+        width = getattr(dim, 'width', None)
+        if width is None or not getattr(dim, 'customWidth', False):
+            continue
+        try:
+            col_widths[str(column_index_from_string(letter))] = float(width)
+        except (TypeError, ValueError):
+            continue
+    row_heights = {}
+    for row, dim in (ws.row_dimensions or {}).items():
+        height = getattr(dim, 'height', None)
+        if height is None:
+            continue
+        try:
+            row_heights[str(int(row))] = float(height)
+        except (TypeError, ValueError):
+            continue
+    return col_widths, row_heights
+
+
 def serialize_print_template_grid(template_path):
     """把打印模板 .xlsx 序列化为浏览器网格 JSON。
 
-    返回：{sheets: [{name, max_row, max_col, merges, cells}]}
+    返回：{sheets: [{name, max_row, max_col, merges, cells, col_widths, row_heights}]}
     - merges: [{row, col, rowspan, colspan}]（仅给前端展示只读提示，编辑锚点=左上角）
-    - cells: [{row, col, value, merged}]，只含非空单元格；合并区仅在锚点给出。
+    - cells: [{row, col, value, merged, style?}]，含非空单元格与带显式样式的
+      单元格（如合计行的空值边框格）；合并区仅在锚点给出。
+    - col_widths/row_heights: {列号/行号: 数值}，仅显式设置过的尺寸。
+    style 结构见 `_cell_style_to_json`（PRINT-TEMPLATE-F05-A1 新增，向后兼容：
+    旧前端不读 style/col_widths/row_heights 字段即忽略）。
     """
     workbook = load_workbook(template_path, data_only=False)
     try:
@@ -484,24 +588,37 @@ def serialize_print_template_grid(template_path):
                         continue  # 非锚点合并格，值在锚点处读取
                     cell = ws.cell(r, c)
                     value = _cell_to_json(cell.value)
-                    if value is not None and value != '':
-                        cells.append({
-                            'row': r, 'col': c, 'value': value,
-                            'merged': False,
-                        })
+                    style = _cell_style_to_json(cell)
+                    if (value is None or value == '') and not style:
+                        continue
+                    item = {
+                        'row': r, 'col': c, 'value': value,
+                        'merged': False,
+                    }
+                    if style:
+                        item['style'] = style
+                    cells.append(item)
             # 合并锚点单元格（值为本身就是该区域的值）
             for (r, c) in sorted(anchors):
-                value = _cell_to_json(ws.cell(r, c).value)
-                cells.append({'row': r, 'col': c,
-                              'value': value if value is not None else '',
-                              'merged': True})
+                anchor_cell = ws.cell(r, c)
+                value = _cell_to_json(anchor_cell.value)
+                item = {'row': r, 'col': c,
+                        'value': value if value is not None else '',
+                        'merged': True}
+                style = _cell_style_to_json(anchor_cell)
+                if style:
+                    item['style'] = style
+                cells.append(item)
             cells.sort(key=lambda x: (x['row'], x['col']))
+            col_widths, row_heights = _sheet_dimensions_to_json(ws)
             sheets.append({
                 'name': ws.title,
                 'max_row': ws.max_row or 1,
                 'max_col': ws.max_column or 1,
                 'merges': merges,
                 'cells': cells,
+                'col_widths': col_widths,
+                'row_heights': row_heights,
             })
         return {'sheets': sheets}
     finally:
