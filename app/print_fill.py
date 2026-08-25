@@ -644,13 +644,142 @@ def _validate_grid_value(value):
     return '不支持的单元格值类型'
 
 
+# ==================== 网格样式回写（PRINT-TEMPLATE-F05-A2） ====================
+
+_GRID_STYLE_KEYS = frozenset({
+    'bold', 'italic', 'underline', 'font_name', 'font_size',
+    'font_color', 'bg_color', 'h_align', 'v_align', 'wrap', 'border',
+})
+_GRID_STYLE_COLOR_RE = re.compile(r'^#[0-9A-Fa-f]{6}$')
+_GRID_BORDER_VALUES = frozenset({
+    'thin', 'medium', 'thick', 'dashed', 'double', 'hair', 'dotted',
+})
+
+
+def _validate_grid_style(style):
+    """校验单个单元格样式对象，返回错误信息；合法返回空串。
+
+    语义：键存在且有值=设置；键存在且值为 None=清除；键不存在=保持不变。
+    """
+    if not isinstance(style, dict):
+        return '样式必须是对象'
+    unknown = set(style) - _GRID_STYLE_KEYS
+    if unknown:
+        return '不支持的样式键：%s' % '、'.join(sorted(unknown))
+    for key in ('bold', 'italic', 'underline', 'wrap'):
+        if key in style and style[key] is not None \
+                and not isinstance(style[key], bool):
+            return '%s 必须是布尔值' % key
+    if 'font_name' in style and style['font_name'] is not None:
+        name = style['font_name']
+        if not isinstance(name, str) or not name.strip() or len(name) > 30:
+            return 'font_name 必须是 1-30 字符的字体名'
+    if 'font_size' in style and style['font_size'] is not None:
+        size = style['font_size']
+        if isinstance(size, bool) or not isinstance(size, (int, float)) \
+                or not (6 <= size <= 72):
+            return 'font_size 必须在 6-72 之间'
+    for key in ('font_color', 'bg_color'):
+        if key in style and style[key] is not None:
+            color = style[key]
+            if not isinstance(color, str) or not _GRID_STYLE_COLOR_RE.match(color):
+                return '%s 必须是 #RRGGBB 格式' % key
+    if 'h_align' in style and style['h_align'] is not None \
+            and style['h_align'] not in _GRID_H_ALIGN:
+        return 'h_align 只支持 left/center/right'
+    if 'v_align' in style and style['v_align'] is not None \
+            and style['v_align'] not in _GRID_V_ALIGN:
+        return 'v_align 只支持 top/center/bottom'
+    if 'border' in style and style['border'] is not None:
+        border = style['border']
+        if not isinstance(border, dict):
+            return 'border 必须是对象'
+        unknown_edges = set(border) - set(_GRID_BORDER_EDGES)
+        if unknown_edges:
+            return '不支持的边框边：%s' % '、'.join(sorted(unknown_edges))
+        for edge, edge_style in border.items():
+            if edge_style is None or edge_style == 'none':
+                continue
+            if edge_style not in _GRID_BORDER_VALUES:
+                return '边框样式 %s 不受支持' % edge_style
+    return ''
+
+
+def _hex_to_argb(color):
+    """'#RRGGBB' → 'FFRRGGBB'。"""
+    return 'FF' + color[1:].upper()
+
+
+def _apply_grid_style(cell, style):
+    """把校验过的样式对象应用到单元格（None 值=清除，缺省=保持）。"""
+    from copy import copy as _copy
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    font_keys = ('bold', 'italic', 'underline', 'font_name',
+                 'font_size', 'font_color')
+    if any(k in style for k in font_keys):
+        font = _copy(cell.font)
+        if 'bold' in style:
+            font.bold = style['bold'] or None
+        if 'italic' in style:
+            font.italic = style['italic'] or None
+        if 'underline' in style:
+            font.underline = 'single' if style['underline'] else None
+        if 'font_name' in style:
+            font.name = style['font_name'] or None
+        if 'font_size' in style:
+            font.size = style['font_size'] or None
+        if 'font_color' in style:
+            font.color = (_hex_to_argb(style['font_color'])
+                          if style['font_color'] else None)
+        cell.font = font
+
+    if 'bg_color' in style:
+        if style['bg_color']:
+            cell.fill = PatternFill(patternType='solid',
+                                    fgColor=_hex_to_argb(style['bg_color']))
+        else:
+            cell.fill = PatternFill(fill_type=None)
+
+    align_keys = ('h_align', 'v_align', 'wrap')
+    if any(k in style for k in align_keys):
+        alignment = _copy(cell.alignment)
+        if 'h_align' in style:
+            alignment.horizontal = style['h_align'] or None
+        if 'v_align' in style:
+            alignment.vertical = style['v_align'] or None
+        if 'wrap' in style:
+            alignment.wrap_text = bool(style['wrap']) or None
+        cell.alignment = alignment
+
+    if 'border' in style and style['border'] is not None:
+        border = _copy(cell.border)
+        for edge, edge_style in style['border'].items():
+            side = Side(style=None) if edge_style in (None, 'none') \
+                else Side(style=edge_style)
+            setattr(border, edge, side)
+        cell.border = border
+
+
+def _validate_grid_dimension(value, label, low, high):
+    """校验列宽/行高数值，返回错误信息；合法返回空串。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) \
+            or not (low <= value <= high):
+        return '%s 必须在 %s-%s 之间' % (label, low, high)
+    return ''
+
+
 def apply_print_template_grid(template_path, sheets_data):
     """把前端编辑后的网格写回 .xlsx 模板。
 
-    sheets_data: [{name, upserts:[[row, col, value], ...], del_rows:[row, ...]}]
+    sheets_data: [{name, upserts, del_rows, styles?, col_widths?, row_heights?}]
     - upserts 写/覆盖单元格值（'' 或 None 清除单元格）；保留样式与合并。
+    - styles（PRINT-TEMPLATE-F05-A2）: [[row, col, style], ...] 回写单元格样式，
+      语义「键存在有值=设置 / 键存在为 None=清除 / 键缺失=保持」，白名单校验。
+    - col_widths/row_heights（F05-A2）: {列号/行号: 数值} 回写尺寸。
     - del_rows 删除指定行（整行，序号由小到大），用于清理多余示例行。
-    全程占位符白名单校验，任何非法占位符立即报错且不落盘（原子性）。
+    全程占位符/样式白名单校验，任何非法输入立即报错且不落盘（原子性）；
+    旧 payload（仅 upserts/del_rows）保持兼容。
     """
     sheets_data = sheets_data or []
     workbook = load_workbook(template_path)
@@ -681,6 +810,39 @@ def apply_print_template_grid(template_path, sheets_data):
                         cell.value = None
                     else:
                         cell.value = value
+            # 样式回写（先全部校验再逐格应用，任一非法即整体不落盘）
+            style_ops = []
+            for item in (sheet.get('styles') or []):
+                if not (isinstance(item, (list, tuple)) and len(item) == 3):
+                    raise ValueError('每个样式项必须是 [行, 列, 样式]')
+                r, c, style = int(item[0]), int(item[1]), item[2]
+                if r < 1 or c < 1 or r > _MAX_TEMPLATE_ROWS \
+                        or c > _MAX_TEMPLATE_COLS:
+                    raise ValueError(f'样式坐标超出上限：第{r}行第{c}列')
+                msg = _validate_grid_style(style)
+                if msg:
+                    raise ValueError(f'第{r}行第{c}列样式：{msg}')
+                style_ops.append((r, c, style))
+            for r, c, style in style_ops:
+                _apply_grid_style(ws.cell(r, c), style)
+            # 列宽/行高回写
+            from openpyxl.utils import get_column_letter
+            for col, width in (sheet.get('col_widths') or {}).items():
+                c = int(col)
+                if c < 1 or c > _MAX_TEMPLATE_COLS:
+                    raise ValueError(f'列号超出上限：第{c}列')
+                msg = _validate_grid_dimension(width, '列宽', 1, 200)
+                if msg:
+                    raise ValueError(f'第{c}列：{msg}')
+                ws.column_dimensions[get_column_letter(c)].width = float(width)
+            for row, height in (sheet.get('row_heights') or {}).items():
+                r = int(row)
+                if r < 1 or r > _MAX_TEMPLATE_ROWS:
+                    raise ValueError(f'行号超出上限：第{r}行')
+                msg = _validate_grid_dimension(height, '行高', 1, 500)
+                if msg:
+                    raise ValueError(f'第{r}行：{msg}')
+                ws.row_dimensions[r].height = float(height)
             del_rows = sorted(set(int(x) for x in (sheet.get('del_rows') or [])), reverse=True)
             for r in del_rows:
                 if r < 1:

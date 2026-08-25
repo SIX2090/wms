@@ -14,8 +14,12 @@
 # 安全：
 # - grid POST 走 pydantic 校验（A8），sheet/cell/值类型/占位符白名单全部校验；
 # - 回写前对全部占位符做白名单校验，任何非法占位符立即 400 且不落盘（原子性）；
-# - 仅支持编辑单元格值与删除整行，合并单元格与样式由引擎保留，不在此增删。
+# - PRINT-TEMPLATE-F05-A2 起支持样式（styles）与列宽/行高回写，样式键白名单
+#   校验，语义「有值=设置 / 显式 null=清除 / 缺失=保持」；
+# - 合并单元格区域仍由引擎保留，不在此增删。
 from __future__ import annotations
+
+import re
 
 from flask import jsonify, render_template, request
 from flask_login import current_user, login_required
@@ -27,11 +31,91 @@ from utils import require_role
 
 # ==================== pydantic 输入模型（A8） ====================
 
+_GRID_COLOR_RE = re.compile(r'^#[0-9A-Fa-f]{6}$')
+_GRID_BORDER_VALUES = frozenset({
+    'thin', 'medium', 'thick', 'dashed', 'double', 'hair', 'dotted',
+})
+
+
+class _CellStyleModel(BaseModel):
+    """单元格样式（PRINT-TEMPLATE-F05-A2）。
+
+    语义：字段提供且有值=设置；显式 null=清除；字段缺失=保持不变
+    （路由层用 exclude_unset dump 保留该语义）。
+    """
+    bold: bool | None = None
+    italic: bool | None = None
+    underline: bool | None = None
+    font_name: str | None = None
+    font_size: float | None = None
+    font_color: str | None = None
+    bg_color: str | None = None
+    h_align: str | None = None
+    v_align: str | None = None
+    wrap: bool | None = None
+    border: dict[str, str | None] | None = None
+
+    @field_validator('font_name')
+    @classmethod
+    def validate_font_name(cls, v):
+        if v is not None and (not v.strip() or len(v) > 30):
+            raise ValueError('font_name 必须是 1-30 字符的字体名')
+        return v
+
+    @field_validator('font_size')
+    @classmethod
+    def validate_font_size(cls, v):
+        if v is not None and not (6 <= v <= 72):
+            raise ValueError('font_size 必须在 6-72 之间')
+        return v
+
+    @field_validator('font_color', 'bg_color')
+    @classmethod
+    def validate_color(cls, v):
+        if v is not None and not _GRID_COLOR_RE.match(v):
+            raise ValueError('颜色必须是 #RRGGBB 格式')
+        return v
+
+    @field_validator('h_align')
+    @classmethod
+    def validate_h_align(cls, v):
+        if v is not None and v not in ('left', 'center', 'right'):
+            raise ValueError('h_align 只支持 left/center/right')
+        return v
+
+    @field_validator('v_align')
+    @classmethod
+    def validate_v_align(cls, v):
+        if v is not None and v not in ('top', 'center', 'bottom'):
+            raise ValueError('v_align 只支持 top/center/bottom')
+        return v
+
+    @field_validator('border')
+    @classmethod
+    def validate_border(cls, v):
+        if v is None:
+            return v
+        if not isinstance(v, dict):
+            raise ValueError('border 必须是对象')
+        unknown = set(v) - {'top', 'right', 'bottom', 'left'}
+        if unknown:
+            raise ValueError('不支持的边框边：%s' % '、'.join(sorted(unknown)))
+        for edge, edge_style in v.items():
+            if edge_style is None or edge_style == 'none':
+                continue
+            if edge_style not in _GRID_BORDER_VALUES:
+                raise ValueError('边框样式 %s 不受支持' % edge_style)
+        return v
+
+
 class _GridSheetModel(BaseModel):
     """一个工作表内的编辑动作。"""
     name: str
     upserts: list[tuple[int, int, object]] = []
     del_rows: list[int] = []
+    styles: list[tuple[int, int, _CellStyleModel]] = []
+    col_widths: dict[str, float] = {}
+    row_heights: dict[str, float] = {}
 
     @field_validator('name')
     @classmethod
@@ -67,6 +151,32 @@ class _GridSheetModel(BaseModel):
         if any(not isinstance(x, int) or x < 1 for x in value):
             raise ValueError('待删除行号必须是正整数')
         return value
+
+    @field_validator('col_widths', 'row_heights', mode='before')
+    @classmethod
+    def validate_dimensions(cls, v):
+        value = v or {}
+        if not isinstance(value, dict):
+            raise ValueError('尺寸必须是 {序号: 数值} 对象')
+        for k, dim in value.items():
+            if not str(k).isdigit() or int(k) < 1:
+                raise ValueError('尺寸序号必须是正整数')
+            if isinstance(dim, bool) or not isinstance(dim, (int, float)) \
+                    or dim <= 0:
+                raise ValueError('尺寸数值必须是正数')
+        return value
+
+    def to_engine_payload(self) -> dict:
+        """转换为引擎入参；styles 按 exclude_unset 保留「缺失=保持」语义。"""
+        return {
+            'name': self.name,
+            'upserts': [list(u) for u in self.upserts],
+            'del_rows': list(self.del_rows),
+            'styles': [[r, c, s.model_dump(exclude_unset=True)]
+                       for (r, c, s) in self.styles],
+            'col_widths': dict(self.col_widths),
+            'row_heights': dict(self.row_heights),
+        }
 
 
 class PrintTemplateGridRequest(BaseModel):
@@ -170,7 +280,7 @@ def _grid_write(prefix, template_id):
     if not template_path or not os.path.exists(template_path):
         return api_error('打印模板文件不存在', 404)
 
-    sheets_data = [s.model_dump() for s in req.sheets]
+    sheets_data = [s.to_engine_payload() for s in req.sheets]
     if not sheets_data:
         return api_error('没有需要保存的内容', 400)
 
