@@ -478,7 +478,9 @@ function renderTable(columns, rows) {
             const displayValue = formatValue(value, column.type);
             const link = column.link_field ? row[column.link_field] : '';
             if (link && value !== null && value !== undefined && value !== '') {
-                return `<td data-column-key="${escapeHtml(key)}"><a class="report-doc-link" href="${escapeHtml(link)}">${escapeHtml(displayValue)}</a></td>`;
+                // 新标签页打开单据详情，库存台账/各报表页保留不关闭；
+                // rel=noopener 防新页面通过 window.opener 操控报表页（同时满足现代浏览器 _blank 安全提示）
+                return `<td data-column-key="${escapeHtml(key)}"><a class="report-doc-link" href="${escapeHtml(link)}" target="_blank" rel="noopener">${escapeHtml(displayValue)}</a></td>`;
             }
             return `<td data-column-key="${escapeHtml(key)}">${escapeHtml(displayValue)}</td>`;
         }).join('');
@@ -676,10 +678,16 @@ loadData();
 .report-doc-link {
     font-weight: 600;
     text-decoration: none;
+    cursor: pointer;
 }
 
 .report-doc-link:hover {
     text-decoration: underline;
+}
+
+/* 表格行点击时给单据编号列一个轻微提示：双击 / Ctrl+点击 等浏览器默认行为不受影响 */
+#tableBody tr:hover .report-doc-link {
+    color: var(--bs-primary, #0d6efd);
 }
 
 .material-search-dropdown {
