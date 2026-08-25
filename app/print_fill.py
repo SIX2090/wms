@@ -769,6 +769,117 @@ def _validate_grid_dimension(value, label, low, high):
     return ''
 
 
+# ==================== 网格合并区回写（PRINT-TEMPLATE-F05-A3） ====================
+
+def _rects_intersect(r1, c1, r2, c2, R1, C1, R2, C2):
+    """两个矩形区域 [r1..r2]x[c1..c2] 是否相交。"""
+    return not (r2 < R1 or R2 < r1 or c2 < C1 or C2 < c1)
+
+
+def _parse_grid_merges(raw_merges):
+    """校验并解析 merges 载荷，返回 [(row, col, rowspan, colspan)]。
+
+    坐标/跨度必须为正整数且不超出模板上限；merges 使用「删除行之前」的
+    原始行号（与前端网格一致），删除平移在执行阶段统一处理。
+    """
+    parsed = []
+    for item in (raw_merges or []):
+        if not isinstance(item, dict):
+            raise ValueError('每个合并项必须是对象 {row, col, rowspan, colspan}')
+        try:
+            r = int(item['row'])
+            c = int(item['col'])
+            rowspan = int(item['rowspan'])
+            colspan = int(item['colspan'])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError('合并项缺少有效的 row/col/rowspan/colspan') from None
+        if r < 1 or c < 1 or rowspan < 1 or colspan < 1:
+            raise ValueError(f'合并区域坐标无效：第{r}行第{c}列')
+        if r + rowspan - 1 > _MAX_TEMPLATE_ROWS \
+                or c + colspan - 1 > _MAX_TEMPLATE_COLS:
+            raise ValueError(f'合并区域超出上限：第{r}行第{c}列 '
+                             f'{rowspan}行{colspan}列')
+        if rowspan == 1 and colspan == 1:
+            raise ValueError(f'合并区域至少跨 2 格：第{r}行第{c}列')
+        parsed.append((r, c, rowspan, colspan))
+    return parsed
+
+
+def _parse_grid_unmerges(raw_unmerges):
+    """校验并解析 unmerges 载荷，返回 [(row, col)] 锚点列表。"""
+    parsed = []
+    for item in (raw_unmerges or []):
+        if not (isinstance(item, (list, tuple)) and len(item) == 2):
+            raise ValueError('每个取消合并项必须是 [行, 列]')
+        r, c = int(item[0]), int(item[1])
+        if r < 1 or c < 1 or r > _MAX_TEMPLATE_ROWS or c > _MAX_TEMPLATE_COLS:
+            raise ValueError(f'取消合并坐标无效：第{r}行第{c}列')
+        parsed.append((r, c))
+    return parsed
+
+
+def _apply_grid_merges(ws, unmerges, merges, del_rows):
+    """应用取消合并/新增合并；del_rows 与合并区相交时拒绝（防坏文件）。
+
+    执行顺序：unmerges（校验锚点存在）→ 校验 del_rows 不与任何现存/新增
+    合并区相交 → 校验新增合并不与现存及互相互交 →（调用方先删行）→
+    新增合并按「被删行数 < 锚点行」平移后 merge_cells。
+    返回一个闭包 apply_after_delete()，在删行完成后调用以落合并。
+    """
+    # 1) 取消合并：锚点必须命中现存合并区
+    for (r, c) in unmerges:
+        hit = None
+        for rng in ws.merged_cells.ranges:
+            if rng.min_row == r and rng.min_col == c:
+                hit = rng
+                break
+        if hit is None:
+            raise ValueError(f'第{r}行第{c}列不是已合并区域的左上角')
+        ws.unmerge_cells(str(hit))
+
+    # 2) 现存合并区（unmerge 后）快照
+    existing = [(rng.min_row, rng.min_col, rng.max_row, rng.max_col)
+                for rng in ws.merged_cells.ranges]
+
+    # 3) 新增合并不与现存合并区相交、互不相交
+    for (r, c, rowspan, colspan) in merges:
+        r2, c2 = r + rowspan - 1, c + colspan - 1
+        for (R1, C1, R2, C2) in existing:
+            if _rects_intersect(r, c, r2, c2, R1, C1, R2, C2):
+                raise ValueError(
+                    f'合并区域与已有合并区重叠：第{r}行第{c}列')
+        for (or_, oc, ors, ocs) in merges:
+            if (or_, oc, ors, ocs) == (r, c, rowspan, colspan):
+                continue
+            if _rects_intersect(r, c, r2, c2,
+                                or_, oc, or_ + ors - 1, oc + ocs - 1):
+                raise ValueError(
+                    f'新增合并区域互相重叠：第{r}行第{c}列')
+
+    # 4) del_rows 不与任何现存/新增合并区相交（openpyxl delete_rows 不平移
+    #    合并区，直接删会产生错位坏文件）
+    for r in del_rows:
+        for (R1, C1, R2, C2) in existing:
+            if R1 <= r <= R2:
+                raise ValueError(
+                    f'第{r}行包含合并单元格，请先取消合并再删除')
+        for (mr, mc, mrs, mcs) in merges:
+            if mr <= r <= mr + mrs - 1:
+                raise ValueError(
+                    f'第{r}行与新增合并区域重叠，无法删除')
+
+    def apply_after_delete():  # no-test:reason=内部闭包，行为由外层 _apply_grid_merges 的 test_merge_shifted_after_row_delete 等用例覆盖
+        deleted = sorted(del_rows)
+        for (r, c, rowspan, colspan) in merges:
+            shift = sum(1 for d in deleted if d < r)
+            new_row = r - shift
+            ws.merge_cells(start_row=new_row, start_column=c,
+                           end_row=new_row + rowspan - 1,
+                           end_column=c + colspan - 1)
+
+    return apply_after_delete
+
+
 def apply_print_template_grid(template_path, sheets_data):
     """把前端编辑后的网格写回 .xlsx 模板。
 
@@ -777,6 +888,8 @@ def apply_print_template_grid(template_path, sheets_data):
     - styles（PRINT-TEMPLATE-F05-A2）: [[row, col, style], ...] 回写单元格样式，
       语义「键存在有值=设置 / 键存在为 None=清除 / 键缺失=保持」，白名单校验。
     - col_widths/row_heights（F05-A2）: {列号/行号: 数值} 回写尺寸。
+    - merges/unmerges（F05-A3）: 新增/取消合并区；坐标用删除前的原始行号，
+      删除行后自动平移；del_rows 与任一合并区相交即拒绝（防坏文件）。
     - del_rows 删除指定行（整行，序号由小到大），用于清理多余示例行。
     全程占位符/样式白名单校验，任何非法输入立即报错且不落盘（原子性）；
     旧 payload（仅 upserts/del_rows）保持兼容。
@@ -843,11 +956,19 @@ def apply_print_template_grid(template_path, sheets_data):
                 if msg:
                     raise ValueError(f'第{r}行：{msg}')
                 ws.row_dimensions[r].height = float(height)
-            del_rows = sorted(set(int(x) for x in (sheet.get('del_rows') or [])), reverse=True)
+            del_rows = sorted(set(int(x) for x in (sheet.get('del_rows') or [])),
+                              reverse=True)
+            # 合并区：先取消合并并做全部相交校验（非法即不落盘），
+            # 新增合并待删行完成后按平移落盘
+            unmerges = _parse_grid_unmerges(sheet.get('unmerges'))
+            merges = _parse_grid_merges(sheet.get('merges'))
+            apply_merges_after_delete = _apply_grid_merges(
+                ws, unmerges, merges, [r for r in del_rows if r >= 1])
             for r in del_rows:
                 if r < 1:
                     continue
                 ws.delete_rows(r, 1)
+            apply_merges_after_delete()
         output = io.BytesIO()
         workbook.save(output)
         output.seek(0)

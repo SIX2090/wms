@@ -16,7 +16,8 @@
 # - 回写前对全部占位符做白名单校验，任何非法占位符立即 400 且不落盘（原子性）；
 # - PRINT-TEMPLATE-F05-A2 起支持样式（styles）与列宽/行高回写，样式键白名单
 #   校验，语义「有值=设置 / 显式 null=清除 / 缺失=保持」；
-# - 合并单元格区域仍由引擎保留，不在此增删。
+# - PRINT-TEMPLATE-F05-A3 起支持合并/取消合并（merges/unmerges），坐标用删除
+#   前原始行号、删行后自动平移；del_rows 与合并区相交一律 400（防坏文件）。
 from __future__ import annotations
 
 import re
@@ -108,6 +109,21 @@ class _CellStyleModel(BaseModel):
         return v
 
 
+class _MergeModel(BaseModel):
+    """合并区域（PRINT-TEMPLATE-F05-A3），坐标为删除前的原始行号。"""
+    row: int
+    col: int
+    rowspan: int
+    colspan: int
+
+    @field_validator('row', 'col', 'rowspan', 'colspan')
+    @classmethod
+    def validate_positive(cls, v):
+        if not isinstance(v, int) or v < 1:
+            raise ValueError('合并区域坐标必须是正整数')
+        return v
+
+
 class _GridSheetModel(BaseModel):
     """一个工作表内的编辑动作。"""
     name: str
@@ -116,6 +132,8 @@ class _GridSheetModel(BaseModel):
     styles: list[tuple[int, int, _CellStyleModel]] = []
     col_widths: dict[str, float] = {}
     row_heights: dict[str, float] = {}
+    merges: list[_MergeModel] = []
+    unmerges: list[tuple[int, int]] = []
 
     @field_validator('name')
     @classmethod
@@ -176,6 +194,8 @@ class _GridSheetModel(BaseModel):
                        for (r, c, s) in self.styles],
             'col_widths': dict(self.col_widths),
             'row_heights': dict(self.row_heights),
+            'merges': [m.model_dump() for m in self.merges],
+            'unmerges': [list(u) for u in self.unmerges],
         }
 
 
