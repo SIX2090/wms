@@ -410,6 +410,33 @@ def register_report_routes(app):
         if wh_err:
             return api_error(wh_err, 400)
         quantities = get_warehouse_stock_quantities(warehouse)
+        # PRINT-TEMPLATE-F04 A6：库存查询列表接入 Excel 模板打印——
+        # 显式 template_id 或存在默认模板记录时按模板渲染；否则回退原硬编码版式
+        from doc_print_excel import (render_table_excel_print,
+                                     resolve_excel_template)
+        template_id = request.args.get('template_id', type=int)
+        has_template = bool(template_id) or \
+            resolve_excel_template('list', 'stock_query') is not None
+        if has_template:
+            from types import SimpleNamespace
+            rows = []
+            for m in Material.query.options(joinedload(Material.unit)).all():
+                stock = quantities.get(m.id, 0)
+                price = m.price or 0
+                rows.append(SimpleNamespace(
+                    warehouse=warehouse.name or '', code=m.code or '',
+                    brand=m.brand or '', name=m.name or '', spec=m.spec or '',
+                    unit=m.unit.name if m.unit else '', stock=stock,
+                    price=price, amount=stock * price))
+            result = render_table_excel_print(
+                'stock_query', rows, template_id=template_id,
+                static_folder=app.static_folder,
+                title_extra=warehouse.name or '')
+            if result is not None:
+                output, filename = result
+                return send_file(
+                    output, download_name=filename, as_attachment=True,
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         wb = Workbook()
         ws = wb.active
         ws.title = '库存报表'

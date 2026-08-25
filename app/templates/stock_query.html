@@ -6,16 +6,50 @@
 <div class="page-header">
     <div class="d-flex justify-content-between align-items-center">
         <h2 class="mb-0"><i class="bi bi-search"></i> 库存查询</h2>
-        <a href="/report/stock/print{% if filters.warehouse_id %}?warehouse_id={{ filters.warehouse_id }}{% endif %}" target="_blank"
-           class="btn btn-primary btn-sm {% if not materials %}disabled{% endif %}"
-           {% if not materials %}aria-disabled="true" tabindex="-1"
-           title="请先筛选出有数据的库存后再打印"{% else %}title="打印当前查询结果"{% endif %}
-           onclick="return {{ 'false' if not materials else 'true' }};">
-            <i class="bi bi-printer"></i> 打印报表
-            {% if not materials %}<span class="badge bg-warning text-dark ms-1">无数据</span>{% endif %}
-        </a>
+        <div class="d-flex gap-2 align-items-center">
+            <select id="stockTemplateSelect" class="form-select form-select-sm" style="width:180px;" title="选择 Excel 打印模板（模板中心可在线设计）">
+                <option value="">默认Excel模板</option>
+            </select>
+            <a href="/print_templates?target_type=list" target="_blank" class="btn btn-outline-secondary btn-sm" title="在模板中心在线设计库存列表模板">
+                <i class="bi bi-pencil-square"></i>
+            </a>
+            <a id="stockPrintBtn" href="/report/stock/print{% if filters.warehouse_id %}?warehouse_id={{ filters.warehouse_id }}{% endif %}" target="_blank"
+               class="btn btn-primary btn-sm {% if not materials %}disabled{% endif %}"
+               {% if not materials %}aria-disabled="true" tabindex="-1"
+               title="请先筛选出有数据的库存后再打印"{% else %}title="打印当前查询结果"{% endif %}
+               onclick="return {{ 'false' if not materials else 'true' }};">
+                <i class="bi bi-printer"></i> 打印报表
+                {% if not materials %}<span class="badge bg-warning text-dark ms-1">无数据</span>{% endif %}
+            </a>
+        </div>
     </div>
 </div>
+<script>
+(function () {
+    var select = document.getElementById('stockTemplateSelect');
+    var btn = document.getElementById('stockPrintBtn');
+    var baseHref = btn.getAttribute('href');
+    fetch('/doc_print_templates/stock_query.json')
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+            if (res.status !== 'success' || !res.templates) return;
+            res.templates.forEach(function (t) {
+                var opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.name + (t.is_default ? '（默认）' : '');
+                select.appendChild(opt);
+            });
+        })
+        .catch(function () { /* 模板列表不可达时保持默认模板 */ });
+    select.addEventListener('change', function () {
+        var url = new URL(baseHref, window.location.origin);
+        if (this.value) {
+            url.searchParams.set('template_id', this.value);
+        }
+        btn.setAttribute('href', url.pathname + url.search);
+    });
+})();
+</script>
 
 <div class="card mb-3">
     <div class="card-body py-2">
