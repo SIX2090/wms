@@ -3,25 +3,69 @@
 {% block content %}
 <div class="container-fluid py-3">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <div><h4 class="mb-1"><i class="bi bi-file-earmark-spreadsheet text-success"></i> Excel打印模板中心</h4><div class="text-muted small">统一管理单据、列表、报表打印模板，上传后可在线编辑并设为默认。</div></div>
+    <div><h4 class="mb-1"><i class="bi bi-file-earmark-spreadsheet text-success"></i> Excel打印模板中心</h4><div class="text-muted small">单据、报表、列表、标签打印模板统一在此在线设计（Excel 网格编辑），设为默认后打印自动使用。</div></div>
   </div>
+
+  <div class="row g-2 mb-3">
+    <div class="col-md-3"><a class="card text-decoration-none h-100" href="/in_order_print_template"><div class="card-body py-2"><i class="bi bi-box-arrow-in-down text-primary"></i> <strong>入库单模板</strong><div class="text-muted small">采购/产品/其他入库打印模板管理</div></div></a></div>
+    <div class="col-md-3"><a class="card text-decoration-none h-100" href="/out_order_print_template"><div class="card-body py-2"><i class="bi bi-box-arrow-up text-warning"></i> <strong>出库单模板</strong><div class="text-muted small">领料/销售/其他出库打印模板管理</div></div></a></div>
+    <div class="col-md-3"><a class="card text-decoration-none h-100" href="/print_templates?target_type=label"><div class="card-body py-2"><i class="bi bi-upc-scan text-success"></i> <strong>标签 Excel 模板</strong><div class="text-muted small">物料标签（含条码图片）在线设计</div></div></a></div>
+    <div class="col-md-3"><a class="card text-decoration-none h-100" href="/label_template"><div class="card-body py-2"><i class="bi bi-grid-3x3-gap text-secondary"></i> <strong>标签网格设计器</strong><div class="text-muted small">毫米级标签版面设计器（旧版）</div></div></a></div>
+  </div>
+
   <div class="card mb-3"><div class="card-body">
+    <h6 class="mb-2"><i class="bi bi-magic"></i> 在线新建（免上传，直接在线设计）</h6>
+    <form class="row g-2 align-items-end" method="post" action="/print_templates/create_blank">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-3"><label class="form-label">模板名称</label><input class="form-control" name="name" required placeholder="如：采购订单打印模板A"></div>
+      <div class="col-md-2"><label class="form-label">模板分类</label><select class="form-select" name="target_type" data-code-source required>{% for key,label in target_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
+      <div class="col-md-3"><label class="form-label">业务编码</label><input class="form-control" name="target_code" list="codeListBlank" data-code-target required placeholder="选择或输入业务编码"><datalist id="codeListBlank"></datalist></div>
+      <div class="col-md-2"><button class="btn btn-success w-100">新建并在线设计</button></div>
+      <div class="col-md-2 text-muted small">按内置版式生成，可改可删</div>
+    </form>
+  </div></div>
+
+  <div class="card mb-3"><div class="card-body">
+    <h6 class="mb-2"><i class="bi bi-upload"></i> 上传 Excel 模板</h6>
     <form class="row g-2 align-items-end" method="post" action="/print_templates/upload" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="col-md-2"><label class="form-label">模板名称</label><input class="form-control" name="name" required placeholder="如：采购订单打印"></div>
-      <div class="col-md-2"><label class="form-label">模板分类</label><select class="form-select" name="target_type" required>{% for key,label in target_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
-      <div class="col-md-3"><label class="form-label">业务编码</label><input class="form-control" name="target_code" required placeholder="如 purchase_order / inventory"></div>
+      <div class="col-md-2"><label class="form-label">模板分类</label><select class="form-select" name="target_type" data-code-source required>{% for key,label in target_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
+      <div class="col-md-3"><label class="form-label">业务编码</label><input class="form-control" name="target_code" list="codeListUpload" data-code-target required placeholder="选择或输入业务编码"><datalist id="codeListUpload"></datalist></div>
       <div class="col-md-3"><label class="form-label">Excel文件</label><input class="form-control" type="file" name="excel_file" accept=".xlsx" required></div>
       <div class="col-md-1 form-check ms-2"><input class="form-check-input" type="checkbox" name="is_default" value="1" id="isDefault"><label class="form-check-label" for="isDefault">默认</label></div>
       <div class="col-md-1"><button class="btn btn-primary w-100">上传</button></div>
     </form>
   </div></div>
+
   <div class="d-flex gap-2 mb-2"><a class="btn btn-sm {% if not selected_type %}btn-primary{% else %}btn-outline-primary{% endif %}" href="/print_templates">全部</a>{% for key,label in target_types.items() %}<a class="btn btn-sm {% if selected_type == key %}btn-primary{% else %}btn-outline-primary{% endif %}" href="/print_templates?target_type={{ key }}">{{ label }}</a>{% endfor %}</div>
   <div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>模板名称</th><th>分类</th><th>业务编码</th><th>格式</th><th>状态</th><th>更新时间</th><th class="text-end">操作</th></tr></thead><tbody>
-  {% for template in templates %}<tr><td>{{ template.name }}</td><td>{{ target_types.get(template.target_type, template.target_type) }}</td><td><code>{{ template.target_code }}</code></td><td><span class="badge text-bg-success">Excel</span></td><td>{% if template.is_default %}<span class="badge text-bg-primary">默认模板</span>{% else %}<span class="text-muted">备用</span>{% endif %}</td><td>{{ template.updated_at.strftime('%Y-%m-%d %H:%M') if template.updated_at else '' }}</td><td class="text-end"><a class="btn btn-sm btn-outline-primary" href="/global_print_template/{{ template.id }}/edit">在线编辑</a><a class="btn btn-sm btn-outline-success" href="/print_templates/{{ template.id }}/download">下载</a>{% if not template.is_default %}<button class="btn btn-sm btn-outline-secondary" onclick="setDefault({{ template.id }})">设为默认</button>{% endif %}<button class="btn btn-sm btn-outline-danger" onclick="removeTemplate({{ template.id }})">删除</button></td></tr>{% else %}<tr><td colspan="7" class="text-center text-muted py-5">暂无通用模板，请上传 .xlsx 模板。</td></tr>{% endfor %}
+  {% for template in templates %}<tr><td>{{ template.name }}</td><td>{{ target_types.get(template.target_type, template.target_type) }}</td><td><code>{{ template.target_code }}</code></td><td><span class="badge text-bg-success">Excel</span></td><td>{% if template.is_default %}<span class="badge text-bg-primary">默认模板</span>{% else %}<span class="text-muted">备用</span>{% endif %}</td><td>{{ template.updated_at.strftime('%Y-%m-%d %H:%M') if template.updated_at else '' }}</td><td class="text-end"><a class="btn btn-sm btn-outline-primary" href="/global_print_template/{{ template.id }}/edit">在线编辑</a><a class="btn btn-sm btn-outline-success" href="/print_templates/{{ template.id }}/download">下载</a>{% if not template.is_default %}<button class="btn btn-sm btn-outline-secondary" onclick="setDefault({{ template.id }})">设为默认</button>{% endif %}<button class="btn btn-sm btn-outline-danger" onclick="removeTemplate({{ template.id }})">删除</button></td></tr>{% else %}<tr><td colspan="7" class="text-center text-muted py-5">暂无模板：用上方「在线新建」免上传创建，或上传 .xlsx 模板。</td></tr>{% endfor %}
   </tbody></table></div></div>
 </div>
+<script id="codeOptionsData" type="application/json">{{ code_options | tojson }}</script>
 <script>
+var CODE_OPTIONS = JSON.parse(document.getElementById('codeOptionsData').textContent);
+function refreshCodeList(selectEl) {
+    var form = selectEl.closest('form');
+    var input = form.querySelector('[data-code-target]');
+    var list = document.getElementById(input.getAttribute('list'));
+    var options = CODE_OPTIONS[selectEl.value] || [];
+    list.innerHTML = '';
+    options.forEach(function (item) {
+        var opt = document.createElement('option');
+        opt.value = item.code;
+        opt.label = item.label + '（' + item.code + '）';
+        list.appendChild(opt);
+    });
+    if (options.length && !input.value) {
+        input.placeholder = '如 ' + options[0].code + '（' + options[0].label + '）';
+    }
+}
+document.querySelectorAll('[data-code-source]').forEach(function (selectEl) {
+    selectEl.addEventListener('change', function () { refreshCodeList(selectEl); });
+    refreshCodeList(selectEl);
+});
 async function setDefault(id){const r=await fetch('/print_templates/'+id+'/set_default',{method:'POST',headers:{'X-CSRFToken':document.querySelector('input[name=csrf_token]').value}});if(r.ok)location.reload();}
 async function removeTemplate(id){if(!confirm('确定删除该模板？'))return;const r=await fetch('/print_templates/'+id+'/delete',{method:'POST',headers:{'X-CSRFToken':document.querySelector('input[name=csrf_token]').value}});if(r.ok)location.reload();}
 </script>
