@@ -24,6 +24,7 @@ from flask_login import login_required
 
 from doc_print_excel import (
     DOC_EXCEL_PRINT_TYPES,
+    LABEL_EXCEL_PRINT_TYPES,
     TABLE_EXCEL_PRINT_TYPES,
     render_doc_excel_print,
 )
@@ -80,11 +81,16 @@ def register_doc_print_excel_routes(app):
                endpoint='doc_print_templates_json')
     @login_required
     def doc_print_templates_json(target_code):
-        """返回某单据/列表/报表可选的 Excel 打印模板列表（打印页选择器用）。"""
+        """返回某单据/列表/报表/标签可选的 Excel 打印模板列表（打印页选择器用）。"""
         if target_code in DOC_EXCEL_PRINT_TYPES:
             target_type = 'document'
         elif target_code in TABLE_EXCEL_PRINT_TYPES:
             target_type = TABLE_EXCEL_PRINT_TYPES[target_code]['target_type']
+        elif target_code in LABEL_EXCEL_PRINT_TYPES:
+            target_type = 'label'
+        elif target_code.startswith('report_'):
+            # 报表通用模板（PRINT-TEMPLATE-F04 A4）：target_code=report_<报表类型>
+            target_type = 'report'
         else:
             abort(404)
         from app import ExcelPrintTemplate

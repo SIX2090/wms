@@ -55,3 +55,48 @@ def register_label_routes(app):
         # 避免 json.dumps + tojson 双重 JSON 化导致 MATERIALS 变成字符串，
         # 进而 MATERIALS.forEach 抛 TypeError，触发"加载失败/网络错误"。
         return render_template('print_batch_labels.html', materials=materials, materials_data=materials_data)
+
+    @app.route('/label/batch_print_excel')
+    @print_token_or_login_required(job_type='label')  # 与 batch_print 同一 ptoken 绑定（BUG-2026-08-24-002）
+    def batch_print_labels_excel():
+        """按所选（或默认）Excel 标签模板生成标签 .xlsx 下载（PRINT-TEMPLATE-F04 A3）。
+
+        每物料一行，模板含 {img_barcode:item.barcode} 时嵌入 600DPI 条码图。
+        无模板时 render_label_excel_print 回退内置物料标签模板，正常必有结果。
+        """
+        from flask import abort, send_file
+        from sqlalchemy.orm import joinedload
+        from app import Material
+        from doc_print_excel import render_label_excel_print
+        ids = request.args.get('ids', '').split(',')
+        ids = [int(i) for i in ids if i.strip().isdigit()]
+        materials = Material.query.options(
+            joinedload(Material.unit),
+            joinedload(Material.category),
+            joinedload(Material.supplier)
+        ).filter(Material.id.in_(ids)).all() if ids else []
+
+        rows = []
+        for m in materials:
+            rows.append({
+                'code': m.code or '',
+                'name': m.name or '',
+                'spec': m.spec or '',
+                'unit_name': m.unit.name if m.unit else '',
+                'category_name': m.category.name if m.category else '',
+                'supplier_name': m.supplier.name if m.supplier else '',
+                'stock': str(m.stock) if m.stock else '0',
+                'price': str(m.price) if m.price else '',
+                'barcode': m.code or '',
+            })
+        result = render_label_excel_print(
+            'material_label', rows,
+            template_id=request.args.get('template_id', type=int),
+            static_folder=app.static_folder,
+        )
+        if result is None:
+            abort(404)
+        output, filename = result
+        return send_file(
+            output, download_name=filename, as_attachment=True,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

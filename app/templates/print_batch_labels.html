@@ -143,6 +143,12 @@
             <select class="form-select form-select-sm" id="templateSelect" style="width:200px;">
                 <option value="">-- 加载中 --</option>
             </select>
+            <label style="font-size:13px;color:#666;">Excel模板:</label>
+            <select class="form-select form-select-sm" id="excelTemplateSelect" style="width:170px;">
+                <option value="">默认Excel模板</option>
+            </select>
+            <button class="btn btn-secondary" onclick="downloadExcelLabels()">⬇ 下载Excel标签</button>
+            <a href="/print_templates?target_type=label" class="btn btn-secondary" target="_blank" title="在模板中心在线设计 Excel 标签模板">设计Excel模板</a>
             <a href="/material" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> 返回物料列表</a>
             <button class="btn btn-primary" onclick="window.print()">▶ 开始打印</button>
             <button class="btn btn-secondary" onclick="window.close()">✕ 关闭</button>
@@ -239,6 +245,39 @@
     document.getElementById('templateSelect').addEventListener('change', function(){
         switchTemplate(this.value);
     });
+
+    // PRINT-TEMPLATE-F04 A3：Excel 标签模板（模板中心在线设计）下拉与下载
+    function loadExcelTemplates() {
+        fetch('/doc_print_templates/material_label.json')
+            .then(function(r){ return r.json(); })
+            .then(function(res){
+                if (res.status !== 'success' || !res.templates) return;
+                var select = document.getElementById('excelTemplateSelect');
+                select.innerHTML = '<option value="">默认Excel模板</option>';
+                res.templates.forEach(function(t){
+                    var opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = t.name + (t.is_default ? '（默认）' : '');
+                    select.appendChild(opt);
+                });
+            })
+            .catch(function(err){
+                console.error('加载Excel模板列表失败:', err);
+            });
+    }
+
+    function downloadExcelLabels() {
+        var params = new URLSearchParams(window.location.search);
+        var ids = params.get('ids') || '';
+        if (!ids) {
+            ids = MATERIALS.map(function(m){ return m.id; }).join(',');
+        }
+        var url = '/label/batch_print_excel?ids=' + encodeURIComponent(ids);
+        var tid = document.getElementById('excelTemplateSelect').value;
+        if (tid) url += '&template_id=' + encodeURIComponent(tid);
+        window.open(url, '_blank');
+    }
+    loadExcelTemplates();
 
     function renderFromDbTemplate(tmplData) {
         var layout = tmplData.layout || {};
