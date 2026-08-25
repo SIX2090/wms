@@ -210,7 +210,11 @@ def _resolve_path(obj, parts):
     for part in parts:
         if obj is None:
             return None
-        attr = getattr(obj, part, None)
+        if isinstance(obj, dict):
+            # 报表/列表平铺 dict 行（PRINT-TEMPLATE-F04 报表模板打印）
+            attr = obj.get(part)
+        else:
+            attr = getattr(obj, part, None)
         if callable(attr):
             attr = attr()
         obj = attr

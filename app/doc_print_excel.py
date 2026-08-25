@@ -615,6 +615,100 @@ def render_table_excel_print(target_code, sheet_rows, template_id=None,
     return output, filename
 
 
+# ==================== 报表通用模板打印（PRINT-TEMPLATE-F04 A4） ====================
+#
+# 每种报表（REPORT_DEFINITIONS）都可在线设计 Excel 模板：
+# - target_code = report_<报表类型>，target_type = 'report'；
+# - 内置模板按报表 columns 动态生成（表头标题 + 列名行 + {item.<field>} 行），
+#   首次打印时由路由侧自动登记到 excel_print_template 表，之后即可在模板
+#   中心在线编辑/上传变体；
+# - 无用户模板时回退动态内置模板，行为与通用导出一致（全量行）。
+
+def report_target_code(report_type):
+    """报表类型 → 模板 target_code。"""
+    return f'report_{report_type}'
+
+
+def generate_report_builtin_template(title, columns):
+    """按报表列定义动态生成内置 .xlsx 模板字节流。
+
+    columns: [{'field': ..., 'title': ...}]（REPORT 构建器返回结构）。
+    """
+    specs = []
+    for col in columns or []:
+        field = (col.get('field') or '').strip()
+        if not field:
+            continue
+        col_title = (col.get('title') or field).strip()
+        width = min(30, max(10, len(col_title) * 2 + 4))
+        specs.append((col_title, field, width))
+    if not specs:
+        return None
+    wb = Workbook()
+    ws = wb.active
+    ws.title = (title or '报表')[:31]
+    _write_sheet_layout(ws, title or '报表', [], specs, ())
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+
+def _report_builtin_abspath(static_folder, report_type, title, columns):
+    """报表动态内置模板文件绝对路径；不存在则按 columns 生成（幂等）。"""
+    if not static_folder:
+        return None
+    abs_dir = os.path.join(static_folder, 'uploads', 'print_templates')
+    os.makedirs(abs_dir, exist_ok=True)
+    path = os.path.join(abs_dir, f'builtin_report_{report_type}_default.xlsx')
+    if not os.path.exists(path):
+        content = generate_report_builtin_template(title, columns)
+        if content is None:
+            return None
+        with open(path, 'wb') as f:
+            f.write(content.read())
+    return path
+
+
+def render_report_excel_print(report_type, title, columns, rows,
+                              template_id=None, static_folder=None,
+                              date_str=None):
+    """按模板填充报表 Excel（target_code=report_<报表类型>）。
+
+    rows: dict 行列表（键与 columns 的 field 对齐；引擎支持 dict 取值）。
+    返回 (BytesIO, 文件名, 模板文件绝对路径)；生成失败返回 None。
+    第三个返回值供路由侧把动态内置模板登记进模板中心（幂等）。
+    """
+    from datetime import datetime
+    from openpyxl import load_workbook
+    from print_fill import _Filler, template_file_abspath  # 同包私有工具复用
+    target_code = report_target_code(report_type)
+    template = resolve_excel_template('report', target_code, template_id)
+    path = None
+    if template and template.excel_template_path:
+        candidate = template_file_abspath(template.excel_template_path,
+                                          static_folder)
+        if candidate and os.path.exists(candidate):
+            path = candidate
+    if path is None:
+        path = _report_builtin_abspath(static_folder, report_type, title,
+                                       columns)
+    if not path:
+        return None
+    order = SimpleNamespace(
+        title=title or '报表', operator=SimpleNamespace(username=''),
+        total_amount=0)
+    wb = load_workbook(path)
+    for ws in wb.worksheets:
+        _Filler(order, list(rows or []),
+                date_str or datetime.now().strftime('%Y-%m-%d')).fill(ws)
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    filename = f"{title or report_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return output, filename, path
+
+
 def render_label_excel_print(target_code, rows, template_id=None,
                              static_folder=None, date_str=None):
     """按注册表填充标签 Excel 模板（每物料一行，含条码图片）。

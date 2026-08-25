@@ -15,6 +15,17 @@
             <button class="btn btn-outline-success" type="button" id="exportBtn">
                 <i class="bi bi-file-earmark-excel"></i> 导出 Excel
             </button>
+            <div class="input-group" style="width:auto;">
+                <select class="form-select" id="templateSelect" style="max-width:170px;">
+                    <option value="">默认Excel模板</option>
+                </select>
+                <button class="btn btn-outline-success" type="button" id="templatePrintBtn" title="按模板中心设计的 Excel 模板生成报表">
+                    <i class="bi bi-file-earmark-spreadsheet"></i> 按模板打印
+                </button>
+                <a class="btn btn-outline-secondary" href="/print_templates?target_type=report" target="_blank" title="在模板中心在线设计本报表的 Excel 模板">
+                    <i class="bi bi-pencil-square"></i>
+                </a>
+            </div>
             <button class="btn btn-outline-info" type="button" id="printBtn">
                 <i class="bi bi-printer"></i> 打印
             </button>
@@ -376,6 +387,39 @@ exportBtn.addEventListener('click', () => {
     const params = buildParams(true);
     window.open(`/report/api/${encodeURIComponent(reportType)}?${params.toString()}`, '_blank');
 });
+
+// PRINT-TEMPLATE-F04 A4：按模板中心设计的 Excel 模板打印报表
+const templateSelect = document.getElementById('templateSelect');
+const templatePrintBtn = document.getElementById('templatePrintBtn');
+
+async function loadPrintTemplates() {
+    try {
+        const resp = await fetch(`/doc_print_templates/report_${encodeURIComponent(reportType)}.json`);
+        const data = await resp.json();
+        if (data.status !== 'success' || !data.templates) return;
+        templateSelect.innerHTML = '<option value="">默认Excel模板</option>';
+        data.templates.forEach((t) => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = t.name + (t.is_default ? '（默认）' : '');
+            templateSelect.appendChild(opt);
+        });
+    } catch (err) {
+        templateSelect.innerHTML = '<option value="">默认Excel模板</option>';
+    }
+}
+
+templatePrintBtn.addEventListener('click', () => {
+    const params = buildParams(true);
+    params.delete('export');
+    const templateId = templateSelect.value;
+    if (templateId) {
+        params.set('template_id', templateId);
+    }
+    window.open(`/report/${encodeURIComponent(reportType)}/print_excel?${params.toString()}`, '_blank');
+});
+
+loadPrintTemplates();
 
 printBtn.addEventListener('click', () => {
     window.print();

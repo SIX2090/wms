@@ -24,12 +24,40 @@ from __future__ import annotations
 
 import io
 import json
+import os
 
 from flask import abort, jsonify, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from db import db
 from utils import require_role
+
+
+def _auto_register_report_template(app, report_type, title, template_path):
+    """首次模板打印时把报表动态内置模板登记进模板中心（幂等）。
+
+    仅在 target_code=report_<type> 没有任何模板记录时插入一条默认记录；
+    任何失败仅记日志，不影响本次下载。
+    """
+    try:
+        from doc_print_excel import report_target_code
+        from app import ExcelPrintTemplate
+        target_code = report_target_code(report_type)
+        if ExcelPrintTemplate.query.filter_by(
+                target_type='report', target_code=target_code).first():
+            return
+        static_prefix = os.path.join(app.static_folder, '')
+        if not template_path.startswith(static_prefix):
+            return
+        rel = template_path[len(static_prefix):].replace(os.sep, '/')
+        db.session.add(ExcelPrintTemplate(
+            name=f'系统默认{title}模板', target_type='report',
+            target_code=target_code, template_type='excel',
+            excel_template_path=f'/static/{rel}', is_default=True))
+        db.session.commit()
+    except Exception as e:  # noqa: BLE001 登记失败不影响下载
+        db.session.rollback()
+        app.logger.error(f'报表模板自动登记失败({report_type}): {e}')
 
 
 # no-test:reason=路由注册辅助函数，能力由 report_* 各路由测试覆盖
@@ -246,6 +274,46 @@ def register_report_routes(app):
     def report_print_not_implemented():
         from app import api_error
         return api_error('报表打印功能未实现', code=404)
+
+    @app.route('/report/<report_type>/print_excel')
+    @login_required
+    def report_print_excel(report_type):
+        """按所选（或默认）Excel 模板生成报表 .xlsx 下载（PRINT-TEMPLATE-F04 A4）。
+
+        - 筛选/仓库必填规则与 /report/api/<type> 完全一致（复用同一过滤器构造）；
+        - target_code=report_<报表类型>：首次打印自动把动态内置模板登记进
+          excel_print_template（幂等），之后可在模板中心在线编辑/设默认；
+        - 无用户模板时 render_report_excel_print 回退动态内置模板。
+        """
+        from app import (_build_report_filters, _build_report_payload,
+                         _get_report_definition, api_error)
+        from doc_print_excel import render_report_excel_print, report_target_code
+        definition = _get_report_definition(report_type)
+        if definition is None:
+            return api_error('Unsupported report type', 400)
+        try:
+            filters = _build_report_filters()
+            # AGENTS.md 仓库必填规则：报表查询未指定仓库且无默认仓库时拒绝返回数据
+            if not filters.get('warehouse_id'):
+                return api_error('请选择仓库', 400)
+            payload = _build_report_payload(report_type, filters)
+        except ValueError as exc:
+            app.logger.error(f'report_print_excel ValueError({report_type}): {exc}',
+                             exc_info=True)
+            return api_error('报表数据生成失败，请检查查询条件', 400)
+        result = render_report_excel_print(
+            report_type, payload['title'], payload['columns'],
+            payload['all_rows'],
+            template_id=request.args.get('template_id', type=int),
+            static_folder=app.static_folder)
+        if result is None:
+            return api_error('报表模板生成失败', 500)
+        output, filename, template_path = result
+        _auto_register_report_template(app, report_type, payload['title'],
+                                       template_path)
+        return send_file(
+            output, download_name=filename, as_attachment=True,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     @app.route('/report/inout/print')
     @login_required
