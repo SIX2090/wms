@@ -17,18 +17,26 @@
         .sheet-tabs { display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
         .sheet-tab { padding: 6px 16px; border-radius: 6px 6px 0 0; border: 1px solid #e5e7eb; border-bottom: none; background: #e9edf2; cursor: pointer; font-size: 13px; }
         .sheet-tab.active { background: #fff; font-weight: 600; color: #0d6efd; }
-        .grid-wrap { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: auto; max-height: calc(100vh - 220px); }
+        .grid-wrap { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: auto; max-height: calc(100vh - 260px); }
         table.grid { border-collapse: collapse; table-layout: fixed; min-width: 100%; }
         table.grid th, table.grid td { border: 1px solid #d7dbe1; padding: 0; }
-        table.grid thead th { background: #f8fafc; text-align: center; font-size: 11px; color: #6b7280; font-weight: 600; position: sticky; top: 0; z-index: 2; }
-        table.grid td.rowhead { position: sticky; left: 0; background: #f8fafc; text-align: center; font-size: 11px; color: #6b7280; width: 42px; min-width: 42px; z-index: 1; }
+        table.grid thead th { background: #f8fafc; text-align: center; font-size: 11px; color: #6b7280; font-weight: 600; position: sticky; top: 0; z-index: 2; cursor: pointer; }
+        table.grid td.rowhead { position: sticky; left: 0; background: #f8fafc; text-align: center; font-size: 11px; color: #6b7280; width: 42px; min-width: 42px; z-index: 1; cursor: pointer; }
+        table.grid thead th.col-sel, table.grid td.rowhead.row-sel { background: #dbeafe; color: #0d6efd; }
         table.grid td.cell { min-width: 90px; }
-        table.grid input.cell-input { width: 100%; border: none; outline: none; padding: 4px 6px; font-size: 13px; background: transparent; box-sizing: border-box; }
+        table.grid td.cell.sel { outline: 2px solid #0d6efd; outline-offset: -2px; }
+        table.grid input.cell-input { width: 100%; border: none; outline: none; padding: 4px 6px; font-size: 13px; background: transparent; box-sizing: border-box; font-family: inherit; color: inherit; text-align: inherit; font-weight: inherit; font-style: inherit; text-decoration: inherit; }
         table.grid input.cell-input:focus { background: #fff7db; box-shadow: inset 0 0 0 1px #f5c518; }
-        table.grid td.merged-anchor { background: #fffbea; }
-        table.grid td.merged-anchor input { color: #7a5c00; }
+        table.grid td.merged-anchor { }
         table.grid tr.row-deleted td { background: #fdeeee !important; text-decoration: line-through; color: #b91c1c; }
         .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+        .fmt-toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 10px; }
+        .fmt-toolbar select.form-select-sm { width: auto; }
+        .fmt-toolbar .btn.active { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+        .fmt-toolbar input[type="color"] { width: 34px; height: 31px; padding: 2px; border: 1px solid #d7dbe1; border-radius: 4px; background: #fff; cursor: pointer; }
+        .fmt-toolbar input.dim-input { width: 64px; }
+        .tb-sep { width: 1px; height: 22px; background: #e5e7eb; margin: 0 2px; }
+        .tb-label { font-size: 12px; color: #6b7280; }
         .pkg-row { display: flex; gap: 8px; flex-wrap: wrap; }
         .ph-chip { border: 1px solid #e5e7eb; background: #fff; border-radius: 4px; padding: 2px 8px; font-size: 12px; color: #0d6efd; cursor: pointer; }
         .ph-chip:hover { background: #e7f1ff; }
@@ -54,10 +62,68 @@
     <div class="toast-slot" id="toastSlot"></div>
 
     <div class="editor-body">
+        <!-- 格式工具栏（PRINT-TEMPLATE-F05-A4） -->
+        <div class="fmt-toolbar" id="fmtToolbar">
+            <select id="tbFontName" class="form-select form-select-sm" title="字体" onchange="onFontNameChange(this.value)">
+                <option value="">字体</option>
+                <option value="微软雅黑">微软雅黑</option>
+                <option value="宋体">宋体</option>
+                <option value="黑体">黑体</option>
+                <option value="楷体">楷体</option>
+                <option value="仿宋">仿宋</option>
+                <option value="Arial">Arial</option>
+                <option value="Times New Roman">Times New Roman</option>
+                <option value="Calibri">Calibri</option>
+            </select>
+            <select id="tbFontSize" class="form-select form-select-sm" title="字号" onchange="onFontSizeChange(this.value)">
+                <option value="">字号</option>
+                <option value="9">9</option><option value="10">10</option>
+                <option value="11">11</option><option value="12">12</option>
+                <option value="14">14</option><option value="16">16</option>
+                <option value="18">18</option><option value="20">20</option>
+                <option value="24">24</option><option value="28">28</option>
+                <option value="32">32</option>
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="tbBold" title="加粗" onclick="toggleStyleKey('bold')"><i class="bi bi-type-bold"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="tbItalic" title="斜体" onclick="toggleStyleKey('italic')"><i class="bi bi-type-italic"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="tbUnderline" title="下划线" onclick="toggleStyleKey('underline')"><i class="bi bi-type-underline"></i></button>
+            <span class="tb-sep"></span>
+            <input type="color" id="tbFontColor" value="#000000" title="字体颜色" onchange="applyStylePatch({font_color: this.value})">
+            <button type="button" class="btn btn-sm btn-outline-secondary" title="清除字体颜色" onclick="applyStylePatch({font_color: null})"><i class="bi bi-eraser"></i>A</button>
+            <input type="color" id="tbBgColor" value="#ffffff" title="背景色" onchange="applyStylePatch({bg_color: this.value})">
+            <button type="button" class="btn btn-sm btn-outline-secondary" title="清除背景色" onclick="applyStylePatch({bg_color: null})"><i class="bi bi-eraser"></i></button>
+            <span class="tb-sep"></span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="tbHLeft" title="左对齐" onclick="setAlign('h_align', 'left')"><i class="bi bi-text-left"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="tbHCenter" title="居中对齐" onclick="setAlign('h_align', 'center')"><i class="bi bi-text-center"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="tbHRight" title="右对齐" onclick="setAlign('h_align', 'right')"><i class="bi bi-text-right"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="tbVTop" title="顶端对齐" onclick="setAlign('v_align', 'top')"><i class="bi bi-align-start"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="tbVCenter" title="垂直居中" onclick="setAlign('v_align', 'center')"><i class="bi bi-align-middle"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="tbVBottom" title="底端对齐" onclick="setAlign('v_align', 'bottom')"><i class="bi bi-align-end"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="tbWrap" title="自动换行" onclick="toggleStyleKey('wrap')"><i class="bi bi-text-wrap"></i></button>
+            <span class="tb-sep"></span>
+            <div class="btn-group">
+                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" title="边框"><i class="bi bi-border-all"></i> 边框</button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="javascript:void(0)" onclick="applyBorder('all')">全部框线</a></li>
+                    <li><a class="dropdown-item" href="javascript:void(0)" onclick="applyBorder('outline')">外侧框线</a></li>
+                    <li><a class="dropdown-item" href="javascript:void(0)" onclick="applyBorder('none')">无框线</a></li>
+                </ul>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" title="合并单元格" onclick="mergeSelection()"><i class="bi bi-intersect"></i> 合并</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" title="取消合并" onclick="unmergeSelection()">取消合并</button>
+            <span class="tb-sep"></span>
+            <span class="tb-label">列宽</span>
+            <input type="number" class="form-control form-control-sm dim-input" id="tbColWidth" min="1" max="200" step="0.5" placeholder="8.43">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="applyColWidth()">应用</button>
+            <span class="tb-label">行高</span>
+            <input type="number" class="form-control form-control-sm dim-input" id="tbRowHeight" min="1" max="500" step="1" placeholder="默认">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="applyRowHeight()">应用</button>
+        </div>
+
         <div class="toolbar">
             <button class="btn btn-sm btn-outline-primary" onclick="addRow()"><i class="bi bi-plus-lg"></i> 末尾追加一行</button>
             <button class="btn btn-sm btn-outline-danger" onclick="deleteSelectedRow()"><i class="bi bi-trash"></i> 删除选中行</button>
-            <span class="muted small">提示：双击单元格编辑；合并单元格在上左角格编辑。</span>
+            <span class="muted small">提示：单击选中、按住拖动可多选；双击/直接输入编辑内容；合并单元格在左上角格编辑。</span>
         </div>
 
         <div class="sheet-tabs" id="sheetTabs"></div>
@@ -77,15 +143,19 @@
         <span>行 × 列：<span id="sizeInfo"></span></span>
     </div>
 
+    <script src="{{ url_for('static', filename='cdn/bootstrap-bundle-5.3.0.min.js') }}"></script>
     <script>
         (function() {
             const PREFIX = '{{ prefix }}';
             const TEMPLATE_ID = {{ template_id }};
             const BASE_URL = '/' + PREFIX + '_print_template/' + TEMPLATE_ID + '/grid';
 
-            // 每个工作表的数据：cells(二维引用值)、actual cellMap、deletedRows、renderedRow/Col
-            let sheets = [];       // [ {name, cellMap, merges, anchors, covered, renderRow, renderCol, deleted:Set} ]
+            // 每个工作表的数据：cellMap、anchors/covered（合并区）、deleted（待删行）、
+            // colWidths/rowHeights（尺寸）、origStyles/origMerges/origDims（DIFF 快照）
+            let sheets = [];
             let activeIdx = 0;
+            let sel = null;          // 当前选区 {r1, c1, r2, c2}（已归一化）
+            let dragging = false;
 
             // 常用占位符（供速插）
             const PLACEHOLDERS = [
@@ -117,6 +187,21 @@
                 setTimeout(function() { el.remove(); }, 3500);
             }
 
+            function escapeHtml(s) {
+                const div = document.createElement('div');
+                div.textContent = s == null ? '' : String(s);
+                return div.innerHTML;
+            }
+
+            // 稳定序列化（键排序，含嵌套对象），用于样式/合并区 DIFF 比较
+            function stableStringify(obj) {
+                if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
+                const keys = Object.keys(obj).sort();
+                return '{' + keys.map(function(k) {
+                    return JSON.stringify(k) + ':' + stableStringify(obj[k]);
+                }).join(',') + '}';
+            }
+
             function buildPlaceholders() {
                 const wrap = document.getElementById('phChips');
                 wrap.innerHTML = '';
@@ -131,7 +216,7 @@
             }
 
             function insertPlaceholder(p) {
-                const cell = document.querySelector('table.grid input.cell-input:focus, table.grid .cell-selected input');
+                const cell = document.querySelector('table.grid input.cell-input:focus');
                 if (cell) {
                     const start = cell.selectionStart || cell.value.length;
                     const end = cell.selectionEnd || start;
@@ -147,22 +232,32 @@
                     const data = res.sheets || [];
                     sheets = data.map(function(s) {
                         const cellMap = new Map();
+                        const origStyles = new Map();
                         (s.cells || []).forEach(function(cell) {
+                            const style = cell.style ? Object.assign({}, cell.style) : {};
                             cellMap.set(key(cell.row, cell.col), {
                                 value: cell.value,
                                 merged: !!cell.merged,
+                                style: style,
                             });
+                            origStyles.set(key(cell.row, cell.col), stableStringify(style));
                         });
                         const anchors = new Map();
                         const covered = new Set();
+                        const origMerges = [];
                         (s.merges || []).forEach(function(m) {
                             anchors.set(key(m.row, m.col), { colspan: m.colspan, rowspan: m.rowspan });
+                            origMerges.push({ row: m.row, col: m.col, rowspan: m.rowspan, colspan: m.colspan });
                             for (let i = 0; i < m.rowspan; i++) {
                                 for (let j = 0; j < m.colspan; j++) {
                                     covered.add(key(m.row + i, m.col + j));
                                 }
                             }
                         });
+                        const colWidths = {};
+                        Object.keys(s.col_widths || {}).forEach(function(k) { colWidths[k] = s.col_widths[k]; });
+                        const rowHeights = {};
+                        Object.keys(s.row_heights || {}).forEach(function(k) { rowHeights[k] = s.row_heights[k]; });
                         let renderRow = s.max_row || 1;
                         let renderCol = s.max_col || 1;
                         (s.cells || []).forEach(function(cell) {
@@ -182,6 +277,12 @@
                             renderRow: Math.max(renderRow, 1),
                             renderCol: Math.max(renderCol, 1),
                             deleted: new Set(),
+                            colWidths: colWidths,
+                            rowHeights: rowHeights,
+                            origStyles: origStyles,
+                            origMerges: origMerges,
+                            origColWidths: stableStringify(colWidths),
+                            origRowHeights: stableStringify(rowHeights),
                         };
                     });
                     if (!sheets.length) { toast('模板没有任何工作表', 'error'); return; }
@@ -192,12 +293,6 @@
                 });
             }
 
-            function escapeHtml(s) {
-                const div = document.createElement('div');
-                div.textContent = s == null ? '' : String(s);
-                return div.innerHTML;
-            }
-
             function renderTabs() {
                 const wrap = document.getElementById('sheetTabs');
                 wrap.innerHTML = '';
@@ -205,32 +300,74 @@
                     const tab = document.createElement('span');
                     tab.className = 'sheet-tab' + (i === activeIdx ? ' active' : '');
                     tab.textContent = s.name;
-                    tab.onclick = function() { activeIdx = i; renderTabs(); renderGrid(i); };
+                    tab.onclick = function() { activeIdx = i; sel = null; renderTabs(); renderGrid(i); };
                     wrap.appendChild(tab);
                 });
+            }
+
+            // ============ 样式 → DOM ============
+
+            const BORDER_CSS = {
+                thin: '1px solid #4b5563',
+                medium: '2px solid #4b5563',
+                thick: '3px solid #4b5563',
+                dashed: '1px dashed #4b5563',
+                double: '3px double #4b5563',
+                hair: '1px solid #9ca3af',
+                dotted: '1px dotted #4b5563',
+            };
+
+            function borderEdgeCss(v) {
+                if (!v || v === 'none') return '';
+                return BORDER_CSS[v] || '';
+            }
+
+            function applyStyleToTd(td, style) {
+                style = style || {};
+                td.style.fontWeight = style.bold ? '700' : '';
+                td.style.fontStyle = style.italic ? 'italic' : '';
+                td.style.textDecoration = style.underline ? 'underline' : '';
+                td.style.fontFamily = style.font_name || '';
+                td.style.fontSize = style.font_size ? style.font_size + 'pt' : '';
+                td.style.color = style.font_color || '';
+                td.style.background = style.bg_color || '';
+                td.style.textAlign = style.h_align || '';
+                td.style.verticalAlign = style.v_align === 'center' ? 'middle' : (style.v_align || '');
+                td.style.whiteSpace = style.wrap ? 'pre-wrap' : '';
+                const b = style.border || {};
+                td.style.borderTop = borderEdgeCss(b.top);
+                td.style.borderRight = borderEdgeCss(b.right);
+                td.style.borderBottom = borderEdgeCss(b.bottom);
+                td.style.borderLeft = borderEdgeCss(b.left);
             }
 
             function renderGrid(idx) {
                 const sheet = sheets[idx];
                 if (!sheet) return;
                 const table = document.getElementById('gridTable');
-                let html = '<thead><tr><th class="rowhead"></th>';
+                let html = '<colgroup><col style="width:42px">';
                 for (let c = 1; c <= sheet.renderCol; c++) {
-                    html += '<th>' + colLetter(c) + '</th>';
+                    const w = sheet.colWidths[String(c)];
+                    html += '<col' + (w ? ' style="width:' + Math.round(w * 7 + 5) + 'px"' : '') + '>';
+                }
+                html += '</colgroup><thead><tr><th class="rowhead"></th>';
+                for (let c = 1; c <= sheet.renderCol; c++) {
+                    html += '<th data-col="' + c + '">' + colLetter(c) + '</th>';
                 }
                 html += '</tr></thead><tbody>';
                 for (let r = 1; r <= sheet.renderRow; r++) {
-                    html += '<tr data-row="' + r + '"' + (sheet.deleted.has(r) ? ' class="row-deleted"' : '') + '>';
-                    html += '<td class="rowhead">' + r + '</td>';
+                    const rh = sheet.rowHeights[String(r)];
+                    html += '<tr data-row="' + r + '"' + (sheet.deleted.has(r) ? ' class="row-deleted"' : '') +
+                        (rh ? ' style="height:' + Math.round(rh * 4 / 3) + 'px"' : '') + '>';
+                    html += '<td class="rowhead" data-rowhead="' + r + '">' + r + '</td>';
                     for (let c = 1; c <= sheet.renderCol; c++) {
                         const k = key(r, c);
                         if (sheet.covered.has(k) && !sheet.anchors.has(k)) continue;
                         const isAnchor = sheet.anchors.has(k);
                         const m = isAnchor ? sheet.anchors.get(k) : null;
-                        const cell = sheet.cellMap.get(k) || { value: '', merged: false };
-                        let val = cell.value == null ? '' : cell.value;
-                        html += '<td class="cell"' + (isAnchor ? ' colspan="' + m.colspan + '" rowspan="' + m.rowspan + '"' : '') + '>';
-                        html += '<input class="cell-input" data-r="' + r + '" data-c="' + c + '" value="' + escapeHtml(val) + '">';
+                        html += '<td class="cell" data-r="' + r + '" data-c="' + c + '"' +
+                            (isAnchor ? ' colspan="' + m.colspan + '" rowspan="' + m.rowspan + '"' : '') + '>';
+                        html += '<input class="cell-input" data-r="' + r + '" data-c="' + c + '">';
                         html += '</td>';
                     }
                     html += '</tr>';
@@ -238,23 +375,306 @@
                 html += '</tbody>';
                 table.innerHTML = html;
 
-                // 记录本工作表全部输入节点（切换后台节点仍保留其 value 属性）
+                // 填充值与样式
+                table.querySelectorAll('td.cell').forEach(function(td) {
+                    const r = parseInt(td.dataset.r, 10);
+                    const c = parseInt(td.dataset.c, 10);
+                    const cell = sheet.cellMap.get(key(r, c));
+                    const input = td.querySelector('input.cell-input');
+                    const val = cell && cell.value != null ? cell.value : '';
+                    input.value = val;
+                    if (cell && cell.style) applyStyleToTd(td, cell.style);
+                });
+
                 sheet.inputs = Array.from(table.querySelectorAll('input.cell-input'));
 
-                // 点击行头选中行
+                // 选区事件：mousedown 定锚、按住 mouseover 拖选
+                table.querySelectorAll('td.cell').forEach(function(td) {
+                    td.addEventListener('mousedown', function() {
+                        dragging = true;
+                        setSelection(parseInt(td.dataset.r, 10), parseInt(td.dataset.c, 10),
+                                     parseInt(td.dataset.r, 10), parseInt(td.dataset.c, 10));
+                    });
+                    td.addEventListener('mouseover', function() {
+                        if (!dragging || !sel) return;
+                        setSelection(sel.r1, sel.c1,
+                                     parseInt(td.dataset.r, 10), parseInt(td.dataset.c, 10));
+                    });
+                });
+                // 行头选整行、列头选整列
                 table.querySelectorAll('td.rowhead').forEach(function(h) {
                     h.onclick = function() {
+                        const r = parseInt(h.dataset.rowhead, 10);
                         selectRow(h.closest('tr'));
+                        setSelection(r, 1, r, sheet.renderCol);
                     };
                 });
+                table.querySelectorAll('thead th[data-col]').forEach(function(h) {
+                    h.onclick = function() {
+                        const c = parseInt(h.dataset.col, 10);
+                        setSelection(1, c, sheet.renderRow, c);
+                    };
+                });
+                paintSelection();
                 updateSizeInfo();
             }
+
+            document.addEventListener('mouseup', function() { dragging = false; });
 
             function selectRow(tr) {
                 const table = document.getElementById('gridTable');
                 table.querySelectorAll('tr.selected-row').forEach(function(x) { x.classList.remove('selected-row'); });
                 tr.classList.add('selected-row');
             }
+
+            // ============ 选区模型（F05-A4） ============
+
+            function setSelection(ar, ac, br, bc) {
+                sel = {
+                    r1: Math.min(ar, br), c1: Math.min(ac, bc),
+                    r2: Math.max(ar, br), c2: Math.max(ac, bc),
+                };
+                paintSelection();
+                syncToolbar();
+            }
+
+            function paintSelection() {
+                const table = document.getElementById('gridTable');
+                table.querySelectorAll('td.cell.sel').forEach(function(td) { td.classList.remove('sel'); });
+                table.querySelectorAll('.col-sel').forEach(function(x) { x.classList.remove('col-sel'); });
+                table.querySelectorAll('.row-sel').forEach(function(x) { x.classList.remove('row-sel'); });
+                if (!sel) return;
+                table.querySelectorAll('td.cell').forEach(function(td) {
+                    const r = parseInt(td.dataset.r, 10);
+                    const c = parseInt(td.dataset.c, 10);
+                    if (r >= sel.r1 && r <= sel.r2 && c >= sel.c1 && c <= sel.c2) {
+                        td.classList.add('sel');
+                    }
+                });
+                if (sel.r1 === 1 && sel.r2 === sheets[activeIdx].renderRow && sel.c1 === sel.c2) {
+                    const th = table.querySelector('thead th[data-col="' + sel.c1 + '"]');
+                    if (th) th.classList.add('col-sel');
+                }
+                if (sel.c1 === 1 && sel.c2 === sheets[activeIdx].renderCol && sel.r1 === sel.r2) {
+                    const rh = table.querySelector('td.rowhead[data-rowhead="' + sel.r1 + '"]');
+                    if (rh) rh.classList.add('row-sel');
+                }
+            }
+
+            function selectedPositions() {
+                // 选区内可承载样式的格子（跳过被合并覆盖的非锚点格）
+                const sheet = sheets[activeIdx];
+                const out = [];
+                if (!sel) return out;
+                for (let r = sel.r1; r <= sel.r2; r++) {
+                    for (let c = sel.c1; c <= sel.c2; c++) {
+                        const k = key(r, c);
+                        if (sheet.covered.has(k) && !sheet.anchors.has(k)) continue;
+                        out.push({ r: r, c: c });
+                    }
+                }
+                return out;
+            }
+
+            function anchorCellOfSelection() {
+                if (!sel) return null;
+                return sheets[activeIdx].cellMap.get(key(sel.r1, sel.c1)) || null;
+            }
+
+            // ============ 样式编辑（F05-A4） ============
+
+            function applyStylePatch(patch) {
+                if (!sel) { toast('请先选择单元格', 'warning'); return; }
+                const sheet = sheets[activeIdx];
+                selectedPositions().forEach(function(pos) {
+                    const k = key(pos.r, pos.c);
+                    let cell = sheet.cellMap.get(k);
+                    if (!cell) {
+                        cell = { value: '', merged: false, style: {} };
+                        sheet.cellMap.set(k, cell);
+                    }
+                    cell.style = Object.assign({}, cell.style, patch);
+                    const td = document.querySelector(
+                        '#gridTable td.cell[data-r="' + pos.r + '"][data-c="' + pos.c + '"]');
+                    if (td) applyStyleToTd(td, cell.style);
+                });
+                syncToolbar();
+            }
+
+            function toggleStyleKey(k) {
+                const cell = anchorCellOfSelection();
+                const cur = cell && cell.style ? !!cell.style[k] : false;
+                const patch = {};
+                patch[k] = !cur;
+                applyStylePatch(patch);
+            }
+
+            function setAlign(k, v) {
+                const cell = anchorCellOfSelection();
+                const cur = cell && cell.style ? cell.style[k] : null;
+                const patch = {};
+                patch[k] = (cur === v) ? null : v;  // 再点一次取消
+                applyStylePatch(patch);
+            }
+
+            function onFontNameChange(v) {
+                if (!v) return;
+                applyStylePatch({ font_name: v });
+            }
+
+            function onFontSizeChange(v) {
+                if (!v) return;
+                applyStylePatch({ font_size: parseFloat(v) });
+            }
+
+            function applyBorder(mode) {
+                if (!sel) { toast('请先选择单元格', 'warning'); return; }
+                const sheet = sheets[activeIdx];
+                selectedPositions().forEach(function(pos) {
+                    const k = key(pos.r, pos.c);
+                    let cell = sheet.cellMap.get(k);
+                    if (!cell) {
+                        cell = { value: '', merged: false, style: {} };
+                        sheet.cellMap.set(k, cell);
+                    }
+                    const border = Object.assign({}, (cell.style && cell.style.border) || {});
+                    if (mode === 'all') {
+                        border.top = 'thin'; border.right = 'thin';
+                        border.bottom = 'thin'; border.left = 'thin';
+                    } else if (mode === 'outline') {
+                        if (pos.r === sel.r1) border.top = 'thin';
+                        if (pos.r === sel.r2) border.bottom = 'thin';
+                        if (pos.c === sel.c1) border.left = 'thin';
+                        if (pos.c === sel.c2) border.right = 'thin';
+                    } else {
+                        border.top = 'none'; border.right = 'none';
+                        border.bottom = 'none'; border.left = 'none';
+                    }
+                    cell.style = Object.assign({}, cell.style, { border: border });
+                    const td = document.querySelector(
+                        '#gridTable td.cell[data-r="' + pos.r + '"][data-c="' + pos.c + '"]');
+                    if (td) applyStyleToTd(td, cell.style);
+                });
+            }
+
+            // ============ 合并 / 取消合并（F05-A4） ============
+
+            function mergeSelection() {
+                if (!sel) { toast('请先选择要合并的区域', 'warning'); return; }
+                if (sel.r1 === sel.r2 && sel.c1 === sel.c2) {
+                    toast('合并区域至少需要 2 个单元格', 'warning'); return;
+                }
+                const sheet = sheets[activeIdx];
+                for (let r = sel.r1; r <= sel.r2; r++) {
+                    for (let c = sel.c1; c <= sel.c2; c++) {
+                        if (sheet.covered.has(key(r, c))) {
+                            toast('选区与已有合并区域重叠，请先取消合并', 'warning'); return;
+                        }
+                    }
+                }
+                let hasValue = false;
+                for (let r = sel.r1; r <= sel.r2; r++) {
+                    for (let c = sel.c1; c <= sel.c2; c++) {
+                        if (r === sel.r1 && c === sel.c1) continue;
+                        const cell = sheet.cellMap.get(key(r, c));
+                        if (cell && cell.value != null && String(cell.value) !== '') hasValue = true;
+                    }
+                }
+                if (hasValue && !window.confirm('合并后仅保留左上角单元格的内容，其余内容将被清除。继续？')) return;
+                sheet.anchors.set(key(sel.r1, sel.c1), {
+                    rowspan: sel.r2 - sel.r1 + 1, colspan: sel.c2 - sel.c1 + 1,
+                });
+                for (let r = sel.r1; r <= sel.r2; r++) {
+                    for (let c = sel.c1; c <= sel.c2; c++) {
+                        const k = key(r, c);
+                        sheet.covered.add(k);
+                        if (r === sel.r1 && c === sel.c1) continue;
+                        const cell = sheet.cellMap.get(k);
+                        if (cell) cell.value = '';
+                    }
+                }
+                renderGrid(activeIdx);
+                toast('已合并 ' + (sel.r2 - sel.r1 + 1) + ' 行 × ' + (sel.c2 - sel.c1 + 1) + ' 列');
+            }
+
+            function unmergeSelection() {
+                if (!sel) { toast('请先选择包含合并区域的范围', 'warning'); return; }
+                const sheet = sheets[activeIdx];
+                const toRemove = [];
+                sheet.anchors.forEach(function(m, k) {
+                    const p = k.split(':');
+                    const r = parseInt(p[0], 10);
+                    const c = parseInt(p[1], 10);
+                    if (r >= sel.r1 && r <= sel.r2 && c >= sel.c1 && c <= sel.c2) {
+                        toRemove.push({ k: k, r: r, c: c, m: m });
+                    }
+                });
+                if (!toRemove.length) { toast('选区内没有合并区域', 'warning'); return; }
+                toRemove.forEach(function(item) {
+                    sheet.anchors.delete(item.k);
+                    for (let i = 0; i < item.m.rowspan; i++) {
+                        for (let j = 0; j < item.m.colspan; j++) {
+                            sheet.covered.delete(key(item.r + i, item.c + j));
+                        }
+                    }
+                });
+                renderGrid(activeIdx);
+                toast('已取消 ' + toRemove.length + ' 处合并');
+            }
+
+            // ============ 列宽 / 行高（F05-A4） ============
+
+            function applyColWidth() {
+                if (!sel) { toast('请先选择列', 'warning'); return; }
+                const input = document.getElementById('tbColWidth');
+                const w = parseFloat(input.value);
+                if (!w || w < 1 || w > 200) { toast('列宽需在 1-200 之间', 'warning'); return; }
+                const sheet = sheets[activeIdx];
+                for (let c = sel.c1; c <= sel.c2; c++) {
+                    sheet.colWidths[String(c)] = w;
+                }
+                renderGrid(activeIdx);
+                toast('已设置列宽 ' + w);
+            }
+
+            function applyRowHeight() {
+                if (!sel) { toast('请先选择行', 'warning'); return; }
+                const input = document.getElementById('tbRowHeight');
+                const h = parseFloat(input.value);
+                if (!h || h < 1 || h > 500) { toast('行高需在 1-500 之间', 'warning'); return; }
+                const sheet = sheets[activeIdx];
+                for (let r = sel.r1; r <= sel.r2; r++) {
+                    sheet.rowHeights[String(r)] = h;
+                }
+                renderGrid(activeIdx);
+                toast('已设置行高 ' + h);
+            }
+
+            // ============ 工具栏状态回填 ============
+
+            function syncToolbar() {
+                const cell = anchorCellOfSelection();
+                const style = (cell && cell.style) || {};
+                document.getElementById('tbFontName').value = style.font_name || '';
+                document.getElementById('tbFontSize').value = style.font_size ? String(style.font_size) : '';
+                document.getElementById('tbBold').classList.toggle('active', !!style.bold);
+                document.getElementById('tbItalic').classList.toggle('active', !!style.italic);
+                document.getElementById('tbUnderline').classList.toggle('active', !!style.underline);
+                document.getElementById('tbWrap').classList.toggle('active', !!style.wrap);
+                document.getElementById('tbHLeft').classList.toggle('active', style.h_align === 'left');
+                document.getElementById('tbHCenter').classList.toggle('active', style.h_align === 'center');
+                document.getElementById('tbHRight').classList.toggle('active', style.h_align === 'right');
+                document.getElementById('tbVTop').classList.toggle('active', style.v_align === 'top');
+                document.getElementById('tbVCenter').classList.toggle('active', style.v_align === 'center');
+                document.getElementById('tbVBottom').classList.toggle('active', style.v_align === 'bottom');
+                const sheet = sheets[activeIdx];
+                if (sel) {
+                    document.getElementById('tbColWidth').value = sheet.colWidths[String(sel.c1)] || '';
+                    document.getElementById('tbRowHeight').value = sheet.rowHeights[String(sel.r1)] || '';
+                }
+            }
+
+            // ============ 行操作（原有） ============
 
             function addRow() {
                 const sheet = sheets[activeIdx];
@@ -278,6 +698,8 @@
                 document.getElementById('statusInfo').textContent = '工作表：' + sheet.name + '（' + PLACEHOLDERS.length + ' 个占位符可速插）';
             }
 
+            // ============ DIFF 提交 ============
+
             function collectDiffs() {
                 const payload = [];
                 sheets.forEach(function(sheet) {
@@ -292,13 +714,68 @@
                             upserts.push([r, c, input.value]);
                         }
                     });
+                    // 样式 DIFF：与加载快照比较，被移除的键以 null 表示「清除」
+                    const styles = [];
+                    sheet.cellMap.forEach(function(cell, k) {
+                        const p = k.split(':');
+                        const r = parseInt(p[0], 10);
+                        const c = parseInt(p[1], 10);
+                        if (sheet.deleted.has(r)) return;
+                        const cur = cell.style || {};
+                        const origStr = sheet.origStyles.get(k) || '{}';
+                        if (stableStringify(cur) === origStr) return;
+                        const orig = JSON.parse(origStr);
+                        const merged = {};
+                        Object.keys(orig).forEach(function(k2) {
+                            if (!(k2 in cur)) merged[k2] = null;
+                        });
+                        Object.keys(cur).forEach(function(k2) { merged[k2] = cur[k2]; });
+                        styles.push([r, c, merged]);
+                    });
+                    // 合并区 DIFF：当前 anchors 与原始 merges 求差
+                    const origMergeStrs = sheet.origMerges.map(stableStringify);
+                    const curMerges = [];
+                    sheet.anchors.forEach(function(m, k) {
+                        const p = k.split(':');
+                        curMerges.push({
+                            row: parseInt(p[0], 10), col: parseInt(p[1], 10),
+                            rowspan: m.rowspan, colspan: m.colspan,
+                        });
+                    });
+                    const curMergeStrs = curMerges.map(stableStringify);
+                    const merges = curMerges.filter(function(m) {
+                        return origMergeStrs.indexOf(stableStringify(m)) < 0;
+                    });
+                    const unmerges = sheet.origMerges.filter(function(m) {
+                        return curMergeStrs.indexOf(stableStringify(m)) < 0;
+                    }).map(function(m) { return [m.row, m.col]; });
+                    // 尺寸 DIFF
+                    const colWidths = {};
+                    Object.keys(sheet.colWidths).forEach(function(k) {
+                        const orig = JSON.parse(sheet.origColWidths);
+                        if (orig[k] !== sheet.colWidths[k]) colWidths[k] = sheet.colWidths[k];
+                    });
+                    const rowHeights = {};
+                    Object.keys(sheet.rowHeights).forEach(function(k) {
+                        const orig = JSON.parse(sheet.origRowHeights);
+                        if (orig[k] !== sheet.rowHeights[k]) rowHeights[k] = sheet.rowHeights[k];
+                    });
                     payload.push({
                         name: sheet.name,
                         upserts: upserts,
                         del_rows: Array.from(sheet.deleted),
+                        styles: styles,
+                        merges: merges,
+                        unmerges: unmerges,
+                        col_widths: colWidths,
+                        row_heights: rowHeights,
                     });
                 });
-                const total = payload.reduce(function(a, p) { return a + p.upserts.length + p.del_rows.length; }, 0);
+                const total = payload.reduce(function(a, p) {
+                    return a + p.upserts.length + p.del_rows.length + p.styles.length +
+                        p.merges.length + p.unmerges.length +
+                        Object.keys(p.col_widths).length + Object.keys(p.row_heights).length;
+                }, 0);
                 return { payload: payload, total: total };
             }
 
@@ -317,6 +794,16 @@
             window.onSave = onSave;
             window.addRow = addRow;
             window.deleteSelectedRow = deleteSelectedRow;
+            window.applyStylePatch = applyStylePatch;
+            window.toggleStyleKey = toggleStyleKey;
+            window.setAlign = setAlign;
+            window.onFontNameChange = onFontNameChange;
+            window.onFontSizeChange = onFontSizeChange;
+            window.applyBorder = applyBorder;
+            window.mergeSelection = mergeSelection;
+            window.unmergeSelection = unmergeSelection;
+            window.applyColWidth = applyColWidth;
+            window.applyRowHeight = applyRowHeight;
 
             document.addEventListener('DOMContentLoaded', function() {
                 buildPlaceholders();
