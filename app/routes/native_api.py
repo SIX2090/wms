@@ -978,7 +978,9 @@ def register_native_api_routes(app):
                 'date': order.date.isoformat() if order.date else '',
                 'material_code': material.code if material else '',
                 'material_name': material.name if material else '',
-                'spec': material.spec if material else '',
+                # BUG-2026-08-24-007：material.spec 列可空，显式 null 会让 Gson
+                # （绕过构造器默认值）把 App 端非空字段置 null 引发 NPE，统一兜底为 ''
+                'spec': (material.spec if material else '') or '',
                 'unit': material.unit.name if material and material.unit else '',
                 'quantity': normalize_stock_quantity(item.quantity or 0),
                 'price': round_to_2_decimals(item.price or 0),

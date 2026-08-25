@@ -252,3 +252,31 @@ class TestDailyDetailContractNo:
         assert resp.status_code == 200
         row = next(r for r in body["data"]["items"] if r["order_no"] == "IN-TODAY-01")
         assert row["contract_no"] == ""
+
+
+class TestDailyDetailSpecNullSafety:
+    """BUG-2026-08-24-007：material.spec 列可空（nullable）。
+
+    daily_detail 明细行 spec 必须兜底为空字符串，禁止下发显式 null——
+    Android 端 Gson 经 Unsafe 实例化（绕过构造器默认值），显式 null 会把
+    非空字段运行时置 null，UI 层 isNotBlank() 即抛 NPE 导致整 App 崩溃。
+    """
+
+    def test_material_without_spec_returns_empty_string(self, client):
+        with app_module.app.app_context():
+            from app import InOrder, InOrderItem, Material
+            m3 = Material(code="MAT003", name="无规格物料", stock=0, price=1.0, unit_id=1)
+            db.session.add(m3)
+            db.session.flush()
+            order = InOrder(order_no="IN-SPEC-01", date=TODAY, business_type="采购入库",
+                            warehouse="材料仓", status="completed", operator_id=1,
+                            supplier_id=1, total_amount=0)
+            db.session.add(order)
+            db.session.flush()
+            db.session.add(InOrderItem(in_order_id=order.id, material_id=m3.id,
+                                       quantity=1, price=1.0, amount=1.0))
+            db.session.commit()
+        resp, body = _get(client, type="purchase_in")
+        assert resp.status_code == 200
+        row = next(r for r in body["data"]["items"] if r["material_code"] == "MAT003")
+        assert row["spec"] == "", "spec 为 NULL 的物料必须输出空字符串，不得下发显式 null"

@@ -272,7 +272,10 @@ private fun DailyReportItemRow(item: DailyReportItem, isPurchase: Boolean) {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (item.spec.isNotBlank()) {
+                    // BUG-2026-08-24-007：spec/contractNo 可空（Gson 对缺失/显式
+                    // null 字段不走构造器默认值），必须用 isNullOrBlank 判空，
+                    // 裸 isNotBlank() 会 NPE 导致 App 崩溃。
+                    if (!item.spec.isNullOrBlank()) {
                         Text(
                             item.spec,
                             style = MaterialTheme.typography.bodySmall,
@@ -295,7 +298,7 @@ private fun DailyReportItemRow(item: DailyReportItem, isPurchase: Boolean) {
             val partyLabel = if (isPurchase) "供应商" else "部门"
             val partyValue = (if (isPurchase) item.supplier else item.department) ?: ""
             val bottomText = buildString {
-                if (item.contractNo.isNotBlank()) append("合同 ${item.contractNo}")
+                if (!item.contractNo.isNullOrBlank()) append("合同 ${item.contractNo}")
                 if (partyValue.isNotBlank()) {
                     if (isNotEmpty()) append(" · ")
                     append("$partyLabel $partyValue")

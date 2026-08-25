@@ -32,7 +32,12 @@ data class DailyReportItem(
     @SerializedName("date") val date: String,
     @SerializedName("material_code") val materialCode: String,
     @SerializedName("material_name") val materialName: String,
-    @SerializedName("spec") val spec: String,
+    // BUG-2026-08-24-007：Gson 经 Unsafe 分配实例（本类多数构造参数无默认值，
+    // 不生成无参构造器，构造器默认值不会生效）。服务端响应缺字段（旧版后端
+    // 无 contract_no）或字段显式为 null（material.spec 列可空）时，非空声明
+    // 会被运行时置 null，UI 层 isNotBlank() 即抛 NPE 导致整 App 崩溃。
+    // 故 spec / contractNo 必须声明为可空，与 supplier / department 同一模式。
+    @SerializedName("spec") val spec: String? = null,
     @SerializedName("unit") val unit: String,
     @SerializedName("quantity") val quantity: Double,
     @SerializedName("price") val price: Double,
@@ -43,6 +48,6 @@ data class DailyReportItem(
     @SerializedName("department") val department: String? = null,
     @SerializedName("operator") val operator: String,
     /** 合同编号（明细级优先，服务端回退单据头；手机端报表展示该字段） */
-    @SerializedName("contract_no") val contractNo: String = "",
+    @SerializedName("contract_no") val contractNo: String? = null,
     @SerializedName("remark") val remark: String
 )
