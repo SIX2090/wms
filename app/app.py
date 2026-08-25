@@ -102,6 +102,8 @@ from routes.purchase_order import register_purchase_order_routes
 from routes.purchase_request import register_purchase_request_routes
 # 库存调整（adjustment）域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
 from routes.adjustment import register_adjustment_routes
+# 全模块单据 Excel 模板打印路由（PRINT-TEMPLATE-F03 A2，统一 /{prefix}/<id>/print_excel）。
+from routes.doc_print_excel import register_doc_print_excel_routes
 # 系统设置（system_settings）域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
 from routes.system_settings import register_system_settings_routes
 # 用户/认证/管理员控制台/操作审计（user_auth）域路由注册函数（register-on-app 模式，endpoint 名不变）。
@@ -1930,6 +1932,9 @@ register_purchase_order_routes(app)
 register_purchase_request_routes(app)
 # 库存调整（adjustment）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_adjustment_routes(app)
+# 全模块单据 Excel 模板打印路由：/check|transfer|requisition|purchase_order|sales|
+# adjustment|subcontract(_issue|_receive)|after_sale_out/<id>/print_excel + 模板列表 JSON。
+register_doc_print_excel_routes(app)
 # 系统设置（system_settings）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_system_settings_routes(app)
 # 报表（report）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
