@@ -39,21 +39,40 @@ jobs:
           sed -i '/systemProp.https.proxyPort/d' gradle.properties
           sed -i '/# Proxy settings/d' gradle.properties
 
+      # AI-MOB-VOICE-F01-fix3（2026-08-26）：默认构建开启 sherpa-onnx 离线语音识别。
+      # 下载中文流式模型到 assets（随 APK 打包），runner 在海外直连 GitHub releases 无障碍。
+      # 手机装上后无需腾讯云密钥、无需联网即可用语音指令（引擎链：云 → sherpa → 系统）。
+      - name: Download sherpa-onnx model (离线语音)
+        working-directory: app/android-native-wms
+        run: ./gradlew :app:downloadSherpaModel -Pwms.sherpa=true --no-daemon --stacktrace
+
+      # downloadSherpaModel 失败只 warn 不 fail（Gradle task 设计如此），
+      # CI 必须显式校验模型文件齐全，否则打出的 APK 静默缺语音。
+      - name: Verify sherpa model present
+        run: |
+          dir=app/android-native-wms/app/src/main/assets/sherpa-onnx/stream
+          for f in tokens.txt encoder.onnx decoder.onnx joiner.onnx; do
+            [ -f "$dir/$f" ] || { echo "::error::missing $dir/$f"; exit 1; }
+          done
+          du -sh "$dir"
+
       # 方案A：用 assembleDebug 做编译验证（Debug 无需签名，避免 release keystore 缺失导致
       # 构建在签名配置阶段即失败，从而真正走到 Kotlin 编译，暴露语法/依赖问题）。
+      # -Pwms.sherpa=true：引入 sherpa-onnx AAR 并打包上一步下载的模型。
       - name: Build Debug APK
         working-directory: app/android-native-wms
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug -Pwms.sherpa=true --no-daemon --stacktrace
 
       # BUG-2026-08-16-021：Android CI 仅 assembleDebug 无 lint/单测，补 lint+test 门禁。
       # lintDebug 检查静态问题（无用资源/API 误用/可访问性等），testDebugUnitTest 跑 JVM 单测。
+      # 同样带 -Pwms.sherpa=true，保证 lint/单测与产物的构建配置一致。
       - name: Lint (BUG-2026-08-16-021)
         working-directory: app/android-native-wms
-        run: ./gradlew lintDebug --no-daemon --stacktrace
+        run: ./gradlew lintDebug -Pwms.sherpa=true --no-daemon --stacktrace
 
       - name: Unit tests (BUG-2026-08-16-021)
         working-directory: app/android-native-wms
-        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
+        run: ./gradlew testDebugUnitTest -Pwms.sherpa=true --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v5
