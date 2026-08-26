@@ -2069,3 +2069,12 @@ full 验证结果：
   - `python scripts/lint_wms_rules.py` → 0 违规；`python scripts/lint_no_raw_post_fetch.py` → 通过。
   - pre-commit 钩子：通过（0 违规）。
 - 推送验证：常规 HTTPS push 与 SSH 均受网络限制不可用，按「受限网络环境的 GitHub 推送（API 通道）」四步重放（blob×3 → tree `18b8eed1` → commit `39ee99c254a8` → PATCH refs/heads/main）；反查 `GET /repos/SIX2090/wms/commits/main` 确认 HEAD=`39ee99c254a8`、files 变更列表（3 个文件）与预期一致。token 经连接器 `get_token.sh` 获取，仅走请求头，未落盘。
+
+#### DOCS-2026-08-26-001（已完成）— AGENTS.md 推送章节按实测结果修订
+
+- 完成日期：2026-08-26
+- 提交 SHA：本地 `6b627c8` / 远程 `9b8b1a1edf4b`（API 通道重放）
+- 目标：把 2026-08-26 实测成功的推送路径固化为标准流程，删除/登记实测不可用的方式，避免后续会话复踩。
+- 改动模块：
+  - `AGENTS.md`「受限网络环境的 GitHub 推送」章节：凭证获取明确为唯一实测有效来源（github-connector skill `get_token.sh`，注意单条 Bash 调用内取 token 与使用必须同命令）；删除 SSH over 443（本环境无部署公钥）；登记实测不可用方式（credential helper 404 / MCP github-remote 连接失败 / ghproxy 代理只可拉取不可 push）；补充 token 写进 remote URL 后必须清理的约束；api.github.com 域名直连实测 000 须走 DoH IP。
+- 验证：API 通道反查 `GET /repos/SIX2090/wms/commits/main` 确认 HEAD=`9b8b1a1edf4b`、files 含 AGENTS.md。
