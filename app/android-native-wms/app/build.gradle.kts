@@ -151,24 +151,36 @@ dependencies {
 // sherpa-onnx 模型下载任务
 // -----------------------------------------------------------------------------
 // 用法：
-//   ./gradlew :app:downloadSherpaModel \
-//     -Pwms.sherpa=true \
-//     -PmodelUrl=https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zh-en-2023-06-26.tar.bz2
+//   ./gradlew :app:downloadSherpaModel -Pwms.sherpa=true
 //
-// 模型下载到 app/src/main/assets/sherpa-onnx/stream/，运行时会随 APK 一起打包，
+// 模型下载到 app/src/main/assets/sherpa-onnx/stream/（平铺为引擎期望的标准四件套
+// tokens.txt / encoder.onnx / decoder.onnx / joiner.onnx），运行时会随 APK 一起打包，
+// 首次启动由 SherpaVoiceSttEngine 复制到 filesDir 后使用，
 // 在国内 / 无 Google 服务的设备上提供本地离线中文识别。
 // 失败时 task 不抛异常，只 warn；运行时由 SherpaVoiceSttEngine.isAvailable 检测
 // 缺失并 fallback 到 AndroidVoiceSttEngine，保证 UI 不退化。
+//
+// 2026-08-26 修复（AI-MOB-VOICE-F01-fix3）：
+// - 原默认 URL 的模型名（sherpa-onnx-streaming-zh-en-2023-06-26）在官方 release
+//   中不存在（GitHub 返回 Not Found），改为实际存在的
+//   sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23（70.6MB，纯中文流式，
+//   transducer 结构 encoder/decoder/joiner 三件套，与引擎期望一致）。
+// - 原逻辑 untar 直接落 targetDir，但真实模型包有顶层目录且文件名带 epoch/int8
+//   后缀（如 encoder-epoch-99-avg-1.int8.onnx），与引擎期望的四件套文件名不符；
+//   现解到临时目录后按"前缀匹配、优先 int8"挑选并平铺重命名为标准文件名。
+// - 手机端选 int8 量化变体（体积约为 fp32 的 1/4，APK 增量约 15-20MB），
+//   无 int8 时回退 fp32。
 // -----------------------------------------------------------------------------
 tasks.register("downloadSherpaModel") {
     group = "sherpa"
-    description = "下载 sherpa-onnx 中文流式识别模型到 assets/sherpa-onnx/stream/"
+    description = "下载 sherpa-onnx 中文流式识别模型到 assets/sherpa-onnx/stream/（平铺标准四件套）"
     val defaultUrl =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" +
-            "sherpa-onnx-streaming-zh-en-2023-06-26.tar.bz2"
+            "sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23.tar.bz2"
     val modelUrl = (project.findProperty("modelUrl") as String?) ?: defaultUrl
     val targetDir = file("src/main/assets/sherpa-onnx/stream")
     val tmpFile = file("build/sherpa-model.tar.bz2")
+    val extractDir = file("build/sherpa-model-extract")
 
     doLast {
         val required = listOf("tokens.txt", "encoder.onnx", "decoder.onnx", "joiner.onnx")
@@ -197,17 +209,53 @@ tasks.register("downloadSherpaModel") {
             }
             // 解 bunzip2 后通常得到 .tar
             val tarFile = File(tmpFile.parentFile, "sherpa-model.tar")
-            if (tarFile.isFile) {
-                ant.withGroovyBuilder {
-                    "untar"(
-                        "src" to tarFile.absolutePath,
-                        "dest" to targetDir.absolutePath,
-                        "overwrite" to true
-                    )
-                }
-                tarFile.delete()
+            if (!tarFile.isFile) {
+                throw IllegalStateException("bunzip2 后未找到 $tarFile（下载可能不完整）")
             }
+            extractDir.deleteRecursively()
+            extractDir.mkdirs()
+            ant.withGroovyBuilder {
+                "untar"(
+                    "src" to tarFile.absolutePath,
+                    "dest" to extractDir.absolutePath,
+                    "overwrite" to true
+                )
+            }
+            tarFile.delete()
             tmpFile.delete()
+
+            // 模型包结构：<顶层目录>/{tokens.txt, encoder-*.onnx, decoder-*.onnx, joiner-*.onnx, ...}
+            // 顶层目录名随模型版本变化，在解出目录中递归定位含 tokens.txt 的那一层。
+            val modelRoot = extractDir.walkTopDown()
+                .firstOrNull { it.isFile && it.name == "tokens.txt" }
+                ?.parentFile
+                ?: throw IllegalStateException("解包后未找到 tokens.txt，模型包结构异常")
+            // 按前缀挑选变体：优先 int8（手机端体积/速度最优），无 int8 回退首个匹配（fp32）。
+            fun pickVariant(prefix: String): File {
+                val cands = modelRoot.listFiles()?.filter {
+                    it.isFile && it.name.startsWith(prefix) && it.name.endsWith(".onnx")
+                } ?: emptyList()
+                return cands.firstOrNull { it.name.contains("int8") }
+                    ?: cands.firstOrNull()
+                    ?: throw IllegalStateException("模型包中未找到 $prefix*.onnx")
+            }
+            val renameMap = linkedMapOf(
+                File(modelRoot, "tokens.txt") to File(targetDir, "tokens.txt"),
+                pickVariant("encoder") to File(targetDir, "encoder.onnx"),
+                pickVariant("decoder") to File(targetDir, "decoder.onnx"),
+                pickVariant("joiner") to File(targetDir, "joiner.onnx"),
+            )
+            renameMap.forEach { (src, dst) ->
+                src.copyTo(dst, overwrite = true)
+                logger.lifecycle("  $dst <- ${src.name} (${src.length() / 1024 / 1024}MB)")
+            }
+            extractDir.deleteRecursively()
+
+            // 落盘后校验四件套齐全（任一缺失视为失败，保证 CI 校验步骤能拦到）
+            val missing = required.filter { !File(targetDir, it).isFile }
+            if (missing.isNotEmpty()) {
+                throw IllegalStateException("模型落盘不完整，缺：$missing")
+            }
             logger.lifecycle("sherpa-onnx model downloaded to $targetDir")
         } catch (t: Throwable) {
             logger.warn(

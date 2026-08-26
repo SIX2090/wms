@@ -5,6 +5,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Log
+import com.factory.wms.BuildConfig
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -43,14 +44,21 @@ class SherpaVoiceSttEngine(
     @Volatile private var started = false
 
     override fun isAvailable(): Boolean {
-        // 1) 模型文件存在性
+        // 1) 模型文件存在性（filesDir 缺失时先尝试从 APK assets 复制——
+        //    CI 构建已把模型打进 assets/sherpa-onnx/stream/，首次启动落盘到 filesDir）
         val dir = modelDirOverride ?: defaultModelDir()
-        if (dir == null || !dir.isDirectory) {
+        if (dir == null) {
             Log.i(TAG, "sherpa-onnx model dir not found: $dir")
             return false
         }
         val required = listOf("tokens.txt", "encoder.onnx", "decoder.onnx", "joiner.onnx")
-        val missing = required.filter { !File(dir, it).isFile }
+        var missing = required.filter { !File(dir, it).isFile }
+        if (missing.isNotEmpty()) {
+            Log.i(TAG, "sherpa-onnx model missing in filesDir ($missing)，尝试从 assets 复制")
+            if (copyModelFromAssets(dir)) {
+                missing = required.filter { !File(dir, it).isFile }
+            }
+        }
         if (missing.isNotEmpty()) {
             Log.w(TAG, "sherpa-onnx model missing files: $missing in $dir")
             return false
@@ -203,6 +211,37 @@ class SherpaVoiceSttEngine(
     private fun defaultModelDir(): File? {
         val base = appContext.filesDir ?: return null
         return File(base, "sherpa-onnx/stream")
+    }
+
+    /**
+     * 首次启动把 APK assets 中的模型复制到 filesDir（sherpa-onnx 需要文件路径，
+     * 不能直接读 assets 流）。assets 目录由 BuildConfig.SHERPA_MODEL_DIR 指定，
+     * 模型由 build.gradle 的 downloadSherpaModel task 在构建期平铺为标准四件套。
+     * 非 sherpa 构建（SHERPA_ENABLED=false）或 APK 未打包模型时返回 false，
+     * 由调用方走 fallback，不抛异常。
+     */
+    private fun copyModelFromAssets(dir: File): Boolean {
+        if (!BuildConfig.SHERPA_ENABLED) return false
+        val required = listOf("tokens.txt", "encoder.onnx", "decoder.onnx", "joiner.onnx")
+        val assetBase = BuildConfig.SHERPA_MODEL_DIR.trim('/')
+        return try {
+            dir.mkdirs()
+            required.all { name ->
+                try {
+                    appContext.assets.open("$assetBase/$name").use { input ->
+                        File(dir, name).outputStream().use { output -> input.copyTo(output) }
+                    }
+                    Log.i(TAG, "sherpa-onnx model installed from assets: $name")
+                    true
+                } catch (t: Throwable) {
+                    Log.w(TAG, "sherpa-onnx asset model file missing/copied failed: $name (${t.message})")
+                    false
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "copyModelFromAssets failed: ${t.message}")
+            false
+        }
     }
 
     companion object {

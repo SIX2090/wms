@@ -52,3 +52,44 @@ def test_version_bumped_for_sherpa() -> None:
         f"含 sherpa 的 APK versionCode 必须 >= 6（当前 {m_code.group(1)}），否则手机不识别为更新"
     assert m_name.group(1) >= "3.3.0", \
         f"含 sherpa 的 APK versionName 必须 >= 3.3.0（当前 {m_name.group(1)}）"
+
+
+# ---------- fix3 后续修复（2026-08-26 CI run 32928804369 失败根因） ----------
+
+ENGINE = (ROOT / "app" / "android-native-wms" / "app" / "src" / "main" / "java" / "com"
+          / "factory" / "wms" / "ui" / "viewmodel" / "voice" / "SherpaVoiceSttEngine.kt"
+          ).read_text(encoding="utf-8")
+
+
+def test_model_url_exists_in_release() -> None:
+    """T5：默认模型 URL 必须指向官方 release 中真实存在的模型。
+
+    原 URL（…-zh-en-2023-06-26）在 release 资产列表中不存在，
+    GitHub 返回 Not Found，是 CI run 32928804369 模型下载失败的根因。"""
+    m = re.search(
+        r'val defaultUrl\s*=\s*"([^"]+)"\s*\+\s*"([^"]+)"', GRADLE)
+    assert m, "未找到 defaultUrl 定义"
+    url = m.group(1) + m.group(2)
+    assert "zh-en-2023-06-26" not in url, \
+        f"defaultUrl 禁止再引用不存在的模型（当前 {url}）"
+    assert "sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23" in url, \
+        f"defaultUrl 必须是真实存在的 zh-14M-2023-02-23 模型（当前 {url}）"
+
+
+def test_download_task_flattens_standard_filenames() -> None:
+    """T6：download task 必须把顶层目录 + epoch/int8 后缀的文件平铺重命名为
+    引擎期望的标准四件套（tokens.txt/encoder.onnx/decoder.onnx/joiner.onnx）。"""
+    body = GRADLE[GRADLE.find('tasks.register("downloadSherpaModel")'):]
+    assert "pickVariant" in body, "缺变体挑选逻辑（前缀匹配+int8 优先）"
+    assert "int8" in body, "手机端必须优先 int8 量化变体"
+    assert 'File(targetDir, "encoder.onnx")' in body, "encoder 必须重命名为 encoder.onnx"
+    assert 'File(targetDir, "decoder.onnx")' in body, "decoder 必须重命名为 decoder.onnx"
+    assert 'File(targetDir, "joiner.onnx")' in body, "joiner 必须重命名为 joiner.onnx"
+
+
+def test_engine_installs_model_from_assets() -> None:
+    """T7：引擎必须支持从 APK assets 复制模型到 filesDir（打通 assets→运行时最后一环）。"""
+    assert "copyModelFromAssets" in ENGINE, "SherpaVoiceSttEngine 缺 assets→filesDir 复制"
+    assert "BuildConfig.SHERPA_ENABLED" in ENGINE, "复制逻辑必须检查 SHERPA_ENABLED"
+    assert "BuildConfig.SHERPA_MODEL_DIR" in ENGINE, "复制逻辑必须使用 SHERPA_MODEL_DIR 定位 assets"
+    assert "appContext.assets.open" in ENGINE, "复制逻辑必须从 assets 读取模型"
