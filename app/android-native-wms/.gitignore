@@ -12,3 +12,5 @@ local.properties
 keystore/
 *.jks
 *.keystore
+# sherpa-onnx AAR 由 downloadSherpaAar task 在构建期下载（构建产物不进 git）
+app/libs/*.aar

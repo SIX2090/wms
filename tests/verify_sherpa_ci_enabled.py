@@ -93,3 +93,20 @@ def test_engine_installs_model_from_assets() -> None:
     assert "BuildConfig.SHERPA_ENABLED" in ENGINE, "复制逻辑必须检查 SHERPA_ENABLED"
     assert "BuildConfig.SHERPA_MODEL_DIR" in ENGINE, "复制逻辑必须使用 SHERPA_MODEL_DIR 定位 assets"
     assert "appContext.assets.open" in ENGINE, "复制逻辑必须从 assets 读取模型"
+
+
+def test_ci_downloads_and_verifies_aar() -> None:
+    """T8：CI 必须下载并显式校验 AAR（AAR 只发 GitHub Releases，缺失会让
+    checkDebugAarMetadata 失败——run 32930112111 的教训）。"""
+    assert "downloadSherpaAar" in CI, "CI 缺 downloadSherpaAar 步骤"
+    assert "libs/sherpa-onnx-1.13.6.aar" in CI, "CI 缺 AAR 文件存在性校验"
+    dl = CI.find("downloadSherpaAar")
+    build = CI.find("Build Debug APK")
+    assert dl != -1 and build != -1 and dl < build, \
+        "downloadSherpaAar 必须在 Build Debug APK 之前执行"
+
+
+def test_aar_gitignored() -> None:
+    """T9：AAR 是构建期下载产物，必须在 .gitignore 排除（不进 git）。"""
+    gi = (ROOT / "app" / "android-native-wms" / ".gitignore").read_text(encoding="utf-8")
+    assert "app/libs/*.aar" in gi, ".gitignore 缺 app/libs/*.aar 排除规则"

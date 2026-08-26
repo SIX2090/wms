@@ -51,10 +51,17 @@ def test_sherpa_model_dir_overridable_by_env() -> None:
 
 # ---------- AAR 依赖 ----------
 
-def test_sherpa_dependency_in_maven_central_group() -> None:
+def test_sherpa_dependency_is_local_aar() -> None:
+    """sherpa-onnx 的 AAR 只发 GitHub Releases、不在 Maven Central（com.k2fsa
+    group 不存在），必须本地 files() 依赖，禁止写 Maven 坐标（CI run 32930112111
+    checkDebugAarMetadata 失败的根因）。"""
     src = _read()
-    assert "com.k2fsa.sherpaonnx:sherpa-onnx" in src, \
-        "必须依赖 com.k2fsa.sherpaonnx:sherpa-onnx（mavenCentral）"
+    assert 'implementation(files("libs/sherpa-onnx-1.13.6.aar"))' in src, \
+        "必须以本地 AAR 文件依赖 libs/sherpa-onnx-1.13.6.aar"
+    assert "com.k2fsa.sherpaonnx:sherpa-onnx" not in src, \
+        "禁止使用 Maven 坐标 com.k2fsa.sherpaonnx（Maven Central 不存在该构件）"
+    assert 'tasks.register("downloadSherpaAar")' in src, \
+        "必须注册 downloadSherpaAar task（从 GitHub Releases 下载 AAR 到 app/libs/）"
 
 
 def test_sherpa_dependency_gated_by_property() -> None:
@@ -65,8 +72,8 @@ def test_sherpa_dependency_gated_by_property() -> None:
     body = src[start:]
     assert "wms.sherpa" in body, "sherpa 依赖必须读取 wms.sherpa 属性"
     assert "toBooleanStrictOrNull" in body, "sherpa 依赖必须用 toBooleanStrictOrNull 解析开关"
-    assert 'implementation("com.k2fsa.sherpaonnx:sherpa-onnx:1.12.13")' in body, \
-        "必须 implementation 引入 sherpa-onnx:1.12.13"
+    assert 'implementation(files("libs/sherpa-onnx-1.13.6.aar"))' in body, \
+        "必须在开关开启时 implementation 引入本地 sherpa-onnx AAR"
 
 
 # ---------- downloadSherpaModel task ----------

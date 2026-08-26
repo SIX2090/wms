@@ -124,9 +124,13 @@ dependencies {
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
     // sherpa-onnx 本地离线中文语音识别：仅在 -Pwms.sherpa=true 时引入 AAR
-    // （保持默认构建无网络依赖；启用后由 downloadSherpaModel 拉模型）
+    // （保持默认构建无网络依赖；启用后由 downloadSherpaModel 拉模型、downloadSherpaAar 拉 AAR）
+    // 2026-08-26 修复：sherpa-onnx 的 Android AAR 从未发布到 Maven Central
+    // （com.k2fsa group 不存在，CI run 32930112111 checkDebugAarMetadata 失败），
+    // 官方分发渠道是 GitHub Releases 资产，改为本地 AAR 文件依赖，
+    // 由 downloadSherpaAar task 下载到 app/libs/。
     if ((project.findProperty("wms.sherpa") as String?)?.toBooleanStrictOrNull() == true) {
-        implementation("com.k2fsa.sherpaonnx:sherpa-onnx:1.12.13")
+        implementation(files("libs/sherpa-onnx-1.13.6.aar"))
     }
 
     // DataStore (non-sensitive data)
@@ -171,6 +175,48 @@ dependencies {
 // - 手机端选 int8 量化变体（体积约为 fp32 的 1/4，APK 增量约 15-20MB），
 //   无 int8 时回退 fp32。
 // -----------------------------------------------------------------------------
+// sherpa-onnx Android AAR 下载任务（官方 AAR 只发 GitHub Releases，不在 Maven Central）。
+// 用法：./gradlew :app:downloadSherpaAar -Pwms.sherpa=true
+// 下载到 app/libs/sherpa-onnx-1.13.6.aar（构建产物，已在 .gitignore 排除）。
+tasks.register("downloadSherpaAar") {
+    group = "sherpa"
+    description = "下载 sherpa-onnx Android AAR 到 app/libs/"
+    val aarVersion = "1.13.6"
+    val defaultAarUrl =
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/" +
+            "v$aarVersion/sherpa-onnx-$aarVersion.aar"
+    val aarUrl = (project.findProperty("aarUrl") as String?) ?: defaultAarUrl
+    val targetAar = file("libs/sherpa-onnx-$aarVersion.aar")
+
+    doLast {
+        if (targetAar.isFile && targetAar.length() > 1024 * 1024) {
+            logger.lifecycle("sherpa-onnx AAR already present at $targetAar, skipping")
+            return@doLast
+        }
+        targetAar.parentFile.mkdirs()
+        try {
+            ant.withGroovyBuilder {
+                "get"(
+                    "src" to aarUrl,
+                    "dest" to targetAar.absolutePath,
+                    "verbose" to true,
+                    "usetimestamp" to true
+                )
+            }
+            // AAR 是 zip 结构且体积应为 MB 级；GitHub 302/404 时会落到很小的文件，显式拦截
+            if (!targetAar.isFile || targetAar.length() <= 1024 * 1024) {
+                targetAar.delete()
+                throw IllegalStateException("AAR 下载不完整（${targetAar.length()} bytes），疑似 302/404 未跟随")
+            }
+            logger.lifecycle("sherpa-onnx AAR downloaded to $targetAar (${targetAar.length() / 1024 / 1024}MB)")
+        } catch (t: Throwable) {
+            logger.warn(
+                "downloadSherpaAar 失败：${t.message}。开启 -Pwms.sherpa=true 构建将缺 AAR 依赖。"
+            )
+        }
+    }
+}
+
 tasks.register("downloadSherpaModel") {
     group = "sherpa"
     description = "下载 sherpa-onnx 中文流式识别模型到 assets/sherpa-onnx/stream/（平铺标准四件套）"
