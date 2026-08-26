@@ -2052,3 +2052,20 @@ full 验证结果：
   - `python -m pytest tests/ -q` → 607 passed。
 - 推送验证：push 输出 `87a769b..edb700e main -> main`；本地与 `origin/main` SHA 一致（`edb700e`）。
 - 备注：期间发现并行会话曾以无关提交信息（feat: 库存管理模块子菜单三列展开）误提交本修复的未暂存改动；已用 `commit --amend` 修正为规范信息 `fix(ui): BUG-2026-08-19-002 ...` 后推送（该提交此前未推送，amend 不影响远端历史）。
+
+#### BUG-2026-08-26-001-FIX（已完成）— Excel 打印模板编辑器占位符速插全英文
+
+- 完成日期：2026-08-26
+- 提交 SHA：本地 `0914c94` / 远程 `39ee99c254a8`（API 通道重放，SHA 不同属预期，内容一致）；登记提交见后续
+- 目标：修复 Excel 打印模板编辑器顶部「占位符速插」区 22 个字段全部显示纯英文模板变量（`{order.order_no}`、`{item.material.code}` 等），仓库一线人员看不懂含义、不知道该插入什么字段的问题。
+- 业务边界：仅前端显示层中文化；模板引擎取值键（value）绝对不动，保证存量模板渲染不受影响；不改后端/路由/打印链路。
+- 改动模块：
+  - `app/templates/print_template_editor.html`：`PLACEHOLDERS` 改为 `{ label, value }` 结构——chip 显示中文标签（单号/日期/供应商/客户/用途/备注/领料人/操作人/合计数量/合计金额/打印日期/物料编码/物料名称/规格/品牌/单位/数量/单价/金额/合同号/项目名/明细备注，22 项），悬停提示英文变量+用法，点击仍插入英文 value；面板标题补中文使用说明（点击字段插入到当前单元格，打印时自动替换为实际内容）。
+  - `tests/test_bug_2026_08_26_001_placeholder_chips_chinese.py`：新增回归测试 4 项。
+  - `WMS_BUG_BASELINE.md`：登记 BUG-2026-08-26-001 为已修复并纳入回归。
+- 专项验证命令及结果：
+  - `python -m pytest tests/test_bug_2026_08_26_001_placeholder_chips_chinese.py -q` → 4 passed。
+  - `python -m pytest tests/ -q` → 892 passed。
+  - `python scripts/lint_wms_rules.py` → 0 违规；`python scripts/lint_no_raw_post_fetch.py` → 通过。
+  - pre-commit 钩子：通过（0 违规）。
+- 推送验证：常规 HTTPS push 与 SSH 均受网络限制不可用，按「受限网络环境的 GitHub 推送（API 通道）」四步重放（blob×3 → tree `18b8eed1` → commit `39ee99c254a8` → PATCH refs/heads/main）；反查 `GET /repos/SIX2090/wms/commits/main` 确认 HEAD=`39ee99c254a8`、files 变更列表（3 个文件）与预期一致。token 经连接器 `get_token.sh` 获取，仅走请求头，未落盘。
