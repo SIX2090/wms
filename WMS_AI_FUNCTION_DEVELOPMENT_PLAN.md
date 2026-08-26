@@ -2078,3 +2078,11 @@ full 验证结果：
 - 改动模块：
   - `AGENTS.md`「受限网络环境的 GitHub 推送」章节：凭证获取明确为唯一实测有效来源（github-connector skill `get_token.sh`，注意单条 Bash 调用内取 token 与使用必须同命令）；删除 SSH over 443（本环境无部署公钥）；登记实测不可用方式（credential helper 404 / MCP github-remote 连接失败 / ghproxy 代理只可拉取不可 push）；补充 token 写进 remote URL 后必须清理的约束；api.github.com 域名直连实测 000 须走 DoH IP。
 - 验证：API 通道反查 `GET /repos/SIX2090/wms/commits/main` 确认 HEAD=`9b8b1a1edf4b`、files 含 AGENTS.md。
+
+**子修复 AI-MOB-VOICE-F01-fix3：CI 默认构建开启 sherpa 离线语音识别（2026-08-26）**：
+- 根因：语音功能"不能用"——默认 APK 未打包 sherpa 模型（`-Pwms.sherpa` 未开），云引擎又依赖服务器配置腾讯云密钥（`TENCENTCLOUD_SECRET_ID/SECRET_KEY`），而启动/部署脚本均未配置该变量，后端 `/mobile/api/asr` 恒返回 400「未配置腾讯云 ASR 密钥」。
+- 方案：用户选择 sherpa 离线方案（免费、不联网、不要密钥）。`.github/workflows/android-build.yml` 新增 `downloadSherpaModel` 步骤（Build 之前）+ 4 个模型文件存在性校验（download task 失败只 warn 不 fail，CI 必须显式拦截）；`assembleDebug`/`lintDebug`/`testDebugUnitTest` 统一带 `-Pwms.sherpa=true`。
+- 版本号（BUG-2026-08-16-022 规矩）：`build.gradle.kts` versionCode 5→6、versionName 3.2.0→3.3.0，确保新 APK 可作为更新安装。
+- 回归：`tests/verify_sherpa_ci_enabled.py` 新增 4 用例（CI 带 sherpa 开关 / 模型下载在 Build 之前 / 模型文件显式校验 / 版本号 >= 6/3.3.0）+ 存量 `verify_sherpa_build_config.py` 11 用例，15/15 PASSED；YAML 语法校验通过。
+- 提交：本地 `379538d` / 远程 `dea89ae07724`（API 通道重放）；CI 构建 run `32928804369` 已触发。
+- 部署边界：CI 产出 debug APK artifact 后，部署环境仍须用现有 keystore 构建签名 release APK 并替换 `/mobile/app` 所服务的 APK，用户手机重新下载安装后生效；引擎链保持「云 → sherpa → 系统」，后续若配置腾讯云密钥则自动优先走云端识别。
