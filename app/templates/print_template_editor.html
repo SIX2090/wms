@@ -144,7 +144,7 @@
         <div class="sheet-tabs" id="sheetTabs"></div>
 
         <div class="card pkg-row p-2 mb-2" id="phPanel">
-            <span class="small text-muted align-self-center">占位符速插：</span>
+            <span class="small text-muted align-self-center">占位符速插（点击字段插入到当前单元格，打印时自动替换为实际内容）：</span>
             <span id="phChips" class="d-flex flex-wrap gap-1"></span>
         </div>
 
@@ -182,16 +182,31 @@
             let sel = null;          // 当前选区 {r1, c1, r2, c2}（已归一化）
             let dragging = false;
 
-            // 常用占位符（供速插）
+            // 常用占位符（供速插）。label 是中文含义（chip 显示用），
+            // value 是实际插入单元格的模板变量（改 value 会导致模板引擎取不到数据）
             const PLACEHOLDERS = [
-                '{order.order_no}', '{order.date}', '{order.supplier.name}',
-                '{order.customer}', '{order.purpose}', '{order.remark}',
-                '{order.picker}', '{order.operator.username}',
-                '{total_quantity}', '{total_amount}', '{print_date}',
-                '{item.material.code}', '{item.material.name}', '{item.material.spec}',
-                '{item.material.brand}', '{item.material.unit.name}',
-                '{item.quantity}', '{item.price}', '{item.amount}',
-                '{item.contract_no}', '{item.project_name}', '{item.remark}',
+                { label: '单号', value: '{order.order_no}' },
+                { label: '日期', value: '{order.date}' },
+                { label: '供应商', value: '{order.supplier.name}' },
+                { label: '客户', value: '{order.customer}' },
+                { label: '用途', value: '{order.purpose}' },
+                { label: '备注', value: '{order.remark}' },
+                { label: '领料人', value: '{order.picker}' },
+                { label: '操作人', value: '{order.operator.username}' },
+                { label: '合计数量', value: '{total_quantity}' },
+                { label: '合计金额', value: '{total_amount}' },
+                { label: '打印日期', value: '{print_date}' },
+                { label: '物料编码', value: '{item.material.code}' },
+                { label: '物料名称', value: '{item.material.name}' },
+                { label: '规格', value: '{item.material.spec}' },
+                { label: '品牌', value: '{item.material.brand}' },
+                { label: '单位', value: '{item.material.unit.name}' },
+                { label: '数量', value: '{item.quantity}' },
+                { label: '单价', value: '{item.price}' },
+                { label: '金额', value: '{item.amount}' },
+                { label: '合同号', value: '{item.contract_no}' },
+                { label: '项目名', value: '{item.project_name}' },
+                { label: '明细备注', value: '{item.remark}' },
             ];
 
             function colLetter(n) {
@@ -233,9 +248,9 @@
                 PLACEHOLDERS.forEach(function(p) {
                     const chip = document.createElement('span');
                     chip.className = 'ph-chip';
-                    chip.textContent = p;
-                    chip.title = '点击插入到当前编辑的单元格';
-                    chip.onclick = function() { insertPlaceholder(p); };
+                    chip.textContent = p.label;
+                    chip.title = p.value + '：点击插入到当前编辑的单元格';
+                    chip.onclick = function() { insertPlaceholder(p.value); };
                     wrap.appendChild(chip);
                 });
             }
