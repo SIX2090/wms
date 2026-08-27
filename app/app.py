@@ -4020,11 +4020,19 @@ def _material_stock_unattributed(material_id):
             LocationInventory.warehouse_id.isnot(None),
         ).first()
     else:
-        # C-2026-08-27：归属判定改用 warehouse_id（B 治本精确标志），
-        # 替代 location 字符串非空判断（回填后空 location 也可能已归属仓库）。
+        # C-2026-08-27：归属判定以 warehouse_id 为精确标志（B 治本），但保留
+        # location 非空作为字符串线索——未回填的非空 location 行（如跨仓同名库位
+        # 歧义保留 NULL 的行）仍算可归属，维持 BUG-2026-08-18-002 仓库级严格校验，
+        # 不回退全局口径（防 A 仓掩护 B 仓）。
         attributed = db.session.query(StockTransaction.id).filter(
             StockTransaction.material_id == material_id,
-            StockTransaction.warehouse_id.isnot(None),
+            db.or_(
+                StockTransaction.warehouse_id.isnot(None),
+                db.and_(
+                    StockTransaction.location.isnot(None),
+                    StockTransaction.location != '',
+                ),
+            ),
         ).first()
     return attributed is None
 
@@ -25901,7 +25909,10 @@ def _filter_txn_list_by_warehouse_scope(transactions, loc_names, warehouse_id=No
     _loc_set = {n for n in loc_names if n}
     return [
         t for t in transactions
-        if t.warehouse_id == warehouse_id
+        # C-2026-08-27 修复1：warehouse_id 为 None（降级场景：loc_names 非空但仓库
+        # 解析失败）时必须跳过精确命中判断——否则 None == None 会把全部 NULL 行
+        # （含其他仓库的空 location 流水）误保留，绕过来源单据归属过滤导致串仓。
+        if (warehouse_id is not None and t.warehouse_id == warehouse_id)
         or (t.location or '').strip()
         or _src_wh.get(t.id) in _loc_set
     ]
