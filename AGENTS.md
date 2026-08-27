@@ -152,6 +152,8 @@ AI 需要往 `SIX2090/wms` 推送但沙箱无现成 token 时，用 GitHub 官�
 ### 安全红线（硬性）
 
 - `access_token`、`device_code` 属于**活凭证**：**严禁写入本文件或任何会被 commit/push 的文件**（会随仓库公开泄露访问权）。token 只放沙箱本地凭据存储（如 `~/.git-credentials` 或环境变量），用完即弃。
+- **本仓库为 public**：任何 token 值一旦写入被推送的文件，等于把仓库写权限公开给全网，且 GitHub Secret Scanning 会自动检测 `gho_`/`ghp_` 类 token 并**立即撤销**——提交即失效，还会触发安全告警。所以 token 值只能存本地，仓库内只写"指针"。
+- **当前生效凭证指针**：live token 存于沙箱 `/root/.git-credentials`（2026-08-28 设备授权流获取，scope=repo；本仓库 local 级 `credential.helper` 已指向该文件，push 自动使用）。需要重新获取时按上文「设备授权流」重新授权即可。
 - 推送完成且用户无需继续使用时，建议提示用户可在 GitHub → Settings → Applications 撤销该 OAuth App 授权，实现凭证轮换。
 
 ## AI 开发台账
