@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>下载扫码 APP - WMS</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f5f6f8; margin: 0; padding: 24px 16px; color: #24292f; }
+  .card { max-width: 560px; margin: 0 auto; background: #fff; border-radius: 12px;
+          padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  h2 { margin: 0 0 8px; font-size: 20px; }
+  .muted { color: #6a737d; font-size: 14px; line-height: 1.7; }
+  .h5-link { display: block; margin: 18px 0; padding: 14px; text-align: center;
+             background: #1f883d; color: #fff; border-radius: 8px;
+             text-decoration: none; font-size: 16px; font-weight: 600; }
+  .admin { margin-top: 20px; padding: 14px; background: #f6f8fa; border-radius: 8px;
+           font-size: 13px; line-height: 1.8; color: #57606a; }
+  .admin b { color: #24292f; }
+  .admin code { background: #eaeef2; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  ol { margin: 8px 0 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h2>扫码 APP 安装包暂未部署</h2>
+  <p class="muted">
+    服务器上还没有放置安卓安装包（APK），暂时无法直接下载。
+    您可以先用手机浏览器直接使用网页版扫码，功能相同、无需安装。
+  </p>
+  <a class="h5-link" href="{{ url_for('mobile_scan', mode='query') }}">使用手机浏览器扫码（网页版）</a>
+  <div class="admin">
+    <b>管理员部署 APP 下载的三种方式（任选其一）：</b>
+    <ol>
+      <li>把安装包命名为 <code>app-release.apk</code> 放到 WMS 仓库根目录（与 <code>app/</code> 同级），本页自动恢复为直接下载；</li>
+      <li>设置环境变量 <code>WMS_ANDROID_APK_URL</code> 指向安装包地址（内网文件服务器或 GitHub Releases），本页自动跳转；</li>
+      <li>从 GitHub Actions 的 <b>Android APK Build</b> 工作流下载 <code>app-debug</code> 构建产物，按方式 1 放置。</li>
+    </ol>
+  </div>
+</div>
+</body>
+</html>

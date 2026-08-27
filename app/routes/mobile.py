@@ -201,16 +201,26 @@ def find_mobile_material(keyword):
 def register_mobile_routes(app):
     @app.route('/mobile/app')
     def mobile_app_download():
-        from app import ANDROID_APK_PATHS, abort, os, send_file
+        from app import ANDROID_APK_PATHS, os, send_file, render_template, redirect
+        # BUG-2026-08-27-008：此前 APK 文件不在仓库（git 从未提交二进制）、CI 只构建
+        # debug 上传 artifact 不落部署机，两个候选路径永远不存在 → abort(404)，
+        # 用户点"下载扫码APP"看到裸 404 页，即"下载地址不正确"。
+        # 修复为三级兜底：
+        # 1. 管理员配置 WMS_ANDROID_APK_URL（内网文件服务器/GitHub Releases）→ 302 跳转；
+        apk_url = (os.environ.get('WMS_ANDROID_APK_URL') or '').strip()
+        if apk_url:
+            return redirect(apk_url)
+        # 2. 本地 APK 文件（仓库根 app-release.apk 或构建输出）→ 直接发送；
         apk_path = next((path for path in ANDROID_APK_PATHS if os.path.isfile(path)), None)
-        if not apk_path:
-            abort(404)
-        return send_file(
-            apk_path,
-            mimetype='application/vnd.android.package-archive',
-            as_attachment=True,
-            download_name='wms-mobile-scan.apk'
-        )
+        if apk_path:
+            return send_file(
+                apk_path,
+                mimetype='application/vnd.android.package-archive',
+                as_attachment=True,
+                download_name='wms-mobile-scan.apk'
+            )
+        # 3. 均无 → 友好说明页（200），含网页版扫码入口与管理员部署指引，不再裸 404。
+        return render_template('mobile_app_download_fallback.html'), 200
 
     @app.route('/mobile/connect')
     @login_required
