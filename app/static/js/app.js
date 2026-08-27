@@ -3043,6 +3043,30 @@ function insertGlobalActionBar() {
         { divider: true },
         { key: 'share', icon: 'bi-share', label: '智能分享', action: function() { smartShare(module); } }
     ];
+    // BUG-2026-08-27-001：单据详情页（URL 以 /数字 结尾）自带状态感知的操作按钮
+    // （草稿显示「删除」、已完成显示「反提交」、打印/发送打印等），全局工具栏再注入
+    // 通用「删除/打印」会出现两个删除、两个打印；且已完成单上全局「删除」必定被后端
+    // 拒绝（须先反提交），造成"反提交/删除有问题"的错觉。详情页检测到页面自带对应
+    // 动作时，跳过全局重复按钮，仅保留页面自身的上下文按钮。
+    if (/\/\d+\/?$/.test(window.location.pathname)) {
+        // 行级删除走 class 委托（delProductBtn 等）不带 onclick，不会误判；
+        // 侧边栏 /print_routing、/print_alerts 等导航链接不以 /print 结尾，也不会误判。
+        var pageHasOwnDelete = !!document.querySelector('[onclick*="delete"], [onclick*="revert"]');
+        var pageHasOwnPrint = !!document.querySelector('[onclick*="printOrder("], a[href$="/print"]');
+        if (pageHasOwnDelete || pageHasOwnPrint) {
+            buttons = buttons.filter(function(item) {
+                if (item.key === 'delete' && pageHasOwnDelete) return false;
+                if (item.key === 'print' && pageHasOwnPrint) return false;
+                return true;
+            });
+            // 清理按钮移除后产生的连续/首尾分隔线
+            buttons = buttons.filter(function(item, index, arr) {
+                if (!item.divider) return true;
+                if (index === 0 || index === arr.length - 1) return false;
+                return !arr[index - 1].divider;
+            });
+        }
+    }
     buttons.forEach(function(item) {
         if (item.divider) {
             var divider = document.createElement('span');
