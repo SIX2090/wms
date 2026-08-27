@@ -30,11 +30,13 @@
   </p>
   <a class="h5-link" href="{{ url_for('mobile_scan', mode='query') }}">使用手机浏览器扫码（网页版）</a>
   <div class="admin">
-    <b>管理员部署 APP 下载的三种方式（任选其一）：</b>
+    <b>管理员部署 APP 下载的方式（任选其一）：</b>
     <ol>
-      <li>把安装包命名为 <code>app-release.apk</code> 放到 WMS 仓库根目录（与 <code>app/</code> 同级），本页自动恢复为直接下载；</li>
-      <li>设置环境变量 <code>WMS_ANDROID_APK_URL</code> 指向安装包地址（内网文件服务器或 GitHub Releases），本页自动跳转；</li>
-      <li>从 GitHub Actions 的 <b>Android APK Build</b> 工作流下载 <code>app-debug</code> 构建产物，按方式 1 放置。</li>
+      <li>从 GitHub Release 免登录下载最新安装包（CI 每次自动构建更新）：
+        <code>github.com/SIX2090/wms/releases/download/android-apk/wms-mobile-scan.apk</code>，
+        重命名为 <code>app-release.apk</code> 放到 WMS 仓库根目录（与 <code>app/</code> 同级），本页自动恢复为直接下载；</li>
+      <li>设置环境变量 <code>WMS_ANDROID_APK_URL</code> 指向安装包地址（内网文件服务器，或上面的 Release 直链），本页自动跳转；</li>
+      <li>从 GitHub Actions 的 <b>Android APK Build</b> 工作流下载 <code>app-debug</code> 构建产物（需登录，90 天过期），按方式 1 放置。</li>
     </ol>
   </div>
 </div>
