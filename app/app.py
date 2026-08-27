@@ -25583,6 +25583,42 @@ def _collect_check_rows(filters):
         })
     return rows
 
+def _warehouse_location_filter_values(warehouse_id, warehouse_name, warehouse_code):
+    """库存台账/月报按仓库过滤时，匹配 StockTransaction.location 的全部取值。
+
+    BUG-2026-08-27-001：StockTransaction.location 字段历史上同时承载两类值——
+    ① 仓库名/编码（in_order/out_order/期初等走 add_stock/deduct_stock_atomic，
+    按 AGENTS.md 仓库必填约定写仓库名）；
+    ② 库位（transfer/subcontract/mobile 等走 add_stock_transaction 直接写库位）。
+    库存台账是唯一依赖该字段按仓库过滤的报表，仅匹配仓库名/编码会漏掉库位型流水，
+    导致开启库位管理时按仓库查不到调拨/委外等变动（AGENTS.md：仓库≠库位，但台账
+    需按仓库聚合全部变动）。
+
+    因此返回：仓库名、仓库编码、以及该仓库名下所有库位名，使库位型流水正确归到
+    所属仓库。LocationInventory 仅在开启库位管理时有行，故关闭时只匹配仓库名/编码，
+    行为与既有逻辑一致、不破坏历史数据（仓库名/编码已能覆盖关库位管理的全部流水）。
+    """
+    values = []
+    for v in (warehouse_name, warehouse_code):
+        v = (v or '').strip()
+        if v and v not in values:
+            values.append(v)
+    if warehouse_id:
+        try:
+            wid = int(warehouse_id)
+        except (TypeError, ValueError):
+            wid = None
+        if wid:
+            rows = db.session.query(LocationInventory.location).filter(
+                LocationInventory.warehouse_id == wid
+            ).distinct().all()
+            for (loc,) in rows:
+                loc = (loc or '').strip()
+                if loc and loc not in values:
+                    values.append(loc)
+    return values
+
+
 def _collect_ledger_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
@@ -25591,12 +25627,13 @@ def _collect_ledger_rows(filters):
         joinedload(StockTransaction.material),
         joinedload(StockTransaction.operator)
     )
-    # BUG-2026-08-02-014：库存台账按仓库过滤（通过 StockTransaction.location 匹配仓库名/编码）
-    if filters.get('warehouse'):
-        loc_names = [filters['warehouse']]
-        if filters.get('warehouse_code'):
-            loc_names.append(filters['warehouse_code'])
-        query = query.filter(StockTransaction.location.in_(loc_names))
+    # BUG-2026-08-27-001：库存台账按仓库过滤；StockTransaction.location 可能存仓库名/编码
+    # 也可能存库位，必须把该仓库名下的库位名一并纳入匹配，否则库位型流水按仓库查不到。
+    if filters.get('warehouse') or filters.get('warehouse_id'):
+        loc_names = _warehouse_location_filter_values(
+            filters.get('warehouse_id'), filters.get('warehouse'), filters.get('warehouse_code'))
+        if loc_names:
+            query = query.filter(StockTransaction.location.in_(loc_names))
     if filters.get('end_date'):
         query = query.filter(StockTransaction.created_at <= datetime.combine(filters['end_date'], time.max))
     material_clause = _material_filter_clause(filters.get('material_code'))
@@ -26029,13 +26066,15 @@ def _build_warehouse_monthly_report(filters):
     end_month = _month_start(end_date)
     final_cutoff = datetime.combine(_month_end(end_month), time.max)
 
-    # BUG-2026-08-02-014：仓库月报表按仓库过滤（StockTransaction.location 存仓库名/编码）
+    # BUG-2026-08-27-001：仓库月报表按仓库过滤；StockTransaction.location 可能存仓库名/编码
+    # 也可能存库位，必须把该仓库名下的库位名一并纳入匹配，否则库位型流水（调拨/委外等）
+    # 按仓库查不到。逻辑与 _collect_ledger_rows 一致。
     warehouse_filter = None
-    if filters.get('warehouse'):
-        loc_names = [filters['warehouse']]
-        if filters.get('warehouse_code'):
-            loc_names.append(filters['warehouse_code'])
-        warehouse_filter = StockTransaction.location.in_(loc_names)
+    if filters.get('warehouse') or filters.get('warehouse_id'):
+        loc_names = _warehouse_location_filter_values(
+            filters.get('warehouse_id'), filters.get('warehouse'), filters.get('warehouse_code'))
+        if loc_names:
+            warehouse_filter = StockTransaction.location.in_(loc_names)
 
     future_rows_query = db.session.query(
         StockTransaction.material_id,
