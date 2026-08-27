@@ -878,47 +878,149 @@
         listEl.innerHTML = html;
     }
 
-    function loadPending() {
-        showTip('<p class="mobile-confirm-empty">加载中...</p>');
+    // BUG-2026-08-28-001：待确认页分页——首屏 20 条，超过时提供"加载更多"逐页取回全部草稿
+    var inPage = 1;
+    var outPage = 1;
+    var inHasMore = false;
+    var outHasMore = false;
+    var inTotal = 0;
+    var outTotal = 0;
+    var inLoaded = 0;
+    var outLoaded = 0;
+    var moreBar = null;
+    var loadingMore = false;
+
+    function fetchPendingPage(kind, page) {
         // 仓库必填：按选中的仓库查询待确认草稿（AGENTS.md 仓库必填）
-        var qs = '&warehouse=' + encodeURIComponent(confirmWarehouseSelect ? confirmWarehouseSelect.value : '');
-        Promise.all([
-            fetch('/api/mobile/in_order/list?status=pending' + qs, {credentials: 'same-origin'})
-                .then(function(r) { if (sessionRedirect(r)) throw new Error('login'); return r.json(); }),
-            fetch('/api/mobile/out_order/list?status=pending' + qs, {credentials: 'same-origin'})
-                .then(function(r) { if (sessionRedirect(r)) throw new Error('login'); return r.json(); })
-        ]).then(function(results) {
-            var inItems = [];
-            var outItems = [];
-            ['in', 'out'].forEach(function(kind, i) {
-                var d = results[i];
-                if (d && d.status === 'success' && d.data && d.data.items) {
-                    if (kind === 'in') inItems = d.data.items;
-                    else outItems = d.data.items;
-                }
+        var qs = '&page=' + page + '&warehouse=' + encodeURIComponent(confirmWarehouseSelect ? confirmWarehouseSelect.value : '');
+        var url = kind === 'in' ? '/api/mobile/in_order/list?status=pending' : '/api/mobile/out_order/list?status=pending';
+        return fetch(url + qs, {credentials: 'same-origin'})
+            .then(function(r) {
+                if (sessionRedirect(r)) throw new Error('login');
+                return r.json();
             });
-            renderList(inItems, outItems);
+    }
+
+    function loadPending() {
+        inPage = 1;
+        outPage = 1;
+        inHasMore = false;
+        outHasMore = false;
+        inLoaded = 0;
+        outLoaded = 0;
+        showTip('<p class="mobile-confirm-empty">加载中...</p>');
+        Promise.all([fetchPendingPage('in', 1), fetchPendingPage('out', 1)]).then(function(results) {
+            applyPendingPage('in', inPage, results[0]);
+            applyPendingPage('out', outPage, results[1]);
+            if (inLoaded + outLoaded === 0) {
+                showTip('<p class="mobile-confirm-empty">暂无待确认草稿</p>');
+                return;
+            }
+            renderMoreBar();
         }).catch(function(error) {
             if (error && error.message === 'login') return;
             showTip('<p class="mobile-confirm-empty">加载待确认草稿失败，请点击刷新重试</p>');
         });
     }
 
-    function renderList(inItems, outItems) {
-        if (!inItems.length && !outItems.length) {
-            showTip('<p class="mobile-confirm-empty">暂无待确认草稿</p>');
-            return;
+    function applyPendingPage(kind, page, data) {
+        var items = [];
+        if (data && data.status === 'success' && data.data && data.data.items) {
+            items = data.data.items;
         }
-        var html = '';
-        inItems.forEach(function(o) { html += draftCard('in', o, '入库'); });
-        outItems.forEach(function(o) { html += draftCard('out', o, '出库'); });
-        listEl.innerHTML = html;
+        var total = (data && data.data && Number(data.data.total)) || 0;
+        var totalPages = (data && data.data && Number(data.data.total_pages)) || 1;
+        if (kind === 'in') {
+            inTotal = total;
+            inHasMore = page < totalPages;
+            inLoaded += items.length;
+            appendCards('in', items, '入库');
+        } else {
+            outTotal = total;
+            outHasMore = page < totalPages;
+            outLoaded += items.length;
+            appendCards('out', items, '出库');
+        }
+    }
 
+    function loadMore() {
+        if (loadingMore || (!inHasMore && !outHasMore)) return;
+        loadingMore = true;
+        setMoreBarLoading(true);
+        var nextIn = inHasMore ? inPage + 1 : null;
+        var nextOut = outHasMore ? outPage + 1 : null;
+        Promise.all([
+            nextIn ? fetchPendingPage('in', nextIn) : Promise.resolve(null),
+            nextOut ? fetchPendingPage('out', nextOut) : Promise.resolve(null)
+        ]).then(function(results) {
+            if (nextIn) {
+                inPage = nextIn;
+                applyPendingPage('in', inPage, results[0]);
+            }
+            if (nextOut) {
+                outPage = nextOut;
+                applyPendingPage('out', outPage, results[1]);
+            }
+            renderMoreBar();
+        }).catch(function(error) {
+            if (error && error.message === 'login') return;
+            if (window.showToast) {
+                window.showToast('加载更多草稿失败，请重试', 'danger');
+            }
+            renderMoreBar();
+        }).then(function() {
+            loadingMore = false;
+        });
+    }
+
+    function appendCards(kind, items, label) {
+        if (!items.length) return;
+        if (moreBar && moreBar.parentNode === listEl) listEl.removeChild(moreBar);
+        var html = '';
+        items.forEach(function(o) { html += draftCard(kind, o, label); });
+        listEl.insertAdjacentHTML('beforeend', html);
         Array.prototype.forEach.call(listEl.querySelectorAll('[data-confirm]'), function(btn) {
+            if (btn.dataset.bound === '1') return;
+            btn.dataset.bound = '1';
             btn.addEventListener('click', function() {
                 confirmDraft(btn);
             });
         });
+    }
+
+    function renderMoreBar() {
+        if (moreBar && moreBar.parentNode === listEl) listEl.removeChild(moreBar);
+        var shown = inLoaded + outLoaded;
+        var total = inTotal + outTotal;
+        moreBar = document.createElement('div');
+        moreBar.className = 'mobile-confirm-more';
+        if (inHasMore || outHasMore) {
+            var remaining = Math.max(total - shown, 1);
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-outline-primary btn-sm w-100';
+            btn.id = 'confirmMoreBtn';
+            btn.innerHTML = '<i class="bi bi-chevron-double-down"></i> 已显示 ' + shown + ' / ' + total + ' 条，加载更多（还有 ' + remaining + ' 条）';
+            btn.addEventListener('click', loadMore);
+            moreBar.appendChild(btn);
+        } else {
+            var tip = document.createElement('p');
+            tip.className = 'mobile-confirm-more-done';
+            tip.textContent = '已全部加载，共 ' + shown + ' 条（入库 ' + inLoaded + ' / 出库 ' + outLoaded + '）';
+            moreBar.appendChild(tip);
+        }
+        listEl.appendChild(moreBar);
+    }
+
+    function setMoreBarLoading(isLoading) {
+        var btn = document.getElementById('confirmMoreBtn');
+        if (!btn) return;
+        if (isLoading) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 加载中...';
+        } else {
+            btn.disabled = false;
+        }
     }
 
     function draftCard(orderType, o, label) {
@@ -1218,5 +1320,9 @@
 }
 .mobile-confirm-card-actions button { font-size: 14px; }
 .mobile-confirm-tip { margin-top: 16px; color: #9ca3af; font-size: 12px; }
+/* BUG-2026-08-28-001：待确认页分页——加载更多按钮与全部加载提示 */
+.mobile-confirm-more { display: flex; }
+.mobile-confirm-more button { white-space: normal; line-height: 1.4; }
+.mobile-confirm-more-done { width: 100%; text-align: center; color: #9ca3af; font-size: 12px; margin: 4px 0; }
 </style>
 {% endblock %}
