@@ -25619,6 +25619,68 @@ def _warehouse_location_filter_values(warehouse_id, warehouse_name, warehouse_co
     return values
 
 
+def _ledger_source_warehouse_getters():
+    """reference_type -> (model, getter(doc, txn)->仓库名)。
+
+    BUG-2026-08-27-003：多仓库下历史空 location 流水无法按仓库过滤，其真实仓库可从
+    来源单据（入库单/出库单/期初/调拨等）的 warehouse 字段推断。
+    """
+    def _wh(doc, txn):
+        return (getattr(doc, 'warehouse', '') or '').strip()
+
+    def _opening_wh(doc, txn):
+        w = getattr(doc, 'warehouse', None)
+        return ((w.name if w else '') or '').strip()
+
+    def _transfer_wh(doc, txn):
+        # 调拨出（数量为负）归 from_warehouse，调拨入（数量为正）归 to_warehouse
+        return ((doc.from_warehouse or '') if (txn.quantity or 0) < 0 else (doc.to_warehouse or '')).strip()
+
+    return {
+        'in_order': (InOrder, _wh),
+        'out_order': (OutOrder, _wh),
+        'after_sale_out_order': (AfterSaleOutOrder, _wh),
+        'requisition': (ProductionRequisition, _wh),
+        'sales': (SalesOrder, _wh),
+        'adjustment': (AdjustmentOrder, _wh),
+        'check': (InventoryCheck, _wh),
+        'subcontract': (SubcontractOrder, _wh),
+        'opening_stock': (OpeningStock, _opening_wh),
+        'transfer': (TransferOrder, _transfer_wh),
+    }
+
+
+def _ledger_source_warehouse_map(transactions):
+    """对 location 为空的流水，按来源单据解析仓库名，返回 {txn_id: 仓库名}（BUG-2026-08-27-003）。"""
+    result = {}
+    by_type = {}
+    for t in transactions:
+        if (t.location or '').strip():
+            continue
+        if not t.reference_type or not t.reference_id:
+            continue
+        by_type.setdefault(t.reference_type, []).append(t)
+    if not by_type:
+        return result
+    getters = _ledger_source_warehouse_getters()
+    for ref_type, txns in by_type.items():
+        entry = getters.get(ref_type)
+        if not entry:
+            continue
+        model, getter = entry
+        ids = list({t.reference_id for t in txns})
+        docs = model.query.filter(model.id.in_(ids)).all()
+        doc_map = {d.id: d for d in docs}
+        for t in txns:
+            doc = doc_map.get(t.reference_id)
+            if doc is None:
+                continue
+            wh = getter(doc, t)
+            if wh:
+                result[t.id] = wh
+    return result
+
+
 def _collect_ledger_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
@@ -25633,11 +25695,20 @@ def _collect_ledger_rows(filters):
     # 不按 location 过滤，与 get_warehouse_stock_quantities 单仓库全局口径一致，避免
     # “库存查询有数、库存台账却查不到”（早期版本台账不按 location 过滤，升级后老流水被挡）。
     # 多仓库仍按 location 精确过滤（仓库名/编码/库位）。
-    if (filters.get('warehouse') or filters.get('warehouse_id')) and Warehouse.query.count() != 1:
+    _warehouse_scoped = bool(filters.get('warehouse') or filters.get('warehouse_id'))
+    _multi_wh = Warehouse.query.count() != 1
+    loc_names = []
+    if _warehouse_scoped and _multi_wh:
         loc_names = _warehouse_location_filter_values(
             filters.get('warehouse_id'), filters.get('warehouse'), filters.get('warehouse_code'))
         if loc_names:
-            query = query.filter(StockTransaction.location.in_(loc_names))
+            # BUG-2026-08-27-003：同时取出空 location 流水（历史未写仓库名），
+            # 后续按来源单据仓库归属过滤，而不是直接排除。
+            query = query.filter(db.or_(
+                StockTransaction.location.in_(loc_names),
+                StockTransaction.location.is_(None),
+                StockTransaction.location == '',
+            ))
     if filters.get('end_date'):
         query = query.filter(StockTransaction.created_at <= datetime.combine(filters['end_date'], time.max))
     material_clause = _material_filter_clause(filters.get('material_code'))
@@ -25645,6 +25716,16 @@ def _collect_ledger_rows(filters):
         query = query.join(StockTransaction.material).filter(material_clause)
 
     transactions = query.order_by(StockTransaction.material_id.asc(), StockTransaction.created_at.asc(), StockTransaction.id.asc()).limit(5000).all()
+
+    # BUG-2026-08-27-003：多仓库下，空 location 流水只有当其来源单据仓库与所选仓库一致时才保留；
+    # location 非空的流水已被上方 SQL 过滤（必属所选仓库），直接保留。
+    if _warehouse_scoped and _multi_wh and loc_names:
+        _src_wh = _ledger_source_warehouse_map(transactions)
+        _loc_set = {n for n in loc_names if n}
+        transactions = [
+            t for t in transactions
+            if (t.location or '').strip() or _src_wh.get(t.id) in _loc_set
+        ]
 
     rows = []
     balances = {}
