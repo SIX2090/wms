@@ -3949,13 +3949,25 @@ def get_warehouse_stock_quantities(warehouse):
             return {m.id: float(m.stock or 0) for m in Material.query.all()}
         # BUG-2026-08-18-003：历史数据 location 可能写的是仓库编号（如 WH001）
         # 而不是仓库名，需要同时匹配编号和名称。
-        loc_names = [n for n in (warehouse_key, warehouse_code) if n]
+        # BUG-2026-08-27-004：与台账/月报同口径——库位名流水经 _warehouse_location_filter_values
+        # 纳入匹配；空 location 历史流水按来源单据仓库归属补入，否则多仓库下月报期末
+        # 与库存查询均漏掉历史流水（台账有数、月报/库存查询无数）。
+        loc_names = _warehouse_location_filter_values(warehouse.id, warehouse_key, warehouse_code)
         if not loc_names:
             return {}
         rows = (db.session.query(StockTransaction.material_id,
                                  func.coalesce(func.sum(StockTransaction.quantity), 0))
                 .filter(StockTransaction.location.in_(loc_names))
                 .group_by(StockTransaction.material_id).all())
+        result = {material_id: float(quantity or 0) for material_id, quantity in rows}
+        # 多仓库下空 location 历史流水按来源单据仓库归属补入（与台账一致）
+        empty_txns = StockTransaction.query.filter(
+            db.or_(StockTransaction.location.is_(None), StockTransaction.location == '')
+        ).all()
+        for t in _filter_txn_list_by_warehouse_scope(empty_txns, loc_names):
+            result[t.material_id] = result.get(t.material_id, 0.0) + float(t.quantity or 0)
+        return result
+
     return {material_id: float(quantity or 0) for material_id, quantity in rows}
 
 def _material_stock_unattributed(material_id):
@@ -25681,6 +25693,51 @@ def _ledger_source_warehouse_map(transactions):
     return result
 
 
+def _warehouse_scoped_txn_condition(filters):
+    """按仓库过滤 StockTransaction 的 SQL 条件（台账/月报/库存汇总共用口径）。
+
+    返回 (loc_names, condition)：
+    - 未选仓库或单仓库：([], None)——不按 location 过滤。单仓库时全部流水必属该仓库
+      （含历史空 location 流水，BUG-2026-08-27-002 口径）。
+    - 多仓库：loc_names = 仓库名/编码 + 该仓库名下全部库位名（BUG-2026-08-27-001），
+      condition 在 IN(loc_names) 基础上放行空 location 流水（BUG-2026-08-27-003/004），
+      由调用方用 _filter_txn_list_by_warehouse_scope 按来源单据仓库归属过滤。
+
+    台账与月报此前各持一份过滤逻辑、多次修复漏改一处（BUG-2026-08-27-004 的直接起因），
+    现统一收拢到本函数，改口径只改这里。
+    """
+    if not (filters.get('warehouse') or filters.get('warehouse_id')):
+        return [], None
+    if Warehouse.query.count() == 1:
+        return [], None
+    loc_names = _warehouse_location_filter_values(
+        filters.get('warehouse_id'), filters.get('warehouse'), filters.get('warehouse_code'))
+    if not loc_names:
+        return [], None
+    condition = db.or_(
+        StockTransaction.location.in_(loc_names),
+        StockTransaction.location.is_(None),
+        StockTransaction.location == '',
+    )
+    return loc_names, condition
+
+
+def _filter_txn_list_by_warehouse_scope(transactions, loc_names):
+    """按仓库口径过滤流水列表：空 location 流水仅当来源单据仓库属所选仓库时保留。
+
+    台账/月报/库存汇总共用（BUG-2026-08-27-003/004）；loc_names 为空表示不过滤
+    （单仓库或未选仓库）。location 非空的流水应由 SQL 条件保证必属所选仓库，直接保留。
+    """
+    if not loc_names:
+        return transactions
+    _src_wh = _ledger_source_warehouse_map(transactions)
+    _loc_set = {n for n in loc_names if n}
+    return [
+        t for t in transactions
+        if (t.location or '').strip() or _src_wh.get(t.id) in _loc_set
+    ]
+
+
 def _collect_ledger_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
@@ -25689,26 +25746,12 @@ def _collect_ledger_rows(filters):
         joinedload(StockTransaction.material),
         joinedload(StockTransaction.operator)
     )
-    # BUG-2026-08-27-001：库存台账按仓库过滤；StockTransaction.location 可能存仓库名/编码
-    # 也可能存库位，必须把该仓库名下的库位名一并纳入匹配，否则库位型流水按仓库查不到。
-    # BUG-2026-08-27-002：单仓库时所有流水必属该仓库（含历史未写仓库名的 NULL-location 流水），
-    # 不按 location 过滤，与 get_warehouse_stock_quantities 单仓库全局口径一致，避免
-    # “库存查询有数、库存台账却查不到”（早期版本台账不按 location 过滤，升级后老流水被挡）。
-    # 多仓库仍按 location 精确过滤（仓库名/编码/库位）。
-    _warehouse_scoped = bool(filters.get('warehouse') or filters.get('warehouse_id'))
-    _multi_wh = Warehouse.query.count() != 1
-    loc_names = []
-    if _warehouse_scoped and _multi_wh:
-        loc_names = _warehouse_location_filter_values(
-            filters.get('warehouse_id'), filters.get('warehouse'), filters.get('warehouse_code'))
-        if loc_names:
-            # BUG-2026-08-27-003：同时取出空 location 流水（历史未写仓库名），
-            # 后续按来源单据仓库归属过滤，而不是直接排除。
-            query = query.filter(db.or_(
-                StockTransaction.location.in_(loc_names),
-                StockTransaction.location.is_(None),
-                StockTransaction.location == '',
-            ))
+    # BUG-2026-08-27-001/002/003：仓库口径统一走 _warehouse_scoped_txn_condition——
+    # 多仓库 IN(仓库名/编码/库位名) 并放行空 location 流水，单仓库不过滤；
+    # 空 location 流水随后按来源单据仓库归属过滤。
+    loc_names, warehouse_condition = _warehouse_scoped_txn_condition(filters)
+    if warehouse_condition is not None:
+        query = query.filter(warehouse_condition)
     if filters.get('end_date'):
         query = query.filter(StockTransaction.created_at <= datetime.combine(filters['end_date'], time.max))
     material_clause = _material_filter_clause(filters.get('material_code'))
@@ -25717,15 +25760,9 @@ def _collect_ledger_rows(filters):
 
     transactions = query.order_by(StockTransaction.material_id.asc(), StockTransaction.created_at.asc(), StockTransaction.id.asc()).limit(5000).all()
 
-    # BUG-2026-08-27-003：多仓库下，空 location 流水只有当其来源单据仓库与所选仓库一致时才保留；
+    # BUG-2026-08-27-003：空 location 流水仅当来源单据仓库与所选仓库一致时保留；
     # location 非空的流水已被上方 SQL 过滤（必属所选仓库），直接保留。
-    if _warehouse_scoped and _multi_wh and loc_names:
-        _src_wh = _ledger_source_warehouse_map(transactions)
-        _loc_set = {n for n in loc_names if n}
-        transactions = [
-            t for t in transactions
-            if (t.location or '').strip() or _src_wh.get(t.id) in _loc_set
-        ]
+    transactions = _filter_txn_list_by_warehouse_scope(transactions, loc_names)
 
     rows = []
     balances = {}
@@ -26151,29 +26188,27 @@ def _build_warehouse_monthly_report(filters):
     end_month = _month_start(end_date)
     final_cutoff = datetime.combine(_month_end(end_month), time.max)
 
-    # BUG-2026-08-27-001：仓库月报表按仓库过滤；StockTransaction.location 可能存仓库名/编码
-    # 也可能存库位，必须把该仓库名下的库位名一并纳入匹配，否则库位型流水（调拨/委外等）
-    # 按仓库查不到。逻辑与 _collect_ledger_rows 一致。
-    # BUG-2026-08-27-002：单仓库时所有流水必属该仓库（含历史 NULL-location 流水），不按
-    # location 过滤，与 _collect_ledger_rows / get_warehouse_stock_quantities 口径一致。
-    warehouse_filter = None
-    if (filters.get('warehouse') or filters.get('warehouse_id')) and Warehouse.query.count() != 1:
-        loc_names = _warehouse_location_filter_values(
-            filters.get('warehouse_id'), filters.get('warehouse'), filters.get('warehouse_code'))
-        if loc_names:
-            warehouse_filter = StockTransaction.location.in_(loc_names)
+    # BUG-2026-08-27-001/002：仓库月报按仓库过滤；多仓库时匹配仓库名/编码/该仓库
+    # 名下库位名；单仓库不过滤（全部流水必属该仓库）。
+    # BUG-2026-08-27-004：月报仓库口径与台账统一走 _warehouse_scoped_txn_condition——
+    # 此前月报仅 location.in_(loc_names)，把多仓库下空 location 的历史流水整体排除
+    # （BUG-2026-08-27-003 只修了台账漏了月报），导致月报与台账数字对不上；
+    # 现统一放行空 location 流水，取出后按来源单据仓库归属过滤。
+    loc_names, warehouse_condition = _warehouse_scoped_txn_condition(filters)
 
-    future_rows_query = db.session.query(
-        StockTransaction.material_id,
-        func.coalesce(func.sum(StockTransaction.quantity), 0),
-    ).filter(
+    # 未来流水（期末之后）同样放行空 location 流水，取出后按来源单据仓库归属
+    # 过滤再聚合，保证期末倒推口径与月内流水一致（BUG-2026-08-27-004）。
+    future_query = StockTransaction.query.filter(
         StockTransaction.material_id.in_(material_ids),
         StockTransaction.created_at > final_cutoff,
     )
-    if warehouse_filter is not None:
-        future_rows_query = future_rows_query.filter(warehouse_filter)
-    future_rows = future_rows_query.group_by(StockTransaction.material_id).all()
-    future_net_by_material = {material_id: _safe_float(quantity) for material_id, quantity in future_rows}
+    if warehouse_condition is not None:
+        future_query = future_query.filter(warehouse_condition)
+    future_txns = future_query.all()
+    future_txns = _filter_txn_list_by_warehouse_scope(future_txns, loc_names)
+    future_net_by_material = {}
+    for t in future_txns:
+        future_net_by_material[t.material_id] = future_net_by_material.get(t.material_id, 0.0) + _safe_float(t.quantity)
 
     # BUG-2026-08-17-00X：月报期末库存按仓库级口径（与库存查询/库存报表一致），
     # 不再使用跨仓的 Material.stock 全局数，避免多仓库时串仓。
@@ -26192,9 +26227,12 @@ def _build_warehouse_monthly_report(filters):
         StockTransaction.created_at >= datetime.combine(start_month, time.min),
         StockTransaction.created_at <= final_cutoff,
     )
-    if warehouse_filter is not None:
-        transactions_query = transactions_query.filter(warehouse_filter)
+    if warehouse_condition is not None:
+        transactions_query = transactions_query.filter(warehouse_condition)
     transactions = transactions_query.order_by(StockTransaction.created_at.desc(), StockTransaction.id.desc()).all()
+
+    # BUG-2026-08-27-004：空 location 流水仅当来源单据仓库与所选仓库一致时保留（与台账一致）
+    transactions = _filter_txn_list_by_warehouse_scope(transactions, loc_names)
 
     for transaction in transactions:
         if not transaction.created_at:
