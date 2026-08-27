@@ -25629,7 +25629,11 @@ def _collect_ledger_rows(filters):
     )
     # BUG-2026-08-27-001：库存台账按仓库过滤；StockTransaction.location 可能存仓库名/编码
     # 也可能存库位，必须把该仓库名下的库位名一并纳入匹配，否则库位型流水按仓库查不到。
-    if filters.get('warehouse') or filters.get('warehouse_id'):
+    # BUG-2026-08-27-002：单仓库时所有流水必属该仓库（含历史未写仓库名的 NULL-location 流水），
+    # 不按 location 过滤，与 get_warehouse_stock_quantities 单仓库全局口径一致，避免
+    # “库存查询有数、库存台账却查不到”（早期版本台账不按 location 过滤，升级后老流水被挡）。
+    # 多仓库仍按 location 精确过滤（仓库名/编码/库位）。
+    if (filters.get('warehouse') or filters.get('warehouse_id')) and Warehouse.query.count() != 1:
         loc_names = _warehouse_location_filter_values(
             filters.get('warehouse_id'), filters.get('warehouse'), filters.get('warehouse_code'))
         if loc_names:
@@ -26069,8 +26073,10 @@ def _build_warehouse_monthly_report(filters):
     # BUG-2026-08-27-001：仓库月报表按仓库过滤；StockTransaction.location 可能存仓库名/编码
     # 也可能存库位，必须把该仓库名下的库位名一并纳入匹配，否则库位型流水（调拨/委外等）
     # 按仓库查不到。逻辑与 _collect_ledger_rows 一致。
+    # BUG-2026-08-27-002：单仓库时所有流水必属该仓库（含历史 NULL-location 流水），不按
+    # location 过滤，与 _collect_ledger_rows / get_warehouse_stock_quantities 口径一致。
     warehouse_filter = None
-    if filters.get('warehouse') or filters.get('warehouse_id'):
+    if (filters.get('warehouse') or filters.get('warehouse_id')) and Warehouse.query.count() != 1:
         loc_names = _warehouse_location_filter_values(
             filters.get('warehouse_id'), filters.get('warehouse'), filters.get('warehouse_code'))
         if loc_names:
