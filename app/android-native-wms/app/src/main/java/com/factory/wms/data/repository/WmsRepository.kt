@@ -299,8 +299,24 @@ class WmsRepository(private val context: Context) {
     suspend fun getDailyReport(type: String, date: String? = null): Result<DailyReportData> {
         return try {
             ensureSession()
-            val response = api.dailyReportDetail(type, date)
-            handleResponse<DailyReportData>(response)
+            // BUG-2026-08-28-002：明细行按 page_size 条/页分页返回，仅取第 1 页时，
+            // 当日明细超过一页则后续明细永远不可见（汇总统计基于全集，表现为
+            // "58 明细只能看到 20 条"）。逐页拉取并合并全部明细。
+            val firstResponse = api.dailyReportDetail(type, date, page = 1, pageSize = 20)
+            val first = handleResponse<DailyReportData>(firstResponse)
+                .getOrElse { return Result.failure(it) }
+            if (first.totalPages <= 1) {
+                Result.success(first)
+            } else {
+                val allItems = first.items.toMutableList()
+                for (page in 2..first.totalPages) {
+                    val response = api.dailyReportDetail(type, date, page = page, pageSize = 20)
+                    val data = handleResponse<DailyReportData>(response)
+                        .getOrElse { return Result.failure(it) }
+                    allItems.addAll(data.items)
+                }
+                Result.success(first.copy(items = allItems, page = 1))
+            }
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
