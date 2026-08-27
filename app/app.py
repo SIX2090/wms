@@ -1286,6 +1286,20 @@ def auto_migrate_database():
                 cursor.execute("ALTER TABLE api_token ADD COLUMN last_used_at DATETIME")
                 modified = True
 
+        # BUG-2026-08-27-004 治本 B1：库存流水补仓库外键列。SQLite ALTER 无法带外键
+        # 约束（与 workstation_id 等列同法，仅加 INTEGER 列）；MySQL/PG 走 alembic
+        # 迁移 c1d2e3f4a5b6（含外键与索引）。历史行 warehouse_id 由
+        # backfill_stock_txn_warehouse_id() 启动幂等回填，此处只补列+索引。
+        if _table_exists('stock_transaction'):
+            cursor.execute("PRAGMA table_info(stock_transaction)")
+            _stock_txn_cols = [row[1] for row in cursor.fetchall()]
+            if 'warehouse_id' not in _stock_txn_cols:
+                cursor.execute("ALTER TABLE stock_transaction ADD COLUMN warehouse_id INTEGER")
+                modified = True
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_stock_txn_warehouse_id ON stock_transaction(warehouse_id)"
+            )
+
         if modified:
             conn.commit()
     except Exception as e:
@@ -3155,6 +3169,9 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
             transaction_type=transaction_type,
             quantity=-qty,
             location=_stock_location_from_warehouse(warehouse),
+            # B-2026-08-27：写入端统一落 warehouse_id（外键精确匹配），
+            # 历史行由 backfill_stock_txn_warehouse_id() 幂等回填。
+            warehouse_id=resolve_inventory_warehouse_id(warehouse),
             reference_type=reference_type or '',
             reference_id=reference_id or 0,
             operator_id=current_user.id if current_user.is_authenticated else None,
@@ -3191,6 +3208,8 @@ def add_stock(material, quantity, transaction_type=None, reference_type=None, re
             transaction_type=transaction_type,
             quantity=qty,
             location=_stock_location_from_warehouse(warehouse),
+            # B-2026-08-27：写入端统一落 warehouse_id（外键精确匹配）。
+            warehouse_id=resolve_inventory_warehouse_id(warehouse),
             reference_type=reference_type or '',
             reference_id=reference_id or 0,
             operator_id=current_user.id if current_user.is_authenticated else None,
@@ -3425,7 +3444,7 @@ def deduct_location_inventory_atomic(material_id, location, quantity, material_c
         return False, f'物料 {code} 在 {location} 库存不足或并发冲突'
     return True, ''
 
-def add_stock_transaction(material, quantity, transaction_type, reference_type=None, reference_id=None, location=None, remark=None):
+def add_stock_transaction(material, quantity, transaction_type, reference_type=None, reference_id=None, location=None, remark=None, warehouse=None):
     """Record a stock movement without changing total material stock."""
     if not material or not transaction_type:
         return
@@ -3435,6 +3454,9 @@ def add_stock_transaction(material, quantity, transaction_type, reference_type=N
         transaction_type=transaction_type,
         quantity=quantity,
         location=(location or '').strip() or None,
+        # B-2026-08-27：写入端统一落 warehouse_id（外键精确匹配）。
+        # 调拨场景由调用方传 from/to 仓库；历史行由启动幂等回填补齐。
+        warehouse_id=resolve_inventory_warehouse_id(warehouse),
         reference_type=reference_type or '',
         reference_id=reference_id or 0,
         operator_id=current_user.id if current_user.is_authenticated else None,
@@ -5822,12 +5844,21 @@ class StockTransaction(db.Model):
         # BUG-2026-08-16-021：关库位管理分支按 location 聚合仓库库存，全表扫太慢，
         # 加单列索引加速 IN (仓库名/编码) 聚合。
         db.Index('idx_stock_txn_location', 'location'),
+        # BUG-2026-08-27-004 治本 B1：按仓库过滤流水的精确索引（warehouse_id 外键
+        # 归属，逐步替代 location 字符串匹配——location 历史上混存仓库名/编码/库位
+        # 名/空值，字符串匹配口径分散导致库存报表反复出 BUG）。
+        db.Index('idx_stock_txn_warehouse_id', 'warehouse_id'),
     )
     id = db.Column(db.Integer, primary_key=True)
     material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)  # Material ID
     transaction_type = db.Column(db.String(50), nullable=False)  # Transaction type: in/out/transfer_in/transfer_out/adjustment_in/adjustment_out
     quantity = db.Column(db.Float, nullable=False)  # Change quantity (positive for increase, negative for decrease)
     location = db.Column(db.String(100))  # Location (empty means summary)
+    # BUG-2026-08-27-004 治本 B1：仓库外键归属。新流水由写入端
+    # （add_stock/deduct_stock_atomic/add_stock_transaction，B2）解析写入；
+    # 历史行由 backfill_stock_txn_warehouse_id() 启动幂等回填；
+    # 无法唯一确定归属的行保留 NULL（不猜，AGENTS.md 不自动归入任意默认仓库）。
+    warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse ID (NULL = 历史未归属)
     reference_type = db.Column(db.String(50))  # Related document type: in_order/out_order/transfer/adjustment/check
     reference_id = db.Column(db.Integer)  # Related document ID
     remark = db.Column(db.String(500))  # Remark
@@ -5836,6 +5867,8 @@ class StockTransaction(db.Model):
 
     material = db.relationship('Material', backref='stock_transactions')
     operator = db.relationship('User', backref='stock_transactions')
+    # B1 治本：仓库关联（只读展示用；归属判定一律走 warehouse_id，不回退 location 猜测）
+    warehouse = db.relationship('Warehouse')
 
 class DocumentPushLine(db.Model):
     """Auditable source-line allocation created by a document push."""
@@ -7913,6 +7946,8 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
             transaction_type='opening',
             quantity=quantity_delta,
             location=location_value,
+            # B-2026-08-27：写入端统一落 warehouse_id（外键精确匹配）。
+            warehouse_id=warehouse.id if warehouse else (opening.warehouse_id if opening.warehouse_id else None),
             reference_type='opening_stock',
             reference_id=opening.id,
             operator_id=current_user.id if current_user.is_authenticated else None,
@@ -25691,6 +25726,104 @@ def _ledger_source_warehouse_map(transactions):
             if wh:
                 result[t.id] = wh
     return result
+
+
+def backfill_stock_txn_warehouse_id(batch_size=2000):
+    """幂等回填 stock_transaction.warehouse_id（BUG-2026-08-27-004 治本 B1）。
+
+    背景：location 历史上承载仓库名/编码、库位名、空值三种语义，仓库级报表
+    全靠字符串匹配重建归属、口径分散（102/220 个历史 BUG 属此类）。加
+    warehouse_id 外键后归属成为精确匹配；本函数负责历史数据回填。
+
+    回填规则（与台账/月报仓库口径同源）：
+    1. location 唯一匹配仓库名/编码 → 该仓库（歧义不填）；
+    2. location 是库位名且该库位唯一归属某仓库（LocationInventory.warehouse_id）
+       → 该仓库（跨仓同名库位歧义不填）；
+    3. location 为空 → 按来源单据仓库推断（复用 _ledger_source_warehouse_map，
+       调拨按数量正负归 to/from 仓库）；
+    4. 无法唯一确定 → 保留 NULL，不猜（AGENTS.md：不自动归入任意默认仓库）。
+
+    幂等：仅处理 warehouse_id IS NULL 的行，可重复执行；启动时调用，
+    新数据写入端（B2）落 warehouse_id 后本函数常态空跑直接返回。
+    返回本次回填成功的行数。
+    """
+    # 仓库名/编码 → id（唯一匹配才生效；同名/同编码歧义置 None 不回填）
+    name_map = {}
+    for w in Warehouse.query.all():
+        for key in ((w.name or '').strip(), (w.code or '').strip()):
+            if not key:
+                continue
+            if key in name_map:
+                if name_map[key] != w.id:
+                    name_map[key] = None  # 歧义
+            else:
+                name_map[key] = w.id
+    # 库位名 → warehouse_id（唯一归属才生效；跨仓同名库位置 None）
+    loc_map = {}
+    loc_rows = db.session.query(
+        LocationInventory.location,
+        LocationInventory.warehouse_id,
+    ).filter(
+        LocationInventory.warehouse_id.isnot(None),
+        db.func.trim(db.func.coalesce(LocationInventory.location, '')) != '',
+    ).distinct().all()
+    for loc, wid in loc_rows:
+        key = (loc or '').strip()
+        if not key:
+            continue
+        if key in loc_map:
+            if loc_map[key] != wid:
+                loc_map[key] = None  # 跨仓同名库位歧义
+        else:
+            loc_map[key] = wid
+
+    total = 0
+    last_id = 0
+    while True:
+        batch = (StockTransaction.query
+                 .filter(StockTransaction.warehouse_id.is_(None), StockTransaction.id > last_id)
+                 .order_by(StockTransaction.id.asc())
+                 .limit(batch_size).all())
+        if not batch:
+            break
+        last_id = batch[-1].id
+        # 空 location 行按来源单据仓库推断（与台账/月报归属同源）
+        empty_txns = [t for t in batch if not (t.location or '').strip()]
+        src_wh_names = _ledger_source_warehouse_map(empty_txns) if empty_txns else {}
+        changed = 0
+        for t in batch:
+            wid = None
+            key = (t.location or '').strip()
+            if key:
+                wid = name_map.get(key)
+                if wid is None:
+                    wid = loc_map.get(key)
+            else:
+                wh_name = src_wh_names.get(t.id)
+                if wh_name:
+                    wid = name_map.get(wh_name)
+            if wid:
+                t.warehouse_id = wid
+                changed += 1
+        if changed:
+            db.session.commit()
+            total += changed
+    return total
+
+
+# BUG-2026-08-27-004 治本 B1：启动幂等回填历史流水仓库归属。
+# 测试/空库导入期表可能未建，失败仅记日志不阻断启动（下次启动重试）；
+# 与 WMS_NO_DB_TOUCH / WMS_SKIP_STARTUP_DB_UPGRADE 开关保持一致。
+try:
+    if not startup_db_upgrade_disabled():
+        with app.app_context():
+            _backfilled = backfill_stock_txn_warehouse_id()
+            if _backfilled:
+                app.logger.info(
+                    f'[DB] stock_transaction.warehouse_id 启动回填 {_backfilled} 条')
+except Exception:
+    app.logger.exception(
+        'stock_transaction.warehouse_id 启动回填失败（下次启动重试）')
 
 
 def _warehouse_scoped_txn_condition(filters):

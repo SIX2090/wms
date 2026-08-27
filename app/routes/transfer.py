@@ -515,6 +515,7 @@ def register_transfer_routes(app):
                     reference_type='transfer',
                     reference_id=transfer.id,
                     location=transfer.from_location,
+                    warehouse=transfer.from_warehouse,  # B-2026-08-27：写入端统一落 warehouse_id
                     remark=f'调拨到 {transfer.to_location}'
                 )
                 add_stock_transaction(
@@ -522,6 +523,7 @@ def register_transfer_routes(app):
                     reference_type='transfer',
                     reference_id=transfer.id,
                     location=transfer.to_location,
+                    warehouse=transfer.to_warehouse,  # B-2026-08-27：写入端统一落 warehouse_id
                     remark=f'来自 {transfer.from_location}'
                 )
 
@@ -572,6 +574,7 @@ def register_transfer_routes(app):
                         reference_type='transfer',
                         reference_id=transfer.id,
                         location=transfer.from_location,
+                        warehouse=transfer.from_warehouse,  # B-2026-08-27：写入端统一落 warehouse_id
                         remark=f'反提交调拨 {transfer.transfer_no}'
                     )
                     add_stock_transaction(
@@ -579,6 +582,7 @@ def register_transfer_routes(app):
                         reference_type='transfer',
                         reference_id=transfer.id,
                         location=transfer.to_location,
+                        warehouse=transfer.to_warehouse,  # B-2026-08-27：写入端统一落 warehouse_id
                         remark=f'反提交调拨 {transfer.transfer_no}'
                     )
 

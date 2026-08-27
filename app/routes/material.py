@@ -285,6 +285,7 @@ def register_material_routes(app):
                     reference_type='opening_stock',
                     reference_id=material.id,
                     location=_loc,
+                    warehouse=_default_wh,  # B-2026-08-27：写入端统一落 warehouse_id
                     remark='新增物料初始库存',
                 )
                 # BUG-2026-08-16-003：开启库位管理时同步写库位账（初始库存归默认
