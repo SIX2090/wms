@@ -37,6 +37,10 @@ val OnSurface = Color(0xFF111827)
 val OnSurfaceVariant = Color(0xFF6B7280)
 val OnSurfaceSecondary = Color(0xFF9CA3AF)
 
+// ── Divider / Border ── 柔和分隔线与描边（AI-APP-UI-001）
+val DividerSoft = Color(0xFFE9EBF0)
+val BorderSoft = Color(0xFFE2E5EA)
+
 // ── Status ──
 val Success = Color(0xFF10B981)
 val SuccessContainer = Color(0xFFD1FAE5)
@@ -91,3 +95,4 @@ val DarkCardBackground = Color(0xFF27272A)
 val DarkOnSurface = Color(0xFFF4F4F5)
 val DarkOnSurfaceVariant = Color(0xFFA1A1AA)
 val DarkOnSurfaceSecondary = Color(0xFF71717A)
+val DarkDividerSoft = Color(0xFF2E2E33)
