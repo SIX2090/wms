@@ -8,10 +8,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -36,6 +39,13 @@ import coil.compose.rememberAsyncImagePainter
 import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.model.MaterialArchiveDto
 import com.factory.wms.data.model.MaterialArchiveImageDto
+import com.factory.wms.ui.components.WmsCard
+import com.factory.wms.ui.components.WmsEmptyState
+import com.factory.wms.ui.components.WmsOutlinedActionButton
+import com.factory.wms.ui.components.WmsPillBadge
+import com.factory.wms.ui.components.WmsPrimaryButton
+import com.factory.wms.ui.components.WmsSectionHeader
+import com.factory.wms.ui.components.WmsTopBar
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.archive.MaterialArchiveViewModel
 import kotlinx.coroutines.launch
@@ -54,7 +64,6 @@ private fun resolveImageUrl(url: String?): String {
 /**
  * 物料档案搜索列表屏：按编码/名称/规格/品牌搜索，点击进入图片管理。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MaterialArchiveSearchScreen(
     viewModel: MaterialArchiveViewModel,
@@ -75,29 +84,10 @@ fun MaterialArchiveSearchScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("物料档案", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            "搜索物料 · 拍照上传档案图片（最多 $MAX_IMAGES 张）",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            WmsTopBar(
+                title = "物料档案",
+                subtitle = "搜索物料 · 拍照上传档案图片（最多 $MAX_IMAGES 张）",
+                onBack = onBack
             )
         }
     ) { padding ->
@@ -106,65 +96,111 @@ fun MaterialArchiveSearchScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // 搜索框
-            OutlinedTextField(
-                value = uiState.keyword,
-                onValueChange = { viewModel.onKeywordChange(it) },
-                singleLine = true,
-                placeholder = { Text("输入编码 / 名称 / 规格 / 品牌") },
-                leadingIcon = { Icon(Icons.Outlined.Search, null, tint = Primary) },
-                trailingIcon = {
-                    if (uiState.keyword.isNotBlank()) {
-                        IconButton(onClick = { viewModel.onKeywordChange("") }) {
-                            Icon(Icons.Filled.Close, "清空", tint = OnSurfaceVariant)
+            // ── 搜索卡：一体化搜索框 + 主色搜索按钮 ──
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                colors = CardDefaults.cardColors(containerColor = CardBackground)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(
+                        Icons.Outlined.Search,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    OutlinedTextField(
+                        value = uiState.keyword,
+                        onValueChange = { viewModel.onKeywordChange(it) },
+                        singleLine = true,
+                        placeholder = {
+                            Text(
+                                "输入编码 / 名称 / 规格 / 品牌",
+                                color = OnSurfaceSecondary,
+                                fontSize = 14.sp
+                            )
+                        },
+                        trailingIcon = {
+                            if (uiState.keyword.isNotBlank()) {
+                                IconButton(onClick = { viewModel.onKeywordChange("") }) {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        "清空",
+                                        tint = OnSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent
+                        ),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                        ),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                            onSearch = { viewModel.search() }
+                        )
+                    )
+                    FilledIconButton(
+                        onClick = { viewModel.search() },
+                        enabled = !uiState.isLoading,
+                        modifier = Modifier.size(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = Primary
+                        )
+                    ) {
+                        if (uiState.isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                Icons.Outlined.Search,
+                                "搜索物料",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
                     }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Primary,
-                    focusedLabelColor = Primary
-                ),
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    imeAction = androidx.compose.ui.text.input.ImeAction.Search
-                ),
-                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                    onSearch = { viewModel.search() }
-                )
-            )
-
-            // 搜索按钮
-            Button(
-                onClick = { viewModel.search() },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .height(48.dp),
-                enabled = !uiState.isLoading,
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Primary)
-            ) {
-                if (uiState.isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("搜索中...", fontSize = 15.sp)
-                } else {
-                    Icon(Icons.Outlined.Search, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("搜索物料", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            // ── 结果统计 ──
+            if (uiState.materials.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "共 ${uiState.materials.size} 个匹配物料",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OnSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        "点击进入档案图片管理",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = OnSurfaceSecondary
+                    )
+                }
+            }
 
-            // 结果列表
+            // ── 结果列表 ──
             if (uiState.materials.isEmpty() && !uiState.isLoading) {
                 Box(
                     modifier = Modifier
@@ -172,25 +208,17 @@ fun MaterialArchiveSearchScreen(
                         .weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Outlined.Inventory2,
-                            null,
-                            modifier = Modifier.size(56.dp),
-                            tint = OnSurfaceVariant.copy(alpha = 0.4f)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            if (uiState.keyword.isBlank()) "输入关键字搜索物料" else "未找到匹配的物料",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OnSurfaceVariant
-                        )
-                    }
+                    WmsEmptyState(
+                        icon = Icons.Outlined.Inventory2,
+                        title = if (uiState.keyword.isBlank()) "输入关键字搜索物料" else "未找到匹配的物料",
+                        subtitle = if (uiState.keyword.isBlank()) "支持编码 / 名称 / 规格 / 品牌模糊搜索" else "换个关键字试试",
+                        accentColor = Primary
+                    )
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(uiState.materials, key = { it.id ?: it.code ?: it.hashCode() }) { material ->
@@ -210,25 +238,18 @@ private fun MaterialArchiveRow(
     material: MaterialArchiveDto,
     onClick: () -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = CardBackground)
+    val hasImages = (material.imageCount ?: 0) > 0
+    WmsCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        contentPadding = PaddingValues(14.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             // 物料图标
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(15.dp))
                     .background(PrimaryContainer),
                 contentAlignment = Alignment.Center
             ) {
@@ -236,21 +257,34 @@ private fun MaterialArchiveRow(
                     Icons.Outlined.Category,
                     null,
                     tint = Primary,
-                    modifier = Modifier.size(26.dp)
+                    modifier = Modifier.size(27.dp)
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    material.code ?: "",
-                    fontWeight = FontWeight.Bold,
-                    color = Primary,
-                    fontSize = 15.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        material.code ?: "",
+                        fontWeight = FontWeight.Bold,
+                        color = Primary,
+                        fontSize = 15.sp,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    WmsPillBadge(
+                        text = "${material.imageCount ?: 0}/$MAX_IMAGES",
+                        icon = Icons.Outlined.Photo,
+                        activeColor = Primary,
+                        active = hasImages
+                    )
+                }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     material.name ?: "",
                     style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -265,46 +299,21 @@ private fun MaterialArchiveRow(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 4.dp)
-                ) {
-                    Text(
-                        "${material.unit ?: ""} · ${material.category ?: ""}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = OnSurfaceVariant
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            // 图片数量角标
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = if ((material.imageCount ?: 0) > 0) PrimaryContainer else SurfaceVariant
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Outlined.Photo,
-                        null,
-                        tint = if ((material.imageCount ?: 0) > 0) Primary else OnSurfaceVariant,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        "${material.imageCount ?: 0}/$MAX_IMAGES",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if ((material.imageCount ?: 0) > 0) Primary else OnSurfaceVariant
-                    )
+                Spacer(modifier = Modifier.height(5.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (!material.unit.isNullOrBlank()) {
+                        WmsPillBadge(text = material.unit, activeColor = Tertiary, active = true)
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    if (!material.category.isNullOrBlank()) {
+                        WmsPillBadge(text = material.category, activeColor = Secondary, active = true)
+                    }
                 }
             }
             Icon(
                 Icons.Outlined.ChevronRight,
                 null,
-                tint = OnSurfaceVariant,
+                tint = OnSurfaceSecondary,
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -312,9 +321,8 @@ private fun MaterialArchiveRow(
 }
 
 /**
- * 物料档案图片管理屏：展示物料信息 + 图片缩略图，拍照/相册上传，删除图片。
+ * 物料档案图片管理屏：展示物料信息 + 图片网格，拍照/相册上传，删除图片。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MaterialArchiveDetailScreen(
     material: MaterialArchiveDto,
@@ -378,31 +386,10 @@ fun MaterialArchiveDetailScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("物料档案图片", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            "${material.code ?: ""} ${material.name ?: ""}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            WmsTopBar(
+                title = "物料档案图片",
+                subtitle = "${material.code ?: ""} ${material.name ?: ""}".trim(),
+                onBack = onBack
             )
         }
     ) { padding ->
@@ -411,14 +398,14 @@ fun MaterialArchiveDetailScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // 物料信息卡
+            // ── 物料信息卡 ──
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = PrimaryContainer.copy(alpha = 0.5f)
+                    containerColor = PrimaryContainer.copy(alpha = 0.45f)
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
@@ -428,21 +415,18 @@ fun MaterialArchiveDetailScreen(
                             material.code ?: "",
                             fontWeight = FontWeight.Bold,
                             color = Primary,
-                            fontSize = 16.sp
+                            fontSize = 16.sp,
+                            modifier = Modifier.weight(1f, fill = false),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (images.size > 0) PrimaryContainer else SurfaceVariant
-                        ) {
-                            Text(
-                                "${images.size}/$MAX_IMAGES 张",
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (images.size > 0) Primary else OnSurfaceVariant
-                            )
-                        }
+                        WmsPillBadge(
+                            text = "${images.size}/$MAX_IMAGES 张",
+                            icon = Icons.Outlined.Photo,
+                            activeColor = Primary,
+                            active = images.isNotEmpty()
+                        )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -463,107 +447,77 @@ fun MaterialArchiveDetailScreen(
                         color = OnSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = {
-                            material.id?.let { viewModel.printMaterial(it) }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp),
-                        enabled = material.id != null && !uiState.printing,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Primary)
-                    ) {
-                        if (uiState.printing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(Icons.Outlined.Print, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("打印标签", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        }
-                    }
+                    WmsPrimaryButton(
+                        text = "打印标签",
+                        icon = Icons.Outlined.Print,
+                        onClick = { material.id?.let { viewModel.printMaterial(it) } },
+                        modifier = Modifier.fillMaxWidth(),
+                        loading = uiState.printing,
+                        enabled = material.id != null
+                    )
                 }
             }
 
-            // 上传操作区
-            Card(
+            // ── 上传操作区 ──
+            WmsCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = CardBackground),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    .padding(horizontal = 16.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Outlined.CameraAlt, null, tint = Primary, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "上传档案图片",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
-                        if (uiState.uploading) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        }
-                    }
-                    if (!canUpload) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            "每个物料最多上传 $MAX_IMAGES 张图片，已达上限，请先删除后再上传。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Error
-                        )
-                    }
+                WmsSectionHeader(
+                    title = "上传档案图片",
+                    icon = Icons.Outlined.CameraAlt,
+                    iconTint = Primary
+                )
+                if (!canUpload) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "每个物料最多上传 $MAX_IMAGES 张图片，已达上限，请先删除后再上传。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Error
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    WmsPrimaryButton(
+                        text = "拍照",
+                        icon = Icons.Outlined.CameraAlt,
+                        onClick = { launchCamera() },
+                        modifier = Modifier.weight(1f),
+                        enabled = canUpload && !uiState.uploading
+                    )
+                    WmsOutlinedActionButton(
+                        text = "选择图片",
+                        icon = Icons.Outlined.PhotoLibrary,
+                        onClick = { imagePicker.launch("image/*") },
+                        modifier = Modifier.weight(1f),
+                        enabled = canUpload && !uiState.uploading
+                    )
+                }
+                if (uiState.uploading) {
                     Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Button(
-                            onClick = { launchCamera() },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp),
-                            enabled = canUpload && !uiState.uploading,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Primary)
-                        ) {
-                            Icon(Icons.Outlined.CameraAlt, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("拍照", fontWeight = FontWeight.Medium)
-                        }
-                        OutlinedButton(
-                            onClick = { imagePicker.launch("image/*") },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp),
-                            enabled = canUpload && !uiState.uploading,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Primary),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(
-                                brush = androidx.compose.ui.graphics.SolidColor(Primary.copy(alpha = 0.3f))
-                            )
-                        ) {
-                            Icon(Icons.Outlined.PhotoLibrary, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("选择图片", fontWeight = FontWeight.Medium)
-                        }
-                    }
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = Primary,
+                        trackColor = PrimaryContainer
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "图片上传中...",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = OnSurfaceVariant
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 图片列表
+            // ── 图片网格 ──
             if (uiState.isLoading && images.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -571,7 +525,7 @@ fun MaterialArchiveDetailScreen(
                         .weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator()
+                    CircularProgressIndicator(color = Primary)
                 }
             } else if (images.isEmpty()) {
                 Box(
@@ -580,29 +534,23 @@ fun MaterialArchiveDetailScreen(
                         .weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Outlined.Photo,
-                            null,
-                            modifier = Modifier.size(56.dp),
-                            tint = OnSurfaceVariant.copy(alpha = 0.4f)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            "暂无档案图片，点击上方拍照/选择图片上传",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OnSurfaceVariant
-                        )
-                    }
+                    WmsEmptyState(
+                        icon = Icons.Outlined.Photo,
+                        title = "暂无档案图片",
+                        subtitle = "点击上方拍照 / 选择图片上传",
+                        accentColor = Primary
+                    )
                 }
             } else {
-                LazyColumn(
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(images, key = { it.id ?: it.hashCode() }) { image ->
-                        ArchiveImageCard(
+                        ArchiveImageCell(
                             image = image,
                             deleting = uiState.deletingId == image.id,
                             onPreview = { previewImageUrl = resolveImageUrl(image.url) },
@@ -654,8 +602,9 @@ fun MaterialArchiveDetailScreen(
     }
 }
 
+/** 图片网格单元：正方形缩略图 + 序号角标 + 删除按钮。 */
 @Composable
-private fun ArchiveImageCard(
+private fun ArchiveImageCell(
     image: MaterialArchiveImageDto,
     deleting: Boolean,
     onPreview: () -> Unit,
@@ -663,66 +612,86 @@ private fun ArchiveImageCard(
 ) {
     val imageUrl = resolveImageUrl(image.url)
     val painter = rememberAsyncImagePainter(model = imageUrl)
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = CardBackground)
+    val loadFailed = imageUrl.isBlank() || painter.state is AsyncImagePainter.State.Error
+
+    Box(
+        modifier = Modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(14.dp))
+            .background(SurfaceVariant)
     ) {
-        Row(
+        if (loadFailed) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    Icons.Outlined.BrokenImage,
+                    "图片加载失败",
+                    tint = OnSurfaceSecondary,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        } else {
+            Image(
+                painter = painter,
+                contentDescription = "档案图片",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable { onPreview() },
+                contentScale = ContentScale.Crop
+            )
+        }
+
+        // 序号角标
+        Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .align(Alignment.BottomStart)
+                .padding(6.dp),
+            shape = RoundedCornerShape(8.dp),
+            color = Color.Black.copy(alpha = 0.45f)
         ) {
+            Text(
+                "第 ${(image.sortOrder ?: 0) + 1} 张",
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                color = Color.White,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+
+        // 删除按钮 / 删除中遮罩
+        if (deleting) {
             Box(
                 modifier = Modifier
-                    .size(72.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(SurfaceVariant)
-                    .clickable { onPreview() },
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.45f)),
                 contentAlignment = Alignment.Center
             ) {
-                if (imageUrl.isBlank()) {
-                    Text("图片加载失败")
-                } else if (painter.state is AsyncImagePainter.State.Error) {
-                    Text("图片加载失败")
-                } else {
-                    Image(
-                        painter = painter,
-                        contentDescription = "档案图片",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "第 ${(image.sortOrder ?: 0) + 1} 张",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = Color.White,
+                    strokeWidth = 2.dp
                 )
-                if (!image.createdAt.isNullOrBlank()) {
-                    Text(
-                        image.createdAt,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = OnSurfaceVariant
-                    )
-                }
             }
-            if (deleting) {
-                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                Spacer(modifier = Modifier.width(8.dp))
-            } else {
-                TextButton(
-                    onClick = onDelete,
-                    colors = ButtonDefaults.textButtonColors(contentColor = Error)
-                ) {
-                    Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("删除")
-                }
+        } else {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(26.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.9f))
+                    .clickable { onDelete() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Outlined.Delete,
+                    "删除",
+                    tint = Error,
+                    modifier = Modifier.size(15.dp)
+                )
             }
         }
     }
