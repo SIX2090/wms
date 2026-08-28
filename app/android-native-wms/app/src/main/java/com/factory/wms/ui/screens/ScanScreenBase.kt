@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.MaterialDto
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.ui.components.ScannerDialog
+import com.factory.wms.ui.components.WmsEmptyState
+import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.ui.viewmodel.scan.SubmittedPrintInfo
@@ -71,33 +73,12 @@ fun ScanScreenBase(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            title,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp
-                        )
-                        Text(
-                            subtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            // 模块色渐变头部：入库蓝 / 出库绿 / 盘点紫，一眼识别当前作业类型
+            WmsGradientHeader(
+                title = title,
+                subtitle = subtitle,
+                accent = gradient,
+                onBack = onBack
             )
         }
     ) { padding ->
@@ -264,22 +245,22 @@ fun ScanScreenBase(
                     itemsIndexed(scanLines) { index, line ->
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                             colors = CardDefaults.cardColors(containerColor = CardBackground)
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(14.dp),
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Index badge
+                                // Index badge（圆角方块，与模块色呼应）
                                 Box(
                                     modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(gradient.copy(alpha = 0.1f)),
+                                        .size(38.dp)
+                                        .clip(RoundedCornerShape(11.dp))
+                                        .background(gradient.copy(alpha = 0.12f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
@@ -312,10 +293,18 @@ fun ScanScreenBase(
                                             overflow = TextOverflow.Ellipsis
                                         )
                                     }
+                                }
+                                // 数量胶囊（右对齐高亮，一眼看清每行数量）
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = gradient.copy(alpha = 0.10f)
+                                ) {
                                     Text(
-                                        "数量: ${formatQuantity(line.quantity)}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        "× ${formatQuantity(line.quantity)}",
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        color = gradient,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                                 IconButton(
@@ -342,43 +331,21 @@ fun ScanScreenBase(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            modifier = Modifier
-                                .size(80.dp)
-                                .clip(CircleShape)
-                                .background(gradient.copy(alpha = 0.06f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Outlined.QrCodeScanner,
-                                null,
-                                modifier = Modifier.size(40.dp),
-                                tint = gradient.copy(alpha = 0.5f)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            "暂无扫描记录",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = OnSurface
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "点击下方按钮扫码或手动添加",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = OnSurfaceVariant
-                        )
-                    }
+                    WmsEmptyState(
+                        icon = Icons.Outlined.QrCodeScanner,
+                        title = "暂无扫描记录",
+                        subtitle = "点击下方按钮扫码或手动添加",
+                        accentColor = gradient
+                    )
                 }
             }
 
-            // Bottom actions
+            // Bottom actions（顶部圆角浮层，与列表区自然过渡）
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shadowElevation = 8.dp,
-                color = MaterialTheme.colorScheme.surface
+                shadowElevation = 12.dp,
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp)

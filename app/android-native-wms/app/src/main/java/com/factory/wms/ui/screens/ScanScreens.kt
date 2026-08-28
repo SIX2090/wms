@@ -21,6 +21,8 @@ import com.factory.wms.data.model.ScanLine
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.components.ScannerDialog
 import com.factory.wms.ui.components.WarehousePickerDialog
+import com.factory.wms.ui.components.WmsEmptyState
+import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.ui.viewmodel.scan.SubmittedPrintInfo
@@ -445,29 +447,11 @@ fun StockQueryScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("查库存", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            "扫描条码查询物料库存",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            WmsGradientHeader(
+                title = "查库存",
+                subtitle = "扫描条码查询物料库存",
+                accent = CardOrange,
+                onBack = onBack
             )
         }
     ) { padding ->
@@ -538,30 +522,12 @@ fun StockQueryScreen(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(32.dp)
-                    ) {
-                        Icon(
-                            Icons.Outlined.Search,
-                            null,
-                            modifier = Modifier.size(64.dp),
-                            tint = OnSurfaceVariant.copy(alpha = 0.3f)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            "输入或扫描物料编码",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = OnSurface
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "查询实时库存信息",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = OnSurfaceVariant
-                        )
-                    }
+                    WmsEmptyState(
+                        icon = Icons.Outlined.Search,
+                        title = "输入或扫描物料编码",
+                        subtitle = "查询实时库存信息",
+                        accentColor = CardOrange
+                    )
                 }
             } else if (!uiState.isLoading) {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -971,13 +937,21 @@ private fun WarehouseSelectorCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Outlined.Warehouse,
-                null,
-                tint = accentColor,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(accentColor.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Outlined.Warehouse,
+                    null,
+                    tint = accentColor,
+                    modifier = Modifier.size(19.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(label, style = MaterialTheme.typography.labelSmall, color = OnSurfaceVariant)
                 Text(
