@@ -13,8 +13,8 @@ android {
         applicationId = "com.factory.wms"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "3.3.0"
+        versionCode = 7
+        versionName = "3.4.0"
 
         // sherpa-onnx 本地语音识别开关：通过 -Pwms.sherpa=true 启用，
         // 默认 false（保持现有国内 / 离线构建无网络依赖）。启用后会引入
