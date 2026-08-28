@@ -1606,6 +1606,80 @@ def ensure_excel_print_template_table(db_path: str | None = None):
                 pass
 
 
+def ensure_stock_transaction_warehouse_id_column(db_path: str | None = None):
+    """启动期无条件补齐 stock_transaction.warehouse_id 列（BUG-2026-08-28-004）。
+
+    背景：BUG-2026-08-27-005 把台账/月报/库存汇总的仓库过滤切换到
+    ``StockTransaction.warehouse_id`` 外键精确命中，列只在
+    ``auto_migrate_database()`` 里 ADD COLUMN。而
+    ``start_wms_offline.bat``/``start_wms_auto.bat`` 默认设置
+    ``WMS_NO_DB_TOUCH=1``，``auto_migrate_database()`` 与
+    ``backfill_stock_txn_warehouse_id()`` 都被
+    ``startup_db_upgrade_disabled()`` 跳过——存量生产库重启也无法补列，
+    ``_warehouse_scoped_txn_condition`` 构造 SQL 使用 ``warehouse_id``
+    时报 ``sqlite3.OperationalError: no such column: stock_transaction.warehouse_id``，
+    库存台账 / 仓库月报 / 库存汇总按仓库查询 500。
+
+    本函数仿照 ``ensure_print_job_columns``：用独立 sqlite 连接、独立于
+    迁移开关无条件执行、幂等（PRAGMA table_info 判断列存在则不 ALTER），
+    列片段与 ``auto_migrate_database()`` 的 ALTER 语句保持一致
+    （SQLite ALTER 不支持外键，仅加 INTEGER 列 + 索引；MySQL/PG 走
+    alembic ``c1d2e3f4a5b6``）。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            # 全新部署：库文件还没建，交给 initialize_database/create_all 建全量表
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=60000')
+        exists = cur.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='stock_transaction'"
+        ).fetchone()
+        if not exists:
+            # 表不存在 → 全新库，交给 create_all 建表
+            return
+        cur.execute("PRAGMA table_info(stock_transaction)")
+        cols = {r['name'] for r in cur.fetchall()}
+        if 'warehouse_id' not in cols:
+            cur.execute('ALTER TABLE stock_transaction ADD COLUMN warehouse_id INTEGER')
+            conn.commit()
+            logging.getLogger(__name__).info(
+                '[DB] stock_transaction 已补 warehouse_id 列（BUG-2026-08-28-004）')
+        # 索引始终幂等创建（已有则不动）
+        cur.execute(
+            'CREATE INDEX IF NOT EXISTS idx_stock_txn_warehouse_id '
+            'ON stock_transaction(warehouse_id)'
+        )
+        conn.commit()
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_stock_transaction_warehouse_id_column 补列失败: {e}',
+                exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 app = Flask(__name__)
 
 # Use config.py settings uniformly
@@ -1759,6 +1833,12 @@ backfill_empty_warehouse_documents()
 # 线上 print_job 缺 printing_started_at 等迁移列重启也补不上。与回填一样
 # 独立于迁移开关无条件执行，幂等补列。
 ensure_print_job_columns()
+
+# BUG-2026-08-28-004：同理，BUG-2026-08-27-005 加入的 stock_transaction.warehouse_id
+# 列只在 auto_migrate_database 里 ADD，WMS_NO_DB_TOUCH=1 时存量库重启也补不上，
+# 库存台账/仓库月报/库存汇总按仓库查询即 500（no such column: stock_transaction.warehouse_id）。
+# 独立于迁移开关无条件执行，幂等补列 + 索引。
+ensure_stock_transaction_warehouse_id_column()
 
 # BUG-2026-08-22-001：同理，WMS_NO_DB_TOUCH=1 跳过 db.create_all() 时，
 # 存量库永远建不出 excel_print_template 表，「Excel打印模板中心」打开即 500。
@@ -25831,15 +25911,18 @@ def backfill_stock_txn_warehouse_id(batch_size=2000):
 
 
 # BUG-2026-08-27-004 治本 B1：启动幂等回填历史流水仓库归属。
-# 测试/空库导入期表可能未建，失败仅记日志不阻断启动（下次启动重试）；
-# 与 WMS_NO_DB_TOUCH / WMS_SKIP_STARTUP_DB_UPGRADE 开关保持一致。
+# 测试/空库导入期表可能未建，失败仅记日志不阻断启动（下次启动重试）。
+# BUG-2026-08-28-004：此前与 WMS_NO_DB_TOUCH 保持一致跳过，导致现场启动时
+# 列（被 ensure_stock_transaction_warehouse_id_column 补上）始终存在 NULL，
+# _warehouse_scoped_txn_condition 只能走 location 兜底，治本打折。
+# 列由 ensure_stock_transaction_warehouse_id_column 在前面无条件补好后，
+# 此处改为无条件执行（仍然幂等、仅处理 NULL 行），让治本生效。
 try:
-    if not startup_db_upgrade_disabled():
-        with app.app_context():
-            _backfilled = backfill_stock_txn_warehouse_id()
-            if _backfilled:
-                app.logger.info(
-                    f'[DB] stock_transaction.warehouse_id 启动回填 {_backfilled} 条')
+    with app.app_context():
+        _backfilled = backfill_stock_txn_warehouse_id()
+        if _backfilled:
+            app.logger.info(
+                f'[DB] stock_transaction.warehouse_id 启动回填 {_backfilled} 条')
 except Exception:
     app.logger.exception(
         'stock_transaction.warehouse_id 启动回填失败（下次启动重试）')
