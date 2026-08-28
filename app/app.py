@@ -2969,7 +2969,14 @@ def wants_json_error_response():
     # 前端 fetch().then(r => r.json()) 解析失败，丢失错误原因。
     # 现在额外识别 X-Requested-With: XMLHttpRequest 与 Accept: application/json，
     # 让 AJAX 请求统一拿到 JSON 错误响应。
-    if request.path.startswith('/api/') or request.path.startswith('/mobile/api/'):
+    # BUG-2026-08-28-003：库存台账等报表查询走 GET /report/api/<type>，浏览器 fetch
+    # 默认不带 X-Requested-With 与 application/json Accept，5xx 时回落到纯文本
+    # '服务器内部错误，请稍后重试'，前端 await response.json() 抛
+    # 'Unexpected token '服'...is not valid JSON'，错误位置被吞丢失根因。
+    # 显式识别 /report/api/ 前缀，避免误判的同时不再有 AJAX JSON 调用被遗漏。
+    if (request.path.startswith('/api/')
+            or request.path.startswith('/mobile/api/')
+            or request.path.startswith('/report/api/')):
         return True
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return True
