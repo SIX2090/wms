@@ -836,12 +836,13 @@ def register_out_order_routes(app):
     @require_role('warehouse')
     @login_required
     def complete_out_order(id):
-        from app import (OutOrder, _acquire_order_write_lock,
-                         _check_out_order_anomalies, api_error,
-                         assert_warehouse_active,
+        from app import (OutOrder, Warehouse, _acquire_order_write_lock,
+                         _check_out_order_anomalies, allow_negative_stock,
+                         api_error, assert_warehouse_active,
                          deduct_location_inventory_atomic, deduct_stock_atomic,
-                         get_default_warehouse, is_future_date,
-                         location_management_enabled, log_operation,
+                         get_default_warehouse, get_warehouse_stock_quantities,
+                         is_future_date, location_management_enabled,
+                         log_operation, normalize_stock_quantity,
                          recalculate_order_total, resolve_inventory_warehouse_id,
                          sales_outbound_remaining_check,
                          sync_sales_order_shipment,
@@ -919,6 +920,33 @@ def register_out_order_routes(app):
                 if not remaining_ok:
                     db.session.rollback()
                     return api_error(remaining_err or '出库数量超过销售订单未发货数量')
+            # WMS-AUDIT-2026-08-28 (2): 库位管理关闭时按仓库维度校验库存。
+            # 原实现只校验全局 Material.stock，多仓场景下 A 仓有货即可在 B 仓
+            # 开单出库、把 B 仓库存扣成负数。与 transfer.py 调出校验对齐；
+            # 开启库位管理时由 deduct_location_inventory_atomic 精确拦截。
+            if not use_location and not allow_negative_stock():
+                wh_obj = None
+                if (order.warehouse or '').strip():
+                    wh_key = order.warehouse.strip()
+                    wh_obj = Warehouse.query.filter(
+                        db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
+                    ).order_by(Warehouse.id.asc()).first()
+                if wh_obj:
+                    wh_stock = get_warehouse_stock_quantities(wh_obj)
+                    for _chk_item in order.items:
+                        if not _chk_item.material_id:
+                            continue
+                        _need = normalize_stock_quantity(_chk_item.quantity or 0)
+                        if _need <= 0:
+                            continue
+                        _avail = wh_stock.get(_chk_item.material_id, 0)
+                        if (_avail + 1e-9) < _need:
+                            _code = (_chk_item.material.code if _chk_item.material
+                                     else str(_chk_item.material_id))
+                            db.session.rollback()
+                            return api_error(
+                                f'出库仓库 {order.warehouse} 库存不足：{_code}'
+                                f'（需要 {_need:.2f}，可用 {_avail:.2f}）')
             for item in order.items:
                 if not item.material_id:
                     continue
@@ -1121,12 +1149,13 @@ def register_out_order_routes(app):
     @require_role('warehouse')
     @login_required
     def batch_complete_out_order():
-        from app import (OutOrder, _acquire_order_write_lock,
+        from app import (OutOrder, Warehouse, _acquire_order_write_lock,
                          _check_out_order_anomalies, allow_negative_stock,
                          api_error, deduct_stock_atomic, get_default_warehouse,
-                         is_future_date, is_stock_sufficient,
-                         location_management_enabled, log_operation,
-                         normalize_stock_quantity, recalculate_order_total,
+                         get_warehouse_stock_quantities, is_future_date,
+                         is_stock_sufficient, location_management_enabled,
+                         log_operation, normalize_stock_quantity,
+                         recalculate_order_total,
                          sales_outbound_remaining_check,
                          sync_sales_order_shipment, update_location_inventory,
                          validate_sales_outbound_warehouse)
@@ -1203,6 +1232,31 @@ def register_out_order_routes(app):
                 db.session.rollback()
                 continue
             stock_ok = True
+            # WMS-AUDIT-2026-08-28 (2): 批量出库同样按仓库维度校验（与单张对齐）
+            if not location_management_enabled() and not allow_negative_stock():
+                wh_obj = None
+                if (order.warehouse or '').strip():
+                    wh_key = order.warehouse.strip()
+                    wh_obj = Warehouse.query.filter(
+                        db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
+                    ).order_by(Warehouse.id.asc()).first()
+                if wh_obj:
+                    wh_stock = get_warehouse_stock_quantities(wh_obj)
+                    for _chk_item in order.items:
+                        if not _chk_item.material_id:
+                            continue
+                        _need = normalize_stock_quantity(_chk_item.quantity or 0)
+                        if _need <= 0:
+                            continue
+                        _avail = wh_stock.get(_chk_item.material_id, 0)
+                        if (_avail + 1e-9) < _need:
+                            _code = (_chk_item.material.code if _chk_item.material
+                                     else str(_chk_item.material_id))
+                            skipped.append(
+                                f'{order.order_no}(出库仓库 {order.warehouse} '
+                                f'库存不足：{_code} 需要 {_need:.2f}，可用 {_avail:.2f})')
+                            stock_ok = False
+                            break
             for item in order.items:
                 stock = normalize_stock_quantity(item.material.stock or 0)
                 quantity = normalize_stock_quantity(item.quantity or 0)

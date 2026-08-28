@@ -3347,7 +3347,16 @@ def update_location_inventory(material, location, quantity_delta, warehouse=None
     warehouse_id IS NULL 的历史行）。新代码必须显式传入仓库。
     """
     location = (location or '').strip()
-    if not material or not location or not quantity_delta:
+    if not material or not quantity_delta:
+        return True, ''
+    if not location:
+        # WMS-AUDIT-2026-08-28 (1): 原实现在库位为空时直接返回 (True, '')，
+        # 调用方（手机端扫码 mobile.py、native_api.py）据此判定成功，导致
+        # 总账已扣减而库位账未动，账实静默分裂。启用库位管理时必须显式失败；
+        # 未启用时保持旧行为（本就不写库位账）。
+        if location_management_enabled():
+            code = getattr(material, 'code', None) or str(material.id)
+            return False, f'物料 {code} 未指定库位，无法更新库位库存'
         return True, ''
 
     warehouse_id = resolve_inventory_warehouse_id(warehouse)
