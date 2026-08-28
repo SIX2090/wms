@@ -198,7 +198,9 @@ class CloudAsrVoiceSttEngine(
                 }
             } else {
                 val msg = body?.msg ?: "语音识别失败，请重试"
-                listener?.onError(mapFailure(response.code(), msg))
+                // 把后端返回的具体原因（如"未配置腾讯云 ASR 密钥"）透传给 UI，
+                // 避免被笼统的 ClientError 文案（"请重启 App"）掩盖真实问题
+                listener?.onError(mapFailure(response.code(), msg), msg)
             }
         } catch (e: Exception) {
             Log.w(TAG, "cloud ASR request failed", e)

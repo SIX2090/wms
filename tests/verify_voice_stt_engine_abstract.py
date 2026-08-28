@@ -62,7 +62,7 @@ def test_listener_three_callbacks_present() -> None:
     for sig in (
         "fun onPartial(text: String)",
         "fun onResult(texts: List<String>)",
-        "fun onError(error: SttError)",
+        "fun onError(error: SttError, detail: String? = null)",
     ):
         assert sig in src, f"VoiceSttListener 接口必须声明 {sig}"
 
@@ -186,7 +186,7 @@ def test_viewmodel_uses_engine_listener_indirectly() -> None:
     for sig in (
         "override fun onPartial(text: String)",
         "override fun onResult(texts: List<String>)",
-        "override fun onError(error: SttError)",
+        "override fun onError(error: SttError, detail: String?)",
     ):
         assert sig in src, f"engineListener 必须实现 {sig}"
 

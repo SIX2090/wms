@@ -156,14 +156,18 @@ class VoiceCommandViewModel(
             viewModelScope.launch { _commands.emit(command) }
         }
 
-        override fun onError(error: SttError) {
+        override fun onError(error: SttError, detail: String?) {
             listenTimeoutJob?.cancel()
             listenTimeoutJob = null
             engine?.destroy()
             engine = null
+            // 优先展示引擎/后端给出的具体原因（如"未配置腾讯云 ASR 密钥"），
+            // 其次才用 SttError 的笼统默认文案；detail 截断防止超长堆栈撑爆 Snackbar
+            val shown = detail?.trim()?.takeIf { it.isNotEmpty() }?.take(MAX_ERROR_DETAIL_LEN)
+                ?: error.toUserMessage()
             _uiState.value = _uiState.value.copy(
                 isListening = false,
-                error = error.toUserMessage()
+                error = shown
             )
         }
     }
@@ -179,6 +183,9 @@ class VoiceCommandViewModel(
     companion object {
         /** 语音识别兜底超时（毫秒）。覆盖国内设备无 Google 服务、recognizer 静默挂起的场景。 */
         private const val VOICE_LISTEN_TIMEOUT_MS = 8_000L
+
+        /** 引擎/后端透传的错误 detail 最大展示长度，防止异常长文本撑爆 Snackbar。 */
+        private const val MAX_ERROR_DETAIL_LEN = 80
     }
 }
 

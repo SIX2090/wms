@@ -176,6 +176,15 @@ REM Install service
 "%NSSM_EXE%" set %SERVICE_NAME% AppExit Default Restart
 "%NSSM_EXE%" set %SERVICE_NAME% AppRestartDelay 5000
 
+REM ── 手机 App 语音指令（/mobile/api/asr）依赖腾讯云 ASR 密钥 ──
+REM 未配置时 App 端会一直报"语音识别服务异常"。把下面一行的值替换为
+REM 腾讯云 CAM 密钥后取消注释（或部署后用 nssm set 补配并 nssm restart）：
+REM "%NSSM_EXE%" set %SERVICE_NAME% AppEnvironmentExtra TENCENTCLOUD_SECRET_ID=在此填SecretId TENCENTCLOUD_SECRET_KEY=在此填SecretKey TENCENTCLOUD_REGION=ap-guangzhou
+if "%TENCENTCLOUD_SECRET_ID%"=="" (
+    echo [WARN] TENCENTCLOUD_SECRET_ID 未设置，手机 App 语音指令功能将不可用。
+    echo        配置方法: nssm set %SERVICE_NAME% AppEnvironmentExtra TENCENTCLOUD_SECRET_ID=xxx TENCENTCLOUD_SECRET_KEY=yyy
+)
+
 echo        Starting service...
 "%NSSM_EXE%" start %SERVICE_NAME%
 timeout /t 5 /nobreak >nul

@@ -199,6 +199,15 @@ def find_mobile_material(keyword):
 
 # no-test:reason=路由注册辅助函数，能力由 mobile_* 各路由测试覆盖
 def register_mobile_routes(app):
+    # 启动自检：语音指令（/mobile/api/asr）依赖腾讯云 ASR 密钥环境变量，
+    # 缺失时 App 端会一直识别失败；启动即告警，避免问题被掩盖到用户侧才暴露
+    if not os.environ.get('TENCENTCLOUD_SECRET_ID', '').strip() \
+            or not os.environ.get('TENCENTCLOUD_SECRET_KEY', '').strip():
+        app.logger.warning(
+            '腾讯云 ASR 密钥未配置（TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY），'
+            '手机 App 语音指令功能将不可用，请在服务环境变量中配置后重启'
+        )
+
     @app.route('/mobile/app')
     def mobile_app_download():
         from app import ANDROID_APK_PATHS, os, send_file, render_template, redirect
@@ -978,9 +987,16 @@ def register_mobile_routes(app):
                 eng_service_type='16k_zh',
             )
             return jsonify({'status': 'success', 'success': True, 'text': text})
-        except TencentAsrError:
+        except TencentAsrError as e:
             current_app.logger.exception('腾讯云 ASR 失败')
-            return jsonify({'status': 'error', 'success': False, 'msg': '语音识别失败，请稍后重试'}), 502
+            # 透传腾讯云错误摘要（含错误码，截断防超长），便于 App 端和管理员定位
+            # 是密钥无效、服务未开通还是音频参数问题，而非笼统的"请重试"
+            detail = str(e)[:120]
+            return jsonify({
+                'status': 'error',
+                'success': False,
+                'msg': '语音识别失败：{0}'.format(detail),
+            }), 502
         except Exception:
             current_app.logger.exception('语音识别失败')
             return jsonify({'status': 'error', 'success': False, 'msg': '语音识别失败，请稍后重试'}), 500

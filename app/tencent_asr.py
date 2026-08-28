@@ -44,9 +44,13 @@ def _sign(payload: bytes, secret_id: str, secret_key: str, region: str,
           host: str = ASR_HOST, action: str = ASR_ACTION,
           version: str = ASR_VERSION) -> Dict[str, str]:
     """构造腾讯云 API v3 请求头（TC3-HMAC-SHA256）。"""
-    now = datetime.datetime.utcnow()
-    timestamp = str(int(now.timestamp()))
-    date = now.strftime("%Y-%m-%d")
+    # 注意：不能用 datetime.utcnow().timestamp() —— naive 时间的 timestamp()
+    # 会按本地时区解释，UTC+8 服务器上签名时间戳会落后 8 小时，
+    # 导致腾讯云恒定返回 AuthFailure.SignatureExpire。time.time() 与时区无关。
+    import time as _time
+    ts = _time.time()
+    timestamp = str(int(ts))
+    date = datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).strftime("%Y-%m-%d")
 
     content_type = "application/json; charset=utf-8"
     canonical_query = ""
@@ -126,7 +130,10 @@ def sentence_recognition(
         "SourceType": 1,
         "VoiceFormat": fmt,
         "Data": base64.b64encode(audio_bytes).decode("ascii"),
-        "ChannelNum": 1,
+        # DataLen 为未 base64 的原始字节数，SourceType=1 时接口要求必传
+        "DataLen": len(audio_bytes),
+        # 注意：不要传 ChannelNum，一句话识别接口不认识该参数，
+        # 传了会被腾讯云直接拒绝（UnknownParameter）
         "FilterDirty": 0,
         "FilterPunc": 0,
     }

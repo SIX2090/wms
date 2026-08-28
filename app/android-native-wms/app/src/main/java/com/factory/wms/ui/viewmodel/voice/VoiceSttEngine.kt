@@ -43,8 +43,13 @@ interface VoiceSttListener {
     /** 最终识别结果，按置信度从高到低排序。 */
     fun onResult(texts: List<String>) {}
 
-    /** 识别错误；细分原因见 [SttError]。 */
-    fun onError(error: SttError) {}
+    /**
+     * 识别错误；细分原因见 [SttError]。
+     *
+     * @param detail 可选的后端/引擎原始错误说明（如云引擎透传的后端 msg），
+     *   用于替代笼统的默认文案，避免"配置缺失却提示重启 App"这类误导。
+     */
+    fun onError(error: SttError, detail: String? = null) {}
 }
 
 /** 兼容旧命名（保持 [VoiceSttEngine.setListener] 调用点一致）。 */
@@ -98,7 +103,7 @@ enum class SttError {
         NetworkError -> "网络异常，语音识别需要联网，请检查网络后重试"
         NetworkTimeout -> "网络超时，请检查网络后重试"
         ServerError -> "语音服务暂不可用，请稍后重试"
-        ClientError -> "语音识别服务出错，请重启 App 后重试"
+        ClientError -> "语音识别服务异常，请稍后重试或联系管理员"
         TooManyRequests -> "请求过于频繁，请稍后再试"
         EngineUnavailable -> "当前设备不支持语音识别"
         Unknown -> "语音识别失败，请重试"
