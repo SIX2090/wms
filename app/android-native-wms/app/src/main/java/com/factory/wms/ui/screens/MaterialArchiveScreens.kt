@@ -255,11 +255,13 @@ private fun MaterialArchiveRow(
                     overflow = TextOverflow.Ellipsis
                 )
                 if (!material.spec.isNullOrBlank()) {
+                    // BUG-2026-08-28-005：长规格（如 ZB-BVR-450/750V-1*25）单行被省略号
+                    // 截断看不全，放宽为最多两行折行显示，超出两行才省略兜底。
                     Text(
                         "规格: ${material.spec}",
                         style = MaterialTheme.typography.bodySmall,
                         color = OnSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }

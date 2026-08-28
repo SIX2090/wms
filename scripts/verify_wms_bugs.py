@@ -203,6 +203,22 @@ def check_onclick_tojson_quotes() -> tuple[bool, str]:
     return True, "onclick 属性与 tojson 引号安全（BUG-2026-08-19-004 回归）"
 
 
+def check_mobile_archive_spec_wrap() -> tuple[bool, str]:
+    """BUG-2026-08-28-005: 安卓原生 App 物料档案列表行规格 maxLines=1 被省略号截断
+    （如 ZB-BVR-450/750V-1*25 只显示 ZB-BVR-450/7...），必须允许多行折行显示。"""
+    path = "app/android-native-wms/app/src/main/java/com/factory/wms/ui/screens/MaterialArchiveScreens.kt"
+    content = read_text(path)
+    m = re.search(r"规格: \$\{material\.spec\}(.{0,300})", content, re.S)
+    if not m:
+        return False, "物料档案列表行缺少规格字段渲染"
+    block = m.group(1)
+    if re.search(r"maxLines\s*=\s*1\b", block):
+        return False, "物料档案列表行规格仍为 maxLines = 1 单行截断，长规格显示不全"
+    if "maxLines = 2" not in block:
+        return False, "物料档案列表行规格应 maxLines = 2 折行显示"
+    return True, "手机 App 物料档案规格两行折行显示（BUG-2026-08-28-005 回归）"
+
+
 def main() -> int:
     app_py = read_text("app/app.py")
     config_py = read_text("app/config.py")
@@ -349,6 +365,9 @@ def main() -> int:
 
     ok, message = check_onclick_tojson_quotes()
     checks.append(("BUG-2026-08-19-004", ok, message))
+
+    ok, message = check_mobile_archive_spec_wrap()
+    checks.append(("BUG-2026-08-28-005", ok, message))
 
     mobile_scan_body = app_function_body("mobile_scan_submit")
     checks.append((
