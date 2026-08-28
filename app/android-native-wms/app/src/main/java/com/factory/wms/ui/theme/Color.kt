@@ -87,6 +87,11 @@ val CardCyan = Color(0xFF0891B2)
 val CardCyanLight = Color(0xFF22D3EE)
 val CardCyanDark = Color(0xFF155E75)
 
+// 物料档案 - Amber（与期初库存 Cyan 区分，AI-APP-UI-001）
+val CardAmber = Color(0xFFD97706)
+val CardAmberLight = Color(0xFFFBBF24)
+val CardAmberDark = Color(0xFF92400E)
+
 // ── Dark Theme ──
 val DarkSurface = Color(0xFF18181B)
 val DarkSurfaceVariant = Color(0xFF27272A)
