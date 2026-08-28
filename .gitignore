@@ -88,3 +88,10 @@ wms_source.zip
 
 # ===== AI 工作记忆（本地状态，勿提交）=====
 .workbuddy/
+
+# ===== deploy / ops scripts (may embed cloud secrets: never upload) =====
+run_wms_task.bat
+run_wms_task.bat.bak
+*.bak
+*.bak_*
+.installed.flag
