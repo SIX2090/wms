@@ -1084,43 +1084,50 @@
 </script>
 
 <style>
+/* AI-MOB-UI-F01：手机端界面精修——识别预览/扫码框/批量面板/待确认卡片 */
 .mobile-recognize-preview {
     margin: 16px 0;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    border-radius: 14px;
     overflow: hidden;
     background: #f9fafb;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
 }
 .mobile-recognize-preview-header {
-    padding: 8px 12px;
-    background: #f3f4f6;
+    padding: 10px 14px;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
     border-bottom: 1px solid #e5e7eb;
     display: flex;
     justify-content: space-between;
     align-items: center;
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;
+    color: #334155;
 }
 .btn-close-sm {
-    background: none;
+    background: rgba(148, 163, 184, 0.14);
     border: none;
-    padding: 4px;
+    padding: 5px 9px;
     cursor: pointer;
-    color: #6b7280;
+    color: #64748b;
     font-size: 12px;
+    border-radius: 8px;
+    transition: background 0.15s ease, color 0.15s ease;
 }
 .btn-close-sm:hover {
     color: #1f2937;
+    background: rgba(148, 163, 184, 0.28);
 }
 .mobile-recognize-preview-body {
     position: relative;
-    padding: 12px;
+    padding: 14px;
     text-align: center;
 }
 .mobile-recognize-preview-body img {
     max-width: 100%;
     max-height: 300px;
-    border-radius: 4px;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
 }
 .mobile-recognize-loading {
     position: absolute;
@@ -1128,13 +1135,15 @@
     left: 50%;
     transform: translate(-50%, -50%);
     background: rgba(255, 255, 255, 0.95);
-    padding: 12px 20px;
-    border-radius: 8px;
+    padding: 12px 22px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     gap: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.14);
     font-size: 14px;
+    font-weight: 600;
+    color: #334155;
 }
 .mobile-barcode-scanner {
     position: fixed;
@@ -1165,18 +1174,26 @@
     height: 100%;
 }
 .mobile-barcode-header {
-    padding: 12px 16px;
+    padding: 14px 18px;
     color: #fff;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.55);
     font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
 }
 .mobile-barcode-header .btn-close-sm {
     color: #fff;
     font-size: 18px;
-    padding: 6px 10px;
+    padding: 7px 11px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+}
+.mobile-barcode-header .btn-close-sm:hover {
+    background: rgba(255, 255, 255, 0.24);
+    color: #fff;
 }
 .mobile-barcode-viewport {
     flex: 1;
@@ -1199,42 +1216,49 @@
     transform: translate(-50%, -50%);
     width: 260px;
     height: 160px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
+    border: 2px solid rgba(255, 255, 255, 0.22);
+    border-radius: 14px;
 }
 .mobile-barcode-frame-corner {
     position: absolute;
-    width: 20px;
-    height: 20px;
-    border-color: #3b82f6;
+    width: 22px;
+    height: 22px;
+    border-color: #60a5fa;
     border-style: solid;
 }
 .mobile-barcode-frame-corner.tl {
     top: -2px;
     left: -2px;
-    border-width: 3px 0 0 3px;
+    border-width: 4px 0 0 4px;
+    border-radius: 12px 0 0 0;
 }
 .mobile-barcode-frame-corner.tr {
     top: -2px;
     right: -2px;
-    border-width: 3px 3px 0 0;
+    border-width: 4px 4px 0 0;
+    border-radius: 0 12px 0 0;
 }
 .mobile-barcode-frame-corner.bl {
     bottom: -2px;
     left: -2px;
-    border-width: 0 0 3px 3px;
+    border-width: 0 0 4px 4px;
+    border-radius: 0 0 0 12px;
 }
 .mobile-barcode-frame-corner.br {
     bottom: -2px;
     right: -2px;
-    border-width: 0 3px 3px 0;
+    border-width: 0 4px 4px 0;
+    border-radius: 0 0 12px 0;
 }
 .mobile-barcode-scan-line {
     position: absolute;
     top: 0;
     left: 10%;
     right: 10%;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+    height: 3px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, transparent, #60a5fa, transparent);
+    box-shadow: 0 0 14px 3px rgba(96, 165, 250, 0.55);
     animation: scanLineMove 2s ease-in-out infinite;
 }
 @keyframes scanLineMove {
@@ -1243,56 +1267,131 @@
 }
 .mobile-barcode-hint {
     padding: 16px;
-    color: #fff;
+    color: rgba(255, 255, 255, 0.92);
     text-align: center;
     font-size: 15px;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.55);
+    letter-spacing: 0.02em;
 }
 .mobile-batch-toggle {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    margin-top: 10px;
-    color: #374151;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    color: #334155;
     font-size: 14px;
+    font-weight: 600;
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+.mobile-batch-toggle:active {
+    transform: scale(0.98);
+    background: #e2e8f0;
 }
 .mobile-batch-panel {
     margin-top: 16px;
-    border-top: 1px solid #e5e7eb;
-    padding-top: 14px;
+    border-top: 1px dashed #e2e8f0;
+    padding-top: 16px;
 }
 .mobile-batch-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
 }
-.mobile-batch-header strong { color: #111827; }
+.mobile-batch-header strong { color: #0f172a; font-size: 15px; }
 .mobile-batch-header strong span { color: #2563eb; }
+.mobile-batch-header .btn {
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.3);
+    font-weight: 700;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.mobile-batch-header .btn:active:not(:disabled) {
+    transform: scale(0.96);
+}
+.mobile-batch-header .btn:disabled {
+    background: #cbd5e1;
+    box-shadow: none;
+}
 .mobile-batch-row {
     display: grid;
     grid-template-columns: 28px minmax(0, 1fr) auto 28px;
     align-items: center;
     gap: 8px;
-    padding: 9px 0;
-    border-bottom: 1px solid #f3f4f6;
+    padding: 10px 10px;
+    margin-bottom: 6px;
+    border-radius: 10px;
+    background: #f8fafc;
+    border: 1px solid #f1f5f9;
     font-size: 14px;
 }
-.mobile-batch-row-index { color: #6b7280; }
+.mobile-batch-row-index {
+    color: #94a3b8;
+    font-weight: 700;
+}
 .mobile-batch-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mobile-batch-row > span:nth-of-type(2) { color: #6b7280; white-space: nowrap; }
+.mobile-batch-row > span:nth-of-type(2) { color: #64748b; white-space: nowrap; }
 
 /* 待确认草稿面板 */
 .mobile-confirm-panel { padding: 4px 2px; }
 .mobile-confirm-toolbar { margin: 12px 0 14px; }
+.mobile-confirm-toolbar .btn {
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.3);
+    font-weight: 700;
+    min-height: 46px;
+    transition: transform 0.15s ease;
+}
+.mobile-confirm-toolbar .btn:active {
+    transform: scale(0.97);
+}
+.mobile-confirm-toolbar .form-control {
+    min-height: 46px;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 12px;
+    font-weight: 600;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.mobile-confirm-toolbar .form-control:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+    outline: none;
+}
 .mobile-confirm-list { display: flex; flex-direction: column; gap: 12px; }
-.mobile-confirm-empty { color: #6b7280; text-align: center; padding: 24px 0; }
+.mobile-confirm-empty { color: #94a3b8; text-align: center; padding: 32px 0; font-size: 14px; }
 .mobile-confirm-card {
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 12px 14px;
+    position: relative;
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    border-radius: 14px;
+    padding: 14px 14px 14px 18px;
     background: #fff;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+    overflow: hidden;
+    animation: mobileFadeUp 0.3s ease both;
+}
+.mobile-confirm-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: #94a3b8;
+}
+.mobile-confirm-card:has(.mobile-confirm-tag-in)::before {
+    background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%);
+}
+.mobile-confirm-card:has(.mobile-confirm-tag-out)::before {
+    background: linear-gradient(180deg, #f97316 0%, #ea580c 100%);
 }
 .mobile-confirm-card-head {
     display: flex;
@@ -1300,29 +1399,52 @@
     gap: 8px;
     margin-bottom: 8px;
 }
-.mobile-confirm-card-head strong { color: #111827; font-size: 15px; }
+.mobile-confirm-card-head strong { color: #0f172a; font-size: 15px; }
 .mobile-confirm-tag {
     font-size: 12px;
-    padding: 2px 8px;
+    padding: 3px 10px;
     border-radius: 999px;
     color: #fff;
     white-space: nowrap;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.16);
 }
-.mobile-confirm-tag-in { background: #16a34a; }
-.mobile-confirm-tag-out { background: #ea580c; }
+.mobile-confirm-tag-in { background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%); }
+.mobile-confirm-tag-out { background: linear-gradient(135deg, #ea580c 0%, #f97316 100%); }
 .mobile-confirm-card-meta {
     display: flex;
     flex-wrap: wrap;
     gap: 6px 12px;
-    color: #6b7280;
+    color: #64748b;
     font-size: 13px;
     margin-bottom: 12px;
+    line-height: 1.5;
 }
-.mobile-confirm-card-actions button { font-size: 14px; }
-.mobile-confirm-tip { margin-top: 16px; color: #9ca3af; font-size: 12px; }
+.mobile-confirm-card-actions {
+    display: flex;
+    gap: 8px;
+}
+.mobile-confirm-card-actions button {
+    font-size: 14px;
+    border-radius: 10px;
+    font-weight: 700;
+    min-height: 40px;
+    transition: transform 0.15s ease;
+}
+.mobile-confirm-card-actions button:active {
+    transform: scale(0.96);
+}
+.mobile-confirm-tip { margin-top: 16px; color: #9ca3af; font-size: 12px; line-height: 1.5; }
 /* BUG-2026-08-28-001：待确认页分页——加载更多按钮与全部加载提示 */
 .mobile-confirm-more { display: flex; }
-.mobile-confirm-more button { white-space: normal; line-height: 1.4; }
+.mobile-confirm-more button {
+    white-space: normal;
+    line-height: 1.4;
+    border-radius: 12px;
+    min-height: 44px;
+    font-weight: 600;
+}
 .mobile-confirm-more-done { width: 100%; text-align: center; color: #9ca3af; font-size: 12px; margin: 4px 0; }
 </style>
 {% endblock %}
