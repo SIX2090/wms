@@ -2,6 +2,7 @@ package com.factory.wms.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +29,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.factory.wms.BuildConfig
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 
@@ -114,19 +116,22 @@ fun LoginScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // Logo
+                // Logo（白色描边圆角方块 + 内层淡色衬底，更有层次感）
                 Box(
                     modifier = Modifier
-                        .size(88.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color.White.copy(alpha = 0.15f)),
+                        .size(92.dp)
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(Color.White.copy(alpha = 0.10f))
+                        .padding(5.dp)
+                        .clip(RoundedCornerShape(21.dp))
+                        .background(Color.White.copy(alpha = 0.16f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.Filled.Warehouse,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(46.dp)
                     )
                 }
 
@@ -198,7 +203,10 @@ fun LoginScreen(
                             shape = RoundedCornerShape(14.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Primary,
-                                focusedLabelColor = Primary
+                                focusedLabelColor = Primary,
+                                unfocusedBorderColor = BorderSoft,
+                                unfocusedContainerColor = SurfaceVariant.copy(alpha = 0.35f),
+                                focusedContainerColor = Color.White
                             )
                         )
 
@@ -228,7 +236,10 @@ fun LoginScreen(
                             shape = RoundedCornerShape(14.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Primary,
-                                focusedLabelColor = Primary
+                                focusedLabelColor = Primary,
+                                unfocusedBorderColor = BorderSoft,
+                                unfocusedContainerColor = SurfaceVariant.copy(alpha = 0.35f),
+                                focusedContainerColor = Color.White
                             )
                         )
 
@@ -276,28 +287,32 @@ fun LoginScreen(
                             shape = RoundedCornerShape(14.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Primary,
-                                focusedLabelColor = Primary
+                                focusedLabelColor = Primary,
+                                unfocusedBorderColor = BorderSoft,
+                                unfocusedContainerColor = SurfaceVariant.copy(alpha = 0.35f),
+                                focusedContainerColor = Color.White
                             )
                         )
 
                         Spacer(modifier = Modifier.height(28.dp))
 
-                        // Login button
-                        Button(
-                            onClick = { viewModel.login(username, password, baseUrl) },
+                        // Login button（主色渐变，按压有层次感）
+                        val loginEnabled = !uiState.isLoading && username.isNotBlank() && password.isNotBlank()
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(54.dp),
-                            enabled = !uiState.isLoading && username.isNotBlank() && password.isNotBlank(),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Primary,
-                                disabledContainerColor = Primary.copy(alpha = 0.4f)
-                            ),
-                            elevation = ButtonDefaults.buttonElevation(
-                                defaultElevation = 4.dp,
-                                pressedElevation = 8.dp
-                            )
+                                .height(54.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(Primary, PrimaryDark)
+                                    ),
+                                    alpha = if (loginEnabled) 1f else 0.4f
+                                )
+                                .clickable(enabled = loginEnabled) {
+                                    viewModel.login(username, password, baseUrl)
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
                             if (uiState.isLoading) {
                                 CircularProgressIndicator(
@@ -308,6 +323,7 @@ fun LoginScreen(
                             } else {
                                 Text(
                                     "登 录",
+                                    color = Color.White,
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 2.sp
@@ -320,7 +336,7 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(28.dp))
 
                 Text(
-                    "v3.0 · 专为仓库作业设计",
+                    "v${BuildConfig.VERSION_NAME} · 专为仓库作业设计",
                     color = Color.White.copy(alpha = 0.5f),
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center,

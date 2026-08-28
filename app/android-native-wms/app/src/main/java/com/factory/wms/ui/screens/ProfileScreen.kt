@@ -53,15 +53,36 @@ fun ProfileScreen(
                             colors = listOf(Primary, PrimaryDark)
                         )
                     )
-                    .padding(horizontal = 20.dp, vertical = 28.dp)
             ) {
+                // 装饰圆
+                Box(
+                    modifier = Modifier
+                        .size(150.dp)
+                        .offset(x = (-50).dp, y = (-60).dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.05f))
+                )
+                Box(
+                    modifier = Modifier
+                        .size(100.dp)
+                        .align(Alignment.TopEnd)
+                        .offset(x = 30.dp, y = (-20).dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.07f))
+                )
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 28.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // 头像（白色描边圆环 + 首字母）
                     Box(
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(62.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.12f))
+                            .padding(4.dp)
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
@@ -81,12 +102,19 @@ fun ProfileScreen(
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp
                         )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            "角色: ${uiState.role.ifBlank { "操作员" }}",
-                            color = Color.White.copy(alpha = 0.75f),
-                            fontSize = 13.sp
-                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.White.copy(alpha = 0.16f)
+                        ) {
+                            Text(
+                                "角色 · ${uiState.role.ifBlank { "操作员" }}",
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
@@ -98,7 +126,8 @@ fun ProfileScreen(
                 ProfileRow(
                     icon = Icons.Outlined.Dns,
                     label = "服务器地址",
-                    value = uiState.baseUrl
+                    value = uiState.baseUrl,
+                    showDivider = false
                 )
             }
 
@@ -108,7 +137,8 @@ fun ProfileScreen(
                 ProfileRow(
                     icon = Icons.Outlined.Info,
                     label = "版本",
-                    value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+                    value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    showDivider = false
                 )
             }
 
@@ -156,28 +186,44 @@ fun ProfileScreen(
                     icon = Icons.Outlined.Home,
                     label = "回到首页",
                     value = "说“回到首页”",
-                    isHint = true
+                    isHint = true,
+                    showDivider = false
                 )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // ── 退出登录 ──
-            Button(
+            // ── 退出登录（白底红字卡片，比纯红按钮更克制精致） ──
+            Card(
                 onClick = { showLogoutDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Error,
-                    contentColor = Color.White
-                )
+                    .padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = CardBackground),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
-                Icon(Icons.Outlined.Logout, null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("退出登录", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Outlined.Logout,
+                        null,
+                        tint = Error,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "退出登录",
+                        color = Error,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -239,8 +285,10 @@ private fun ProfileRow(
     icon: ImageVector,
     label: String,
     value: String,
-    isHint: Boolean = false
+    isHint: Boolean = false,
+    showDivider: Boolean = true
 ) {
+    Column {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -284,5 +332,13 @@ private fun ProfileRow(
             tint = OnSurfaceSecondary,
             modifier = Modifier.size(18.dp)
         )
+    }
+    if (showDivider) {
+        HorizontalDivider(
+            modifier = Modifier.padding(start = 64.dp, end = 16.dp),
+            color = DividerSoft,
+            thickness = 1.dp
+        )
+    }
     }
 }
