@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.theme.CardTeal
 import com.factory.wms.ui.theme.OnSurfaceVariant
+import com.factory.wms.ui.theme.SurfaceVariant
 
 /**
  * 通用仓库选择对话框。入库/出库/盘点/期初建账等需要指定仓库的场景共用。
@@ -52,25 +53,36 @@ fun WarehousePickerDialog(
                     TextButton(onClick = onRetry) { Text("重新加载") }
                 }
             } else {
-                LazyColumn {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     itemsIndexed(warehouses) { _, warehouse ->
                         val isSelected = selected?.id == warehouse.id
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) accentColor.copy(alpha = 0.08f) else Color.Transparent)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (isSelected) accentColor.copy(alpha = 0.10f) else Color.Transparent)
                                 .clickable { onSelect(warehouse) }
-                                .padding(12.dp),
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.Outlined.Warehouse,
-                                null,
-                                tint = if (isSelected) accentColor else OnSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(
+                                        if (isSelected) accentColor.copy(alpha = 0.16f)
+                                        else SurfaceVariant
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Warehouse,
+                                    null,
+                                    tint = if (isSelected) accentColor else OnSurfaceVariant,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     "${warehouse.code.orEmpty()} ${warehouse.name.orEmpty()}",

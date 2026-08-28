@@ -24,6 +24,8 @@ import com.factory.wms.data.model.OpeningStockLine
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.components.ScannerDialog
 import com.factory.wms.ui.components.WarehousePickerDialog
+import com.factory.wms.ui.components.WmsEmptyState
+import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
 import com.factory.wms.util.formatQuantity
@@ -67,29 +69,11 @@ fun OpeningStockScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("期初库存", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            "选择日期+仓库，扫码录入初始化库存",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            WmsGradientHeader(
+                title = "期初库存",
+                subtitle = "选择日期+仓库，扫码录入初始化库存",
+                accent = CardCyan,
+                onBack = onBack
             )
         }
     ) { padding ->
@@ -118,13 +102,21 @@ fun OpeningStockScreen(
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Outlined.CalendarMonth,
-                            null,
-                            tint = CardTeal,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(CardCyan.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Outlined.CalendarMonth,
+                                null,
+                                tint = CardCyan,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text("建账日期", style = MaterialTheme.typography.labelSmall, color = OnSurfaceVariant)
                             Text(
@@ -149,13 +141,21 @@ fun OpeningStockScreen(
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Outlined.Warehouse,
-                            null,
-                            tint = CardTeal,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(CardCyan.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Outlined.Warehouse,
+                                null,
+                                tint = CardCyan,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text("仓库", style = MaterialTheme.typography.labelSmall, color = OnSurfaceVariant)
                             Text(
@@ -178,7 +178,7 @@ fun OpeningStockScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = CardTeal.copy(alpha = 0.06f)),
+                    colors = CardDefaults.cardColors(containerColor = CardCyan.copy(alpha = 0.06f)),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Row(
@@ -241,43 +241,21 @@ fun OpeningStockScreen(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            modifier = Modifier
-                                .size(80.dp)
-                                .clip(CircleShape)
-                                .background(CardTeal.copy(alpha = 0.06f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Outlined.QrCodeScanner,
-                                null,
-                                modifier = Modifier.size(40.dp),
-                                tint = CardTeal.copy(alpha = 0.5f)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            "暂无期初物料",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = OnSurface
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "点击下方按钮扫码或手动添加",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = OnSurfaceVariant
-                        )
-                    }
+                    WmsEmptyState(
+                        icon = Icons.Outlined.QrCodeScanner,
+                        title = "暂无期初物料",
+                        subtitle = "点击下方按钮扫码或手动添加",
+                        accentColor = CardCyan
+                    )
                 }
             }
 
-            // 底部操作
+            // 底部操作（顶部圆角浮层）
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shadowElevation = 8.dp,
-                color = MaterialTheme.colorScheme.surface
+                shadowElevation = 12.dp,
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Button(
@@ -288,8 +266,8 @@ fun OpeningStockScreen(
                         enabled = uiState.lines.isNotEmpty() && uiState.selectedWarehouse != null && !uiState.isLoading,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = CardTeal,
-                            disabledContainerColor = CardTeal.copy(alpha = 0.3f)
+                            containerColor = CardCyan,
+                            disabledContainerColor = CardCyan.copy(alpha = 0.3f)
                         )
                     ) {
                         if (uiState.isLoading) {
@@ -318,17 +296,17 @@ fun OpeningStockScreen(
                                 .height(48.dp),
                             shape = RoundedCornerShape(12.dp),
                             border = ButtonDefaults.outlinedButtonBorder.copy(
-                                brush = androidx.compose.ui.graphics.SolidColor(CardTeal.copy(alpha = 0.3f))
+                                brush = androidx.compose.ui.graphics.SolidColor(CardCyan.copy(alpha = 0.3f))
                             )
                         ) {
                             Icon(
                                 Icons.Outlined.QrCodeScanner,
                                 null,
                                 modifier = Modifier.size(20.dp),
-                                tint = CardTeal
+                                tint = CardCyan
                             )
                             Spacer(Modifier.width(6.dp))
-                            Text("扫码添加", color = CardTeal, fontWeight = FontWeight.Medium)
+                            Text("扫码添加", color = CardCyan, fontWeight = FontWeight.Medium)
                         }
                         OutlinedButton(
                             onClick = { showManualDialog = true },
@@ -337,17 +315,17 @@ fun OpeningStockScreen(
                                 .height(48.dp),
                             shape = RoundedCornerShape(12.dp),
                             border = ButtonDefaults.outlinedButtonBorder.copy(
-                                brush = androidx.compose.ui.graphics.SolidColor(CardTeal.copy(alpha = 0.3f))
+                                brush = androidx.compose.ui.graphics.SolidColor(CardCyan.copy(alpha = 0.3f))
                             )
                         ) {
                             Icon(
                                 Icons.Outlined.Edit,
                                 null,
                                 modifier = Modifier.size(20.dp),
-                                tint = CardTeal
+                                tint = CardCyan
                             )
                             Spacer(Modifier.width(6.dp))
-                            Text("手动添加", color = CardTeal, fontWeight = FontWeight.Medium)
+                            Text("手动添加", color = CardCyan, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -372,8 +350,8 @@ fun OpeningStockScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CardTeal,
-                            focusedLabelColor = CardTeal
+                            focusedBorderColor = CardCyan,
+                            focusedLabelColor = CardCyan
                         )
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -386,10 +364,10 @@ fun OpeningStockScreen(
                             modifier = Modifier.size(44.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = CardTeal.copy(alpha = 0.1f)
+                                containerColor = CardCyan.copy(alpha = 0.1f)
                             )
                         ) {
-                            Icon(Icons.Outlined.Remove, "减1", tint = CardTeal, modifier = Modifier.size(22.dp))
+                            Icon(Icons.Outlined.Remove, "减1", tint = CardCyan, modifier = Modifier.size(22.dp))
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         OutlinedTextField(
@@ -400,8 +378,8 @@ fun OpeningStockScreen(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = CardTeal,
-                                focusedLabelColor = CardTeal
+                                focusedBorderColor = CardCyan,
+                                focusedLabelColor = CardCyan
                             )
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -412,7 +390,7 @@ fun OpeningStockScreen(
                             },
                             modifier = Modifier.size(44.dp),
                             shape = RoundedCornerShape(12.dp),
-                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardTeal)
+                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan)
                         ) {
                             Icon(Icons.Outlined.Add, "加1", tint = Color.White, modifier = Modifier.size(22.dp))
                         }
@@ -429,7 +407,7 @@ fun OpeningStockScreen(
                     },
                     enabled = manualCode.isNotBlank(),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CardTeal)
+                    colors = ButtonDefaults.buttonColors(containerColor = CardCyan)
                 ) {
                     Text("添加")
                 }
@@ -491,24 +469,24 @@ private fun OpeningStockLineCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(CardTeal.copy(alpha = 0.1f)),
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(CardCyan.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
-                Text("${index + 1}", color = CardTeal, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("${index + 1}", color = CardCyan, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -533,11 +511,25 @@ private fun OpeningStockLineCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                line.price?.let {
+                    Text(
+                        "单价: ¥${"%.2f".format(it)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            // 数量胶囊
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = CardCyan.copy(alpha = 0.10f)
+            ) {
                 Text(
-                    "数量: ${formatQuantity(line.quantity)}" +
-                        (line.price?.let { "  单价: ¥${"%.2f".format(it)}" } ?: ""),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    "× ${formatQuantity(line.quantity)}",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    color = CardCyan,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
             IconButton(
@@ -581,7 +573,7 @@ private fun DatePickerDialogComposable(
                     "${datePicker.year}年${datePicker.month + 1}月${datePicker.day}日",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = CardTeal
+                    color = CardCyan
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 // 年份
@@ -603,7 +595,7 @@ private fun DatePickerDialogComposable(
                     onConfirm("%04d-%02d-%02d".format(y, m, d))
                 },
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = CardTeal)
+                colors = ButtonDefaults.buttonColors(containerColor = CardCyan)
             ) { Text("确定") }
         },
         dismissButton = {
@@ -623,8 +615,8 @@ private fun YearRow(state: DatePickerDialogState) {
             onClick = { state.year-- },
             modifier = Modifier.size(40.dp),
             shape = RoundedCornerShape(10.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardTeal.copy(alpha = 0.1f))
-        ) { Icon(Icons.Filled.KeyboardArrowLeft, "上一年", tint = CardTeal) }
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
+        ) { Icon(Icons.Filled.KeyboardArrowLeft, "上一年", tint = CardCyan) }
         Text(
             "${state.year}年",
             modifier = Modifier.weight(1f),
@@ -636,8 +628,8 @@ private fun YearRow(state: DatePickerDialogState) {
             onClick = { state.year++ },
             modifier = Modifier.size(40.dp),
             shape = RoundedCornerShape(10.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardTeal.copy(alpha = 0.1f))
-        ) { Icon(Icons.Filled.KeyboardArrowRight, "下一年", tint = CardTeal) }
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
+        ) { Icon(Icons.Filled.KeyboardArrowRight, "下一年", tint = CardCyan) }
     }
 }
 
@@ -652,8 +644,8 @@ private fun MonthRow(state: DatePickerDialogState) {
             onClick = { state.month = (state.month + 11) % 12 },
             modifier = Modifier.size(40.dp),
             shape = RoundedCornerShape(10.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardTeal.copy(alpha = 0.1f))
-        ) { Icon(Icons.Filled.KeyboardArrowLeft, "上一月", tint = CardTeal) }
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
+        ) { Icon(Icons.Filled.KeyboardArrowLeft, "上一月", tint = CardCyan) }
         Text(
             "${state.month + 1}月",
             modifier = Modifier.weight(1f),
@@ -665,8 +657,8 @@ private fun MonthRow(state: DatePickerDialogState) {
             onClick = { state.month = (state.month + 1) % 12 },
             modifier = Modifier.size(40.dp),
             shape = RoundedCornerShape(10.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardTeal.copy(alpha = 0.1f))
-        ) { Icon(Icons.Filled.KeyboardArrowRight, "下一月", tint = CardTeal) }
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
+        ) { Icon(Icons.Filled.KeyboardArrowRight, "下一月", tint = CardCyan) }
     }
 }
 
@@ -683,8 +675,8 @@ private fun DayRow(state: DatePickerDialogState) {
             onClick = { if (state.day > 1) state.day-- },
             modifier = Modifier.size(40.dp),
             shape = RoundedCornerShape(10.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardTeal.copy(alpha = 0.1f))
-        ) { Icon(Icons.Filled.KeyboardArrowLeft, "前一天", tint = CardTeal) }
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
+        ) { Icon(Icons.Filled.KeyboardArrowLeft, "前一天", tint = CardCyan) }
         Text(
             "${state.day}日",
             modifier = Modifier.weight(1f),
@@ -696,8 +688,8 @@ private fun DayRow(state: DatePickerDialogState) {
             onClick = { if (state.day < daysInMonth) state.day++ },
             modifier = Modifier.size(40.dp),
             shape = RoundedCornerShape(10.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardTeal.copy(alpha = 0.1f))
-        ) { Icon(Icons.Filled.KeyboardArrowRight, "后一天", tint = CardTeal) }
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
+        ) { Icon(Icons.Filled.KeyboardArrowRight, "后一天", tint = CardCyan) }
     }
 }
 
