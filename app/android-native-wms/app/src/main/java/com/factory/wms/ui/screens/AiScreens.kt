@@ -39,6 +39,7 @@ import coil.compose.AsyncImage
 import com.factory.wms.data.api.DocumentOcrResult
 import com.factory.wms.data.api.RecognizeMaterialResult
 import com.factory.wms.data.model.ScanLine
+import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.ai.AiViewModel
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
@@ -108,29 +109,11 @@ fun DocumentOcrScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("识别单据", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            "拍照识别送货单/入库单等单据",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            WmsGradientHeader(
+                title = "识别单据",
+                subtitle = "拍照识别送货单/入库单等单据",
+                accent = CardTeal,
+                onBack = onBack
             )
         }
     ) { padding ->
@@ -762,29 +745,11 @@ fun ObjectRecognizeScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("识物", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            "拍照识别物料，自动匹配信息",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            WmsGradientHeader(
+                title = "识物",
+                subtitle = "拍照识别物料，自动匹配信息",
+                accent = CardPink,
+                onBack = onBack
             )
         }
     ) { padding ->
@@ -1185,29 +1150,11 @@ fun StocktakeRecognizeScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("识物盘点", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            "拍照识别物料或标签，录入盘点数量",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            WmsGradientHeader(
+                title = "识物盘点",
+                subtitle = "拍照识别物料或标签，录入盘点数量",
+                accent = CardPurple,
+                onBack = onBack
             )
         }
     ) { padding ->
