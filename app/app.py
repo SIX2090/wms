@@ -26017,6 +26017,12 @@ def _filter_txn_list_by_warehouse_scope(transactions, loc_names, warehouse_id=No
     ]
 
 
+LEDGER_ROW_LIMIT = 50000
+# WMS-AUDIT-2026-08-29 (2): 台账明细单次加载上限。原实现写死 .limit(5000)
+# 且按 material_id 升序截断——流水超过上限后，物料 ID 较大的流水会整段丢失，
+# 结存静默归零且无任何提示。此处提高上限，并在真正超限时显式告警。
+
+
 def _collect_ledger_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
@@ -26039,7 +26045,13 @@ def _collect_ledger_rows(filters):
     if material_clause is not None:
         query = query.join(StockTransaction.material).filter(material_clause)
 
-    transactions = query.order_by(StockTransaction.material_id.asc(), StockTransaction.created_at.asc(), StockTransaction.id.asc()).limit(5000).all()
+    # WMS-AUDIT-2026-08-29 (2): 超限不再静默截断，先计数并告警，便于事后排查。
+    ledger_total = query.count()
+    if ledger_total > LEDGER_ROW_LIMIT:
+        app.logger.warning(
+            '[LEDGER] 流水 %s 条超过上限 %s，台账明细已截断，'
+            '请缩小查询范围（仓库/物料/日期）', ledger_total, LEDGER_ROW_LIMIT)
+    transactions = query.order_by(StockTransaction.material_id.asc(), StockTransaction.created_at.asc(), StockTransaction.id.asc()).limit(LEDGER_ROW_LIMIT).all()
 
     # BUG-2026-08-27-003：空 location 流水仅当来源单据仓库与所选仓库一致时保留；
     # location 非空的流水已被上方 SQL 过滤（必属所选仓库），直接保留。
@@ -26089,9 +26101,22 @@ def _collect_ledger_rows(filters):
             'operator': transaction.operator.username if transaction.operator else '',
             'location': transaction.location or '',
             'remark': transaction.remark or '',
+            # WMS-AUDIT-2026-08-29 (1): 仅用于排序的临时字段，返回前移除
+            '_ts': txn_datetime,
+            '_txn_id': transaction.id or 0,
         })
 
-    return sorted(rows, key=lambda row: (row['date'], row['material_code'], row['reference_no']))
+    # WMS-AUDIT-2026-08-29 (1): 原按 (日期, 物料代码, 单号) 排序，单据号字典序
+    # 不等于发生时间顺序，同一天同一物料多笔时，翻到该物料最后一行看到的
+    # balance_quantity 并非最终结存（实测 6 个物料受影响，如 201033 实际结存
+    # 0 但页面末行显示 800）。改为按真实发生时间排序，再移除临时字段，
+    # 保证返回结构与改动前完全一致。
+    rows.sort(key=lambda row: (row['date'], row['material_code'],
+                               row['_ts'], row['_txn_id']))
+    for row in rows:
+        row.pop('_ts', None)
+        row.pop('_txn_id', None)
+    return rows
 
 def _purchase_order_item_query(filters):
     query = PurchaseOrderItem.query.join(PurchaseOrder).join(Material, PurchaseOrderItem.material_id == Material.id).options(
