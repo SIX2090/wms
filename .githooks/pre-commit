@@ -7,6 +7,39 @@
 
 set -e
 
+# AI-MOB-APK-001（2026-08-29）：本机 Git Bash 的 PATH 里没有 python3/python，
+# 只有 Windows 的 py.exe 与 Python311 安装目录。硬编码 python3 会让钩子每次
+# 都失败并被误判成"规则违规"，故统一探测一次真实可用的解释器。
+# AI-MOB-APK-001（2026-08-29）：本机 Git Bash 的 PATH 里没有 python3/python，
+# 且 C:\Windows\py.exe 虽存在但注册表未挂 Python（执行报 No installed Python found!）。
+# 故按「绝对路径 + 实际执行验证」探测，通过才采纳，避免钩子被误判成规则违规。
+WMS_PY=""
+for cand in python3 python \
+    "/c/Users/Administrator/AppData/Local/Programs/Python/Python311/python.exe" \
+    "/c/Users/Administrator/AppData/Local/Programs/Python/Python312/python.exe" \
+    "/c/Users/Administrator/AppData/Local/Programs/Python/Python313/python.exe" \
+    "/c/Python311/python.exe" \
+    "/c/Python313/python.exe" \
+    "/c/ERP/.venv/Scripts/python.exe" \
+    py; do
+    if command -v "$cand" >/dev/null 2>&1 || [ -x "$cand" ]; then
+        if "$cand" -c "import sys" >/dev/null 2>&1; then
+            WMS_PY="$cand"
+            break
+        fi
+    fi
+done
+if [ -z "$WMS_PY" ]; then
+    echo "[pre-commit] 未找到可用的 Python 解释器，无法执行防 BUG 规则扫描"
+    echo "[pre-commit] 请安装 Python 3 并加入 PATH，或在 PATH 中提供 python3 后重试"
+    exit 1
+fi
+
+if [ -z "$WMS_PY" ]; then
+    echo "[pre-commit] 未找到可用的 Python 解释器，无法执行防 BUG 规则扫描"
+    echo "[pre-commit] 请安装 Python 3 并加入 PATH，或手动设置 WMS_PY 后重试"
+    exit 1
+fi
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 # 获取本次提交涉及的文件
@@ -25,7 +58,7 @@ echo "$RELEVANT" | sed 's/^/  /'
 echo ""
 
 # 第一步：跑 7 条规则（linter_wms_rules.py）
-if ! python3 "$REPO_ROOT/scripts/lint_wms_rules.py" --staged; then
+if ! "$WMS_PY" "$REPO_ROOT/scripts/lint_wms_rules.py" --staged; then
     echo ""
     echo "[pre-commit] ✗ 提交被拒绝：发现防 BUG 规则违规"
     echo "[pre-commit] 请修复后重新提交，或用 git commit --no-verify 跳过（不推荐）"
@@ -39,7 +72,7 @@ if [ -n "$STAGED_JS" ]; then
     echo "[pre-commit] 二次扫描：裸调非 GET fetch"
     echo "[pre-commit] 待检查文件："
     echo "$STAGED_JS" | sed 's/^/  /'
-    if ! python3 "$REPO_ROOT/scripts/lint_no_raw_post_fetch.py" --repo-root "$REPO_ROOT"; then
+    if ! "$WMS_PY" "$REPO_ROOT/scripts/lint_no_raw_post_fetch.py" --repo-root "$REPO_ROOT"; then
         echo ""
         echo "[pre-commit] ✗ 提交被拒绝：发现裸调非 GET fetch"
         echo "[pre-commit] 请将所有非 GET 请求改为 csrfFetch(url, options) 或 api.xxx()"

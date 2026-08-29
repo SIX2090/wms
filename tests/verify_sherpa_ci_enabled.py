@@ -1,15 +1,28 @@
 # -*- coding: utf-8 -*-
-"""AI-MOB-VOICE-F01-fix3（2026-08-26）回归检查：CI 默认构建必须带 sherpa 离线语音。
+"""sherpa-onnx 打包回归检查（契约于 2026-08-29 反转，见 AI-MOB-APK-001）。
 
-背景：语音功能"不能用"的根因是默认 APK 未打包 sherpa 模型、云端引擎又依赖
-腾讯云密钥环境变量（部署常漏配）。修复 = CI 构建默认开 -Pwms.sherpa=true
-并下载模型打进 APK；同时按 BUG-2026-08-16-022 规矩递增版本号（6 / 3.3.0）。
+历史（AI-MOB-VOICE-F01-fix3，2026-08-26）：语音"不能用"的根因是默认 APK 未打包
+sherpa 模型、云端引擎又依赖腾讯云密钥（当时未配置），故 CI 默认开
+`-Pwms.sherpa=true` 把模型打进 APK。
+
+现状（AI-MOB-APK-001，2026-08-29）：腾讯云密钥已配置，且
+`VoiceSttEngineRegistry.defaultSelector` 中 `CloudAsrVoiceSttEngine.isAvailable()`
+恒为 true —— 引擎链永远走云端，sherpa 引擎一次都不会被用到。此时 sherpa 模型
+（约 70MB）+ AAR（4 种 ABI 的 .so）随 APK 打包纯属浪费体积，故 CI 默认不再打包。
+
+开关与 download task 全部保留，需要离线语音时给构建加 `-Pwms.sherpa=true` 即可，
+T5–T7/T9 守护这部分能力不被破坏。
 
 用例：
-  T1. android-build.yml 构建步骤带 -Pwms.sherpa=true
-  T2. android-build.yml 含 downloadSherpaModel 步骤且在 Build 之前
-  T3. android-build.yml 含模型文件存在性校验（download task 失败只 warn，必须显式校验）
-  T4. build.gradle.kts 版本号 >= (6, "3.3.0")（含 sherpa 的 APK 必须能作为更新安装）
+  T1. CI 构建步骤不得再带 -Pwms.sherpa=true（APK 瘦身）
+  T2. CI 不得再有 downloadSherpaModel / downloadSherpaAar 步骤
+  T3. CI 不得再有模型四件套存在性校验步骤
+  T4. 版本号已递增（BUG-2026-08-16-022：产物变更必须递增，手机才能识别为更新）
+  T5. build.gradle 的 defaultUrl 仍指向真实存在的官方模型（开关恢复时可用）
+  T6. download task 仍会把模型文件平铺重命名为标准四件套
+  T7. 引擎仍支持从 assets 复制模型到 filesDir
+  T8. -Pwms.sherpa 开关机制保留（可按需重新启用）
+  T9. AAR 仍在 .gitignore 排除（构建产物不进 git）
 """
 from __future__ import annotations
 
@@ -21,40 +34,44 @@ CI = (ROOT / ".github" / "workflows" / "android-build.yml").read_text(encoding="
 GRADLE = (ROOT / "app" / "android-native-wms" / "app" / "build.gradle.kts").read_text(encoding="utf-8")
 
 
-def test_ci_build_with_sherpa_flag() -> None:
-    """T1：assembleDebug 必须带 -Pwms.sherpa=true。"""
-    assert re.search(r"assembleDebug\s+-Pwms\.sherpa=true", CI), \
-        "Build Debug APK 步骤必须带 -Pwms.sherpa=true，否则打出的 APK 无离线语音"
+def test_ci_build_without_sherpa_flag() -> None:
+    """T1（2026-08-29 反转）：构建步骤不得再带 -Pwms.sherpa=true。
+
+    云端引擎恒优先且可用，sherpa 模型永不会被使用，打包只会白占约 70MB。
+    """
+    assert not re.search(r"-Pwms\.sherpa=true", CI), (
+        "CI 不得再带 -Pwms.sherpa=true：云端（腾讯云）引擎 isAvailable() 恒为 true，"
+        "sherpa 模型一次都不会被用到，打进 APK 纯属浪费体积"
+    )
 
 
-def test_ci_download_model_before_build() -> None:
-    """T2：downloadSherpaModel 步骤必须存在且在 Build Debug APK 之前。"""
-    dl = CI.find("downloadSherpaModel")
-    build = CI.find("Build Debug APK")
-    assert dl != -1, "CI 缺 downloadSherpaModel 步骤"
-    assert build != -1, "CI 缺 Build Debug APK 步骤"
-    assert dl < build, "downloadSherpaModel 必须在 Build Debug APK 之前执行"
+def test_ci_no_sherpa_download_steps() -> None:
+    """T2（反转）：不得再有模型/AAR 下载步骤。"""
+    assert "downloadSherpaModel" not in CI, "CI 仍有 downloadSherpaModel 步骤（应随打包一并移除）"
+    assert "downloadSherpaAar" not in CI, "CI 仍有 downloadSherpaAar 步骤（应随打包一并移除）"
 
 
-def test_ci_verify_model_present() -> None:
-    """T3：必须显式校验 4 个模型文件（download task 失败只 warn 不 fail）。"""
+def test_ci_no_model_verify_step() -> None:
+    """T3（反转）：模型校验步骤随打包一并移除。"""
     for f in ("tokens.txt", "encoder.onnx", "decoder.onnx", "joiner.onnx"):
-        assert f in CI, f"CI 缺模型文件校验：{f}"
-    assert "assets/sherpa-onnx/stream" in CI, "CI 缺模型目录校验"
+        assert f not in CI, f"CI 仍有模型文件校验：{f}（已不打模型，校验应移除）"
+    assert "assets/sherpa-onnx/stream" not in CI, "CI 仍有模型目录校验（已不打模型）"
 
 
-def test_version_bumped_for_sherpa() -> None:
-    """T4：版本号 >= 6 / 3.3.0（BUG-2026-08-16-022：能力合入必须递增版本号）。"""
+def test_version_bumped_for_slim_apk() -> None:
+    """T4：产物变更必须递增版本号（BUG-2026-08-16-022），否则手机不识别为更新。"""
     m_code = re.search(r"versionCode\s*=\s*(\d+)", GRADLE)
-    m_name = re.search(r'versionName\s*=\s*"([\d.]+)"', GRADLE)
+    m_name = re.search(r'versionName\s*=\s*"([^"]+)"', GRADLE)
     assert m_code and m_name, "build.gradle.kts 缺 versionCode/versionName"
-    assert int(m_code.group(1)) >= 6, \
-        f"含 sherpa 的 APK versionCode 必须 >= 6（当前 {m_code.group(1)}），否则手机不识别为更新"
-    assert m_name.group(1) >= "3.3.0", \
-        f"含 sherpa 的 APK versionName 必须 >= 3.3.0（当前 {m_name.group(1)}）"
+    assert int(m_code.group(1)) >= 8, (
+        f"瘦身 APK 的 versionCode 必须 >= 8（当前 {m_code.group(1)}），否则手机不识别为更新"
+    )
+    assert m_name.group(1) >= "3.5.0", (
+        f"瘦身 APK 的 versionName 必须 >= 3.5.0（当前 {m_name.group(1)}）"
+    )
 
 
-# ---------- fix3 后续修复（2026-08-26 CI run 32928804369 失败根因） ----------
+# ---------- 保留能力守护（开关恢复时可直接使用） ----------
 
 ENGINE = (ROOT / "app" / "android-native-wms" / "app" / "src" / "main" / "java" / "com"
           / "factory" / "wms" / "ui" / "viewmodel" / "voice" / "SherpaVoiceSttEngine.kt"
@@ -95,15 +112,12 @@ def test_engine_installs_model_from_assets() -> None:
     assert "appContext.assets.open" in ENGINE, "复制逻辑必须从 assets 读取模型"
 
 
-def test_ci_downloads_and_verifies_aar() -> None:
-    """T8：CI 必须下载并显式校验 AAR（AAR 只发 GitHub Releases，缺失会让
-    checkDebugAarMetadata 失败——run 32930112111 的教训）。"""
-    assert "downloadSherpaAar" in CI, "CI 缺 downloadSherpaAar 步骤"
-    assert "libs/sherpa-onnx-1.13.6.aar" in CI, "CI 缺 AAR 文件存在性校验"
-    dl = CI.find("downloadSherpaAar")
-    build = CI.find("Build Debug APK")
-    assert dl != -1 and build != -1 and dl < build, \
-        "downloadSherpaAar 必须在 Build Debug APK 之前执行"
+def test_sherpa_switch_preserved_in_gradle() -> None:
+    """T8（改造）：-Pwms.sherpa 开关机制必须保留，只是 CI 默认不打包。"""
+    assert 'project.findProperty("wms.sherpa")' in GRADLE, \
+        "build.gradle.kts 缺 -Pwms.sherpa 开关（离线语音需可按需恢复）"
+    assert "SHERPA_ENABLED" in GRADLE, "缺 SHERPA_ENABLED buildConfigField"
+    assert "SHERPA_MODEL_DIR" in GRADLE, "缺 SHERPA_MODEL_DIR buildConfigField"
 
 
 def test_aar_gitignored() -> None:
