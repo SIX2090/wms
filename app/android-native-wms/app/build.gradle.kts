@@ -47,15 +47,18 @@ android {
     tasks.configureEach {
         if (name == "validateSigningRelease" || name == "packageRelease") {
             doFirst {
-                val pwd = System.getenv("WMS_STORE_PASSWORD")
-                val keyPwd = System.getenv("WMS_KEY_PASSWORD")
-                val alias = System.getenv("WMS_KEY_ALIAS")
-                val storeFile = System.getenv("WMS_STORE_FILE")
-                if (pwd.isNullOrBlank() || keyPwd.isNullOrBlank() || alias.isNullOrBlank() || storeFile.isNullOrBlank()) {
-                    throw GradleException(
-                        "release 构建缺少签名参数。请设置 WMS_STORE_FILE / WMS_STORE_PASSWORD / " +
-                            "WMS_KEY_ALIAS / WMS_KEY_PASSWORD（keystore 与密码绝不上传仓库）。"
-                    )
+                // AI-MOB-APK-001：未配置 WMS_STORE_FILE 时走 debug 签名（见 buildTypes.release），
+                // 不再强制要求签名参数；一旦配置则必须给全，防止打出无法安装/更新的包。
+                if (System.getenv("WMS_STORE_FILE") != null) {
+                    val pwd = System.getenv("WMS_STORE_PASSWORD")
+                    val keyPwd = System.getenv("WMS_KEY_PASSWORD")
+                    val alias = System.getenv("WMS_KEY_ALIAS")
+                    if (pwd.isNullOrBlank() || keyPwd.isNullOrBlank() || alias.isNullOrBlank()) {
+                        throw GradleException(
+                            "release 构建缺少签名参数。请设置 WMS_STORE_PASSWORD / " +
+                                "WMS_KEY_ALIAS / WMS_KEY_PASSWORD（keystore 与密码绝不上传仓库）。"
+                        )
+                    }
                 }
             }
         }
@@ -66,7 +69,14 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("release")
+            // AI-MOB-APK-001：CI 无 keystore（签名材料绝不上传仓库）。GitHub runner
+            // 镜像预置的 debug.keystore 跨构建稳定，且与现行 debug 包同签名，
+            // release 包可直接覆盖安装；配置 WMS_STORE_FILE 时自动切正式签名。
+            signingConfig = if (System.getenv("WMS_STORE_FILE") != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

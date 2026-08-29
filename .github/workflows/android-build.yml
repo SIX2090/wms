@@ -44,28 +44,30 @@ jobs:
       # （腾讯云 ASR，密钥已配置），sherpa 模型约 70MB + AAR 的 .so 一次都不会被用到。
       # 保留 -Pwms.sherpa 开关与 downloadSherpa* task，需要离线语音时给 gradlew 加回
       # -Pwms.sherpa=true 并恢复下载步骤即可。
-      # 方案A：用 assembleDebug 做编译验证（Debug 无需签名，避免 release keystore 缺失
+      # 方案A：用 assembleRelease 做编译验证（Debug 无需签名，避免 release keystore 缺失
       # 导致构建在签名配置阶段即失败，从而真正走到 Kotlin 编译，暴露语法/依赖问题）。
-      - name: Build Debug APK
+      - name: Build Release APK (R8 瘦身)
         working-directory: app/android-native-wms
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
 
-      # BUG-2026-08-16-021：Android CI 仅 assembleDebug 无 lint/单测，补 lint+test 门禁。
-      # lintDebug 检查静态问题（无用资源/API 误用/可访问性等），testDebugUnitTest 跑 JVM 单测。
+      # BUG-2026-08-16-021：Android CI 补 lint+test 门禁（AI-MOB-APK-001：改走 release 变体）。
+      # lintRelease 检查静态问题（无用资源/API 误用/可访问性等），testReleaseUnitTest 跑 JVM 单测。
       # 同样不带 -Pwms.sherpa=true（AI-MOB-APK-001），保证与产物构建配置一致。
       - name: Lint (BUG-2026-08-16-021)
         working-directory: app/android-native-wms
-        run: ./gradlew lintDebug --no-daemon --stacktrace
+        run: ./gradlew lintRelease --no-daemon --stacktrace
 
       - name: Unit tests (BUG-2026-08-16-021)
         working-directory: app/android-native-wms
-        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
+        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v5
         with:
-          name: app-debug
-          path: app/android-native-wms/app/build/outputs/apk/debug/app-debug.apk
+          name: app-release
+          path: |
+            app/android-native-wms/app/build/outputs/apk/release/app-release.apk
+            app/android-native-wms/app/build/outputs/mapping/release/mapping.txt
 
       # BUG-2026-08-27-008 后续：APK 自动发布到固定 Release（tag: android-apk）。
       # 背景：Actions artifact 必须登录 GitHub 才能下载，且 90 天过期、不落部署机，
@@ -74,7 +76,7 @@ jobs:
       # 管理员从此链接下载后放内网（仓库根 app-release.apk），或配置
       # WMS_ANDROID_APK_URL 指向该直链（外网场景）。
       - name: Rename APK for release
-        run: cp app/android-native-wms/app/build/outputs/apk/debug/app-debug.apk wms-mobile-scan.apk
+        run: cp app/android-native-wms/app/build/outputs/apk/release/app-release.apk wms-mobile-scan.apk
 
       - name: Publish APK to fixed Release
         uses: softprops/action-gh-release@v2
@@ -82,7 +84,7 @@ jobs:
           tag_name: android-apk
           name: Android 扫码 APP（自动构建）
           body: |
-            每次 main 推送后由 Android APK Build 工作流自动构建更新（debug 包，语音识别走腾讯云）。
+            每次 main 推送后由 Android APK Build 工作流自动构建更新（release 包，R8 瘦身，语音识别走腾讯云）。
             直链：https://github.com/SIX2090/wms/releases/download/android-apk/wms-mobile-scan.apk
           files: wms-mobile-scan.apk
           prerelease: true
