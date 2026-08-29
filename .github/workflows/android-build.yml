@@ -52,7 +52,7 @@ jobs:
 
       # BUG-2026-08-16-021：Android CI 仅 assembleDebug 无 lint/单测，补 lint+test 门禁。
       # lintDebug 检查静态问题（无用资源/API 误用/可访问性等），testDebugUnitTest 跑 JVM 单测。
-      # 同样带，保证 lint/单测与产物的构建配置一致。
+      # 同样不带 -Pwms.sherpa=true（AI-MOB-APK-001），保证与产物构建配置一致。
       - name: Lint (BUG-2026-08-16-021)
         working-directory: app/android-native-wms
         run: ./gradlew lintDebug --no-daemon --stacktrace
@@ -82,7 +82,7 @@ jobs:
           tag_name: android-apk
           name: Android 扫码 APP（自动构建）
           body: |
-            每次 main 推送后由 Android APK Build 工作流自动构建更新（debug 包，含离线语音识别）。
+            每次 main 推送后由 Android APK Build 工作流自动构建更新（debug 包，语音识别走腾讯云）。
             直链：https://github.com/SIX2090/wms/releases/download/android-apk/wms-mobile-scan.apk
           files: wms-mobile-scan.apk
           prerelease: true

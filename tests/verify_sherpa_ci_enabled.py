@@ -14,7 +14,7 @@ sherpa 模型、云端引擎又依赖腾讯云密钥（当时未配置），故 
 T5–T7/T9 守护这部分能力不被破坏。
 
 用例：
-  T1. CI 构建步骤不得再带 -Pwms.sherpa=true（APK 瘦身）
+  T1. CI 的 gradlew 构建命令不得再带 -Pwms.sherpa=true（APK 瘦身）
   T2. CI 不得再有 downloadSherpaModel / downloadSherpaAar 步骤
   T3. CI 不得再有模型四件套存在性校验步骤
   T4. 版本号已递增（BUG-2026-08-16-022：产物变更必须递增，手机才能识别为更新）
@@ -35,13 +35,21 @@ GRADLE = (ROOT / "app" / "android-native-wms" / "app" / "build.gradle.kts").read
 
 
 def test_ci_build_without_sherpa_flag() -> None:
-    """T1（2026-08-29 反转）：构建步骤不得再带 -Pwms.sherpa=true。
+    """T1（2026-08-29 反转）：gradlew 构建命令不得再带 -Pwms.sherpa=true。
 
-    云端引擎恒优先且可用，sherpa 模型永不会被使用，打包只会白占约 70MB。
+    只检查真正的构建命令（run: ./gradlew ...），不扫注释——注释里写明
+    "如何恢复离线语音"是有价值的文档，不该被当成违规。
     """
-    assert not re.search(r"-Pwms\.sherpa=true", CI), (
-        "CI 不得再带 -Pwms.sherpa=true：云端（腾讯云）引擎 isAvailable() 恒为 true，"
-        "sherpa 模型一次都不会被用到，打进 APK 纯属浪费体积"
+    gradle_cmds = [
+        ln.strip() for ln in CI.splitlines()
+        if re.match(r"\s*run:\s*\./gradlew", ln)
+    ]
+    assert gradle_cmds, "CI 未找到任何 ./gradlew 构建命令，本用例前提失效"
+    bad = [c for c in gradle_cmds if "-Pwms.sherpa=true" in c]
+    assert not bad, (
+        "CI 的 gradlew 构建命令不得再带 -Pwms.sherpa=true：云端（腾讯云）引擎 "
+        "isAvailable() 恒为 true，sherpa 模型一次都不会被用到，打进 APK 纯属浪费体积。"
+        f"违规命令：{bad}"
     )
 
 
