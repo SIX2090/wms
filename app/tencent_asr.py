@@ -113,6 +113,7 @@ def sentence_recognition(
     region: str = ASR_REGION,
     voice_format: str = "wav",
     eng_service_type: str = "16k_zh",
+    hotword_list: Optional[list] = None,
     timeout: float = 15.0,
 ) -> str:
     """调用腾讯云一句话识别，返回识别出的中文文本。
@@ -137,6 +138,10 @@ def sentence_recognition(
         "FilterDirty": 0,
         "FilterPunc": 0,
     }
+    if hotword_list:
+        # 腾讯云 HotwordList 为 String："热词|权重"，多词英文逗号分隔，最多 128 个。
+        # 权重 100 开启同音增强替换（如 入库|100 会把 玉库 强制纠正为 入库）。
+        payload_body["HotwordList"] = hotword_list
     payload = json.dumps(payload_body, ensure_ascii=False).encode("utf-8")
 
     headers = _sign(

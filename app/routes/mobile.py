@@ -985,6 +985,7 @@ def register_mobile_routes(app):
                 region=region,
                 voice_format=ext,
                 eng_service_type='16k_zh',
+                hotword_list='入库|100,出库|100,盘点|11,查库存|11,库存|5,领料|5,退货|5,识别|5,扫码|5,打印|5',
             )
             return jsonify({'status': 'success', 'success': True, 'text': text})
         except TencentAsrError as e:
