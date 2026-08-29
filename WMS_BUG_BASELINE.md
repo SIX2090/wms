@@ -1,6 +1,6 @@
 # WMS BUG 基线
 
-更新时间：2026-08-29（持续滚动更新；累计 326 条：2026-07 共 42 条，2026-08 共 240 条，最新 BUG-2026-08-29-005）
+更新时间：2026-08-29（持续滚动更新；累计 327 条：2026-07 共 42 条，2026-08 共 241 条，最新 BUG-2026-08-29-006）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -18,6 +18,7 @@
 
 ## 已修复并纳入回归
 
+| BUG-2026-08-29-006 | [P2] WMS CI #735 新暴露 2 个失败：verify_bug_2026_08_11_017::test_t3/test_t4 用字面字符串断言（期望 `Text("图片加载失败")` 与独立 `if (imageUrl.isBlank())` 分支），与 MaterialArchiveScreens.kt 现行实现（`Icon(... "图片加载失败")` 视觉化提示 + `val loadFailed = imageUrl.isBlank() || painter.state is AsyncImagePainter.State.Error` 守卫合并）形式上不一致；现行 Kotlin 写法等价且更优（Icon 视觉、布尔合并更紧凑），但契约测试字面断言过严导致 CI 红 | **已修复（2026-08-29）**：放宽测试断言到业务意图层——T3 检查「图片加载失败」文案与 AsyncImagePainter.State.Error 识别存在（Icon/Text 形态不限）；T4 检查 imageUrl.isBlank() 守卫存在、空 URL 未透传给 painter（合并到 loadFailed 或显式 if 分支都允许）。回归：verify_bug_2026_08_11_017_mobile_material_image_loader.py 5/5 PASSED，推送后 WMS CI 应全绿。**生效条件**：纯测试文件改动，Kotlin 行为不变 |
 | BUG-2026-08-29-005 | [P2] WMS CI 自 2026-08-28 23:04 起持续红（3 failed, 964 passed）：①test_bug_2026_08_16_004 T4/T5——出库新增仓库级库存校验（2262e039）后，测试种子仍只有全局 Material.stock=100、主仓无任何流水，多仓库系统按流水净额算主仓可用 0.00，「合法草稿」被新守卫按「库存不足」正确拦截，completed==1 断言失败——属测试种子未跟上新守卫，非业务缺陷；②test_bug_2026_08_23_001::test_apk_version_bumped_for_release 硬编码 versionName=="3.3.0"，AI-MOB-APK-001 升版 3.5.0 后每次发版必挂 | **已修复（2026-08-29）**：①_seed() 补主仓期初入库流水（StockTransaction material_id=1 transaction_type=in quantity=100 warehouse_id=1 location=主仓），库存校验语义保持不变，超发/未来日期/仓库不一致等守卫用例不受影响；②版本断言改为逐段数值比较 tuple(int) >= (3,3,0) 基线，升版不再需要改测试。回归：tests/test_bug_2026_08_16_004_batch_complete_out_guards.py 5/5、tests/test_bug_2026_08_23_001_mobile_scan_card_material_details.py 全量 PASSED，推送后 WMS CI 应转绿。**生效条件**：纯测试文件改动，不影响生产代码与数据 |
 | BUG-2026-08-29-004 | [P2] 采购入库明细表工程名称筛选框无候选提示：供应商输入框已有「输入即弹候选」自动补全（supplierFilterDropdown），工程名称框（name=project_name）却是纯文本，输入「东莞」命中多个工程时用户看不到候选列表、只能凭记忆输入全名，筛选效率低易输错 | **已修复（2026-08-29）**：in_order.html 工程名称框复用供应商下拉模式加自动补全——数据源复用现成接口 /api/contracts?keyword=（contract_no/project_name ilike 模糊匹配，标准信封 {status,data:{contracts}}，限 50 条，后端零改动），200ms 防抖请求+按关键词缓存，候选行显示「工程名称 + 合同编号」，键盘上下/回车/Escape/mousedown 选择回填完整工程名；不选择直接提交仍按 %kw% 模糊命中（后端 _apply_header_or_item_contract_filters 已兜底）。回归：tests/test_bug_2026_08_29_004_project_name_suggest.py T1-T6 PASSED。**生效条件**：纯前端模板改动，拉取重启+浏览器 Ctrl+F5 强刷即可，不涉及数据库迁移 |
 | BUG-2026-08-29-003 | [P1] 采购入库明细表供应商手工输入筛选失效：/in_order?type=purchase_in 筛选区供应商输入框占位写「输入名称快速匹配」，但 JS（in_order.html showDropdown→findSupplierByName）只做全名/全编码精确匹配回填 supplier_id，手工输入部分名称（如「欧姆」）不点选下拉时 hidden.supplier_id 为空，提交后供应商条件整体失效；导出链路只认 supplier_id，文本筛选后导出结果与页面不一致 | **已修复（2026-08-29）**：app.py 新增共享 helper `_apply_order_partner_text_filter`（往来单位名称/编码 contains 大小写不敏感匹配，supplier 与 customer 都参与）；in_order_list 与 export_in_order 在 supplier_id 为空时回退 supplier_name 模糊匹配（id 优先），页面与导出一致；in_order.html 输入框补 name="supplier_name"，分页/导出/清除链接回填该参数。回归：tests/test_bug_2026_08_29_003_supplier_text_filter.py T1-T6 PASSED。**生效条件**：纯代码改动，拉取重启即可，不涉及模板参数与数据库迁移 |
