@@ -15,7 +15,11 @@
 -dontwarn retrofit2.KotlinExtensions$*
 
 # Gson
--keepclassmembers class com.factory.wms.data.model.** { *; }
+# AI-MOB-APK-002: R8 混淆导致 Gson 反序列化 ApiEnvelope<T>.data 丢失泛型，
+# 实际得到 LinkedTreeMap，访问属性抛 ClassCastException（登录即报
+# "网络连接失败: ... cannot be cast to ..."）。必须整体 keep（含类名），
+# 仅 -keepclassmembers 不够（类名被混淆后 Gson 反射泛型链路断裂）。
+-keep class com.factory.wms.data.model.** { *; }
 -keep class com.factory.wms.data.api.** { *; }
 
 # OkHttp
