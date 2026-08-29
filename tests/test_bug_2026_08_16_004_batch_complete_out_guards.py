@@ -65,6 +65,13 @@ def _seed():
         category_id=1, unit_id=1, supplier_id=1, stock=100, price=10,
     ))
     db.session.commit()
+    # 出库仓库级库存校验（2262e039 / BUG-2026-08-29-001）按仓库维度取可用量，
+    # 多仓库系统走流水净额（get_warehouse_stock_quantities 不回退全局 stock）。
+    # 种子必须给主仓一笔期初入库，否则合法草稿会被「库存不足」正确拦截。
+    db.session.add(StockTransaction(
+        material_id=1, transaction_type="in", quantity=100,
+        location="主仓", warehouse_id=1))
+    db.session.commit()
 
 
 def _login(client):

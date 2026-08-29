@@ -97,4 +97,7 @@ def test_apk_version_bumped_for_release():
     code = int(re.search(r"versionCode\s*=\s*(\d+)", BUILD_GRADLE).group(1))
     name = re.search(r'versionName\s*=\s*"([^"]+)"', BUILD_GRADLE).group(1)
     assert code >= 5, f"versionCode 未递增: {code}"
-    assert name == "3.3.0", f"versionName 应为 3.3.0: {name}"
+    # AI-MOB-APK-001 起 versionName 随发版递增（3.5.0），硬编码 == 每次升版必挂 CI；
+    # 改为逐段数值比较，不得低于既有发版基线 3.3.0。
+    got = tuple(int(p) for p in name.split("."))
+    assert got >= (3, 3, 0), f"versionName {name} 低于发版基线 3.3.0"
