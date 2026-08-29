@@ -47,3 +47,8 @@
 -keep class * extends androidx.room.RoomDatabase
 -keep @androidx.room.Entity class *
 -dontwarn androidx.room.**
+# AI-MOB-APK-003: Compose UI 包整体 keep（类名不混淆）。
+# R8 混淆 ui 包可能导致 Compose 组合/重组异常（如部分组件不渲染），
+# 保留类名与成员确保 UI 稳定。
+-keep class com.factory.wms.ui.** { *; }
+-keepattributes SourceFile,LineNumberTable

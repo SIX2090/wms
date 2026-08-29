@@ -182,7 +182,7 @@ class VoiceCommandViewModel(
 
     companion object {
         /** 语音识别兜底超时（毫秒）。覆盖国内设备无 Google 服务、recognizer 静默挂起的场景。 */
-        private const val VOICE_LISTEN_TIMEOUT_MS = 8_000L
+        private const val VOICE_LISTEN_TIMEOUT_MS = 15_000L
 
         /** 引擎/后端透传的错误 detail 最大展示长度，防止异常长文本撑爆 Snackbar。 */
         private const val MAX_ERROR_DETAIL_LEN = 80
