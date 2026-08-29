@@ -25215,6 +25215,29 @@ def _supplier_filter_clause(keyword):
         ))
     return db.and_(*clauses) if clauses else None
 
+
+def _apply_order_partner_text_filter(query, order_model, keyword=''):
+    """往来单位文本模糊筛选（BUG-2026-08-29-003）。
+
+    供应商筛选此前依赖 JS「全名/全编码精确匹配」回填 supplier_id，手工输入
+    部分名称（如「欧姆」）时 id 为空、条件整体失效。本 helper 按名称/编码
+    contains（大小写不敏感）匹配往来单位——供应商与客户都参与，供单据列表
+    与导出链路共用；调用方需保证 supplier_id 有值时优先走精确过滤。
+    """
+    kw = (keyword or '').strip()
+    if not kw:
+        return query
+    like = f'%{kw}%'
+    conds = []
+    if hasattr(order_model, 'supplier_id'):
+        conds.append(order_model.supplier.has(db.or_(
+            Supplier.name.ilike(like), Supplier.code.ilike(like))))
+    if hasattr(order_model, 'customer_id'):
+        conds.append(order_model.customer.has(Customer.name.ilike(like)))
+    if not conds:
+        return query
+    return query.filter(db.or_(*conds))
+
 def _material_matches(material, keyword):
     if not keyword:
         return True

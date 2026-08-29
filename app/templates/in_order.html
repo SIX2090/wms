@@ -58,7 +58,7 @@
 
             <!-- 导入导出区 -->
             <div class="btn-group" role="group" aria-label="导入导出">
-                <a href="/in_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&supplier_id={{ filters.supplier_id }}" class="btn btn-outline-primary btn-sm" title="导出当前筛选结果">
+                <a href="/in_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&supplier_id={{ filters.supplier_id }}&supplier_name={{ filters.supplier_name|urlencode }}" class="btn btn-outline-primary btn-sm" title="导出当前筛选结果">
                     <i class="bi bi-file-earmark-excel"></i> 导出
                 </a>
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('inOrderImportFile').click()" title="从Excel文件导入入库单">
@@ -111,7 +111,7 @@
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">供应商</label>
                 <div style="position:relative;">
-                    <input type="text" id="supplierFilterInput" class="form-control form-select-sm" placeholder="输入名称快速匹配" autocomplete="off" value="{{ suppliers|selectattr('id', 'equalto', filters.supplier_id)|map(attribute='name')|first if filters.supplier_id else '' }}">
+                    <input type="text" id="supplierFilterInput" name="supplier_name" class="form-control form-select-sm" placeholder="输入名称/编码模糊匹配" autocomplete="off" value="{% if filters.supplier_id %}{{ suppliers|selectattr('id', 'equalto', filters.supplier_id)|map(attribute='name')|first }}{% else %}{{ filters.supplier_name or '' }}{% endif %}">
                     <input type="hidden" name="supplier_id" id="supplierFilterId" value="{{ filters.supplier_id or '' }}">
                     <div id="supplierFilterDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
                 </div>
@@ -138,7 +138,7 @@
             </div>
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
-                {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.business_type or filters.contract_no or filters.project_name or filters.supplier_id %}
+                {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.business_type or filters.contract_no or filters.project_name or filters.supplier_id or filters.supplier_name %}
                 <a href="{{ url_for('in_order_list', type=filters.type_param, embedded=request.args.get('embedded')) }}" class="btn btn-outline-secondary btn-sm">清除</a>
                 {% endif %}
             </div>
@@ -278,7 +278,7 @@
             <ul class="pagination justify-content-center mb-0">
                 {% if pagination.has_prev %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('in_order_list', page=pagination.prev_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, type=filters.type_param, date_start=filters.date_start, date_end=filters.date_end, warehouse_id=filters.warehouse_id, contract_no=filters.contract_no, project_name=filters.project_name, supplier_id=filters.supplier_id, embedded=request.args.get('embedded')) }}">上一页</a>
+                    <a class="page-link" href="{{ url_for('in_order_list', page=pagination.prev_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, type=filters.type_param, date_start=filters.date_start, date_end=filters.date_end, warehouse_id=filters.warehouse_id, contract_no=filters.contract_no, project_name=filters.project_name, supplier_id=filters.supplier_id, supplier_name=filters.supplier_name, embedded=request.args.get('embedded')) }}">上一页</a>
                 </li>
                 {% else %}
                 <li class="page-item disabled">
@@ -294,7 +294,7 @@
                         </li>
                         {% else %}
                         <li class="page-item">
-                            <a class="page-link" href="{{ url_for('in_order_list', page=page_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, type=filters.type_param, date_start=filters.date_start, date_end=filters.date_end, warehouse_id=filters.warehouse_id, contract_no=filters.contract_no, project_name=filters.project_name, supplier_id=filters.supplier_id, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
+                            <a class="page-link" href="{{ url_for('in_order_list', page=page_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, type=filters.type_param, date_start=filters.date_start, date_end=filters.date_end, warehouse_id=filters.warehouse_id, contract_no=filters.contract_no, project_name=filters.project_name, supplier_id=filters.supplier_id, supplier_name=filters.supplier_name, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
                         </li>
                         {% endif %}
                     {% else %}
@@ -306,7 +306,7 @@
 
                 {% if pagination.has_next %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('in_order_list', page=pagination.next_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, type=filters.type_param, date_start=filters.date_start, date_end=filters.date_end, warehouse_id=filters.warehouse_id, contract_no=filters.contract_no, project_name=filters.project_name, supplier_id=filters.supplier_id, embedded=request.args.get('embedded')) }}">下一页</a>
+                    <a class="page-link" href="{{ url_for('in_order_list', page=pagination.next_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, type=filters.type_param, date_start=filters.date_start, date_end=filters.date_end, warehouse_id=filters.warehouse_id, contract_no=filters.contract_no, project_name=filters.project_name, supplier_id=filters.supplier_id, supplier_name=filters.supplier_name, embedded=request.args.get('embedded')) }}">下一页</a>
                 </li>
                 {% else %}
                 <li class="page-item disabled">

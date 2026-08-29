@@ -164,6 +164,7 @@ def register_in_order_routes(app):
         from sqlalchemy.orm import joinedload
         from app import (InOrder, InOrderItem, Material, PurchaseOrderItem, Supplier,
                          _apply_header_or_item_contract_filters, _apply_in_order_search,
+                         _apply_order_partner_text_filter,
                          _apply_status_date_filters, _get_order_list_filters,
                          get_active_warehouses, get_default_warehouse,
                          purchase_order_status_label, resolve_request_warehouse)
@@ -209,8 +210,14 @@ def register_in_order_routes(app):
         elif warehouse_error:
             query = query.filter(db.false())
         supplier_id = request.args.get('supplier_id', type=int) or 0
+        # BUG-2026-08-29-003：供应商筛选此前只能「全名精确匹配或点选下拉」，
+        # 手工输入部分名称时 supplier_id 为空、条件整体失效；改为 id 优先、
+        # 否则按文本模糊匹配往来单位（名称/编码，大小写不敏感）。
+        supplier_name_filter = (request.args.get('supplier_name') or '').strip()
         if supplier_id:
             query = query.filter(InOrder.supplier_id == supplier_id)
+        else:
+            query = _apply_order_partner_text_filter(query, InOrder, supplier_name_filter)
         if business_type_filter:
             query = query.filter(InOrder.business_type == business_type_filter)
         query = _apply_in_order_search(query, search)
@@ -261,6 +268,7 @@ def register_in_order_routes(app):
             'project_name': project_name_filter,
             'warehouse_id': warehouse.id if warehouse else '',
             'supplier_id': supplier_id,
+            'supplier_name': supplier_name_filter,
         }
         page_title = f'{business_type_filter}明细表' if business_type_filter else '采购入库单'
         return render_template(

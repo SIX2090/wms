@@ -139,6 +139,7 @@ def register_export_routes(app):
             InOrderItem,
             Material,
             _apply_header_or_item_contract_filters,
+            _apply_order_partner_text_filter,
             _apply_in_order_search,
             _apply_status_date_filters,
             _get_order_list_filters,
@@ -167,8 +168,12 @@ def register_export_routes(app):
         query = _apply_status_date_filters(query, InOrder, status_filter, date_start, date_end)
         query = _apply_in_order_search(query, search)
         supplier_id = request.args.get('supplier_id', type=int) or 0
+        # BUG-2026-08-29-003：与列表页一致，supplier_id 为空时按文本模糊匹配往来单位
+        supplier_name_filter = (request.args.get('supplier_name') or '').strip()
         if supplier_id:
             query = query.filter(InOrder.supplier_id == supplier_id)
+        else:
+            query = _apply_order_partner_text_filter(query, InOrder, supplier_name_filter)
         if business_type_filter:
             query = query.filter(InOrder.business_type == business_type_filter)
         query = _apply_header_or_item_contract_filters(
