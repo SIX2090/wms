@@ -39,13 +39,16 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         remote_branch="${remote_ref#refs/heads/}"
     fi
 
-    # Block branch deletion (local_ref 为空表示删除远程分支)。
-    # 任何远程分支删除（包括 main）都禁止，防止误删 main 丢失全部历史。
+    # Block deletion of main (local_ref 为空表示删除远程分支)。
+    # 允许删除非 main 远程分支（如 trae/agent-* 残留）；仅 main 禁止删除，
+    # 防止误删 main 丢失全部历史。除 main 外禁止创建/推送任何新分支。
     if [ -z "${local_ref}" ] && [ -n "${remote_ref}" ] && [ "${remote_sha}" = "0000000000000000000000000000000000000000" ]; then
-        echo "❌ PRE-PUSH BLOCKED: deleting remote branch '${remote_branch}' is not allowed." >&2
-        echo "   AGENTS.md 禁止删除任何远程分支（包括 main），请通过 revert/rebase 修复历史。" >&2
-        blocked=1
-        continue
+        if [ "${remote_branch}" = "main" ]; then
+            echo "❌ PRE-PUSH BLOCKED: deleting remote branch 'main' is not allowed." >&2
+            echo "   main 是唯一主干分支，禁止删除；非 main 分支允许删除。" >&2
+            blocked=1
+            continue
+        fi
     fi
 
     # Block local branch push when not on main
