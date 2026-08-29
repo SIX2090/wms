@@ -134,6 +134,10 @@
             </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">工程名称</label>
+                <div style="position:relative;">
+                    <input type="text" id="projectNameFilterInput" name="project_name" class="form-control form-control-sm" placeholder="输入关键词选择工程" autocomplete="off" value="{{ filters.project_name or '' }}">
+                    <div id="projectNameDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
+                </div>
                 <input type="text" name="project_name" class="form-control form-control-sm" placeholder="工程名称" value="{{ filters.project_name or '' }}">
             </div>
             <div class="col-md-2 d-flex gap-2">
@@ -461,6 +465,109 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     })();
+
+
+    // 工程名称快速匹配（BUG-2026-08-29-004）：输入关键词弹出合同档案中的候选工程，
+    // 上下键/回车选择回填完整工程名；数据源 /api/contracts（工程名称+合同编号模糊）。
+    (function() {
+        var input = document.getElementById('projectNameFilterInput');
+        var dropdown = document.getElementById('projectNameDropdown');
+        if (!input || !dropdown) return;
+        var activeDropdown = null;
+        var timer = null;
+        var cache = {};
+
+        function escapeHtml(v) {
+            return String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        function hideDropdown() {
+            if (activeDropdown) { activeDropdown.style.display = 'none'; activeDropdown = null; }
+        }
+
+        function showDropdown() {
+            dropdown.style.display = 'block';
+            activeDropdown = dropdown;
+        }
+
+        function render(list) {
+            if (!list.length) {
+                dropdown.innerHTML = '<div style="padding:6px 10px;color:#999;">无匹配工程</div>';
+            } else {
+                dropdown.innerHTML = list.map(function(c, idx) {
+                    return '<div class="pf-item' + (idx === 0 ? ' active' : '') + '" data-pn="' + escapeHtml(c.project_name || '') + '" style="padding:6px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0;">'
+                        + '<span>' + escapeHtml(c.project_name || '') + '</span>'
+                        + (c.contract_no ? ' <span style="color:#999;font-size:12px;">' + escapeHtml(c.contract_no) + '</span>' : '')
+                        + '</div>';
+                }).join('');
+                var items = dropdown.querySelectorAll('.pf-item[data-pn]');
+                for (var k = 0; k < items.length; k++) {
+                    items[k].addEventListener('mousedown', function(ev) {
+                        ev.preventDefault();
+                        input.value = this.getAttribute('data-pn');
+                        hideDropdown();
+                    });
+                }
+            }
+            showDropdown();
+        }
+
+        function query(kw) {
+            if (cache[kw]) { render(cache[kw]); return; }
+            dropdown.innerHTML = '<div style="padding:6px 10px;color:#999;">加载中...</div>';
+            showDropdown();
+            fetch('/api/contracts?keyword=' + encodeURIComponent(kw), {
+                credentials: 'same-origin',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            }).then(function(r) { return r.ok ? r.json() : null; }).then(function(j) {
+                var list = (j && j.status === 'success' && j.data && j.data.contracts) ? j.data.contracts : [];
+                cache[kw] = list;
+                if (input.value.trim() === kw) render(list);
+            }).catch(function() {
+                if (input.value.trim() === kw) {
+                    dropdown.innerHTML = '<div style="padding:6px 10px;color:#999;">加载失败</div>';
+                    showDropdown();
+                }
+            });
+        }
+
+        input.addEventListener('input', function() {
+            var kw = input.value.trim();
+            if (!kw) { hideDropdown(); return; }
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(function() { query(kw); }, 200);
+        });
+        input.addEventListener('focus', function() {
+            var kw = input.value.trim();
+            if (!kw) return;
+            if (timer) clearTimeout(timer);
+            query(kw);
+        });
+        input.addEventListener('blur', function() { setTimeout(hideDropdown, 200); });
+        input.addEventListener('keydown', function(ev) {
+            if (ev.key === 'Escape') { hideDropdown(); return; }
+            if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+                ev.preventDefault();
+                var items = Array.from(dropdown.querySelectorAll('.pf-item[data-pn]'));
+                if (!items.length) return;
+                var cur = Math.max(0, items.findIndex(function(it) { return it.classList.contains('active'); }));
+                var next = (cur + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+                items[cur].classList.remove('active');
+                items[next].classList.add('active');
+                items[next].scrollIntoView({ block: 'nearest' });
+                return;
+            }
+            if (ev.key === 'Enter') {
+                var sel = dropdown.querySelector('.pf-item.active');
+                if (sel) {
+                    ev.preventDefault();
+                    input.value = sel.getAttribute('data-pn');
+                    hideDropdown();
+                }
+            }
+        });
+    })();
+
 });
 
 // 快速搜索入库单
