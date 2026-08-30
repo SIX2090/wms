@@ -339,7 +339,31 @@ def _grid_write(prefix, template_id):
         os.close(fd)
         with open(tmp_path, 'wb') as f:
             f.write(apply_print_template_grid(template_path, sheets_data).read())
-        os.replace(tmp_path, template_path)
+        # AI-WMS-REPLACE-RETRY：Windows 上替换模板文件会因目标仍被占用而抛
+        # WinError 5/13/32。持有者通常是还没被 GC 回收的 openpyxl workbook——
+        # 部分模板读取路径没有显式 close，句柄只能等回收才释放，于是首次
+        # replace 失败并不代表文件真的有问题。首次失败就回滚，用户看到的是
+        # 「保存失败，请稍后重试」。这里先主动 gc.collect() 释放句柄，再按
+        # 指数退避重试，只有持续被占用才当作真实错误抛出。
+        import gc as _gc
+        import time as _time
+        _replace_err = None
+        for _attempt in range(6):
+            try:
+                os.replace(tmp_path, template_path)
+                _replace_err = None
+                break
+            except OSError as _oe:
+                _replace_err = _oe
+                if getattr(_oe, 'winerror', None) not in (5, 13, 32):
+                    raise
+                if _attempt < 5:
+                    # 主动回收一次，释放未显式 close 的 workbook 句柄；
+                    # 这是本轮重试能成功的真正原因，不要删。
+                    _gc.collect()
+                    _time.sleep(0.05 * (2 ** _attempt))
+        if _replace_err is not None:
+            raise _replace_err
         tmp_path = None
     except ValueError as e:
         return api_error(str(e), 400)

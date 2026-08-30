@@ -152,7 +152,9 @@
                 </table>
             </div>
             {% if pagination is defined %}
-            {{ list_macros.pager(pagination, 'subcontract_list', base_kwargs={'sort': sort_by, 'order': sort_order, 'per_page': per_page, 'status': filters.status, 'search': filters.search, 'date_start': filters.date_start, 'date_end': filters.date_end, 'embedded': request.args.get('embedded')}) }}
+            {{ list_macros.pager(pagination, 'subcontract_list', base_kwargs={'sort': sort_by, 'order': sort_order, 'per_page': per_page, 'status': filters.status, 'search': filters.search, 'date_start': filters.date_start, 'date_end': filters.date_end,
+                'deadline_start': filters.deadline_start,
+                'embedded': request.args.get('embedded')}) }}
             {% endif %}
         </div>
     </div>

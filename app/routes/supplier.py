@@ -55,18 +55,29 @@ def register_supplier_routes(app):
     def supplier_list():
         from app import (
             Supplier,
+            _apply_master_advanced_filters,
             _apply_master_order,
-            _apply_simple_search,
             _get_master_list_filters,
         )
         search, status_filter, sort_by, sort_order = _get_master_list_filters('code')
         allowed_sorts = {'id', 'code', 'name', 'contact', 'phone', 'created_at'}
-        query = _apply_simple_search(Supplier.query, Supplier, search, ['code', 'name', 'contact', 'phone', 'address'])
+        # AI-WMS-FILTER-003：与导出共用同一筛选入口（定向搜索 / 创建时间区间 /
+        # 业务往来），保证列表页与导出的口径完全一致。
+        _biz_parts = []
+        for _rel in ('in_orders', 'purchase_orders', 'subcontract_orders'):
+            _r = getattr(Supplier, _rel, None)
+            if _r is not None and hasattr(_r, 'any'):
+                _biz_parts.append(_r.any())
+        query, adv_filters = _apply_master_advanced_filters(
+            Supplier.query, Supplier, ['code', 'name', 'contact', 'phone', 'address'],
+            business_expr=db.or_(*_biz_parts) if _biz_parts else None)
         query, sort_by = _apply_master_order(query, Supplier, sort_by, sort_order, allowed_sorts, 'code')
         suppliers = query.all()
         # 自动编号基于全量供应商计算（不受当前搜索/筛选影响），供新增弹窗默认带出
         next_code = _next_supplier_code(Supplier.query.all())
-        return render_template('supplier.html', suppliers=suppliers, filters={'search': search, 'status': status_filter}, sort_by=sort_by, sort_order=sort_order, next_code=next_code)
+        filters = {'search': search, 'status': status_filter}
+        filters.update(adv_filters)
+        return render_template('supplier.html', suppliers=suppliers, filters=filters, sort_by=sort_by, sort_order=sort_order, next_code=next_code)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/supplier/add', methods=['GET', 'POST'])

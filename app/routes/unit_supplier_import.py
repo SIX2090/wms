@@ -130,8 +130,8 @@ def register_unit_supplier_import_routes(app):
         from openpyxl import Workbook
         from app import (
             Supplier,
+            _apply_master_advanced_filters,
             _apply_master_order,
-            _apply_simple_search,
             _get_master_list_filters,
         )
         wb = Workbook()
@@ -139,7 +139,15 @@ def register_unit_supplier_import_routes(app):
         ws.title = '供应商数据'
         ws.append(['供应商编号', '供应商名称', '联系人', '电话', '地址'])
         search, status_filter, sort_by, sort_order = _get_master_list_filters('code')
-        query = _apply_simple_search(Supplier.query, Supplier, search, ['code', 'name', 'contact', 'phone', 'address'])
+        # AI-WMS-FILTER-003：与列表页共用同一筛选入口，避免「页面筛了、导出没筛」
+        _biz_parts = []
+        for _rel in ('in_orders', 'purchase_orders', 'subcontract_orders'):
+            _r = getattr(Supplier, _rel, None)
+            if _r is not None and hasattr(_r, 'any'):
+                _biz_parts.append(_r.any())
+        query, _adv = _apply_master_advanced_filters(
+            Supplier.query, Supplier, ['code', 'name', 'contact', 'phone', 'address'],
+            business_expr=db.or_(*_biz_parts) if _biz_parts else None)
         query, _ = _apply_master_order(query, Supplier, sort_by, sort_order, {'id', 'code', 'name', 'contact', 'phone', 'created_at'}, 'code')
         for s in query.all():
             ws.append([s.code, s.name, s.contact or '', s.phone or '', s.address or ''])

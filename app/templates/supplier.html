@@ -15,7 +15,7 @@
         <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
             <i class="bi bi-upload"></i> 导入
         </button>
-        <a href="/supplier/export?search={{ filters.search|urlencode }}" class="btn btn-outline-success btn-sm">
+        <a href="/supplier/export?search={{ filters.search|urlencode }}&search_field={{ filters.search_field|urlencode }}&date_from={{ filters.date_from|urlencode }}&date_to={{ filters.date_to|urlencode }}&has_business={{ filters.has_business|urlencode }}" class="btn btn-outline-success btn-sm">
             <i class="bi bi-download"></i> 导出
         </a>
         <a href="/supplier/download_template" class="btn btn-outline-secondary btn-sm">
@@ -30,13 +30,40 @@
             {% if request.args.get('embedded') == '1' %}
             <input type="hidden" name="embedded" value="1">
             {% endif %}
-            <div class="col-md-10">
+            <div class="col-md-3">
                 <label class="form-label small text-muted mb-1">关键词</label>
                 <input type="text" name="search" class="form-control form-control-sm" placeholder="搜索供应商编号、名称、联系人、电话、地址" value="{{ filters.search }}" data-ks="supplier" data-ks-put="code" data-ks-submit="1">
             </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">搜索范围</label>
+                <select name="search_field" class="form-select form-select-sm">
+                    <option value=""{% if not filters.search_field %} selected{% endif %}>全部字段</option>
+                    <option value="code"{% if filters.search_field == 'code' %} selected{% endif %}>编号</option>
+                    <option value="name"{% if filters.search_field == 'name' %} selected{% endif %}>名称</option>
+                    <option value="contact"{% if filters.search_field == 'contact' %} selected{% endif %}>联系人</option>
+                    <option value="phone"{% if filters.search_field == 'phone' %} selected{% endif %}>电话</option>
+                    <option value="address"{% if filters.search_field == 'address' %} selected{% endif %}>地址</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">创建日期从</label>
+                <input type="date" name="date_from" class="form-control form-control-sm" value="{{ filters.date_from }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">到</label>
+                <input type="date" name="date_to" class="form-control form-control-sm" value="{{ filters.date_to }}">
+            </div>
+            <div class="col-md-1">
+                <label class="form-label small text-muted mb-1">业务往来</label>
+                <select name="has_business" class="form-select form-select-sm">
+                    <option value=""{% if not filters.has_business %} selected{% endif %}>不限</option>
+                    <option value="yes"{% if filters.has_business == 'yes' %} selected{% endif %}>有</option>
+                    <option value="no"{% if filters.has_business == 'no' %} selected{% endif %}>无</option>
+                </select>
+            </div>
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill">筛选</button>
-                {% if filters.search %}
+                {% if filters.search or filters.search_field or filters.date_from or filters.date_to or filters.has_business %}
                 <a href="/supplier{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
                 {% endif %}
             </div>

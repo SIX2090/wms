@@ -31,16 +31,30 @@ def register_customer_routes(app):
     def customer_list():
         from app import (
             Customer,
+            _apply_master_advanced_filters,
             _apply_master_order,
-            _apply_simple_search,
             _get_master_list_filters,
         )
         search, status_filter, sort_by, sort_order = _get_master_list_filters('code')
         allowed_sorts = {'id', 'code', 'name', 'contact', 'phone', 'created_at'}
-        query = _apply_simple_search(Customer.query, Customer, search, ['code', 'name', 'contact', 'phone', 'address'])
+        # AI-WMS-FILTER-003：与导出共用同一筛选入口。客户在出库单/售后单里是
+        # 按名称字符串引用（非外键），只能用相关子查询 EXISTS 判断有无业务。
+        from sqlalchemy import exists as _sql_exists
+        _biz_parts = [_sql_exists().where(OutOrder.customer == Customer.name)]
+        if hasattr(InOrder, 'customer_id'):
+            _biz_parts.append(_sql_exists().where(InOrder.customer_id == Customer.id))
+        if hasattr(SalesOrder, 'customer_id'):
+            _biz_parts.append(_sql_exists().where(SalesOrder.customer_id == Customer.id))
+        if hasattr(AfterSaleOutOrder, 'customer'):
+            _biz_parts.append(_sql_exists().where(AfterSaleOutOrder.customer == Customer.name))
+        query, adv_filters = _apply_master_advanced_filters(
+            Customer.query, Customer, ['code', 'name', 'contact', 'phone', 'address'],
+            business_expr=db.or_(*_biz_parts) if _biz_parts else None)
         query, sort_by = _apply_master_order(query, Customer, sort_by, sort_order, allowed_sorts, 'code')
         customers = query.all()
-        return render_template('customer.html', customers=customers, filters={'search': search, 'status': status_filter}, sort_by=sort_by, sort_order=sort_order)
+        filters = {'search': search, 'status': status_filter}
+        filters.update(adv_filters)
+        return render_template('customer.html', customers=customers, filters=filters, sort_by=sort_by, sort_order=sort_order)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/customer/add', methods=['POST'])
@@ -222,8 +236,8 @@ def register_customer_routes(app):
         from openpyxl import Workbook
         from app import (
             Customer,
+            _apply_master_advanced_filters,
             _apply_master_order,
-            _apply_simple_search,
             _get_master_list_filters,
         )
         wb = Workbook()
@@ -231,7 +245,18 @@ def register_customer_routes(app):
         ws.title = '客户数据'
         ws.append(['客户编号', '客户名称', '联系人', '电话', '地址'])
         search, status_filter, sort_by, sort_order = _get_master_list_filters('code')
-        query = _apply_simple_search(Customer.query, Customer, search, ['code', 'name', 'contact', 'phone', 'address'])
+        # AI-WMS-FILTER-003：与列表页共用同一筛选入口
+        from sqlalchemy import exists as _sql_exists
+        _biz_parts = [_sql_exists().where(OutOrder.customer == Customer.name)]
+        if hasattr(InOrder, 'customer_id'):
+            _biz_parts.append(_sql_exists().where(InOrder.customer_id == Customer.id))
+        if hasattr(SalesOrder, 'customer_id'):
+            _biz_parts.append(_sql_exists().where(SalesOrder.customer_id == Customer.id))
+        if hasattr(AfterSaleOutOrder, 'customer'):
+            _biz_parts.append(_sql_exists().where(AfterSaleOutOrder.customer == Customer.name))
+        query, _adv = _apply_master_advanced_filters(
+            Customer.query, Customer, ['code', 'name', 'contact', 'phone', 'address'],
+            business_expr=db.or_(*_biz_parts) if _biz_parts else None)
         query, _ = _apply_master_order(query, Customer, sort_by, sort_order, {'id', 'code', 'name', 'contact', 'phone', 'created_at'}, 'code')
         for customer in query.all():
             ws.append([customer.code, customer.name, customer.contact or '', customer.phone or '', customer.address or ''])

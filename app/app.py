@@ -270,6 +270,28 @@ def auto_migrate_database():
             )
             return cursor.fetchone() is not None
 
+        # AI-WMS-FILTER-003：查询性能索引（幂等）。
+        # 新库由 db.create_all() 依 __table_args__ 建；老库在这里补，两边索引名一致，
+        # CREATE INDEX IF NOT EXISTS 保证重复启动不会报错也不会重复建。
+        # 说明：这些索引服务 JOIN / 排序 / 区间过滤，模糊搜索的 LIKE '%kw%'
+        # 因前置通配符走不了 B-tree，不在优化范围内。
+        _PERF_INDEX_DDL = (
+            ('location_inventory', 'CREATE INDEX IF NOT EXISTS idx_location_inventory_wh_material ON location_inventory (warehouse_id, material_id)'),
+            ('material', 'CREATE INDEX IF NOT EXISTS idx_material_supplier ON material (supplier_id)'),
+            ('material', 'CREATE INDEX IF NOT EXISTS idx_material_unit ON material (unit_id)'),
+            ('material', 'CREATE INDEX IF NOT EXISTS idx_material_created ON material (created_at)'),
+            ('supplier', 'CREATE INDEX IF NOT EXISTS idx_supplier_created ON supplier (created_at)'),
+            ('customer', 'CREATE INDEX IF NOT EXISTS idx_customer_created ON customer (created_at)'),
+        )
+        for _tbl, _ddl in _PERF_INDEX_DDL:
+            if not _table_exists(_tbl):
+                continue
+            try:
+                cursor.execute(_ddl)
+                modified = True
+            except Exception as _idx_exc:
+                app.logger.warning('[DB] 索引创建失败（已跳过，不影响启动）: %s' % _idx_exc)
+
         # out_order 字段迁移
         if not _table_exists('out_order'):
             conn.commit()
@@ -3904,6 +3926,11 @@ class Unit(db.Model):
 
 class Supplier(db.Model):
     """Supplier."""
+    # AI-WMS-FILTER-003：列表默认按 code 排序、筛选支持创建时间区间，
+    # 补 created_at 索引；code/name 已有 unique 约束自带的唯一索引。
+    __table_args__ = (
+        db.Index('idx_supplier_created', 'created_at'),
+    )
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(50), unique=True, nullable=False)  # Supplier code
     name = db.Column(db.String(100), unique=True, nullable=False)  # Name
@@ -3914,6 +3941,10 @@ class Supplier(db.Model):
 
 class Customer(db.Model):
     """Customer master data."""
+    # AI-WMS-FILTER-003：同上，补 created_at 索引。
+    __table_args__ = (
+        db.Index('idx_customer_created', 'created_at'),
+    )
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(50), unique=True, nullable=False)  # Customer code
     name = db.Column(db.String(100), unique=True, nullable=False)  # Name
@@ -4301,6 +4332,11 @@ class Material(db.Model):
         db.Index('idx_material_code', 'code'),
         db.Index('idx_material_name', 'name'),
         db.Index('idx_material_category', 'category_id'),
+        # AI-WMS-FILTER-003：JOIN 与排序真正会走的索引。
+        # 注意 LIKE '%kw%' 的前置通配符用不上 B-tree，模糊搜索本身不靠这些索引提速。
+        db.Index('idx_material_supplier', 'supplier_id'),
+        db.Index('idx_material_unit', 'unit_id'),
+        db.Index('idx_material_created', 'created_at'),
     )
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(50), unique=True, nullable=False)  # Code
@@ -5950,6 +5986,10 @@ class LocationInventory(db.Model):
         # 视为不同值，不会与已归属仓库的行冲突。
         db.UniqueConstraint('material_id', 'warehouse_id', 'location', name='uix_material_warehouse_location'),
         db.Index('idx_location_inventory_warehouse', 'warehouse_id'),
+        # AI-WMS-FILTER-003：仓库级库存聚合（get_warehouse_stock_quantities 的
+        # GROUP BY material_id）走这个复合索引。material_id 单列索引已存在
+        # （idx_location_inventory_material_id），不重复建。
+        db.Index('idx_location_inventory_wh_material', 'warehouse_id', 'material_id'),
     )
 
 class StockTransaction(db.Model):
@@ -22930,6 +22970,61 @@ def _apply_master_order(query, model, sort_by, sort_order, allowed_sorts, defaul
         sort_by = default_sort
     sort_col = getattr(model, sort_by, getattr(model, default_sort))
     return query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()), sort_by
+
+def _apply_master_advanced_filters(query, model, fields, business_expr=None,
+                                   date_field='created_at'):
+    """基础资料列表/导出统一筛选入口（AI-WMS-FILTER-003）。
+
+    在 _apply_simple_search 之上补三个维度：
+      - search_field：把关键词限定到单个字段（编号/名称/联系人/电话/地址）
+      - date_from / date_to：按 date_field 取闭区间（按天，含当天 23:59:59.999）
+      - has_business：'yes' 有业务单据 / 'no' 从未发生业务（business_expr 由调用方给）
+
+    调用约定：本函数已内部处理 search，调用方**不要**再叠加 _apply_simple_search，
+    否则条件会重复。列表页与导出必须调用同一入口，避免「页面筛了、导出没筛」。
+
+    返回 (query, filters)，filters 供模板回填与导出链接复用。
+    """
+    from datetime import datetime as _dt, timedelta as _td
+
+    search = (request.args.get('search') or '').strip()
+    search_field = (request.args.get('search_field') or '').strip()
+    date_from = (request.args.get('date_from') or '').strip()
+    date_to = (request.args.get('date_to') or '').strip()
+    has_business = (request.args.get('has_business') or '').strip()
+
+    if search:
+        if search_field in fields:
+            query = query.filter(getattr(model, search_field).like(f'%{search}%'))
+        else:
+            query = _apply_simple_search(query, model, search, fields)
+
+    col = getattr(model, date_field, None)
+    if col is not None:
+        try:
+            if date_from:
+                query = query.filter(
+                    col >= _dt.strptime(date_from, '%Y-%m-%d').strftime('%Y-%m-%d 00:00:00'))
+            if date_to:
+                # 用「次日零点」做开区间上界，避免漏掉当天 23:59:59 之后的毫秒部分
+                _next_day = _dt.strptime(date_to, '%Y-%m-%d') + _td(days=1)
+                query = query.filter(col < _next_day.strftime('%Y-%m-%d 00:00:00'))
+        except ValueError:
+            pass  # 日期参数非法时忽略该条件，不因脏参数让整页报错
+
+    if business_expr is not None and has_business in ('yes', 'no'):
+        if has_business == 'yes':
+            query = query.filter(business_expr)
+        else:
+            query = query.filter(db.not_(business_expr))
+
+    filters = {
+        'search_field': search_field,
+        'date_from': date_from,
+        'date_to': date_to,
+        'has_business': has_business,
+    }
+    return query, filters
 
 def _warehouse_query_from_args():
     # BUG-F02-01 修复：仓库列表默认按 code 升序

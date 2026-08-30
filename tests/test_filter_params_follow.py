@@ -49,6 +49,12 @@ IGNORE_FIELDS = {"embedded", "csrf_token"}
 URLFOR_RE = re.compile(r"url_for\((?:[^()]|\([^()]*\))*\)")
 PARAM_RE = re.compile(r"(\w+)\s*=")
 
+# AI-WMS-FILTER-003：pager 宏把筛选参数放在 base_kwargs 里、由宏内部拼
+# url_for(endpoint, page=..., **bk)，模板里看不到 url_for(...page=...)。
+# 不单独解析的话，用宏的页面会整体落在分页断言的盲区。
+PAGER_KWARGS_RE = re.compile(r"base_kwargs\s*=\s*\{(.*?)\}", re.S)
+DICT_KEY_RE = re.compile(r"['\"]?(\w+)['\"]?\s*:")
+
 # 导出参数在 JS 里运行时从筛选表单收集，静态分析看不到，单独豁免。
 # 这类写法反而最健壮（加字段自动跟随），不是缺陷。
 JS_DYNAMIC_EXPORT = {
@@ -85,6 +91,10 @@ def _pager_params(src: str):
     for m in re.finditer(r'href="[^"]*[?&]page=[^"]*"', src):
         found = True
         params |= set(PARAM_RE.findall(m.group(0)))
+    # pager 宏：参数在 base_kwargs 字典里，由宏内部展开成 url_for
+    for m in PAGER_KWARGS_RE.finditer(src):
+        found = True
+        params |= set(DICT_KEY_RE.findall(m.group(1)))
     return params if found else None
 
 
