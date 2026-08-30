@@ -86,7 +86,7 @@
             <form method="get" action="/opening_stock" class="row g-3 align-items-end">
                 <div class="col-md-3">
                     <label class="form-label">关键字</label>
-                    <input type="text" class="form-control" name="search" value="{{ filters.search or '' }}" placeholder="物料编码/名称/规格">
+                    <input type="text" class="form-control" name="search" value="{{ filters.search or '' }}" placeholder="物料编码/名称/规格" data-ks="material" data-ks-put="code" data-ks-submit="1">
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">仓库</label>

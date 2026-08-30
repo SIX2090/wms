@@ -415,7 +415,7 @@ textarea.form-control {
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">申请部门</label>
-                        <input type="text" class="form-control" name="department" value="{{ order.department if order else '' }}">
+                        <input type="text" class="form-control" name="department" value="{{ order.department if order else '' }}" data-ks="department" data-ks-put="code">
                     </div>
                 </div>
                 <div class="col-md-3">

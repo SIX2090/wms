@@ -67,7 +67,7 @@
             </select>
             {% endif %}
             <input type="hidden" name="category_id" value="{{ category_id or '' }}" id="materialCategoryFilter">
-            <input type="text" name="search" class="form-control flex-grow-1" style="min-width: 260px;" placeholder="搜索物料编码/名称/品牌/规格..." value="{{ request.args.get('search', '') }}">
+            <input type="text" name="search" class="form-control flex-grow-1" style="min-width: 260px;" placeholder="搜索物料编码/名称/品牌/规格..." value="{{ request.args.get('search', '') }}" data-ks="material" data-ks-put="code" data-ks-submit="1">
             <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> 搜索</button>
             {% if request.args.get('search') or stock_filter or category_id %}
             <a href="/material{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary">清除</a>

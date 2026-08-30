@@ -81,7 +81,7 @@
             {% if filters_config.supplier %}
             <div class="col-md-3">
                 <label for="supplier" class="form-label">供应商</label>
-                <input id="supplier" name="supplier" type="text" class="form-control" list="supplierOptions" placeholder="输入供应商编码或名称" autocomplete="off">
+                <input id="supplier" name="supplier" type="text" class="form-control" placeholder="输入供应商编码或名称" autocomplete="off" data-ks="supplier" data-ks-put="code">
                 <datalist id="supplierOptions">
                     {% for supplier in suppliers %}
                     <option value="{{ supplier.code }} {{ supplier.name }}"></option>
@@ -94,7 +94,7 @@
             <div class="col-md-3">
                 <label for="customer" class="form-label">客户 / 部门</label>
                 <div class="position-relative">
-                    <input id="customer" name="customer" type="text" class="form-control" placeholder="客户名称或领用部门" autocomplete="off">
+                    <input id="customer" name="customer" type="text" class="form-control" placeholder="客户名称或领用部门" autocomplete="off" data-ks="customer" data-ks-put="code">
                     <div class="material-search-dropdown" id="customerDropdown" style="display:none;">
                         <div class="list-group shadow-sm material-search-list" id="customerList"></div>
                     </div>

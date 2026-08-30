@@ -99,11 +99,11 @@
             </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">合同编号</label>
-                <input type="text" name="contract_no" class="form-control form-control-sm" placeholder="合同编号" value="{{ filters.contract_no or '' }}">
+                <input type="text" name="contract_no" class="form-control form-control-sm" placeholder="合同编号" value="{{ filters.contract_no or '' }}" data-ks="contract_no" data-ks-put="code" data-ks-submit="1">
             </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">工程名称</label>
-                <input type="text" name="project_name" class="form-control form-control-sm" placeholder="工程名称" value="{{ filters.project_name or '' }}">
+                <input type="text" name="project_name" class="form-control form-control-sm" placeholder="工程名称" value="{{ filters.project_name or '' }}" data-ks="project" data-ks-put="label" data-ks-submit="1">
             </div>
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>

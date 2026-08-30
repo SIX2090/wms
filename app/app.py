@@ -90,6 +90,8 @@ from routes.requisition import register_requisition_routes
 from routes.out_order import register_out_order_routes
 # 采购入库（in_order）域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
 from routes.in_order import register_in_order_routes
+# AI-WMS-FILTER-001: universal keyword-match option source for all filter inputs
+from routes.options_api import register_options_routes
 # 委外（subcontract）域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
 from routes.subcontract import register_subcontract_routes
 # 物料清单（bom）域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
@@ -2014,6 +2016,8 @@ register_requisition_routes(app)
 register_out_order_routes(app)
 # 采购入库（in_order）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_in_order_routes(app)
+# AI-WMS-FILTER-001: universal keyword-match option source
+register_options_routes(app)
 # 委外（subcontract）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_subcontract_routes(app)
 # 物料清单（bom）域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
