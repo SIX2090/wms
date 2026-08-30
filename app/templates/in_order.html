@@ -110,11 +110,11 @@
             </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">供应商</label>
-                <div style="position:relative;">
-                    <input type="text" id="supplierFilterInput" name="supplier_name" class="form-control form-select-sm" placeholder="输入名称/编码模糊匹配" autocomplete="off" value="{% if filters.supplier_id %}{{ suppliers|selectattr('id', 'equalto', filters.supplier_id)|map(attribute='name')|first }}{% else %}{{ filters.supplier_name or '' }}{% endif %}">
-                    <input type="hidden" name="supplier_id" id="supplierFilterId" value="{{ filters.supplier_id or '' }}">
-                    <div id="supplierFilterDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
-                </div>
+                {# 统一走全局 quick-select（data-ks）：输入即展开全部匹配供应商，
+                   支持键盘 ↑↓/Enter 与拼音/首字母匹配；点选回填 id 并自动筛选，
+                   手工输入部分名称时由后端 supplier_name 模糊匹配 #}
+                <input type="text" id="supplierFilterInput" name="supplier_name" class="form-control form-select-sm" placeholder="输入名称/编码/拼音匹配" autocomplete="off" data-ks="supplier" data-ks-put="name" data-ks-id="#supplierFilterId" data-ks-submit="1" value="{% if filters.supplier_id %}{{ suppliers|selectattr('id', 'equalto', filters.supplier_id)|map(attribute='name')|first }}{% else %}{{ filters.supplier_name or '' }}{% endif %}">
+                <input type="hidden" name="supplier_id" id="supplierFilterId" value="{{ filters.supplier_id or '' }}">
             </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">开始日期</label>
@@ -361,110 +361,15 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // 供应商快速匹配：输入名称弹出下拉，选择后回填 supplier_id
+    // 供应商筛选：手工输入时清空已选 id，让后端走 supplier_name 模糊匹配；
+    // quick-select 点选后只派发 change 事件回填 id（不触发 input），不会被误清。
     (function() {
-        var suppliers = {{ suppliers|tojson }};
-        var input = document.getElementById('supplierFilterInput');
-        var hidden = document.getElementById('supplierFilterId');
-        var dropdown = document.getElementById('supplierFilterDropdown');
-        if (!input || !hidden || !dropdown) return;
-        var activeDropdown = null;
-
-        function escapeHtml(v) {
-            return String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        var sfInput = document.getElementById('supplierFilterInput');
+        var sfHidden = document.getElementById('supplierFilterId');
+        if (sfInput && sfHidden) {
+            sfInput.addEventListener('input', function() { sfHidden.value = ''; });
         }
-
-        function findSupplierByName(name) {
-            var normalized = String(name || '').trim().toLowerCase();
-            if (!normalized) return null;
-            for (var i = 0; i < suppliers.length; i++) {
-                if (String(suppliers[i].name || '').toLowerCase() === normalized) return suppliers[i];
-            }
-            for (var j = 0; j < suppliers.length; j++) {
-                if (String(suppliers[j].code || '').toLowerCase() === normalized) return suppliers[j];
-            }
-            return null;
-        }
-
-        function setSupplier(supplier) {
-            input.value = supplier.name || '';
-            hidden.value = supplier.id || '';
-            hideDropdown();
-        }
-
-        function showDropdown(showAll) {
-            var keyword = input.value.trim().toLowerCase();
-            var exact = findSupplierByName(input.value);
-            hidden.value = exact ? exact.id : '';
-            if (!showAll && !keyword) { hideDropdown(); return; }
-            var filtered = [];
-            for (var i = 0; i < suppliers.length && filtered.length < 80; i++) {
-                var s = suppliers[i];
-                var text = [s.name, s.code].map(function(v) { return String(v || '').toLowerCase(); }).join(' ');
-                if (!showAll && keyword && text.indexOf(keyword) === -1) continue;
-                filtered.push(s);
-            }
-            if (!filtered.length) {
-                dropdown.innerHTML = '<div style="padding:6px 10px;color:#999;">无匹配供应商</div>';
-            } else {
-                dropdown.innerHTML = filtered.map(function(s, idx) {
-                    return '<div class="sf-item' + (idx === 0 ? ' active' : '') + '" data-id="' + escapeHtml(s.id) + '" style="padding:6px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0;">'
-                        + '<span>' + escapeHtml(s.name || '') + '</span>'
-                        + (s.code ? ' <span style="color:#999;font-size:12px;">' + escapeHtml(s.code) + '</span>' : '')
-                        + '</div>';
-                }).join('');
-                var items = dropdown.querySelectorAll('.sf-item[data-id]');
-                for (var k = 0; k < items.length; k++) {
-                    items[k].addEventListener('mousedown', function(ev) {
-                        ev.preventDefault();
-                        var sup = null;
-                        for (var m = 0; m < suppliers.length; m++) {
-                            if (String(suppliers[m].id) === String(this.dataset.id)) { sup = suppliers[m]; break; }
-                        }
-                        if (sup) setSupplier(sup);
-                    });
-                }
-            }
-            var rect = input.getBoundingClientRect();
-            dropdown.style.top = (rect.bottom + 5) + 'px';
-            dropdown.style.left = rect.left + 'px';
-            dropdown.style.display = 'block';
-            activeDropdown = dropdown;
-        }
-
-        function hideDropdown() {
-            if (activeDropdown) { activeDropdown.style.display = 'none'; activeDropdown = null; }
-        }
-
-        input.addEventListener('input', function() { showDropdown(); });
-        input.addEventListener('focus', function() { showDropdown(true); });
-        input.addEventListener('blur', function() { setTimeout(hideDropdown, 200); });
-        input.addEventListener('keydown', function(ev) {
-            if (ev.key === 'Escape') { hideDropdown(); return; }
-            if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
-                ev.preventDefault();
-                var items = Array.from(dropdown.querySelectorAll('.sf-item[data-id]'));
-                if (!items.length) return;
-                var cur = Math.max(0, items.findIndex(function(it) { return it.classList.contains('active'); }));
-                var next = (cur + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-                items[cur].classList.remove('active');
-                items[next].classList.add('active');
-                items[next].scrollIntoView({ block: 'nearest' });
-                return;
-            }
-            if (ev.key === 'Enter') {
-                var sel = dropdown.querySelector('.sf-item.active');
-                if (sel) {
-                    var sup = null;
-                    for (var n = 0; n < suppliers.length; n++) {
-                        if (String(suppliers[n].id) === String(sel.dataset.id)) { sup = suppliers[n]; break; }
-                    }
-                    if (sup) { ev.preventDefault(); setSupplier(sup); }
-                }
-            }
-        });
     })();
-
 
     // 工程名称快速匹配（BUG-2026-08-29-004）：输入关键词弹出合同档案中的候选工程，
     // 上下键/回车选择回填完整工程名；数据源 /api/contracts（工程名称+合同编号模糊）。
