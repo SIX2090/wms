@@ -65,9 +65,12 @@ def register_warehouse_routes(app):
             name=name,
             type=request.form.get('type', '').strip() or None,
             location=request.form.get('location', '').strip() or None,
-            status=request.form.get('status', 'active'),
+            status=request.form.get('status', 'active').strip(),
             remark=request.form.get('remark', '').strip() or None
         )
+        # W4：后端校验状态值域，防止绕过前端写入任意状态
+        if warehouse.status not in ('active', 'inactive'):
+            return api_error('状态仅支持 active/inactive')
         try:
             db.session.add(warehouse)
             db.session.commit()
@@ -103,7 +106,9 @@ def register_warehouse_routes(app):
     @require_role('warehouse')
     @login_required
     def edit_warehouse(id):
-        from app import SalesOrder, Warehouse, api_error
+        from app import (AfterSaleOutOrder, InOrder, OutOrder, ProductionRequisition,
+                         SalesOrder, SubcontractOrder, TransferOrder,
+                         Warehouse, api_error)
         warehouse = db.session.get(Warehouse, id)
         if not warehouse:
             return jsonify({'status': 'error', 'msg': '仓库不存在'}), 404
@@ -126,18 +131,43 @@ def register_warehouse_routes(app):
         if existing:
             return api_error('仓库名称已存在')
 
+        status = request.form.get('status', 'active').strip()
+        # W4：后端校验状态值域，防止绕过前端写入任意状态（仅 active/inactive 合法）
+        if status not in ('active', 'inactive'):
+            return api_error('状态仅支持 active/inactive')
+
+        old_name = warehouse.name or ''
         warehouse.code = code
         warehouse.name = name
         warehouse.type = request.form.get('type', '').strip() or None
         warehouse.location = request.form.get('location', '').strip() or None
-        warehouse.status = request.form.get('status', 'active')
+        warehouse.status = status
         warehouse.remark = request.form.get('remark', '').strip() or None
 
         try:
-            # Keep the legacy display name synchronized with the canonical FK.
-            SalesOrder.query.filter_by(warehouse_id=id).update(
-                {SalesOrder.warehouse: name}, synchronize_session=False
-            )
+            # W2：仓库改名时同步所有单据表冗余的仓库文本字段（仅命中旧名称的行，
+            # 存编号/库位的行不受影响），避免改名后按新名称查不到历史单据。
+            # 与库存报表/明细的名称+编号任一匹配口径互补。
+            if old_name and old_name != name:
+                # 采购订单（PurchaseOrder）本身不记录仓库，不参与同步
+                for model, column in [
+                    (InOrder, InOrder.warehouse),
+                    (OutOrder, OutOrder.warehouse),
+                    (SubcontractOrder, SubcontractOrder.warehouse),
+                    (ProductionRequisition, ProductionRequisition.warehouse),
+                    (AfterSaleOutOrder, AfterSaleOutOrder.warehouse),
+                    (SalesOrder, SalesOrder.warehouse),
+                ]:
+                    model.query.filter(column == old_name).update(
+                        {column: name}, synchronize_session=False
+                    )
+                # 调拨单的 from/to 仓库字段同样同步
+                TransferOrder.query.filter(TransferOrder.from_warehouse == old_name).update(
+                    {TransferOrder.from_warehouse: name}, synchronize_session=False
+                )
+                TransferOrder.query.filter(TransferOrder.to_warehouse == old_name).update(
+                    {TransferOrder.to_warehouse: name}, synchronize_session=False
+                )
             db.session.commit()
         except Exception as e:
             db.session.rollback()

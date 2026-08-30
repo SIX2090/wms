@@ -123,7 +123,8 @@ def register_check_routes(app):
         from flask_login import current_user
         from app import (InventoryCheck, InventoryCheckItem, _clean_int,
                          _material_from_payload, _parse_form_date, api_error,
-                         generate_order_no, get_default_warehouse, log_operation,
+                         generate_order_no, get_default_warehouse,
+                         get_warehouse_stock_quantities, log_operation,
                          parse_float_value, round_to_2_decimals,
                          validate_inventory_warehouse)
         data = request.get_json(silent=True) or {}
@@ -148,6 +149,9 @@ def register_check_routes(app):
         if wh_err:
             return api_error(wh_err)
         warehouse = wh_obj.name
+        # W1：盘点「系统库存」按仓库级口径取数（与库存查询/库存报表一致），
+        # 此前取全局 material.stock，多仓库下 A+B 合计会把盘盈盘亏算错。
+        warehouse_stock_map = get_warehouse_stock_quantities(wh_obj)
 
         try:
             if order_id:
@@ -181,7 +185,8 @@ def register_check_routes(app):
                 material = _material_from_payload(item_data)
                 if not material:
                     return api_error(f'物料不存在：{item_data.get("code") or ""}')
-                system_stock = round_to_2_decimals(parse_float_value(item_data.get('system_stock'), material.stock or 0))
+                system_stock = round_to_2_decimals(parse_float_value(
+                    item_data.get('system_stock'), warehouse_stock_map.get(material.id, 0) or 0))
                 actual_stock = round_to_2_decimals(parse_float_value(item_data.get('actual_stock'), system_stock))
                 db.session.add(InventoryCheckItem(
                     inventory_check_id=check.id,
@@ -343,7 +348,8 @@ def register_check_routes(app):
     @login_required
     def add_check_item(id):
         """添加盘点明细"""
-        from app import (InventoryCheck, InventoryCheckItem, Material, api_error, log_operation)
+        from app import (InventoryCheck, InventoryCheckItem, Material, Warehouse,
+                         api_error, get_warehouse_stock_quantities, log_operation)
         check = InventoryCheck.query.get_or_404(id)
         if check.status != 'pending':
             return api_error('只有草稿状态的盘点单可以添加明细')
@@ -371,8 +377,18 @@ def register_check_routes(app):
             return api_error(f'物料 {material.code} 已存在于盘点单中')
         
         try:
-            # 创建盘点明细，系统库存为当前库存，实际库存默认为系统库存
-            system_stock = material.stock or 0
+            # 创建盘点明细，系统库存为该仓库级当前库存，实际库存默认为系统库存
+            # W1：仓库级口径（与 save_check_table 一致），仓库解析失败时回退全局库存
+            wh_obj = None
+            if check.warehouse:
+                wh_obj = Warehouse.query.filter(db.or_(
+                    Warehouse.name == check.warehouse,
+                    Warehouse.code == check.warehouse,
+                )).first()
+            if wh_obj:
+                system_stock = get_warehouse_stock_quantities(wh_obj).get(material_id, 0) or 0
+            else:
+                system_stock = material.stock or 0
             item = InventoryCheckItem(
                 inventory_check_id=id,
                 material_id=material_id,
