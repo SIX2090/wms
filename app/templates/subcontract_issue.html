@@ -11,7 +11,7 @@
             {% if current_user.role in ['admin', 'production', 'warehouse'] %}
             <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
                 <a href="/subcontract_issue/download_template" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-excel"></i> 下载模板</a>
-                <a href="/subcontract_issue/export" class="btn btn-outline-success btn-sm">
+                <a href="/subcontract_issue/export?status={{ filters.status|urlencode }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-success btn-sm">
                     <i class="bi bi-download"></i> 导出
                 </a>
                 <button type="button" class="btn btn-outline-info btn-sm" onclick="document.getElementById('subcontractIssueImportFile').click()">

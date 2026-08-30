@@ -13,7 +13,7 @@
                 <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
                     <i class="bi bi-plus-lg"></i> 新增委外加工单
                 </button>
-                <a href="/subcontract/export" class="btn btn-outline-success btn-sm">
+                <a href="/subcontract/export?status={{ filters.status|urlencode }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&deadline_start={{ filters.deadline_start }}&deadline_end={{ filters.deadline_end }}" class="btn btn-outline-success btn-sm">
                     <i class="bi bi-download"></i> 导出
                 </a>
                 <button type="button" class="btn btn-outline-info btn-sm" onclick="document.getElementById('subcontractImportFile').click()">

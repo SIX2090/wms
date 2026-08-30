@@ -99,7 +99,7 @@
         <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
             <i class="bi bi-upload"></i> 导入
         </button>
-        <a href="/category/export" class="btn btn-outline-success btn-sm">
+        <a href="/category/export?search={{ filters.search|urlencode }}" class="btn btn-outline-success btn-sm">
             <i class="bi bi-download"></i> 导出
         </a>
         <a href="/category/download_template" class="btn btn-outline-secondary btn-sm">

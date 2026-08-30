@@ -1449,6 +1449,7 @@ def register_out_order_routes(app):
     @login_required
     def export_out_order():
         from app import (Material, OutOrder, OutOrderItem,
+                         _apply_header_or_item_contract_filters,
                          _apply_out_order_search, _apply_status_date_filters,
                          _get_order_list_filters, resolve_request_warehouse)
         from openpyxl import Workbook
@@ -1467,6 +1468,21 @@ def register_out_order_routes(app):
         )
         query = _apply_status_date_filters(query, OutOrder, status_filter, date_start, date_end)
         query = _apply_out_order_search(query, search)
+        # AI-WMS-FILTER-002：导出必须与列表页筛选口径一致（表头或明细任一命中）
+        contract_no_filter = (request.args.get('contract_no') or '').strip()
+        project_name_filter = (request.args.get('project_name') or '').strip()
+        query = _apply_header_or_item_contract_filters(
+            query, OutOrder, OutOrderItem, 'out_order_id',
+            contract_no_filter=contract_no_filter,
+            project_name_filter=project_name_filter,
+        )
+        # 列表页默认排除"销售出库"（销售出库归销售管理），导出需保持同一口径
+        export_bt = (request.args.get('business_type') or '').strip()
+        if export_bt:
+            query = query.filter(OutOrder.business_type == export_bt)
+        else:
+            query = query.filter(db.or_(OutOrder.business_type == '领料单',
+                                        OutOrder.business_type.is_(None)))
         warehouse, warehouse_error = resolve_request_warehouse(request.args)
         if warehouse_error:
             from app import api_error

@@ -14,7 +14,7 @@
             <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('importFile').click()">
                 <i class="bi bi-upload"></i> 导入
             </button>
-            <a href="/purchase_order/export?status={{ filters.status }}&supplier_id={{ filters.supplier_id }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
+            <a href="/purchase_order/export?status={{ filters.status }}&supplier_id={{ filters.supplier_id }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}" class="btn btn-outline-primary btn-sm">
                 <i class="bi bi-file-earmark-excel"></i> 导出
             </a>
             <a href="/purchase_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增采购单</a>

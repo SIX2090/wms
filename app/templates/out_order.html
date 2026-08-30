@@ -23,7 +23,7 @@
             <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('outOrderImportFile').click()">
                 <i class="bi bi-upload"></i> 导入
             </button>
-            <a href="/out_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
+            <a href="/out_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&business_type={{ filters.business_type|urlencode }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}" class="btn btn-outline-primary btn-sm">
                 <i class="bi bi-file-earmark-excel"></i> 导出
             </a>
             {% if filters.business_type == '其他出库' %}
@@ -181,7 +181,7 @@
             <ul class="pagination justify-content-center mb-0">
                 {% if pagination.has_prev %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('out_order_list', page=pagination.prev_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">上一页</a>
+                    <a class="page-link" href="{{ url_for('out_order_list', page=pagination.prev_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, contract_no=filters.contract_no, project_name=filters.project_name, warehouse_id=filters.warehouse_id, business_type=filters.business_type, embedded=request.args.get('embedded')) }}">上一页</a>
                 </li>
                 {% else %}
                 <li class="page-item disabled">
@@ -197,7 +197,7 @@
                         </li>
                         {% else %}
                         <li class="page-item">
-                            <a class="page-link" href="{{ url_for('out_order_list', page=page_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
+                            <a class="page-link" href="{{ url_for('out_order_list', page=page_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, contract_no=filters.contract_no, project_name=filters.project_name, warehouse_id=filters.warehouse_id, business_type=filters.business_type, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
                         </li>
                         {% endif %}
                     {% else %}
@@ -209,7 +209,7 @@
 
                 {% if pagination.has_next %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('out_order_list', page=pagination.next_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">下一页</a>
+                    <a class="page-link" href="{{ url_for('out_order_list', page=pagination.next_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, contract_no=filters.contract_no, project_name=filters.project_name, warehouse_id=filters.warehouse_id, business_type=filters.business_type, embedded=request.args.get('embedded')) }}">下一页</a>
                 </li>
                 {% else %}
                 <li class="page-item disabled">

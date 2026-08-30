@@ -161,7 +161,8 @@ def register_purchase_order_routes(app):
     def export_purchase_order():
         from sqlalchemy.orm import joinedload
         from app import (Material, PurchaseOrder, PurchaseOrderItem, PurchaseRequest,
-                         Supplier, _apply_status_date_filters, _get_order_list_filters,
+                         Supplier, _apply_header_or_item_contract_filters,
+                         _apply_status_date_filters, _get_order_list_filters,
                          _workbook_response, purchase_order_status_label,
                          round_to_2_decimals)
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'partial', 'completed', 'closed'))
@@ -183,6 +184,14 @@ def register_purchase_order_routes(app):
                 Supplier.name.like(search_like),
                 PurchaseRequest.request_no.like(search_like),
             ))
+        # AI-WMS-FILTER-002：导出必须与列表页筛选口径一致（表头或明细任一命中）
+        contract_no_filter = (request.args.get('contract_no') or '').strip()
+        project_name_filter = (request.args.get('project_name') or '').strip()
+        query = _apply_header_or_item_contract_filters(
+            query, PurchaseOrder, PurchaseOrderItem, 'purchase_order_id',
+            contract_no_filter=contract_no_filter,
+            project_name_filter=project_name_filter,
+        )
         query = query.order_by(PurchaseOrder.date.desc(), PurchaseOrder.id.desc())
         rows = []
         for order in query.all():

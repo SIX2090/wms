@@ -1250,6 +1250,7 @@ def register_sales_routes(app):
         from datetime import datetime
         from sqlalchemy.orm import joinedload
         from app import (Customer, Material, SalesOrder, SalesOrderItem,
+                         _apply_header_or_item_contract_filters,
                          _require_report_warehouse, sales_shipment_status_label, sales_status_label)
         # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
         selected_warehouse, _wh_err = _require_report_warehouse()
@@ -1266,9 +1267,14 @@ def register_sales_routes(app):
         if search:
             like = f'%{search}%'
             query = query.filter(db.or_(SalesOrder.order_no.like(like), Customer.name.like(like), Customer.code.like(like), Material.code.like(like), Material.name.like(like), SalesOrder.project_no.like(like)))
+        # AI-WMS-FILTER-002：与列表页一致，表头或明细任一命中；并补 project_name
         contract_no_filter = (request.args.get('contract_no') or '').strip()
-        if contract_no_filter:
-            query = query.filter(SalesOrder.contract_no.like(f'%{contract_no_filter}%'))
+        project_name_filter = (request.args.get('project_name') or '').strip()
+        query = _apply_header_or_item_contract_filters(
+            query, SalesOrder, SalesOrderItem, 'sales_order_id',
+            contract_no_filter=contract_no_filter,
+            project_name_filter=project_name_filter,
+        )
         if status:
             query = query.filter(SalesOrder.status == status)
         if customer_id:
