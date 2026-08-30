@@ -25119,13 +25119,19 @@ def build_report_dashboard_context(warehouse):
     }
 
     trend_start = today - timedelta(days=9)
+    # BUG-2026-08-30-003：趋势/月度图此前只匹配仓库名，仓库存编号的历史单据
+    # 在图表里缺失，与上方统计卡（名称/编号任一匹配）口径不一致；统一 OR 匹配。
+    _wh_cond = db.or_(InOrder.warehouse == warehouse_name,
+                      InOrder.warehouse == warehouse_code)
+    _wh_cond_out = db.or_(OutOrder.warehouse == warehouse_name,
+                          OutOrder.warehouse == warehouse_code)
     in_trend_rows = db.session.query(
         InOrder.date,
         func.coalesce(func.sum(InOrderItem.quantity), 0)
     ).join(InOrderItem, InOrderItem.in_order_id == InOrder.id).filter(
         InOrder.date >= trend_start,
         InOrder.date <= today,
-        InOrder.warehouse == warehouse_name,
+        _wh_cond,
     ).group_by(InOrder.date).all()
     out_trend_rows = db.session.query(
         OutOrder.date,
@@ -25133,7 +25139,7 @@ def build_report_dashboard_context(warehouse):
     ).join(OutOrderItem, OutOrderItem.out_order_id == OutOrder.id).filter(
         OutOrder.date >= trend_start,
         OutOrder.date <= today,
-        OutOrder.warehouse == warehouse_name,
+        _wh_cond_out,
     ).group_by(OutOrder.date).all()
     in_trend_map = {row[0]: float(row[1] or 0) for row in in_trend_rows}
     out_trend_map = {row[0]: float(row[1] or 0) for row in out_trend_rows}
@@ -25178,12 +25184,12 @@ def build_report_dashboard_context(warehouse):
     in_amount_rows = db.session.query(InOrder.date, InOrder.total_amount).filter(
         InOrder.date >= monthly_start,
         InOrder.date < next_month_start,
-        InOrder.warehouse == warehouse_name,
+        _wh_cond,
     ).all()
     out_amount_rows = db.session.query(OutOrder.date, OutOrder.total_amount).filter(
         OutOrder.date >= monthly_start,
         OutOrder.date < next_month_start,
-        OutOrder.warehouse == warehouse_name,
+        _wh_cond_out,
     ).all()
     in_amount_map = {}
     out_amount_map = {}
@@ -25728,7 +25734,13 @@ def _collect_in_detail_rows(filters):
     if material_clause is not None:
         query = query.filter(material_clause)
 
-    items = query.limit(5000).all()
+    # BUG-2026-08-30-003：明细超限不再静默截断，先计数告警再取数
+    detail_total = query.count()
+    if detail_total > REPORT_ROW_LIMIT:
+        app.logger.warning(
+            '[REPORT] 入库明细 %s 行超过上限 %s，结果已截断，请缩小查询范围',
+            detail_total, REPORT_ROW_LIMIT)
+    items = query.limit(REPORT_ROW_LIMIT).all()
 
     rows = []
     for item in items:
@@ -25792,7 +25804,13 @@ def _collect_out_detail_rows(filters):
     if material_clause is not None:
         query = query.filter(material_clause)
 
-    items = query.limit(5000).all()
+    # BUG-2026-08-30-003：明细超限不再静默截断，先计数告警再取数
+    detail_total = query.count()
+    if detail_total > REPORT_ROW_LIMIT:
+        app.logger.warning(
+            '[REPORT] 出库明细 %s 行超过上限 %s，结果已截断，请缩小查询范围',
+            detail_total, REPORT_ROW_LIMIT)
+    items = query.limit(REPORT_ROW_LIMIT).all()
 
     rows = []
     customer_keyword = (filters.get('customer') or '').lower()
@@ -25841,9 +25859,13 @@ def _collect_check_rows(filters):
         InventoryCheck.check_no.desc(),
         InventoryCheckItem.id.desc()
     )
-    # BUG-2026-08-02-014：盘点报表按仓库过滤
-    if filters.get('warehouse'):
-        query = query.filter(InventoryCheck.warehouse == filters['warehouse'])
+    # BUG-2026-08-02-014：盘点报表按仓库过滤；名称/编号任一匹配（与入库明细同口径）
+    if filters.get('warehouse') or filters.get('warehouse_code'):
+        match_any = [InventoryCheck.warehouse == filters['warehouse']] if filters.get('warehouse') else []
+        if filters.get('warehouse_code'):
+            match_any.append(InventoryCheck.warehouse == filters['warehouse_code'])
+        if match_any:
+            query = query.filter(db.or_(*match_any))
     if filters['start_date']:
         query = query.filter(InventoryCheck.date >= filters['start_date'])
     if filters['end_date']:
@@ -25854,7 +25876,13 @@ def _collect_check_rows(filters):
     if material_clause is not None:
         query = query.filter(material_clause)
 
-    items = query.limit(5000).all()
+    # BUG-2026-08-30-003：明细超限不再静默截断，先计数告警再取数
+    detail_total = query.count()
+    if detail_total > REPORT_ROW_LIMIT:
+        app.logger.warning(
+            '[REPORT] 盘点明细 %s 行超过上限 %s，结果已截断，请缩小查询范围',
+            detail_total, REPORT_ROW_LIMIT)
+    items = query.limit(REPORT_ROW_LIMIT).all()
 
     rows = []
     for item in items:
@@ -26156,6 +26184,11 @@ LEDGER_ROW_LIMIT = 50000
 # 且按 material_id 升序截断——流水超过上限后，物料 ID 较大的流水会整段丢失，
 # 结存静默归零且无任何提示。此处提高上限，并在真正超限时显式告警。
 
+# BUG-2026-08-30-003：入库/出库/盘点明细报表同样存在 .limit(5000) 静默截断——
+# 数据超过 5000 行时第 5001 行起被静默丢弃，分页 total 失真、导出缺行。
+# 统一提高上限并在超限时显式告警，便于事后排查。
+REPORT_ROW_LIMIT = 50000
+
 
 def _collect_ledger_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
@@ -26298,7 +26331,14 @@ def _collect_purchase_order_execution_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return []
-    items = _purchase_order_item_query(filters).limit(5000).all()
+    # BUG-2026-08-30-003：采购执行/汇总/价格分析共用本采集器，超限不再静默截断
+    item_query = _purchase_order_item_query(filters)
+    po_total = item_query.count()
+    if po_total > REPORT_ROW_LIMIT:
+        app.logger.warning(
+            '[REPORT] 采购执行明细 %s 行超过上限 %s，结果已截断，请缩小查询范围',
+            po_total, REPORT_ROW_LIMIT)
+    items = item_query.limit(REPORT_ROW_LIMIT).all()
     today_value = date.today()
     rows = []
     for item in items:
@@ -26808,8 +26848,13 @@ def _build_subcontract_report(filters):
         query = query.join(Supplier, SubcontractOrder.supplier_id == Supplier.id).filter(supplier_clause)
     if filters.get('status'):
         query = query.filter(SubcontractOrder.status == filters['status'])
-    if filters.get('warehouse'):
-        query = query.filter(SubcontractOrder.warehouse == filters['warehouse'])
+    # 委外报表按仓库过滤；名称/编号任一匹配（与入库明细同口径）
+    if filters.get('warehouse') or filters.get('warehouse_code'):
+        match_any = [SubcontractOrder.warehouse == filters['warehouse']] if filters.get('warehouse') else []
+        if filters.get('warehouse_code'):
+            match_any.append(SubcontractOrder.warehouse == filters['warehouse_code'])
+        if match_any:
+            query = query.filter(db.or_(*match_any))
     
     orders = query.order_by(SubcontractOrder.date.desc()).all()
     rows = []
@@ -26882,9 +26927,13 @@ def _build_requisition_report(filters):
         joinedload(ProductionRequisition.operator),
         selectinload(ProductionRequisition.items).joinedload(ProductionRequisitionItem.material),
     )
-    # BUG-2026-08-05-008：模型已补 warehouse 列，按仓库实际过滤
-    if filters.get('warehouse'):
-        query = query.filter(ProductionRequisition.warehouse == filters['warehouse'])
+    # BUG-2026-08-05-008：模型已补 warehouse 列，按仓库实际过滤；名称/编号任一匹配
+    if filters.get('warehouse') or filters.get('warehouse_code'):
+        match_any = [ProductionRequisition.warehouse == filters['warehouse']] if filters.get('warehouse') else []
+        if filters.get('warehouse_code'):
+            match_any.append(ProductionRequisition.warehouse == filters['warehouse_code'])
+        if match_any:
+            query = query.filter(db.or_(*match_any))
     if filters.get('start_date'):
         query = query.filter(ProductionRequisition.date >= filters['start_date'])
     if filters.get('end_date'):

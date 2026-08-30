@@ -183,14 +183,14 @@ def register_report_routes(app):
         prompt = f"""你是仓库管理系统的数据分析师，请基于以下仪表盘数据生成简洁的业务洞察：
 
 【核心指标】
-- 本月入库金额：{stats.month_in_amount:.2f} 元，共 {stats.month_in_count} 笔单据
-- 本月领料金额：{stats.month_out_amount:.2f} 元，共 {stats.month_out_count} 笔单据
-- 库存总量：{stats.total_stock:.2f}，共 {stats.material_count} 种物料
-- 库存金额：{stats.stock_value:.2f} 元
+- 本月入库金额：{stats['month_in_amount']:.2f} 元，共 {stats['month_in_count']} 笔单据
+- 本月领料金额：{stats['month_out_amount']:.2f} 元，共 {stats['month_out_count']} 笔单据
+- 库存总量：{stats['total_stock']:.2f}，共 {stats['material_count']} 种物料
+- 库存金额：{stats['stock_value']:.2f} 元
 
 【环比分析】
-- 入库金额环比：{in_amount_mom:+.1f}%（上月 {stats.last_month_in_amount:.2f} 元）
-- 领料金额环比：{out_amount_mom:+.1f}%（上月 {stats.last_month_out_amount:.2f} 元）
+- 入库金额环比：{in_amount_mom:+.1f}%（上月 {stats['last_month_in_amount']:.2f} 元）
+- 领料金额环比：{out_amount_mom:+.1f}%（上月 {stats['last_month_out_amount']:.2f} 元）
 
 【趋势数据】近10天出入库数量趋势：{json.dumps(chart_data.get('trend', {}), ensure_ascii=False)[:500]}
 
