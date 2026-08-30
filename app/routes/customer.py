@@ -30,7 +30,11 @@ def register_customer_routes(app):
     @login_required
     def customer_list():
         from app import (
+            AfterSaleOutOrder,
             Customer,
+            InOrder,
+            OutOrder,
+            SalesOrder,
             _apply_master_advanced_filters,
             _apply_master_order,
             _get_master_list_filters,
@@ -235,7 +239,11 @@ def register_customer_routes(app):
     def export_customer():
         from openpyxl import Workbook
         from app import (
+            AfterSaleOutOrder,
             Customer,
+            InOrder,
+            OutOrder,
+            SalesOrder,
             _apply_master_advanced_filters,
             _apply_master_order,
             _get_master_list_filters,
