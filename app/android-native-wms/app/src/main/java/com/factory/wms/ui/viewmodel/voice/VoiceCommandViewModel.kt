@@ -29,12 +29,16 @@ fun parseCommand(heardText: String): VoiceCommand {
         lt.contains("识别单据") || lt.contains("单据识别") || lt.contains("识别送货单") ->
             VoiceCommand.Navigate(Screen.DocumentOcr)
         lt.contains("识物") -> VoiceCommand.Navigate(Screen.ObjectRecognize)
+        // "识别"单独出现（热词表含"识别"）→ 识物页，与热词表对齐
+        lt.contains("识别") -> VoiceCommand.Navigate(Screen.ObjectRecognize)
         lt.contains("入库") || lt.contains("采购入库") -> VoiceCommand.Navigate(Screen.Inbound)
         lt.contains("出库") -> VoiceCommand.Navigate(Screen.Outbound)
         // "期初库存"须先于"库存"匹配，避免误判为查库存
         lt.contains("期初") -> VoiceCommand.Navigate(Screen.OpeningStock)
-        lt.contains("库存") || lt.contains("查库存") -> VoiceCommand.Navigate(Screen.StockQuery)
+        // BUG-2026-08-30-006：盘点须先于库存匹配——此前"库存盘点/盘点库存"
+        // 会先命中"库存"跳查库存页，盘点永远无法触发
         lt.contains("盘点") -> VoiceCommand.Navigate(Screen.Stocktake)
+        lt.contains("库存") || lt.contains("查库存") -> VoiceCommand.Navigate(Screen.StockQuery)
         // "返回首页/回到首页"倾向于回首页，故先判首页再判返回
         lt.contains("首页") || lt.contains("主页") || lt.contains("回到主页面") -> VoiceCommand.GoHome
         lt.contains("返回") || lt.contains("后退") || lt.contains("上一页") -> VoiceCommand.GoBack
@@ -103,7 +107,9 @@ class VoiceCommandViewModel(
         _uiState.value = VoiceUiState(isListening = true, message = "正在聆听，请说出指令…")
         e.start(SttConfig())
 
-        // 8 秒兜底超时：未收到任何识别/错误回调时主动停掉引擎并提示
+        // 8 秒兜底超时：未收到任何识别/错误回调时主动停掉引擎并提示。
+        // 注意：云引擎（CloudAsrVoiceSttEngine）没有 partial 回调，此超时即
+        // "最长录音时长"——用户点按麦克风后应在 15 秒内说完指令，否则被强制结束。
         listenTimeoutJob?.cancel()
         listenTimeoutJob = viewModelScope.launch {
             delay(VOICE_LISTEN_TIMEOUT_MS)
@@ -114,7 +120,7 @@ class VoiceCommandViewModel(
                 engine = null
                 _uiState.value = _uiState.value.copy(
                     isListening = false,
-                    error = "识别超时，请重试"
+                    error = "识别超时：请在点按麦克风后 15 秒内说出指令（如：入库、出库、查库存）"
                 )
             }
         }
