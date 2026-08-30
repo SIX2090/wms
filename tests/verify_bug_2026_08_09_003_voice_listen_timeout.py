@@ -10,11 +10,17 @@ BUG-2026-08-09-003 回归测试：手机 WMS 语音功能卡在"正在聆听"
   ERROR_CLIENT 等关键错误码。
 
 修复（第一阶段，已合入 main）：
-  - 引入 listenTimeoutJob：startListening 启动 8 秒兜底超时；
+  - 引入 listenTimeoutJob：startListening 启动兜底超时（原 8 秒）；
   - stopListening / onPartial / onResult / onError 四个出口取消该 Job；
   - 超时后主动 destroy engine 并写入 error="识别超时，请重试"；
   - onError（AndroidVoiceSttEngine）保留 ERROR_NETWORK / ERROR_SERVER /
     ERROR_CLIENT / ERROR_TOO_MANY_REQUESTS 五个细分提示。
+
+AI-MOB-APK-003（2026-08-30）超时阈值上调 8s -> 15s：
+  现场反馈「手机语音一直识别超时」。8 秒兜底在真机上过于激进——从按下
+  麦克风、引擎初始化、到说完一句「入库 合同 HT-2026-001 数量 20」，
+  云端 ASR 往返常常超过 8 秒，指令还没说完就被判定超时，用户体感就是
+  「一直超时」。故上调至 15 秒，仍保留兜底退出路径（不构成新的卡死风险）。
 
 重构（第二阶段，本文件覆盖）：
   - 把 SpeechRecognizer 的具体实现抽到 [VoiceSttEngine] 接口里；
@@ -24,7 +30,8 @@ BUG-2026-08-09-003 回归测试：手机 WMS 语音功能卡在"正在聆听"
 
 具体断言：
   T1. ViewModel 仍含 listenTimeoutJob: Job? 字段；
-  T2. companion object 暴露 VOICE_LISTEN_TIMEOUT_MS = 8_000L；
+  T2. companion object 暴露 VOICE_LISTEN_TIMEOUT_MS = 15_000L
+      （AI-MOB-APK-003：由 8_000L 上调）；
   T3. startListening 启动 listenTimeoutJob（含 delay 调用）；
   T4. startListening 超时分支会 destroy engine 并写 error="识别超时"；
   T5. stopListening 取消 listenTimeoutJob；
@@ -60,6 +67,10 @@ VOICE_DIR = (
 )
 VOICE_VM = VOICE_DIR / "VoiceCommandViewModel.kt"
 ANDROID_ENGINE = VOICE_DIR / "AndroidVoiceSttEngine.kt"
+
+# AI-MOB-APK-003：兜底超时阈值（毫秒）。真机一句完整指令的云端 ASR 往返
+# 常超过 8 秒，8s 会被用户感知为「一直超时」，故上调为 15 秒。
+VOICE_LISTEN_TIMEOUT_MS = "15000"
 
 
 def _read(path: Path) -> str:
@@ -99,7 +110,18 @@ def test_t2_timeout_constant() -> None:
     m = re.search(r"VOICE_LISTEN_TIMEOUT_MS\s*=\s*(\d+_?\d*)L", src)
     assert m, "必须定义 VOICE_LISTEN_TIMEOUT_MS 常量"
     raw = m.group(1).replace("_", "")
-    assert raw == "8000", f"VOICE_LISTEN_TIMEOUT_MS 必须 = 8000L（毫秒），实际={raw}"
+    assert raw == VOICE_LISTEN_TIMEOUT_MS, \
+        f"VOICE_LISTEN_TIMEOUT_MS 必须 = {VOICE_LISTEN_TIMEOUT_MS}L（毫秒），实际={raw}"
+
+
+def test_t2b_timeout_not_regressed_below_original() -> None:
+    """AI-MOB-APK-003 门禁：阈值不得被回退到 8 秒以下（避免「一直超时」复发）。"""
+    src = _read(VOICE_VM)
+    m = re.search(r"VOICE_LISTEN_TIMEOUT_MS\s*=\s*(\d+_?\d*)L", src)
+    assert m, "必须定义 VOICE_LISTEN_TIMEOUT_MS 常量"
+    value = int(m.group(1).replace("_", ""))
+    assert value >= 15000, \
+        f"兜底超时不得回退到 15 秒以下（现场反馈 8 秒过小），实际={value}"
 
 
 def test_t3_start_listening_launches_timeout_job() -> None:
@@ -107,7 +129,8 @@ def test_t3_start_listening_launches_timeout_job() -> None:
     body = _extract_function(src, "fun startListening(")
     assert "listenTimeoutJob?.cancel()" in body, "startListening 必须先取消旧 Job"
     assert "viewModelScope.launch" in body, "startListening 必须用 viewModelScope 启动超时 Job"
-    assert "delay(VOICE_LISTEN_TIMEOUT_MS)" in body, "startListening 内的 Job 必须 delay 8 秒"
+    assert "delay(VOICE_LISTEN_TIMEOUT_MS)" in body, \
+        f"startListening 内的 Job 必须 delay {int(VOICE_LISTEN_TIMEOUT_MS) // 1000} 秒"
     assert "识别超时" in body, "startListening 内的 Job 超时分支必须写识别超时提示"
 
 
