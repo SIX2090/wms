@@ -265,6 +265,7 @@
 
         var entity = input.getAttribute('data-ks');
         var mySeq = 0;
+        var composing = false;   // 中文输入法组合态：期间不触发搜索、不劫持按键
 
         var doSearch = function (showAll) {
             if (poolExpired(entity)) delete pools[entity];
@@ -282,9 +283,20 @@
 
         input.addEventListener('focus', function () { doSearch(false); });
         input.addEventListener('click', function () { if (!menuVisibleFor(input)) doSearch(false); });
-        input.addEventListener('input', function () { debounced(); });
+        input.addEventListener('compositionstart', function () { composing = true; });
+        input.addEventListener('compositionend', function () {
+            composing = false;
+            debounced();   // 拼音上屏后再按最终文本检索一次
+        });
+        input.addEventListener('input', function () {
+            if (composing) return;   // 组合态下按临时拼音串检索只会抖动候选
+            debounced();
+        });
 
         input.addEventListener('keydown', function (ev) {
+            // IME 组合态（拼音上屏）的 Enter/方向键归输入法支配，组件不得拦截，
+            // 否则用户按 Enter 上屏会被误判为「选中第一项候选」。
+            if (ev.isComposing || ev.keyCode === 229) return;
             if (ev.key === 'Escape') { hideMenu(); return; }
             if (ev.key === 'ArrowDown') {
                 if (!menuVisibleFor(input)) { doSearch(true); return; }

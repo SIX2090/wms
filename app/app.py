@@ -25773,9 +25773,15 @@ def _collect_out_detail_rows(filters):
         OutOrder.order_no.desc(),
         OutOrderItem.id.desc()
     )
-    # BUG-2026-08-02-014：出库明细按仓库过滤
-    if filters.get('warehouse'):
-        query = query.filter(OutOrder.warehouse == filters['warehouse'])
+    # BUG-2026-08-02-014：出库明细按仓库过滤；兼容历史数据仓库名/编号不统一
+    # （与入库明细 BUG-2026-08-18-004 同一修复：手机端手工录入存仓库编号，
+    # 网页端存仓库名，只匹配名称会导致出库单据在报表里查不出来）
+    if filters.get('warehouse') or filters.get('warehouse_code'):
+        match_any = [OutOrder.warehouse == filters['warehouse']] if filters.get('warehouse') else []
+        if filters.get('warehouse_code'):
+            match_any.append(OutOrder.warehouse == filters['warehouse_code'])
+        if match_any:
+            query = query.filter(db.or_(*match_any))
     if filters['start_date']:
         query = query.filter(OutOrder.date >= filters['start_date'])
     if filters['end_date']:
@@ -25795,9 +25801,15 @@ def _collect_out_detail_rows(filters):
         material = item.material
         if material is None:
             continue
-        customer_text = (order.department.name if order.department else '') or order.purpose or ''
-        if customer_keyword and customer_keyword not in customer_text.lower():
-            continue
+        # 客户/部门筛选：部门名、单据上的客户文本、用途任一命中即保留。
+        # 此前只匹配部门名（无部门时回退用途），完全不查 OutOrder.customer，
+        # 导致按客户名称筛选永远无结果。
+        department_name = order.department.name if order.department else ''
+        customer_text = department_name or order.customer or order.purpose or ''
+        if customer_keyword:
+            haystacks = (department_name, order.customer or '', order.purpose or '')
+            if not any(customer_keyword in (h or '').lower() for h in haystacks):
+                continue
         rows.append({
             'date': order.date.isoformat() if order.date else '',
             'order_no': order.order_no or '',

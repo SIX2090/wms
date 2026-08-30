@@ -2,16 +2,22 @@
 """
 BUG-2026-08-08-002 回归测试：报表页 客户/部门 输入框自动补全
 
-测试目标：
-  - report_view.html 的 customer 输入框新增 client 端自动补全下拉：
-    加载 /api/customers，按 名称/编码 关键词过滤（escapeHtml 转义防 XSS），
-    点选后回填客户名称并关闭下拉；加载失败时静默降级为普通输入框。
+历史背景：
+  最初修复为 report_view.html 的 customer 输入框增加了页面级自写下拉
+  （customerDropdown / customerList + /api/customers 加载）。
+  但该实现与全局 quick-select 组件（data-ks="customer"）并存，
+  形成双下拉互相遮挡、Enter 键行为冲突（2026-08-30 报表输入问题）。
+
+当前口径（2026-08-30 起）：
+  报表页 物料/供应商/客户 筛选输入框统一由全局 quick-select 组件接管
+  （data-ks 属性声明式绑定，支持键盘导航与拼音匹配），
+  页面不再维护自写下拉 DOM 与加载逻辑。
 
 具体断言：
-  T1. /report/view/out_detail 渲染包含 customerDropdown / customerList 容器
+  T1. customer 输入框带 data-ks="customer"，且选中回填名称（data-ks-put="name"）
   T2. customer 输入框带 autocomplete="off"
-  T3. JS 包含 /api/customers 加载逻辑
-  T4. JS 包含 loadCustomersForSearch 过滤逻辑
+  T3. 页面不再包含自写下拉容器与 /api/customers 加载逻辑（双下拉已消除）
+  T4. 物料输入框带 data-ks="material"（台账等报表的物料搜索同口径）
 
 使用方法：
   cd /workspace && python -m pytest tests/verify_bug_2026_08_08_002_report_customer_autocomplete.py -xvs
@@ -81,21 +87,25 @@ def _get_out_detail_page():
 
 
 class TestBug20260808002:
-    def test_T1_customer_dropdown_container_rendered(self):
+    def test_T1_customer_input_uses_quick_select(self):
         text = _get_out_detail_page()
-        assert 'id="customerDropdown"' in text, "客户下拉容器缺失"
-        assert 'id="customerList"' in text, "客户下拉列表容器缺失"
+        seg = text.split('id="customer"', 1)[1][:400]
+        assert 'data-ks="customer"' in seg, "customer 输入框未接入 quick-select（data-ks=customer）"
+        assert 'data-ks-put="name"' in seg, "customer 选中应回填名称（后端按名称文本模糊匹配）"
 
     def test_T2_customer_input_autocomplete_off(self):
         text = _get_out_detail_page()
-        seg = text.split('id="customer"', 1)[1][:300]
+        seg = text.split('id="customer"', 1)[1][:400]
         assert 'autocomplete="off"' in seg, "customer 输入框缺少 autocomplete=off"
 
-    def test_T3_js_loads_customers_api(self):
+    def test_T3_legacy_dropdown_removed(self):
         text = _get_out_detail_page()
-        assert "/api/customers" in text, "缺少 /api/customers 加载逻辑"
+        assert 'id="customerDropdown"' not in text, "旧版客户自写下拉容器应已移除（避免双下拉冲突）"
+        assert 'id="customerList"' not in text, "旧版客户下拉列表容器应已移除"
+        assert "loadCustomersForSearch" not in text, "旧版 /api/customers 加载逻辑应已移除"
 
-    def test_T4_js_has_customer_filter_logic(self):
+    def test_T4_material_input_uses_quick_select(self):
         text = _get_out_detail_page()
-        assert "loadCustomersForSearch" in text, "缺少客户加载函数"
-        assert "customerSearchTimeout" in text, "缺少客户搜索防抖逻辑"
+        seg = text.split('id="material_code"', 1)[1][:400]
+        assert 'data-ks="material"' in seg, "物料搜索输入框未接入 quick-select（data-ks=material）"
+        assert 'id="materialDropdown"' not in text, "旧版物料自写下拉容器应已移除"
