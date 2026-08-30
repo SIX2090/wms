@@ -1,6 +1,5 @@
 package com.factory.wms.ui.screens
 
-import com.factory.wms.BuildConfig
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
