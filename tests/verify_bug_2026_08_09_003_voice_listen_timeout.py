@@ -129,8 +129,12 @@ def test_t3_start_listening_launches_timeout_job() -> None:
     body = _extract_function(src, "fun startListening(")
     assert "listenTimeoutJob?.cancel()" in body, "startListening 必须先取消旧 Job"
     assert "viewModelScope.launch" in body, "startListening 必须用 viewModelScope 启动超时 Job"
-    assert "delay(VOICE_LISTEN_TIMEOUT_MS)" in body, \
-        f"startListening 内的 Job 必须 delay {int(VOICE_LISTEN_TIMEOUT_MS) // 1000} 秒"
+    # AI-MOB-APK-004：超时 Job 改为每秒 tick 的倒计时循环（总时长仍为
+    # VOICE_LISTEN_TIMEOUT_MS），并在 UI 上显示剩余秒数。
+    assert "val totalSeconds = VOICE_LISTEN_TIMEOUT_MS / 1000L" in body, \
+        f"startListening 内的 Job 总时长必须仍为 {int(VOICE_LISTEN_TIMEOUT_MS) // 1000} 秒"
+    assert "downTo 1" in body, "startListening 必须保留倒计时循环（downTo 1）"
+    assert "剩余 $remaining 秒" in body, "倒计时必须把剩余秒数写入 UI message"
     assert "识别超时" in body, "startListening 内的 Job 超时分支必须写识别超时提示"
 
 
