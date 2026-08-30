@@ -1,5 +1,6 @@
 package com.factory.wms.ui.screens
 
+import com.factory.wms.BuildConfig
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -42,7 +43,7 @@ fun LoginScreen(
     val uiState by viewModel.uiState.collectAsState()
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var baseUrl by remember { mutableStateOf(uiState.baseUrl.ifEmpty { "https://gd2026.top" }) }
+    var baseUrl by remember { mutableStateOf(uiState.baseUrl.ifEmpty { BuildConfig.DEFAULT_SERVER_URL }) }
     var showPassword by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }

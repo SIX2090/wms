@@ -110,9 +110,16 @@ class VoiceCommandViewModel(
         // 8 秒兜底超时：未收到任何识别/错误回调时主动停掉引擎并提示。
         // 注意：云引擎（CloudAsrVoiceSttEngine）没有 partial 回调，此超时即
         // "最长录音时长"——用户点按麦克风后应在 15 秒内说完指令，否则被强制结束。
+        // 每秒更新一次剩余秒数，让用户明确知道录音窗口，避免"没说多久就被断"的困惑。
         listenTimeoutJob?.cancel()
         listenTimeoutJob = viewModelScope.launch {
-            delay(VOICE_LISTEN_TIMEOUT_MS)
+            val totalSeconds = VOICE_LISTEN_TIMEOUT_MS / 1000L
+            for (remaining in totalSeconds downTo 1) {
+                _uiState.value = _uiState.value.copy(
+                    message = "正在聆听（剩余 $remaining 秒），请说出指令…"
+                )
+                delay(1000)
+            }
             val alive = engine
             if (alive != null) {
                 runCatching { alive.stop() }

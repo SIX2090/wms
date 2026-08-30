@@ -27,6 +27,12 @@ android {
             "SHERPA_MODEL_DIR",
             "\"${System.getenv("WMS_SHERPA_MODEL_DIR") ?: "sherpa-onnx/stream"}\""
         )
+        // 登录页默认服务器地址：构建时可用 -PDEFAULT_SERVER_URL=xxx 覆盖，
+        // 默认生产域名，不再散落在代码里（避免换环境要改源码重打包）。
+        val defaultServerUrl = (project.findProperty("DEFAULT_SERVER_URL") as String?)
+            ?: System.getenv("WMS_SERVER_URL")
+            ?: "https://gd2026.top"
+        buildConfigField("String", "DEFAULT_SERVER_URL", "\"$defaultServerUrl\"")
     }
 
     // 发布签名：keystore 和密码从环境变量读取，绝不上传仓库。
