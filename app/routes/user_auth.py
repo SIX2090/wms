@@ -800,7 +800,11 @@ def register_user_auth_routes(app):
         # 重置 admin 目标账号必须提供 WMS_BOOTSTRAP_PASSWORD 二次确认
         if user.role == 'admin' or user.username == 'admin':
             bootstrap_pwd = (request.form.get('bootstrap_pwd') or '').strip()
-            expected = os.environ.get('WMS_BOOTSTRAP_PASSWORD', 'admin')
+            # BUG-2026-08-30-007：未配置 WMS_BOOTSTRAP_PASSWORD 时禁止重置管理员
+            # 密码——此前回退公开默认值 'admin'，二次确认形同虚设。
+            expected = os.environ.get('WMS_BOOTSTRAP_PASSWORD', '').strip()
+            if not expected:
+                return api_error('服务器未配置 WMS_BOOTSTRAP_PASSWORD，禁止重置管理员账号')
             if not bootstrap_pwd or bootstrap_pwd != expected:
                 return api_error('重置管理员账号需要输入 WMS_BOOTSTRAP_PASSWORD 二次确认')
         user.password_hash = generate_password_hash(new_password)

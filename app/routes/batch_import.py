@@ -205,6 +205,14 @@ def register_batch_import_routes(app):
                     qty = get_num('quantity')
                     prc = get_num('price')
                     amt = get_num('amount')
+                    # BUG-2026-08-30-007：负数数量/单价直接拒绝（与 Web 端校验对齐），
+                    # 此前 -5 可原样写入导致库存被反扣/金额倒挂
+                    if qty <= 0:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：数量必须大于 0')
+                        continue
+                    prc = max(0, prc)
+                    amt = max(0, amt)
                     if amt == 0:
                         amt = round_to_2_decimals(qty * prc)
                     item = OutOrderItem(
@@ -488,6 +496,13 @@ def register_batch_import_routes(app):
                     qty = get_num('quantity')
                     prc = get_num('price')
                     amt = get_num('amount')
+                    # BUG-2026-08-30-007：负数数量/单价直接拒绝（与 Web 端校验对齐）
+                    if qty <= 0:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：数量必须大于 0')
+                        continue
+                    prc = max(0, prc)
+                    amt = max(0, amt)
                     if amt == 0:
                         amt = round_to_2_decimals(qty * prc)
                     customer_supplied = get_val('customer_supplied').strip().lower() in ('是', 'yes', 'y', 'true', '1')

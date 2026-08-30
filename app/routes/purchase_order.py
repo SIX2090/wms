@@ -891,7 +891,7 @@ def register_purchase_order_routes(app):
             update_purchase_order_status(order)
             db.session.commit()
             log_operation('重新打开采购单', f'采购单：{order.order_no}', 'purchase_order', order.id)
-            return jsonify({'status': 'success', 'msg': '采购单已重新打开', 'status': order.status})
+            return jsonify({'status': 'success', 'msg': '采购单已重新打开', 'order_status': order.status})
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'重新打开采购单失败: {e}')

@@ -1188,7 +1188,9 @@ def register_in_order_routes(app):
     @login_required
     def delete_in_order_item(id, item_id):
         """Delete a detail row from a pending inbound order."""
-        from app import (InOrder, InOrderItem, api_error, log_operation)
+        from app import (InOrder, InOrderItem, api_error, log_operation,
+                         recalculate_order_total, round_to_2_decimals,
+                         update_purchase_order_status)
         order = InOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有待处理的入库单可以删除明细')
@@ -1200,8 +1202,20 @@ def register_in_order_routes(app):
         material_name = item.material.name if item.material else ''
         log_operation('编辑入库单', f'删除入库单明细：{material_name}', 'in_order', id)
 
+        # BUG-2026-08-30-007：删除明细必须回退来源采购单行的 received_quantity，
+        # 否则未入库余量被永久吞掉、后续足额收货被误拒（与 add/update 明细对称）。
+        source_item = item.source_purchase_order_item
+        if source_item:
+            source_item.received_quantity = max(
+                0,
+                round_to_2_decimals((source_item.received_quantity or 0) - (item.quantity or 0))
+            )
+            if source_item.purchase_order:
+                update_purchase_order_status(source_item.purchase_order)
+
         db.session.delete(item)
         try:
+            recalculate_order_total(order)
             db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -1215,28 +1229,8 @@ def register_in_order_routes(app):
     @require_role('warehouse')
     @login_required
     def in_order_item_delete_alias(id, item_id):
-        """Alias endpoint for deleting an inbound order item."""
-        from app import (InOrder, InOrderItem, api_error, log_operation)
-        order = InOrder.query.get_or_404(id)
-        if order.status != 'pending':
-            return api_error('只有待处理的入库单可以删除明细')
-
-        item = InOrderItem.query.get_or_404(item_id)
-        if item.in_order_id != id:
-            return api_error('明细不属于当前入库单')
-
-        material_name = item.material.name if item.material else ''
-        log_operation('编辑入库单', f'删除入库单明细：{material_name}', 'in_order', id)
-
-        db.session.delete(item)
-        try:
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            app.logger.error(f'数据库操作失败: {e}')
-            return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
-
-        return jsonify({'status': 'success', 'msg': '删除成功'})
+        """Alias endpoint for deleting an inbound order item（委托主接口，保持同一修复）。"""
+        return delete_in_order_item(id, item_id)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/in_order/item/update', methods=['POST'])
@@ -2544,6 +2538,7 @@ def register_in_order_routes(app):
         return jsonify({'status': 'success', 'msg': msg, 'reverted': reverted})
 
     @app.route('/in_order/batch_print', methods=['POST'])
+    @require_role('warehouse')
     @login_required
     def batch_print_in_order():
         payload = request.get_json(silent=True) or {}
@@ -2568,6 +2563,7 @@ def register_in_order_routes(app):
         })
 
     @app.route('/in_order/batch_export', methods=['POST'])
+    @require_role('warehouse')
     @login_required
     def batch_export_in_order():
         import io

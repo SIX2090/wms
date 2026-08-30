@@ -162,6 +162,11 @@ def register_supplier_routes(app):
                 if sup.subcontract_receives:
                     return api_error(f'供应商“{sup.name}”已有关联委外收货单，不能删除')
 
+                # BUG-2026-08-30-007：采购申请明细同样引用供应商（与 unit 删除口径对齐），
+                # 否则删除后申请单编辑/详情页关联加载悬空报错
+                if sup.purchase_request_items:
+                    return api_error(f'供应商“{sup.name}”已有关联采购申请明细，不能删除')
+
                 db.session.delete(sup)
         try:
             db.session.commit()

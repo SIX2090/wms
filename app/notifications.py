@@ -143,6 +143,11 @@ class NotificationManager:
     
     def send_low_stock_email(self, to_email, material):
         """发送低库存预警邮件"""
+        # BUG-2026-08-30-007：物料名/编码/规格来自导入等外部输入，拼 HTML 前转义防注入
+        import html as _html
+        _code = _html.escape(str(material.code or ''))
+        _name = _html.escape(str(material.name or ''))
+        _spec = _html.escape(str(material.spec or '-'))
         subject = f'【库存预警】{material.name} 库存不足'
         
         html_content = f"""
@@ -174,15 +179,15 @@ class NotificationManager:
                     <table>
                         <tr>
                             <th>物料编码</th>
-                            <td>{material.code}</td>
+                            <td>{_code}</td>
                         </tr>
                         <tr>
                             <th>物料名称</th>
-                            <td>{material.name}</td>
+                            <td>{_name}</td>
                         </tr>
                         <tr>
                             <th>规格</th>
-                            <td>{material.spec or '-'}</td>
+                            <td>{_spec}</td>
                         </tr>
                         <tr>
                             <th class="warning">当前库存</th>

@@ -461,7 +461,9 @@ def register_subcontract_routes(app):
                     return api_error(loc_err or '库位库存增加失败')
 
             total_required = sum((item.quantity or 0) for item in order.items)
-            total_received = sum((item.quantity or 0) for receive_order in order.receive_orders for item in receive_order.items) + quantity
+            # BUG-2026-08-30-007：receive 已 flush()，order.receive_orders 此刻首次
+            # lazy-load 已包含新收货单，不能再 + quantity（否则双计数导致提前完结）
+            total_received = sum((item.quantity or 0) for receive_order in order.receive_orders for item in receive_order.items)
             if total_required and total_received >= total_required:
                 order.status = 'completed'
             elif order.status == 'pending':
