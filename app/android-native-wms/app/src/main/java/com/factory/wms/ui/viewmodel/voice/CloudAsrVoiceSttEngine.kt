@@ -151,6 +151,11 @@ class CloudAsrVoiceSttEngine(
 
     private fun captureLoop(record: AudioRecord) {
         val buf = ByteArray(FRAME_BYTES)
+        // VAD-lite：说话开始后，连续静音 SILENCE_TIMEOUT_FRAMES 帧（100ms/帧）
+        // 自动结束录音并立即上传识别——用户说完停顿约 1.2 秒即出结果，
+        // 不必手动点停止、也不必等满 15 秒再把整段音频送云端（识别慢的根因）。
+        var speechStarted = false
+        var silenceFrames = 0
         while (capturing.get()) {
             val n = try {
                 record.read(buf, 0, buf.size)
@@ -160,7 +165,35 @@ class CloudAsrVoiceSttEngine(
             }
             if (n <= 0) continue
             pcmBuffer.write(buf, 0, n)
+            val rms = computeRms(buf, n)
+            if (!speechStarted) {
+                if (rms >= SPEECH_RMS_THRESHOLD) speechStarted = true
+            } else if (rms < SPEECH_RMS_THRESHOLD) {
+                silenceFrames++
+                if (silenceFrames >= SILENCE_TIMEOUT_FRAMES) {
+                    Log.i(TAG, "auto stop: silence detected after speech")
+                    capturing.set(false)
+                    // 不能在采集线程内 join 自身，转到 IO 线程走与手动 stop 相同流程
+                    uploadScope.launch { runCatching { stop() } }
+                    return
+                }
+            } else {
+                silenceFrames = 0
+            }
         }
+    }
+
+    /** 16-bit 小端 PCM 的 RMS 能量（粗略 VAD 用，非精确声学测量）。 */
+    private fun computeRms(buf: ByteArray, n: Int): Int {
+        var sum = 0.0
+        var i = 0
+        while (i + 1 < n) {
+            val sample = (buf[i + 1].toInt() shl 8) or (buf[i].toInt() and 0xFF)
+            sum += sample.toDouble() * sample
+            i += 2
+        }
+        val count = n / 2
+        return if (count > 0) Math.sqrt(sum / count).toInt() else 0
     }
 
     private fun stopAudioCapture() {
@@ -264,5 +297,12 @@ class CloudAsrVoiceSttEngine(
         private const val FRAME_BYTES = 3_200
         /** 同时在途的识别上传协程上限，超出直接回调 TooManyRequests。 */
         private const val MAX_CONCURRENT_UPLOADS = 3
+        /**
+         * VAD 说话能量阈值（16-bit PCM RMS）：安静环境底噪约 50~300，
+         * 正常说话约 1000~5000，取 500 作分界。
+         */
+        private const val SPEECH_RMS_THRESHOLD = 500
+        /** 连续静音多少帧自动停止并上传（100ms/帧，12 帧 = 1.2 秒）。 */
+        private const val SILENCE_TIMEOUT_FRAMES = 12
     }
 }

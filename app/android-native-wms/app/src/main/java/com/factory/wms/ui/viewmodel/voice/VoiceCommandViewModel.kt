@@ -116,7 +116,7 @@ class VoiceCommandViewModel(
             val totalSeconds = VOICE_LISTEN_TIMEOUT_MS / 1000L
             for (remaining in totalSeconds downTo 1) {
                 _uiState.value = _uiState.value.copy(
-                    message = "正在聆听（剩余 $remaining 秒），请说出指令…"
+                    message = "正在聆听（剩余 $remaining 秒），说出指令后停顿即自动识别"
                 )
                 delay(1000)
             }
