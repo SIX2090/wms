@@ -26,7 +26,9 @@ from flask import flash, jsonify, redirect, render_template, request, session, u
 from flask_login import login_required
 
 from db import db
-from utils import require_role
+# AI-WMS-FINANCE-ROLE：ASSIGNABLE_ROLES 是可分配角色的唯一来源，
+# 避免「新增角色只改一处白名单」导致建号 / 列表筛选 / 编辑三处行为不一致。
+from utils import require_role, ASSIGNABLE_ROLES
 
 
 # no-test:reason=路由注册辅助函数，能力由 user_auth_* 各路由测试覆盖
@@ -313,7 +315,7 @@ def register_user_auth_routes(app):
         from app import User, _get_master_list_filters, _apply_master_order
         search, status_filter, sort_by, sort_order = _get_master_list_filters('created_at')
         role_filter = (request.args.get('role') or '').strip()
-        allowed_roles = {'admin', 'warehouse', 'purchase', 'sales', 'production', 'user'}
+        allowed_roles = ASSIGNABLE_ROLES
         allowed_statuses = {'normal', 'disabled', 'inactive'}
         if role_filter not in allowed_roles:
             role_filter = ''
@@ -329,6 +331,10 @@ def register_user_auth_routes(app):
                 '仓管': 'warehouse',
                 '采购': 'purchase',
                 '生产': 'production',
+                '销售': 'sales',
+                # AI-WMS-FINANCE-ROLE：财务角色也要能用中文搜到
+                '财务': 'finance',
+                '会计': 'finance',
                 '普通用户': 'user',
                 '普通': 'user',
             }
@@ -538,7 +544,7 @@ def register_user_auth_routes(app):
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '').strip()
         role = (request.form.get('role', 'user') or 'user').strip()
-        allowed_roles = {'admin', 'warehouse', 'purchase', 'sales', 'production', 'user', 'viewer'}
+        allowed_roles = ASSIGNABLE_ROLES
         if role not in allowed_roles:
             return api_error('用户角色不合法')
         if len(username) > 80:
@@ -585,7 +591,7 @@ def register_user_auth_routes(app):
         username = (request.form.get('username') or '').strip()
         role = (request.form.get('role') or '').strip()
         status = _normalize_user_status(request.form.get('status'))
-        allowed_roles = {'admin', 'warehouse', 'purchase', 'sales', 'production', 'user', 'viewer'}
+        allowed_roles = ASSIGNABLE_ROLES
         if not username or len(username) > 80:
             return jsonify({'status': 'error', 'msg': '用户名不能为空且不能超过 80 个字符'}), 400
         if role not in allowed_roles:

@@ -641,6 +641,103 @@ def _looks_like_image(data: bytes) -> bool:
 
 
 # ==================== 权限装饰器 ====================
+# AI-WMS-FINANCE-ROLE：财务（finance）是只读角色。
+#
+# 业务背景：WMS 主要由仓管一人做单，财务/采购/生产/销售只需要"能看到记录"——
+# 看报表、查单据、导 Excel，不参与任何录入。此前系统只有 warehouse / purchase /
+# production / sales 等业务角色，财务只能借仓管账号登录，等于把出入库权限一起交出去了。
+#
+# 只读角色的实现分三层，缺一不可：
+#   1) require_role：只读角色发起的 GET/HEAD 等安全方法放行，使其能浏览业务数据；
+#      管理类页面（用户、系统设置、AI 后台、打印运维）仍拒绝。
+#   2) before_request（app.py 的 enforce_read_only_role）：只读角色的
+#      POST/PUT/PATCH/DELETE 一律 403。这一层是兜底——系统里有一批写路由
+#      只挂了 @login_required、没有任何角色校验（如 /opening_stock/import 能改库存），
+#      单靠 require_role 白名单根本挡不住。
+#   3) 只读语义的 POST（查询、导出）进白名单，不影响财务正常查数。
+READ_ONLY_ROLES = frozenset({'finance'})
+
+# 可由管理员分配给账号的角色全集。
+# AI-WMS-FINANCE-ROLE：此前这份白名单在 add_user / edit_user 里各硬编码一份，
+# 新增角色很容易只改一处、漏另一处（财务就会卡在"用户角色不合法"）。
+# 收到这里统一管理，READ_ONLY_ROLES 必须是它的子集。
+ASSIGNABLE_ROLES = frozenset({
+    'admin', 'warehouse', 'purchase', 'production', 'sales', 'finance', 'user', 'viewer',
+})
+
+# 只读角色仍可调用的 POST 端点：语义上是查询/导出，不落库、不改库存。
+# 用 endpoint 名（不是 URL）匹配，避免动态参数路由的匹配歧义。
+READ_ONLY_ALLOWED_POST_ENDPOINTS = frozenset({
+    'api_query_search',        # 库存模糊查询（表单 POST）
+    'material_search_api',     # 物料搜索（GET/POST 双支持）
+    'batch_export_in_order',   # 入库单批量导出 Excel（出库单导出是 GET，无需白名单）
+})
+
+# 只读角色连"看"都不该看的页面前缀：账号、系统设置、AI 后台、打印运维、导入入口。
+# 这些页面要么含账号与密钥信息，要么属于仓管的运维/录入动作。
+# 匹配规则见 read_only_path_denied：精确前缀（/user）命中其子路径 /user/xxx；
+# 带尾斜杠的段前缀（/ai/）命中该段下任意路径。
+READ_ONLY_DENIED_PREFIXES = (
+    '/user',            # 用户管理
+    '/system_settings', # 系统设置
+    '/backup',          # 数据备份
+    '/approval',        # 审批中心
+    '/operation_audit', # 操作审计
+    '/wechat_share',    # 微信分享配置
+    '/admin',           # 管理控制台
+    '/batch_import',    # 批量导入（写入口）
+    '/opening_stock',   # 期初库存（写入口）
+    '/print_routing',   # 打印路由（运维）
+    '/print_templates', # 打印模板（运维）
+    '/print_queue',     # 打印队列（运维）
+    '/print_alerts',    # 打印告警（运维）
+    '/print_fill',      # 打印填充（运维）
+    '/ai/',             # AI 后台
+    '/api/ai/',         # AI API
+)
+
+READ_ONLY_DENY_MSG = '财务账号为只读权限，不能新增、修改或删除数据'
+
+# 这些端点在只读角色被拒时要放行，否则登录后连退出、改自己的密码都做不到。
+READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS = frozenset({
+    'static', 'login', 'logout', 'change_own_password', 'index', 'favicon',
+})
+
+
+def is_read_only_role(role=None):
+    """判断角色是否为只读角色；不传参时取当前登录用户角色。"""
+    if role is None:
+        if not getattr(current_user, 'is_authenticated', False):
+            return False
+        role = getattr(current_user, 'role', None)
+    return role in READ_ONLY_ROLES
+
+
+def read_only_path_denied(path=None):
+    """只读角色是否被禁止访问该路径（即便只是 GET 浏览）。
+
+    BUG（AI-WMS-FINANCE-ROLE）：前缀匹配曾用 prefix.rstrip('/') + '/' 判断，
+    '/system_settings' 会被误判为不属于 '/system' 前缀（下划线不是斜杠），
+    导致系统设置页对财务敞口。改为：精确前缀命中自身与子路径；段前缀
+    （带尾斜杠）命中段下任意路径。
+    """
+    path = request.path if path is None else path
+    if not path:
+        return False
+    for prefix in READ_ONLY_DENIED_PREFIXES:
+        if path == prefix:
+            return True
+        if prefix.endswith('/'):
+            # 段前缀：/ai/ 命中 /ai/xxx
+            if path.startswith(prefix):
+                return True
+        else:
+            # 精确前缀：/user 命中 /user、/user/2/edit
+            if path.startswith(prefix + '/'):
+                return True
+    return False
+
+
 def require_role(*roles):
     """Require one of the allowed business roles on the server side."""
     allowed = set(roles or ())
@@ -653,6 +750,12 @@ def require_role(*roles):
         best = request.accept_mimetypes.best_match(['application/json', 'text/html'])
         return best == 'application/json' and request.accept_mimetypes[best] >= request.accept_mimetypes['text/html']
 
+    def deny(msg):
+        if wants_json_response():
+            return jsonify({'status': 'error', 'msg': msg}), 403
+        flash(msg, 'danger')
+        return redirect(url_for('index'))
+
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
@@ -660,11 +763,15 @@ def require_role(*roles):
                 if wants_json_response():
                     return jsonify({'status': 'error', 'msg': '请先登录'}), 401
                 return redirect(url_for('login', next=request.full_path if request.query_string else request.path))
-            if current_user.role != 'admin' and current_user.role not in allowed:
-                if wants_json_response():
-                    return jsonify({'status': 'error', 'msg': '当前账号没有权限执行此操作'}), 403
-                flash('当前账号没有权限访问该页面', 'danger')
-                return redirect(url_for('index'))
+            if current_user.role != 'admin':
+                if is_read_only_role(current_user.role):
+                    # AI-WMS-FINANCE-ROLE：只读角色靠"能不能写"来划边界，
+                    # 而不是逐个页面加白名单——业务页（单据、库存、报表）一律可看，
+                    # 账号/系统/AI 后台/打印运维仍拒绝，写操作由 before_request 兜底。
+                    if (request.endpoint or '') not in READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS and read_only_path_denied():
+                        return deny('当前账号没有权限访问该页面')
+                elif current_user.role not in allowed:
+                    return deny('当前账号没有权限执行此操作')
             return f(*args, **kwargs)
         decorated_function._required_roles = frozenset(allowed)
         return decorated_function

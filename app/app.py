@@ -153,6 +153,10 @@ from utils import (
     recalculate_order_total,
     get_default_print_template, save_print_template_file, save_upload_image, migrate_legacy_material_images,
     require_role,
+    # AI-WMS-FINANCE-ROLE：只读角色（财务）相关判定
+    READ_ONLY_ROLES, READ_ONLY_ALLOWED_POST_ENDPOINTS, READ_ONLY_DENY_MSG,
+    READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS,
+    is_read_only_role, read_only_path_denied,
     validate_excel_extension,
     validate_excel_size,
     MAX_EXCEL_IMPORT_BYTES,
@@ -2996,6 +3000,47 @@ def limit_query_string_length():
         return api_error(f'查询参数过长（{len(request.query_string)} > {QUERY_STRING_MAX_LENGTH} 字节）', code=414)
     return None
 
+
+@app.before_request
+def enforce_read_only_role():
+    """AI-WMS-FINANCE-ROLE：只读角色（财务）的写操作总闸。
+
+    为什么需要这一层：require_role 只能管到挂了它的路由，而系统里有一批写路由
+    只挂了 @login_required、完全没有角色校验（例如 /opening_stock/import 能直接
+    改库存）。逐个补装饰器既容易漏，也会让"新增写路由"这件事永远依赖开发者记得
+    加权限。这里改成按"只读角色 + 非安全方法"统一拦截：财务账号做任何
+    POST/PUT/PATCH/DELETE 都会被挡下，新增写路由自动受保护。
+
+    财务真正需要的能力不受影响：GET 浏览（报表、单据、库存）走 require_role 放行，
+    查询/导出这类不落库的 POST 走 READ_ONLY_ALLOWED_POST_ENDPOINTS 白名单。
+    """
+    if not current_user.is_authenticated:
+        return None
+    if not is_read_only_role(current_user.role):
+        return None
+    endpoint = request.endpoint or ''
+    # 登录/退出/改自己的密码/静态资源永远放行
+    if endpoint in READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS:
+        return None
+    # 管理类页面：即使 GET 也拒绝。require_role 只拦挂了它的路由，
+    # 这里兜住只挂 @login_required 的管理路由（如 /print_queue、/batch_import 页面）。
+    if read_only_path_denied():
+        msg = '当前账号没有权限访问该页面'
+        if wants_json_error_response():
+            return jsonify({'status': 'error', 'msg': msg}), 403
+        flash(msg, 'danger')
+        return redirect(url_for('index'))
+    # GET/HEAD/OPTIONS 不改数据，放行；页面可见性由 require_role 负责
+    if request.method in ('GET', 'HEAD', 'OPTIONS'):
+        return None
+    # 改自己的密码、退出登录，以及"查询/导出"这类不落库的 POST 仍然放通
+    if endpoint in READ_ONLY_ALLOWED_POST_ENDPOINTS:
+        return None
+    if wants_json_error_response():
+        return jsonify({'status': 'error', 'msg': READ_ONLY_DENY_MSG}), 403
+    flash(READ_ONLY_DENY_MSG, 'danger')
+    return redirect(request.referrer or url_for('index'))
+
 # Error handlers
 def _db_safe_rollback():
     """错误处理器专用的安全回滚：连接已损坏时 rollback 可能再次抛错，
@@ -3639,7 +3684,9 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)  # Username
     password_hash = db.Column(db.String(120), nullable=False)  # Password
-    role = db.Column(db.String(20), default='user')  # Role: admin/warehouse/purchase/sales/production/user
+    # Role: admin/warehouse/purchase/sales/production/finance/user
+    # AI-WMS-FINANCE-ROLE：finance 为只读角色，写操作由 enforce_read_only_role 统一拦截
+    role = db.Column(db.String(20), default='user')
     status = db.Column(db.String(20), default='normal')  # Status
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
@@ -17980,6 +18027,9 @@ def _ai_role_label(role):
         'warehouse': '仓库',
         'purchase': '采购',
         'production': '生产',
+        'sales': '销售',
+        # AI-WMS-FINANCE-ROLE：财务为只读角色，只能看报表/单据/导出，不能做任何录入
+        'finance': '财务',
         'user': '普通用户',
     }.get(role or '', role or '未设置')
 
@@ -18007,7 +18057,7 @@ def _ai_user_permission_response(message, context=None, force=False):
     )
 
     cards = []
-    for role in ('admin', 'warehouse', 'purchase', 'production', 'user'):
+    for role in ('admin', 'warehouse', 'purchase', 'production', 'sales', 'finance', 'user'):
         cards.append({
             'title': f'{_ai_role_label(role)}账号',
             'meta': f'{role_counts.get(role, 0)} 个；建议只授予实际需要的最小权限',
@@ -18046,6 +18096,9 @@ def _ai_user_permission_response(message, context=None, force=False):
         f'| 仓库 | {role_counts.get("warehouse", 0)} | 物料、仓库、出入库、盘点、调拨、调整 |',
         f'| 采购 | {role_counts.get("purchase", 0)} | 采购申请、采购订单、采购入库协同 |',
         f'| 生产 | {role_counts.get("production", 0)} | 生产领料、BOM、委外相关流程 |',
+        f'| 销售 | {role_counts.get("sales", 0)} | 销售出库、客户对账相关流程 |',
+        # AI-WMS-FINANCE-ROLE：财务只读，系统层面已拦截其所有写操作
+        f'| 财务 | {role_counts.get("finance", 0)} | 只读：看报表、查单据、导 Excel，不能录入 |',
         f'| 普通用户 | {role_counts.get("user", 0)} | 查询和基础使用，避免授予高风险操作 |',
     ]
     if locked_users:

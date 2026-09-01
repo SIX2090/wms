@@ -31,6 +31,7 @@
                     <option value="purchase" {% if filters.role == 'purchase' %}selected{% endif %}>采购</option>
                     <option value="sales" {% if filters.role == 'sales' %}selected{% endif %}>销售</option>
                     <option value="production" {% if filters.role == 'production' %}selected{% endif %}>生产</option>
+                    <option value="finance" {% if filters.role == 'finance' %}selected{% endif %}>财务</option>
                     <option value="user" {% if filters.role == 'user' %}selected{% endif %}>普通用户</option>
                 </select>
             </div>
@@ -84,6 +85,8 @@
                         <span class="badge bg-info">销售</span>
                         {% elif user.role == 'production' %}
                         <span class="badge bg-warning text-dark">生产</span>
+                        {% elif user.role == 'finance' %}
+                        <span class="badge bg-secondary">财务</span>
                         {% else %}
                         <span class="badge bg-info text-dark">普通用户</span>
                         {% endif %}
@@ -155,7 +158,7 @@
         <form id="editForm"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" id="editUserId">
             <div class="modal-body">
                 <div class="mb-3"><label class="form-label">用户名</label><input class="form-control" name="username" id="editUsername" maxlength="80" required></div>
-                <div class="mb-3"><label class="form-label">角色</label><select class="form-select" name="role" id="editRole"><option value="user">普通用户</option><option value="warehouse">仓管员</option><option value="purchase">采购</option><option value="sales">销售</option><option value="production">生产</option><option value="admin">管理员</option></select></div>
+                <div class="mb-3"><label class="form-label">角色</label><select class="form-select" name="role" id="editRole"><option value="user">普通用户</option><option value="warehouse">仓管员</option><option value="purchase">采购</option><option value="sales">销售</option><option value="production">生产</option><option value="finance">财务（只读）</option><option value="admin">管理员</option></select></div>
                 <div class="mb-3"><label class="form-label">状态</label><select class="form-select" name="status" id="editStatus"><option value="normal">正常/启用</option><option value="disabled">禁用</option><option value="inactive">停用</option></select></div>
                 <div class="form-text">此页面不提供密码修改或重置功能；角色和状态变更将写入操作日志。</div>
             </div>
@@ -190,6 +193,7 @@
                             <option value="warehouse">仓管员</option>
                             <option value="purchase">采购</option>
                             <option value="production">生产</option>
+                            <option value="finance">财务（只读）</option>
                             <option value="admin">管理员</option>
                         </select>
                     </div>
