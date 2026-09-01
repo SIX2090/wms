@@ -158,3 +158,41 @@ def test_material_page_search_box_is_search_semantics():
     assert 'data-ks-submit="1"' in m.group(0), (
         "物料搜索框缺少 data-ks-submit=\"1\"，Enter 放行搜索的路径不会生效"
     )
+
+
+# ---------------- 静态资源破缓存：改了必须能到用户浏览器 ----------------
+
+def test_static_version_tracks_quick_select_js_mtime(monkeypatch):
+    """quick-select.js 更新后 ?v= 版本号必须跟着变，否则浏览器一直用旧 JS。
+
+    AI-WMS-FILTER-004 踩过的坑：JS 改完、服务器文件也更新了，但静态版本号
+    只由 app.js / api.js / custom.css 的 mtime 拼成，?v= 纹丝不动，
+    浏览器命中缓存拿到旧 JS，用户侧表现就是「改了但完全没生效」。
+    """
+    import os
+
+    base_version = app_module._compute_static_version()
+    real_getmtime = os.path.getmtime
+
+    def fake_getmtime(path):
+        if str(path).replace("\\", "/").endswith("js/quick-select.js"):
+            return 9999999999
+        return real_getmtime(path)
+
+    monkeypatch.setattr(os.path, "getmtime", fake_getmtime)
+    bumped = app_module._compute_static_version()
+
+    assert "9999999999" in bumped, (
+        "quick-select.js 的 mtime 未纳入静态版本号：它改了 ?v= 也不变，"
+        "浏览器会一直使用缓存的旧 JS（修复到不了用户侧）"
+    )
+    assert bumped != base_version, "版本号应随 quick-select.js 更新而变化"
+
+
+def test_static_version_excludes_third_party_libs():
+    """第三方压缩库（xlsx.full.min.js）不纳入版本号，避免无谓的缓存失效。"""
+    import app as _app
+
+    assert "xlsx.full.min.js" in _app._STATIC_VERSION_EXCLUDE, (
+        "第三方库应排除在静态版本号监控之外"
+    )

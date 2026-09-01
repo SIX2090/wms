@@ -1908,14 +1908,31 @@ migrated_legacy_material_images = migrate_legacy_material_images(UPLOAD_FOLDER)
 if migrated_legacy_material_images:
     app.logger.info('Migrated %s legacy material images to static uploads', migrated_legacy_material_images)
 
-# no-test:reason=启动期配置辅助，读文件 mtime 生成静态资源版本号，行为由页面集成验证覆盖
-# 静态资源缓存破坏：app.js/custom.css 等关键静态文件的 mtime 拼成版本号，
+# 静态资源缓存破坏：业务 JS/CSS 的 mtime 拼成版本号，
 # 文件一旦修改，base.html 引用的 ?v= 即变化，浏览器立即获取新版本
 # （Flask 静态文件默认缓存 12 小时，固定版本号会导致修复无法及时到达用户）
+#
+# AI-WMS-FILTER-004：原清单只有 app.js / api.js / custom.css，
+# quick-select.js 的修复改完、服务器文件也更新了，?v= 版本号却纹丝不动，
+# 浏览器一直拿缓存里的旧 JS，用户侧表现就是「改了但完全没生效」。
+# 这里改为遍历业务 JS（排除第三方压缩库），任何业务 JS 改动都会破缓存。
+_STATIC_VERSION_EXCLUDE = ('xlsx.full.min.js',)
+
+
 def _compute_static_version():
     static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+    watch = ['js/app.js', 'js/api.js', 'js/quick-select.js', 'css/custom.css']
+    try:
+        for name in sorted(os.listdir(os.path.join(static_dir, 'js'))):
+            if not name.endswith('.js') or name in _STATIC_VERSION_EXCLUDE:
+                continue
+            rel = 'js/' + name
+            if rel not in watch:
+                watch.append(rel)
+    except OSError:
+        pass
     mtimes = []
-    for rel in ('js/app.js', 'js/api.js', 'css/custom.css'):
+    for rel in watch:
         try:
             mtimes.append(str(int(os.path.getmtime(os.path.join(static_dir, rel)))))
         except OSError:
