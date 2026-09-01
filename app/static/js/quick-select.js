@@ -13,6 +13,10 @@
  *   - 输入即出候选，中文子串 + 服务端拼音/首字母匹配
  *   - 小数据集一次拉取本地过滤（零延迟），大数据集自动切换远程搜索
  *   - 键盘操作：↑ ↓ 选择，Enter 确认，Esc 关闭
+ *   - Enter 语义（AI-WMS-FILTER-004）：↑↓ 高亮后 Enter = 选中该项；
+ *     搜索型筛选框（data-ks-submit="1"）直接 Enter = 按当前关键词提交
+ *     表单做模糊搜索（输入「电线」回车 → 列表显示所有包含「电线」的物料）；
+ *     仅无 submit 标记的纯选择框保留「Enter 选中第一项」
  *   - 保留原 name 与表单行为，不改变后端参数
  */
 (function (window, document) {
@@ -221,11 +225,13 @@
     }
 
     function activeItem() {
+        // AI-WMS-FILTER-004：只认用户 ↑↓ 主动高亮的项，不再默认回退第一项。
+        // 「Enter 按输入关键词搜索」与「Enter 选中候选」由调用方据此区分。
         if (!menu) return null;
         var items = menu._ksItems || [];
         var idx = menu._ksActive;
         if (idx >= 0 && items[idx]) return items[idx];
-        return items[0] || null;
+        return null;
     }
 
     /* ---------- 选中回填 ---------- */
@@ -308,10 +314,27 @@
             }
             if (ev.key === 'Enter') {
                 if (menuVisibleFor(input)) {
-                    var it = activeItem();
-                    if (it) { ev.preventDefault(); commit(input, it); hideMenu(); return; }
+                    // 1) 用户已用 ↑↓ 主动高亮某项：Enter = 确认选中该项
+                    var picked = activeItem();
+                    if (picked) { ev.preventDefault(); commit(input, picked); hideMenu(); return; }
+                    // 2) 搜索型筛选框（data-ks-submit="1"）且无主动高亮：
+                    //    放行表单默认提交，让后端按当前关键词做模糊搜索。
+                    //    AI-WMS-FILTER-004：物料列表输入「电线」直接回车，
+                    //    右侧应显示所有包含「电线」的物料；此前会被劫持成
+                    //    选中第一项候选、回填其编码，提交后只剩一条结果。
+                    if (input.getAttribute('data-ks-submit') !== '1') {
+                        // 3) 纯候选选择框（无 submit 标记）：保留
+                        //    「Enter 选中第一项」的效率行为
+                        var items = menu._ksItems || [];
+                        if (items.length) {
+                            ev.preventDefault();
+                            commit(input, items[0]);
+                            hideMenu();
+                            return;
+                        }
+                    }
                 }
-                hideMenu();  // 无候选时放行，交给表单默认提交
+                hideMenu();  // 放行，交给表单默认提交
             }
         });
 
