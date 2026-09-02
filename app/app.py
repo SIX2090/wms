@@ -1244,6 +1244,31 @@ def auto_migrate_database():
                     pass
                 modified = True
 
+        # INV-BATCH-001-A：盘点批次化补列——批次冻结时点、行级盘点归属、
+        # 扫码盘点单挂钩批次。全部为可空列，存量数据无需回填（NULL =
+        # 未冻结/未归属/未挂批次，语义与旧行为一致）。
+        if _table_exists('inventory_check'):
+            cursor.execute("PRAGMA table_info(inventory_check)")
+            ic_cols = [row[1] for row in cursor.fetchall()]
+            if ic_cols and 'frozen_at' not in ic_cols:
+                cursor.execute("ALTER TABLE inventory_check ADD COLUMN frozen_at DATETIME")
+                modified = True
+        if _table_exists('inventory_check_item'):
+            cursor.execute("PRAGMA table_info(inventory_check_item)")
+            ici_cols = [row[1] for row in cursor.fetchall()]
+            if ici_cols and 'counted_by' not in ici_cols:
+                cursor.execute("ALTER TABLE inventory_check_item ADD COLUMN counted_by INTEGER")
+                modified = True
+            if ici_cols and 'counted_at' not in ici_cols:
+                cursor.execute("ALTER TABLE inventory_check_item ADD COLUMN counted_at DATETIME")
+                modified = True
+        if _table_exists('inventory_check_scan'):
+            cursor.execute("PRAGMA table_info(inventory_check_scan)")
+            ics_cols = [row[1] for row in cursor.fetchall()]
+            if ics_cols and 'check_id' not in ics_cols:
+                cursor.execute("ALTER TABLE inventory_check_scan ADD COLUMN check_id INTEGER")
+                modified = True
+
         # BUG-2026-08-05-008：工单领料单补仓库列，存量数据回填默认仓库名
         if _table_exists('production_requisition'):
             cursor.execute("PRAGMA table_info(production_requisition)")
@@ -5334,6 +5359,9 @@ class InventoryCheck(db.Model):
     warehouse = db.Column(db.String(100), nullable=False, default='')
     remark = db.Column(db.String(200))  # Remark
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
+    # INV-BATCH-001-A：批次账面冻结时点。首次写入盘点明细时设置，之后
+    # 差异 = 实盘 − 冻结账面，不随后续出入库漂移（多人协作盘点的基础）。
+    frozen_at = db.Column(db.DateTime)
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
@@ -5348,9 +5376,13 @@ class InventoryCheckItem(db.Model):
     actual_stock = db.Column(db.Float, nullable=False)  # Actual inventory
     difference = db.Column(db.Float, nullable=False)  # Difference
     reason = db.Column(db.String(200))  # Difference
+    # INV-BATCH-001-A：行级盘点归属——多人协作批次下谁盘的、何时盘的。
+    counted_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    counted_at = db.Column(db.DateTime)
 
     inventory_check = db.relationship('InventoryCheck', backref='items')  # Related check order
     material = db.relationship('Material', backref='inventory_check_items')  # Related material
+    counted_by_user = db.relationship('User', foreign_keys=[counted_by])  # 盘点人（单向，无 backref）
 
 class SubcontractOrder(db.Model):
     """Subcontract order."""
@@ -5546,10 +5578,15 @@ class InventoryCheckScan(db.Model):
     warehouse = db.Column(db.String(100), nullable=False, default='')  # Warehouse name (AGENTS.md: 始终必填)
     remark = db.Column(db.String(200))  # Remark
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed/void（INV-REVERT-001 作废留痕）
+    # INV-BATCH-001-A：挂钩盘点批次（PC 盘点单 InventoryCheck.id）。
+    # 挂批次的扫码盘点不再独立生成调整草稿，差异由批次 complete 按
+    # 冻结账面统一生成；为 NULL 时维持独立单模式（向后兼容）。
+    check_id = db.Column(db.Integer, db.ForeignKey('inventory_check.id'))
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
     operator = db.relationship('User', backref='check_scans')  # Operator
+    batch = db.relationship('InventoryCheck', foreign_keys=[check_id])  # 挂钩批次（单向，无 backref）
 
 class InventoryCheckScanItem(db.Model):
     """Inventory check scan item."""
