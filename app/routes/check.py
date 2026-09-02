@@ -736,8 +736,10 @@ def register_check_routes(app):
         from app import (InventoryCheck, InventoryCheckItem, _find_or_create_material,
                          _get_excel_cell, _get_excel_number, _import_result,
                          _order_no_from_row, _parse_excel_date, _read_import_sheet,
-                         api_error, round_to_2_decimals, validate_excel_extension,
-                         validate_excel_size)
+                         api_error, get_default_warehouse,
+                         get_warehouse_stock_quantities, normalize_stock_quantity,
+                         round_to_2_decimals, validate_excel_extension,
+                         validate_excel_size, validate_inventory_warehouse)
         file = request.files.get('file')
         if not file:
             return api_error('请选择要导入的库存盘点文件')
@@ -750,6 +752,8 @@ def register_check_routes(app):
         aliases = {
             'order_no': ['单据编号', '盘点单号', '订单编号'],
             'date': ['日期'],
+            # BUG-2026-09-03-001：导入支持"仓库"列（仓库名或编码），缺省带入默认仓库
+            'warehouse': ['仓库', '仓库名称', '仓库编码'],
             'material_code': ['物料编码', '材料编码'],
             'material_name': ['物料名称', '材料名称'],
             'spec': ['规格'],
@@ -765,6 +769,8 @@ def register_check_routes(app):
             if not required.issubset(col_map):
                 return api_error(f'Excel表头缺少必要列（物料编码、实际库存）。检测到的表头：{", ".join(header_row)}')
             checks_by_no = {}
+            # BUG-2026-09-03-001：每个导入盘点单缓存其仓库级账面映射，避免逐行重算流水聚合
+            checks_wh_stock = {}
             order_count = 0
             item_count = 0
             skip = 0
@@ -775,6 +781,16 @@ def register_check_routes(app):
                     skip += 1
                     skip_details.append(f'第{row_idx}行：物料编码为空')
                     continue
+                # BUG-2026-09-03-001：行仓库解析（Excel 未提供该列时为空，交由默认仓库回退）
+                row_warehouse_raw = (_get_excel_cell(row, col_map, 'warehouse') or '').strip()
+                row_warehouse_name = None
+                if row_warehouse_raw:
+                    wh_obj, wh_err = validate_inventory_warehouse(row_warehouse_raw)
+                    if wh_err:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：仓库无效「{row_warehouse_raw}」({wh_err})，跳过')
+                        continue
+                    row_warehouse_name = wh_obj.name
                 order_no = _order_no_from_row(row, col_map, 'order_no', 'CK')
                 check = checks_by_no.get(order_no)
                 if not check:
@@ -782,10 +798,17 @@ def register_check_routes(app):
                         skip += 1
                         skip_details.append(f'第{row_idx}行：盘点单号 {order_no} 已存在')
                         continue
+                    # 单据仓库：Excel 行值优先，缺省带入默认仓库
+                    warehouse = row_warehouse_name or (get_default_warehouse().name if get_default_warehouse() else '')
+                    if not warehouse:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：盘点单 {order_no} 未指定仓库且系统无默认仓库，跳过')
+                        continue
                     check = InventoryCheck(
                         check_no=order_no,
                         date=_parse_excel_date(_get_excel_cell(row, col_map, 'date')),
                         remark=_get_excel_cell(row, col_map, 'remark'),
+                        warehouse=warehouse,
                         status='pending',
                         operator_id=current_user.id,
                     )
@@ -793,13 +816,23 @@ def register_check_routes(app):
                     db.session.flush()
                     checks_by_no[order_no] = check
                     order_count += 1
+                    _wh_obj, _wh_err = validate_inventory_warehouse(warehouse)
+                    checks_wh_stock[order_no] = get_warehouse_stock_quantities(_wh_obj) if _wh_obj else {}
+                elif row_warehouse_name and row_warehouse_name != check.warehouse:
+                    # 同一盘点单内多行必须归属同一仓库，避免一单多仓串账
+                    skip += 1
+                    skip_details.append(f'第{row_idx}行：仓库「{row_warehouse_name}」与盘点单 {order_no} 不一致（{check.warehouse}），跳过')
+                    continue
                 material = _find_or_create_material(
                     material_code,
                     _get_excel_cell(row, col_map, 'material_name'),
                     _get_excel_cell(row, col_map, 'spec'),
                     _get_excel_cell(row, col_map, 'unit'),
                 )
-                system_stock = _get_excel_number(row, col_map, 'system_stock', material.stock or 0)
+                # BUG-2026-09-03-001：账面缺省取该单据仓库的仓库级库存（此前用全局
+                # Material.stock，多仓库下会算错差异）；Excel 显式填写账面时以文件为准。
+                book_stock = normalize_stock_quantity((checks_wh_stock.get(order_no) or {}).get(material.id) or 0)
+                system_stock = _get_excel_number(row, col_map, 'system_stock', book_stock)
                 actual_stock = _get_excel_number(row, col_map, 'actual_stock', system_stock)
                 db.session.add(InventoryCheckItem(
                     inventory_check_id=check.id,
