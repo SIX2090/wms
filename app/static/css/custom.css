@@ -2490,6 +2490,19 @@ body.cb-form-actionbar .wms-entry-header.page-header {
         word-break: break-word;
     }
 
+    /* INV-REVERT-001：扫码盘点历史条目的撤销按钮 */
+    .mobile-history-item .mobile-history-undo {
+        justify-self: start;
+        margin-top: 4px;
+        padding: 3px 10px;
+        font-size: 12px;
+        border-radius: 999px;
+    }
+
+    .mobile-history-item .mobile-history-undo[disabled] {
+        opacity: .6;
+    }
+
     .wms-mobile-table-scroll:has(+ .wms-mobile-card-list) {
         position: absolute !important;
         width: 1px !important;

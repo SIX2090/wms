@@ -542,13 +542,47 @@
     });
     window.addEventListener('pagehide', stopBarcodeScanner);
 
-    function addHistory(message, material) {
+    function addHistory(message, material, undo) {
         historyWrap.hidden = false;
         var item = document.createElement('div');
         item.className = 'mobile-history-item';
         item.innerHTML = '<strong></strong><span></span>';
         item.querySelector('strong').textContent = message;
         item.querySelector('span').textContent = material ? ((material.code || '') + ' ' + (material.name || '')) : '';
+        // INV-REVERT-001：盘点提交支持当场撤销（扫错立即撤，作废会级联
+        // 删除未提交的调整草稿；草稿已审核提交时服务端会拒绝并提示）。
+        if (undo && undo.checkId) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-outline-danger btn-sm mobile-history-undo';
+            btn.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i> 撤销本次盘点';
+            btn.addEventListener('click', function() {
+                btn.disabled = true;
+                setStatus('正在撤销盘点 ' + (undo.checkNo || '') + ' ...', '');
+                fetch('/mobile/api/check_scan/' + undo.checkId + '/void', {
+                    method: 'POST',
+                    headers: csrfHeaders(),
+                    credentials: 'same-origin'
+                })
+                    .then(function(response) {
+                        var sessErr = sessionExpiredError(response);
+                        if (sessErr) throw sessErr;
+                        return response.json().then(function(data) {
+                            if (!response.ok || data.status !== 'success') throw data;
+                            return data;
+                        });
+                    })
+                    .then(function(data) {
+                        btn.innerHTML = '<i class="bi bi-check2"></i> 已撤销';
+                        setStatus(data.msg || '已撤销本次盘点', 'success');
+                    })
+                    .catch(function(error) {
+                        btn.disabled = false;
+                        setStatus((error && (error.msg || error.message)) || '撤销失败', 'error');
+                    });
+            });
+            item.appendChild(btn);
+        }
         historyList.insertBefore(item, historyList.firstChild);
     }
 
@@ -736,7 +770,12 @@
                     var returnedMaterial = data.data && data.data.material ? data.data.material : material;
                     renderMaterial(returnedMaterial);
                     setStatus(data.msg || '操作成功', 'success');
-                    addHistory(data.msg || '操作成功', returnedMaterial);
+                    // INV-REVERT-001：盘点模式带撤销入口（check_id 由后端返回）
+                    var undo = null;
+                    if (mode === 'check' && data.data && data.data.check_id) {
+                        undo = {checkId: data.data.check_id, checkNo: data.data.check_no || ''};
+                    }
+                    addHistory(data.msg || '操作成功', returnedMaterial, undo);
                     resetForNextScan(returnedMaterial);
                 })
                 .catch(function(error) {

@@ -5545,7 +5545,7 @@ class InventoryCheckScan(db.Model):
     date = db.Column(db.Date, default=date.today)  # Date
     warehouse = db.Column(db.String(100), nullable=False, default='')  # Warehouse name (AGENTS.md: 始终必填)
     remark = db.Column(db.String(200))  # Remark
-    status = db.Column(db.String(20), default='pending')  # Status: pending/completed
+    status = db.Column(db.String(20), default='pending')  # Status: pending/completed/void（INV-REVERT-001 作废留痕）
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
 
@@ -24493,6 +24493,81 @@ def _create_adjustment_drafts_from_check_scan(check):
             ))
         drafts.append(order)
     return drafts, None
+
+
+def _void_check_scan(check_id, operator_id=None):
+    """作废扫码盘点单（INV-REVERT-001 / BUG-2026-09-02-003）。
+
+    扫码盘点单创建即 completed 且此前无任何回退路径：扫错物料/数量/仓库
+    后无法纠正，只能放任错误调整草稿被审核（库存错调），或在库存调整页
+    删草稿（单据永远挂着 completed，审计无法区分哪次盘点被采纳）。
+
+    作废语义（对齐 PC 盘点单 revert_check 的库存安全边界）：
+    - 软标记 status='void' 留痕（不物理删除，保审计轨迹）；
+    - 级联删除该单生成的未提交（pending）调整草稿及明细——草稿本就
+      不动库存，删除即恢复原状，且 INV-GUARD-001 护栏随之解除，同物料
+      可重新盘点；
+    - 任一关联调整单已提交（completed，库存已真实变动）则拒绝作废，
+      提示先反提交调整单，防止"账已调、单作废"的账实脱钩。
+
+    operator_id：Bearer Token 请求（Android）的作废操作人。此时
+    current_user 未认证，log_operation 会静默跳过，故补写一条
+    OperationLog 保证审计完整（作废是审计敏感操作）。
+
+    返回 (check, deleted_draft_nos, error, error_code)：
+    - 成功：check 为作废后的单据，deleted_draft_nos 为已删除草稿号；
+    - 失败：error 为中文提示，error_code ∈ not_found / invalid_status /
+      adjustment_completed，调用方据此映射 HTTP 状态码。
+    """
+    locked, ok = _acquire_order_write_lock(
+        InventoryCheckScan, check_id, 'completed',
+        selectinload(InventoryCheckScan.items))
+    if not ok:
+        if locked is None:
+            return None, None, '扫码盘点单不存在', 'not_found'
+        return None, None, '只有已完成的扫码盘点单可以作废（可能已被作废）', 'invalid_status'
+    check = locked
+
+    linked_adjustments = AdjustmentOrder.query.filter_by(
+        source_type='check_scan', source_id=check.id).all()
+    completed_nos = [o.adjustment_no for o in linked_adjustments if o.status == 'completed']
+    if completed_nos:
+        db.session.rollback()
+        return None, None, (
+            '该盘点单生成的调整单已提交，不能直接作废：' + '、'.join(completed_nos)
+            + '。请先在「库存调整」中反提交这些调整单，库存恢复后再作废重盘'
+        ), 'adjustment_completed'
+
+    deleted_draft_nos = []
+    for order in linked_adjustments:
+        if order.status == 'pending':
+            for item in list(order.items):
+                db.session.delete(item)
+            db.session.delete(order)
+            deleted_draft_nos.append(order.adjustment_no)
+    check.status = 'void'
+    db.session.commit()
+
+    content = (
+        f'扫码盘点单：{check.check_no}，作废并删除未提交调整草稿：'
+        f'{"、".join(deleted_draft_nos) if deleted_draft_nos else "无"}'
+    )
+    log_operation('作废扫码盘点', content, 'inventory_check_scan', check.id)
+    if operator_id is not None and not (current_user and current_user.is_authenticated):
+        # Bearer 请求补写审计日志（log_operation 只认 Web 会话的 current_user）
+        try:
+            db.session.add(OperationLog(
+                user_id=operator_id,
+                operation_type='作废扫码盘点',
+                operation_content=content,
+                target_type='inventory_check_scan',
+                target_id=check.id,
+                ip_address=request.remote_addr if request else None,
+            ))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    return check, deleted_draft_nos, None, None
 
 
 

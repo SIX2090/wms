@@ -524,6 +524,56 @@ def register_native_api_routes(app):
             app.logger.exception('Android stocktake failed')
             return api_json_error('盘点提交失败', 500)
 
+    # INV-REVERT-001 / BUG-2026-09-02-003：Android 端扫码盘点单作废入口。
+    # 扫码盘点创建即 completed 且此前无任何回退路径，扫错后无法纠正。
+    # 按 check_no 作废（Android 提交响应 data.check_no 回传即可撤销），
+    # 核心逻辑复用 app._void_check_scan：级联删除未提交调整草稿 + 状态
+    # 置 void 留痕；关联调整单已提交则拒绝（先反提交调整单）。
+    # Android App 接入撤销 UI 无需后端再发版。
+    @app.route('/api/stocktake/void', methods=['POST'])
+    @csrf.exempt
+    @api_role_required('warehouse')
+    def native_api_stocktake_void(user):
+        from pydantic import BaseModel, Field, field_validator
+        from app import (InventoryCheckScan, _void_check_scan, api_json_error,
+                         api_json_success)
+
+        # A8：提交参数用 pydantic 输入校验（对齐 scan_submit 的契约模式）
+        class StocktakeVoidRequest(BaseModel):
+            check_no: str = Field(min_length=1)
+
+            @field_validator('check_no')
+            @classmethod
+            def _norm(cls, v):
+                v = (v or '').strip()
+                if not v:
+                    raise ValueError('缺少盘点单号 check_no')
+                return v
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            req = StocktakeVoidRequest.model_validate(payload)
+        except Exception as exc:
+            return api_json_error(f'参数校验失败：{exc}')
+        check = InventoryCheckScan.query.filter_by(check_no=req.check_no).first()
+        if not check:
+            return api_json_error(f'扫码盘点单不存在：{req.check_no}', 404)
+        voided, deleted_nos, error, error_code = _void_check_scan(
+            check.id, operator_id=user.id)
+        if error:
+            return api_json_error(error, 404 if error_code == 'not_found' else 400)
+        msg = f'已作废扫码盘点单：{voided.check_no}'
+        if deleted_nos:
+            msg += f'，同步删除未提交调整草稿：{"、".join(deleted_nos)}'
+        return api_json_success(
+            {
+                'check_id': voided.id,
+                'check_no': voided.check_no,
+                'deleted_adjustment_nos': deleted_nos,
+            },
+            msg,
+        )
+
     @app.route('/api/mobile/dashboard')
     @csrf.exempt
     @web_or_api_required

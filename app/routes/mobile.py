@@ -575,6 +575,7 @@ def register_mobile_routes(app):
                     'success': True,
                     'msg': msg,
                     'data': {
+                        'check_id': check.id,
                         'check_no': check.check_no,
                         'adjustment_nos': [order.adjustment_no for order in drafts],
                         'material': mobile_material_payload(material),
@@ -586,6 +587,37 @@ def register_mobile_routes(app):
             return jsonify({'status': 'error', 'success': False, 'msg': '提交失败，请稍后重试'}), 500
 
         return jsonify({'status': 'error', 'success': False, 'msg': '扫码类型不正确'}), 400
+
+    # INV-REVERT-001 / BUG-2026-09-02-003：扫码盘点单作废（可回退）。
+    # 扫码盘点创建即 completed 且此前无任何回退路径，扫错后无法纠正。
+    # 作废 = 级联删除未提交调整草稿 + 状态置 void 留痕；关联调整单已
+    # 提交则拒绝（先反提交调整单）。Web 会话与 Bearer Token 均可调用，
+    # mobile_scan.html 的撤销按钮与本端点对接。
+    # pydantic:reason=无请求体参数，check_id 由路由 <int:> 转换器完成类型校验，无需 pydantic 模型。
+    @app.route('/mobile/api/check_scan/<int:check_id>/void', methods=['POST'])
+    @_web_or_api_role_required('warehouse')
+    def mobile_check_scan_void(check_id):
+        from app import (_void_check_scan, current_user, get_bearer_user,
+                          jsonify)
+        actor = current_user if current_user.is_authenticated else get_bearer_user()
+        check, deleted_nos, error, error_code = _void_check_scan(
+            check_id, operator_id=actor.id if actor else None)
+        if error:
+            status_code = 404 if error_code == 'not_found' else 400
+            return jsonify({'status': 'error', 'success': False, 'msg': error}), status_code
+        msg = f'已作废扫码盘点单：{check.check_no}'
+        if deleted_nos:
+            msg += f'，同步删除未提交调整草稿：{"、".join(deleted_nos)}'
+        return jsonify({
+            'status': 'success',
+            'success': True,
+            'msg': msg,
+            'data': {
+                'check_id': check.id,
+                'check_no': check.check_no,
+                'deleted_adjustment_nos': deleted_nos,
+            },
+        })
 
     # ───────────────────────── 手机扫码出入库草稿制 ─────────────────────────
     # 目标：扫码出入库提交时先生成 status='pending' 草稿，不动库存、不打印；
