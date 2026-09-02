@@ -401,6 +401,8 @@
 
 | BUG-2026-08-28-002 | 手机 APP「每日报表」（采购入库/领料单）明细列表只能看到 20 条，但汇总统计显示更多明细（如 58 明细）——汇总基于全集，明细列表被分页截断。根因：Android `WmsRepository.getDailyReport` 调 `/api/mobile/report/daily_detail` 时不传分页参数，后端默认只返回第 1 页 20 条明细，App 端不做翻页 | **已修复（2026-08-28）**：`WmsRepository.getDailyReport` 先取第 1 页，按响应 `totalPages` 逐页拉取 2..totalPages 并合并 `items`，返回全量明细（ViewModel/UI 无需改动，直接渲染合并后 items）。后端分页契约未变（仍返回 total/page/page_size/total_pages）。回归：`tests/verify_bug_2026_08_28_002_daily_report_all_pages.py`（6 场景：翻页循环、显式传页参、合并 items、copy 返回全量、后端分页元数据、API 接口页参）6/6 PASSED + 存量 3 个每日报表验证脚本 16/16 PASSED。**发布边界**：GitHub Actions 产出新 APK 并发布到 android-apk Release，用户手机重新下载安装后生效 |
 
+| BUG-2026-09-02-001 | Android 原生端 `/api/stocktake` 扫码盘点取全局账面库存：INV-AUDIT-003 已把手机端（`mobile.py` `scan_submit`）盘点账面改成仓库级 `get_warehouse_stock_quantities()`，但 `native_api.py` 的 `/api/stocktake` 仍是 `parse_float_value(line.get('system_stock'), material.stock or 0)`，默认值回退全局 `Material.stock`。多仓库下把"全部仓库合计"当成单个仓库账面数，盘盈盘亏全部算错并生成错误调整草稿（例：A仓 60 + B仓 40 = 全局 100；盘 B仓实盘 38，正确差异 -2，实际算出 -62；盘 A仓实盘 60 本应无差异，却误判盘亏 -40 并生成调整单）。Android `ScanViewModel.kt:420` 显式传 `system_stock = null`，服务端必定落到该错误默认值 | **已修复（2026-09-02）**：`app/routes/native_api.py` `native_api_stocktake` 在循环外一次性取 `warehouse_stock_map = get_warehouse_stock_quantities(wh_obj)`（避免逐行重复聚合流水 N+1），行内默认值改为 `warehouse_stock_map.get(material.id) or 0`，对齐 `mobile.py` / INV-AUDIT-003；客户端显式传值时仍沿用（向后兼容）。回归：`tests/test_inv_audit_003_fix01_native_stocktake_warehouse_scope.py`（INV-AUDIT-003-FIX-01）3/3 PASSED（T1 多仓取 B仓账面 40、差异 -2；T2 A仓账实一致不生成调整单；T3 单仓 fallback 分支不受影响）。**发布边界**：后端改动，Android App 无需重新发版 |
+
 ## 每日使用方式
 
 ```powershell

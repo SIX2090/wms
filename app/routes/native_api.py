@@ -454,8 +454,8 @@ def register_native_api_routes(app):
         from app import (InventoryCheckScan, InventoryCheckScanItem, Material,
                          _create_adjustment_drafts_from_check_scan, api_json_error,
                          api_json_success, generate_order_no, get_default_warehouse,
-                         parse_float_value, round_to_2_decimals,
-                         validate_inventory_warehouse)
+                         get_warehouse_stock_quantities, parse_float_value,
+                         round_to_2_decimals, validate_inventory_warehouse)
         payload = request.get_json(silent=True) or {}
         lines = payload.get('lines') if isinstance(payload, dict) else None
         if not isinstance(lines, list) or not lines:
@@ -486,13 +486,21 @@ def register_native_api_routes(app):
             )
             db.session.add(check)
             db.session.flush()
+            # INV-AUDIT-003-FIX-01：盘点账面按仓库级库存取数，对齐 mobile.py scan_submit。
+            # 此前默认值回退全局 Material.stock，多仓库下会把"全部仓库合计"当成
+            # 单个仓库的账面数，盘盈盘亏全部算错，并据此生成错误的调整草稿。
+            # 在循环外一次性聚合，避免逐行重复汇总流水（N+1）。
+            warehouse_stock_map = get_warehouse_stock_quantities(wh_obj)
             for index, line in enumerate(lines, start=1):
                 code = (line.get('material_code') or line.get('code') or '').strip()
                 material = Material.query.filter_by(code=code).first()
                 if not material:
                     db.session.rollback()
                     return api_json_error(f'第 {index} 行物料不存在：{code}')
-                system_stock = parse_float_value(line.get('system_stock'), material.stock or 0)
+                # INV-AUDIT-003-FIX-01：默认取服务端仓库级库存；客户端显式传值时
+                # 仍沿用（Android ScanViewModel 固定传 null，必然走仓库级分支）。
+                system_stock = parse_float_value(
+                    line.get('system_stock'), warehouse_stock_map.get(material.id) or 0)
                 actual_stock = parse_float_value(line.get('actual_stock'), system_stock)
                 db.session.add(InventoryCheckScanItem(
                     check_scan_id=check.id,
