@@ -403,6 +403,8 @@
 
 | BUG-2026-09-02-001 | Android 原生端 `/api/stocktake` 扫码盘点取全局账面库存：INV-AUDIT-003 已把手机端（`mobile.py` `scan_submit`）盘点账面改成仓库级 `get_warehouse_stock_quantities()`，但 `native_api.py` 的 `/api/stocktake` 仍是 `parse_float_value(line.get('system_stock'), material.stock or 0)`，默认值回退全局 `Material.stock`。多仓库下把"全部仓库合计"当成单个仓库账面数，盘盈盘亏全部算错并生成错误调整草稿（例：A仓 60 + B仓 40 = 全局 100；盘 B仓实盘 38，正确差异 -2，实际算出 -62；盘 A仓实盘 60 本应无差异，却误判盘亏 -40 并生成调整单）。Android `ScanViewModel.kt:420` 显式传 `system_stock = null`，服务端必定落到该错误默认值 | **已修复（2026-09-02）**：`app/routes/native_api.py` `native_api_stocktake` 在循环外一次性取 `warehouse_stock_map = get_warehouse_stock_quantities(wh_obj)`（避免逐行重复聚合流水 N+1），行内默认值改为 `warehouse_stock_map.get(material.id) or 0`，对齐 `mobile.py` / INV-AUDIT-003；客户端显式传值时仍沿用（向后兼容）。回归：`tests/test_inv_audit_003_fix01_native_stocktake_warehouse_scope.py`（INV-AUDIT-003-FIX-01）3/3 PASSED（T1 多仓取 B仓账面 40、差异 -2；T2 A仓账实一致不生成调整单；T3 单仓 fallback 分支不受影响）。**发布边界**：后端改动，Android App 无需重新发版 |
 
+| BUG-2026-09-02-002 | 扫码盘点重复调整无护栏：`_create_adjustment_drafts_from_check_scan` 幂等只按 `source_id=check.id` 判重（防同一盘点单重复生成），防不住跨盘点单对同一物料的正常重复盘点。调整草稿 pending 期间不动库存，同仓库同物料被重复扫码时每次都基于同一账面值各生成一张草稿——例：账面 40、实盘 38、差异 -2，两人先后扫码生成两张 -2 草稿，审核时都提交则库存被扣 4，全程无报错（静默双重计数），事后难追溯 | **已修复（2026-09-02）**：`app/app.py` `_create_adjustment_drafts_from_check_scan` 在幂等检查后新增跨盘点单护栏：同仓库同物料已存在未提交（pending）的扫码盘点调整草稿时拒绝生成，返回"以下物料已有待审核的扫码盘点差异（库存调整草稿）：物料(ADJ单号)。请先在「库存调整」中审核或删除这些草稿后再盘点，否则库存会被重复调整"。不误伤：不同物料、不同仓库、已提交草稿（库存已真实调整、账面已更新，再盘属合法二次盘点）均放行；历史无仓库字段的草稿按潜在冲突处理（宁拦不漏）。手机端（`mobile.py` scan_submit）与 Android（`native_api.py` /api/stocktake）共用此函数，一处拦截两端生效。回归：`tests/test_inv_guard_001_stocktake_duplicate_adjustment_guard.py` 5/5 PASSED（T1 重复盘点拒绝且提示含物料与单号/T2 不同物料放行/T3 已提交草稿放行/T4 跨仓库放行/T5 Web 手机端同受保护）。**发布边界**：后端改动，App 无需发版 |
+
 ## 每日使用方式
 
 ```powershell

@@ -24407,6 +24407,51 @@ def _create_adjustment_drafts_from_check_scan(check):
     if existing:
         return None, '该扫码盘点单已生成库存调整单，请勿重复生成'
 
+    # INV-GUARD-001（BUG-2026-09-02-002）：跨盘点单重复盘点护栏。
+    # 调整草稿 pending 期间不动库存，同仓库同物料被不同扫码盘点单重复
+    # 盘点时，每次都基于同一账面值生成一张草稿，多张提交后库存被重复
+    # 调整且全程无提示（静默双重计数）。此处拦截：同仓库同物料已有
+    # 未提交的扫码盘点调整草稿时拒绝生成，提示先处理存量草稿。
+    # 不误伤：不同物料 / 不同仓库 / 已提交草稿（库存已真实调整、账面
+    # 已更新，再盘属合法二次盘点）均放行。历史无仓库字段的草稿按潜在
+    # 冲突处理（宁拦不漏，处理方式为审核或删除存量草稿，成本低）。
+    _guard_material_ids = [item.material_id for item in check.items if item.material_id]
+    if _guard_material_ids:
+        _pending_q = AdjustmentOrder.query.filter(
+            AdjustmentOrder.source_type == 'check_scan',
+            AdjustmentOrder.status == 'pending',
+            AdjustmentOrder.source_id != check.id,
+        )
+        if check.warehouse:
+            _pending_q = _pending_q.filter(db.or_(
+                AdjustmentOrder.warehouse == check.warehouse,
+                AdjustmentOrder.warehouse.is_(None),
+            ))
+        _pending_orders = _pending_q.all()
+        if _pending_orders:
+            _conflicts = (
+                db.session.query(AdjustmentOrderItem.material_id, AdjustmentOrder.adjustment_no)
+                .join(AdjustmentOrder, AdjustmentOrderItem.adjustment_order_id == AdjustmentOrder.id)
+                .filter(
+                    AdjustmentOrderItem.adjustment_order_id.in_([o.id for o in _pending_orders]),
+                    AdjustmentOrderItem.material_id.in_(_guard_material_ids),
+                )
+                .all()
+            )
+            if _conflicts:
+                _mat_codes = {
+                    m.id: m.code
+                    for m in Material.query.filter(Material.id.in_([c[0] for c in _conflicts])).all()
+                }
+                _detail = '、'.join(
+                    f'{_mat_codes.get(mid, str(mid))}({no})'
+                    for mid, no in _conflicts[:8]
+                )
+                return None, (
+                    f'以下物料已有待审核的扫码盘点差异（库存调整草稿）：{_detail}。'
+                    '请先在「库存调整」中审核或删除这些草稿后再盘点，否则库存会被重复调整'
+                )
+
     grouped = {'surplus': [], 'loss': []}
     for item in check.items:
         if not item.material_id:
