@@ -119,9 +119,11 @@ def register_check_routes(app):
     @require_role('warehouse')
     @login_required
     def save_check_table():
-        from datetime import date
+        from datetime import date, datetime
         from flask_login import current_user
-        from app import (InventoryCheck, InventoryCheckItem, _clean_int,
+        from sqlalchemy.orm import selectinload
+        from app import (InventoryCheck, InventoryCheckItem,
+                         _acquire_order_write_lock, _clean_int,
                          _material_from_payload, _parse_form_date, api_error,
                          generate_order_no, get_default_warehouse,
                          get_warehouse_stock_quantities, log_operation,
@@ -163,11 +165,22 @@ def register_check_routes(app):
                 duplicate = InventoryCheck.query.filter(InventoryCheck.check_no == check_no, InventoryCheck.id != order_id).first()
                 if duplicate:
                     return api_error('盘点单号已存在')
+                # INV-BATCH-001-B：单据写锁，防多人并发保存同一盘点单互相覆盖
+                locked, ok = _acquire_order_write_lock(
+                    InventoryCheck, order_id, 'pending', selectinload(InventoryCheck.items))
+                if not ok:
+                    return api_error('该盘点单状态已变更，请刷新后重试')
+                check = locked
             else:
                 check = InventoryCheck.query.filter_by(check_no=check_no).first()
                 if check:
                     if check.status != 'pending':
                         return api_error('盘点单号已存在')
+                    locked, ok = _acquire_order_write_lock(
+                        InventoryCheck, check.id, 'pending', selectinload(InventoryCheck.items))
+                    if not ok:
+                        return api_error('该盘点单状态已变更，请刷新后重试')
+                    check = locked
                 else:
                     check = InventoryCheck(check_no=check_no, status='pending', operator_id=current_user.id)
                     db.session.add(check)
@@ -179,23 +192,54 @@ def register_check_routes(app):
             if not check.operator_id:
                 check.operator_id = current_user.id
             db.session.flush()
-            InventoryCheckItem.query.filter_by(inventory_check_id=check.id).delete()
 
+            # INV-BATCH-001-B（BUG-2026-09-02-004）：行级 upsert 替换全删重建。
+            # 旧行为每次保存删除全部明细再重建，且每行 system_stock 一律取
+            # 保存时点的当前账面——多人轮流保存同一盘点单时账面基准被悄悄
+            # 刷新：A 上午按账面 60 实盘 58（差 -2）；期间出库 30，B 下午
+            # 补充一行再保存，A 的行账面被刷成 30，差异从 -2 变 +28，差异
+            # 含义被改变且无任何提示。
+            # 新行为（冻结快照语义）：
+            # - 已有行（按物料匹配）保留 system_stock 冻结值，仅更新实盘/原因；
+            # - 新增行取当前仓库级账面（视为该行首次录入时点的基准）；
+            # - 提交集之外的旧行删除（全量提交语义与旧版一致）；
+            # - 首次写入明细时设置 frozen_at，一经设置不再变更。
+            existing_items = {item.material_id: item for item in check.items}
+            submitted_material_ids = set()
             for item_data in items_data:
                 material = _material_from_payload(item_data)
                 if not material:
                     return api_error(f'物料不存在：{item_data.get("code") or ""}')
-                system_stock = round_to_2_decimals(parse_float_value(
-                    item_data.get('system_stock'), warehouse_stock_map.get(material.id, 0) or 0))
-                actual_stock = round_to_2_decimals(parse_float_value(item_data.get('actual_stock'), system_stock))
-                db.session.add(InventoryCheckItem(
-                    inventory_check_id=check.id,
-                    material_id=material.id,
-                    system_stock=system_stock,
-                    actual_stock=actual_stock,
-                    difference=round_to_2_decimals(actual_stock - system_stock),
-                    reason=(item_data.get('reason') or item_data.get('remark') or '').strip()
-                ))
+                submitted_material_ids.add(material.id)
+                raw_actual = item_data.get('actual_stock')
+                has_actual = raw_actual is not None and str(raw_actual).strip() != ''
+                row = existing_items.get(material.id)
+                if row is not None:
+                    # 已有行：冻结账面保留，只更新实盘/原因/差异
+                    if has_actual:
+                        row.actual_stock = round_to_2_decimals(parse_float_value(raw_actual, row.actual_stock))
+                    row.difference = round_to_2_decimals(row.actual_stock - row.system_stock)
+                    row.reason = (item_data.get('reason') or item_data.get('remark') or '').strip()
+                else:
+                    # 新增行：账面取当前仓库级（该行首次录入时点）
+                    system_stock = round_to_2_decimals(parse_float_value(
+                        item_data.get('system_stock'), warehouse_stock_map.get(material.id, 0) or 0))
+                    actual_stock = round_to_2_decimals(parse_float_value(raw_actual, system_stock)) if has_actual else system_stock
+                    db.session.add(InventoryCheckItem(
+                        inventory_check_id=check.id,
+                        material_id=material.id,
+                        system_stock=system_stock,
+                        actual_stock=actual_stock,
+                        difference=round_to_2_decimals(actual_stock - system_stock),
+                        reason=(item_data.get('reason') or item_data.get('remark') or '').strip()
+                    ))
+            # 删除提交集之外的旧行
+            for material_id, row in existing_items.items():
+                if material_id not in submitted_material_ids:
+                    db.session.delete(row)
+            # 首次写入明细即冻结账面基准
+            if check.frozen_at is None:
+                check.frozen_at = datetime.now()
 
             db.session.commit()
             log_operation('保存盘点单', f'盘点单：{check.check_no}', 'check', check.id)
@@ -416,23 +460,33 @@ def register_check_routes(app):
     @login_required
     def update_check_item(id, item_id):
         """更新盘点明细的实际库存"""
-        from app import (InventoryCheck, InventoryCheckItem, api_error, log_operation)
+        from datetime import datetime
+        from flask_login import current_user
+        from app import (InventoryCheck, InventoryCheckItem,
+                         _acquire_order_write_lock, api_error, log_operation)
         check = InventoryCheck.query.get_or_404(id)
         if check.status != 'pending':
             return api_error('只有草稿状态的盘点单可以修改明细')
-        
+
         item = InventoryCheckItem.query.get_or_404(item_id)
         if item.inventory_check_id != id:
             return api_error('盘点明细不属于当前盘点单')
-        
+
         try:
             actual_stock = float(request.form.get('actual_stock', item.actual_stock))
         except (ValueError, TypeError):
             return api_error('实际库存必须是数字')
-        
+
         try:
+            # INV-BATCH-001-B：单据写锁，防多人并发改行互相覆盖/改到已提交单
+            locked, ok = _acquire_order_write_lock(InventoryCheck, id, 'pending')
+            if not ok:
+                return api_error('该盘点单状态已变更，请刷新后重试')
             item.actual_stock = actual_stock
             item.difference = actual_stock - item.system_stock
+            # INV-BATCH-001-B：行级盘点归属（多人协作批次下谁改的、何时改的）
+            item.counted_by = current_user.id
+            item.counted_at = datetime.now()
             db.session.commit()
             
             log_operation('更新盘点明细', f'盘点单：{check.check_no}，物料：{item.material.code if item.material else ""}', 'check', id)
