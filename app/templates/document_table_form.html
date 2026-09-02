@@ -218,6 +218,47 @@
             </div>
             {% endif %}
 
+            {# INV-BATCH-001-D：盘点批次进度与回查（PC 盘点单即批次） #}
+            {% if doc_type == 'check' and batch_meta %}
+            <div class="alert alert-light border mb-3">
+                <div class="d-flex flex-wrap gap-2 align-items-center mb-1">
+                    <span class="fw-bold"><i class="bi bi-kanban"></i> 批次进度</span>
+                    {% if batch_meta.frozen %}
+                    <span class="badge bg-info text-dark">账面冻结于 {{ batch_meta.frozen_at }}</span>
+                    {% else %}
+                    <span class="badge bg-secondary">尚未冻结账面（首笔盘点明细写入时冻结）</span>
+                    {% endif %}
+                    <span class="badge bg-primary">已盘 {{ batch_meta.material_count }} 个物料</span>
+                    {% if batch_meta.diff_row_count %}<span class="badge bg-warning text-dark">有差异 {{ batch_meta.diff_row_count }} 行</span>{% endif %}
+                    <span class="badge bg-light text-dark border">扫码提交 {{ batch_meta.scan_count }} 次</span>
+                </div>
+                {% if batch_meta.scans %}
+                <div class="table-responsive mt-1" style="max-width:760px;">
+                    <table class="table table-sm table-bordered mb-0 align-middle">
+                        <thead><tr class="table-light">
+                            <th>扫码盘点单</th><th>日期</th><th>盘点人</th><th>提交时间</th><th>条数</th>
+                        </tr></thead>
+                        <tbody>
+                        {% for scan in batch_meta.scans %}
+                            <tr>
+                                <td>{{ scan.check_no }}</td>
+                                <td>{{ scan.date }}</td>
+                                <td>{{ scan.operator or '—' }}</td>
+                                <td>{{ scan.created_at }}</td>
+                                <td class="text-center">{{ scan.item_count }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if batch_meta.scan_count > batch_meta.scans|length %}
+                <div class="text-muted small mt-1">… 共 {{ batch_meta.scan_count }} 次扫码提交，仅展示最近 {{ batch_meta.scans|length }} 条</div>
+                {% endif %}
+                {% endif %}
+                <div class="text-muted small mt-1">多人协作批次：手机扫码盘点的明细行自动挂入本批次，差异 = 实盘 − 冻结账面，不受盘点期间出入库影响；「盘点人 / 时间」列可回查每行由谁在何时盘点。</div>
+            </div>
+            {% endif %}
+
             <div class="table-responsive doc-grid-wrapper">
                 <table class="doc-grid" id="docTable">
                     <thead>
@@ -236,6 +277,7 @@
                             <th style="width:100px;" data-column-key="actual_stock">实际库存<span class="col-resize"></span></th>
                             <th style="width:100px;" data-column-key="diff">差异<span class="col-resize"></span></th>
                             <th style="width:180px;" data-column-key="reason">差异原因<span class="col-resize"></span></th>
+                            {% if order_id %}<th style="width:150px;" data-column-key="counted_by">盘点人 / 时间<span class="col-resize"></span></th>{% endif %}
                             {% elif doc_type == 'bom' %}
                             <th style="width:100px;" data-column-key="usage">用量<span class="col-resize"></span></th>
                             <th style="width:100px;" data-column-key="price">单价<span class="col-resize"></span></th>
@@ -259,7 +301,8 @@
                             {% if doc_type == 'check' %}
                             <td colspan="8" class="text-end">合计：</td>
                             <td class="text-end" id="totalQty" data-column-key="actual_stock">0.00</td>
-                            <td colspan="{{ 2 if can_save else 1 }}"></td>
+                            {# INV-BATCH-001-D：有盘点归属列时尾部补一列，保证与表头对齐 #}
+                            <td colspan="{{ 3 if (can_save and order_id) else (2 if (can_save or order_id) else 1) }}"></td>
                             {% elif doc_type == 'transfer' %}
                             <td colspan="6" class="text-end">合计：</td>
                             <td class="text-end" id="totalQty" data-column-key="quantity">0.00</td>
@@ -291,6 +334,8 @@ const completeUrl = {{ complete_url|tojson }};
 const revertUrl = {{ (revert_url or '')|tojson }};
 const detailUrl = {{ detail_url|tojson }};
 const readonly = {{ readonly|tojson }};
+// INV-BATCH-001-D：盘点单（=批次）既有单据展示行级盘点归属列（盘点人/时间）
+const hasCountedByCol = {{ (doc_type == 'check' and order_id)|tojson }};
 const materials = {{ materials|tojson }};
 const units = {{ units|tojson }};
 const existingItems = {{ existing_items|tojson }};
@@ -389,7 +434,8 @@ function rowCells(item) {
             <td class="num-col" data-column-key="system_stock"><input type="number" class="system-stock" step="0.01" ${readonlyAttr}></td>
             <td class="num-col" data-column-key="actual_stock"><input type="number" class="actual-stock" step="0.01" ${readonlyAttr}></td>
             <td class="num-col" data-column-key="diff"><input type="text" class="line-diff" readonly></td>
-            <td data-column-key="reason"><input type="text" class="line-reason" ${readonlyAttr}></td>`;
+            <td data-column-key="reason"><input type="text" class="line-reason" ${readonlyAttr}></td>
+            ${hasCountedByCol ? '<td data-column-key="counted_by"><input type="text" class="line-counter" readonly placeholder="—"></td>' : ''}`;
     } else if (docType === 'bom') {
         html += `
             <td class="num-col" data-column-key="usage"><input type="number" class="line-qty" min="0" step="0.01" ${readonlyAttr}></td>
@@ -430,6 +476,11 @@ function createRow(item) {
             row.querySelector('.system-stock').value = formatQty(item.system_stock);
             row.querySelector('.actual-stock').value = formatQty(item.actual_stock);
             row.querySelector('.line-reason').value = item.reason || '';
+            // INV-BATCH-001-D：行级盘点归属回查（盘点人 / 时间）
+            if (hasCountedByCol) {
+                row.querySelector('.line-counter').value =
+                    item.counted_by_name ? (item.counted_by_name + (item.counted_at ? ' / ' + item.counted_at : '')) : '';
+            }
             updateCheckDiff(row);
         } else {
             row.querySelector('.line-qty').value = item.quantity ? formatQty(item.quantity) : '';

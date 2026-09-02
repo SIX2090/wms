@@ -108,9 +108,12 @@ def register_check_routes(app):
     def check_detail(id):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (InventoryCheck, InventoryCheckItem, Material, _render_check_form)
+        # INV-BATCH-001-D：行级盘点归属（counted_by_user）随 items 一并加载，
+        # 避免 _build_check_batch_meta 逐行 lazy 查 User 造成 N+1。
         check = InventoryCheck.query.options(
             joinedload(InventoryCheck.operator),
-            selectinload(InventoryCheck.items).joinedload(InventoryCheckItem.material).joinedload(Material.unit)
+            selectinload(InventoryCheck.items).joinedload(InventoryCheckItem.material).joinedload(Material.unit),
+            selectinload(InventoryCheck.items).joinedload(InventoryCheckItem.counted_by_user),
         ).get_or_404(id)
         return _render_check_form(check)
 

@@ -24140,6 +24140,60 @@ def _render_transfer_form(transfer=None):
         revert_url=url_for('revert_transfer', id=transfer.id if transfer else 0),
     )
 
+def _build_check_batch_meta(check):
+    """构建盘点批次（PC 盘点单）的进度与回查元数据（INV-BATCH-001-D）。
+
+    批次语义（INV-BATCH-001-A/C）：仓库下最新 pending 的 InventoryCheck 即批次，
+    手机扫码盘点自动挂靠到该批次的明细行（counted_by/counted_at 记录谁在何时盘
+    了什么），Web 完成盘点单即批次关闭统一生成调整草稿。本函数供盘点单详情页
+    展示批次进度：
+    - 冻结账面时点（frozen_at：首笔明细写入时设置，此后差异 = 实盘 − 冻结账面，
+      不随期间出入库漂移）；
+    - 已盘物料数（按物料去重）与有差异行数；
+    - 挂入的扫码盘点单（InventoryCheckScan.check_id == check.id）留痕列表，
+      含单号/日期/盘点人/时间/条数。
+    仅当 check 为既有单据时返回 dict；新建空单返回 None（不展示批次区块）。
+    """
+    if check is None:
+        return None
+    active_rows = [it for it in (check.items or []) if it.material_id]
+    distinct_materials = len({it.material_id for it in active_rows})
+    diff_rows = [it for it in active_rows if abs(it.difference or 0) > STOCK_COMPARE_EPSILON]
+
+    try:
+        all_scans = (InventoryCheckScan.query
+                     .filter_by(check_id=check.id)
+                     .order_by(InventoryCheckScan.created_at.desc())
+                     .all())
+    except Exception:
+        all_scans = []
+    scan_count = len(all_scans)
+    scans = []
+    for scan in all_scans[:20]:
+        item_count = 0
+        try:
+            item_count = (InventoryCheckScanItem.query
+                          .filter_by(check_scan_id=scan.id).count())
+        except Exception:
+            pass
+        scans.append({
+            'check_no': scan.check_no or '',
+            'date': scan.date.strftime('%Y-%m-%d') if scan.date else '',
+            'operator': scan.operator.username if scan.operator else '',
+            'created_at': scan.created_at.strftime('%Y-%m-%d %H:%M') if scan.created_at else '',
+            'item_count': item_count,
+        })
+    return {
+        'frozen': bool(getattr(check, 'frozen_at', None)),
+        'frozen_at': check.frozen_at.strftime('%Y-%m-%d %H:%M') if getattr(check, 'frozen_at', None) else '',
+        'row_count': len(active_rows),
+        'material_count': distinct_materials,
+        'diff_row_count': len(diff_rows),
+        'scan_count': scan_count,
+        'scans': scans,
+    }
+
+
 def _render_check_form(check=None):
     return render_template(
         'document_table_form.html',
@@ -24172,8 +24226,13 @@ def _render_check_form(check=None):
                 'actual_stock': float(item.actual_stock or 0),
                 'difference': float(item.difference or 0),
                 'reason': item.reason or '',
+                # INV-BATCH-001-D：行级盘点归属回查（谁在何时盘了这行）
+                'counted_by_name': item.counted_by_user.username if getattr(item, 'counted_by_user', None) else '',
+                'counted_at': item.counted_at.strftime('%Y-%m-%d %H:%M') if getattr(item, 'counted_at', None) else '',
             }) for item in (check.items if check else [])
         ],
+        # INV-BATCH-001-D：批次进度与回查元数据（新建空单为 None，模板不渲染区块）
+        batch_meta=_build_check_batch_meta(check),
         can_complete=bool(check and check.status == 'pending'),
         can_revert=bool(check and check.status == 'completed'),
         can_save=not bool(check and check.status != 'pending'),
