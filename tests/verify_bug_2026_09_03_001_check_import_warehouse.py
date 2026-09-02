@@ -54,7 +54,21 @@ app_module.app.config["TESTING"] = True
 app_module.app.config["WTF_CSRF_ENABLED"] = False
 
 _ctx = app_module.app.app_context()
-_ctx.push()
+
+
+# BUG-2026-09-03-004(测试污染)：模块顶层常驻 app context 在模块结束后必须 pop，
+# 否则残留 ctx 会使后续模块的请求内事务/系统设置读取异常（顺序依赖假失败）。
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.fixture(autouse=True, scope="module")
+def _release_app_ctx_after_module():
+    _ctx.push()
+    yield
+    try:
+        _ctx.pop()
+    except Exception:
+        pass
 
 HEADER = ['单据编号', '日期', '仓库', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '备注']
 

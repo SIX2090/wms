@@ -236,6 +236,24 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 
 - 登记新 BUG 前必须 grep 台账查同模式历史 BUG；若判定为**同一根因的复发**，必须同时排查并修复**所有同类消费点**（不只修报告的那一处），并在台账注明"同类点已排查"。
 
+### R7 测试模块顶层禁止常驻 push app context（实证：全量 pytest 81~221 项顺序依赖假失败，2026-09-03 治理归零）
+
+- pytest **先收集（import）全部模块、再执行**。测试文件模块顶层写 `_ctx = app.app_context(); _ctx.push()` 会在收集期把所有模块的 ctx 全部压栈，执行时再各自 pop 会把栈弹乱，残留 ctx 导致**后续模块**的请求内事务/系统设置读取异常（`location_management_enabled` 等读成默认值、LocationInventory 写入丢失等），全量失败项随顺序漂移。
+- **必须**：顶层只保留 `_ctx = app.app_context()`，用模块级 autouse fixture 包住 push/pop，例如：
+  ```python
+  _ctx = app_module.app.app_context()
+
+  @pytest.fixture(autouse=True, scope="module")
+  def _module_app_ctx():
+      _ctx.push()
+      yield
+      try:
+          _ctx.pop()
+      except Exception:
+          pass
+  ```
+- 新增测试文件若沿用 `_ctx` 模板，必须按上述模式，禁止顶层裸 `_ctx.push()`。
+
 ---
 
 ## 八、新人上手
