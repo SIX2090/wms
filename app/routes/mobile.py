@@ -300,6 +300,7 @@ def register_mobile_routes(app):
             Department,
             InOrder,
             InOrderItem,
+            InventoryCheck,
             InventoryCheckScan,
             InventoryCheckScanItem,
             LocationInventory,
@@ -307,6 +308,9 @@ def register_mobile_routes(app):
             Material,
             OutOrder,
             OutOrderItem,
+            _acquire_order_write_lock,
+            _apply_scan_to_batch,
+            _find_active_check_batch,
             add_stock,
             allow_negative_location_stock,
             allow_negative_stock,
@@ -329,6 +333,7 @@ def register_mobile_routes(app):
             request,
             resolve_request_warehouse,
             round_to_2_decimals,
+            selectinload,
             update_location_inventory,
             _create_adjustment_drafts_from_check_scan,
         )
@@ -544,6 +549,17 @@ def register_mobile_routes(app):
                 # INV-AUDIT-003：盘点按仓库级系统库存生成调整草稿，不再使用全局 Material.stock
                 warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
                 system_stock = normalize_stock_quantity(warehouse_stock_map.get(material.id) or 0)
+                # INV-BATCH-001-C：检测同仓库活动批次——有则挂钩（明细写入
+                # 批次、批次 complete 统一生成调整草稿），无则维持独立单
+                # 模式（立即生成草稿）。批次写锁在建 CS 单之前获取（锁内
+                # rollback 不会清掉尚未创建的对象）；并发下批次被完成/
+                # 反提交时退化为独立模式，盘点数据不丢失。
+                batch = _find_active_check_batch(warehouse.name)
+                if batch:
+                    locked_batch, lock_ok = _acquire_order_write_lock(
+                        InventoryCheck, batch.id, 'pending',
+                        selectinload(InventoryCheck.items))
+                    batch = locked_batch if lock_ok else None
                 check = InventoryCheckScan(
                     check_no=generate_order_no('CS'),
                     date=date.today(),
@@ -551,6 +567,7 @@ def register_mobile_routes(app):
                     remark=remark or '手机扫码盘点',
                     status='completed',
                     operator_id=actor.id,
+                    check_id=batch.id if batch else None,
                 )
                 db.session.add(check)
                 db.session.flush()
@@ -561,14 +578,24 @@ def register_mobile_routes(app):
                     actual_stock=actual_stock,
                     difference=round_to_2_decimals(actual_stock - system_stock),
                 ))
-                drafts, error = _create_adjustment_drafts_from_check_scan(check)
-                if error:
-                    db.session.rollback()
-                    return jsonify({'status': 'error', 'success': False, 'msg': error}), 400
+                if batch:
+                    error = _apply_scan_to_batch(
+                        batch, check, warehouse_stock_map, operator_id=actor.id)
+                    if error:
+                        db.session.rollback()
+                        return jsonify({'status': 'error', 'success': False, 'msg': error}), 400
+                    drafts = []
+                else:
+                    drafts, error = _create_adjustment_drafts_from_check_scan(check)
+                    if error:
+                        db.session.rollback()
+                        return jsonify({'status': 'error', 'success': False, 'msg': error}), 400
                 db.session.commit()
                 log_operation('手机扫码盘点', f'扫码盘点单：{check.check_no}', 'inventory_check_scan', check.id)
                 msg = f'盘点保存成功：{check.check_no}'
-                if drafts:
+                if batch:
+                    msg += f'，已挂批次 {batch.check_no}'
+                elif drafts:
                     msg += '，已生成库存调整草稿，请审核后提交'
                 return jsonify({
                     'status': 'success',
@@ -577,6 +604,7 @@ def register_mobile_routes(app):
                     'data': {
                         'check_id': check.id,
                         'check_no': check.check_no,
+                        'batch_no': batch.check_no if batch else None,
                         'adjustment_nos': [order.adjustment_no for order in drafts],
                         'material': mobile_material_payload(material),
                     },

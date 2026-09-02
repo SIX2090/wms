@@ -451,11 +451,14 @@ def register_native_api_routes(app):
     @mobile_api_idempotent('stocktake')
     def native_api_stocktake(user):
         from datetime import date
-        from app import (InventoryCheckScan, InventoryCheckScanItem, Material,
-                         _create_adjustment_drafts_from_check_scan, api_json_error,
+        from app import (InventoryCheck, InventoryCheckScan, InventoryCheckScanItem,
+                         Material, _acquire_order_write_lock, _apply_scan_to_batch,
+                         _create_adjustment_drafts_from_check_scan,
+                         _find_active_check_batch, api_json_error,
                          api_json_success, generate_order_no, get_default_warehouse,
                          get_warehouse_stock_quantities, parse_float_value,
-                         round_to_2_decimals, validate_inventory_warehouse)
+                         round_to_2_decimals, selectinload,
+                         validate_inventory_warehouse)
         payload = request.get_json(silent=True) or {}
         lines = payload.get('lines') if isinstance(payload, dict) else None
         if not isinstance(lines, list) or not lines:
@@ -476,6 +479,16 @@ def register_native_api_routes(app):
         warehouse = wh_obj.name
 
         try:
+            # INV-BATCH-001-C：检测同仓库活动批次——有则挂钩（明细写入
+            # 批次、批次 complete 统一生成调整草稿），无则维持独立单
+            # 模式（立即生成草稿）。批次写锁在建 CS 单之前获取；并发下
+            # 批次被完成/反提交时退化为独立模式，盘点数据不丢失。
+            batch = _find_active_check_batch(warehouse)
+            if batch:
+                locked_batch, lock_ok = _acquire_order_write_lock(
+                    InventoryCheck, batch.id, 'pending',
+                    selectinload(InventoryCheck.items))
+                batch = locked_batch if lock_ok else None
             check = InventoryCheckScan(
                 check_no=generate_order_no('CS'),
                 date=date.today(),
@@ -483,6 +496,7 @@ def register_native_api_routes(app):
                 remark=f"Android盘点：{payload.get('mode') or 'all'}",
                 status='completed',
                 operator_id=user.id,
+                check_id=batch.id if batch else None,
             )
             db.session.add(check)
             db.session.flush()
@@ -509,14 +523,29 @@ def register_native_api_routes(app):
                     actual_stock=actual_stock,
                     difference=round_to_2_decimals(actual_stock - system_stock),
                 ))
-            drafts, error = _create_adjustment_drafts_from_check_scan(check)
-            if error:
-                db.session.rollback()
-                return api_json_error(error, 400)
+            if batch:
+                # INV-BATCH-001-C：挂批次——明细 upsert 进批次，不独立生成草稿
+                error = _apply_scan_to_batch(
+                    batch, check, warehouse_stock_map, operator_id=user.id)
+                if error:
+                    db.session.rollback()
+                    return api_json_error(error, 400)
+                drafts = []
+            else:
+                drafts, error = _create_adjustment_drafts_from_check_scan(check)
+                if error:
+                    db.session.rollback()
+                    return api_json_error(error, 400)
             db.session.commit()
-            data = {'check_no': check.check_no, 'adjustment_nos': [order.adjustment_no for order in drafts]}
+            data = {
+                'check_no': check.check_no,
+                'batch_no': batch.check_no if batch else None,
+                'adjustment_nos': [order.adjustment_no for order in drafts],
+            }
             msg = '盘点提交成功'
-            if drafts:
+            if batch:
+                msg += f'，已挂批次 {batch.check_no}'
+            elif drafts:
                 msg += '，已生成库存调整草稿，请审核后提交'
             return api_json_success(data, msg)
         except Exception:

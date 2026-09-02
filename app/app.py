@@ -24607,6 +24607,77 @@ def _void_check_scan(check_id, operator_id=None):
     return check, deleted_draft_nos, None, None
 
 
+def _find_active_check_batch(warehouse_name):
+    """查找指定仓库的活动盘点批次（status='pending' 的 PC 盘点单）。
+
+    INV-BATCH-001-C：扫码盘点挂钩批次。同仓库多个 pending 批次并存时
+    取最新创建的一个（扫码总是落入当前正在进行的盘点活动）。
+    """
+    if not warehouse_name:
+        return None
+    return (InventoryCheck.query
+            .filter_by(warehouse=warehouse_name, status='pending')
+            .order_by(InventoryCheck.id.desc())
+            .first())
+
+
+def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=None):
+    """把扫码盘点单明细写入批次（行级 upsert，INV-BATCH-001-C）。
+
+    批次明细处理规则：
+    - 已有同物料行且已盘（counted_at 非空）→ 拒绝：两人重复盘同一
+      物料时后者不得悄悄覆盖前者，提示到 PC 端更正（判责清晰）；
+    - 已有同物料行未盘 → 更新实盘与行级归属，system_stock 保留
+      （该行首次录入时点的账面基准不变）；
+    - 无行 → 插入新行，system_stock 取扫码时点仓库级账面（即时口径）。
+
+    口径说明（实物守恒推导）：调整量 = 实盘 − Δ(t0→ti) − F =
+    实盘 − 该行盘点时点账面。PC 表格行用冻结口径（P2-B，停机语义），
+    扫码行用即时口径（不停机语义，与独立扫码盘点同口径自洽），批次
+    complete 统一按 actual − system_stock 生成调整单，各行基准自洽。
+
+    调用方须已持有批次写锁（_acquire_order_write_lock）并负责 commit；
+    本函数不写库提交。返回 None 成功，否则返回中文错误消息。
+    """
+    now = datetime.now()
+    existing = {item.material_id: item for item in batch.items}
+    for scan_item in check_scan.items:
+        if not scan_item.material_id:
+            continue
+        row = existing.get(scan_item.material_id)
+        if row is not None:
+            if row.counted_at is not None:
+                who = row.counted_by_user.username if row.counted_by_user else '他人'
+                when = row.counted_at.strftime('%m-%d %H:%M')
+                code = scan_item.material.code if scan_item.material else str(scan_item.material_id)
+                return (
+                    f'物料 {code} 已由 {who} 于 {when} 盘点（批次 {batch.check_no}），'
+                    '如需修改请到 PC 端盘点单中更正'
+                )
+            row.actual_stock = normalize_stock_quantity(scan_item.actual_stock or 0)
+            row.difference = round_to_2_decimals(row.actual_stock - row.system_stock)
+            row.counted_by = operator_id
+            row.counted_at = now
+        else:
+            system_stock = normalize_stock_quantity(
+                warehouse_stock_map.get(scan_item.material_id) or 0)
+            actual = normalize_stock_quantity(scan_item.actual_stock or 0)
+            db.session.add(InventoryCheckItem(
+                inventory_check_id=batch.id,
+                material_id=scan_item.material_id,
+                system_stock=system_stock,
+                actual_stock=actual,
+                difference=round_to_2_decimals(actual - system_stock),
+                reason='手机扫码盘点',
+                counted_by=operator_id,
+                counted_at=now,
+            ))
+    # 空批次（建单后未存明细）直接开扫时，以首次写入时点为冻结时点
+    if batch.frozen_at is None:
+        batch.frozen_at = now
+    return None
+
+
 
 
 
