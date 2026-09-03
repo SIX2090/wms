@@ -84,16 +84,39 @@ def _recognize_rate_limited(key):
 
 
 # no-test:reason=从 app.py 原样迁移的辅助函数，能力由 mobile_* 各路由测试覆盖
-def mobile_material_payload(material):
+def mobile_material_payload(material, warehouse=None):
     from app import (
         LocationInventory,
+        db,
+        get_warehouse_stock_quantities,
         location_management_enabled,
         normalize_stock_quantity,
         round_to_2_decimals,
+        validate_inventory_warehouse,
     )
+    # BUG-2026-09-03-002：展示口径支持仓库上下文——手机盘点/查询/扫码结果
+    # 展示的"系统库存"应为所选仓库的账面库存，而非全局 Material.stock。
+    # 调用方在已选仓库时传入 warehouse（Warehouse 对象或仓库名/编码字符串）；
+    # 未传入（未选仓库的查询/识物场景）维持全局库存展示，向后兼容。
+    wh_obj = warehouse
+    if wh_obj is not None and not hasattr(wh_obj, 'name'):
+        wh_obj, _wh_err = validate_inventory_warehouse(str(wh_obj or '').strip() or None)
+    if wh_obj is not None:
+        stock = normalize_stock_quantity(get_warehouse_stock_quantities(wh_obj).get(material.id) or 0)
+    else:
+        stock = normalize_stock_quantity(material.stock or 0)
+
     locations = []
     if location_management_enabled():
-        rows = LocationInventory.query.filter_by(material_id=material.id).order_by(LocationInventory.location.asc()).all()
+        query = LocationInventory.query.filter_by(material_id=material.id)
+        if wh_obj is not None:
+            # 库位列表只展示当前仓库（含历史 NULL warehouse_id、location 为仓库名/编码的兼容行）
+            loc_names = [wh_obj.name] + ([wh_obj.code] if (wh_obj.code or '').strip() and wh_obj.code != wh_obj.name else [])
+            query = query.filter(db.or_(
+                LocationInventory.warehouse_id == wh_obj.id,
+                db.and_(LocationInventory.warehouse_id.is_(None), LocationInventory.location.in_(loc_names)),
+            ))
+        rows = query.order_by(LocationInventory.location.asc()).all()
         locations = [
             {
                 'location': row.location,
@@ -111,7 +134,7 @@ def mobile_material_payload(material):
         'unit': material.unit.name if material.unit else '',
         'category': material.category.name if material.category else '',
         'supplier': material.supplier.name if material.supplier else '',
-        'stock': normalize_stock_quantity(material.stock or 0),
+        'stock': stock,
         'price': round_to_2_decimals(material.price or 0),
         'locations': locations,
     }
@@ -273,12 +296,18 @@ def register_mobile_routes(app):
     def mobile_material_lookup():
         from app import jsonify, request
         keyword = (request.args.get('code') or request.args.get('q') or '').strip()
+        # BUG-2026-09-03-002：查询支持可选 warehouse（仓库名/编码），返回该仓库级账面库存
+        from app import validate_inventory_warehouse
+        _lk_wh = None
+        _lk_wh_raw = (request.args.get('warehouse') or '').strip()
+        if _lk_wh_raw:
+            _lk_wh, _lk_err = validate_inventory_warehouse(_lk_wh_raw)
         material, matches = find_mobile_material(keyword)
         if material:
             return jsonify({
                 'status': 'success',
                 'success': True,
-                'data': mobile_material_payload(material),
+                'data': mobile_material_payload(material, warehouse=_lk_wh),
             })
         if matches:
             return jsonify({
@@ -286,7 +315,7 @@ def register_mobile_routes(app):
                 'success': True,
                 'msg': '请选择物料',
                 'data': {
-                    'matches': [mobile_material_payload(item) for item in matches],
+                    'matches': [mobile_material_payload(item, warehouse=_lk_wh) for item in matches],
                 },
             })
         return jsonify({'status': 'error', 'success': False, 'msg': '物料不存在'}), 404
@@ -377,11 +406,17 @@ def register_mobile_routes(app):
             return jsonify({'status': 'error', 'success': False, 'msg': f'物料不存在：{code}'}), 404
 
         if mode == 'query':
+            # BUG-2026-09-03-002：查询随请求携带仓库时按仓库级展示账面库存
+            _q_wh = None
+            if (data.get('warehouse') or data.get('warehouse_code') or '').strip():
+                _q_wh, _q_wh_err = resolve_request_warehouse(data)
+                if _q_wh_err:
+                    _q_wh = None
             return jsonify({
                 'status': 'success',
                 'success': True,
                 'msg': '查询成功',
-                'data': {'material': mobile_material_payload(material)},
+                'data': {'material': mobile_material_payload(material, warehouse=_q_wh)},
             })
 
         # BUG-2026-08-13-002：统一用 actor（Web 会话或 Bearer Token）
@@ -458,7 +493,7 @@ def register_mobile_routes(app):
                     'status': 'success',
                     'success': True,
                     'msg': f'入库成功：{order.order_no}',
-                    'data': {'order_no': order.order_no, 'material': mobile_material_payload(material)},
+                    'data': {'order_no': order.order_no, 'material': mobile_material_payload(material, warehouse=warehouse)},
                 })
 
             if mode == 'out':
@@ -536,7 +571,7 @@ def register_mobile_routes(app):
                     'status': 'success',
                     'success': True,
                     'msg': f'出库成功：{order.order_no}',
-                    'data': {'order_no': order.order_no, 'material': mobile_material_payload(material)},
+                    'data': {'order_no': order.order_no, 'material': mobile_material_payload(material, warehouse=warehouse)},
                 })
 
             if mode == 'check':
@@ -606,7 +641,7 @@ def register_mobile_routes(app):
                         'check_no': check.check_no,
                         'batch_no': batch.check_no if batch else None,
                         'adjustment_nos': [order.adjustment_no for order in drafts],
-                        'material': mobile_material_payload(material),
+                        'material': mobile_material_payload(material, warehouse=warehouse),
                     },
                 })
         except Exception:

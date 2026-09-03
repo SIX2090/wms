@@ -388,7 +388,11 @@
         }
         setStatus('查询中...', '');
         matchList.hidden = true;
-        return fetch('/mobile/api/material_lookup?code=' + encodeURIComponent(code), {
+        // BUG-2026-09-03-002：查询带当前仓库，让"系统库存/当前库存"按仓库级口径展示
+        var lookupWh = warehouseInput ? (warehouseInput.value || '').trim() : '';
+        var lookupUrl = '/mobile/api/material_lookup?code=' + encodeURIComponent(code)
+            + (lookupWh ? '&warehouse=' + encodeURIComponent(lookupWh) : '');
+        return fetch(lookupUrl, {
             credentials: 'same-origin'
         })
             .then(function(response) {
