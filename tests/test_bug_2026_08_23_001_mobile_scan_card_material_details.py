@@ -70,10 +70,16 @@ def test_detail_line_order_is_name_brand_spec():
 
 
 def test_add_scan_line_enriches_material_details():
-    """T3：addScanLine 对缺名称/规格的行调用物料接口补全并回填 name/spec/brand。"""
+    """T3：addScanLine 对缺名称/规格的行经 enrichScanLineMaterial 调用物料接口补全并回填。
+
+    2026-09-03 重构（BUG-2026-09-03-003）：addScanLine 的异步补全抽为
+    enrichScanLineMaterial(code) 私有函数供 add/replace 复用，锚点随之更新。
+    """
     assert "fun addScanLine(line: ScanLine)" in SCAN_VM
-    assert "repository.getMaterialInfo(line.material_code)" in SCAN_VM
-    assert "repository.searchMaterial(line.material_code)" in SCAN_VM
+    assert "private fun enrichScanLineMaterial(" in SCAN_VM
+    assert "enrichScanLineMaterial(line.material_code)" in SCAN_VM
+    assert "repository.getMaterialInfo(" in SCAN_VM
+    assert "repository.searchMaterial(" in SCAN_VM
     assert "material_name = it.name" in SCAN_VM
     assert "material_spec = it.spec" in SCAN_VM
     assert "material_brand = it.brand" in SCAN_VM
