@@ -133,24 +133,56 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         )
 
         if (line.material_name.isNullOrBlank() || line.material_spec.isNullOrBlank()) {
-            viewModelScope.launch {
-                val material = repository.getMaterialInfo(line.material_code).getOrNull()
-                    ?: repository.searchMaterial(line.material_code).getOrNull()?.firstOrNull()
-                material?.let {
-                    val enriched = _uiState.value.scanLines.map { existing ->
-                        if (existing.material_code == line.material_code) {
-                            existing.copy(
-                                material_code = it.code ?: existing.material_code,
-                                material_name = it.name,
-                                material_spec = it.spec,
-                                material_brand = it.brand
-                            )
-                        } else {
-                            existing
-                        }
+            enrichScanLineMaterial(line.material_code)
+        }
+    }
+
+    /** 清单中同物料行的当前数量；不存在返回 null（用于盘点重复扫码确认）。 */
+    fun existingLineQuantity(code: String): Double? {
+        val clean = code.trim()
+        return _uiState.value.scanLines.firstOrNull { it.material_code == clean }?.quantity
+    }
+
+    /**
+     * 盘点重复扫码确认后"替换"为本次实盘数量：保留原行的物料名称/规格等已补全字段，
+     * 仅把数量改为本次扫码数量（防误把已盘物料再次累加导致实盘数翻倍）。
+     */
+    fun replaceScanLineQuantity(line: ScanLine) {
+        val current = _uiState.value.scanLines.toMutableList()
+        val existingIndex = current.indexOfFirst { it.material_code == line.material_code }
+        if (existingIndex >= 0) {
+            current[existingIndex] = current[existingIndex].copy(quantity = line.quantity)
+        } else {
+            current.add(line)
+        }
+        _uiState.value = _uiState.value.copy(
+            scanLines = current,
+            totalQuantity = current.sumOf { it.quantity }
+        )
+        if (line.material_name.isNullOrBlank() || line.material_spec.isNullOrBlank()) {
+            enrichScanLineMaterial(line.material_code)
+        }
+    }
+
+    /** 异步拉取物料信息补全清单行的名称/规格/品牌（扫码进入时通常只有编码）。 */
+    private fun enrichScanLineMaterial(code: String) {
+        viewModelScope.launch {
+            val material = repository.getMaterialInfo(code).getOrNull()
+                ?: repository.searchMaterial(code).getOrNull()?.firstOrNull()
+            material?.let {
+                val enriched = _uiState.value.scanLines.map { existing ->
+                    if (existing.material_code == code) {
+                        existing.copy(
+                            material_code = it.code ?: existing.material_code,
+                            material_name = it.name,
+                            material_spec = it.spec,
+                            material_brand = it.brand
+                        )
+                    } else {
+                        existing
                     }
-                    _uiState.value = _uiState.value.copy(scanLines = enriched)
                 }
+                _uiState.value = _uiState.value.copy(scanLines = enriched)
             }
         }
     }

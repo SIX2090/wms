@@ -710,6 +710,21 @@ fun StocktakeScreen(
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
     val snackbarHostState = remember { SnackbarHostState() }
+    // BUG-2026-09-03-003：盘点重复扫码须确认，防止误把已盘物料再次累加使实盘数翻倍
+    var confirmLine by remember { mutableStateOf<ScanLine?>(null) }
+
+    fun addOrConfirmStocktakeLine(line: ScanLine) {
+        val exists = viewModel.uiState.value.scanLines.any { it.material_code == line.material_code }
+        if (exists) {
+            confirmLine = line
+        } else {
+            viewModel.addScanLine(line)
+        }
+    }
+
+    fun formatStockQty(value: Double): String {
+        return if (value == value.toLong().toDouble()) value.toLong().toString() else String.format("%.2f", value)
+    }
 
     LaunchedEffect(Unit) {
         if (uiState.warehouses.isEmpty() && !uiState.warehousesLoading) {
@@ -749,7 +764,7 @@ fun StocktakeScreen(
         onManualQtyChange = { manualQty = it },
         onManualAdd = {
             if (manualCode.isNotBlank()) {
-                viewModel.addScanLine(
+                addOrConfirmStocktakeLine(
                     ScanLine(
                         material_code = manualCode.trim(),
                         quantity = manualQty.toDoubleOrNull() ?: 1.0
@@ -761,7 +776,7 @@ fun StocktakeScreen(
             }
         },
         onScanBarcode = { barcode ->
-            viewModel.addScanLine(
+            addOrConfirmStocktakeLine(
                 ScanLine(
                     material_code = barcode.trim(),
                     quantity = manualQty.toDoubleOrNull() ?: 1.0
@@ -797,6 +812,46 @@ fun StocktakeScreen(
             },
             onRetry = { viewModel.loadWarehouses() },
             accentColor = CardPurple
+        )
+    }
+
+    // BUG-2026-09-03-003：盘点重复扫码确认（替换 / 累加 / 取消保持原值）
+    confirmLine?.let { line ->
+        val existingQty = viewModel.existingLineQuantity(line.material_code)
+        AlertDialog(
+            onDismissRequest = { confirmLine = null },
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("物料已在盘点清单", fontWeight = FontWeight.SemiBold) },
+            text = {
+                Text(
+                    "${line.material_code} 已在清单中（当前：${formatStockQty(existingQty ?: 0.0)}）。\n" +
+                        "本次扫码：${formatStockQty(line.quantity)}。\n\n" +
+                        "选择「替换」以本次实盘数量为准；「累加」会把数量相加；" +
+                        "点空白处或返回保持原值。"
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.replaceScanLineQuantity(line)
+                        confirmLine = null
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CardPurple)
+                ) {
+                    Text("替换为本次数量")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.addScanLine(line)
+                        confirmLine = null
+                    }
+                ) {
+                    Text("累加")
+                }
+            }
         )
     }
 
