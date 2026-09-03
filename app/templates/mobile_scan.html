@@ -171,6 +171,14 @@
             </div>
             {% endif %}
 
+            {% if mode == 'check' %}
+            {# 盘点区域（可选）：物料分多处时按"物料+区域"分行记录，汇总自动合计 #}
+            <div class="mobile-scan-field">
+                <label class="mobile-scan-label" for="scanAreaInput">盘点区域/货架（可选）</label>
+                <input id="scanAreaInput" class="form-control" type="text" autocomplete="off" placeholder="如 A1 / 原料区；同一物料多处各填一次">
+            </div>
+            {% endif %}
+
             <div class="mobile-scan-field {% if mode != 'out' %}d-none{% endif %}">
                 <label class="mobile-scan-label" for="targetInput">领用对象</label>
                 <input id="targetInput" class="form-control" list="departmentOptions" autocomplete="off" placeholder="部门或领用人">
@@ -745,6 +753,7 @@
                 actual_stock: mode === 'check' ? quantity : undefined,
                 warehouse: warehouseInput ? warehouseInput.value : '',
                 location: locationInput ? locationInput.value : '',
+                area: scanAreaInput ? scanAreaInput.value : '',
                 target: targetInput ? targetInput.value : '',
                 remark: remarkInput ? remarkInput.value : ''
             };

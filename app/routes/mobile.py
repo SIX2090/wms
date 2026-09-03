@@ -575,6 +575,8 @@ def register_mobile_routes(app):
                 })
 
             if mode == 'check':
+                # 盘点区域（可选）：分区盘点时按"物料+区域"分行（同物料多区各行并存）
+                area = (data.get('area') or data.get('region') or '').strip()
                 actual_raw = data.get('actual_stock')
                 if actual_raw is None or str(actual_raw).strip() == '':
                     actual_raw = data.get('quantity')
@@ -609,6 +611,7 @@ def register_mobile_routes(app):
                 db.session.add(InventoryCheckScanItem(
                     check_scan_id=check.id,
                     material_id=material.id,
+                    area=area,
                     system_stock=system_stock,
                     actual_stock=actual_stock,
                     difference=round_to_2_decimals(actual_stock - system_stock),

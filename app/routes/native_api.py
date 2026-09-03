@@ -507,6 +507,8 @@ def register_native_api_routes(app):
             warehouse_stock_map = get_warehouse_stock_quantities(wh_obj)
             for index, line in enumerate(lines, start=1):
                 code = (line.get('material_code') or line.get('code') or '').strip()
+                # 盘点区域（可选）：分区盘点时按"物料+区域"分行
+                area = (line.get('area') or line.get('region') or '').strip()
                 material = Material.query.filter_by(code=code).first()
                 if not material:
                     db.session.rollback()
@@ -519,6 +521,7 @@ def register_native_api_routes(app):
                 db.session.add(InventoryCheckScanItem(
                     check_scan_id=check.id,
                     material_id=material.id,
+                    area=area,
                     system_stock=system_stock,
                     actual_stock=actual_stock,
                     difference=round_to_2_decimals(actual_stock - system_stock),

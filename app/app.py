@@ -1269,6 +1269,21 @@ def auto_migrate_database():
                 cursor.execute("ALTER TABLE inventory_check_scan ADD COLUMN check_id INTEGER")
                 modified = True
 
+        # 盘点区域（area）：同物料分多处（区/货架）时按物料+区域分行盘点。
+        # 可空，默认空串=未分区单行，存量与不填区域的盘点行为完全不变。
+        if _table_exists('inventory_check_item'):
+            cursor.execute("PRAGMA table_info(inventory_check_item)")
+            _ici_cols = [row[1] for row in cursor.fetchall()]
+            if _ici_cols and 'area' not in _ici_cols:
+                cursor.execute("ALTER TABLE inventory_check_item ADD COLUMN area VARCHAR(100) DEFAULT ''")
+                modified = True
+        if _table_exists('inventory_check_scan_item'):
+            cursor.execute("PRAGMA table_info(inventory_check_scan_item)")
+            _icsi_cols = [row[1] for row in cursor.fetchall()]
+            if _icsi_cols and 'area' not in _icsi_cols:
+                cursor.execute("ALTER TABLE inventory_check_scan_item ADD COLUMN area VARCHAR(100) DEFAULT ''")
+                modified = True
+
         # BUG-2026-08-05-008：工单领料单补仓库列，存量数据回填默认仓库名
         if _table_exists('production_requisition'):
             cursor.execute("PRAGMA table_info(production_requisition)")
@@ -5379,6 +5394,8 @@ class InventoryCheckItem(db.Model):
     # INV-BATCH-001-A：行级盘点归属——多人协作批次下谁盘的、何时盘的。
     counted_by = db.Column(db.Integer, db.ForeignKey('user.id'))
     counted_at = db.Column(db.DateTime)
+    # 盘点区域（area）：物料分处多区时按"物料+区域"分行盘点，汇总按物料净额合并。
+    area = db.Column(db.String(100), nullable=False, default='')
 
     inventory_check = db.relationship('InventoryCheck', backref='items')  # Related check order
     material = db.relationship('Material', backref='inventory_check_items')  # Related material
@@ -5599,6 +5616,8 @@ class InventoryCheckScanItem(db.Model):
     system_stock = db.Column(db.Float, nullable=False, default=0)
     actual_stock = db.Column(db.Float, nullable=False, default=0)
     difference = db.Column(db.Float, nullable=False, default=0)
+    # 盘点区域（area）：与批次行（material_id, area）同键，扫码留痕可回溯到区。
+    area = db.Column(db.String(100), nullable=False, default='')
 
     created_at = db.Column(db.DateTime, default=datetime.now)
 
@@ -24477,7 +24496,9 @@ def _create_adjustment_drafts_from_check(check):
     if existing:
         return None, '该盘点单已生成库存调整单，请勿重复生成'
 
-    grouped = {'surplus': [], 'loss': []}
+    # 盘点支持"物料+区域"分行：同一物料跨多区域的差异按净额合并为一条，
+    # 防止分区盘点把同一物料的差异重复叠加/重复调整。
+    _net = {}
     for item in check.items:
         if not item.material_id:
             continue
@@ -24486,8 +24507,31 @@ def _create_adjustment_drafts_from_check(check):
         diff = normalize_stock_quantity(actual_stock - system_stock)
         if abs(diff) <= STOCK_COMPARE_EPSILON:
             continue
-        direction = 'surplus' if diff > 0 else 'loss'
-        grouped[direction].append((item, abs(diff), system_stock, actual_stock))
+        entry = _net.get(item.material_id)
+        if entry is None:
+            entry = {
+                'diff': 0.0, 'areas': set(), 'items': [], 'has_area': False, 'item': item}
+            _net[item.material_id] = entry
+        entry['diff'] += diff
+        entry['areas'].add((item.area or '').strip() or '未分区')
+        entry['items'].append(item)
+        if (item.area or '').strip():
+            entry['has_area'] = True
+    grouped = {'surplus': [], 'loss': []}
+    for _material_id, _entry in _net.items():
+        if _entry['has_area']:
+            # 分区盘点：区域行各记各的实盘，行级 diff 只作参考；过账净额 =
+            # 该物料各区域实盘合计 − 仓库账面（账面只计一次，防多区重复扣减）。
+            _book = normalize_stock_quantity(_entry['items'][0].system_stock or 0)
+            _total_actual = round_to_2_decimals(sum(
+                normalize_stock_quantity(it.actual_stock or 0) for it in _entry['items']))
+            _net_diff = round_to_2_decimals(_total_actual - _book)
+        else:
+            _net_diff = round_to_2_decimals(_entry['diff'])
+        if abs(_net_diff) <= STOCK_COMPARE_EPSILON:
+            continue
+        _direction = 'surplus' if _net_diff > 0 else 'loss'
+        grouped[_direction].append((_entry['item'], abs(_net_diff), _material_id, _entry['areas']))
 
     drafts = []
     for adjustment_type, rows in grouped.items():
@@ -24507,14 +24551,21 @@ def _create_adjustment_drafts_from_check(check):
         )
         db.session.add(order)
         db.session.flush()
-        for item, qty, system_stock, actual_stock in rows:
+        for item, qty, material_id, areas in rows:
             signed_qty = qty if adjustment_type == 'surplus' else -qty
+            if len(areas) > 1:
+                reason = f'盘点差异（{len(areas)} 个区域），净调整 {signed_qty}'
+            else:
+                reason = item.reason or (
+                    '盘点差异：账面 %s，实盘 %s' % (
+                        normalize_stock_quantity(item.system_stock or 0),
+                        normalize_stock_quantity(item.actual_stock or 0)))
             db.session.add(AdjustmentOrderItem(
                 adjustment_order_id=order.id,
-                material_id=item.material_id,
+                material_id=material_id,
                 quantity=signed_qty,
                 unit_id=item.material.unit_id if item.material else None,
-                reason=item.reason or f'盘点差异：账面 {system_stock}，实盘 {actual_stock}'
+                reason=reason
             ))
         drafts.append(order)
     return drafts, None
@@ -24570,7 +24621,9 @@ def _create_adjustment_drafts_from_check_scan(check):
                     '请先在「库存调整」中审核或删除这些草稿后再盘点，否则库存会被重复调整'
                 )
 
-    grouped = {'surplus': [], 'loss': []}
+    # 盘点支持"物料+区域"分行：同一物料跨多区域的差异按净额合并为一条，
+    # 防止分区盘点把同一物料的差异重复叠加/重复调整。
+    _net = {}
     for item in check.items:
         if not item.material_id:
             continue
@@ -24579,8 +24632,16 @@ def _create_adjustment_drafts_from_check_scan(check):
         diff = normalize_stock_quantity(actual_stock - system_stock)
         if abs(diff) <= STOCK_COMPARE_EPSILON:
             continue
-        direction = 'surplus' if diff > 0 else 'loss'
-        grouped[direction].append((item, abs(diff), system_stock, actual_stock))
+        entry = _net.setdefault(item.material_id, {'diff': 0.0, 'areas': set(), 'item': item})
+        entry['diff'] += diff
+        entry['areas'].add((item.area or '').strip() or '未分区')
+    grouped = {'surplus': [], 'loss': []}
+    for _material_id, _entry in _net.items():
+        _net_diff = round_to_2_decimals(_entry['diff'])
+        if abs(_net_diff) <= STOCK_COMPARE_EPSILON:
+            continue
+        _direction = 'surplus' if _net_diff > 0 else 'loss'
+        grouped[_direction].append((_entry['item'], abs(_net_diff), _material_id, _entry['areas']))
 
     drafts = []
     for adjustment_type, rows in grouped.items():
@@ -24600,14 +24661,20 @@ def _create_adjustment_drafts_from_check_scan(check):
         )
         db.session.add(order)
         db.session.flush()
-        for item, qty, system_stock, actual_stock in rows:
+        for item, qty, material_id, areas in rows:
             signed_qty = qty if adjustment_type == 'surplus' else -qty
+            if len(areas) > 1:
+                reason = f'扫码盘点差异（{len(areas)} 个区域），净调整 {signed_qty}'
+            else:
+                reason = '扫码盘点差异：账面 %s，实盘 %s' % (
+                    normalize_stock_quantity(item.system_stock or 0),
+                    normalize_stock_quantity(item.actual_stock or 0))
             db.session.add(AdjustmentOrderItem(
                 adjustment_order_id=order.id,
-                material_id=item.material_id,
+                material_id=material_id,
                 quantity=signed_qty,
                 unit_id=item.material.unit_id if item.material else None,
-                reason=f'扫码盘点差异：账面 {system_stock}，实盘 {actual_stock}'
+                reason=reason
             ))
         drafts.append(order)
     return drafts, None
@@ -24721,18 +24788,22 @@ def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=Non
     本函数不写库提交。返回 None 成功，否则返回中文错误消息。
     """
     now = datetime.now()
-    existing = {item.material_id: item for item in batch.items}
+    # 行键 = (物料, 区域)：同一物料分处多区时按区各占一行；未填区域（area=''）
+    # 保持旧单行语义。同区重复扫仍拒绝（防止两人同区互覆），不同区视为补充。
+    existing = {(item.material_id, item.area or ''): item for item in batch.items}
     for scan_item in check_scan.items:
         if not scan_item.material_id:
             continue
-        row = existing.get(scan_item.material_id)
+        area = (scan_item.area or '').strip()
+        row = existing.get((scan_item.material_id, area))
         if row is not None:
             if row.counted_at is not None:
                 who = row.counted_by_user.username if row.counted_by_user else '他人'
                 when = row.counted_at.strftime('%m-%d %H:%M')
                 code = scan_item.material.code if scan_item.material else str(scan_item.material_id)
+                area_tip = f'（区域 {area}）' if area else ''
                 return (
-                    f'物料 {code} 已由 {who} 于 {when} 盘点（批次 {batch.check_no}），'
+                    f'物料 {code}{area_tip} 已由 {who} 于 {when} 盘点（批次 {batch.check_no}），'
                     '如需修改请到 PC 端盘点单中更正'
                 )
             row.actual_stock = normalize_stock_quantity(scan_item.actual_stock or 0)
@@ -24746,6 +24817,7 @@ def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=Non
             db.session.add(InventoryCheckItem(
                 inventory_check_id=batch.id,
                 material_id=scan_item.material_id,
+                area=area,
                 system_stock=system_stock,
                 actual_stock=actual,
                 difference=round_to_2_decimals(actual - system_stock),
