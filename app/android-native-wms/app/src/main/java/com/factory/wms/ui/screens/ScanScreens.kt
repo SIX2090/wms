@@ -735,12 +735,7 @@ fun StocktakeScreen(
 
     // BUG-2026-09-03-003 断点续盘：进入盘点页先尝试恢复上次未提交清单
     LaunchedEffect(Unit) {
-        viewModel.maybeRestoreStocktakeDraft { count ->
-            snackbarHostState.showSnackbar(
-                "已恢复上次未提交的盘点清单（$count 项），请核对后继续盘点",
-                duration = SnackbarDuration.Long
-            )
-        }
+        viewModel.maybeRestoreStocktakeDraft()
     }
 
     // BUG-2026-09-03-003 断点续盘：清单变化防抖写入本地草稿（进程被杀/误关可恢复）

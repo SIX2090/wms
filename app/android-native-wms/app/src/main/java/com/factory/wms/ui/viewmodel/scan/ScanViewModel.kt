@@ -501,9 +501,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * 进入盘点页时尝试恢复上次未提交草稿：仅当本地有草稿且当前清单为空时恢复
-     * （含仓库，若仓库列表已加载且能匹配则一并带回），返回恢复的行数。
+     * （含仓库，若仓库列表已加载且能匹配则一并带回），恢复后通过 success 提示。
      */
-    fun maybeRestoreStocktakeDraft(onRestored: (Int) -> Unit) {
+    fun maybeRestoreStocktakeDraft() {
         viewModelScope.launch {
             val draft = repository.loadStocktakeDraft() ?: return@launch
             if (draft.lines.isEmpty()) return@launch
@@ -519,8 +519,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 if (match != null) newState = newState.copy(selectedWarehouse = match)
             }
-            _uiState.value = newState
-            onRestored(draft.lines.size)
+            _uiState.value = newState.copy(
+                success = "已恢复上次未提交的盘点清单（${draft.lines.size} 项），请核对后继续盘点"
+            )
         }
     }
 }
