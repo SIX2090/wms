@@ -88,7 +88,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         materialSearchJob = viewModelScope.launch {
             delay(180)
             _uiState.value = _uiState.value.copy(materialSuggestionsLoading = true)
-            repository.searchMaterial(normalizedKeyword).fold(
+            // BUG-2026-09-03-004：搜索建议带当前仓库，返回仓库级账面库存
+            repository.searchMaterial(normalizedKeyword, _uiState.value.selectedWarehouse?.code).fold(
                 onSuccess = { materials ->
                     if (searchSequence == materialSearchSequence) {
                         _uiState.value = _uiState.value.copy(
@@ -167,8 +168,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     /** 异步拉取物料信息补全清单行的名称/规格/品牌（扫码进入时通常只有编码）。 */
     private fun enrichScanLineMaterial(code: String) {
         viewModelScope.launch {
-            val material = repository.getMaterialInfo(code).getOrNull()
-                ?: repository.searchMaterial(code).getOrNull()?.firstOrNull()
+            val whCode = _uiState.value.selectedWarehouse?.code
+            val material = repository.getMaterialInfo(code, whCode).getOrNull()
+                ?: repository.searchMaterial(code, whCode).getOrNull()?.firstOrNull()
             material?.let {
                 val enriched = _uiState.value.scanLines.map { existing ->
                     if (existing.material_code == code) {
@@ -291,7 +293,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     fun searchMaterialByCode(code: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            val result = repository.getMaterialInfo(code)
+            val whCode = _uiState.value.selectedWarehouse?.code
+            val result = repository.getMaterialInfo(code, whCode)
             result.fold(
                 onSuccess = { material ->
                     _uiState.value = _uiState.value.copy(

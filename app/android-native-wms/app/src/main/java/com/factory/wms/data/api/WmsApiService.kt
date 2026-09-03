@@ -13,10 +13,17 @@ interface WmsApiService {
     suspend fun login(@Body request: LoginRequest): Response<ApiEnvelope<LoginData>>
 
     @GET("api/material/search")
-    suspend fun searchMaterial(@Query("keyword") keyword: String): Response<ApiEnvelope<List<MaterialDto>>>
+    suspend fun searchMaterial(
+        @Query("keyword") keyword: String,
+        // BUG-2026-09-03-004：已选仓库时传仓库名/编码，返回该仓仓库级账面库存
+        @Query("warehouse") warehouse: String? = null
+    ): Response<ApiEnvelope<List<MaterialDto>>>
 
     @GET("api/material/info")
-    suspend fun materialInfo(@Query("code") code: String): Response<ApiEnvelope<MaterialDto>>
+    suspend fun materialInfo(
+        @Query("code") code: String,
+        @Query("warehouse") warehouse: String? = null
+    ): Response<ApiEnvelope<MaterialDto>>
 
     @GET("api/material/all")
     suspend fun allMaterials(): Response<ApiEnvelope<List<MaterialDto>>>

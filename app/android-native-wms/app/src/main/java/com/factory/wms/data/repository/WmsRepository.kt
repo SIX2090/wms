@@ -166,19 +166,19 @@ class WmsRepository(private val context: Context) {
         }
     }
 
-    suspend fun searchMaterial(keyword: String): Result<List<MaterialDto>> {
+    suspend fun searchMaterial(keyword: String, warehouseCode: String? = null): Result<List<MaterialDto>> {
         return try {
-            val response = api.searchMaterial(keyword)
+            val response = api.searchMaterial(keyword, warehouseCode)
             handleResponse<List<MaterialDto>>(response)
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
     }
 
-    suspend fun getMaterialInfo(code: String): Result<MaterialDto> {
+    suspend fun getMaterialInfo(code: String, warehouseCode: String? = null): Result<MaterialDto> {
         return try {
-            // 网络优先：查库存要求实时准确，先请求后端，成功后再回写本地缓存
-            val response = api.materialInfo(code)
+            // 网络优先：查库存要求实时准确，先请求后端（已选仓库时按仓库级口径），成功后再回写本地缓存
+            val response = api.materialInfo(code, warehouseCode)
             val result = handleResponse<MaterialDto>(response)
             result.fold(
                 onSuccess = { dto ->
