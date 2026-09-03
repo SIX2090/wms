@@ -27,6 +27,7 @@ import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.ui.viewmodel.scan.SubmittedPrintInfo
 import com.factory.wms.util.formatQuantity
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -732,6 +733,23 @@ fun StocktakeScreen(
         }
     }
 
+    // BUG-2026-09-03-003 断点续盘：进入盘点页先尝试恢复上次未提交清单
+    LaunchedEffect(Unit) {
+        viewModel.maybeRestoreStocktakeDraft { count ->
+            snackbarHostState.showSnackbar(
+                "已恢复上次未提交的盘点清单（$count 项），请核对后继续盘点",
+                duration = SnackbarDuration.Long
+            )
+        }
+    }
+
+    // BUG-2026-09-03-003 断点续盘：清单变化防抖写入本地草稿（进程被杀/误关可恢复）
+    LaunchedEffect(uiState.scanLines, uiState.selectedWarehouse) {
+        if (uiState.scanLines.isNotEmpty()) {
+            delay(600)
+            viewModel.persistStocktakeDraft()
+        }
+    }
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)

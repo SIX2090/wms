@@ -470,11 +470,57 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         scanLines = emptyList(),
                         totalQuantity = 0.0
                     )
+                    // BUG-2026-09-03-003：提交成功即清除断点续盘草稿，防止下次进入盘点误恢复
+                    viewModelScope.launch { repository.clearStocktakeDraft() }
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
                 }
             )
+        }
+    }
+
+    // ============ 断点续盘（BUG-2026-09-03-003） ============
+
+    /** 将当前盘点清单与仓库写入本地草稿（盘点页在清单变化时调用）。 */
+    fun persistStocktakeDraft() {
+        val s = _uiState.value
+        if (s.scanLines.isEmpty()) return
+        val draft = StocktakeDraft(
+            warehouseCode = s.selectedWarehouse?.code,
+            warehouseName = s.selectedWarehouse?.name,
+            lines = s.scanLines
+        )
+        viewModelScope.launch { repository.saveStocktakeDraft(draft) }
+    }
+
+    /** 主动清除本地草稿（离开盘点场景/放弃盘点时调用）。 */
+    fun clearStocktakeDraft() {
+        viewModelScope.launch { repository.clearStocktakeDraft() }
+    }
+
+    /**
+     * 进入盘点页时尝试恢复上次未提交草稿：仅当本地有草稿且当前清单为空时恢复
+     * （含仓库，若仓库列表已加载且能匹配则一并带回），返回恢复的行数。
+     */
+    fun maybeRestoreStocktakeDraft(onRestored: (Int) -> Unit) {
+        viewModelScope.launch {
+            val draft = repository.loadStocktakeDraft() ?: return@launch
+            if (draft.lines.isEmpty()) return@launch
+            val s = _uiState.value
+            if (s.scanLines.isNotEmpty()) return@launch
+            var newState = s.copy(
+                scanLines = draft.lines,
+                totalQuantity = draft.lines.sumOf { it.quantity }
+            )
+            if (s.selectedWarehouse == null && draft.warehouseCode != null) {
+                val match = s.warehouses.firstOrNull {
+                    it.code == draft.warehouseCode || (draft.warehouseName != null && it.name == draft.warehouseName)
+                }
+                if (match != null) newState = newState.copy(selectedWarehouse = match)
+            }
+            _uiState.value = newState
+            onRestored(draft.lines.size)
         }
     }
 }

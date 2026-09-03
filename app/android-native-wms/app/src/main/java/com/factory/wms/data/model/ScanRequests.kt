@@ -43,3 +43,13 @@ data class StocktakeRequest(
     val warehouse: String? = null,
     @SerializedName("warehouse_code") val warehouseCode: String? = null
 )
+
+/**
+ * 盘点草稿持久化负载（断点续盘，BUG-2026-09-03-003）：
+ * 盘点进行中 APP 被系统回收/误关后，重新进入盘点页可恢复上次未提交清单。
+ */
+data class StocktakeDraft(
+    @SerializedName("warehouse_code") val warehouseCode: String? = null,
+    @SerializedName("warehouse_name") val warehouseName: String? = null,
+    val lines: List<ScanLine> = emptyList()
+)

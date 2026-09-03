@@ -51,6 +51,8 @@ class WmsRepository(private val context: Context) {
         private val KEY_BASE_URL = stringPreferencesKey("base_url")
         private val KEY_USERNAME = stringPreferencesKey("username")
         private val KEY_ROLE = stringPreferencesKey("role")
+        // BUG-2026-09-03-003 断点续盘：盘点草稿 JSON（DataStore）
+        private val KEY_STOCKTAKE_DRAFT = stringPreferencesKey("stocktake_draft")
     }
 
     // 幂等键：每次写操作生成唯一 request_id，配合后端 mobile_api_idempotent
@@ -63,6 +65,24 @@ class WmsRepository(private val context: Context) {
 
     suspend fun getSavedBaseUrl(): String? {
         return context.dataStore.data.map { it[KEY_BASE_URL] }.first()
+    }
+
+    // BUG-2026-09-03-003 断点续盘：盘点草稿持久化（DataStore JSON，进程被杀可恢复）
+    suspend fun saveStocktakeDraft(draft: StocktakeDraft) {
+        context.dataStore.edit { it[KEY_STOCKTAKE_DRAFT] = Gson().toJson(draft) }
+    }
+
+    suspend fun loadStocktakeDraft(): StocktakeDraft? {
+        val json = context.dataStore.data.map { it[KEY_STOCKTAKE_DRAFT] }.first() ?: return null
+        return try {
+            Gson().fromJson(json, StocktakeDraft::class.java)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun clearStocktakeDraft() {
+        context.dataStore.edit { it.remove(KEY_STOCKTAKE_DRAFT) }
     }
 
     /**
