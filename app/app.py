@@ -7219,7 +7219,19 @@ def get_recent_operation_logs(target_type, target_id, limit=10):
         app.logger.warning(f'get_recent_operation_logs failed: {e}')
         return []
 
-def api_material_payload(material):
+# no-test:reason=存量物料 DTO 序列化函数；签名扩展（warehouse 参数）由
+# verify_bug_2026_09_03_004_material_api_warehouse_stock.py 经接口覆盖
+def api_material_payload(material, warehouse=None):
+    # BUG-2026-09-03-004：物料展示支持仓库上下文——Android 扫码/查询在已选仓库时
+    # 显示该仓库账面库存，而非全局 Material.stock（多仓库下会误导"库存充足/不足"
+    # 判断与盘点清点）。调用方传 Warehouse 对象或仓库名/编码；未传保持全局展示。
+    wh_obj = warehouse
+    if wh_obj is not None and not hasattr(wh_obj, 'name'):
+        wh_obj, _wh_err = validate_inventory_warehouse(str(wh_obj or '').strip() or None)
+    if wh_obj is not None:
+        stock = normalize_stock_quantity(get_warehouse_stock_quantities(wh_obj).get(material.id) or 0)
+    else:
+        stock = material.stock or 0
     warehouse_code = getattr(material, 'warehouse', '') or ''
     location_code = ''
     if location_management_enabled():
@@ -7236,7 +7248,7 @@ def api_material_payload(material):
         'spec': material.spec or '',
         'unit': material.unit.name if material.unit else '',
         'price': float(material.price or 0),
-        'stock': material.stock or 0,
+        'stock': stock,
         'warehouse_code': warehouse_code,
         'location_code': location_code,
     }
@@ -23621,10 +23633,15 @@ def material_search_api():
             )
         )
     materials = query.order_by(Material.code.asc()).limit(100).all()
+    # BUG-2026-09-03-004：支持可选 warehouse（Android 已选仓库时返回该仓库账面库存）
+    _wh_obj = None
+    _wh_raw = (request.values.get('warehouse') or '').strip()
+    if _wh_raw:
+        _wh_obj, _wh_err = validate_inventory_warehouse(_wh_raw)
     return jsonify({
         'status': 'success',
         'success': True,
-        'data': [api_material_payload(material) for material in materials]
+        'data': [api_material_payload(material, warehouse=_wh_obj) for material in materials]
     })
 
 @app.route('/api/material/info', methods=['GET', 'POST'])
@@ -23642,10 +23659,15 @@ def material_info_api():
     if not material:
         return api_error('物料不存在')
 
+    # BUG-2026-09-03-004：支持可选 warehouse（Android 已选仓库时返回该仓库账面库存）
+    _wh_obj = None
+    _wh_raw = (request.values.get('warehouse') or '').strip()
+    if _wh_raw:
+        _wh_obj, _wh_err = validate_inventory_warehouse(_wh_raw)
     return jsonify({
         'status': 'success',
         'success': True,
-        'data': api_material_payload(material)
+        'data': api_material_payload(material, warehouse=_wh_obj)
     })
 
 # ==================== 字段配置API ====================
