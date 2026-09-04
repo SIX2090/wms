@@ -39,6 +39,26 @@ jobs:
           sed -i '/systemProp.https.proxyPort/d' gradle.properties
           sed -i '/# Proxy settings/d' gradle.properties
 
+      # BUG-2026-09-04-003：修复「每次 CI 构建签名都不同」。根因：release 变体在
+      # 未配置 WMS_STORE_FILE 时回退 debug 签名，而 runner 上的 debug.keystore 是
+      # 构建时临时生成的（实测 #285 产物证书有效期起点=本次构建时刻），导致任意
+      # 旧版本都无法被新包覆盖安装（签名冲突，用户每次必须卸载重装）。
+      # 修复（方案B）：仓库 Secret WMS_FIXED_DEBUG_KEYSTORE_B64 存一份固定
+      # debug.keystore（PKCS12，alias androiddebugkey / 密码 android，仅用于
+      # 内部测试签名，正式 keystore 仍绝不上传），构建前还原到 ~/.android/
+      # 让 AGP 每次用同一签名；Secret 未配置时仅告警不阻塞构建。
+      - name: Restore fixed debug keystore (BUG-2026-09-04-003)
+        env:
+          WMS_FIXED_DEBUG_KEYSTORE_B64: ${{ secrets.WMS_FIXED_DEBUG_KEYSTORE_B64 }}
+        run: |
+          mkdir -p ~/.android
+          if [ -n "$WMS_FIXED_DEBUG_KEYSTORE_B64" ]; then
+            printf '%s' "$WMS_FIXED_DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            echo "已还原固定 debug.keystore（跨构建签名稳定）"
+          else
+            echo "::warning::未配置 Secret WMS_FIXED_DEBUG_KEYSTORE_B64，本次构建签名仍为 runner 临时生成（跨构建不稳定）"
+          fi
+
       # AI-MOB-APK-001（2026-08-29）：移除 sherpa-onnx 离线语音打包（APK 瘦身）。
       # 原因：CloudAsrVoiceSttEngine.isAvailable() 恒为 true，引擎链永远走云端
       # （腾讯云 ASR，密钥已配置），sherpa 模型约 70MB + AAR 的 .so 一次都不会被用到。
