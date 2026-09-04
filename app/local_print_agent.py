@@ -435,6 +435,24 @@ def builtin_local_assignment():
     return ws.id, default.id
 
 
+def _is_db_locked(exc):
+    """判断异常是否为 SQLite `database is locked`（含 SQLAlchemy ORM 包装形态）。
+
+    R4（AGENTS.md）：打印代理写库路径遇锁必须降级静默，不得裸抛 traceback。
+    SQLAlchemy 会包装 sqlite3.OperationalError，锁标志既可能出现在 exc.orig
+    也可能整体拼进 str(exc)，两处都检查。
+    """
+    if exc is None:
+        return False
+    marker = 'database is locked'
+    lowered = str(exc).lower()
+    if marker in lowered:
+        return True
+    if getattr(exc, 'orig', None) is not None and marker in str(exc.orig).lower():
+        return True
+    return False
+
+
 def _heartbeat(state):
     """心跳：内置工作站置在线 + 同步本机打印机列表（复用路由层同步逻辑）。
 
@@ -470,7 +488,21 @@ def _heartbeat(state):
         if state.pop('printer_enum_failed', False):
             log.info('内置打印代理：本机打印机枚举已恢复，重新同步打印机状态')
         created, online = sync_workstation_printers(ws, printers)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as exc:  # noqa: BLE001
+        # BUG-2026-09-04-002（R4）：主服务写事务与心跳相撞时 SQLite 可能持锁
+        # 超过 busy_timeout，历史实现让异常冒泡到 _agent_loop 整段刷 traceback。
+        # 改为 rollback + 单行节流告警 + 返回 False（外层按 30s 低频重试）。
+        db.session.rollback()
+        if _is_db_locked(exc):
+            if not state.get('lock_warned'):
+                state['lock_warned'] = True
+                log.warning('内置打印代理心跳写库被占用（database is locked），'
+                            '本轮心跳降级跳过，下一周期自动重试')
+            return False
+        raise
+    state['lock_warned'] = False
     if online is not None and (created or state.get('first_heartbeat')):
         log.info('内置打印代理心跳：本机打印机 %s 台在线（新增 %s）', online, created)
         state['first_heartbeat'] = False
@@ -554,6 +586,15 @@ def _agent_loop(app, base_url):
                                 '静默重试，就绪后自动恢复，不影响 WMS 主服务',
                                 summary, SCHEMA_WAIT_INTERVAL)
                 time.sleep(SCHEMA_WAIT_INTERVAL)
+                continue
+            if _is_db_locked(exc):
+                # BUG-2026-09-04-002（R4）：认领/打印等其它写库路径遇锁同样降级，
+                # 单行节流告警（与 _heartbeat 共享 lock_warned 状态），不刷 traceback
+                if not state.get('lock_warned'):
+                    state['lock_warned'] = True
+                    log.warning('内置打印代理写库被占用（database is locked），'
+                                '本轮降级跳过，下一轮自动重试')
+                time.sleep(POLL_INTERVAL)
                 continue
             log.exception('内置打印代理本轮异常，%ss 后重试', POLL_INTERVAL)
         time.sleep(POLL_INTERVAL)
