@@ -311,7 +311,11 @@ def init_notification_scheduler(app, db, Material, User):
                 # 依赖注入函数（从app.py导入）
                 # 注意：这里需要延迟导入避免循环依赖
                 try:
-                    from app import _ai_dr_query_expired, _ai_dr_save_log
+                    from app import (
+                        _ai_dr_query_expired,
+                        _ai_dr_resolve_system_executor_id,
+                        _ai_dr_save_log,
+                    )
                     
                     # 执行预览
                     preview_result = preview_cleanup(
@@ -328,22 +332,29 @@ def init_notification_scheduler(app, db, Material, User):
                     )
                     
                     # 保存预览日志（dry_run=True）
-                    from ai.ops.data_retention import CleanupLogEntry
-                    log_entry = CleanupLogEntry(
-                        log_id=f'auto-preview-{datetime.now().strftime("%Y%m%d-%H%M%S")}',
-                        executed_by=0,  # 系统自动执行
-                        categories=list(set(item.record.category for item in preview_result.items)),
-                        dry_run=True,
-                        deleted_count=0,  # 预览模式不删除
-                        kept_count=preview_result.to_keep_count,
-                        exempt_count=preview_result.exempt_count,
-                        protected_count=preview_result.protected_count,
-                        failed_count=0,
-                        cutoff_date=preview_result.generated_at,
-                        executed_at=datetime.now().isoformat(),
-                        notes='系统自动预览（未实际删除）',
-                    )
-                    _ai_dr_save_log(log_entry)
+                    # BUG-2026-09-04-001：历史写 executed_by=0（无对应用户，外键必失败，
+                    # 每日 02:00 日志复现）。改为解析真实系统归属账号，无账号可归时跳过落库。
+                    executor_id = _ai_dr_resolve_system_executor_id()
+                    if executor_id is None:
+                        logging.getLogger(__name__).warning(
+                            'AI-R14-F01: 库中无可用账号，跳过保存自动预览日志（不影响清理预览）')
+                    else:
+                        from ai.ops.data_retention import CleanupLogEntry
+                        log_entry = CleanupLogEntry(
+                            log_id=f'auto-preview-{datetime.now().strftime("%Y%m%d-%H%M%S")}',
+                            executed_by=executor_id,  # 系统自动执行 → 归属系统管理账号
+                            categories=list(set(item.record.category for item in preview_result.items)),
+                            dry_run=True,
+                            deleted_count=0,  # 预览模式不删除
+                            kept_count=preview_result.to_keep_count,
+                            exempt_count=preview_result.exempt_count,
+                            protected_count=preview_result.protected_count,
+                            failed_count=0,
+                            cutoff_date=preview_result.generated_at,
+                            executed_at=datetime.now().isoformat(),
+                            notes='系统自动预览（未实际删除）',
+                        )
+                        _ai_dr_save_log(log_entry)
                     
                 except ImportError as e:
                     logging.getLogger(__name__).warning(f'AI-R14-F01: 依赖注入函数未找到，跳过清理预览: {e}')

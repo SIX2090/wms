@@ -15368,12 +15368,41 @@ def _ai_dr_delete_records(category: str, ids: list) -> int:
         app.logger.warning(f'AI-R14 删除记录异常: {exc}')
         return 0
 
+def _ai_dr_resolve_system_executor_id():
+    """返回系统自动任务的归属执行人 id（BUG-2026-09-04-001）。
+
+    每日自动清理预览等后台任务没有真实登录用户；历史实现写 executed_by=0，
+    而 ai_cleanup_log.executed_by 是 user.id 的非空外键，0 无对应行 →
+    sqlite3.IntegrityError FOREIGN KEY constraint failed（日志每日 02:00 复现）。
+    归属规则：优先 WMS_BOOTSTRAP_USERNAME/admin 账号（固定系统管理人），
+    不存在时取最小 id 用户；库中无任何用户时返回 None（调用方跳过落库并告警）。
+    """
+    username = (os.environ.get('WMS_BOOTSTRAP_USERNAME') or 'admin').strip() or 'admin'
+    user = User.query.filter_by(username=username).first()
+    if user is None:
+        user = User.query.order_by(User.id.asc()).first()
+    return user.id if user is not None else None
+
+
 def _ai_dr_save_log(log_entry) -> 'CleanupLogEntry':
-    """AI-R14 保存清理日志。"""
+    """AI-R14 保存清理日志。
+
+    BUG-2026-09-04-001：executed_by 必须指向真实 user.id。入参为 0/负数/不存在的
+    用户时（系统自动任务易误传 0）解析系统归属账号兜底；无账号可归时跳过落库并
+    告警，不再让外键异常刷日志。
+    """
+    executor_id = int(log_entry.executed_by or 0)
+    if executor_id <= 0 or db.session.get(User, executor_id) is None:
+        executor_id = _ai_dr_resolve_system_executor_id()
+        if executor_id is None:
+            app.logger.warning(
+                'AI-R14 保存清理日志跳过：无可用执行人（log_id=%s, executed_by=%s）',
+                log_entry.log_id, log_entry.executed_by)
+            return log_entry
     try:
         row = AICleanupLog(
             log_id=log_entry.log_id,
-            executed_by=log_entry.executed_by,
+            executed_by=executor_id,
             categories=','.join(log_entry.categories),
             dry_run=log_entry.dry_run,
             deleted_count=log_entry.deleted_count,
