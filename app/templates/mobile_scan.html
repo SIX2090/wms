@@ -155,7 +155,7 @@
                 <input id="quantityInput" class="form-control" type="number" step="0.01" min="0" inputmode="decimal" value="1">
             </div>
 
-            <div class="mobile-scan-field {% if mode not in ['in', 'out'] %}d-none{% endif %}">
+            <div class="mobile-scan-field {% if mode not in ['in', 'out', 'check'] %}d-none{% endif %}">
                 <label class="mobile-scan-label" for="warehouseInput">仓库</label>
                 <input id="warehouseInput" class="form-control" list="warehouseOptions" autocomplete="off" placeholder="选择仓库">
                 <datalist id="warehouseOptions">
@@ -176,6 +176,19 @@
             <div class="mobile-scan-field">
                 <label class="mobile-scan-label" for="scanAreaInput">盘点区域/货架（可选）</label>
                 <input id="scanAreaInput" class="form-control" type="text" autocomplete="off" placeholder="如 A1 / 原料区；同一物料多处各填一次">
+            </div>
+            {% endif %}
+
+            {% if mode == 'check' %}
+            {# INV-BATCH-001-E：盘点必须先选电脑端建好的进行中盘点单，结果统一挂该单 #}
+            <div class="mobile-scan-field">
+                <label class="mobile-scan-label" for="checkOrderSelect">盘点单（必选）</label>
+                <select id="checkOrderSelect" class="form-control" disabled>
+                    <option value="">请先选择仓库，加载盘点单</option>
+                </select>
+                <small id="checkOrderTip" class="text-danger d-none">
+                    该仓库暂无进行中的盘点单，请先在电脑端「盘点管理」创建盘点单后再盘
+                </small>
             </div>
             {% endif %}
 
@@ -724,6 +737,68 @@
             });
     });
 
+    // INV-BATCH-001-E：盘点必须先选电脑端建好的进行中盘点单（统一挂一张盘点单）。
+    // 结果由后端校验：缺省/无进行中盘点单/仓库不一致都会被拒绝（旧版直接提交会 400）。
+    var checkOrderSelect = document.getElementById('checkOrderSelect');
+    var checkOrderTip = document.getElementById('checkOrderTip');
+    var lastCheckWh = null;
+
+    function loadCheckOrders(wh) {
+        if (!checkOrderSelect || !wh) return;
+        if (lastCheckWh === wh) return; // 同仓库只拉一次
+        lastCheckWh = wh;
+        checkOrderSelect.innerHTML = '';
+        checkOrderSelect.disabled = true;
+        if (checkOrderTip) checkOrderTip.classList.add('d-none');
+        fetch('/mobile/api/check_orders?warehouse=' + encodeURIComponent(wh), {
+            headers: {'X-Requested-With': 'XMLHttpRequest'},
+            credentials: 'same-origin'
+        })
+            .then(function (response) {
+                var sessErr = sessionExpiredError(response);
+                if (sessErr) throw sessErr;
+                return response.json();
+            })
+            .then(function (data) {
+                checkOrderSelect.innerHTML = '';
+                var orders = (data && data.data && data.data.orders) || [];
+                if (!orders.length) {
+                    if (checkOrderTip) checkOrderTip.classList.remove('d-none');
+                    checkOrderSelect.disabled = true;
+                    return;
+                }
+                var placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = '请选择盘点单';
+                checkOrderSelect.appendChild(placeholder);
+                orders.forEach(function (o) {
+                    var op = document.createElement('option');
+                    op.value = String(o.id);
+                    op.textContent = o.check_no + '（' + String(o.warehouse || '')
+                        + (o.remark ? ' ' + o.remark : '') + '）';
+                    checkOrderSelect.appendChild(op);
+                });
+                checkOrderSelect.disabled = false;
+            })
+            .catch(function () {
+                lastCheckWh = null;
+                checkOrderSelect.innerHTML = '';
+                checkOrderSelect.disabled = true;
+                if (checkOrderTip) {
+                    checkOrderTip.textContent = '盘点单加载失败，请重试';
+                    checkOrderTip.classList.remove('d-none');
+                }
+            });
+    }
+
+    if (mode === 'check' && warehouseInput) {
+        warehouseInput.addEventListener('change', function () {
+            lastCheckWh = null;
+            checkOrderSelect.value = '';
+            loadCheckOrders((warehouseInput.value || '').trim());
+        });
+    }
+
     scanForm.addEventListener('submit', function(event) {
         event.preventDefault();
         var ensureMaterial = selectedMaterial ? Promise.resolve(selectedMaterial) : lookupMaterial();
@@ -742,6 +817,22 @@
                 return;
             }
 
+            // INV-BATCH-001-E：盘点必须先选电脑端建好的进行中盘点单
+            if (mode === 'check') {
+                var checkWh = warehouseInput ? (warehouseInput.value || '').trim() : '';
+                if (!checkWh) {
+                    setStatus('请选择仓库', 'error');
+                    if (warehouseInput) warehouseInput.focus();
+                    return;
+                }
+                if (checkOrderSelect && !checkOrderSelect.value) {
+                    setStatus(checkOrderTip && !checkOrderTip.classList.contains('d-none')
+                        ? '该仓库暂无进行中的盘点单，请先在电脑端「盘点管理」创建'
+                        : '请选择盘点单', 'error');
+                    return;
+                }
+            }
+
             submitBtn.disabled = true;
             setStatus('提交中...', '');
             var quantity = quantityInput ? quantityInput.value : '';
@@ -755,7 +846,8 @@
                 location: locationInput ? locationInput.value : '',
                 area: scanAreaInput ? scanAreaInput.value : '',
                 target: targetInput ? targetInput.value : '',
-                remark: remarkInput ? remarkInput.value : ''
+                remark: remarkInput ? remarkInput.value : '',
+                check_id: mode === 'check' && checkOrderSelect ? checkOrderSelect.value : undefined
             };
             if (batchMode && batchMode.checked) {
                 batchQueue.push({payload: payload, material: material});
