@@ -24759,6 +24759,50 @@ def _void_check_scan(check_id, operator_id=None):
                 db.session.delete(item)
             db.session.delete(order)
             deleted_draft_nos.append(order.adjustment_no)
+
+    # INV-BATCH-001-E / BUG-2026-09-04-005：挂批次的扫码盘点作废需回退批次行。
+    # 强制挂批次后 CS 的差异已直接 upsert 进批次 InventoryCheckItem，若只作废
+    # CS 不改批次行，会出现：同(物料,区域)再扫被 _apply_scan_to_batch 以
+    # "已盘"拒绝、且批次完成仍按脏行出调整草稿（账实双错）。
+    # 作废语义（防误删他人成果）：
+    # - 批次已完成 → 拒绝作废（差异已被 PC 采纳生成调整单，回退会造成
+    #   "账已调、行已删"脱钩），提示先反提交批次生成的调整单；
+    # - 批次仍 pending：本 CS 新建的批次行（reason=='手机扫码盘点' 且
+    #   counted_by==本 CS 操作人）删除，解禁同物料重盘；PC 预置行被本 CS
+    #   补盘的（reason 非扫码标记且 counted_by==本 CS 操作人）重置回"待盘"
+    #   （actual_stock=system_stock、difference=0、counted_by/counted_at=NULL）；
+    # - counted_by 已被他人（PC 行级确认/他人扫码）改写的行一律不动。
+    if check.check_id is not None:
+        batch = db.session.get(InventoryCheck, check.check_id)
+        if batch is not None and batch.status == 'completed':
+            db.session.rollback()
+            return None, None, (
+                f'该扫码盘点已并入批次 {batch.check_no} 且批次已完成，不能作废；'
+                '如需更正请先在电脑端反提交该批次生成的调整单'
+            ), 'adjustment_completed'
+        if batch is not None:
+            batch_rows = InventoryCheckItem.query.filter_by(
+                inventory_check_id=batch.id).all()
+            row_map = {(row.material_id, row.area or ''): row for row in batch_rows}
+            scan_operator = check.operator_id
+            for scan_item in check.items:
+                if not scan_item.material_id:
+                    continue
+                row = row_map.get((scan_item.material_id, (scan_item.area or '').strip()))
+                if row is None:
+                    continue
+                if row.reason == '手机扫码盘点' and row.counted_by is not None and row.counted_by == scan_operator:
+                    db.session.delete(row)
+                elif row.reason != '手机扫码盘点' and row.counted_by == scan_operator and row.counted_at is not None:
+                    row.actual_stock = normalize_stock_quantity(row.system_stock)
+                    row.difference = 0.0
+                    row.counted_by = None
+                    row.counted_at = None
+            # 批次被本 CS 清空时撤销首次冻结时点，批次回到初始"待冻结"空态
+            if InventoryCheckItem.query.filter_by(
+                    inventory_check_id=batch.id).count() == 0:
+                batch.frozen_at = None
+
     check.status = 'void'
     db.session.commit()
 
@@ -24796,6 +24840,32 @@ def _find_active_check_batch(warehouse_name):
             .filter_by(warehouse=warehouse_name, status='pending')
             .order_by(InventoryCheck.id.desc())
             .first())
+
+
+def _list_pending_check_orders(warehouse=None):
+    """列出可供手机端盘点的进行中盘点单（status='pending'）。
+
+    INV-BATCH-001-E（移动盘点强制选单）：手机扫码/手工盘点必须先选择
+    PC 端已建好的盘点单，结果统一挂到该单、由 PC「完成盘点」统一生成
+    调整草稿。此 helper 供 Android（GET /api/stocktake/check_orders）与
+    H5（GET /mobile/api/check_orders）两个列表接口共用。
+    """
+    query = InventoryCheck.query.filter_by(status='pending')
+    if warehouse:
+        query = query.filter_by(warehouse=warehouse)
+    orders = query.order_by(InventoryCheck.id.desc()).all()
+    result = []
+    for order in orders:
+        result.append({
+            'id': order.id,
+            'check_no': order.check_no,
+            'warehouse': order.warehouse,
+            'date': order.date.isoformat() if order.date else '',
+            'remark': order.remark or '',
+            'frozen_at': order.frozen_at.isoformat() if order.frozen_at else '',
+            'item_count': len(order.items),
+        })
+    return result
 
 
 def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=None):

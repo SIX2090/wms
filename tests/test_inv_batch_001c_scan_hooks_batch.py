@@ -23,14 +23,14 @@
 actual − system_stock 生成调整单。
 
 覆盖（多仓库场景，A仓 M001=60/M002=30，B仓 M001=40/M002=20）：
-T1. 无批次 → 独立模式（check_id 空 + 立即生成草稿），兼容锁定
-T2. 有批次 → 挂批次：check_id 写入、不生成 CS 级草稿、明细新增行
+T1. 仓库无进行中盘点单 → 强制选单拒绝提交（INV-BATCH-001-E）
+T2. 选盘点单 → 挂批次：check_id 写入、不生成 CS 级草稿、明细新增行
     （扫码时点账面 + 行级归属）、响应提示批次号
 T3. 挂批次扫已在明细的未盘行 → 更新实盘与归属，账面基准保留
 T4. 重复扫码同物料（已盘行）→ 拒绝，提示含"已由"，CS 单不增
 T5. 批次冻结后期间出库 → 新行账面取扫码时点当前值（即时口径）
 T6. 批次 complete → 按各行口径生成调整草稿，CS 单无独立草稿
-T7. B仓扫码不挂 A仓批次（仓库隔离）→ 独立模式
+T7. B仓须选 B仓自己的进行中盘点单（跨仓批次拒绝、无单拒绝）
 """
 from __future__ import annotations
 
@@ -174,17 +174,23 @@ def _write_out_flow(material, warehouse, qty):
     db.session.commit()
 
 
-def _post_scan_submit(client, headers, code, warehouse, actual):
-    return client.post("/mobile/api/scan_submit", headers=headers, json={
+def _post_scan_submit(client, headers, code, warehouse, actual, check_id=None):
+    payload = {
         "mode": "check", "code": code, "warehouse": warehouse,
         "actual_stock": actual,
-    })
+    }
+    if check_id is not None:
+        payload["check_id"] = check_id
+    return client.post("/mobile/api/scan_submit", headers=headers, json=payload)
 
 
-def _post_stocktake(client, headers, warehouse, lines):
-    return client.post("/api/stocktake", json={
+def _post_stocktake(client, headers, warehouse, lines, check_id=None):
+    payload = {
         "mode": "scan", "warehouse": warehouse, "lines": lines,
-    }, headers=headers)
+    }
+    if check_id is not None:
+        payload["check_id"] = check_id
+    return client.post("/api/stocktake", json=payload, headers=headers)
 
 
 def _batch_item(batch, material_id):
@@ -193,37 +199,35 @@ def _batch_item(batch, material_id):
         inventory_check_id=batch.id, material_id=material_id).first()
 
 
-def test_t1_no_batch_keeps_standalone_mode():
-    """T1: 无活动批次 → 独立单模式（check_id 空 + 立即生成草稿）。"""
-    from app import AdjustmentOrder, InventoryCheckScan
+def test_t1_no_batch_rejected():
+    """T1: 仓库无进行中盘点单 → 强制选单拒绝提交（INV-BATCH-001-E）。"""
+    from app import InventoryCheckScan
     _seed_scene()
     client = _make_client()
     h = _bearer(client)
 
     r = _post_scan_submit(client, h, "M001", "A仓", 58)
-    assert r.status_code == 200, r.get_data(as_text=True)
-    scan = InventoryCheckScan.query.one()
-    assert scan.check_id is None, "无批次时不得挂钩"
-    assert AdjustmentOrder.query.filter_by(source_type="check_scan").count() == 1, (
-        "独立模式必须立即生成调整草稿（向后兼容）"
-    )
+    assert r.status_code == 400, f"无盘点单必须拒绝，实际返回 {r.status_code}"
+    msg = (r.get_json().get("msg") or "") + (r.get_json().get("message") or "")
+    assert "请选择进行中的盘点单" in msg, f"提示应引导先建盘点单，实际：{msg}"
+    assert InventoryCheckScan.query.count() == 0, "被拒绝的扫码不得落 CS 单"
 
 
 def test_t2_scan_hooks_into_batch():
-    """T2: 有批次 → 挂 check_id、不生成 CS 级草稿、批次明细新增行带归属。"""
+    """T2: 选进行中盘点单 → 挂 check_id、不生成 CS 级草稿、批次明细新增行带归属。"""
     from app import AdjustmentOrder, InventoryCheckScan
     admin, wh_a, wh_b, m1, m2 = _seed_scene()
     batch = _seed_batch(admin, "A仓", "CK-B1")
     client = _make_client()
     h = _bearer(client)
 
-    r = _post_scan_submit(client, h, "M001", "A仓", 58)
+    r = _post_scan_submit(client, h, "M001", "A仓", 58, check_id=batch.id)
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert "CK-B1" in (body.get("msg") or ""), f"响应应提示已挂批次，实际：{body}"
 
     scan = InventoryCheckScan.query.one()
-    assert scan.check_id == batch.id, "扫码盘点单必须挂钩批次"
+    assert scan.check_id == batch.id, "扫码盘点单必须挂钩所选批次"
 
     # 挂批次不得生成 CS 级调整草稿（草稿由批次 complete 统一生成）
     assert AdjustmentOrder.query.filter_by(source_type="check_scan").count() == 0, (
@@ -249,7 +253,7 @@ def test_t3_scan_fills_uncounted_batch_row():
     client = _make_client()
     h = _bearer(client)
 
-    r = _post_scan_submit(client, h, "M001", "A仓", 57)
+    r = _post_scan_submit(client, h, "M001", "A仓", 57, check_id=batch.id)
     assert r.status_code == 200, r.get_data(as_text=True)
 
     db.session.expire_all()
@@ -272,9 +276,9 @@ def test_t4_duplicate_scan_rejected():
     client = _make_client()
     h = _bearer(client)
 
-    r1 = _post_scan_submit(client, h, "M001", "A仓", 58)
+    r1 = _post_scan_submit(client, h, "M001", "A仓", 58, check_id=batch.id)
     assert r1.status_code == 200
-    r2 = _post_stocktake(client, h, "A仓", [{"material_code": "M001", "actual_stock": 57}])
+    r2 = _post_stocktake(client, h, "A仓", [{"material_code": "M001", "actual_stock": 57}], check_id=batch.id)
     assert r2.status_code == 400, (
         f"重复扫码同物料必须拒绝（防两人互覆），实际返回 {r2.status_code}"
     )
@@ -297,7 +301,7 @@ def test_t5_scan_row_uses_current_book_at_scan_time():
     client = _make_client()
     h = _bearer(client)
 
-    r = _post_scan_submit(client, h, "M001", "A仓", 49)
+    r = _post_scan_submit(client, h, "M001", "A仓", 49, check_id=batch.id)
     assert r.status_code == 200, r.get_data(as_text=True)
 
     row = _batch_item(batch, m1.id)
@@ -316,7 +320,7 @@ def test_t6_batch_complete_uses_row_baselines():
     client = _make_client()
     h = _bearer(client)
     # 扫码行 M002（即时账面 30，实盘 29 → 差异 -1）
-    r = _post_scan_submit(client, h, "M002", "A仓", 29)
+    r = _post_scan_submit(client, h, "M002", "A仓", 29, check_id=batch.id)
     assert r.status_code == 200
 
     _login_web(client)
@@ -335,18 +339,29 @@ def test_t6_batch_complete_uses_row_baselines():
     assert InventoryCheckScan.query.one().check_id == batch.id
 
 
-def test_t7_other_warehouse_scan_stays_standalone():
-    """T7: B仓扫码不挂 A仓批次（仓库隔离）→ 独立模式。"""
-    from app import AdjustmentOrder, InventoryCheckScan
+def test_t7_other_warehouse_requires_its_own_check_order():
+    """T7: 仓库隔离（INV-BATCH-001-E）——A仓批次不能盘 B仓；B仓须选自己的
+    进行中盘点单，无单则拒绝提交。"""
+    from app import InventoryCheckScan
     admin, wh_a, wh_b, m1, m2 = _seed_scene()
-    _seed_batch(admin, "A仓", "CK-B1")
+    batch_a = _seed_batch(admin, "A仓", "CK-B1")
     client = _make_client()
     h = _bearer(client)
 
+    # B仓无进行中盘点单 → 拒绝
     r = _post_scan_submit(client, h, "M001", "B仓", 38)
+    assert r.status_code == 400, f"B仓无盘点单必须拒绝，实际 {r.status_code}"
+    assert InventoryCheckScan.query.count() == 0
+
+    # 拿 A仓批次去盘 B仓 → 仓库不一致拒绝
+    r = _post_scan_submit(client, h, "M001", "B仓", 38, check_id=batch_a.id)
+    assert r.status_code == 400, f"跨仓库盘点单必须拒绝，实际 {r.status_code}"
+    msg = (r.get_json().get("msg") or "") + (r.get_json().get("message") or "")
+    assert "不一致" in msg, f"提示应指出仓库不一致，实际：{msg}"
+
+    # B仓建自己的批次后 → 可盘并正确挂钩
+    batch_b = _seed_batch(admin, "B仓", "CK-B2")
+    r = _post_scan_submit(client, h, "M001", "B仓", 38, check_id=batch_b.id)
     assert r.status_code == 200, r.get_data(as_text=True)
     scan = InventoryCheckScan.query.one()
-    assert scan.check_id is None, "不同仓库的扫码不得挂钩"
-    assert AdjustmentOrder.query.filter_by(source_type="check_scan").count() == 1, (
-        "未挂批次的扫码维持独立模式（立即生成草稿）"
-    )
+    assert scan.check_id == batch_b.id, "B仓扫码必须挂 B仓自己的批次"

@@ -396,8 +396,14 @@ def main() -> int:
         "_create_adjustment_drafts_from_check(check)" in complete_check_body
         and "check_in" not in complete_check_body
         and "check_out" not in complete_check_body
-        and "_create_adjustment_drafts_from_check_scan(check)" in stocktake_body,
-        "盘点完成必须生成库存调整草稿，不能直接改库存",
+        # INV-BATCH-001-E / BUG-2026-09-04-005：移动盘点强制选单挂批次后，
+        # 差异统一由 PC 盘点单 complete 生成草稿；/api/stocktake 不再直接
+        # 改库存、也不再独立调用 _create_adjustment_drafts_from_check_scan。
+        and "_apply_scan_to_batch(" in stocktake_body
+        and "_create_adjustment_drafts_from_check_scan(" not in stocktake_body
+        and "add_stock(" not in stocktake_body
+        and "请选择进行中的盘点单" in stocktake_body,
+        "移动盘点必须选择进行中的盘点单挂批次（盘点完成统一生成库存调整草稿），不能直接改库存",
     ))
 
     convert_body = app_function_body("convert_in_order_to_out_order")

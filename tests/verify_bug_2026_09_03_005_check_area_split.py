@@ -101,10 +101,13 @@ def _seed_txn_stock(material, warehouse, qty):
     db.session.commit()
 
 
-def _scan(client, code, warehouse, actual, area=None):
-    payload = {"mode": "check", "code": code, "warehouse": warehouse, "actual_stock": actual}
+def _scan(client, code, warehouse, actual, area=None, check_id=None):
+    payload = {"mode": "check", "code": code, "warehouse": warehouse,
+               "actual_stock": actual}
     if area is not None:
         payload["area"] = area
+    if check_id is not None:
+        payload["check_id"] = check_id
     return client.post("/mobile/api/scan_submit", json=payload)
 
 
@@ -132,8 +135,8 @@ def test_t1_same_material_split_rows_by_area():
         batch_id = batch.id
         c = app_module.app.test_client()
         _login_web(c)
-        assert _scan(c, "M001", "A仓", 12, area="A1").status_code == 200
-        assert _scan(c, "M001", "A仓", 7, area="A2").status_code == 200
+        assert _scan(c, "M001", "A仓", 12, area="A1", check_id=batch.id).status_code == 200
+        assert _scan(c, "M001", "A仓", 7, area="A2", check_id=batch.id).status_code == 200
 
         from app import InventoryCheck, InventoryCheckScanItem
         check = db.session.get(InventoryCheck, batch_id)
@@ -152,8 +155,8 @@ def test_t2_same_area_rescan_rejected():
         batch_id = batch.id
         c = app_module.app.test_client()
         _login_web(c)
-        assert _scan(c, "M001", "A仓", 12, area="A1").status_code == 200
-        r = _scan(c, "M001", "A仓", 9, area="A1")
+        assert _scan(c, "M001", "A仓", 12, area="A1", check_id=batch.id).status_code == 200
+        r = _scan(c, "M001", "A仓", 9, area="A1", check_id=batch.id)
         assert r.status_code == 400, r.get_data(as_text=True)
         body = r.get_json()
         assert body["status"] == "error"
@@ -171,8 +174,8 @@ def test_t3_complete_creates_single_net_adjustment():
         batch_id = batch.id
         c = app_module.app.test_client()
         _login_web(c)
-        _scan(c, "M001", "A仓", 12, area="A1")
-        _scan(c, "M001", "A仓", 7, area="A2")
+        _scan(c, "M001", "A仓", 12, area="A1", check_id=batch.id)
+        _scan(c, "M001", "A仓", 7, area="A2", check_id=batch.id)
 
         r = c.post(f"/check/{batch_id}/complete")
         assert r.status_code == 200, r.get_data(as_text=True)
@@ -193,8 +196,8 @@ def test_t4_without_area_keeps_single_row():
         batch_id = batch.id
         c = app_module.app.test_client()
         _login_web(c)
-        assert _scan(c, "M001", "A仓", 12).status_code == 200
-        r = _scan(c, "M001", "A仓", 7)
+        assert _scan(c, "M001", "A仓", 12, check_id=batch.id).status_code == 200
+        r = _scan(c, "M001", "A仓", 7, check_id=batch.id)
         assert r.status_code == 400
         from app import InventoryCheck
         check = db.session.get(InventoryCheck, batch_id)

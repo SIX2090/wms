@@ -117,12 +117,24 @@ def _seed_material_with_warehouse_stock(code, global_stock, per_warehouse):
     return m
 
 
-def _post_stocktake(client, headers, warehouse, material_code, actual_stock):
+def _seed_check_order(warehouse_name, check_no="CK-AUDIT003"):
+    """预置一个进行中（pending）盘点单（INV-BATCH-001-E 强制选单前提）。"""
+    from app import InventoryCheck
+    check = InventoryCheck(check_no=check_no, warehouse=warehouse_name,
+                           status="pending")
+    db.session.add(check)
+    db.session.commit()
+    return check
+
+
+def _post_stocktake(client, headers, warehouse, material_code, actual_stock, check_id=None):
     payload = {
         "mode": "scan",
         "warehouse": warehouse,
         "lines": [{"material_code": material_code, "actual_stock": actual_stock}],
     }
+    if check_id is not None:
+        payload["check_id"] = check_id
     return client.post("/api/stocktake", json=payload, headers=headers)
 
 
@@ -135,9 +147,10 @@ def test_t1_stocktake_uses_warehouse_level_system_stock():
     wh_b = _seed_warehouse("WB", "B仓")
     # 全局 100 = A仓 60 + B仓 40，数据自洽
     _seed_material_with_warehouse_stock("M001", 100.0, {wh_a: 60.0, wh_b: 40.0})
+    batch_b = _seed_check_order("B仓", "CK-AUDIT-T1")
 
     client = _make_client()
-    r = _post_stocktake(client, _bearer(client), "B仓", "M001", 38)
+    r = _post_stocktake(client, _bearer(client), "B仓", "M001", 38, check_id=batch_b.id)
     assert r.status_code == 200, r.get_data(as_text=True)
 
     item = InventoryCheckScanItem.query.one()
@@ -155,9 +168,10 @@ def test_t2_no_difference_generates_no_adjustment():
     wh_a = _seed_warehouse("WA", "A仓")
     wh_b = _seed_warehouse("WB", "B仓")
     _seed_material_with_warehouse_stock("M002", 100.0, {wh_a: 60.0, wh_b: 40.0})
+    batch_a = _seed_check_order("A仓", "CK-AUDIT-T2")
 
     client = _make_client()
-    r = _post_stocktake(client, _bearer(client), "A仓", "M002", 60)
+    r = _post_stocktake(client, _bearer(client), "A仓", "M002", 60, check_id=batch_a.id)
     assert r.status_code == 200, r.get_data(as_text=True)
 
     drafts = AdjustmentOrder.query.filter_by(source_type="check_scan").all()
@@ -183,9 +197,10 @@ def test_t3_single_warehouse_fallback_unchanged():
         location="唯一仓", warehouse_id=wh.id, created_at=datetime.now(),
     ))
     db.session.commit()
+    batch_solo = _seed_check_order("唯一仓", "CK-AUDIT-T3")
 
     client = _make_client()
-    r = _post_stocktake(client, _bearer(client), "唯一仓", "M003", 75)
+    r = _post_stocktake(client, _bearer(client), "唯一仓", "M003", 75, check_id=batch_solo.id)
     assert r.status_code == 200, r.get_data(as_text=True)
 
     item = InventoryCheckScanItem.query.one()

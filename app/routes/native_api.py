@@ -479,16 +479,34 @@ def register_native_api_routes(app):
         warehouse = wh_obj.name
 
         try:
-            # INV-BATCH-001-C：检测同仓库活动批次——有则挂钩（明细写入
-            # 批次、批次 complete 统一生成调整草稿），无则维持独立单
-            # 模式（立即生成草稿）。批次写锁在建 CS 单之前获取；并发下
-            # 批次被完成/反提交时退化为独立模式，盘点数据不丢失。
-            batch = _find_active_check_batch(warehouse)
-            if batch:
-                locked_batch, lock_ok = _acquire_order_write_lock(
-                    InventoryCheck, batch.id, 'pending',
-                    selectinload(InventoryCheck.items))
-                batch = locked_batch if lock_ok else None
+            # INV-BATCH-001-E / BUG-2026-09-04-005：移动盘点强制选单。
+            # 必须先选择 PC 端进行中的盘点单（check_id=InventoryCheck.id），
+            # 明细统一 upsert 进该批次、由 PC「完成盘点」统一生成调整草稿；
+            # 不再支持"无单自动建独立扫码盘点单"旁路——旧版 App（3.5.1）
+            # 不带 check_id 的提交将被拒绝。
+            raw_check_id = payload.get('check_id') or payload.get('checkOrderId') or ''
+            try:
+                check_id = int(str(raw_check_id).strip())
+            except (TypeError, ValueError):
+                check_id = 0
+            if check_id <= 0:
+                return api_json_error('请选择进行中的盘点单（在电脑端创建盘点单后选择，手机端不支持无单盘点）', 400)
+            batch = db.session.get(InventoryCheck, check_id)
+            if batch is None:
+                return api_json_error(f'盘点单不存在：{check_id}，请刷新盘点单列表后重选', 400)
+            if batch.status != 'pending':
+                return api_json_error(f'盘点单 {batch.check_no} 已完结，请重新选择进行中的盘点单', 400)
+            if (batch.warehouse or '').strip() != warehouse:
+                return api_json_error(
+                    f'盘点单 {batch.check_no} 属于仓库「{batch.warehouse}」，'
+                    f'与所选盘点仓库「{warehouse}」不一致，请重新选择', 400)
+            locked_batch, lock_ok = _acquire_order_write_lock(
+                InventoryCheck, batch.id, 'pending',
+                selectinload(InventoryCheck.items))
+            if not lock_ok:
+                return api_json_error(
+                    f'盘点单 {batch.check_no} 正被其他操作占用（可能正在完成/反提交），请稍后重试', 400)
+            batch = locked_batch
             check = InventoryCheckScan(
                 check_no=generate_order_no('CS'),
                 date=date.today(),
@@ -496,7 +514,7 @@ def register_native_api_routes(app):
                 remark=f"Android盘点：{payload.get('mode') or 'all'}",
                 status='completed',
                 operator_id=user.id,
-                check_id=batch.id if batch else None,
+                check_id=batch.id,
             )
             db.session.add(check)
             db.session.flush()
@@ -526,30 +544,20 @@ def register_native_api_routes(app):
                     actual_stock=actual_stock,
                     difference=round_to_2_decimals(actual_stock - system_stock),
                 ))
-            if batch:
-                # INV-BATCH-001-C：挂批次——明细 upsert 进批次，不独立生成草稿
-                error = _apply_scan_to_batch(
-                    batch, check, warehouse_stock_map, operator_id=user.id)
-                if error:
-                    db.session.rollback()
-                    return api_json_error(error, 400)
-                drafts = []
-            else:
-                drafts, error = _create_adjustment_drafts_from_check_scan(check)
-                if error:
-                    db.session.rollback()
-                    return api_json_error(error, 400)
+            # INV-BATCH-001-E：明细 upsert 进所选批次，不独立生成草稿
+            error = _apply_scan_to_batch(
+                batch, check, warehouse_stock_map, operator_id=user.id)
+            if error:
+                db.session.rollback()
+                return api_json_error(error, 400)
             db.session.commit()
             data = {
                 'check_no': check.check_no,
-                'batch_no': batch.check_no if batch else None,
-                'adjustment_nos': [order.adjustment_no for order in drafts],
+                'batch_no': batch.check_no,
+                'inventory_check_id': batch.id,
+                'adjustment_nos': [],
             }
-            msg = '盘点提交成功'
-            if batch:
-                msg += f'，已挂批次 {batch.check_no}'
-            elif drafts:
-                msg += '，已生成库存调整草稿，请审核后提交'
+            msg = f'盘点提交成功，已挂批次 {batch.check_no}'
             return api_json_success(data, msg)
         except Exception:
             db.session.rollback()
@@ -605,6 +613,29 @@ def register_native_api_routes(app):
             },
             msg,
         )
+
+    @app.route('/api/stocktake/check_orders')
+    @csrf.exempt
+    @api_role_required('warehouse')
+    def native_api_stocktake_check_orders(user):
+        """Android 盘点单选择列表（INV-BATCH-001-E）。
+
+        返回进行中（status='pending'）的 PC 盘点单；带 warehouse 参数时按仓库
+        过滤（支持名称或编码），不带则返回全部。App 扫码/识物盘点先经此接口
+        选单，提交时携带所选 check_id。
+        """
+        from app import (_list_pending_check_orders, api_json_error,
+                         api_json_success, validate_inventory_warehouse)
+        wh = (request.args.get('warehouse')
+              or request.args.get('warehouse_code') or '').strip()
+        if not wh:
+            orders = _list_pending_check_orders(None)
+        else:
+            wh_obj, wh_err = validate_inventory_warehouse(wh)
+            if wh_err:
+                return api_json_error(wh_err, 400)
+            orders = _list_pending_check_orders(wh_obj.name)
+        return api_json_success({'orders': orders})
 
     @app.route('/api/mobile/dashboard')
     @csrf.exempt

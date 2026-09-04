@@ -143,17 +143,24 @@ class TestScanSubmitBearer(unittest.TestCase):
             self.assertEqual(o.operator_id, wh_id)
 
     def test_warehouse_bearer_check_success(self):
-        """T3：warehouse Bearer + mode=check 成功。"""
+        """T3：warehouse Bearer + mode=check 成功（INV-BATCH-001-E：预置盘点单选单）。"""
         with app_module.app.app_context():
             wh_user = _seed_user("warehouse")
             tok = _seed_token(wh_user)
             _seed_material("SC3", stock=10.0)
-            tok_val, wh_id = tok.token, wh_user.id
+            _ensure_warehouse()
+            from app import InventoryCheck
+            check_order = InventoryCheck(check_no="CK-BEARER-T3",
+                                         warehouse="测试仓", status="pending")
+            db.session.add(check_order)
+            db.session.commit()
+            tok_val, wh_id, batch_id = tok.token, wh_user.id, check_order.id
 
         with app_module.app.test_client() as c:
             rv = c.post("/mobile/api/scan_submit",
                         json={"mode": "check", "code": "SC3",
-                              "actual_stock": "20", "warehouse": "TEST_WH"},
+                              "actual_stock": "20", "warehouse": "TEST_WH",
+                              "check_id": batch_id},
                         headers={"Authorization": f"Bearer {tok_val}"})
         self.assertEqual(rv.status_code, 200, rv.get_json())
         self.assertTrue(rv.get_json().get("success"))
@@ -161,6 +168,7 @@ class TestScanSubmitBearer(unittest.TestCase):
             chk = InventoryCheckScan.query.order_by(InventoryCheckScan.id.desc()).first()
             self.assertIsNotNone(chk)
             self.assertEqual(chk.operator_id, wh_id)
+            self.assertEqual(chk.check_id, batch_id, "盘点必须挂所选盘点单")
 
     def test_warehouse_bearer_query_success(self):
         """T4：warehouse Bearer + mode=query 成功。"""

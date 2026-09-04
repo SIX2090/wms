@@ -92,10 +92,22 @@ def _seed_warehouse(code, name, is_default=False):
     return w
 
 
-def _post_stocktake(client, headers, warehouse=None):
+def _seed_check_order(warehouse_name, check_no):
+    """预置进行中盘点单（INV-BATCH-001-E 强制选单前提）。"""
+    from app import InventoryCheck
+    check = InventoryCheck(check_no=check_no, warehouse=warehouse_name,
+                           status="pending")
+    db.session.add(check)
+    db.session.commit()
+    return check
+
+
+def _post_stocktake(client, headers, warehouse=None, check_id=None):
     payload = {"mode": "scan", "lines": [{"material_code": "M001", "actual_stock": 8}]}
     if warehouse:
         payload["warehouse"] = warehouse
+    if check_id is not None:
+        payload["check_id"] = check_id
     return client.post("/api/stocktake", json=payload, headers=headers)
 
 
@@ -111,36 +123,37 @@ def test_t1_reject_when_no_warehouse_and_no_default():
 
 
 def test_t2_fallback_to_default_warehouse():
-    """T2: 未填仓库时自动带入默认仓库，并写入盘点单与调整草稿。"""
+    """T2: 未填仓库时自动带入默认仓库；盘点落所选进行中盘点单（INV-BATCH-001-E）。"""
     from app import AdjustmentOrder, InventoryCheckScan
     _reset_db()
     _seed_admin()
     _seed_material()
     _seed_warehouse("DEF", "默认仓", is_default=True)
+    batch = _seed_check_order("默认仓", "CK-DEF-021")
     client = _make_client()
-    r = _post_stocktake(client, _bearer(client))
+    r = _post_stocktake(client, _bearer(client), check_id=batch.id)
     assert r.status_code == 200, r.get_data(as_text=True)
     check = InventoryCheckScan.query.one()
     assert check.warehouse == "默认仓"
-    drafts = AdjustmentOrder.query.filter_by(source_type="check_scan", source_id=check.id).all()
-    assert drafts, "盘点差异应生成调整草稿"
-    assert all(d.warehouse == "默认仓" for d in drafts)
+    assert check.check_id == batch.id, "盘点必须挂所选进行中盘点单"
+    # 挂批次模式不生成 CS 级草稿（草稿由批次完成统一生成）
+    assert AdjustmentOrder.query.filter_by(source_type="check_scan", source_id=check.id).count() == 0
 
 
 def test_t3_explicit_warehouse_persisted():
-    """T3: 显式传入的仓库必须落库到盘点单与调整草稿。"""
-    from app import AdjustmentOrder, InventoryCheckScan
+    """T3: 显式传入的仓库必须落库到盘点单。"""
+    from app import InventoryCheckScan
     _reset_db()
     _seed_admin()
     _seed_material()
     _seed_warehouse("WA", "A仓")
+    batch = _seed_check_order("A仓", "CK-A-021")
     client = _make_client()
-    r = _post_stocktake(client, _bearer(client), warehouse="A仓")
+    r = _post_stocktake(client, _bearer(client), warehouse="A仓", check_id=batch.id)
     assert r.status_code == 200, r.get_data(as_text=True)
     check = InventoryCheckScan.query.one()
     assert check.warehouse == "A仓"
-    drafts = AdjustmentOrder.query.filter_by(source_type="check_scan", source_id=check.id).all()
-    assert drafts and all(d.warehouse == "A仓" for d in drafts)
+    assert check.check_id == batch.id
 
 
 def test_t4_inventory_check_scan_has_warehouse_column():

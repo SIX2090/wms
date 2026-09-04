@@ -586,17 +586,36 @@ def register_mobile_routes(app):
                 # INV-AUDIT-003：盘点按仓库级系统库存生成调整草稿，不再使用全局 Material.stock
                 warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
                 system_stock = normalize_stock_quantity(warehouse_stock_map.get(material.id) or 0)
-                # INV-BATCH-001-C：检测同仓库活动批次——有则挂钩（明细写入
-                # 批次、批次 complete 统一生成调整草稿），无则维持独立单
-                # 模式（立即生成草稿）。批次写锁在建 CS 单之前获取（锁内
-                # rollback 不会清掉尚未创建的对象）；并发下批次被完成/
-                # 反提交时退化为独立模式，盘点数据不丢失。
-                batch = _find_active_check_batch(warehouse.name)
-                if batch:
-                    locked_batch, lock_ok = _acquire_order_write_lock(
-                        InventoryCheck, batch.id, 'pending',
-                        selectinload(InventoryCheck.items))
-                    batch = locked_batch if lock_ok else None
+                # INV-BATCH-001-E / BUG-2026-09-04-005：盘点强制选单。必须先选择
+                # PC 端进行中的盘点单（check_id=InventoryCheck.id），本次盘点结果
+                # 统一 upsert 进该批次，由 PC「完成盘点」统一生成调整草稿；不再
+                # 支持无单自动建独立扫码盘点单（扫错作废走 void 并可回退批次行）。
+                raw_check_id = data.get('check_id') or data.get('checkOrderId') or ''
+                try:
+                    check_id = int(str(raw_check_id).strip()) if raw_check_id not in (None, '') else 0
+                except (TypeError, ValueError):
+                    check_id = 0
+                if check_id <= 0:
+                    return jsonify({'status': 'error', 'success': False,
+                                    'msg': '请选择进行中的盘点单（在电脑端创建盘点单后选择，手机端不支持无单盘点）'}), 400
+                batch = db.session.get(InventoryCheck, check_id)
+                if batch is None:
+                    return jsonify({'status': 'error', 'success': False,
+                                    'msg': f'盘点单不存在：{check_id}，请刷新盘点单列表后重选'}), 400
+                if batch.status != 'pending':
+                    return jsonify({'status': 'error', 'success': False,
+                                    'msg': f'盘点单 {batch.check_no} 已完结，请重新选择进行中的盘点单'}), 400
+                if (batch.warehouse or '').strip() != (warehouse.name or '').strip():
+                    return jsonify({'status': 'error', 'success': False,
+                                    'msg': f'盘点单 {batch.check_no} 属于仓库「{batch.warehouse}」，'
+                                           f'与当前盘点仓库「{warehouse.name}」不一致，请重新选择'}), 400
+                locked_batch, lock_ok = _acquire_order_write_lock(
+                    InventoryCheck, batch.id, 'pending',
+                    selectinload(InventoryCheck.items))
+                if not lock_ok:
+                    return jsonify({'status': 'error', 'success': False,
+                                    'msg': f'盘点单 {batch.check_no} 正被其他操作占用（可能正在完成/反提交），请稍后重试'}), 400
+                batch = locked_batch
                 check = InventoryCheckScan(
                     check_no=generate_order_no('CS'),
                     date=date.today(),
@@ -604,7 +623,7 @@ def register_mobile_routes(app):
                     remark=remark or '手机扫码盘点',
                     status='completed',
                     operator_id=actor.id,
-                    check_id=batch.id if batch else None,
+                    check_id=batch.id,
                 )
                 db.session.add(check)
                 db.session.flush()
@@ -616,25 +635,15 @@ def register_mobile_routes(app):
                     actual_stock=actual_stock,
                     difference=round_to_2_decimals(actual_stock - system_stock),
                 ))
-                if batch:
-                    error = _apply_scan_to_batch(
-                        batch, check, warehouse_stock_map, operator_id=actor.id)
-                    if error:
-                        db.session.rollback()
-                        return jsonify({'status': 'error', 'success': False, 'msg': error}), 400
-                    drafts = []
-                else:
-                    drafts, error = _create_adjustment_drafts_from_check_scan(check)
-                    if error:
-                        db.session.rollback()
-                        return jsonify({'status': 'error', 'success': False, 'msg': error}), 400
+                # 明细 upsert 进所选批次，不独立生成草稿
+                error = _apply_scan_to_batch(
+                    batch, check, warehouse_stock_map, operator_id=actor.id)
+                if error:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'success': False, 'msg': error}), 400
                 db.session.commit()
                 log_operation('手机扫码盘点', f'扫码盘点单：{check.check_no}', 'inventory_check_scan', check.id)
-                msg = f'盘点保存成功：{check.check_no}'
-                if batch:
-                    msg += f'，已挂批次 {batch.check_no}'
-                elif drafts:
-                    msg += '，已生成库存调整草稿，请审核后提交'
+                msg = f'盘点保存成功：{check.check_no}，已挂批次 {batch.check_no}'
                 return jsonify({
                     'status': 'success',
                     'success': True,
@@ -642,8 +651,9 @@ def register_mobile_routes(app):
                     'data': {
                         'check_id': check.id,
                         'check_no': check.check_no,
-                        'batch_no': batch.check_no if batch else None,
-                        'adjustment_nos': [order.adjustment_no for order in drafts],
+                        'batch_no': batch.check_no,
+                        'inventory_check_id': batch.id,
+                        'adjustment_nos': [],
                         'material': mobile_material_payload(material, warehouse=warehouse),
                     },
                 })
@@ -684,6 +694,26 @@ def register_mobile_routes(app):
                 'deleted_adjustment_nos': deleted_nos,
             },
         })
+
+    # INV-BATCH-001-E / BUG-2026-09-04-005：H5 盘点单选择列表。返回进行中
+    # （status='pending'）的 PC 盘点单，带 warehouse 参数按仓库过滤；H5 盘点
+    # 页先经此接口选单再提交 scan_submit（payload 携带 check_id）。
+    @app.route('/mobile/api/check_orders')
+    @_web_or_api_role_required('warehouse')
+    def mobile_check_orders():
+        from app import (_list_pending_check_orders, jsonify, request,
+                         validate_inventory_warehouse)
+        wh = (request.args.get('warehouse')
+              or request.args.get('warehouse_code') or '').strip()
+        if not wh:
+            orders = _list_pending_check_orders(None)
+        else:
+            wh_obj, wh_err = validate_inventory_warehouse(wh)
+            if wh_err:
+                return jsonify({'status': 'error', 'success': False, 'msg': wh_err}), 400
+            orders = _list_pending_check_orders(wh_obj.name)
+        return jsonify({'status': 'success', 'success': True,
+                        'data': {'orders': orders}})
 
     # ───────────────────────── 手机扫码出入库草稿制 ─────────────────────────
     # 目标：扫码出入库提交时先生成 status='pending' 草稿，不动库存、不打印；

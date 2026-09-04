@@ -194,14 +194,19 @@ class TestMobileScanSubmitWarehouseLevelStock:
                 LocationInventory(material_id=m.id, warehouse_id=w1.id, location="A1", quantity=8),
                 LocationInventory(material_id=m.id, warehouse_id=w2.id, location="B1", quantity=3),
             ])
+            # INV-BATCH-001-E：预置仓库B 进行中盘点单供选单
+            from app import InventoryCheck
+            chk = InventoryCheck(check_no="CK-MOB-AUDIT3", warehouse="仓库B", status="pending")
+            db.session.add(chk)
             db.session.commit()
+            batch_id = chk.id
 
         # 盘点仓库B 实际 3，应该无差异（system_stock=3, actual=3）
         resp = client.post(
             "/mobile/api/scan_submit",
             json={
                 "mode": "check", "code": "M001", "actual_stock": 3,
-                "warehouse": "仓库B", "location": "B1",
+                "warehouse": "仓库B", "location": "B1", "check_id": batch_id,
             },
         )
         assert resp.status_code == 200, resp.get_data(as_text=True)

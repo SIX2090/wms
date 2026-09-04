@@ -123,11 +123,14 @@ def _seed_batch(admin, warehouse_name, check_no):
     return check
 
 
-def _scan_check(client, code, warehouse, actual):
-    return client.post("/mobile/api/scan_submit", json={
+def _scan_check(client, code, warehouse, actual, check_id=None):
+    payload = {
         "mode": "check", "code": code, "warehouse": warehouse,
         "actual_stock": actual,
-    })
+    }
+    if check_id is not None:
+        payload["check_id"] = check_id
+    return client.post("/mobile/api/scan_submit", json=payload)
 
 
 def _scene():
@@ -167,7 +170,7 @@ def test_t2_scan_then_detail_shows_ownership_and_scan_log():
     client = _make_client()
     _login_web(client)
     # 手机扫码挂批次（A 仓账面 60，实盘 8 → 差异 -52 行级归属 admin）
-    r = _scan_check(client, "M001", "A仓", 8)
+    r = _scan_check(client, "M001", "A仓", 8, check_id=batch_id)
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert body["status"] == "success", body
@@ -199,7 +202,7 @@ def test_t3_completed_batch_detail_keeps_ownership():
         batch_id = batch.id
     client = _make_client()
     _login_web(client)
-    _scan_check(client, "M001", "A仓", 8)
+    _scan_check(client, "M001", "A仓", 8, check_id=batch_id)
     # 完成批次（统一生成调整草稿）
     complete = client.post(f"/check/{batch_id}/complete")
     assert complete.status_code == 200, complete.get_data(as_text=True)
