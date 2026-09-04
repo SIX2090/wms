@@ -46,6 +46,12 @@ interface WmsApiService {
         @Body request: StocktakeRequest
     ): Response<ApiEnvelope<SubmitResult>>
 
+    /** INV-BATCH-001-E：某仓库进行中盘点单列表（盘点提交前必须先选单） */
+    @GET("api/stocktake/check_orders")
+    suspend fun listPendingCheckOrders(
+        @Query("warehouse") warehouse: String? = null
+    ): Response<ApiEnvelope<CheckOrdersListData>>
+
     @Multipart
     @POST("api/ai/document_ocr")
     suspend fun documentOcr(

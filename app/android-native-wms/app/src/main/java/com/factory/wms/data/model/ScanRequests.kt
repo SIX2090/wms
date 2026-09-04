@@ -41,7 +41,25 @@ data class StocktakeRequest(
     val lines: List<StocktakeLine>,
     val mode: String = "scan",
     val warehouse: String? = null,
-    @SerializedName("warehouse_code") val warehouseCode: String? = null
+    @SerializedName("warehouse_code") val warehouseCode: String? = null,
+    /** INV-BATCH-001-E：所选 PC 进行中盘点单 id（必填，后端强制校验） */
+    @SerializedName("check_id") val checkId: Long? = null
+)
+
+/** INV-BATCH-001-E 盘点单选单列表项（GET /api/stocktake/check_orders data.orders 元素）。 */
+data class CheckOrderDto(
+    val id: Long,
+    @SerializedName("check_no") val checkNo: String,
+    val warehouse: String? = null,
+    val date: String? = null,
+    val remark: String? = null,
+    @SerializedName("frozen_at") val frozenAt: String? = null,
+    @SerializedName("item_count") val itemCount: Int? = null
+)
+
+/** INV-BATCH-001-E 盘点单列表响应（data.orders）。 */
+data class CheckOrdersListData(
+    val orders: List<CheckOrderDto> = emptyList()
 )
 
 /**
@@ -51,5 +69,7 @@ data class StocktakeRequest(
 data class StocktakeDraft(
     @SerializedName("warehouse_code") val warehouseCode: String? = null,
     @SerializedName("warehouse_name") val warehouseName: String? = null,
+    /** INV-BATCH-001-E：上次所选盘点单（恢复后自动回选，仍进行中才可提交） */
+    @SerializedName("check_id") val checkId: Long? = null,
     val lines: List<ScanLine> = emptyList()
 )

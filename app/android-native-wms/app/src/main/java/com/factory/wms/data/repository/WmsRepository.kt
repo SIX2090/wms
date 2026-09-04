@@ -303,6 +303,18 @@ class WmsRepository(private val context: Context) {
         }
     }
 
+    /** INV-BATCH-001-E：拉取某仓库进行中盘点单（盘点提交前必须先选单）。 */
+    suspend fun loadPendingCheckOrders(warehouseCode: String): Result<List<CheckOrderDto>> {
+        return try {
+            ensureSession()
+            val response = api.listPendingCheckOrders(warehouseCode)
+            val data = handleResponse<CheckOrdersListData>(response).getOrNull()
+            Result.success(data?.orders ?: emptyList())
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
+        }
+    }
+
     /** 合同编号模糊搜索（出库选填合同字段快速匹配）。 */
     suspend fun searchContracts(keyword: String): Result<List<ContractDto>> {
         return try {

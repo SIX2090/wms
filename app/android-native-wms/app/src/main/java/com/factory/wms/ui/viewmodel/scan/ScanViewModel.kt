@@ -28,6 +28,10 @@ data class ScanUiState(
     val warehouses: List<WarehouseDto> = emptyList(),
     val warehousesLoading: Boolean = false,
     val selectedWarehouse: WarehouseDto? = null,
+    // INV-BATCH-001-E：盘点必须先选电脑端建好的进行中盘点单（统一挂一张盘点单）
+    val checkOrders: List<CheckOrderDto> = emptyList(),
+    val checkOrdersLoading: Boolean = false,
+    val selectedCheckOrder: CheckOrderDto? = null,
     // 合同编号（出库选填）：输入片段快速匹配完整合同编号（如 0709 → HD260709）
     val contractNo: String = "",
     val contractSuggestions: List<ContractDto> = emptyList(),
@@ -216,6 +220,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         warehouses = warehouses,
                         selectedWarehouse = first ?: _uiState.value.selectedWarehouse
                     )
+                    // INV-BATCH-001-E：默认选中首仓后即拉取该仓进行中盘点单
+                    if (first?.code != null) loadPendingCheckOrders()
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(
@@ -227,8 +233,49 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ── INV-BATCH-001-E：盘点单选单（电脑端创建进行中盘点单后手机选择） ──
+
+    /** 拉取当前所选仓库的进行中盘点单列表。 */
+    fun loadPendingCheckOrders() {
+        val code = _uiState.value.selectedWarehouse?.code ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(checkOrdersLoading = true)
+            repository.loadPendingCheckOrders(code).fold(
+                onSuccess = { orders ->
+                    val selected = _uiState.value.selectedCheckOrder
+                    val keep = if (selected == null) null
+                    else orders.firstOrNull { it.id == selected.id }
+                    _uiState.value = _uiState.value.copy(
+                        checkOrdersLoading = false,
+                        checkOrders = orders,
+                        selectedCheckOrder = keep
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(
+                        checkOrdersLoading = false,
+                        checkOrders = emptyList(),
+                        selectedCheckOrder = null,
+                        error = e.message
+                    )
+                }
+            )
+        }
+    }
+
+    /** 选中一张进行中盘点单（结果统一挂到该单，由电脑端完成统一出调整草稿）。 */
+    fun selectCheckOrder(order: CheckOrderDto) {
+        _uiState.value = _uiState.value.copy(selectedCheckOrder = order)
+    }
+
     fun selectWarehouse(warehouse: WarehouseDto) {
-        _uiState.value = _uiState.value.copy(selectedWarehouse = warehouse)
+        val changed = _uiState.value.selectedWarehouse?.code != warehouse.code
+        _uiState.value = _uiState.value.copy(
+            selectedWarehouse = warehouse,
+            checkOrders = if (changed) emptyList() else _uiState.value.checkOrders,
+            selectedCheckOrder = if (changed) null else _uiState.value.selectedCheckOrder
+        )
+        if (changed) loadPendingCheckOrders()
     }
 
     // ── 合同编号（出库选填）快速匹配 ──
@@ -447,6 +494,14 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = _uiState.value.copy(error = "请先扫描盘点物料")
                 return@launch
             }
+            // INV-BATCH-001-E：盘点必须已选择电脑端建好的进行中盘点单
+            val checkOrder = state.selectedCheckOrder
+            if (checkOrder == null) {
+                _uiState.value = _uiState.value.copy(
+                    error = "请选择盘点单（在电脑端创建盘点单后选择，结果统一挂该单）"
+                )
+                return@launch
+            }
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             val stocktakeLines = lines.map { line ->
                 StocktakeLine(
@@ -459,7 +514,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 lines = stocktakeLines,
                 mode = "scan",
                 warehouse = warehouse.code,
-                warehouseCode = warehouse.code
+                warehouseCode = warehouse.code,
+                checkId = checkOrder.id
             )
             val result = repository.submitStocktake(request)
             result.fold(
@@ -485,13 +541,14 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     // ============ 断点续盘（BUG-2026-09-03-003） ============
 
-    /** 将当前盘点清单与仓库写入本地草稿（盘点页在清单变化时调用）。 */
+    /** 将当前盘点清单、仓库与所选盘点单写入本地草稿（盘点页在清单变化时调用）。 */
     fun persistStocktakeDraft() {
         val s = _uiState.value
         if (s.scanLines.isEmpty()) return
         val draft = StocktakeDraft(
             warehouseCode = s.selectedWarehouse?.code,
             warehouseName = s.selectedWarehouse?.name,
+            checkId = s.selectedCheckOrder?.id,
             lines = s.scanLines
         )
         viewModelScope.launch { repository.saveStocktakeDraft(draft) }
@@ -524,6 +581,30 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             }
             _uiState.value = newState.copy(
                 success = "已恢复上次未提交的盘点清单（${draft.lines.size} 项），请核对后继续盘点"
+            )
+            // INV-BATCH-001-E：若草稿记录了盘点单，回拉列表尝试自动回选
+            val checkId = draft.checkId
+            if (checkId != null) restoreStocktakeCheckOrder(checkId)
+        }
+    }
+
+    /** INV-BATCH-001-E：断点续盘按草稿记录的盘点单 id 重新拉取并回选（仍进行中才选中）。 */
+    private fun restoreStocktakeCheckOrder(checkId: Long) {
+        val code = _uiState.value.selectedWarehouse?.code ?: return
+        viewModelScope.launch {
+            repository.loadPendingCheckOrders(code).fold(
+                onSuccess = { orders ->
+                    val hit = orders.firstOrNull { it.id == checkId }
+                    _uiState.value = _uiState.value.copy(
+                        checkOrders = orders,
+                        checkOrdersLoading = false,
+                        selectedCheckOrder = hit,
+                        success = if (hit == null)
+                            "已恢复盘点清单，但原盘点单已不在进行中列表，请重新选择盘点单"
+                        else null
+                    )
+                },
+                onFailure = { }
             )
         }
     }

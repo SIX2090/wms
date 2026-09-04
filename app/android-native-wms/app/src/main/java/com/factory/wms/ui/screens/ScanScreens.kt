@@ -2,8 +2,10 @@ package com.factory.wms.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -17,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.factory.wms.data.model.CheckOrderDto
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.components.ScannerDialog
@@ -708,6 +711,8 @@ fun StocktakeScreen(
     var showSubmitDialog by remember { mutableStateOf(false) }
     var showScannerDialog by remember { mutableStateOf(false) }
     var showWarehouseDialog by remember { mutableStateOf(false) }
+    // INV-BATCH-001-E：盘点必须先选电脑端建好的进行中盘点单
+    var showCheckOrderDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -804,12 +809,25 @@ fun StocktakeScreen(
         extraActionLabel = "识物盘点",
         onExtraAction = onRecognize,
         header = {
-            WarehouseSelectorCard(
-                warehouse = uiState.selectedWarehouse,
-                accentColor = CardPurple,
-                onClick = { showWarehouseDialog = true },
-                label = "盘点仓库"
-            )
+            Column(modifier = Modifier.fillMaxWidth()) {
+                WarehouseSelectorCard(
+                    warehouse = uiState.selectedWarehouse,
+                    accentColor = CardPurple,
+                    onClick = { showWarehouseDialog = true },
+                    label = "盘点仓库"
+                )
+                // INV-BATCH-001-E：盘点必须选电脑端建好的进行中盘点单
+                Spacer(modifier = Modifier.height(10.dp))
+                CheckOrderSelectorCard(
+                    order = uiState.selectedCheckOrder,
+                    ordersEmpty = uiState.checkOrders.isEmpty() &&
+                        !uiState.checkOrdersLoading,
+                    loading = uiState.checkOrdersLoading,
+                    enabled = uiState.selectedWarehouse != null,
+                    accentColor = CardPurple,
+                    onClick = { showCheckOrderDialog = true }
+                )
+            }
         }
     )
 
@@ -824,6 +842,22 @@ fun StocktakeScreen(
                 showWarehouseDialog = false
             },
             onRetry = { viewModel.loadWarehouses() },
+            accentColor = CardPurple
+        )
+    }
+
+    // INV-BATCH-001-E：盘点单选单弹窗（列出所选仓库的进行中盘点单）
+    if (showCheckOrderDialog) {
+        CheckOrderPickerDialog(
+            orders = uiState.checkOrders,
+            selected = uiState.selectedCheckOrder,
+            loading = uiState.checkOrdersLoading,
+            onDismiss = { showCheckOrderDialog = false },
+            onSelect = { order ->
+                viewModel.selectCheckOrder(order)
+                showCheckOrderDialog = false
+            },
+            onRefresh = { viewModel.loadPendingCheckOrders() },
             accentColor = CardPurple
         )
     }
@@ -875,12 +909,15 @@ fun StocktakeScreen(
             title = { Text("确认盘点", fontWeight = FontWeight.SemiBold) },
             text = {
                 val wh = uiState.selectedWarehouse
-                Text(
-                    if (wh != null)
-                        "盘点仓库：${wh.code} ${wh.name.orEmpty()}\n共 ${uiState.scanLines.size} 种物料，确认提交盘点？"
-                    else
-                        "尚未选择盘点仓库，请先选择仓库"
-                )
+                val co = uiState.selectedCheckOrder
+                val base = when {
+                    wh == null -> "尚未选择盘点仓库，请先选择仓库"
+                    co == null -> "尚未选择盘点单，请先选择进行中的盘点单（电脑端创建后此处选择）"
+                    else -> "盘点仓库：${wh.code} ${wh.name.orEmpty()}\n" +
+                        "盘点单：${co.checkNo}\n" +
+                        "共 ${uiState.scanLines.size} 种物料，确认提交盘点？"
+                }
+                Text(base)
             },
             confirmButton = {
                 Button(
@@ -888,7 +925,7 @@ fun StocktakeScreen(
                         showSubmitDialog = false
                         viewModel.submitStocktake()
                     },
-                    enabled = uiState.selectedWarehouse != null,
+                    enabled = uiState.selectedWarehouse != null && uiState.selectedCheckOrder != null,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CardPurple)
                 ) {
@@ -902,6 +939,162 @@ fun StocktakeScreen(
             }
         )
     }
+}
+
+/** INV-BATCH-001-E 盘点单选择卡（盘点提交前必须选电脑端建好的进行中盘点单）。 */
+@Composable
+private fun CheckOrderSelectorCard(
+    order: CheckOrderDto?,
+    ordersEmpty: Boolean,
+    loading: Boolean,
+    enabled: Boolean,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    val subtitle = when {
+        !enabled -> "先选择盘点仓库"
+        loading -> "正在加载进行中的盘点单..."
+        order != null -> listOfNotNull(
+            order.warehouse,
+            order.itemCount?.let { "已录 $it 行" }
+        ).joinToString(" · ")
+        ordersEmpty -> "该仓库暂无进行中的盘点单，请先在电脑端创建"
+        else -> "盘点结果将统一记录到该盘点单"
+    }
+    Card(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = accentColor.copy(alpha = 0.08f)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Filled.Description,
+                contentDescription = null,
+                tint = accentColor
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (order != null) "盘点单：${order.checkNo}" else "盘点单（必选）",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+/** INV-BATCH-001-E 盘点单选单弹窗：列出所选仓库的进行中盘点单。 */
+@Composable
+private fun CheckOrderPickerDialog(
+    orders: List<CheckOrderDto>,
+    selected: CheckOrderDto?,
+    loading: Boolean,
+    onDismiss: () -> Unit,
+    onSelect: (CheckOrderDto) -> Unit,
+    onRefresh: () -> Unit,
+    accentColor: Color
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "选择进行中盘点单",
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onRefresh) { Text("刷新") }
+            }
+        },
+        text = {
+            when {
+                loading && orders.isEmpty() -> Text("正在加载...")
+                orders.isEmpty() -> Column(
+                    Modifier.verticalScroll(rememberScrollState())
+                ) {
+                    Text("该仓库暂无进行中的盘点单。")
+                    Text("请先在电脑端「盘点管理」创建盘点单后再盘，所有盘点结果将统一记录到该单。")
+                }
+                else -> Column(
+                    Modifier.verticalScroll(rememberScrollState())
+                ) {
+                    orders.forEach { order ->
+                        val isSelected = selected?.id == order.id
+                        Card(
+                            onClick = { onSelect(order) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) accentColor.copy(alpha = 0.15f)
+                                else Color(0xFFF5F5F5)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    if (isSelected) Icons.Filled.RadioButtonChecked
+                                    else Icons.Filled.RadioButtonUnchecked,
+                                    contentDescription = null,
+                                    tint = if (isSelected) accentColor
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(order.checkNo, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        listOfNotNull(
+                                            order.warehouse,
+                                            order.itemCount?.let { "已录 $it 行" }
+                                        ).joinToString(" · "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }
 
 /** 出库页合同编号输入卡片（选填）：输入片段实时模糊匹配合同档案，
