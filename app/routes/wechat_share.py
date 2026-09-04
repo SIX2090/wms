@@ -19,6 +19,7 @@ def register_wechat_share_routes(app):
             _wechat_share_log_message_summary,
             _wechat_share_log_status_label,
             _wechat_share_log_trigger_label,
+            _wechat_share_master_enabled,
             _wechat_share_today_in_orders,
             date,
             format_file_size,
@@ -27,6 +28,7 @@ def register_wechat_share_routes(app):
             request,
         )
         config = _wechat_share_default_config()
+        master_enabled = _wechat_share_master_enabled()
         status_filter = (request.args.get('status') or '').strip()
         if status_filter not in {'', 'pending', 'failed', 'sent', 'skipped'}:
             status_filter = ''
@@ -53,6 +55,7 @@ def register_wechat_share_routes(app):
         return render_template(
             'wechat_share.html',
             share_config=config,
+            master_enabled=master_enabled,
             logs=logs,
             today_orders=today_orders,
             today_count=len(today_orders),
@@ -84,8 +87,12 @@ def register_wechat_share_routes(app):
             jsonify,
             log_operation,
             request,
+            set_system_setting,
         )
         config = _wechat_share_default_config()
+        # 总开关（2026-09-04）：一键整体停用微信分享（含定时/立即/手动）
+        master_enabled = request.form.get('master_enabled') == '1'
+        set_system_setting('wechat_share_enabled', '1' if master_enabled else '0')
         share_time = (request.form.get('share_time') or '15:30').strip()
         if not _wechat_share_time_is_valid(share_time):
             return api_error('分享时间格式不正确，请使用 HH:MM')

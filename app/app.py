@@ -22154,6 +22154,18 @@ def _share_pdf_status_label(status):
         'cancelled': '已取消',
     }.get(status, status or '-')
 
+def _wechat_share_master_enabled():
+    """微信分享总开关（系统设置 wechat_share_enabled，默认开）。
+
+    业务诉求（2026-09-04）：微信分享"暂时不用"时须能一键整体停用——
+    定时每日分享、做完入库单立即分享、异步完成直推与手动「立即分享」
+    全部拦截。单独关某条 config 的 enabled 只停该条定时，总开关在发送
+    入口统一把关，且不影响微信分享配置的保存/日志查看。
+    """
+    raw = str(get_system_setting('wechat_share_enabled', '1') or '1').strip().lower()
+    return raw not in ('0', 'false', 'off', 'no', '')
+
+
 def _wechat_share_default_config():
     config = WechatShareConfig.query.order_by(WechatShareConfig.id.asc()).first()
     if config:
@@ -22434,6 +22446,10 @@ def _async_wechat_share_on_complete(app_ref, config_id, order_id, order_no=''):
     def _run():
         with app_ref.app_context():
             try:
+                # 总开关（2026-09-04）：整体停用时不再执行"完成入库单立即分享"
+                if not _wechat_share_master_enabled():
+                    app_ref.logger.info('异步微信分享跳过：总开关已关闭 order_id=%s', order_id)
+                    return
                 config = db.session.get(WechatShareConfig, config_id)
                 order = db.session.get(InOrder, order_id)
                 if not config or not order:
@@ -22495,6 +22511,11 @@ def _wechat_share_order(config, order, trigger_type='manual', force=False):
     return log, 'created'
 
 def run_wechat_share_for_today(trigger_type='manual', force=False, config=None):
+    # 总开关（2026-09-04）：微信分享整体停用时任何触发（含手动）都拒绝发送，
+    # 仅提示不开；避免关闭总开关后仍被各入口钻空直推。
+    if not _wechat_share_master_enabled():
+        return {'status': 'skipped', 'msg': '微信分享总开关已关闭，请先在「微信分享」页开启后使用',
+                'created': 0, 'skipped': 0}
     config = config or _wechat_share_default_config()
     if not config.enabled and trigger_type == 'scheduled':
         return {'status': 'skipped', 'msg': '微信分享未启用', 'created': 0, 'skipped': 0}
@@ -22532,6 +22553,10 @@ def run_due_wechat_share_jobs():
     now_text = datetime.now().strftime('%H:%M')
     # BUG-2026-08-11-013：借助每分钟定时入口做图片 30 天保留清理（每日一次）
     _wechat_share_cleanup_old_images_daily()
+    # 总开关（2026-09-04）：暂时不用微信分享时一键停用全部定时分享；
+    # 图片保留清理与分享发送无关，仍正常执行（30 天自动清理不依赖开关）。
+    if not _wechat_share_master_enabled():
+        return
     configs = WechatShareConfig.query.filter_by(enabled=True).all()
     for config in configs:
         if config.share_time != now_text:
