@@ -18,6 +18,9 @@
  *     表单做模糊搜索（输入「电线」回车 → 列表显示所有包含「电线」的物料）；
  *     仅无 submit 标记的纯选择框保留「Enter 选中第一项」
  *   - 保留原 name 与表单行为，不改变后端参数
+ *   - 物料候选富展示（AI-WMS-FILTER-005）：物料（data-ks="material"）下拉项
+ *     两行展示——上行「编码 + 名称」、下行灰字「规格 · 品牌」，
+ *     四个字段均参与关键词高亮，方便按任意字段确认目标物料
  */
 (function (window, document) {
     'use strict';
@@ -178,6 +181,29 @@
         }
     }
 
+    // AI-WMS-FILTER-005：物料候选两行富展示——上行「编码 + 名称」、下行「规格 · 品牌」。
+    // 库存台账等页面输入「螺丝」时，含螺丝的物料的编码/名称/规格/品牌全部可见，
+    // 且四个字段均按关键词高亮（此前只显示编码 + 一段截断的规格文本，看不到名称）。
+    function renderMaterialItem(it, idx, kw) {
+        var code = it.code || '';
+        var name = it.name || '';
+        var spec = it.spec || '';
+        var brand = it.brand || '';
+        var main = code || name || it.label || '';
+        var extras = [];
+        if (spec) extras.push('规格 ' + highlight(spec, kw));
+        if (brand) extras.push('品牌 ' + highlight(brand, kw));
+        return '<div class="ks-item ks-item-rich" data-idx="' + idx + '">' +
+               '<div class="ks-rich-line1">' +
+               '<span class="ks-main">' + highlight(main, kw) + '</span>' +
+               (name && name !== main
+                   ? '<span class="ks-rich-name">' + highlight(name, kw) + '</span>' : '') +
+               '</div>' +
+               (extras.length
+                   ? '<div class="ks-rich-sub">' + extras.join(' · ') + '</div>' : '') +
+               '</div>';
+    }
+
     function renderMenu(input, items, kw) {
         menu._ksItems = items;
         menu._ksInput = input;
@@ -187,9 +213,14 @@
             menu.innerHTML = '<div class="ks-empty">' +
                 (kw ? '无匹配结果' : '暂无可选数据') + '</div>';
         } else {
+            var entity = input.getAttribute('data-ks') || '';
             var html = '';
             for (var i = 0; i < items.length; i++) {
                 var it = items[i];
+                if (entity === 'material') {
+                    html += renderMaterialItem(it, i, kw);
+                    continue;
+                }
                 var main = it.code || it.name || it.label || '';
                 var sub = it.sub || (it.code ? it.name : '');
                 html += '<div class="ks-item" data-idx="' + i + '">' +
@@ -366,6 +397,13 @@
             '.ks-sub{color:#94a3b8;font-size:12px;overflow:hidden;text-overflow:ellipsis;',
             'max-width:60%;white-space:nowrap}',
             '.ks-hl{background:#fde68a;color:#92400e;padding:0 1px;border-radius:2px}',
+            '.ks-item-rich{flex-direction:column;align-items:stretch;justify-content:flex-start;',
+            'gap:1px;white-space:normal}',
+            '.ks-rich-line1{display:flex;gap:8px;align-items:baseline;min-width:0;',
+            'white-space:nowrap;overflow:hidden}',
+            '.ks-rich-name{color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+            '.ks-rich-sub{color:#94a3b8;font-size:12px;overflow:hidden;text-overflow:ellipsis;',
+            'white-space:nowrap}',
             '.ks-empty{padding:10px;color:#94a3b8;text-align:center}',
             '.ks-input{background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 16 16\'%3E%3Cpath fill=\'%2394a3b8\' d=\'M1.5 4.5L8 11l6.5-6.5z\'/%3E%3C/svg%3E");',
             'background-repeat:no-repeat;background-position:right 8px center;padding-right:24px}'

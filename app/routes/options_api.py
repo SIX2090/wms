@@ -10,6 +10,10 @@
 统一返回：
     {"status":"success","data":[{"id":..,"code":..,"name":..,"sub":..,"label":..}]}
 
+物料（material）额外下发独立字段 spec / brand（AI-WMS-FILTER-005），
+供前端 quick-select 富展示「编码 + 名称 + 规格 + 品牌」；
+sub 仍保留（规格+品牌拼接文本），向后兼容。
+
 匹配能力（按优先级）：
 - 中文/编码子串匹配（编码、名称、规格、品牌等）
 - 拼音全拼匹配（dianlan -> 电缆）
@@ -126,13 +130,18 @@ def _build_entity_pool(entity):
         extras_text = ' '.join(
             str(getattr(r, f) or '').strip() for f in extras if getattr(r, f, None)
         )
-        pool.append(_mk_item(
+        item = _mk_item(
             getattr(r, 'id', None),
             getattr(r, cfield, ''),
             getattr(r, nfield, ''),
             extras_text,
             None,
-        ))
+        )
+        # AI-WMS-FILTER-005：extras 字段（物料 spec/brand）独立下发，
+        # 供前端富展示「编码+名称+规格+品牌」，不再只依赖 sub 拼接文本。
+        for f in extras:
+            item[f] = str(getattr(r, f) or '').strip()
+        pool.append(item)
     return pool
 
 
@@ -178,11 +187,20 @@ def _sql_like_pool(entity, kw):
     if not conds:
         return []
     rows = M.query.filter(db.or_(*conds)).limit(_MAX_SQL_ROWS).all()
-    return [
-        _mk_item(getattr(r, 'id', None), getattr(r, cfield, ''),
-                 getattr(r, nfield, ''), '', None)
-        for r in rows
-    ]
+    # AI-WMS-FILTER-005：sub 必须带 extras 拼接文本——此前 sub='' 导致
+    # 按规格/品牌关键词命中的行在 _score 阶段被误杀（_t 不含 extras），
+    # 大数据量（>5000）时按规格/品牌搜索永远空结果；同时独立下发 extras 字段。
+    items = []
+    for r in rows:
+        extras_text = ' '.join(
+            str(getattr(r, f) or '').strip() for f in extras if getattr(r, f, None)
+        )
+        item = _mk_item(getattr(r, 'id', None), getattr(r, cfield, ''),
+                        getattr(r, nfield, ''), extras_text, None)
+        for f in extras:
+            item[f] = str(getattr(r, f) or '').strip()
+        items.append(item)
+    return items
 
 
 def _get_pool(key, kw):
