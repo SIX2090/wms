@@ -49,6 +49,58 @@ def _table_exists(conn, table):
     return row is not None
 
 
+# BUG-2026-09-05-001：盘点域迁移列（INV-BATCH-001-A / 002）此前只由
+# app.py auto_migrate_database() 补列，而 start_wms_*.bat 默认 WMS_NO_DB_TOUCH=1
+# 会整体跳过它——存量库重启也补不上，物料编辑报 no such column:
+# inventory_check_item.counted_by。app.py 的 ensure_inventory_check_columns()
+# 已独立于开关启动期自愈；本脚本是 bat 启动时强制先跑的兜底层，一并补上
+# （双保险：即使换启动方式绕过 ensure 系列，这里也会补）。
+# 表名/列名均为固定白名单标识符（非用户输入），无注入风险。
+# 结构 (表名, PRAGMA 语句, ((列名, ALTER 语句), ...))，ALTER 片段必须与
+# app.py ensure_inventory_check_columns() 逐字一致（tests 断言防漂移）。
+_INVENTORY_CHECK_MIGRATIONS = (
+    ('inventory_check', 'PRAGMA table_info(inventory_check)', (
+        ('frozen_at',
+         'ALTER TABLE inventory_check ADD COLUMN frozen_at DATETIME'),
+    )),
+    ('inventory_check_item', 'PRAGMA table_info(inventory_check_item)', (
+        ('counted_by',
+         'ALTER TABLE inventory_check_item ADD COLUMN counted_by INTEGER'),
+        ('counted_at',
+         'ALTER TABLE inventory_check_item ADD COLUMN counted_at DATETIME'),
+        ('area',
+         "ALTER TABLE inventory_check_item ADD COLUMN area VARCHAR(100) DEFAULT ''"),
+    )),
+    ('inventory_check_scan', 'PRAGMA table_info(inventory_check_scan)', (
+        ('check_id',
+         'ALTER TABLE inventory_check_scan ADD COLUMN check_id INTEGER'),
+    )),
+    ('inventory_check_scan_item', 'PRAGMA table_info(inventory_check_scan_item)', (
+        ('area',
+         "ALTER TABLE inventory_check_scan_item ADD COLUMN area VARCHAR(100) DEFAULT ''"),
+    )),
+)
+
+
+def _ensure_inventory_check_columns(conn):
+    """补齐盘点域迁移列（BUG-2026-09-05-001，与 app.py ensure_inventory_check_columns 对齐）。
+
+    幂等：PRAGMA 判断列已存在则不 ALTER。只 ADD 可空列，不动存量数据。
+    表不存在（全新空库）跳过，交给启动期 db.create_all() 建全量列。
+    """
+    for tbl, pragma_stmt, col_stmts in _INVENTORY_CHECK_MIGRATIONS:
+        if not _table_exists(conn, tbl):
+            continue
+        cols = [r[1] for r in conn.execute(pragma_stmt).fetchall()]
+        for col, alter_stmt in col_stmts:
+            if col in cols:
+                logger.info('%s.%s 已存在', tbl, col)
+                continue
+            conn.execute(alter_stmt)
+            conn.commit()
+            logger.info('已添加 %s.%s', tbl, col)
+
+
 def fix_columns(db_path=None):
     """修复数据库缺失字段。
 
@@ -131,6 +183,9 @@ def fix_columns(db_path=None):
 
     # material_image 表（WMS_NO_DB_TOUCH=1 场景下手动建表，避免 no such table）
     _ensure_material_image_table(conn)
+
+    # BUG-2026-09-05-001：盘点域补列（bat 强制先跑的兜底层，双保险）
+    _ensure_inventory_check_columns(conn)
 
     conn.close()
 

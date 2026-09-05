@@ -163,3 +163,124 @@ def test_fix_columns_skips_missing_tables(temp_db):
     conn.close()
 
     fix_columns(db_path=temp_db)  # 不应抛出异常
+
+
+# ---- BUG-2026-09-05-001：盘点域补列（双保险，bat 强制先跑的兜底层）----
+
+_OLD_CHECK_SCHEMA = """
+CREATE TABLE inventory_check (
+    id INTEGER PRIMARY KEY, check_no TEXT, status TEXT, warehouse TEXT
+);
+CREATE TABLE inventory_check_item (
+    id INTEGER PRIMARY KEY, inventory_check_id INTEGER, material_id INTEGER,
+    system_stock REAL, actual_stock REAL, difference REAL, reason TEXT
+);
+CREATE TABLE inventory_check_scan (
+    id INTEGER PRIMARY KEY, scan_no TEXT, warehouse TEXT, status TEXT
+);
+CREATE TABLE inventory_check_scan_item (
+    id INTEGER PRIMARY KEY, scan_id INTEGER, material_id INTEGER,
+    actual_stock REAL
+);
+"""
+
+_CHECK_EXPECTED = (
+    ('inventory_check', ('frozen_at',)),
+    ('inventory_check_item', ('counted_by', 'counted_at', 'area')),
+    ('inventory_check_scan', ('check_id',)),
+    ('inventory_check_scan_item', ('area',)),
+)
+
+
+@pytest.fixture
+def old_check_db(tmp_path):
+    """构造缺盘点域列的旧库（含存量数据）。
+
+    同时建出 fix_columns 前置依赖的 out_order/in_order/production_requisition
+    表（脚本开头直接 PRAGMA 这三张表，不存在会报错；加表后才能走到盘点段）。
+    """
+    path = str(tmp_path / 'check_old.db')
+    conn = sqlite3.connect(path)
+    conn.executescript(_OLD_CHECK_SCHEMA)
+    conn.executescript(
+        """
+        CREATE TABLE out_order (id INTEGER PRIMARY KEY, order_no TEXT);
+        CREATE TABLE in_order (id INTEGER PRIMARY KEY, order_no TEXT);
+        CREATE TABLE production_requisition (id INTEGER PRIMARY KEY, req_no TEXT);
+        """
+    )
+    conn.execute(
+        "INSERT INTO inventory_check_item"
+        "(id, inventory_check_id, material_id, system_stock, actual_stock,"
+        " difference, reason) VALUES (1, 1, 43, 10, 8, -2, '旧数据')"
+    )
+    conn.commit()
+    conn.close()
+    return path
+
+
+def _check_cols(db_path, table):
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute('PRAGMA table_info(%s)' % table).fetchall()
+    conn.close()
+    return [r[1] for r in rows]
+
+
+def test_fix_columns_adds_inventory_check_columns(old_check_db):
+    """fix_columns 应补齐盘点域全部缺列（BUG-2026-09-05-001 双保险）。"""
+    fix_columns(db_path=old_check_db)
+    for table, cols in _CHECK_EXPECTED:
+        cur = _check_cols(old_check_db, table)
+        for col in cols:
+            assert col in cur, f'未补齐: {table}.{col}'
+    # 存量数据不受影响
+    conn = sqlite3.connect(old_check_db)
+    row = conn.execute(
+        "SELECT system_stock, reason FROM inventory_check_item WHERE id = 1"
+    ).fetchone()
+    conn.close()
+    assert row == (10, '旧数据')
+
+
+def test_fix_columns_inventory_check_idempotent(old_check_db):
+    """盘点补列重复执行不报错、不重复 ALTER。"""
+    fix_columns(db_path=old_check_db)
+    before = {
+        table: _check_cols(old_check_db, table)
+        for table, _ in _CHECK_EXPECTED
+    }
+    fix_columns(db_path=old_check_db)
+    fix_columns(db_path=old_check_db)
+    after = {
+        table: _check_cols(old_check_db, table)
+        for table, _ in _CHECK_EXPECTED
+    }
+    assert before == after
+
+
+def test_fix_columns_ddl_matches_app_py_and_standalone_script():
+    """防漂移：fix_db_columns 盘点补列 DDL 必须与 app.py ensure_inventory_check_columns
+    及 app/fix_inventory_check_columns.py 的清单完全一致（R6 机制级防复发）。"""
+    from app.fix_db_columns import _INVENTORY_CHECK_MIGRATIONS as fixdb_ddl
+    from app.fix_inventory_check_columns import (
+        CHECK_COLUMN_MIGRATIONS as standalone_ddl,
+    )
+
+    # 结构展开成 {(表名, 列名): DDL} 便于比对
+    def flat(migs):
+        return {
+            (tbl, col): stmt
+            for tbl, _pragma, col_stmts in migs
+            for col, stmt in col_stmts
+        }
+
+    assert flat(fixdb_ddl) == flat(standalone_ddl), (
+        'fix_db_columns 与 fix_inventory_check_columns 清单不一致'
+    )
+
+    # 与 app.py ensure_inventory_check_columns 的 ALTER 逐字一致
+    app_src = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'app', 'app.py')
+    with open(app_src, encoding='utf-8') as f:
+        src = f.read()
+    for (_tbl, _col), stmt in flat(fixdb_ddl).items():
+        assert stmt in src, f'fix_db_columns DDL 与 app.py 不一致: {stmt}'
