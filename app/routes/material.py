@@ -847,7 +847,9 @@ def register_material_routes(app):
     def export_material():
         from app import (
             Material,
+            MaterialCategory,
             _material_low_stock_filter,
+            build_category_tree_rows,
             export_max_rows,
             inventory_alert_enabled,
         )
@@ -870,6 +872,12 @@ def register_material_routes(app):
             sort_by = 'created_at'
         if sort_order not in ('asc', 'desc'):
             sort_order = 'desc'
+        # BUG-2026-09-05-004：导出此前完全不读 category_id——分类树筛选后
+        # 点导出（app.js buildCurrentFilteredUrl 会把 category_id 拼进 URL）
+        # 得到的却是全量物料，页面与导出结果不一致（BUG-2026-08-29-003 同根因
+        # 「页面筛选条件未被导出接口接收」在物料域的消费点）。此处逐字镜像
+        # material_list 的分类子树展开逻辑，保证页导一致。
+        category_id = request.args.get('category_id', type=int) or 0
         query = Material.query.options(joinedload(Material.category), joinedload(Material.unit), joinedload(Material.supplier))
         if search:
             query = query.filter(
@@ -880,6 +888,18 @@ def register_material_routes(app):
                     Material.spec.like(f'%{search}%')
                 )
             )
+        if category_id:
+            all_categories = MaterialCategory.query.all()
+            category_rows = build_category_tree_rows(all_categories)
+            category_descendants = {}
+            for row in reversed(category_rows):
+                cat = row['category']
+                ids = [cat.id]
+                for child in all_categories:
+                    if child.parent_id == cat.id:
+                        ids.extend(category_descendants.get(child.id, [child.id]))
+                category_descendants[cat.id] = sorted(set(ids))
+            query = query.filter(Material.category_id.in_(category_descendants.get(category_id, [category_id])))
         if stock_filter == 'low':
             query = query.filter(_material_low_stock_filter())
         sort_column = getattr(Material, sort_by, Material.created_at)
@@ -888,7 +908,7 @@ def register_material_routes(app):
         total_rows = query.count()
         if total_rows > max_rows:
             flash(f'当前筛选结果 {total_rows} 条，超过系统参数设置的导出上限 {max_rows} 条，请缩小筛选范围后再导出。', 'warning')
-            return redirect(url_for('material_list', search=search, stock_filter=stock_filter, sort=sort_by, order=sort_order))
+            return redirect(url_for('material_list', search=search, stock_filter=stock_filter, category_id=category_id, sort=sort_by, order=sort_order))
         for m in query.all():
             row = [m.code, m.name, m.brand or '', m.spec or '', m.unit.name if m.unit else '', m.category.name if m.category else '', m.supplier.name if m.supplier else '', m.stock or 0, m.price or 0]
             if inventory_alert_enabled():
