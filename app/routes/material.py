@@ -590,31 +590,31 @@ def register_material_routes(app):
             if bom_records:
                 cascade_info.append(f'BOM {len(bom_records)} 条')
 
-            # 3. 更新入库单明细（InOrderItem 无冗余 code/name/spec 字段，跳过）
-            in_items = InOrderItem.query.filter_by(material_id=id).all()
-            # InOrderItem 仅持有 material_id 外键，物料主数据变化时无需冗余同步
-            if in_items:
-                cascade_info.append(f'入库单 {len(in_items)} 条（仅关联，无冗余字段）')
+            # 3~7 项均只统计关联条数用于提示（无冗余字段需同步）。
+            # BUG-2026-09-05-001/R6：数据库与代码不同步（如库存盘点域缺
+            # counted_by 列）时整段查询会抛 OperationalError，把"改个物料名称"
+            # 打成 500。统计失败只记日志并跳过该项提示，不阻断保存。
+            def _append_related_count(model, label):
+                try:
+                    n = model.query.filter_by(material_id=id).count()
+                except Exception as _count_exc:
+                    current_app.logger.warning(
+                        '物料编辑级联统计跳过（%s，视为无关联）: %s', label, _count_exc)
+                    return 0
+                if n:
+                    cascade_info.append(f'{label} {n} 条（仅关联，无冗余字段）')
+                return n
 
-            # 4. 更新领料单明细（OutOrderItem 无冗余 code/name/spec 字段，跳过）
-            out_items = OutOrderItem.query.filter_by(material_id=id).all()
-            if out_items:
-                cascade_info.append(f'领料单 {len(out_items)} 条（仅关联，无冗余字段）')
-
-            # 5. 更新盘点单明细（InventoryCheckItem 无冗余字段，跳过）
-            check_items = InventoryCheckItem.query.filter_by(material_id=id).all()
-            if check_items:
-                cascade_info.append(f'盘点单 {len(check_items)} 条（仅关联，无冗余字段）')
-
-            # 6. 更新委外加工明细（SubcontractItem 无冗余字段，跳过）
-            subcontract_items = SubcontractItem.query.filter_by(material_id=id).all()
-            if subcontract_items:
-                cascade_info.append(f'委外单 {len(subcontract_items)} 条（仅关联，无冗余字段）')
-
-            # 7. 更新BOM子项明细（BOMItem 无冗余字段，跳过）
-            bom_items = BOMItem.query.filter_by(material_id=id).all()
-            if bom_items:
-                cascade_info.append(f'BOM子项 {len(bom_items)} 条（仅关联，无冗余字段）')
+            # 3. 入库单明细（InOrderItem 仅持有 material_id 外键，无需冗余同步）
+            _append_related_count(InOrderItem, '入库单')
+            # 4. 领料单明细（OutOrderItem 无冗余 code/name/spec 字段）
+            _append_related_count(OutOrderItem, '领料单')
+            # 5. 盘点单明细（InventoryCheckItem 无冗余字段）
+            _append_related_count(InventoryCheckItem, '盘点单')
+            # 6. 委外加工明细（SubcontractItem 无冗余字段）
+            _append_related_count(SubcontractItem, '委外单')
+            # 7. BOM子项明细（BOMItem 无冗余字段）
+            _append_related_count(BOMItem, 'BOM子项')
 
         try:
             db.session.commit()

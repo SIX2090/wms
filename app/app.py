@@ -1748,6 +1748,111 @@ def ensure_stock_transaction_warehouse_id_column(db_path: str | None = None):
                 pass
 
 
+def ensure_inventory_check_columns(db_path: str | None = None):
+    """启动期无条件补齐盘点域迁移列（BUG-2026-09-05-001）。
+
+    背景：INV-BATCH-001-A / INV-BATCH-002 引入的批次冻结与行级盘点归属列
+    （inventory_check.frozen_at、inventory_check_item.counted_by /
+    counted_at / area、inventory_check_scan.check_id、
+    inventory_check_scan_item.area）只在 ``auto_migrate_database()`` 里
+    ADD COLUMN。而 ``start_wms_offline.bat`` 等启动脚本默认
+    ``WMS_NO_DB_TOUCH=1``，``auto_migrate_database()`` 被
+    ``startup_db_upgrade_disabled()`` 跳过，``fix_db_columns.py`` 又完全不含
+    盘点表补列——存量生产库重启也补不上，物料编辑保存时级联统计查询
+    ``InventoryCheckItem.query.filter_by(material_id=id)`` 命中缺列直接
+    ``sqlite3.OperationalError: no such column:
+    inventory_check_item.counted_by`` → 编辑物料 500。
+
+    本函数仿照 ``ensure_print_job_columns`` /
+    ``ensure_stock_transaction_warehouse_id_column``：独立 sqlite 连接、
+    独立于迁移开关无条件执行、幂等（PRAGMA table_info 判断已存在则不
+    ALTER），列片段与 ``auto_migrate_database()`` 的 ALTER 语句逐字一致。
+
+    R6：该根因（迁移列只在 auto_migrate_database 里 ADD）已实证复发 4 次
+    （print_job / stock_transaction / excel_print_template / 本处），故此处
+    一次性覆盖盘点域全部新增列，而非只补报错的那一列。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            # 全新部署：库文件还没建，交给 initialize_database/create_all 建全量表
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=60000')
+        # (表名, 列信息语句, ((列名, ALTER 语句), ...))
+        # 表名/列名均为本文件固定白名单标识符（非用户输入），无注入风险。
+        _check_column_migrations = (
+            ('inventory_check', 'PRAGMA table_info(inventory_check)', (
+                ('frozen_at',
+                 'ALTER TABLE inventory_check ADD COLUMN frozen_at DATETIME'),
+            )),
+            ('inventory_check_item', 'PRAGMA table_info(inventory_check_item)', (
+                ('counted_by',
+                 'ALTER TABLE inventory_check_item ADD COLUMN counted_by INTEGER'),
+                ('counted_at',
+                 'ALTER TABLE inventory_check_item ADD COLUMN counted_at DATETIME'),
+                ('area',
+                 "ALTER TABLE inventory_check_item ADD COLUMN area VARCHAR(100) DEFAULT ''"),
+            )),
+            ('inventory_check_scan', 'PRAGMA table_info(inventory_check_scan)', (
+                ('check_id',
+                 'ALTER TABLE inventory_check_scan ADD COLUMN check_id INTEGER'),
+            )),
+            ('inventory_check_scan_item', 'PRAGMA table_info(inventory_check_scan_item)', (
+                ('area',
+                 "ALTER TABLE inventory_check_scan_item ADD COLUMN area VARCHAR(100) DEFAULT ''"),
+            )),
+        )
+        added_cols = []
+        for _tbl, _pragma, _col_stmts in _check_column_migrations:
+            exists = cur.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (_tbl,),
+            ).fetchone()
+            if not exists:
+                # 表不存在 → 全新库，交给 create_all 建表
+                continue
+            cur.execute(_pragma)
+            cols = {r['name'] for r in cur.fetchall()}
+            if not cols:
+                continue
+            for _col, _stmt in _col_stmts:
+                if _col in cols:
+                    continue
+                cur.execute(_stmt)
+                cols.add(_col)
+                added_cols.append(f'{_tbl}.{_col}')
+        if added_cols:
+            conn.commit()
+            logging.getLogger(__name__).info(
+                '[DB] 盘点域已补缺列（BUG-2026-09-05-001）: %s' % ', '.join(added_cols))
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_inventory_check_columns 补列失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 app = Flask(__name__)
 
 # Use config.py settings uniformly
@@ -1907,6 +2012,14 @@ ensure_print_job_columns()
 # 库存台账/仓库月报/库存汇总按仓库查询即 500（no such column: stock_transaction.warehouse_id）。
 # 独立于迁移开关无条件执行，幂等补列 + 索引。
 ensure_stock_transaction_warehouse_id_column()
+
+# BUG-2026-09-05-001：同理，INV-BATCH-001-A/002 的盘点域迁移列
+# （inventory_check.frozen_at、inventory_check_item.counted_by / counted_at /
+# area、inventory_check_scan.check_id、inventory_check_scan_item.area）
+# 只在 auto_migrate_database 里 ADD，WMS_NO_DB_TOUCH=1 时存量库重启补不上，
+# 物料编辑保存的级联统计查询即报 no such column: inventory_check_item.counted_by。
+# 独立于迁移开关无条件执行，幂等补列。
+ensure_inventory_check_columns()
 
 # BUG-2026-08-22-001：同理，WMS_NO_DB_TOUCH=1 跳过 db.create_all() 时，
 # 存量库永远建不出 excel_print_template 表，「Excel打印模板中心」打开即 500。
