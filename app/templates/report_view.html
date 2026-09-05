@@ -388,7 +388,10 @@ function renderTable(columns, rows) {
             if (link && value !== null && value !== undefined && value !== '') {
                 // 新标签页打开单据详情，库存台账/各报表页保留不关闭；
                 // rel=noopener 防新页面通过 window.opener 操控报表页（同时满足现代浏览器 _blank 安全提示）
-                return `<td data-column-key="${escapeHtml(key)}"><a class="report-doc-link" href="${escapeHtml(link)}" target="_blank" rel="noopener">${escapeHtml(displayValue)}</a></td>`;
+                // BUG-2026-09-05-002：data-doc-title 供应用内标签页命名（台账行优先用单据类型标签，如「入库单 IN26080009」）
+                const docLabel = row.reference_type ? String(row.reference_type) : String(column.title);
+                const docTitle = escapeHtml(`${docLabel} ${displayValue}`);
+                return `<td data-column-key="${escapeHtml(key)}"><a class="report-doc-link" href="${escapeHtml(link)}" target="_blank" rel="noopener" data-doc-title="${docTitle}">${escapeHtml(displayValue)}</a></td>`;
             }
             return `<td data-column-key="${escapeHtml(key)}">${escapeHtml(displayValue)}</td>`;
         }).join('');
@@ -396,8 +399,44 @@ function renderTable(columns, rows) {
     }).join('');
 
     tableBody.innerHTML = html;
+    // BUG-2026-09-05-002：应用内打开时，单据详情改在应用标签栏新开标签页，报表页保持不动
+    bindReportDocLinks();
     // 字段设置：应用已保存的列隐藏 / 排序 / 显示名（报表表格为动态渲染，需每次渲染后重新接管）。
     applyReportFieldSettings();
+}
+
+// BUG-2026-09-05-002：报表单据链接优先在应用标签栏新开标签页打开详情。
+// 报表页运行在标签工作区的 iframe 中（父窗口存在 WmsTabs）时，拦截点击改用
+// window.parent.WmsTabs.open——库存台账等报表页所在标签完全不跳转，
+// 筛选条件 / 查询结果 / 页码原样保留（「从库存台账进入库单，台账页不要有变化」）；
+// Ctrl/Cmd/Shift+点击、中键或独立浏览器（无父级 WmsTabs）打开时，
+// 仍按 target="_blank" 新开浏览器标签页（沿用 BUG-2026-08-25-002 的兜底行为）。
+function bindReportDocLinks() {
+    let parentTabs = null;
+    try {
+        if (window.parent && window.parent !== window && window.parent.WmsTabs) {
+            parentTabs = window.parent.WmsTabs;
+        }
+    } catch (e) {
+        parentTabs = null;
+    }
+    if (!parentTabs || !tableBody) {
+        return;
+    }
+    tableBody.querySelectorAll('a.report-doc-link').forEach((link) => {
+        link.addEventListener('click', (event) => {
+            if (event.ctrlKey || event.metaKey || event.shiftKey) {
+                return; // 显式要求新浏览器标签页时放行默认 _blank 行为
+            }
+            const href = link.getAttribute('href');
+            if (!href) {
+                return;
+            }
+            event.preventDefault();
+            const title = (link.dataset.docTitle || link.textContent || '').trim() || '单据详情';
+            parentTabs.open(href, title);
+        });
+    });
 }
 
 // 字段设置：读取 localStorage 中该报表已保存的列设置，应用到当前渲染的表格。
