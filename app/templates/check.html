@@ -158,14 +158,22 @@
                             {% endfor %}
                         </select>
                     </div>
-                    {# FEATURE-2026-09-05-001：可选盘点分类——选中后按分类（含子分类）自动生成待盘明细 #}
+                    {# FEATURE-2026-09-05-001/002：可选盘点范围——按分类（含子分类）或整仓全部物料自动生成待盘明细 #}
                     <div class="mb-3">
-                        <label class="form-label">盘点分类（可选）</label>
+                        <label class="form-label">盘点范围（可选）</label>
+                        <select class="form-select" name="scope" id="addScopeSelect">
+                            <option value="">不预生成明细（建空单，手机扫码自动加行）</option>
+                            <option value="all">整仓全部物料（全盘）</option>
+                            <option value="category">按分类生成（含子分类）</option>
+                        </select>
+                    </div>
+                    <div class="mb-3 d-none" id="addCategoryWrap">
+                        <label class="form-label">盘点分类</label>
                         <input type="text" class="form-control" id="addCategoryInput"
                                data-ks="category" data-ks-put="name" data-ks-id="#addCategoryId"
                                placeholder="输入分类名称/编码选择，如「电线」" autocomplete="off">
                         <input type="hidden" name="category_id" id="addCategoryId">
-                        <small class="text-muted">选择后按该分类（含子分类）自动生成全部物料的待盘明细，便于核对漏盘；留空则建空单，手机扫码时自动加行</small>
+                        <small class="text-muted">按该分类（含子分类）自动生成全部物料的待盘明细，账面 0 也建行，便于核对漏盘</small>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">备注（可选）</label>
@@ -362,6 +370,22 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // 创建盘点单
+    // FEATURE-2026-09-05-002：盘点范围联动——选"按分类"才显示分类选择器，切走即清空
+    var addScopeSelect = document.getElementById('addScopeSelect');
+    if (addScopeSelect) {
+        addScopeSelect.addEventListener('change', function() {
+            var wrap = document.getElementById('addCategoryWrap');
+            var show = this.value === 'category';
+            if (wrap) wrap.classList.toggle('d-none', !show);
+            if (!show) {
+                var hid = document.getElementById('addCategoryId');
+                var inp = document.getElementById('addCategoryInput');
+                if (hid) hid.value = '';
+                if (inp) inp.value = '';
+            }
+        });
+    }
+
     const addForm = document.getElementById('addForm');
     if (addForm) {
         addForm.addEventListener('submit', function(e) {
