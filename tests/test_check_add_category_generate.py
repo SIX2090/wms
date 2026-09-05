@@ -237,13 +237,16 @@ def test_t5_uncounted_rows_no_adjustment_counted_row_adjusts():
     r = _post_add_check(client, category_id=cat_wire.id)
     check = db.session.get(InventoryCheck, r.get_json()["id"])
 
-    # 5a：全部未盘 → 完成盘点：成功、无调整草稿
-    r_done = client.post(f"/check/{check.id}/complete")
+    # 5a：全部未盘 → 完成盘点：成功、无调整草稿（BUG-2026-09-06-001
+    # 修复后纯 PC 录入需 force=1 显式确认；手机补盘行写 counted_at 后
+    # 无需 force，本测试 5b 步骤验证该路径）
+    r_done = client.post(f"/check/{check.id}/complete", json={"force": 1})
     assert r_done.status_code == 200, r_done.get_data(as_text=True)
     assert "无库存差异" in r_done.get_json()["msg"]
     assert AdjustmentOrder.query.filter_by(source_type="check", source_id=check.id).count() == 0
 
     # 5b：反提交回 pending，手机扫码盘 m1（实盘 7，账面 10）→ 完成只调 m1
+    # （m2 未盘，新设计下应弹 confirm；本步用 force=1 模拟用户确认放过）
     r_revert = client.post(f"/check/{check.id}/revert")
     assert r_revert.status_code == 200, r_revert.get_data(as_text=True)
     h = _bearer(client)
@@ -252,7 +255,11 @@ def test_t5_uncounted_rows_no_adjustment_counted_row_adjusts():
         "actual_stock": 7, "check_id": check.id,
     })
     assert r_scan.status_code == 200, r_scan.get_data(as_text=True)
-    r_done2 = client.post(f"/check/{check.id}/complete")
+    # 不带 force 应弹 confirm（仅 m2 未盘）
+    r_confirm = client.post(f"/check/{check.id}/complete")
+    assert r_confirm.get_json().get("status") == "confirm"
+    assert r_confirm.get_json().get("count") == 1
+    r_done2 = client.post(f"/check/{check.id}/complete", json={"force": 1})
     assert r_done2.status_code == 200, r_done2.get_data(as_text=True)
     adjs = AdjustmentOrder.query.filter_by(source_type="check", source_id=check.id).all()
     assert len(adjs) == 1
