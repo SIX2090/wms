@@ -1097,7 +1097,10 @@ def register_check_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '盘点单'
-        ws.append(['单据编号', '日期', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异数量', '备注'])
+        # BUG-2026-09-05-006：补「盘点人/盘点时间」两列——页面早有行级盘点归属
+        # 回查（INV-BATCH-001-D），导出却没有，Excel 里无法筛漏盘行；末列表头
+        # 由「备注」正名为「差异原因」（写入的一直是 item.reason，且与导入别名对齐）。
+        ws.append(['单据编号', '日期', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异数量', '差异原因', '盘点人', '盘点时间'])
         if check.items:
             for item in check.items:
                 ws.append([
@@ -1110,7 +1113,9 @@ def register_check_routes(app):
                     item.system_stock or 0,
                     item.actual_stock or 0,
                     item.difference or 0,
-                    item.reason or ''
+                    item.reason or '',
+                    item.counted_by_user.username if getattr(item, 'counted_by_user', None) else '',
+                    item.counted_at.strftime('%Y-%m-%d %H:%M') if getattr(item, 'counted_at', None) else ''
                 ])
         output = io.BytesIO()
         wb.save(output)
