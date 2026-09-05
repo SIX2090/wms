@@ -36,6 +36,26 @@ from db import db
 from utils import require_role
 
 
+# no-test:reason=纯查询展开辅助，能力由 test_check_add_category_generate 测试覆盖
+def _expand_check_category_ids(root_id):
+    """展开分类及其全部子孙分类 id（FEATURE-2026-09-05-001）。
+
+    分类为树形（MaterialCategory.parent_id），BFS 逐层取子级；
+    seen 集合防 parent_id 脏数据成环导致死循环。
+    """
+    from app import MaterialCategory
+    seen = {root_id}
+    frontier = [root_id]
+    while frontier:
+        rows = (MaterialCategory.query
+                .filter(MaterialCategory.parent_id.in_(frontier))
+                .with_entities(MaterialCategory.id)
+                .all())
+        frontier = [cid for (cid,) in rows if cid not in seen]
+        seen.update(frontier)
+    return list(seen)
+
+
 # no-test:reason=路由注册辅助函数，能力由 check_* 各路由测试覆盖
 def register_check_routes(app):
     @app.route('/check')
@@ -257,10 +277,13 @@ def register_check_routes(app):
     @require_role('warehouse')
     @login_required
     def add_check():
+        from datetime import datetime
         from flask_login import current_user
-        from app import (InventoryCheck, api_error, generate_order_no,
-                         get_default_warehouse, log_operation,
-                         validate_inventory_warehouse)
+        from app import (InventoryCheck, InventoryCheckItem, Material,
+                         MaterialCategory, api_error, generate_order_no,
+                         get_default_warehouse, get_warehouse_stock_quantities,
+                         import_max_rows, log_operation,
+                         normalize_stock_quantity, validate_inventory_warehouse)
         try:
             remark = (request.form.get('remark') or '').strip()
             # BUG-2026-08-02-013：仓库必填，未填写时自动带入默认仓库
@@ -276,6 +299,27 @@ def register_check_routes(app):
             if wh_err:
                 return api_error(wh_err)
             warehouse = wh_obj.name
+            # FEATURE-2026-09-05-001：可选盘点分类。选中后按分类（含子分类）
+            # 为分类下全部物料预生成"未盘"明细行（actual=system、counted_at 空）：
+            # 账面 0 也建行——账面 0 实物有货正是要盘出的盘盈；未盘行差异恒 0，
+            # 完成盘点不生成调整，详情页可按"盘点人/时间"列核对漏盘。
+            category = None
+            materials = []
+            category_id = request.form.get('category_id', type=int) or 0
+            if category_id:
+                category = db.session.get(MaterialCategory, category_id)
+                if category is None:
+                    return api_error('所选分类不存在，请重新选择')
+                cat_ids = _expand_check_category_ids(category_id)
+                materials = (Material.query
+                             .filter(Material.category_id.in_(cat_ids))
+                             .order_by(Material.code.asc())
+                             .all())
+                max_rows = import_max_rows()
+                if len(materials) > max_rows:
+                    return api_error(
+                        f'分类「{category.name}」（含子分类）共 {len(materials)} 个物料，'
+                        f'超过单次建单上限 {max_rows} 个，请改用更细的分类或分批建单')
             check_no = generate_order_no('CK')
             check = InventoryCheck(
                 check_no=check_no,
@@ -285,12 +329,36 @@ def register_check_routes(app):
                 operator_id=current_user.id
             )
             db.session.add(check)
+            db.session.flush()
+            if materials:
+                wh_stock_map = get_warehouse_stock_quantities(wh_obj)
+                for m in materials:
+                    book_qty = normalize_stock_quantity(wh_stock_map.get(m.id) or 0)
+                    db.session.add(InventoryCheckItem(
+                        inventory_check_id=check.id,
+                        material_id=m.id,
+                        system_stock=book_qty,
+                        actual_stock=book_qty,
+                        difference=0,
+                    ))
+                # 明细在建单时写入，账面同步冻结（与 save_check_table 首次写入语义一致）
+                check.frozen_at = datetime.now()
             try:
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
                 app.logger.error(f'数据库操作失败: {e}')
                 return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'}), 500
+            if category is not None:
+                log_operation('盘点单创建',
+                              f'盘点单：{check.check_no}，按分类「{category.name}」生成 {len(materials)} 行待盘明细',
+                              'check', check.id)
+                return jsonify({
+                    'status': 'success', 'id': check.id,
+                    'msg': (f'盘点单已创建，按分类「{category.name}」（含子分类）生成 '
+                            f'{len(materials)} 行待盘明细' if materials else
+                            f'分类「{category.name}」下暂无物料，已创建空盘点单'),
+                })
             log_operation('盘点单创建', f'盘点单：{check.check_no}', 'check', check.id)
             return jsonify({'status': 'success', 'id': check.id})
         except Exception as e:

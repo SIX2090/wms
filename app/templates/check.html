@@ -158,6 +158,15 @@
                             {% endfor %}
                         </select>
                     </div>
+                    {# FEATURE-2026-09-05-001：可选盘点分类——选中后按分类（含子分类）自动生成待盘明细 #}
+                    <div class="mb-3">
+                        <label class="form-label">盘点分类（可选）</label>
+                        <input type="text" class="form-control" id="addCategoryInput"
+                               data-ks="category" data-ks-put="name" data-ks-id="#addCategoryId"
+                               placeholder="输入分类名称/编码选择，如「电线」" autocomplete="off">
+                        <input type="hidden" name="category_id" id="addCategoryId">
+                        <small class="text-muted">选择后按该分类（含子分类）自动生成全部物料的待盘明细，便于核对漏盘；留空则建空单，手机扫码时自动加行</small>
+                    </div>
                     <div class="mb-3">
                         <label class="form-label">备注（可选）</label>
                         <textarea class="form-control" name="remark" rows="2"></textarea>
@@ -368,7 +377,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (res.status === 'success'){
                     const addModal = bootstrap.Modal.getInstance(document.getElementById('addModal'));
                     addModal.hide();
-                    showToast('盘点单已创建，正在刷新列表…', 'success');
+                    showToast((res.msg || '盘点单已创建') + '，正在刷新列表…', 'success');
                     setTimeout(function(){ location.reload(); }, 650);
                 } else {
                     showToast(res.msg || '创建失败', 'danger', 3600);
