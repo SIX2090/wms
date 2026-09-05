@@ -90,6 +90,81 @@ def _check_uncounted_alerts(check):
     return len(uncounted), len(rows), samples
 
 
+# no-test:reason=纯统计辅助，能力由 test_bug_2026_09_06_002 覆盖
+def _check_period_movement_alerts(check):
+    """统计盘点单冻结期间的本仓库本盘点单物料出入库净变动（BUG-2026-09-06-002）。
+
+    冻结口径下，过账后账面 = 实盘 − 期间净变动。但系统此前对盘点期间是
+    否发生出入库（采购入库/销售出库/调拨/其他调整等外部单据）完全不查，
+    用户完成盘点后才发现账面与实物对不上，无法回溯。盘点过程本身（PC
+    录入、手机扫码）只写 InventoryCheckItem，不写流水，因此流水变动必
+    来自盘点单之外的业务单据。
+
+    实现要点：
+    - 仅统计本盘点单所属仓库（``check.warehouse == stock_txn.warehouse``）
+      的流水；历史脏数据（warehouse_id 为 NULL）按 R2 不归入任意仓库，
+      因此不计入动销；
+    - 仅盘点单涉及的物料（item.material_id in (...)），避免无关注入；
+    - 时间窗：``check.frozen_at`` → ``now``；frozen_at 为空时直接放行
+      （按设计 frozen_at 在首次保存时由 save_check_table 设置，遗留
+      老单据无 frozen_at 是已知的脏数据，不强制拦截）；
+    - ``reference_type == 'check'`` 且 ``reference_id == check.id`` 的
+      流水来自盘点单自身（理论上不会产生，但防御性排除）；
+    - 净变动按物料聚合 SUM(quantity)，quantity 本身有正负（in +，out -）。
+
+    返回 (has_movement, moved_material_count, samples[{code, name, net}])。
+    has_movement = 至少一个物料的 |net| > STOCK_COMPARE_EPSILON。
+    """
+    from app import StockTransaction
+    from app.utils import normalize_stock_quantity
+
+    if not check.frozen_at or not check.warehouse:
+        return False, 0, []
+
+    material_ids = [it.material_id for it in (check.items or []) if it.material_id]
+    if not material_ids:
+        return False, 0, []
+
+    # 单条 SQL：按物料 SUM(quantity)，限定仓库 + 物料 + 时间窗 + 排除盘点单自身
+    # 排除条件必须显式处理 NULL：reference_type 为 NULL 的流水（盘点过程本身不
+    # 写流水，但其他外部单据历史脏数据可能 NULL）不能因 NOT (... AND ...) 的
+    # 三值逻辑被全部误杀。这里用 OR 拆开：ref_type != 'check' OR ref_id != self
+    # 才视为"非自身"——任一为 NULL 仍判 True。
+    q = (db.session.query(
+            StockTransaction.material_id,
+            db.func.sum(StockTransaction.quantity).label('net'))
+         .filter(StockTransaction.material_id.in_(material_ids))
+         .filter(StockTransaction.created_at >= check.frozen_at)
+         .filter(db.or_(
+             StockTransaction.reference_type != 'check',
+             StockTransaction.reference_type.is_(None),
+             StockTransaction.reference_id != check.id,
+             StockTransaction.reference_id.is_(None),
+         ))
+         .group_by(StockTransaction.material_id))
+    # 按仓库过滤：warehouse_id 与本盘点单仓库一致；历史脏数据 NULL 不计入
+    from app import Warehouse
+    wh = Warehouse.query.filter_by(name=check.warehouse).first()
+    if wh is not None:
+        q = q.filter(StockTransaction.warehouse_id == wh.id)
+    rows = q.all()
+
+    moved = []
+    for material_id, net in rows:
+        net_n = normalize_stock_quantity(net or 0)
+        if abs(net_n) <= 1e-6:
+            continue
+        # 取物料编码/名称
+        item = next((it for it in check.items if it.material_id == material_id), None)
+        code = item.material.code if item and item.material else ''
+        name = item.material.name if item and item.material else ''
+        moved.append({'code': code, 'name': name, 'net': net_n})
+
+    if not moved:
+        return False, 0, []
+    return True, len(moved), moved[:10]
+
+
 # no-test:reason=路由注册辅助函数，能力由 check_* 各路由测试覆盖
 def register_check_routes(app):
     @app.route('/check')
@@ -442,6 +517,27 @@ def register_check_routes(app):
                     'count': uncounted,
                     'total': total_rows,
                     'samples': samples,
+                })
+
+        # BUG-2026-09-06-002：冻结期间动销校验。盘点期间发生外部出入库
+        # 时，冻结口径下过账后账面 = 实盘 − 净变动，与实物可能再次偏差；
+        # 此处软拦截——返回 status='confirm' + moved + samples，让用户确认
+        # 已知情（漏盘校验已通过 force 后再走此处，或 force=1 同时放过）。
+        if not force:
+            has_movement, moved_count, moved_samples = _check_period_movement_alerts(check)
+            if has_movement:
+                preview = '、'.join(
+                    (f"{s['code'] or '?'}({s['net']:+g})" for s in moved_samples[:5]))
+                more_tip = '等' if moved_count > len(moved_samples) else ''
+                return jsonify({
+                    'status': 'confirm',
+                    'code': 'period_movement',
+                    'msg': (f'盘点期间（冻结 {check.frozen_at:%Y-%m-%d %H:%M} 起）仓库'
+                            f'"{check.warehouse}" 已发生 {moved_count} 个物料的出入库净变动：'
+                            f'{preview}{more_tip}。冻结口径下过账后账面 = 实盘 − 净变动，'
+                            f'请确认是否知晓该偏差并继续。'),
+                    'count': moved_count,
+                    'samples': moved_samples,
                 })
 
         try:
