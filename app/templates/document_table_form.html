@@ -714,18 +714,57 @@ function submitForm(completeAfterSave) {
                 return;
             }
             const actionUrl = completeUrl.replace(/\/0(?=\/|$)/, '/' + res.id);
-            return csrfFetch(actionUrl, {method:'POST'})
-                .then(r => r.json())
-                .then(done => {
-                    if (done.status === 'success') {
-                        showToast(done.msg || '操作成功', 'success');
-                    } else {
-                        showToast('单据已保存但完成失败：' + (done.msg || '未知错误'), 'danger', 4200);
-                    }
-                    setTimeout(() => { window.location.href = detailUrl + '/' + res.id; }, 700);
-                });
+            return runComplete(actionUrl, false, res.id);
         })
         .catch(err => showToast(err.message || '保存失败', 'danger', 3600));
+}
+function escapeHtmlText(s){
+    return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+}
+// BUG-2026-09-06-001/002：完成前风险二次确认。后端返回 status='confirm'
+// 时不直接完成，列出风险明细由人工判断；点「仍要完成」带 force=1 重发。
+function runComplete(actionUrl, force, orderId) {
+    return csrfFetch(actionUrl, {method:'POST', headers:{'Content-Type':'application/json'},
+                                 body: JSON.stringify({force: !!force})})
+        .then(r => r.json())
+        .then(done => {
+            if (done.status === 'success') {
+                showToast(done.msg || '操作成功', 'success');
+                setTimeout(() => { window.location.href = detailUrl + '/' + (orderId || ''); }, 700);
+                return;
+            }
+            if (done.status === 'confirm') {
+                showCompleteConfirm(done, actionUrl, orderId);
+                return;
+            }
+            showToast('单据已保存但完成失败：' + (done.msg || '未知错误'), 'danger', 4200);
+            setTimeout(() => { window.location.href = detailUrl + '/' + (orderId || ''); }, 700);
+        });
+}
+function showCompleteConfirm(payload, actionUrl, orderId) {
+    const samples = Array.isArray(payload.samples) ? payload.samples : [];
+    const rows = samples.map(function(s){
+        return '<li>' + escapeHtmlText(s.code) + ' ' + escapeHtmlText(s.name) + '</li>';
+    }).join('');
+    const modal = document.createElement('div');
+    modal.id = 'completeConfirmModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = '<div style="background:#fff;border-radius:8px;padding:22px;width:560px;max-width:92%;max-height:82vh;display:flex;flex-direction:column;">'
+        + '<h5 style="margin:0 0 12px;font-size:16px;font-weight:600;">完成前请确认</h5>'
+        + '<div style="color:#333;font-size:13px;line-height:1.7;margin-bottom:10px;">' + escapeHtmlText(payload.msg) + '</div>'
+        + (rows ? '<div style="font-size:13px;color:#666;margin-bottom:6px;">涉及明细（最多显示 10 条，共 '
+                  + escapeHtmlText(payload.count) + ' / ' + escapeHtmlText(payload.total) + ' 行）：</div>'
+                  + '<ul style="font-size:12px;color:#555;max-height:220px;overflow:auto;margin:0 0 12px;padding-left:20px;">' + rows + '</ul>' : '')
+        + '<div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">'
+        + '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'completeConfirmModal\').remove()">返回继续盘点</button>'
+        + '<button type="button" class="btn btn-success" id="forceCompleteBtn">仍要完成</button></div></div>';
+    document.body.appendChild(modal);
+    document.getElementById('forceCompleteBtn').onclick = function () {
+        modal.remove();
+        runComplete(actionUrl, true, orderId);
+    };
 }
 function completeDocument() {
     if (!confirm('确认完成该单据？')) return;

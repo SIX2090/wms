@@ -56,6 +56,40 @@ def _expand_check_category_ids(root_id):
     return list(seen)
 
 
+# no-test:reason=纯统计辅助，能力由 test_bug_2026_09_06_001 覆盖
+def _check_uncounted_alerts(check):
+    """统计盘点单的未盘明细行（BUG-2026-09-06-001）。
+
+    未盘判定：行级归属 ``counted_at`` 或 ``counted_by`` 至少其一为空。分
+    类建单（FEATURE-2026-09-05-001）预生成的待盘行 actual_stock = system_stock
+    、difference = 0，与"盘了没有差异"在系统里完全同形，完成盘点时既不生
+    成调整也不提示——一单 500 行只盘 50 行同样能直接完成，事后无法与真实
+    无差异区分。
+
+    已盘信号源是 INV-BATCH-001-A 引入的行级归属字段：手机扫码盘点与
+    /check/<id>/item/<item_id> 路由都会写 ``counted_by`` + ``counted_at``。
+    PC 表格纯录入不写这两个字段，本判定会把它视为未盘——这正是漏盘拦截的
+    预期行为：纯 PC 盘点单弹出确认后用户主动 force=1 放行（账面 0 无实物
+    等合法未盘场景仍可完成），分类建单 + 手机补盘的混合模式则自然漏出。
+
+    返回 (未盘行数, 有效行数, 前 10 条样例[{code, name}])。
+    """
+    rows = [it for it in (check.items or []) if it.material_id]
+    uncounted = [it for it in rows
+                 if not (getattr(it, 'counted_at', None)
+                         or getattr(it, 'counted_by', None))]
+    if not uncounted:
+        return 0, len(rows), []
+    samples = []
+    for it in uncounted[:10]:
+        mat = it.material
+        samples.append({
+            'code': mat.code if mat else '',
+            'name': mat.name if mat else '',
+        })
+    return len(uncounted), len(rows), samples
+
+
 # no-test:reason=路由注册辅助函数，能力由 check_* 各路由测试覆盖
 def register_check_routes(app):
     @app.route('/check')
@@ -371,9 +405,13 @@ def register_check_routes(app):
     @login_required
     def complete_check(id):
         from sqlalchemy.orm import selectinload
-        from app import (InventoryCheck, _acquire_order_write_lock,
+        from app import (InventoryCheck, InventoryCheckItem,
+                         _acquire_order_write_lock,
                          _create_adjustment_drafts_from_check, api_error, log_operation)
-        check = InventoryCheck.query.get_or_404(id)
+        # 完成前校验需要逐行读 material / counted_at，预加载消除 N+1
+        check = InventoryCheck.query.options(
+            selectinload(InventoryCheck.items).joinedload(InventoryCheckItem.material)
+        ).get_or_404(id)
         if check.status != 'pending':
             return api_error('当前盘点单状态不可完结')
 
@@ -381,6 +419,30 @@ def register_check_routes(app):
             return api_error('盘点单没有明细，无法完成')
         if not check.warehouse:
             return api_error('盘点单未指定仓库，无法完成')
+
+        # BUG-2026-09-06-001：完成前二次确认（漏盘）。未盘行差异恒 0、不生成
+        # 调整，系统此前对"没盘"与"盘了无差异"不加区分。此处软拦截——返回
+        # status='confirm' 由前端弹窗列出未盘明细，用户确认后带 force=1 放行，
+        # 不硬阻断（账面 0 无实物等合法未盘场景仍须可完成）。
+        # 旧客户端不带 body 调用时 get_json(silent=True) 返回 None，force=False。
+        payload = request.get_json(silent=True) or {}
+        force = str(payload.get('force') or '').strip().lower() in ('1', 'true', 'yes')
+        if not force:
+            uncounted, total_rows, samples = _check_uncounted_alerts(check)
+            if uncounted:
+                preview = '、'.join(
+                    (s['code'] or '?') for s in samples[:5])
+                more_tip = '等' if uncounted > len(samples) else ''
+                return jsonify({
+                    'status': 'confirm',
+                    'code': 'uncounted',
+                    'msg': (f'本单共 {total_rows} 行明细，其中 {uncounted} 行尚未盘点'
+                            f'（无盘点人/时间记录）：{preview}{more_tip}。'
+                            '未盘行不会产生库存差异，请确认是否已全部盘完。'),
+                    'count': uncounted,
+                    'total': total_rows,
+                    'samples': samples,
+                })
 
         try:
             # 加写锁并重新读取状态，避免多 worker 并发重复生成调整草稿
