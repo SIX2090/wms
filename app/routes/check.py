@@ -115,8 +115,12 @@ def _check_period_movement_alerts(check):
     返回 (has_movement, moved_material_count, samples[{code, name, net}])。
     has_movement = 至少一个物料的 |net| > STOCK_COMPARE_EPSILON。
     """
-    from app import StockTransaction
-    from app.utils import normalize_stock_quantity
+    # BUG-2026-09-06-003：本仓库 app/ 目录即包根（app.py 为顶层模块，无
+    # __init__.py），`from app.utils import X` 在真实启动布局（python app.py /
+    # run_server.py，app 目录在 sys.path）下必然 ModuleNotFoundError——pytest
+    # 因 rootdir 插入把 app 当命名空间包而掩盖此错。仓库统一写法是
+    # `from app import X`（app.py 已从 utils 转导出 normalize_stock_quantity）。
+    from app import StockTransaction, normalize_stock_quantity
 
     if not check.frozen_at or not check.warehouse:
         return False, 0, []

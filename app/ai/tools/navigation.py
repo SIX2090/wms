@@ -19,7 +19,11 @@ def skill_catalog() -> list[dict[str, str]]:
     Returns:
         技能列表，每项包含 name/description/category
     """
-    from app.ai.tools.registry import get_all_tools
+    # BUG-2026-09-06-003(R6 同类点)：`from app.ai... import` 要求 app 是包，
+    # 而 app/ 无 __init__.py（生产以 app 目录为包根直跑）；ai 是真实包
+    # （app/ai/__init__.py），一律用 `from ai...` 跨模块导入（registry.py
+    # 顶层 `from ai.policies` 同款），任何导入布局下都可解析。
+    from ai.tools.registry import get_all_tools
 
     skills = []
     for tool in get_all_tools():
