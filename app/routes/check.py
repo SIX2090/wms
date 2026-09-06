@@ -763,29 +763,44 @@ def register_check_routes(app):
     @require_role('warehouse')
     @login_required
     def copy_check(id):
+        from datetime import datetime
         from flask_login import current_user
         from app import (InventoryCheck, InventoryCheckItem, api_error,
-                         generate_order_no, log_operation)
+                         generate_order_no, get_warehouse_stock_quantities,
+                         log_operation, validate_inventory_warehouse)
         check = InventoryCheck.query.get_or_404(id)
+        warehouse = (check.warehouse or '').strip()
+        if not warehouse:
+            return api_error('原盘点单未指定仓库，无法复制')
+        warehouse_obj, warehouse_error = validate_inventory_warehouse(warehouse)
+        if warehouse_error:
+            return api_error(warehouse_error)
         try:
             check_no = generate_order_no('CK')
             new_check = InventoryCheck(
                 check_no=check_no,
                 remark=check.remark,
                 status='pending',
+                warehouse=warehouse_obj.name,
                 operator_id=current_user.id
             )
             db.session.add(new_check)
             db.session.flush()
+            stock_map = get_warehouse_stock_quantities(warehouse_obj)
             for item in check.items:
+                system_stock = stock_map.get(item.material_id, 0) or 0
                 new_item = InventoryCheckItem(
                     inventory_check_id=new_check.id,
                     material_id=item.material_id,
-                    system_stock=item.system_stock,
-                    actual_stock=item.actual_stock,
-                    difference=item.difference
+                    system_stock=system_stock,
+                    actual_stock=system_stock,
+                    difference=0,
+                    reason='',
+                    area=item.area or '',
                 )
                 db.session.add(new_item)
+            if check.items:
+                new_check.frozen_at = datetime.now()
             db.session.commit()
             log_operation('复制盘点单', f'从 {check.check_no} 复制为 {new_check.check_no}', 'check', new_check.id)
             return jsonify({'status': 'success', 'msg': '复制成功'})

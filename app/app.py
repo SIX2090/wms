@@ -24684,6 +24684,22 @@ def _create_adjustment_drafts_from_check(check):
         entry['items'].append(item)
         if (item.area or '').strip():
             entry['has_area'] = True
+    if location_management_enabled():
+        missing_locations = [
+            entry['item'].material.code if entry['item'].material else str(material_id)
+            for material_id, entry in _net.items()
+            if abs(entry['diff']) > STOCK_COMPARE_EPSILON
+            and not any((item.area or '').strip() for item in entry['items'])
+        ]
+        if missing_locations:
+            return None, '启用库位管理后，盘点差异行必须填写库位/区域：' + '、'.join(missing_locations[:10])
+        split_locations = [
+            entry['item'].material.code if entry['item'].material else str(material_id)
+            for material_id, entry in _net.items()
+            if len({(item.area or '').strip() for item in entry['items']}) > 1
+        ]
+        if split_locations:
+            return None, '启用库位管理时，同一物料不能跨多个区域合并生成调整，请按单一库位分别盘点：' + '、'.join(split_locations[:10])
     grouped = {'surplus': [], 'loss': []}
     for _material_id, _entry in _net.items():
         if _entry['has_area']:
@@ -24732,6 +24748,7 @@ def _create_adjustment_drafts_from_check(check):
                 material_id=material_id,
                 quantity=signed_qty,
                 unit_id=item.material.unit_id if item.material else None,
+                location=(item.area or '').strip() or None,
                 reason=reason
             ))
         drafts.append(order)
