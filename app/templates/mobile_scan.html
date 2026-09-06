@@ -177,6 +177,11 @@
                 <label class="mobile-scan-label" for="scanAreaInput">盘点区域/货架（可选）</label>
                 <input id="scanAreaInput" class="form-control" type="text" autocomplete="off" placeholder="如 A1 / 原料区；同一物料多处各填一次">
             </div>
+            {# FEATURE-2026-09-05-004：行级差异原因，盘出差异时当场备注 #}
+            <div class="mobile-scan-field">
+                <label class="mobile-scan-label" for="scanReasonInput">差异原因（可选）</label>
+                <input id="scanReasonInput" class="form-control" type="text" autocomplete="off" placeholder="有差异时填，如 破损 / 串货 / 待查">
+            </div>
             {% endif %}
 
             {% if mode == 'check' %}
@@ -301,6 +306,8 @@
     var locationInput = document.getElementById('locationInput');
     var targetInput = document.getElementById('targetInput');
     var remarkInput = document.getElementById('remarkInput');
+    // FEATURE-2026-09-05-004：行级差异原因（盘点模式）
+    var scanReasonInput = document.getElementById('scanReasonInput');
     var historyWrap = document.getElementById('scanHistory');
     var historyList = document.getElementById('historyList');
     var selectedMaterial = null;
@@ -698,6 +705,8 @@
         if (printLabelBtn) printLabelBtn.hidden = true;
         matchList.hidden = true;
         quantityInput.value = '1';
+        // FEATURE-2026-09-05-004：差异原因随每笔扫码清空（原因只属于当次差异）
+        if (scanReasonInput) scanReasonInput.value = '';
         scanCode.focus();
         if (material && material.code) {
             setStatus('可继续扫描下一件', 'success');
@@ -921,6 +930,7 @@
                 warehouse: warehouseInput ? warehouseInput.value : '',
                 location: locationInput ? locationInput.value : '',
                 area: scanAreaInput ? scanAreaInput.value : '',
+                reason: scanReasonInput ? scanReasonInput.value : '',
                 target: targetInput ? targetInput.value : '',
                 remark: remarkInput ? remarkInput.value : '',
                 check_id: mode === 'check' && checkOrderSelect ? checkOrderSelect.value : undefined

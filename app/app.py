@@ -24905,10 +24905,11 @@ def _void_check_scan(check_id, operator_id=None):
     # 作废语义（防误删他人成果）：
     # - 批次已完成 → 拒绝作废（差异已被 PC 采纳生成调整单，回退会造成
     #   "账已调、行已删"脱钩），提示先反提交批次生成的调整单；
-    # - 批次仍 pending：本 CS 新建的批次行（reason=='手机扫码盘点' 且
-    #   counted_by==本 CS 操作人）删除，解禁同物料重盘；PC 预置行被本 CS
-    #   补盘的（reason 非扫码标记且 counted_by==本 CS 操作人）重置回"待盘"
-    #   （actual_stock=system_stock、difference=0、counted_by/counted_at=NULL）；
+    # - 批次仍 pending：本 CS 新建的批次行（reason 以「手机扫码盘点」开头，
+    #   可能带行级差异原因，且 counted_by==本 CS 操作人）删除，解禁同物料重盘；
+    #   PC 预置行被本 CS 补盘的（reason 非扫码标记且 counted_by==本 CS
+    #   操作人）重置回"待盘"（actual_stock=system_stock、difference=0、
+    #   counted_by/counted_at=NULL）；
     # - counted_by 已被他人（PC 行级确认/他人扫码）改写的行一律不动。
     if check.check_id is not None:
         batch = db.session.get(InventoryCheck, check.check_id)
@@ -24929,9 +24930,14 @@ def _void_check_scan(check_id, operator_id=None):
                 row = row_map.get((scan_item.material_id, (scan_item.area or '').strip()))
                 if row is None:
                     continue
-                if row.reason == '手机扫码盘点' and row.counted_by is not None and row.counted_by == scan_operator:
+                # FEATURE-2026-09-05-004：手机端可填行级差异原因，扫码新建行
+                # reason 形如「手机扫码盘点：破损2件」——此处改用前缀判定识别
+                # 本 CS 新建行（原精确相等判定会因带了原因而误判为 PC 预置行、
+                # 只重置不删除，撤销后留下孤儿未盘行）。
+                _is_scan_created = str(row.reason or '').startswith('手机扫码盘点')
+                if _is_scan_created and row.counted_by is not None and row.counted_by == scan_operator:
                     db.session.delete(row)
-                elif row.reason != '手机扫码盘点' and row.counted_by == scan_operator and row.counted_at is not None:
+                elif not _is_scan_created and row.counted_by == scan_operator and row.counted_at is not None:
                     row.actual_stock = normalize_stock_quantity(row.system_stock)
                     row.difference = 0.0
                     row.counted_by = None
@@ -25010,7 +25016,7 @@ def _list_pending_check_orders(warehouse=None):
     return result
 
 
-def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=None):
+def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=None, reason=''):
     """把扫码盘点单明细写入批次（行级 upsert，INV-BATCH-001-C）。
 
     批次明细处理规则：
@@ -25051,10 +25057,16 @@ def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=Non
             row.difference = round_to_2_decimals(row.actual_stock - row.system_stock)
             row.counted_by = operator_id
             row.counted_at = now
+            # FEATURE-2026-09-05-004：行级差异原因（手机端可选填），空值不覆盖
+            # PC 端已填的原因
+            if reason:
+                row.reason = reason
         else:
             system_stock = normalize_stock_quantity(
                 warehouse_stock_map.get(scan_item.material_id) or 0)
             actual = normalize_stock_quantity(scan_item.actual_stock or 0)
+            # 新建行保留「手机扫码盘点」哨兵前缀（_void_check_scan 据此识别本
+            # 次扫码新建行并在撤销时整行删除），行级原因以「：」形式追加
             db.session.add(InventoryCheckItem(
                 inventory_check_id=batch.id,
                 material_id=scan_item.material_id,
@@ -25062,7 +25074,7 @@ def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=Non
                 system_stock=system_stock,
                 actual_stock=actual,
                 difference=round_to_2_decimals(actual - system_stock),
-                reason='手机扫码盘点',
+                reason=('手机扫码盘点：' + reason if reason else '手机扫码盘点'),
                 counted_by=operator_id,
                 counted_at=now,
             ))

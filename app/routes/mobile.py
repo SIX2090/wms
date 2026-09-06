@@ -577,6 +577,8 @@ def register_mobile_routes(app):
             if mode == 'check':
                 # 盘点区域（可选）：分区盘点时按"物料+区域"分行（同物料多区各行并存）
                 area = (data.get('area') or data.get('region') or '').strip()
+                # FEATURE-2026-09-05-004：行级差异原因（可选），盘出差异时当场备注
+                reason = (data.get('reason') or '').strip()
                 actual_raw = data.get('actual_stock')
                 if actual_raw is None or str(actual_raw).strip() == '':
                     actual_raw = data.get('quantity')
@@ -637,7 +639,8 @@ def register_mobile_routes(app):
                 ))
                 # 明细 upsert 进所选批次，不独立生成草稿
                 error = _apply_scan_to_batch(
-                    batch, check, warehouse_stock_map, operator_id=actor.id)
+                    batch, check, warehouse_stock_map, operator_id=actor.id,
+                    reason=reason)
                 if error:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': error}), 400
