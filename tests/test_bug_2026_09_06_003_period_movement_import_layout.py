@@ -105,6 +105,7 @@ print("T3_OK")
 def _child_env():
     env = dict(os.environ)
     env["PYTHONPATH"] = str(APP_DIR)
+    env["PYTHONIOENCODING"] = "utf-8"
     return env
 
 
@@ -115,6 +116,7 @@ def _run_child():
         env=_child_env(),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=300,
     )
     return result
