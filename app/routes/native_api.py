@@ -457,6 +457,7 @@ def register_native_api_routes(app):
                          _find_active_check_batch, api_json_error,
                          api_json_success, generate_order_no, get_default_warehouse,
                          get_warehouse_stock_quantities, parse_float_value,
+                         location_management_enabled,
                          round_to_2_decimals, selectinload,
                          validate_inventory_warehouse)
         payload = request.get_json(silent=True) or {}

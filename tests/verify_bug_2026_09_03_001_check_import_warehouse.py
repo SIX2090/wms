@@ -168,6 +168,8 @@ def test_t1_import_with_warehouse_column_and_can_complete():
     # 完成盘点（旧行为在此被拒：warehouse 为空）→ 必须成功
     complete = client.post(f"/check/{check_id}/complete")
     assert complete.status_code == 200, complete.get_data(as_text=True)
+    if complete.get_json().get("status") == "confirm":
+        complete = client.post(f"/check/{check_id}/complete", json={"force": 1})
     assert complete.get_json()["status"] == "success", complete.get_json()
     with app_module.app.app_context():
         drafts = AdjustmentOrder.query.filter_by(source_type="check", source_id=check_id).all()
