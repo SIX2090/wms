@@ -324,7 +324,15 @@ def test_t6_batch_complete_uses_row_baselines():
     assert r.status_code == 200
 
     _login_web(client)
-    r2 = client.post(f"/check/{batch.id}/complete")
+    # BUG-2026-09-06-001 适配：纯 PC 录入行（m1）无行级归属，完成时软拦截
+    # 弹 confirm（仅 m1 未盘）；force=1 模拟用户在弹窗里"仍要完成"放行
+    r_confirm = client.post(f"/check/{batch.id}/complete")
+    assert r_confirm.status_code == 200, r_confirm.get_data(as_text=True)
+    assert r_confirm.get_json().get("status") == "confirm"
+    assert r_confirm.get_json().get("code") == "uncounted"
+    assert r_confirm.get_json().get("count") == 1
+
+    r2 = client.post(f"/check/{batch.id}/complete", json={"force": 1})
     assert r2.status_code == 200, r2.get_data(as_text=True)
     assert r2.get_json().get("status") == "success"
 
