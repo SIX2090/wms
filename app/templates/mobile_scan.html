@@ -190,6 +190,14 @@
                     该仓库暂无进行中的盘点单，请先在电脑端「盘点管理」创建盘点单后再盘
                 </small>
             </div>
+            {# FEATURE-2026-09-05-003：选单后显示盘点进度与待盘清单（盲盘：不展示账面数） #}
+            <div class="mobile-scan-field d-none" id="checkProgressBox">
+                <div class="check-progress-head">
+                    <span class="check-progress-text" id="checkProgressText">已盘 0 / 共 0</span>
+                    <button type="button" class="check-progress-toggle" id="checkItemsToggle">待盘清单 <i class="bi bi-chevron-down"></i></button>
+                </div>
+                <div class="check-items-list d-none" id="checkItemsList"></div>
+            </div>
             {% endif %}
 
             <div class="mobile-scan-field {% if mode != 'out' %}d-none{% endif %}">
@@ -600,6 +608,8 @@
                     .then(function(data) {
                         btn.innerHTML = '<i class="bi bi-check2"></i> 已撤销';
                         setStatus(data.msg || '已撤销本次盘点', 'success');
+                        // FEATURE-2026-09-05-003：撤销后同步刷新进度与待盘清单
+                        refreshCheckProgress();
                     })
                     .catch(function(error) {
                         btn.disabled = false;
@@ -774,8 +784,10 @@
                 orders.forEach(function (o) {
                     var op = document.createElement('option');
                     op.value = String(o.id);
+                    // FEATURE-2026-09-05-003：选项直接带「已盘 X/Y」进度
                     op.textContent = o.check_no + '（' + String(o.warehouse || '')
-                        + (o.remark ? ' ' + o.remark : '') + '）';
+                        + (o.remark ? ' ' + o.remark : '')
+                        + ' 已盘' + (o.counted_count || 0) + '/' + (o.item_count || 0) + '）';
                     checkOrderSelect.appendChild(op);
                 });
                 checkOrderSelect.disabled = false;
@@ -789,6 +801,70 @@
                     checkOrderTip.classList.remove('d-none');
                 }
             });
+    }
+
+    // FEATURE-2026-09-05-003：选单后展示盘点进度与待盘清单（盲盘：接口不下发账面数）
+    var checkProgressBox = document.getElementById('checkProgressBox');
+    var checkProgressText = document.getElementById('checkProgressText');
+    var checkItemsList = document.getElementById('checkItemsList');
+    var checkItemsToggle = document.getElementById('checkItemsToggle');
+    var CHECK_LIST_MAX = 30;
+
+    function renderCheckItems(items) {
+        if (!checkItemsList) return;
+        var pending = items.filter(function (it) { return !it.counted; });
+        var html = '';
+        pending.slice(0, CHECK_LIST_MAX).forEach(function (it) {
+            html += '<div class="check-item-row"><span class="check-item-code">' + esc(it.code) + '</span>'
+                + ' ' + esc(it.name)
+                + (it.spec ? ' · ' + esc(it.spec) : '')
+                + (it.brand ? ' · ' + esc(it.brand) : '')
+                + (it.area ? '（' + esc(it.area) + '）' : '')
+                + '</div>';
+        });
+        if (!pending.length) {
+            html = '<div class="check-item-more">清单内物料已全部盘完</div>';
+        } else if (pending.length > CHECK_LIST_MAX) {
+            html += '<div class="check-item-more">… 其余 ' + (pending.length - CHECK_LIST_MAX) + ' 项待盘</div>';
+        }
+        checkItemsList.innerHTML = html;
+    }
+
+    function refreshCheckProgress() {
+        if (mode !== 'check' || !checkOrderSelect || !checkProgressBox) return;
+        var cid = checkOrderSelect.value;
+        if (!cid) {
+            checkProgressBox.classList.add('d-none');
+            return;
+        }
+        fetch('/mobile/api/check_orders/' + encodeURIComponent(cid) + '/items', {
+            headers: {'X-Requested-With': 'XMLHttpRequest'},
+            credentials: 'same-origin'
+        })
+            .then(function (response) {
+                var sessErr = sessionExpiredError(response);
+                if (sessErr) throw sessErr;
+                return response.json();
+            })
+            .then(function (data) {
+                var d = data && data.data;
+                if (!d) return;
+                var doneTip = (d.total > 0 && d.counted >= d.total) ? '，已全部盘完' : '';
+                checkProgressText.textContent = '已盘 ' + d.counted + ' / 共 ' + d.total + doneTip;
+                renderCheckItems(d.items || []);
+                checkProgressBox.classList.remove('d-none');
+            })
+            .catch(function () { /* 进度刷新失败静默降级，不阻断扫码 */ });
+    }
+
+    if (checkItemsToggle && checkItemsList) {
+        checkItemsToggle.addEventListener('click', function () {
+            checkItemsList.classList.toggle('d-none');
+        });
+    }
+
+    if (mode === 'check' && checkOrderSelect) {
+        checkOrderSelect.addEventListener('change', refreshCheckProgress);
     }
 
     if (mode === 'check' && warehouseInput) {
@@ -882,6 +958,8 @@
                     }
                     addHistory(data.msg || '操作成功', returnedMaterial, undo);
                     resetForNextScan(returnedMaterial);
+                    // FEATURE-2026-09-05-003：盘点提交成功后刷新进度与待盘清单
+                    if (mode === 'check') refreshCheckProgress();
                 })
                 .catch(function(error) {
                     setStatus((error && (error.msg || error.message)) || '提交失败', 'error');
@@ -1228,6 +1306,51 @@
 </script>
 
 <style>
+/* FEATURE-2026-09-05-003：盘点进度与待盘清单 */
+.check-progress-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 10px;
+}
+.check-progress-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: #0369a1;
+}
+.check-progress-toggle {
+    background: none;
+    border: none;
+    color: #0369a1;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 6px;
+}
+.check-items-list {
+    margin-top: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    max-height: 240px;
+    overflow-y: auto;
+    background: #fff;
+}
+.check-item-row {
+    padding: 8px 12px;
+    font-size: 13px;
+    color: #334155;
+    border-bottom: 1px solid #f1f5f9;
+}
+.check-item-row:last-child { border-bottom: none; }
+.check-item-code { font-weight: 600; color: #0f172a; }
+.check-item-more {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: #94a3b8;
+    text-align: center;
+}
 /* AI-MOB-UI-F01：手机端界面精修——识别预览/扫码框/批量面板/待确认卡片 */
 .mobile-recognize-preview {
     margin: 16px 0;

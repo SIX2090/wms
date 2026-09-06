@@ -25002,6 +25002,10 @@ def _list_pending_check_orders(warehouse=None):
             'remark': order.remark or '',
             'frozen_at': order.frozen_at.isoformat() if order.frozen_at else '',
             'item_count': len(order.items),
+            # FEATURE-2026-09-05-003：已盘行数（counted_at 非空），供 H5/Android
+            # 选单下拉里直接展示「已盘 X/Y」进度
+            'counted_count': sum(1 for it in order.items
+                                 if getattr(it, 'counted_at', None) is not None),
         })
     return result
 

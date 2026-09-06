@@ -715,6 +715,52 @@ def register_mobile_routes(app):
         return jsonify({'status': 'success', 'success': True,
                         'data': {'orders': orders}})
 
+    # FEATURE-2026-09-05-003 / BUG-2026-09-05-007：H5 盘点进度与待盘清单。
+    # 选单后展示「已盘 X/共 Y」+ 未盘物料清单，扫码提交/撤销后前端刷新本接口。
+    # 盲盘设计：不下发各行账面数（system_stock）——盘点人看到账面会照着填，
+    # 盘点失去意义；已盘行回传实盘与盘点人/时间供自查，未盘行只给物料识别信息。
+    @app.route('/mobile/api/check_orders/<int:check_id>/items')
+    @_web_or_api_role_required('warehouse')
+    def mobile_check_order_items(check_id):
+        from app import InventoryCheck, db, jsonify
+        check = db.session.get(InventoryCheck, check_id)
+        if check is None:
+            return jsonify({'status': 'error', 'success': False,
+                            'msg': f'盘点单不存在：{check_id}'}), 404
+        items = []
+        counted = 0
+        for it in check.items:
+            if not it.material_id:
+                continue
+            done = getattr(it, 'counted_at', None) is not None
+            if done:
+                counted += 1
+            m = it.material
+            items.append({
+                'material_id': it.material_id,
+                'code': (m.code if m else '') or '',
+                'name': (m.name if m else '') or '',
+                'spec': (m.spec if m else '') or '',
+                'brand': (m.brand if m else '') or '',
+                'area': it.area or '',
+                'counted': done,
+                'actual_stock': (float(it.actual_stock or 0) if done else None),
+                'counted_by': (it.counted_by_user.username
+                               if getattr(it, 'counted_by_user', None) else ''),
+                'counted_at': it.counted_at.strftime('%m-%d %H:%M') if done else '',
+            })
+        # 未盘在前（按编码序），已盘在后
+        items.sort(key=lambda x: (x['counted'], x['code'], x['area']))
+        return jsonify({'status': 'success', 'success': True, 'data': {
+            'check_id': check.id,
+            'check_no': check.check_no,
+            'warehouse': check.warehouse or '',
+            'status': check.status,
+            'total': len(items),
+            'counted': counted,
+            'items': items,
+        }})
+
     # ───────────────────────── 手机扫码出入库草稿制 ─────────────────────────
     # 目标：扫码出入库提交时先生成 status='pending' 草稿，不动库存、不打印；
     # 在手机端"待确认草稿清单"里人工核对确认后，才 add_stock/deduct_stock 动账 +
