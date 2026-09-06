@@ -526,7 +526,7 @@ def register_native_api_routes(app):
             for index, line in enumerate(lines, start=1):
                 code = (line.get('material_code') or line.get('code') or '').strip()
                 # 盘点区域（可选）：分区盘点时按"物料+区域"分行
-                area = (line.get('area') or line.get('region') or '').strip()
+                area = (line.get('area') or line.get('region') or line.get('location') or line.get('location_code') or '').strip()
                 material = Material.query.filter_by(code=code).first()
                 if not material:
                     db.session.rollback()
@@ -536,6 +536,9 @@ def register_native_api_routes(app):
                 system_stock = parse_float_value(
                     line.get('system_stock'), warehouse_stock_map.get(material.id) or 0)
                 actual_stock = parse_float_value(line.get('actual_stock'), system_stock)
+                if location_management_enabled() and abs(actual_stock - system_stock) > 0.000001 and not area:
+                    db.session.rollback()
+                    return api_json_error(f'第 {index} 行盘点差异必须填写库位/区域', 400)
                 db.session.add(InventoryCheckScanItem(
                     check_scan_id=check.id,
                     material_id=material.id,

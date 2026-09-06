@@ -715,12 +715,13 @@ fun StocktakeScreen(
     var showCheckOrderDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
+    var stocktakeArea by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
     // BUG-2026-09-03-003：盘点重复扫码须确认，防止误把已盘物料再次累加使实盘数翻倍
     var confirmLine by remember { mutableStateOf<ScanLine?>(null) }
 
     fun addOrConfirmStocktakeLine(line: ScanLine) {
-        val exists = viewModel.uiState.value.scanLines.any { it.material_code == line.material_code }
+        val exists = viewModel.uiState.value.scanLines.any { it.material_code == line.material_code && it.location_code.orEmpty() == line.location_code.orEmpty() }
         if (exists) {
             confirmLine = line
         } else {
@@ -785,7 +786,8 @@ fun StocktakeScreen(
                 addOrConfirmStocktakeLine(
                     ScanLine(
                         material_code = manualCode.trim(),
-                        quantity = manualQty.toDoubleOrNull() ?: 1.0
+                        quantity = manualQty.toDoubleOrNull() ?: 1.0,
+                        location_code = stocktakeArea.trim().ifBlank { null }
                     )
                 )
                 manualCode = ""
@@ -797,7 +799,8 @@ fun StocktakeScreen(
             addOrConfirmStocktakeLine(
                 ScanLine(
                     material_code = barcode.trim(),
-                    quantity = manualQty.toDoubleOrNull() ?: 1.0
+                    quantity = manualQty.toDoubleOrNull() ?: 1.0,
+                    location_code = stocktakeArea.trim().ifBlank { null }
                 )
             )
             manualCode = ""
@@ -816,6 +819,15 @@ fun StocktakeScreen(
                     onClick = { showWarehouseDialog = true },
                     label = "盘点仓库"
                 )
+                OutlinedTextField(
+                    value = stocktakeArea,
+                    onValueChange = { stocktakeArea = it },
+                    label = { Text("盘点库位/区域") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    supportingText = { Text("启用库位管理且有差异时必填") }
+                )
+                Spacer(modifier = Modifier.height(10.dp))
                 // INV-BATCH-001-E：盘点必须选电脑端建好的进行中盘点单
                 Spacer(modifier = Modifier.height(10.dp))
                 CheckOrderSelectorCard(
@@ -864,7 +876,7 @@ fun StocktakeScreen(
 
     // BUG-2026-09-03-003：盘点重复扫码确认（替换 / 累加 / 取消保持原值）
     confirmLine?.let { line ->
-        val existingQty = viewModel.existingLineQuantity(line.material_code)
+        val existingQty = viewModel.existingLineQuantity(line.material_code, line.location_code)
         AlertDialog(
             onDismissRequest = { confirmLine = null },
             shape = RoundedCornerShape(20.dp),

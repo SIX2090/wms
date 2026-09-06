@@ -125,7 +125,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addScanLine(line: ScanLine) {
         val current = _uiState.value.scanLines.toMutableList()
-        val existingIndex = current.indexOfFirst { it.material_code == line.material_code }
+        val existingIndex = current.indexOfFirst { it.material_code == line.material_code && it.location_code.orEmpty() == line.location_code.orEmpty() }
         if (existingIndex >= 0) {
             val existing = current[existingIndex]
             current[existingIndex] = existing.copy(quantity = existing.quantity + line.quantity)
@@ -143,9 +143,12 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** 清单中同物料行的当前数量；不存在返回 null（用于盘点重复扫码确认）。 */
-    fun existingLineQuantity(code: String): Double? {
+    fun existingLineQuantity(code: String, location: String? = null): Double? {
         val clean = code.trim()
-        return _uiState.value.scanLines.firstOrNull { it.material_code == clean }?.quantity
+        val normalizedLocation = location.orEmpty()
+        return _uiState.value.scanLines.firstOrNull {
+            it.material_code == clean && it.location_code.orEmpty() == normalizedLocation
+        }?.quantity
     }
 
     /**
@@ -154,7 +157,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun replaceScanLineQuantity(line: ScanLine) {
         val current = _uiState.value.scanLines.toMutableList()
-        val existingIndex = current.indexOfFirst { it.material_code == line.material_code }
+        val existingIndex = current.indexOfFirst { it.material_code == line.material_code && it.location_code.orEmpty() == line.location_code.orEmpty() }
         if (existingIndex >= 0) {
             current[existingIndex] = current[existingIndex].copy(quantity = line.quantity)
         } else {
@@ -507,7 +510,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 StocktakeLine(
                     material_code = line.material_code,
                     actual_stock = line.quantity,
-                    system_stock = null
+                    system_stock = null,
+                    area = line.location_code?.trim()?.ifBlank { null }
                 )
             }
             val request = StocktakeRequest(

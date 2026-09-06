@@ -576,7 +576,7 @@ def register_mobile_routes(app):
 
             if mode == 'check':
                 # 盘点区域（可选）：分区盘点时按"物料+区域"分行（同物料多区各行并存）
-                area = (data.get('area') or data.get('region') or '').strip()
+                area = (data.get('area') or data.get('region') or data.get('location') or data.get('location_code') or '').strip()
                 # FEATURE-2026-09-05-004：行级差异原因（可选），盘出差异时当场备注
                 reason = (data.get('reason') or '').strip()
                 actual_raw = data.get('actual_stock')

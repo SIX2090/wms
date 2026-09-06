@@ -34,7 +34,9 @@ data class OutboundRequest(
 data class StocktakeLine(
     val material_code: String,
     val actual_stock: Double,
-    val system_stock: Double? = null
+    val system_stock: Double? = null,
+    /** 启用库位管理时作为盘点区域/库位写入盘点明细。 */
+    val area: String? = null
 )
 
 data class StocktakeRequest(
