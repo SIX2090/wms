@@ -7,7 +7,7 @@ from markupsafe import escape
 from functools import wraps
 from datetime import datetime, date, time, timedelta
 from urllib.parse import urljoin, urlparse, urlencode, quote_plus
-from sqlalchemy import case, func, false, true, update as sa_update, or_
+from sqlalchemy import case, func, false, true, tuple_ as sa_tuple, update as sa_update, or_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload, selectinload
 import csv
@@ -28470,6 +28470,183 @@ def _sql_paged_supplier_purchase_report(filters):
     return columns, _paginate_rows(all_rows, page, page_size), summary, total
 
 
+def _sql_paged_material_purchase_report(filters):
+    """物料采购汇总 SQL 分页 builder（BUG-2026-09-07-014）。
+
+    返回 (columns, rows, summary, total)。
+    与 BUG-2026-09-07-013 同源：本报表与采购执行/供应商采购汇总/采购价格分析
+    共用 `_collect_purchase_order_execution_rows`，该采集器受
+    REPORT_ROW_LIMIT(5 万) 截断；原内存路径先物化全部采购明细行再在 Python 里
+    按物料分桶，汇总卡片（采购数量/金额）正是对**截断后的分桶结果**求和——
+    长周期查询会出现「采购金额比实际小」，违反 R2「汇总 = 明细全集」。
+
+    SQL 路径分工（与供应商采购汇总同构）：
+      - 分桶与聚合下沉 SQL `GROUP BY` 物料（编码/名称/规格），复用
+        `_purchase_order_item_query` 作为 WHERE 口径单一事实源；
+      - warehouse 分支 outerjoin 入库单会展开同一采购行，故先对所需列做
+        DISTINCT 子查询再聚合，避免数量/金额被入库行数放大；
+      - 汇总（数量/金额）改由 SQL 全量聚合，与分桶/分页/排序彻底解耦（R2）；
+      - `last_supplier` 需要「分组内取最新一行」语义（内存路径靠明细
+        按 日期/单号/明细ID 倒序的**首次出现顺序**隐式得到）。本实现不引入
+        窗口函数（避免绑定 SQLite 版本、也为后续迁移留余地），改用
+        **三次分组回连**逐层收敛：分组最大日期 → 该日期内最大单号 →
+        该单号内最大明细ID → 按明细ID取供应商，各层用行值 IN 精确定位；
+      - 默认排序由内存路径「首次出现顺序」（等价于分组最新日期倒序）显式化为
+        **最近采购日期倒序**，同日期按物料编码升序稳定兜底。
+    """
+    columns = _material_purchase_summary_columns()
+    # AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
+
+    base = _purchase_order_item_query(filters)
+    # warehouse 分支 outerjoin 入库单会展开同一采购行：先按所需列 DISTINCT
+    # 再聚合，避免 sum 被入库行数放大（与 009-07-013 同款防护）
+    sub = base.with_entities(
+        PurchaseOrderItem.id.label('item_id'),
+        PurchaseOrderItem.quantity.label('quantity'),
+        PurchaseOrderItem.received_quantity.label('received_quantity'),
+        PurchaseOrderItem.price.label('price'),
+        PurchaseOrderItem.amount.label('amount'),
+        PurchaseOrder.id.label('order_id'),
+        func.coalesce(PurchaseOrder.order_no, '').label('order_no'),
+        PurchaseOrder.date.label('order_date'),
+        func.coalesce(Supplier.name, '').label('supplier_name'),
+        func.coalesce(Material.code, '').label('material_code'),
+        func.coalesce(Material.name, '').label('material_name'),
+        func.coalesce(Material.spec, '').label('material_spec'),
+        func.coalesce(Unit.name, '').label('unit_name'),
+    ).distinct().subquery()
+
+    group_key = (sub.c.material_code, sub.c.material_name, sub.c.material_spec)
+    # 剩余量口径与 _purchase_execution_row 一致：单行剩余量下限为 0
+    remaining_expr = case(
+        (sub.c.quantity - sub.c.received_quantity > STOCK_COMPARE_EPSILON,
+         sub.c.quantity - sub.c.received_quantity),
+        else_=0,
+    )
+    # 金额口径：明细金额为 0/NULL 时回退「数量 × 单价」（与 _purchase_execution_row 一致）
+    amount_expr = func.coalesce(
+        func.nullif(sub.c.amount, 0),
+        sub.c.quantity * sub.c.price,
+    )
+
+    # 汇总：SQL 全量聚合（R2 汇总 = 明细全集），不受分桶/分页/排序影响
+    totals = db.session.query(
+        func.coalesce(func.sum(sub.c.quantity), 0),
+        func.coalesce(func.sum(amount_expr), 0),
+    ).select_from(sub).first()
+    group_count = db.session.query(func.count()).select_from(
+        db.session.query(*group_key).select_from(sub).distinct().subquery()
+    ).scalar()
+    summary = {
+        'count': int(group_count or 0),
+        'quantity': _safe_float(totals[0]),
+        'amount': _safe_float(totals[1]),
+    }
+
+    aggregated = db.session.query(
+        sub.c.material_code,
+        sub.c.material_name,
+        sub.c.material_spec,
+        # 分桶键为 (编码/名称/规格)，单位取分组内最小值：正常情况下一个物料
+        # 编码唯一、单位恒定；仅在「重复编码但单位不同」的脏数据下与内存路径
+        # 的「首行取值」可能不同，此处保证确定性（内存路径依赖行序，不确定）
+        func.min(sub.c.unit_name).label('unit_name'),
+        # 供应商数按非空供应商名称去重（与内存路径 `if row['supplier']` 一致）
+        func.count(func.distinct(func.nullif(sub.c.supplier_name, ''))).label('supplier_count'),
+        func.count(func.distinct(sub.c.order_id)).label('order_count'),
+        func.coalesce(func.sum(sub.c.quantity), 0).label('order_quantity'),
+        func.coalesce(func.sum(sub.c.received_quantity), 0).label('received_quantity'),
+        func.coalesce(func.sum(remaining_expr), 0).label('remaining_quantity'),
+        func.coalesce(func.sum(amount_expr), 0).label('amount'),
+        func.coalesce(func.sum(sub.c.received_quantity * sub.c.price), 0).label('received_amount'),
+        func.coalesce(func.sum(remaining_expr * sub.c.price), 0).label('remaining_amount'),
+        func.max(sub.c.order_date).label('last_purchase_date'),
+    ).select_from(sub).group_by(*group_key).all()
+
+    # ---- last_supplier：分组内取「最新一行」的供应商（三次分组回连）----
+    # 内存路径等价语义：明细按 (日期, 单号, 明细ID) 倒序，首次出现行即最新行。
+    last_date_by_group = {}
+    for agg in aggregated:
+        if agg.last_purchase_date is not None:
+            last_date_by_group[(agg.material_code, agg.material_name, agg.material_spec)] = \
+                agg.last_purchase_date
+    # ①分组最大日期 → 该日期内最大单号
+    order_no_by_group = {}
+    if last_date_by_group:
+        keys = [(code, name, spec, day)
+                for (code, name, spec), day in last_date_by_group.items()]
+        for code, name, spec, order_no in db.session.query(
+                sub.c.material_code, sub.c.material_name, sub.c.material_spec,
+                func.max(sub.c.order_no),
+        ).select_from(sub).filter(
+            sa_tuple(sub.c.material_code, sub.c.material_name,
+                     sub.c.material_spec, sub.c.order_date).in_(keys)
+        ).group_by(*group_key).all():
+            order_no_by_group[(code, name, spec)] = order_no
+    # ②(分组, 最大日期, 最大单号) → 该单号内最大明细ID
+    item_id_by_group = {}
+    if order_no_by_group:
+        keys = [(code, name, spec, last_date_by_group[(code, name, spec)], order_no)
+                for (code, name, spec), order_no in order_no_by_group.items()]
+        for code, name, spec, item_id in db.session.query(
+                sub.c.material_code, sub.c.material_name, sub.c.material_spec,
+                func.max(sub.c.item_id),
+        ).select_from(sub).filter(
+            sa_tuple(sub.c.material_code, sub.c.material_name, sub.c.material_spec,
+                     sub.c.order_date, sub.c.order_no).in_(keys)
+        ).group_by(*group_key).all():
+            item_id_by_group[(code, name, spec)] = item_id
+    # ③按明细ID取供应商（明细ID 在 DISTINCT 子查询内唯一）
+    supplier_by_item_id = {}
+    item_ids = [i for i in item_id_by_group.values() if i is not None]
+    if item_ids:
+        for item_id, supplier_name in db.session.query(
+                sub.c.item_id, sub.c.supplier_name,
+        ).select_from(sub).filter(sub.c.item_id.in_(item_ids)).all():
+            supplier_by_item_id[item_id] = supplier_name or ''
+
+    all_rows = []
+    for agg in aggregated:
+        key = (agg.material_code, agg.material_name, agg.material_spec)
+        order_quantity = _safe_float(agg.order_quantity)
+        amount = _safe_float(agg.amount)
+        last_date = agg.last_purchase_date
+        all_rows.append({
+            'material_code': agg.material_code,
+            'material_name': agg.material_name,
+            'spec': agg.material_spec,
+            'unit': agg.unit_name or '',
+            'supplier_count': int(agg.supplier_count or 0),
+            'order_count': int(agg.order_count or 0),
+            'order_quantity': order_quantity,
+            'received_quantity': _safe_float(agg.received_quantity),
+            'remaining_quantity': round_to_2_decimals(_safe_float(agg.remaining_quantity)),
+            'amount': amount,
+            'received_amount': round_to_2_decimals(_safe_float(agg.received_amount)),
+            'remaining_amount': round_to_2_decimals(_safe_float(agg.remaining_amount)),
+            'avg_price': round_to_2_decimals(amount / order_quantity) if order_quantity else 0,
+            'last_supplier': supplier_by_item_id.get(item_id_by_group.get(key), ''),
+            'last_purchase_date': last_date.isoformat() if last_date else '',
+        })
+
+    total = len(all_rows)
+    sort_field = (filters.get('sort_field') or '').strip()
+    if sort_field:
+        all_rows = _sort_rows(all_rows, sort_field, filters.get('sort_order'))
+    else:
+        # 默认：最近采购日期倒序（同日期按物料编码升序稳定兜底）
+        all_rows.sort(key=lambda row: row['material_code'])
+        all_rows.sort(key=lambda row: row['last_purchase_date'], reverse=True)
+
+    if filters.get('export') == 'excel':
+        return columns, all_rows, summary, total
+    page = max(int(filters.get('page') or 1), 1)
+    page_size = max(int(filters.get('page_size') or 20), 1)
+    return columns, _paginate_rows(all_rows, page, page_size), summary, total
+
+
 SQL_PAGED_REPORT_BUILDERS = {
     'in_detail': _sql_paged_in_detail_report,
     'out_detail': _sql_paged_out_detail_report,
@@ -28477,6 +28654,7 @@ SQL_PAGED_REPORT_BUILDERS = {
     'purchase_order_execution': _sql_paged_purchase_execution_report,
     'summary': _sql_paged_summary_report,
     'supplier_purchase_summary': _sql_paged_supplier_purchase_report,
+    'material_purchase_summary': _sql_paged_material_purchase_report,
 }
 
 
