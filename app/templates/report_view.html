@@ -65,6 +65,20 @@
                 </select>
             </div>
 
+            {% if report_type == 'in_detail' %}
+            {# BUG-2026-09-07-007：业务类型筛选——后端自 BUG-2026-08-18-004 起支持，
+               前端此前无控件，产品入库/其他入库无法从前端按类型过滤 #}
+            <div class="col-md-3">
+                <label for="business_type" class="form-label">业务类型</label>
+                <select id="business_type" name="business_type" class="form-select">
+                    <option value="">全部入库类型</option>
+                    <option value="采购入库">采购入库</option>
+                    <option value="产品入库">产品入库</option>
+                    <option value="其他入库">其他入库</option>
+                </select>
+            </div>
+            {% endif %}
+
             {% if filters_config.material %}
             <div class="col-md-3">
                 <label for="material_code" class="form-label">物料搜索{% if report_type == 'ledger' %} <span class="text-danger">*</span>{% endif %}</label>

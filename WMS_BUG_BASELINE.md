@@ -1,6 +1,6 @@
 # WMS BUG 基线
 
-更新时间：2026-09-07（持续滚动更新；累计 354 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 31 条，最新 BUG-2026-09-07-006）
+更新时间：2026-09-07（持续滚动更新；累计 355 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 32 条，最新 BUG-2026-09-07-007）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -22,6 +22,7 @@
 
 ## 已修复并纳入回归
 
+| BUG-2026-09-07-007 | [P2] 入库明细报表「业务类型」筛选前端无控件：后端自 BUG-2026-08-18-004 起支持 business_type 筛选（采购入库/产品入库/其他入库），report_view.html 却一直没渲染对应控件，用户想"只看产品入库"只能手改 URL | **已修复（2026-09-07）**：report_view.html 筛选表单在 report_type == 'in_detail' 时新增「业务类型」下拉（全部/采购入库/产品入库/其他入库），随 FormData 提交，与既有后端过滤直接打通；出库明细等其他报表不渲染。回归：`tests/test_bug_2026_09_07_007_in_detail_business_type_filter.py` 4/4（模板锚点/入库页渲染/出库页不渲染/API 端到端筛选）；存量 business_type 后端测试零回归。**生效条件**：模板改动，拉取后**重启 WMS 服务生效**（R3），浏览器 Ctrl+F5 强刷 |
 | BUG-2026-09-07-006 | [P2] 库存台账无期初/期末对账行：按日期范围查询时，start_date 前流水虽计入结存（跳过但累计），但「期初是多少、本期入/出合计多少、期末多少」均不可见，对账只能手工加减流水列 | **已修复（2026-09-07）**：`_collect_ledger_rows` 新增标记行——①「期初结存」行（仅指定 start_date 时）：期初 = start_date 前累计余额，date=start_date+最小时间 + _txn_id=-2，默认日期排序下排同物料最前；②「本期合计」行：期初 + 本期入 − 本期出 = 期末结存，date=end_date+最大时间 + _txn_id=-1，排同物料最后；两行带 material_id，summary 期末结存口径不变。R6 同类点排查：全 tests 直接消费台账行的 8 个文件全部适配（求和/行数断言排除标记行，合计行参与求和会翻倍）。回归：`tests/test_bug_2026_09_07_006_ledger_opening_closing_rows.py` 4/4（范围期初/合计位置与数值、无 start_date 无期初行、summary 不回归、多物料分组位置）；台账/月报/报表域 53 项全过。**生效条件**：纯后端改动，拉取后**重启 WMS 服务生效**，不涉及模板与数据库迁移 |
 | BUG-2026-09-07-005 | [P2] 仓库月报金额失真：in_amount/out_amount 一律「数量 × 物料当前单价」估算（代码自述"金额按物料当前单价估算"），历史月份单价变动后金额不可信——例：上月采购价 10 元入库 100 件，本月物料调价 99 元后，上月月报入库金额被显示为 9900 而非 1000 | **已修复（2026-09-07）**：新增 `_monthly_txn_price_map()` 批量解析流水实际单价——按 reference 反查来源单据明细加权单价（sum(amount)/sum(quantity)，in_order / out_order / after_sale_out_order 三类，每类一次分组聚合查询避免 N+1）；月报聚合循环按流水单价累计 in_amount/out_amount；无单据价的类型（transfer/adjustment/check/opening/requisition 等）与解析不到的行用物料当前价兜底；期末库存金额仍按当前价估值（库存估值口径，行 remark 已更新为「出入库金额按来源单据实际单价，期末库存金额按当前单价估值」）。回归：`tests/test_bug_2026_09_07_005_monthly_report_actual_price.py` 5/5（入/出/售后按单据价、调整兜底、期末估值+remark 口径）；月报与仓库报表域回归 22/22 全过。**生效条件**：纯后端改动，拉取后**重启 WMS 服务生效**，不涉及模板与数据库迁移 |
 | BUG-2026-09-07-004 | [P1] 入库/出库明细报表「翻页 = 全量重算」：原路径每次查询/翻页/排序都全量物化（最多 5 万行）再内存切片，数据量大时每点一次翻页都重新全表扫描 + 构造数万 dict；汇总卡片与列表共享同一份截断数据，超限时汇总失真 | **已修复（2026-09-07）**：count/聚合/排序/分页全部下沉 SQL——①`_collect_in/out_detail_rows` 拆出共用件：行映射 `_in_detail_row`/`_out_detail_row`（内存路径与 SQL 路径单一映射源，防漂移）+ WHERE 构造 `_filtered_in/out_detail_query`（出库客户/部门关键词筛选由 Python 循环下沉为 Department.name/OutOrder.customer/OutOrder.purpose 三字段 ilike，语义等价）；②新增 `_sql_paged_in/out_detail_report`：SQL count 真实总数（翻页不再截断失真）、with_entities 聚合 summary（与分页解耦，R2 汇总=明细全集）、`_IN/OUT_DETAIL_SORT_MAP` 19+14 列排序映射 + 行 id tiebreaker、offset/limit 只取当页；③`SQL_PAGED_REPORT_BUILDERS` 注册表 + `_build_report_payload` SQL 分支（total=真实总数、total_pages 按真实总数、导出仍走 5 万上限 + 截断透传）。盘点/采购执行等其余报表下一批下沉。回归：`tests/test_bug_2026_09_07_004_report_sql_pagination.py` 7/7（分页不重叠/汇总跨页一致/降序/客户三通道/仓库必填+多仓隔离 R2/API 元数据/SQL 与内存路径行级一致）；BUG-2026-09-07-003 T1/T3 随架构演进（展示无截断、截断只剩导出与未下沉报表）4/4；报表域 134 项全过。**生效条件**：纯后端改动，拉取后**重启 WMS 服务生效**，不涉及模板与数据库迁移 |
