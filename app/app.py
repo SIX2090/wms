@@ -26609,18 +26609,34 @@ def _collect_out_detail_rows(filters):
             rows.append(row)
     return rows
 
-def _collect_check_rows(filters):
-    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
-        return []
-    query = InventoryCheckItem.query.join(InventoryCheck).join(Material, InventoryCheckItem.material_id == Material.id).options(
-        joinedload(InventoryCheckItem.inventory_check).joinedload(InventoryCheck.operator),
-        joinedload(InventoryCheckItem.material).joinedload(Material.unit)
-    ).order_by(
-        InventoryCheck.date.desc(),
-        InventoryCheck.check_no.desc(),
-        InventoryCheckItem.id.desc()
-    )
+def _check_row(item):
+    """盘点明细行映射（_collect_check_rows 与 SQL 分页 builder 共用，防两份映射漂移）。"""
+    check_order = item.inventory_check
+    material = item.material
+    if material is None:
+        return None
+    return {
+        'date': check_order.date.isoformat() if check_order.date else '',
+        'check_no': check_order.check_no or '',
+        'order_url': _report_detail_url('check_detail', check_order.id),
+        'material_code': material.code or '',
+        'material_name': material.name or '',
+        'spec': material.spec or '',
+        'unit': material.unit.name if material.unit else '',
+        'system_stock': _safe_float(item.system_stock),
+        'actual_stock': _safe_float(item.actual_stock),
+        'difference': _safe_float(item.difference),
+        'status': check_order.status or '',
+        'operator': check_order.operator.username if check_order.operator else '',
+        'reason': item.reason or '',
+    }
+
+
+def _filtered_check_query(filters):
+    """盘点明细带全部筛选条件（不含排序/分页）的 query（BUG-2026-09-07-011）。"""
+    query = InventoryCheckItem.query.join(InventoryCheck).join(Material, InventoryCheckItem.material_id == Material.id)\
+        .outerjoin(User, InventoryCheck.operator_id == User.id)\
+        .outerjoin(Unit, Material.unit_id == Unit.id)
     # BUG-2026-08-02-014：盘点报表按仓库过滤；名称/编号任一匹配（与入库明细同口径）
     if filters.get('warehouse') or filters.get('warehouse_code'):
         match_any = [InventoryCheck.warehouse == filters['warehouse']] if filters.get('warehouse') else []
@@ -26637,6 +26653,21 @@ def _collect_check_rows(filters):
     material_clause = _material_filter_clause(filters.get('material_code'))
     if material_clause is not None:
         query = query.filter(material_clause)
+    return query
+
+
+def _collect_check_rows(filters):
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return []
+    query = _filtered_check_query(filters).options(
+        joinedload(InventoryCheckItem.inventory_check).joinedload(InventoryCheck.operator),
+        joinedload(InventoryCheckItem.material).joinedload(Material.unit)
+    ).order_by(
+        InventoryCheck.date.desc(),
+        InventoryCheck.check_no.desc(),
+        InventoryCheckItem.id.desc()
+    )
 
     # BUG-2026-08-30-003：明细超限不再静默截断，先计数告警再取数
     # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
@@ -26644,25 +26675,9 @@ def _collect_check_rows(filters):
 
     rows = []
     for item in items:
-        check_order = item.inventory_check
-        material = item.material
-        if material is None:
-            continue
-        rows.append({
-            'date': check_order.date.isoformat() if check_order.date else '',
-            'check_no': check_order.check_no or '',
-            'order_url': _report_detail_url('check_detail', check_order.id),
-            'material_code': material.code or '',
-            'material_name': material.name or '',
-            'spec': material.spec or '',
-            'unit': material.unit.name if material.unit else '',
-            'system_stock': _safe_float(item.system_stock),
-            'actual_stock': _safe_float(item.actual_stock),
-            'difference': _safe_float(item.difference),
-            'status': check_order.status or '',
-            'operator': check_order.operator.username if check_order.operator else '',
-            'reason': item.reason or '',
-        })
+        row = _check_row(item)
+        if row is not None:
+            rows.append(row)
     return rows
 
 def _warehouse_location_filter_values(warehouse_id, warehouse_name, warehouse_code):
@@ -27123,15 +27138,16 @@ def _collect_ledger_rows(filters):
     return rows
 
 def _purchase_order_item_query(filters):
-    query = PurchaseOrderItem.query.join(PurchaseOrder).join(Material, PurchaseOrderItem.material_id == Material.id).options(
-        joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.supplier),
-        joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.purchase_request),
-        joinedload(PurchaseOrderItem.material).joinedload(Material.unit),
-    ).order_by(
-        PurchaseOrder.date.desc(),
-        PurchaseOrder.order_no.desc(),
-        PurchaseOrderItem.id.desc(),
-    )
+    """采购执行明细带全部筛选条件的 query（不含排序/分页）。
+
+    BUG-2026-09-07-011：Supplier/Unit/PurchaseRequest 统一 outerjoin（排序映射用；
+    supplier 关键词筛选原为 INNER JOIN，outerjoin+filter 语义等价）；
+    排序移交给调用方（内存路径默认排序 / SQL 分页路径排序映射）。
+    """
+    query = PurchaseOrderItem.query.join(PurchaseOrder).join(Material, PurchaseOrderItem.material_id == Material.id)\
+        .outerjoin(Supplier, PurchaseOrder.supplier_id == Supplier.id)\
+        .outerjoin(Unit, Material.unit_id == Unit.id)\
+        .outerjoin(PurchaseRequest, PurchaseOrder.purchase_request_id == PurchaseRequest.id)
     if filters.get('start_date'):
         query = query.filter(PurchaseOrder.date >= filters['start_date'])
     if filters.get('end_date'):
@@ -27140,7 +27156,8 @@ def _purchase_order_item_query(filters):
         query = query.filter(PurchaseOrder.supplier_id == filters['supplier_id'])
     supplier_clause = _supplier_filter_clause(filters.get('supplier'))
     if supplier_clause is not None:
-        query = query.join(Supplier, PurchaseOrder.supplier_id == Supplier.id).filter(supplier_clause)
+        # BUG-2026-09-07-011：Supplier 已在查询构造时统一 outerjoin，此处只过滤
+        query = query.filter(supplier_clause)
     if filters.get('status'):
         query = query.filter(PurchaseOrder.status == filters['status'])
     material_clause = _material_filter_clause(filters.get('material_code'))
@@ -27164,50 +27181,68 @@ def _purchase_order_item_query(filters):
         ).distinct()
     return query
 
+def _purchase_execution_row(item, today_value):
+    """采购执行明细行映射（_collect 与 SQL 分页 builder 共用，防两份映射漂移）。
+
+    remaining/overdue 依赖当前日期计算，由调用方传入 today_value。
+    """
+    order = item.purchase_order
+    material = item.material
+    if not order or not material:
+        return None
+    order_qty = _safe_float(item.quantity)
+    received_qty = _safe_float(item.received_quantity)
+    remaining_qty = max(round_to_2_decimals(order_qty - received_qty), 0)
+    price = _safe_float(item.price)
+    overdue_days = 0
+    if order.expected_date and remaining_qty > STOCK_COMPARE_EPSILON and order.status not in ('completed', 'closed') and order.expected_date < today_value:
+        overdue_days = (today_value - order.expected_date).days
+    return {
+        'date': order.date.isoformat() if order.date else '',
+        'order_no': order.order_no or '',
+        'order_url': _report_detail_url('purchase_order_detail', order.id),
+        'supplier': order.supplier.name if order.supplier else '',
+        'material_code': material.code or '',
+        'material_name': material.name or '',
+        'spec': material.spec or '',
+        'unit': material.unit.name if material.unit else '',
+        'order_quantity': order_qty,
+        'received_quantity': received_qty,
+        'remaining_quantity': remaining_qty,
+        'price': price,
+        'amount': _safe_float(item.amount) or round_to_2_decimals(order_qty * price),
+        'received_amount': round_to_2_decimals(received_qty * price),
+        'remaining_amount': round_to_2_decimals(remaining_qty * price),
+        'expected_date': order.expected_date.isoformat() if order.expected_date else '',
+        'overdue_days': overdue_days,
+        'status': order.status or '',
+        'source_request_no': order.purchase_request.request_no if order.purchase_request else '',
+        'remark': item.remark or order.remark or '',
+    }
+
+
 def _collect_purchase_order_execution_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return []
     # BUG-2026-08-30-003：采购执行/汇总/价格分析共用本采集器，超限不再静默截断
     # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
-    item_query = _purchase_order_item_query(filters)
+    item_query = _purchase_order_item_query(filters).options(
+        joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.supplier),
+        joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.purchase_request),
+        joinedload(PurchaseOrderItem.material).joinedload(Material.unit),
+    ).order_by(
+        PurchaseOrder.date.desc(),
+        PurchaseOrder.order_no.desc(),
+        PurchaseOrderItem.id.desc(),
+    )
     items = _report_check_row_limit(item_query, REPORT_ROW_LIMIT, '采购执行明细').all()
     today_value = date.today()
     rows = []
     for item in items:
-        order = item.purchase_order
-        material = item.material
-        if not order or not material:
-            continue
-        order_qty = _safe_float(item.quantity)
-        received_qty = _safe_float(item.received_quantity)
-        remaining_qty = max(round_to_2_decimals(order_qty - received_qty), 0)
-        price = _safe_float(item.price)
-        overdue_days = 0
-        if order.expected_date and remaining_qty > STOCK_COMPARE_EPSILON and order.status not in ('completed', 'closed') and order.expected_date < today_value:
-            overdue_days = (today_value - order.expected_date).days
-        rows.append({
-            'date': order.date.isoformat() if order.date else '',
-            'order_no': order.order_no or '',
-            'order_url': _report_detail_url('purchase_order_detail', order.id),
-            'supplier': order.supplier.name if order.supplier else '',
-            'material_code': material.code or '',
-            'material_name': material.name or '',
-            'spec': material.spec or '',
-            'unit': material.unit.name if material.unit else '',
-            'order_quantity': order_qty,
-            'received_quantity': received_qty,
-            'remaining_quantity': remaining_qty,
-            'price': price,
-            'amount': _safe_float(item.amount) or round_to_2_decimals(order_qty * price),
-            'received_amount': round_to_2_decimals(received_qty * price),
-            'remaining_amount': round_to_2_decimals(remaining_qty * price),
-            'expected_date': order.expected_date.isoformat() if order.expected_date else '',
-            'overdue_days': overdue_days,
-            'status': order.status or '',
-            'source_request_no': order.purchase_request.request_no if order.purchase_request else '',
-            'remark': item.remark or order.remark or '',
-        })
+        row = _purchase_execution_row(item, today_value)
+        if row is not None:
+            rows.append(row)
     return rows
 
 def _build_purchase_summary_row(bucket):
@@ -28039,9 +28074,143 @@ def _sql_paged_out_detail_report(filters):
     return columns, rows, summary, total
 
 
+_CHECK_SORT_MAP = {
+    'date': InventoryCheck.date,
+    'check_no': InventoryCheck.check_no,
+    'material_code': Material.code,
+    'material_name': Material.name,
+    'spec': Material.spec,
+    'unit': Unit.name,
+    'system_stock': InventoryCheckItem.system_stock,
+    'actual_stock': InventoryCheckItem.actual_stock,
+    'difference': InventoryCheckItem.difference,
+    'status': InventoryCheck.status,
+    'operator': User.username,
+    'reason': InventoryCheckItem.reason,
+}
+
+_PURCHASE_EXECUTION_SORT_MAP = {
+    'date': PurchaseOrder.date,
+    'order_no': PurchaseOrder.order_no,
+    'supplier': Supplier.name,
+    'material_code': Material.code,
+    'material_name': Material.name,
+    'spec': Material.spec,
+    'unit': Unit.name,
+    'order_quantity': PurchaseOrderItem.quantity,
+    'received_quantity': PurchaseOrderItem.received_quantity,
+    'remaining_quantity': (PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity),
+    'price': PurchaseOrderItem.price,
+    'amount': PurchaseOrderItem.amount,
+    'received_amount': (PurchaseOrderItem.received_quantity * PurchaseOrderItem.price),
+    'remaining_amount': ((PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity) * PurchaseOrderItem.price),
+    'expected_date': PurchaseOrder.expected_date,
+    # 逾期天数与预计到货日同序（逾期越久日期越小，desc 时逾期最久在前）
+    'overdue_days': PurchaseOrder.expected_date,
+    'status': PurchaseOrder.status,
+    'source_request_no': PurchaseRequest.request_no,
+    'remark': PurchaseOrderItem.remark,
+}
+
+
+def _sql_paged_check_report(filters):
+    """盘点明细 SQL 分页 builder（BUG-2026-09-07-011）：返回 (columns, rows, summary, total)。"""
+    columns = _check_columns()
+    # AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
+    base = _filtered_check_query(filters)
+    total = base.count()
+    agg = base.with_entities(
+        func.count(InventoryCheckItem.id),
+        func.coalesce(func.sum(InventoryCheckItem.actual_stock), 0),
+        func.coalesce(func.sum(func.abs(InventoryCheckItem.difference)), 0),
+    ).first()
+    summary = {
+        'count': int(agg[0] or 0),
+        'quantity': _safe_float(agg[1]),
+        'amount': _safe_float(agg[2]),
+    }
+    query = _sql_order_by(
+        base, _CHECK_SORT_MAP,
+        filters.get('sort_field'), filters.get('sort_order'),
+        (InventoryCheck.date.desc(), InventoryCheck.check_no.desc(), InventoryCheckItem.id.desc()),
+        InventoryCheckItem.id,
+    ).options(
+        joinedload(InventoryCheckItem.inventory_check).joinedload(InventoryCheck.operator),
+        joinedload(InventoryCheckItem.material).joinedload(Material.unit),
+    )
+    if filters.get('export') == 'excel':
+        items = _report_check_row_limit(query, REPORT_ROW_LIMIT, '盘点明细导出').all()
+    else:
+        page = max(int(filters.get('page') or 1), 1)
+        page_size = max(int(filters.get('page_size') or 20), 1)
+        items = query.offset((page - 1) * page_size).limit(page_size).all()
+    rows = []
+    for item in items:
+        row = _check_row(item)
+        if row is not None:
+            rows.append(row)
+    return columns, rows, summary, total
+
+
+def _sql_paged_purchase_execution_report(filters):
+    """采购订单执行 SQL 分页 builder（BUG-2026-09-07-011）：返回 (columns, rows, summary, total)。"""
+    columns = _purchase_order_execution_columns()
+    # AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
+    base = _purchase_order_item_query(filters)
+    total = base.count()
+    # 汇总必须基于 distinct 后的明细行：warehouse 分支 outerjoin 入库单会
+    # 把同一采购行展开多行，直接 sum 会按入库行数放大（金额/数量失真）。
+    sub = base.with_entities(
+        PurchaseOrderItem.id,
+        PurchaseOrderItem.quantity,
+        PurchaseOrderItem.price,
+        PurchaseOrderItem.amount,
+    ).distinct().subquery()
+    agg = db.session.query(
+        func.count(sub.c.id),
+        func.coalesce(func.sum(sub.c.quantity), 0),
+        func.coalesce(func.sum(
+            func.coalesce(func.nullif(sub.c.amount, 0), sub.c.quantity * sub.c.price)), 0),
+    ).first()
+    summary = {
+        'count': int(agg[0] or 0),
+        'quantity': _safe_float(agg[1]),
+        'amount': _safe_float(agg[2]),
+    }
+    query = _sql_order_by(
+        base, _PURCHASE_EXECUTION_SORT_MAP,
+        filters.get('sort_field'), filters.get('sort_order'),
+        (PurchaseOrder.date.desc(), PurchaseOrder.order_no.desc(), PurchaseOrderItem.id.desc()),
+        PurchaseOrderItem.id,
+    ).options(
+        joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.supplier),
+        joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.purchase_request),
+        joinedload(PurchaseOrderItem.material).joinedload(Material.unit),
+    )
+    if filters.get('export') == 'excel':
+        items = _report_check_row_limit(query, REPORT_ROW_LIMIT, '采购执行明细导出').all()
+    else:
+        page = max(int(filters.get('page') or 1), 1)
+        page_size = max(int(filters.get('page_size') or 20), 1)
+        items = query.offset((page - 1) * page_size).limit(page_size).all()
+    today_value = date.today()
+    rows = []
+    for item in items:
+        row = _purchase_execution_row(item, today_value)
+        if row is not None:
+            rows.append(row)
+    return columns, rows, summary, total
+
+
 SQL_PAGED_REPORT_BUILDERS = {
     'in_detail': _sql_paged_in_detail_report,
     'out_detail': _sql_paged_out_detail_report,
+    'check': _sql_paged_check_report,
+    'purchase_order_execution': _sql_paged_purchase_execution_report,
 }
 
 

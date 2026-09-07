@@ -1,6 +1,6 @@
 # WMS BUG 基线
 
-更新时间：2026-09-07（持续滚动更新；累计 358 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 35 条，最新 BUG-2026-09-07-010）
+更新时间：2026-09-07（持续滚动更新；累计 359 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 36 条，最新 BUG-2026-09-07-011）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -22,6 +22,7 @@
 
 ## 已修复并纳入回归
 
+| BUG-2026-09-07-011 | [P1] 盘点/采购订单执行报表仍走「全量物化再内存切片」老路：BUG-2026-09-07-004 只下沉了入库/出库明细，盘点明细与采购订单执行每次查询/翻页/排序仍全量物化（最多 5 万行）再内存切片，翻一次页重算一次全量；采购执行汇总若直接 sum 还会被 warehouse 过滤分支的入库单 outerjoin 按入库行数放大（金额/数量失真） | **已修复（2026-09-07）**：①行映射提炼 `_check_row`/`_purchase_execution_row`（内存路径与 SQL 路径单一映射源，防两份映射漂移）；②盘点新增 `_filtered_check_query` 共用 WHERE 构造 + `_CHECK_SORT_MAP` 12 列排序映射；③`_purchase_order_item_query` 统一 outerjoin Supplier/Unit/PurchaseRequest（supplier 关键词筛选由 INNER JOIN 改 outerjoin+filter，语义等价），排序移交调用方，`_PURCHASE_EXECUTION_SORT_MAP` 20 列排序映射（overdue_days 与 expected_date 同序：逾期越久日期越小）；④`_sql_paged_check_report`/`_sql_paged_purchase_execution_report`：SQL count 真实总数、with_entities 聚合 summary 与分页解耦（R2 汇总=明细）、offset/limit 只取当页；采购执行汇总基于 distinct 子查询（id/quantity/price/amount），不被入库单展开行放大；⑤注册进 `SQL_PAGED_REPORT_BUILDERS`，导出仍走 5 万上限 + 截断透传。回归：`tests/test_bug_2026_09_07_011_check_purchase_sql_pagination.py` 8/8（盘点分页/汇总解耦+仓库必填/排序下沉、采购执行分页+R2 隔离/汇总不放大/排序+supplier 关键词、双路径行级一致×2、API 元数据）；报表域 257 项全过。**生效条件**：纯后端改动，拉取后**重启 WMS 服务生效**，不涉及模板与数据库迁移 |
 | BUG-2026-09-07-010 | [P3] 采购报表页把「缺失报表差距清单」公示给最终用户：/purchase_report 列出 6 项「缺少报表 / 当前差距 / 优先级」（自曝其短），产品路线图应在开发台账跟踪而非业务页面展示 | **已修复（2026-09-07）**：模板撤下差距清单区块，路由不再构造/传 missing_reports；可用报表卡片不受影响。回归：`tests/test_bug_2026_09_07_010_purchase_report_no_gap_list.py` 3/3（清单移除/可用卡片保留/路由锚点）。**生效条件**：后端 + 模板改动，拉取后**重启 WMS 服务生效**（R3），浏览器 Ctrl+F5 强刷 |
 | BUG-2026-09-07-009 | [P2] 报表中心卡片「导出」裸链接：不带 warehouse_id——有默认仓库时用户无感知导出"默认仓库全量"；无默认仓库时后端按仓库必填返回 400 JSON，浏览器直接下载一个错误页 | **已修复（2026-09-07）**：/report 路由传 default_warehouse；卡片导出显式带 warehouse_id=默认仓（title 注明「按默认仓库全量导出，条件导出请进预览页」）；无默认仓库时按钮禁用并提示「请先进预览页选择仓库后导出」，不再下载 JSON 错误页。回归：`tests/test_bug_2026_09_07_009_report_center_export_button.py` 3/3（有默认仓链接带 id/无默认仓禁用提示/路由传参锚点）。**生效条件**：后端 + 模板改动，拉取后**重启 WMS 服务生效**（R3），浏览器 Ctrl+F5 强刷 |
 | BUG-2026-09-07-008 | [P1] 报表「打印」只打当前页：打印按钮原是 window.print() 直接打印屏幕，只含当前页 20/50/100 行，用户要打印完整查询结果只能逐页打印或先导出 Excel 再打印（/report/print 路由也一直返回"未实现"） | **已修复（2026-09-07）**：打印按钮改为——①按 R1 规则（显式 page_size=500 + total_pages 循环）拉取当前筛选的**全部**数据；②渲染到屏幕隐藏的 #printArea（报表标题/打印时间/筛选条件/汇总/全量表格）；③再 window.print()，@media print 只显示打印区（隐藏筛选面板/汇总卡/报表区）；④超 MAX_PRINT_ROWS(10000) 截断并提示改用导出 Excel，防浏览器卡死；⑤错误提示走页面 alert 条不用 alert（A4）。回归：`tests/test_bug_2026_09_07_008_report_print_full_rows.py` 4/4（容器/全量拉取/打印 CSS/旧绑定移除）。**生效条件**：模板改动，拉取后**重启 WMS 服务生效**（R3），浏览器 Ctrl+F5 强刷 |
