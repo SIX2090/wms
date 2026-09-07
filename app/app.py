@@ -27413,6 +27413,65 @@ def _is_inbound_transaction(transaction_type, quantity):
         return False
     return _safe_float(quantity) >= 0
 
+
+def _monthly_txn_price_map(transactions):
+    """批量解析月报流水的实际单价 {txn_id: unit_price}（BUG-2026-09-07-005）。
+
+    月报此前一律「数量 × 物料当前单价」估算金额，历史月份单价变动后失真。
+    有实际单价的来源单据按单据明细加权价（sum(amount)/sum(quantity)，
+    同单同物料多行合并）：in_order / out_order / after_sale_out_order；
+    无单价语义的类型（transfer/adjustment/check/opening/requisition 等）
+    与解析不到的行不出现在返回表，由调用方用物料当前价兜底。
+    同一张单只发起一次分组聚合查询，避免逐行 N+1。
+    """
+    ref_groups = {}
+    for t in transactions:
+        if t.reference_type in ('in_order', 'out_order', 'after_sale_out_order') and t.reference_id:
+            ref_groups.setdefault(t.reference_type, set()).add(t.reference_id)
+    price_maps = {}
+    if ref_groups.get('in_order'):
+        rows = db.session.query(
+            InOrderItem.in_order_id, InOrderItem.material_id,
+            func.coalesce(func.sum(InOrderItem.amount), 0),
+            func.coalesce(func.sum(InOrderItem.quantity), 0),
+        ).filter(InOrderItem.in_order_id.in_(ref_groups['in_order']))\
+         .group_by(InOrderItem.in_order_id, InOrderItem.material_id).all()
+        price_maps['in_order'] = {
+            (oid, mid): (_safe_float(amt) / _safe_float(qty) if _safe_float(qty) else None)
+            for oid, mid, amt, qty in rows
+        }
+    if ref_groups.get('out_order'):
+        rows = db.session.query(
+            OutOrderItem.out_order_id, OutOrderItem.material_id,
+            func.coalesce(func.sum(OutOrderItem.amount), 0),
+            func.coalesce(func.sum(OutOrderItem.quantity), 0),
+        ).filter(OutOrderItem.out_order_id.in_(ref_groups['out_order']))\
+         .group_by(OutOrderItem.out_order_id, OutOrderItem.material_id).all()
+        price_maps['out_order'] = {
+            (oid, mid): (_safe_float(amt) / _safe_float(qty) if _safe_float(qty) else None)
+            for oid, mid, amt, qty in rows
+        }
+    if ref_groups.get('after_sale_out_order'):
+        rows = db.session.query(
+            AfterSaleOutOrderItem.after_sale_out_order_id, AfterSaleOutOrderItem.material_id,
+            func.coalesce(func.sum(AfterSaleOutOrderItem.amount), 0),
+            func.coalesce(func.sum(AfterSaleOutOrderItem.quantity), 0),
+        ).filter(AfterSaleOutOrderItem.after_sale_out_order_id.in_(ref_groups['after_sale_out_order']))\
+         .group_by(AfterSaleOutOrderItem.after_sale_out_order_id, AfterSaleOutOrderItem.material_id).all()
+        price_maps['after_sale_out_order'] = {
+            (oid, mid): (_safe_float(amt) / _safe_float(qty) if _safe_float(qty) else None)
+            for oid, mid, amt, qty in rows
+        }
+    prices = {}
+    for t in transactions:
+        mapping = price_maps.get(t.reference_type)
+        if not mapping:
+            continue
+        price = mapping.get((t.reference_id, t.material_id))
+        if price:
+            prices[t.id] = price
+    return prices
+
 def _build_warehouse_monthly_report(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
@@ -27491,6 +27550,11 @@ def _build_warehouse_monthly_report(filters):
     # C-2026-08-27：warehouse_id 精确命中的行（含空 location 新数据）直接保留。
     transactions = _filter_txn_list_by_warehouse_scope(transactions, loc_names, wid)
 
+    # BUG-2026-09-07-005：月内出入库金额按来源单据实际单价累计（批量解析，
+    # 无单据价的流水用物料当前价兜底），不再一律用当前价估算历史月份金额。
+    material_price_map = {material.id: _safe_float(material.price) for material in materials}
+    txn_prices = _monthly_txn_price_map(transactions)
+
     for transaction in transactions:
         if not transaction.created_at:
             continue
@@ -27501,15 +27565,20 @@ def _build_warehouse_monthly_report(filters):
         bucket = month_buckets.setdefault(key, {
             'in_quantity': 0.0,
             'out_quantity': 0.0,
+            'in_amount': 0.0,
+            'out_amount': 0.0,
             'transaction_count': 0,
             'document_keys': set(),
         })
         quantity = abs(_safe_float(transaction.quantity))
+        txn_price = txn_prices.get(transaction.id) or material_price_map.get(transaction.material_id, 0.0)
         inbound_direction = _is_inbound_transaction(transaction.transaction_type, transaction.quantity)
         if inbound_direction is True:
             bucket['in_quantity'] += quantity
+            bucket['in_amount'] += quantity * txn_price
         elif inbound_direction is False:
             bucket['out_quantity'] += quantity
+            bucket['out_amount'] += quantity * txn_price
         bucket['transaction_count'] += 1
         if transaction.reference_type and transaction.reference_id:
             bucket['document_keys'].add((transaction.reference_type, transaction.reference_id))
@@ -27536,12 +27605,14 @@ def _build_warehouse_monthly_report(filters):
                 'out_quantity': round_to_2_decimals(out_quantity),
                 'ending_quantity': round_to_2_decimals(ending_quantity),
                 'price': round_to_2_decimals(price),
-                'in_amount': round_to_2_decimals(in_quantity * price),
-                'out_amount': round_to_2_decimals(out_quantity * price),
+                # BUG-2026-09-07-005：出入库金额按来源单据实际单价累计；
+                # 期末库存金额仍按当前单价估值（库存估值口径）。
+                'in_amount': round_to_2_decimals(_safe_float(bucket.get('in_amount'))),
+                'out_amount': round_to_2_decimals(_safe_float(bucket.get('out_amount'))),
                 'inventory_amount': round_to_2_decimals(ending_quantity * price),
                 'document_count': len(bucket.get('document_keys', set())),
                 'transaction_count': bucket.get('transaction_count', 0),
-                'remark': '按库存流水月份汇总，金额按物料当前单价估算',
+                'remark': '出入库金额按来源单据实际单价，期末库存金额按当前单价估值',
             })
             current_stock_by_material[material.id] = beginning_quantity
 
