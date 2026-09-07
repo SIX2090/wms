@@ -15,6 +15,43 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
+ * BUG-2026-09-07-002：仓库领域词强制纠正表（同音/近音误识别 → 领域词）。
+ * 与服务端 app/tencent_asr.py 的 VOICE_ASR_DOMAIN_CORRECTIONS 逐项保持一致——
+ * 云引擎路径服务端已纠正一次，本表兜住系统识别 / sherpa 本地路径，
+ * 杜绝「领料→饮料」「入库→欲哭」类低级错误进入指令解析。
+ * 改动必须双端同步（tests/verify_bug_2026_09_07_002_voice_domain_correction.py 有一致性门禁）。
+ */
+private val VOICE_ASR_DOMAIN_CORRECTIONS = listOf(
+    "饮料" to "领料",
+    "欲哭" to "入库",
+    "玉库" to "入库",
+    "入裤" to "入库",
+    "如库" to "入库",
+    "乳库" to "入库",
+    "出裤" to "出库",
+    "初库" to "出库",
+    "楚库" to "出库",
+    "裤存" to "库存",
+    "酷存" to "库存",
+    "盘店" to "盘点",
+    "潘点" to "盘点",
+    "判点" to "盘点",
+    "食物" to "识物",
+    "起初" to "期初",
+    "调播" to "调拨",
+    "扫马" to "扫码",
+    // 注意：不收「推出→退出」——退出登录是破坏性操作，
+    // 「推出新品」等口误若被强纠正会误触发登出，风险不对等。
+)
+
+/** 把识别文本中的同音/近音误识别强制纠正为仓库领域词（识别内容只允许与仓库有关）。 */
+fun correctVoiceAsrText(text: String): String {
+    var t = text
+    for ((wrong, right) in VOICE_ASR_DOMAIN_CORRECTIONS) t = t.replace(wrong, right)
+    return t
+}
+
+/**
  * 语音指令：将识别文本解析为 WMS 操作指令。
  * 关键词解析并做优先级排序，避免包含关系误命中
  * （如"识物盘点"先于"盘点"、"识别单据"先于"识物"）。
@@ -32,6 +69,9 @@ fun parseCommand(heardText: String): VoiceCommand {
         // "识别"单独出现（热词表含"识别"）→ 识物页，与热词表对齐
         lt.contains("识别") -> VoiceCommand.Navigate(Screen.ObjectRecognize)
         lt.contains("入库") || lt.contains("采购入库") -> VoiceCommand.Navigate(Screen.Inbound)
+        // BUG-2026-09-07-002：领料出库是高频语音指令——此前"领料"无任何分支，
+        // 即使识别正确也只会报"未识别到可执行指令"；领料即领料出库，进出库页
+        lt.contains("领料") -> VoiceCommand.Navigate(Screen.Outbound)
         lt.contains("出库") -> VoiceCommand.Navigate(Screen.Outbound)
         // "期初库存"须先于"库存"匹配，避免误判为查库存
         lt.contains("期初") -> VoiceCommand.Navigate(Screen.OpeningStock)
@@ -157,7 +197,9 @@ class VoiceCommandViewModel(
         override fun onResult(texts: List<String>) {
             listenTimeoutJob?.cancel()
             listenTimeoutJob = null
-            val text = texts.firstOrNull()?.trim().orEmpty()
+            // BUG-2026-09-07-002：先按仓库领域词表强制纠正（系统识别/sherpa 路径
+            // 未经过服务端纠正），纠正后的文本同时用于展示与指令解析
+            val text = correctVoiceAsrText(texts.firstOrNull()?.trim().orEmpty())
             val command = parseCommand(text)
             engine?.destroy()
             engine = null

@@ -1153,8 +1153,11 @@ def register_mobile_routes(app):
             return jsonify({'status': 'error', 'success': False, 'msg': '音频大小不能超过10MB'}), 400
 
         try:
-            from tencent_asr import TencentAsrError, sentence_recognition
+            from tencent_asr import TencentAsrError, correct_voice_asr_text, sentence_recognition
             audio_bytes = file.read()
+            # BUG-2026-09-07-002：核心指令词全部提到权重 100（同音增强替换），
+            # 识别内容只允许收敛到仓库领域词；领料/盘点/查库存等此前仅权重 5~11，
+            # 约束力不足，实测「领料」被识别成「饮料」。
             text = sentence_recognition(
                 audio_bytes,
                 secret_id=secret_id,
@@ -1162,8 +1165,11 @@ def register_mobile_routes(app):
                 region=region,
                 voice_format=ext,
                 eng_service_type='16k_zh',
-                hotword_list='入库|100,出库|100,盘点|11,查库存|11,库存|5,领料|5,退货|5,识别|5,扫码|5,打印|5',
+                hotword_list='入库|100,出库|100,领料|100,盘点|100,查库存|100,库存|100,识物|100,识别|100,期初|100,送货单|100,退货|100,调拨|100,首页|11,返回|11,退出|11,扫码|11,打印|11',
             )
+            # 双保险：腾讯云热词同音替换仍可能漏网（如 欲哭→入库），
+            # 识别后按领域词表强制纠正一次再返回给 App。
+            text = correct_voice_asr_text(text)
             return jsonify({'status': 'success', 'success': True, 'text': text})
         except TencentAsrError as e:
             current_app.logger.exception('腾讯云 ASR 失败')

@@ -105,6 +105,50 @@ SUPPORTED_VOICE_FORMATS = {
     "ogg", "wma", "caf",
 }
 
+# BUG-2026-09-07-002：仓库领域词强制纠正表（同音/近音误识别 → 领域词）。
+# 语音指令只用于仓库操作导航，识别文本必须先收敛到领域词库，
+# 杜绝「领料→饮料」「入库→欲哭」这类低级错误流入指令解析。
+# 注意：Android 端 VoiceCommandViewModel.kt 的 VOICE_ASR_DOMAIN_CORRECTIONS
+# 与本表逐项保持一致（服务端纠正云引擎路径，客户端纠正系统识别/sherpa 路径），
+# 改动必须双边同步，tests/verify_bug_2026_09_07_002_voice_domain_correction.py
+# 有双端一致性门禁。
+VOICE_ASR_DOMAIN_CORRECTIONS = {
+    "饮料": "领料",
+    "欲哭": "入库",
+    "玉库": "入库",
+    "入裤": "入库",
+    "如库": "入库",
+    "乳库": "入库",
+    "出裤": "出库",
+    "初库": "出库",
+    "楚库": "出库",
+    "裤存": "库存",
+    "酷存": "库存",
+    "盘店": "盘点",
+    "潘点": "盘点",
+    "判点": "盘点",
+    "食物": "识物",
+    "起初": "期初",
+    "调播": "调拨",
+    "扫马": "扫码",
+    # 注意：不收「推出→退出」——退出登录是破坏性操作，
+    # 「推出新品」等口误若被强纠正会误触发登出，风险不对等。
+}
+
+
+def correct_voice_asr_text(text):
+    """把语音识别文本中的同音/近音误识别强制纠正为仓库领域词。
+
+    语音指令场景只说仓库操作词（入库/出库/领料/盘点/查库存/识物…），
+    逐条子串替换安全；空文本原样返回。
+    """
+    if not text:
+        return text
+    corrected = text
+    for wrong, right in VOICE_ASR_DOMAIN_CORRECTIONS.items():
+        corrected = corrected.replace(wrong, right)
+    return corrected
+
 
 def sentence_recognition(
     audio_bytes: bytes,
