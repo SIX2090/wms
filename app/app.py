@@ -26456,12 +26456,8 @@ def _collect_in_detail_rows(filters):
         query = query.filter(material_clause)
 
     # BUG-2026-08-30-003：明细超限不再静默截断，先计数告警再取数
-    detail_total = query.count()
-    if detail_total > REPORT_ROW_LIMIT:
-        app.logger.warning(
-            '[REPORT] 入库明细 %s 行超过上限 %s，结果已截断，请缩小查询范围',
-            detail_total, REPORT_ROW_LIMIT)
-    items = query.limit(REPORT_ROW_LIMIT).all()
+    # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
+    items = _report_check_row_limit(query, REPORT_ROW_LIMIT, '入库明细').all()
 
     rows = []
     for item in items:
@@ -26526,12 +26522,8 @@ def _collect_out_detail_rows(filters):
         query = query.filter(material_clause)
 
     # BUG-2026-08-30-003：明细超限不再静默截断，先计数告警再取数
-    detail_total = query.count()
-    if detail_total > REPORT_ROW_LIMIT:
-        app.logger.warning(
-            '[REPORT] 出库明细 %s 行超过上限 %s，结果已截断，请缩小查询范围',
-            detail_total, REPORT_ROW_LIMIT)
-    items = query.limit(REPORT_ROW_LIMIT).all()
+    # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
+    items = _report_check_row_limit(query, REPORT_ROW_LIMIT, '出库明细').all()
 
     rows = []
     customer_keyword = (filters.get('customer') or '').lower()
@@ -26598,12 +26590,8 @@ def _collect_check_rows(filters):
         query = query.filter(material_clause)
 
     # BUG-2026-08-30-003：明细超限不再静默截断，先计数告警再取数
-    detail_total = query.count()
-    if detail_total > REPORT_ROW_LIMIT:
-        app.logger.warning(
-            '[REPORT] 盘点明细 %s 行超过上限 %s，结果已截断，请缩小查询范围',
-            detail_total, REPORT_ROW_LIMIT)
-    items = query.limit(REPORT_ROW_LIMIT).all()
+    # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
+    items = _report_check_row_limit(query, REPORT_ROW_LIMIT, '盘点明细').all()
 
     rows = []
     for item in items:
@@ -26911,6 +26899,28 @@ LEDGER_ROW_LIMIT = 50000
 REPORT_ROW_LIMIT = 50000
 
 
+def _report_check_row_limit(query, limit, label):
+    """报表明细统一截断检查（BUG-2026-09-07-003）。
+
+    超限不再"只写日志、页面无感知"：先 query.count() 取真实行数，
+    超限时记 warning 日志，并把真实行数记入 flask.g（_report_truncated_total，
+    多次截断取最大值），由 _build_report_payload 透传给前端显式提示
+    「结果已截断、汇总按截断数据统计」；无 flask 上下文（脚本调用）仅记日志。
+    返回按 limit 截断后的 query，调用方再 .all()。
+    """
+    real_total = query.count()
+    if real_total > limit:
+        app.logger.warning(
+            '[REPORT] %s %s 行超过上限 %s，结果已截断，请缩小查询范围',
+            label, real_total, limit)
+        try:
+            current = getattr(g, '_report_truncated_total', 0) or 0
+            g._report_truncated_total = max(current, real_total)
+        except RuntimeError:
+            pass  # 非请求/应用上下文（脚本直跑）只留日志
+    return query.limit(limit)
+
+
 def _collect_ledger_rows(filters):
     # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
@@ -26934,12 +26944,9 @@ def _collect_ledger_rows(filters):
         query = query.join(StockTransaction.material).filter(material_clause)
 
     # WMS-AUDIT-2026-08-29 (2): 超限不再静默截断，先计数并告警，便于事后排查。
-    ledger_total = query.count()
-    if ledger_total > LEDGER_ROW_LIMIT:
-        app.logger.warning(
-            '[LEDGER] 流水 %s 条超过上限 %s，台账明细已截断，'
-            '请缩小查询范围（仓库/物料/日期）', ledger_total, LEDGER_ROW_LIMIT)
-    transactions = query.order_by(StockTransaction.material_id.asc(), StockTransaction.created_at.asc(), StockTransaction.id.asc()).limit(LEDGER_ROW_LIMIT).all()
+    # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
+    query = query.order_by(StockTransaction.material_id.asc(), StockTransaction.created_at.asc(), StockTransaction.id.asc())
+    transactions = _report_check_row_limit(query, LEDGER_ROW_LIMIT, '库存台账流水').all()
 
     # BUG-2026-08-27-003：空 location 流水仅当来源单据仓库与所选仓库一致时保留；
     # location 非空的流水已被上方 SQL 过滤（必属所选仓库），直接保留。
@@ -27053,13 +27060,9 @@ def _collect_purchase_order_execution_rows(filters):
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return []
     # BUG-2026-08-30-003：采购执行/汇总/价格分析共用本采集器，超限不再静默截断
+    # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
     item_query = _purchase_order_item_query(filters)
-    po_total = item_query.count()
-    if po_total > REPORT_ROW_LIMIT:
-        app.logger.warning(
-            '[REPORT] 采购执行明细 %s 行超过上限 %s，结果已截断，请缩小查询范围',
-            po_total, REPORT_ROW_LIMIT)
-    items = item_query.limit(REPORT_ROW_LIMIT).all()
+    items = _report_check_row_limit(item_query, REPORT_ROW_LIMIT, '采购执行明细').all()
     today_value = date.today()
     rows = []
     for item in items:
@@ -27725,6 +27728,15 @@ def _build_report_payload(report_type, filters):
     rows = _sort_rows(rows, filters['sort_field'], filters['sort_order'])
     total = len(rows)
     paged_rows = rows if filters['export'] == 'excel' else _paginate_rows(rows, filters['page'], filters['page_size'])
+    # BUG-2026-09-07-003：collect 层超限截断的真实行数透传给前端，
+    # 页面显式提示「结果已截断、汇总按截断数据统计」，不再静默失真。
+    truncated_total = 0
+    try:
+        truncated_total = getattr(g, '_report_truncated_total', 0) or 0
+        g._report_truncated_total = 0  # 读后即清，防止同一上下文二次查询串值
+    except RuntimeError:
+        pass
+    page_size = max(int(filters.get('page_size') or 20), 1)
     return {
         'title': definition['title'],
         'columns': columns,
@@ -27732,6 +27744,9 @@ def _build_report_payload(report_type, filters):
         'all_rows': rows,
         'summary': summary,
         'total': total,
+        'truncated': truncated_total > total,
+        'raw_total': truncated_total if truncated_total > total else total,
+        'total_pages': max(1, -(-total // page_size)),
         'summary_labels': definition['summary_labels'],
         'summary_types': definition['summary_types'],
     }

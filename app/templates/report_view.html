@@ -156,6 +156,8 @@
         </button>
     </div>
     <div class="card-body p-0">
+        {# BUG-2026-09-07-003：查询结果超上限被截断时显式提示，不再静默失真 #}
+        <div class="alert alert-warning d-none mb-0 rounded-0 border-0 border-bottom py-2 px-3 small" id="truncationAlert" role="alert"></div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0" id="reportTable">
                 <thead class="table-dark">
@@ -478,6 +480,19 @@ function applyReportFieldSettings() {
     });
 }
 
+// BUG-2026-09-07-003：渲染截断提示——真实行数超上限时，
+// 警告条 + 分页总数文案双通道告知「汇总按截断数据统计」
+function renderTruncation(result) {
+    const el = document.getElementById('truncationAlert');
+    if (result && result.truncated && result.raw_total > result.total) {
+        el.textContent = `查询结果共 ${Number(result.raw_total).toLocaleString('zh-CN')} 条，超过单次处理上限，仅显示前 ${Number(result.total).toLocaleString('zh-CN')} 条，上方汇总数据也按前 ${Number(result.total).toLocaleString('zh-CN')} 条统计。请缩小日期、仓库或物料范围后重新查询。`;
+        el.classList.remove('d-none');
+    } else {
+        el.textContent = '';
+        el.classList.add('d-none');
+    }
+}
+
 function renderPagination(total) {
     pageTotal.textContent = String(total);
     totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -556,11 +571,13 @@ async function loadData() {
         renderSummary(result.summary || {});
         renderTable(result.columns || [], result.data || []);
         renderPagination(result.total || 0);
+        renderTruncation(result);
     } catch (error) {
         tableBody.innerHTML = `<tr><td class="text-center text-danger py-5">${escapeHtml(error.message || '报表查询失败')}</td></tr>`;
         tableHeaderRow.innerHTML = '<th>错误</th>';
         paginationNav.innerHTML = '';
         pageTotal.textContent = '0';
+        renderTruncation(null);
     } finally {
         setLoading(false);
     }

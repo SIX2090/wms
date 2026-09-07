@@ -267,6 +267,11 @@ def register_report_routes(app):
             'total': payload['total'],
             'page': filters['page'],
             'page_size': filters['page_size'],
+            # BUG-2026-09-07-003：截断标记与真实行数透传前端显式提示；
+            # total_pages 补齐分页元数据（AGENTS.md R1）
+            'truncated': payload.get('truncated', False),
+            'raw_total': payload.get('raw_total', payload['total']),
+            'total_pages': payload.get('total_pages', 1),
         })
 
     @app.route('/report/print')

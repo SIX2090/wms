@@ -53,17 +53,27 @@ def test_t1_ledger_row_limit_raised():
 
 
 def test_t2_no_hardcoded_limit_5000():
-    """台账明细中不得再出现写死的 .limit(5000)；必须改用常量。"""
+    """台账明细中不得再出现写死的 .limit(5000)；必须改用常量。
+
+    BUG-2026-09-07-003 起截断逻辑收拢到统一 helper _report_check_row_limit
+    （行为不变：上限仍是 LEDGER_ROW_LIMIT，超限仍 count+告警），锚点同步演进。
+    """
     assert not re.search(r"\.limit\(\s*5000\s*\)", LEDGER_SRC)
-    assert ".limit(LEDGER_ROW_LIMIT)" in LEDGER_SRC
+    assert "_report_check_row_limit(query, LEDGER_ROW_LIMIT" in LEDGER_SRC
 
 
 def test_t3_overflow_warns_instead_of_silent_truncate():
-    """超限前先 count，超限时告警并提示缩小范围（不再静默截断）。"""
-    assert "ledger_total = query.count()" in LEDGER_SRC
-    assert "ledger_total > LEDGER_ROW_LIMIT" in LEDGER_SRC
-    assert "app.logger.warning" in LEDGER_SRC
-    assert "请缩小查询范围" in LEDGER_SRC
+    """超限前先 count，超限时告警并提示缩小范围（不再静默截断）。
+
+    BUG-2026-09-07-003 起该逻辑统一在 _report_check_row_limit 实现，
+    台账与入库/出库/盘点/采购执行共用同一截断告警口径。
+    """
+    assert "_report_check_row_limit(query, LEDGER_ROW_LIMIT" in LEDGER_SRC
+    helper_src = inspect.getsource(app_module._report_check_row_limit)
+    assert "query.count()" in helper_src
+    assert "real_total > limit" in helper_src
+    assert "app.logger.warning" in helper_src
+    assert "请缩小查询范围" in helper_src
 
 
 def test_t4_sort_uses_real_time_and_cleans_temp_fields():
