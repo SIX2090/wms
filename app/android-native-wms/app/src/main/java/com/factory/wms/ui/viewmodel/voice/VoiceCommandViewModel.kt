@@ -109,7 +109,7 @@ class VoiceCommandViewModel(
 
         // 8 秒兜底超时：未收到任何识别/错误回调时主动停掉引擎并提示。
         // 注意：云引擎（CloudAsrVoiceSttEngine）没有 partial 回调，此超时即
-        // "最长录音时长"——用户点按麦克风后应在 15 秒内说完指令，否则被强制结束。
+        // "最长录音时长"——用户点按麦克风后应在 8 秒内说完指令，否则被强制结束。
         // 每秒更新一次剩余秒数，让用户明确知道录音窗口，避免"没说多久就被断"的困惑。
         listenTimeoutJob?.cancel()
         listenTimeoutJob = viewModelScope.launch {
@@ -127,7 +127,7 @@ class VoiceCommandViewModel(
                 engine = null
                 _uiState.value = _uiState.value.copy(
                     isListening = false,
-                    error = "识别超时：请在点按麦克风后 15 秒内说出指令（如：入库、出库、查库存）"
+                    error = "识别超时：请在点按麦克风后 8 秒内说出指令（如：入库、出库、查库存）"
                 )
             }
         }
@@ -194,8 +194,13 @@ class VoiceCommandViewModel(
     }
 
     companion object {
-        /** 语音识别兜底超时（毫秒）。覆盖国内设备无 Google 服务、recognizer 静默挂起的场景。 */
-        private const val VOICE_LISTEN_TIMEOUT_MS = 15_000L
+        /**
+         * 语音识别兜底超时（毫秒）。覆盖国内设备无 Google 服务、recognizer 静默挂起的场景。
+         * BUG-2026-09-07-001：按用户要求由 15 秒改为 8 秒（取代 AI-MOB-APK-003 的 15s 决策）——
+         * 云引擎已有 VAD-lite（说完停顿 1.2 秒即自动上传），8 秒窗口足够说完整句指令，
+         * 且缩短用户忘记停顿时的最长等待。
+         */
+        private const val VOICE_LISTEN_TIMEOUT_MS = 8_000L
 
         /** 引擎/后端透传的错误 detail 最大展示长度，防止异常长文本撑爆 Snackbar。 */
         private const val MAX_ERROR_DETAIL_LEN = 80

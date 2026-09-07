@@ -22,6 +22,12 @@ AI-MOB-APK-003（2026-08-30）超时阈值上调 8s -> 15s：
   云端 ASR 往返常常超过 8 秒，指令还没说完就被判定超时，用户体感就是
   「一直超时」。故上调至 15 秒，仍保留兜底退出路径（不构成新的卡死风险）。
 
+BUG-2026-09-07-001（2026-09-07）超时阈值 15s -> 8s（取代 AI-MOB-APK-003）：
+  用户明确要求聆听窗口改为 8 秒。此时云引擎已具备 VAD-lite
+  （CloudAsrVoiceSttEngine：说话停顿 1.2 秒即自动结束录音并立即上传），
+  正常指令 2~4 秒说完即出结果，15 秒窗口反而让"忘记停顿"的用户干等；
+  8 秒足够说完整句指令，且仍保留兜底退出路径。故按用户要求下调回 8 秒。
+
 重构（第二阶段，本文件覆盖）：
   - 把 SpeechRecognizer 的具体实现抽到 [VoiceSttEngine] 接口里；
   - ViewModel 只依赖接口 + 工厂，不再直接 import android.speech.*；
@@ -30,8 +36,8 @@ AI-MOB-APK-003（2026-08-30）超时阈值上调 8s -> 15s：
 
 具体断言：
   T1. ViewModel 仍含 listenTimeoutJob: Job? 字段；
-  T2. companion object 暴露 VOICE_LISTEN_TIMEOUT_MS = 15_000L
-      （AI-MOB-APK-003：由 8_000L 上调）；
+  T2. companion object 暴露 VOICE_LISTEN_TIMEOUT_MS = 8_000L
+      （BUG-2026-09-07-001：用户要求由 15_000L 下调回 8_000L）；
   T3. startListening 启动 listenTimeoutJob（含 delay 调用）；
   T4. startListening 超时分支会 destroy engine 并写 error="识别超时"；
   T5. stopListening 取消 listenTimeoutJob；
@@ -68,9 +74,10 @@ VOICE_DIR = (
 VOICE_VM = VOICE_DIR / "VoiceCommandViewModel.kt"
 ANDROID_ENGINE = VOICE_DIR / "AndroidVoiceSttEngine.kt"
 
-# AI-MOB-APK-003：兜底超时阈值（毫秒）。真机一句完整指令的云端 ASR 往返
-# 常超过 8 秒，8s 会被用户感知为「一直超时」，故上调为 15 秒。
-VOICE_LISTEN_TIMEOUT_MS = "15000"
+# BUG-2026-09-07-001：兜底超时阈值（毫秒）。用户 2026-09-07 明确要求
+# 聆听窗口 15 秒改为 8 秒（取代 AI-MOB-APK-003 的 15s 决策）——云引擎
+# VAD-lite 停顿 1.2 秒即自动上传，8 秒足够说完整句指令。
+VOICE_LISTEN_TIMEOUT_MS = "8000"
 
 
 def _read(path: Path) -> str:
@@ -114,14 +121,15 @@ def test_t2_timeout_constant() -> None:
         f"VOICE_LISTEN_TIMEOUT_MS 必须 = {VOICE_LISTEN_TIMEOUT_MS}L（毫秒），实际={raw}"
 
 
-def test_t2b_timeout_not_regressed_below_original() -> None:
-    """AI-MOB-APK-003 门禁：阈值不得被回退到 8 秒以下（避免「一直超时」复发）。"""
+def test_t2b_timeout_pinned_to_user_required_8s() -> None:
+    """BUG-2026-09-07-001 门禁：阈值必须固定为 8 秒（用户 2026-09-07 明确要求，
+    取代 AI-MOB-APK-003 的 15s；云引擎 VAD-lite 停顿即传，8s 窗口足够）。"""
     src = _read(VOICE_VM)
     m = re.search(r"VOICE_LISTEN_TIMEOUT_MS\s*=\s*(\d+_?\d*)L", src)
     assert m, "必须定义 VOICE_LISTEN_TIMEOUT_MS 常量"
     value = int(m.group(1).replace("_", ""))
-    assert value >= 15000, \
-        f"兜底超时不得回退到 15 秒以下（现场反馈 8 秒过小），实际={value}"
+    assert value == 8000, \
+        f"兜底超时必须 = 8 秒（BUG-2026-09-07-001 用户要求），实际={value}"
 
 
 def test_t3_start_listening_launches_timeout_job() -> None:
