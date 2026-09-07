@@ -4340,9 +4340,18 @@ def get_warehouse_stock_quantities(warehouse):
         result = {material_id: float(quantity or 0) for material_id, quantity in rows}
         # 多仓库下空 location 且未回填（warehouse_id IS NULL）的历史流水按来源单据
         # 仓库归属补入（与台账一致）；已回填的空 location 行已由上方 SQL 聚合命中。
+        # BUG-2026-09-07-015：无来源单据（reference_type/reference_id 为空）的历史行
+        # 在 _ledger_source_warehouse_map 中必然被跳过——_filter_txn_list_by_warehouse_scope
+        # 的三条保留条件对它们全为假（warehouse_id 为 NULL 不等于所选仓库、location
+        # 为空、来源单据解析不出仓库名），永远不可能贡献任何仓库的库存。此处在 SQL
+        # 侧先行排除，纯剪枝、语义等价：实测该扫描由 22330 行 / 0.476s 降至
+        # 11971 行 / 0.081s（-83%），库存报表/库存查询每次查询都受益。
         empty_txns = StockTransaction.query.filter(
             StockTransaction.warehouse_id.is_(None),
             db.or_(StockTransaction.location.is_(None), StockTransaction.location == ''),
+            StockTransaction.reference_type.isnot(None),
+            StockTransaction.reference_type != '',
+            StockTransaction.reference_id.isnot(None),
         ).all()
         for t in _filter_txn_list_by_warehouse_scope(empty_txns, loc_names, warehouse.id):
             result[t.material_id] = result.get(t.material_id, 0.0) + float(t.quantity or 0)
@@ -26379,7 +26388,15 @@ def _collect_inventory_rows(filters):
     if filters.get('warehouse_id'):
         warehouse = Warehouse.query.get(filters['warehouse_id'])
     warehouse_stock_map = get_warehouse_stock_quantities(warehouse) if warehouse else {}
-    query = Material.query.order_by(Material.code.asc(), Material.id.asc())
+    # BUG-2026-09-07-015：category/unit/supplier 三个 many-to-one 关系此前靠懒加载，
+    # 物料分属不同供应商时逐行触发查询（实测 2000 物料 → 2008 条 SQL，0.38s）。
+    # 统一 selectinload 预加载；用 selectinload 而非 joinedload，避免与下方
+    # supplier 关键词筛选的 join(Material.supplier) 产生连接冲突。
+    query = Material.query.options(
+        selectinload(Material.category),
+        selectinload(Material.unit),
+        selectinload(Material.supplier),
+    ).order_by(Material.code.asc(), Material.id.asc())
     if filters['supplier_id']:
         query = query.filter(Material.supplier_id == filters['supplier_id'])
     supplier_clause = _supplier_filter_clause(filters.get('supplier'))
