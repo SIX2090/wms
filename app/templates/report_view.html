@@ -162,7 +162,7 @@
     </div>
 </section>
 
-<section class="card border-0 shadow-sm">
+<section class="card border-0 shadow-sm" id="reportTableSection">
     <div class="card-header bg-white d-flex justify-content-between align-items-center">
         <span class="small text-muted">查询明细</span>
         <button type="button" class="btn btn-sm btn-outline-secondary" id="columnSettingsBtn" title="显示/隐藏及调整明细字段">
@@ -206,6 +206,10 @@
 <div class="loading-mask" id="loadingMask" hidden>
     <div class="spinner-border text-light" role="status"></div>
 </div>
+
+{# BUG-2026-09-07-008：打印专用容器——打印按钮先拉取当前筛选的全部数据
+   渲染到此区域，再 window.print()；屏幕显示隐藏，@media print 只显示此区域 #}
+<div id="printArea" aria-hidden="true"></div>
 {% endblock %}
 
 {% block extra_js %}
@@ -301,9 +305,104 @@ templatePrintBtn.addEventListener('click', () => {
 
 loadPrintTemplates();
 
-printBtn.addEventListener('click', () => {
-    window.print();
+// BUG-2026-09-07-008：打印 = 打印当前筛选的全部结果，而非仅当前页。
+// 按 R1 显式大 page_size + total_pages 循环拉取合并；超过 MAX_PRINT_ROWS
+// 提示改用导出 Excel，避免浏览器渲染数万行卡死。
+const MAX_PRINT_ROWS = 10000;
+
+printBtn.addEventListener('click', async () => {
+    const warehouseSel = filterForm.querySelector('#warehouse_id');
+    if (warehouseSel && !warehouseSel.value) {
+        renderTruncation(null);
+        const el = document.getElementById('truncationAlert');
+        el.textContent = '请先选择仓库再打印';
+        el.classList.remove('d-none');
+        return;
+    }
+    setLoading(true);
+    try {
+        const allRows = [];
+        let columns = currentColumns;
+        let totalPages = 1;
+        let page = 1;
+        let truncated = false;
+        const params = buildParams();
+        do {
+            params.set('page', String(page));
+            params.set('page_size', '500');
+            const resp = await fetch(`/report/api/${encodeURIComponent(reportType)}?${params.toString()}`);
+            const result = await resp.json();
+            if (!resp.ok || result.status !== 'success') {
+                throw new Error(result.msg || '打印数据加载失败');
+            }
+            columns = result.columns || columns;
+            allRows.push(...(result.data || []));
+            totalPages = result.total_pages || 1;
+            page += 1;
+            if (allRows.length >= MAX_PRINT_ROWS) {
+                truncated = true;
+                break;
+            }
+        } while (page <= totalPages);
+        renderPrintArea(columns, allRows, truncated);
+        window.print();
+    } catch (error) {
+        renderTruncation(null);
+        const el = document.getElementById('truncationAlert');
+        el.textContent = `打印失败：${error.message || '数据加载失败'}，请重试或改用导出 Excel`;
+        el.classList.remove('d-none');
+    } finally {
+        setLoading(false);
+    }
 });
+
+function renderPrintArea(columns, rows, truncated) {
+    const el = document.getElementById('printArea');
+    const metaParts = [];
+    const formData = new FormData(filterForm);
+    for (const [key, value] of formData.entries()) {
+        if (!String(value).trim() || key === 'csrf_token') continue;
+        const field = filterForm.querySelector(`[name="${key}"]`);
+        let label = key;
+        if (field) {
+            const labelEl = filterForm.querySelector(`label[for="${field.id}"]`);
+            if (labelEl) label = labelEl.textContent.replace(/\s*\*\s*/g, '').trim();
+            if (field.tagName === 'SELECT') {
+                const opt = field.options[field.selectedIndex];
+                if (opt) { metaParts.push(`${label}：${opt.textContent.trim()}`); continue; }
+            }
+        }
+        metaParts.push(`${label}：${String(value).trim()}`);
+    }
+    const summaryText = Array.from(document.querySelectorAll('#summaryCards .summary-card'))
+        .map(card => {
+            const label = card.querySelector('.summary-label');
+            const value = card.querySelector('.summary-value');
+            return label && value ? `${label.textContent.trim()} ${value.textContent.trim()}` : '';
+        }).filter(Boolean).join('　|　');
+    const now = new Date();
+    const printedAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const headHtml = columns.map(c => `<th>${escapeHtml(c.title)}</th>`).join('');
+    const bodyHtml = rows.map(row => {
+        const cells = columns.map((column) => {
+            let value = row[column.field];
+            if (column.type === 'status') value = value === 'completed' ? '已完成' : (value === 'pending' ? '待处理' : value);
+            return `<td>${escapeHtml(formatValue(value, column.type))}</td>`;
+        }).join('');
+        return `<tr>${cells}</tr>`;
+    }).join('');
+    el.innerHTML = `
+        <div class="print-header">
+            <h3>${escapeHtml(reportTitle)}</h3>
+            <div class="print-meta">打印时间：${escapeHtml(printedAt)}　|　共 ${rows.length.toLocaleString('zh-CN')} 条${truncated ? '（超过打印上限，仅前 ' + MAX_PRINT_ROWS.toLocaleString('zh-CN') + ' 条，完整数据请导出 Excel）' : ''}</div>
+            ${metaParts.length ? `<div class="print-meta">筛选条件：${escapeHtml(metaParts.join('；'))}</div>` : ''}
+            ${summaryText ? `<div class="print-summary">${escapeHtml(summaryText)}</div>` : ''}
+        </div>
+        <table class="print-table">
+            <thead><tr>${headHtml}</tr></thead>
+            <tbody>${bodyHtml || `<tr><td colspan="${columns.length || 1}">当前条件下没有数据</td></tr>`}</tbody>
+        </table>`;
+}
 
 function buildParams(isExport = false) {
     const params = new URLSearchParams();
@@ -678,6 +777,11 @@ loadData();
     z-index: 1100;
 }
 
+/* BUG-2026-09-07-008：打印区屏幕隐藏，打印时只显示打印区 */
+#printArea {
+    display: none;
+}
+
 @media print {
     .btn,
     .card-header,
@@ -699,6 +803,52 @@ loadData();
     .summary-card {
         box-shadow: none !important;
         border: none !important;
+    }
+
+    /* 屏幕内容整体隐藏，只打印全量数据区 */
+    .page-header,
+    #filterPanel,
+    #summaryCards,
+    #reportTableSection {
+        display: none !important;
+    }
+
+    #printArea {
+        display: block !important;
+    }
+
+    #printArea .print-header h3 {
+        margin: 0 0 8px;
+        font-size: 18px;
+    }
+
+    #printArea .print-meta {
+        color: #444;
+        font-size: 12px;
+        margin-bottom: 4px;
+    }
+
+    #printArea .print-summary {
+        font-size: 13px;
+        font-weight: 600;
+        margin: 6px 0 10px;
+    }
+
+    #printArea .print-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+    }
+
+    #printArea .print-table th,
+    #printArea .print-table td {
+        border: 1px solid #999;
+        padding: 3px 6px;
+        text-align: left;
+    }
+
+    #printArea .print-table thead th {
+        background: #eee;
     }
 
     body {
