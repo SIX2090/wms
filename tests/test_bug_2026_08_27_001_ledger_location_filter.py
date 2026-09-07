@@ -94,6 +94,12 @@ def _seed_transactions(mat, wh_a, wh_b):
     db.session.commit()
 
 
+def _flow_rows(filters):
+    """BUG-2026-09-07-006：台账新增期初/合计标记行，本文件断言只针对流水行。"""
+    return [r for r in _collect_ledger_rows(filters)
+            if r.get('reference_type') not in ('期初结存', '本期合计')]
+
+
 class TestLedgerLocationFilter:
 
     def test_location_on_transfer_visible_per_warehouse(self):
@@ -105,8 +111,8 @@ class TestLedgerLocationFilter:
             wh_b = Warehouse.query.get(2)
             _seed_transactions(mat, wh_a, wh_b)
 
-            rows_a = _collect_ledger_rows(_filters(wh_a, mat))
-            rows_b = _collect_ledger_rows(_filters(wh_b, mat))
+            rows_a = _flow_rows(_filters(wh_a, mat))
+            rows_b = _flow_rows(_filters(wh_b, mat))
 
             # A 仓：入库 + 调拨出 = 2 行；B 仓：调拨入 = 1 行
             assert len(rows_a) == 2, f"仓库A 应有2行，实际 {len(rows_a)}: {[(r['reference_type'], r['location']) for r in rows_a]}"
@@ -128,8 +134,8 @@ class TestLedgerLocationFilter:
             add_stock_transaction(mat, 4, 'transfer_in', reference_type='transfer',
                                  reference_id=1, location='仓库B', remark='调拨入')
             db.session.commit()
-            rows_a = _collect_ledger_rows(_filters(wh_a, mat))
-            rows_b = _collect_ledger_rows(_filters(wh_b, mat))
+            rows_a = _flow_rows(_filters(wh_a, mat))
+            rows_b = _flow_rows(_filters(wh_b, mat))
             assert len(rows_a) == 2, f"仓库A 应有2行，实际 {len(rows_a)}"
             assert len(rows_b) == 1, f"仓库B 应有1行，实际 {len(rows_b)}"
 

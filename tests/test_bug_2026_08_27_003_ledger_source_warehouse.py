@@ -80,6 +80,12 @@ def _mk_in_order(warehouse_name):
     return o
 
 
+def _flow_rows(filters):
+    """BUG-2026-09-07-006：台账新增期初/合计标记行，本文件断言只针对流水行。"""
+    return [r for r in _collect_ledger_rows(filters)
+            if r.get('reference_type') not in ('期初结存', '本期合计')]
+
+
 class TestLedgerSourceWarehouseAttribution:
 
     def test_null_location_attributed_to_source_warehouse(self):
@@ -92,7 +98,7 @@ class TestLedgerSourceWarehouseAttribution:
             db.session.add(StockTransaction(material_id=mat.id, transaction_type='in', quantity=100,
                                             location=None, reference_type='in_order', reference_id=order.id))
             db.session.commit()
-            rows = _collect_ledger_rows(_filters(wh_a, mat))
+            rows = _flow_rows(_filters(wh_a, mat))
             assert len(rows) == 1, f"空location流水应按来源单据归属仓库A，实际 {len(rows)} 行"
             assert abs(rows[0]['in_quantity'] - 100) < 1e-6
 
@@ -106,7 +112,7 @@ class TestLedgerSourceWarehouseAttribution:
             db.session.add(StockTransaction(material_id=mat.id, transaction_type='in', quantity=100,
                                             location=None, reference_type='in_order', reference_id=order.id))
             db.session.commit()
-            rows = _collect_ledger_rows(_filters(wh_b, mat))
+            rows = _flow_rows(_filters(wh_b, mat))
             assert len(rows) == 0, f"空location流水不应出现在仓库B，实际 {len(rows)} 行"
 
     def test_named_location_still_visible(self):
@@ -121,7 +127,7 @@ class TestLedgerSourceWarehouseAttribution:
             db.session.add(StockTransaction(material_id=mat.id, transaction_type='in', quantity=5,
                                             location=None, reference_type='in_order', reference_id=order.id))
             db.session.commit()
-            rows = _collect_ledger_rows(_filters(wh_a, mat))
+            rows = _flow_rows(_filters(wh_a, mat))
             assert len(rows) == 2, f"仓库名流水+空location流水应共2行，实际 {len(rows)}"
 
     def test_transfer_attribution_by_sign(self):
@@ -141,7 +147,7 @@ class TestLedgerSourceWarehouseAttribution:
             db.session.add(StockTransaction(material_id=mat.id, transaction_type='transfer_in', quantity=4,
                                             location=None, reference_type='transfer', reference_id=t.id))
             db.session.commit()
-            rows_a = _collect_ledger_rows(_filters(wh_a, mat))
-            rows_b = _collect_ledger_rows(_filters(wh_b, mat))
+            rows_a = _flow_rows(_filters(wh_a, mat))
+            rows_b = _flow_rows(_filters(wh_b, mat))
             assert len(rows_a) == 1 and abs(rows_a[0]['out_quantity'] - 4) < 1e-6, f"调出应归仓库A: {len(rows_a)}"
             assert len(rows_b) == 1 and abs(rows_b[0]['in_quantity'] - 4) < 1e-6, f"调入应归仓库B: {len(rows_b)}"

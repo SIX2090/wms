@@ -122,7 +122,9 @@ class TestDegradedGhostWarehouseNoLeak:
                                             reference_type='in_order', reference_id=order_a.id))
             db.session.commit()
             rows = _collect_ledger_rows(_degraded_filters('仓库A', mat))
-            total_in = sum(r['in_quantity'] for r in rows)
+            # BUG-2026-09-07-006：台账新增期初/合计标记行，求和只针对流水行
+            flow = [r for r in rows if r.get('reference_type') not in ('期初结存', '本期合计')]
+            total_in = sum(r['in_quantity'] for r in flow)
             assert abs(total_in - 30) < 1e-6, \
                 f"location='仓库A' 按字符串口径应计入 30，实际 {total_in}"
 

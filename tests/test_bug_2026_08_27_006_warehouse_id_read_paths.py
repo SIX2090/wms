@@ -86,9 +86,11 @@ def _mk_in_order(warehouse_name, no="IN-1"):
 
 def _ledger_totals(wh, mat):
     rows = _collect_ledger_rows(_filters(wh, mat))
+    # BUG-2026-09-07-006：台账新增期初/合计标记行，求和只针对流水行（合计行会翻倍）
+    flow = [r for r in rows if r.get('reference_type') not in ('期初结存', '本期合计')]
     return {
-        'in': sum(r['in_quantity'] for r in rows),
-        'out': sum(r['out_quantity'] for r in rows),
+        'in': sum(r['in_quantity'] for r in flow),
+        'out': sum(r['out_quantity'] for r in flow),
         'balance': rows[-1]['balance_quantity'] if rows else 0.0,
     }
 

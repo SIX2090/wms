@@ -163,8 +163,10 @@ class TestMonthlyReportSourceWarehouseAttribution:
             ])
             db.session.commit()
             ledger_rows = _collect_ledger_rows(_filters(wh_a, mat))
-            ledger_in = sum(r['in_quantity'] for r in ledger_rows)
-            ledger_out = sum(r['out_quantity'] for r in ledger_rows)
+            # BUG-2026-09-07-006：台账新增期初/合计标记行，求和只针对流水行（合计行会翻倍）
+            ledger_flow = [r for r in ledger_rows if r.get('reference_type') not in ('期初结存', '本期合计')]
+            ledger_in = sum(r['in_quantity'] for r in ledger_flow)
+            ledger_out = sum(r['out_quantity'] for r in ledger_flow)
             ledger_balance = ledger_rows[-1]['balance_quantity'] if ledger_rows else 0.0
             row = _monthly_row(wh_a, mat)
             assert abs(ledger_in - 100) < 1e-6 and abs(ledger_out - 30) < 1e-6, \

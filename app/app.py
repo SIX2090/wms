@@ -27004,13 +27004,19 @@ def _collect_ledger_rows(filters):
 
     rows = []
     balances = {}
+    opening_balances = {}
+    period_in = {}
+    period_out = {}
+    material_map = {}
     start_date = filters.get('start_date')
+    end_date = filters.get('end_date')
     for transaction in transactions:
         material = transaction.material
         if not material:
             continue
 
         material_id = transaction.material_id
+        material_map[material_id] = material
         quantity = _safe_float(transaction.quantity)
         before_balance = balances.get(material_id, 0.0)
         after_balance = before_balance + quantity
@@ -27019,6 +27025,8 @@ def _collect_ledger_rows(filters):
         txn_datetime = transaction.created_at or datetime.min
         txn_date = txn_datetime.date()
         if start_date and txn_date < start_date:
+            # BUG-2026-09-07-006：start_date 前累计即该物料期初结存
+            opening_balances[material_id] = after_balance
             continue
 
         is_opening = (transaction.transaction_type or '').lower() in {'opening', 'opening_stock'}
@@ -27049,6 +27057,58 @@ def _collect_ledger_rows(filters):
             '_ts': txn_datetime,
             '_txn_id': transaction.id or 0,
         })
+        if quantity >= 0:
+            period_in[material_id] = period_in.get(material_id, 0.0) + quantity
+        else:
+            period_out[material_id] = period_out.get(material_id, 0.0) + abs(quantity)
+
+    # BUG-2026-09-07-006：期初/合计行——此前台账只有流水行，按日期范围查询时
+    # 看不到「期初结存」与「本期入/出合计、期末结存」，对账只能手算。
+    # 期初行 date=start_date+最小时间排同物料最前；合计行 date=end_date+最大时间
+    # 排同物料最后（默认按日期排序时位置天然正确）。两行带 material_id，
+    # 期末结存继续由 _build_ledger_report 的 ending_balances 正确取值。
+    def _ledger_marker_row(mid, marker_date, ref_label, opening, in_qty, out_qty, balance, remark, ts, txn_id):
+        material = material_map[mid]
+        return {
+            'date': marker_date.isoformat() if marker_date else '',
+            'reference_type': ref_label,
+            'reference_no': '',
+            'reference_url': '',
+            'opening_quantity': opening,
+            'in_quantity': in_qty,
+            'out_quantity': out_qty,
+            'balance_quantity': balance,
+            'material_id': mid,
+            'material_code': material.code or '',
+            'material_name': material.name or '',
+            'spec': material.spec or '',
+            'quantity': 0.0,
+            'amount': 0.0,
+            'operator': '',
+            'location': '',
+            'remark': remark,
+            '_ts': ts,
+            '_txn_id': txn_id,
+        }
+
+    opening_rows = []
+    closing_rows = []
+    for mid in material_map:
+        opening = opening_balances.get(mid, 0.0)
+        if start_date:
+            opening_rows.append(_ledger_marker_row(
+                mid, start_date, '期初结存', opening, 0.0, 0.0, opening,
+                '截至开始日期的累计结存',
+                datetime.combine(start_date, time.min), -2))
+        closing_date = end_date or date.today()
+        closing_rows.append(_ledger_marker_row(
+            mid, closing_date, '本期合计', opening,
+            round_to_2_decimals(period_in.get(mid, 0.0)),
+            round_to_2_decimals(period_out.get(mid, 0.0)),
+            balances.get(mid, 0.0),
+            '期初 + 本期入库 − 本期出库 = 期末结存',
+            datetime.combine(closing_date, time.max), -1))
+    rows = opening_rows + rows + closing_rows
 
     # WMS-AUDIT-2026-08-29 (1): 原按 (日期, 物料代码, 单号) 排序，单据号字典序
     # 不等于发生时间顺序，同一天同一物料多笔时，翻到该物料最后一行看到的

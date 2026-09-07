@@ -77,6 +77,12 @@ def _add_txn(mat, qty, location, ref_id):
     db.session.commit()
 
 
+def _flow_rows(filters):
+    """BUG-2026-09-07-006：台账新增期初/合计标记行，本文件断言只针对流水行。"""
+    return [r for r in _collect_ledger_rows(filters)
+            if r.get('reference_type') not in ('期初结存', '本期合计')]
+
+
 class TestLedgerSingleWarehouseNullLocation:
 
     def test_single_warehouse_null_location_visible(self):
@@ -86,7 +92,7 @@ class TestLedgerSingleWarehouseNullLocation:
             mat = _seed_base(n_warehouses=1)
             wh = Warehouse.query.get(1)
             _add_txn(mat, 100, None, 1)  # 历史流水，location 为空
-            rows = _collect_ledger_rows(_filters(wh, mat))
+            rows = _flow_rows(_filters(wh, mat))
             assert len(rows) == 1, f"单仓库 NULL-location 流水应可见，实际 {len(rows)} 行"
             assert abs(rows[0]['in_quantity'] - 100) < 1e-6
 
@@ -99,7 +105,7 @@ class TestLedgerSingleWarehouseNullLocation:
             _add_txn(mat, 10, '仓库A', 1)
             _add_txn(mat, 5, 'WHA', 2)
             _add_txn(mat, 3, None, 3)
-            rows = _collect_ledger_rows(_filters(wh, mat))
+            rows = _flow_rows(_filters(wh, mat))
             assert len(rows) == 3, f"单仓库应显示全部 3 行，实际 {len(rows)}"
             assert abs(sum(r['in_quantity'] for r in rows) - 18) < 1e-6
 
@@ -111,7 +117,7 @@ class TestLedgerSingleWarehouseNullLocation:
             wh_a = Warehouse.query.get(1)
             _add_txn(mat, 100, None, 1)      # NULL-location，无法归属 -> 应隐藏
             _add_txn(mat, 10, '仓库A', 2)     # 明确属仓库A -> 可见
-            rows = _collect_ledger_rows(_filters(wh_a, mat))
+            rows = _flow_rows(_filters(wh_a, mat))
             assert len(rows) == 1, f"多仓库 NULL-location 流水应仍隐藏，实际 {len(rows)} 行"
             assert abs(rows[0]['in_quantity'] - 10) < 1e-6
 
