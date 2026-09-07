@@ -35,34 +35,8 @@
     </div>
 </section>
 
-<section>
-    <div class="section-title-row">
-        <h4>对比畅捷通 T+ 后续仍可增强</h4>
-        <span class="text-muted small">核心采购统计已具备，后续补更细的执行和趋势分析</span>
-    </div>
-    <div class="card border-0 shadow-sm">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0 purchase-gap-table">
-                <thead>
-                    <tr>
-                        <th>缺少报表</th>
-                        <th>当前差距</th>
-                        <th style="width: 92px;">优先级</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for report in missing_reports %}
-                    <tr>
-                        <td class="fw-semibold">{{ report.name }}</td>
-                        <td class="text-muted">{{ report.gap }}</td>
-                        <td><span class="priority-badge priority-{{ report.priority }}">{{ report.priority }}</span></td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</section>
+{# BUG-2026-09-07-010：撤下「缺失报表差距清单」——把产品路线图直接展示给
+   最终用户是自曝其短，缺失能力应在开发台账跟踪而非业务页面公示 #}
 {% endblock %}
 
 {% block extra_js %}

@@ -132,18 +132,11 @@ def register_report_routes(app):
                 'icon': 'bi-building',
             },
         ]
-        missing_reports = [
-            {'name': '采购入库统计表 / 明细表', 'gap': '当前已有通用入库明细，下一步可增加专门按采购业务聚合的入库统计。', 'priority': '高'},
-            {'name': '采购价格波动趋势图', 'gap': '已补采购价格分析表，后续可增加按月趋势和同物料多供应商图表。', 'priority': '中'},
-            {'name': '采购到货及时率 / 逾期未到货统计', 'gap': '缺少按交期跟踪供应商到货及时率和逾期未到货明细。', 'priority': '中'},
-            {'name': '请购执行统计 / 请购转采购执行明细', 'gap': '已有采购申请下推采购单流程，但缺少转单率、未转单和执行进度统计。', 'priority': '中'},
-            {'name': '采购退货统计', 'gap': '当前未形成采购退货业务闭环，因此暂缺退货数量、金额和供应商退货分析。', 'priority': '低'},
-            {'name': '采购付款 / 应付类报表', 'gap': '当前系统没有财务应付模块，个人版可先不纳入本轮范围。', 'priority': '低'},
-        ]
+        # BUG-2026-09-07-010：缺失报表差距清单不再展示给最终用户
+        # （产品路线图归开发台账跟踪，业务页面只呈现可用能力）
         return render_template(
             'purchase_report.html',
             available_reports=available_reports,
-            missing_reports=missing_reports,
         )
 
     @app.route('/report/dashboard')
