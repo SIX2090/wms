@@ -89,19 +89,26 @@ class TestBug20260907003:
             db.session.commit()
 
     def test_T1_truncated_payload_marks_and_clears(self):
-        """截断：truncated=True、raw_total=6、total=截断值、total_pages 正确；g 读后清零。"""
+        """截断：导出路径超 REPORT_ROW_LIMIT 时 truncated=True、raw_total=真实行数。
+
+        BUG-2026-09-07-004 起 in/out 明细展示路径改走 SQL 分页（每页最多
+        page_size 行、total 为真实总数），截断只可能发生在导出的 5 万行
+        上限保护；本用例以 export='excel' 验证截断透传与 g 读后清零。
+        """
         with app_module.app.app_context():
             original = app_module.REPORT_ROW_LIMIT
             app_module.REPORT_ROW_LIMIT = 5
             try:
                 payload = app_module._build_report_payload(
-                    'in_detail', _filters(warehouse_id=self.wh_id, page_size=2))
+                    'in_detail', _filters(warehouse_id=self.wh_id, page_size=2,
+                                          export='excel'))
             finally:
                 app_module.REPORT_ROW_LIMIT = original
-            assert payload['truncated'] is True, "超限必须标记截断"
+            assert payload['truncated'] is True, "导出超限必须标记截断"
             assert payload['raw_total'] == 6, f"raw_total 应为真实行数 6，实际 {payload['raw_total']}"
-            assert payload['total'] == 5, f"total 应为截断后行数 5，实际 {payload['total']}"
-            assert payload['total_pages'] == 3, f"5 行 / 每页 2 → 3 页，实际 {payload['total_pages']}"
+            assert len(payload['all_rows']) == 5, f"导出应截断到 5 行，实际 {len(payload['all_rows'])}"
+            assert payload['total'] == 6, f"SQL 路径 total 为真实总数 6，实际 {payload['total']}"
+            assert payload['total_pages'] == 3, f"6 行 / 每页 2 → 3 页，实际 {payload['total_pages']}"
             from flask import g as flask_g
             assert not getattr(flask_g, '_report_truncated_total', 0), "g 标记读后必须清零"
 
@@ -116,22 +123,24 @@ class TestBug20260907003:
             assert payload['total_pages'] == 2, f"6 行 / 每页 4 → 2 页，实际 {payload['total_pages']}"
 
     def test_T3_api_response_fields(self):
-        """API：响应含 truncated/raw_total/total_pages，截断时与函数层一致。"""
+        """API：响应必含 truncated/raw_total/total_pages 分页元数据（R1）。
+
+        BUG-2026-09-07-004 起 in_detail 展示路径走 SQL 分页：total 为真实
+        总数 6、truncated=False（展示无截断概念）；truncated/raw_total 字段
+        对未下沉报表与导出路径继续生效。
+        """
         client = app_module.app.test_client()
         resp = client.post("/login", data={"username": "admin", "password": "admin"})
         assert resp.status_code in (200, 302), f"登录失败: {resp.status_code}"
-        original = app_module.REPORT_ROW_LIMIT
-        app_module.REPORT_ROW_LIMIT = 5
-        try:
-            r = client.get(f"/report/api/in_detail?warehouse_id={self.wh_id}&page_size=2")
-        finally:
-            app_module.REPORT_ROW_LIMIT = original
+        r = client.get(f"/report/api/in_detail?warehouse_id={self.wh_id}&page_size=2")
         assert r.status_code == 200, f"API 应 200，实际 {r.status_code}: {r.get_data(as_text=True)[:200]}"
         data = r.get_json()
         assert data['status'] == 'success'
-        assert data['truncated'] is True, "API 必须透传截断标记"
+        for field in ('truncated', 'raw_total', 'total_pages'):
+            assert field in data, f"响应缺分页元数据字段 {field}"
+        assert data['total'] == 6, f"SQL 路径 total 为真实总数 6，实际 {data['total']}"
+        assert data['truncated'] is False
         assert data['raw_total'] == 6
-        assert data['total'] == 5
         assert data['total_pages'] == 3
 
     def test_T4_template_anchors(self):

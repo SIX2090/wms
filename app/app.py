@@ -26411,20 +26411,49 @@ def _collect_inventory_rows(filters):
         })
     return rows
 
-def _collect_in_detail_rows(filters):
-    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
-        return []
-    query = InOrderItem.query.join(InOrder).join(Material, InOrderItem.material_id == Material.id).options(
-        joinedload(InOrderItem.in_order).joinedload(InOrder.supplier),
-        joinedload(InOrderItem.in_order).joinedload(InOrder.customer),
-        joinedload(InOrderItem.in_order).joinedload(InOrder.operator),
-        joinedload(InOrderItem.material).joinedload(Material.unit)
-    ).order_by(
-        InOrder.date.desc(),
-        InOrder.order_no.desc(),
-        InOrderItem.id.desc()
-    )
+def _in_detail_row(item):
+    """入库明细行映射（_collect_in_detail_rows 与 SQL 分页 builder 共用，防止两份映射漂移）。"""
+    order = item.in_order
+    material = item.material
+    if material is None:
+        return None
+    return {
+        'date': order.date.isoformat() if order.date else '',
+        'order_no': order.order_no or '',
+        'order_url': _report_detail_url('in_order_detail', order.id),
+        'business_type': order.business_type or '采购入库',
+        'supplier': order.supplier.name if order.supplier else '',
+        'customer': order.customer.name if order.customer else '',
+        'warehouse': order.warehouse or '',
+        'location': order.location or '',
+        'is_customer_supplied': '是' if item.is_customer_supplied else '否',
+        'material_code': material.code or '',
+        'material_name': material.name or '',
+        'spec': material.spec or '',
+        'unit': material.unit.name if material.unit else '',
+        'quantity': _safe_float(item.quantity),
+        'price': _safe_float(item.price),
+        'amount': _safe_float(item.amount),
+        'status': order.status or '',
+        'operator': order.operator.username if order.operator else '',
+        'purpose': order.purpose or '',
+        'remark': order.remark or '',
+    }
+
+
+def _filtered_in_detail_query(filters):
+    """入库明细带全部筛选条件（不含排序/分页）的 query。
+
+    BUG-2026-09-07-004：从 _collect_in_detail_rows 提取，供内存全量路径与
+    SQL 分页路径共用同一 WHERE 口径。Supplier/Customer/operator/User/Unit
+    统一 outerjoin（supplier 关键词筛选原为 INNER JOIN——加关键词过滤后
+    不匹配的行同样被排除，outerjoin+filter 语义等价，且支撑排序映射）。
+    """
+    query = InOrderItem.query.join(InOrder).join(Material, InOrderItem.material_id == Material.id)\
+        .outerjoin(Supplier, InOrder.supplier_id == Supplier.id)\
+        .outerjoin(Customer, InOrder.customer_id == Customer.id)\
+        .outerjoin(User, InOrder.operator_id == User.id)\
+        .outerjoin(Unit, Material.unit_id == Unit.id)
     # BUG-2026-08-18-004：此前硬编码只查"采购入库"，手机端"产品入库"、
     # 网页端"其他入库"在入库明细报表里永远查不出来。改为可选筛选，
     # business_type 为空表示全部入库类型。
@@ -26448,12 +26477,29 @@ def _collect_in_detail_rows(filters):
         query = query.filter(InOrder.supplier_id == filters['supplier_id'])
     supplier_clause = _supplier_filter_clause(filters.get('supplier'))
     if supplier_clause is not None:
-        query = query.join(Supplier, InOrder.supplier_id == Supplier.id).filter(supplier_clause)
+        query = query.filter(supplier_clause)
     if filters['status']:
         query = query.filter(InOrder.status == filters['status'])
     material_clause = _material_filter_clause(filters.get('material_code'))
     if material_clause is not None:
         query = query.filter(material_clause)
+    return query
+
+
+def _collect_in_detail_rows(filters):
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return []
+    query = _filtered_in_detail_query(filters).options(
+        joinedload(InOrderItem.in_order).joinedload(InOrder.supplier),
+        joinedload(InOrderItem.in_order).joinedload(InOrder.customer),
+        joinedload(InOrderItem.in_order).joinedload(InOrder.operator),
+        joinedload(InOrderItem.material).joinedload(Material.unit)
+    ).order_by(
+        InOrder.date.desc(),
+        InOrder.order_no.desc(),
+        InOrderItem.id.desc()
+    )
 
     # BUG-2026-08-30-003：明细超限不再静默截断，先计数告警再取数
     # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
@@ -26461,47 +26507,51 @@ def _collect_in_detail_rows(filters):
 
     rows = []
     for item in items:
-        order = item.in_order
-        material = item.material
-        if material is None:
-            continue
-        rows.append({
-            'date': order.date.isoformat() if order.date else '',
-            'order_no': order.order_no or '',
-            'order_url': _report_detail_url('in_order_detail', order.id),
-            'business_type': order.business_type or '采购入库',
-            'supplier': order.supplier.name if order.supplier else '',
-            'customer': order.customer.name if order.customer else '',
-            'warehouse': order.warehouse or '',
-            'location': order.location or '',
-            'is_customer_supplied': '是' if item.is_customer_supplied else '否',
-            'material_code': material.code or '',
-            'material_name': material.name or '',
-            'spec': material.spec or '',
-            'unit': material.unit.name if material.unit else '',
-            'quantity': _safe_float(item.quantity),
-            'price': _safe_float(item.price),
-            'amount': _safe_float(item.amount),
-            'status': order.status or '',
-            'operator': order.operator.username if order.operator else '',
-            'purpose': order.purpose or '',
-            'remark': order.remark or '',
-        })
+        row = _in_detail_row(item)
+        if row is not None:
+            rows.append(row)
     return rows
 
-def _collect_out_detail_rows(filters):
-    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
-        return []
-    query = OutOrderItem.query.join(OutOrder).join(Material, OutOrderItem.material_id == Material.id).options(
-        joinedload(OutOrderItem.out_order).joinedload(OutOrder.department),
-        joinedload(OutOrderItem.out_order).joinedload(OutOrder.operator),
-        joinedload(OutOrderItem.material).joinedload(Material.unit)
-    ).order_by(
-        OutOrder.date.desc(),
-        OutOrder.order_no.desc(),
-        OutOrderItem.id.desc()
-    )
+def _out_detail_row(item):
+    """出库明细行映射（_collect_out_detail_rows 与 SQL 分页 builder 共用，防止两份映射漂移）。"""
+    order = item.out_order
+    material = item.material
+    if material is None:
+        return None
+    # 客户/部门展示：部门名优先，回退单据客户文本、用途。
+    department_name = order.department.name if order.department else ''
+    customer_text = department_name or order.customer or order.purpose or ''
+    return {
+        'date': order.date.isoformat() if order.date else '',
+        'order_no': order.order_no or '',
+        'order_url': _report_detail_url('out_order_detail', order.id),
+        'customer': customer_text,
+        'material_code': material.code or '',
+        'material_name': material.name or '',
+        'spec': material.spec or '',
+        'unit': material.unit.name if material.unit else '',
+        'quantity': _safe_float(item.quantity),
+        'price': _safe_float(item.price),
+        'amount': _safe_float(item.amount),
+        'status': order.status or '',
+        'operator': order.operator.username if order.operator else '',
+        'purpose': order.purpose or '',
+        'remark': order.remark or '',
+    }
+
+
+def _filtered_out_detail_query(filters):
+    """出库明细带全部筛选条件（不含排序/分页）的 query。
+
+    BUG-2026-09-07-004：从 _collect_out_detail_rows 提取；客户/部门关键词筛选
+    由 Python 循环下沉为 SQL 条件（部门名/客户文本/用途任一 ilike 命中，
+    与原 Python 三字段 contains 语义等价），供内存全量路径与 SQL 分页路径
+    共用同一 WHERE 口径。
+    """
+    query = OutOrderItem.query.join(OutOrder).join(Material, OutOrderItem.material_id == Material.id)\
+        .outerjoin(Department, OutOrder.department_id == Department.id)\
+        .outerjoin(User, OutOrder.operator_id == User.id)\
+        .outerjoin(Unit, Material.unit_id == Unit.id)
     # BUG-2026-08-02-014：出库明细按仓库过滤；兼容历史数据仓库名/编号不统一
     # （与入库明细 BUG-2026-08-18-004 同一修复：手机端手工录入存仓库编号，
     # 网页端存仓库名，只匹配名称会导致出库单据在报表里查不出来）
@@ -26517,47 +26567,46 @@ def _collect_out_detail_rows(filters):
         query = query.filter(OutOrder.date <= filters['end_date'])
     if filters['status']:
         query = query.filter(OutOrder.status == filters['status'])
+    # 客户/部门筛选：部门名、单据上的客户文本、用途任一命中即保留。
+    # 此前只匹配部门名（无部门时回退用途），完全不查 OutOrder.customer，
+    # 导致按客户名称筛选永远无结果。
+    customer_keyword = (filters.get('customer') or '').strip()
+    if customer_keyword:
+        like = f'%{customer_keyword}%'
+        query = query.filter(db.or_(
+            Department.name.ilike(like),
+            OutOrder.customer.ilike(like),
+            OutOrder.purpose.ilike(like),
+        ))
     material_clause = _material_filter_clause(filters.get('material_code'))
     if material_clause is not None:
         query = query.filter(material_clause)
+    return query
+
+
+def _collect_out_detail_rows(filters):
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return []
+    query = _filtered_out_detail_query(filters).options(
+        joinedload(OutOrderItem.out_order).joinedload(OutOrder.department),
+        joinedload(OutOrderItem.out_order).joinedload(OutOrder.operator),
+        joinedload(OutOrderItem.material).joinedload(Material.unit)
+    ).order_by(
+        OutOrder.date.desc(),
+        OutOrder.order_no.desc(),
+        OutOrderItem.id.desc()
+    )
 
     # BUG-2026-08-30-003：明细超限不再静默截断，先计数告警再取数
     # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
     items = _report_check_row_limit(query, REPORT_ROW_LIMIT, '出库明细').all()
 
     rows = []
-    customer_keyword = (filters.get('customer') or '').lower()
     for item in items:
-        order = item.out_order
-        material = item.material
-        if material is None:
-            continue
-        # 客户/部门筛选：部门名、单据上的客户文本、用途任一命中即保留。
-        # 此前只匹配部门名（无部门时回退用途），完全不查 OutOrder.customer，
-        # 导致按客户名称筛选永远无结果。
-        department_name = order.department.name if order.department else ''
-        customer_text = department_name or order.customer or order.purpose or ''
-        if customer_keyword:
-            haystacks = (department_name, order.customer or '', order.purpose or '')
-            if not any(customer_keyword in (h or '').lower() for h in haystacks):
-                continue
-        rows.append({
-            'date': order.date.isoformat() if order.date else '',
-            'order_no': order.order_no or '',
-            'order_url': _report_detail_url('out_order_detail', order.id),
-            'customer': customer_text,
-            'material_code': material.code or '',
-            'material_name': material.name or '',
-            'spec': material.spec or '',
-            'unit': material.unit.name if material.unit else '',
-            'quantity': _safe_float(item.quantity),
-            'price': _safe_float(item.price),
-            'amount': _safe_float(item.amount),
-            'status': order.status or '',
-            'operator': order.operator.username if order.operator else '',
-            'purpose': order.purpose or '',
-            'remark': order.remark or '',
-        })
+        row = _out_detail_row(item)
+        if row is not None:
+            rows.append(row)
     return rows
 
 def _collect_check_rows(filters):
@@ -27718,11 +27767,185 @@ REPORT_BUILDERS = {
     'requisition': _build_requisition_report,
 }
 
+# BUG-2026-09-07-004：明细类报表 SQL 分页下沉。
+# 原路径每次查询/翻页/排序都全量物化（最多 REPORT_ROW_LIMIT 行）再内存切片，
+# 数据量大时每次翻页都重算全量；且汇总卡片与列表共享同一份截断数据（超限时失真）。
+# SQL 路径：count/聚合/排序/分页全部在数据库层完成——翻页只取当页数据，
+# 汇总基于筛选后全集（R2：汇总 = 明细全集），total 为真实总数不再截断；
+# 导出仍受 REPORT_ROW_LIMIT 保护并沿用 BUG-2026-09-07-003 截断提示。
+_IN_DETAIL_SORT_MAP = {
+    'date': InOrder.date,
+    'order_no': InOrder.order_no,
+    'business_type': InOrder.business_type,
+    'supplier': Supplier.name,
+    'customer': Customer.name,
+    'warehouse': InOrder.warehouse,
+    'location': InOrder.location,
+    'is_customer_supplied': InOrderItem.is_customer_supplied,
+    'material_code': Material.code,
+    'material_name': Material.name,
+    'spec': Material.spec,
+    'unit': Unit.name,
+    'quantity': InOrderItem.quantity,
+    'price': InOrderItem.price,
+    'amount': InOrderItem.amount,
+    'status': InOrder.status,
+    'operator': User.username,
+    'purpose': InOrder.purpose,
+    'remark': InOrder.remark,
+}
+
+_OUT_DETAIL_SORT_MAP = {
+    'date': OutOrder.date,
+    'order_no': OutOrder.order_no,
+    'customer': Department.name,
+    'material_code': Material.code,
+    'material_name': Material.name,
+    'spec': Material.spec,
+    'unit': Unit.name,
+    'quantity': OutOrderItem.quantity,
+    'price': OutOrderItem.price,
+    'amount': OutOrderItem.amount,
+    'status': OutOrder.status,
+    'operator': User.username,
+    'purpose': OutOrder.purpose,
+    'remark': OutOrder.remark,
+}
+
+
+def _sql_order_by(query, sort_map, sort_field, sort_order, default_order, tiebreaker_col):
+    """SQL 排序：命中映射按指定列，未命中用默认排序；行 id 做稳定 tiebreaker。"""
+    sort_col = sort_map.get((sort_field or '').strip())
+    if sort_col is None:
+        return query.order_by(*default_order)
+    if sort_order == 'desc':
+        return query.order_by(sort_col.desc(), tiebreaker_col.desc())
+    return query.order_by(sort_col.asc(), tiebreaker_col.asc())
+
+
+def _sql_paged_in_detail_report(filters):
+    """入库明细 SQL 分页 builder：返回 (columns, rows, summary, total)。"""
+    columns = _in_detail_columns()
+    # AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
+    base = _filtered_in_detail_query(filters)
+    total = base.count()
+    agg = base.with_entities(
+        func.count(InOrderItem.id),
+        func.coalesce(func.sum(InOrderItem.quantity), 0),
+        func.coalesce(func.sum(InOrderItem.amount), 0),
+    ).first()
+    summary = {
+        'count': int(agg[0] or 0),
+        'quantity': _safe_float(agg[1]),
+        'amount': _safe_float(agg[2]),
+    }
+    query = _sql_order_by(
+        base, _IN_DETAIL_SORT_MAP,
+        filters.get('sort_field'), filters.get('sort_order'),
+        (InOrder.date.desc(), InOrder.order_no.desc(), InOrderItem.id.desc()),
+        InOrderItem.id,
+    ).options(
+        joinedload(InOrderItem.in_order).joinedload(InOrder.supplier),
+        joinedload(InOrderItem.in_order).joinedload(InOrder.customer),
+        joinedload(InOrderItem.in_order).joinedload(InOrder.operator),
+        joinedload(InOrderItem.material).joinedload(Material.unit),
+    )
+    if filters.get('export') == 'excel':
+        items = _report_check_row_limit(query, REPORT_ROW_LIMIT, '入库明细导出').all()
+    else:
+        page = max(int(filters.get('page') or 1), 1)
+        page_size = max(int(filters.get('page_size') or 20), 1)
+        items = query.offset((page - 1) * page_size).limit(page_size).all()
+    rows = []
+    for item in items:
+        row = _in_detail_row(item)
+        if row is not None:
+            rows.append(row)
+    return columns, rows, summary, total
+
+
+def _sql_paged_out_detail_report(filters):
+    """出库明细 SQL 分页 builder：返回 (columns, rows, summary, total)。"""
+    columns = _out_detail_columns()
+    # AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
+    base = _filtered_out_detail_query(filters)
+    total = base.count()
+    agg = base.with_entities(
+        func.count(OutOrderItem.id),
+        func.coalesce(func.sum(OutOrderItem.quantity), 0),
+        func.coalesce(func.sum(OutOrderItem.amount), 0),
+    ).first()
+    summary = {
+        'count': int(agg[0] or 0),
+        'quantity': _safe_float(agg[1]),
+        'amount': _safe_float(agg[2]),
+    }
+    query = _sql_order_by(
+        base, _OUT_DETAIL_SORT_MAP,
+        filters.get('sort_field'), filters.get('sort_order'),
+        (OutOrder.date.desc(), OutOrder.order_no.desc(), OutOrderItem.id.desc()),
+        OutOrderItem.id,
+    ).options(
+        joinedload(OutOrderItem.out_order).joinedload(OutOrder.department),
+        joinedload(OutOrderItem.out_order).joinedload(OutOrder.operator),
+        joinedload(OutOrderItem.material).joinedload(Material.unit),
+    )
+    if filters.get('export') == 'excel':
+        items = _report_check_row_limit(query, REPORT_ROW_LIMIT, '出库明细导出').all()
+    else:
+        page = max(int(filters.get('page') or 1), 1)
+        page_size = max(int(filters.get('page_size') or 20), 1)
+        items = query.offset((page - 1) * page_size).limit(page_size).all()
+    rows = []
+    for item in items:
+        row = _out_detail_row(item)
+        if row is not None:
+            rows.append(row)
+    return columns, rows, summary, total
+
+
+SQL_PAGED_REPORT_BUILDERS = {
+    'in_detail': _sql_paged_in_detail_report,
+    'out_detail': _sql_paged_out_detail_report,
+}
+
+
 def _build_report_payload(report_type, filters):
     builder = REPORT_BUILDERS.get(report_type)
     definition = _get_report_definition(report_type)
     if builder is None or definition is None:
         raise ValueError('unsupported report type')
+
+    # BUG-2026-09-07-004：已下沉 SQL 的报表走分页路径——rows 即当页数据，
+    # total 为筛选后真实总数，summary 由 SQL 聚合（与分页解耦）。
+    sql_builder = SQL_PAGED_REPORT_BUILDERS.get(report_type)
+    if sql_builder is not None:
+        columns, rows, summary, total = sql_builder(filters)
+        truncated = bool(filters['export'] == 'excel' and total > len(rows))
+        # 导出路径的截断已由 total > len(rows) 显式表达，
+        # g 标记读后即清，防止同一上下文二次查询串值（与内存路径一致）
+        try:
+            g._report_truncated_total = 0
+        except RuntimeError:
+            pass
+        page_size = max(int(filters.get('page_size') or 20), 1)
+        return {
+            'title': definition['title'],
+            'columns': columns,
+            'rows': rows,
+            'all_rows': rows,
+            'summary': summary,
+            'total': total,
+            'truncated': truncated,
+            'raw_total': total,
+            'total_pages': max(1, -(-total // page_size)),
+            'summary_labels': definition['summary_labels'],
+            'summary_types': definition['summary_types'],
+        }
 
     columns, rows, summary = builder(filters)
     rows = _sort_rows(rows, filters['sort_field'], filters['sort_order'])
