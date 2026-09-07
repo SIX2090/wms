@@ -28964,6 +28964,147 @@ def _sql_paged_requisition_report(filters):
     return columns, [_to_row(row) for row in page_rows], summary, total
 
 
+def _sql_paged_subcontract_report(filters):
+    """委外加工报表 SQL 分页 builder（BUG-2026-09-07-018）。
+
+    返回 (columns, rows, summary, total)。
+    背景：委外报表行集 = 委外单，无 REPORT_ROW_LIMIT 截断（无 R2 失真），但原
+    内存路径每次查询/翻页都把委外单连同 需求明细 + 发料单及其明细 + 收货单及
+    其明细 **全部物化** 再逐单 Python 匹配求和（实测 8000 单 / 40000 明细行 →
+    单次查询 2.52s / 81 条 SQL，翻 3 页 7.24s）——发料/收货两套子单使其比领料
+    报表更重。
+
+    SQL 路径分工：
+      - 发料/收货明细分别先做「按委外单分组聚合」命中子查询（物料关键词时仅
+        命中物料行参与，与内存逐表 matched_items 口径一致；无关键词时全部）；
+      - 主查询 = 委外单 LEFT JOIN 两个聚合子查询 + 加工厂商，WHERE（仓库/日期/
+        供应商/状态）与排序下沉 SQL，默认路径 ORDER BY 日期倒序 + ID 倒序
+        确定兜底并只取当页 LIMIT/OFFSET；
+      - 汇总由 SQL 对筛选后全集聚合，与分页解耦（count=委外单数，
+        quantity=发料数量总和，amount=收货数量总和，与内存 summary 一致）；
+      - 无发料/收货的委外单 LEFT JOIN 保留（数量 0，与内存一致）；
+      - 物料关键词：任一表（需求/发料/收货）存在命中行即保留委外单（与内存
+        三集合联合判空一致），各列只累计各自命中行；
+      - 表头排序（sort_field）回退「全量取回 + Python `_sort_rows` + 切片」：
+        行数=委外单数、无嵌套子表 ORM 加载，语义与内存一致。
+    """
+    columns = _subcontract_columns()
+    # AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
+
+    kw = (filters.get('material_code') or '').strip()
+    kw_clause = _material_filter_clause(kw)
+
+    # 发料：SubcontractIssueItem.issue_id -> SubcontractIssue.subcontract_order_id
+    issue_agg = db.session.query(
+        SubcontractIssue.subcontract_order_id.label('order_id'),
+        func.coalesce(func.sum(SubcontractIssueItem.quantity), 0).label('issue_qty'),
+    ).select_from(SubcontractIssueItem)\
+     .join(SubcontractIssue, SubcontractIssueItem.issue_id == SubcontractIssue.id)\
+     .outerjoin(Material, SubcontractIssueItem.material_id == Material.id)
+    if kw_clause is not None:
+        issue_agg = issue_agg.filter(kw_clause)
+    issue_agg = issue_agg.group_by(SubcontractIssue.subcontract_order_id).subquery('sc_issue')
+
+    # 收货：SubcontractReceiveItem.receive_id -> SubcontractReceive.subcontract_order_id
+    receive_agg = db.session.query(
+        SubcontractReceive.subcontract_order_id.label('order_id'),
+        func.coalesce(func.sum(SubcontractReceiveItem.quantity), 0).label('receive_qty'),
+    ).select_from(SubcontractReceiveItem)\
+     .join(SubcontractReceive, SubcontractReceiveItem.receive_id == SubcontractReceive.id)\
+     .outerjoin(Material, SubcontractReceiveItem.material_id == Material.id)
+    if kw_clause is not None:
+        receive_agg = receive_agg.filter(kw_clause)
+    receive_agg = receive_agg.group_by(SubcontractReceive.subcontract_order_id).subquery('sc_receive')
+
+    main = db.session.query(
+        SubcontractOrder.id,
+        SubcontractOrder.order_no,
+        SubcontractOrder.date,
+        SubcontractOrder.status,
+        SubcontractOrder.remark,
+        Supplier.name,
+        func.coalesce(issue_agg.c.issue_qty, 0).label('issue_qty'),
+        func.coalesce(receive_agg.c.receive_qty, 0).label('receive_qty'),
+    ).outerjoin(issue_agg, issue_agg.c.order_id == SubcontractOrder.id)\
+     .outerjoin(receive_agg, receive_agg.c.order_id == SubcontractOrder.id)\
+     .outerjoin(Supplier, Supplier.id == SubcontractOrder.supplier_id)
+    if filters.get('warehouse') or filters.get('warehouse_code'):
+        match_any = []
+        if filters.get('warehouse'):
+            match_any.append(SubcontractOrder.warehouse == filters['warehouse'])
+        if filters.get('warehouse_code'):
+            match_any.append(SubcontractOrder.warehouse == filters['warehouse_code'])
+        if match_any:
+            main = main.filter(db.or_(*match_any))
+    if filters.get('start_date'):
+        main = main.filter(SubcontractOrder.date >= filters['start_date'])
+    if filters.get('end_date'):
+        main = main.filter(SubcontractOrder.date <= filters['end_date'])
+    if filters.get('supplier_id'):
+        main = main.filter(SubcontractOrder.supplier_id == filters['supplier_id'])
+    supplier_clause = _supplier_filter_clause(filters.get('supplier'))
+    if supplier_clause is not None:
+        main = main.filter(supplier_clause)
+    if filters.get('status'):
+        main = main.filter(SubcontractOrder.status == filters['status'])
+    if kw_clause is not None:
+        # 任一表（需求/发料/收货）存在命中行即保留（与内存三集合联合判空一致）
+        main = main.filter(db.or_(
+            issue_agg.c.order_id.isnot(None),
+            receive_agg.c.order_id.isnot(None),
+            SubcontractOrder.items.any(
+                SubcontractItem.material.has(kw_clause)),
+        ))
+
+    total = main.count()
+    issue_total, receive_total = main.with_entities(
+        func.coalesce(func.sum(issue_agg.c.issue_qty), 0),
+        func.coalesce(func.sum(receive_agg.c.receive_qty), 0),
+    ).first()
+    summary = {
+        'count': total,
+        'quantity': _safe_float(issue_total),
+        'amount': _safe_float(receive_total),
+    }
+
+    def _to_row(item):
+        order_id, order_no, order_date, status_raw, remark, supplier_name, \
+            issue_qty, receive_qty = item
+        return {
+            'order_no': order_no or '',
+            'order_url': _report_detail_url('subcontract_detail', order_id),
+            'date': order_date.strftime('%Y-%m-%d') if order_date else '',
+            'supplier': supplier_name or '',
+            'status': STATUS_LABELS.get(status_raw, status_raw),
+            'issue_qty': issue_qty,
+            'receive_qty': receive_qty,
+            'remark': remark or '',
+        }
+
+    sort_field = (filters.get('sort_field') or '').strip()
+    if sort_field:
+        all_rows = [_to_row(row) for row in main.all()]
+        all_rows = _sort_rows(all_rows, sort_field, filters.get('sort_order'))
+        total = len(all_rows)
+        summary['count'] = total
+        if filters.get('export') == 'excel':
+            return columns, all_rows, summary, total
+        page = max(int(filters.get('page') or 1), 1)
+        page_size = max(int(filters.get('page_size') or 20), 1)
+        return columns, _paginate_rows(all_rows, page, page_size), summary, total
+
+    main = main.order_by(SubcontractOrder.date.desc(), SubcontractOrder.id.desc())
+    if filters.get('export') == 'excel':
+        rows = [_to_row(row) for row in main.all()]
+        return columns, rows, summary, total
+    page = max(int(filters.get('page') or 1), 1)
+    page_size = max(int(filters.get('page_size') or 20), 1)
+    page_rows = main.offset((page - 1) * page_size).limit(page_size).all()
+    return columns, [_to_row(row) for row in page_rows], summary, total
+
+
 SQL_PAGED_REPORT_BUILDERS = {
     'in_detail': _sql_paged_in_detail_report,
     'out_detail': _sql_paged_out_detail_report,
@@ -28974,6 +29115,7 @@ SQL_PAGED_REPORT_BUILDERS = {
     'material_purchase_summary': _sql_paged_material_purchase_report,
     'purchase_price_analysis': _sql_paged_purchase_price_analysis_report,
     'requisition': _sql_paged_requisition_report,
+    'subcontract': _sql_paged_subcontract_report,
 }
 
 
