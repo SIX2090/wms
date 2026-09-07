@@ -28206,11 +28206,141 @@ def _sql_paged_purchase_execution_report(filters):
     return columns, rows, summary, total
 
 
+_SUMMARY_BUCKET_FIELDS = (
+    'in_count', 'in_quantity', 'in_amount',
+    'out_count', 'out_quantity', 'out_amount',
+)
+
+
+def _summary_empty_bucket(date_key):
+    """出入库汇总日期桶空壳（in/out 两侧合并用）。"""
+    return {
+        'date': date_key,
+        'in_count': 0, 'in_quantity': 0.0, 'in_amount': 0.0,
+        'out_count': 0, 'out_quantity': 0.0, 'out_amount': 0.0,
+    }
+
+
+def _sql_paged_summary_report(filters):
+    """出入库汇总报表 SQL 分页 builder（BUG-2026-09-07-012）。
+
+    返回 (columns, rows, summary, total)。
+    原内存路径 `_build_summary_report` 把入库明细与出库明细**各物化最多
+    REPORT_ROW_LIMIT(5 万) 行**再在 Python 里按日期分桶——长周期查询极易超限，
+    且汇总卡片基于截断后的分桶结果计算（违反 R2「汇总 = 明细全集」）。
+    因汇总报表同时消费入库+出库两条明细流，它是所有报表里最先触达失真的一类。
+
+    SQL 路径分工：
+      - 汇总：SQL 聚合筛选后全集，与分页/分桶解耦（R2）；
+      - 分桶：按日期 GROUP BY 在库内完成，只产出「日期桶」行
+        （行数 = 期间天数，通常数十~数百行），不再物化明细行；
+      - 净变动/排序/分页：在日期桶这个极小结果集上用 Python 完成；
+        net_quantity/net_amount 是 in-out 计算列，SQL 侧排序需子查询包裹，
+        在如此小的结果集上 Python 排序成本可忽略。
+    默认排序由内存路径的「首次出现顺序」改为**日期倒序**——原顺序会把
+    「仅出库日期」追加在所有入库日期之后，并非全局有序（既有缺陷，一并按期修正）。
+    """
+    columns = _summary_columns()
+    # AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
+
+    # 与原内存路径一致：选定供应商时出库侧不参与（领料单无供应商维度）。
+    # 此处保留该语义，不在本次下沉中引入行为漂移。
+    supplier_active = bool(filters.get('supplier_id') or filters.get('supplier'))
+    out_filters = {**filters, 'supplier_id': 0, 'supplier': ''} if supplier_active else filters
+
+    in_query = _filtered_in_detail_query(filters)
+    # 汇总：SQL 聚合筛选后全集（R2 汇总 = 明细全集），不受分页与截断影响
+    in_agg = in_query.with_entities(
+        func.count(InOrderItem.id),
+        func.coalesce(func.sum(InOrderItem.quantity), 0),
+        func.coalesce(func.sum(InOrderItem.amount), 0),
+    ).first()
+    in_qty = _safe_float(in_agg[1])
+    in_amt = _safe_float(in_agg[2])
+
+    out_qty = 0.0
+    out_amt = 0.0
+    in_buckets = {}
+    out_buckets = {}
+
+    if not supplier_active:
+        out_query = _filtered_out_detail_query(out_filters)
+        out_agg = out_query.with_entities(
+            func.count(OutOrderItem.id),
+            func.coalesce(func.sum(OutOrderItem.quantity), 0),
+            func.coalesce(func.sum(OutOrderItem.amount), 0),
+        ).first()
+        out_qty = _safe_float(out_agg[1])
+        out_amt = _safe_float(out_agg[2])
+        for row_date, count, quantity, amount in out_query.with_entities(
+                OutOrder.date,
+                func.count(OutOrderItem.id),
+                func.coalesce(func.sum(OutOrderItem.quantity), 0),
+                func.coalesce(func.sum(OutOrderItem.amount), 0),
+        ).group_by(OutOrder.date).all():
+            bucket = _summary_empty_bucket(row_date.isoformat() if row_date else '')
+            bucket['out_count'] = int(count or 0)
+            bucket['out_quantity'] = _safe_float(quantity)
+            bucket['out_amount'] = _safe_float(amount)
+            out_buckets[bucket['date']] = bucket
+
+    for row_date, count, quantity, amount in in_query.with_entities(
+            InOrder.date,
+            func.count(InOrderItem.id),
+            func.coalesce(func.sum(InOrderItem.quantity), 0),
+            func.coalesce(func.sum(InOrderItem.amount), 0),
+    ).group_by(InOrder.date).all():
+        bucket = _summary_empty_bucket(row_date.isoformat() if row_date else '')
+        bucket['in_count'] = int(count or 0)
+        bucket['in_quantity'] = _safe_float(quantity)
+        bucket['in_amount'] = _safe_float(amount)
+        in_buckets[bucket['date']] = bucket
+
+    # 合并两侧日期桶（并集：仅入库日与仅出库日都要出现）
+    buckets = {}
+    for source in (in_buckets, out_buckets):
+        for date_key, bucket in source.items():
+            target = buckets.setdefault(date_key, _summary_empty_bucket(date_key))
+            for field in _SUMMARY_BUCKET_FIELDS:
+                target[field] += bucket[field]
+
+    all_rows = []
+    for bucket in buckets.values():
+        bucket['net_quantity'] = bucket['in_quantity'] - bucket['out_quantity']
+        bucket['net_amount'] = bucket['in_amount'] - bucket['out_amount']
+        all_rows.append(bucket)
+
+    total = len(all_rows)
+    # count = 日期数（REPORT_DEFINITIONS['summary'].summary_labels）
+    summary = {
+        'count': total,
+        'quantity': in_qty + out_qty,
+        'amount': in_amt + out_amt,
+    }
+
+    sort_field = (filters.get('sort_field') or '').strip()
+    if sort_field:
+        all_rows = _sort_rows(all_rows, sort_field, filters.get('sort_order'))
+    else:
+        all_rows.sort(key=lambda row: row['date'], reverse=True)
+
+    if filters.get('export') == 'excel':
+        # 日期桶天然远小于明细行数，导出即全量，无 REPORT_ROW_LIMIT 截断
+        return columns, all_rows, summary, total
+
+    page = max(int(filters.get('page') or 1), 1)
+    page_size = max(int(filters.get('page_size') or 20), 1)
+    return columns, _paginate_rows(all_rows, page, page_size), summary, total
+
+
 SQL_PAGED_REPORT_BUILDERS = {
     'in_detail': _sql_paged_in_detail_report,
     'out_detail': _sql_paged_out_detail_report,
     'check': _sql_paged_check_report,
     'purchase_order_execution': _sql_paged_purchase_execution_report,
+    'summary': _sql_paged_summary_report,
 }
 
 
