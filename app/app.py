@@ -7,7 +7,7 @@ from markupsafe import escape
 from functools import wraps
 from datetime import datetime, date, time, timedelta
 from urllib.parse import urljoin, urlparse, urlencode, quote_plus
-from sqlalchemy import func, false, true, update as sa_update, or_
+from sqlalchemy import case, func, false, true, update as sa_update, or_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload, selectinload
 import csv
@@ -28335,12 +28335,148 @@ def _sql_paged_summary_report(filters):
     return columns, _paginate_rows(all_rows, page, page_size), summary, total
 
 
+def _sql_paged_supplier_purchase_report(filters):
+    """供应商采购汇总 SQL 分页 builder（BUG-2026-09-07-013）。
+
+    返回 (columns, rows, summary, total)。
+    原内存路径 `_build_supplier_purchase_summary_report` 把采购执行明细物化
+    最多 REPORT_ROW_LIMIT(5 万) 行（与采购执行/物料汇总/价格分析共用
+    `_collect_purchase_order_execution_rows`）后再在 Python 里按供应商分桶——
+    超过 5 万行时明细被截断，而汇总卡片正是对这份**截断后的分桶结果**求和
+    （违反 R2「汇总 = 明细全集」），长周期查询会出现「采购金额比实际小」。
+
+    SQL 路径分工：
+      - 分桶与聚合下沉 SQL GROUP BY 供应商，复用 009-07-011 建好的
+        `_purchase_order_item_query`（WHERE 口径单一事实源）；
+      - warehouse 分支 outerjoin 入库单会把同一采购行展开多行，故先对所需列
+        做 DISTINCT 子查询再聚合，避免金额/数量被放大
+        （与 `_sql_paged_purchase_execution_report` 同款防护）；
+      - 汇总再单独做一次 SQL 全量聚合，与分桶/分页/排序彻底解耦（R2）；
+      - 供应商编码沿用内存路径「按供应商名称查 Supplier 表」的语义，
+        在极小的聚合结果集上用 Python 回填，保证两条路径一致；
+      - 排序/分页在供应商聚合结果（行数 = 供应商数，通常数十行）上完成。
+    默认排序由内存路径的「首次出现顺序」改为**最近采购日期倒序**
+    （语义等价：内存路径明细按订单日期倒序，首次出现即最近下单供应商；新写法确定）。
+    """
+    columns = _supplier_purchase_summary_columns()
+    # AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
+
+    base = _purchase_order_item_query(filters)
+    # warehouse 分支 outerjoin 入库单会展开同一采购行：先按所需列 DISTINCT
+    # 再聚合，避免 sum 被入库行数放大
+    sub = base.with_entities(
+        PurchaseOrderItem.id.label('item_id'),
+        PurchaseOrderItem.quantity.label('quantity'),
+        PurchaseOrderItem.received_quantity.label('received_quantity'),
+        PurchaseOrderItem.price.label('price'),
+        PurchaseOrderItem.amount.label('amount'),
+        PurchaseOrder.id.label('order_id'),
+        PurchaseOrder.date.label('order_date'),
+        PurchaseOrder.expected_date.label('expected_date'),
+        PurchaseOrder.status.label('order_status'),
+        Supplier.name.label('supplier_name'),
+        Material.code.label('material_code'),
+    ).distinct().subquery()
+
+    # 剩余量口径与 _purchase_execution_row 一致：单行剩余量下限为 0
+    remaining_expr = case(
+        (sub.c.quantity - sub.c.received_quantity > STOCK_COMPARE_EPSILON,
+         sub.c.quantity - sub.c.received_quantity),
+        else_=0,
+    )
+    # 金额口径：明细金额为 0/NULL 时回退「数量 × 单价」（与 _purchase_execution_row 一致）
+    amount_expr = func.coalesce(
+        func.nullif(sub.c.amount, 0),
+        sub.c.quantity * sub.c.price,
+    )
+    today_value = date.today()
+    overdue_expr = case(
+        (db.and_(
+            sub.c.expected_date.isnot(None),
+            remaining_expr > STOCK_COMPARE_EPSILON,
+            sub.c.order_status.notin_(('completed', 'closed')),
+            sub.c.expected_date < today_value,
+        ), 1),
+        else_=0,
+    )
+    supplier_name_expr = func.coalesce(
+        func.nullif(sub.c.supplier_name, ''), '未指定供应商')
+
+    # 汇总：SQL 全量聚合（R2 汇总 = 明细全集），不受分桶/分页/排序影响
+    totals = db.session.query(
+        func.count(func.distinct(supplier_name_expr)),
+        func.coalesce(func.sum(sub.c.quantity), 0),
+        func.coalesce(func.sum(amount_expr), 0),
+    ).select_from(sub).first()
+    summary = {
+        'count': int(totals[0] or 0),
+        'quantity': _safe_float(totals[1]),
+        'amount': _safe_float(totals[2]),
+    }
+
+    aggregated = db.session.query(
+        supplier_name_expr.label('supplier'),
+        func.count(func.distinct(sub.c.order_id)).label('order_count'),
+        # 物料数按非空物料编码去重（与内存路径 `if row['material_code']` 一致）
+        func.count(func.distinct(func.nullif(sub.c.material_code, ''))).label('material_count'),
+        func.coalesce(func.sum(sub.c.quantity), 0).label('order_quantity'),
+        func.coalesce(func.sum(sub.c.received_quantity), 0).label('received_quantity'),
+        func.coalesce(func.sum(remaining_expr), 0).label('remaining_quantity'),
+        func.coalesce(func.sum(amount_expr), 0).label('amount'),
+        func.coalesce(func.sum(sub.c.received_quantity * sub.c.price), 0).label('received_amount'),
+        func.coalesce(func.sum(remaining_expr * sub.c.price), 0).label('remaining_amount'),
+        func.coalesce(func.sum(overdue_expr), 0).label('overdue_count'),
+        func.max(sub.c.order_date).label('last_purchase_date'),
+    ).select_from(sub).group_by(supplier_name_expr).all()
+
+    # 供应商编码：沿用内存路径「按名称查 Supplier 表」语义（未匹配则空串）
+    code_by_name = {supplier.name: (supplier.code or '')
+                    for supplier in Supplier.query.all()}
+    all_rows = []
+    for agg in aggregated:
+        order_quantity = _safe_float(agg.order_quantity)
+        amount = _safe_float(agg.amount)
+        last_date = agg.last_purchase_date
+        all_rows.append({
+            'supplier_code': code_by_name.get(agg.supplier, ''),
+            'supplier': agg.supplier,
+            'order_count': int(agg.order_count or 0),
+            'material_count': int(agg.material_count or 0),
+            'order_quantity': order_quantity,
+            'received_quantity': _safe_float(agg.received_quantity),
+            'remaining_quantity': round_to_2_decimals(_safe_float(agg.remaining_quantity)),
+            'amount': amount,
+            'received_amount': round_to_2_decimals(_safe_float(agg.received_amount)),
+            'remaining_amount': round_to_2_decimals(_safe_float(agg.remaining_amount)),
+            'avg_price': round_to_2_decimals(amount / order_quantity) if order_quantity else 0,
+            'overdue_count': int(agg.overdue_count or 0),
+            'last_purchase_date': last_date.isoformat() if last_date else '',
+        })
+
+    total = len(all_rows)
+    sort_field = (filters.get('sort_field') or '').strip()
+    if sort_field:
+        all_rows = _sort_rows(all_rows, sort_field, filters.get('sort_order'))
+    else:
+        all_rows.sort(key=lambda row: (row['last_purchase_date'], row['supplier']),
+                      reverse=True)
+
+    if filters.get('export') == 'excel':
+        return columns, all_rows, summary, total
+    page = max(int(filters.get('page') or 1), 1)
+    page_size = max(int(filters.get('page_size') or 20), 1)
+    return columns, _paginate_rows(all_rows, page, page_size), summary, total
+
+
 SQL_PAGED_REPORT_BUILDERS = {
     'in_detail': _sql_paged_in_detail_report,
     'out_detail': _sql_paged_out_detail_report,
     'check': _sql_paged_check_report,
     'purchase_order_execution': _sql_paged_purchase_execution_report,
     'summary': _sql_paged_summary_report,
+    'supplier_purchase_summary': _sql_paged_supplier_purchase_report,
 }
 
 
