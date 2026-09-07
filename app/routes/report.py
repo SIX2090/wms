@@ -65,12 +65,19 @@ def register_report_routes(app):
     @app.route('/report')
     @login_required
     def report():
-        from app import REPORT_DEFINITIONS, REPORT_TYPE_ORDER
+        from app import REPORT_DEFINITIONS, REPORT_TYPE_ORDER, get_default_warehouse
         report_cards = [
             {'report_type': report_type, **REPORT_DEFINITIONS[report_type]}
             for report_type in REPORT_TYPE_ORDER
         ]
-        return render_template('report.html', report_cards=report_cards)
+        # BUG-2026-09-07-009：卡片「导出」需要默认仓库上下文——
+        # 显式带 warehouse_id 导出（与报表仓库必填规则一致），
+        # 无默认仓库时前端禁用导出并提示，避免下载到一个 JSON 错误页。
+        return render_template(
+            'report.html',
+            report_cards=report_cards,
+            default_warehouse=get_default_warehouse(),
+        )
 
     @app.route('/purchase_report')
     @login_required

@@ -37,9 +37,20 @@
                     <a href="{{ url_for('report_view', report_type=card.report_type) }}" class="btn btn-outline-primary flex-fill">
                         <i class="bi bi-search"></i> 预览
                     </a>
-                    <a href="{{ url_for('report_api_query', report_type=card.report_type, export='excel') }}" class="btn btn-primary flex-fill">
+                    {# BUG-2026-09-07-009：导出显式带默认仓库（AGENTS.md 报表仓库必填）；
+                       无默认仓库时禁用并提示——此前裸链接触发后端 400，浏览器下载 JSON 错误页 #}
+                    {% if default_warehouse %}
+                    <a href="{{ url_for('report_api_query', report_type=card.report_type, export='excel', warehouse_id=default_warehouse.id) }}"
+                       class="btn btn-primary flex-fill"
+                       title="按默认仓库「{{ default_warehouse.name }}」全量导出；按日期/物料等条件导出请先进预览页">
                         <i class="bi bi-download"></i> 导出
                     </a>
+                    {% else %}
+                    <button type="button" class="btn btn-primary flex-fill" disabled
+                            title="未配置默认仓库：请先进预览页选择仓库后导出">
+                        <i class="bi bi-download"></i> 导出
+                    </button>
+                    {% endif %}
                 </div>
             </div>
         </div>
