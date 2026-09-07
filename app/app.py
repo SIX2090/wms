@@ -28838,6 +28838,132 @@ def _sql_paged_purchase_price_analysis_report(filters):
     return columns, _paginate_rows(all_rows, page, page_size), summary, total
 
 
+def _sql_paged_requisition_report(filters):
+    """工单领料报表 SQL 分页 builder（BUG-2026-09-07-017）。
+
+    返回 (columns, rows, summary, total)。
+    背景：领料报表行集 = 领料单，无 REPORT_ROW_LIMIT 截断（无 R2 失真），但
+    原内存路径每次查询/翻页都全量物化领料单 + selectinload 全部明细行再逐单
+    Python 求和（实测 15000 单 / 30000 明细 → 单次查询 1.85s / 31 条 SQL，
+    翻 3 页 4.99s，单页均摊 1.66s），翻一页重算一遍全量。
+
+    SQL 路径分工：
+      - 明细行先做「按领料单分组聚合」（命中子查询），只产出每单一行；
+      - 主查询 = 领料单 LEFT JOIN 聚合子查询 + BOM + 操作人，WHERE（仓库/
+        日期/状态）下沉 SQL，排序（默认 日期倒序 + ID 倒序 确定兜底）与
+        LIMIT/OFFSET 全部数据库层完成——默认路径只取当页 20 行；
+      - 物料关键词：仅**命中物料**的明细行参与聚合（与内存路径 matched_items
+        口径一致）；无任何命中明细的领料单不出现在结果（与 continue 一致）；
+        命中判定复用 `_material_filter_clause`（token 空格拆分后无跨界问题，
+        与 `_material_matches` 语义等价）；
+      - 汇总（单数/数量/金额）由 SQL 对筛选后全集聚合，与分页解耦；
+      - 非默认排序（点了表头）回退「全量取回 + Python _sort_rows + 切片」：
+        行数=领料单数、无明细 ORM 加载，语义与内存路径完全一致且仍比原路径快；
+      - 每行展示值（状态标签/金额四舍五入/日期格式化/详情链接）与内存路径一致。
+    """
+    columns = _requisition_columns()
+    # AGENTS.md 报表仓库必填，无仓库不返回数据
+    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+        return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
+
+    kw = (filters.get('material_code') or '').strip()
+    kw_clause = _material_filter_clause(kw)
+
+    # 命中明细行聚合（关键词时仅物料命中行；无关键词时全部明细，含物料缺失行按 0 计金额）
+    item_agg = db.session.query(
+        ProductionRequisitionItem.requisition_id.label('requisition_id'),
+        func.coalesce(func.sum(ProductionRequisitionItem.quantity), 0).label('row_quantity'),
+        func.coalesce(
+            func.sum(ProductionRequisitionItem.quantity * func.coalesce(Material.price, 0)),
+            0,
+        ).label('row_amount'),
+    ).outerjoin(Material, ProductionRequisitionItem.material_id == Material.id)
+    if kw_clause is not None:
+        item_agg = item_agg.filter(kw_clause)
+    item_agg = item_agg.group_by(ProductionRequisitionItem.requisition_id).subquery('req_agg')
+
+    main = db.session.query(
+        ProductionRequisition.id,
+        ProductionRequisition.req_no,
+        ProductionRequisition.date,
+        ProductionRequisition.status,
+        ProductionRequisition.remark,
+        func.coalesce(item_agg.c.row_quantity, 0).label('row_quantity'),
+        func.coalesce(item_agg.c.row_amount, 0).label('row_amount'),
+        BOM.bom_no,
+        User.username,
+    ).outerjoin(item_agg, item_agg.c.requisition_id == ProductionRequisition.id) \
+     .outerjoin(BOM, BOM.id == ProductionRequisition.bom_id) \
+     .outerjoin(User, User.id == ProductionRequisition.operator_id)
+    # BUG-2026-08-05-008：按仓库实际过滤；名称/编号任一匹配
+    if filters.get('warehouse') or filters.get('warehouse_code'):
+        match_any = []
+        if filters.get('warehouse'):
+            match_any.append(ProductionRequisition.warehouse == filters['warehouse'])
+        if filters.get('warehouse_code'):
+            match_any.append(ProductionRequisition.warehouse == filters['warehouse_code'])
+        if match_any:
+            main = main.filter(db.or_(*match_any))
+    if filters.get('start_date'):
+        main = main.filter(ProductionRequisition.date >= filters['start_date'])
+    if filters.get('end_date'):
+        main = main.filter(ProductionRequisition.date <= filters['end_date'])
+    if filters.get('status'):
+        main = main.filter(ProductionRequisition.status == filters['status'])
+    if kw_clause is not None:
+        # 只保留至少有一条命中明细的领料单（与内存路径 continue 语义一致）
+        main = main.filter(item_agg.c.requisition_id.isnot(None))
+
+    total = main.count()
+    # 汇总：SQL 对筛选后全集聚合（行数=领料单数，数量/金额=命中明细行加总）
+    qty_total, amt_total = main.with_entities(
+        func.coalesce(func.sum(item_agg.c.row_quantity), 0),
+        func.coalesce(func.sum(item_agg.c.row_amount), 0),
+    ).first()
+    summary = {
+        'count': total,
+        'quantity': _safe_float(qty_total),
+        'amount': round(_safe_float(amt_total), 2),
+    }
+
+    def _to_row(item):
+        req_id, req_no, req_date, status_raw, remark, quantity, amount, bom_no, operator = item
+        return {
+            'req_no': req_no or '',
+            'order_url': _report_detail_url('requisition_detail', req_id),
+            'date': req_date.strftime('%Y-%m-%d') if req_date else '',
+            'bom_no': bom_no or '',
+            'status': STATUS_LABELS.get(status_raw, status_raw),
+            'quantity': quantity,
+            'amount': round(amount, 2),
+            'operator': operator or '',
+            'remark': remark or '',
+        }
+
+    sort_field = (filters.get('sort_field') or '').strip()
+    if sort_field:
+        # 表头排序：全量取回 + Python 排序 + 切片（与内存路径一致，行数=领料单数）
+        all_rows = [_to_row(row) for row in main.all()]
+        all_rows = _sort_rows(all_rows, sort_field, filters.get('sort_order'))
+        total = len(all_rows)
+        summary['count'] = total
+        if filters.get('export') == 'excel':
+            return columns, all_rows, summary, total
+        page = max(int(filters.get('page') or 1), 1)
+        page_size = max(int(filters.get('page_size') or 20), 1)
+        return columns, _paginate_rows(all_rows, page, page_size), summary, total
+
+    # 默认路径：SQL 排序 + 只取当页（确定性排序 日期倒序 + ID 倒序）
+    main = main.order_by(ProductionRequisition.date.desc(), ProductionRequisition.id.desc())
+    if filters.get('export') == 'excel':
+        rows = [_to_row(row) for row in main.all()]
+        return columns, rows, summary, total
+    page = max(int(filters.get('page') or 1), 1)
+    page_size = max(int(filters.get('page_size') or 20), 1)
+    page_rows = main.offset((page - 1) * page_size).limit(page_size).all()
+    return columns, [_to_row(row) for row in page_rows], summary, total
+
+
 SQL_PAGED_REPORT_BUILDERS = {
     'in_detail': _sql_paged_in_detail_report,
     'out_detail': _sql_paged_out_detail_report,
@@ -28847,6 +28973,7 @@ SQL_PAGED_REPORT_BUILDERS = {
     'supplier_purchase_summary': _sql_paged_supplier_purchase_report,
     'material_purchase_summary': _sql_paged_material_purchase_report,
     'purchase_price_analysis': _sql_paged_purchase_price_analysis_report,
+    'requisition': _sql_paged_requisition_report,
 }
 
 
