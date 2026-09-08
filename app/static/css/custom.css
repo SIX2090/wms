@@ -1203,6 +1203,11 @@ body {
     .navbar, .sidebar, .btn, .no-print {
         display: none !important;
     }
+    /* BUG-2026-09-08-002：列表页 window.print() 兜底时，全局工具栏/弹窗/下拉面板
+       （如列设置面板、编辑弹窗）会以裸文本形式上纸，属页面 chrome 一律禁止打印 */
+    .cb-actionbar, .modal, .dropdown-menu {
+        display: none !important;
+    }
     .card {
         box-shadow: none;
         border: 1px solid #ddd;

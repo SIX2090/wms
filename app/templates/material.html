@@ -1080,6 +1080,47 @@
         max-height: 260px;
     }
 }
+/* BUG-2026-09-08-002：全局工具栏「打印」在物料列表页走 window.print() 兜底，
+   原样输出整张网页（分类树/搜索框/弹窗等全部上纸）。打印时只输出物料表格本体：
+   按区块 display:none 页面功能部件，并解除表格祖先的滚动/裁剪约束。 */
+@media print {
+    /* 功能区全部不上纸：全局工具栏、页头按钮区、搜索卡、分类树、各类弹窗、列设置面板 */
+    .cb-actionbar, .page-header, .card.mb-3, .material-category-panel,
+    .modal, .material-col-settings-panel { display: none !important; }
+    /* 左右栅格退化为单列，表格占满纸宽 */
+    .material-layout { display: block !important; }
+    /* 卡片/横向滚动容器解除裁剪与滚动约束（否则长表只打第一屏、长名称被裁） */
+    .material-list-panel, .material-list-panel .card, .material-list-panel .card-body,
+    .table-responsive-wrapper {
+        overflow: visible !important;
+        height: auto !important;
+        max-height: none !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+    }
+    /* 表格之外的卡片内容（每页条数/分页 footer）不上纸 */
+    .table-responsive-wrapper ~ * { display: none !important; }
+    #materialTable {
+        width: 100% !important;
+        font-size: 9pt !important;
+        table-layout: auto !important;
+    }
+    /* 屏幕端单元格 nowrap+ellipsis 截断在纸上会丢字（长物料名称被裁），
+       打印时放开换行、解除截断 */
+    #materialTable th, #materialTable td {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        word-break: break-all !important;
+    }
+    /* 勾选列、排序图标（<i> 与 custom.css 的 ⇅ ::after）、列宽拖拽手柄不上纸 */
+    #materialTable th[data-column-key="select"],
+    #materialTable td[data-column-key="select"],
+    #materialTable th i,
+    #materialTable .col-resize { display: none !important; }
+    #materialTable .sortable-header::after { content: none !important; }
+}
 </style>
 {% endblock %}
 

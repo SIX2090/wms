@@ -2071,13 +2071,18 @@ function showImportModalForModule(module) {
     modal.show();
 }
 
-function openSettings(module) {
+function openSettings(module, evt) {
     if (module.printTemplateUrl) {
         window.open(module.printTemplateUrl, '_blank');
         return;
     }
     var btn = document.querySelector('.cb-column-toggle-btn, [onclick*="Column"], [onclick*="Setting"], [onclick*="setting"]');
     if (btn) {
+        // BUG-2026-09-08-002：阻止本次点击继续冒泡。物料页等的「点击面板外部关闭」
+        // 监听挂在 document 上——openSettings 内同步点击页面按钮把面板打开后，
+        // 原始点击事件冒泡到 document 时 target 是全局「设置」按钮（在面板外），
+        // 面板会被同一次点击立即关掉，表现为「点设置没反应」。
+        if (evt && typeof evt.stopPropagation === 'function') evt.stopPropagation();
         btn.click();
         return;
     }
@@ -3034,7 +3039,7 @@ function insertGlobalActionBar() {
         { key: 'save', icon: 'bi-save', label: '保存', action: saveCurrentPage },
         { key: 'delete', icon: 'bi-trash', label: '删除', action: function() { deleteCurrent(module); } },
         { divider: true },
-        { key: 'settings', icon: 'bi-gear', label: '设置', action: function() { openSettings(module); } },
+        { key: 'settings', icon: 'bi-gear', label: '设置', action: function(e) { openSettings(module, e); } },
         { key: 'print', icon: 'bi-printer', label: '打印', action: function() { printCurrent(module); } },
         { divider: true },
         { key: 'import', icon: 'bi-upload', label: '导入', action: function() { showImportModalForModule(module); } },
