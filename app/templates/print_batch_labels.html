@@ -291,8 +291,19 @@
 
         var W = tmplData.width;
         var H = tmplData.height;
-        var rows = tmplData.rows || 1;
-        var cols = tmplData.cols || 1;
+        // BUG-2026-09-08-001：渲染网格取「模板声明 rows/cols」与「单元格实际最大坐标+1」
+        // 的较大者。设计器删行/删列后历史模板可能残留越界坐标单元格，
+        // 仅按声明行列迭代会把这些单元格静默丢弃（表现为某字段打印不出来）。
+        var maxCellRow = -1;
+        var maxCellCol = -1;
+        cells.forEach(function(cd){
+            var cr = parseInt(cd.row, 10);
+            var cc = parseInt(cd.col, 10);
+            if (!isNaN(cr) && cr > maxCellRow) maxCellRow = cr;
+            if (!isNaN(cc) && cc > maxCellCol) maxCellCol = cc;
+        });
+        var rows = Math.max(tmplData.rows || 1, maxCellRow + 1);
+        var cols = Math.max(tmplData.cols || 1, maxCellCol + 1);
 
         document.getElementById('sizeInfo').textContent = '标签尺寸: ' + W + ' × ' + H + ' mm';
         document.documentElement.style.setProperty('--label-width', W + 'mm');

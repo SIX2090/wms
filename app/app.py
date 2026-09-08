@@ -5968,9 +5968,37 @@ def _normalize_label_template_layout(layout):
             'colSpan': cell.get('colSpan') or 1,
         })
 
-    if keyed_cells:
+    list_cells = normalized.get('cells')
+    if keyed_cells and isinstance(list_cells, list) and list_cells:
+        # BUG-2026-09-08-001：Excel 风格设计器（material.html）把布局存为 cells 列表，
+        # 旧模板设计页（label_template_detail.html）存为 "行-列" 键控条目。
+        # 模板若被两个设计器先后编辑，layout 会两种格式并存——此前一旦发现键控
+        # 条目就整体丢弃 cells 列表，新设计器摆放的字段（如物料名称）被静默
+        # 丢弃、打印不出来。改为合并：列表单元格全部保留（新设计器为当前主用
+        # 格式，同坐标冲突时列表优先），键控条目仅补充列表未占用的坐标。
+        occupied = {
+            (str(cell.get('row')), str(cell.get('col')))
+            for cell in list_cells if isinstance(cell, dict)
+        }
+        merged = list(list_cells)
+        for keyed in keyed_cells:
+            if (str(keyed['row']), str(keyed['col'])) in occupied:
+                continue
+            merged.append({
+                'row': keyed['row'],
+                'col': keyed['col'],
+                'text': '[{}]'.format(keyed['label']),
+                'field': keyed['field'],
+                'label': keyed['label'],
+                'style': keyed['style'],
+                'barcodeWidth': keyed.get('barcodeWidth'),
+                'barcodeHeight': keyed.get('barcodeHeight'),
+                'colSpan': keyed.get('colSpan') or 1,
+            })
+        normalized['cells'] = merged
+    elif keyed_cells:
         normalized['cells'] = sorted(keyed_cells, key=lambda item: (item['row'], item['col']))
-    elif not isinstance(normalized.get('cells'), list):
+    elif not isinstance(list_cells, list):
         normalized['cells'] = []
     return normalized
 
@@ -25409,29 +25437,6 @@ REPORT_DEFINITIONS = {
             'status': False,
         },
     },
-    'inventory_analysis': {
-        'title': '库存经营分析',
-        'description': '物料维度经营视角：库存状态预警、ABC 分类与呆滞识别。',
-        'icon': 'bi-graph-up-arrow',
-        'accent': 'danger',
-        'summary_labels': {
-            'count': '物料数',
-            'quantity': '库存数量',
-            'amount': '库存金额',
-        },
-        'summary_types': {
-            'count': 'number',
-            'quantity': 'number',
-            'amount': 'money',
-        },
-        'filters': {
-            'date': False,
-            'material': True,
-            'supplier': True,
-            'customer': False,
-            'status': False,
-        },
-    },
     'in_detail': {
         'title': '入库明细报表',
         'description': '按单据和物料查看入库明细。',
@@ -25712,7 +25717,6 @@ REPORT_DEFINITIONS = {
 
 REPORT_TYPE_ORDER = [
     'inventory',
-    'inventory_analysis',
     'in_detail',
     'out_detail',
     'summary',
@@ -26532,227 +26536,6 @@ def _collect_inventory_rows(filters):
             'max_stock': _safe_float(material.max_stock),
         })
     return rows
-
-# ============ 库存经营分析（BUG-2026-09-07-021，阶段 1 补标） ============
-# 口径（先定义后实现，后续写入《报表指标口径字典》）：
-# - 库存状态：min_stock>0 且 stock<=0 → 缺货；min_stock>0 且 stock<=min_stock →
-#   低于安全库存；未设安全库存（min_stock<=0）不预警；
-# - 建议补货量：预警时补至最高库存（未设最高则补至安全库存），正常为 0；
-# - ABC 分类：筛选后物料按库存金额（stock×当前价）降序，累计占比（不含自身）
-#   <70% → A、<90% → B、其余 C；金额合计为 0 时全部归 C；
-# - 呆滞：有库存（stock>0）且距最后出库（全局物料维度，v1 口径，多仓下其他仓
-#   出库会刷新，偏保守）≥ stock_idle_days 天（系统设置，默认 90）；从未出库的
-#   物料按建档日期起算（建档≠入库，保守近似）。
-INVENTORY_ANALYSIS_ABC_A_RATIO = 0.70
-INVENTORY_ANALYSIS_ABC_B_RATIO = 0.90
-INVENTORY_ANALYSIS_IDLE_DAYS_DEFAULT = 90
-# 出库方向类型口径（与 _is_inbound_transaction 同源，SQL 侧复刻）
-_INBOUND_TXN_TYPES = ('in', 'transfer_in', 'adjustment_in', 'check_in')
-_OUTBOUND_TXN_TYPES = ('out', 'transfer_out', 'adjustment_out', 'after_sale_out', 'check_out')
-_OPENING_TXN_TYPES = ('opening', 'opening_stock')
-
-
-def _outbound_txn_condition():
-    """出库方向流水的 SQL 条件（与 _is_inbound_transaction 严格同源）。
-
-    出库 = 显式出库类型；或未知/空类型且数量为负（_is_inbound_transaction 对
-    未知类型按 quantity >= 0 判入库）；期初类型既非入也非出，不参与。
-    """
-    return db.or_(
-        StockTransaction.transaction_type.in_(list(_OUTBOUND_TXN_TYPES)),
-        db.and_(
-            StockTransaction.quantity < 0,
-            db.or_(
-                StockTransaction.transaction_type.is_(None),
-                StockTransaction.transaction_type.notin_(
-                    list(_INBOUND_TXN_TYPES) + list(_OUTBOUND_TXN_TYPES) + list(_OPENING_TXN_TYPES)),
-            ),
-        ),
-    )
-
-
-def _inventory_analysis_columns():
-    return [
-        {'field': 'code', 'title': '物料编码'},
-        {'field': 'name', 'title': '物料名称'},
-        {'field': 'spec', 'title': '规格型号'},
-        {'field': 'category', 'title': '分类'},
-        {'field': 'unit', 'title': '单位'},
-        {'field': 'supplier', 'title': '供应商'},
-        {'field': 'stock', 'title': '当前库存'},
-        {'field': 'price', 'title': '单价', 'type': 'money'},
-        {'field': 'stock_value', 'title': '库存金额', 'type': 'money'},
-        {'field': 'min_stock', 'title': '安全库存'},
-        {'field': 'stock_status', 'title': '库存状态'},
-        {'field': 'suggest_qty', 'title': '建议补货量'},
-        {'field': 'abc_class', 'title': 'ABC 分类'},
-        {'field': 'last_out_date', 'title': '最后出库日期'},
-        {'field': 'idle_days', 'title': '呆滞天数'},
-        {'field': 'idle_flag', 'title': '呆滞标记'},
-    ]
-
-
-def _inventory_stock_status(stock, min_stock):
-    """库存状态：缺货 / 低于安全库存 / 正常（未设安全库存不预警）。"""
-    if min_stock > 0 and stock <= 0:
-        return '缺货'
-    if min_stock > 0 and stock <= min_stock:
-        return '低于安全库存'
-    return '正常'
-
-
-def _inventory_suggest_qty(stock, min_stock, max_stock):
-    """建议补货量：预警时补至最高库存（未设最高则补至安全库存）。"""
-    if min_stock <= 0 or stock > min_stock:
-        return 0.0
-    target = max_stock if max_stock > min_stock else min_stock
-    return round_to_2_decimals(max(target - stock, 0.0))
-
-
-def _abc_classes(value_by_material):
-    """按库存金额降序累计占比分类：累计(不含自身)<70% → A，<90% → B，其余 C。
-
-    金额合计为 0（total<=0）时全部归 C（无资金占用重点）；同金额按物料 id
-    升序保证分类确定。
-    """
-    total = sum(value_by_material.values())
-    if total <= 0:
-        return {mid: 'C' for mid in value_by_material}
-    result = {}
-    cum = 0.0
-    for mid, value in sorted(value_by_material.items(), key=lambda kv: (-kv[1], kv[0])):
-        ratio = cum / total
-        result[mid] = ('A' if ratio < INVENTORY_ANALYSIS_ABC_A_RATIO
-                       else ('B' if ratio < INVENTORY_ANALYSIS_ABC_B_RATIO else 'C'))
-        cum += value
-    return result
-
-
-def _last_outbound_dates(material_ids):
-    """per 物料最后出库日期 {material_id: date}（一次分组聚合，非 N+1）。"""
-    if not material_ids:
-        return {}
-    rows = (db.session.query(
-                StockTransaction.material_id,
-                func.max(StockTransaction.created_at))
-            .filter(
-                StockTransaction.material_id.in_(list(material_ids)),
-                StockTransaction.created_at.isnot(None),
-                _outbound_txn_condition(),
-            )
-            .group_by(StockTransaction.material_id).all())
-    return {mid: dt.date() for mid, dt in rows if dt is not None}
-
-
-def _sql_paged_inventory_analysis_report(filters):
-    """库存经营分析 builder：物料维度宽表（库存状态 + ABC + 呆滞）。
-
-    行集 = 筛选后物料，行数可控（与库存报表 BUG-2026-09-07-015 同判定，
-    不适合 SQL 下沉），Python 全量构建后按 page/page_size 切片——协议与
-    SQL_PAGED_REPORT_BUILDERS 兼容（BUG-2026-09-07-020 分批导出/打印按批
-    循环调用）。每次调用独立重算预计算层（库存映射/ABC/最后出库），
-    不在 g 缓存库存映射（盘点等路由先写流水再读，缓存会返回脏数据）。
-    """
-    columns = _inventory_analysis_columns()
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
-        return columns, [], {'count': 0, 'quantity': 0.0, 'amount': 0.0}, 0
-    warehouse = None
-    if filters.get('warehouse_id'):
-        warehouse = Warehouse.query.get(filters['warehouse_id'])
-    warehouse_stock_map = get_warehouse_stock_quantities(warehouse) if warehouse else {}
-
-    query = Material.query.options(
-        selectinload(Material.category),
-        selectinload(Material.unit),
-        selectinload(Material.supplier),
-    )
-    if filters.get('supplier_id'):
-        query = query.filter(Material.supplier_id == filters['supplier_id'])
-    supplier_clause = _supplier_filter_clause(filters.get('supplier'))
-    if supplier_clause is not None:
-        query = query.join(Material.supplier).filter(supplier_clause)
-    material_clause = _material_filter_clause(filters.get('material_code'))
-    if material_clause is not None:
-        query = query.filter(material_clause)
-
-    materials = query.order_by(Material.code.asc(), Material.id.asc()).all()
-
-    stock_by_material = {}
-    value_by_material = {}
-    kept = []
-    for material in materials:
-        stock = _safe_float(warehouse_stock_map.get(material.id) or 0)
-        # BUG-2026-08-18-00X：hide_zero 过滤零库存行（与库存报表口径一致）
-        if filters.get('hide_zero') and stock == 0:
-            continue
-        kept.append(material)
-        stock_by_material[material.id] = stock
-        value_by_material[material.id] = stock * _safe_float(material.price)
-
-    total = len(kept)
-    abc_map = _abc_classes(value_by_material)
-    today_value = date.today()
-    idle_threshold = get_system_setting_int(
-        'stock_idle_days', INVENTORY_ANALYSIS_IDLE_DAYS_DEFAULT)
-    last_out_map = _last_outbound_dates(stock_by_material.keys())
-
-    def _to_row(material):
-        stock = stock_by_material[material.id]
-        min_stock = _safe_float(material.min_stock)
-        max_stock = _safe_float(material.max_stock)
-        last_out = last_out_map.get(material.id)
-        if last_out is not None:
-            idle_days = (today_value - last_out).days
-        elif getattr(material, 'created_at', None):
-            idle_days = (today_value - material.created_at.date()).days
-        else:
-            idle_days = 0
-        return {
-            'code': material.code or '',
-            'name': material.name or '',
-            'spec': material.spec or '',
-            'category': material.category.name if material.category else '',
-            'unit': material.unit.name if material.unit else '',
-            'supplier': material.supplier.name if material.supplier else '',
-            'stock': stock,
-            'price': _safe_float(material.price),
-            'stock_value': value_by_material[material.id],
-            'min_stock': min_stock,
-            'stock_status': _inventory_stock_status(stock, min_stock),
-            'suggest_qty': _inventory_suggest_qty(stock, min_stock, max_stock),
-            'abc_class': abc_map.get(material.id, 'C'),
-            'last_out_date': last_out.isoformat() if last_out else '',
-            'idle_days': idle_days,
-            'idle_flag': '呆滞' if (stock > 0 and idle_days >= idle_threshold) else '',
-        }
-
-    page = max(int(filters.get('page') or 1), 1)
-    page_size = max(int(filters.get('page_size') or 20), 1)
-    start = (page - 1) * page_size
-    sort_field = (filters.get('sort_field') or '').strip()
-    if sort_field:
-        # 表头排序：行集物料级可控，全量行排序后切片（与其他报表排序回退一致）
-        all_rows = [_to_row(m) for m in kept]
-        all_rows = _sort_rows(all_rows, sort_field, filters.get('sort_order'))
-        rows = all_rows[start:start + page_size]
-    else:
-        rows = [_to_row(m) for m in kept[start:start + page_size]]
-    summary = {
-        'count': total,
-        'quantity': _safe_float(sum(stock_by_material.values())),
-        'amount': _safe_float(sum(value_by_material.values())),
-    }
-    return columns, rows, summary, total
-
-
-def _build_inventory_analysis_report(filters):
-    """REPORT_BUILDERS 门禁包装（3 元组协议）：分页/导出/打印实际均走
-    _sql_paged_inventory_analysis_report（SQL_PAGED 分支优先），本函数
-    仅保证 payload 门禁与协议表登记完整，不做内存全量路径。"""
-    columns, rows, summary, _total = \
-        _sql_paged_inventory_analysis_report(filters)
-    return columns, rows, summary
-
 
 def _in_detail_row(item):
     """入库明细行映射（_collect_in_detail_rows 与 SQL 分页 builder 共用，防止两份映射漂移）。"""
@@ -28267,7 +28050,6 @@ def _build_requisition_report(filters):
 
 REPORT_BUILDERS = {
     'inventory': _build_inventory_report,
-    'inventory_analysis': _build_inventory_analysis_report,
     'in_detail': _build_in_detail_report,
     'out_detail': _build_out_detail_report,
     'summary': _build_summary_report,
@@ -29448,7 +29230,6 @@ SQL_PAGED_REPORT_BUILDERS = {
     'purchase_price_analysis': _sql_paged_purchase_price_analysis_report,
     'requisition': _sql_paged_requisition_report,
     'subcontract': _sql_paged_subcontract_report,
-    'inventory_analysis': _sql_paged_inventory_analysis_report,
 }
 
 

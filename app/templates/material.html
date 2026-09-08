@@ -1991,11 +1991,35 @@ var currentTemplate = {
     labelHeight: 40
 };
 
+// BUG-2026-09-08-001：按 DOM 实际顺序重排所有单元格的 data-row/data-col。
+// 删除行/列后残留的过期坐标若被直接序列化，打印端按声明 rows×cols 网格
+// 迭代会把越界单元格静默丢弃（字段打印不出来）。保存/草稿前统一重排，
+// 保证存下去的坐标永远等于用户当前所见布局。
+function reindexLabelCells() {
+    var table = document.getElementById('labelTable');
+    if (!table) return;
+    for (var r = 0; r < table.rows.length; r++) {
+        var row = table.rows[r];
+        var colPos = 0;
+        for (var i = 0; i < row.cells.length; i++) {
+            var cell = row.cells[i];
+            if (!cell.classList || !cell.classList.contains('label-cell')) {
+                colPos += cell.colSpan || 1;
+                continue;
+            }
+            cell.dataset.row = r;
+            cell.dataset.col = colPos;
+            colPos += cell.colSpan || 1;
+        }
+    }
+}
+
 // 将当前编辑器状态自动保存为草稿（localStorage），防止误关闭丢失未保存的设计
 function saveTemplateToStorage() {
     try {
         var table = document.getElementById('labelTable');
         if (!table) return;
+        reindexLabelCells();
         var cells = [];
         table.querySelectorAll('.label-cell').forEach(function(cell) {
             var content = cell.querySelector('.cell-content');
@@ -2539,7 +2563,8 @@ function saveTemplate() {
         nameInput.focus();
         return;
     }
-    
+
+    reindexLabelCells();  // BUG-2026-09-08-001：序列化前重排坐标，杜绝越界残留
     var cells = [];
     document.querySelectorAll('.label-cell').forEach(function(cell) {
         var content = cell.querySelector('.cell-content');
