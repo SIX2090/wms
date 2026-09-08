@@ -26136,7 +26136,7 @@ def _serialize_excel_value(column, row):
         return _status_label(value)
     return value
 
-def _build_excel_response(report_type, columns, rows):
+def _build_excel_response(report_type, columns, rows, truncated=False, raw_total=None):
     from openpyxl import Workbook
 
     definition = _get_report_definition(report_type)
@@ -26146,6 +26146,15 @@ def _build_excel_response(report_type, columns, rows):
     worksheet.append([column['title'] for column in columns])
     for row in rows:
         worksheet.append([_serialize_excel_value(column, row) for column in columns])
+    # BUG-2026-09-07-019：导出超限时文件尾部显式标注——此前截断提示只在网页
+    # 页面展示，下载后的 Excel 脱离系统完全无感知，缺行文件被直接用于对账。
+    if truncated:
+        real_total = raw_total if raw_total is not None else len(rows)
+        worksheet.append([])
+        worksheet.append([
+            f'⚠ 导出截断提示：当前筛选结果共 {real_total} 行，超出单次导出上限 '
+            f'{REPORT_ROW_LIMIT} 行，本文件仅含前 {len(rows)} 行；请缩小筛选范围'
+            f'（如按日期分段）后分批导出，避免缺行对账。'])
 
     output = io.BytesIO()
     workbook.save(output)

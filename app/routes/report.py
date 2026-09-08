@@ -254,7 +254,13 @@ def register_report_routes(app):
             return jsonify({'status': 'error', 'msg': '报表数据生成失败，请检查查询条件'}), 400
 
         if filters['export'] == 'excel':
-            return _build_excel_response(report_type, payload['columns'], payload['all_rows'])
+            # BUG-2026-09-07-019：截断状态传入 Excel 生成——下载后的文件脱离
+            # 系统页面无任何感知，超限缺行必须在文件内可见，否则会计/审计
+            # 基于缺行文件对账即成事故。
+            return _build_excel_response(
+                report_type, payload['columns'], payload['all_rows'],
+                truncated=payload.get('truncated', False),
+                raw_total=payload.get('raw_total'))
 
         return jsonify({
             'status': 'success',
@@ -298,6 +304,14 @@ def register_report_routes(app):
             return api_error('Unsupported report type', 400)
         try:
             filters = _build_report_filters()
+            # BUG-2026-09-07-019：模板 Excel 打印请求不带 export 参数（前端
+            # templatePrintBtn 构造参数时显式 delete('export')），而 SQL 分页
+            # builder 只在 export == 'excel' 时返回全量行，否则返回当页——报表
+            # SQL 分页化（BUG-2026-09-07-004 起）后 print_excel 对 10 类 SQL
+            # 报表只渲染第一页（默认 20 行），属数据完整性回归。打印语义 =
+            # 当前筛选全量，与页面分页无关，此处强制置 export='excel'。
+            # 内存路径报表的 all_rows 本就为全量，置位不改变其行为。
+            filters['export'] = 'excel'
             # AGENTS.md 仓库必填规则：报表查询未指定仓库且无默认仓库时拒绝返回数据
             if not filters.get('warehouse_id'):
                 return api_error('请选择仓库', 400)
@@ -306,6 +320,10 @@ def register_report_routes(app):
             app.logger.error(f'report_print_excel ValueError({report_type}): {exc}',
                              exc_info=True)
             return api_error('报表数据生成失败，请检查查询条件', 400)
+        if payload.get('truncated'):
+            app.logger.warning(
+                '[REPORT] print_excel %s 筛选结果 %s 行超出导出上限，模板打印仅含前 %s 行',
+                report_type, payload.get('raw_total'), len(payload['all_rows']))
         result = render_report_excel_print(
             report_type, payload['title'], payload['columns'],
             payload['all_rows'],
