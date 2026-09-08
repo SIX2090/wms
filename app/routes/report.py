@@ -12,7 +12,7 @@
 # - 模块级只导入稳定依赖（flask / flask_login / db / utils），不导入 app，避免循环导入。
 # - app.py 内部定义（REPORT_DEFINITIONS / REPORT_TYPE_ORDER /
 #   build_report_dashboard_context / _get_report_definition / _build_report_filters /
-#   _build_report_payload / _build_excel_response / _ai_llm_configured /
+#   _build_report_payload / _build_report_excel_download / _ai_llm_configured /
 #   _ai_call_llm_chat / api_error / get_active_warehouses / get_default_warehouse /
 #   inventory_alert_enabled / _material_alert_status_values / Supplier / Material /
 #   InOrder / OutOrder 等）在各路由函数内延迟导入（请求期才执行），
@@ -235,8 +235,8 @@ def register_report_routes(app):
     @app.route('/report/api/<report_type>')
     @login_required
     def report_api_query(report_type=None):
-        from app import (_build_excel_response, _build_report_filters, _build_report_payload,
-                         _get_report_definition, api_error)
+        from app import (_build_report_excel_download, _build_report_filters,
+                         _build_report_payload, _get_report_definition, api_error)
         report_type = report_type or (request.args.get('report_type') or '').strip()
         definition = _get_report_definition(report_type)
         if definition is None:
@@ -247,20 +247,16 @@ def register_report_routes(app):
             # P1-BUGFIX：AGENTS.md 仓库必填规则——报表查询未指定仓库且无默认仓库时拒绝返回数据
             if not filters.get('warehouse_id'):
                 return api_error('请选择仓库', 400)
+            if filters['export'] == 'excel':
+                # BUG-2026-09-07-020：导出走分批流式下载——SQL 分页报表循环取批
+                # 全量导出（不再受 REPORT_ROW_LIMIT 单次截断），内存路径报表
+                # 仍截断并在文件内提示（019 引入，随迁移保留）。
+                return _build_report_excel_download(report_type, filters)
             payload = _build_report_payload(report_type, filters)
         except ValueError as exc:
             # BUG-2026-08-16-019：业务异常详细记录，不把内部细节返回客户端
             app.logger.error(f'report_api_query ValueError({report_type}): {exc}', exc_info=True)
             return jsonify({'status': 'error', 'msg': '报表数据生成失败，请检查查询条件'}), 400
-
-        if filters['export'] == 'excel':
-            # BUG-2026-09-07-019：截断状态传入 Excel 生成——下载后的文件脱离
-            # 系统页面无任何感知，超限缺行必须在文件内可见，否则会计/审计
-            # 基于缺行文件对账即成事故。
-            return _build_excel_response(
-                report_type, payload['columns'], payload['all_rows'],
-                truncated=payload.get('truncated', False),
-                raw_total=payload.get('raw_total'))
 
         return jsonify({
             'status': 'success',
@@ -296,7 +292,7 @@ def register_report_routes(app):
           excel_print_template（幂等），之后可在模板中心在线编辑/设默认；
         - 无用户模板时 render_report_excel_print 回退动态内置模板。
         """
-        from app import (_build_report_filters, _build_report_payload,
+        from app import (_build_report_filters, _collect_report_export_rows,
                          _get_report_definition, api_error)
         from doc_print_excel import render_report_excel_print, report_target_code
         definition = _get_report_definition(report_type)
@@ -304,35 +300,32 @@ def register_report_routes(app):
             return api_error('Unsupported report type', 400)
         try:
             filters = _build_report_filters()
-            # BUG-2026-09-07-019：模板 Excel 打印请求不带 export 参数（前端
-            # templatePrintBtn 构造参数时显式 delete('export')），而 SQL 分页
-            # builder 只在 export == 'excel' 时返回全量行，否则返回当页——报表
-            # SQL 分页化（BUG-2026-09-07-004 起）后 print_excel 对 10 类 SQL
-            # 报表只渲染第一页（默认 20 行），属数据完整性回归。打印语义 =
-            # 当前筛选全量，与页面分页无关，此处强制置 export='excel'。
-            # 内存路径报表的 all_rows 本就为全量，置位不改变其行为。
-            filters['export'] = 'excel'
             # AGENTS.md 仓库必填规则：报表查询未指定仓库且无默认仓库时拒绝返回数据
             if not filters.get('warehouse_id'):
                 return api_error('请选择仓库', 400)
-            payload = _build_report_payload(report_type, filters)
+            # BUG-2026-09-07-019/020：模板打印语义 = 当前筛选全量（打印请求不带
+            # export 参数，前端显式 delete；019 曾强制置位走 payload，020 起直接
+            # 用分批收集：SQL 分页报表循环取批全量、内存路径报表全量构建），
+            # 与页面分页彻底无关。
+            columns, all_rows, truncated, raw_total = \
+                _collect_report_export_rows(report_type, filters)
         except ValueError as exc:
             app.logger.error(f'report_print_excel ValueError({report_type}): {exc}',
                              exc_info=True)
             return api_error('报表数据生成失败，请检查查询条件', 400)
-        if payload.get('truncated'):
+        if truncated:
             app.logger.warning(
-                '[REPORT] print_excel %s 筛选结果 %s 行超出导出上限，模板打印仅含前 %s 行',
-                report_type, payload.get('raw_total'), len(payload['all_rows']))
+                '[REPORT] print_excel %s 筛选结果 %s 行超出单次处理上限，模板打印仅含前 %s 行',
+                report_type, raw_total, len(all_rows))
         result = render_report_excel_print(
-            report_type, payload['title'], payload['columns'],
-            payload['all_rows'],
+            report_type, definition['title'], columns,
+            all_rows,
             template_id=request.args.get('template_id', type=int),
             static_folder=app.static_folder)
         if result is None:
             return api_error('报表模板生成失败', 500)
         output, filename, template_path = result
-        _auto_register_report_template(app, report_type, payload['title'],
+        _auto_register_report_template(app, report_type, definition['title'],
                                        template_path)
         return send_file(
             output, download_name=filename, as_attachment=True,

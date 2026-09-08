@@ -26136,25 +26136,97 @@ def _serialize_excel_value(column, row):
         return _status_label(value)
     return value
 
-def _build_excel_response(report_type, columns, rows, truncated=False, raw_total=None):
+def _iter_report_export_batches(report_type, filters):
+    """按当前筛选迭代导出行（BUG-2026-09-07-020 分批全量导出），yield (columns, rows)。
+
+    - SQL 分页报表：循环 builder 的分页分支逐批取回（每批 REPORT_EXPORT_BATCH_SIZE），
+      突破 REPORT_ROW_LIMIT 单次上限——builder 的 export=excel 全量分支不再用于下载。
+      批间行序由 builder 内排序（含表头 sort_field 的全量排序回退）保证连续，
+      退出条件 page*batch >= total，多批拼接 = 筛选全集、无重复无遗漏。
+    - 内存路径报表（台账/月报）：单次全量构建——结存/期末倒推是运行期值，
+      无法切片分批，仍受各自 LIMIT（LEDGER_ROW_LIMIT 等）截断，截断信息由
+      调用方读 flask.g（_report_truncated_total）并在文件内提示。
+    """
+    sql_builder = SQL_PAGED_REPORT_BUILDERS.get(report_type)
+    if sql_builder is not None:
+        batch = REPORT_EXPORT_BATCH_SIZE
+        page = 1
+        total = None
+        while True:
+            batch_filters = dict(filters, page=page, page_size=batch, export='')
+            columns, rows, _summary, batch_total = sql_builder(batch_filters)
+            if total is None:
+                total = batch_total
+            yield columns, rows
+            if not rows or page * batch >= total:
+                return
+            page += 1
+    builder = REPORT_BUILDERS.get(report_type)
+    if builder is None:
+        raise ValueError('unsupported report type')
+    columns, rows, _summary = builder(filters)
+    rows = _sort_rows(rows, filters.get('sort_field'), filters.get('sort_order'))
+    yield columns, rows
+
+
+def _report_export_truncation(report_type, written):
+    """导出截断信息：SQL 分页报表分批全量取回不截断；内存路径报表读 g 标记。"""
+    if report_type in SQL_PAGED_REPORT_BUILDERS:
+        return False, None
+    truncated_total = 0
+    try:
+        truncated_total = getattr(g, '_report_truncated_total', 0) or 0
+        g._report_truncated_total = 0  # 读后即清，防同一上下文二次查询串值
+    except RuntimeError:
+        pass  # 非请求上下文（脚本直跑）只按行数判定
+    truncated = truncated_total > written
+    return truncated, (truncated_total if truncated else written)
+
+
+def _collect_report_export_rows(report_type, filters):
+    """导出行物化收集（模板打印 print_excel 用）：返回 (columns, rows, truncated, raw_total)。"""
+    columns = None
+    rows_out = []
+    for batch_columns, rows in _iter_report_export_batches(report_type, filters):
+        if columns is None:
+            columns = batch_columns
+        rows_out.extend(rows)
+    truncated, raw_total = _report_export_truncation(report_type, len(rows_out))
+    return columns, rows_out, truncated, raw_total
+
+
+def _build_report_excel_download(report_type, filters):
+    """分批流式导出 Excel（BUG-2026-09-07-020）：write_only 逐批写，内存峰值恒为单批。
+
+    SQL 分页报表不再有 5 万行上限（此前 export=excel 全量分支被
+    REPORT_ROW_LIMIT 截断、导出缺行）；内存路径报表仍截断并在文件尾部
+    追加提示行（BUG-2026-09-07-019 引入的文件级提示，随本函数迁移）。
+    """
     from openpyxl import Workbook
 
     definition = _get_report_definition(report_type)
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = 'Report'
-    worksheet.append([column['title'] for column in columns])
-    for row in rows:
-        worksheet.append([_serialize_excel_value(column, row) for column in columns])
-    # BUG-2026-09-07-019：导出超限时文件尾部显式标注——此前截断提示只在网页
-    # 页面展示，下载后的 Excel 脱离系统完全无感知，缺行文件被直接用于对账。
+    workbook = Workbook(write_only=True)
+    worksheet = workbook.create_sheet('Report')
+    columns = None
+    written = 0
+    for batch_columns, rows in _iter_report_export_batches(report_type, filters):
+        if columns is None:
+            columns = batch_columns
+            worksheet.append([column['title'] for column in columns])
+        for row in rows:
+            worksheet.append([_serialize_excel_value(column, row) for column in columns])
+        written += len(rows)
+    if columns is None:
+        raise ValueError('unsupported report type')
+    truncated, raw_total = _report_export_truncation(report_type, written)
+    # BUG-2026-09-07-019/020：导出超限时文件尾部显式标注——下载后的 Excel
+    # 脱离系统页面完全无感知，缺行文件被直接用于对账即成事故。
     if truncated:
-        real_total = raw_total if raw_total is not None else len(rows)
         worksheet.append([])
         worksheet.append([
-            f'⚠ 导出截断提示：当前筛选结果共 {real_total} 行，超出单次导出上限 '
-            f'{REPORT_ROW_LIMIT} 行，本文件仅含前 {len(rows)} 行；请缩小筛选范围'
-            f'（如按日期分段）后分批导出，避免缺行对账。'])
+            f'⚠ 导出截断提示：当前筛选结果共 {raw_total} 行，超出单次导出上限，'
+            f'本文件仅含前 {written} 行；请缩小筛选范围（如按日期分段）后'
+            f'分批导出，避免缺行对账。'])
 
     output = io.BytesIO()
     workbook.save(output)
@@ -26987,6 +27059,11 @@ LEDGER_ROW_LIMIT = 50000
 # 数据超过 5000 行时第 5001 行起被静默丢弃，分页 total 失真、导出缺行。
 # 统一提高上限并在超限时显式告警，便于事后排查。
 REPORT_ROW_LIMIT = 50000
+
+# BUG-2026-09-07-020：分批全量导出的批大小。SQL 分页报表导出循环按此批取回，
+# 突破 REPORT_ROW_LIMIT 单次上限；批过大抬高内存峰值，过小则批次数与
+# count/聚合重复开销增多，5000 在 5–10 万行筛选下批次数 ≤ 20、内存可控。
+REPORT_EXPORT_BATCH_SIZE = 5000
 
 
 def _report_check_row_limit(query, limit, label):

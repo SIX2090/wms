@@ -8,15 +8,19 @@ export == 'excel' 时返回全量行，否则返回当页——print_excel 用 p
 rows 渲染模板，导致模板打印从「全量」退化为「第一页（默认 20 行）」。
 内存路径报表的 all_rows 一直为全量，故该回归仅在 SQL 分页报表上出现。
 
-修复：print_excel 路由强制 filters['export'] = 'excel'（打印语义 = 当前
-筛选全量，与页面分页无关）；导出超限时 Excel 文件尾部追加截断提示行
-（此前截断提示只在网页展示，下载后的文件脱离系统完全无感知）。
+修复：print_excel 打印语义 = 当前筛选全量；导出超限时 Excel 文件尾部追加
+截断提示行（此前截断提示只在网页展示，下载后的文件脱离系统完全无感知）。
+
+020 演进说明：BUG-2026-09-07-020 起导出走分批流式下载（SQL 分页报表循环
+取批全量、不再受 REPORT_ROW_LIMIT 截断），print_excel 同步改走分批收集；
+本文件 T3 由「SQL 分页导出超限截断提示」演进为「内存路径台账（结存为
+运行期值、无法分批）仍截断 + 文件内提示行」，文件级提示能力保留。
 
 断言：
   T1. print_excel（无 export 参数）渲染全部 25 行数据（回归核心：修复前仅 20）。
   T2. export=excel 全量 25 行，未超限时文件内无截断提示行。
-  T3. 导出超上限（monkeypatch REPORT_ROW_LIMIT=10）：文件仅含前 10 行数据，
-      尾部有截断提示行（含真实行数 25 与已含行数 10）。
+  T3. 内存路径台账导出超 LEDGER_ROW_LIMIT：文件仅含前 10 条流水 + 1 条合计行，
+      尾部有截断提示行（真实流水 12 / 已含 11）。
   T4. 页面分页路径不受导出上限影响：REPORT_ROW_LIMIT=10 时 page=2 仍返回
       剩余 5 行，truncated=False（页面无截断）。
   T5. print_excel 无仓库 → 400（AGENTS.md 仓库必填规则保持）。
@@ -41,8 +45,8 @@ os.environ["WMS_DATABASE_URI"] = "sqlite:///:memory:"
 os.environ.setdefault("WMS_DEBUG", "0")
 
 import app as app_module  # noqa: E402
-from app import (InOrder, InOrderItem, Material, Unit, User,  # noqa: E402
-                 Warehouse, db)
+from app import (InOrder, InOrderItem, Material, StockTransaction, Unit,  # noqa: E402
+                 User, Warehouse, db)
 
 app_module.app.config["TESTING"] = True
 app_module.app.config["WTF_CSRF_ENABLED"] = False
@@ -90,6 +94,8 @@ class TestBug20260907019:
             db.session.add(material)
             db.session.flush()
             self.wh_id = wh.id
+            self.m_id = material.id
+            self.user_id = user.id
             # 5 单 × 5 行 = 25 行明细（> 默认 page_size 20）；数量 1..5 便于聚合校验
             for i in range(5):
                 order = InOrder(order_no=f"IN-{chr(ord('A') + i)}",
@@ -130,24 +136,35 @@ class TestBug20260907019:
         joined = '\n'.join(cell for row in rows for cell in row)
         assert '导出截断' not in joined, "未超限时不应出现截断提示行"
 
-    def test_T3_export_excel_over_limit_has_truncation_row(self):
-        """超上限：文件仅含前 10 行数据 + 尾部截断提示行（真实 25 / 已含 10）。"""
-        old = app_module.REPORT_ROW_LIMIT
-        app_module.REPORT_ROW_LIMIT = 10
+    def test_T3_memory_path_ledger_export_truncation_row(self):
+        """演进后：内存路径台账仍受 LEDGER_ROW_LIMIT 截断，文件内提示行保留。
+
+        台账业务规则：必须按单一物料查询（未指定 material_code 直接返回空）。
+        """
+        with app_module.app.app_context():
+            for _ in range(12):
+                db.session.add(StockTransaction(
+                    material_id=self.m_id, transaction_type='in', quantity=1.0,
+                    location='', warehouse_id=self.wh_id, operator_id=self.user_id))
+            db.session.commit()
+        old = app_module.LEDGER_ROW_LIMIT
+        app_module.LEDGER_ROW_LIMIT = 10
         try:
             r = self._client().get(
-                f"/report/api/in_detail?export=excel&warehouse_id={self.wh_id}")
+                f"/report/api/ledger?export=excel&warehouse_id={self.wh_id}"
+                f"&material_code=M001")
         finally:
-            app_module.REPORT_ROW_LIMIT = old
+            app_module.LEDGER_ROW_LIMIT = old
         assert r.status_code == 200
         rows = _xlsx_rows(r.data)
         warning_rows = [row for row in rows if '导出截断提示' in row[0]]
-        assert len(warning_rows) == 1, "截断时文件尾必须有且仅有一条提示行"
+        assert len(warning_rows) == 1, "内存路径截断时文件尾必须有且仅有一条提示行"
         text = warning_rows[0][0]
-        assert '25' in text, f"提示行应含真实行数 25，实际：{text}"
-        assert '10' in text, f"提示行应含已导出行数 10，实际：{text}"
+        assert '12' in text, f"提示行应含真实流水数 12，实际：{text}"
+        assert '11' in text, f"提示行应含已导出行数 11，实际：{text}"
         data_rows = [row for row in rows[1:] if '导出截断提示' not in row[0]]
-        assert len(data_rows) == 10, f"超限时数据行应截断为 10，实际 {len(data_rows)}"
+        # 12 条流水截断为 10 + 单物料 1 条「本期合计」行（无 start_date 无期初行）
+        assert len(data_rows) == 11, f"台账导出应为 10 流水 + 1 合计行，实际 {len(data_rows)}"
 
     def test_T4_page_path_unaffected_by_export_limit(self):
         """页面分页不受导出上限影响：REPORT_ROW_LIMIT=10 时 page=2 仍返回 5 行。"""
