@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Excel 打印模板中心</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Microsoft YaHei","微软雅黑",sans-serif; background:#f0f2f5; color:#333; font-size:14px; }
+  button { cursor:pointer; font-family:inherit; }
+
+  .page-header { background:#fff; padding:12px 20px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #e8e8e8; flex-wrap:wrap; gap:10px; }
+  .page-header .title { font-size:16px; font-weight:600; }
+  .page-header .subtitle { font-size:12px; color:#999; margin-top:4px; }
+  .page-header .subtitle .tag { background:#52c41a; color:#fff; border-radius:3px; padding:0 5px; font-size:11px; }
+  .header-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .btn { border:1px solid #d9d9d9; background:#fff; border-radius:4px; padding:6px 12px; font-size:13px; color:#333; }
+  .btn:hover { border-color:#2b7de9; color:#2b7de9; }
+  .btn.primary { background:#2b7de9; border-color:#2b7de9; color:#fff; }
+  .btn.primary:hover { background:#1f68c9; }
+  .btn.danger:hover { border-color:#ff4d4f; color:#ff4d4f; }
+  .tpl-select { padding:6px 8px; border:1px solid #d9d9d9; border-radius:4px; font-size:13px; max-width:200px; }
+
+  .container { padding:12px 20px; }
+  .toolbar { background:#fff; border:1px solid #e8e8e8; border-radius:6px; padding:8px 12px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+  .toolbar select, .toolbar input[type=number] { height:30px; border:1px solid #d9d9d9; border-radius:4px; padding:0 6px; font-size:13px; background:#fff; }
+  .toolbar input[type=number] { width:58px; }
+  .toolbar input[type=color] { width:30px; height:30px; border:1px solid #d9d9d9; border-radius:4px; padding:2px; background:#fff; cursor:pointer; }
+  .tb-btn { min-width:30px; height:30px; border:1px solid #d9d9d9; background:#fff; border-radius:4px; font-size:13px; padding:0 8px; display:inline-flex; align-items:center; justify-content:center; }
+  .tb-btn:hover { border-color:#2b7de9; color:#2b7de9; }
+  .tb-btn.on { background:#2b7de9; border-color:#2b7de9; color:#fff; }
+  .tb-sep { width:1px; height:22px; background:#e8e8e8; margin:0 4px; }
+  .tb-label { font-size:12px; color:#999; }
+
+  .hint { color:#999; font-size:12px; margin-bottom:10px; }
+
+  .ph-panel { background:#fff; border:1px solid #e8e8e8; border-radius:6px; padding:10px 12px; margin-bottom:12px; }
+  .ph-panel .ph-title { text-align:center; color:#888; font-size:12px; margin-bottom:8px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; }
+  .chip { border:1px solid #d9d9d9; border-radius:3px; padding:2px 8px; font-size:12px; background:#fafafa; cursor:pointer; user-select:none; }
+  .chip:hover { border-color:#2b7de9; color:#2b7de9; background:#eaf2fd; }
+  .chip.group { background:#eaf2fd; border-color:#2b7de9; color:#2b7de9; cursor:default; font-weight:600; }
+
+  /* ===== 表格编辑区 ===== */
+  .sheet-wrap { background:#fff; border:1px solid #e8e8e8; border-radius:6px; padding:10px; overflow:auto; min-height:420px; }
+  table.sheet { border-collapse:collapse; table-layout:fixed; }
+  table.sheet col.bodycol { }
+  table.sheet th.corner, table.sheet th.colh, table.sheet th.rowh {
+    background:#f5f6f8; border:1px solid #dcdfe4; font-weight:400; color:#888; font-size:12px;
+    min-width:36px; height:26px; text-align:center; user-select:none; cursor:pointer; position:sticky;
+  }
+  table.sheet th.colh:hover, table.sheet th.rowh:hover, table.sheet th.corner:hover { background:#e3ecfa; color:#2b7de9; }
+  table.sheet th.rowh { min-width:36px; height:auto; }
+  table.sheet td {
+    border:1px solid #e3e5e8; height:40px; padding:4px 8px; font-size:13px;
+    word-break:break-all; overflow:hidden; cursor:cell; background:#fff;
+  }
+  table.sheet td.sel { background:#e8f0fe !important; outline:2px solid #2b7de9; outline-offset:-2px; }
+  table.sheet td[contenteditable="true"] { cursor:text; outline:2px solid #52c41a; outline-offset:-2px; background:#fff !important; }
+
+  /* ===== 右键菜单 ===== */
+  #ctxmenu { display:none; position:fixed; z-index:300; background:#fff; border:1px solid #e0e0e0; border-radius:6px; box-shadow:0 4px 16px rgba(0,0,0,.15); padding:4px 0; min-width:150px; }
+  #ctxmenu .mi { padding:7px 16px; font-size:13px; cursor:pointer; white-space:nowrap; }
+  #ctxmenu .mi:hover { background:#eaf2fd; color:#2b7de9; }
+  #ctxmenu .sep { height:1px; background:#eee; margin:4px 0; }
+
+  /* ===== 弹窗 ===== */
+  .modal-mask { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:100; align-items:center; justify-content:center; }
+  .modal-mask.show { display:flex; }
+  .modal { background:#fff; border-radius:8px; padding:20px; width:520px; max-height:85vh; overflow:auto; }
+  .modal h3 { margin-bottom:14px; font-size:15px; }
+  .tpl-item { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border:1px solid #eee; border-radius:6px; margin-bottom:8px; }
+  .tpl-item:hover { border-color:#2b7de9; }
+  .tpl-item .ops { display:flex; gap:6px; }
+  .modal-btns { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+
+  .form-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; font-size:13px; }
+  .form-row label { width:70px; color:#666; }
+  .form-row select, .form-row input { height:30px; border:1px solid #d9d9d9; border-radius:4px; padding:0 8px; font-size:13px; }
+  .form-row input[type=number] { width:70px; }
+  .margins { display:flex; gap:8px; }
+  .margins .m { display:flex; align-items:center; gap:4px; color:#666; font-size:12px; }
+  .margins input { width:56px; }
+
+  /* ===== 打印预览 ===== */
+  #previewMask .modal { width:auto; max-width:96vw; background:#e8e8e8; }
+  #previewMask h3 { color:#333; }
+  .paper { background:#fff; margin:0 auto; box-shadow:0 2px 12px rgba(0,0,0,.25); }
+  .paper table { border-collapse:collapse; table-layout:fixed; width:100%; }
+  .paper td { padding:4px 8px; word-break:break-all; vertical-align:middle; font-size:13px; }
+  .bc { display:inline-block; line-height:0; }
+  .bc-text { font-size:11px; letter-spacing:1px; }
+
+  @media print {
+    body > *:not(#previewMask) { display:none !important; }
+    #previewMask { position:static !important; background:none !important; display:block !important; }
+    #previewMask .modal { padding:0; max-width:none; width:auto; background:#fff; }
+    #previewMask .no-print, #previewMask h3 { display:none !important; }
+    .paper { box-shadow:none !important; margin:0 !important; width:auto !important; min-height:0 !important; padding:0 !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <div class="title">✎ 在线编辑打印模板 · <span id="tplName">系统默认物料标签模板</span></div>
+    <div class="subtitle">通用 Excel 模板 · <span class="tag">默认</span> · 修改单元格后点击「保存模板」生效</div>
+  </div>
+  <div class="header-actions">
+    <select id="tplSelect" class="tpl-select" title="切换模板"></select>
+    <button class="btn" id="btnNewTpl">＋ 新建模板</button>
+    <button class="btn" id="btnPage">📄 页面设置</button>
+    <button class="btn" id="btnCenter">← 返回模板中心</button>
+    <button class="btn" id="btnPreview">🖨 打印预览</button>
+    <button class="btn primary" id="btnSave">💾 保存模板</button>
+  </div>
+</div>
+
+<div class="container">
+  <div class="toolbar">
+    <button class="tb-btn" id="btnInsRowU" title="在上方插入行">⇧ 行</button>
+    <button class="tb-btn" id="btnInsRowD" title="在下方插入行">⇩ 行</button>
+    <button class="tb-btn danger" id="btnDelRow" title="删除选中行">✕ 行</button>
+    <button class="tb-btn" id="btnInsColL" title="在左侧插入列">⇤ 列</button>
+    <button class="tb-btn" id="btnInsColR" title="在右侧插入列">⇥ 列</button>
+    <button class="tb-btn danger" id="btnDelCol" title="删除选中列">✕ 列</button>
+    <span class="tb-sep"></span>
+    <button class="tb-btn" id="btnUndo" title="撤销 Ctrl+Z">↶</button>
+    <button class="tb-btn" id="btnRedo" title="重做 Ctrl+Y">↷</button>
+    <span class="tb-sep"></span>
+    <select id="fontFamily">
+      <option value="Microsoft YaHei,微软雅黑">微软雅黑</option>
+      <option value="SimSun,宋体">宋体</option>
+      <option value="SimHei,黑体">黑体</option>
+      <option value="KaiTi,楷体">楷体</option>
+      <option value="Arial">Arial</option>
+      <option value="'Times New Roman'">Times New Roman</option>
+    </select>
+    <select id="fontSize">
+      <option>9</option><option>10</option><option>11</option><option>12</option>
+      <option selected>13</option><option>14</option><option>16</option><option>18</option>
+      <option>20</option><option>24</option><option>28</option><option>36</option>
+    </select>
+    <button class="tb-btn" id="btnBold" title="加粗"><b>B</b></button>
+    <button class="tb-btn" id="btnItalic" title="斜体"><i>I</i></button>
+    <button class="tb-btn" id="btnUnderline" title="下划线"><u>U</u></button>
+    <input type="color" id="fontColor" value="#000000" title="字体颜色">
+    <input type="color" id="bgColor" value="#ffffff" title="填充颜色">
+    <span class="tb-sep"></span>
+    <button class="tb-btn" data-align="left" title="左对齐">⇤</button>
+    <button class="tb-btn on" data-align="center" title="居中">≡</button>
+    <button class="tb-btn" data-align="right" title="右对齐">⇥</button>
+    <button class="tb-btn" data-valign="top" title="顶端对齐">⤒</button>
+    <button class="tb-btn on" data-valign="middle" title="垂直居中">↕</button>
+    <button class="tb-btn" data-valign="bottom" title="底端对齐">⤓</button>
+    <span class="tb-sep"></span>
+    <select id="borderSel" title="边框">
+      <option value="">边框…</option>
+      <option value="all">所有边框</option>
+      <option value="outer">外边框</option>
+      <option value="none">无边框</option>
+    </select>
+    <button class="tb-btn" id="btnMerge" title="合并选中单元格">⊞ 合并</button>
+    <button class="tb-btn" id="btnUnmerge" title="取消合并">取消合并</button>
+    <span class="tb-sep"></span>
+    <span class="tb-label">列宽</span><input type="number" id="colWidth" value="110" min="30"><button class="tb-btn" id="btnColW">应用</button>
+    <span class="tb-label">行高</span><input type="number" id="rowHeight" value="40" min="16"><button class="tb-btn" id="btnRowH">应用</button>
+  </div>
+
+  <div class="hint">提示：单击选中、按住拖动多选；点行号选整行、点列标选整列、右键呼出菜单；双击/直接输入编辑；方向键移动选区；Delete 清空；Ctrl+Z 撤销、Ctrl+Y 重做；Ctrl+C/X/V 复制/剪切/粘贴（可与真 Excel 互贴）；合并单元格在左上角格编辑。编辑现场（含撤销栈）自动暂存，刷新不丢；保存按钮出现 ● 表示有改动未保存进模板。</div>
+
+  <div class="ph-panel">
+    <div class="ph-title">占位符速插（点击字段插入到当前单元格，打印时自动替换为实际内容）：</div>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <div class="sheet-wrap">
+    <table class="sheet" id="sheet">
+      <colgroup id="colgroup"></colgroup>
+      <thead id="sheetHead"></thead>
+      <tbody id="sheetBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 键盘捕获器：选中单元格后承接所有键盘输入（含中文 IME），仿 Handsontable -->
+<textarea id="keyTrap" style="position:fixed;top:0;left:0;width:2px;height:2px;opacity:0;pointer-events:none;z-index:-1;" aria-hidden="true"></textarea>
+
+<!-- 右键菜单 -->
+<div id="ctxmenu">
+  <div class="mi" data-op="insRowU">在上方插入行</div>
+  <div class="mi" data-op="insRowD">在下方插入行</div>
+  <div class="mi" data-op="delRow">删除选中行</div>
+  <div class="sep"></div>
+  <div class="mi" data-op="insColL">在左侧插入列</div>
+  <div class="mi" data-op="insColR">在右侧插入列</div>
+  <div class="mi" data-op="delCol">删除选中列</div>
+  <div class="sep"></div>
+  <div class="mi" data-op="merge">合并单元格</div>
+  <div class="mi" data-op="unmerge">取消合并</div>
+</div>
+
+<!-- 模板中心 -->
+<div class="modal-mask" id="centerMask">
+  <div class="modal">
+    <h3>📁 打印模板中心</h3>
+    <div id="tplList"></div>
+    <div class="modal-btns">
+      <button class="btn primary" id="btnCenterNew">＋ 新建模板</button>
+      <button class="btn" id="btnCenterClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 页面设置 -->
+<div class="modal-mask" id="pageMask">
+  <div class="modal">
+    <h3>📄 页面设置（打印纸张）</h3>
+    <div class="form-row"><label>纸张</label>
+      <select id="pgSize">
+        <option value="A4">A4（210 × 297 mm）</option>
+        <option value="A5">A5（148 × 210 mm）</option>
+        <option value="B5">B5（176 × 250 mm）</option>
+        <option value="custom">自定义</option>
+      </select>
+    </div>
+    <div class="form-row"><label>方向</label>
+      <select id="pgOrient">
+        <option value="portrait">纵向</option>
+        <option value="landscape">横向</option>
+      </select>
+    </div>
+    <div class="form-row" id="customSize" style="display:none"><label>宽高 mm</label>
+      <input type="number" id="pgW" min="30"> × <input type="number" id="pgH" min="30">
+    </div>
+    <div class="form-row"><label>页边距 mm</label>
+      <div class="margins">
+        <span class="m">上<input type="number" id="pgMt" min="0"></span>
+        <span class="m">下<input type="number" id="pgMb" min="0"></span>
+        <span class="m">左<input type="number" id="pgMl" min="0"></span>
+        <span class="m">右<input type="number" id="pgMr" min="0"></span>
+      </div>
+    </div>
+    <div class="form-row"><label>缩放 %</label><input type="number" id="pgScale" min="30" max="200"></div>
+    <div class="modal-btns">
+      <button class="btn primary" id="btnPageOk">确定</button>
+      <button class="btn" id="btnPageCancel">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 打印预览 -->
+<div class="modal-mask" id="previewMask">
+  <div class="modal">
+    <h3>🖨 打印预览（占位符已替换为示例数据，纸张按页面设置）</h3>
+    <div id="printSheet"></div>
+    <div class="modal-btns no-print">
+      <button class="btn primary" id="btnDoPrint">🖨 打印</button>
+      <button class="btn" id="btnPreviewClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<style id="pageStyle"></style>
+
+<script>
+/* ==================================================================
+ * 数据模型驱动：所有操作先改 state 再整体渲染，结构操作不再出错
+ * cell = { t:文本, s:{样式}, rs, cs, cov:[r,c]|null }
+ * ================================================================== */
+const COLS0 = 9, ROWS0 = 8;
+
+function newCell(){ return { t:'', s:{}, rs:1, cs:1, cov:null }; }
+function newRow(cols, h){ return { h: h||40, cells: Array.from({length:cols}, newCell) }; }
+function defaultPage(){ return { size:'A4', orient:'portrait', w:210, h:297, mt:10, mb:10, ml:10, mr:10, scale:100 }; }
+
+function defaultTemplate(){
+  const S = { page: defaultPage(), cols: Array.from({length:COLS0}, ()=>({w:110})), rows: [] };
+  for (let r = 0; r < ROWS0; r++) S.rows.push(newRow(COLS0));
+  const B = { t:'1px solid #333', r:'1px solid #333', b:'1px solid #333', l:'1px solid #333' };
+  const setCell = (r, c, t, style) => { const cell = S.rows[r].cells[c]; cell.t = t; cell.s = style; };
+  // 标题行（合并 9 列）
+  S.rows[0].h = 48;
+  setCell(0, 0, '物料标签', { bold:true, fontSize:'16px', align:'center', valign:'middle', border:B });
+  S.rows[0].cells[0].cs = COLS0;
+  for (let c = 1; c < COLS0; c++){ const nc = newCell(); nc.cov = [0,0]; nc.s = { border:B }; S.rows[0].cells[c] = nc; }
+  // 表头
+  S.rows[1].h = 40;
+  ['物料编码','物料名称','规格型号','单位','分类','供应商','单价','当前库存','条码'].forEach((h, c) =>
+    setCell(1, c, h, { bold:true, align:'center', valign:'middle', bg:'#f5f5f5', border:B }));
+  // 明细占位行
+  S.rows[2].h = 48;
+  ['{{item.code}}','{{item.name}}','{{item.spec}}','{{item.unit}}','{{item.category}}','{{item.supplier}}','{{item.price}}','{{item.stock}}','{img_barcode:item.barcode}'].forEach((p, c) =>
+    setCell(2, c, p, { align:'center', valign:'middle', border:B }));
+  return S;
+}
+function blankTemplate(){
+  const S = { page: defaultPage(), cols: Array.from({length:COLS0}, ()=>({w:110})), rows: [] };
+  for (let r = 0; r < ROWS0; r++) S.rows.push(newRow(COLS0));
+  S.rows[0].h = 48;
+  const B = { t:'1px solid #333', r:'1px solid #333', b:'1px solid #333', l:'1px solid #333' };
+  S.rows[0].cells[0].t = '新建打印模板（双击编辑标题）';
+  S.rows[0].cells[0].s = { bold:true, fontSize:'16px', align:'center', valign:'middle', border:B };
+  S.rows[0].cells[0].cs = COLS0;
+  for (let c = 1; c < COLS0; c++){ const nc = newCell(); nc.cov = [0,0]; nc.s = { border:B }; S.rows[0].cells[c] = nc; }
+  return S;
+}
+
+/* ==================== 占位符与示例数据 ==================== */
+const PLACEHOLDERS = [
+  ['单据', null],
+  ['单号','{{order.no}}'], ['日期','{{order.date}}'], ['类型','{{order.type}}'], ['仓库','{{order.warehouse}}'],
+  ['库位','{{order.location}}'], ['状态','{{order.status}}'], ['供应商','{{order.supplier}}'], ['客户','{{order.customer}}'],
+  ['用途','{{order.purpose}}'], ['领料人','{{order.picker}}'], ['操作人','{{order.operator}}'], ['备注','{{order.remark}}'],
+  ['合同号','{{order.contract_no}}'], ['项目名','{{order.project}}'], ['打印日期','{{print_date}}'],
+  ['合计数量','{{total_quantity}}'], ['合计金额','{{total_amount}}'],
+  ['明细', null],
+  ['物料编码','{{item.code}}'], ['物料名称','{{item.name}}'], ['规格','{{item.spec}}'], ['品牌','{{item.brand}}'],
+  ['单位','{{item.unit}}'], ['数量','{{item.qty}}'], ['单价','{{item.price}}'], ['金额','{{item.amount}}'],
+  ['库位','{{item.location}}'], ['原因','{{item.reason}}'], ['条码','{img_barcode:item.barcode}']
+];
+const SAMPLE_ORDER = {
+  no:'RK20240601001', date:'2024-06-01', type:'采购入库', warehouse:'主仓库', location:'A-01-03',
+  status:'已完成', supplier:'上海标准件厂', customer:'—', purpose:'生产领用', picker:'张三',
+  operator:'李四', remark:'无', contract_no:'HT-2024-006', project:'一号车间改造项目'
+};
+const SAMPLE_TOTALS = { total_quantity:'32', total_amount:'279.00', print_date:new Date().toISOString().slice(0,10) };
+const SAMPLE_ITEMS = [
+  {code:'WL-0001', name:'内六角螺丝', spec:'M6×20', brand:'固力', unit:'盒', qty:'10', price:'12.50', amount:'125.00', category:'紧固件', supplier:'上海标准件厂', stock:'560', location:'A-01-03', reason:'盘盈', barcode:'6901001000017', remark:'A级'},
+  {code:'WL-0002', name:'不锈钢扳手', spec:'8寸', brand:'世达', unit:'把', qty:'2', price:'45.00', amount:'90.00', category:'五金工具', supplier:'苏州工具公司', stock:'35', location:'A-02-11', reason:'', barcode:'6901001000024', remark:''},
+  {code:'WL-0003', name:'绝缘胶带', spec:'18mm×10m', brand:'3M', unit:'卷', qty:'20', price:'3.20', amount:'64.00', category:'电工材料', supplier:'广州电材批发', stock:'800', location:'B-03-05', reason:'破损', barcode:'6901001000031', remark:'阻燃'}
+];
+
+/* ==================== DOM ==================== */
+const sheet = document.getElementById('sheet');
+const colgroup = document.getElementById('colgroup');
+const sheetHead = document.getElementById('sheetHead');
+const tbody = document.getElementById('sheetBody');
+
+let S = null;                 // 当前模板 state
+let selA = null, selF = null; // 选区锚点/焦点 {r,c}
+let selecting = false, editCtx = null; // editCtx = {r,c,td}
+
+/* ==================== 撤销/重做（快照命令栈） ==================== */
+const undoStack = [], redoStack = [];
+let editSnapshot = null; // 编辑会话开始前的快照，退出编辑时有变化才入栈
+function pushHistory(){
+  undoStack.push(structuredClone(S));
+  if (undoStack.length > 100) undoStack.shift();
+  redoStack.length = 0;
+  markDirty();
+}
+function afterRestore(){
+  if (selA){
+    selA = { r: Math.min(selA.r, R()-1), c: Math.min(selA.c, C()-1) };
+    selF = { r: Math.min(selF.r, R()-1), c: Math.min(selF.c, C()-1) };
+  }
+  render(); applyPageStyle();
+}
+function refreshDirty(){ // 撤销/重做后按"与已保存模板是否一致"重新判定脏标记
+  dirty = JSON.stringify(S) !== JSON.stringify(store.list[store.current]);
+  updateSaveBtn(); scheduleSession();
+}
+function undo(){
+  if (editCtx) exitEdit();
+  if (!undoStack.length) return;
+  redoStack.push(structuredClone(S));
+  S = undoStack.pop();
+  afterRestore();
+  refreshDirty();
+}
+function redo(){
+  if (editCtx) exitEdit();
+  if (!redoStack.length) return;
+  undoStack.push(structuredClone(S));
+  S = redoStack.pop();
+  afterRestore();
+  refreshDirty();
+}
+
+/* ==================== 脏标记 + 会话持久化（刷新不丢现场与撤销栈） ==================== */
+let dirty = false, sessTimer = null;
+function updateSaveBtn(){
+  const b = document.getElementById('btnSave');
+  if (b.textContent !== '✓ 已保存') b.textContent = dirty ? '💾 ● 保存模板' : '💾 保存模板';
+}
+function markDirty(){ dirty = true; updateSaveBtn(); scheduleSession(); }
+function scheduleSession(){ clearTimeout(sessTimer); sessTimer = setTimeout(persistSession, 800); }
+function persistSession(){
+  store.session = { tpl: store.current, S: structuredClone(S), undo: undoStack.slice(-30), redo: redoStack.slice(-30) };
+  saveStore(store);
+}
+window.addEventListener('beforeunload', e => {
+  if (editCtx) exitEdit();
+  persistSession();
+  if (dirty){ e.preventDefault(); e.returnValue = ''; } // 有未保存进模板的改动 → 拦截提醒
+});
+
+const R = () => S.rows.length, C = () => S.cols.length;
+function eachCell(fn){ for (let r = 0; r < R(); r++) for (let c = 0; c < C(); c++) fn(S.rows[r].cells[c], r, c); }
+function colLetter(i){ let s=''; i++; while(i>0){ const m=(i-1)%26; s=String.fromCharCode(65+m)+s; i=Math.floor((i-1)/26); } return s; }
+
+/* ==================== 渲染 ==================== */
+function applyStyle(td, s){
+  if (!s) return;
+  if (s.fontFamily) td.style.fontFamily = s.fontFamily;
+  if (s.fontSize) td.style.fontSize = s.fontSize;
+  if (s.bold) td.style.fontWeight = 'bold';
+  if (s.italic) td.style.fontStyle = 'italic';
+  if (s.underline) td.style.textDecoration = 'underline';
+  if (s.color) td.style.color = s.color;
+  if (s.bg) td.style.background = s.bg;
+  if (s.align) td.style.textAlign = s.align;
+  if (s.valign) td.style.verticalAlign = s.valign;
+  if (s.border){
+    if (s.border.t) td.style.borderTop = s.border.t;
+    if (s.border.r) td.style.borderRight = s.border.r;
+    if (s.border.b) td.style.borderBottom = s.border.b;
+    if (s.border.l) td.style.borderLeft = s.border.l;
+  }
+}
+
+function render(){
+  colgroup.innerHTML = '<col style="width:38px">';
+  S.cols.forEach(c => { const col = document.createElement('col'); col.className='bodycol'; col.style.width = c.w + 'px'; colgroup.appendChild(col); });
+  // 列标头
+  sheetHead.innerHTML = '';
+  const htr = document.createElement('tr');
+  const corner = document.createElement('th'); corner.className = 'corner'; corner.title = '全选';
+  corner.onclick = () => { selA = {r:0,c:0}; selF = {r:R()-1,c:C()-1}; renderSelection(); };
+  htr.appendChild(corner);
+  S.cols.forEach((_, c) => {
+    const th = document.createElement('th'); th.className = 'colh'; th.textContent = colLetter(c); th.title = '选中整列';
+    th.onclick = () => { selA = {r:0,c}; selF = {r:R()-1,c}; renderSelection(); };
+    htr.appendChild(th);
+  });
+  sheetHead.appendChild(htr);
+  // 表体
+  tbody.innerHTML = '';
+  S.rows.forEach((row, r) => {
+    const tr = document.createElement('tr');
+    if (row.h) tr.style.height = row.h + 'px';
+    const rh = document.createElement('th'); rh.className = 'rowh'; rh.textContent = r + 1; rh.title = '选中整行';
+    rh.onclick = () => { selA = {r,c:0}; selF = {r,c:C()-1}; renderSelection(); };
+    tr.appendChild(rh);
+    row.cells.forEach((cell, c) => {
+      if (cell.cov) return; // 被合并覆盖，不渲染
+      const td = document.createElement('td');
+      td.dataset.r = r; td.dataset.c = c;
+      if (cell.rs > 1) td.rowSpan = cell.rs;
+      if (cell.cs > 1) td.colSpan = cell.cs;
+      td.textContent = cell.t;
+      applyStyle(td, cell.s);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  renderSelection();
+}
+
+function normSel(){
+  if (!selA || !selF) return null;
+  return { r1:Math.min(selA.r,selF.r), r2:Math.max(selA.r,selF.r), c1:Math.min(selA.c,selF.c), c2:Math.max(selA.c,selF.c) };
+}
+const keyTrap = document.getElementById('keyTrap');
+function renderSelection(){
+  tbody.querySelectorAll('td.sel').forEach(td => td.classList.remove('sel'));
+  const rect = normSel(); if (!rect) return;
+  // 选区存在且非编辑态时，键盘焦点交给捕获器（工具栏输入框聚焦时不抢）
+  const ae = document.activeElement;
+  if (!editCtx && ae !== keyTrap && !/^(INPUT|SELECT|TEXTAREA)$/.test(ae ? ae.tagName : '')) keyTrap.focus();
+  tbody.querySelectorAll('td').forEach(td => {
+    const r = +td.dataset.r, c = +td.dataset.c;
+    const cell = S.rows[r].cells[c];
+    if (r + (cell.rs||1) - 1 >= rect.r1 && r <= rect.r2 && c + (cell.cs||1) - 1 >= rect.c1 && c <= rect.c2)
+      td.classList.add('sel');
+  });
+  syncToolbar();
+}
+function selectedCells(){
+  const rect = normSel(); if (!rect) return [];
+  const out = [];
+  eachCell((cell, r, c) => {
+    if (cell.cov) return;
+    if (r + cell.rs - 1 >= rect.r1 && r <= rect.r2 && c + cell.cs - 1 >= rect.c1 && c <= rect.c2) out.push(cell);
+  });
+  return out;
+}
+
+/* ==================== 结构操作（模型层，保证正确） ==================== */
+function insertRow(at){
+  at = Math.max(0, Math.min(at, R()));
+  const covered = new Array(C()).fill(null);
+  eachCell((cell, r, c) => {
+    if (cell.cov || cell.rs <= 1) return;
+    if (r < at && r + cell.rs - 1 >= at){
+      cell.rs++;
+      for (let j = c; j < c + cell.cs; j++) covered[j] = [r, c];
+    }
+  });
+  const cells = [];
+  for (let c = 0; c < C(); c++){ const nc = newCell(); if (covered[c]) nc.cov = covered[c]; cells.push(nc); }
+  S.rows.splice(at, 0, { h: 40, cells });
+  eachCell(cell => { if (cell.cov && cell.cov[0] >= at) cell.cov = [cell.cov[0] + 1, cell.cov[1]]; });
+}
+
+function deleteRow(r){
+  if (R() <= 1) return alert('至少保留一行');
+  for (let c = 0; c < C(); c++){
+    const cell = S.rows[r].cells[c];
+    if (cell.cov){
+      const a = S.rows[cell.cov[0]].cells[cell.cov[1]];
+      a.rs--; c += a.cs - 1;
+    } else if (cell.rs > 1){
+      const target = S.rows[r + 1].cells[c];
+      target.t = cell.t; target.s = cell.s; target.rs = cell.rs - 1; target.cs = cell.cs; target.cov = null;
+      for (let i = r + 1; i < r + cell.rs; i++)
+        for (let j = c; j < c + cell.cs; j++){
+          if (i === r + 1 && j === c) continue;
+          S.rows[i].cells[j].cov = [r + 1, c];
+        }
+      c += cell.cs - 1;
+    } else c += (cell.cs || 1) - 1;
+  }
+  S.rows.splice(r, 1);
+  eachCell(cell => { if (cell.cov && cell.cov[0] > r) cell.cov = [cell.cov[0] - 1, cell.cov[1]]; });
+}
+
+function insertCol(at){
+  at = Math.max(0, Math.min(at, C()));
+  const covMark = {};
+  eachCell((cell, r, c) => {
+    if (cell.cov || cell.cs <= 1) return;
+    if (c < at && c + cell.cs - 1 >= at){
+      cell.cs++;
+      for (let i = r; i < r + cell.rs; i++) covMark[i] = [r, c];
+    }
+  });
+  S.rows.forEach((row, r) => {
+    const nc = newCell(); if (covMark[r]) nc.cov = covMark[r];
+    row.cells.splice(at, 0, nc);
+  });
+  S.cols.splice(at, 0, { w: 110 });
+  eachCell(cell => { if (cell.cov && cell.cov[1] >= at) cell.cov = [cell.cov[0], cell.cov[1] + 1]; });
+}
+
+function deleteCol(c){
+  if (C() <= 1) return alert('至少保留一列');
+  for (let r = 0; r < R(); r++){
+    const cell = S.rows[r].cells[c];
+    if (cell.cov){
+      const a = S.rows[cell.cov[0]].cells[cell.cov[1]];
+      a.cs--; r += a.rs - 1;
+    } else if (cell.cs > 1){
+      const target = S.rows[r].cells[c + 1];
+      target.t = cell.t; target.s = cell.s; target.rs = cell.rs; target.cs = cell.cs - 1; target.cov = null;
+      for (let j = c + 1; j < c + cell.cs; j++)
+        for (let i = r; i < r + cell.rs; i++){
+          if (i === r && j === c + 1) continue;
+          S.rows[i].cells[j].cov = [r, c + 1];
+        }
+      r += cell.rs - 1;
+    } else r += (cell.rs || 1) - 1;
+  }
+  S.rows.forEach(row => row.cells.splice(c, 1));
+  S.cols.splice(c, 1);
+  eachCell(cell => { if (cell.cov && cell.cov[1] > c) cell.cov = [cell.cov[0], cell.cov[1] - 1]; });
+}
+
+function canMerge(rect){
+  for (let r = rect.r1; r <= rect.r2; r++) for (let c = rect.c1; c <= rect.c2; c++){
+    const cell = S.rows[r].cells[c];
+    const ar = cell.cov ? cell.cov[0] : r, ac = cell.cov ? cell.cov[1] : c;
+    const a = S.rows[ar].cells[ac];
+    if (ar < rect.r1 || ac < rect.c1 || ar + a.rs - 1 > rect.r2 || ac + a.cs - 1 > rect.c2) return false;
+  }
+  return true;
+}
+function mergeSel(){
+  const rect = normSel(); if (!rect) return;
+  if (rect.r1 === rect.r2 && rect.c1 === rect.c2) return;
+  if (!canMerge(rect)) return alert('选区切割了已有合并单元格，请先取消合并');
+  const anchor = S.rows[rect.r1].cells[rect.c1];
+  const texts = [];
+  for (let r = rect.r1; r <= rect.r2; r++) for (let c = rect.c1; c <= rect.c2; c++){
+    if (r === rect.r1 && c === rect.c1) continue;
+    const old = S.rows[r].cells[c];
+    if (!old.cov && old.t.trim()) texts.push(old.t.trim());
+    const nc = newCell(); nc.cov = [rect.r1, rect.c1]; nc.s = old.s || {};
+    S.rows[r].cells[c] = nc;
+  }
+  if (texts.length) anchor.t = (anchor.t.trim() + ' ' + texts.join(' ')).trim();
+  anchor.rs = rect.r2 - rect.r1 + 1;
+  anchor.cs = rect.c2 - rect.c1 + 1;
+}
+function unmergeSel(){
+  const rect = normSel(); if (!rect) return;
+  eachCell((cell, r, c) => {
+    if (cell.cov || (cell.rs === 1 && cell.cs === 1)) return;
+    const hit = !(r + cell.rs - 1 < rect.r1 || r > rect.r2 || c + cell.cs - 1 < rect.c1 || c > rect.c2);
+    if (!hit) return;
+    for (let i = r; i < r + cell.rs; i++) for (let j = c; j < c + cell.cs; j++){
+      if (i === r && j === c) continue;
+      S.rows[i].cells[j].cov = null;
+    }
+    cell.rs = 1; cell.cs = 1;
+  });
+}
+
+/* ==================== 结构操作入口 ==================== */
+function opRowCol(op){
+  exitEdit();
+  const rect = normSel();
+  if (!rect && op !== 'insRowD') return alert('请先选中单元格/行/列');
+  if (rect && op === 'delRow' && !confirm(`确定删除第 ${rect.r1 + 1} ~ ${rect.r2 + 1} 行吗？`)) return;
+  if (rect && op === 'delCol' && !confirm(`确定删除第 ${colLetter(rect.c1)} ~ ${colLetter(rect.c2)} 列吗？`)) return;
+  pushHistory();
+  switch(op){
+    case 'insRowU': insertRow(rect.r1); selF = {r: selF.r + 1, c: selF.c}; break;
+    case 'insRowD': insertRow(rect ? rect.r2 + 1 : R()); break;
+    case 'delRow':
+      for (let r = rect.r2; r >= rect.r1; r--){ if (R() <= 1) break; deleteRow(r); }
+      selA = selF = null; break;
+    case 'insColL': insertCol(rect.c1); selF = {r: selF.r, c: selF.c + 1}; break;
+    case 'insColR': insertCol(rect.c2 + 1); break;
+    case 'delCol':
+      for (let c = rect.c2; c >= rect.c1; c--){ if (C() <= 1) break; deleteCol(c); }
+      selA = selF = null; break;
+    case 'merge': mergeSel(); break;
+    case 'unmerge': unmergeSel(); break;
+  }
+  render();
+}
+document.getElementById('btnInsRowU').onclick = () => opRowCol('insRowU');
+document.getElementById('btnInsRowD').onclick = () => opRowCol('insRowD');
+document.getElementById('btnDelRow').onclick = () => opRowCol('delRow');
+document.getElementById('btnInsColL').onclick = () => opRowCol('insColL');
+document.getElementById('btnInsColR').onclick = () => opRowCol('insColR');
+document.getElementById('btnDelCol').onclick = () => opRowCol('delCol');
+document.getElementById('btnMerge').onclick = () => opRowCol('merge');
+document.getElementById('btnUnmerge').onclick = () => opRowCol('unmerge');
+document.getElementById('btnUndo').onclick = undo;
+document.getElementById('btnRedo').onclick = redo;
+
+/* ==================== 复制/剪切/粘贴（内部带格式 + 外部 TSV 互通） ==================== */
+let clip = null; // { cells: 二维克隆(cov为相对偏移), cut, rect }
+
+function buildTSV(rect){
+  const lines = [];
+  for (let r = rect.r1; r <= rect.r2; r++){
+    const row = [];
+    for (let c = rect.c1; c <= rect.c2; c++){
+      const cell = S.rows[r].cells[c];
+      row.push(cell.cov ? '' : cell.t.replace(/\n/g, ' '));
+    }
+    lines.push(row.join('\t'));
+  }
+  return lines.join('\n');
+}
+function setInternalClip(rect, cut){
+  clip = { cut, rect: { ...rect }, cells: [] };
+  for (let r = rect.r1; r <= rect.r2; r++){
+    const row = [];
+    for (let c = rect.c1; c <= rect.c2; c++){
+      const cell = structuredClone(S.rows[r].cells[c]);
+      if (cell.cov) cell.cov = [cell.cov[0] - rect.r1, cell.cov[1] - rect.c1]; // 相对偏移
+      row.push(cell);
+    }
+    clip.cells.push(row);
+  }
+}
+function unmergeRegion(rect){
+  eachCell((cell, r, c) => {
+    if (cell.cov || (cell.rs === 1 && cell.cs === 1)) return;
+    const hit = !(r + cell.rs - 1 < rect.r1 || r > rect.r2 || c + cell.cs - 1 < rect.c1 || c > rect.c2);
+    if (!hit) return;
+    for (let i = r; i < r + cell.rs; i++) for (let j = c; j < c + cell.cs; j++){
+      if (i === r && j === c) continue;
+      S.rows[i].cells[j].cov = null;
+    }
+    cell.rs = 1; cell.cs = 1;
+  });
+}
+function clearRegion(rect){
+  unmergeRegion(rect);
+  for (let r = rect.r1; r <= rect.r2; r++)
+    for (let c = rect.c1; c <= rect.c2; c++)
+      S.rows[r].cells[c] = newCell();
+}
+function pasteInternal(){
+  const rect = normSel(); if (!rect || !clip) return;
+  const r0 = rect.r1, c0 = rect.c1;
+  const pr = clip.cells.length, pc = clip.cells[0].length;
+  pushHistory();
+  while (R() < r0 + pr) insertRow(R());   // 空间不足自动扩行
+  while (C() < c0 + pc) insertCol(C());   // 自动扩列
+  unmergeRegion({ r1: r0, c1: c0, r2: r0 + pr - 1, c2: c0 + pc - 1 });
+  for (let i = 0; i < pr; i++) for (let j = 0; j < pc; j++){
+    const nc = structuredClone(clip.cells[i][j]);
+    if (nc.cov) nc.cov = [r0 + nc.cov[0], c0 + nc.cov[1]];
+    S.rows[r0 + i].cells[c0 + j] = nc;
+  }
+  if (clip.cut){ clearRegion(clip.rect); clip = null; }
+  selA = { r: r0, c: c0 }; selF = { r: r0 + pr - 1, c: c0 + pc - 1 };
+  render();
+}
+function pasteTSV(text){
+  const rect = normSel(); if (!rect) return;
+  const rows = text.replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n').map(l => l.split('\t'));
+  const r0 = rect.r1, c0 = rect.c1;
+  pushHistory();
+  while (R() < r0 + rows.length) insertRow(R());
+  const maxC = Math.max(...rows.map(r => r.length));
+  while (C() < c0 + maxC) insertCol(C());
+  unmergeRegion({ r1: r0, c1: c0, r2: r0 + rows.length - 1, c2: c0 + maxC - 1 });
+  rows.forEach((row, i) => row.forEach((v, j) => { S.rows[r0 + i].cells[c0 + j].t = v; }));
+  selA = { r: r0, c: c0 }; selF = { r: r0 + rows.length - 1, c: c0 + maxC - 1 };
+  render();
+}
+document.addEventListener('copy', e => {
+  if (editCtx) return;
+  const rect = normSel(); if (!rect || !e.clipboardData) return;
+  e.clipboardData.setData('text/plain', buildTSV(rect));
+  setInternalClip(rect, false);
+  e.preventDefault();
+});
+document.addEventListener('cut', e => {
+  if (editCtx) return;
+  const rect = normSel(); if (!rect || !e.clipboardData) return;
+  e.clipboardData.setData('text/plain', buildTSV(rect));
+  setInternalClip(rect, true);
+  e.preventDefault();
+});
+document.addEventListener('paste', e => {
+  if (editCtx) return;
+  const rect = normSel(); if (!rect) return;
+  if (clip){ pasteInternal(); e.preventDefault(); return; }
+  const text = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+  if (text){ pasteTSV(text); e.preventDefault(); }
+});
+
+/* ==================== 编辑 ==================== */
+function enterEdit(td, clear){
+  exitEdit();
+  if (!editSnapshot) editSnapshot = structuredClone(S); // 编辑前快照（flushKeyTrap 已快照则跳过）
+  const r = +td.dataset.r, c = +td.dataset.c;
+  const cell = S.rows[r].cells[c];
+  editCtx = { r, c, td };
+  if (clear){ cell.t = ''; td.textContent = ''; }
+  td.contentEditable = 'true';
+  td.focus();
+  const range = document.createRange(); range.selectNodeContents(td); range.collapse(false);
+  const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+  td.addEventListener('blur', () => { if (editCtx && editCtx.td === td) exitEdit(); }, { once: true });
+}
+
+/* 键盘捕获器：选中后直接打字（含中文 IME）→ 进入编辑并写入内容 */
+function flushKeyTrap(){
+  if (editCtx) { keyTrap.value = ''; return; }
+  const v = keyTrap.value;
+  keyTrap.value = '';
+  if (!v || !selA) return;
+  const td = tbody.querySelector(`td[data-r="${selA.r}"][data-c="${selA.c}"]`);
+  if (!td) return;
+  editSnapshot = structuredClone(S);    // 先快照再改，供撤销
+  S.rows[selA.r].cells[selA.c].t = v;   // Excel 行为：直接打字替换原内容
+  td.textContent = v;
+  enterEdit(td, false);                 // 进入编辑态，可继续输入
+}
+keyTrap.addEventListener('input', e => { if (!e.isComposing) flushKeyTrap(); });
+keyTrap.addEventListener('compositionend', flushKeyTrap);
+function exitEdit(){
+  if (!editCtx) return;
+  const { r, c, td } = editCtx;
+  td.contentEditable = 'false';
+  S.rows[r].cells[c].t = td.innerText.replace(/\n+$/,'');
+  // 编辑会话有实际改动 → 快照入撤销栈
+  if (editSnapshot && editSnapshot.rows[r].cells[c].t !== S.rows[r].cells[c].t){
+    undoStack.push(editSnapshot);
+    if (undoStack.length > 100) undoStack.shift();
+    redoStack.length = 0;
+    markDirty();
+  }
+  editSnapshot = null;
+  editCtx = null;
+}
+function cancelEdit(){
+  if (!editCtx) return;
+  const { r, c, td } = editCtx;
+  if (editSnapshot){ S.rows[r].cells[c].t = editSnapshot.rows[r].cells[c].t; td.textContent = S.rows[r].cells[c].t; }
+  editSnapshot = null;
+  td.contentEditable = 'false';
+  editCtx = null;
+}
+
+/* ==================== 鼠标/键盘 ==================== */
+sheet.addEventListener('mousedown', e => {
+  const td = e.target.closest('td');
+  if (!td || e.button === 2) return;
+  if (editCtx && editCtx.td === td) return;
+  exitEdit();
+  const r = +td.dataset.r, c = +td.dataset.c;
+  if (e.shiftKey && selA) selF = { r, c };
+  else { selA = { r, c }; selF = { r, c }; selecting = true; }
+  renderSelection();
+  e.preventDefault();
+});
+sheet.addEventListener('mouseover', e => {
+  if (!selecting) return;
+  const td = e.target.closest('td'); if (!td) return;
+  selF = { r: +td.dataset.r, c: +td.dataset.c };
+  renderSelection();
+});
+document.addEventListener('mouseup', () => selecting = false);
+sheet.addEventListener('dblclick', e => {
+  const td = e.target.closest('td'); if (td) enterEdit(td, false);
+});
+
+document.addEventListener('keydown', e => {
+  if (editCtx){
+    if (e.key === 'Escape'){ cancelEdit(); render(); } // Excel 行为：Esc 取消本次编辑
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey){ // 撤销/重做不依赖选区（删行列后选区已清空）
+    const k = e.key.toLowerCase();
+    if (k === 'z' && !e.shiftKey){ e.preventDefault(); undo(); return; }
+    if (k === 'y' || (k === 'z' && e.shiftKey)){ e.preventDefault(); redo(); return; }
+  }
+  const rect = normSel(); if (!rect) return;
+  if (e.key === 'Escape'){ clip = null; return; } // 取消剪切/复制标记
+  if (e.key === 'Delete' || e.key === 'Backspace'){
+    const cells = selectedCells();
+    if (cells.some(cell => cell.t)) pushHistory();
+    cells.forEach(cell => cell.t = '');
+    render(); e.preventDefault();
+  } else if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){
+    const d = { ArrowUp:[-1,0], ArrowDown:[1,0], ArrowLeft:[0,-1], ArrowRight:[0,1] }[e.key];
+    const nr = Math.max(0, Math.min(R()-1, selA.r + d[0]));
+    const nc = Math.max(0, Math.min(C()-1, selA.c + d[1]));
+    selA = selF = { r: nr, c: nc };
+    renderSelection(); e.preventDefault();
+  } else if (e.key === 'Enter'){
+    const td = tbody.querySelector(`td[data-r="${selA.r}"][data-c="${selA.c}"]`);
+    if (td) enterEdit(td, false);
+    e.preventDefault();
+  }
+  // 可打印字符（含中文 IME）由 #keyTrap 捕获器统一处理
+});
+
+/* ==================== 右键菜单 ==================== */
+const ctxmenu = document.getElementById('ctxmenu');
+sheet.addEventListener('contextmenu', e => {
+  const td = e.target.closest('td');
+  if (td && !(normSel() && +td.dataset.r >= normSel().r1 && +td.dataset.r <= normSel().r2 && +td.dataset.c >= normSel().c1 && +td.dataset.c <= normSel().c2)){
+    selA = selF = { r: +td.dataset.r, c: +td.dataset.c };
+    renderSelection();
+  }
+  e.preventDefault();
+  ctxmenu.style.display = 'block';
+  ctxmenu.style.left = Math.min(e.clientX, innerWidth - 170) + 'px';
+  ctxmenu.style.top = Math.min(e.clientY, innerHeight - 260) + 'px';
+});
+document.addEventListener('click', e => { if (!ctxmenu.contains(e.target)) ctxmenu.style.display = 'none'; });
+ctxmenu.querySelectorAll('.mi').forEach(mi => mi.onclick = () => { ctxmenu.style.display = 'none'; opRowCol(mi.dataset.op); });
+
+/* ==================== 工具栏：样式 ==================== */
+function setStyle(prop, val){
+  const cells = selectedCells(); if (!cells.length) return;
+  pushHistory();
+  cells.forEach(cell => { cell.s[prop] = val; });
+  render();
+}
+document.getElementById('fontFamily').onchange = e => setStyle('fontFamily', e.target.value);
+document.getElementById('fontSize').onchange = e => setStyle('fontSize', e.target.value + 'px');
+document.getElementById('fontColor').oninput = e => setStyle('color', e.target.value);
+document.getElementById('bgColor').oninput = e => setStyle('bg', e.target.value);
+
+function toggleStyle(prop, btn){
+  const cells = selectedCells(); if (!cells.length) return;
+  pushHistory();
+  const nv = !cells[0].s[prop];
+  cells.forEach(cell => cell.s[prop] = nv);
+  btn.classList.toggle('on', nv);
+  render();
+}
+document.getElementById('btnBold').onclick = e => toggleStyle('bold', e.currentTarget);
+document.getElementById('btnItalic').onclick = e => toggleStyle('italic', e.currentTarget);
+document.getElementById('btnUnderline').onclick = e => toggleStyle('underline', e.currentTarget);
+
+document.querySelectorAll('[data-align]').forEach(b => b.onclick = () => {
+  setStyle('align', b.dataset.align);
+  document.querySelectorAll('[data-align]').forEach(x => x.classList.toggle('on', x === b));
+});
+document.querySelectorAll('[data-valign]').forEach(b => b.onclick = () => {
+  setStyle('valign', b.dataset.valign);
+  document.querySelectorAll('[data-valign]').forEach(x => x.classList.toggle('on', x === b));
+});
+
+document.getElementById('borderSel').onchange = e => {
+  const mode = e.target.value; e.target.value = '';
+  if (!mode) return;
+  const rect = normSel(); if (!rect) return alert('请先选中单元格');
+  pushHistory();
+  const BD = '1px solid #333';
+  eachCell((cell, r, c) => {
+    if (r < rect.r1 || r > rect.r2 || c < rect.c1 || c > rect.c2) return;
+    cell.s.border = cell.s.border || {};
+    if (mode === 'all') cell.s.border = { t:BD, r:BD, b:BD, l:BD };
+    else if (mode === 'none') delete cell.s.border;
+    else if (mode === 'outer'){
+      if (r === rect.r1) cell.s.border.t = BD;
+      if (r === rect.r2) cell.s.border.b = BD;
+      if (c === rect.c1) cell.s.border.l = BD;
+      if (c === rect.c2) cell.s.border.r = BD;
+    }
+  });
+  render();
+};
+
+document.getElementById('btnColW').onclick = () => {
+  const rect = normSel(); if (!rect) return alert('请先选中单元格/列');
+  pushHistory();
+  const w = +document.getElementById('colWidth').value || 110;
+  for (let c = rect.c1; c <= rect.c2; c++) S.cols[c].w = w;
+  render();
+};
+document.getElementById('btnRowH').onclick = () => {
+  const rect = normSel(); if (!rect) return alert('请先选中单元格/行');
+  pushHistory();
+  const h = +document.getElementById('rowHeight').value || 40;
+  for (let r = rect.r1; r <= rect.r2; r++) S.rows[r].h = h;
+  render();
+};
+
+function syncToolbar(){
+  const cells = selectedCells(); if (!cells.length) return;
+  const s = cells[0].s || {};
+  document.getElementById('btnBold').classList.toggle('on', !!s.bold);
+  document.getElementById('btnItalic').classList.toggle('on', !!s.italic);
+  document.getElementById('btnUnderline').classList.toggle('on', !!s.underline);
+  document.querySelectorAll('[data-align]').forEach(b => b.classList.toggle('on', b.dataset.align === (s.align || 'center')));
+  document.querySelectorAll('[data-valign]').forEach(b => b.classList.toggle('on', b.dataset.valign === (s.valign || 'middle')));
+  if (s.fontSize) document.getElementById('fontSize').value = parseInt(s.fontSize);
+}
+
+/* ==================== 占位符 ==================== */
+const chipsBox = document.getElementById('chips');
+PLACEHOLDERS.forEach(([label, ph]) => {
+  const chip = document.createElement('span');
+  if (!ph){ chip.className = 'chip group'; chip.textContent = label; chipsBox.appendChild(chip); return; }
+  chip.className = 'chip'; chip.textContent = label; chip.title = ph;
+  chip.onmousedown = e => e.preventDefault();
+  chip.onclick = () => {
+    if (editCtx){
+      editCtx.td.focus();
+      document.execCommand('insertText', false, ph);
+    } else {
+      const rect = normSel(); if (!rect) return alert('请先选中一个单元格');
+      pushHistory();
+      const cell = S.rows[selA.r].cells[selA.c];
+      cell.t = cell.t ? cell.t + ' ' + ph : ph;
+      render();
+    }
+  };
+  chipsBox.appendChild(chip);
+});
+
+/* ==================== 模板存取 ==================== */
+const LS_KEY = 'wbtpl_v2';
+function loadStore(){ try { return JSON.parse(localStorage.getItem(LS_KEY)) || null; } catch(e){ return null; } }
+function saveStore(s){ localStorage.setItem(LS_KEY, JSON.stringify(s)); }
+
+let store = loadStore();
+if (!store){
+  store = { current: '系统默认物料标签模板', list: { '系统默认物料标签模板': defaultTemplate() } };
+  saveStore(store);
+}
+function refreshTplSelect(){
+  const sel = document.getElementById('tplSelect');
+  sel.innerHTML = '';
+  Object.keys(store.list).forEach(name => {
+    const o = document.createElement('option');
+    o.value = o.textContent = name;
+    if (name === store.current) o.selected = true;
+    sel.appendChild(o);
+  });
+  document.getElementById('tplName').textContent = store.current;
+}
+function loadTemplate(name){
+  undoStack.length = 0; redoStack.length = 0;
+  // 有该模板的会话现场 → 恢复（含撤销/重做栈），否则加载已保存模板
+  if (store.session && store.session.tpl === name && store.session.S){
+    S = structuredClone(store.session.S);
+    (store.session.undo || []).forEach(x => undoStack.push(x));
+    (store.session.redo || []).forEach(x => redoStack.push(x));
+    dirty = JSON.stringify(S) !== JSON.stringify(store.list[name]);
+  } else {
+    S = structuredClone(store.list[name]);
+    dirty = false;
+  }
+  if (!S.page) S.page = defaultPage();
+  selA = selF = null; editCtx = null;
+  render(); applyPageStyle(); updateSaveBtn();
+}
+function saveCurrent(silent){
+  store.list[store.current] = structuredClone(S);
+  dirty = false;
+  saveStore(store);
+  if (!silent){
+    const btn = document.getElementById('btnSave');
+    btn.textContent = '✓ 已保存'; setTimeout(updateSaveBtn, 1200);
+  } else updateSaveBtn();
+}
+document.getElementById('btnSave').onclick = () => { exitEdit(); saveCurrent(false); };
+document.getElementById('tplSelect').onchange = e => { saveCurrent(true); store.current = e.target.value; saveStore(store); loadTemplate(store.current); refreshTplSelect(); };
+
+function createTemplate(){
+  const name = prompt('请输入新模板名称：', '新建模板' + (Object.keys(store.list).length + 1));
+  if (!name) return;
+  if (store.list[name]) return alert('模板名称已存在');
+  saveCurrent(true);
+  store.list[name] = blankTemplate();
+  store.current = name; saveStore(store);
+  loadTemplate(name); refreshTplSelect();
+}
+document.getElementById('btnNewTpl').onclick = createTemplate;
+
+const centerMask = document.getElementById('centerMask');
+document.getElementById('btnCenter').onclick = () => {
+  saveCurrent(true);
+  const list = document.getElementById('tplList');
+  list.innerHTML = '';
+  Object.keys(store.list).forEach(name => {
+    const div = document.createElement('div');
+    div.className = 'tpl-item';
+    div.innerHTML = `<span>${name === store.current ? '📄 ' : '📃 '}${name}${name === store.current ? '（当前）' : ''}</span>`;
+    const ops = document.createElement('div'); ops.className = 'ops';
+    const open = document.createElement('button'); open.className = 'btn primary'; open.textContent = '打开';
+    open.onclick = () => { store.current = name; saveStore(store); loadTemplate(name); refreshTplSelect(); centerMask.classList.remove('show'); };
+    const del = document.createElement('button'); del.className = 'btn danger'; del.textContent = '删除';
+    del.onclick = () => {
+      if (Object.keys(store.list).length <= 1) return alert('至少保留一个模板');
+      if (!confirm(`确定删除模板「${name}」？`)) return;
+      delete store.list[name];
+      if (store.current === name) store.current = Object.keys(store.list)[0];
+      saveStore(store); loadTemplate(store.current); refreshTplSelect();
+      centerMask.classList.remove('show'); document.getElementById('btnCenter').click();
+    };
+    ops.append(open, del); div.appendChild(ops); list.appendChild(div);
+  });
+  centerMask.classList.add('show');
+};
+document.getElementById('btnCenterClose').onclick = () => centerMask.classList.remove('show');
+document.getElementById('btnCenterNew').onclick = () => { centerMask.classList.remove('show'); createTemplate(); };
+centerMask.addEventListener('click', e => { if (e.target === centerMask) centerMask.classList.remove('show'); });
+
+/* ==================== 页面设置 ==================== */
+const pageMask = document.getElementById('pageMask');
+const PAPER = { A4:[210,297], A5:[148,210], B5:[176,250] };
+document.getElementById('btnPage').onclick = () => {
+  const p = S.page;
+  document.getElementById('pgSize').value = p.size;
+  document.getElementById('pgOrient').value = p.orient;
+  document.getElementById('pgW').value = p.w; document.getElementById('pgH').value = p.h;
+  document.getElementById('pgMt').value = p.mt; document.getElementById('pgMb').value = p.mb;
+  document.getElementById('pgMl').value = p.ml; document.getElementById('pgMr').value = p.mr;
+  document.getElementById('pgScale').value = p.scale;
+  document.getElementById('customSize').style.display = p.size === 'custom' ? 'flex' : 'none';
+  pageMask.classList.add('show');
+};
+document.getElementById('pgSize').onchange = e => {
+  document.getElementById('customSize').style.display = e.target.value === 'custom' ? 'flex' : 'none';
+};
+document.getElementById('btnPageCancel').onclick = () => pageMask.classList.remove('show');
+pageMask.addEventListener('click', e => { if (e.target === pageMask) pageMask.classList.remove('show'); });
+document.getElementById('btnPageOk').onclick = () => {
+  const size = document.getElementById('pgSize').value;
+  const p = S.page;
+  p.size = size;
+  p.orient = document.getElementById('pgOrient').value;
+  if (size === 'custom'){
+    p.w = +document.getElementById('pgW').value || 210;
+    p.h = +document.getElementById('pgH').value || 297;
+  } else [p.w, p.h] = PAPER[size];
+  p.mt = +document.getElementById('pgMt').value || 0;
+  p.mb = +document.getElementById('pgMb').value || 0;
+  p.ml = +document.getElementById('pgMl').value || 0;
+  p.mr = +document.getElementById('pgMr').value || 0;
+  p.scale = Math.max(30, Math.min(200, +document.getElementById('pgScale').value || 100));
+  pageMask.classList.remove('show');
+  applyPageStyle();
+};
+function pageDims(){
+  const p = S.page;
+  return p.orient === 'portrait' ? [p.w, p.h] : [p.h, p.w];
+}
+function applyPageStyle(){
+  const [w, h] = pageDims(); const p = S.page;
+  document.getElementById('pageStyle').textContent =
+    `@page{size:${w}mm ${h}mm;margin:${p.mt}mm ${p.mr}mm ${p.mb}mm ${p.ml}mm;}`;
+}
+
+/* ==================== 打印预览 ==================== */
+function barcodeHTML(code){
+  const s = String(code);
+  let bars = '';
+  for (const ch of s){
+    const n = ch.charCodeAt(0);
+    for (let i = 0; i < 7; i++){
+      const black = ((n >> i) & 1) === 1;
+      bars += `<i style="display:inline-block;width:${black?2:1}px;height:34px;background:${black?'#000':'#fff'}"></i>`;
+    }
+    bars += '<i style="display:inline-block;width:1px;height:34px;background:#fff"></i>';
+  }
+  return `<span style="display:inline-block;text-align:center"><span class="bc">${bars}</span><br><span class="bc-text">${s}</span></span>`;
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function cellHTML(cell, item){
+  let t = esc(cell.t);
+  const data = item || {};
+  Object.entries(data).forEach(([k, v]) => { t = t.split(`{{item.${k}}}`).join(esc(v)); });
+  t = t.replace(/\{img_barcode:item\.(\w+)\}/g, (m, k) => item ? barcodeHTML(item[k] || '') : m);
+  if (!item){
+    Object.entries(SAMPLE_ORDER).forEach(([k, v]) => { t = t.split(`{{order.${k}}}`).join(esc(v)); });
+    Object.entries(SAMPLE_TOTALS).forEach(([k, v]) => { t = t.split(`{{${k}}}`).join(esc(v)); });
+  }
+  return t;
+}
+function rowIsItem(row){ return /\{\{item\.|\{img_barcode:/.test(row.cells.map(c => c.t).join('')); }
+
+function buildPrintTable(){
+  // 展开明细行
+  const rows = [];
+  S.rows.forEach(row => {
+    if (rowIsItem(row)) SAMPLE_ITEMS.forEach(item => rows.push({ row, item }));
+    else rows.push({ row, item: null });
+  });
+  let html = '<table><colgroup>' + S.cols.map(c => `<col style="width:${c.w}px">`).join('') + '</colgroup><tbody>';
+  rows.forEach(({ row, item }) => {
+    html += `<tr style="height:${row.h}px">`;
+    row.cells.forEach(cell => {
+      if (cell.cov) return;
+      const st = [];
+      const s = cell.s || {};
+      if (s.fontFamily) st.push(`font-family:${s.fontFamily}`);
+      if (s.fontSize) st.push(`font-size:${s.fontSize}`);
+      if (s.bold) st.push('font-weight:bold');
+      if (s.italic) st.push('font-style:italic');
+      if (s.underline) st.push('text-decoration:underline');
+      if (s.color) st.push(`color:${s.color}`);
+      if (s.bg) st.push(`background:${s.bg}`);
+      st.push(`text-align:${s.align || 'left'}`);
+      st.push(`vertical-align:${s.valign || 'middle'}`);
+      if (s.border){
+        if (s.border.t) st.push(`border-top:${s.border.t}`);
+        if (s.border.r) st.push(`border-right:${s.border.r}`);
+        if (s.border.b) st.push(`border-bottom:${s.border.b}`);
+        if (s.border.l) st.push(`border-left:${s.border.l}`);
+      }
+      const span = (cell.rs > 1 ? ` rowspan="${cell.rs}"` : '') + (cell.cs > 1 ? ` colspan="${cell.cs}"` : '');
+      html += `<td${span} style="${st.join(';')}">${cellHTML(cell, item)}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+const previewMask = document.getElementById('previewMask');
+document.getElementById('btnPreview').onclick = () => {
+  exitEdit();
+  const [w, h] = pageDims(); const p = S.page;
+  const paper = document.createElement('div');
+  paper.className = 'paper';
+  paper.style.cssText = `width:${w}mm;min-height:${h}mm;padding:${p.mt}mm ${p.mr}mm ${p.mb}mm ${p.ml}mm;zoom:${p.scale / 100};`;
+  paper.innerHTML = buildPrintTable();
+  const box = document.getElementById('printSheet');
+  box.innerHTML = ''; box.appendChild(paper);
+  applyPageStyle();
+  previewMask.classList.add('show');
+};
+document.getElementById('btnPreviewClose').onclick = () => previewMask.classList.remove('show');
+document.getElementById('btnDoPrint').onclick = () => window.print();
+previewMask.addEventListener('click', e => { if (e.target === previewMask) previewMask.classList.remove('show'); });
+
+/* ==================== 初始化 ==================== */
+loadTemplate(store.current);
+refreshTplSelect();
+</script>
+</body>
+</html>
