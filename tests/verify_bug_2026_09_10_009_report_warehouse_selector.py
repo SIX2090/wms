@@ -27,6 +27,7 @@ API = ANDROID / "data/api/WmsApiService.kt"
 REPO = ANDROID / "data/repository/WmsRepository.kt"
 VM = ANDROID / "ui/viewmodel/report/ReportViewModel.kt"
 SCREEN = ANDROID / "ui/screens/ReportScreens.kt"
+SHARED = ANDROID / "ui/components/WarehouseSelector.kt"
 MODELS = ANDROID / "data/model/ReportModels.kt"
 
 
@@ -55,10 +56,15 @@ def test_t3_view_model_holds_warehouse_state():
 
 
 def test_t4_screen_has_selector_with_all_option():
+    # BUG-2026-09-10-010：选择器已从报表页提取为共享组件
+    # （ui/components/WarehouseSelector.kt），选项定义随组件迁移；
+    # 报表页只需确认仍在使用该组件。
     src = SCREEN.read_text(encoding="utf-8")
     assert "WarehouseSelector(" in src
-    assert 'onSelect("all")' in src, "必须提供「全部仓库（汇总）」选项"
-    assert "onSelect(null)" in src, "必须保留「默认仓库」选项（兼容旧行为）"
+
+    shared = SHARED.read_text(encoding="utf-8")
+    assert 'onSelect("all")' in shared, "必须提供「全部仓库（汇总）」选项"
+    assert "onSelect(null)" in shared, "必须保留「默认仓库」选项（兼容旧行为）"
 
 
 def test_t5_item_warehouse_nullable():

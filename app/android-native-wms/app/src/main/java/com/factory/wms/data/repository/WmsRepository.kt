@@ -47,6 +47,16 @@ class WmsRepository(private val context: Context) {
     }
 
     companion object {
+        /**
+         * 服务端已给出明确业务原因的错误（如「请选择进行中的盘点单」）。
+         *
+         * BUG-2026-09-10-011：此前多处调用点在外层 `catch (e: Exception)` 里
+         * 统一包成 `"网络错误: ..."`，把 handleResponse 正确透传的服务端 msg 覆盖掉，
+         * 现场看到"网络错误"却反复重试（其实网络正常，是业务前置条件未满足）。
+         * 用独立类型标记，外层 catch 原样放行、不再加"网络错误"前缀。
+         */
+        class BusinessException(message: String) : Exception(message)
+
         private const val KEY_TOKEN = "auth_token"
         private val KEY_BASE_URL = stringPreferencesKey("base_url")
         private val KEY_USERNAME = stringPreferencesKey("username")
@@ -167,12 +177,7 @@ class WmsRepository(private val context: Context) {
     }
 
     suspend fun searchMaterial(keyword: String, warehouseCode: String? = null): Result<List<MaterialDto>> {
-        return try {
-            val response = api.searchMaterial(keyword, warehouseCode)
-            handleResponse<List<MaterialDto>>(response)
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
-        }
+        return safeCall { api.searchMaterial(keyword, warehouseCode) }
     }
 
     suspend fun getMaterialInfo(code: String, warehouseCode: String? = null): Result<MaterialDto> {
@@ -194,7 +199,7 @@ class WmsRepository(private val context: Context) {
             if (cached != null) {
                 Result.success(cached.toDto())
             } else {
-                Result.failure(Exception("网络错误: ${e.message}"))
+                Result.failure(BusinessException(e.message ?: "网络错误"))
             }
         }
     }
@@ -220,6 +225,8 @@ class WmsRepository(private val context: Context) {
                 onFailure = { }
             )
             result
+        } catch (e: BusinessException) {
+            Result.failure(e)
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
@@ -245,6 +252,8 @@ class WmsRepository(private val context: Context) {
                 onFailure = { }
             )
             result
+        } catch (e: BusinessException) {
+            Result.failure(e)
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
@@ -270,61 +279,51 @@ class WmsRepository(private val context: Context) {
                 onFailure = { }
             )
             result
+        } catch (e: BusinessException) {
+            Result.failure(e)
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
     }
 
     suspend fun documentOcr(imagePart: okhttp3.MultipartBody.Part): Result<DocumentOcrResult> {
-        return try {
-            val response = api.documentOcr(imagePart)
-            handleResponse<DocumentOcrResult>(response)
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
+        return safeCall {
+            api.documentOcr(imagePart)
         }
     }
 
     suspend fun recognizeMaterial(imagePart: okhttp3.MultipartBody.Part): Result<RecognizeMaterialResult> {
-        return try {
-            val response = api.recognizeMaterial(imagePart)
-            handleResponse<RecognizeMaterialResult>(response)
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
+        return safeCall {
+            api.recognizeMaterial(imagePart)
         }
     }
 
     suspend fun getWarehouses(): Result<List<WarehouseDto>> {
-        return try {
-            val response = api.getWarehouses()
-            val data = handleResponse<WarehousesListData>(response).getOrNull()
-            Result.success(data?.items ?: emptyList())
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
-        }
+        return safeCall { api.getWarehouses() }
+            .fold(
+                onSuccess = { data -> Result.success(data.items) },
+                onFailure = { Result.failure(it) }
+            )
     }
 
     /** INV-BATCH-001-E：拉取某仓库进行中盘点单（盘点提交前必须先选单）。 */
     suspend fun loadPendingCheckOrders(warehouseCode: String): Result<List<CheckOrderDto>> {
-        return try {
-            ensureSession()
-            val response = api.listPendingCheckOrders(warehouseCode)
-            val data = handleResponse<CheckOrdersListData>(response).getOrNull()
-            Result.success(data?.orders ?: emptyList())
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
-        }
+        ensureSession()
+        return safeCall { api.listPendingCheckOrders(warehouseCode) }
+            .fold(
+                onSuccess = { data -> Result.success(data.orders) },
+                onFailure = { Result.failure(it) }
+            )
     }
 
     /** 合同编号模糊搜索（出库选填合同字段快速匹配）。 */
     suspend fun searchContracts(keyword: String): Result<List<ContractDto>> {
-        return try {
-            ensureSession()
-            val response = api.searchContracts(keyword)
-            val data = handleResponse<ContractsListData>(response).getOrNull()
-            Result.success(data?.items ?: emptyList())
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
-        }
+        ensureSession()
+        return safeCall { api.searchContracts(keyword) }
+            .fold(
+                onSuccess = { data -> Result.success(data.items) },
+                onFailure = { Result.failure(it) }
+            )
     }
 
     /**
@@ -336,39 +335,34 @@ class WmsRepository(private val context: Context) {
         date: String? = null,
         warehouseId: String? = null
     ): Result<DailyReportData> {
-        return try {
-            ensureSession()
-            // BUG-2026-08-28-002：明细行按 page_size 条/页分页返回，仅取第 1 页时，
-            // 当日明细超过一页则后续明细永远不可见（汇总统计基于全集，表现为
-            // "58 明细只能看到 20 条"）。逐页拉取并合并全部明细。
-            val firstResponse = api.dailyReportDetail(type, date, warehouseId, page = 1, pageSize = 20)
-            val first = handleResponse<DailyReportData>(firstResponse)
-                .getOrElse { return Result.failure(it) }
-            if (first.totalPages <= 1) {
-                Result.success(first)
-            } else {
-                val allItems = first.items.toMutableList()
-                for (page in 2..first.totalPages) {
-                    val response = api.dailyReportDetail(type, date, warehouseId, page = page, pageSize = 20)
-                    val data = handleResponse<DailyReportData>(response)
-                        .getOrElse { return Result.failure(it) }
-                    allItems.addAll(data.items)
-                }
-                Result.success(first.copy(items = allItems, page = 1))
-            }
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
+        ensureSession()
+        // BUG-2026-08-28-002：明细行按 page_size 条/页分页返回，仅取第 1 页时，
+        // 当日明细超过一页则后续明细永远不可见（汇总统计基于全集，表现为
+        // "58 明细只能看到 20 条"）。逐页拉取并合并全部明细。
+        //
+        // BUG-2026-09-10-011：改用 safeCall，服务端业务提示（如日期/仓库参数非法）
+        // 原样透传给页面，不再被"网络错误"覆盖。
+        val first = safeCall { api.dailyReportDetail(type, date, warehouseId, page = 1, pageSize = 20) }
+            .getOrElse { return Result.failure(it) }
+        if (first.totalPages <= 1) {
+            return Result.success(first)
         }
+        val allItems = first.items.toMutableList()
+        for (page in 2..first.totalPages) {
+            val data = safeCall {
+                api.dailyReportDetail(type, date, warehouseId, page = page, pageSize = 20)
+            }.getOrElse { return Result.failure(it) }
+            allItems.addAll(data.items)
+        }
+        return Result.success(first.copy(items = allItems, page = 1))
     }
 
     suspend fun getOpeningStock(warehouseId: Int? = null, keyword: String? = null): Result<List<OpeningStockDto>> {
-        return try {
-            val response = api.getOpeningStock(warehouseId, keyword)
-            val data = handleResponse<OpeningStockListData>(response).getOrNull()
-            Result.success(data?.items ?: emptyList())
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
-        }
+        return safeCall { api.getOpeningStock(warehouseId, keyword) }
+            .fold(
+                onSuccess = { data -> Result.success(data.items) },
+                onFailure = { Result.failure(it) }
+            )
     }
 
     suspend fun submitOpeningStock(request: OpeningStockRequest): Result<String> {
@@ -393,65 +387,52 @@ class WmsRepository(private val context: Context) {
                     Result.failure(e)
                 }
             )
+        } catch (e: BusinessException) {
+            Result.failure(e)
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
     }
 
     suspend fun createInboundDraft(request: InboundDraftRequest): Result<InboundDraftResult> {
-        return try {
-            val response = api.createInboundDraft(newRequestId(), request)
-            handleResponse<InboundDraftResult>(response)
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
+        return safeCall {
+            api.createInboundDraft(newRequestId(), request)
         }
     }
 
-    suspend fun getDashboard(): Result<DashboardDto> {
-        return try {
-            ensureSession()
-            val response = api.getDashboard()
-            handleResponse<DashboardDto>(response)
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
-        }
+    /**
+     * 首页概览。
+     *
+     * BUG-2026-09-10-010：新增 [warehouseId] —— null 跟随系统默认仓（旧行为），
+     * "all" 为全部仓库汇总，其余为仓库 id。此前首页不带仓库参数，多仓用户
+     * 只能看到默认仓的数字。
+     */
+    suspend fun getDashboard(warehouseId: String? = null): Result<DashboardDto> {
+        ensureSession()
+        return safeCall { api.getDashboard(warehouseId) }
     }
 
     // ── 物料档案（多图） ──
 
     suspend fun searchMaterialArchive(keyword: String): Result<List<MaterialArchiveDto>> {
-        return try {
-            val response = api.searchMaterialArchive(keyword)
-            handleResponse<List<MaterialArchiveDto>>(response)
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
-        }
+        return safeCall { api.searchMaterialArchive(keyword) }
     }
 
     suspend fun getMaterialArchiveImages(id: Int): Result<MaterialArchiveImagesData> {
-        return try {
-            val response = api.getMaterialArchiveImages(id)
-            handleResponse<MaterialArchiveImagesData>(response)
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
+        return safeCall {
+            api.getMaterialArchiveImages(id)
         }
     }
 
     suspend fun uploadMaterialArchiveImage(id: Int, imagePart: okhttp3.MultipartBody.Part): Result<MaterialArchiveImageDto> {
-        return try {
-            val response = api.uploadMaterialArchiveImage(id, imagePart)
-            handleResponse<MaterialArchiveImageDto>(response)
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
+        return safeCall {
+            api.uploadMaterialArchiveImage(id, imagePart)
         }
     }
 
     suspend fun deleteMaterialArchiveImage(imageId: Int): Result<Unit> {
-        return try {
-            val response = api.deleteMaterialArchiveImage(imageId)
-            handleResponse<Unit>(response)
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
+        return safeCall {
+            api.deleteMaterialArchiveImage(imageId)
         }
     }
 
@@ -459,9 +440,24 @@ class WmsRepository(private val context: Context) {
 
     /** 创建打印任务（入库/出库单据、物料档案、物料标签）。 */
     suspend fun createPrintJob(request: PrintJobRequest): Result<PrintJobResult> {
+        return safeCall {
+            api.createPrintJob(request)
+        }
+    }
+
+    /**
+     * 统一网络调用包装：HTTP/业务错误（已由 [handleResponse] 解出可读 msg）原样返回，
+     * 只有真正的网络层异常（IOException / 超时 / 解析失败等）才标注"网络错误"。
+     *
+     * BUG-2026-09-10-011：收口 20 处重复的 try/catch，避免服务端 msg 被吞。
+     */
+    private suspend inline fun <T> safeCall(
+        block: () -> Response<ApiEnvelope<T>>
+    ): Result<T> {
         return try {
-            val response = api.createPrintJob(request)
-            handleResponse<PrintJobResult>(response)
+            handleResponse(block())
+        } catch (e: BusinessException) {
+            Result.failure(e)
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
@@ -483,17 +479,17 @@ class WmsRepository(private val context: Context) {
                 } else {
                     // success 但 data 缺失（旧版本服务端/代理丢 body 等异常路径）：
                     // 返回干净失败，UI 展示服务端 msg，而不是 ClassCastException 文本
-                    Result.failure(Exception(envelope.displayMessage()))
+                    Result.failure(BusinessException(envelope.displayMessage()))
                 }
             } else {
-                Result.failure(Exception(envelope?.displayMessage() ?: "请求失败"))
+                Result.failure(BusinessException(envelope?.displayMessage() ?: "请求失败"))
             }
         } else {
             val errorMsg = try {
                 val errorBody = response.errorBody()?.string()
                 Gson().fromJson(errorBody, ApiEnvelope::class.java)?.displayMessage()
             } catch (_: Exception) { null }
-            Result.failure(Exception(errorMsg ?: "请求失败 (${response.code()})"))
+            Result.failure(BusinessException(errorMsg ?: "请求失败 (${response.code()})"))
         }
     }
 }

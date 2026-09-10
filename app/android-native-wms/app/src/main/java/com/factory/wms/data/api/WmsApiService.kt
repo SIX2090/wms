@@ -107,7 +107,11 @@ interface WmsApiService {
     ): Response<ApiEnvelope<InboundDraftResult>>
 
     @GET("api/mobile/dashboard")
-    suspend fun getDashboard(): Response<ApiEnvelope<DashboardDto>>
+    suspend fun getDashboard(
+        // BUG-2026-09-10-010：首页概览支持指定仓库 / all（全部仓库汇总）；
+        // 不传则由服务端回退默认仓（兼容旧行为）
+        @Query("warehouse_id") warehouseId: String? = null
+    ): Response<ApiEnvelope<DashboardDto>>
 
     @Multipart
     @POST("mobile/api/asr")

@@ -15,13 +15,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -51,7 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.DailyReportData
 import com.factory.wms.data.model.DailyReportItem
-import com.factory.wms.data.model.WarehouseDto
+import com.factory.wms.ui.components.WarehouseSelector
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.Primary
 import com.factory.wms.ui.viewmodel.report.ReportType
@@ -183,7 +180,8 @@ fun DailyReportScreen(
                 currentLabel = uiState.report?.warehouse,
                 warehouses = uiState.warehouses,
                 selectedId = uiState.selectedWarehouseId,
-                onSelect = { viewModel.selectWarehouse(it) }
+                onSelect = { viewModel.selectWarehouse(it) },
+                modifier = Modifier.padding(horizontal = 16.dp)
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -373,46 +371,9 @@ private fun DailyReportItemRow(
 }
 
 /**
- * 仓库选择下拉：默认仓库（跟随系统）/ 各仓 / 全部仓库汇总。
- * 当前标签优先用服务端回传的 warehouse（旧版后端无该字段时回退"默认仓库"）。
+ * 仓库选择下拉已提取为共享组件 ui/components/WarehouseSelector.kt
+ * （BUG-2026-09-10-010：报表与首页需要一致的跨仓切换体验）。
  */
-@Composable
-private fun WarehouseSelector(
-    currentLabel: String?,
-    warehouses: List<WarehouseDto>,
-    selectedId: String?,
-    onSelect: (String?) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val label = if (!currentLabel.isNullOrBlank()) currentLabel else "默认仓库"
-    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
-        TextButton(onClick = { expanded = true }) {
-            Text(label, fontSize = 14.sp)
-            Icon(
-                Icons.Filled.ArrowDropDown,
-                "切换仓库",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text("默认仓库") },
-                onClick = { expanded = false; onSelect(null) }
-            )
-            warehouses.forEach { wh ->
-                val id = wh.id?.toString() ?: return@forEach
-                DropdownMenuItem(
-                    text = { Text(wh.name ?: wh.code ?: id) },
-                    onClick = { expanded = false; onSelect(id) }
-                )
-            }
-            DropdownMenuItem(
-                text = { Text("全部仓库（汇总）") },
-                onClick = { expanded = false; onSelect("all") }
-            )
-        }
-    }
-}
 
 /** 数量格式化：整数不带小数点，小数保留两位 */
 private fun formatReportQty(value: Double): String {

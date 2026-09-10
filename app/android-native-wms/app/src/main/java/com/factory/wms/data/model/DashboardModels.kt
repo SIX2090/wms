@@ -11,5 +11,9 @@ data class DashboardDto(
     @SerializedName("pending_in_orders") val pendingInOrders: Int = 0,
     @SerializedName("pending_out_orders") val pendingOutOrders: Int = 0,
     @SerializedName("alert_count") val alertCount: Int = 0,
-    val date: String? = null
+    val date: String? = null,
+    // BUG-2026-09-10-010：回传仓库口径，首页可显示当前统计的是哪个仓
+    val warehouse: String? = null,
+    @SerializedName("warehouse_id") val warehouseId: Int? = null,
+    @SerializedName("all_warehouses") val allWarehouses: Boolean = false
 )

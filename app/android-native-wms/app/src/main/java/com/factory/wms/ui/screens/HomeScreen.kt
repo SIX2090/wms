@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.DashboardDto
+import com.factory.wms.ui.components.WarehouseSelector
 import com.factory.wms.ui.navigation.Screen
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
@@ -58,6 +59,11 @@ fun HomeScreen(
     val homeUiState by homeViewModel.uiState.collectAsState()
     var showLogoutDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // BUG-2026-09-10-010：首页概览的仓库切换需要仓库列表，进入首页时加载一次。
+    LaunchedEffect(Unit) {
+        homeViewModel.loadWarehouses()
+    }
 
     val cards = remember {
         listOf(
@@ -261,9 +267,30 @@ fun HomeScreen(
             }
 
             // ── 今日概览条 ──
-            if (homeUiState.dashboard != null) {
+            // BUG-2026-09-10-010：多仓用户此前只能看到默认仓的今日数据，
+            // 顶部提供仓库切换（默认仓 / 各仓 / 全部仓库汇总）。
+            homeUiState.dashboard?.let { dashboard ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "今日概览",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        color = TextPrimary,
+                        modifier = Modifier.padding(start = 20.dp)
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    WarehouseSelector(
+                        currentLabel = dashboard.warehouse,
+                        warehouses = homeUiState.warehouses,
+                        selectedId = homeUiState.selectedWarehouseId,
+                        onSelect = { homeViewModel.selectWarehouse(it) }
+                    )
+                }
                 TodayOverviewBar(
-                    dashboard = homeUiState.dashboard!!,
+                    dashboard = dashboard,
                     onNavigate = onNavigate
                 )
             }
