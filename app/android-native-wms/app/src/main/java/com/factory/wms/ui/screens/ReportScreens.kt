@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.factory.wms.data.model.DailyReportData
 import com.factory.wms.data.model.DailyReportItem
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.Primary
@@ -139,6 +140,17 @@ fun DailyReportScreen(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 16.sp
                         )
+                        // BUG-2026-09-10-001：报表明细按仓库隔离，而请求不带仓库参数时
+                        // 服务端回退默认仓库。显示实际查询的仓库，避免"查的是哪个仓"未知。
+                        uiState.report?.warehouse?.let { wh ->
+                            if (wh.isNotBlank()) {
+                                Text(
+                                    "仓库 $wh",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                         TextButton(onClick = { viewModel.resetToday() }) {
                             Text("回到今天", fontSize = 12.sp)
                         }
@@ -204,8 +216,13 @@ fun DailyReportScreen(
                     }
                     (uiState.report?.items?.isEmpty() != false) -> {
                         Text(
-                            "当日暂无${uiState.reportType.label}明细",
-                            modifier = Modifier.align(Alignment.Center),
+                            // BUG-2026-09-10-001：空结果必须给出"为什么"，否则现场只能
+                            // 反复问"今天的记录去哪了"。最常见原因是 PC 端保存后未点完成
+                            // （报表只统计已完成单据），其次是业务类型不在本报表口径内。
+                            emptyStateHint(uiState.report, uiState.reportType.label),
+                            modifier = Modifier.align(Alignment.Center)
+                                .padding(horizontal = 32.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -229,6 +246,25 @@ fun DailyReportScreen(
             }
         }
     }
+}
+
+/**
+ * 空态文案：在「当日暂无X明细」之外补充可行动线索。
+ * 诊断字段来自服务端 diagnostics，旧版后端无该节点时为 null，必须判空。
+ */
+private fun emptyStateHint(report: DailyReportData?, label: String): String {
+    val base = "当日暂无${label}明细"
+    val diag = report?.diagnostics ?: return base
+    val pending = diag.pendingOrders ?: 0
+    if (pending > 0) {
+        return "$base\n今日该仓还有 $pending 张单据未完成\n（电脑端录入后需点「完成」才会计入报表）"
+    }
+    val others = diag.otherTypeOrders?.filter { (it.orders ?: 0) > 0 }.orEmpty()
+    if (others.isNotEmpty()) {
+        val desc = others.joinToString("、") { "${it.businessType ?: "未填写"} ${it.orders} 单" }
+        return "$base\n今日该仓有其他类型单据：$desc\n（不在本报表统计口径内）"
+    }
+    return base
 }
 
 @Composable

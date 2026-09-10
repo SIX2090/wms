@@ -16,7 +16,33 @@ data class DailyReportData(
     @SerializedName("total") val total: Int,
     @SerializedName("page") val page: Int,
     @SerializedName("page_size") val pageSize: Int,
-    @SerializedName("total_pages") val totalPages: Int
+    @SerializedName("total_pages") val totalPages: Int,
+    /**
+     * BUG-2026-09-10-001：旧版后端不返回以下诊断字段（Gson 会置 null）。
+     * 报表只统计「已完成」单据，PC 端保存后未点完成的单据不会计入，
+     * 用户此前只能看到「当日暂无明细」却不知原因。可空声明，UI 必须判空。
+     */
+    @SerializedName("warehouse") val warehouse: String? = null,
+    @SerializedName("server_today") val serverToday: String? = null,
+    @SerializedName("diagnostics") val diagnostics: DailyReportDiagnostics? = null
+)
+
+/**
+ * 报表空结果诊断信息：帮助现场判断「到底是没有单，还是单没完成/类型不对/查错仓」。
+ * 全部字段可空：旧版后端无该节点时 Gson 直接置 null，UI 必须判空（见 BUG-2026-08-24-007）。
+ */
+data class DailyReportDiagnostics(
+    /** 本报表纳入的业务类型（如 领料单 / Android扫码出库） */
+    @SerializedName("business_types") val businessTypes: List<String>? = null,
+    /** 当日该仓同方向「未完成」单据数（PC 保存后未点完成 → 不进报表） */
+    @SerializedName("pending_orders") val pendingOrders: Int? = null,
+    /** 当日该仓已完成但业务类型不在本报表口径内的单据分布 */
+    @SerializedName("other_type_orders") val otherTypeOrders: List<DailyReportOtherType>? = null
+)
+
+data class DailyReportOtherType(
+    @SerializedName("business_type") val businessType: String? = null,
+    @SerializedName("orders") val orders: Int? = null
 )
 
 data class DailyReportSummary(
