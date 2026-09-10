@@ -7388,17 +7388,55 @@ def get_recent_operation_logs(target_type, target_id, limit=10):
         app.logger.warning(f'get_recent_operation_logs failed: {e}')
         return []
 
+def build_material_locations_map(material_ids, wh_obj=None):
+    """BUG-2026-09-10-004：批量预取库位分布 {material_id: [{'location', 'quantity'}, ...]}。
+
+    列表接口（/api/material/search、/api/material/all）逐物料查 LocationInventory
+    是 N+1（100 条上限即 100 次库位查询）；改为一次 IN 查询后按物料分组。
+    过滤与排序口径和逐物料路径严格一致：非零库存、数量降序、库位升序，
+    有仓库上下文按仓库过滤（R2：与该仓账面 stock 口径一致）。
+    IN 分批（每批 500）兼容变量数受限的数据库。
+    """
+    locations_map = {}
+    ids = [mid for mid in (material_ids or []) if mid is not None]
+    if not ids:
+        return locations_map
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        query = LocationInventory.query.filter(
+            LocationInventory.material_id.in_(chunk),
+            LocationInventory.quantity != 0,
+        )
+        if wh_obj is not None:
+            query = query.filter(LocationInventory.warehouse_id == wh_obj.id)
+        rows = query.order_by(
+            LocationInventory.material_id.asc(),
+            LocationInventory.quantity.desc(),
+            LocationInventory.location.asc(),
+        ).all()
+        for row in rows:
+            locations_map.setdefault(row.material_id, []).append({
+                'location': row.location,
+                'quantity': normalize_stock_quantity(row.quantity or 0),
+            })
+    return locations_map
+
+
 # no-test:reason=存量物料 DTO 序列化函数；签名扩展（warehouse 参数）由
 # verify_bug_2026_09_03_004_material_api_warehouse_stock.py 经接口覆盖
-def api_material_payload(material, warehouse=None):
+def api_material_payload(material, warehouse=None, warehouse_stock_map=None, locations_map=None):
     # BUG-2026-09-03-004：物料展示支持仓库上下文——Android 扫码/查询在已选仓库时
     # 显示该仓库账面库存，而非全局 Material.stock（多仓库下会误导"库存充足/不足"
     # 判断与盘点清点）。调用方传 Warehouse 对象或仓库名/编码；未传保持全局展示。
+    # BUG-2026-09-10-004：列表接口可传入预取的 warehouse_stock_map / locations_map
+    # 消除 N+1；不传（如单物料 /api/material/info）保持原逐物料行为。
     wh_obj = warehouse
     if wh_obj is not None and not hasattr(wh_obj, 'name'):
         wh_obj, _wh_err = validate_inventory_warehouse(str(wh_obj or '').strip() or None)
     if wh_obj is not None:
-        stock = normalize_stock_quantity(get_warehouse_stock_quantities(wh_obj).get(material.id) or 0)
+        stock_map = warehouse_stock_map if warehouse_stock_map is not None \
+            else get_warehouse_stock_quantities(wh_obj)
+        stock = normalize_stock_quantity(stock_map.get(material.id) or 0)
     else:
         stock = material.stock or 0
     warehouse_code = getattr(material, 'warehouse', '') or ''
@@ -7409,18 +7447,23 @@ def api_material_payload(material, warehouse=None):
         # 各多少」，原 location_code 只给数量最多的一个库位不够用。
         # 有仓库上下文时按仓库过滤（与该仓账面 stock 口径一致），
         # 零库存库位不展示；location_code 保持原语义（数量最多的库位）向后兼容。
-        loc_query = LocationInventory.query.filter_by(material_id=material.id)
-        if wh_obj is not None:
-            loc_query = loc_query.filter(LocationInventory.warehouse_id == wh_obj.id)
-        loc_rows = loc_query.filter(LocationInventory.quantity != 0).order_by(
-            LocationInventory.quantity.desc(),
-            LocationInventory.location.asc()
-        ).all()
-        locations = [
-            {'location': row.location, 'quantity': normalize_stock_quantity(row.quantity or 0)}
-            for row in loc_rows
-        ]
-        location_code = loc_rows[0].location if loc_rows else ''
+        if locations_map is not None:
+            # BUG-2026-09-10-004：调用方批量预取（分组时已按数量降序/库位升序）。
+            locations = locations_map.get(material.id, [])
+            location_code = locations[0]['location'] if locations else ''
+        else:
+            loc_query = LocationInventory.query.filter_by(material_id=material.id)
+            if wh_obj is not None:
+                loc_query = loc_query.filter(LocationInventory.warehouse_id == wh_obj.id)
+            loc_rows = loc_query.filter(LocationInventory.quantity != 0).order_by(
+                LocationInventory.quantity.desc(),
+                LocationInventory.location.asc()
+            ).all()
+            locations = [
+                {'location': row.location, 'quantity': normalize_stock_quantity(row.quantity or 0)}
+                for row in loc_rows
+            ]
+            location_code = loc_rows[0].location if loc_rows else ''
     return {
         'id': material.id,
         'code': material.code or '',
@@ -23845,10 +23888,17 @@ def _acquire_order_write_lock(model_cls, record_id, expected_status, eager_load=
 @web_or_api_required
 def material_all_api():
     materials = Material.query.order_by(Material.code.asc()).limit(1000).all()
+    # BUG-2026-09-10-004：库位分布批量预取——原实现逐物料查 LocationInventory，
+    # 1000 条物料即 1000 次库位查询（N+1）；现合并为一次 IN 分组查询。
+    _locations_map = (
+        build_material_locations_map([m.id for m in materials])
+        if location_management_enabled() else None
+    )
     return jsonify({
         'status': 'success',
         'success': True,
-        'data': [api_material_payload(material) for material in materials]
+        'data': [api_material_payload(material, locations_map=_locations_map)
+                 for material in materials]
     })
 
 # BUG-2026-09-10-002：移动端模糊联想单次返回上限（原魔法数 100 显式化）
@@ -23887,12 +23937,26 @@ def material_search_api():
     _wh_raw = (request.values.get('warehouse') or '').strip()
     if _wh_raw:
         _wh_obj, _wh_err = validate_inventory_warehouse(_wh_raw)
+    # BUG-2026-09-10-004（性能）：库存聚合与库位分布各预取一次——原实现每个物料
+    # 重复一次全仓聚合 + 一次库位查询（2N 次），命中上限 100 条时高达 200+ 次
+    # 查询，手机端搜索明显卡顿。现固定为 1 次聚合 + 1 次库位 IN 查询。
+    _warehouse_stock_map = (
+        get_warehouse_stock_quantities(_wh_obj) if _wh_obj is not None else None
+    )
+    _locations_map = (
+        build_material_locations_map([m.id for m in materials], wh_obj=_wh_obj)
+        if location_management_enabled() else None
+    )
     return jsonify({
         'status': 'success',
         'success': True,
         'total': total,
         'truncated': total > len(materials),
-        'data': [api_material_payload(material, warehouse=_wh_obj) for material in materials]
+        'data': [api_material_payload(
+            material, warehouse=_wh_obj,
+            warehouse_stock_map=_warehouse_stock_map,
+            locations_map=_locations_map,
+        ) for material in materials]
     })
 
 @app.route('/api/material/info', methods=['GET', 'POST'])
