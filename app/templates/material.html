@@ -613,56 +613,11 @@
                         <div class="field-item" draggable="true" data-field="qrcode" data-label="二维码">
                             <i class="bi bi-qr-code"></i> 二维码
                         </div>
-                        <hr>
-                        <h6 style="font-weight: bold; margin-bottom: 15px;"><i class="bi bi-palette"></i> 样式工具</h6>
-                        <div class="mb-2">
-                            <label class="form-label" style="font-size: 12px;">字体大小</label>
-                            <select class="form-select form-select-sm" id="fontSizeSelect">
-                                <option value="10">10px</option>
-                                <option value="12" selected>12px</option>
-                                <option value="14">14px</option>
-                                <option value="16">16px</option>
-                                <option value="18">18px</option>
-                                <option value="20">20px</option>
-                                <option value="24">24px</option>
-                            </select>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label" style="font-size: 12px;">字体粗细</label>
-                            <select class="form-select form-select-sm" id="fontWeightSelect">
-                                <option value="normal">正常</option>
-                                <option value="bold" selected>粗体</option>
-                            </select>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label" style="font-size: 12px;">文字颜色</label>
-                            <input type="color" class="form-control form-control-color" id="textColorSelect" value="#000000">
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label" style="font-size: 12px;">对齐方式</label>
-                            <div class="btn-group btn-group-sm w-100">
-                                <button class="btn btn-outline-secondary" onclick="setTextAlign('left')" title="左对齐"><i class="bi bi-text-left"></i></button>
-                                <button class="btn btn-outline-secondary" onclick="setTextAlign('center')" title="居中"><i class="bi bi-text-center"></i></button>
-                                <button class="btn btn-outline-secondary" onclick="setTextAlign('right')" title="右对齐"><i class="bi bi-text-right"></i></button>
-                            </div>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label" style="font-size: 12px;">垂直对齐</label>
-                            <div class="btn-group btn-group-sm w-100">
-                                <button class="btn btn-outline-secondary" onclick="setVerticalAlign('top')" title="顶部对齐"><i class="bi bi-align-top"></i></button>
-                                <button class="btn btn-outline-secondary" onclick="setVerticalAlign('middle')" title="垂直居中"><i class="bi bi-align-middle"></i></button>
-                                <button class="btn btn-outline-secondary" onclick="setVerticalAlign('bottom')" title="底部对齐"><i class="bi bi-align-bottom"></i></button>
-                            </div>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label" style="font-size: 12px;">行高 (px)</label>
-                            <div class="input-group input-group-sm">
-                                <input type="number" class="form-control form-control-sm" id="rowHeightInput" min="20" max="200" step="5" value="30" placeholder="行高">
-                                <button class="btn btn-outline-primary btn-sm" onclick="applyRowHeight()" title="应用行高">应用</button>
-                            </div>
+                        <div style="font-size:11px;color:#999;margin-top:8px;line-height:1.5;">
+                            <i class="bi bi-lightbulb"></i> 拖拽或<strong>双击</strong>字段插入到选中单元格
                         </div>
                     </div>
-                    
+
                     <!-- 中间：模板画布 -->
                     <div style="flex: 1; padding: 20px; background: #e9ecef; overflow: auto;">
                         <div style="margin-bottom: 15px;">
@@ -745,7 +700,7 @@
                     </div>
                     
                     <!-- 右侧：属性面板 -->
-                    <div style="width: 200px; background: #f8f9fa; border-left: 1px solid #dee2e6; padding: 15px; overflow-y: auto;">
+                    <div style="width: 235px; background: #f8f9fa; border-left: 1px solid #dee2e6; padding: 15px; overflow-y: auto;">
                         <h6 style="font-weight: bold; margin-bottom: 15px;"><i class="bi bi-sliders"></i> 当前选中</h6>
                         <div id="cellProperties" style="display: none;">
                             <div class="mb-2">
@@ -790,6 +745,54 @@
                                     <option value="1">1列</option>
                                     <option value="2">2列</option>
                                 </select>
+                            </div>
+                            <hr style="margin: 12px 0;">
+                            <h6 style="font-weight: bold; margin-bottom: 12px; font-size: 13px;"><i class="bi bi-palette"></i> 样式</h6>
+                            <div class="mb-2">
+                                <label class="form-label" style="font-size: 12px;">字体大小</label>
+                                <select class="form-select form-select-sm" id="fontSizeSelect">
+                                    <option value="10">10px</option>
+                                    <option value="12" selected>12px</option>
+                                    <option value="14">14px</option>
+                                    <option value="16">16px</option>
+                                    <option value="18">18px</option>
+                                    <option value="20">20px</option>
+                                    <option value="24">24px</option>
+                                </select>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" style="font-size: 12px;">字体粗细</label>
+                                <select class="form-select form-select-sm" id="fontWeightSelect">
+                                    <option value="normal">正常</option>
+                                    <option value="bold" selected>粗体</option>
+                                </select>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" style="font-size: 12px;">文字颜色</label>
+                                <input type="color" class="form-control form-control-color" id="textColorSelect" value="#000000">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" style="font-size: 12px;">对齐方式</label>
+                                <div class="btn-group btn-group-sm w-100">
+                                    <button class="btn btn-outline-secondary" onclick="setTextAlign('left')" title="左对齐"><i class="bi bi-text-left"></i></button>
+                                    <button class="btn btn-outline-secondary" onclick="setTextAlign('center')" title="居中"><i class="bi bi-text-center"></i></button>
+                                    <button class="btn btn-outline-secondary" onclick="setTextAlign('right')" title="右对齐"><i class="bi bi-text-right"></i></button>
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" style="font-size: 12px;">垂直对齐</label>
+                                <div class="btn-group btn-group-sm w-100">
+                                    <button class="btn btn-outline-secondary" onclick="setVerticalAlign('top')" title="顶部对齐"><i class="bi bi-align-top"></i></button>
+                                    <button class="btn btn-outline-secondary" onclick="setVerticalAlign('middle')" title="垂直居中"><i class="bi bi-align-middle"></i></button>
+                                    <button class="btn btn-outline-secondary" onclick="setVerticalAlign('bottom')" title="底部对齐"><i class="bi bi-align-bottom"></i></button>
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" style="font-size: 12px;">行高 (px)</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control form-control-sm" id="rowHeightInput" min="20" max="200" step="5" value="30" placeholder="行高">
+                                    <button class="btn btn-outline-primary btn-sm" onclick="applyRowHeight()" title="应用行高">应用</button>
+                                </div>
                             </div>
                             <button class="btn btn-sm btn-danger w-100 mb-2" onclick="deleteSelectedRow()"><i class="bi bi-trash"></i> 删除行</button>
                         </div>
@@ -2185,7 +2188,7 @@ function __getTargetCells() {
 
 function clearSelectedCells() {
     var cells = __getTargetCells();
-    if (!cells.length) { alert('请先点击选中单元格（Ctrl+点击可多选）'); return; }
+    if (!cells.length) { __notify('请先点击选中单元格（Ctrl+点击可多选）', 'warning'); return; }
     cells.forEach(function(cell) {
         var content = cell.querySelector('.cell-content');
         if (content) {
@@ -2196,6 +2199,7 @@ function clearSelectedCells() {
         }
     });
     saveTemplateToStorage();
+    __refreshCellDraggable();
 }
 
 // 字段搜索：按名称/标签/字段名过滤左侧字段
@@ -2314,11 +2318,98 @@ function openLabelTemplate() {
     initTemplateDragDrop();
 }
 
+// ==================== 画布内拖动字段 + 双击插入（标签设计器可用性增强 AA4） ====================
+var __cellDragSrc = null;  // 画布内被拖拽的源单元格（区别于从字段面板拖入）
+
+function __ensureCellContent(cell) {
+    var content = cell.querySelector('.cell-content');
+    if (!content) {
+        cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
+        content = cell.querySelector('.cell-content');
+    }
+    return content;
+}
+
+// 读取/写入单元格的可移动数据（不含 colSpan，避免破坏网格结构）
+function __cellData(cell) {
+    var c = cell.querySelector('.cell-content');
+    return {
+        text: c ? c.textContent : '',
+        field: c ? (c.dataset.field || '') : '',
+        bw: c ? (c.dataset.barcodeWidth || '') : '',
+        bh: c ? (c.dataset.barcodeHeight || '') : '',
+        fontSize: c ? c.style.fontSize : '',
+        fontWeight: c ? c.style.fontWeight : '',
+        color: c ? c.style.color : '',
+        textAlign: c ? c.style.textAlign : '',
+        verticalAlign: cell.style.verticalAlign || ''
+    };
+}
+
+function __applyCellData(cell, d) {
+    var c = __ensureCellContent(cell);
+    c.textContent = d.text;
+    c.dataset.field = d.field;
+    if (d.bw) { c.dataset.barcodeWidth = d.bw; } else { delete c.dataset.barcodeWidth; }
+    if (d.bh) { c.dataset.barcodeHeight = d.bh; } else { delete c.dataset.barcodeHeight; }
+    c.style.fontSize = d.fontSize || '12px';
+    c.style.fontWeight = d.fontWeight || 'normal';
+    c.style.color = d.color || '#000000';
+    c.style.textAlign = d.textAlign || 'left';
+    cell.style.verticalAlign = d.verticalAlign || '';
+}
+
+function __swapCells(a, b) {
+    var da = __cellData(a);
+    var db = __cellData(b);
+    __applyCellData(a, db);
+    __applyCellData(b, da);
+}
+
+function __cellHasContent(cell) {
+    var c = cell.querySelector('.cell-content');
+    return !!(c && (c.dataset.field || c.textContent.trim()));
+}
+
+// 让有内容的单元格可拖拽（编辑时临时禁用，避免与文本光标冲突）
+function __refreshCellDraggable() {
+    document.querySelectorAll('#labelTable .label-cell').forEach(function(cell) {
+        var editing = document.activeElement && cell.contains(document.activeElement);
+        cell.draggable = __cellHasContent(cell) && !editing;
+    });
+}
+
+// 双击字段：插入到当前选中格（无选中则第一个空格）
+function insertFieldToSelection(field, label) {
+    var target = selectedCell;
+    if (!target) {
+        var cells = document.querySelectorAll('#labelTable .label-cell');
+        for (var i = 0; i < cells.length; i++) {
+            if (!__cellHasContent(cells[i])) { target = cells[i]; break; }
+        }
+    }
+    if (!target) { __notify('没有可用的空单元格，请先插入行/列或点击选中单元格', 'warning'); return; }
+    var content = __ensureCellContent(target);
+    content.textContent = '[' + label + ']';
+    content.dataset.field = field;
+    if (field === 'qrcode' && !content.dataset.barcodeWidth) {
+        content.dataset.barcodeWidth = '25';
+        content.dataset.barcodeHeight = '25';
+    }
+    document.querySelectorAll('.label-cell').forEach(function(x) { x.classList.remove('selected'); });
+    target.classList.add('selected');
+    selectedCell = target;
+    selectedCells = [target];
+    updateCellProperties();
+    saveTemplateToStorage();
+    __refreshCellDraggable();
+}
+
 function initTemplateDragDrop() {
     var table = document.getElementById('labelTable');
     if (!table) return;
-    
-    // 字段拖拽源：使用事件委托绑定到父容器，避免重复绑定
+
+    // 字段拖拽源 + 双击插入：使用事件委托绑定到父容器，避免重复绑定
     var fieldPanel = table.closest('.modal-body');
     if (fieldPanel && !fieldPanel._fieldDragBound) {
         fieldPanel._fieldDragBound = true;
@@ -2331,22 +2422,54 @@ function initTemplateDragDrop() {
                 label: item.dataset.label
             }));
         });
+        // 双击字段插入到选中单元格
+        fieldPanel.addEventListener('dblclick', function(e) {
+            var item = e.target.closest('.field-item');
+            if (!item) return;
+            insertFieldToSelection(item.dataset.field, item.dataset.label);
+        });
     }
-    
+
     // 表格拖拽事件：先移除旧监听器再添加，确保不重复
     if (table._dragHandlers) {
         table.removeEventListener('dragover', table._dragHandlers.dragover);
         table.removeEventListener('dragleave', table._dragHandlers.dragleave);
         table.removeEventListener('drop', table._dragHandlers.drop);
         table.removeEventListener('click', table._dragHandlers.click);
+        table.removeEventListener('dragstart', table._dragHandlers.dragstart);
+        table.removeEventListener('dragend', table._dragHandlers.dragend);
+        table.removeEventListener('focusin', table._dragHandlers.focusin);
+        table.removeEventListener('focusout', table._dragHandlers.focusout);
     }
-    
+
     table._dragHandlers = {
+        // 画布内拖动：拖动有内容的单元格
+        dragstart: function(e) {
+            var cell = e.target.closest('.label-cell');
+            if (!cell || !__cellHasContent(cell)) return;
+            __cellDragSrc = cell;
+            e.dataTransfer.effectAllowed = 'move';
+            try { e.dataTransfer.setData('text/plain', '__cell_move__'); } catch (err) {}
+        },
+        dragend: function() {
+            __cellDragSrc = null;
+            document.querySelectorAll('.label-cell.drag-over').forEach(function(c) { c.classList.remove('drag-over'); });
+            __refreshCellDraggable();
+        },
+        // 编辑时禁用拖拽，失焦后恢复
+        focusin: function(e) {
+            var cell = e.target.closest('.label-cell');
+            if (cell) cell.draggable = false;
+        },
+        focusout: function(e) {
+            var cell = e.target.closest('.label-cell');
+            if (cell) cell.draggable = __cellHasContent(cell);
+        },
         dragover: function(e) {
             var cell = e.target.closest('.label-cell');
             if (!cell) return;
             e.preventDefault();
-            e.dataTransfer.dropEffect = 'copy';
+            e.dataTransfer.dropEffect = __cellDragSrc ? 'move' : 'copy';
             document.querySelectorAll('.label-cell.drag-over').forEach(function(c) { c.classList.remove('drag-over'); });
             cell.classList.add('drag-over');
         },
@@ -2361,18 +2484,30 @@ function initTemplateDragDrop() {
             if (!cell) return;
             e.preventDefault();
             cell.classList.remove('drag-over');
+            // 画布内移动/交换字段
+            if (__cellDragSrc) {
+                if (__cellDragSrc !== cell) {
+                    __swapCells(__cellDragSrc, cell);
+                    saveTemplateToStorage();
+                }
+                __cellDragSrc = null;
+                __refreshCellDraggable();
+                return;
+            }
+            // 从字段面板拖入
             try {
                 var raw = e.dataTransfer.getData('text/plain');
-                if (!raw) return;
+                if (!raw || raw === '__cell_move__') return;
                 var data = JSON.parse(raw);
-                var content = cell.querySelector('.cell-content');
-                if (!content) {
-                    cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
-                    content = cell.querySelector('.cell-content');
-                }
+                var content = __ensureCellContent(cell);
                 content.textContent = '[' + data.label + ']';
                 content.dataset.field = data.field;
+                if (data.field === 'qrcode' && !content.dataset.barcodeWidth) {
+                    content.dataset.barcodeWidth = '25';
+                    content.dataset.barcodeHeight = '25';
+                }
                 saveTemplateToStorage();
+                __refreshCellDraggable();
             } catch(err) { console.error('drop error', err); }
         },
         click: function(e) {
@@ -2393,11 +2528,17 @@ function initTemplateDragDrop() {
             updateCellProperties();
         }
     };
-    
+
+    table.addEventListener('dragstart', table._dragHandlers.dragstart);
+    table.addEventListener('dragend', table._dragHandlers.dragend);
+    table.addEventListener('focusin', table._dragHandlers.focusin);
+    table.addEventListener('focusout', table._dragHandlers.focusout);
     table.addEventListener('dragover', table._dragHandlers.dragover);
     table.addEventListener('dragleave', table._dragHandlers.dragleave);
     table.addEventListener('drop', table._dragHandlers.drop);
     table.addEventListener('click', table._dragHandlers.click);
+
+    __refreshCellDraggable();
 }
 
 function updateCellProperties() {
