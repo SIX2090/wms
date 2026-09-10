@@ -130,6 +130,8 @@ def register_label_barcode_routes(app):
             json,
             jsonify,
             log_operation,
+            parse_float_value,
+            parse_int_value,
             request,
         )
         template = LabelTemplate.query.get_or_404(id)
@@ -141,6 +143,17 @@ def register_label_barcode_routes(app):
             return jsonify({'status': 'error', 'msg': '布局数据格式不正确（必须为对象或数组）'}), 400
         try:
             template.layout = json.dumps(layout, ensure_ascii=False)
+            # 标签设计器可用性增强（AA2）：原地更新模板时同步持久化宽/高/行/列，
+            # 批量打印页物理尺寸读的是数据库列而非 layout JSON，不同步会导致
+            # 改了标签尺寸保存后打印尺寸仍旧。
+            if payload.get('width') is not None:
+                template.width = parse_float_value(payload.get('width'), template.width)
+            if payload.get('height') is not None:
+                template.height = parse_float_value(payload.get('height'), template.height)
+            if payload.get('cols') is not None:
+                template.cols = parse_int_value(payload.get('cols'), template.cols, minimum=1, maximum=100)
+            if payload.get('rows') is not None:
+                template.rows = parse_int_value(payload.get('rows'), template.rows, minimum=1, maximum=100)
             template.updated_at = datetime.now()
             db.session.commit()
         except Exception as exc:

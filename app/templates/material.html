@@ -683,7 +683,9 @@
                                 <option value="">-- 选择模板 --</option>
                             </select>
                             <input type="text" class="form-control form-control-sm" style="width: 120px; display: inline-block; margin-left: 10px;" id="templateNameInput" placeholder="模板名称">
-                            <button class="btn btn-sm btn-primary" onclick="saveTemplate()"><i class="bi bi-save"></i> 保存</button>
+                            <button class="btn btn-sm btn-primary" onclick="saveTemplate()" title="已载入模板时原地更新，否则新建"><i class="bi bi-save"></i> 保存</button>
+                            <button class="btn btn-sm btn-outline-primary" onclick="saveAsTemplate()" title="以当前名称另存为新模板"><i class="bi bi-files"></i> 另存为</button>
+                            <button class="btn btn-sm btn-outline-success" onclick="setDefaultTemplate()" title="将当前模板设为默认"><i class="bi bi-star"></i> 设为默认</button>
                             <button class="btn btn-sm btn-danger" onclick="deleteTemplate()"><i class="bi bi-trash"></i> 删除</button>
                             <div style="margin-top: 8px;">
                                 <label style="font-size: 12px; margin-right: 10px;">标签尺寸:</label>
@@ -2043,6 +2045,7 @@ document.addEventListener('DOMContentLoaded', function() {
 var labelTemplateModal;
 var selectedCell = null;
 var selectedCells = [];  // 多选单元格集合（Ctrl+点击切换），含主选中 selectedCell
+var currentTemplateId = null;  // 当前载入编辑的模板ID（null=未载入，保存走新建）
 // 撤销/重做历史栈（快照基于 cells 布局，恢复走 loadTemplateToEditor）
 var __undoStack = [];
 var __redoStack = [];
@@ -2778,20 +2781,13 @@ function updateCanvasSize() {
     canvas.style.height = (currentTemplate.labelHeight * scale) + 'px';
 }
 
-function saveTemplate() {
-    var nameInput = document.getElementById('templateNameInput');
-    var templateName = nameInput.value.trim();
-    
-    if (!templateName) {
-        alert('请输入模板名称！');
-        nameInput.focus();
-        return;
-    }
-
+// 收集当前画布为模板布局对象（新建/更新共用，标签设计器可用性增强 AA2）
+function __collectTemplateData() {
     reindexLabelCells();  // BUG-2026-09-08-001：序列化前重排坐标，杜绝越界残留
     var cells = [];
     document.querySelectorAll('.label-cell').forEach(function(cell) {
         var content = cell.querySelector('.cell-content');
+        if (!content) return;
         var cellData = {
             row: cell.dataset.row,
             col: cell.dataset.col,
@@ -2801,7 +2797,8 @@ function saveTemplate() {
                 fontSize: content.style.fontSize,
                 fontWeight: content.style.fontWeight,
                 color: content.style.color,
-                textAlign: content.style.textAlign
+                textAlign: content.style.textAlign,
+                verticalAlign: content.style.verticalAlign || cell.style.verticalAlign || ''
             },
             colSpan: cell.colSpan
         };
@@ -2811,14 +2808,14 @@ function saveTemplate() {
         }
         cells.push(cellData);
     });
-    
+
     var rowHeights = [];
     var table = document.getElementById('labelTable');
     for (var i = 0; i < table.rows.length; i++) {
         rowHeights.push(parseInt(table.rows[i].style.height) || 30);
     }
 
-    var templateData = {
+    return {
         rows: currentTemplate.rows,
         cols: currentTemplate.cols,
         cells: cells,
@@ -2826,7 +2823,30 @@ function saveTemplate() {
         labelWidth: currentTemplate.labelWidth,
         labelHeight: currentTemplate.labelHeight
     };
+}
 
+function __notify(msg, type) {
+    if (typeof showToast === 'function') { showToast(msg, type || 'info'); }
+    else { alert(msg); }  // allow-alert
+}
+
+// 保存：已载入模板则原地更新（含尺寸），否则按"另存为"新建
+function saveTemplate() {
+    if (currentTemplateId) { updateExistingTemplate(); }
+    else { saveAsTemplate(); }
+}
+
+// 另存为 / 新建模板
+function saveAsTemplate() {
+    var nameInput = document.getElementById('templateNameInput');
+    var templateName = nameInput.value.trim();
+    if (!templateName) {
+        nameInput.focus();
+        __notify('请输入模板名称', 'warning');
+        return;
+    }
+
+    var templateData = __collectTemplateData();
     var dbData = new FormData();
     dbData.append('name', templateName);
     dbData.append('width', currentTemplate.labelWidth);
@@ -2834,19 +2854,67 @@ function saveTemplate() {
     dbData.append('cols', currentTemplate.cols);
     dbData.append('rows', currentTemplate.rows);
     dbData.append('layout', JSON.stringify(templateData));
-    
+
     csrfFetch('/label_template/add', { method: 'POST', body: dbData })
     .then(function(r){ return r.json(); })
     .then(function(res) {
         if (res.status === 'success') {
             try { localStorage.removeItem('labelTemplateDraft'); } catch (e) {}
             loadTemplateList();
-            alert('模板"' + templateName + '"已保存！');
+            __notify('模板"' + templateName + '"已保存', 'success');
         } else {
-            alert('保存失败：' + (res.msg || '未知错误'));
+            __notify('保存失败：' + (res.msg || '未知错误'), 'error');
         }
     })
-    .catch(function(err){ alert('网络错误：' + err.message); });
+    .catch(function(err){ __notify('网络错误：' + err.message, 'error'); });
+}
+
+// 原地更新当前载入的模板（布局 + 尺寸，尺寸由后端 save_layout 持久化到列）
+function updateExistingTemplate() {
+    var templateData = __collectTemplateData();
+    var payload = {
+        layout: templateData,
+        width: currentTemplate.labelWidth,
+        height: currentTemplate.labelHeight,
+        cols: currentTemplate.cols,
+        rows: currentTemplate.rows
+    };
+    csrfFetch('/label_template/' + currentTemplateId + '/save_layout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(res) {
+        if (res.status === 'success') {
+            try { localStorage.removeItem('labelTemplateDraft'); } catch (e) {}
+            loadTemplateList();
+            var nm = document.getElementById('templateNameInput').value;
+            __notify('模板"' + nm + '"已更新', 'success');
+        } else {
+            __notify('更新失败：' + (res.msg || '未知错误'), 'error');
+        }
+    })
+    .catch(function(err){ __notify('网络错误：' + err.message, 'error'); });
+}
+
+// 设为默认模板
+function setDefaultTemplate() {
+    if (!currentTemplateId) {
+        __notify('请先选择要设为默认的模板', 'warning');
+        return;
+    }
+    csrfFetch('/label_template/' + currentTemplateId + '/set_default', { method: 'POST' })
+    .then(function(r){ return r.json(); })
+    .then(function(res) {
+        if (res.status === 'success') {
+            loadTemplateList();
+            __notify('已设为默认模板', 'success');
+        } else {
+            __notify('操作失败：' + (res.msg || '未知错误'), 'error');
+        }
+    })
+    .catch(function(err){ __notify('网络错误：' + err.message, 'error'); });
 }
 
 // 加载模板列表
@@ -2893,13 +2961,14 @@ function switchTemplate() {
 
 function switchTemplateById(templateId) {
     var nameInput = document.getElementById('templateNameInput');
-    if (!templateId) { nameInput.value = ''; return; }
+    if (!templateId) { nameInput.value = ''; currentTemplateId = null; return; }
 
     fetch('/label_template/api/' + templateId + '/detail')
     .then(function(r){ return r.json(); })
     .then(function(res) {
         if (res.status === 'success' && res.template) {
             nameInput.value = res.template.name;
+            currentTemplateId = res.template.id;  // 记录当前编辑模板，保存时原地更新
             loadTemplateToEditor(res.template);
         }
     })
