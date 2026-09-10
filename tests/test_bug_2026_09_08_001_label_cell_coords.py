@@ -104,10 +104,17 @@ def test_designer_reindex_before_serialize():
     assert 'function reindexLabelCells()' in src
     assert 'cell.dataset.row = r;' in src
     assert 'cell.dataset.col = colPos;' in src
-    # 保存到服务器前必须重排
-    save_idx = src.index('function saveTemplate()')
-    save_body = src[save_idx:save_idx + 1200]
-    assert 'reindexLabelCells();' in save_body
+    # 保存到服务器前必须重排：序列化统一经 __collectTemplateData()（另存为/更新共用），
+    # 其开头必须重排坐标。c736109 将 saveTemplate 重构为薄壳委托后，重排位于该共享助手内。
+    collect_idx = src.index('function __collectTemplateData()')
+    collect_body = src[collect_idx:collect_idx + 200]
+    assert 'reindexLabelCells();' in collect_body
+    # 两个保存入口（另存为 / 原地更新）都必须经 __collectTemplateData 序列化，
+    # 防改回各自读取 DOM 而绕过重排
+    for fn in ('function saveAsTemplate()', 'function updateExistingTemplate()'):
+        fn_idx = src.index(fn)
+        fn_body = src[fn_idx:fn_idx + 400]
+        assert '__collectTemplateData()' in fn_body, fn
     # 草稿序列化前必须重排（删除行/列链路经 saveTemplateToStorage 收尾覆盖）
     draft_idx = src.index('function saveTemplateToStorage()')
     draft_body = src[draft_idx:draft_idx + 600]
