@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -17,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -509,6 +512,14 @@ fun StockQueryScreen(
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
+                        // BUG-2026-09-10-002：键盘搜索键与放大镜按钮同口径——
+                        // 精确编码未命中时回退模糊列表，不再只弹「物料不存在」
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = {
+                            if (manualCode.isNotBlank()) {
+                                viewModel.queryMaterialByKeyword(manualCode.trim())
+                            }
+                        }),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Color.Transparent,
                             unfocusedBorderColor = Color.Transparent
@@ -526,8 +537,9 @@ fun StockQueryScreen(
                     FilledIconButton(
                         onClick = {
                             if (manualCode.isNotBlank()) {
-                                viewModel.clearMaterialSuggestions()
-                                viewModel.searchMaterialByCode(manualCode.trim())
+                                // BUG-2026-09-10-002：精确编码未命中时回退模糊列表
+                                // （含名称/规格/品牌全部命中物料），不再只弹「物料不存在」
+                                viewModel.queryMaterialByKeyword(manualCode.trim())
                             }
                         },
                         modifier = Modifier.size(48.dp),
@@ -561,11 +573,17 @@ fun StockQueryScreen(
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                     colors = CardDefaults.cardColors(containerColor = CardBackground)
                 ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        val visibleSuggestions = uiState.materialSuggestions.take(8)
+                    // BUG-2026-09-10-002：候选列出全部命中物料（不再 take(8) 截断），
+                    // 高度受限内部可滚动；名称/规格/品牌逐行完整显示，不做省略号截断
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 360.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        val visibleSuggestions = uiState.materialSuggestions
                         visibleSuggestions.forEachIndexed { index, material ->
-                            val subtitle = listOfNotNull(
-                                material.name?.takeIf { it.isNotBlank() },
+                            val specBrand = listOfNotNull(
                                 material.spec?.takeIf { it.isNotBlank() }?.let { "规格: $it" },
                                 material.brand?.takeIf { it.isNotBlank() }?.let { "品牌: $it" }
                             ).joinToString("   ")
@@ -591,14 +609,20 @@ fun StockQueryScreen(
                                     fontWeight = FontWeight.Bold,
                                     color = Primary
                                 )
-                                if (subtitle.isNotBlank()) {
+                                if (!material.name.isNullOrBlank()) {
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        subtitle,
+                                        material.name.orEmpty(),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                if (specBrand.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        specBrand,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }

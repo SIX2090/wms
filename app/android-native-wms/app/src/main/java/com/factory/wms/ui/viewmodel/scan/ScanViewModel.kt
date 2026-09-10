@@ -366,6 +366,54 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * 查库存「查询」按钮/键盘搜索键统一入口（BUG-2026-09-10-002）。
+     * 先按物料编码精确查询；未命中时回退名称/规格/品牌模糊搜索并列出全部候选，
+     * 不再只弹「物料不存在」。模糊也无命中时清空结果交由页面空态提示
+     * 「未找到包含「kw」的物料」，不写 error（避免 toast 与空态双重提示）。
+     * 不触碰 scannedCode，避免触发 LaunchedEffect(scannedCode) 重复查询。
+     */
+    fun queryMaterialByKeyword(keyword: String) {
+        val normalized = keyword.trim()
+        if (normalized.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            val whCode = _uiState.value.selectedWarehouse?.code
+            repository.getMaterialInfo(normalized, whCode).fold(
+                onSuccess = { material ->
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        scannedMaterial = material,
+                        materialSuggestions = emptyList(),
+                        materialSuggestionsLoading = false
+                    )
+                },
+                onFailure = {
+                    // 精确编码未命中：回退模糊搜索，列出包含关键词的全部物料
+                    repository.searchMaterial(normalized, whCode).fold(
+                        onSuccess = { materials ->
+                            _uiState.value = _uiState.value.copy(
+                                isLoading = false,
+                                scannedMaterial = null,
+                                materialSuggestions = materials,
+                                materialSuggestionsLoading = false
+                            )
+                        },
+                        onFailure = { e ->
+                            _uiState.value = _uiState.value.copy(
+                                isLoading = false,
+                                scannedMaterial = null,
+                                materialSuggestions = emptyList(),
+                                materialSuggestionsLoading = false,
+                                error = e.message
+                            )
+                        }
+                    )
+                }
+            )
+        }
+    }
+
+    /**
      * 查库存：点选模糊联想候选后直接展示该物料。
      * 候选来自后端 api/material/search 实时查询，与 api/material/info 返回同一 payload，
      * 字段一致，无需二次请求；同时不触碰 scannedCode，避免触发 LaunchedEffect(scannedCode) 重复查询。
