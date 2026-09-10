@@ -42,8 +42,11 @@ def test_t1_business_exception_in_companion():
 
 def test_t2_safe_call_catches_business_first():
     src = _src()
-    assert "private suspend inline fun <T> safeCall(" in src
-    body = src[src.index("private suspend inline fun <T> safeCall("):]
+    # T 必须 reified：内部要调用同为 reified 的 handleResponse。
+    # 若非 reified，Release 编译直接失败
+    # （"Cannot use 'T' as reified type parameter"，CI job 103063453342）。
+    assert "private suspend inline fun <reified T> safeCall(" in src
+    body = src[src.index("private suspend inline fun <reified T> safeCall("):]
     body = body[:body.index("private inline fun <reified T> handleResponse")]
     # BusinessException 分支必须在 Exception 分支之前
     assert body.index("catch (e: BusinessException)") < body.index("catch (e: Exception)")
