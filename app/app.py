@@ -7403,12 +7403,24 @@ def api_material_payload(material, warehouse=None):
         stock = material.stock or 0
     warehouse_code = getattr(material, 'warehouse', '') or ''
     location_code = ''
+    locations = []
     if location_management_enabled():
-        location_row = LocationInventory.query.filter_by(material_id=material.id).order_by(
+        # BUG-2026-09-10-003：库位分布——手机端查库存需要回答「货在哪个库位、
+        # 各多少」，原 location_code 只给数量最多的一个库位不够用。
+        # 有仓库上下文时按仓库过滤（与该仓账面 stock 口径一致），
+        # 零库存库位不展示；location_code 保持原语义（数量最多的库位）向后兼容。
+        loc_query = LocationInventory.query.filter_by(material_id=material.id)
+        if wh_obj is not None:
+            loc_query = loc_query.filter(LocationInventory.warehouse_id == wh_obj.id)
+        loc_rows = loc_query.filter(LocationInventory.quantity != 0).order_by(
             LocationInventory.quantity.desc(),
             LocationInventory.location.asc()
-        ).first()
-        location_code = location_row.location if location_row else ''
+        ).all()
+        locations = [
+            {'location': row.location, 'quantity': normalize_stock_quantity(row.quantity or 0)}
+            for row in loc_rows
+        ]
+        location_code = loc_rows[0].location if loc_rows else ''
     return {
         'id': material.id,
         'code': material.code or '',
@@ -7418,8 +7430,14 @@ def api_material_payload(material, warehouse=None):
         'unit': material.unit.name if material.unit else '',
         'price': float(material.price or 0),
         'stock': stock,
+        # BUG-2026-09-10-003：补最低库存/补货点——Android 查库存「库存充足/不足」
+        # 徽标按 stock > min_stock 判断，此前 payload 不下发该字段导致恒按 0 比较，
+        # 退化为"大于 0 即充足"，现场误导。
+        'min_stock': float(material.min_stock or 0),
+        'reorder_point': float(material.reorder_point or 0),
         'warehouse_code': warehouse_code,
         'location_code': location_code,
+        'locations': locations,
     }
 
 def api_json_error(message, status_code=400):
