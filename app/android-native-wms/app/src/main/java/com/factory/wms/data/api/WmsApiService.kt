@@ -74,11 +74,16 @@ interface WmsApiService {
         @Query("keyword") keyword: String? = null
     ): Response<ApiEnvelope<ContractsListData>>
 
-    /** 每日明细报表：type=purchase_in（采购入库）/ requisition（领料单），date 缺省为今天 */
+    /**
+     * 每日明细报表：type=purchase_in（采购入库）/ requisition（领料单），date 缺省为今天。
+     * warehouseId：仓 id 字符串或 "all"（全部仓库汇总）；null 表示跟随系统默认仓
+     * （BUG-2026-09-10-009：多仓用户此前只能看默认仓，录在其他仓的单据查不到）。
+     */
     @GET("api/mobile/report/daily_detail")
     suspend fun dailyReportDetail(
         @Query("type") type: String,
         @Query("date") date: String? = null,
+        @Query("warehouse_id") warehouseId: String? = null,
         @Query("page") page: Int = 1,
         @Query("page_size") pageSize: Int = 20
     ): Response<ApiEnvelope<DailyReportData>>

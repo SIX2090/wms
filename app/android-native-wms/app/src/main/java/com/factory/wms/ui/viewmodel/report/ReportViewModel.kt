@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.factory.wms.data.model.DailyReportData
+import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.data.repository.WmsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +29,13 @@ data class ReportUiState(
     /** 日期是否处于「今天模式」：true 时每次加载自动跟随系统当天（跨天不重启也生效） */
     val dateIsToday: Boolean = true,
     val reportType: ReportType = ReportType.PURCHASE_IN,
+    /** 可选仓库列表（进入报表页时加载一次，供顶部下拉切换） */
+    val warehouses: List<WarehouseDto> = emptyList(),
+    /**
+     * 当前查询仓库：null = 跟随系统默认仓（旧行为），"all" = 全部仓库汇总，
+     * 其余为仓库 id 字符串（BUG-2026-09-10-009：多仓用户此前只能看默认仓）。
+     */
+    val selectedWarehouseId: String? = null,
     val report: DailyReportData? = null
 )
 
@@ -59,7 +67,9 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
         val state = _uiState.value
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            repository.getDailyReport(state.reportType.apiType, state.date).fold(
+            repository.getDailyReport(
+                state.reportType.apiType, state.date, state.selectedWarehouseId
+            ).fold(
                 onSuccess = { data ->
                     _uiState.value = _uiState.value.copy(isLoading = false, report = data)
                 },
@@ -71,6 +81,27 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
                 }
             )
         }
+    }
+
+    /** 进入报表页时加载可选仓库；已加载过则不重复请求。失败静默（不影响按默认仓查询）。 */
+    fun loadWarehouses() {
+        if (_uiState.value.warehouses.isNotEmpty()) return
+        viewModelScope.launch {
+            repository.ensureSession()
+            repository.getWarehouses().fold(
+                onSuccess = { list ->
+                    _uiState.value = _uiState.value.copy(warehouses = list)
+                },
+                onFailure = { /* 静默：仓库列表失败不阻断报表查询 */ }
+            )
+        }
+    }
+
+    /** 切换仓库：null 默认仓 / "all" 全部仓库 / 其余仓 id */
+    fun selectWarehouse(warehouseId: String?) {
+        if (_uiState.value.selectedWarehouseId == warehouseId) return
+        _uiState.value = _uiState.value.copy(selectedWarehouseId = warehouseId)
+        load()
     }
 
     fun selectType(type: ReportType) {

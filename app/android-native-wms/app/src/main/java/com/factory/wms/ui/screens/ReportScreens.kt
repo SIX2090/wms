@@ -15,10 +15,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -37,7 +40,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.DailyReportData
 import com.factory.wms.data.model.DailyReportItem
+import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.Primary
 import com.factory.wms.ui.viewmodel.report.ReportType
@@ -68,6 +74,8 @@ fun DailyReportScreen(
     // BUG-2026-08-24-006：进入报表页时才加载（ViewModel 在 App 启动时即被创建，
     // 不能依赖 init 加载）；再次进入也会按当前日期/类型刷新，保证数据不过期。
     LaunchedEffect(Unit) {
+        // BUG-2026-09-10-009：先拉可选仓库（多仓用户可切换/看全部），再查报表
+        viewModel.loadWarehouses()
         viewModel.load()
     }
 
@@ -140,17 +148,6 @@ fun DailyReportScreen(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 16.sp
                         )
-                        // BUG-2026-09-10-001：报表明细按仓库隔离，而请求不带仓库参数时
-                        // 服务端回退默认仓库。显示实际查询的仓库，避免"查的是哪个仓"未知。
-                        uiState.report?.warehouse?.let { wh ->
-                            if (wh.isNotBlank()) {
-                                Text(
-                                    "仓库 $wh",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
                         TextButton(onClick = { viewModel.resetToday() }) {
                             Text("回到今天", fontSize = 12.sp)
                         }
@@ -177,6 +174,17 @@ fun DailyReportScreen(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // ── 仓库选择（BUG-2026-09-10-009）──
+            // 多仓用户此前只能看系统默认仓，录在其他仓的单据"查不到"。
+            WarehouseSelector(
+                currentLabel = uiState.report?.warehouse,
+                warehouses = uiState.warehouses,
+                selectedId = uiState.selectedWarehouseId,
+                onSelect = { viewModel.selectWarehouse(it) }
+            )
 
             Spacer(modifier = Modifier.height(10.dp))
 
@@ -237,7 +245,8 @@ fun DailyReportScreen(
                             items(uiState.report!!.items) { item ->
                                 DailyReportItemRow(
                                     item = item,
-                                    isPurchase = uiState.reportType == ReportType.PURCHASE_IN
+                                    isPurchase = uiState.reportType == ReportType.PURCHASE_IN,
+                                    showWarehouse = uiState.selectedWarehouseId == "all"
                                 )
                             }
                         }
@@ -285,7 +294,11 @@ private fun SummaryCell(label: String, value: String) {
 }
 
 @Composable
-private fun DailyReportItemRow(item: DailyReportItem, isPurchase: Boolean) {
+private fun DailyReportItemRow(
+    item: DailyReportItem,
+    isPurchase: Boolean,
+    showWarehouse: Boolean = false
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -334,7 +347,12 @@ private fun DailyReportItemRow(item: DailyReportItem, isPurchase: Boolean) {
             val partyLabel = if (isPurchase) "供应商" else "部门"
             val partyValue = (if (isPurchase) item.supplier else item.department) ?: ""
             val bottomText = buildString {
-                if (!item.contractNo.isNullOrBlank()) append("合同 ${item.contractNo}")
+                // 全部仓库汇总：先标出来源仓，避免多仓数据混在一起分不清
+                if (showWarehouse && !item.warehouse.isNullOrBlank()) append("仓 ${item.warehouse}")
+                if (!item.contractNo.isNullOrBlank()) {
+                    if (isNotEmpty()) append(" · ")
+                    append("合同 ${item.contractNo}")
+                }
                 if (partyValue.isNotBlank()) {
                     if (isNotEmpty()) append(" · ")
                     append("$partyLabel $partyValue")
@@ -350,6 +368,48 @@ private fun DailyReportItemRow(item: DailyReportItem, isPurchase: Boolean) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
+        }
+    }
+}
+
+/**
+ * 仓库选择下拉：默认仓库（跟随系统）/ 各仓 / 全部仓库汇总。
+ * 当前标签优先用服务端回传的 warehouse（旧版后端无该字段时回退"默认仓库"）。
+ */
+@Composable
+private fun WarehouseSelector(
+    currentLabel: String?,
+    warehouses: List<WarehouseDto>,
+    selectedId: String?,
+    onSelect: (String?) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val label = if (!currentLabel.isNullOrBlank()) currentLabel else "默认仓库"
+    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+        TextButton(onClick = { expanded = true }) {
+            Text(label, fontSize = 14.sp)
+            Icon(
+                Icons.Filled.ArrowDropDown,
+                "切换仓库",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("默认仓库") },
+                onClick = { expanded = false; onSelect(null) }
+            )
+            warehouses.forEach { wh ->
+                val id = wh.id?.toString() ?: return@forEach
+                DropdownMenuItem(
+                    text = { Text(wh.name ?: wh.code ?: id) },
+                    onClick = { expanded = false; onSelect(id) }
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("全部仓库（汇总）") },
+                onClick = { expanded = false; onSelect("all") }
+            )
         }
     }
 }

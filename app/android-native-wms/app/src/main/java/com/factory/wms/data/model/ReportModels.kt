@@ -75,5 +75,10 @@ data class DailyReportItem(
     @SerializedName("operator") val operator: String,
     /** 合同编号（明细级优先，服务端回退单据头；手机端报表展示该字段） */
     @SerializedName("contract_no") val contractNo: String? = null,
-    @SerializedName("remark") val remark: String
+    @SerializedName("remark") val remark: String,
+    /**
+     * BUG-2026-09-10-009：明细所属仓库（全部仓库汇总模式下逐行显示来源仓）。
+     * 旧版后端不下发该字段（Gson 置 null），UI 必须判空。
+     */
+    @SerializedName("warehouse") val warehouse: String? = null
 )

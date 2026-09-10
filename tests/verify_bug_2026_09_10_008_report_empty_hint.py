@@ -62,9 +62,10 @@ def test_t4_hint_null_safe():
     assert "pendingOrders ?: 0" in body, "pendingOrders 必须判空"
 
 
-def test_t5_date_bar_shows_warehouse():
+def test_t5_selector_shows_current_warehouse():
     src = SCREEN.read_text(encoding="utf-8")
-    assert 'uiState.report?.warehouse?.let' in src, "日期条需显示实际查询的仓库"
+    # BUG-2026-09-10-009 后：仓库名改由顶部下拉按钮展示（currentLabel 取自服务端回传）
+    assert "currentLabel = uiState.report?.warehouse" in src, "顶部仓库选择器需显示实际查询的仓库"
 
 
 def test_t6_hint_covers_both_reasons():
