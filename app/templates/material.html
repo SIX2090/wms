@@ -647,6 +647,14 @@
                             </div>
                         </div>
                         <div class="mb-2">
+                            <label class="form-label" style="font-size: 12px;">垂直对齐</label>
+                            <div class="btn-group btn-group-sm w-100">
+                                <button class="btn btn-outline-secondary" onclick="setVerticalAlign('top')" title="顶部对齐"><i class="bi bi-align-top"></i></button>
+                                <button class="btn btn-outline-secondary" onclick="setVerticalAlign('middle')" title="垂直居中"><i class="bi bi-align-middle"></i></button>
+                                <button class="btn btn-outline-secondary" onclick="setVerticalAlign('bottom')" title="底部对齐"><i class="bi bi-align-bottom"></i></button>
+                            </div>
+                        </div>
+                        <div class="mb-2">
                             <label class="form-label" style="font-size: 12px;">行高 (px)</label>
                             <div class="input-group input-group-sm">
                                 <input type="number" class="form-control form-control-sm" id="rowHeightInput" min="20" max="200" step="5" value="30" placeholder="行高">
@@ -765,14 +773,14 @@
                                 <label class="form-label" style="font-size: 12px;">位置 / 尺寸</label>
                                 <div style="font-size: 12px; color: #6b7280;" id="cellPosInfo">行 - , 列 -</div>
                             </div>
-                            <!-- 条码宽高设置（选中条码字段时显示） -->
+                            <!-- 条码/二维码宽高设置（选中条码或二维码字段时显示） -->
                             <div id="barcodeSizeSettings" style="display: none;">
                                 <div class="mb-2">
-                                    <label class="form-label" style="font-size: 12px;">条码宽度(mm)</label>
+                                    <label class="form-label" style="font-size: 12px;" id="barcodeWidthLabel">条码宽度(mm)</label>
                                     <input type="number" class="form-control form-control-sm" id="barcodeWidth" value="50" min="10" max="100">
                                 </div>
                                 <div class="mb-2">
-                                    <label class="form-label" style="font-size: 12px;">条码高度(mm)</label>
+                                    <label class="form-label" style="font-size: 12px;" id="barcodeHeightLabel">条码高度(mm)</label>
                                     <input type="number" class="form-control form-control-sm" id="barcodeHeight" value="15" min="5" max="50">
                                 </div>
                             </div>
@@ -2096,13 +2104,14 @@ function __captureSnapshot() {
             text: content.textContent, field: content.dataset.field || '',
             style: {
                 fontSize: content.style.fontSize, fontWeight: content.style.fontWeight,
-                color: content.style.color, textAlign: content.style.textAlign
+                color: content.style.color, textAlign: content.style.textAlign,
+                verticalAlign: content.style.verticalAlign || cell.style.verticalAlign || ''
             },
             colSpan: cell.colSpan
         };
-        if (content.dataset.field === 'barcode') {
-            cellData.barcodeWidth = content.dataset.barcodeWidth || '50';
-            cellData.barcodeHeight = content.dataset.barcodeHeight || '15';
+        if (content.dataset.field === 'barcode' || content.dataset.field === 'qrcode') {
+            cellData.barcodeWidth = content.dataset.barcodeWidth || (content.dataset.field === 'qrcode' ? '25' : '50');
+            cellData.barcodeHeight = content.dataset.barcodeHeight || (content.dataset.field === 'qrcode' ? '25' : '15');
         }
         cells.push(cellData);
     });
@@ -2241,13 +2250,14 @@ function saveTemplateToStorage() {
                     fontSize: content.style.fontSize,
                     fontWeight: content.style.fontWeight,
                     color: content.style.color,
-                    textAlign: content.style.textAlign
+                    textAlign: content.style.textAlign,
+                    verticalAlign: content.style.verticalAlign || cell.style.verticalAlign || ''
                 },
                 colSpan: cell.colSpan
             };
-            if (content.dataset.field === 'barcode') {
-                cellData.barcodeWidth = content.dataset.barcodeWidth || '50';
-                cellData.barcodeHeight = content.dataset.barcodeHeight || '15';
+            if (content.dataset.field === 'barcode' || content.dataset.field === 'qrcode') {
+                cellData.barcodeWidth = content.dataset.barcodeWidth || (content.dataset.field === 'qrcode' ? '25' : '50');
+                cellData.barcodeHeight = content.dataset.barcodeHeight || (content.dataset.field === 'qrcode' ? '25' : '15');
             }
             cells.push(cellData);
         });
@@ -2400,13 +2410,18 @@ function updateCellProperties() {
     document.getElementById('cellField').value = content.dataset.field || '';
     document.getElementById('cellColspan').value = selectedCell.colSpan || 1;
     
-    // 条码宽高设置显示/隐藏
+    // 条码/二维码宽高设置显示/隐藏（AA3：二维码也可控尺寸）
     var barcodeSettings = document.getElementById('barcodeSizeSettings');
     var field = content.dataset.field || '';
-    if (field === 'barcode') {
+    if (field === 'barcode' || field === 'qrcode') {
         barcodeSettings.style.display = 'block';
-        document.getElementById('barcodeWidth').value = content.dataset.barcodeWidth || '50';
-        document.getElementById('barcodeHeight').value = content.dataset.barcodeHeight || '15';
+        var isQr = (field === 'qrcode');
+        document.getElementById('barcodeWidthLabel').textContent = isQr ? '二维码宽度(mm)' : '条码宽度(mm)';
+        document.getElementById('barcodeHeightLabel').textContent = isQr ? '二维码高度(mm)' : '条码高度(mm)';
+        var defW = isQr ? '25' : '50';
+        var defH = isQr ? '25' : '15';
+        document.getElementById('barcodeWidth').value = content.dataset.barcodeWidth || defW;
+        document.getElementById('barcodeHeight').value = content.dataset.barcodeHeight || defH;
     } else {
         barcodeSettings.style.display = 'none';
     }
@@ -2469,29 +2484,33 @@ if (cellFieldSelect) {
                 category_name: '分类', stock: '库存', price: '单价', barcode: '条码',
                 qrcode: '二维码', date: '日期', supplier_name: '供应商'
             };
-            selectedCell.querySelector('.cell-content').textContent = '[' + (labels[this.value] || this.value) + ']';
-            selectedCell.querySelector('.cell-content').dataset.field = this.value;
-            
-            // 显示/隐藏条码宽高设置
-            var barcodeSettings = document.getElementById('barcodeSizeSettings');
-            if (this.value === 'barcode') {
-                barcodeSettings.style.display = 'block';
+            var content = selectedCell.querySelector('.cell-content');
+            content.textContent = '[' + (labels[this.value] || this.value) + ']';
+            content.dataset.field = this.value;
+
+            // 显示/隐藏条码/二维码宽高设置（AA3：切换字段时给二维码补默认尺寸）
+            if (this.value === 'barcode' || this.value === 'qrcode') {
+                if (this.value === 'qrcode' && !content.dataset.barcodeWidth) {
+                    content.dataset.barcodeWidth = '25';
+                    content.dataset.barcodeHeight = '25';
+                }
+                updateCellProperties();  // 复用统一逻辑刷新尺寸面板与标签
             } else {
-                barcodeSettings.style.display = 'none';
+                document.getElementById('barcodeSizeSettings').style.display = 'none';
             }
-            
+
             saveTemplateToStorage();
         }
     });
 }
 
-// 条码宽度变化
+// 条码/二维码宽度变化（AA3：对二维码同样生效）
 var barcodeWidthInput = document.getElementById('barcodeWidth');
 if (barcodeWidthInput) {
     barcodeWidthInput.addEventListener('input', function() {
         if (selectedCell) {
             var content = selectedCell.querySelector('.cell-content');
-            if (content.dataset.field === 'barcode') {
+            if (content.dataset.field === 'barcode' || content.dataset.field === 'qrcode') {
                 content.dataset.barcodeWidth = this.value;
                 saveTemplateToStorage();
             }
@@ -2499,13 +2518,13 @@ if (barcodeWidthInput) {
     });
 }
 
-// 条码高度变化
+// 条码/二维码高度变化（AA3：对二维码同样生效）
 var barcodeHeightInput = document.getElementById('barcodeHeight');
 if (barcodeHeightInput) {
     barcodeHeightInput.addEventListener('input', function() {
         if (selectedCell) {
             var content = selectedCell.querySelector('.cell-content');
-            if (content.dataset.field === 'barcode') {
+            if (content.dataset.field === 'barcode' || content.dataset.field === 'qrcode') {
                 content.dataset.barcodeHeight = this.value;
                 saveTemplateToStorage();
             }
@@ -2680,6 +2699,21 @@ function setTextAlign(align) {
     }
 }
 
+// 垂直对齐（标签设计器可用性增强 AA3）：作用于 td 的 vertical-align，支持多选
+function setVerticalAlign(align) {
+    var cells = __getTargetCells();
+    if (!cells.length) {
+        __notify('请先点击选中单元格（Ctrl+点击可多选）', 'warning');
+        return;
+    }
+    cells.forEach(function(cell) {
+        cell.style.verticalAlign = align;
+        var content = cell.querySelector('.cell-content');
+        if (content) content.style.verticalAlign = align;
+    });
+    saveTemplateToStorage();
+}
+
 function applyFontSizeToCell(cell, sizeVal) {
     var content = cell.querySelector('.cell-content');
     if (!content) return;
@@ -2802,9 +2836,9 @@ function __collectTemplateData() {
             },
             colSpan: cell.colSpan
         };
-        if (content.dataset.field === 'barcode') {
-            cellData.barcodeWidth = content.dataset.barcodeWidth || '50';
-            cellData.barcodeHeight = content.dataset.barcodeHeight || '15';
+        if (content.dataset.field === 'barcode' || content.dataset.field === 'qrcode') {
+            cellData.barcodeWidth = content.dataset.barcodeWidth || (content.dataset.field === 'qrcode' ? '25' : '50');
+            cellData.barcodeHeight = content.dataset.barcodeHeight || (content.dataset.field === 'qrcode' ? '25' : '15');
         }
         cells.push(cellData);
     });
@@ -3035,10 +3069,15 @@ function loadTemplateToEditor(template) {
                     cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: ' + (cellData.style.fontSize || '12px') + '; font-weight: ' + (cellData.style.fontWeight || 'normal') + '; color: ' + (cellData.style.color || '#000') + '; text-align: ' + (cellData.style.textAlign || 'left') + '; overflow: hidden; white-space: normal; word-break: break-all;">' + cellData.text + '</span>';
                     var content = cell.querySelector('.cell-content');
                     content.dataset.field = cellData.field || '';
-                    // 恢复条码宽高
-                    if (cellData.field === 'barcode') {
-                        content.dataset.barcodeWidth = cellData.barcodeWidth || '50';
-                        content.dataset.barcodeHeight = cellData.barcodeHeight || '15';
+                    // 恢复垂直对齐（AA3）
+                    if (cellData.style && cellData.style.verticalAlign) {
+                        cell.style.verticalAlign = cellData.style.verticalAlign;
+                        content.style.verticalAlign = cellData.style.verticalAlign;
+                    }
+                    // 恢复条码/二维码宽高（AA3：含二维码）
+                    if (cellData.field === 'barcode' || cellData.field === 'qrcode') {
+                        content.dataset.barcodeWidth = cellData.barcodeWidth || (cellData.field === 'qrcode' ? '25' : '50');
+                        content.dataset.barcodeHeight = cellData.barcodeHeight || (cellData.field === 'qrcode' ? '25' : '15');
                     }
                     if (cellData.colSpan > 1) cell.colSpan = cellData.colSpan;
                 } else {

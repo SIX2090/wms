@@ -368,6 +368,9 @@
                     td.style.fontWeight = fw;
                     td.style.color = fc;
                     td.style.textAlign = ta;
+                    // 标签设计器可用性增强（AA3）：应用设计器设置的每格垂直对齐，保证实际打印=设计
+                    var va = (cd && cd.style && cd.style.verticalAlign) ? cd.style.verticalAlign : '';
+                    if (va) td.style.verticalAlign = va;
 
                     var fieldName = (cd && cd.field) ? cd.field : '';
 
@@ -391,12 +394,18 @@
                         td.appendChild(img);
                     } else if (fieldName === 'qrcode' && fieldVal) {
                         var qrImg = document.createElement('img');
+                        // 标签设计器可用性增强（AA3）：优先用设计器里设置的二维码宽/高，
+                        // 未设置时退回原启发式（标签宽40%、高50% 取小）
+                        var qrSizeW = (cd && cd.barcodeWidth) ? parseInt(cd.barcodeWidth) : 0;
+                        var qrSizeH = (cd && cd.barcodeHeight) ? parseInt(cd.barcodeHeight) : 0;
                         var qrSize = Math.min(W * 0.4, H * 0.5);
-                        var qrPxSize = Math.max(100, Math.min(400, Math.round(qrSize * 3.78)));
+                        var qrW = qrSizeW > 0 ? Math.min(qrSizeW, W * 0.95) : qrSize;
+                        var qrH = qrSizeH > 0 ? Math.min(qrSizeH, H * 0.95) : (qrSizeW > 0 ? qrW : qrSize);
+                        var qrPxSize = Math.max(100, Math.min(400, Math.round(Math.max(qrW, qrH) * 3.78)));
                         qrImg.src = '/api/qrcode/' + encodeURIComponent(fieldVal) + '?size=' + qrPxSize;
                         qrImg.alt = '二维码';
-                        qrImg.style.width = qrSize + 'mm';
-                        qrImg.style.height = qrSize + 'mm';
+                        qrImg.style.width = qrW + 'mm';
+                        qrImg.style.height = qrH + 'mm';
                         qrImg.style.display = 'block';
                         qrImg.style.maxWidth = '100%';
                         qrImg.style.imageRendering = 'pixelated';
