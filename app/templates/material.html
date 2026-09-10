@@ -667,7 +667,20 @@
                             </div>
                         </div>
                         
-                        <!-- Excel风格表格画布 -->
+                        <!-- 画布缩放工具条 -->
+                        <div style="margin-bottom: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-secondary" onclick="zoomCanvas(-0.1)" title="缩小"><i class="bi bi-zoom-out"></i></button>
+                                <button class="btn btn-outline-secondary" id="canvasZoomLabel" onclick="resetCanvasZoom()" title="重置为100%" style="min-width:56px;">100%</button>
+                                <button class="btn btn-outline-secondary" onclick="zoomCanvas(0.1)" title="放大"><i class="bi bi-zoom-in"></i></button>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="fitCanvasZoom()" title="适应宽度"><i class="bi bi-arrows-angle-contract"></i> 适应</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="toggleDesignerFullscreen()" title="全屏/退出全屏"><i class="bi bi-fullscreen"></i> 全屏</button>
+                        </div>
+
+                        <!-- Excel风格表格画布（缩放视口 + 缩放包裹层） -->
+                        <div id="labelCanvasViewport" style="overflow: auto; max-height: 52vh; padding: 12px; background: #f1f3f5; border-radius: 6px;">
+                          <div id="labelCanvasZoomWrap" style="position: relative; margin: 0 auto;">
                         <div id="labelCanvas" style="background: white; border: 2px solid #dee2e6; position: relative; margin: 0 auto; display: table;">
                             <table id="labelTable" style="width: 100%; border-collapse: collapse; table-layout: fixed;">
                                 <tr style="height: 30px; background: #f8f9fa;">
@@ -693,9 +706,11 @@
                                 </tr>
                             </table>
                         </div>
-                        
+                          </div>
+                        </div>
+
                         <div style="margin-top: 10px; font-size: 12px; color: #666;">
-                            <i class="bi bi-info-circle"></i> 提示：拖拽字段到表格中，点击单元格可直接编辑，支持合并单元格
+                            <i class="bi bi-info-circle"></i> 提示：拖拽或双击字段插入单元格；拖动已填单元格可移动/交换位置；点击单元格编辑；Ctrl+点击多选；Ctrl+Z 撤销 / Ctrl+Y 重做 / Delete 清空选中
                         </div>
                     </div>
                     
@@ -2314,8 +2329,10 @@ function openLabelTemplate() {
     
     // 加载模板列表
     loadTemplateList();
-    
+
     initTemplateDragDrop();
+    // 同步画布物理尺寸与缩放占位（AA5）
+    updateCanvasSize();
 }
 
 // ==================== 画布内拖动字段 + 双击插入（标签设计器可用性增强 AA4） ====================
@@ -2744,7 +2761,7 @@ function deleteSelectedRow() {
             document.getElementById('noSelection').style.display = 'block';
             saveTemplateToStorage();
         } else if (table.rows.length <= 1) {
-            alert('至少需要保留一行！');
+            __notify('至少需要保留一行', 'warning');
         }
     }
 }
@@ -2752,7 +2769,7 @@ function deleteSelectedRow() {
 function deleteRow() {
     var table = document.getElementById('labelTable');
     if (table.rows.length <= 1) {
-        alert('至少需要保留一行！');
+        __notify('至少需要保留一行', 'warning');
         return;
     }
     
@@ -2782,7 +2799,7 @@ function deleteCol() {
     }
     
     if (actualCols <= 1) {
-        alert('至少需要保留一列！');
+        __notify('至少需要保留一列', 'warning');
         return;
     }
     
@@ -2874,7 +2891,7 @@ function applyFontSizeToCell(cell, sizeVal) {
 function applyRowHeight() {
     var cells = __getTargetCells();
     if (!cells.length) {
-        alert('请先点击选中一个单元格');
+        __notify('请先点击选中一个单元格', 'warning');
         return;
     }
     var input = document.getElementById('rowHeightInput');
@@ -2954,6 +2971,52 @@ function updateCanvasSize() {
     var scale = 4;
     canvas.style.width = (currentTemplate.labelWidth * scale) + 'px';
     canvas.style.height = (currentTemplate.labelHeight * scale) + 'px';
+    __syncZoomWrap();
+}
+
+// ==================== 画布缩放 / 全屏（标签设计器可用性增强 AA5） ====================
+var canvasZoom = 1;
+var CANVAS_BASE_SCALE = 4;  // 画布基础像素/毫米（与 updateCanvasSize 一致）
+
+function __syncZoomWrap() {
+    var canvas = document.getElementById('labelCanvas');
+    var wrap = document.getElementById('labelCanvasZoomWrap');
+    if (!canvas || !wrap) return;
+    // transform 不影响布局，offsetWidth/Height 始终是未缩放的基础尺寸
+    var baseW = canvas.offsetWidth || (currentTemplate.labelWidth * CANVAS_BASE_SCALE);
+    var baseH = canvas.offsetHeight || (currentTemplate.labelHeight * CANVAS_BASE_SCALE);
+    canvas.style.transform = 'scale(' + canvasZoom + ')';
+    canvas.style.transformOrigin = 'top left';
+    // 预留缩放后的占位，保证视口滚动区域正确
+    wrap.style.width = Math.round(baseW * canvasZoom) + 'px';
+    wrap.style.height = Math.round(baseH * canvasZoom) + 'px';
+    var lbl = document.getElementById('canvasZoomLabel');
+    if (lbl) lbl.textContent = Math.round(canvasZoom * 100) + '%';
+}
+
+function setCanvasZoom(z) {
+    canvasZoom = Math.max(0.4, Math.min(3, z));
+    __syncZoomWrap();
+}
+
+function zoomCanvas(delta) { setCanvasZoom(canvasZoom + delta); }
+function resetCanvasZoom() { setCanvasZoom(1); }
+
+function fitCanvasZoom() {
+    var viewport = document.getElementById('labelCanvasViewport');
+    if (!viewport) return;
+    var baseW = currentTemplate.labelWidth * CANVAS_BASE_SCALE;
+    var avail = viewport.clientWidth - 40;
+    if (baseW > 0 && avail > 0) setCanvasZoom(avail / baseW);
+}
+
+function toggleDesignerFullscreen() {
+    var dlg = document.querySelector('#labelTemplateModal .modal-dialog');
+    if (!dlg) return;
+    dlg.classList.toggle('modal-fullscreen');
+    var viewport = document.getElementById('labelCanvasViewport');
+    if (viewport) viewport.style.maxHeight = dlg.classList.contains('modal-fullscreen') ? '78vh' : '52vh';
+    setTimeout(fitCanvasZoom, 200);
 }
 
 // 收集当前画布为模板布局对象（新建/更新共用，标签设计器可用性增强 AA2）
@@ -3260,6 +3323,7 @@ function loadTemplateToEditor(template) {
     }
     
     initTemplateDragDrop();
+    updateCanvasSize();  // 让画布反映模板宽高比并同步缩放占位（AA5）
     if (!__applyingHistory) { __resetHistory(); }
 }
 
@@ -3269,27 +3333,32 @@ function deleteTemplate() {
     var templateId = select.value;
     
     if (!templateId) {
-        alert('请选择要删除的模板！');
+        __notify('请选择要删除的模板', 'warning');
         return;
     }
-    
+
     if (!confirm('确定要删除该模板吗？')) return;
 
     csrfFetch('/label_template/' + templateId + '/delete', { method: 'POST' })
     .then(function(r){ return r.json(); })
     .then(function(res) {
         if (res.status === 'success') {
+            // 删除的是当前编辑模板时，清空当前编辑状态
+            if (String(currentTemplateId) === String(templateId)) {
+                currentTemplateId = null;
+                document.getElementById('templateNameInput').value = '';
+            }
             loadTemplateList();
-            alert('模板已删除！');
+            __notify('模板已删除', 'success');
         } else {
-            alert('删除失败：' + (res.msg || '未知错误'));
+            __notify('删除失败：' + (res.msg || '未知错误'), 'error');
         }
     })
-    .catch(function(err){ alert('网络错误：' + err.message); });
+    .catch(function(err){ __notify('网络错误：' + err.message, 'error'); });
 }
 
 function clearTemplate() {
-    if (confirm('确定清空当前模板吗？')) {
+    if (confirm('确定清空当前模板吗？（可用 Ctrl+Z 撤销）')) {
         var table = document.getElementById('labelTable');
         var newCell = document.createElement('td');
         newCell.className = 'label-cell';
@@ -3297,21 +3366,27 @@ function clearTemplate() {
         newCell.setAttribute('data-row', '0');
         newCell.setAttribute('data-col', '0');
         newCell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;">点击输入内容或拖拽字段</span>';
-        
+
         var newRow = document.createElement('tr');
         newRow.style.height = '30px';
         newRow.appendChild(newCell);
-        
+
         table.innerHTML = '';
         table.appendChild(newRow);
         table._dragDelegated = false; // 重置委托标志
-        
+
         currentTemplate.rows = 1;
         currentTemplate.cols = 1;
         selectedCell = null;
         document.getElementById('cellProperties').style.display = 'none';
         document.getElementById('noSelection').style.display = 'block';
+        // 清空后视为新设计：保存走"另存为"，避免误覆盖已载入模板（AA2/AA5）
+        currentTemplateId = null;
+        document.getElementById('templateSelect').value = '';
+        document.getElementById('templateNameInput').value = '';
         initTemplateDragDrop();
+        // AA5：把清空前快照入撤销栈并写草稿，使清空可撤销
+        saveTemplateToStorage();
     }
 }
 
@@ -3480,10 +3555,10 @@ function printLabels() {
     });
     
     if (selected.length === 0) {
-        alert('请先选择要打印标签的物料（勾选表格中的复选框）');
+        __notify('请先选择要打印标签的物料（勾选表格中的复选框）', 'warning');
         return;
     }
-    
+
     window.open('{{ url_for("print_batch_labels") }}?ids=' + selected.join(','), '_blank');
 }
 
