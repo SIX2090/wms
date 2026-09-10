@@ -355,6 +355,95 @@ def _print_url(job):
     return url
 
 
+# PRINT-TEMPLATE-F07：芯烨 TSPL 指令直出（懒渲染，零表结构变更）。
+# 判定打印机支持 TSPL 的显式标记是 PrintDevice.printer_type='tspl'；
+# 另按系统/显示名称关键词兜底（零配置），便于未手动标记时也能识别芯烨/TSC 机。
+_TSPL_PRINTER_KEYWORDS = ('tspl', 'tsc', 'xprinter', '芯烨')
+
+
+def _printer_supports_tspl(printer):
+    """判断目标打印机是否支持 TSPL 直出（printer_type='tspl' 或名称含关键词）。"""
+    if printer is None:
+        return False
+    if (getattr(printer, 'printer_type', '') or '').strip().lower() == 'tspl':
+        return True
+    name = ((getattr(printer, 'system_name', '') or '') + ' '
+            + (getattr(printer, 'display_name', '') or '')).lower()
+    return any(k in name for k in _TSPL_PRINTER_KEYWORDS)
+
+
+def _material_label_data(m):
+    """物料 -> 标签数据 dict（取数口径与 label.py 的 batch_print 一致）。"""
+    return {
+        'code': m.code or '',
+        'name': m.name or '',
+        'spec': m.spec or '',
+        'unit_name': m.unit.name if m.unit else '',
+        'category_name': m.category.name if m.category else '',
+        'supplier_name': m.supplier.name if m.supplier else '',
+        'stock': str(m.stock) if m.stock else '0',
+        'price': str(m.price) if m.price else '',
+        'barcode': m.code or '',
+        'date': datetime.now().strftime('%Y-%m-%d'),
+    }
+
+
+def _build_label_tspl_payload(target_ids, dpi=203):
+    """按默认标签模板为一组物料渲染 TSPL 指令（每物料一张，顺序拼接）。
+
+    无默认模板 / 无有效物料 / 渲染为空时返回 None，调用方回退 HTML 打印。
+    """
+    import json as _json
+    from sqlalchemy.orm import joinedload
+    from app import LabelTemplate, Material, _normalize_label_template_layout
+    import tspl_render
+
+    ids = [int(i) for i in str(target_ids or '').split(',') if i.strip().isdigit()]
+    if not ids:
+        return None
+    template = (LabelTemplate.query.filter_by(is_default=True).first()
+                or LabelTemplate.query.first())
+    if template is None:
+        return None
+    try:
+        layout = _json.loads(template.layout) if isinstance(template.layout, str) else (template.layout or {})
+    except (ValueError, TypeError):
+        layout = {}
+    tpl = {
+        'width': template.width, 'height': template.height,
+        'cols': template.cols, 'rows': template.rows,
+        'cell_width': template.cell_width, 'cell_height': template.cell_height,
+        'layout': _normalize_label_template_layout(layout),
+    }
+    materials = Material.query.options(
+        joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier)
+    ).filter(Material.id.in_(ids)).all()
+    chunks = [tspl_render.render_label_tspl(tpl, _material_label_data(m), dpi=dpi) for m in materials]
+    return ''.join(chunks) if chunks else None
+
+
+def _job_tspl_view(job):
+    """返回 {'print_method','payload'}，供 claim/next 响应附带。
+
+    label 任务且目标打印机支持 TSPL 时现场渲染指令（print_method='tspl'）；
+    其余情况 print_method='html'、payload=None，代理走既有浏览器打印。
+    R4 降级兜底：渲染/查询任何异常都静默回退 html，绝不阻断打印任务下发。
+    """
+    view = {'print_method': 'html', 'payload': None}
+    if getattr(job, 'job_type', None) != 'label':
+        return view
+    try:
+        if not _printer_supports_tspl(getattr(job, 'printer', None)):
+            return view
+        payload = _build_label_tspl_payload(job.target_ids)
+        if payload:
+            view['print_method'] = 'tspl'
+            view['payload'] = payload
+    except Exception:
+        pass
+    return view
+
+
 def enqueue_auto_print_job(job_type, target_id, warehouse_name, target_ids=None,
                            copies=1, created_by=None, source_event='auto'):
     """扫码/手工入库出库成功后自动创建打印任务，供桌面打印工作站或定向代理出纸。
@@ -508,6 +597,7 @@ def register_print_queue_routes(app):
             return _migration_error_response(e)
 
         print_url = _print_url(job)
+        tspl_view = _job_tspl_view(job)
 
         return jsonify({
             'status': 'success',
@@ -518,6 +608,8 @@ def register_print_queue_routes(app):
                 'target_ids': job.target_ids,
                 'copies': job.copies,
                 'print_url': print_url,
+                'print_method': tspl_view['print_method'],
+                'payload': tspl_view['payload'],
                 'lease_token': job.lease_token,
                 'created_at': job.created_at.strftime('%Y-%m-%d %H:%M:%S') if job.created_at else '',
             }
@@ -539,9 +631,11 @@ def register_print_queue_routes(app):
                 return jsonify({'status': 'empty', 'msg': '队列为空'})
         except Exception as e:
             return _migration_error_response(e)
+        tspl_view = _job_tspl_view(job)
         return jsonify({'status': 'success', 'job': {
             'id': job.id, 'job_type': job.job_type, 'target_id': job.target_id,
             'target_ids': job.target_ids, 'copies': job.copies, 'print_url': _print_url(job),
+            'print_method': tspl_view['print_method'], 'payload': tspl_view['payload'],
             'lease_token': job.lease_token,
             'printer_id': job.printer_id,
             'printer_system_name': job.printer.system_name if job.printer else '',
@@ -674,6 +768,7 @@ def register_print_queue_routes(app):
             return _migration_error_response(e)
         # 打印 URL 附短时效 ptoken（免登录渲染）与 autoprint=1（页面加载后自动打印）
         print_url = build_agent_print_url(job)
+        tspl_view = _job_tspl_view(job)
         return jsonify({'status': 'success', 'job': {
             'id': job.id,
             'job_type': job.job_type,
@@ -681,6 +776,8 @@ def register_print_queue_routes(app):
             'target_ids': job.target_ids,
             'copies': job.copies,
             'print_url': print_url,
+            'print_method': tspl_view['print_method'],
+            'payload': tspl_view['payload'],
             'lease_token': job.lease_token,
             'printer_id': job.printer_id,
             'printer_system_name': job.printer.system_name if job.printer else '',
