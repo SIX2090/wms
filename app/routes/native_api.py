@@ -1009,11 +1009,14 @@ def register_native_api_routes(app):
     @csrf.exempt
     @web_or_api_required
     def mobile_api_report_daily_detail():
-        """移动端每日明细报表：按日期 + 业务类型查看明细行（按仓库隔离）。
+        """移动端每日明细报表：按日期 + 业务类型查看明细行（默认按仓库隔离）。
 
         供手机端报表页使用：
         - type=purchase_in  → 当日采购入库单明细
         - type=requisition  → 当日领料单明细
+        - warehouse_id / warehouse_code / warehouse → 指定仓库（缺省回退默认仓库，
+          AGENTS.md 仓库必填）；显式传 `all` 表示**全部仓库汇总**（用户主动跨仓，
+          不是"未指定仓库"，不违反仓库必填规则）
         仅统计已完成单据；汇总基于全集（不受分页影响）。
         """
         from datetime import date as _date, datetime as _dt
@@ -1023,9 +1026,19 @@ def register_native_api_routes(app):
                          OutOrder, OutOrderItem, _mobile_paginate, api_json_error,
                          api_json_success, normalize_stock_quantity,
                          resolve_request_warehouse, round_to_2_decimals)
-        warehouse, wh_err = resolve_request_warehouse(request.args)
-        if wh_err:
-            return api_json_error(wh_err, 400)
+        # BUG-2026-09-10-009：多仓用户（4 个以上仓库）反馈日报"查不到今天的记录"——
+        # 手机报表页此前没有仓库参数，服务端一律回退默认仓库，录在其他仓的单据全部
+        # 看不到。现支持显式指定仓库，以及 warehouse_id=all 的全部仓库汇总。
+        raw_wh_param = str(request.args.get('warehouse_id')
+                           or request.args.get('warehouse_code')
+                           or request.args.get('warehouse') or '').strip()
+        all_warehouses = raw_wh_param.lower() == 'all'
+        if all_warehouses:
+            warehouse, wh_err = None, None
+        else:
+            warehouse, wh_err = resolve_request_warehouse(request.args)
+            if wh_err:
+                return api_json_error(wh_err, 400)
 
         TYPE_DEFS = {
             'purchase_in': {
@@ -1064,14 +1077,15 @@ def register_native_api_routes(app):
         page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
 
         OrderModel, ItemModel = cfg['order_model'], cfg['item_model']
-        wh_name = warehouse.name or ''
+        wh_name = (warehouse.name or '') if warehouse else ''
         # 业务类型口径：集合匹配 +（可选）空类型兜底，见 TYPE_DEFS 注释。
         type_conds = [OrderModel.business_type == bt for bt in cfg['business_types']]
         if cfg['match_null_type']:
             type_conds.append(OrderModel.business_type.is_(None))
         type_filter = db.or_(*type_conds) if len(type_conds) > 1 else type_conds[0]
-        base_filters = [
-            OrderModel.warehouse == wh_name,
+        # 全部仓库模式不加仓库条件（含历史 warehouse 为空的脏数据，避免漏数，R2）
+        wh_filters = [] if all_warehouses else [OrderModel.warehouse == wh_name]
+        base_filters = wh_filters + [
             type_filter,
             OrderModel.status == 'completed',
             OrderModel.date == target_date,
@@ -1118,6 +1132,8 @@ def register_native_api_routes(app):
                 'order_id': order.id,
                 'order_no': order.order_no or '',
                 'date': order.date.isoformat() if order.date else '',
+                # BUG-2026-09-10-009：全部仓库汇总模式下必须能看出每行属于哪个仓
+                'warehouse': order.warehouse or '',
                 'material_code': material.code if material else '',
                 'material_name': material.name if material else '',
                 # BUG-2026-08-24-007：material.spec 列可空，显式 null 会让 Gson
@@ -1139,7 +1155,7 @@ def register_native_api_routes(app):
         # 却没有任何线索。这里回传查询仓库、服务器当天日期、待完成单据数、以及当天
         # 该仓已完成但业务类型不在本报表口径内的单据分布，供手机端给出明确提示。
         pending_orders = OrderModel.query.filter(
-            OrderModel.warehouse == wh_name,
+            *wh_filters,
             OrderModel.date == target_date,
             db.or_(OrderModel.status != 'completed', OrderModel.status.is_(None)),
         ).count()
@@ -1147,7 +1163,7 @@ def register_native_api_routes(app):
         for biz_type, order_cnt in db.session.query(
             OrderModel.business_type, func.count(func.distinct(OrderModel.id))
         ).filter(
-            OrderModel.warehouse == wh_name,
+            *wh_filters,
             OrderModel.date == target_date,
             OrderModel.status == 'completed',
             ~type_filter,
@@ -1166,7 +1182,9 @@ def register_native_api_routes(app):
             'date': target_date.isoformat(),
             'type': report_type,
             'type_label': cfg['label'],
-            'warehouse': wh_name,
+            'warehouse': '全部仓库' if all_warehouses else wh_name,
+            'warehouse_id': None if all_warehouses else (warehouse.id if warehouse else None),
+            'all_warehouses': all_warehouses,
             'server_today': _date.today().isoformat(),
             'diagnostics': {
                 'business_types': matched_types,
