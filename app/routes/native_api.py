@@ -390,7 +390,12 @@ def register_native_api_routes(app):
                 order_no=generate_order_no('OU'),
                 date=date.today(),
                 customer=(payload.get('receiver') or '').strip() or None,
-                business_type='Android扫码出库',
+                # BUG-2026-09-10-002：手机原生端出库此前固定写 'Android扫码出库'，
+                # 与 PC 领料单（'领料单'）不是一个业务类型，后果：①每日报表领料单
+                # 口径查不到手机出的库；②PC 领料单列表也看不到手机单据。
+                # 手机端出库即仓库领料，统一写 '领料单'（来源仍由 purpose/remark 区分）。
+                # 历史 'Android扫码出库' 单据由 daily_detail 报表口径兼容命中。
+                business_type='领料单',
                 warehouse=order_warehouse,
                 purpose=(payload.get('department') or 'Android原生端提交').strip(),
                 remark='Android原生端提交',
@@ -1026,12 +1031,19 @@ def register_native_api_routes(app):
             'purchase_in': {
                 'label': '采购入库', 'order_model': InOrder, 'item_model': InOrderItem,
                 'join_cond': InOrderItem.in_order_id == InOrder.id,
-                'business_type': '采购入库', 'party_key': 'supplier',
+                'business_types': ('采购入库',), 'match_null_type': False,
+                'party_key': 'supplier',
             },
             'requisition': {
                 'label': '领料单', 'order_model': OutOrder, 'item_model': OutOrderItem,
                 'join_cond': OutOrderItem.out_order_id == OutOrder.id,
-                'business_type': '领料单', 'party_key': 'department',
+                # BUG-2026-09-10-001：手机原生端 /api/outbound 历史上固定写
+                # business_type='Android扫码出库'，严格等值 '领料单' 会让手机扫的
+                # 出库在每日报表里一条都不出现（首页"今日出库"却显示有数，口径自相
+                # 矛盾）。改为业务类型集合匹配，并兼容历史脏数据（类型为空按领料计，
+                # 与 PC 领料单列表 out_order_list 口径一致）。
+                'business_types': ('领料单', 'Android扫码出库'), 'match_null_type': True,
+                'party_key': 'department',
             },
         }
         report_type = (request.args.get('type') or '').strip()
@@ -1053,9 +1065,14 @@ def register_native_api_routes(app):
 
         OrderModel, ItemModel = cfg['order_model'], cfg['item_model']
         wh_name = warehouse.name or ''
+        # 业务类型口径：集合匹配 +（可选）空类型兜底，见 TYPE_DEFS 注释。
+        type_conds = [OrderModel.business_type == bt for bt in cfg['business_types']]
+        if cfg['match_null_type']:
+            type_conds.append(OrderModel.business_type.is_(None))
+        type_filter = db.or_(*type_conds) if len(type_conds) > 1 else type_conds[0]
         base_filters = [
             OrderModel.warehouse == wh_name,
-            OrderModel.business_type == cfg['business_type'],
+            type_filter,
             OrderModel.status == 'completed',
             OrderModel.date == target_date,
         ]
@@ -1117,10 +1134,45 @@ def register_native_api_routes(app):
                 'remark': item.remark or '',
             })
 
+        # 诊断信息（BUG-2026-09-10-001）：报表只统计「已完成」单据，而 PC 端入库/出库
+        # 保存后默认是 pending（需人工点完成），手机端因此表现为"今天的记录查不到"
+        # 却没有任何线索。这里回传查询仓库、服务器当天日期、待完成单据数、以及当天
+        # 该仓已完成但业务类型不在本报表口径内的单据分布，供手机端给出明确提示。
+        pending_orders = OrderModel.query.filter(
+            OrderModel.warehouse == wh_name,
+            OrderModel.date == target_date,
+            db.or_(OrderModel.status != 'completed', OrderModel.status.is_(None)),
+        ).count()
+        other_type_orders = []
+        for biz_type, order_cnt in db.session.query(
+            OrderModel.business_type, func.count(func.distinct(OrderModel.id))
+        ).filter(
+            OrderModel.warehouse == wh_name,
+            OrderModel.date == target_date,
+            OrderModel.status == 'completed',
+            ~type_filter,
+        ).group_by(OrderModel.business_type).all():
+            if order_cnt:
+                other_type_orders.append({
+                    'business_type': biz_type or '未填写',
+                    'orders': order_cnt,
+                })
+        other_type_orders.sort(key=lambda row: (-row['orders'], row['business_type']))
+        matched_types = list(cfg['business_types'])
+        if cfg['match_null_type']:
+            matched_types.append('未填写')
+
         return api_json_success({
             'date': target_date.isoformat(),
             'type': report_type,
             'type_label': cfg['label'],
+            'warehouse': wh_name,
+            'server_today': _date.today().isoformat(),
+            'diagnostics': {
+                'business_types': matched_types,
+                'pending_orders': pending_orders,
+                'other_type_orders': other_type_orders,
+            },
             'summary': {
                 'order_count': agg[3],
                 'item_count': agg[0],
