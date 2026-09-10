@@ -609,7 +609,8 @@ def register_requisition_routes(app):
     @login_required
     def delete_requisition(id):
         from app import (ProductionRequisition, ProductionRequisitionItem,
-                         _acquire_order_write_lock, api_error, log_operation)
+                         StockTransaction, _acquire_order_write_lock, api_error,
+                         log_operation)
         from sqlalchemy.orm import selectinload
         requisition = ProductionRequisition.query.get_or_404(id)
         # 仅允许删除草稿状态的单据，避免删除已生效单据导致库存丢失
@@ -626,6 +627,12 @@ def register_requisition_routes(app):
                 return jsonify({'status': 'error', 'msg': '该工单领料单状态已变更；已完成单请先反提交后再删除'}), 409
             requisition = locked
             ProductionRequisitionItem.query.filter_by(requisition_id=id).delete()
+            # BUG-2026-09-10-001：已撤销（反提交）的单据可物理删除；同步清理完成与
+            # 撤销产生的库存流水，避免库存台账保留指向已删除工单领料单的悬挂引用
+            # （与 delete_in_order 对齐）。
+            StockTransaction.query.filter_by(
+                reference_type='requisition', reference_id=requisition.id
+            ).delete(synchronize_session=False)
             db.session.delete(requisition)
             db.session.commit()
             log_operation('删除工单领料单', f'工单领料单：{requisition.req_no}', 'requisition', id)
@@ -641,7 +648,8 @@ def register_requisition_routes(app):
     @login_required
     def batch_delete_requisition():
         from app import (ProductionRequisition, ProductionRequisitionItem,
-                         _acquire_order_write_lock, api_error, log_operation)
+                         StockTransaction, _acquire_order_write_lock, api_error,
+                         log_operation)
         from sqlalchemy.orm import selectinload
         data = request.get_json(silent=True) or {}
         ids = data.get('ids') or request.form.getlist('ids')
@@ -670,6 +678,10 @@ def register_requisition_routes(app):
                     return api_error(f'工单领料单 {rid} 状态已变更，请刷新后重试')
                 requisition = locked
                 ProductionRequisitionItem.query.filter_by(requisition_id=rid).delete()
+                # BUG-2026-09-10-001：同步清理该工单领料单完成/撤销产生的库存流水
+                StockTransaction.query.filter_by(
+                    reference_type='requisition', reference_id=requisition.id
+                ).delete(synchronize_session=False)
                 db.session.delete(requisition)
                 req_no = requisition.req_no
                 db.session.commit()

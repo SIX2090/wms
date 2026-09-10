@@ -1043,7 +1043,7 @@ def register_out_order_routes(app):
     @require_role('warehouse')
     @login_required
     def delete_out_order(id):
-        from app import (OutOrder, _acquire_order_write_lock,
+        from app import (OutOrder, StockTransaction, _acquire_order_write_lock,
                          _release_document_push_lines, api_error,
                          log_audit, log_operation)
         from sqlalchemy.orm import selectinload
@@ -1066,6 +1066,12 @@ def register_out_order_routes(app):
             )
             for item in list(order.items):
                 db.session.delete(item)
+            # BUG-2026-09-10-001：已反提交的单据可物理删除；同步清理完成与反提交
+            # 产生的库存流水，避免库存台账保留指向已删除领料单的悬挂引用
+            # （与 delete_in_order 对齐）。
+            StockTransaction.query.filter_by(
+                reference_type='out_order', reference_id=order.id
+            ).delete(synchronize_session=False)
             db.session.delete(order)
             db.session.commit()
             log_operation('删除领料单', f'领料单：{order.order_no}', 'out_order', id)
@@ -1086,7 +1092,7 @@ def register_out_order_routes(app):
     @require_role('warehouse')
     @login_required
     def batch_delete_out_order():
-        from app import (OutOrder, _acquire_order_write_lock,
+        from app import (OutOrder, StockTransaction, _acquire_order_write_lock,
                          _release_document_push_lines, api_error,
                          log_operation)
         from sqlalchemy.orm import joinedload, selectinload
@@ -1125,6 +1131,10 @@ def register_out_order_routes(app):
                 )
                 for item in list(order.items):
                     db.session.delete(item)
+                # BUG-2026-09-10-001：同步清理该领料单完成/反提交产生的库存流水
+                StockTransaction.query.filter_by(
+                    reference_type='out_order', reference_id=order.id
+                ).delete(synchronize_session=False)
                 db.session.delete(order)
                 db.session.commit()
                 deleted_count += 1

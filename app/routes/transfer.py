@@ -665,7 +665,7 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def delete_transfer(id):
-        from app import (TransferOrder, TransferOrderItem,
+        from app import (TransferOrder, TransferOrderItem, StockTransaction,
                          _acquire_order_write_lock, api_error, log_audit, log_operation)
         from flask import jsonify
         """删除调拨单"""
@@ -682,6 +682,12 @@ def register_transfer_routes(app):
 
             # 删除明细
             TransferOrderItem.query.filter_by(transfer_order_id=id).delete()
+            # BUG-2026-09-10-001：已反提交的单据可物理删除；同步清理完成与反提交
+            # 产生的调拨流水（transfer_out/transfer_in 及反向），避免库存台账保留
+            # 指向已删除调拨单的悬挂引用（与 delete_in_order 对齐）。
+            StockTransaction.query.filter_by(
+                reference_type='transfer', reference_id=transfer.id
+            ).delete(synchronize_session=False)
             db.session.delete(transfer)
             db.session.commit()
 
@@ -705,7 +711,7 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def batch_delete_transfer():
-        from app import (TransferOrder, TransferOrderItem,
+        from app import (TransferOrder, TransferOrderItem, StockTransaction,
                          _acquire_order_write_lock, api_error, log_operation)
         from flask import jsonify, request
         """批量删除草稿调拨单"""
@@ -742,6 +748,10 @@ def register_transfer_routes(app):
                 transfer = locked
                 transfer_no = transfer.transfer_no
                 TransferOrderItem.query.filter_by(transfer_order_id=transfer_id).delete()
+                # BUG-2026-09-10-001：同步清理该调拨单完成/反提交产生的库存流水
+                StockTransaction.query.filter_by(
+                    reference_type='transfer', reference_id=transfer.id
+                ).delete(synchronize_session=False)
                 db.session.delete(transfer)
                 db.session.commit()
                 deleted_count += 1

@@ -558,7 +558,7 @@ def register_adjustment_routes(app):
     @require_role('warehouse')
     @login_required
     def delete_adjustment(id):
-        from app import (AdjustmentOrder, AdjustmentOrderItem,
+        from app import (AdjustmentOrder, AdjustmentOrderItem, StockTransaction,
                          _acquire_order_write_lock, api_error, log_operation)
         adjustment = AdjustmentOrder.query.get_or_404(id)
         if adjustment.status != 'pending':
@@ -572,6 +572,12 @@ def register_adjustment_routes(app):
             adjustment = locked
 
             AdjustmentOrderItem.query.filter_by(adjustment_order_id=id).delete()
+            # BUG-2026-09-10-001：已反提交的单据可物理删除；同步清理完成与反提交
+            # 产生的库存流水，避免库存台账保留指向已删除调整单的悬挂引用
+            # （与 delete_in_order 对齐）。
+            StockTransaction.query.filter_by(
+                reference_type='adjustment', reference_id=adjustment.id
+            ).delete(synchronize_session=False)
             db.session.delete(adjustment)
             db.session.commit()
             log_operation('删除库存调整单', f'调整单：{adjustment.adjustment_no}', 'adjustment', id)
@@ -586,7 +592,7 @@ def register_adjustment_routes(app):
     @require_role('warehouse')
     @login_required
     def batch_delete_adjustment():
-        from app import (AdjustmentOrder, AdjustmentOrderItem,
+        from app import (AdjustmentOrder, AdjustmentOrderItem, StockTransaction,
                          _acquire_order_write_lock, api_error, log_operation)
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
@@ -615,6 +621,10 @@ def register_adjustment_routes(app):
                 adjustment = locked
                 adjustment_no = adjustment.adjustment_no
                 AdjustmentOrderItem.query.filter_by(adjustment_order_id=adjustment_id).delete()
+                # BUG-2026-09-10-001：同步清理该调整单完成/反提交产生的库存流水
+                StockTransaction.query.filter_by(
+                    reference_type='adjustment', reference_id=adjustment.id
+                ).delete(synchronize_session=False)
                 db.session.delete(adjustment)
                 db.session.commit()
                 deleted_count += 1

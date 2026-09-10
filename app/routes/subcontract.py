@@ -1372,8 +1372,8 @@ def register_subcontract_routes(app):
     @login_required
     def delete_subcontract_issue(id):
         """删除委外发料单"""
-        from app import (SubcontractIssue, SubcontractIssueItem, _acquire_order_write_lock,
-                         api_error, log_operation)
+        from app import (SubcontractIssue, SubcontractIssueItem, StockTransaction,
+                         _acquire_order_write_lock, api_error, log_operation)
         from sqlalchemy.orm import selectinload
         issue = SubcontractIssue.query.get_or_404(id)
         if issue.status != 'pending':
@@ -1389,6 +1389,12 @@ def register_subcontract_routes(app):
             issue = locked
             # 删除明细
             SubcontractIssueItem.query.filter_by(issue_id=id).delete()
+            # BUG-2026-09-10-001：已反提交的单据可物理删除；同步清理完成与反提交
+            # 产生的库存流水，避免库存台账保留指向已删除委外发料单的悬挂引用
+            # （与 delete_in_order 对齐）。
+            StockTransaction.query.filter_by(
+                reference_type='subcontract_issue', reference_id=issue.id
+            ).delete(synchronize_session=False)
             db.session.delete(issue)
             db.session.commit()
             log_operation('删除委外发料单', f'发料单：{issue.issue_no}', 'subcontract_issue', id)
@@ -1405,8 +1411,8 @@ def register_subcontract_routes(app):
     @require_role('production')
     @login_required
     def batch_delete_subcontract_issue():
-        from app import (SubcontractIssue, SubcontractIssueItem, _acquire_order_write_lock,
-                         api_error, log_operation)
+        from app import (SubcontractIssue, SubcontractIssueItem, StockTransaction,
+                         _acquire_order_write_lock, api_error, log_operation)
         from sqlalchemy.orm import selectinload
         data = request.get_json(silent=True) or {}
         ids = data.get('ids') or request.form.getlist('ids')
@@ -1432,6 +1438,10 @@ def register_subcontract_routes(app):
                     return api_error(f'委外发料单 {issue_id} 状态已变更，请刷新后重试')
                 issue = locked
                 SubcontractIssueItem.query.filter_by(issue_id=issue_id).delete()
+                # BUG-2026-09-10-001：同步清理该委外发料单完成/反提交产生的库存流水
+                StockTransaction.query.filter_by(
+                    reference_type='subcontract_issue', reference_id=issue.id
+                ).delete(synchronize_session=False)
                 db.session.delete(issue)
                 issue_no = issue.issue_no
                 db.session.commit()
@@ -2022,8 +2032,8 @@ def register_subcontract_routes(app):
     @login_required
     def delete_subcontract_receive(id):
         """删除委外收货单"""
-        from app import (SubcontractReceive, SubcontractReceiveItem, _acquire_order_write_lock,
-                         api_error, log_operation)
+        from app import (SubcontractReceive, SubcontractReceiveItem, StockTransaction,
+                         _acquire_order_write_lock, api_error, log_operation)
         from sqlalchemy.orm import selectinload
         receive = SubcontractReceive.query.get_or_404(id)
         if receive.status != 'pending':
@@ -2040,6 +2050,12 @@ def register_subcontract_routes(app):
             receive = locked
             # 删除明细
             SubcontractReceiveItem.query.filter_by(receive_id=id).delete()
+            # BUG-2026-09-10-001：已反提交的单据可物理删除；同步清理完成与反提交
+            # 产生的库存流水，避免库存台账保留指向已删除委外收货单的悬挂引用
+            # （与 delete_in_order 对齐）。
+            StockTransaction.query.filter_by(
+                reference_type='subcontract_receive', reference_id=receive.id
+            ).delete(synchronize_session=False)
             db.session.delete(receive)
             db.session.commit()
 
@@ -2057,8 +2073,8 @@ def register_subcontract_routes(app):
     @require_role('production')
     @login_required
     def batch_delete_subcontract_receive():
-        from app import (SubcontractReceive, SubcontractReceiveItem, _acquire_order_write_lock,
-                         api_error, log_operation)
+        from app import (SubcontractReceive, SubcontractReceiveItem, StockTransaction,
+                         _acquire_order_write_lock, api_error, log_operation)
         from sqlalchemy.orm import selectinload
         data = request.get_json(silent=True) or {}
         ids = data.get('ids') or request.form.getlist('ids')
@@ -2084,6 +2100,10 @@ def register_subcontract_routes(app):
                     return api_error(f'委外收货单 {receive_id} 状态已变更，请刷新后重试')
                 receive = locked
                 SubcontractReceiveItem.query.filter_by(receive_id=receive_id).delete()
+                # BUG-2026-09-10-001：同步清理该委外收货单完成/反提交产生的库存流水
+                StockTransaction.query.filter_by(
+                    reference_type='subcontract_receive', reference_id=receive.id
+                ).delete(synchronize_session=False)
                 db.session.delete(receive)
                 receive_no = receive.receive_no
                 db.session.commit()
