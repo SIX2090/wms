@@ -579,6 +579,7 @@
                     <!-- 左侧：字段选择面板 -->
                     <div style="width: 220px; background: #f8f9fa; border-right: 1px solid #dee2e6; padding: 15px; overflow-y: auto;">
                         <h6 style="font-weight: bold; margin-bottom: 15px;"><i class="bi bi-list-check"></i> 可用字段</h6>
+                        <input type="text" class="form-control form-control-sm mb-2" id="fieldSearchInput" placeholder="🔍 搜索字段...">
                         <div class="field-item" draggable="true" data-field="code" data-label="物料编码">
                             <i class="bi bi-upc"></i> 物料编码
                         </div>
@@ -608,6 +609,9 @@
                         </div>
                         <div class="field-item" draggable="true" data-field="supplier_name" data-label="供应商">
                             <i class="bi bi-truck"></i> 供应商
+                        </div>
+                        <div class="field-item" draggable="true" data-field="qrcode" data-label="二维码">
+                            <i class="bi bi-qr-code"></i> 二维码
                         </div>
                         <hr>
                         <h6 style="font-weight: bold; margin-bottom: 15px;"><i class="bi bi-palette"></i> 样式工具</h6>
@@ -658,6 +662,11 @@
                                 <button class="btn btn-success" onclick="previewLabel()"><i class="bi bi-eye"></i> 预览</button>
                                 <button class="btn btn-info" onclick="printLabels()"><i class="bi bi-printer"></i> 批量打印</button>
                                 <button class="btn btn-secondary" onclick="clearTemplate()"><i class="bi bi-trash3"></i> 清空</button>
+                            </div>
+                            <div class="btn-group btn-group-sm ms-2">
+                                <button class="btn btn-outline-secondary" onclick="undoTemplate()" title="撤销 (Ctrl+Z)"><i class="bi bi-arrow-counterclockwise"></i> 撤销</button>
+                                <button class="btn btn-outline-secondary" onclick="redoTemplate()" title="重做 (Ctrl+Y)"><i class="bi bi-arrow-clockwise"></i> 重做</button>
+                                <button class="btn btn-outline-danger" onclick="clearSelectedCells()" title="清空选中单元格 (Delete)"><i class="bi bi-eraser"></i></button>
                             </div>
                             <div class="btn-group btn-group-sm ms-2">
                                 <button class="btn btn-outline-primary" onclick="insertRow()" title="插入行"><i class="bi bi-file-plus"></i> 插入行</button>
@@ -745,9 +754,14 @@
                                     <option value="stock">库存</option>
                                     <option value="price">单价</option>
                                     <option value="barcode">条码</option>
+                                    <option value="qrcode">二维码</option>
                                     <option value="date">日期</option>
                                     <option value="supplier_name">供应商</option>
                                 </select>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" style="font-size: 12px;">位置 / 尺寸</label>
+                                <div style="font-size: 12px; color: #6b7280;" id="cellPosInfo">行 - , 列 -</div>
                             </div>
                             <!-- 条码宽高设置（选中条码字段时显示） -->
                             <div id="barcodeSizeSettings" style="display: none;">
@@ -2024,6 +2038,13 @@ document.addEventListener('DOMContentLoaded', function() {
 // 标签打印模板相关函数
 var labelTemplateModal;
 var selectedCell = null;
+var selectedCells = [];  // 多选单元格集合（Ctrl+点击切换），含主选中 selectedCell
+// 撤销/重做历史栈（快照基于 cells 布局，恢复走 loadTemplateToEditor）
+var __undoStack = [];
+var __redoStack = [];
+var __lastSnap = null;
+var __lastPushTime = 0;
+var __applyingHistory = false;
 var currentTemplate = {
     rows: 3,
     cols: 2,
@@ -2055,11 +2076,150 @@ function reindexLabelCells() {
     }
 }
 
+// ==================== 撤销/重做 + 多选 + 快捷键（标签设计器可用性增强） ====================
+
+function __captureSnapshot() {
+    reindexLabelCells();
+    var cells = [];
+    document.querySelectorAll('#labelTable .label-cell').forEach(function(cell) {
+        var content = cell.querySelector('.cell-content');
+        if (!content) return;
+        var cellData = {
+            row: cell.dataset.row, col: cell.dataset.col,
+            text: content.textContent, field: content.dataset.field || '',
+            style: {
+                fontSize: content.style.fontSize, fontWeight: content.style.fontWeight,
+                color: content.style.color, textAlign: content.style.textAlign
+            },
+            colSpan: cell.colSpan
+        };
+        if (content.dataset.field === 'barcode') {
+            cellData.barcodeWidth = content.dataset.barcodeWidth || '50';
+            cellData.barcodeHeight = content.dataset.barcodeHeight || '15';
+        }
+        cells.push(cellData);
+    });
+    var rowHeights = [];
+    var table = document.getElementById('labelTable');
+    for (var i = 0; i < table.rows.length; i++) {
+        rowHeights.push(parseInt(table.rows[i].style.height) || 30);
+    }
+    return {
+        rows: currentTemplate.rows, cols: currentTemplate.cols,
+        labelWidth: currentTemplate.labelWidth, labelHeight: currentTemplate.labelHeight,
+        cells: cells, rowHeights: rowHeights
+    };
+}
+
+function __pushUndo() {
+    var snap = __captureSnapshot();
+    var now = Date.now();
+    if (__lastSnap && JSON.stringify(__lastSnap) !== JSON.stringify(snap)) {
+        // 800ms 内的连续变更（如文本逐字输入）合并为一个撤销点
+        if (now - __lastPushTime > 800) {
+            __undoStack.push(__lastSnap);
+            if (__undoStack.length > 50) __undoStack.shift();
+            __redoStack = [];
+            __lastPushTime = now;
+        }
+    }
+    __lastSnap = snap;
+}
+
+function __resetHistory() {
+    __undoStack = [];
+    __redoStack = [];
+    __lastSnap = null;
+    __lastPushTime = 0;
+    __pushUndo();  // 记录初始快照
+}
+
+function __afterHistoryApply() {
+    selectedCells = [];
+    selectedCell = null;
+    document.getElementById('cellProperties').style.display = 'none';
+    document.getElementById('noSelection').style.display = 'block';
+    document.querySelectorAll('.label-cell').forEach(function(c) { c.classList.remove('selected'); });
+}
+
+function undoTemplate() {
+    if (!__undoStack.length) return;
+    __redoStack.push(__lastSnap);
+    __lastSnap = __undoStack.pop();
+    __applyingHistory = true;
+    loadTemplateToEditor(__lastSnap);
+    __applyingHistory = false;
+    __afterHistoryApply();
+}
+
+function redoTemplate() {
+    if (!__redoStack.length) return;
+    __undoStack.push(__lastSnap);
+    __lastSnap = __redoStack.pop();
+    __applyingHistory = true;
+    loadTemplateToEditor(__lastSnap);
+    __applyingHistory = false;
+    __afterHistoryApply();
+}
+
+function __getTargetCells() {
+    if (selectedCells && selectedCells.length) return selectedCells;
+    return selectedCell ? [selectedCell] : [];
+}
+
+function clearSelectedCells() {
+    var cells = __getTargetCells();
+    if (!cells.length) { alert('请先点击选中单元格（Ctrl+点击可多选）'); return; }
+    cells.forEach(function(cell) {
+        var content = cell.querySelector('.cell-content');
+        if (content) {
+            content.textContent = '';
+            content.dataset.field = '';
+            delete content.dataset.barcodeWidth;
+            delete content.dataset.barcodeHeight;
+        }
+    });
+    saveTemplateToStorage();
+}
+
+// 字段搜索：按名称/标签/字段名过滤左侧字段
+(function() {
+    var input = document.getElementById('fieldSearchInput');
+    if (!input) return;
+    input.addEventListener('input', function() {
+        var q = this.value.trim().toLowerCase();
+        document.querySelectorAll('.field-item').forEach(function(item) {
+            var text = (item.textContent + ' ' + (item.dataset.label || '') + ' ' + (item.dataset.field || '')).toLowerCase();
+            item.style.display = (!q || text.indexOf(q) >= 0) ? '' : 'none';
+        });
+    });
+})();
+
+// 快捷键：Ctrl+Z 撤销 / Ctrl+Y 或 Ctrl+Shift+Z 重做 / Delete 清空选中（文本编辑时不劫持）
+document.addEventListener('keydown', function(e) {
+    var modal = document.getElementById('labelTemplateModal');
+    if (!modal || !modal.classList.contains('show')) return;
+    var ae = document.activeElement;
+    var editing = ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA');
+    var key = e.key;
+    if ((e.ctrlKey || e.metaKey) && !editing && (key === 'z' || key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) { redoTemplate(); } else { undoTemplate(); }
+    } else if ((e.ctrlKey || e.metaKey) && !editing && (key === 'y' || key === 'Y')) {
+        e.preventDefault();
+        redoTemplate();
+    } else if (!editing && (key === 'Delete' || key === 'Backspace') && __getTargetCells().length) {
+        e.preventDefault();
+        clearSelectedCells();
+    }
+});
+
 // 将当前编辑器状态自动保存为草稿（localStorage），防止误关闭丢失未保存的设计
 function saveTemplateToStorage() {
     try {
         var table = document.getElementById('labelTable');
         if (!table) return;
+        __pushUndo();
         reindexLabelCells();
         var cells = [];
         table.querySelectorAll('.label-cell').forEach(function(cell) {
@@ -2122,6 +2282,7 @@ function openLabelTemplate() {
     
     // 重置选中状态
     selectedCell = null;
+    selectedCells = [];
     document.getElementById('cellProperties').style.display = 'none';
     document.getElementById('noSelection').style.display = 'block';
     document.querySelectorAll('.label-cell').forEach(c => c.classList.remove('selected'));
@@ -2200,9 +2361,18 @@ function initTemplateDragDrop() {
         click: function(e) {
             var cell = e.target.closest('.label-cell');
             if (!cell) return;
-            document.querySelectorAll('.label-cell').forEach(function(c) { c.classList.remove('selected'); });
-            cell.classList.add('selected');
-            selectedCell = cell;
+            if (e.ctrlKey || e.metaKey) {
+                // Ctrl+点击：切换多选
+                var idx = selectedCells.indexOf(cell);
+                if (idx >= 0) { selectedCells.splice(idx, 1); cell.classList.remove('selected'); }
+                else { selectedCells.push(cell); cell.classList.add('selected'); }
+                selectedCell = cell;
+            } else {
+                selectedCells = [cell];
+                document.querySelectorAll('.label-cell').forEach(function(c) { c.classList.remove('selected'); });
+                cell.classList.add('selected');
+                selectedCell = cell;
+            }
             updateCellProperties();
         }
     };
@@ -2256,6 +2426,14 @@ function updateCellProperties() {
         textColorSelect.value = curColor;
     }
     
+    // 显示选中单元格位置（行/列/跨列）
+    var posInfo = document.getElementById('cellPosInfo');
+    if (posInfo) {
+        var prow = parseInt(selectedCell.dataset.row) + 1;
+        var pcol = parseInt(selectedCell.dataset.col) + 1;
+        posInfo.textContent = '行 ' + prow + '，列 ' + pcol + (selectedCell.colSpan > 1 ? '（跨 ' + selectedCell.colSpan + ' 列）' : '');
+    }
+
     // 同步行高
     var row = selectedCell.parentElement;
     if (row && row.tagName === 'TR') {
@@ -2282,7 +2460,7 @@ if (cellFieldSelect) {
             var labels = {
                 code: '物料编码', name: '物料名称', brand: '品牌', spec: '规格', unit_name: '单位',
                 category_name: '分类', stock: '库存', price: '单价', barcode: '条码',
-                date: '日期', supplier_name: '供应商'
+                qrcode: '二维码', date: '日期', supplier_name: '供应商'
             };
             selectedCell.querySelector('.cell-content').textContent = '[' + (labels[this.value] || this.value) + ']';
             selectedCell.querySelector('.cell-content').dataset.field = this.value;
@@ -2512,7 +2690,8 @@ function applyFontSizeToCell(cell, sizeVal) {
 }
 
 function applyRowHeight() {
-    if (!selectedCell) {
+    var cells = __getTargetCells();
+    if (!cells.length) {
         alert('请先点击选中一个单元格');
         return;
     }
@@ -2520,48 +2699,48 @@ function applyRowHeight() {
     var h = parseInt(input.value);
     if (!h || h < 20) { h = 20; input.value = 20; }
     if (h > 200) { h = 200; input.value = 200; }
-    var row = selectedCell.parentElement;
-    if (row && row.tagName === 'TR') {
-        row.style.height = h + 'px';
-        // 同步保存
-        saveTemplateToStorage();
-    }
+    var applied = false;
+    cells.forEach(function(cell) {
+        var row = cell.parentElement;
+        if (row && row.tagName === 'TR') { row.style.height = h + 'px'; applied = true; }
+    });
+    if (applied) { saveTemplateToStorage(); }
 }
 
 document.addEventListener('DOMContentLoaded', function() {
     var fontSizeSelect = document.getElementById('fontSizeSelect');
     if (fontSizeSelect) {
         fontSizeSelect.addEventListener('change', function() {
-            if (selectedCell) {
-                applyFontSizeToCell(selectedCell, this.value);
-                saveTemplateToStorage();
-            }
+            var cells = __getTargetCells();
+            if (!cells.length) return;
+            cells.forEach(function(cell) { applyFontSizeToCell(cell, fontSizeSelect.value); });
+            saveTemplateToStorage();
         });
     }
 
     var fontWeightSelect = document.getElementById('fontWeightSelect');
     if (fontWeightSelect) {
         fontWeightSelect.addEventListener('change', function() {
-            if (selectedCell) {
-                var content = selectedCell.querySelector('.cell-content');
-                if (content) {
-                    content.style.fontWeight = this.value;
-                    saveTemplateToStorage();
-                }
-            }
+            var cells = __getTargetCells();
+            if (!cells.length) return;
+            cells.forEach(function(cell) {
+                var content = cell.querySelector('.cell-content');
+                if (content) content.style.fontWeight = fontWeightSelect.value;
+            });
+            saveTemplateToStorage();
         });
     }
 
     var textColorSelect = document.getElementById('textColorSelect');
     if (textColorSelect) {
         textColorSelect.addEventListener('input', function() {
-            if (selectedCell) {
-                var content = selectedCell.querySelector('.cell-content');
-                if (content) {
-                    content.style.color = this.value;
-                    saveTemplateToStorage();
-                }
-            }
+            var cells = __getTargetCells();
+            if (!cells.length) return;
+            cells.forEach(function(cell) {
+                var content = cell.querySelector('.cell-content');
+                if (content) content.style.color = textColorSelect.value;
+            });
+            saveTemplateToStorage();
         });
     }
 });
@@ -2828,6 +3007,7 @@ function loadTemplateToEditor(template) {
     }
     
     initTemplateDragDrop();
+    if (!__applyingHistory) { __resetHistory(); }
 }
 
 // 删除模板
