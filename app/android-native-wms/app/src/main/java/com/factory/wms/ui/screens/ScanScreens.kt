@@ -427,6 +427,7 @@ fun StockQueryScreen(
     val uiState by viewModel.uiState.collectAsState()
     var manualCode by remember { mutableStateOf("") }
     var showScannerDialog by remember { mutableStateOf(false) }
+    var showWarehouseDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(uiState.error) {
@@ -448,6 +449,13 @@ fun StockQueryScreen(
         }
     }
 
+    // 进入页面即加载仓库（默认选中首仓），查库存按所选仓库口径返回仓库级账面库存
+    LaunchedEffect(Unit) {
+        if (uiState.warehouses.isEmpty() && !uiState.warehousesLoading) {
+            viewModel.loadWarehouses()
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
@@ -466,6 +474,16 @@ fun StockQueryScreen(
                 .padding(padding)
                 .padding(16.dp)
         ) {
+            // 仓库选择：查库存按所选仓库口径返回该仓账面库存
+            WarehouseSelectorCard(
+                warehouse = uiState.selectedWarehouse,
+                accentColor = CardOrange,
+                onClick = { showWarehouseDialog = true },
+                label = "查询仓库"
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
             // Search bar
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -556,7 +574,14 @@ fun StockQueryScreen(
                                     .fillMaxWidth()
                                     .clickable {
                                         manualCode = material.code.orEmpty()
-                                        viewModel.selectMaterialSuggestion(material)
+                                        if (uiState.selectedWarehouse != null) {
+                                            // 已选仓库：按该仓口径实时查询仓库级账面库存
+                                            viewModel.clearMaterialSuggestions()
+                                            viewModel.searchMaterialByCode(material.code.orEmpty())
+                                        } else {
+                                            // 未选仓库：候选即为全局口径，直接展示（无需二次请求）
+                                            viewModel.selectMaterialSuggestion(material)
+                                        }
                                     }
                                     .padding(horizontal = 16.dp, vertical = 12.dp)
                             ) {
@@ -759,6 +784,23 @@ fun StockQueryScreen(
                 viewModel.clearMaterialSuggestions()
                 viewModel.searchMaterialByCode(barcode)
             }
+        )
+    }
+
+    if (showWarehouseDialog) {
+        WarehousePickerDialog(
+            warehouses = uiState.warehouses,
+            selected = uiState.selectedWarehouse,
+            loading = uiState.warehousesLoading,
+            onDismiss = { showWarehouseDialog = false },
+            onSelect = { warehouse ->
+                viewModel.selectWarehouse(warehouse)
+                showWarehouseDialog = false
+                // 已有查询结果时，按新选仓库口径刷新该物料的仓库级账面库存
+                uiState.scannedMaterial?.code?.let { viewModel.searchMaterialByCode(it) }
+            },
+            onRetry = { viewModel.loadWarehouses() },
+            accentColor = CardOrange
         )
     }
 }
