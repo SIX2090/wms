@@ -451,7 +451,9 @@ class WmsRepository(private val context: Context) {
      *
      * BUG-2026-09-10-011：收口 20 处重复的 try/catch，避免服务端 msg 被吞。
      */
-    private suspend inline fun <T> safeCall(
+    // T 必须 reified：内部要调用同为 `inline fun <reified T>` 的 handleResponse，
+    // 非 reified 的 T 会报 "Cannot use 'T' as reified type parameter"（Release 编译失败）。
+    private suspend inline fun <reified T> safeCall(
         block: () -> Response<ApiEnvelope<T>>
     ): Result<T> {
         return try {
