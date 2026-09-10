@@ -1,6 +1,7 @@
 package com.factory.wms.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -453,7 +454,7 @@ fun StockQueryScreen(
         topBar = {
             WmsGradientHeader(
                 title = "查库存",
-                subtitle = "扫描条码查询物料库存",
+                subtitle = "输入关键词或扫描条码查询库存",
                 accent = CardOrange,
                 onBack = onBack
             )
@@ -480,8 +481,13 @@ fun StockQueryScreen(
                 ) {
                     OutlinedTextField(
                         value = manualCode,
-                        onValueChange = { manualCode = it },
-                        placeholder = { Text("输入或扫描物料编码") },
+                        onValueChange = {
+                            manualCode = it
+                            // 输入即按 名称/规格/品牌 模糊联想候选，并清掉上一次的查询结果卡片
+                            if (uiState.scannedMaterial != null) viewModel.clearScannedMaterial()
+                            viewModel.searchMaterialSuggestions(it)
+                        },
+                        placeholder = { Text("输入名称/规格/品牌，或扫描条码") },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
@@ -502,6 +508,7 @@ fun StockQueryScreen(
                     FilledIconButton(
                         onClick = {
                             if (manualCode.isNotBlank()) {
+                                viewModel.clearMaterialSuggestions()
                                 viewModel.searchMaterialByCode(manualCode.trim())
                             }
                         },
@@ -516,22 +523,95 @@ fun StockQueryScreen(
                 }
             }
 
+            // 关键词模糊联想加载指示
+            if (manualCode.isNotBlank() && uiState.materialSuggestionsLoading) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    color = CardOrange,
+                    trackColor = CardOrange.copy(alpha = 0.12f)
+                )
+            }
+
+            // 关键词模糊候选：物料名称/规格/品牌 命中即列出，点选某个规格后查该物料库存
+            if (manualCode.isNotBlank() && uiState.scannedMaterial == null && uiState.materialSuggestions.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    colors = CardDefaults.cardColors(containerColor = CardBackground)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        val visibleSuggestions = uiState.materialSuggestions.take(8)
+                        visibleSuggestions.forEachIndexed { index, material ->
+                            val subtitle = listOfNotNull(
+                                material.name?.takeIf { it.isNotBlank() },
+                                material.spec?.takeIf { it.isNotBlank() }?.let { "规格: $it" },
+                                material.brand?.takeIf { it.isNotBlank() }?.let { "品牌: $it" }
+                            ).joinToString("   ")
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        manualCode = material.code.orEmpty()
+                                        viewModel.selectMaterialSuggestion(material)
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            ) {
+                                Text(
+                                    material.code.orEmpty(),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Primary
+                                )
+                                if (subtitle.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        subtitle,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            if (index < visibleSuggestions.size - 1) {
+                                HorizontalDivider(color = SurfaceVariant, thickness = 0.5.dp)
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Empty state guidance when no results
-            if (!uiState.isLoading && uiState.scannedMaterial == null) {
+            if (!uiState.isLoading && uiState.scannedMaterial == null &&
+                uiState.materialSuggestions.isEmpty() && !uiState.materialSuggestionsLoading
+            ) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    WmsEmptyState(
-                        icon = Icons.Outlined.Search,
-                        title = "输入或扫描物料编码",
-                        subtitle = "查询实时库存信息",
-                        accentColor = CardOrange
-                    )
+                    if (manualCode.isNotBlank()) {
+                        WmsEmptyState(
+                            icon = Icons.Outlined.Search,
+                            title = "未找到包含「$manualCode」的物料",
+                            subtitle = "支持名称/规格/品牌模糊匹配，换个关键词试试",
+                            accentColor = CardOrange
+                        )
+                    } else {
+                        WmsEmptyState(
+                            icon = Icons.Outlined.Search,
+                            title = "输入或扫描物料编码",
+                            subtitle = "支持名称/规格/品牌关键词模糊联想",
+                            accentColor = CardOrange
+                        )
+                    }
                 }
             } else if (!uiState.isLoading) {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -676,6 +756,7 @@ fun StockQueryScreen(
             onBarcodeScanned = { barcode ->
                 showScannerDialog = false
                 manualCode = barcode
+                viewModel.clearMaterialSuggestions()
                 viewModel.searchMaterialByCode(barcode)
             }
         )

@@ -365,6 +365,21 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * 查库存：点选模糊联想候选后直接展示该物料。
+     * 候选来自后端 api/material/search 实时查询，与 api/material/info 返回同一 payload，
+     * 字段一致，无需二次请求；同时不触碰 scannedCode，避免触发 LaunchedEffect(scannedCode) 重复查询。
+     */
+    fun selectMaterialSuggestion(material: MaterialDto) {
+        clearMaterialSuggestions()
+        _uiState.value = _uiState.value.copy(
+            isLoading = false,
+            error = null,
+            scannedMaterial = material,
+            scannedCode = ""
+        )
+    }
+
     fun submitInbound(businessType: String = "采购入库") {
         viewModelScope.launch {
             val state = _uiState.value
