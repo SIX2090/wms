@@ -278,7 +278,7 @@ fun HomeScreen(
                         "今日概览",
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 15.sp,
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(start = 20.dp)
                     )
                     Spacer(modifier = Modifier.weight(1f))
