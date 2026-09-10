@@ -23833,6 +23833,10 @@ def material_all_api():
         'data': [api_material_payload(material) for material in materials]
     })
 
+# BUG-2026-09-10-002：移动端模糊联想单次返回上限（原魔法数 100 显式化）
+MATERIAL_SEARCH_API_LIMIT = 100
+
+
 @app.route('/api/material/search', methods=['GET', 'POST'])
 @web_or_api_required
 def material_search_api():
@@ -23855,7 +23859,11 @@ def material_search_api():
                 Material.brand.like(f'%{keyword}%')
             )
         )
-    materials = query.order_by(Material.code.asc()).limit(100).all()
+    # BUG-2026-09-10-002（R1）：模糊联想上限显式化——返回 total 与 truncated，
+    # 调用方据此知晓"全部命中 N 条、本次返回前 100 条"，不得把默认上限当全量。
+    filtered = query.order_by(Material.code.asc())
+    total = filtered.count()
+    materials = filtered.limit(MATERIAL_SEARCH_API_LIMIT).all()
     # BUG-2026-09-03-004：支持可选 warehouse（Android 已选仓库时返回该仓库账面库存）
     _wh_obj = None
     _wh_raw = (request.values.get('warehouse') or '').strip()
@@ -23864,6 +23872,8 @@ def material_search_api():
     return jsonify({
         'status': 'success',
         'success': True,
+        'total': total,
+        'truncated': total > len(materials),
         'data': [api_material_payload(material, warehouse=_wh_obj) for material in materials]
     })
 
