@@ -650,62 +650,101 @@ def register_native_api_routes(app):
     @csrf.exempt
     @web_or_api_required
     def mobile_api_dashboard():
-        """移动端首页概览：今日进出统计、待处理数、库存告警（按仓库隔离）"""
+        """移动端首页概览：今日进出统计、待处理数、库存告警（按仓库隔离）。
+
+        BUG-2026-09-10-010：多仓用户（4 个以上仓库）反馈首页"今日入库/出库"数字
+        明显偏小甚至为 0——首页此前不带仓库参数、服务端一律回退默认仓库，录在其他
+        仓的单据全部不计入。现与每日报表（BUG-2026-09-10-009）口径统一：
+        - warehouse_id / warehouse_code / warehouse → 指定仓库（缺省回退默认仓库，
+          AGENTS.md 仓库必填）
+        - 显式传 `all` → 全部仓库汇总（用户主动跨仓，不是"未指定仓库"，不违反必填）
+        """
         from datetime import date
         from sqlalchemy import func
         from app import (InOrder, InOrderItem, Material, OutOrder, OutOrderItem,
                          api_json_error, api_json_success, get_warehouse_stock_quantities,
                          inventory_alert_enabled, resolve_request_warehouse)
-        # BUG-2026-08-12-004：仓库必填——显式参数校验 + 默认仓库回退
-        warehouse, wh_err = resolve_request_warehouse(request.args)
-        if wh_err:
-            return api_json_error(wh_err, 400)
-        warehouse_name = warehouse.name or ''
+        # 全部仓库汇总模式：显式 all 才跨仓，否则仍按仓库必填规则解析
+        raw_wh_param = str(request.args.get('warehouse_id')
+                           or request.args.get('warehouse_code')
+                           or request.args.get('warehouse') or '').strip()
+        all_warehouses = raw_wh_param.lower() == 'all'
+        if all_warehouses:
+            warehouse, wh_err = None, None
+        else:
+            warehouse, wh_err = resolve_request_warehouse(request.args)
+            if wh_err:
+                return api_json_error(wh_err, 400)
+        warehouse_name = (warehouse.name or '') if warehouse else ''
+        # 单仓模式加仓库条件；全部仓库模式不加（含历史 warehouse 为空的脏数据，
+        # 避免漏数，R2）
+        wh_filters = [] if all_warehouses else [
+            InOrder.warehouse == warehouse_name
+        ]
+        out_wh_filters = [] if all_warehouses else [
+            OutOrder.warehouse == warehouse_name
+        ]
         today = date.today()
 
-        # 今日入库统计（按仓库过滤）
+        # 今日入库统计
         today_in_count = InOrder.query.filter(
             InOrder.date == today,
             InOrder.status == 'completed',
-            InOrder.warehouse == warehouse_name,
+            *wh_filters,
         ).count()
         today_in_items = db.session.query(func.coalesce(func.sum(InOrderItem.quantity), 0)).join(
             InOrder, InOrderItem.in_order_id == InOrder.id
         ).filter(
             InOrder.date == today,
             InOrder.status == 'completed',
-            InOrder.warehouse == warehouse_name,
+            *wh_filters,
         ).scalar() or 0
 
-        # 今日出库统计（按仓库过滤）
+        # 今日出库统计
         today_out_count = OutOrder.query.filter(
             OutOrder.date == today,
             OutOrder.status == 'completed',
-            OutOrder.warehouse == warehouse_name,
+            *out_wh_filters,
         ).count()
         today_out_items = db.session.query(func.coalesce(func.sum(OutOrderItem.quantity), 0)).join(
             OutOrder, OutOrderItem.out_order_id == OutOrder.id
         ).filter(
             OutOrder.date == today,
             OutOrder.status == 'completed',
-            OutOrder.warehouse == warehouse_name,
+            *out_wh_filters,
         ).scalar() or 0
 
-        # 待处理入库单（按仓库过滤）
-        pending_in = InOrder.query.filter_by(status='pending', warehouse=warehouse_name).count()
+        # 待处理入库单
+        pending_in = InOrder.query.filter(
+            InOrder.status == 'pending', *wh_filters
+        ).count()
 
-        # 待处理出库单（按仓库过滤）
-        pending_out = OutOrder.query.filter_by(status='pending', warehouse=warehouse_name).count()
+        # 待处理出库单
+        pending_out = OutOrder.query.filter(
+            OutOrder.status == 'pending', *out_wh_filters
+        ).count()
 
         # 库存告警（按仓库级数量判定，不读全局 Material.stock）
         alert_count = 0
         if inventory_alert_enabled():
-            quantities = get_warehouse_stock_quantities(warehouse)
             candidates = Material.query.filter(Material.min_stock > 0).all()
-            alert_count = sum(
-                1 for m in candidates
-                if quantities.get(m.id, 0) <= (m.min_stock or 0)
-            )
+            if all_warehouses:
+                # 全部仓库汇总：逐仓判定，任一仓低于最低库存即计一次告警
+                # （同一物料在多仓告警只算一条，避免重复计数）
+                from app import Warehouse as _Warehouse
+                alert_material_ids = set()
+                for wh in _Warehouse.query.filter_by(status='active').all():
+                    quantities = get_warehouse_stock_quantities(wh)
+                    for m in candidates:
+                        if quantities.get(m.id, 0) <= (m.min_stock or 0):
+                            alert_material_ids.add(m.id)
+                alert_count = len(alert_material_ids)
+            else:
+                quantities = get_warehouse_stock_quantities(warehouse)
+                alert_count = sum(
+                    1 for m in candidates
+                    if quantities.get(m.id, 0) <= (m.min_stock or 0)
+                )
 
         return api_json_success({
             'today_in_orders': today_in_count,
@@ -716,6 +755,10 @@ def register_native_api_routes(app):
             'pending_out_orders': pending_out,
             'alert_count': alert_count,
             'date': today.isoformat(),
+            # BUG-2026-09-10-010：回传仓库上下文，手机端可显示"当前口径是哪个仓"
+            'warehouse': '全部仓库' if all_warehouses else warehouse_name,
+            'warehouse_id': None if all_warehouses else (warehouse.id if warehouse else None),
+            'all_warehouses': all_warehouses,
         })
 
     @app.route('/api/mobile/stock/query')
