@@ -768,6 +768,45 @@ fun StockQueryScreen(
                             InfoChip("分类", material.category ?: "-")
                         }
 
+                        // BUG-2026-09-10-003：库位分布——现场找货第二高频问题「货在哪个
+                        // 库位、各多少」。开启库位管理时后端下发各库位数量，逐行展示。
+                        if (!material.locations.isNullOrEmpty()) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            HorizontalDivider(
+                                color = SurfaceVariant,
+                                thickness = 1.dp
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                "库位分布",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            material.locations.orEmpty().forEach { loc ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        loc.location.orEmpty(),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        formatQuantity(loc.quantity ?: 0.0),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Primary
+                                    )
+                                }
+                            }
+                        }
+
                         if (!material.supplier.isNullOrBlank()) {
                             Spacer(modifier = Modifier.height(16.dp))
                             HorizontalDivider(
