@@ -808,6 +808,10 @@
                 </div>
             </div>
             <div class="modal-footer">
+                <div class="form-check form-switch me-auto mb-0">
+                    <input class="form-check-input" type="checkbox" id="previewSampleToggle" checked onchange="togglePreviewSample(this.checked)">
+                    <label class="form-check-label" for="previewSampleToggle" style="font-size:13px;">示例数据（含真实条码/二维码）</label>
+                </div>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
                 <button type="button" class="btn btn-primary" onclick="doPrint()"><i class="bi bi-printer"></i> 打印</button>
             </div>
@@ -3062,63 +3066,161 @@ function clearTemplate() {
     }
 }
 
-function previewLabel() {
-    var preview = document.getElementById('previewContent');
+// ==================== 所见即所得预览/打印（标签设计器可用性增强 AA1） ====================
+// 设计器内置预览/打印此前只输出占位文字（条码/二维码渲染成「[条码]」文本），
+// 与真实批量打印页（print_batch_labels.html，渲染 <img>）严重脱节。
+// 这里统一改为：文本字段填示例值、条码/二维码渲染真实图片，做到所见即所得。
+
+// 示例数据（预览/打印用，可在预览弹窗切换回占位符）
+var labelSampleData = {
+    code: 'MAT-0001',
+    name: '深沟球轴承 6204-2RS',
+    spec: '内径20×外径47×厚14',
+    unit_name: '套',
+    category_name: '轴承',
+    stock: '128',
+    price: '¥12.50',
+    barcode: 'MAT-0001',
+    qrcode: 'MAT-0001',
+    date: '2026-09-10',
+    supplier_name: '鑫达五金'
+};
+var previewUseSample = true;
+
+function togglePreviewSample(checked) {
+    previewUseSample = !!checked;
+    __renderPreview();
+}
+
+// 序列化当前画布为统一模型（预览/打印复用），保证两处渲染一致
+function __buildLabelModel() {
+    reindexLabelCells();
     var table = document.getElementById('labelTable');
-    var scale = 4;  // 预览放大倍数
-    
-    // 创建标签预览容器
-    var labelWidth = currentTemplate.labelWidth * scale;
-    var labelHeight = currentTemplate.labelHeight * scale;
-    
-    preview.innerHTML = '<div id="previewLabel" style="width: ' + labelWidth + 'px; height: ' + labelHeight + 'px; border: 1px solid #000; background: white; display: table; table-layout: fixed; border-collapse: collapse;"></div>';
-    
-    var previewLabel = document.getElementById('previewLabel');
-    
-    for (var r = 0; r < table.rows.length; r++) {
-        var tr = document.createElement('tr');
-        var rowHeight = parseInt(table.rows[r].style.height) || 30;
-        tr.style.height = (rowHeight * scale) + 'px';
-        
-        // 遍历实际列（考虑 colspan）
-        var colIndex = 0;
-        while (colIndex < table.rows[r].cells.length) {
-            var cell = table.rows[r].cells[colIndex];
-            var content = cell.querySelector('.cell-content');
-            var td = document.createElement('td');
-            
-            // 设置 colspan
-            if (cell.colSpan > 1) {
-                td.colSpan = cell.colSpan;
-            }
-            
-            // 单元格样式
-            td.style.border = '0.3px solid #ccc';
-            td.style.padding = (2 * scale) + 'px';
-            td.style.verticalAlign = 'middle';
-            td.style.overflow = 'hidden';
-            td.style.wordBreak = 'break-all';
-            
-            // 字体样式
-            td.style.fontSize = (parseInt(content.style.fontSize) || 12) * scale + 'px';
-            td.style.fontWeight = content.style.fontWeight || 'normal';
-            td.style.color = content.style.color || '#000';
-            td.style.textAlign = content.style.textAlign || 'left';
-            
-            // 内容
-            if (content.dataset.field === 'barcode') {
-                td.textContent = '[条码] ' + content.textContent;
-            } else {
-                td.textContent = content.textContent;
-            }
-            
-            tr.appendChild(td);
-            colIndex++;
+    var cells = [];
+    var rowHeights = [];
+    var maxRow = -1;
+    if (table) {
+        for (var r = 0; r < table.rows.length; r++) {
+            rowHeights.push(parseInt(table.rows[r].style.height) || 30);
         }
-        
-        previewLabel.appendChild(tr);
+        table.querySelectorAll('.label-cell').forEach(function(cell) {
+            var content = cell.querySelector('.cell-content');
+            if (!content) return;
+            var cd = {
+                row: parseInt(cell.dataset.row) || 0,
+                col: parseInt(cell.dataset.col) || 0,
+                colSpan: cell.colSpan || 1,
+                text: content.textContent,
+                field: content.dataset.field || '',
+                style: {
+                    fontSize: content.style.fontSize || '12px',
+                    fontWeight: content.style.fontWeight || 'normal',
+                    color: content.style.color || '#000000',
+                    textAlign: content.style.textAlign || 'left',
+                    verticalAlign: content.style.verticalAlign || cell.style.verticalAlign || 'middle'
+                }
+            };
+            if (cd.field === 'barcode' || cd.field === 'qrcode') {
+                cd.barcodeWidth = content.dataset.barcodeWidth || '';
+                cd.barcodeHeight = content.dataset.barcodeHeight || '';
+            }
+            if (cd.row > maxRow) maxRow = cd.row;
+            cells.push(cd);
+        });
     }
-    
+    return {
+        rows: Math.max(currentTemplate.rows, maxRow + 1),
+        cols: currentTemplate.cols,
+        labelWidth: currentTemplate.labelWidth,
+        labelHeight: currentTemplate.labelHeight,
+        cells: cells,
+        rowHeights: rowHeights
+    };
+}
+
+function __escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// 生成单个单元格的内部 HTML（条码/二维码输出真实图片，文本字段填示例值）
+// opts: { scale, unit('px'|'mm'), useSample, labelWidth, labelHeight, origin }
+function __cellInnerHtml(cd, opts) {
+    var field = cd.field || '';
+    var scale = opts.scale || 4;
+
+    function codeImgHtml(kind, value) {
+        var wMm, hMm, src;
+        if (kind === 'barcode') {
+            wMm = parseInt(cd.barcodeWidth) || 50;
+            hMm = parseInt(cd.barcodeHeight) || 15;
+            wMm = Math.min(wMm, opts.labelWidth * 0.9);
+            src = opts.origin + '/api/barcode/' + encodeURIComponent(value);
+        } else {
+            if (cd.barcodeWidth) {
+                wMm = parseInt(cd.barcodeWidth);
+                hMm = parseInt(cd.barcodeHeight) || wMm;
+            } else {
+                wMm = Math.min(opts.labelWidth * 0.4, opts.labelHeight * 0.5);
+                hMm = wMm;
+            }
+            var pxSize = Math.max(100, Math.min(400, Math.round(wMm * 3.78)));
+            src = opts.origin + '/api/qrcode/' + encodeURIComponent(value) + '?size=' + pxSize;
+        }
+        var wCss = opts.unit === 'mm' ? (wMm + 'mm') : (Math.round(wMm * scale) + 'px');
+        var hCss = opts.unit === 'mm' ? (hMm + 'mm') : (Math.round(hMm * scale) + 'px');
+        return '<img src="' + src + '" alt="' + __escapeHtml(value) + '" style="width:' + wCss + ';height:' + hCss + ';display:block;max-width:100%;image-rendering:pixelated;">';
+    }
+
+    if (field === 'barcode' || field === 'qrcode') {
+        if (opts.useSample) {
+            return codeImgHtml(field, labelSampleData[field] || labelSampleData.code);
+        }
+        return __escapeHtml(cd.text); // 占位模式：显示 [条码]/[二维码] 文本
+    }
+    var txt = cd.text;
+    if (opts.useSample && field && labelSampleData[field] !== undefined) {
+        txt = labelSampleData[field];
+    }
+    return __escapeHtml(txt);
+}
+
+// 仅渲染预览内容（不弹窗），供预览按钮与示例切换复用
+function __renderPreview() {
+    var preview = document.getElementById('previewContent');
+    if (!preview) return;
+    var scale = 4;  // 预览放大倍数
+    var model = __buildLabelModel();
+    var labelWidth = model.labelWidth * scale;
+    var labelHeight = model.labelHeight * scale;
+
+    var byRow = {};
+    model.cells.forEach(function(cd) { (byRow[cd.row] = byRow[cd.row] || []).push(cd); });
+
+    var html = '<div id="previewLabel" style="width:' + labelWidth + 'px;height:' + labelHeight + 'px;border:1px solid #000;background:white;display:table;table-layout:fixed;border-collapse:collapse;">';
+    for (var r = 0; r < model.rows; r++) {
+        var rowHeight = (model.rowHeights[r] || 30) * scale;
+        html += '<tr style="height:' + rowHeight + 'px;">';
+        var rowCells = (byRow[r] || []).sort(function(a, b) { return a.col - b.col; });
+        rowCells.forEach(function(cd) {
+            var fs = parseInt(cd.style.fontSize) || 12;
+            html += '<td' + (cd.colSpan > 1 ? ' colspan="' + cd.colSpan + '"' : '') +
+                ' style="border:0.3px solid #ccc;padding:' + (2 * scale) + 'px;vertical-align:' + (cd.style.verticalAlign || 'middle') +
+                ';overflow:hidden;word-break:break-all;font-size:' + (fs * scale) + 'px;font-weight:' + cd.style.fontWeight +
+                ';color:' + cd.style.color + ';text-align:' + cd.style.textAlign + ';">' +
+                __cellInnerHtml(cd, { scale: scale, unit: 'px', useSample: previewUseSample, labelWidth: model.labelWidth, labelHeight: model.labelHeight, origin: location.origin }) +
+                '</td>';
+        });
+        html += '</tr>';
+    }
+    html += '</div>';
+    preview.innerHTML = html;
+
+    var tog = document.getElementById('previewSampleToggle');
+    if (tog) tog.checked = previewUseSample;
+}
+
+function previewLabel() {
+    __renderPreview();
     new bootstrap.Modal(document.getElementById('previewModal')).show();
 }
 
@@ -3141,35 +3243,46 @@ function printSingleLabel(id) {
 }
 
 function doPrint() {
-    var label = document.getElementById('previewLabel');
-    if (!label) {
-        alert('请先生成预览');
-        return;
-    }
+    // 与预览同一数据模型渲染，条码/二维码输出真实图片（绝对地址，兼容 about:blank 打印窗）
+    var model = __buildLabelModel();
     var scale = 4;
-    var w = currentTemplate.labelWidth;
-    var h = currentTemplate.labelHeight;
-    
+    var w = model.labelWidth;
+    var h = model.labelHeight;
+
+    var byRow = {};
+    model.cells.forEach(function(cd) { (byRow[cd.row] = byRow[cd.row] || []).push(cd); });
+
+    var totalPx = 0;
+    for (var i = 0; i < model.rowHeights.length; i++) { totalPx += model.rowHeights[i]; }
+
     var printWindow = window.open('', '', 'width=600,height=400');
     printWindow.document.write('<!DOCTYPE html><html><head><title>标签打印</title>');
     printWindow.document.write('<style>');
     printWindow.document.write('@page { size: ' + w + 'mm ' + h + 'mm; margin: 0; }');
     printWindow.document.write('@media print { body { margin: 0; } }');
+    printWindow.document.write('body { margin: 0; }');
     printWindow.document.write('table { width: ' + w + 'mm; height: ' + h + 'mm; border-collapse: collapse; table-layout: fixed; }');
-    printWindow.document.write('td { border: 0.3px solid #000; padding: 1mm; vertical-align: middle; overflow: hidden; word-break: break-all; }');
+    printWindow.document.write('td { border: 0.3px solid #000; padding: 1mm; overflow: hidden; word-break: break-all; }');
     printWindow.document.write('</style></head><body>');
     printWindow.document.write('<table>');
-    for (var r = 0; r < label.rows.length; r++) {
-        printWindow.document.write('<tr style="height: ' + (parseInt(label.rows[r].style.height) / scale) + 'mm;">');
-        for (var c = 0; c < label.rows[r].cells.length; c++) {
-            var cell = label.rows[r].cells[c];
-            var colSpan = cell.colSpan > 1 ? ' colspan="' + cell.colSpan + '"' : '';
-            printWindow.document.write('<td' + colSpan + ' style="font-size: ' + (parseInt(cell.style.fontSize) / scale) + 'pt; font-weight: ' + cell.style.fontWeight + '; color: ' + cell.style.color + '; text-align: ' + cell.style.textAlign + ';">' + cell.textContent + '</td>');
-        }
+    for (var r = 0; r < model.rows; r++) {
+        var rhPx = model.rowHeights[r] || 30;
+        var rhMm = totalPx > 0 ? (rhPx / totalPx * h) : (h / model.rows);
+        printWindow.document.write('<tr style="height: ' + rhMm.toFixed(2) + 'mm;">');
+        var rowCells = (byRow[r] || []).sort(function(a, b) { return a.col - b.col; });
+        rowCells.forEach(function(cd) {
+            var fs = parseInt(cd.style.fontSize) || 12;
+            printWindow.document.write('<td' + (cd.colSpan > 1 ? ' colspan="' + cd.colSpan + '"' : '') +
+                ' style="vertical-align:' + (cd.style.verticalAlign || 'middle') + ';font-size:' + fs + 'pt;font-weight:' + cd.style.fontWeight +
+                ';color:' + cd.style.color + ';text-align:' + cd.style.textAlign + ';">' +
+                __cellInnerHtml(cd, { scale: scale, unit: 'mm', useSample: previewUseSample, labelWidth: w, labelHeight: h, origin: location.origin }) +
+                '</td>');
+        });
         printWindow.document.write('</tr>');
     }
     printWindow.document.write('</table>');
-    printWindow.document.write('<script>window.onload = function() { window.print(); window.close(); };<\/script>');
+    // 等待条码/二维码图片加载后再唤起打印，避免打印出空白图
+    printWindow.document.write('<script>window.onload = function() { setTimeout(function(){ window.print(); }, 400); };<\/script>');
     printWindow.document.write('</body></html>');
     printWindow.document.close();
 }
