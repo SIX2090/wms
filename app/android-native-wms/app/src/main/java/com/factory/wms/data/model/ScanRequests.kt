@@ -22,7 +22,9 @@ data class InboundRequest(
 
 data class OutboundRequest(
     val lines: List<ScanLine>,
-    @SerializedName("business_type") val businessType: String = "Android扫码出库",
+    // BUG-2026-09-10-002：手机端出库即仓库领料，业务类型与 PC 领料单统一为「领料单」；
+    // 旧的 "Android扫码出库" 会让手机出的库进不了每日报表、PC 领料列表也看不到。
+    @SerializedName("business_type") val businessType: String = "领料单",
     val warehouse: String? = null,
     @SerializedName("warehouse_code") val warehouseCode: String? = null,
     val receiver: String? = null,
