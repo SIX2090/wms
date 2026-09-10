@@ -25,6 +25,8 @@ data class ReportUiState(
     val error: String? = null,
     /** 当前查询日期，格式 yyyy-MM-dd */
     val date: String = "",
+    /** 日期是否处于「今天模式」：true 时每次加载自动跟随系统当天（跨天不重启也生效） */
+    val dateIsToday: Boolean = true,
     val reportType: ReportType = ReportType.PURCHASE_IN,
     val report: DailyReportData? = null
 )
@@ -45,6 +47,15 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun load() {
+        // BUG-2026-09-10-003：ViewModel 在 App 启动时即被创建，date 只在 init 取一次；
+        // App 跨天未重启（Android 进程常在后台存活数日）时，进入报表页仍按旧日期查询，
+        // 表现为「今天的记录查不到」。处于今天模式时，每次加载前校正为系统当天。
+        if (_uiState.value.dateIsToday) {
+            val today = apiDateFormat.format(Date())
+            if (today != _uiState.value.date) {
+                _uiState.value = _uiState.value.copy(date = today)
+            }
+        }
         val state = _uiState.value
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
@@ -73,13 +84,20 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
         val cal = Calendar.getInstance()
         cal.time = apiDateFormat.parse(_uiState.value.date) ?: Date()
         cal.add(Calendar.DAY_OF_YEAR, offset)
-        _uiState.value = _uiState.value.copy(date = apiDateFormat.format(cal.time))
+        // 手动翻天后脱离「今天模式」，避免用户翻到的日期被自动校正覆盖
+        _uiState.value = _uiState.value.copy(
+            date = apiDateFormat.format(cal.time),
+            dateIsToday = false
+        )
         load()
     }
 
     /** 回到今天 */
     fun resetToday() {
-        _uiState.value = _uiState.value.copy(date = apiDateFormat.format(Date()))
+        _uiState.value = _uiState.value.copy(
+            date = apiDateFormat.format(Date()),
+            dateIsToday = true
+        )
         load()
     }
 
