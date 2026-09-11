@@ -543,6 +543,18 @@ def main() -> int:
             f'LLM 计费端点 {_fn} 必须走能力门禁 _ai_capability_allowed({_cap})',
         ))
 
+    # AI-DEDUP-REPLENISH-001：补货报告唯一实现在 _ai_smart_replenishment_report，
+    # _ai_replenishment_report 只允许是委托适配层，防止同逻辑两处实现再次发散。
+    _legacy_body = function_body(read_text('app/app.py'), '_ai_replenishment_report')
+    checks.append((
+        'AI-DEDUP-REPLENISH-001',
+        bool(_legacy_body)
+        and '_ai_smart_replenishment_report(' in _legacy_body
+        and 'Material.query' not in _legacy_body
+        and len(_legacy_body.splitlines()) < 30,
+        '_ai_replenishment_report 必须是薄适配层（委托 smart 实现，禁止复制业务逻辑）',
+    ))
+
     tool_registry = subprocess.run(
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_tool_registry.py')],
         cwd=str(ROOT),
