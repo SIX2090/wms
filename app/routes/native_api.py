@@ -765,10 +765,32 @@ def register_native_api_routes(app):
                     return api_json_error(error_msg or f'{material.code} 库存不足，当前库存 {current_stock}')
 
         try:
+            # 2026-09-12 领料部门/领料人：department_id 优先，department 文本
+            # 按 code/name 查询兜底（与 PC 领料单 routes/mobile.py 口径一致），
+            # 命中 → department_id + customer=部门名；picker → OutOrder.picker
+            # 专用字段。部门不再借用 purpose 文本（purpose 固定来源标记）。
+            from app import Department
+            department = None
+            department_id_input = payload.get('department_id')
+            try:
+                department_id_input = int(department_id_input) if department_id_input not in (None, '') else None
+            except (TypeError, ValueError):
+                department_id_input = None
+            if department_id_input:
+                department = db.session.get(Department, department_id_input)
+            if department is None:
+                department_text = (payload.get('department') or '').strip()
+                if department_text:
+                    department = Department.query.filter(
+                        db.or_(Department.code == department_text,
+                               Department.name == department_text)).first()
+            receiver_text = (payload.get('receiver') or '').strip() or None
+            picker_text = (payload.get('picker') or '').strip() or None
+
             order = OutOrder(
                 order_no=generate_order_no('OU'),
                 date=date.today(),
-                customer=(payload.get('receiver') or '').strip() or None,
+                customer=(department.name if department else receiver_text) or None,
                 # BUG-2026-09-10-002：手机原生端出库此前固定写 'Android扫码出库'，
                 # 与 PC 领料单（'领料单'）不是一个业务类型，后果：①每日报表领料单
                 # 口径查不到手机出的库；②PC 领料单列表也看不到手机单据。
@@ -776,7 +798,9 @@ def register_native_api_routes(app):
                 # 历史 'Android扫码出库' 单据由 daily_detail 报表口径兼容命中。
                 business_type='领料单',
                 warehouse=order_warehouse,
-                purpose=(payload.get('department') or 'Android原生端提交').strip(),
+                department_id=department.id if department else None,
+                picker=picker_text,
+                purpose='Android原生端提交',
                 remark='Android原生端提交',
                 status='completed',
                 operator_id=user.id,
@@ -1659,6 +1683,49 @@ def register_native_api_routes(app):
                 for w in warehouses
             ]
         })
+
+    @app.route('/api/departments')
+    @web_or_api_required
+    def native_api_departments():
+        """移动端部门列表（2026-09-12）：返回启用部门，供出库领料部门下拉选择"""
+        from app import Department, api_json_success
+        departments = Department.query.filter_by(status='active').order_by(
+            Department.code.asc(), Department.id.asc()).all()
+        return api_json_success({
+            'items': [
+                {'id': d.id, 'code': d.code or '', 'name': d.name or ''}
+                for d in departments
+            ]
+        })
+
+    @app.route('/api/employees')
+    @web_or_api_required
+    def native_api_employees():
+        """移动端员工列表（2026-09-12）：供出库领料人下拉选择。
+
+        支持 ?department_id= 过滤（选了领料部门后 App 联动只显示该部门员工；
+        不传则返回全部员工，含无部门员工）。
+        """
+        from app import Employee, api_json_success
+        query = Employee.query
+        department_id = (request.args.get('department_id') or '').strip()
+        if department_id.isdigit():
+            query = query.filter(Employee.department_id == int(department_id))
+        employees = query.order_by(Employee.code.asc(), Employee.id.asc()).all()
+        return api_json_success({
+            'items': [
+                {
+                    'id': e.id,
+                    'code': e.code or '',
+                    'name': e.name or '',
+                    'position': e.position or '',
+                    'department_id': e.department_id,
+                    'department_name': e.department.name if e.department else '',
+                }
+                for e in employees
+            ]
+        })
+
 
     @app.route('/api/opening_stock')
     @web_or_api_required
