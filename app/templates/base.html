@@ -1306,23 +1306,23 @@
             background: #e5e7eb;
         }
 
-        /* 库存管理 3 列 flyout */
-        .sidebar .module-flyout.flyout-inventory {
+        /* 通用 3 列 flyout（库存管理 / 采购管理共用） */
+        .sidebar .module-flyout.flyout-3col {
             width: 700px;
         }
-        .sidebar .module-flyout.flyout-inventory .flyout-grid-3col {
+        .sidebar .module-flyout.flyout-3col .flyout-grid-3col {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
         }
-        .sidebar .module-flyout.flyout-inventory .flyout-col {
+        .sidebar .module-flyout.flyout-3col .flyout-col {
             padding: 0 4px;
             min-width: 0;
         }
-        .sidebar .module-flyout.flyout-inventory .flyout-col + .flyout-col {
+        .sidebar .module-flyout.flyout-3col .flyout-col + .flyout-col {
             border-left: 1px solid #e5e7eb;
             padding-left: 8px;
         }
-        .sidebar .module-flyout.flyout-inventory .flyout-col-title {
+        .sidebar .module-flyout.flyout-3col .flyout-col-title {
             padding: 6px 10px 5px;
             font-size: .75rem;
             color: #4f46e5;
@@ -2077,19 +2077,19 @@
                 background: rgba(255,255,255,.12);
             }
 
-            /* 库存管理 3 列 → 移动端单列 */
-            .sidebar .module-flyout.flyout-inventory {
+            /* 3 列 flyout → 移动端单列 */
+            .sidebar .module-flyout.flyout-3col {
                 width: auto;
             }
-            .sidebar .module-flyout.flyout-inventory .flyout-grid-3col {
+            .sidebar .module-flyout.flyout-3col .flyout-grid-3col {
                 display: block;
             }
-            .sidebar .module-flyout.flyout-inventory .flyout-col + .flyout-col {
+            .sidebar .module-flyout.flyout-3col .flyout-col + .flyout-col {
                 border-left: none;
                 padding-left: 0;
                 margin-top: 4px;
             }
-            .sidebar .module-flyout.flyout-inventory .flyout-col-title {
+            .sidebar .module-flyout.flyout-3col .flyout-col-title {
                 color: rgba(255,255,255,.62);
             }
 
@@ -2415,24 +2415,33 @@
                     <span class="module-title"><i class="bi bi-bag-check"></i> 采购管理</span>
                     <i class="bi bi-chevron-right module-arrow"></i>
                 </button>
-                <div class="module-flyout">
+                <div class="module-flyout flyout-3col">
                     <div class="flyout-title">采购管理</div>
-                    <a class="flyout-link" href="/purchase_request/add"><i class="bi bi-cart-plus"></i> 采购申请</a>
-                    <a class="flyout-link" href="/purchase_order/add"><i class="bi bi-bag-check"></i> 采购订单</a>
-                    <a class="flyout-link" href="/in_order/add"><i class="bi bi-box-arrow-in-down"></i> 采购入库</a>
-                    <div class="flyout-divider"></div>
-                    <a class="flyout-link" href="/purchase_request"><i class="bi bi-list-check"></i> 采购申请列表</a>
-                    <a class="flyout-link" href="/purchase_order?view=list"><i class="bi bi-card-list"></i> 采购订单列表</a>
-                    <a class="flyout-link" href="/in_order?type=purchase_in"><i class="bi bi-card-list"></i> 采购入库明细表</a>
-                    <a class="flyout-link" href="/supplier"><i class="bi bi-building"></i> 供应商管理</a>
-                    <div class="flyout-divider"></div>
-                    <a class="flyout-link" href="/purchase_report"><i class="bi bi-clipboard-data"></i> 采购报表</a>
-                    <a class="flyout-link" href="/ai/replenishment"><i class="bi bi-lightning-charge"></i> AI补货建议</a>
-                    <a class="flyout-link" href="/report/view/purchase_order_execution"><i class="bi bi-bag-check"></i> 采购订单执行统计表</a>
-                    <a class="flyout-link" href="/report/view/supplier_purchase_summary"><i class="bi bi-building"></i> 供应商采购汇总表</a>
-                    <a class="flyout-link" href="/report/view/material_purchase_summary"><i class="bi bi-box"></i> 物料采购汇总表</a>
-                    <a class="flyout-link" href="/report/view/purchase_price_analysis"><i class="bi bi-currency-yen"></i> 采购价格分析表</a>
-                    <a class="flyout-link" href="/report/view/in_detail"><i class="bi bi-box-arrow-in-down"></i> 入库明细报表</a>
+                    <div class="flyout-grid-3col">
+                        <div class="flyout-col">
+                            <div class="flyout-col-title">单据</div>
+                            <a class="flyout-link" href="/purchase_request/add"><i class="bi bi-cart-plus"></i> 采购申请</a>
+                            <a class="flyout-link" href="/purchase_order/add"><i class="bi bi-bag-check"></i> 采购订单</a>
+                            <a class="flyout-link" href="/in_order/add"><i class="bi bi-box-arrow-in-down"></i> 采购入库</a>
+                        </div>
+                        <div class="flyout-col">
+                            <div class="flyout-col-title">报表列表</div>
+                            <a class="flyout-link" href="/purchase_request"><i class="bi bi-list-check"></i> 采购申请列表</a>
+                            <a class="flyout-link" href="/purchase_order?view=list"><i class="bi bi-card-list"></i> 采购订单列表</a>
+                            <a class="flyout-link" href="/in_order?type=purchase_in"><i class="bi bi-card-list"></i> 采购入库明细表</a>
+                            <a class="flyout-link" href="/supplier"><i class="bi bi-building"></i> 供应商管理</a>
+                            <a class="flyout-link" href="/purchase_report"><i class="bi bi-clipboard-data"></i> 采购报表</a>
+                            <a class="flyout-link" href="/report/view/purchase_order_execution"><i class="bi bi-bag-check"></i> 采购订单执行统计表</a>
+                            <a class="flyout-link" href="/report/view/supplier_purchase_summary"><i class="bi bi-building"></i> 供应商采购汇总表</a>
+                            <a class="flyout-link" href="/report/view/material_purchase_summary"><i class="bi bi-box"></i> 物料采购汇总表</a>
+                            <a class="flyout-link" href="/report/view/purchase_price_analysis"><i class="bi bi-currency-yen"></i> 采购价格分析表</a>
+                            <a class="flyout-link" href="/report/view/in_detail"><i class="bi bi-box-arrow-in-down"></i> 入库明细报表</a>
+                        </div>
+                        <div class="flyout-col">
+                            <div class="flyout-col-title">AI功能</div>
+                            <a class="flyout-link" href="/ai/replenishment"><i class="bi bi-lightning-charge"></i> AI补货建议</a>
+                        </div>
+                    </div>
                 </div>
             </li>
             <li class="nav-item module-menu">
@@ -2462,7 +2471,7 @@
                     <span class="module-title"><i class="bi bi-box-seam"></i> 库存管理</span>
                     <i class="bi bi-chevron-right module-arrow"></i>
                 </button>
-                <div class="module-flyout flyout-inventory">
+                <div class="module-flyout flyout-3col">
                     <div class="flyout-title">库存管理</div>
                     <div class="flyout-grid-3col">
                         <div class="flyout-col">
