@@ -29,6 +29,10 @@ data class OutboundRequest(
     @SerializedName("warehouse_code") val warehouseCode: String? = null,
     val receiver: String? = null,
     val department: String? = null,
+    /** 2026-09-12 领料部门（选填）：Department 主键，后端写入 OutOrder.department_id */
+    @SerializedName("department_id") val departmentId: Long? = null,
+    /** 2026-09-12 领料人（选填）：员工姓名，后端写入 OutOrder.picker */
+    val picker: String? = null,
     /** 合同编号（选填）：命中合同档案由后端回填 contract_id/工程名称 */
     @SerializedName("contract_no") val contractNo: String? = null
 )

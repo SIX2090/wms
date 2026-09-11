@@ -36,6 +36,14 @@ data class ScanUiState(
     val contractNo: String = "",
     val contractSuggestions: List<ContractDto> = emptyList(),
     val contractSuggestionsLoading: Boolean = false,
+    // 2026-09-12 出库「领料部门/领料人」下拉（选填）：
+    // 选部门后员工列表联动只显示该部门员工；两者均可不选（后端兼容）
+    val departments: List<DepartmentDto> = emptyList(),
+    val departmentsLoading: Boolean = false,
+    val selectedDepartment: DepartmentDto? = null,
+    val employees: List<EmployeeDto> = emptyList(),
+    val employeesLoading: Boolean = false,
+    val selectedEmployee: EmployeeDto? = null,
     // 提交成功后待打印的单据信息（"打印单据"按钮）
     val submittedPrint: SubmittedPrintInfo? = null,
     val printLoading: Boolean = false,
@@ -262,6 +270,67 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 }
             )
         }
+    }
+
+    // ── 2026-09-12：出库「领料部门/领料人」下拉（选填，选部门联动过滤员工） ──
+
+    /** 拉取启用部门列表（出库页进入时调用）。 */
+    fun loadDepartments() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(departmentsLoading = true)
+            repository.getDepartments().fold(
+                onSuccess = { departments ->
+                    val keep = _uiState.value.selectedDepartment
+                        ?.let { sel -> departments.firstOrNull { it.id == sel.id } }
+                    _uiState.value = _uiState.value.copy(
+                        departmentsLoading = false,
+                        departments = departments,
+                        selectedDepartment = keep
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(
+                        departmentsLoading = false,
+                        error = e.message
+                    )
+                }
+            )
+        }
+    }
+
+    /** 拉取员工列表；selectedDepartment 存在时按部门过滤（联动）。 */
+    fun loadEmployees() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(employeesLoading = true)
+            repository.getEmployees(_uiState.value.selectedDepartment?.id).fold(
+                onSuccess = { employees ->
+                    val keep = _uiState.value.selectedEmployee
+                        ?.let { sel -> employees.firstOrNull { it.id == sel.id } }
+                    _uiState.value = _uiState.value.copy(
+                        employeesLoading = false,
+                        employees = employees,
+                        selectedEmployee = keep
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(
+                        employeesLoading = false,
+                        error = e.message
+                    )
+                }
+            )
+        }
+    }
+
+    /** 选择领料部门（可传 null 清除）；换部门后联动刷新员工列表。 */
+    fun selectDepartment(department: DepartmentDto?) {
+        _uiState.value = _uiState.value.copy(selectedDepartment = department)
+        loadEmployees()
+    }
+
+    /** 选择领料人（可传 null 清除）。 */
+    fun selectEmployee(employee: EmployeeDto?) {
+        _uiState.value = _uiState.value.copy(selectedEmployee = employee)
     }
 
     // ── INV-BATCH-001-E：盘点单选单（电脑端创建进行中盘点单后手机选择） ──
@@ -627,7 +696,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun submitOutbound(receiver: String? = null, department: String? = null) {
+    fun submitOutbound() {
         viewModelScope.launch {
             val state = _uiState.value
             val warehouse = state.selectedWarehouse
@@ -643,8 +712,10 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             val request = OutboundRequest(
                 lines = lines,
-                receiver = receiver,
-                department = department,
+                receiver = null,
+                department = state.selectedDepartment?.name,
+                departmentId = state.selectedDepartment?.id,
+                picker = state.selectedEmployee?.name,
                 warehouse = warehouse.code,
                 warehouseCode = warehouse.code,
                 contractNo = state.contractNo.trim().ifBlank { null }
