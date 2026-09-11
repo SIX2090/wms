@@ -127,6 +127,18 @@ interface WmsApiService {
         @Body request: InboundDraftRequest
     ): Response<ApiEnvelope<InboundDraftResult>>
 
+    /**
+     * 语音建单：说「领8*25螺丝 1000个」→ 生成领料单草稿（pending，不扣库存）。
+     *
+     * 两阶段：dry_run=true 只解析匹配（消歧）；dry_run=false 建草稿。
+     * 多命中时后端返回 match_status=multiple + matches，由客户端点选后再建单。
+     */
+    @POST("api/mobile/voice_out_draft")
+    suspend fun voiceOutDraft(
+        @Header("X-Idempotency-Key") requestId: String,
+        @Body request: VoiceOutDraftRequest
+    ): Response<ApiEnvelope<VoiceOutDraftResult>>
+
     @GET("api/mobile/dashboard")
     suspend fun getDashboard(
         // BUG-2026-09-10-010：首页概览支持指定仓库 / all（全部仓库汇总）；

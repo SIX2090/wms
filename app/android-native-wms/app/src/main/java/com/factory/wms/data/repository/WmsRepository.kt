@@ -426,6 +426,18 @@ class WmsRepository(private val context: Context) {
     }
 
     /**
+     * 语音建单（领料单草稿）。
+     *
+     * dry_run=true 只解析匹配（消歧）；dry_run=false 用确认的物料+数量建草稿。
+     * 走 safeCall 统一错误映射 + 幂等键，避免网络重试重复建单。
+     */
+    suspend fun createVoiceOutDraft(request: VoiceOutDraftRequest): Result<VoiceOutDraftResult> {
+        return safeCall {
+            api.voiceOutDraft(newRequestId(), request)
+        }
+    }
+
+    /**
      * 首页概览。
      *
      * BUG-2026-09-10-010：新增 [warehouseId] —— null 跟随系统默认仓（旧行为），
