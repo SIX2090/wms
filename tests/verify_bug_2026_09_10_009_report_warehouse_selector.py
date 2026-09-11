@@ -15,7 +15,7 @@
 - T1 API 必须带 warehouse_id 查询参数
 - T2 Repository 签名带 warehouseId 且首屏与翻页都透传
 - T3 ViewModel 必须持有 warehouses / selectedWarehouseId 并提供切换与加载
-- T4 页面必须调用 WarehouseSelector 且提供「全部仓库」选项
+- T4 页面调用 WarehouseSelector；报表下拉关闭「默认仓库」与「全部仓库（汇总）」选项
 - T5 明细行 warehouse 字段必须可空（旧版后端不下发，Gson 置 null）
 - T6 加载顺序：进入页面先拉仓库列表再查报表
 """
@@ -57,14 +57,19 @@ def test_t3_view_model_holds_warehouse_state():
 
 def test_t4_screen_has_selector_with_all_option():
     # BUG-2026-09-10-010：选择器已从报表页提取为共享组件
-    # （ui/components/WarehouseSelector.kt），选项定义随组件迁移；
-    # 报表页只需确认仍在使用该组件。
+    # （ui/components/WarehouseSelector.kt），选项定义随组件迁移；报表页只需确认仍在使用该组件。
+    # 用户需求：共享组件仍保留「默认仓库」/「全部仓库（汇总）」能力（可被其它页面启用），
+    # 但每日报表下拉关闭这两个选项，只列真实仓库。
     src = SCREEN.read_text(encoding="utf-8")
     assert "WarehouseSelector(" in src
 
     shared = SHARED.read_text(encoding="utf-8")
-    assert 'onSelect("all")' in shared, "必须提供「全部仓库（汇总）」选项"
-    assert "onSelect(null)" in shared, "必须保留「默认仓库」选项（兼容旧行为）"
+    assert 'onSelect("all")' in shared, "共享组件必须保留「全部仓库（汇总）」选项能力"
+    assert "onSelect(null)" in shared, "共享组件必须保留「默认仓库」选项能力"
+
+    # 报表下拉必须关闭「默认仓库」与「全部仓库（汇总）」（用户需求）
+    assert "showDefaultWarehouse = false" in src, "日报下拉必须关闭「默认仓库」选项"
+    assert "allowAll = false" in src, "日报下拉必须关闭「全部仓库（汇总）」选项"
 
 
 def test_t5_item_warehouse_nullable():

@@ -32,8 +32,9 @@ data class ReportUiState(
     /** 可选仓库列表（进入报表页时加载一次，供顶部下拉切换） */
     val warehouses: List<WarehouseDto> = emptyList(),
     /**
-     * 当前查询仓库：null = 跟随系统默认仓（旧行为），"all" = 全部仓库汇总，
-     * 其余为仓库 id 字符串（BUG-2026-09-10-009：多仓用户此前只能看默认仓）。
+     * 当前查询仓库：每日报表下拉只提供真实仓库（不含"默认仓库"/"全部仓库（汇总）"），
+     * 故此处恒为仓库 id 字符串；进入报表页加载仓库后若为空则默认选中第一个仓库
+     * （见 loadWarehouses）。首页概览仍使用 null=默认仓 / "all"=全部仓库汇总语义。
      */
     val selectedWarehouseId: String? = null,
     val report: DailyReportData? = null
@@ -90,7 +91,17 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
             repository.ensureSession()
             repository.getWarehouses().fold(
                 onSuccess = { list ->
-                    _uiState.value = _uiState.value.copy(warehouses = list)
+                    val current = _uiState.value.selectedWarehouseId
+                    // 日报下拉已去掉「默认仓库」与「全部仓库（汇总）」选项：进入页未显式
+                    // 选仓时默认落到第一个真实仓库，避免停留在已不可选的"默认仓"口径。
+                    val nextSelected = if (current.isNullOrBlank() && list.isNotEmpty()) {
+                        list.first().id?.toString()
+                    } else current
+                    _uiState.value = _uiState.value.copy(
+                        warehouses = list,
+                        selectedWarehouseId = nextSelected
+                    )
+                    if (nextSelected != current) load()
                 },
                 onFailure = { /* 静默：仓库列表失败不阻断报表查询 */ }
             )

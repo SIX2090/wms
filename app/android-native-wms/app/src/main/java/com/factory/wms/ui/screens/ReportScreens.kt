@@ -176,11 +176,15 @@ fun DailyReportScreen(
 
             // ── 仓库选择（BUG-2026-09-10-009）──
             // 多仓用户此前只能看系统默认仓，录在其他仓的单据"查不到"。
+            // 用户需求：日报下拉只列真实仓库，去掉「默认仓库」与「全部仓库（汇总）」，
+            // 进入页默认选中第一个仓库（见 ReportViewModel.loadWarehouses）。
             WarehouseSelector(
                 currentLabel = uiState.report?.warehouse,
                 warehouses = uiState.warehouses,
                 selectedId = uiState.selectedWarehouseId,
                 onSelect = { viewModel.selectWarehouse(it) },
+                showDefaultWarehouse = false,
+                allowAll = false,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
 

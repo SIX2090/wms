@@ -30,7 +30,9 @@ import com.factory.wms.data.model.WarehouseDto
  *
  * @param currentLabel 当前口径显示名（由服务端回传，如"成品仓"/"全部仓库"）
  * @param selectedId null=默认仓，"all"=全部仓库汇总，其余=仓库 id
- * @param allowAll 是否提供"全部仓库（汇总）"选项（报表/首页均支持）
+ * @param allowAll 是否提供"全部仓库（汇总）"选项（首页支持；每日报表按需求不提供）
+ * @param showDefaultWarehouse 是否提供"默认仓库"选项（首页支持；每日报表按需求不提供，
+ *        此时下拉只列真实仓库，进入页默认选中第一个仓库）。
  */
 @Composable
 fun WarehouseSelector(
@@ -39,10 +41,20 @@ fun WarehouseSelector(
     selectedId: String?,
     onSelect: (String?) -> Unit,
     allowAll: Boolean = true,
+    showDefaultWarehouse: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val label = if (!currentLabel.isNullOrBlank()) currentLabel else "默认仓库"
+    // 当前选中仓库（无回传标签时取名称兜底，避免去掉"默认仓库"后显示成空/错名称）
+    val chosen = warehouses.firstOrNull { it.id?.toString() == selectedId }
+    val label = when {
+        !currentLabel.isNullOrBlank() -> currentLabel
+        chosen != null -> chosen.name ?: chosen.code ?: chosen.id?.toString() ?: "选择仓库"
+        showDefaultWarehouse -> "默认仓库"
+        else -> warehouses.firstOrNull()?.name
+            ?: warehouses.firstOrNull()?.code
+            ?: "选择仓库"
+    }
     Box(modifier = modifier) {
         TextButton(onClick = { expanded = true }) {
             Text(label, fontSize = 14.sp)
@@ -53,10 +65,12 @@ fun WarehouseSelector(
             )
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text("默认仓库") },
-                onClick = { expanded = false; onSelect(null) }
-            )
+            if (showDefaultWarehouse) {
+                DropdownMenuItem(
+                    text = { Text("默认仓库") },
+                    onClick = { expanded = false; onSelect(null) }
+                )
+            }
             warehouses.forEach { wh ->
                 val id = wh.id?.toString() ?: return@forEach
                 DropdownMenuItem(
