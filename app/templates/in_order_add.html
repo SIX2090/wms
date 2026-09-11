@@ -562,7 +562,7 @@ textarea.form-control {
                         </select>
                     </div>
                 </div>
-                {% if not is_product_in and not is_other_in %}
+                {% if not is_product_in and not is_other_in and not is_sales_return %}
                 <div class="col-md-3">
                     <div class="mb-2 pt-4">
                         <div class="form-check">
@@ -598,7 +598,7 @@ textarea.form-control {
                 <button type="button" class="btn btn-primary" onclick="addNewRow()">
                     <i class="bi bi-plus"></i> 添加物料
                 </button>
-                {% if not is_product_in and not is_other_in %}
+                {% if not is_product_in and not is_other_in and not is_sales_return %}
                 <button type="button" class="btn btn-outline-primary" id="selectPurchaseOrderBtn" onclick="showPurchaseOrderSelectModal()">
                     <i class="bi bi-list-check"></i> 选采购单
                 </button>

@@ -257,7 +257,7 @@ def register_in_order_routes(app):
             for s in Supplier.query.order_by(Supplier.name.asc(), Supplier.id.asc()).all()
         ]
         # 反向映射：中文业务类型 -> 英文 URL 参数，供模板生成分页/清除链接
-        _type_reverse = {'采购入库': 'purchase_in', '产品入库': 'product_in', '其他入库': 'other_in'}
+        _type_reverse = {'采购入库': 'purchase_in', '产品入库': 'product_in', '其他入库': 'other_in', '销售退货入库': 'sales_return'}
         filters = {
             'status': status_filter,
             'search': search,
