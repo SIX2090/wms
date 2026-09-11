@@ -924,6 +924,31 @@ def auto_migrate_database():
                  )
             """)
             modified = True
+        # P1-5 销售退货入库（CI-ENV 批次后续）：in_order 补来源销售订单列。
+        # SQLite ALTER 无法带外键约束（与 stock_txn.warehouse_id 同法，仅加 INTEGER 列），
+        # 新库由 db.Model 建表自带外键。存量退货单据（若有）历史归属留空不猜——INVENTORY_TRUTH §3。
+        if _table_exists('in_order'):
+            cursor.execute("PRAGMA table_info(in_order)")
+            _in_order_cols_p15 = [row[1] for row in cursor.fetchall()]
+            for _column, _definition in (
+                ('source_sales_order_id', 'INTEGER'),
+                ('source_sales_order_no', 'VARCHAR(50)'),
+            ):
+                if _column not in _in_order_cols_p15:
+                    cursor.execute(f"ALTER TABLE in_order ADD COLUMN {_column} {_definition}")
+                    modified = True
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_in_order_source_sales_order_id ON in_order(source_sales_order_id)"
+            )
+        if _table_exists('in_order_item'):
+            cursor.execute("PRAGMA table_info(in_order_item)")
+            _in_order_item_cols_p15 = [row[1] for row in cursor.fetchall()]
+            if 'source_sales_order_item_id' not in _in_order_item_cols_p15:
+                cursor.execute("ALTER TABLE in_order_item ADD COLUMN source_sales_order_item_id INTEGER")
+                modified = True
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_in_order_item_source_sales_item ON in_order_item(source_sales_order_item_id)"
+            )
         # Existing documents had one header-level contract. Copy it to every line once.
         for _header, _item, _fk in (
             ('in_order', 'in_order_item', 'in_order_id'),
@@ -5444,6 +5469,10 @@ class InOrder(db.Model):
     warehouse = db.Column(db.String(100), nullable=False, default='')  # Warehouse name (AGENTS.md: 始终必填)
     location = db.Column(db.String(100), nullable=False, default='')  # 库位（开启库位管理时必填）
     source_purchase_order_id = db.Column(db.Integer, db.ForeignKey('purchase_order.id'))
+    # P1-5 销售退货入库：来源销售订单（business_type='销售退货入库' 时填写；
+    # 客户退回归属原单，退货率可统计。存量单据历史归属留空不猜——INVENTORY_TRUTH §3）
+    source_sales_order_id = db.Column(db.Integer, db.ForeignKey('sales_order.id'))
+    source_sales_order_no = db.Column(db.String(50))  # 冗余销售订单号（原单变更后历史单据不变）
     auto_push_requisition = db.Column(db.Boolean, nullable=False, default=False)
     remark = db.Column(db.String(200))  # Remark
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
@@ -5458,6 +5487,7 @@ class InOrder(db.Model):
     customer = db.relationship('Customer', backref='other_in_orders')
     operator = db.relationship('User', backref='in_orders')  # Operator
     source_purchase_order = db.relationship('PurchaseOrder', backref='in_orders')
+    source_sales_order = db.relationship('SalesOrder', backref='sales_return_in_orders', foreign_keys=[source_sales_order_id])
     contract = db.relationship('Contract', backref='in_orders')  # 关联合同档案
 
 class InOrderItem(db.Model):
@@ -5466,6 +5496,8 @@ class InOrderItem(db.Model):
     in_order_id = db.Column(db.Integer, db.ForeignKey('in_order.id'), nullable=False)  # Inbound order ID
     material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)  # Material ID
     source_purchase_order_item_id = db.Column(db.Integer, db.ForeignKey('purchase_order_item.id'))
+    # P1-5 销售退货入库：原销售订单行（退货限额 = 行 shipped_quantity − 已退量聚合）
+    source_sales_order_item_id = db.Column(db.Integer, db.ForeignKey('sales_order_item.id'))
     quantity = db.Column(db.Float, nullable=False)  # Quantity
     price = db.Column(db.Float, nullable=False)  # Unit price
     amount = db.Column(db.Float, nullable=False)  # Amount
@@ -5478,6 +5510,7 @@ class InOrderItem(db.Model):
     in_order = db.relationship('InOrder', backref='items')  # Related in order
     material = db.relationship('Material', backref='in_order_items')  # Related material
     source_purchase_order_item = db.relationship('PurchaseOrderItem', backref='in_order_items')
+    source_sales_order_item = db.relationship('SalesOrderItem', backref='sales_return_in_items')
     contract = db.relationship('Contract', foreign_keys=[contract_id])
 
 class OutOrder(db.Model):

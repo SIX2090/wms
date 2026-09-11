@@ -93,6 +93,18 @@
 > 也是 `BUG-2026-08-16-002`（期初只改总账）与 `BUG-2026-08-04-002`（库位静默成功）
 > 的温床。**新代码必须两层同时写。**
 
+### 2.1.1 业务单据的库存流入/流出路径（新增单据类型必登记）
+
+| 单据类型 | `business_type` | 库存写库管道 | 数量限额 |
+|---|---|---|---|
+| 采购/产品/其他入库 | `采购入库` / `产品入库` / `其他入库` | `complete_in_order` → `add_stock` + `update_location_inventory` | 采购行按 `received_quantity` 跟踪 |
+| **销售退货入库**（P1-5） | `销售退货入库` | **同上，复用 complete_in_order，不新增写入口** | 退货量 ≤ 原销售行 `shipped_quantity` − 已退量聚合（`sales_return_remaining_check`，无来源行跳过） |
+| 销售出库/领料等出库 | `销售出库` / … | `complete_out_order` → `deduct_stock_atomic` + `deduct_location_inventory_atomic` | 销售行按 `sales_outbound_remaining_check` 防超发 |
+| **采购退货出库**（P1-7） | `采购退货出库` | **同上，复用 complete_out_order，不新增写入口** | 退货量 ≤ 原入库行量 − 已退量聚合（`purchase_return_remaining_check`；`purchase_return_requires_order=1` 时强制关联来源） |
+
+> 退货类单据**只动库存三账，不改原单计数**（不写 `shipped_quantity` / `received_quantity` 的逆操作）——
+> 已退量永远是"聚合查询"而不是"状态字段"，与 §2.2 销售可承诺量的派生哲学一致（STOCK-TRUTH-P16 同源决策）。
+
 ### 2.2 读取端的口径选择
 
 | 场景 | 应读 | 函数 | 说明 |
