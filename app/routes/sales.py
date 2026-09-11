@@ -31,6 +31,33 @@ from db import db
 from utils import require_role
 
 
+# STOCK-TRUTH-P16：下单软校验——可用量不足时返回缺口提示（不阻断）。
+# 可用量 = get_warehouse_stock_quantities(wh) − get_committed_quantities(wh)，
+# 均为派生值（P1-6，D1：审批通过后占用）。下划线前缀为内部 helper。
+def _sales_stock_shortage_warnings(warehouse, qty_by_material_id, exclude_sales_order_id=None):
+    from app import (Material, STOCK_COMPARE_EPSILON, get_committed_quantities,
+                     get_warehouse_stock_quantities, round_to_2_decimals)
+    if not warehouse or not qty_by_material_id:
+        return []
+    stock_map = get_warehouse_stock_quantities(warehouse)
+    committed_map = get_committed_quantities(warehouse.id, exclude_sales_order_id=exclude_sales_order_id)
+    materials = Material.query.filter(Material.id.in_(list(qty_by_material_id.keys()))).all()
+    name_by_id = {m.id: (m.name or m.code) for m in materials}
+    warnings = []
+    for material_id, qty in qty_by_material_id.items():
+        name = name_by_id.get(material_id)
+        if not name:
+            continue
+        available = float(stock_map.get(material_id, 0)) - float(committed_map.get(material_id, 0))
+        if qty - available > STOCK_COMPARE_EPSILON:
+            warnings.append(
+                f'物料 {name} 在 {warehouse.name} 可用量 {round_to_2_decimals(available)}，'
+                f'本单占用 {round_to_2_decimals(qty)}，缺口 {round_to_2_decimals(qty - available)}。'
+                '可继续，但请与仓库确认。'
+            )
+    return warnings
+
+
 # no-test:reason=路由注册辅助函数，能力由 sales_* 各路由测试覆盖
 def register_sales_routes(app):
     @app.route('/sales/download_template')
@@ -504,9 +531,18 @@ def register_sales_routes(app):
                     project_name=(data.get('project_name') or '').strip() or None,
                 ))
             recalculate_sales_order(order)
+            # STOCK-TRUTH-P16：下单软校验（提示不阻断）——仓库级可用量不足时
+            # 响应携带 warnings，前端 showToast 提示后延迟跳转（本系统页面层
+            # 不渲染 flash，提示通道是 JSON -> showToast）。
+            qty_by_material_id = {}
+            for item_row in order.items:
+                qty_by_material_id[item_row.material_id] = round_to_2_decimals(
+                    qty_by_material_id.get(item_row.material_id, 0) + float(item_row.quantity or 0))
+            shortage_warnings = _sales_stock_shortage_warnings(warehouse, qty_by_material_id)
             db.session.commit()
             log_operation('保存销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
-            return jsonify({'status': 'success', 'id': order.id, 'order_no': order.order_no})
+            return jsonify({'status': 'success', 'id': order.id, 'order_no': order.order_no,
+                            'warnings': shortage_warnings})
         except (ValueError, TypeError, json.JSONDecodeError):
             db.session.rollback()
             return jsonify({'status': 'error', 'msg': '日期或明细格式不正确'}), 400
@@ -638,9 +674,18 @@ def register_sales_routes(app):
                     project_name=(data.get('project_name') or '').strip() or None,
                 ))
             recalculate_sales_order(order)
+            # STOCK-TRUTH-P16：改单软校验（提示不阻断），响应携带 warnings。草稿本不占用，
+            # exclude 自身仅作防御（未来放开已确认订单编辑时口径自动正确）。
+            qty_by_material_id = {}
+            for item_row in order.items:
+                qty_by_material_id[item_row.material_id] = round_to_2_decimals(
+                    qty_by_material_id.get(item_row.material_id, 0) + float(item_row.quantity or 0))
+            shortage_warnings = _sales_stock_shortage_warnings(
+                warehouse, qty_by_material_id, exclude_sales_order_id=order.id)
             db.session.commit()
             log_operation('修改销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
-            return jsonify({'status': 'success', 'id': order.id, 'order_no': order.order_no})
+            return jsonify({'status': 'success', 'id': order.id, 'order_no': order.order_no,
+                            'warnings': shortage_warnings})
         except (ValueError, TypeError, json.JSONDecodeError):
             db.session.rollback()
             return jsonify({'status': 'error', 'msg': '日期或明细格式不正确'}), 400

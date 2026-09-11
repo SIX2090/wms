@@ -167,3 +167,71 @@ def test_t6_derived_readonly():
     body = rest[:nm.start() + 1] if nm else rest
     assert "db.session.add" not in body
     assert "db.session.commit" not in body
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 路由级：下单/改单软校验（STOCK-TRUTH-P16 改动 2，提示不阻断）
+# ─────────────────────────────────────────────────────────────────────
+
+def _make_client(role="sales"):
+    with app_module.app.app_context():
+        if not User.query.filter_by(username=role).first():
+            db.session.add(User(username=role, password_hash=generate_password_hash("admin"),
+                                role=role, must_change_password=False))
+            db.session.commit()
+    client = app_module.app.test_client()
+    client.post("/login", data={"username": role, "password": "admin"},
+                content_type="application/x-www-form-urlencoded")
+    return client
+
+
+def _add_payload(customer_id, warehouse_id, rows):
+    return {
+        "customer_id": customer_id,
+        "warehouse_id": warehouse_id,
+        "items": [{"code": code, "quantity": qty, "price": 1.0} for code, qty in rows],
+    }
+
+
+def test_t7_add_returns_warning_not_block():
+    """T7: 下单缺口 → 仍 success 但 warnings 含缺口提示（软校验不阻断）。"""
+    with app_module.app.app_context():
+        _reset_db()
+        seed = _seed_base()
+        _seed_stock(seed["material"], seed["wh_a"], 100)
+        _make_order(seed["material"], seed["wh_a"], 80, "confirmed")  # 占用 80
+        customer_id, wh_id = seed["customer"].id, seed["wh_a"].id
+    client = _make_client()
+    resp = client.post("/sales/add", json=_add_payload(customer_id, wh_id, [("M-COMMIT", 30)]))
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["status"] == "success", "软校验不得阻断保存"
+    assert data["warnings"] and "缺口 10" in data["warnings"][0], data["warnings"]
+    assert "M-COMMIT 测试件" in data["warnings"][0] or "承诺测试件" in data["warnings"][0]
+
+
+def test_t8_frontend_displays_warnings():
+    """T8: 前端 save() 消费 warnings——toast 提示 + 展示文本 + 延迟跳转（静态断言）。
+
+    本系统页面层不渲染 flash（仅 login.html 有），提示通道是 JSON -> showToast，
+    故对两个表单页的 save() 做静态断言防止后端 warnings 无消费端。
+    """
+    for tpl in ("sales_order_add.html", "sales_order_edit.html"):
+        html = (APP_DIR / "templates" / tpl).read_text(encoding="utf-8", errors="ignore")
+        assert "result.warnings" in html, f"{tpl} 必须消费 warnings"
+        assert "showToast(result.warnings[0], 'warning'" in html, f"{tpl} 必须 toast 警告"
+        assert "库存缺口警告" in html, f"{tpl} 状态区必须展示警告文本"
+
+
+def test_t9_no_shortage_no_warning():
+    """T9: 可用量充足时无警告（不误报）。"""
+    with app_module.app.app_context():
+        _reset_db()
+        seed = _seed_base()
+        _seed_stock(seed["material"], seed["wh_a"], 100)
+        customer_id, wh_id = seed["customer"].id, seed["wh_a"].id
+    client = _make_client()
+    resp = client.post("/sales/add", json=_add_payload(customer_id, wh_id, [("M-COMMIT", 30)]))
+    data = resp.get_json()
+    assert data["status"] == "success"
+    assert data["warnings"] == []

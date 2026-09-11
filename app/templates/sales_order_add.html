@@ -910,7 +910,16 @@ textarea.form-control {
             var response = await csrfFetch('{{ url_for("sales_order_add") }}', {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRFToken': token ? token.content : ''}, body:JSON.stringify(data)});
             if (response.status === 401 || response.status === 403) { statusEl.textContent = '登录已过期，请刷新页面后重新登录'; return; }
             var result = await response.json();
-            if (result.status === 'success') window.location.href = saveAndNew ? '{{ url_for("sales_order_add_page") }}' : '/sales/' + result.id;
+            if (result.status === 'success') {
+                if (result.warnings && result.warnings.length) {
+                    // STOCK-TRUTH-P16：库存缺口软警告（不阻断）——展示后延迟跳转
+                    showToast(result.warnings[0], 'warning', 5000);
+                    statusEl.textContent = '已保存，但存在库存缺口警告：' + result.warnings.join(' ');
+                    setTimeout(function() { window.location.href = saveAndNew ? '{{ url_for("sales_order_add_page") }}' : '/sales/' + result.id; }, 3000);
+                } else {
+                    window.location.href = saveAndNew ? '{{ url_for("sales_order_add_page") }}' : '/sales/' + result.id;
+                }
+            }
             else statusEl.textContent = result.msg || '保存失败，请检查明细';
         } catch (err) {
             statusEl.textContent = '请求失败：' + (err && err.message ? err.message : '网络异常，请重试');
