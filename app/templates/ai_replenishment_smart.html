@@ -86,7 +86,7 @@
             </thead>
             <tbody>
                 {% for row in report.rows %}
-                <tr>
+                <tr class="{% if row.needs_review %}table-warning{% endif %}">
                     <td class="text-end fw-semibold">{{ row.priority_score }}</td>
                     <td><a href="{{ url_for('material_list', search=row.code) }}">{{ row.code }}</a></td>
                     <td>{{ row.name }}</td>
@@ -107,7 +107,13 @@
                         <span class="text-secondary fw-bold" title="消耗稳定">{{ row.trend_symbol }}</span>
                         {% endif %}
                     </td>
-                    <td class="small">{{ row.ai_suggestion }}</td>
+                    <td class="small">
+                        {{ row.ai_suggestion }}
+                        <span class="text-muted" title="建议依据：{{ '规则引擎' if row.suggestion_basis == 'rule' else '大模型' }}；置信度按库存缺口比例/样本天数折算，非模型概率">{{ row.suggestion_confidence }}</span>
+                        {% if row.needs_review %}
+                        <span class="badge text-bg-warning" title="该建议依据不足，请人工复核">待复核</span>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
                 {% if not report.rows %}
@@ -118,7 +124,7 @@
     </div>
 
     <div class="text-muted small mt-2">
-        计算口径：日均消耗=近{{ report.summary.days }}天负向库存流水绝对值/{{ report.summary.days }}；趋势=近15天vs前15天出库量对比；优先级=风险等级+趋势+可用天数综合评分；建议补货=目标库存-现存-在途采购，目标库存取最大库存、安全库存、再订货点和覆盖天数需求的较大值。生成时间：{{ report.summary.generated_at.strftime('%Y-%m-%d %H:%M:%S') }}。
+        计算口径：日均消耗=近{{ report.summary.days }}天负向库存流水绝对值/{{ report.summary.days }}；趋势=近15天vs前15天出库量对比；优先级=风险等级+趋势+可用天数综合评分；建议补货=目标库存-现存-在途采购，目标库存取最大库存、安全库存、再订货点和覆盖天数需求的较大值。置信度=规则型建议的可解释可信程度（库存缺口类按缺口比例、趋势类按样本天数折算），低于 0.6 标记待复核，仅供提示、不自动执行。生成时间：{{ report.summary.generated_at.strftime('%Y-%m-%d %H:%M:%S') }}。
     </div>
 </div>
 {% endblock %}

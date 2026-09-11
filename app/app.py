@@ -17243,6 +17243,12 @@ def _ai_smart_replenishment_out_qty_by_material(days=30, offset_days=0):
     ).group_by(StockTransaction.material_id).all()
     return {material_id: round_to_2_decimals(qty or 0) for material_id, qty in rows}
 
+# AI-SUGG-CONF-001（P0-3）：规则型建议的可解释置信度复核阈值。
+# 置信度 < 该阈值 → needs_review=True（前端标黄"待复核"）。
+# 注意：第一版置信度只用于标黄提示，不用于自动阻断（AGENTS.md R5 低置信回落人工）。
+AI_SUGGESTION_CONFIDENCE_REVIEW_THRESHOLD = 0.6
+
+
 def _ai_smart_replenishment_report(days=30, coverage_days=30, limit=200, only_action=False):
     """Smart replenishment report with AI suggestions, trend, and priority score."""
     days = max(int(days or 30), 1)
@@ -17328,6 +17334,38 @@ def _ai_smart_replenishment_report(days=30, coverage_days=30, limit=200, only_ac
             supply_score = max(0, 30 - days_of_supply)
         priority_score = round_to_2_decimals(risk_score + trend_score + supply_score)
 
+        # AI-SUGG-CONF-001（P0-3）：规则型建议的可解释置信度。
+        # 不编造模型概率，用可解释的阈值距离/样本量折算（与本函数上方各建议
+        # 分支一一对应，建议依据是什么置信度就基于什么）：
+        # - 库存缺口类（断货/低于安全线）：0.5 + 缺口比例 * 0.45，上限 0.95
+        # - 趋势/可用天数类：min(0.9, 样本天数/90 * 0.9)，样本越短越不可信
+        # - 库存充足（简单阈值比较）：0.9
+        # 第一版只用于 needs_review 标黄提示（<0.6），不用于自动阻断。
+        suggestion_basis = 'rule'  # 本报告为规则引擎（AI-NAMING-TRUTH-001），无 LLM 参与
+        if current_stock <= 0 and avg_daily > 0:
+            # 断货：缺口最大判定最强（safety_line 必>0，此处仅防除零）
+            if safety_line > STOCK_COMPARE_EPSILON:
+                suggestion_confidence = round_to_2_decimals(
+                    min(0.95, 0.5 + (safety_line - current_stock) / safety_line * 0.45))
+            else:
+                suggestion_confidence = 0.5
+        elif trend != 'stable' or (days_of_supply is not None and days_of_supply <= 7):
+            # 趋势类 / 可用天数紧张：依据是 days 样本的日均消耗，按样本天数折算
+            suggestion_confidence = round_to_2_decimals(min(0.9, days / 90 * 0.9))
+        elif suggested_qty > STOCK_COMPARE_EPSILON:
+            # 库存低于安全线（按缺口补货）：按缺口比例折算；缺口<=0（纯上限
+            # 冲量建议）时无缺口依据，回落 0.5 并由 needs_review 标黄
+            if safety_line > STOCK_COMPARE_EPSILON:
+                gap_ratio = (safety_line - available_with_orders) / safety_line
+                suggestion_confidence = round_to_2_decimals(
+                    max(0.5, min(0.95, 0.5 + gap_ratio * 0.45)))
+            else:
+                suggestion_confidence = 0.5
+        else:
+            # 库存充足：current_stock >= safety_line 的简单阈值比较
+            suggestion_confidence = 0.9
+        needs_review = suggestion_confidence < AI_SUGGESTION_CONFIDENCE_REVIEW_THRESHOLD
+
         rows.append({
             'material': material,
             'code': material.code,
@@ -17355,6 +17393,9 @@ def _ai_smart_replenishment_report(days=30, coverage_days=30, limit=200, only_ac
             'trend': trend,
             'trend_symbol': trend_symbol,
             'ai_suggestion': ai_suggestion,
+            'suggestion_basis': suggestion_basis,
+            'suggestion_confidence': suggestion_confidence,
+            'needs_review': needs_review,
             'priority_score': priority_score,
         })
 
@@ -19799,7 +19840,7 @@ def ai_replenishment_smart_page():
         writer.writerow([
             '优先级', '物料编码', '名称', '规格', '单位', '当前库存',
             f'近{days}天出库', '日均消耗', '可用天数', '在途数量', '建议补货量',
-            '趋势', '系统建议'
+            '趋势', '系统建议', '置信度', '待复核'
         ])
         for row in report['rows']:
             writer.writerow([
@@ -19816,6 +19857,8 @@ def ai_replenishment_smart_page():
                 row['suggested_qty'],
                 row['trend_symbol'],
                 row['ai_suggestion'],
+                row['suggestion_confidence'],
+                '是' if row['needs_review'] else '',
             ])
         csv_content = output.getvalue()
         output.close()
