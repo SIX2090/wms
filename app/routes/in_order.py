@@ -739,13 +739,15 @@ def register_in_order_routes(app):
         from datetime import date, datetime
         from flask_login import current_user
         from app import (Customer, InOrder, InOrderItem, Material, PurchaseOrder,
-                         PurchaseOrderItem, api_error, assert_warehouse_active,
+                         PurchaseOrderItem, SalesOrder, SalesOrderItem,
+                         api_error, assert_warehouse_active,
                          generate_order_no, get_default_warehouse,
                          in_order_duplicate_material_mode, is_future_date,
                          location_management_enabled, log_operation,
                          purchase_in_order_requires_order, recalculate_order_total,
                          round_to_2_decimals, update_purchase_order_status,
-                         validate_purchase_receive_quantity)
+                         validate_purchase_receive_quantity,
+                         validate_sales_return_quantity)
         # Support both form data and JSON
         if request.is_json:
             data = request.get_json(silent=True) or {}
@@ -819,6 +821,8 @@ def register_in_order_routes(app):
                 return jsonify({'status': 'error', 'msg': '采购入库单必须选择供应商'}), 400
             if business_type == '其他入库' and not customer_id:
                 return jsonify({'status': 'error', 'msg': '其他入库单必须选择客户'}), 400
+            if business_type == '销售退货入库' and not customer_id:
+                return jsonify({'status': 'error', 'msg': '销售退货入库单必须选择退货客户'}), 400
             # 表单可附带 items_json 字符串（与 JSON 路径结构相同）
             items_json = (request.form.get('items_json') or '').strip()
             if items_json:
@@ -851,7 +855,7 @@ def register_in_order_routes(app):
         else:
             order_id = None
 
-        if business_type not in ('采购入库', '产品入库', '其他入库'):
+        if business_type not in ('采购入库', '产品入库', '其他入库', '销售退货入库'):
             business_type = '产品入库' if order_no.startswith('PI') or purpose == '产品入库' else '采购入库'
 
         try:
@@ -896,6 +900,9 @@ def register_in_order_routes(app):
                 order.customer_id = customer.id
             else:
                 order.customer_id = None
+            # P1-5：销售退货入库单必须归属退货客户（JSON 与表单两模式统一在此拦截）
+            if business_type == '销售退货入库' and not order.customer_id:
+                return api_error('销售退货入库单必须选择退货客户')
 
             if date_str:
                 try:
@@ -921,6 +928,8 @@ def register_in_order_routes(app):
 
             source_item_updates = []
             source_purchase_order_ids = set()
+            # P1-5：销售退货来源聚合（len==1 时回填单头 source_sales_order_id/no）
+            source_sales_order_ids = set()
             existing_affected_purchase_order_ids = set()
             pending_in_order_items = {}
             if request.is_json and items_data and order.id:
@@ -981,7 +990,29 @@ def register_in_order_routes(app):
                         source_purchase_order_ids.add(source_order.id)
                     elif business_type == '采购入库' and purchase_in_order_requires_order():
                         return api_error(f'采购入库物料 {material.code} 必须关联采购订单明细')
-                    duplicate_key = (material.id, source_purchase_order_item_id, is_customer_supplied)
+                    # P1-5 销售退货入库：来源销售订单行（可选关联，有则防超退）
+                    source_sales_order_item_id = None
+                    sales_source_item_id = item_data.get('source_sales_order_item_id')
+                    if sales_source_item_id:
+                        if business_type != '销售退货入库':
+                            return api_error(f'物料 {material.code} 仅销售退货入库单可关联销售订单来源')
+                        try:
+                            source_si = db.session.get(SalesOrderItem, int(sales_source_item_id))
+                        except (TypeError, ValueError):
+                            source_si = None
+                        if not source_si or source_si.material_id != material.id:
+                            return api_error(f'销售订单来源明细无效：{material.code}')
+                        if not source_si.sales_order:
+                            return api_error(f'销售订单来源明细无效：{material.code}')
+                        valid_ret, ret_msg = validate_sales_return_quantity(source_si, quantity, material.code)
+                        if not valid_ret:
+                            return api_error(ret_msg)
+                        source_sales_order_item_id = source_si.id
+                        source_sales_order_ids.add(source_si.sales_order_id)
+                    # duplicate_key 含销售来源行：同一物料从不同销售行退货是合法的两行，
+                    # 不与 merge/forbid 的重复判定互相污染
+                    duplicate_key = (material.id, source_purchase_order_item_id,
+                                     source_sales_order_item_id, is_customer_supplied)
                     duplicate_mode = in_order_duplicate_material_mode()
                     existing_item = pending_in_order_items.get(duplicate_key)
                     if existing_item:
@@ -995,6 +1026,7 @@ def register_in_order_routes(app):
                         in_order_id=order.id,
                         material_id=material.id,
                         source_purchase_order_item_id=source_purchase_order_item_id,
+                        source_sales_order_item_id=source_sales_order_item_id,
                         quantity=quantity,
                         price=price,
                         amount=amount,
@@ -1010,6 +1042,12 @@ def register_in_order_routes(app):
             recalculate_order_total(order)
             if source_purchase_order_ids and len(source_purchase_order_ids) == 1:
                 order.source_purchase_order_id = next(iter(source_purchase_order_ids))
+            # P1-5 销售退货入库：单头聚合来源销售订单 + 冗余单号（原单变更后历史单据不变）
+            if source_sales_order_ids and len(source_sales_order_ids) == 1:
+                source_so = db.session.get(SalesOrder, next(iter(source_sales_order_ids)))
+                if source_so:
+                    order.source_sales_order_id = source_so.id
+                    order.source_sales_order_no = source_so.order_no
             affected_orders = set()
             for source_item, quantity in source_item_updates:
                 source_item.received_quantity = round_to_2_decimals((source_item.received_quantity or 0) + quantity)
@@ -1492,7 +1530,8 @@ def register_in_order_routes(app):
                          generate_order_no, get_default_warehouse, is_future_date,
                          location_management_enabled, log_operation,
                          recalculate_order_total, resolve_inventory_warehouse_id,
-                         round_to_2_decimals, update_location_inventory,
+                         round_to_2_decimals, sales_return_remaining_check,
+                         update_location_inventory,
                          update_purchase_order_status, validate_purchase_in_order_source)
         from flask_login import current_user
         # 预加载 items + material，消除 _check_in_order_anomalies 中的 N+1 查询
@@ -1559,6 +1598,13 @@ def register_in_order_routes(app):
             if location_management_enabled() and not (order.location or '').strip():
                 db.session.rollback()
                 return api_error('库位管理已启用，请选择库位')
+            # P1-5 销售退货入库：防超退真闸（加锁后校验，关闭"两单并发完成同一
+            # 原行都通过锁前校验"的竞态窗口。pending 单不在已退量聚合内，不自斥）
+            if order.business_type == '销售退货入库':
+                ret_ok, ret_msg = sales_return_remaining_check(order)
+                if not ret_ok:
+                    db.session.rollback()
+                    return api_error(ret_msg)
             # BUG-2026-08-04-015 修复：移除 is_recompleted 递增。
             # 反提交（revert_in_order）不再释放 received_quantity 预留，
             # 因此重新完成时无需再次递增，避免 反提交→编辑→重新完成 双计数。
