@@ -17208,98 +17208,21 @@ def _ai_replenishment_open_qty(material_ids):
     return on_order, pending_request_ids
 
 def _ai_replenishment_report(days=30, coverage_days=30, limit=100, only_action=False):
-    days = max(int(days or 30), 1)
-    coverage_days = max(int(coverage_days or 30), 1)
-    limit = max(min(int(limit or 100), 300), 1)
-    materials = Material.query.options(
-        joinedload(Material.unit),
-        joinedload(Material.supplier),
-        joinedload(Material.category),
-    ).order_by(Material.code.asc()).all()
-    material_ids = [material.id for material in materials]
-    out_qty = _ai_replenishment_out_qty_by_material(days)
-    on_order, pending_request_ids = _ai_replenishment_open_qty(material_ids)
+    """兼容适配层：老页面 /ai/replenishment 与 insights 卡片共用。
 
-    rows = []
-    for material in materials:
-        outbound_qty = round_to_2_decimals(out_qty.get(material.id, 0))
-        avg_daily = round_to_2_decimals(outbound_qty / days) if outbound_qty else 0
-        current_stock = round_to_2_decimals(material.stock or 0)
-        min_stock = round_to_2_decimals(material.min_stock or 0)
-        reorder_point = round_to_2_decimals(material.reorder_point or 0)
-        max_stock = round_to_2_decimals(material.max_stock or 0)
-        coverage_stock = round_to_2_decimals(avg_daily * coverage_days)
-        safety_line = max(min_stock, reorder_point, coverage_stock)
-        target_stock = max(max_stock, safety_line)
-        available_with_orders = round_to_2_decimals(current_stock + on_order.get(material.id, 0))
-        suggested_qty = round_to_2_decimals(max(target_stock - available_with_orders, 0))
-        days_of_supply = None if avg_daily <= STOCK_COMPARE_EPSILON else round_to_2_decimals(current_stock / avg_daily)
-        projected_stock = round_to_2_decimals(current_stock - coverage_stock + on_order.get(material.id, 0))
-        has_pending_request = material.id in pending_request_ids
-
-        if current_stock <= 0 and avg_daily > 0:
-            risk_level = 'critical'
-            risk_label = '立即处理'
-        elif current_stock < min_stock or projected_stock < 0 or (days_of_supply is not None and days_of_supply <= 7):
-            risk_level = 'high'
-            risk_label = '高风险'
-        elif suggested_qty > STOCK_COMPARE_EPSILON:
-            risk_level = 'medium'
-            risk_label = '建议补货'
-        else:
-            risk_level = 'normal'
-            risk_label = '正常'
-
-        action_required = suggested_qty > STOCK_COMPARE_EPSILON and not has_pending_request
-        if only_action and not action_required:
-            continue
-        rows.append({
-            'material': material,
-            'code': material.code,
-            'name': material.name,
-            'spec': material.spec or '',
-            'unit': material.unit.name if material.unit else '',
-            'category': material.category.name if material.category else '',
-            'supplier': material.supplier.name if material.supplier else '',
-            'current_stock': current_stock,
-            'min_stock': min_stock,
-            'reorder_point': reorder_point,
-            'max_stock': max_stock,
-            'outbound_qty': outbound_qty,
-            'avg_daily': avg_daily,
-            'coverage_stock': coverage_stock,
-            'on_order': on_order.get(material.id, 0),
-            'pending_request': has_pending_request,
-            'projected_stock': projected_stock,
-            'days_of_supply': days_of_supply,
-            'suggested_qty': suggested_qty,
-            'estimated_amount': round_to_2_decimals(suggested_qty * (material.price or 0)),
-            'risk_level': risk_level,
-            'risk_label': risk_label,
-            'action_required': action_required,
-        })
-
-    risk_rank = {'critical': 0, 'high': 1, 'medium': 2, 'normal': 3}
-    rows.sort(key=lambda row: (
-        risk_rank.get(row['risk_level'], 9),
-        999999 if row['days_of_supply'] is None else row['days_of_supply'],
-        -row['suggested_qty'],
-        row['code'] or '',
-    ))
-    rows = rows[:limit]
-    summary = {
-        'total': len(rows),
-        'critical': sum(1 for row in rows if row['risk_level'] == 'critical'),
-        'high': sum(1 for row in rows if row['risk_level'] == 'high'),
-        'medium': sum(1 for row in rows if row['risk_level'] == 'medium'),
-        'action_required': sum(1 for row in rows if row['action_required']),
-        'pending_request': sum(1 for row in rows if row['pending_request']),
-        'suggested_amount': round_to_2_decimals(sum(row['estimated_amount'] for row in rows if row['action_required'])),
-        'days': days,
-        'coverage_days': coverage_days,
-        'generated_at': datetime.now(),
-    }
-    return {'rows': rows, 'summary': summary}
+    AI-DEDUP-REPLENISH-001：补货报告的唯一实现在
+    _ai_smart_replenishment_report（本文件，超集：多趋势/优先级/系统建议），
+    两者核心公式与 material.stock 取数口径逐行比对一致（见提交记录），
+    此处只做委托转发，禁止再复制业务逻辑。
+    老调用方（/ai/replenishment 页面、_ai_replenishment_planning_response、
+    verify_ai_stage7_replenishment）使用的行/汇总字段均为 smart 实现的真子集。
+    """
+    return _ai_smart_replenishment_report(
+        days=days,
+        coverage_days=coverage_days,
+        limit=limit,
+        only_action=only_action,
+    )
 
 def _ai_smart_replenishment_out_qty_by_material(days=30, offset_days=0):
     """Return outbound qty per material for a period ending `offset_days` ago."""
