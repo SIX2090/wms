@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -25,7 +26,44 @@ import urllib.request
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+# CI-ENV-2026-09-12：与 api_push.py 同源问题——本沙箱里 Python 侧到
+# api.github.com 的 TLS 握手会被掐断（改 /etc/hosts 指向同一 IP 也无效），
+# 而 curl --resolve 指定 IP 稳定可用。故优先 curl + 多 IP 轮换，
+# 失败/无 curl 时退回 urllib 重试。
+CURL_IPS = ["140.82.112.6", "20.205.243.168", "140.82.112.5", "140.82.113.5"]
+
+
+def _curl_get(path: str, token: str) -> dict | None:
+    for ip in CURL_IPS:
+        proc = subprocess.run(
+            ["curl", "-s", "--max-time", "120",
+             "-H", "Authorization: Bearer " + token,
+             "-H", "Accept: application/vnd.github+json",
+             "--resolve", f"api.github.com:443:{ip}",
+             "-w", "\n%{http_code}",
+             "https://api.github.com" + path],
+            capture_output=True)
+        raw = proc.stdout.decode("utf-8", "replace")
+        if "\n" not in raw:
+            print(f"  curl via {ip} 连接失败，换下一个 IP", file=sys.stderr)
+            continue
+        body, _, code = raw.rpartition("\n")
+        code = code.strip()
+        if code == "0":
+            print(f"  curl via {ip} 连接失败（http 0），换下一个 IP", file=sys.stderr)
+            continue
+        if not code.startswith("2"):
+            raise RuntimeError(f"GitHub API {path} -> HTTP {code}: {body[:400]}")
+        return json.loads(body) if body.strip() else {}
+    return None
+
+
 def req(path: str, token: str) -> dict:
+    if shutil.which("curl"):
+        got = _curl_get(path, token)
+        if got is not None:
+            return got
+        raise RuntimeError(f"GitHub API 请求失败：候选 IP {CURL_IPS} 均被连接层掐断")
     last_err: Exception | None = None
     for attempt in range(3):
         try:
