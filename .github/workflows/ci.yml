@@ -106,9 +106,19 @@ jobs:
               continue
             fi
             echo ">> $f"
-            if ! timeout 300 python -m pytest "$f" -q > /tmp/verify_one.log 2>&1; then
-              cat /tmp/verify_one.log
-              fails=$((fails+1))
+            # CI-ENV-2026-09-11：按文件形态分流。脚本式契约测试（无 def test_
+            # 顶层断言）用 pytest 跑会 "no tests ran" exit 5 被误判失败，
+            # 直接执行脚本本身；pytest 式文件照旧。
+            if grep -q "def test_" "$f"; then
+              if ! timeout 300 python -m pytest "$f" -q > /tmp/verify_one.log 2>&1; then
+                cat /tmp/verify_one.log
+                fails=$((fails+1))
+              fi
+            else
+              if ! timeout 300 python "$f" > /tmp/verify_one.log 2>&1; then
+                cat /tmp/verify_one.log
+                fails=$((fails+1))
+              fi
             fi
           done
           echo "verify_*.py 失败文件数: $fails（已知跳过: ${#known_failures[@]}）"
