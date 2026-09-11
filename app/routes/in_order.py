@@ -354,6 +354,16 @@ def register_in_order_routes(app):
         for item in order.items:
             pushed_quantity = pushed.get(item.id, 0)
             is_customer_supplied = bool(item.is_customer_supplied)
+            # 客供料业务规则（CS-RULE-001）：客供料**不可下推**为出库类单据，
+            # 因此对客供行把可下推量恒定为 0。
+            #
+            # 这不是"没实现的半成品"，而是一条**已确定的业务规则**：
+            #   客供料是客户资产，只做「入多少、出多少」的过手登记，
+            #   不得转为公司自有出库（领料/销售等）消耗。
+            # 注意：本规则**不是**库存所有权隔离——系统仍不建立 owner_type
+            # 余额账（见 WMS_BUSINESS_SCOPE.md §3.3 明确不做），
+            # 客供与自购的库存数量仍合并在同一仓库账内。
+            # 规则边界见 WMS_BUSINESS_SCOPE.md §3.3 与 INVENTORY_TRUTH.md。
             lines.append({
                 'item': item,
                 'in_quantity': normalize_stock_quantity(item.quantity or 0),
@@ -454,7 +464,11 @@ def register_in_order_routes(app):
                 if item.is_customer_supplied:
                     code = item.material.code if item.material else str(item.material_id)
                     db.session.rollback()
-                    return jsonify({'status': 'error', 'msg': f'物料 {code} 为客供料；当前系统尚未完成客供料所有权库存隔离，不能下推为普通出库单。'}), 409
+                    # 客供料业务规则（CS-RULE-001）：客供料是客户资产，只做
+                    # 「入多少、出多少」的过手登记，不得下推为普通出库单消耗。
+                    # 这是**已确定的业务规则**，不是"待补功能"；系统按
+                    # WMS_BUSINESS_SCOPE.md §3.3 明确不做所有权隔离余额账。
+                    return jsonify({'status': 'error', 'msg': f'物料 {code} 为客供料，按客供料规则不可下推为普通出库单；如需从客供仓出库，请在出库单中直接选择客供仓并关联对应合同/工程。'}), 409
                 source_quantity = normalize_stock_quantity(item.quantity or 0)
                 used_quantity = pushed.get(item_id, 0)
                 available = max(0, normalize_stock_quantity(source_quantity - used_quantity))

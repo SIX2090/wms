@@ -1103,6 +1103,163 @@ class RuleA10NoNewRouteInApp(Rule):
         return violations
 
 
+class RuleA11NoRawGlobalStockCheck(Rule):
+    """禁止业务代码裸用 ``material.stock``（总账）做**库存校验**。
+
+    这是一条"新增代码生效"规则：仅检查 git staged 中**新增**的违规行，
+    不对存量代码一次性报错（存量用 ``_BASELINE_ALLOW`` 豁免）。
+
+    ## 为什么有这条规则
+
+    系统里"库存"有三个口径（详见 INVENTORY_TRUTH.md）：
+
+    - ``material.stock``            —— 全系统合计（总账）
+    - ``location_inventory.quantity`` —— 仓库 × 库位（库位账）
+    - ``stock_transaction.quantity``  —— 流水净额（事实来源）
+
+    业务校验（够不够扣）**必须**用仓库级口径 ``get_warehouse_stock_quantities()``，
+    否则多仓库下会把"A仓+B仓合计"当成"A仓可用"，导致：
+    - 用 B 仓库存掩护 A 仓超发（``BUG-2026-08-16-009`` 语义）
+    - 盘点算出错误的盘盈盘亏并生成错误调整单（``BUG-2026-09-02-001``）
+    - 同一根因在 native_api / Excel导入 / mobile / Android 四处复发
+      （``BUG-2026-09-02-001`` / ``09-03-001`` / ``09-03-002`` / ``09-03-004``）
+
+    这条规则是 AGENTS.md R6「同根因必须排查所有消费点」的**机械化版本**：
+    把"靠人记住去查"变成"工具不让写"。
+
+    ## 判定口径（只抓"校验"，放过"展示"）
+
+    仅当 ``material.stock``（含 ``mat.stock`` / ``item.material.stock`` 等）
+    出现在**校验语境**时报违规：
+
+    1. 与比较运算符同现：``<`` / ``>`` / ``<=`` / ``>=`` / ``==`` / ``!=``
+    2. 作为 ``is_stock_sufficient(`` / ``check_stock_sufficient(`` 的实参
+    3. 赋值给名为 ``*_stock`` / ``*_qty`` / ``*_quantity`` 的局部变量后用于比较
+
+    以下属于**展示用途**，不报：
+    - ``'stock': material.stock or 0``（序列化输出）
+    - f-string 里的 ``{material.stock:.0f}``（报表文案）
+    - 排序 / 聚合（``Material.stock.desc()``、``func.sum(Material.stock)``）
+
+    ## 豁免
+
+    - 行内或上一行出现 ``# stock-truth:reason=<说明>`` 注释。
+    - 位于 ``_BASELINE_ALLOW`` 白名单中的存量行（行号 + 文件）。
+    - ``app/utils.py`` 是库存工具模块本身，整体豁免。
+    """
+
+    name = "a11"
+    description = "禁止裸用 material.stock（总账）做库存校验（改用仓库级口径）"
+    enabled = True
+    scan_paths = ("app",)
+    exclude_paths = ("app/tests", "app/android-native-wms")
+    extensions = (".py",)
+
+    # 匹配 material.stock / mat.stock / item.material.stock / m.stock ...
+    _STOCK_REF = re.compile(
+        r"\b(?:[A-Za-z_][A-Za-z0-9_]*\.)*"
+        r"(?:material|mat|m|item\.material)\.stock\b"
+        r"|\b[A-Za-z_][A-Za-z0-9_]*\.material\.stock\b"
+    )
+
+    # 比较 / 充分性判定语境
+    _COMPARE_CTX = re.compile(r"[<>]=?|==|!=")
+    _SUFFICIENT_CALL = re.compile(r"\b(?:is|check)_stock_sufficient\s*\(")
+
+    # 豁免注释: # stock-truth:reason=...
+    _ALLOW_HINT = re.compile(r"#\s*stock-truth\s*:\s*reason\s*=", re.IGNORECASE)
+
+    # 存量白名单：文件 -> 行号集合（当前基线，新增代码不应落入此集合）
+    _BASELINE_ALLOW: Dict[str, Set[int]] = {}
+
+    def _is_check_context(self, stripped_text: str, pos: int, line_start: int) -> bool:
+        """判断 pos 处的 material.stock 是否处于校验语境。"""
+        line_end = stripped_text.find("\n", pos)
+        if line_end == -1:
+            line_end = len(stripped_text)
+        line = stripped_text[line_start:line_end]
+
+        # 1) 同一行有比较运算符
+        if self._COMPARE_CTX.search(line):
+            return True
+        # 2) 同一行是 is_stock_sufficient(...) / check_stock_sufficient(...)
+        if self._SUFFICIENT_CALL.search(line):
+            return True
+        # 3) 跨行：往上回溯 2 行看是否处于 if / assert / return 校验块
+        pre_start = max(0, pos - 400)
+        pre = stripped_text[pre_start:pos]
+        pre_tail = pre.split("\n")[-3:]
+        for pl in pre_tail:
+            if self._COMPARE_CTX.search(pl) or self._SUFFICIENT_CALL.search(pl):
+                return True
+        # 4) 间接场景：赋值给局部变量后，在后续行用该变量做比较。
+        #    这是存量代码最常见的写法（requisition.py:188、transfer.py:186、
+        #    subcontract.py:320 等均为此形态）。若不做这一层追踪，
+        #    规则会漏掉绝大多数真实违规，形同虚设。
+        assign_m = re.search(
+            r"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[^\n]*$", line
+        )
+        if assign_m:
+            var = assign_m.group(1)
+            # 往下方看 6 行内是否有该变量的比较
+            after = stripped_text[line_end + 1: line_end + 600]
+            for fl in after.split("\n")[:6]:
+                if re.search(
+                    rf"\b{re.escape(var)}\b\s*(?:[<>]=?|==|!=)", fl
+                ) or self._SUFFICIENT_CALL.search(fl):
+                    return True
+        return False
+
+    def scan(self, files: Sequence[Path], repo_root: Path) -> List[Violation]:
+        violations: List[Violation] = []
+        for f in files:
+            rel = str(f.relative_to(repo_root)).replace("\\", "/")
+            # app/utils.py 是库存工具模块本身（normalize_stock_quantity 等定义处）
+            if rel == "app/utils.py":
+                continue
+            try:
+                text = f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            added_lines = get_staged_added_lines(repo_root, f)
+            if not added_lines:
+                continue
+            baseline = self._BASELINE_ALLOW.get(rel, set())
+            stripped = strip_py_comments(text)
+            lines_raw = text.split("\n")
+            for m in self._STOCK_REF.finditer(stripped):
+                ln = line_number_at(text, m.start())
+                if ln not in added_lines:
+                    continue  # 存量行不强制
+                if ln in baseline:
+                    continue  # 已登记白名单
+                line_idx = stripped[: m.start()].count("\n")
+                # 豁免注释：本行 / 上一行
+                found_allow = False
+                for offset in (0, -1):
+                    check_idx = line_idx + offset
+                    if 0 <= check_idx < len(lines_raw) and self._ALLOW_HINT.search(
+                        lines_raw[check_idx]
+                    ):
+                        found_allow = True
+                        break
+                if found_allow:
+                    continue
+                line_start = text.rfind("\n", 0, m.start()) + 1
+                if not self._is_check_context(stripped, m.start(), line_start):
+                    continue  # 展示用途，放过
+                snippet = line_snippet(text, m.start())
+                violations.append(
+                    Violation(
+                        rel,
+                        ln,
+                        snippet,
+                        extra="库存校验应用仓库级口径 get_warehouse_stock_quantities()",
+                    )
+                )
+        return violations
+
+
 # ---------------------------------------------------------------------------
 # 规则注册表
 # ---------------------------------------------------------------------------
@@ -1118,10 +1275,11 @@ RULES: Dict[str, Rule] = {
     "a8": RuleA8NewRoutePydantic(),
     "a9": RuleA9NewFuncMustTest(),
     "a10": RuleA10NoNewRouteInApp(),
+    "a11": RuleA11NoRawGlobalStockCheck(),
 }
 
 RULE_DISPLAY_ORDER: Tuple[str, ...] = (
-    "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "a10",
+    "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "a10", "a11",
 )
 
 
