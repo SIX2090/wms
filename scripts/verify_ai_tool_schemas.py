@@ -36,6 +36,10 @@ VALID_PAYLOADS = {
     'replenishment_planning': {'days': 30, 'coverage_days': 30, 'risk': 'action'},
     'replenishment_smart': {'days': 30, 'coverage_days': 30, 'risk': 'all'},
     'inventory_health': {'days': 30, 'risk': 'stagnant'},
+    # 新增（AI-LLM-GATE-002）：供应商评估（无入参）/ 库位推荐 / 需求预测
+    'supplier_evaluation': {},
+    'location_recommendation': {'material_id': 1},
+    'demand_forecast': {'forecast_days': 30, 'category': ''},
     'warehouse_patrol_agent': {'warehouse_id': 1, 'days': 7, 'max_steps': 10},
     'purchase_followup_agent': {'supplier_id': 1, 'days': 30, 'max_steps': 10},
     # 新增（AI-SALES-F02）：销售履约跟进 + 销售洞察

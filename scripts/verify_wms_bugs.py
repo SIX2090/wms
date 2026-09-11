@@ -523,6 +523,26 @@ def main() -> int:
         '语音建单端点必须走能力矩阵（Bearer 通道下不得用 _ai_capability_allowed）且只建 pending 草稿',
     ))
 
+    # AI-LLM-GATE-002：所有内部调 _ai_call_llm_chat 的 JSON 端点必须走能力门禁。
+    # 根因：BUG-2026-08-16-013 扫描不全，5 个 LLM 计费端点仅 @login_required，
+    # viewer/user 可刷计费且灰度开关无效。此处静态断言每个端点函数体内
+    # 必须出现 _ai_capability_allowed( 调用（会话通道专用；Bearer 通道见 AI-VOICE-OUT-F01）。
+    _llm_gated_endpoints = {
+        'api_supplier_evaluation': 'supplier_evaluation',
+        'ai_replenishment_suggestions': 'replenishment_planning',
+        'ai_inventory_health': 'inventory_health',
+        'api_recommend_location': 'location_recommendation',
+        'api_demand_forecast': 'demand_forecast',
+    }
+    _routes_src = routes_source()
+    for _fn, _cap in _llm_gated_endpoints.items():
+        _body = function_body(_routes_src, _fn)
+        checks.append((
+            'AI-LLM-GATE-002',
+            bool(_body) and f"_ai_capability_allowed('{_cap}')" in _body,
+            f'LLM 计费端点 {_fn} 必须走能力门禁 _ai_capability_allowed({_cap})',
+        ))
+
     tool_registry = subprocess.run(
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_tool_registry.py')],
         cwd=str(ROOT),

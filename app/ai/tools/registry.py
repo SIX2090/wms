@@ -303,6 +303,20 @@ ALIAS_MANAGEMENT_SCHEMA = _object_schema({
     'alias_id': POSITIVE_ID,
 })
 
+# 新增（AI-LLM-GATE-002）：供应商智能评估为无入参分析（服务端自行取数）
+SUPPLIER_EVALUATION_SCHEMA = _object_schema({})
+
+# 新增（AI-LLM-GATE-002）：智能库位推荐入参
+LOCATION_RECOMMENDATION_SCHEMA = _object_schema({
+    'material_id': POSITIVE_ID,
+})
+
+# 新增（AI-LLM-GATE-002）：需求预测入参（页面实际取值 7/14/30）
+DEMAND_FORECAST_SCHEMA = _object_schema({
+    'forecast_days': {'type': 'integer', 'minimum': 1, 'maximum': 90},
+    'category': {'type': 'string', 'maxLength': 100},
+})
+
 
 @dataclass(frozen=True)
 class AIToolSpec:
@@ -385,6 +399,12 @@ AI_TOOL_REGISTRY = MappingProxyType({
     'master_data_insights': _tool('master_data_insights', 'Read material and master-data quality checks.', 'master_data_read', MASTER_DATA_SCHEMA, handler_name='_ai_master_data_insights_response'),
     'admin_insights': _tool('admin_insights', 'Read sensitive system, audit, permission, and health-check summaries.', 'admin_read', ADMIN_INSIGHTS_SCHEMA, handler_name='_ai_admin_insights_response'),
     'alias_management': _tool('alias_management', 'Open or inspect AI material alias management workflows.', 'master_data_read', ALIAS_MANAGEMENT_SCHEMA),
+    # 新增（AI-LLM-GATE-002）：供应商智能评估（此前端点裸奔 @login_required 直连 LLM）
+    'supplier_evaluation': _tool('supplier_evaluation', 'Read supplier delivery frequency, price stability (CV), and LLM-generated management suggestions for the last 90 days.', 'purchase_read', SUPPLIER_EVALUATION_SCHEMA),
+    # 新增（AI-LLM-GATE-002）：智能库位推荐
+    'location_recommendation': _tool('location_recommendation', 'Read the optimal storage location recommendation for a material based on turnover and location usage.', 'warehouse_read', LOCATION_RECOMMENDATION_SCHEMA),
+    # 新增（AI-LLM-GATE-002）：需求预测
+    'demand_forecast': _tool('demand_forecast', 'Read demand forecast and restock suggestions derived from historical outbound data.', 'purchase_read', DEMAND_FORECAST_SCHEMA),
 })
 
 
