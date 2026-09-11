@@ -3375,6 +3375,10 @@
         }
         
         // 提交反馈
+        // AI-FEEDBACK-LOOP-001：端点 POST /api/ai/feedback（ai_bp.feedback_create）读取的字段是
+        // rating（helpful/not_helpful）+ error_type + ai_message_id；此前的
+        // message_id/feedback_type/timestamp 与端点完全错配，按钮 100% 返回 400，
+        // 反馈从未入库。 helpful → 正面评价；其余按钮 → not_helpful + 对应 error_type。
         function submitFeedback(messageId, feedbackType) {
             fetch('/api/ai/feedback', {
                 method: 'POST',
@@ -3383,15 +3387,17 @@
                     'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content
                 },
                 body: JSON.stringify({
-                    message_id: messageId,
-                    feedback_type: feedbackType,
-                    timestamp: new Date().toISOString()
+                    rating: feedbackType === 'helpful' ? 'helpful' : 'not_helpful',
+                    error_type: feedbackType === 'helpful' ? null : feedbackType,
+                    ai_message_id: messageId
                 })
             }).then(function(response) {
                 return response.json();
             }).then(function(data) {
-                if (data.success) {
+                if (data.status === 'success') {
                     showToast('感谢您的反馈', 'success');
+                } else {
+                    showToast(data.msg || '反馈提交失败', 'danger');
                 }
             }).catch(function(error) {
                 console.error('反馈提交失败:', error);

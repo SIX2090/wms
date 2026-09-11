@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}AI 反馈待修清单{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <div>
+            <h1 class="h5 mb-1">AI 反馈待修清单</h1>
+            <div class="text-muted small">用户差评按错误类型聚合（AI-FEEDBACK-LOOP-001）。本页只读，不调用大模型；差评数量是改进优先级的依据，不是考核指标。</div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header fw-semibold"><i class="bi bi-chat-dots me-1"></i> AI 助手运行反馈（差评分组）</div>
+                <div class="card-body p-0">
+                    {% if assistant_bad %}
+                    <table class="table table-sm mb-0 align-middle">
+                        <thead><tr><th>错误类型</th><th class="text-end">数量</th><th>最近一次</th></tr></thead>
+                        <tbody>
+                            {% for g in assistant_bad %}
+                            <tr>
+                                <td>{{ g.error_label }}{% if not g.error_type %} <span class="badge bg-secondary">未分类</span>{% endif %}</td>
+                                <td class="text-end fw-semibold">{{ g.count }}</td>
+                                <td class="small text-muted">{{ g.last_at.strftime('%Y-%m-%d %H:%M') if g.last_at else '-' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="p-3 text-muted small">暂无助手差评。</div>
+                    {% endif %}
+                </div>
+                <div class="card-footer small text-muted">全部分组（含好评）：{{ assistant_groups | length }} 组</div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header fw-semibold"><i class="bi bi-file-earmark-text me-1"></i> 单据识别反馈（差评分组）</div>
+                <div class="card-body p-0">
+                    {% if document_bad %}
+                    <table class="table table-sm mb-0 align-middle">
+                        <thead><tr><th>错误类型</th><th class="text-end">数量</th><th>最近一次</th></tr></thead>
+                        <tbody>
+                            {% for g in document_bad %}
+                            <tr>
+                                <td>{{ g.error_label }}{% if not g.error_type %} <span class="badge bg-secondary">未分类</span>{% endif %}</td>
+                                <td class="text-end fw-semibold">{{ g.count }}</td>
+                                <td class="small text-muted">{{ g.last_at.strftime('%Y-%m-%d %H:%M') if g.last_at else '-' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="p-3 text-muted small">暂无单据识别差评。</div>
+                    {% endif %}
+                </div>
+                <div class="card-footer small text-muted">全部分组（含好评）：{{ document_groups | length }} 组</div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header fw-semibold"><i class="bi bi-clock-history me-1"></i> 最近助手差评样例</div>
+                <div class="card-body p-0">
+                    {% if recent_assistant_bad %}
+                    <ul class="list-group list-group-flush">
+                        {% for fb in recent_assistant_bad %}
+                        <li class="list-group-item small">
+                            <span class="badge bg-danger-subtle text-danger">{{ error_labels.get(fb.error_type or '', fb.error_type or '未分类') }}</span>
+                            <span class="text-muted ms-1">{{ fb.created_at.strftime('%Y-%m-%d %H:%M') }} · 用户#{{ fb.user_id }}</span>
+                            {% if fb.note %}<div class="mt-1">{{ fb.note }}</div>{% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <div class="p-3 text-muted small">暂无样例。</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header fw-semibold"><i class="bi bi-clock-history me-1"></i> 最近单据识别差评样例</div>
+                <div class="card-body p-0">
+                    {% if recent_document_bad %}
+                    <ul class="list-group list-group-flush">
+                        {% for fb in recent_document_bad %}
+                        <li class="list-group-item small">
+                            <span class="badge bg-danger-subtle text-danger">{{ error_labels.get(fb.error_type or '', fb.error_type or '未分类') }}</span>
+                            <span class="text-muted ms-1">{{ fb.created_at.strftime('%Y-%m-%d %H:%M') }} · 用户#{{ fb.user_id }} ·
+                                {% if fb.job %}<a href="{{ url_for('ai_document_job_detail', id=fb.job_id) }}">任务 #{{ fb.job_id }}</a>{% else %}任务 #{{ fb.job_id }}{% endif %}</span>
+                            {% if fb.note %}<div class="mt-1">{{ fb.note }}</div>{% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <div class="p-3 text-muted small">暂无样例。</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
