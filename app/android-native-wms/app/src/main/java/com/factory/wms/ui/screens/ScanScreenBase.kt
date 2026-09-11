@@ -59,6 +59,8 @@ fun ScanScreenBase(
     onExtraAction: (() -> Unit)? = null,
     // 可选的顶部区域（如出入库的仓库选择），渲染在汇总条之前
     header: (@Composable () -> Unit)? = null,
+    // 可选的自定义横幅（如语音建单成功提示），渲染在 header 之下、汇总条之上
+    banner: (@Composable () -> Unit)? = null,
     // 提交成功后的"打印单据"横幅（提交入库/出库后出现）
     submittedPrint: SubmittedPrintInfo? = null,
     printLoading: Boolean = false,
@@ -89,6 +91,9 @@ fun ScanScreenBase(
         ) {
             // 可选的顶部区域（如仓库选择）
             header?.invoke()
+
+            // 可选的自定义横幅（如「语音草稿已生成」）
+            banner?.invoke()
 
             // 提交成功后的"打印单据"横幅
             submittedPrint?.let { info ->

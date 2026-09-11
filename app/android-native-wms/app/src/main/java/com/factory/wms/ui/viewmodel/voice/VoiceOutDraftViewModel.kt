@@ -49,6 +49,8 @@ data class VoiceOutDraftUiState(
     val selected: VoiceMaterialMatch? = null,
     /** 用户可编辑的数量（初始为解析值，可为空让用户填） */
     val editableQuantity: String = "",
+    /** 领料人（用户手工输入；语音流程不做识别，避免误填给他人的单据） */
+    val pickerInput: String = "",
     /** 后端尝试过的策略（用于向用户解释"我做过什么努力"，不编造） */
     val strategiesTried: List<String> = emptyList(),
     /** 是否发生过降级（提示结果可能不精确） */
@@ -198,6 +200,11 @@ class VoiceOutDraftViewModel(application: Application) : AndroidViewModel(applic
         _uiState.value = _uiState.value.copy(editableQuantity = text)
     }
 
+    /** 用户编辑领料人（手工输入，不参与语音解析）。 */
+    fun onPickerChange(text: String) {
+        _uiState.value = _uiState.value.copy(pickerInput = text)
+    }
+
     /**
      * 第二跳：建草稿（dry_run=false）。
      *
@@ -229,6 +236,7 @@ class VoiceOutDraftViewModel(application: Application) : AndroidViewModel(applic
                 text = lastRawText,
                 warehouse = wh.code,
                 warehouseCode = wh.code,
+                picker = state.pickerInput.trim().ifBlank { null },
                 dryRun = false,
                 materialCode = material.code,
                 quantity = qty
@@ -270,6 +278,15 @@ class VoiceOutDraftViewModel(application: Application) : AndroidViewModel(applic
             selectedWarehouse = _uiState.value.selectedWarehouse
         )
         lastRawText = ""
+    }
+
+    /** 建单成功后只清理"待跳转"标记，保留仓库缓存供下次使用。 */
+    fun consumeCreated() {
+        _uiState.value = _uiState.value.copy(
+            stage = VoiceDraftStage.IDLE,
+            createdOrderId = null,
+            createdLines = emptyList()
+        )
     }
 
     companion object {

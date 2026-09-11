@@ -29,6 +29,7 @@ import com.factory.wms.data.model.CheckOrderDto
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.components.ScannerDialog
+import com.factory.wms.ui.components.VoiceDraftCreatedBanner
 import com.factory.wms.ui.components.WarehousePickerDialog
 import com.factory.wms.ui.components.WmsEmptyState
 import com.factory.wms.ui.components.WmsGradientHeader
@@ -204,7 +205,21 @@ fun InboundScreen(
 @Composable
 fun OutboundScreen(
     viewModel: ScanViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    /**
+     * AI-VOICE-OUT-F01：语音建单草稿预填。
+     *
+     * 由 NavGraph 在语音建单成功后设置（元素为 物料编码 to 数量），
+     * 本页在 [LaunchedEffect] 中消费一次即回调 [onVoicePrefillConsumed] 清空，
+     * 避免用户从底部 Tab 再次进出时被重复添加。
+     */
+    voicePrefillLines: List<Pair<String, Double>> = emptyList(),
+    onVoicePrefillConsumed: () -> Unit = {},
+    /** 语音草稿单号：非空时页顶展示"语音草稿已生成"提示条 */
+    voiceDraftOrderNo: String? = null,
+    onDismissVoiceDraft: () -> Unit = {},
+    /** 出库页换仓时回写语音建单流程的仓库（单向同步，见 ScanViewModel.setOnWarehouseChanged） */
+    onVoiceWarehouseChanged: ((WarehouseDto) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showSubmitDialog by remember { mutableStateOf(false) }
@@ -214,6 +229,24 @@ fun OutboundScreen(
     var manualQty by remember { mutableStateOf("1") }
     var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // 语音建单跳转过来的物料行：只消费一次，随后立刻通知外部清空
+    LaunchedEffect(voicePrefillLines) {
+        if (voicePrefillLines.isNotEmpty()) {
+            voicePrefillLines.forEach { (code, qty) ->
+                viewModel.addScanLine(ScanLine(material_code = code, quantity = qty))
+            }
+            onVoicePrefillConsumed()
+        }
+    }
+
+    // 出库页换仓回写语音建单的仓库（单向），保证"界面显示 A 仓，草稿就不会落 B 仓"
+    DisposableEffect(viewModel) {
+        viewModel.setOnWarehouseChanged { warehouse ->
+            onVoiceWarehouseChanged?.invoke(warehouse)
+        }
+        onDispose { viewModel.setOnWarehouseChanged(null) }
+    }
 
     LaunchedEffect(Unit) {
         if (uiState.warehouses.isEmpty() && !uiState.warehousesLoading) {
@@ -308,6 +341,14 @@ fun OutboundScreen(
                     onContractNoChange = { viewModel.onContractNoChange(it) },
                     onSelect = { viewModel.selectContract(it) },
                     accentColor = CardGreen
+                )
+            }
+        },
+        banner = {
+            voiceDraftOrderNo?.let { orderNo ->
+                VoiceDraftCreatedBanner(
+                    orderNo = orderNo,
+                    onDismiss = onDismissVoiceDraft
                 )
             }
         }
