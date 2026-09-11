@@ -325,6 +325,206 @@ def _parse_voice_out_text(text):
     return result
 
 
+# 物料名词根候选：从关键词里剥离规格后，若关键词含以下词根则用词根降级搜索
+_VOICE_MATERIAL_ROOTS = (
+    '螺丝', '螺栓', '螺钉', '螺帽', '螺母', '垫片', '垫圈', '轴承', '弹簧',
+    '接头', '法兰', '阀门', '水管', '气管', '油管', '电缆', '电线', '气管',
+    '电机', '马达', '皮带', '齿轮', '链条', '手柄', '按钮', '开关', '继电器',
+    '气缸', '油缸', '滤芯', '密封圈', '扎带', '标签', '胶带', '砂纸', '钻头',
+)
+
+
+def _voice_split_root(keyword, spec_hint=''):
+    """把关键词拆成 (词根, 规格)。词根用于降级搜索，规格用于相似度排序。
+
+    例：'8*25螺丝' → ('螺丝', '8*25')；'螺丝' → ('螺丝', '')；
+        未知词 → (关键词, 规格)，保证仍可整体搜索（不丢失用户意图）。
+    """
+    kw = (keyword or '').strip()
+    if not kw:
+        return '', (spec_hint or '').strip()
+    # 关键词里若已含规格（如用户说「8*25螺丝」而规格被当关键词兜底），先摘出
+    inner_spec = re.findall(r'[A-Za-z]*\d+(?:\.\d+)?(?:\*\d+(?:\.\d+)?)+', kw)
+    spec = inner_spec[0] if inner_spec else (spec_hint or '').strip()
+    stem = re.sub(r'[A-Za-z]*\d+(?:\.\d+)?(?:\*\d+(?:\.\d+)?)+', '', kw).strip()
+    # 在残余里找已知物料词根
+    for root in _VOICE_MATERIAL_ROOTS:
+        if root in stem:
+            return root, spec
+    # 没命中词根表：整体当词根（可能是「6芯电缆」这类专有叫法）
+    return (stem or kw), spec
+
+
+def _voice_spec_similarity(material_spec, want_spec):
+    """规格相似度打分（0~100），用于多候选排序。越像分越高。
+
+    打分维度：完全相等 > 归一化后相等 > 数字集合重合度。
+    规格为空或无法解析时给低分（不淘汰，仍可被人工选中）。
+    """
+    want = (want_spec or '').strip().lower().replace(' ', '')
+    have = (material_spec or '').strip().lower().replace(' ', '')
+    if not want:
+        return 0
+    if not have:
+        return 10
+    if have == want:
+        return 100
+    # 归一化：去掉分隔符再比
+    compact = lambda s: re.sub(r'[*x×\-/\s]', '', s)  # noqa: E731
+    if compact(have) == compact(want):
+        return 95
+    # 数字集合重合：8*25 vs 8*30 → {8,25} ∩ {8,30} = {8} → 覆盖率 50%
+    want_nums = re.findall(r'\d+(?:\.\d+)?', want)
+    have_nums = re.findall(r'\d+(?:\.\d+)?', have)
+    if not want_nums:
+        return 20
+    hit = sum(1 for n in want_nums if n in have_nums)
+    if hit == 0:
+        # 规格里没有匹配数字，但若一方包含另一方（如 8*25 vs M8*25*10）仍给部分分
+        return 25 if (want in have or have in want) else 0
+    return int(20 + 70 * hit / len(want_nums))
+
+
+def _match_voice_material(keyword, spec_hint='', warehouse=None, limit=10):
+    """语音关键词 → 物料匹配（**六层降级，尽量不返回空**）。
+
+    这是「聪明的 AI」的核心：即使「8*25螺丝」整体匹配不到，也会退到用词根
+    「螺丝」搜出候选、再按规格相似度排序，让用户从最可能的几个里挑，
+    而不是甩一句「没听清」。
+
+    返回 dict：
+      {
+        'status': 'success' | 'multiple' | 'not_found',
+        'material': Material | None,          # status=success 时给出
+        'matches': [{'material':..., 'score':int, 'strategy':str}, ...],
+        'root': str, 'spec': str,             # 拆解结果（诊断用）
+        'strategies_tried': [str, ...],       # 试过哪些层（诊断用，便于向用户解释）
+      }
+    """
+    from app import Material, db, joinedload
+
+    kw = (keyword or '').strip()
+    spec = (spec_hint or '').strip()
+    root, spec = _voice_split_root(kw, spec)
+    tried = []
+
+    def _payload(mat, score, strategy):
+        return {'material': mat, 'score': score, 'strategy': strategy}
+
+    if not kw and not spec:
+        return {'status': 'not_found', 'material': None, 'matches': [],
+                'root': '', 'spec': '', 'strategies_tried': tried}
+
+    _opts = (joinedload(Material.unit), joinedload(Material.category),
+             joinedload(Material.supplier))
+
+    # 第 1 层：别名表直查（用户上次纠正过的说法——"越用越聪明"）
+    tried.append('alias')
+    try:
+        from app import AIMaterialAlias, _ai_material_alias_key
+        for candidate in [c for c in (kw, root, f'{spec}{root}', f'{root}{spec}') if c]:
+            alias_key = _ai_material_alias_key(candidate)
+            if not alias_key:
+                continue
+            learned = AIMaterialAlias.query.options(
+                joinedload(AIMaterialAlias.material).joinedload(Material.unit)
+            ).filter_by(alias_key=alias_key, disabled=False).first()
+            if learned and learned.material:
+                return {'status': 'success', 'material': learned.material,
+                        'matches': [_payload(learned.material, 100, 'alias')],
+                        'root': root, 'spec': spec, 'strategies_tried': tried}
+    except Exception:  # noqa: BLE001 - 别名表缺失不应影响主流程
+        pass
+
+    # 第 2 层：完整关键词精确 code
+    tried.append('exact_code')
+    mat = Material.query.options(*_opts).filter(
+        db.func.lower(Material.code) == kw.lower()
+    ).first()
+    if mat:
+        return {'status': 'success', 'material': mat,
+                'matches': [_payload(mat, 100, 'exact_code')],
+                'root': root, 'spec': spec, 'strategies_tried': tried}
+
+    # 第 3 层：完整关键词模糊（code/name/spec）
+    tried.append('fuzzy_full')
+    like = f'%{kw}%'
+    full_matches = Material.query.options(*_opts).filter(db.or_(
+        Material.code.ilike(like),
+        Material.name.ilike(like),
+        Material.spec.ilike(like),
+    )).order_by(Material.code.asc(), Material.id.asc()).limit(limit).all()
+    if len(full_matches) == 1:
+        return {'status': 'success', 'material': full_matches[0],
+                'matches': [_payload(full_matches[0], 90, 'fuzzy_full')],
+                'root': root, 'spec': spec, 'strategies_tried': tried}
+    if len(full_matches) > 1:
+        ranked = sorted(
+            (_payload(m, _voice_spec_similarity(m.spec, spec), 'fuzzy_full')
+             for m in full_matches),
+            key=lambda x: (-x['score'], x['material'].code or ''),
+        )
+        return {'status': 'multiple', 'material': None, 'matches': ranked,
+                'root': root, 'spec': spec, 'strategies_tried': tried}
+
+    # 第 4 层：降级到词根搜索 + 规格相似度排序（**"聪明"的关键**）
+    if root and root != kw:
+        tried.append('root_fallback')
+        rlike = f'%{root}%'
+        root_matches = Material.query.options(*_opts).filter(db.or_(
+            Material.code.ilike(rlike),
+            Material.name.ilike(rlike),
+            Material.spec.ilike(rlike),
+        )).order_by(Material.code.asc(), Material.id.asc()).limit(50).all()
+        if root_matches:
+            ranked = sorted(
+                (_payload(m, _voice_spec_similarity(m.spec, spec), 'root_fallback')
+                 for m in root_matches),
+                key=lambda x: (-x['score'], x['material'].code or ''),
+            )[:limit]
+            # 规格能对上（分>50）且唯一 → 直接算命中，省用户一次点选
+            strong = [x for x in ranked if x['score'] >= 95]
+            if len(strong) == 1:
+                return {'status': 'success', 'material': strong[0]['material'],
+                        'matches': ranked, 'root': root, 'spec': spec,
+                        'strategies_tried': tried}
+            return {'status': 'multiple', 'material': None, 'matches': ranked,
+                    'root': root, 'spec': spec, 'strategies_tried': tried}
+
+    # 第 5 层：仅用规格搜 spec 字段
+    if spec:
+        tried.append('spec_only')
+        slike = f'%{spec}%'
+        spec_matches = Material.query.options(*_opts).filter(
+            Material.spec.ilike(slike)
+        ).order_by(Material.code.asc(), Material.id.asc()).limit(limit).all()
+        if spec_matches:
+            ranked = [_payload(m, _voice_spec_similarity(m.spec, spec), 'spec_only')
+                      for m in spec_matches]
+            if len(ranked) == 1:
+                return {'status': 'success', 'material': ranked[0]['material'],
+                        'matches': ranked, 'root': root, 'spec': spec,
+                        'strategies_tried': tried}
+            return {'status': 'multiple', 'material': None, 'matches': ranked,
+                    'root': root, 'spec': spec, 'strategies_tried': tried}
+
+    # 第 6 层：AI 四级匹配（精确→name+spec→别名→唯一模糊）
+    tried.append('ai_match')
+    try:
+        from app import _ai_material_match_one
+        mat, reason = _ai_material_match_one(name=root or kw, spec=spec)
+        if mat is not None:
+            return {'status': 'success', 'material': mat,
+                    'matches': [_payload(mat, 80, f'ai_{reason}')],
+                    'root': root, 'spec': spec, 'strategies_tried': tried}
+    except Exception:  # noqa: BLE001 - AI 匹配失败不应中断主流程
+        pass
+
+    # 全部失败：明确告知"试过什么"，不编造（符合 R5）
+    return {'status': 'not_found', 'material': None, 'matches': [],
+            'root': root, 'spec': spec, 'strategies_tried': tried}
+
+
 # no-test:reason=路由注册辅助函数，能力由 native_api_* 与 mobile_api_* 各路由测试覆盖
 def register_native_api_routes(app):
     # 装饰器为 app.py 内部定义（csrf / api_role_required / mobile_api_idempotent /
