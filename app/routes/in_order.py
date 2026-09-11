@@ -181,6 +181,7 @@ def register_in_order_routes(app):
             'purchase_in': '采购入库',
             'product_in': '产品入库',
             'other_in': '其他入库',
+            'sales_return': '销售退货入库',
         }
         business_type_filter = ''
         raw_type = 'other_in' if request.path == '/other_in_order' else (request.args.get('type') or '').strip()
@@ -188,7 +189,7 @@ def register_in_order_routes(app):
             business_type_filter = _type_alias[raw_type]
         else:
             business_type_filter = (request.args.get('business_type') or '').strip()
-            if business_type_filter not in ('采购入库', '产品入库', '其他入库'):
+            if business_type_filter not in ('采购入库', '产品入库', '其他入库', '销售退货入库'):
                 business_type_filter = ''
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
         allowed_sorts = {'order_no', 'date', 'supplier_id', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
@@ -678,32 +679,38 @@ def register_in_order_routes(app):
                 abort(409, '只有反提交后的草稿入库单可以编辑')
         order_type = 'other_in' if request.path == '/other_in_order/add' else (request.args.get('type') or '').strip().lower()
         source_purchase_order_id = request.args.get('source_purchase_order_id', type=int) or None
+        source_sales_order_id = request.args.get('source_sales_order_id', type=int) or None
         is_product_in = order.business_type == '产品入库' if order else order_type in ('product', 'product_in')
         is_other_in = order.business_type == '其他入库' if order else order_type in ('other', 'other_in')
-        business_type = order.business_type if order else ('其他入库' if is_other_in else ('产品入库' if is_product_in else '采购入库'))
-        order_no = order.order_no if order else generate_order_no('OI' if is_other_in else ('PI' if is_product_in else 'IN'))
-        parties = Customer.query.order_by(Customer.code.asc()).all() if is_other_in else Supplier.query.all()
+        # P1-5 销售退货入库：type=sales_return 进入；形态与其他入库一致（客户归属），
+        # 但不启用"保存并完成"工具栏（退货高敏，两步走：先草稿后完成）
+        is_sales_return = order.business_type == '销售退货入库' if order else order_type in ('sales_return', 'return')
+        business_type = order.business_type if order else ('销售退货入库' if is_sales_return else ('其他入库' if is_other_in else ('产品入库' if is_product_in else '采购入库')))
+        order_no = order.order_no if order else generate_order_no('OI' if is_other_in else ('PI' if is_product_in else ('SR' if is_sales_return else 'IN')))
+        parties = Customer.query.order_by(Customer.code.asc()).all() if (is_other_in or is_sales_return) else Supplier.query.all()
         warehouses = get_active_warehouses()
         default_warehouse = get_default_warehouse()
         order_date = datetime.now().strftime('%Y-%m-%d')
-        return render_template('in_order_add.html', 
+        return render_template('in_order_add.html',
                              materials=[serialize_material(material) for material in materials],
                              units=[serialize_unit(unit) for unit in units],
-                             suppliers=[serialize_customer(p) if is_other_in else serialize_supplier(p) for p in parties],
+                             suppliers=[serialize_customer(p) if (is_other_in or is_sales_return) else serialize_supplier(p) for p in parties],
                              warehouses=warehouses,
                              default_warehouse=default_warehouse,
                              location_management_enabled=location_management_enabled(),
                              is_product_in=is_product_in,
                              is_other_in=is_other_in,
+                             is_sales_return=is_sales_return,
                              business_type=business_type,
-                             default_purpose=order.purpose if order else ('客供料入库' if is_other_in else ('生产完工入库' if is_product_in else '采购到货入库')),
-                             page_title='新增产品入库单' if is_product_in else ('新增其他入库单' if is_other_in else '新增采购入库单'),
+                             default_purpose=order.purpose if order else ('客户退货' if is_sales_return else ('客供料入库' if is_other_in else ('生产完工入库' if is_product_in else '采购到货入库'))),
+                             page_title='新增销售退货入库单' if is_sales_return else ('新增产品入库单' if is_product_in else ('新增其他入库单' if is_other_in else '新增采购入库单')),
                              supplier_required=not is_product_in,
-                             party_field='customer_id' if is_other_in else 'supplier_id',
-                             party_label='客户' if is_other_in else ('生产来源' if is_product_in else '供应商'),
+                             party_field='customer_id' if (is_other_in or is_sales_return) else 'supplier_id',
+                             party_label='退货客户' if is_sales_return else ('客户' if is_other_in else ('生产来源' if is_product_in else '供应商')),
                              return_list_url='/other_in_order' if is_other_in else '/in_order',
-                             return_add_url='/other_in_order/add' if is_other_in else ('/in_order/add?type=product' if is_product_in else '/in_order/add'),
+                             return_add_url='/other_in_order/add' if is_other_in else ('/in_order/add?type=product' if is_product_in else ('/in_order/add?type=sales_return' if is_sales_return else '/in_order/add')),
                              source_purchase_order_id=source_purchase_order_id,
+                             source_sales_order_id=source_sales_order_id,
                              prefill={
                                  'warehouse': order.warehouse if order else (request.args.get('warehouse') or '').strip(),
                                  'location': order.location if order else (request.args.get('location') or '').strip(),
