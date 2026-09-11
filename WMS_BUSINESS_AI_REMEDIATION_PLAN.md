@@ -593,6 +593,16 @@ actual_arrival_date = db.Column(db.Date)   # 实际最后一次到货日期
 > P0-1（提交 06c2340，AI-NAMING-TRUTH-001：规则页改名+标注依据；单据"AI建议"经核实为真 LLM 输出，保留）、
 > P1-8（提交 035991f，AI-DEDUP-REPLENISH-001：补货报告 94 行重复实现并入 smart 版，等价性测试证明零行为差异）。
 > 全量回归 1482 passed / 7 failed（7 项均为改动前已存在的打印条码环境性失败，与改动无关）。
+>
+> **第 2 批 2 项已完成并推送**——
+> P0-2（提交 4d579f5，AI-FEEDBACK-LOOP-001：写入端字段错配修复（base.html submitFeedback
+> 发 rating/error_type/ai_message_id，此前 100% 返回 400、差评从未入库）+ 新增
+> routes/ai_feedback.py `/ai/feedback_review` admin 只读待修清单（AIFeedback +
+> AIDocumentFeedback 差评分组 + 最近样例，无 LLM 不登记能力键），8 回归）；
+> P0-3（提交 5c43792，AI-SUGG-CONF-001：规则建议带可解释置信度——缺口类按缺口比例、
+> 趋势类按样本天数折算，<0.6 needs_review 整行标黄"待复核"，CSV 加列，5 回归）。
+> 置信度第一版只标黄提示、不自动阻断（业务承诺风险控制）。
+>
 > D1/D2 仍待拍板，阻塞第 3 批。
 
 | ID | 任务 | 批 | 依赖 | 需拍板 | 风险 | 预估 |
@@ -615,7 +625,7 @@ actual_arrival_date = db.Column(db.Date)   # 实际最后一次到货日期
 
 ## 六、上线注意（容易漏）
 
-1. **模板改动必须重启 WMS**（AGENTS.md R3）。涉及：`ai_replenishment_smart.html`、`base.html`、`in_order_detail.html`、`out_order_detail.html`。
+1. **模板改动必须重启 WMS**（AGENTS.md R3）。涉及：`ai_replenishment_smart.html`、`base.html`、`ai_feedback_review.html`、`in_order_detail.html`、`out_order_detail.html`。
 2. **数据模型改动必须走幂等启动回填**，不得直接 `ALTER TABLE` 后假设数据已就绪（`backfill_stock_txn_warehouse_id()` 是标准范式）。
 3. **每个新单据类型都要问一次**：它的库存写入口是否成对调用了 `add_stock`/`deduct_stock_atomic` **和** `update_location_inventory`？这是 `INVENTORY_TRUTH.md` §2.1 的硬约束，也是三账分裂的历史根因。
 4. **每个新端点都要问一次**：能力键是否"四处齐"？少一处 = 静默拒绝（不是报错，是**永远 403**）。
