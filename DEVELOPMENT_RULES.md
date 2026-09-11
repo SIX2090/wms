@@ -123,7 +123,7 @@
 
 | 工具 | 检查内容 | 必跑 |
 |---|---|---|
-| `scripts/lint_wms_rules.py` | 10 条防 BUG 规则（A1–A10） | ✅ pre-commit |
+| `scripts/lint_wms_rules.py` | 11 条防 BUG 规则（A1–A11） | ✅ pre-commit |
 | `scripts/lint_no_raw_post_fetch.py` | 裸调 fetch 检查 | ✅ pre-commit |
 | `scripts/verify_wms_bugs.py` | 140 项静态回归 | ✅ pre-commit |
 | `pytest tests/` | 945 项测试（265 个文件） | ✅ pre-commit |
@@ -141,7 +141,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 
 ## 六、防 BUG 规则清单
 
-`scripts/lint_wms_rules.py` 共 10 条规则，每条独立可开关：
+`scripts/lint_wms_rules.py` 共 11 条规则，每条独立可开关：
 
 | 编号 | 规则 | 防的 BUG | 扫描范围 |
 |---|---|---|---|
@@ -155,6 +155,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 | **A8** | **新增** POST/PUT/DELETE 路由必须用 pydantic `BaseModel` 输入校验 | 数据类型 BUG / 字段漂移 | `app/**/*.py`（除 `app/ai/`，仅看 git staged 新增行） |
 | **A9** | **新增** 业务函数必须在 `tests/` 至少有 1 个对应 pytest 测试 | 未测试代码上线 | `app/**/*.py`（除 `app/ai/`，仅看 git staged 新增行） |
 | **A10** | **新增** `app/app.py` 禁止新增 `@app.route` 路由，强制走 `app/routes/` 模块 | app.py 重新膨胀 / 可维护性下滑 | `app/app.py`（仅看 git staged 新增行） |
+| **A11** | **新增** 禁止裸用 `material.stock`（总账）做**库存校验**，必须用仓库级口径 | 多仓库口径串仓 / 同根因反复 BUG | `app/**/*.py`（除 `app/utils.py`，仅看 git staged 新增行） |
 
 ### 6.1 白名单与例外
 
@@ -168,14 +169,16 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 - **A8**：路由装饰器行/上一行/紧邻 `def` 行加 `# pydantic:reason=<理由>` 注释可豁免；登录/csrf/webhook/wechat 端点与 A2 一致豁免。
 - **A9**：同行/上一行加 `# no-test:reason=<理由>` 注释可豁免；`_xxx` 内部 helper、`test_xxx` 测试函数、`__dunder__` 魔术方法、装饰器（`@property` / `@staticmethod` / `@classmethod`）以及路由函数（`@app.route` 装饰的 def）均不算"业务函数"。
 - **A10**：`@app.route` 装饰器行/上一行/下一行加 `# route-in-app:reason=<理由>` 注释可豁免（用于确有必要留在 app.py 的极少数特殊端点）；存量路由不强制，仅拦 git staged 新增行。
+- **A11**：行内或上一行加 `# stock-truth:reason=<理由>` 注释可豁免；`app/utils.py`（库存工具模块本身）整体豁免；仅拦 git staged 新增行。**只抓"校验语境"**（比较运算符 / `is_stock_sufficient` 传参 / 赋值后隔行比较），放过展示用途（序列化输出、f-string 报表、排序聚合）。
 
 ### 6.2 排除路径
 
 - A2 / A6 / A7 / A8 / A9 都排除 `app/ai/`（AI 子包）。
 - A10 仅作用于 `app/app.py` 这一个文件，`app/routes/` 等其他文件天然不适用。
+- A11 排除 `app/utils.py`（库存工具模块本身）与 `app/tests` / `app/android-native-wms`。
 - A6 额外排除 `app/run_server.py`、`app/auto_update.py`、`app/restart.py`、`app/notifications.py`、`app/wechat_helper.py`（这些是 CLI / 启动 / 辅助脚本，`print` 是合法的运维输出）。
 - A3 / A4 / A5 自动跳过 `app/static/js/lib/` 和 `xlsx.full.min.js` 等第三方库。
-- **A8 / A9 / A10 是"新增代码生效"规则**：仅扫描 `git diff --cached` 的新增行（含 `--diff-filter=A` 新增文件），存量代码不会一次性报几百条违规。
+- **A8 / A9 / A10 / A11 是"新增代码生效"规则**：仅扫描 `git diff --cached` 的新增行（含 `--diff-filter=A` 新增文件），存量代码不会一次性报几百条违规。
 
 ---
 
@@ -196,6 +199,44 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 - 修复 BUG 时（A1-A7 触发的）也算"新增业务函数"，A9 顺带把回归测试也强制了。
 
 写测试和写实现不矛盾——A9 不要求覆盖率 100%，只要求"新增的每个 def 至少 1 个 test_xxx 跑得过"。对"小工具函数"用 `_xxx` 命名直接豁免，对路由函数按 A2 走（不重复强制）。
+
+### 6.4 为什么禁止裸用总账做库存校验（A11，2026-09-11 新增）
+
+**问题**：系统里"库存"有三个口径（详见 [`INVENTORY_TRUTH.md`](./INVENTORY_TRUTH.md)）：
+
+| 数据 | 粒度 | 用途 |
+|---|---|---|
+| `material.stock` | 全系统合计 | 展示、估值 |
+| `location_inventory.quantity` | 仓库 × 库位 | **仓库级真相** |
+| `stock_transaction.quantity` | 物料 × 单据 | **事实来源** |
+
+业务校验（够不够扣）如果用全局 `material.stock`，多仓库下会把"A仓+B仓合计"当成"A仓可用"。
+
+**实证代价**：同一根因在四个消费点分别复发——
+
+- `BUG-2026-09-02-001`：`native_api` 盘点取全局账面 → 盘盈盘亏全算错
+- `BUG-2026-09-03-001`：Excel 导入盘点同样取全局
+- `BUG-2026-09-03-002`：`mobile` 物料接口展示固定取全局
+- `BUG-2026-09-03-004`：Android 原生物料展示同样取全局
+
+加上 `BUG-2026-08-16-009`（A 仓掩护 B 仓）与 `BUG-2026-08-16-006`（仓库级库存恒为 0），
+`AGENTS.md` R2 的实证计数写着"08-16/08-17/08-23/08-27 系列 **20+ 条**"。
+
+**为什么用 lint 而不是靠人记住**：R6 要求"判定为同一根因复发时，必须同时排查所有消费点"——
+但消费点多达 36 处（`in_order` / `transfer` / `sales` / `requisition` / `subcontract` / `check` 等），
+靠人记性排查必然遗漏。A11 把 R6 从"靠人记住去查"变成"工具不让写"。
+
+**正确写法**：
+
+```python
+wh_stock = get_warehouse_stock_quantities(warehouse)   # 仓库级，绝不回退全局
+available = wh_stock.get(material.id, 0.0)
+if not is_stock_sufficient(available, quantity):
+    return api_error(f'物料 {material.code} 在 {warehouse.name} 库存不足：需 {quantity:g}，可用 {available:g}')
+```
+
+**为什么只抓"校验"不抓"展示"**：物料列表的"库存"列、报表文案、排序聚合本来就该用全局合计，
+一律禁止会把规则变成噪音，最终被整体忽略。规则的价值在于**精准**，不在于覆盖广。
 
 ---
 

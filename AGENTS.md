@@ -72,7 +72,7 @@
 ## 四、分支与前端约束
 
 - **分支策略（硬性规则，无例外）**：AI/TRAE 必须直接在 `main` 分支工作。严格禁止创建、切换到或推送任何新分支——包括 `feature/*`、`fix/*`、`chore/*` 或任何 `trae/*` worktree 分支。所有 commit 和 push 必须指向 `main`。本地 pre-push 钩子 `.githooks/pre-push` 在客户端强制执行（**允许删除非 `main` 远程分支**——如 `trae/*` 残留分支可按需清理；仅 `main` 禁止删除，防止误删丢失全部历史；除 `main` 外禁止创建、切换或推送任何新分支）。注意：在 GitHub 侧强制分支保护需要私有仓库的 GitHub Pro；免费私有仓库只有本地钩子 + CI 两层强制。
-- **业务 JS 禁止原生非 GET `fetch`**：`app/static/js/*.js` 中所有非 GET 请求必须走 `WMS.api.get/post/put/delete(url, data)`（定义于 `app/static/js/api.js`）。业务代码中**禁止**直接使用 `fetch()` 或全局 `csrfFetch` 包装。本地 pre-commit 钩子 `.githooks/pre-commit` 先运行 `scripts/lint_wms_rules.py`（A1-A10），再运行 `scripts/lint_no_raw_post_fetch.py`；两者会拒绝白名单之外包含 `fetch(url, { method: 'POST'|'PUT'|'DELETE'|'PATCH' })` 的提交。白名单文件（base.html 全局 fetch 拦截器、`app/static/js/api.js`、`app/static/js/app.js`）可使用原生 `fetch`，因为它们就是统一层。每次克隆后执行一次 `bash .githooks/install-hooks.sh` 启用钩子（等同于 `git config core.hooksPath .githooks`）。
+- **业务 JS 禁止原生非 GET `fetch`**：`app/static/js/*.js` 中所有非 GET 请求必须走 `WMS.api.get/post/put/delete(url, data)`（定义于 `app/static/js/api.js`）。业务代码中**禁止**直接使用 `fetch()` 或全局 `csrfFetch` 包装。本地 pre-commit 钩子 `.githooks/pre-commit` 先运行 `scripts/lint_wms_rules.py`（A1-A11），再运行 `scripts/lint_no_raw_post_fetch.py`；两者会拒绝白名单之外包含 `fetch(url, { method: 'POST'|'PUT'|'DELETE'|'PATCH' })` 的提交。白名单文件（base.html 全局 fetch 拦截器、`app/static/js/api.js`、`app/static/js/app.js`）可使用原生 `fetch`，因为它们就是统一层。每次克隆后执行一次 `bash .githooks/install-hooks.sh` 启用钩子（等同于 `git config core.hooksPath .githooks`）。
 
 ## 五、AI 开发台账
 
@@ -132,6 +132,9 @@
 1. **多仓库隔离**：两个及以上仓库之间数据互不串仓（汇总=各仓库之和）。
 2. **历史脏数据兼容**：历史 `warehouse`/`location` 为空或解析不到的记录不得导致"查不出来/库存不足"误判。
 3. **汇总 = 明细**：报表合计行必须等于明细行全集之和，不得以分页/抽样数据近似。
+
+> **口径定义与写入/读取规范见 [`INVENTORY_TRUTH.md`](./INVENTORY_TRUTH.md)**（三份数据的权威关系、派生方向、归属铁律）。
+> **R2 的机械化防护是 A11**（`scripts/lint_wms_rules.py`）：禁止新增代码裸用 `material.stock`（总账）做库存校验，强制用仓库级 `get_warehouse_stock_quantities()`。这直接掐断"同根因在多个消费点反复复发"（2026-09-11 新增）。
 
 ### R3 模板改动必须标重启（实证：6+ 条"改了没生效"）
 

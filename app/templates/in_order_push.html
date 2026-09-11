@@ -76,7 +76,7 @@
                     <td>{{ line.item.material.name if line.item.material else '-' }}</td>
                     <td>{{ line.item.material.spec if line.item.material else '-' }}</td>
                     <td>{{ line.item.material.unit.name if line.item.material and line.item.material.unit else '-' }}</td>
-                    <td>{% if line.is_customer_supplied %}<span class="badge bg-info text-dark" title="客供料所有权库存尚未隔离，禁止下推普通出库">客供</span>{% else %}否{% endif %}</td>
+                    <td>{% if line.is_customer_supplied %}<span class="badge bg-info text-dark" title="客供料为客户资产，按客供料规则（CS-RULE-001）不可下推为普通出库单；如需从客供仓出库，请直接开客供仓出库单并关联对应合同/工程">客供（不可下推）</span>{% else %}否{% endif %}</td>
                     <td>{{ line.item.contract_no or '-' }}</td><td>{{ line.item.project_name or '-' }}</td>
                     <td class="text-end">{{ '%g'|format(line.in_quantity) }}</td>
                     <td class="text-end">{{ '%g'|format(line.pushed_quantity) }}</td>
