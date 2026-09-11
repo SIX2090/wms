@@ -286,7 +286,9 @@ fun HomeScreen(
                         currentLabel = dashboard.warehouse,
                         warehouses = homeUiState.warehouses,
                         selectedId = homeUiState.selectedWarehouseId,
-                        onSelect = { homeViewModel.selectWarehouse(it) }
+                        onSelect = { homeViewModel.selectWarehouse(it) },
+                        showDefaultWarehouse = false,
+                        allowAll = false
                     )
                 }
                 TodayOverviewBar(

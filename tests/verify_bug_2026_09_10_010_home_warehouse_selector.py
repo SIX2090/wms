@@ -15,7 +15,7 @@
 - T1 API 必须带 warehouse_id 查询参数
 - T2 Repository 签名带 warehouseId 并透传
 - T3 ViewModel 持有 warehouses / selectedWarehouseId 并提供加载与切换
-- T4 页面调用共享 WarehouseSelector 且提供「全部仓库」选项
+- T4 页面调用共享 WarehouseSelector；首页下拉关闭「默认仓库」与「全部仓库（汇总）」选项
 - T5 共享组件存在且报表页也改用它（不再各写一份）
 - T6 DashboardDto 新增 warehouse 字段（服务端回传当前口径）
 - T7 进入首页先加载仓库列表再查概览
@@ -64,6 +64,9 @@ def test_t4_screen_uses_warehouse_selector():
     assert "WarehouseSelector(" in src, "首页必须提供仓库切换"
     assert "homeViewModel.selectWarehouse" in src
     assert "dashboard.warehouse" in src, "当前口径标签应取服务端回传的 warehouse"
+    # 用户需求：首页下拉只列真实仓库，关闭「默认仓库」与「全部仓库（汇总）」
+    assert "showDefaultWarehouse = false" in src, "首页下拉必须关闭「默认仓库」选项"
+    assert "allowAll = false" in src, "首页下拉必须关闭「全部仓库（汇总）」选项"
 
 
 def test_t5_shared_component_and_report_reuses_it():

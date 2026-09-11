@@ -18,8 +18,9 @@ data class HomeUiState(
     /** 可选仓库列表（首页进入时加载一次，供顶部下拉切换） */
     val warehouses: List<WarehouseDto> = emptyList(),
     /**
-     * 当前统计口径：null = 跟随系统默认仓（旧行为），"all" = 全部仓库汇总，
-     * 其余为仓库 id 字符串（BUG-2026-09-10-010：多仓用户此前只能看默认仓）。
+     * 当前统计口径：首页下拉只提供真实仓库（不含"默认仓库"/"全部仓库（汇总）"），
+     * 故此处恒为仓库 id 字符串；进入首页加载仓库后若为空则默认选中第一个仓库
+     * （见 loadWarehouses）。日报页同口径（见 ReportViewModel）。
      */
     val selectedWarehouseId: String? = null
 )
@@ -66,7 +67,17 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             repository.ensureSession()
             repository.getWarehouses().fold(
                 onSuccess = { list ->
-                    _uiState.value = _uiState.value.copy(warehouses = list)
+                    val current = _uiState.value.selectedWarehouseId
+                    // 首页下拉已去掉「默认仓库」与「全部仓库（汇总）」选项：进入页未显式
+                    // 选仓时默认落到第一个真实仓库，避免停留在已不可选的"默认仓"口径。
+                    val nextSelected = if (current.isNullOrBlank() && list.isNotEmpty()) {
+                        list.first().id?.toString()
+                    } else current
+                    _uiState.value = _uiState.value.copy(
+                        warehouses = list,
+                        selectedWarehouseId = nextSelected
+                    )
+                    if (nextSelected != current) loadDashboard()
                 },
                 onFailure = { /* 静默：仓库列表失败不阻断首页概览 */ }
             )
