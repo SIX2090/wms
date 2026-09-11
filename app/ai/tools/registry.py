@@ -139,6 +139,22 @@ IN_ORDER_DRAFT_SCHEMA = _object_schema({
     'items': _items_schema(STANDARD_ITEM_SCHEMA),
 }, required=('warehouse_id', 'items'))
 
+# 新增（AI-VOICE-OUT-F01）：手机端语音建领料单草稿的输入 schema。
+# 与 OUT_ORDER_DRAFT_SCHEMA 的差别在于「入口是自然语言」：客户端把语音原文交给
+# 后端，后端做归一化 + 六层降级物料匹配，用户消歧后再回传 material_code。
+VOICE_OUT_DRAFT_SCHEMA = _object_schema({
+    'text': {'type': 'string', 'minLength': 1, 'maxLength': 500},
+    'warehouse_id': POSITIVE_ID,
+    'warehouse_code': SHORT_TEXT,
+    # 领料人（手工输入，不由语音识别，避免误填他人单据）
+    'picker': SHORT_TEXT,
+    # true=只解析匹配（消歧用，不建单）；false=建 pending 草稿
+    'dry_run': {'type': 'boolean'},
+    # 消歧后用户选定的物料编码
+    'material_code': SHORT_TEXT,
+    'quantity': {'type': 'number', 'exclusiveMinimum': 0},
+}, required=('text',))
+
 PURCHASE_RECEIVE_DRAFT_SCHEMA = _object_schema({
     'purchase_order_id': POSITIVE_ID,
     'warehouse_id': POSITIVE_ID,
@@ -345,6 +361,10 @@ AI_TOOL_REGISTRY = MappingProxyType({
     'after_sale_out_draft': _tool('after_sale_out_draft', 'Create an after-sales outbound draft (AfterSaleOutOrder) for manual review. Use this for customer returns, replacements, and warranty shipments.', 'warehouse_draft', AFTER_SALE_OUT_DRAFT_SCHEMA, confirmation_required=True),
     'sales_outbound_draft': _tool('sales_outbound_draft', 'Create a sales outbound draft (OutOrder) from a confirmed sales order for manual review. The system auto-fills items from the order\'s unshipped quantities.', 'warehouse_draft', SALES_OUTBOUND_DRAFT_SCHEMA, confirmation_required=True),
     'in_order_draft': _tool('in_order_draft', 'Create a general inbound draft for manual review.', 'warehouse_draft', IN_ORDER_DRAFT_SCHEMA, confirmation_required=True),
+    # 新增（AI-VOICE-OUT-F01）：语音建领料单草稿入口。
+    # 与 out_order_draft 同为草稿能力（confirmation_required=True），差别只在入口是
+    # 「自然语言 + 降级匹配」而非结构化 items；只落 pending 单，不扣库存。
+    'voice_out_draft': _tool('voice_out_draft', 'Create a material issue (领料单) draft from a spoken Chinese sentence such as 「领8*25螺丝 1000个」. The server normalizes the text, extracts material keyword/spec/quantity, and runs a six-tier degradation material match. Multiple candidates must be disambiguated by the user before a draft is created.', 'warehouse_draft', VOICE_OUT_DRAFT_SCHEMA, confirmation_required=True),
     'purchase_receive_draft': _tool('purchase_receive_draft', 'Create a purchase receiving draft. A purchase order is only an optional source; when linked, keep source, quantity and progress tracking.', 'purchase_receive_draft', PURCHASE_RECEIVE_DRAFT_SCHEMA, confirmation_required=True),
     'transfer_draft': _tool('transfer_draft', 'Create an internal stock transfer draft for manual review.', 'warehouse_draft', TRANSFER_DRAFT_SCHEMA, confirmation_required=True),
     'check_draft': _tool('check_draft', 'Create an inventory stocktake draft for manual review.', 'warehouse_draft', CHECK_DRAFT_SCHEMA, confirmation_required=True),

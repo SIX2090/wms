@@ -19,6 +19,9 @@ VALID_PAYLOADS = {
     'after_sale_out_draft': {'customer_id': 1, 'warehouse_id': 1, 'items': [{'material_id': 1, 'quantity': 2}]},
     'sales_outbound_draft': {'sales_order_id': 1},
     'in_order_draft': {'warehouse_id': 1, 'items': [{'material_id': 1, 'quantity': 2}]},
+    # 新增（AI-VOICE-OUT-F01）：语音建单入口是自然语言，只有 text 是必填
+    'voice_out_draft': {'text': '领8*25螺丝 1000个', 'warehouse_code': 'WHA',
+                        'picker': '张三', 'dry_run': True},
     'purchase_receive_draft': {'purchase_order_id': 1, 'warehouse_id': 1, 'items': [{'material_id': 1, 'quantity': 2}]},
     'transfer_draft': {'source_warehouse_id': 1, 'target_warehouse_id': 2, 'items': [{'material_id': 1, 'quantity': 2}]},
     'check_draft': {'warehouse_id': 1, 'items': [{'material_id': 1, 'counted_quantity': 0}]},

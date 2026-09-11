@@ -500,6 +500,29 @@ def main() -> int:
         'AI permission matrix must have automated role coverage and deny undeclared capabilities',
     ))
 
+    # AI-VOICE-OUT-F01：语音建单是按能力键注册的 AI 草稿能力，端点必须真的走能力校验。
+    # 这里只做"接线存在性"静态断言；"灰度 off 必须 403 / 三张治理表登记齐"由
+    # tests/verify_mobile_voice_out_api.py 的 T13/T14 动态覆盖。
+    # 关键：本端点走 @api_role_required 的 Bearer Token 通道，该通道不写 current_user，
+    # 所以**绝对不能**调 _ai_capability_allowed()（会 100% 误拒），必须用已解析的 user
+    # 走 is_ai_capability_allowed_for_role + evaluate_rollout_access。
+    native_api_py = read_text('app/routes/native_api.py')
+    voice_out_body = function_body(native_api_py, 'native_api_voice_out_draft')
+    _ai_policies_py = read_text('app/ai/policies.py')
+    _ai_registry_py = read_text('app/ai/tools/registry.py')
+    checks.append((
+        'AI-VOICE-OUT-F01',
+        "'voice_out_draft'" in _ai_policies_py
+        and 'is_ai_capability_allowed_for_role(' in voice_out_body
+        and 'evaluate_rollout_access(' in voice_out_body
+        and "'voice_out_draft'" in voice_out_body
+        and '_ai_capability_allowed(' not in voice_out_body
+        and 'VOICE_OUT_DRAFT_SCHEMA' in _ai_registry_py
+        and "'voice_out_draft': _tool(" in _ai_registry_py
+        and "status='pending'" in voice_out_body,
+        '语音建单端点必须走能力矩阵（Bearer 通道下不得用 _ai_capability_allowed）且只建 pending 草稿',
+    ))
+
     tool_registry = subprocess.run(
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_tool_registry.py')],
         cwd=str(ROOT),
