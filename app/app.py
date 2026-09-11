@@ -6919,6 +6919,77 @@ def purchase_order_status_label(status):
         'closed': '已关闭',
     }.get(status, status or '-')
 
+
+# ==========================================================================
+# P2-9 采购在途唯一口径（收口）
+# --------------------------------------------------------------------------
+# 在途定义：Σ 行级 max(quantity − coalesce(received_quantity, 0), 0)，
+# 默认仅统计 PurchaseOrder.status in ('pending', 'partial')。
+# 收口原因：历史上至少 6 处消费点各自内联"quantity - received_quantity"
+# 聚合，且截断层次不一致——有的行级截断（供应商履约）、有的聚合后截断
+# （补货候选/缺料分析：一行超收 -5 + 一行未收 +10 被错误算成 5）、
+# 有的完全不截断（采购待办 remaining_qty：负数直接进汇总）。
+# 要点：
+# 1. 行级 max(0)——超收行不得以负数抵消其他行的在途；
+# 2. case 表达式实现跨库 max——MySQL 无标量 MAX(a,b)（需 GREATEST），
+#    SQLite 两者皆有，case 两端通用；
+# 3. received_quantity 可能为 NULL（历史数据/直写 SQL），coalesce 防御；
+# 4. 新消费点一律经由本组函数取数，禁止再内联在途聚合
+#    （与 INVENTORY_TRUTH.md"口径唯一"哲学一致）。
+# ==========================================================================
+
+def _purchase_in_transit_line_expr():
+    """行级在途数量表达式：max(quantity − coalesce(received_quantity, 0), 0)。"""
+    quantity = func.coalesce(PurchaseOrderItem.quantity, 0)
+    received = func.coalesce(PurchaseOrderItem.received_quantity, 0)
+    return case((quantity <= received, 0), else_=quantity - received)
+
+
+def get_purchase_in_transit(material_id=None, supplier_id=None, statuses=('pending', 'partial')):
+    """采购在途数量——P2-9 收口后的唯一入口（单值版）。
+
+    Args:
+        material_id: 按物料过滤（可选）。
+        supplier_id: 按供应商过滤（可选）。
+        statuses: 采购单状态过滤。补货/缺料/待办链路一律用默认值；
+            仅当语义确需含 completed 尾差时显式传入（如供应商档案卡
+            沿用原 != 'closed' 语义时传 ('pending','partial','completed')）。
+
+    Returns:
+        float: round_to_2_decimals 后的在途数量，无匹配行时为 0。
+    """
+    query = db.session.query(
+        func.coalesce(func.sum(_purchase_in_transit_line_expr()), 0)
+    ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
+        PurchaseOrder.status.in_(statuses)
+    )
+    if material_id is not None:
+        query = query.filter(PurchaseOrderItem.material_id == material_id)
+    if supplier_id is not None:
+        query = query.filter(PurchaseOrder.supplier_id == supplier_id)
+    row = query.first()
+    return round_to_2_decimals(row[0] if row else 0)
+
+
+def get_purchase_in_transit_by_material(material_ids, statuses=('pending', 'partial')):
+    """get_purchase_in_transit 的按物料批量版，返回 {material_id: qty}。
+
+    供缺料分析/补货候选/智能补货等逐物料消费点使用，单次查询防 N+1。
+    口径与单量版完全一致；material_ids 为空时返回 {}。
+    结果不含在途为 0（或无在途单）的物料键，消费方须以 .get(mid, 0) 取值。
+    """
+    if not material_ids:
+        return {}
+    rows = db.session.query(
+        PurchaseOrderItem.material_id,
+        func.coalesce(func.sum(_purchase_in_transit_line_expr()), 0),
+    ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
+        PurchaseOrderItem.material_id.in_(material_ids),
+        PurchaseOrder.status.in_(statuses),
+    ).group_by(PurchaseOrderItem.material_id).all()
+    return {material_id: round_to_2_decimals(qty or 0) for material_id, qty in rows}
+
+
 def build_purchase_order_todo_summary():
     summary_rows = db.session.query(
         PurchaseOrder.status,
@@ -6942,12 +7013,8 @@ def build_purchase_order_todo_summary():
     for status, count, amount in summary_rows:
         summary[f'{status}_count'] = count or 0
         summary[f'{status}_amount'] = round_to_2_decimals(amount or 0)
-    remaining_row = db.session.query(
-        func.coalesce(func.sum(PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity), 0)
-    ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
-        PurchaseOrder.status.in_(('pending', 'partial'))
-    ).first()
-    summary['remaining_qty'] = round_to_2_decimals(remaining_row[0] if remaining_row else 0)
+    # P2-9 收口：在途口径改走统一函数（行级 max(0)），超收行不再以负数拉低汇总
+    summary['remaining_qty'] = get_purchase_in_transit()
     summary['overdue_count'] = PurchaseOrder.query.filter(
         PurchaseOrder.status.in_(('pending', 'partial')),
         PurchaseOrder.expected_date.isnot(None),
@@ -10151,17 +10218,10 @@ def _ai_stage4_shortage_report(limit=12):
         return '库存预警未启用，缺料分析只能参考负库存；建议先启用库存预警并维护最低/安全/最高库存。'
     materials = Material.query.options(joinedload(Material.unit), joinedload(Material.supplier)).filter(_material_low_stock_filter()).limit(200).all()
     material_ids = [material.id for material in materials]
-    on_order = {material_id: 0 for material_id in material_ids}
-    if material_ids:
-        po_rows = db.session.query(
-            PurchaseOrderItem.material_id,
-            func.coalesce(func.sum(PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity), 0),
-        ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
-            PurchaseOrderItem.material_id.in_(material_ids),
-            PurchaseOrder.status.in_(('pending', 'partial')),
-        ).group_by(PurchaseOrderItem.material_id).all()
-        for material_id, qty in po_rows:
-            on_order[material_id] = max(float(qty or 0), 0)
+    # P2-9 收口：在途口径改走统一函数（行级 max(0)）。
+    # 旧实现是"聚合后截断"——同一物料一行超收 -5、一行未收 +10 被算成 5，
+    # 行级口径应为 10；超收负数不得抵消其他行的在途。
+    on_order = get_purchase_in_transit_by_material(material_ids)
     rows = []
     for material in materials:
         target = material.max_stock or material.min_stock or material.reorder_point or 0
@@ -10207,6 +10267,9 @@ def _ai_stage4_supplier_performance_report(days=90, limit=12):
         overdue = 0
         remaining_qty = 0
         for order in orders:
+            # P2-9 口径对齐：行级 max(0) 与 get_purchase_in_transit 一致
+            # （超收行不计负数在途）。此处保留逐单 Python 循环而非改调统一函数，
+            # 因同一循环还服务 overdue 判定（需要逐单 remaining），拆开会 N+1。
             remaining = sum(max((item.quantity or 0) - (item.received_quantity or 0), 0) for item in order.items or [])
             remaining_qty += remaining
             if order.expected_date and order.expected_date < today_value and remaining > STOCK_COMPARE_EPSILON and order.status not in ('completed', 'closed'):
@@ -17078,16 +17141,8 @@ def _ai_purchase_replenishment_candidates(limit=20):
     if not material_ids:
         return [], []
 
-    open_po_qty = {material_id: 0 for material_id in material_ids}
-    po_rows = db.session.query(
-        PurchaseOrderItem.material_id,
-        func.coalesce(func.sum(PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity), 0),
-    ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
-        PurchaseOrderItem.material_id.in_(material_ids),
-        PurchaseOrder.status.in_(('pending', 'partial')),
-    ).group_by(PurchaseOrderItem.material_id).all()
-    for material_id, qty in po_rows:
-        open_po_qty[material_id] = round_to_2_decimals(max(qty or 0, 0))
+    # P2-9 收口：在途口径改走统一函数（行级 max(0)，防超收负数抵消在途）
+    open_po_qty = get_purchase_in_transit_by_material(material_ids)
 
     pending_request_ids = set()
     request_rows = db.session.query(PurchaseRequestItem.material_id).join(
@@ -17264,16 +17319,8 @@ def _ai_replenishment_out_qty_by_material(days=30):
 def _ai_replenishment_open_qty(material_ids):
     if not material_ids:
         return {}, set()
-    on_order = {material_id: 0 for material_id in material_ids}
-    po_rows = db.session.query(
-        PurchaseOrderItem.material_id,
-        func.coalesce(func.sum(PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity), 0),
-    ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
-        PurchaseOrderItem.material_id.in_(material_ids),
-        PurchaseOrder.status.in_(('pending', 'partial')),
-    ).group_by(PurchaseOrderItem.material_id).all()
-    for material_id, qty in po_rows:
-        on_order[material_id] = round_to_2_decimals(max(qty or 0, 0))
+    # P2-9 收口：在途口径改走统一函数（行级 max(0)，防超收负数抵消在途）
+    on_order = get_purchase_in_transit_by_material(material_ids)
 
     pending_request_ids = set()
     request_rows = db.session.query(PurchaseRequestItem.material_id).join(
@@ -17609,13 +17656,16 @@ def _ai_supplier_profile_response(message, context=None, force=False):
 
     amount_row = db.session.query(
         func.coalesce(func.sum(PurchaseOrder.total_amount), 0),
-        func.coalesce(func.sum(PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity), 0),
-    ).join(PurchaseOrderItem, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
+    ).filter(
         PurchaseOrder.supplier_id == supplier.id,
         PurchaseOrder.status != 'closed',
     ).first()
     purchase_amount = round_to_2_decimals(amount_row[0] if amount_row else 0)
-    remaining_qty = round_to_2_decimals(max(amount_row[1] if amount_row else 0, 0))
+    # P2-9 收口：未入库数量改走统一在途函数（行级 max(0) 防超收负数抵消）。
+    # statuses 含 completed 以保留原 != 'closed' 的尾差语义（completed 单
+    # 未收完的行仍计入），与补货链路的默认口径（pending/partial）区分。
+    remaining_qty = get_purchase_in_transit(
+        supplier_id=supplier.id, statuses=('pending', 'partial', 'completed'))
 
     recent_in_orders = InOrder.query.filter(
         InOrder.supplier_id == supplier.id,
