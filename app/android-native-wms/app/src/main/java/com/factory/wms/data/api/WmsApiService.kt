@@ -28,6 +28,27 @@ interface WmsApiService {
     @GET("api/material/all")
     suspend fun allMaterials(): Response<ApiEnvelope<List<MaterialDto>>>
 
+    /**
+     * AI-MOB-STOCK-F01：库存列表查询（分页）。
+     *
+     * 复用既有后端端点 `GET /api/mobile/stock/query`（native_api.py），不新增/修改后端。
+     * 返回**仓库级账面库存**（服务端经 get_warehouse_stock_quantities 实时聚合，
+     * 绝不回退全局 Material.stock）。
+     *
+     * - warehouse：仓库名或编码，**必填**（AGENTS.md 第二节）。服务端未取到仓库
+     *   返回 400「请选择仓库」，Android 侧须先选仓再发起请求。
+     * - keyword：按 编码/名称/规格 模糊匹配；为空则返回全部物料分页。
+     * - 响应含完整分页元数据（total/page/page_size/total_pages），调用方按
+     *   total_pages 翻页合并取全，不得把默认 page_size 当业务上限（R1）。
+     */
+    @GET("api/mobile/stock/query")
+    suspend fun stockQuery(
+        @Query("warehouse") warehouse: String,
+        @Query("keyword") keyword: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 20
+    ): Response<ApiEnvelope<StockQueryPageData>>
+
     @POST("api/inbound")
     suspend fun submitInbound(
         @Header("X-Idempotency-Key") requestId: String,

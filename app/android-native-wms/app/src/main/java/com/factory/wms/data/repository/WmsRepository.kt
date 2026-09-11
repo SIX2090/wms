@@ -180,6 +180,31 @@ class WmsRepository(private val context: Context) {
         return safeCall { api.searchMaterial(keyword, warehouseCode) }
     }
 
+    /**
+     * AI-MOB-STOCK-F01：库存列表查询（分页，复用既有 `/api/mobile/stock/query`）。
+     *
+     * - [warehouse] 必填（仓库名或编码）。缺失时服务端 400「请选择仓库」，
+     *   调用方（ViewModel）须在选仓后再调用，不得传空串探测全量。
+     * - 返回仓库级账面库存分页数据；调用方按 total_pages 翻页（R1）。
+     * - 走 safeCall：服务端业务提示（如"请选择仓库"）原样透传，不被
+     *   覆盖为"网络错误"（BUG-2026-09-10-011）。
+     */
+    suspend fun queryStockPage(
+        warehouse: String,
+        keyword: String? = null,
+        page: Int = 1,
+        pageSize: Int = 20
+    ): Result<StockQueryPageData> {
+        return safeCall {
+            api.stockQuery(
+                warehouse = warehouse,
+                keyword = keyword?.takeIf { it.isNotBlank() },
+                page = page,
+                pageSize = pageSize
+            )
+        }
+    }
+
     suspend fun getMaterialInfo(code: String, warehouseCode: String? = null): Result<MaterialDto> {
         return try {
             // 网络优先：查库存要求实时准确，先请求后端（已选仓库时按仓库级口径），成功后再回写本地缓存
