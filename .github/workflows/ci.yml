@@ -23,8 +23,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r app/requirements.txt
-          pip install pytest
+          # CI-ENV-2026-09-11：pytest 等测试依赖改为钉版清单，杜绝"CI 拉最新
+          # pytest 与钉死的 pytest-cov 版本漂移"这类环境性失败
+          pip install -r app/requirements-test.txt
 
       - name: Create required directories
         run: |
@@ -70,16 +71,16 @@ jobs:
       # 为什么逐文件独立进程：多文件同进程混跑时 app 模块单例与
       # db.drop_all 内存库守卫互相干扰，会产生 169 例环境性假失败；
       # 逐文件执行已本地验证 99/108 文件全过。
-      # KNOWN-FAILURES：以下 9 个文件共 15 例历史真实失败，登记为
+      # KNOWN-FAILURES：以下 7 个文件共 13 例历史真实失败，登记为
       # BUG-2026-08-16-017 子任务（F1~F9）逐个修复后从此清单移除：
       #   F1 verify_app_py_split_subcontract.py（1 例）
       #   F2 verify_bug_2026_08_02_018_report.py（2 例）
       #   F3 verify_bug_2026_08_02_021_in_order_contract.py（1 例）
       #   F4 verify_bug_2026_08_04_010_material_api_all_response_key.py（1 例）
       #   F5 verify_bug_2026_08_09_003_takepicture_permission_and_path.py（2 例）
-      #   F6 verify_bug_2026_08_13_002_scan_submit_bearer.py（1 例）
-      #   F7 verify_bug_P15_P16_P21.py（1 例）
-      #   F8 verify_mobile_asr_route.py（1 例）
+      #   F6 已修复移除（verify_bug_2026_08_13_002_scan_submit_bearer.py，2026-09-11 复核 7 passed）
+      #   F7 verify_bug_P15_P16_P21.py（3 例，TestBugP21BizReportWarehouseGuard 采购执行表仓库守卫）
+      #   F8 已修复移除（verify_mobile_asr_route.py，2026-09-11 复核 8 passed）
       #   F9 verify_mobile_recognize_material_api.py（5 例）
       - name: "Verify regression - verify_*.py (BUG-2026-08-16-017)"
         run: |
@@ -89,9 +90,7 @@ jobs:
             tests/verify_bug_2026_08_02_021_in_order_contract.py
             tests/verify_bug_2026_08_04_010_material_api_all_response_key.py
             tests/verify_bug_2026_08_09_003_takepicture_permission_and_path.py
-            tests/verify_bug_2026_08_13_002_scan_submit_bearer.py
             tests/verify_bug_P15_P16_P21.py
-            tests/verify_mobile_asr_route.py
             tests/verify_mobile_recognize_material_api.py
           )
           is_known() {
@@ -107,9 +106,19 @@ jobs:
               continue
             fi
             echo ">> $f"
-            if ! timeout 300 python -m pytest "$f" -q > /tmp/verify_one.log 2>&1; then
-              cat /tmp/verify_one.log
-              fails=$((fails+1))
+            # CI-ENV-2026-09-11：按文件形态分流。脚本式契约测试（无 def test_
+            # 顶层断言）用 pytest 跑会 "no tests ran" exit 5 被误判失败，
+            # 直接执行脚本本身；pytest 式文件照旧。
+            if grep -q "def test_" "$f"; then
+              if ! timeout 300 python -m pytest "$f" -q > /tmp/verify_one.log 2>&1; then
+                cat /tmp/verify_one.log
+                fails=$((fails+1))
+              fi
+            else
+              if ! timeout 300 python "$f" > /tmp/verify_one.log 2>&1; then
+                cat /tmp/verify_one.log
+                fails=$((fails+1))
+              fi
             fi
           done
           echo "verify_*.py 失败文件数: $fails（已知跳过: ${#known_failures[@]}）"
