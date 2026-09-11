@@ -146,6 +146,185 @@ def _generate_auto_material_code(prefix='M'):
     raise ValueError('无法生成唯一物料编码')
 
 
+# ==================== 语音建单：文本归一化与结构化抽取 ====================
+# 需求：用户说「领8*25螺丝 1000个」→ 抽出物料关键词「8*25螺丝」+ 数量 1000。
+#
+# 为什么不复用 app.py 的 _ai_parse_material_lines？实测该函数在本场景直接失效：
+#   「领8*25螺丝 1000个」→ 候选「25螺丝」（规格被截断，8* 丢失）
+#   「领8*25螺丝」      → 空（完全解析不出）
+#   「领料 螺丝8*25 1000个」→ 「螺丝」→8、「25」→1000（数量张冠李戴）
+# 根因：它的正则把「数字」一律当数量，不理解「8*25」是一个整体规格。
+#
+# 本实现的关键差别：**先锁定规格片段，再在规格之外找数量**。
+
+# 中文数字 → 阿拉伯（仅个位/十位组合，够覆盖规格和数量场景）
+_VOICE_CN_DIGITS = {
+    '零': 0, '〇': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4,
+    '五': 5, '六': 6, '七': 7, '八': 8, '九': 9,
+}
+
+# 规格分隔符（数字之间出现时统一为 '*'）：乘/叉/杠/横杠/×/x/X/·
+_VOICE_SPEC_SEPARATORS = '乘叉杠×xX*·'
+
+# 量词表：只有「数字 + 量词」才算数量，避免把规格里的裸数字当数量
+_VOICE_QUANTITY_UNITS = (
+    '个', '只', '件', '套', '米', '公斤', 'kg', 'KG', '千克', '克', 'g',
+    '盒', '包', '卷', '张', '片', '箱', '桶', '条', '根', '把', '付', '对',
+    '支', '块', '袋', '瓶', '排', '组', '台', '盘', '捆',
+)
+
+# 建单动词前缀（剥离后剩余部分才是物料词）
+_VOICE_VERB_PREFIXES = (
+    '开一张', '做一张', '来一张', '建一张', '创建一个', '新建一个',
+    '领料单', '出库单', '领用单',
+    '领料', '领用', '领取', '出库', '领', '出', '要', '拿', '发', '给', '来',
+)
+
+# 数量词（说「一千」这类中文数量时的归一）
+_VOICE_SCALE_WORDS = (('千', 1000), ('百', 100), ('十', 10))
+
+# 同音/近音纠错（语音建单专用，补充仓库领域词表之外的口语变体）
+_VOICE_HOMOPHONE_FIXES = (
+    ('罗丝', '螺丝'), ('罗斯', '螺丝'), ('裸丝', '螺丝'), ('螺栓', '螺丝'),
+    ('螺私', '螺丝'), ('落丝', '螺丝'),
+    ('零', '领'), ('另', '领'),
+    ('成', '乘'), ('称', '乘'),
+)
+
+
+def _voice_cn_number_to_int(token):
+    """中文数字串 → 整数。支持「八」「二十五」「一百三十」「一千」；无法解析返回 None。
+
+    累加规则（关键）：个位数字遇到「十/百/千」时要进位，而「十/百/千」之后的
+    个位要**累加**而不是覆盖——否则「二十五」会被算成 5（历史上踩过这个坑）。
+    """
+    token = (token or '').strip()
+    if not token:
+        return None
+    if token.isdigit():
+        return int(token)
+    total = 0        # 已完成的高位部分
+    section = 0      # 当前正在累计的个位
+    pending = False  # 是否出现过「十/百/千」
+    seen = False
+    for ch in token:
+        if ch in _VOICE_CN_DIGITS:
+            section = _VOICE_CN_DIGITS[ch]
+            seen = True
+        elif ch in ('十', '百', '千'):
+            unit = 10 if ch == '十' else (100 if ch == '百' else 1000)
+            # 「十」前无数字表示 1（如「十五」=15）
+            total += (section or 1) * unit
+            section = 0
+            pending = True
+            seen = True
+        else:
+            return None
+    return total + section if seen and (pending or section) else (section if seen else None)
+
+
+def _normalize_voice_text(text):
+    """把「听到的」归一成「能算的」。三层处理：同音纠错 → 中文数字 → 规格分隔符统一。
+
+    关键：中文数字转换必须在**规格上下文**中保持分隔语义，
+    「八乘二十五」→「8*25」（一个规格），而不是被拼成 825。
+    """
+    t = (text or '').strip()
+    if not t:
+        return ''
+
+    # 1) 同音/近音纠错（长词优先，避免「零」先被替换破坏其它词）
+    for wrong, right in _VOICE_HOMOPHONE_FIXES:
+        t = t.replace(wrong, right)
+
+    # 2) 中文数字 → 阿拉伯数字（含「十/百/千」组合）。
+    #    必须在「乘→*」之前做：否则「八乘二十五」会先变成「八*二十五」，
+    #    中文数字串被 '*' 切断，「二十五」解析失败（实测会退化成「8*5」）。
+    def _cn_repl(m):
+        val = _voice_cn_number_to_int(m.group(0))
+        return str(val) if val is not None else m.group(0)
+
+    t = re.sub(r'[零〇一二两三四五六七八九十百千]+', _cn_repl, t)
+
+    # 3) 中文规格分隔符「乘/叉/杠」→ '*'（此时两侧已是阿拉伯数字）
+    for sep in '乘叉杠':
+        t = t.replace(sep, '*')
+
+    # 4) 统一规格分隔符：x / X / × / · / - 在数字之间 → '*'
+    t = re.sub(r'(?<=\d)\s*[xX×·]\s*(?=\d)', '*', t)
+    t = re.sub(r'(?<=\d)\s*-\s*(?=\d)', '*', t)
+
+    # 5) 压缩空白
+    t = re.sub(r'\s+', ' ', t).strip()
+    return t
+
+
+def _parse_voice_out_text(text):
+    """语音建单文本 → {keyword, quantity, spec_hint, unit}。
+
+    核心策略（针对「8*25」被当数量的根因）：
+      ① 先锁定规格片段（\\d+*\\d+），记录并**从文本中挖除**；
+      ② 再在剩余文本里找「数字 + 量词」作为数量（无则 quantity=None）；
+      ③ 剥离建单动词，残余即物料关键词；
+      ④ 关键词为空时，用规格片段当关键词兜底。
+
+    返回 quantity 为 None 表示「用户没说数量」，由人工填写（不猜、不编造）。
+    """
+    raw = (text or '').strip()
+    normalized = _normalize_voice_text(raw)
+    result = {
+        'raw': raw,
+        'normalized': normalized,
+        'keyword': '',
+        'quantity': None,
+        'unit': '',
+        'spec_hint': '',
+    }
+    if not normalized:
+        return result
+
+    work = normalized
+
+    # ① 锁定规格片段：8*25 / 8*25.5 / M8*25（可带字母前缀，如 M8/M10 螺纹规格）
+    #    规格可能多个，取首个为主规格（用户通常只报一个规格）
+    _spec_re = r'[A-Za-z]*\d+(?:\.\d+)?(?:\*\d+(?:\.\d+)?)+'
+    spec_matches = re.findall(_spec_re, work)
+    spec_hint = spec_matches[0] if spec_matches else ''
+    result['spec_hint'] = spec_hint
+    # 挖除规格，避免其数字被当数量
+    work_no_spec = re.sub(_spec_re, ' ', work)
+
+    # ② 在「无规格」文本里找「数字 + 量词」= 真实数量
+    unit_alt = '|'.join(sorted(_VOICE_QUANTITY_UNITS, key=len, reverse=True))
+    qty_match = re.search(r'(\d+(?:\.\d+)?)\s*(' + unit_alt + r')', work_no_spec)
+    if qty_match:
+        try:
+            qty = float(qty_match.group(1))
+        except (TypeError, ValueError):
+            qty = None
+        if qty is not None and qty > 0:
+            result['quantity'] = qty
+            result['unit'] = qty_match.group(2)
+        work_no_spec = work_no_spec.replace(qty_match.group(0), ' ', 1)
+
+    # ③ 剥离建单动词与无意义标记词
+    stem = work_no_spec
+    for verb in sorted(_VOICE_VERB_PREFIXES, key=len, reverse=True):
+        stem = stem.replace(verb, ' ')
+    # 「规格/型号/尺寸」只是引出规格的提示词，不应混入物料关键词
+    for marker in ('规格', '型号', '尺寸', '那种', '这种', '的'):
+        stem = stem.replace(marker, ' ')
+    # 残余里的其余数字（既非规格也非带量词数量）一并剔除，避免混入关键词
+    stem = re.sub(r'\d+(?:\.\d+)?', ' ', stem)
+    keyword = re.sub(r'\s+', '', stem).strip()
+
+    # ④ 关键词兜底：没有物料词时用规格当关键词
+    if not keyword and spec_hint:
+        keyword = spec_hint
+    result['keyword'] = keyword
+    return result
+
+
 # no-test:reason=路由注册辅助函数，能力由 native_api_* 与 mobile_api_* 各路由测试覆盖
 def register_native_api_routes(app):
     # 装饰器为 app.py 内部定义（csrf / api_role_required / mobile_api_idempotent /
