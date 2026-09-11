@@ -101,6 +101,7 @@
 | **库存查询/报表** | 仓库级 | 同上 | 仓库是必填筛选项（AGENTS.md 规则一） |
 | **物料列表展示** | 全局 | `material.stock` | 仅用于"全系统合计"展示 |
 | **反提交兜底校验** | 仓库级 → 全局兜底 | `_material_stock_unattributed` | 见 §4 |
+| **销售可承诺量**（STOCK-TRUTH-P16） | 仓库级派生 | `get_warehouse_stock_quantities(wh) − get_committed_quantities(wh.id)` | 占用账是**派生查询不是状态**：不落库、不加第四套口径字段。占用 = `status='confirmed'` 且未发完订单的行级 `quantity−shipped_quantity` 之和（D1：审批通过后占用，草稿不占）。下单/改单软校验（warning），下推硬校验（400/skipped） |
 
 ---
 
