@@ -92,7 +92,7 @@
                         <li class="list-group-item small">
                             <span class="badge bg-danger-subtle text-danger">{{ error_labels.get(fb.error_type or '', fb.error_type or '未分类') }}</span>
                             <span class="text-muted ms-1">{{ fb.created_at.strftime('%Y-%m-%d %H:%M') }} · 用户#{{ fb.user_id }} ·
-                                {% if fb.job %}<a href="{{ url_for('ai_document_job_detail', id=fb.job_id) }}">任务 #{{ fb.job_id }}</a>{% else %}任务 #{{ fb.job_id }}{% endif %}</span>
+                                {% if fb.job %}<a href="{{ url_for('ai_document_job_detail', id=fb.job_id) }}" target="_blank" rel="noopener">任务 #{{ fb.job_id }}</a>{% else %}任务 #{{ fb.job_id }}{% endif %}</span>
                             {% if fb.note %}<div class="mt-1">{{ fb.note }}</div>{% endif %}
                         </li>
                         {% endfor %}
