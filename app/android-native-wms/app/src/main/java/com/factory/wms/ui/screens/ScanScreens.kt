@@ -28,6 +28,9 @@ import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.CheckOrderDto
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.data.model.WarehouseDto
+import com.factory.wms.ui.components.PartyPickerDialog
+import com.factory.wms.ui.components.PartyPickerItem
+import com.factory.wms.ui.components.PartySelectorCard
 import com.factory.wms.ui.components.ScannerDialog
 import com.factory.wms.ui.components.VoiceDraftCreatedBanner
 import com.factory.wms.ui.components.WarehousePickerDialog
@@ -225,6 +228,9 @@ fun OutboundScreen(
     var showSubmitDialog by remember { mutableStateOf(false) }
     var showScannerDialog by remember { mutableStateOf(false) }
     var showWarehouseDialog by remember { mutableStateOf(false) }
+    // 2026-09-12 领料部门/领料人下拉对话框
+    var showDepartmentDialog by remember { mutableStateOf(false) }
+    var showEmployeeDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
     var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
@@ -251,6 +257,13 @@ fun OutboundScreen(
     LaunchedEffect(Unit) {
         if (uiState.warehouses.isEmpty() && !uiState.warehousesLoading) {
             viewModel.loadWarehouses()
+        }
+        // 2026-09-12：进入出库页加载领料部门与员工下拉数据
+        if (uiState.departments.isEmpty() && !uiState.departmentsLoading) {
+            viewModel.loadDepartments()
+        }
+        if (uiState.employees.isEmpty() && !uiState.employeesLoading) {
+            viewModel.loadEmployees()
         }
     }
 
@@ -334,6 +347,25 @@ fun OutboundScreen(
                     onClick = { showWarehouseDialog = true },
                     label = "出库仓库"
                 )
+                // 2026-09-12：领料部门/领料人下拉（选填，部门→员工联动过滤）
+                PartySelectorCard(
+                    label = "领料部门（选填）",
+                    placeholder = "请选择领料部门",
+                    valueText = uiState.selectedDepartment?.let { "${it.code.orEmpty()} ${it.name.orEmpty()}".trim() },
+                    icon = Icons.Outlined.AccountBox,
+                    accentColor = CardGreen,
+                    onClick = { showDepartmentDialog = true }
+                )
+                PartySelectorCard(
+                    label = "领料人（选填）",
+                    placeholder = "请选择领料人",
+                    valueText = uiState.selectedEmployee?.let {
+                        "${it.code.orEmpty()} ${it.name.orEmpty()}".trim()
+                    },
+                    icon = Icons.Outlined.Person,
+                    accentColor = CardGreen,
+                    onClick = { showEmployeeDialog = true }
+                )
                 ContractInputCard(
                     contractNo = uiState.contractNo,
                     suggestions = uiState.contractSuggestions,
@@ -383,13 +415,70 @@ fun OutboundScreen(
         )
     }
 
+    // 2026-09-12：领料部门选择对话框
+    if (showDepartmentDialog) {
+        PartyPickerDialog(
+            title = "选择领料部门",
+            items = uiState.departments.map {
+                PartyPickerItem(id = it.id, title = "${it.code.orEmpty()} ${it.name.orEmpty()}".trim())
+            },
+            selectedId = uiState.selectedDepartment?.id,
+            loading = uiState.departmentsLoading,
+            icon = Icons.Outlined.AccountBox,
+            accentColor = CardGreen,
+            onDismiss = { showDepartmentDialog = false },
+            onSelect = { item ->
+                viewModel.selectDepartment(item?.let { sel ->
+                    uiState.departments.firstOrNull { it.id == sel.id }
+                })
+                showDepartmentDialog = false
+            },
+            onRetry = { viewModel.loadDepartments() }
+        )
+    }
+
+    // 2026-09-12：领料人选择对话框
+    if (showEmployeeDialog) {
+        PartyPickerDialog(
+            title = "选择领料人",
+            items = uiState.employees.map {
+                PartyPickerItem(
+                    id = it.id,
+                    title = "${it.code.orEmpty()} ${it.name.orEmpty()}".trim(),
+                    subtitle = listOfNotNull(it.position, it.departmentName).filter { s -> s.isNotBlank() }.joinToString(" · ")
+                )
+            },
+            selectedId = uiState.selectedEmployee?.id,
+            loading = uiState.employeesLoading,
+            icon = Icons.Outlined.Person,
+            accentColor = CardGreen,
+            onDismiss = { showEmployeeDialog = false },
+            onSelect = { item ->
+                viewModel.selectEmployee(item?.let { sel ->
+                    uiState.employees.firstOrNull { it.id == sel.id }
+                })
+                showEmployeeDialog = false
+            },
+            onRetry = { viewModel.loadEmployees() }
+        )
+    }
+
     if (showSubmitDialog) {
         AlertDialog(
             onDismissRequest = { showSubmitDialog = false },
             shape = RoundedCornerShape(20.dp),
             title = { Text("确认出库", fontWeight = FontWeight.SemiBold) },
             text = {
-                Text("共 ${uiState.scanLines.size} 种物料，数量 ${formatQuantity(uiState.totalQuantity)}，确认提交出库？")
+                Column {
+                    Text("共 ${uiState.scanLines.size} 种物料，数量 ${formatQuantity(uiState.totalQuantity)}，确认提交出库？")
+                    // 2026-09-12：展示所选领料部门/领料人，提交前最后确认
+                    uiState.selectedDepartment?.let {
+                        Text("领料部门：${it.name.orEmpty()}", style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
+                    }
+                    uiState.selectedEmployee?.let {
+                        Text("领料人：${it.name.orEmpty()}", style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
+                    }
+                }
             },
             confirmButton = {
                 Button(

@@ -331,6 +331,26 @@ class WmsRepository(private val context: Context) {
             )
     }
 
+    /** 2026-09-12 领料部门下拉：启用部门列表 */
+    suspend fun getDepartments(): Result<List<DepartmentDto>> {
+        ensureSession()
+        return safeCall { api.getDepartments() }
+            .fold(
+                onSuccess = { data -> Result.success(data.items) },
+                onFailure = { Result.failure(it) }
+            )
+    }
+
+    /** 2026-09-12 领料人下拉：员工列表，可选按部门过滤（选部门后联动） */
+    suspend fun getEmployees(departmentId: Long? = null): Result<List<EmployeeDto>> {
+        ensureSession()
+        return safeCall { api.getEmployees(departmentId) }
+            .fold(
+                onSuccess = { data -> Result.success(data.items) },
+                onFailure = { Result.failure(it) }
+            )
+    }
+
     /** INV-BATCH-001-E：拉取某仓库进行中盘点单（盘点提交前必须先选单）。 */
     suspend fun loadPendingCheckOrders(warehouseCode: String): Result<List<CheckOrderDto>> {
         ensureSession()

@@ -89,6 +89,16 @@ interface WmsApiService {
     @GET("api/warehouses")
     suspend fun getWarehouses(): Response<ApiEnvelope<WarehousesListData>>
 
+    /** 2026-09-12 领料部门下拉：启用部门列表 */
+    @GET("api/departments")
+    suspend fun getDepartments(): Response<ApiEnvelope<DepartmentsListData>>
+
+    /** 2026-09-12 领料人下拉：员工列表，department_id 过滤（选了部门后联动） */
+    @GET("api/employees")
+    suspend fun getEmployees(
+        @Query("department_id") departmentId: Long? = null
+    ): Response<ApiEnvelope<EmployeesListData>>
+
     /** 合同编号模糊搜索（选填合同字段快速匹配：如 0709 匹配 HD260709） */
     @GET("api/mobile/contracts")
     suspend fun searchContracts(
