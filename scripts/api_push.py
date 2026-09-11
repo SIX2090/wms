@@ -18,8 +18,11 @@ from __future__ import annotations
 import base64
 import json
 import os
+import ssl
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,15 +31,35 @@ REPO = os.environ.get("WMS_REPO", "SIX2090/wms")
 API = "https://api.github.com"
 
 
-def req(method, path, payload=None):
+def req(method, path, payload=None, _retries=4):
+    """带重试的 GitHub API 请求。
+
+    CI-ENV-2026-09-12：沙箱/CI 到 api.github.com 的 TLS 握手会偶发被中间设备
+    RST（表现为 SSLZeroReturnError / URLError，curl 同环境重试即可成功），
+    单次失败就把整批推送打断太亏，故对「连接层异常」做有限次退避重试；
+    HTTP 层错误（4xx/5xx 的 HTTPError）不重试——那是真失败，重来也没用。
+    """
     data = json.dumps(payload).encode() if payload is not None else None
     r = urllib.request.Request(API + path, data=data, method=method)
     r.add_header("Authorization", "Bearer " + TOKEN)
     r.add_header("Accept", "application/vnd.github+json")
     if data:
         r.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(r, timeout=90) as resp:
-        return json.loads(resp.read().decode())
+    last_err = None
+    for attempt in range(1, _retries + 1):
+        try:
+            with urllib.request.urlopen(r, timeout=90) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, ssl.SSLError, ConnectionError, TimeoutError) as e:
+            last_err = e
+            if attempt == _retries:
+                break
+            wait = 2 * attempt
+            print(f"   ⚠ 连接异常（第 {attempt}/{_retries} 次）：{e}；{wait}s 后重试")
+            time.sleep(wait)
+    raise SystemExit(f"✗ GitHub API 请求失败（已重试 {_retries} 次）：{method} {path} -> {last_err}")
 
 
 def git(*args):
