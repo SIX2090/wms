@@ -55,11 +55,21 @@ fun correctVoiceAsrText(text: String): String {
  * 语音指令：将识别文本解析为 WMS 操作指令。
  * 关键词解析并做优先级排序，避免包含关系误命中
  * （如"识物盘点"先于"盘点"、"识别单据"先于"识物"）。
+ *
+ * AI-VOICE-OUT-F01 新增：**建单意图**优先于导航意图——「领8*25螺丝 1000个」
+ * 必须解析成 [VoiceCommand.CreateOutboundDraft]（建草稿），而不是只跳转出库页。
+ * 判定规则：含建单动词 **且**（含数字 **或** 剥离动词后残余物料词长度 ≥2）。
+ * 「领料」「出库」这类纯导航语仍走原 [VoiceCommand.Navigate]，无回归。
  */
 fun parseCommand(heardText: String): VoiceCommand {
     val t = heardText.trim()
     if (t.isEmpty()) return VoiceCommand.Unrecognized
     val lt = t.lowercase()
+
+    // ── 建单意图优先判定（AI-VOICE-OUT-F01）──
+    // 必须排在「领料/出库」导航分支之前，否则永远被导航抢走
+    detectOutboundDraft(t)?.let { return it }
+
     return when {
         lt.contains("识物盘点") || (lt.contains("识物") && lt.contains("盘点")) ->
             VoiceCommand.Navigate(Screen.StocktakeRecognize)
@@ -88,6 +98,49 @@ fun parseCommand(heardText: String): VoiceCommand {
     }
 }
 
+/** 建单动词：出现这些词才可能是"要领料"而不是"打开出库页"。 */
+private val VOICE_DRAFT_VERBS = listOf(
+    "领料单", "出库单", "领用单",
+    "领料", "领用", "领取", "出库", "领", "出", "拿", "发", "要",
+)
+
+/** 规格分隔符（与后端 _VOICE_SPEC_SEPARATORS 对齐）。 */
+private const val VOICE_SPEC_SEPARATOR_CHARS = "乘叉杠×xX*·-"
+
+/**
+ * 判断是否为「语音建单」意图，是则返回带物料信息的指令。
+ *
+ * 与导航的区分（关键）：
+ * - 「领料」         → 无物料信息 → null（走导航，跳转出库页）
+ * - 「领8*25螺丝 1000个」→ 有物料信息 → CreateOutboundDraft(keyword="螺丝", quantity=1000)
+ *
+ * 这里只做**轻量判定 + 关键词粗切**，精确解析（中文数字、规格归一）由后端负责
+ * （单一真相源，避免双端解析逻辑漂移）。客户端只需要判断"这是不是建单意图"。
+ */
+private fun detectOutboundDraft(text: String): VoiceCommand.CreateOutboundDraft? {
+    val hasVerb = VOICE_DRAFT_VERBS.any { text.contains(it) }
+    if (!hasVerb) return null
+
+    // 剥离动词，看剩余内容里有没有"物料信息"
+    var stem = text
+    for (verb in VOICE_DRAFT_VERBS.sortedByDescending { it.length }) {
+        stem = stem.replace(verb, " ")
+    }
+    // 剥离数量（数字 + 可选量词）与规格分隔符，剩余即为物料词
+    val hasNumber = stem.any { it.isDigit() }
+    val stemNoNumber = stem.filterNot { it.isDigit() || it in VOICE_SPEC_SEPARATOR_CHARS }
+        .replace(" ", "")
+    val residual = stemNoNumber.trim()
+
+    // 有数字 → 说明报了数量或规格；或残余物料词 ≥2 字 → 说明报了物料
+    if (!hasNumber && residual.length < 2) return null
+
+    return VoiceCommand.CreateOutboundDraft(
+        rawText = text,
+        keywordHint = residual
+    )
+}
+
 /** 语音识别命中的操作指令。 */
 sealed class VoiceCommand(val label: String) {
     data class Navigate(val screen: Screen) : VoiceCommand("打开${screen.title}")
@@ -95,6 +148,17 @@ sealed class VoiceCommand(val label: String) {
     data object GoHome : VoiceCommand("回到首页")
     data object Logout : VoiceCommand("退出登录")
     data object Unrecognized : VoiceCommand("未识别到可执行指令")
+
+    /**
+     * AI-VOICE-OUT-F01：语音建领料单草稿（如「领8*25螺丝 1000个」）。
+     *
+     * [rawText] 为语音原文，交给后端解析（单一真相源，避免双端解析漂移）。
+     * [keywordHint] 为客户端粗切的物料词，仅用于即时 UI 反馈（后端结果为准）。
+     */
+    data class CreateOutboundDraft(
+        val rawText: String,
+        val keywordHint: String = ""
+    ) : VoiceCommand("生成领料单草稿")
 }
 
 data class VoiceUiState(
