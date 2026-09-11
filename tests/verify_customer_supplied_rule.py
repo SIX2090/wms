@@ -116,3 +116,13 @@ if FAILED:
         print('  - ' + f)
     sys.exit(1)
 print('P1-b 客供料语义契约全部通过')
+
+
+# ---------------------------------------------------------------------------
+# CI-ENV-2026-09-11 兼容壳：本文件是"顶层断言"脚本式契约测试（import 即执行）。
+# 旧 CI 用 pytest 直跑本文件时曾因收集 0 测试而 exit 5 误判失败；
+# 加此入口后 pytest 收集到 1 个用例：导入成功（顶层断言全过）→ 通过，
+# 顶层断言失败 → SystemExit → collection error → 红灯。两种形态信号一致。
+# 与 ci.yml 分流逻辑兼容：grep "def test_" 归入 pytest 式后 pytest 直跑同样能过。
+def test_contract_by_import_side_effect():
+    assert True
