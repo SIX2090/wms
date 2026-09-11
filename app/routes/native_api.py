@@ -1982,3 +1982,190 @@ def register_native_api_routes(app):
             db.session.rollback()
             app.logger.exception('Mobile inbound draft failed')
             return api_json_error('入库草稿生成失败', 500)
+
+    # pydantic:reason=新增移动端语音建单端点，按 A8 要求使用 pydantic 输入校验
+    @app.route('/api/mobile/voice_out_draft', methods=['POST'])
+    @csrf.exempt
+    @api_role_required('warehouse')
+    @mobile_api_idempotent('voice_out_draft')
+    def native_api_voice_out_draft(user):
+        """手机端语音建单：说「领8*25螺丝 1000个」→ 生成领料单草稿（status=pending）。
+
+        两阶段协议（dry_run）：
+          - dry_run=true  → 只解析+匹配，返回候选供用户点选（不建单）
+          - dry_run=false → 用用户确认的物料+数量建草稿
+
+        边界（AGENTS.md:20 / R5）：
+          - 只建 pending 草稿，**不扣库存**；提交/完成仍由人工在出库页执行
+          - 多命中/低置信度必须回退人工选择，不擅自替用户决定
+          - 全失败时明确告知"听成了什么 + 试过哪些策略"，不编造
+        """
+        from datetime import date
+        from pydantic import BaseModel, Field
+        from app import (Material, OutOrder, OutOrderItem, Warehouse,
+                         api_json_error, api_json_success, generate_order_no,
+                         get_default_warehouse, location_management_enabled,
+                         location_required_on_save, round_to_2_decimals)
+
+        class VoiceOutDraftRequest(BaseModel):
+            text: str = Field(min_length=1, max_length=500)
+            warehouse: str | None = None
+            warehouse_code: str | None = None
+            picker: str | None = None
+            # true=只解析匹配（消歧用）；false=建草稿
+            dry_run: bool = True
+            # 消歧后用户选定的物料编码/数量（dry_run=false 时必填）
+            material_code: str | None = None
+            quantity: float | None = None
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            req = VoiceOutDraftRequest.model_validate(payload)
+        except Exception as exc:  # noqa: BLE001 - pydantic 校验错误统一转 400
+            return api_json_error(f'参数校验失败：{exc}', 400)
+
+        # 仓库必填（未传时默认仓库兜底）
+        warehouse_code = (req.warehouse_code or req.warehouse or '').strip()
+        warehouse = None
+        if warehouse_code:
+            warehouse = Warehouse.query.filter(
+                (Warehouse.code == warehouse_code) | (Warehouse.name == warehouse_code)
+            ).first()
+            if warehouse is None:
+                return api_json_error(f'仓库不存在：{warehouse_code}', 400)
+            if (warehouse.status or 'active') != 'active':
+                return api_json_error(f'仓库 [{warehouse.name}] 已停用', 403)
+        else:
+            warehouse = get_default_warehouse()
+            if warehouse is None:
+                return api_json_error('请选择仓库', 400)
+
+        # ① 解析语音文本 → 关键词/数量/规格
+        parsed = _parse_voice_out_text(req.text)
+        keyword = parsed['keyword']
+        spec_hint = parsed['spec_hint']
+
+        if not keyword and not spec_hint:
+            # 听不出任何物料信息（如只说「领料」）——导航意图，不是建单
+            return api_json_error(
+                '没听到物料信息。请说「领8*25螺丝 1000个」这样的完整指令', 400
+            )
+
+        # ② 解析物料：优先用用户已确认的编码（第二阶段），否则走六层降级匹配
+        if not req.dry_run and req.material_code:
+            chosen = Material.query.filter_by(code=req.material_code.strip()).first()
+            if chosen is None:
+                return api_json_error(f'物料不存在：{req.material_code}', 400)
+            matches_payload = [{'material': chosen, 'score': 100, 'strategy': 'user_choice'}]
+            match_result = {
+                'status': 'success', 'material': chosen,
+                'matches': matches_payload, 'root': parsed['keyword'],
+                'spec': spec_hint, 'strategies_tried': ['user_choice'],
+            }
+        else:
+            match_result = _match_voice_material(keyword, spec_hint, warehouse)
+
+        # 数量：用户确认值优先，其次语音解析值；都没有则 None（人工填，不猜）
+        quantity = req.quantity if req.quantity is not None else parsed['quantity']
+
+        def _match_to_json(item):
+            material = item['material']
+            return {
+                'material_id': material.id,
+                'code': material.code,
+                'name': material.name or '',
+                'spec': material.spec or '',
+                'unit': material.unit.name if material.unit else '',
+                'category': material.category.name if material.category else '',
+                'price': round_to_2_decimals(material.price or 0),
+                'score': item['score'],
+                'strategy': item['strategy'],
+            }
+
+        # ③ dry_run：只返回解析+匹配结果，供客户端消歧
+        if req.dry_run:
+            return api_json_success({
+                'stage': 'preview',
+                'heard_text': parsed['raw'],
+                'normalized_text': parsed['normalized'],
+                'keyword': keyword,
+                'root': match_result['root'],
+                'spec': spec_hint,
+                'quantity': quantity,
+                'unit': parsed['unit'],
+                'match_status': match_result['status'],
+                'matches': [_match_to_json(m) for m in match_result['matches']],
+                'strategies_tried': match_result['strategies_tried'],
+                'warehouse': warehouse.name if warehouse else '',
+                'warehouse_code': warehouse.code if warehouse else '',
+                # 降级说明：让客户端能告诉用户"我做了什么努力"（R5 不编造）
+                'degraded': match_result['status'] != 'success',
+            }, '解析完成' if match_result['status'] == 'success'
+               else '请选择物料' if match_result['status'] == 'multiple'
+               else '未找到匹配物料')
+
+        # ④ 建草稿：必须是唯一确定的物料（多命中不允许擅自建单）
+        material = match_result['material']
+        if material is None:
+            return api_json_error(
+                '未能确定物料，请先选择具体物料后再生成草稿', 400
+            )
+        if quantity is None or quantity <= 0:
+            return api_json_error(
+                '未识别到数量，请补充数量后再生成草稿（如「领8*25螺丝 1000个」）', 400
+            )
+
+        # 库位：开库位管理且强制时，以仓库名兜底（与 scan_batch_draft 一致）
+        location = (warehouse.name or '').strip()
+        if location_management_enabled() and location_required_on_save() and not location:
+            return api_json_error('启用库位管理后，出库草稿必须填写仓库/库位', 400)
+
+        try:
+            qty = round_to_2_decimals(quantity)
+            price = round_to_2_decimals(material.price or 0)
+            order = OutOrder(
+                order_no=generate_order_no('OU'),
+                date=date.today(),
+                business_type='领料单',
+                warehouse=warehouse.name,
+                location=location,
+                purpose='语音建单（待确认）',
+                remark=(f'语音建单：{parsed["raw"]}'[:200]),
+                picker=(req.picker or '').strip()[:50] or None,
+                status='pending',  # 草稿：人工确认后才 deduct_stock
+                operator_id=user.id,
+            )
+            db.session.add(order)
+            db.session.flush()
+            db.session.add(OutOrderItem(
+                out_order_id=order.id,
+                material_id=material.id,
+                quantity=qty,
+                price=price,
+                amount=round_to_2_decimals(qty * price),
+            ))
+            order.total_amount = sum(item.amount or 0 for item in order.items)
+            db.session.commit()
+
+            return api_json_success({
+                'stage': 'created',
+                'order_id': order.id,
+                'order_no': order.order_no,
+                'status': order.status,
+                'warehouse': order.warehouse,
+                'picker': order.picker or '',
+                'heard_text': parsed['raw'],
+                'items': [{
+                    'material_id': material.id,
+                    'code': material.code,
+                    'name': material.name or '',
+                    'spec': material.spec or '',
+                    'unit': material.unit.name if material.unit else '',
+                    'quantity': qty,
+                }],
+            }, f'已生成待确认草稿：{order.order_no}')
+        except Exception:  # noqa: BLE001
+            db.session.rollback()
+            app.logger.exception('Mobile voice out draft failed')
+            return api_json_error('语音建单草稿生成失败，请稍后重试', 500)
+
