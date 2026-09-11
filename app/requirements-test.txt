@@ -1,0 +1,17 @@
+# WMS 测试环境依赖（CI-ENV-2026-09-11）
+#
+# 为什么独立成文件：
+#   1. pytest 历史上在 ci.yml 里裸 `pip install pytest`，每次拉最新版，
+#      与钉死的 pytest-cov==5.0.0 之间存在版本漂移风险；
+#   2. 测试侧依赖（pytest / PyYAML）不应混入生产 requirements.txt，
+#      生产部署不该装测试工具。
+#
+# 复现测试环境：pip install -r app/requirements-test.txt
+# 版本均为本地全绿环境（pyenv 3.11.1 + 钉版 venv 双环境实测）
+
+-r requirements.txt
+
+pytest==9.1.1
+# pytest-cov 主清单已含（BUG-2026-08-16-018 历史），此处显式重复以自文档化
+pytest-cov==5.0.0
+PyYAML==6.0.3
