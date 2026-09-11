@@ -2021,7 +2021,10 @@ def register_native_api_routes(app):
                          _ai_rollout_mode)
         from ai.ops.rollout_control import evaluate_rollout_access
         from ai.tools.registry import get_ai_tool_spec
-        from app.ai.policies import is_ai_capability_allowed_for_role
+        # BUG-2026-09-06-003：app 不是包，`from app.ai.policies import` 在生产
+        # 布局必然 ModuleNotFoundError（语音建单门禁直接 500）。统一走
+        # `from ai.policies import`（app/ 目录在 sys.path，同上方 ai.ops 写法）。
+        from ai.policies import is_ai_capability_allowed_for_role
 
         _voice_cap = 'voice_out_draft'
         _voice_spec = get_ai_tool_spec(_voice_cap)
