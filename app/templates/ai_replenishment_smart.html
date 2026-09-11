@@ -1,17 +1,17 @@
 {% extends "base.html" %}
-{% block title %}智能补货建议{% endblock %}
+{% block title %}补货建议（规则）{% endblock %}
 
 {% block content %}
 <div class="container-fluid px-3">
     <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
         <div>
-            <h1 class="h5 mb-1">智能补货建议</h1>
-            <div class="text-muted small">基于AI分析的智能补货建议，包含消耗趋势、优先级评分和补货策略建议；本页只读，不自动生成采购单、不改变库存。</div>
+            <h1 class="h5 mb-1">补货建议（规则）</h1>
+            <div class="text-muted small">基于近期出库消耗与库存覆盖天数的规则判断（非模型生成），包含消耗趋势、优先级评分和补货策略建议；本页只读，不自动生成采购单、不改变库存。</div>
         </div>
         <div class="d-flex gap-2">
             <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('purchase_request_list') }}">采购申请</a>
             <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('purchase_order_list') }}">采购订单</a>
-            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ai_replenishment_page') }}">AI补货建议</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ai_replenishment_page') }}">补货建议（规则）</a>
             <a class="btn btn-success btn-sm" href="{{ url_for('ai_replenishment_smart_page', days=request.args.get('days', 30), coverage_days=request.args.get('coverage_days', 30), risk=request.args.get('risk', 'action'), export='csv') }}">
                 <i class="bi bi-download"></i> 导出CSV
             </a>
@@ -81,7 +81,7 @@
                     <th class="text-end" style="width: 80px;">在途数量</th>
                     <th class="text-end" style="width: 100px;">建议补货量</th>
                     <th class="text-center" style="width: 60px;">趋势</th>
-                    <th style="min-width: 200px;">AI建议</th>
+                    <th style="min-width: 200px;">系统建议</th>
                 </tr>
             </thead>
             <tbody>

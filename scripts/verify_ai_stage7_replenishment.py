@@ -108,7 +108,7 @@ def main() -> int:
     purchase_page = client.get('/ai/replenishment?days=30&coverage_days=30')
     assert purchase_page.status_code == 200
     purchase_html = purchase_page.get_data(as_text=True)
-    assert 'AI补货建议' in purchase_html
+    assert '补货建议（规则）' in purchase_html
     assert 'STAGE7-A' in purchase_html
 
     _login(client, warehouse_id)

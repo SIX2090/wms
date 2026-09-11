@@ -17129,7 +17129,7 @@ def _ai_create_purchase_request_draft_response(message, context=None, force=Fals
             supplier_id=material.supplier_id,
             supplier_name=material.supplier.name if material.supplier else None,
             remark=(
-                f'AI补货建议：当前{normalize_stock_quantity(row["current_stock"])}{row["unit_name"]}，'
+                f'补货建议（规则）：当前{normalize_stock_quantity(row["current_stock"])}{row["unit_name"]}，'
                 f'最低{normalize_stock_quantity(row["min_stock"])}{row["unit_name"]}，'
                 f'目标{normalize_stock_quantity(row["target_stock"])}{row["unit_name"]}，'
                 f'待到货{normalize_stock_quantity(row["on_order"])}{row["unit_name"]}'
@@ -17482,7 +17482,7 @@ def _ai_replenishment_planning_response(message, context=None, force=False):
         reply,
         cards,
         [
-            {'label': '打开AI补货建议', 'url': url_for('ai_replenishment_page')},
+            {'label': '打开补货建议（规则）', 'url': url_for('ai_replenishment_page')},
             {'label': '生成请购草稿', 'url': '#', 'prompt': '生成补货采购申请草稿'},
             {'label': '采购申请列表', 'url': url_for('purchase_request_list')},
         ],
@@ -19748,7 +19748,7 @@ def ai_data_retention_page():
 @require_role('warehouse', 'purchase')
 def ai_replenishment_page():
     if not _ai_capability_allowed('replenishment_planning'):
-        flash('当前账号没有访问AI补货建议的权限。', 'danger')
+        flash('当前账号没有访问补货建议（规则）的权限。', 'danger')
         return redirect(url_for('index'))
     days = request.args.get('days', 30, type=int)
     coverage_days = request.args.get('coverage_days', 30, type=int)
@@ -19766,7 +19766,7 @@ def ai_replenishment_page():
 @login_required
 @require_role('warehouse', 'purchase')
 def ai_replenishment_live_page():
-    """智能补货建议页面（新版AI驱动）"""
+    """补货建议（规则）页面：规则引擎生成，无模型调用（AI-NAMING-TRUTH-001）"""
     days = request.args.get('days', 30, type=int)
     coverage_days = request.args.get('coverage_days', 30, type=int)
     risk = (request.args.get('risk') or 'action').strip()
@@ -19798,7 +19798,7 @@ def ai_inventory_health_live_page():
 @require_role('warehouse', 'purchase')
 def ai_inventory_health_page():
     if not _ai_capability_allowed('inventory_health'):
-        flash('当前账号没有访问AI库存健康度的权限。', 'danger')
+        flash('当前账号没有访问库存健康度（规则）的权限。', 'danger')
         return redirect(url_for('index'))
     days = request.args.get('days', 30, type=int)
     risk = (request.args.get('risk') or 'all').strip()
@@ -19852,7 +19852,7 @@ def ai_inventory_health_page():
 @require_role('warehouse', 'purchase')
 def ai_replenishment_smart_page():
     if not _ai_capability_allowed('replenishment_smart'):
-        flash('当前账号没有访问智能补货建议的权限。', 'danger')
+        flash('当前账号没有访问补货建议（规则）的权限。', 'danger')
         return redirect(url_for('index'))
     days = request.args.get('days', 30, type=int)
     coverage_days = request.args.get('coverage_days', 30, type=int)
@@ -19873,7 +19873,7 @@ def ai_replenishment_smart_page():
         writer.writerow([
             '优先级', '物料编码', '名称', '规格', '单位', '当前库存',
             f'近{days}天出库', '日均消耗', '可用天数', '在途数量', '建议补货量',
-            '趋势', 'AI建议'
+            '趋势', '系统建议'
         ])
         for row in report['rows']:
             writer.writerow([
@@ -19893,7 +19893,7 @@ def ai_replenishment_smart_page():
             ])
         csv_content = output.getvalue()
         output.close()
-        filename = f'智能补货建议_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        filename = f'补货建议规则_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
         return Response(
             csv_content,
             mimetype='text/csv',
