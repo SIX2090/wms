@@ -58,6 +58,36 @@ def _sales_stock_shortage_warnings(warehouse, qty_by_material_id, exclude_sales_
     return warnings
 
 
+# STOCK-TRUTH-P16：下推硬校验——计算下推数量的仓库级缺口。
+# 返回 [(material_name, push_qty, available, gap)]，空列表 = 通过。
+# 口径与软校验一致：可用量 = 仓库级库存 − 已承诺未发（排除本次下推的订单自身，
+# 否则本单的未发量会被重复扣减）。供三个下推入口共用。
+def _sales_push_shortages(warehouse, qty_by_material_id, exclude_order_ids=()):
+    from app import (Material, STOCK_COMPARE_EPSILON, get_committed_quantities,
+                     get_warehouse_stock_quantities, round_to_2_decimals)
+    if not warehouse or not qty_by_material_id:
+        return []
+    stock_map = get_warehouse_stock_quantities(warehouse)
+    committed_map = get_committed_quantities(
+        warehouse.id, exclude_sales_order_id=list(exclude_order_ids) if exclude_order_ids else None)
+    materials = Material.query.filter(Material.id.in_(list(qty_by_material_id.keys()))).all()
+    name_by_id = {m.id: (m.name or m.code) for m in materials}
+    shortages = []
+    for material_id, qty in qty_by_material_id.items():
+        name = name_by_id.get(material_id)
+        if not name:
+            continue
+        available = float(stock_map.get(material_id, 0)) - float(committed_map.get(material_id, 0))
+        if qty - available > STOCK_COMPARE_EPSILON:
+            shortages.append((
+                name,
+                round_to_2_decimals(qty),
+                round_to_2_decimals(available),
+                round_to_2_decimals(qty - available),
+            ))
+    return shortages
+
+
 # no-test:reason=路由注册辅助函数，能力由 sales_* 各路由测试覆盖
 def register_sales_routes(app):
     @app.route('/sales/download_template')
@@ -409,6 +439,21 @@ def register_sales_routes(app):
         if len(warehouses) != 1 or len(warehouse_ids) != 1:
             return jsonify({'status': 'error', 'msg': '一张销售出库单只能选择同一发货仓库的销售订单明细'}), 400
 
+        # STOCK-TRUTH-P16：下推硬校验——聚合本次下推量与仓库级可用量比对
+        # （排除涉及订单自身的占用），缺口 400 阻断。
+        push_qty_by_material = {}
+        for item, _order, quantity in conversions:
+            push_qty_by_material[item.material_id] = round_to_2_decimals(
+                push_qty_by_material.get(item.material_id, 0) + quantity)
+        source_order_ids = {order.id for _item, order, _qty in conversions}
+        push_shortages = _sales_push_shortages(
+            warehouse, push_qty_by_material, exclude_order_ids=source_order_ids)
+        if push_shortages:
+            _sname, _spush, _savail, _sgap = push_shortages[0]
+            return jsonify({'status': 'error', 'msg': (
+                f'物料 {_sname} 在 {warehouse.name} 可用量 {_savail}，'
+                f'本次下推 {_spush}，缺口 {_sgap}，请先补货或调整数量')}), 400
+
         try:
             order_nos = sorted({order.order_no for _, order, _ in conversions})
             customer = source_items[0].sales_order.customer
@@ -752,6 +797,26 @@ def register_sales_routes(app):
                     quantity = round_to_2_decimals(parse_float_value(row.get('quantity'), 0))
                     if quantity > STOCK_COMPARE_EPSILON:
                         selected_qty_by_item_id[item_id] = round_to_2_decimals(selected_qty_by_item_id.get(item_id, 0) + quantity)
+            # STOCK-TRUTH-P16：下推硬校验（作业指令必须拦）——可用量（排除本单
+            # 自身占用）不足时 400，不让工人到库位才发现没货。
+            push_qty_by_material = {}
+            for item in order.items:
+                if selected_qty_by_item_id is None:
+                    qty = round_to_2_decimals((item.quantity or 0) - (item.shipped_quantity or 0))
+                else:
+                    qty = selected_qty_by_item_id.get(item.id)
+                    if qty is None:
+                        continue
+                if qty and qty > STOCK_COMPARE_EPSILON:
+                    push_qty_by_material[item.material_id] = round_to_2_decimals(
+                        push_qty_by_material.get(item.material_id, 0) + qty)
+            push_shortages = _sales_push_shortages(warehouse, push_qty_by_material, exclude_order_ids=(order.id,))
+            if push_shortages:
+                db.session.rollback()
+                _sname, _spush, _savail, _sgap = push_shortages[0]
+                return jsonify({'status': 'error', 'msg': (
+                    f'物料 {_sname} 在 {warehouse.name} 可用量 {_savail}，'
+                    f'本次下推 {_spush}，缺口 {_sgap}，请先补货或调整数量')}), 400
             outbound, result = build_sales_outbound_draft(order, selected_qty_by_item_id)
             if result == 'invalid_selection':
                 db.session.rollback()
@@ -809,7 +874,8 @@ def register_sales_routes(app):
     @login_required
     def batch_create_sales_outbound():
         from app import (_acquire_order_write_lock, SalesOrder, build_sales_outbound_draft,
-                         log_operation, validate_sales_warehouse)
+                         log_operation, round_to_2_decimals, STOCK_COMPARE_EPSILON,
+                         validate_sales_warehouse)
         payload = request.get_json(silent=True) or {}
         raw_ids = payload.get('ids') or request.form.getlist('ids')
         ids = [int(value) for value in raw_ids if str(value).isdigit()]
@@ -841,6 +907,20 @@ def register_sales_routes(app):
                     continue
                 order.warehouse = warehouse.name
                 order.warehouse_id = warehouse.id
+                # STOCK-TRUTH-P16：批量下推同样硬校验，缺口单进 skipped（批量
+                # 语义为尽力而为，不因单张缺口整批失败）。
+                batch_qty_by_material = {}
+                for item in order.items:
+                    qty = round_to_2_decimals((item.quantity or 0) - (item.shipped_quantity or 0))
+                    if qty and qty > STOCK_COMPARE_EPSILON:
+                        batch_qty_by_material[item.material_id] = round_to_2_decimals(
+                            batch_qty_by_material.get(item.material_id, 0) + qty)
+                batch_shortages = _sales_push_shortages(warehouse, batch_qty_by_material, exclude_order_ids=(order.id,))
+                if batch_shortages:
+                    _sname, _spush, _savail, _sgap = batch_shortages[0]
+                    skipped.append(f'{order.order_no}(库存不足：{_sname} 缺口 {_sgap})')
+                    db.session.rollback()
+                    continue
                 outbound, result = build_sales_outbound_draft(order)
                 if result == 'completed':
                     skipped.append(f'{order.order_no}(已全部发货)')

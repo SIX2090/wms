@@ -235,3 +235,104 @@ def test_t9_no_shortage_no_warning():
     data = resp.get_json()
     assert data["status"] == "success"
     assert data["warnings"] == []
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 路由级：下推硬校验（STOCK-TRUTH-P16 改动 3，作业指令必须拦）
+# ─────────────────────────────────────────────────────────────────────
+
+def _confirmed_order_with_stock(seed, warehouse, qty, stock):
+    """confirmed 订单 + 仓库级流水库存（下推前置数据）。"""
+    _seed_stock(seed["material"], warehouse, stock)
+    return _make_order(seed["material"], warehouse, qty, "confirmed")
+
+
+def test_t10_push_blocked_on_shortage():
+    """T10: 下推缺口 → 400 且 msg 含『缺口』（create_sales_outbound_draft）。"""
+    with app_module.app.app_context():
+        _reset_db()
+        seed = _seed_base()
+        order = _confirmed_order_with_stock(seed, seed["wh_a"], 30, stock=100)
+        _make_order(seed["material"], seed["wh_a"], 80, "confirmed")  # 他人占用 80
+        order_id = order.id
+    client = _make_client()
+    resp = client.post(f"/sales/{order_id}/create_outbound", json={})
+    assert resp.status_code == 400
+    msg = resp.get_json().get("msg", "")
+    assert "缺口" in msg and "请先补货" in msg, msg
+    # 可用量 = 100 - 80 = 20 < 30
+    assert "20" in msg and "30" in msg, msg
+
+
+def test_t11_push_multi_warehouse_isolation():
+    """T11: 多仓隔离——A 仓有货 B 仓无货，B 仓订单下推必须拦（防 R2 类回归）。"""
+    with app_module.app.app_context():
+        _reset_db()
+        seed = _seed_base()
+        _seed_stock(seed["material"], seed["wh_a"], 100)  # 只有 A 仓有货
+        order_b = _make_order(seed["material"], seed["wh_b"], 10, "confirmed")
+        order_b_id = order_b.id
+    client = _make_client()
+    resp = client.post(f"/sales/{order_b_id}/create_outbound", json={})
+    assert resp.status_code == 400, "B 仓无货必须被拦，不得用全局库存蒙混"
+    assert "缺口" in resp.get_json().get("msg", "")
+
+
+def test_t12_push_allowed_when_sufficient():
+    """T12: 可用量充足 → 下推成功（不误拦）。"""
+    with app_module.app.app_context():
+        _reset_db()
+        seed = _seed_base()
+        order = _confirmed_order_with_stock(seed, seed["wh_a"], 30, stock=100)
+        order_id = order.id
+    client = _make_client()
+    resp = client.post(f"/sales/{order_id}/create_outbound", json={})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert resp.get_json()["status"] == "success"
+
+
+def test_t13_batch_push_skips_shortage():
+    """T13: 批量下推——缺口单进 skipped（含库存不足），够量单正常生成。
+
+    用两个物料隔离两张单的判断：ok 单的物料 1 库存充足；short 单的
+    物料 2 库存 50 < 下推 90（排除自身后无其他占用，缺口 40）。
+    """
+    with app_module.app.app_context():
+        _reset_db()
+        seed = _seed_base()
+        unit = Unit.query.filter_by(code="GE").first()
+        cat = MaterialCategory.query.filter_by(code="WJ").first()
+        m2 = Material(code="M-COMMIT-2", name="承诺测试件二", spec="T2", stock=50,
+                      min_stock=0, price=1.0, unit_id=unit.id, category_id=cat.id)
+        db.session.add(m2)
+        db.session.commit()
+        _seed_stock(seed["material"], seed["wh_a"], 100)
+        _seed_stock(m2, seed["wh_a"], 50)
+        ok = _make_order(seed["material"], seed["wh_a"], 10, "confirmed")
+        ok_id = ok.id
+        short = _make_order(m2, seed["wh_a"], 90, "confirmed")
+        short_id = short.id
+    client = _make_client()
+    resp = client.post("/sales/batch_create_outbound", json={"ids": [ok_id, short_id]})
+    data = resp.get_json()
+    assert data["status"] == "success"
+    assert len(data["created"]) == 1
+    assert data["created"][0]["sales_order_no"].startswith("SO-confirmed-WHA-10")
+    assert len(data["skipped"]) == 1 and "库存不足" in data["skipped"][0]
+    assert "缺口 40" in data["skipped"][0], data["skipped"]
+
+
+def test_t14_selection_push_blocked_on_shortage():
+    """T14: 选单下推缺口 → 400（create_sales_outbound_from_selection）。"""
+    with app_module.app.app_context():
+        _reset_db()
+        seed = _seed_base()
+        _seed_stock(seed["material"], seed["wh_a"], 20)
+        order = _make_order(seed["material"], seed["wh_a"], 30, "confirmed")
+        item_id = order.items[0].id
+    client = _make_client()
+    resp = client.post("/sales/create_outbound_from_selection", json={
+        "items": [{"sales_order_item_id": item_id, "quantity": 30}],
+    })
+    assert resp.status_code == 400
+    assert "缺口" in resp.get_json().get("msg", "")

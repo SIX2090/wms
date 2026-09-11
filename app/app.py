@@ -4372,7 +4372,8 @@ def get_committed_quantities(warehouse_id, exclude_sales_order_id=None):
     - 草稿（draft）不占用：下单是意向，审批才是承诺（D1）。
     - 派生值不落库，避免制造第四套库存口径（INVENTORY_TRUTH.md 三账铁律）；
       可用量 = get_warehouse_stock_quantities(wh) - 本函数。
-    - exclude_sales_order_id：改单场景排除自身，避免把本单旧量算进占用。
+    - exclude_sales_order_id：改单/下推场景排除自身（可传 int 或 id 集合），
+      避免把本单旧量算进占用。
     - shipped_quantity 历史行可能为 NULL，用 coalesce 归零；聚合后 <= 0 的
       物料不计入（超发行自然抵消，不应产生负占用）。
     """
@@ -4393,7 +4394,10 @@ def get_committed_quantities(warehouse_id, exclude_sales_order_id=None):
         )
     )
     if exclude_sales_order_id:
-        rows = rows.filter(SalesOrder.id != exclude_sales_order_id)
+        if isinstance(exclude_sales_order_id, (list, tuple, set)):
+            rows = rows.filter(SalesOrder.id.notin_(list(exclude_sales_order_id)))
+        else:
+            rows = rows.filter(SalesOrder.id != exclude_sales_order_id)
     committed = {}
     for material_id, total in rows.group_by(SalesOrderItem.material_id).all():
         quantity = round_to_2_decimals(float(total or 0))
