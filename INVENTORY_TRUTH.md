@@ -114,6 +114,7 @@
 | **物料列表展示** | 全局 | `material.stock` | 仅用于"全系统合计"展示 |
 | **反提交兜底校验** | 仓库级 → 全局兜底 | `_material_stock_unattributed` | 见 §4 |
 | **销售可承诺量**（STOCK-TRUTH-P16） | 仓库级派生 | `get_warehouse_stock_quantities(wh) − get_committed_quantities(wh.id)` | 占用账是**派生查询不是状态**：不落库、不加第四套口径字段。占用 = `status='confirmed'` 且未发完订单的行级 `quantity−shipped_quantity` 之和（D1：审批通过后占用，草稿不占）。下单/改单软校验（warning），下推硬校验（400/skipped） |
+| **采购在途量**（P2-9） | 单据口径（与仓库无关） | `get_purchase_in_transit(...)` / `get_purchase_in_transit_by_material(ids)` | 在途 = Σ **行级** `max(quantity − coalesce(received_quantity,0), 0)`，默认仅 `status in ('pending','partial')`。行级 max(0)：超收行不得以负数抵消其他行的在途；`case` 表达式跨库（MySQL 无标量 `MAX(a,b)`）。**禁止再内联 `sum(quantity − received_quantity)` 聚合**（历史上 6 处消费点三种截断层次同数据不同值，已全部收口；供应商档案卡显式传 `statuses=('pending','partial','completed')` 保留尾差语义） |
 
 ---
 
@@ -174,6 +175,7 @@ if Warehouse.query.count() == 1:
 | `BUG-2026-09-02-001` | 盘点取全局 `Material.stock` 当单仓账面 | 读取口径错 | 已修：改 `get_warehouse_stock_quantities` |
 | `BUG-2026-09-03-001/002/004` | 同根因在 Excel 导入 / mobile / Android 三处复发 | 消费点多、无收口 | 已修，靠 R6 人工排查 |
 | `BUG-2026-09-10-001` | 反提交+删除草稿后台账仍显示已删单据 | 流水清理遗漏 | 已修 |
+| P2-9 在途口径分裂 | 同一物料在途量三处三个值：采购待办完全不截断（超收负数进汇总）、补货候选/缺料分析聚合后截断（超收抵消他行）、供应商履约行级截断 | 消费点各自内联 `sum(quantity − received_quantity)`、无收口 | 已修：统一入口 `get_purchase_in_transit[_by_material]`（行级 max(0)），6 处消费点接线 + 数值 diff 验证 + 防再膨胀静态测试 |
 
 > **R6 机械化的意义**：以上"同根因多消费点"的排查此前完全依赖人记住去查。
 > §5 的 A11 规则把"读取口径"从"靠人记住"变成"工具不让写"。

@@ -126,7 +126,7 @@
 | `scripts/lint_wms_rules.py` | 11 条防 BUG 规则（A1–A11） | ✅ pre-commit |
 | `scripts/lint_no_raw_post_fetch.py` | 裸调 fetch 检查 | ✅ pre-commit |
 | `scripts/verify_wms_bugs.py` | 140 项静态回归 | ✅ pre-commit |
-| `pytest tests/` | 1490 项测试全绿（2026-09-11 复核；历史基线 945） | ✅ pre-commit |
+| `pytest tests/` | 1500 项测试全绿（2026-09-12 复核 P2-9 后；历史基线 945） | ✅ pre-commit |
 | `scripts/verify_remote_sync.py` | 推送后本地/远端 tree blob 级同步校验（API 推送防漏推） | ✅ 每次 api_push.py 自动执行 |
 
 **CI-ENV-2026-09-11 环境固化**：测试依赖统一由 `app/requirements-test.txt` 钉版
@@ -203,7 +203,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 
 - AI 写完函数直接 commit 到 `main`，没有红绿循环 → 上线后才发现 BUG。
 - "我人工测过了" 不能替代自动化测试：每次重构、改字段、改 SQL 时人工测试 100% 漏掉。
-- 仓库 `tests/` 从 v2 时期的 3 个文件增长到 2026-08-28 的 **265 个文件 / 945 个用例**，2026-09-11 已达 **1490 个用例**——A9 是这套增长的核心推手，继续保持"每个新增业务函数至少 1 个失败测试"，逼迫 AI 写可验证的代码。
+- 仓库 `tests/` 从 v2 时期的 3 个文件增长到 2026-08-28 的 **265 个文件 / 945 个用例**，2026-09-12 已达 **1500 个用例**——A9 是这套增长的核心推手，继续保持"每个新增业务函数至少 1 个失败测试"，逼迫 AI 写可验证的代码。
 - 修复 BUG 时（A1-A7 触发的）也算"新增业务函数"，A9 顺带把回归测试也强制了。
 
 写测试和写实现不矛盾——A9 不要求覆盖率 100%，只要求"新增的每个 def 至少 1 个 test_xxx 跑得过"。对"小工具函数"用 `_xxx` 命名直接豁免，对路由函数按 A2 走（不重复强制）。
