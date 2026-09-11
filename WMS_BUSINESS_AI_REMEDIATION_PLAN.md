@@ -188,7 +188,7 @@ grep -rn "_ai_call_llm_chat\|_ai_call_llm_intent\|call_llm(" app/app.py app/rout
    - 列头下方加副标题：`基于库存/消耗阈值的规则判断，非模型生成`
 2. 页面主标题 `智能补货建议` → **`补货建议（规则）`**；`基于AI分析的智能补货建议` → **`基于近 N 天消耗与库存覆盖天数的规则判断`**
 3. `ai_replenishment_smart.html:84,110` 的 CSV 导出表头（`app/app.py:19892` 附近）同步改成 `系统建议`
-4. `in_order_detail.html` / `out_order_detail.html` 的 `AI建议：` 按同一标准判定后统一改 `系统建议：` 或保留
+4. `in_order_detail.html` / `out_order_detail.html` 的 `AI建议：` **已核实为真 LLM 输出**（`app/routes/in_order.py:1467` 调 `_ai_call_llm_chat`，且端点已有 `@require_role('warehouse')`）——**保留 AI 字样不改**（该两端点本轮记为可接受残留，未新增能力键）
 5. 导航浮层（`base.html:2521,2524`）的链接文案同步
 
 **验证方式**
@@ -637,7 +637,7 @@ actual_arrival_date = db.Column(db.Date)   # 实际最后一次到货日期
 | 两个补货实现重复 | 读两个函数 | `app/app.py:17210`(94行) vs `:17320`(136行) |
 
 > **未核实项（实施第一步必须先看）**：
-> 1. `in_order_detail.html:1342` / `out_order_detail.html:1349` 的 `AI建议` 数据来源
+> 1. ~~`in_order_detail.html:1342` / `out_order_detail.html:1349` 的 `AI建议` 数据来源~~ → **已核实：真 LLM 输出，文案保留**（见 P0-1 第 4 条）
 > 2. `_ai_ff_save_feedback_record`（`:14318`）与 `AIFeedback` 的关系，避免 P0-2 重复造轮子
 > 3. ~~`InOrder` 是否已有 `source_sales_order_id`~~ → **已核实：不存在，需新增列**（见 §3.5）
 > 4. `AIFeedback.rating` 的实际取值枚举（决定 P0-2 的差评筛选条件）
