@@ -28,6 +28,8 @@ EXPECTED = {
     # create_sales_outbound_draft 业务路由含 sales，与策略交集后 sales 可用
     'sales_outbound_draft': {'admin', 'warehouse', 'sales'},
     'in_order_draft': {'admin', 'warehouse'},
+    # 新增（AI-VOICE-OUT-F01）：手机端语音建领料单草稿，业务路由 add_out_order 仅 warehouse
+    'voice_out_draft': {'admin', 'warehouse'},
     'purchase_receive_draft': {'admin', 'warehouse', 'purchase'},
     'transfer_draft': {'admin', 'warehouse'},
     'check_draft': {'admin', 'warehouse'},

@@ -38,6 +38,11 @@ AI_CAPABILITY_ROLES = {
     'after_sale_out_draft': frozenset({'warehouse', 'sales'}),
     'sales_outbound_draft': frozenset({'warehouse', 'sales'}),
     'in_order_draft': frozenset({'warehouse'}),
+    # 新增（AI-VOICE-OUT-F01）：手机端语音建领料单草稿。
+    # 用户说「领8*25螺丝 1000个」→ 后端解析+六层降级匹配物料 → 生成 status=pending 的
+    # OutOrder（business_type='领料单'），**不扣库存**。边界与 out_order_draft 一致：
+    # 只建草稿，提交/完成仍由人工在出库页执行。角色限定 warehouse（语音建单只服务仓库作业）。
+    'voice_out_draft': frozenset({'warehouse'}),
     'purchase_receive_draft': frozenset({'warehouse', 'purchase'}),
     'transfer_draft': frozenset({'warehouse'}),
     'check_draft': frozenset({'warehouse'}),
@@ -66,6 +71,8 @@ AI_CAPABILITY_BUSINESS_ENDPOINTS = {
     'after_sale_out_draft': 'add_after_sale_out_order',
     'sales_outbound_draft': 'create_sales_outbound_draft',
     'in_order_draft': 'add_in_order',
+    # 新增（AI-VOICE-OUT-F01）：语音建单直接落 OutOrder，业务口径同领料单
+    'voice_out_draft': 'add_out_order',
     'purchase_receive_draft': 'create_in_order_from_purchase_order',
     'transfer_draft': 'add_transfer',
     'check_draft': 'add_check',
@@ -95,6 +102,8 @@ AI_CAPABILITY_RISK_LEVELS = {
     'after_sale_out_draft': 'draft',
     'sales_outbound_draft': 'draft',
     'in_order_draft': 'draft',
+    # 新增（AI-VOICE-OUT-F01）：草稿级——只建 pending 单，绝不扣库存
+    'voice_out_draft': 'draft',
     'purchase_receive_draft': 'draft',
     'transfer_draft': 'draft',
     'check_draft': 'draft',

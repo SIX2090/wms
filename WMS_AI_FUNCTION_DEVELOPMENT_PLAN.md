@@ -208,6 +208,8 @@
 | 106 | AI-MOB-APK-001 | 已完成 | 手机端 APK 瘦身（需求 2026-08-29：手机端实际用不到的都不需要生成 APK）：①CI 移除 sherpa 离线语音打包——CloudAsrVoiceSttEngine.isAvailable() 恒为 true，引擎链永远走腾讯云 ASR，sherpa 模型（约 70MB assets）+ AAR（4 种 ABI 的 .so）一次都不会被加载；开关与 downloadSherpa* task 保留可恢复；②CI 构建改走 release 变体（assembleRelease/lintRelease/testReleaseUnitTest），R8 + shrinkResources 生效，剔除 material-icons-extended 未用图标（实际仅用 60+ 个、跨 14 文件，不在 core 子集，不能换 core）与未用依赖代码；③release 签名：未配置 WMS_STORE_FILE 时回退 debug 签名（GitHub runner 镜像预置 debug.keystore，与现行安装包同签名，可覆盖安装），配置了则强制校验全套签名参数；④Upload 增传 R8 mapping.txt；⑤versionCode 7→8、versionName 3.4.0→3.5.0；⑥顺带修复 pre-commit 钩子在本机 Git Bash 找不到 python3 导致所有提交被拒（py.exe 注册表未挂 Python），改为绝对路径候选 + 实际执行验证、整文件转 LF | 无 | 提交 f6409db2（sherpa 移除+钩子修复）、f8fb1e5a（契约只校验构建命令+文案）、6ca01555（release 瘦身）；验证：tests/verify_sherpa_ci_enabled.py（T1-T3 反转）+ tests/verify_release_build_slim.py（新 6 用例）+ verify_sherpa_build_config.py 合计 26/26 PASSED；预期 APK 200MB → 30-60MB，以 CI run 产物实测为准 |
 | 107 | PRINT-TEMPLATE-F06 | 已完成 | 新一代 Excel 式打印模板编辑器 v2（需求 2026-09-09：F05 在线编辑器行列删除不可靠、使用问题多，要求真正像 Excel 一样能编辑、能打印、能设页面大小；经查重为 F05 能力的接续替代，非重复开发）：**阶段一（原型入库，提交见 67e39bf3）** 独立单页原型 `docs/prototypes/print-template-editor-v2.html` + Playwright 测试脚本 4 个；**阶段二（生产集成，本提交）** `app/templates/print_template_editor.html` 前端整体替换为 v2 数据模型驱动引擎并对接既有后端：①引擎（state=cell{t,s,rs,cs,cov} 先改数据再整体渲染）：行列插入/删除在合并区跨行跨列场景经 DOM 反推网格逐格校验无空洞无重叠，根治旧版「删除不了表格」；行号/列标头整选、右键菜单、方向键导航、双击/直接输入编辑（隐藏键盘捕获器 keyTrap 解决中文 IME 无法直输）；撤销/重做快照命令栈（Ctrl+Z/Y、100 步、编辑会话粒度、Esc 取消编辑）；复制/剪切/粘贴（内部带格式含合并格、外部 TSV 与真 Excel 互贴、越界自动扩行列）；多工作表标签各自独立撤销栈；anyDirty ● 脏标记 + beforeunload 拦截；页面设置（A4/A5/B5/自定义 mm、横纵向、四边距、缩放，@page 注入）；②集成：读取走 `GET /{prefix}_print_template/<id>/grid`（gridToState 转换 merges/styles/col_widths/row_heights），保存走 `POST`（WMS.api，无原生 fetch）——**全状态 DIFF**（upserts 含清空、styles 补丁显式 null 清除、merges/unmerges 集合差、col_widths/row_heights 差异），**del_rows 恒为空数组**（行列删除以清空模拟，坐标系无平移，彻底绕开后端 del_rows 合并区校验/平移地雷）；打印预览复用 `preview_data` 接口（明细行镜像 _Filler 规则 1→3 展开、`{img_barcode|img_qrcode}` 虚线框、未命中占位符灰显）；占位符 chips 21 项与 BUG-2026-08-26-001 回归测试锚点格式完全保持；留 `window.__tplEditor` 冒烟钩子。验证：新增 `tests/test_print_template_editor_v2.py` 9 项标记回归全过；`docs/prototypes/tests/test_f06_integration.py`（自包含 Jinja 渲染 + 静态服务 + Mock 路由）Playwright 10 项全过（加载渲染/中文直输/结构操作+撤销/合并保存载荷 upserts+merges/无改动拦截/unmerges 载荷/预览展开+替换+条码框/@page/剪贴板）；全量 `pytest tests/ -q` 1099 passed 0 failed（6 个标签条码用例系沙箱缺 python-barcode，补装后 15 项全过，与本次无关）；`lint_wms_rules.py` 0 违规、`lint_no_raw_post_fetch.py` 通过；占位符回归 test_bug_2026_08_26_001 全过。**注意：本提交改动 Jinja 模板，生产需重启 WMS 服务生效（R3）**。剩余子项：真实服务+账号的端到端人工验收（登录态保存走 admin 权限）；列宽/行高在整列删除后可能残留原始尺寸（后端无尺寸清除 API，已知限制） | 无 | 2026-09-10 完成：原型 `67e39bf3`；集成提交哈希见 git log（推送验证后远程 SHA 为准）；验证 `pytest tests/test_print_template_editor_v2.py -q`（9 passed）、`python3 docs/prototypes/tests/test_f06_integration.py`（10 项全过）、全量 pytest 1099 passed |
 
+| 108 | AI-VOICE-OUT-F01 | 已完成 | 手机端语音建领料单草稿（需求 2026-09-11：说「领8*25螺丝」自动建领料单让我确认，多匹配则让我选）：①后端三层容错解析（同音纠正 → 中文数字 → 分隔符统一「乘/叉/杠/×/x/X/·」归一）→ 结构化抽取**先锁规格再找数量**，根治既有 `_ai_parse_material_lines` 把 8*25 的 8 当数量、把规格截断成 25螺丝 的失效；②六层降级物料匹配（别名表 → 精确编码 → 全模糊 → **词根兜底 + 规格相似度排序** → 仅规格 → AI 四层），永不直接放弃，零命中仍返回最接近候选；③`POST /api/mobile/voice_out_draft` 两阶段协议（dry_run=true 只解析匹配/消歧，false 才建单），幂等 + 能力矩阵收口；④Android 端 `VoiceCommand.CreateOutboundDraft` 建单意图**优先于**「领料/出库」导航分支、`VoiceOutDraftViewModel` 两阶段编排、`VoiceOutDraftDialog` 四形态（解析中/多命中点选/确认/未找到）、出库页跳转预填 + 单号提示条。**边界（AGENTS.md:20 / R5）**：只建 `status=pending` 草稿，**绝不扣库存**；多命中必须用户点选；语音未说数量不猜、要求人工填；提交/完成仍由人工在出库页执行 | 无 | 见下方完成记录 |
+
 ## 5. 任务详细定义
 
 ### AI-LOGIN-F01：登录页可用性、安全提示与响应式验收修复
@@ -677,6 +679,62 @@
 
 **遵循规则**：R1（按 `total_pages` 翻页取全，不把默认 `page_size` 当业务上限）✅；R2（换仓清空列表，避免跨仓历史脏数据展示）✅；仓库必填（前端契约 `warehouse: String` 非可空 + ViewModel 未选仓拦截提示）✅；全链路只读 ✅。
 
+### AI-VOICE-OUT-F01：手机端语音建领料单草稿
+
+**目标**：手机 App 支持「说一句话就把领料单草稿建出来」。用户说「领8*25螺丝 1000个」→ 自动建一张物料为「螺丝 / 规格 8*25 / 数量 1000」的领料单**草稿**让用户确认；若仓库里有多个「8*25 螺丝」类物料，则列出候选让用户点选后再建单。
+
+**范围与边界**：
+- 后端新增 `POST /api/mobile/voice_out_draft`（两阶段协议）：`dry_run=true` 只解析+匹配并返回候选（消歧用，不建单）；`dry_run=false` 用用户确认的 `material_code` + `quantity` 建草稿。
+- 解析放后端做**单一真相源**，Android 端只做轻量意图判定 + 关键词粗切（避免双端解析逻辑漂移）。
+- **边界（AGENTS.md:20 / R5）**：
+  - 只生成 `status='pending'` 的 `OutOrder`（`business_type='领料单'`），**绝不扣库存**。
+  - 多命中/低置信度必须回退人工点选，不擅自替用户决定。
+  - 语音没说数量时**不猜**，拦下并要求人工填写。
+  - 提交、完成、作废仍必须由人工在出库页执行。
+  - 领料人由用户手工输入，不做语音识别（避免把单据误填到他人名下）。
+
+**为什么不能复用既有解析器**：实测 `app.py` 的 `_ai_parse_material_lines` 在本场景直接失效——它的正则把「数字」一律当数量，不理解 `8*25` 是**一个整体规格**：
+
+| 输入 | 既有解析器输出 | 期望 |
+|---|---|---|
+| `领8*25螺丝 1000个` | `25螺丝`（规格被截断，`8*` 丢失） | 螺丝 / `8*25` / 1000 |
+| `领8*25螺丝` | 空（完全解析不出） | 螺丝 / `8*25` |
+| `领料 螺丝8*25 1000个` | 螺丝→8、25→1000（数量张冠李戴） | 螺丝 / `8*25` / 1000 |
+
+**新解析器的关键差别**：**先锁定规格片段，再在规格之外找数量**。
+
+**范围与边界（用户明确要求的设计方向）**：用户指出「只能说 AI 功能达不到需求，我需要是一个聪明的 AI，能管理仓库的 AI」——因此解析与匹配**不允许**「听不懂就报错」，必须是三层容错 + 六层降级，任何失败都要把理解过程摊给用户看。
+
+**实现**：
+- **三层容错解析**（`app/routes/native_api.py` 模块级纯函数）：
+  1. 归一化：同音纠正 → **中文数字转阿拉伯（必须在「乘→`*`」之前，否则「二十五」会被拆成「二*十五」）** → 分隔符统一（`乘/叉/杠/×/x/X/·/－` → `*`）。
+  2. 结构化抽取：规格正则 `[A-Za-z]*\d+(?:\.\d+)?(?:\*\d+(?:\.\d+)?)+`（**允许字母前缀**，否则 `M8*25` 的 `M` 会脱离规格、关键词变成 `M螺丝`）；挖出规格后，在规格之外找「数字+量词」当数量；再剥离动词与标记词（`规格/型号/尺寸/那种/这种/的`）得到关键词；关键词为空时兜底用规格。
+  3. 词根拆分：`_voice_split_root(keyword, spec_hint)` 把「8*25螺丝」拆成（螺丝, 8*25）。
+- **六层降级物料匹配**（`_match_voice_material`）：别名表 → 精确编码 → 全模糊 → **词根兜底 + 规格相似度排序** → 仅规格 → AI 四层。返回 `{status, material, matches, root, spec, strategies_tried}`；`strategies_tried` 如实记录走过哪些策略，用于向用户解释「我做过哪些努力」（不编造）。规格相似度 `_voice_spec_similarity` 0~100：精确 100 / 紧凑 95 / M 前缀 90 / 数字重合 `20 + 70 × ratio`。
+- **端点**：`POST /api/mobile/voice_out_draft`，装饰器 `@csrf.exempt` + `@api_role_required('warehouse')` + `@mobile_api_idempotent('voice_out_draft')`，pydantic 校验输入。建草稿复用既有 `generate_order_no('OU')`，`purpose='语音建单（待确认）'`，库位按既有 `location_management_enabled/location_required_on_save` 规则用仓库名兜底（与 `scan_batch_draft` 一致）。
+- **能力矩阵收口（AI_PERMISSION_MATRIX.md「维护要求 1」）**：能力键 `voice_out_draft` 同步登记到 `AI_CAPABILITY_ROLES`（warehouse）、`AI_CAPABILITY_BUSINESS_ENDPOINTS`（`add_out_order`）、`AI_CAPABILITY_RISK_LEVELS`（draft）、`AI_TOOL_REGISTRY`（`VOICE_OUT_DRAFT_SCHEMA`，`confirmation_required=True`、`idempotent=True`）、`AI_PERMISSION_MATRIX.md` 表格与语义说明。
+  - **踩坑记录（重要）**：端点走 `@api_role_required` 的 **Bearer Token 通道**（`get_bearer_user()`），该通道**不会**写 Flask-Login 的 `current_user`。因此**不能**在端点里调 `_ai_capability_allowed()`——它读 `current_user`，在 Bearer 通道下必拿到 `AnonymousUser` 而被 100% 误拒（表现为「灰度开了也 403」）。正确做法是用 `@api_role_required` 已解析出的 `user` 直接调 `is_ai_capability_allowed_for_role(cap, user.role, business_roles=...)` + `evaluate_rollout_access(...)` + 草稿开关，效果与能力矩阵等价且打通灰度/总开关。
+- **Android 端**：
+  - 数据层：`VoiceOutDraftModels.kt`（请求/候选/明细/结果）、`WmsApiService.voiceOutDraft()`（带 `X-Idempotency-Key`）、`WmsRepository.createVoiceOutDraft()`（走既有 `safeCall` 统一错误映射）。
+  - 意图层：`VoiceCommand.CreateOutboundDraft(rawText, keywordHint)`；`parseCommand()` 里建单意图**必须排在「领料/出库」导航分支之前**（否则「领8*25螺丝」永远被导航抢走）；判定规则为「含建单动词 **且**（含数字 **或** 剥离动词后残余物料词 ≥2 字）」，因此「领料」「出库」这类纯导航语无回归。
+  - 编排层：`VoiceOutDraftViewModel` 两阶段（`parseAndMatch` → `applyPreview` → `chooseMaterial`/`onQuantityChange`/`onPickerChange` → `createDraft`），阶段枚举 `IDLE/PARSING/NEED_CHOICE/CONFIRMING/CREATING/CREATED/NOT_FOUND`；建单校验物料必选、数量 > 0、仓库必选。
+  - UI 层：`VoiceOutDraftDialogs.kt` 的 `VoiceOutDraftDialog` 按 stage 渲染四形态（共用一个 `AlertDialog`，避免抢焦点）——解析中转圈、「我听到的是… / 我理解成…」、**多命中列表点选**（每行编码·名称·规格·相似度，还提供「不是这个，重新选」回退）、确认态（手工填数量 + 手工填领料人 + 明确的「不会自动扣库存」提示）、**未找到态仍展示归一化文本 + 试过的降级策略 + 最接近候选**（不许摆烂）；`VoiceDraftCreatedBanner` 在建单跳转后展示单号与「仍需人工提交」。
+  - 接线：`VoiceAssistant.kt` 的 `executeVoiceCommand` 的 `when` 补上 `CreateOutboundDraft` 分支（此前 `when` 不穷尽，新子类会被**静默吞掉**）；建单指令不弹「即将执行」二次确认框，直接进解析流程（建单流程自带核对弹窗，不越过用户）。
+  - 跳转预填：`NavGraph` 用共享状态 `voicePrefillLines`/`voiceDraftOrderNo` 承接建单结果并跳转出库页（沿用既有 `selectedMaterialArchive` 跨屏传值惯例）；`OutboundScreen` 在 `LaunchedEffect(voicePrefillLines)` 中逐行 `addScanLine` 后**立刻回调清空**，防止从底部 Tab 反复进出被重复累加；`ScanScreenBase` 新增 `banner` 槽挂提示条。
+  - 换仓单向同步：`ScanViewModel.setOnWarehouseChanged` 让出库页换仓回写语音建单流程，杜绝「界面显示 A 仓、草稿落在 B 仓」。
+
+**验收与验证**：
+- 后端：`pytest tests/verify_mobile_voice_out_parse.py tests/verify_mobile_voice_out_match.py tests/verify_mobile_voice_out_api.py -q` → **41 passed**（解析 15 / 匹配 11 / 端点 14 + 2，端点含 T13「灰度 off 必须 403」证明能力矩阵真正生效、T14「三张治理表登记齐」防漏登记）。
+- Android 静态契约（沙箱无 Android SDK，按项目既有做法用静态契约兜底，最终 Kotlin 编译门禁由 CI 承担）：`tests/verify_voice_out_draft_data_layer.py` 6 项 / `verify_voice_out_draft_intent.py` 8 项（含建单分支必须早于领料导航的顺序断言）/ `verify_voice_out_draft_viewmodel.py` 11 项（含 `submitOutbound/completeOrder/deductStock/approve/audit/delete` 一律不得出现的边界断言）/ `verify_voice_out_draft_ui.py` **51 项**（UI 接线、跳转预填、换仓同步、安全边界、数量不猜）。
+- AI 治理回归：`verify_ai_permission_matrix.py`、`verify_ai_business_permissions.py`、`verify_ai_tool_registry.py`、`verify_ai_tool_schemas.py`、`verify_ai_tool_compliance.py`（24 个工具三表键一致）、`verify_ai_ledger_consistency.py` 全部 PASS。
+- `scripts/lint_wms_rules.py` → 0 违规；pre-commit 钩子全过。
+
+**遵循规则**：R5（低置信度回退人工、不编造，零命中仍给候选与解释）✅；AI 只建草稿不扣库存、提交/完成人工 ✅；仓库必填（无默认仓库时 400）✅；幂等（`X-Idempotency-Key` 重放同一张草稿）✅；能力矩阵登记 + 灰度可治理 ✅。
+
+> 如实说明：本沙箱**无 Android SDK**（`ANDROID_HOME` 为空），`assembleDebug` 无法在本地执行，Kotlin 编译验证由 CI 承担；本地已做括号/引号配平、字段与导入存在性核对、静态契约测试。
+
+> **安全提醒（未决）**：本轮推送期间使用的 GitHub Token 已在会话中明文出现，**必须立即到 GitHub 后台吊销并重新签发**。
+
 ### AI-MOB-CHECK-F01：手机盘点与 Web 盘点单据流对齐
 
 **目标**：手机盘点从"提交即完成、结果不可回查"补齐为与 Web 盘点一致的单据流体验：提交前必选仓库（遵循仓库必填规则），提交后可查看自己历史盘点记录（盘点单号、日期、差异、调整草稿状态）。
@@ -873,7 +931,7 @@
 
 ## 11. 当前下一项
 
-**当前下一项：AI-MOB-CHECK-F01（手机盘点与 Web 盘点单据流对齐）**，其后按第 6 节第 6 批顺序串行推进 AI-MOB-RPT-F01 → AI-MOB-EMPTY-F01（手机端体验对齐批，2026-08-09 登记）。AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）均已完成。
+**当前下一项：AI-MOB-CHECK-F01（手机盘点与 Web 盘点单据流对齐）**，其后按第 6 节第 6 批顺序串行推进 AI-MOB-RPT-F01 → AI-MOB-EMPTY-F01（手机端体验对齐批，2026-08-09 登记）。AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）均已完成。另有 AI-VOICE-OUT-F01（手机端语音建领料单草稿，2026-09-11 完成）为移动端语音能力新增，不占用第 6 批串行顺序。
 
 所有历史 AI 任务已完成；**AI-R07-F02（分类识别+按分类建议编号）已完成**。
 

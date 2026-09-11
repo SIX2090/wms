@@ -2007,6 +2007,46 @@ def register_native_api_routes(app):
                          get_default_warehouse, location_management_enabled,
                          location_required_on_save, round_to_2_decimals)
 
+        # AI-VOICE-OUT-F01 / AI_PERMISSION_MATRIX.md「维护要求 1」：
+        # 语音建单是按能力键 voice_out_draft 注册的 AI 草稿能力，必须经能力矩阵校验，
+        # 不能只依赖 @api_role_required('warehouse')。这样能力可被
+        # AI_PERMISSION_MATRIX / rollout 灰度 / 总开关统一治理，权限收口在服务端。
+        #
+        # 注意：这里**不能**用「AI 能力总校验」那个读 current_user 的函数——它依赖
+        # Flask-Login 的 current_user，而本端点走 @api_role_required 的 Bearer Token
+        # 通道（get_bearer_user() 不会写 current_user），一定拿到 AnonymousUser 而误拒。
+        # 正确做法是用已解析出的 user 直接问角色矩阵，并叠加灰度/总开关/草稿开关。
+        from app import (AI_CAPABILITY_BUSINESS_ENDPOINTS, _ai_feature_enabled,
+                         _ai_global_enabled, _ai_permission_denied_text,
+                         _ai_rollout_mode)
+        from ai.ops.rollout_control import evaluate_rollout_access
+        from ai.tools.registry import get_ai_tool_spec
+        from app.ai.policies import is_ai_capability_allowed_for_role
+
+        _voice_cap = 'voice_out_draft'
+        _voice_spec = get_ai_tool_spec(_voice_cap)
+        _biz_view = app.view_functions.get(
+            AI_CAPABILITY_BUSINESS_ENDPOINTS.get(_voice_cap, '')
+        )
+        _biz_roles = getattr(_biz_view, '_required_roles', None) if _biz_view else None
+        _voice_decision = evaluate_rollout_access(
+            capability=_voice_cap,
+            role=user.role,
+            user_id=user.id,
+            risk_level=(_voice_spec.risk_level if _voice_spec else 'draft'),
+            mode=_ai_rollout_mode(),
+            allowed_user_ids=None,
+            global_enabled=_ai_global_enabled(),
+        )
+        if not (_voice_spec
+                and is_ai_capability_allowed_for_role(
+                    _voice_cap, user.role, business_roles=_biz_roles)
+                and _voice_decision.allowed
+                and _ai_feature_enabled('ai_feature_drafts_enabled', True)):
+            return api_json_error(
+                _ai_permission_denied_text(_voice_cap), 403
+            )
+
         class VoiceOutDraftRequest(BaseModel):
             text: str = Field(min_length=1, max_length=500)
             warehouse: str | None = None

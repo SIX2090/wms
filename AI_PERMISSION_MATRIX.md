@@ -16,6 +16,7 @@
 | `after_sale_out_draft` | 允许 | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 草稿 |
 | `sales_outbound_draft` | 允许 | 允许 | 禁止 | 允许 | 禁止 | 禁止 | 草稿 |
 | `in_order_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 草稿 |
+| `voice_out_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 草稿 |
 | `purchase_receive_draft` | 允许 | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 草稿 |
 | `transfer_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 草稿 |
 | `check_draft` | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 草稿 |
@@ -42,6 +43,9 @@
 - `sales_outbound_draft`：销售出库草稿，对应业务端点 `create_sales_outbound_draft`，从已确认销售订单生成 `OutOrder`（按订单未发货数量自动生成明细）。
 - `sales_insights`：销售只读洞察，对应业务端点 `sales_order_list`，handler `_ai_sales_insights_response`，返回销售工作台、客户跟进清单和销售异常汇总。
 - `sales_followup_agent`：销售履约跟进 Agent，对应业务端点 `ai_agent_run_sales_followup`，handler `_ai_run_sales_followup_agent`，走 4 步 AIAgentTask 流程，催发货话术恒不自动发送，需人工确认。
+- `voice_out_draft`：**手机端语音建领料单草稿**（AI-VOICE-OUT-F01），对应业务端点 `add_out_order`，入口 `POST /api/mobile/voice_out_draft`。用户说「领8*25螺丝 1000个」→ 服务端做文本归一化（同音纠正/中文数字/分隔符统一）→ 锁定规格再找数量 → 六层降级物料匹配（别名 → 精确编码 → 全模糊 → 词根兜底+规格相似度 → 仅规格 → AI 四层）。多命中必须由用户在候选列表点选后才建单；语音未说数量时不猜、要求人工填写。**只生成 `status=pending` 的 `OutOrder`（business_type='领料单'），绝不扣库存**，提交/完成仍由人工在出库页执行。
+
+> 注：`voice_out_draft` 走 `@api_role_required` 的 Bearer Token 通道，其能力校验不能调 `_ai_capability_allowed()`（该函数读 Flask-Login 的 `current_user`，与 Bearer 通道互不相通，会拿到 `AnonymousUser` 而误拒）。端点改用 `is_ai_capability_allowed_for_role(cap, user.role, business_roles=...)` + `evaluate_rollout_access(...)` 组合判定，效果等价且与 `AI_CAPABILITY_ROLES` / 灰度 / 总开关 / 草稿开关全部打通。
 
 ## 高风险动作
 

@@ -68,6 +68,12 @@ def _seed(with_default_warehouse=True):
     from werkzeug.security import generate_password_hash
     with app_module.app.app_context():
         _reset_db()
+        # AI-VOICE-OUT-F01：/api/mobile/voice_out_draft 是按能力键
+        # voice_out_draft 注册的 AI 草稿能力，端点走 _ai_capability_allowed 校验，
+        # 灰度默认 off 会拒掉 warehouse 角色。这里按项目既有做法把灰度开到 all
+        # （与 scripts/verify_ai_permission_matrix.py 一致）——
+        # "没权限时该拒"由 scripts/verify_ai_permission_matrix.py 单独覆盖。
+        app_module.set_system_setting('ai_feature_rollout_mode', 'all')
         db.session.add_all([
             Unit(name="个", code="PCS"),
             MaterialCategory(name="默认分类", code="CAT-DEFAULT"),
@@ -286,3 +292,52 @@ def test_t12_idempotency_key_supported():
         "同幂等键必须重放同一张草稿，不得重复建单"
     with app_module.app.app_context():
         assert OutOrder.query.count() == 1
+
+
+# ── T13 能力矩阵真正生效（不只是装饰器）────────────────────────────
+#
+# AI-VOICE-OUT-F01 / AI_PERMISSION_MATRIX.md「维护要求 1」：语音建单必须是
+# **按能力键注册**的 AI 草稿能力，能被权限矩阵 / 灰度统一治理。
+#
+# 这里专门钉住"能力校验确实在端点里跑"——把灰度关掉（off），
+# warehouse 角色必须被 403 拒掉；这正是 @api_role_required('warehouse')
+# 单独做不到的（它只看角色，不看 AI 能力治理）。
+
+def test_t13_capability_matrix_really_gates_endpoint():
+    _seed()
+    # 基线：灰度 all 时 warehouse 可用
+    ok = _post({"text": "领轴承6204 10个", "dry_run": True})
+    assert ok.status_code == 200, _body(ok)
+
+    # 关掉灰度 → 同一请求必须被能力矩阵拒掉
+    with app_module.app.app_context():
+        # 必须 commit：set_system_setting 只写 session，不落库时新请求读不到
+        app_module.set_system_setting('ai_feature_rollout_mode', 'off')
+        db.session.commit()
+    denied = _post({"text": "领轴承6204 10个", "dry_run": True})
+    assert denied.status_code == 403, \
+        f"灰度 off 时 warehouse 角色必须被能力矩阵拒绝，实际 {denied.status_code}"
+    assert "voice_out_draft" in _body(denied)["msg"], \
+        "拒绝信息必须点名能力键，便于排查"
+
+
+# ── T14 能力键已在三张治理表登记齐（防漏登记）──────────────────────
+
+def test_t14_capability_registered_everywhere():
+    from ai.policies import (AI_CAPABILITY_BUSINESS_ENDPOINTS,
+                             AI_CAPABILITY_RISK_LEVELS, AI_CAPABILITY_ROLES)
+    from ai.tools.registry import get_ai_tool_spec
+
+    cap = 'voice_out_draft'
+    assert cap in AI_CAPABILITY_ROLES, "未登记角色矩阵"
+    assert AI_CAPABILITY_ROLES[cap] == frozenset({'warehouse'}), "角色集应为 warehouse"
+    assert cap in AI_CAPABILITY_BUSINESS_ENDPOINTS, "未登记业务端点"
+    assert cap in AI_CAPABILITY_RISK_LEVELS, "未登记风险级别"
+    assert AI_CAPABILITY_RISK_LEVELS[cap] == 'draft', "语音建单必须是草稿级"
+
+    spec = get_ai_tool_spec(cap)
+    assert spec is not None, "未登记 AI 工具规范（缺它会让能力校验直接拒绝）"
+    assert spec.risk_level == 'draft'
+    assert spec.confirmation_required is True, "草稿能力必须要求人工确认"
+    assert spec.idempotent is True, "草稿能力必须幂等"
+    assert spec.allowed_roles == frozenset({'warehouse'})
