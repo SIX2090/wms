@@ -49,19 +49,29 @@ import com.factory.wms.ui.theme.PrimaryDark
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.ui.viewmodel.voice.VoiceCommand
 import com.factory.wms.ui.viewmodel.voice.VoiceCommandViewModel
+import com.factory.wms.ui.viewmodel.voice.VoiceDraftStage
+import com.factory.wms.ui.viewmodel.voice.VoiceOutDraftViewModel
 import kotlinx.coroutines.launch
 
 /**
  * 语音助手悬浮层：叠加在 NavHost 之上，仅登录态显示。
  * 提供悬浮麦克风按钮、聆听中弹窗、指令确认弹窗与错误提示。
+ *
+ * AI-VOICE-OUT-F01：新增**语音建单**通道。
+ * 说「领8*25螺丝 1000个」时 [VoiceCommandViewModel] 会解析出
+ * [VoiceCommand.CreateOutboundDraft]，此时不走"跳转出库页"，
+ * 而是打开 [VoiceOutDraftDialog] 走"解析 → 消歧 → 确认 → 建草稿 → 跳转核对"流程。
  */
 @Composable
 fun VoiceAssistantOverlay(
     voiceViewModel: VoiceCommandViewModel,
+    voiceDraftViewModel: VoiceOutDraftViewModel,
     authViewModel: AuthViewModel,
-    navController: NavHostController
+    navController: NavHostController,
+    onDraftCreated: (orderNo: String, lines: List<Pair<String, Double>>) -> Unit = { _, _ -> }
 ) {
     val voiceState by voiceViewModel.uiState.collectAsState()
+    val draftState by voiceDraftViewModel.uiState.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingCommand by remember { mutableStateOf<VoiceCommand?>(null) }
@@ -91,6 +101,19 @@ fun VoiceAssistantOverlay(
         voiceState.error?.let {
             snackbarHostState.showSnackbar(it)
             voiceViewModel.clearResult()
+        }
+    }
+
+    // 建单错误提示（后端给出的具体原因，如"请填写数量"）
+    LaunchedEffect(draftState.error) {
+        draftState.error?.let { snackbarHostState.showSnackbar(it) }
+    }
+
+    // 草稿建成：通知上层做跳转（由 NavGraph 负责导航），并复位流程
+    LaunchedEffect(draftState.stage) {
+        if (draftState.stage == VoiceDraftStage.CREATED) {
+            onDraftCreated(draftState.createdOrderNo, draftState.createdLines)
+            voiceDraftViewModel.consumeCreated()
         }
     }
 
@@ -172,61 +195,91 @@ fun VoiceAssistantOverlay(
         // 指令确认/未识别弹窗
         val pending = pendingCommand
         if (pending != null) {
+            val draft = pending as? VoiceCommand.CreateOutboundDraft
             val unrecognized = pending is VoiceCommand.Unrecognized
-            AlertDialog(
-                onDismissRequest = {
+            // AI-VOICE-OUT-F01：「领8*25螺丝 1000个」不弹"即将执行"确认框，
+            // 直接进语音建单流程——用户要的是建单，不是跳转出库页。
+            // 建单流程自身有核对弹窗（物料/数量/领料人），不会越过用户。
+            if (draft != null) {
+                LaunchedEffect(draft) {
                     pendingCommand = null
-                    voiceViewModel.clearResult()
-                },
-                shape = RoundedCornerShape(20.dp),
-                title = { Text("语音指令", fontWeight = FontWeight.SemiBold) },
-                text = {
-                    Column {
-                        if (voiceState.heardText.isNotBlank()) {
-                            Text(
-                                "识别内容：${voiceState.heardText}",
-                                color = OnSurfaceVariant,
-                                fontSize = 14.sp
-                            )
-                            Spacer(Modifier.height(12.dp))
-                        }
-                        if (unrecognized) {
-                            Text("未识别到可执行指令，可点「重试」重新说话。")
-                        } else {
-                            Text(
-                                "即将执行：${pending.label}",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 16.sp
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    if (unrecognized) {
-                        TextButton(onClick = {
-                            pendingCommand = null
-                            voiceViewModel.clearResult()
-                        }) { Text("关闭") }
-                    } else {
-                        TextButton(onClick = {
-                            val cmd = pending
-                            pendingCommand = null
-                            voiceViewModel.clearResult()
-                            executeVoiceCommand(cmd, navController, authViewModel)
-                        }) {
-                            Text("执行", color = PrimaryDark, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = {
+                    voiceDraftViewModel.loadWarehouses()
+                    voiceDraftViewModel.parseAndMatch(draft.rawText)
+                }
+            } else {
+                AlertDialog(
+                    onDismissRequest = {
                         pendingCommand = null
                         voiceViewModel.clearResult()
-                        voiceViewModel.startListening(context)
-                    }) { Text("重试") }
-                }
-            )
+                    },
+                    shape = RoundedCornerShape(20.dp),
+                    title = { Text("语音指令", fontWeight = FontWeight.SemiBold) },
+                    text = {
+                        Column {
+                            if (voiceState.heardText.isNotBlank()) {
+                                Text(
+                                    "识别内容：${voiceState.heardText}",
+                                    color = OnSurfaceVariant,
+                                    fontSize = 14.sp
+                                )
+                                Spacer(Modifier.height(12.dp))
+                            }
+                            if (unrecognized) {
+                                Text("未识别到可执行指令，可点「重试」重新说话。")
+                            } else {
+                                Text(
+                                    "即将执行：${pending.label}",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 16.sp
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        if (unrecognized) {
+                            TextButton(onClick = {
+                                pendingCommand = null
+                                voiceViewModel.clearResult()
+                            }) { Text("关闭") }
+                        } else {
+                            TextButton(onClick = {
+                                val cmd = pending
+                                pendingCommand = null
+                                voiceViewModel.clearResult()
+                                executeVoiceCommand(cmd, navController, authViewModel)
+                            }) {
+                                Text("执行", color = PrimaryDark, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = {
+                            pendingCommand = null
+                            voiceViewModel.clearResult()
+                            voiceViewModel.startListening(context)
+                        }) { Text("重试") }
+                    }
+                )
+            }
         }
+
+        // 语音建单流程弹窗（解析/选择/确认/未找到）
+        VoiceOutDraftDialog(
+            state = draftState,
+            onChooseMaterial = { voiceDraftViewModel.chooseMaterial(it) },
+            onQuantityChange = { voiceDraftViewModel.onQuantityChange(it) },
+            onPickerChange = { voiceDraftViewModel.onPickerChange(it) },
+            onConfirm = { voiceDraftViewModel.createDraft() },
+            onBackToChoice = { voiceDraftViewModel.backToChoice() },
+            onDismiss = {
+                voiceDraftViewModel.clearError()
+                voiceDraftViewModel.reset()
+            },
+            onRetry = {
+                voiceDraftViewModel.reset()
+                voiceViewModel.startListening(context)
+            }
+        )
     }
 }
 
@@ -250,6 +303,9 @@ private fun executeVoiceCommand(
                 popUpTo(0) { inclusive = true }
             }
         }
+        // 建单指令由 VoiceAssistantOverlay 内部的 LaunchedEffect 消费，
+        // 不会走到这里（且建单流程自带核对弹窗，无需二次确认）。
+        is VoiceCommand.CreateOutboundDraft -> Unit
         VoiceCommand.Unrecognized -> Unit
     }
 }

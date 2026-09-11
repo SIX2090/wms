@@ -48,6 +48,7 @@ import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
 import com.factory.wms.ui.viewmodel.report.ReportViewModel
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.ui.viewmodel.voice.VoiceCommandViewModel
+import com.factory.wms.ui.viewmodel.voice.VoiceOutDraftViewModel
 
 /** 底部 Tab 命中的一级路由：这些页面显示底部导航栏。 */
 private val bottomTabRoutes = setOf(
@@ -86,12 +87,19 @@ fun AppNavGraph() {
     val aiViewModel: AiViewModel = viewModel()
     val openingStockViewModel: OpeningStockViewModel = viewModel()
     val voiceViewModel: VoiceCommandViewModel = viewModel()
+    val voiceDraftViewModel: VoiceOutDraftViewModel = viewModel()
     val homeViewModel: HomeViewModel = viewModel()
     val materialArchiveViewModel: MaterialArchiveViewModel = viewModel()
     val reportViewModel: ReportViewModel = viewModel()
 
     // 物料档案详情：选中的物料通过共享状态传递（避免 route 参数序列化 DTO）
     var selectedMaterialArchive by remember { mutableStateOf<MaterialArchiveDto?>(null) }
+
+    // AI-VOICE-OUT-F01：语音建单草稿预填出库页。
+    // 用共享状态而非 route 参数，与 selectedMaterialArchive 同一套跨屏传值惯例
+    // （出库页消费后立即清空，避免重复累加）。
+    var voicePrefillLines by remember { mutableStateOf<List<Pair<String, Double>>>(emptyList()) }
+    var voiceDraftOrderNo by remember { mutableStateOf<String?>(null) }
 
     val authState by authViewModel.uiState.collectAsState()
 
@@ -172,7 +180,13 @@ fun AppNavGraph() {
                 composable(Screen.Outbound.route) {
                     OutboundScreen(
                         viewModel = outboundScanViewModel,
-                        onBack = { navController.popBackStack() }
+                        onBack = { navController.popBackStack() },
+                        voicePrefillLines = voicePrefillLines,
+                        onVoicePrefillConsumed = { voicePrefillLines = emptyList() },
+                        voiceDraftOrderNo = voiceDraftOrderNo,
+                        onDismissVoiceDraft = { voiceDraftOrderNo = null },
+                        // 出库页换仓 → 单向回写语音建单流程，保证草稿仓库与界面一致
+                        onVoiceWarehouseChanged = { voiceDraftViewModel.selectWarehouse(it) }
                     )
                 }
 
@@ -266,8 +280,17 @@ fun AppNavGraph() {
         if (authState.isLoggedIn) {
             VoiceAssistantOverlay(
                 voiceViewModel = voiceViewModel,
+                voiceDraftViewModel = voiceDraftViewModel,
                 authViewModel = authViewModel,
-                navController = navController
+                navController = navController,
+                onDraftCreated = { orderNo, lines ->
+                    // 语音建单成功 → 预填出库页并跳过去核对（提交/完成仍由人工在出库页执行）
+                    voicePrefillLines = lines
+                    voiceDraftOrderNo = orderNo.takeIf { it.isNotBlank() }
+                    navController.navigate(Screen.Outbound.route) {
+                        launchSingleTop = true
+                    }
+                }
             )
         }
     }

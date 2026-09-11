@@ -74,6 +74,21 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private var contractSearchSequence = 0
     private var contractSearchJob: Job? = null
 
+    /**
+     * AI-VOICE-OUT-F01：出库页换仓回调。
+     *
+     * 语音建单流程复用同一个出库 ScanViewModel，但建单草稿带着自己的仓库
+     * （VoiceOutDraftViewModel.selectedWarehouse）。用户若在出库页把仓库改成别的，
+     * 语音流程下次建单必须跟着变——否则"界面显示 A 仓，草稿落在 B 仓"。
+     * 这里不做反向同步（语音改仓不必回写出库页），单向广播即可。
+     */
+    private var _onWarehouseChanged: ((WarehouseDto) -> Unit)? = null
+
+    /** 注册出库/入库换仓监听（仅出库页需要，用于回写语音建单的仓库）。 */
+    fun setOnWarehouseChanged(listener: ((WarehouseDto) -> Unit)?) {
+        _onWarehouseChanged = listener
+    }
+
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }
@@ -292,6 +307,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             selectedCheckOrder = if (changed) null else _uiState.value.selectedCheckOrder
         )
         if (changed) {
+            _onWarehouseChanged?.invoke(warehouse)
             loadPendingCheckOrders()
             // AI-MOB-STOCK-F01：换仓后清空列表结果，避免展示上一仓数据误导用户；
             // 已查询过则按新仓自动重查（未查询过不主动拉取，保持"输入后才查"体验）。
