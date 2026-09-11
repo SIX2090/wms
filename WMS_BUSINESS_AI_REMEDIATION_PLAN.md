@@ -612,6 +612,18 @@ actual_arrival_date = db.Column(db.Date)   # 实际最后一次到货日期
 > 不加 reserved_quantity 字段——占用是查询不是状态，避免第四套库存口径。
 >
 > 第 3 批剩余：P1-5（销售退货，方案见 §P1-5，D2 已定）、P1-7（采购退货）。
+>
+> **CI 环境固化已完成并推送**（2026-09-11，插队任务）——
+> ①确诊 15 轮红 CI 根因：API 推送漏掉本地提交 3223101（native_api import 修复），
+> 远端带坏代码连跑 15 轮红而本地全绿；已补推（远端 da1ea27）。
+> ②requirements 显式化：SQLAlchemy==2.0.52 / alembic==1.19.2 / pypinyin==0.5.1
+> 钉版（此前靠传递依赖或可选降级，版本不受控）。
+> ③新建 app/requirements-test.txt（-r requirements.txt + pytest==9.1.1 + PyYAML==6.0.3），
+> ci.yml / verify.yml 同源引用，pytest 不再裸装最新版。
+> ④防呆固化：scripts/verify_remote_sync.py（本地/远端 tree blob 级对比）+
+> scripts/api_push.py（推送前置校验 + 推送后自动同步校验），漏推零容忍。
+> ⑤CI verify 清单移除已修复的 F6/F8、F7 登记数修正为 3 例；
+> DEVELOPMENT_RULES.md 门禁数字更新（945→1490）。
 
 | ID | 任务 | 批 | 依赖 | 需拍板 | 风险 | 预估 |
 |---|---|---|---|---|---|---|
