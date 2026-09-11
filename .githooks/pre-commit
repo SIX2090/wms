@@ -14,7 +14,13 @@ set -e
 # 且 C:\Windows\py.exe 虽存在但注册表未挂 Python（执行报 No installed Python found!）。
 # 故按「绝对路径 + 实际执行验证」探测，通过才采纳，避免钩子被误判成规则违规。
 WMS_PY=""
-for cand in python3 python \
+# 2026-09-12：Linux/沙箱环境（CI 容器、WSL、云主机）下 PATH 里的 python3 常是
+# pyenv/shim 一类的包装脚本，在钩子这种「stdout/stderr 被重定向」的非交互环境里
+# 会以非零码退出，被误判成"没装 Python"从而拒绝一切提交。故先用真实解释器
+# 绝对路径探测（验证方式与原先一致：实际执行 import sys），再回退到 PATH 查找。
+for cand in "/usr/bin/python3" "/usr/local/bin/python3" "/usr/bin/python" \
+    "${PYENV_ROOT:-/root/.pyenv}/versions/3.11.1/bin/python3" \
+    python3 python \
     "/c/Users/Administrator/AppData/Local/Programs/Python/Python311/python.exe" \
     "/c/Users/Administrator/AppData/Local/Programs/Python/Python312/python.exe" \
     "/c/Users/Administrator/AppData/Local/Programs/Python/Python313/python.exe" \
@@ -35,11 +41,6 @@ if [ -z "$WMS_PY" ]; then
     exit 1
 fi
 
-if [ -z "$WMS_PY" ]; then
-    echo "[pre-commit] 未找到可用的 Python 解释器，无法执行防 BUG 规则扫描"
-    echo "[pre-commit] 请安装 Python 3 并加入 PATH，或手动设置 WMS_PY 后重试"
-    exit 1
-fi
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 # 获取本次提交涉及的文件
