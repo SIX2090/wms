@@ -49,6 +49,10 @@ EXPECTED = {
     'master_data_insights': {'admin', 'warehouse'},
     'admin_insights': {'admin'},
     'alias_management': {'admin', 'warehouse', 'purchase'},
+    # 新增（AI-LLM-GATE-002）：供应商评估/库位推荐/需求预测补登记
+    'supplier_evaluation': {'admin', 'warehouse', 'purchase'},
+    'location_recommendation': {'admin', 'warehouse'},
+    'demand_forecast': {'admin', 'warehouse', 'purchase'},
 }
 
 

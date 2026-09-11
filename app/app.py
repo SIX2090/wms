@@ -29640,6 +29640,10 @@ def _build_report_payload(report_type, filters):
 @login_required
 def ai_replenishment_suggestions():
     """智能补货建议：分析库存低于补货点的物料，结合历史出库数据生成补货建议。"""
+    # AI-LLM-GATE-002：本端点内部调 _ai_call_llm_chat（真实计费链路），必须走能力门禁。
+    # 无独立能力键，复用补货规划能力（同一页面族、同一角色集）。
+    if not _ai_capability_allowed('replenishment_planning'):
+        return _ai_permission_denied_response('replenishment_planning')
     if not _ai_llm_configured():
         return api_error('请先在系统设置中配置大模型API')
     
@@ -29717,6 +29721,10 @@ def ai_replenishment_suggestions():
 @login_required
 def ai_inventory_health():
     """库存健康度评分：AI评估每个物料的库存健康度（积压/缺货风险）。"""
+    # AI-LLM-GATE-002：本端点内部调 _ai_call_llm_chat（真实计费链路），必须走能力门禁。
+    # 无独立能力键，复用库存健康能力（同一页面族、同一角色集）。
+    if not _ai_capability_allowed('inventory_health'):
+        return _ai_permission_denied_response('inventory_health')
     if not _ai_llm_configured():
         return api_error('请先在系统设置中配置大模型API')
     
@@ -32408,6 +32416,12 @@ def ai_supplier_evaluation_page():
 @login_required
 def api_supplier_evaluation():
     """供应商智能评估API：分析供应商交货表现、价格稳定性，生成AI评估报告。"""
+    # AI-LLM-GATE-002：本端点内部调 _ai_call_llm_chat（真实计费链路），必须走能力门禁。
+    # 此前仅 @login_required，viewer/user 可刷计费且灰度开关对它无效。
+    # 登记要求"四处齐"：AI_CAPABILITY_ROLES / BUSINESS_ENDPOINTS / RISK_LEVELS /
+    # AI_TOOL_REGISTRY（另含 AI_PERMISSION_MATRIX.md 与 verify 脚本两处台账）。
+    if not _ai_capability_allowed('supplier_evaluation'):
+        return _ai_permission_denied_response('supplier_evaluation')
     if not _ai_llm_configured():
         return api_error('请先在系统设置中配置大模型API')
 
@@ -32522,6 +32536,7 @@ def api_supplier_evaluation():
 
 @app.route('/ai/location_recommendation')
 @login_required
+@require_role('warehouse')
 def ai_location_recommendation():
     """智能库位推荐页面"""
     return render_template('ai_location_recommendation.html')
@@ -32530,6 +32545,10 @@ def ai_location_recommendation():
 @login_required
 def api_recommend_location():
     """智能库位推荐API：基于物料周转率和库位使用情况，推荐最优库位。"""
+    # AI-LLM-GATE-002：本端点内部调 _ai_call_llm_chat（真实计费链路），必须走能力门禁。
+    # 此前仅 @login_required，viewer/user 可刷计费且灰度开关对它无效。
+    if not _ai_capability_allowed('location_recommendation'):
+        return _ai_permission_denied_response('location_recommendation')
     if not _ai_llm_configured():
         return api_error('请先在系统设置中配置大模型API')
 
@@ -32710,6 +32729,7 @@ def api_recommend_location():
 
 @app.route('/ai/demand_forecast')
 @login_required
+@require_role('warehouse', 'purchase')
 def ai_demand_forecast():
     """需求预测页面"""
     return render_template('ai_demand_forecast.html')
@@ -32718,6 +32738,10 @@ def ai_demand_forecast():
 @login_required
 def api_demand_forecast():
     """需求预测API：基于历史出库数据预测未来需求，生成补货建议。"""
+    # AI-LLM-GATE-002：本端点内部调 _ai_call_llm_chat（真实计费链路），必须走能力门禁。
+    # 此前仅 @login_required，viewer/user 可刷计费且灰度开关对它无效。
+    if not _ai_capability_allowed('demand_forecast'):
+        return _ai_permission_denied_response('demand_forecast')
     if not _ai_llm_configured():
         return api_error('请先在系统设置中配置大模型API')
 

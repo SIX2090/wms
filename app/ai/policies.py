@@ -62,6 +62,15 @@ AI_CAPABILITY_ROLES = {
     'master_data_insights': frozenset({'warehouse'}),
     'admin_insights': frozenset({'admin'}),
     'alias_management': frozenset({'warehouse', 'purchase'}),
+    # 新增（AI-LLM-GATE-002）：供应商智能评估补登记。
+    # 此前 /api/ai/supplier_evaluation 仅 @login_required 却内部调 _ai_call_llm_chat
+    # （真实计费链路），viewer/user 可刷计费且灰度开关对它无效——属
+    # BUG-2026-08-16-013 同类漏洞的漏网端点。角色与页面 require_role 对齐。
+    'supplier_evaluation': frozenset({'warehouse', 'purchase'}),
+    # 新增（AI-LLM-GATE-002）：智能库位推荐。仓库作业工具，角色限定 warehouse。
+    'location_recommendation': frozenset({'warehouse'}),
+    # 新增（AI-LLM-GATE-002）：需求预测。驱动补货/采购决策，与补货族同角色。
+    'demand_forecast': frozenset({'warehouse', 'purchase'}),
 }
 
 AI_CAPABILITY_BUSINESS_ENDPOINTS = {
@@ -92,6 +101,10 @@ AI_CAPABILITY_BUSINESS_ENDPOINTS = {
     'master_data_insights': 'material_list',
     'admin_insights': 'ai_ops_dashboard',
     'alias_management': 'ai_material_alias_list',
+    # 新增（AI-LLM-GATE-002）：三个补登记能力对应各自的宿主页面
+    'supplier_evaluation': 'ai_supplier_evaluation_page',
+    'location_recommendation': 'ai_location_recommendation',
+    'demand_forecast': 'ai_demand_forecast',
 }
 
 
@@ -123,6 +136,10 @@ AI_CAPABILITY_RISK_LEVELS = {
     'master_data_insights': 'read',
     'admin_insights': 'sensitive_read',
     'alias_management': 'read',
+    # 新增（AI-LLM-GATE-002）：三个补登记能力均为只读分析
+    'supplier_evaluation': 'read',
+    'location_recommendation': 'read',
+    'demand_forecast': 'read',
 }
 
 AI_AUTONOMOUS_RISK_LEVELS = frozenset({'read', 'sensitive_read'})
