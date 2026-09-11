@@ -3,6 +3,8 @@ package com.factory.wms.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -431,12 +433,22 @@ fun StockQueryScreen(
     var manualCode by remember { mutableStateOf("") }
     var showScannerDialog by remember { mutableStateOf(false) }
     var showWarehouseDialog by remember { mutableStateOf(false) }
+    // AI-MOB-STOCK-F01：扫码（单个物料详情）/ 列表（按仓分页浏览）两种模式
+    var listMode by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
             viewModel.clearError()
+        }
+    }
+
+    // AI-MOB-STOCK-F01：列表模式错误（如未选仓/加载失败）单独提示，不吞成静默空列表
+    LaunchedEffect(uiState.stockListError) {
+        uiState.stockListError?.let {
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            viewModel.clearStockListError()
         }
     }
 
@@ -487,6 +499,43 @@ fun StockQueryScreen(
 
             Spacer(modifier = Modifier.height(4.dp))
 
+            // ── AI-MOB-STOCK-F01：扫码（单个物料）/ 列表（按仓分页浏览）模式切换 ──
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                FilterChip(
+                    selected = !listMode,
+                    onClick = { listMode = false },
+                    label = { Text("扫码查物料") },
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = listMode,
+                    onClick = {
+                        listMode = true
+                        // 已有结果则不重复请求，保证切换回来时状态不丢
+                        if (!uiState.stockListLoaded && !uiState.stockListLoading) {
+                            viewModel.loadStockList()
+                        }
+                    },
+                    label = { Text("库存列表") },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            if (listMode) {
+                // 外层 Column 已有仓库选择与模式切换，列表区占满剩余高度，内部分页滚动
+                StockListSection(
+                    uiState = uiState,
+                    onKeywordChange = { viewModel.onStockListKeywordChange(it) },
+                    onSubmit = { viewModel.loadStockList() },
+                    onLoadMore = { viewModel.loadMoreStockList() },
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
             // Search bar
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -835,6 +884,7 @@ fun StockQueryScreen(
                     }
                 }
             }
+            }  // end else (扫码模式)
         }
     }
 
@@ -865,6 +915,232 @@ fun StockQueryScreen(
             onRetry = { viewModel.loadWarehouses() },
             accentColor = CardOrange
         )
+    }
+}
+
+/**
+ * AI-MOB-STOCK-F01：查库存「列表模式」区块。
+ *
+ * 按关键字在**所选仓库**内分页浏览库存（仓库级账面库存，复用
+ * `/api/mobile/stock/query`）。列表滚到底部自动加载下一页（R1：按 total_pages
+ * 翻页取全，不把默认 page_size 当业务上限）。
+ *
+ * 三种空态明确区分，避免"没有数据"与"没查过/没选仓"混淆：
+ * - 未查询过 → 提示输入关键字或直接查询该仓全部物料
+ * - 已查询且结果为空 → 「未找到包含 X 的物料」
+ * - 未选仓库 → 由 ViewModel 拦截并给出「请先选择仓库」，不拉全量
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StockListSection(
+    uiState: com.factory.wms.ui.viewmodel.scan.ScanUiState,
+    onKeywordChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onLoadMore: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // 关键字输入防抖 300ms 后自动查询，减少无谓请求（与页内其它搜索一致的手感）
+    LaunchedEffect(uiState.stockListKeyword) {
+        if (uiState.stockListKeyword.isBlank() && !uiState.stockListLoaded) return@LaunchedEffect
+        delay(300)
+        onSubmit()
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+
+    // 搜索栏
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBackground)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = uiState.stockListKeyword,
+                onValueChange = onKeywordChange,
+                placeholder = { Text("输入编码/名称/规格筛选，留空看全部") },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent
+                )
+            )
+            FilledIconButton(
+                onClick = onSubmit,
+                modifier = Modifier.size(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardOrange)
+            ) {
+                Icon(Icons.Outlined.Search, "查询", tint = Color.White, modifier = Modifier.size(22.dp))
+            }
+        }
+    }
+
+    // 结果总数提示（分页元数据来自服务端，R1）
+    if (uiState.stockListLoaded && uiState.stockListTotal > 0) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "共 ${uiState.stockListTotal} 条" +
+                if (uiState.selectedWarehouse != null) "（${uiState.selectedWarehouse.name ?: ""}）" else "",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    when {
+        uiState.stockListLoading -> {
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = CardOrange)
+            }
+        }
+
+        uiState.stockListLoaded && uiState.stockListItems.isEmpty() -> {
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                WmsEmptyState(
+                    icon = Icons.Outlined.Search,
+                    title = if (uiState.stockListKeyword.isBlank())
+                        "该仓库暂无物料库存记录"
+                    else
+                        "未找到包含「${uiState.stockListKeyword}」的物料",
+                    subtitle = "可切换仓库或换个关键词试试",
+                    accentColor = CardOrange
+                )
+            }
+        }
+
+        uiState.stockListItems.isNotEmpty() -> {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(uiState.stockListItems, key = { it.id ?: 0 }) { material ->
+                    StockListRow(material)
+                }
+                if (uiState.stockListLoadingMore) {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = CardOrange
+                            )
+                        }
+                    }
+                } else if (uiState.stockListPage < uiState.stockListTotalPages) {
+                    // 滚到底部触发下一页（R1）
+                    item {
+                        LaunchedEffect(uiState.stockListPage) { onLoadMore() }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+
+        else -> {
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                WmsEmptyState(
+                    icon = Icons.Outlined.Search,
+                    title = "输入关键字或留空查询该仓全部物料",
+                    subtitle = "结果按仓库口径显示账面库存，可滚动分页加载",
+                    accentColor = CardOrange
+                )
+            }
+        }
+    }
+    }  // end Column（列表区容器）
+}
+
+/** AI-MOB-STOCK-F01：列表模式单行——编码/名称/规格 + 仓库级账面库存数量。 */
+@Composable
+private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
+    val stock = material.stock ?: 0.0
+    val minStock = material.minStock ?: 0.0
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBackground)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    material.code.orEmpty(),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Primary
+                )
+                if (!material.name.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        material.name.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                val specLine = listOfNotNull(
+                    material.spec?.takeIf { it.isNotBlank() }?.let { "规格: $it" },
+                    material.brand?.takeIf { it.isNotBlank() }?.let { "品牌: $it" }
+                ).joinToString("   ")
+                if (specLine.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        specLine,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    formatQuantity(stock),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (stock > minStock) Success else Error
+                )
+                if (!material.unit.isNullOrBlank()) {
+                    Text(
+                        material.unit,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
     }
 }
 
