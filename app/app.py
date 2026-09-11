@@ -4362,6 +4362,45 @@ def get_warehouse_stock_quantities(warehouse):
 
     return {material_id: float(quantity or 0) for material_id, quantity in rows}
 
+def get_committed_quantities(warehouse_id, exclude_sales_order_id=None):
+    """返回 {material_id: 已承诺未发数量}——销售占用账（派生值，不落库）。
+
+    STOCK-TRUTH / P1-6（D1 决策：审批通过后占用）：
+    - 口径 = status='confirmed'（已审批确认）且 shipment_status != 'shipped'
+      的销售订单，行级 (quantity - shipped_quantity) 之和，按订单仓库过滤。
+      与 api_sales_order_selectable 的"可选订单"口径一致（confirmed 未发完）。
+    - 草稿（draft）不占用：下单是意向，审批才是承诺（D1）。
+    - 派生值不落库，避免制造第四套库存口径（INVENTORY_TRUTH.md 三账铁律）；
+      可用量 = get_warehouse_stock_quantities(wh) - 本函数。
+    - exclude_sales_order_id：改单场景排除自身，避免把本单旧量算进占用。
+    - shipped_quantity 历史行可能为 NULL，用 coalesce 归零；聚合后 <= 0 的
+      物料不计入（超发行自然抵消，不应产生负占用）。
+    """
+    if not warehouse_id:
+        return {}
+    rows = (
+        db.session.query(
+            SalesOrderItem.material_id,
+            func.coalesce(func.sum(
+                SalesOrderItem.quantity - func.coalesce(SalesOrderItem.shipped_quantity, 0)
+            ), 0),
+        )
+        .join(SalesOrder, SalesOrderItem.sales_order_id == SalesOrder.id)
+        .filter(
+            SalesOrder.status == 'confirmed',
+            SalesOrder.shipment_status != 'shipped',
+            SalesOrder.warehouse_id == warehouse_id,
+        )
+    )
+    if exclude_sales_order_id:
+        rows = rows.filter(SalesOrder.id != exclude_sales_order_id)
+    committed = {}
+    for material_id, total in rows.group_by(SalesOrderItem.material_id).all():
+        quantity = round_to_2_decimals(float(total or 0))
+        if quantity > STOCK_COMPARE_EPSILON:
+            committed[material_id] = quantity
+    return committed
+
 def _material_stock_unattributed(material_id):
     """物料库存是否全部为无法归属到具体仓库的历史遗留数据。
 
