@@ -38,7 +38,20 @@ data class ScanUiState(
     val contractSuggestionsLoading: Boolean = false,
     // 提交成功后待打印的单据信息（"打印单据"按钮）
     val submittedPrint: SubmittedPrintInfo? = null,
-    val printLoading: Boolean = false
+    val printLoading: Boolean = false,
+    // ── AI-MOB-STOCK-F01：查库存列表模式（分页） ──
+    /** 列表模式结果（仓库级账面库存，按页加载） */
+    val stockListItems: List<MaterialDto> = emptyList(),
+    val stockListLoading: Boolean = false,
+    val stockListLoadingMore: Boolean = false,
+    val stockListError: String? = null,
+    val stockListKeyword: String = "",
+    /** 已加载页数 / 总页数（R1：按 total_pages 翻页取全，不把默认 page_size 当上限） */
+    val stockListPage: Int = 0,
+    val stockListTotalPages: Int = 0,
+    val stockListTotal: Int = 0,
+    /** 是否已完成过一次列表查询（区分"未查询"与"查询结果为空"两种空态） */
+    val stockListLoaded: Boolean = false
 )
 
 /** 提交成功后可再次触发打印的单据信息。 */
@@ -278,7 +291,133 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             checkOrders = if (changed) emptyList() else _uiState.value.checkOrders,
             selectedCheckOrder = if (changed) null else _uiState.value.selectedCheckOrder
         )
-        if (changed) loadPendingCheckOrders()
+        if (changed) {
+            loadPendingCheckOrders()
+            // AI-MOB-STOCK-F01：换仓后清空列表结果，避免展示上一仓数据误导用户；
+            // 已查询过则按新仓自动重查（未查询过不主动拉取，保持"输入后才查"体验）。
+            val hadLoaded = _uiState.value.stockListLoaded
+            clearStockList()
+            if (hadLoaded) loadStockList()
+        }
+    }
+
+    // ── AI-MOB-STOCK-F01：查库存列表模式（分页，复用 /api/mobile/stock/query） ──
+
+    /**
+     * 列表模式查询首屏（重置分页）。
+     *
+     * 仓库必填（AGENTS.md 第二节）：未选仓时不发请求，给出明确提示而非拉全量
+     * 或用空数据误导。关键词为空表示"该仓全部物料"，由服务端分页返回。
+     */
+    fun loadStockList(keyword: String? = null) {
+        val warehouse = _uiState.value.selectedWarehouse
+        if (warehouse == null) {
+            _uiState.value = _uiState.value.copy(
+                stockListError = "请先选择仓库后再查询库存",
+                stockListLoaded = false
+            )
+            return
+        }
+        val whParam = warehouse.code?.takeIf { it.isNotBlank() } ?: warehouse.name.orEmpty()
+        if (whParam.isBlank()) {
+            _uiState.value = _uiState.value.copy(stockListError = "所选仓库缺少编码，请重新选择仓库")
+            return
+        }
+        val kw = keyword ?: _uiState.value.stockListKeyword
+        _uiState.value = _uiState.value.copy(
+            stockListKeyword = kw,
+            stockListLoading = true,
+            stockListError = null,
+            stockListItems = emptyList(),
+            stockListPage = 0,
+            stockListTotalPages = 0,
+            stockListTotal = 0,
+            stockListLoaded = false
+        )
+        viewModelScope.launch {
+            repository.queryStockPage(whParam, kw.trim(), page = 1, pageSize = STOCK_LIST_PAGE_SIZE)
+                .fold(
+                    onSuccess = { data ->
+                        _uiState.value = _uiState.value.copy(
+                            stockListLoading = false,
+                            stockListItems = data.items,
+                            stockListPage = data.page,
+                            stockListTotalPages = data.totalPages,
+                            stockListTotal = data.total,
+                            stockListLoaded = true
+                        )
+                    },
+                    onFailure = { e ->
+                        _uiState.value = _uiState.value.copy(
+                            stockListLoading = false,
+                            stockListError = e.message ?: "加载失败",
+                            stockListLoaded = true
+                        )
+                    }
+                )
+        }
+    }
+
+    /**
+     * 列表模式加载下一页（滚动到底部触发）。
+     *
+     * R1：显式按 total_pages 翻页合并，不把默认 page_size 当业务上限。
+     * 已在加载中或已是最后一页时直接返回（幂等，避免重复请求）。
+     */
+    fun loadMoreStockList() {
+        val state = _uiState.value
+        if (state.stockListLoading || state.stockListLoadingMore) return
+        if (state.stockListPage <= 0 || state.stockListPage >= state.stockListTotalPages) return
+        val warehouse = state.selectedWarehouse ?: return
+        val whParam = warehouse.code?.takeIf { it.isNotBlank() } ?: warehouse.name.orEmpty()
+        if (whParam.isBlank()) return
+        val nextPage = state.stockListPage + 1
+        _uiState.value = state.copy(stockListLoadingMore = true)
+        viewModelScope.launch {
+            repository.queryStockPage(
+                whParam, state.stockListKeyword.trim(), page = nextPage,
+                pageSize = STOCK_LIST_PAGE_SIZE
+            ).fold(
+                onSuccess = { data ->
+                    _uiState.value = _uiState.value.copy(
+                        stockListLoadingMore = false,
+                        // 追加去重，避免翻页期间数据变动导致重复行
+                        stockListItems = (_uiState.value.stockListItems + data.items)
+                            .distinctBy { it.id },
+                        stockListPage = data.page,
+                        stockListTotalPages = data.totalPages,
+                        stockListTotal = data.total
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(
+                        stockListLoadingMore = false,
+                        stockListError = e.message ?: "加载失败"
+                    )
+                }
+            )
+        }
+    }
+
+    /** 列表模式关键词变化（仅更新输入框值，由页面防抖后调用 loadStockList 触发查询）。 */
+    fun onStockListKeywordChange(text: String) {
+        _uiState.value = _uiState.value.copy(stockListKeyword = text)
+    }
+
+    /** 切仓后清空列表结果，避免显示上一个仓库的数据误导用户。 */
+    fun clearStockList() {
+        _uiState.value = _uiState.value.copy(
+            stockListItems = emptyList(),
+            stockListPage = 0,
+            stockListTotalPages = 0,
+            stockListTotal = 0,
+            stockListLoaded = false,
+            stockListError = null
+        )
+    }
+
+    fun clearStockListError() {
+        _uiState.value = _uiState.value.copy(stockListError = null)
     }
 
     // ── 合同编号（出库选填）快速匹配 ──
@@ -676,3 +815,11 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 }
+
+/**
+ * AI-MOB-STOCK-F01：查库存列表模式每页条数。
+ * 与服务端 MOBILE_API_PAGE_SIZE_DEFAULT 口径一致；仅作为单页请求大小，
+ * 不作业务上限（R1：按响应 total_pages 翻页取全）。
+ */
+private const val STOCK_LIST_PAGE_SIZE = 20
+
