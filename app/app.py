@@ -33286,6 +33286,93 @@ def sales_outbound_remaining_check(outbound):
     return True, ''
 
 
+def _sales_returned_quantity_by_source_item(source_item_ids):
+    """P1-5：按来源销售订单行聚合已完成销售退货入库量。
+
+    返回 {source_sales_order_item_id: 已退总量}（round_to_2_decimals）。
+    聚合口径：InOrder.business_type='销售退货入库' 且 status='completed'。
+    已退量是**派生聚合不是状态字段**——不在 SalesOrderItem 上加
+    returned_quantity（防第四套库存口径，与 STOCK-TRUTH-P16 占用账同一决策哲学，
+    见 INVENTORY_TRUTH.md §2.1.1）。pending 单不在聚合内，天然允许保存/完成
+    阶段重复校验而不自斥。
+    """
+    if not source_item_ids:
+        return {}
+    rows = db.session.query(
+        InOrderItem.source_sales_order_item_id,
+        func.coalesce(func.sum(InOrderItem.quantity), 0),
+    ).join(InOrder, InOrderItem.in_order_id == InOrder.id).filter(
+        InOrder.business_type == '销售退货入库',
+        InOrder.status == 'completed',
+        InOrderItem.source_sales_order_item_id.in_(source_item_ids),
+    ).group_by(InOrderItem.source_sales_order_item_id).all()
+    return {
+        sid: round_to_2_decimals(qty)
+        for sid, qty in rows
+        if round_to_2_decimals(qty or 0) > STOCK_COMPARE_EPSILON
+    }
+
+
+def validate_sales_return_quantity(sales_item, return_qty, material_code=''):
+    """P1-5：保存退货入库行时校验退货量 ≤ 原销售行可退数量。
+
+    可退数量 = 原行 shipped_quantity − 已退量聚合（不含当前 pending 单）。
+    返回 (ok, error_msg)。
+    """
+    if not sales_item:
+        return False, '来源销售订单明细不存在'
+    returned_map = _sales_returned_quantity_by_source_item([sales_item.id])
+    returned = round_to_2_decimals(returned_map.get(sales_item.id, 0))
+    remaining = round_to_2_decimals((sales_item.shipped_quantity or 0) - returned)
+    qty = round_to_2_decimals(return_qty or 0)
+    if qty - remaining > STOCK_COMPARE_EPSILON:
+        so_no = sales_item.sales_order.order_no if sales_item.sales_order else f"item#{sales_item.id}"
+        suffix = f'（物料 {material_code}）' if material_code else ''
+        return False, f'退货数量 {qty:.2f} 超过销售订单 {so_no} 的可退数量 {remaining:.2f}{suffix}'
+    return True, ''
+
+
+def sales_return_remaining_check(in_order):
+    """P1-5：完成销售退货入库单前整单校验（防超退真闸，加锁后调用）。
+
+    与 sales_outbound_remaining_check 同构：有来源明细逐行校验，
+    无来源明细跳过（历史退货可不关联原单）。原行已不存在时跳过
+    （数据异常另行治理，保持与既有先例一致）。
+    返回 (ok, error_msg)。
+    """
+    from sqlalchemy.orm import selectinload
+    if not in_order or not in_order.items:
+        return True, ''
+    source_item_ids = [
+        item.source_sales_order_item_id
+        for item in in_order.items
+        if getattr(item, 'source_sales_order_item_id', None)
+    ]
+    if not source_item_ids:
+        return True, ''
+    sales_items = {
+        si.id: si
+        for si in SalesOrderItem.query.options(
+            selectinload(SalesOrderItem.sales_order)
+        ).filter(SalesOrderItem.id.in_(source_item_ids)).all()
+    }
+    returned_map = _sales_returned_quantity_by_source_item(source_item_ids)
+    for item in in_order.items:
+        sid = getattr(item, 'source_sales_order_item_id', None)
+        if not sid:
+            continue
+        si = sales_items.get(sid)
+        if not si:
+            continue
+        returned = round_to_2_decimals(returned_map.get(sid, 0))
+        remaining = round_to_2_decimals((si.shipped_quantity or 0) - returned)
+        return_qty = round_to_2_decimals(item.quantity or 0)
+        if return_qty - remaining > STOCK_COMPARE_EPSILON:
+            so_no = si.sales_order.order_no if si.sales_order else f'item#{sid}'
+            return False, f'退货数量 {return_qty:.2f} 超过销售订单 {so_no} 的可退数量 {remaining:.2f}'
+    return True, ''
+
+
 def build_sales_outbound_draft(order, selected_qty_by_item_id=None):
     # 优先通过外键查找待完成草稿，兜底 purpose 字符串
     pending_draft = OutOrder.query.filter(
