@@ -2162,6 +2162,9 @@ app.register_blueprint(v2_bp)
 
 # 业务域 Blueprint（试点）：单位域。url_prefix='' 保持原 URL 路径不变。
 app.register_blueprint(unit_bp)
+# AI 反馈域路由：AI-FEEDBACK-LOOP-001 待修清单页（admin 只读，无 LLM）。
+from routes.ai_feedback import ai_feedback_bp
+app.register_blueprint(ai_feedback_bp)
 # 供应商域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_supplier_routes(app)
 # 物料分类域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
@@ -20164,6 +20167,10 @@ AI_FEEDBACK_ERROR_TYPE_LABELS = {
     'quantity_error': '数量错误',
     'purchase_order_error': '采购订单匹配错误',
     'draft_error': '草稿生成错误',
+    # AI-FEEDBACK-LOOP-001：助手页 👍👎 按钮的 error_type 取值（修复字段错配后真正入库）
+    'recognition_error': '识别错误',
+    'match_error': '匹配错误',
+    'permission_error': '权限错误',
     'other': '其他',
 }
 AI_RUN_STATUS_LABELS = {
@@ -20677,6 +20684,9 @@ def ai_document_job_feedback(id):
     db.session.commit()
     flash('AI文档反馈已记录。', 'success')
     return redirect(url_for('ai_document_job_detail', id=job.id))
+
+# AI-FEEDBACK-LOOP-001：/ai/feedback_review（AI 反馈待修清单）已迁至
+# routes/ai_feedback.py（A10：新路由不再进 app.py），注册见上方 ai_feedback_bp。
 
 @app.route('/ai/material_alias')
 @require_role('warehouse', 'purchase')
