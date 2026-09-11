@@ -125,7 +125,7 @@
 | 35 | AI-MOB-VOICE-F01 | 已完成 | 手机端语音识别：按语音指令执行操作（导航/返回/退出等） | AI-MOB-REC-F01 | 见下方完成记录 |
 | 36 | AI-MOB-HOME-F01 | 已完成 | 手机端首页接入"今日概览"条（复用既有 /api/mobile/dashboard） | AI-MOB-VOICE-F01 | AI-MOB-NAV-F01 |
 | 37 | AI-MOB-NAV-F01 | 已完成 | 手机端底部 Tab 导航（首页/入库/出库/查库存/我的） | AI-MOB-HOME-F01 | AI-MOB-STOCK-F01 |
-| 38 | AI-MOB-STOCK-F01 | 待开发 | 手机端查库存增加列表模式（复用既有 /api/mobile/stock/query） | AI-MOB-NAV-F01 | AI-MOB-CHECK-F01 |
+| 38 | AI-MOB-STOCK-F01 | 已完成 | 手机端查库存增加列表模式（复用既有 /api/mobile/stock/query） | AI-MOB-NAV-F01 | AI-MOB-CHECK-F01 |
 | 39 | AI-MOB-CHECK-F01 | 待开发 | 手机盘点与 Web 盘点单据流对齐（仓库必填、盘点记录可回查） | AI-MOB-STOCK-F01 | AI-MOB-RPT-F01 |
 | 40 | AI-MOB-RPT-F01 | 待开发 | 手机端只读报表入口（库存汇总/出入库明细只读视图） | AI-MOB-CHECK-F01 | AI-MOB-EMPTY-F01 |
 | 41 | AI-MOB-EMPTY-F01 | 待开发 | 手机端统一空状态组件与新手引导 | AI-MOB-RPT-F01 | 无 |
@@ -658,6 +658,25 @@
 **验收**：
 - Android CI `assembleDebug` 通过；列表模式可按仓库+关键字查询、分页加载；扫码查询原流程无回归；仓库必填规则在 UI 层有拦截提示。
 
+**记录**：完成日期 2026-09-11。本次只做 Android 端接入，后端 `/api/mobile/stock/query`（[native_api.py](app/routes/native_api.py)）未改动。涉及模块：
+- `data/api/WmsApiService.kt`：新增 `stockQuery(warehouse, keyword, page, page_size)`（warehouse 为非可空 String，强制仓库必填）
+- `data/model/StockQueryModels.kt`（新增）：`StockQueryPageData` 分页载荷
+- `data/repository/WmsRepository.kt`：新增 `queryStockPage()`，经 `safeCall` 统一错误映射
+- `ui/viewmodel/scan/ScanViewModel.kt`：新增 10 个列表状态字段 + `loadStockList/loadMoreStockList/onStockListKeywordChange/clearStockList/clearStockListError`；`selectWarehouse()` 换仓清空列表（跨仓数据隔离）；`STOCK_LIST_PAGE_SIZE = 20`
+- `ui/screens/ScanScreens.kt`：`StockQueryScreen` 增加「扫码查物料 / 库存列表」FilterChip 模式切换；`StockListSection`（300ms 防抖搜索 + LazyColumn 分页 + 两种空态）+ `StockListRow`（编码/名称/规格/品牌 + 仓库级账面库存，低于最低库存标红）
+- `tests/verify_mobile_stock_list_mode.py`（新增，9 项静态契约）
+
+验证：
+- `python -m pytest tests/verify_mobile_stock_list_mode.py -q` → 9 passed
+- 纯静态 Android 契约（`verify_android_scan_viewmodel_isolation` / `verify_mobile_ui_polish` / `verify_android_stocktake_check_order` / `verify_mobile_stock_list_mode`）→ 21 passed，扫码模式无回归
+- 后端仓库口径回归（`verify_bug_2026_09_03_002` / `test_bug_2026_08_16_007` / `test_bug_2026_08_12_004` / `test_bug_2026_09_10_003_material_payload_min_stock_locations`）→ 35 passed
+- `python scripts/lint_wms_rules.py` → 0 违规；`python scripts/lint_no_raw_post_fetch.py` → 通过
+- 受限网络经 API 通道推送，远端 `04f554b2`（tree `ba59a7d7a71b` 与本地一致，内容核验通过）
+
+> 如实说明：本沙箱**无 Android SDK**（`ANDROID_HOME` 为空），`assembleDebug` 无法在本地执行，Kotlin 编译验证由 CI 承担；本地已做括号/引号配平、字段与导入存在性静态核对。
+
+**遵循规则**：R1（按 `total_pages` 翻页取全，不把默认 `page_size` 当业务上限）✅；R2（换仓清空列表，避免跨仓历史脏数据展示）✅；仓库必填（前端契约 `warehouse: String` 非可空 + ViewModel 未选仓拦截提示）✅；全链路只读 ✅。
+
 ### AI-MOB-CHECK-F01：手机盘点与 Web 盘点单据流对齐
 
 **目标**：手机盘点从"提交即完成、结果不可回查"补齐为与 Web 盘点一致的单据流体验：提交前必选仓库（遵循仓库必填规则），提交后可查看自己历史盘点记录（盘点单号、日期、差异、调整草稿状态）。
@@ -854,7 +873,7 @@
 
 ## 11. 当前下一项
 
-**当前下一项：AI-MOB-STOCK-F01（手机端查库存增加列表模式）**，其后按第 6 节第 6 批顺序串行推进 AI-MOB-CHECK-F01 → AI-MOB-RPT-F01 → AI-MOB-EMPTY-F01（手机端体验对齐批，2026-08-09 登记）。AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）均已完成。
+**当前下一项：AI-MOB-CHECK-F01（手机盘点与 Web 盘点单据流对齐）**，其后按第 6 节第 6 批顺序串行推进 AI-MOB-RPT-F01 → AI-MOB-EMPTY-F01（手机端体验对齐批，2026-08-09 登记）。AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）均已完成。
 
 所有历史 AI 任务已完成；**AI-R07-F02（分类识别+按分类建议编号）已完成**。
 
