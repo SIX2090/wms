@@ -1322,6 +1322,7 @@ def register_native_api_routes(app):
     @web_or_api_required
     def mobile_api_stock_query():
         """移动端库存查询：多条件模糊搜索 + 分页（按仓库级数量）"""
+        from datetime import datetime
         from sqlalchemy.orm import joinedload
         from app import (MOBILE_API_PAGE_SIZE_DEFAULT, MOBILE_API_PAGE_SIZE_MAX,
                          Material, _mobile_paginate,
@@ -1337,19 +1338,22 @@ def register_native_api_routes(app):
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
 
-        query = Material.query.options(
-            joinedload(Material.unit),
-            joinedload(Material.category),
-            joinedload(Material.supplier),
-        )
-
+        # 关键词条件只写一份：主查询与「物料档案命中数」共用（R6——两处各写一遍
+        # LIKE 条件，迟早漂移成不同口径，正是 BUG-2026-09-12-005 那类问题）。
+        base_query = Material.query
         if keyword:
             like = f'%{keyword}%'
-            query = query.filter(db.or_(
+            base_query = base_query.filter(db.or_(
                 Material.code.like(like),
                 Material.name.like(like),
                 Material.spec.like(like),
             ))
+
+        query = base_query.options(
+            joinedload(Material.unit),
+            joinedload(Material.category),
+            joinedload(Material.supplier),
+        )
 
         # AI-MOB-STOCK-F02（清单 P1-1/P1-2）：按仓库级库存排序与筛选。
         #
@@ -1442,6 +1446,22 @@ def register_native_api_routes(app):
                 legacy_location_names=legacy_names,
             )
 
+        # P1-3（清单）：空态必须能区分「物料档案里根本没这个编码」与「档案里有、
+        # 但这个仓没货 / 被当前筛选排除」。原接口只回 total=0，两种情形都显示
+        # 「未找到包含「xx」的物料」，作业员会误以为要去建档，实际可能只是选错
+        # 了仓库或勾了"仅有货"。带上 stock_filter 后这个歧义是真实可达的：
+        # keyword 命中 + stock_filter=nonzero + 本仓库存 0 → total=0 但档案里有。
+        #
+        # 档案命中数只看物料档案，不看仓库、不看库存，故能在 total=0 时区分两者。
+        # 无关键词时 total 本身已表达全部语义，不再多查一次 COUNT。
+        keyword_material_total = base_query.count() if keyword else None
+
+        # P2-3（清单）：在线查询没有任何"数据截止时间"，作业员无法判断看到的
+        # 是实时值还是几分钟前的，而查库存是要拿来决策（要不要领、领多少）的。
+        # 由服务端直接格式化成 hh:mm 下发：该值只用于显示、不参与计算，交给
+        # 手机端按本地时区格式化，反而会在手机时区不准时显示错的时间。
+        server_time = datetime.now().strftime('%H:%M')
+
         return api_json_success({
             'items': [
                 {
@@ -1465,6 +1485,8 @@ def register_native_api_routes(app):
             'page': page,
             'page_size': page_size,
             'total_pages': total_pages,
+            'keyword_material_total': keyword_material_total,
+            'server_time': server_time,
         })
 
     @app.route('/api/mobile/alert/list')
