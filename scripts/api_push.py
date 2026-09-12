@@ -149,9 +149,16 @@ def main():
                 "content": base64.b64encode(content).decode(),
                 "encoding": "base64",
             })
-            entries.append({"path": path, "mode": "100644",
+            # CI-ENV-2026-09-12-B：mode 必须取自本地 git 的真实文件模式。
+            # 此前硬编码 100644，导致被推送的 100755 文件（.githooks/pre-commit、
+            # app/android-native-wms/gradlew 等）在远端丢失可执行位——
+            # core.hooksPath .githooks 的钩子在 Linux/Mac 上会静默不执行，
+            # gradlew 也跑不起来。内容与 blob sha 都没错，
+            # 错的只是这一个 mode 字段，所以 blob 级同步校验发现不了。
+            mode = git("ls-tree", sha, "--", path).split()[0]
+            entries.append({"path": path, "mode": mode,
                             "type": "blob", "sha": blob["sha"]})
-            print(f"   ① blob {path}")
+            print(f"   ① blob {path}  [{mode}]")
 
         base_tree = req("GET", f"/repos/{REPO}/git/commits/{parent}")["tree"]["sha"]
         tree = req("POST", f"/repos/{REPO}/git/trees",
