@@ -79,25 +79,27 @@ def req(path: str, token: str) -> dict:
     raise RuntimeError(f"GitHub API 请求失败: {last_err}")
 
 
-def local_tree() -> dict[str, str]:
-    """本地 HEAD 的 path -> blob sha（core.quotepath=false 保中文路径原样）。"""
+def local_tree() -> dict[str, tuple[str, str]]:
+    """本地 HEAD 的 path -> (mode, blob sha)（core.quotepath=false 保中文路径原样）。"""
     out = subprocess.run(
         ["git", "-C", REPO_ROOT, "-c", "core.quotepath=false",
          "ls-tree", "-r", "HEAD"],
         capture_output=True, text=True, check=True).stdout
-    tree: dict[str, str] = {}
+    tree: dict[str, tuple[str, str]] = {}
     for line in out.splitlines():
         meta, path = line.split("\t", 1)
-        tree[path] = meta.split()[2]
+        parts = meta.split()
+        tree[path] = (parts[0], parts[2])
     return tree
 
 
-def remote_tree(repo: str, token: str) -> tuple[str, dict[str, str]]:
+def remote_tree(repo: str, token: str) -> tuple[str, dict[str, tuple[str, str]]]:
     head = req(f"/repos/{repo}/commits/main", token)["sha"]
     tree = req(f"/repos/{repo}/git/trees/{head}?recursive=1", token)
     if tree.get("truncated"):
         raise RuntimeError("远端 tree 被截断，无法完整校验")
-    files = {e["path"]: e["sha"] for e in tree["tree"] if e["type"] == "blob"}
+    files = {e["path"]: (e["mode"], e["sha"])
+             for e in tree["tree"] if e["type"] == "blob"}
     return head, files
 
 
@@ -117,7 +119,12 @@ def main() -> int:
     missing_remote = sorted(set(local) - set(remote))
     missing_local = sorted(set(remote) - set(local))
     content_diff = sorted(
-        p for p in set(local) & set(remote) if local[p] != remote[p])
+        p for p in set(local) & set(remote) if local[p][1] != remote[p][1])
+    # mode 差异：内容一样但可执行位不同，git 视作不同对象（tree sha 也不同），
+    # 且危害隐蔽——.githooks/pre-commit 丢 100755 会让钩子在 Linux/Mac 上
+    # 静默不执行，防 BUG 规则形同虚设。历史 api_push.py 硬编码 100644 踩过。
+    mode_diff = sorted(
+        p for p in set(local) & set(remote) if local[p][0] != remote[p][0])
 
     ok = True
     if missing_remote:
@@ -135,9 +142,14 @@ def main() -> int:
         print(f"内容不一致 {len(content_diff)} 个文件:")
         for p in content_diff[:50]:
             print(f"  * {p}")
+    if mode_diff:
+        ok = False
+        print(f"文件模式(mode)不一致 {len(mode_diff)} 个文件——可执行位丢失会让钩子/脚本无法直接运行:")
+        for p in mode_diff[:50]:
+            print(f"  ! {p}  本地={local[p][0]} 远端={remote[p][0]}")
 
     if ok:
-        print("✓ 本地与远端 tree blob 级完全同步")
+        print("✓ 本地与远端 tree blob 级完全同步（含文件模式）")
         return 0
     print("✗ 推送同步校验失败——禁止认为'推完了'，逐个差异处理后重试",
           file=sys.stderr)
