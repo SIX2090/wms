@@ -642,6 +642,33 @@ actual_arrival_date = db.Column(db.Date)   # 实际最后一次到货日期
 > **不需要任何 workflow 权限**即可进入 CI 门禁。ci.yml 里那条清单条目已过时
 > （文件里已无 F7 用例，仅剩 7 例全绿，被跳过只是浪费），等有 workflow 权限时顺手清掉。
 
+### R6：迁移列缺兜底导致生产 500（第 5 次复发，2026-09-12）
+
+**症状**：Windows `C:\wms` 启动即崩，首页 `index()` 500 ——
+`no such column: in_order.source_sales_order_id`。
+
+**机制**：新列只写进 `app.py auto_migrate_database()`，而 `start_wms_*.bat` 默认
+`WMS_NO_DB_TOUCH=1` 把它整体跳过，兜底的 `app/fix_db_columns.py` 又常没同步
+（`start_wms_auto.bat` 连它都不跑）。**功能上线前建好的存量库，重启后永远补不上这些列。**
+
+**复发史**：print_job（08-20）、excel_print_template（08-22，缺*表*不是缺列）、
+stock_transaction.warehouse_id（08-28）、盘点域 6 列（09-05）、销售退货入库 3 列（09-12）。
+
+**本次处置（三层）**：
+1. `ensure_sales_return_source_columns()` —— 独立于迁移开关**无条件执行**、幂等，
+   存量库拉代码后重启即自愈（唯一自愈路径）。
+2. `fix_db_columns.py` 同步补列（offline.bat 路径）。
+3. `fix_p15_columns.py` —— 不停机止血脚本，自动探测 DB 路径、幂等、只改表结构。
+4. 静态排查顺手修掉本轮「领料部门/领料人」的同款坑：`department` 表根本不存在
+   （`no such table: department`）、`out_order.department_id`/`picker`、
+   `employee.department_id` —— 都还没在生产爆，属于提前排雷。
+
+**机制级根治**：`tests/test_r6_startup_migration_column_guard.py` 静态比对
+「auto_migrate_database 的 ADD COLUMN」与「全部 ensure_* 无条件兜底」，
+登记 77 条历史欠账为**已知债务清单**，并卡死两条闸门：新增迁移列不补兜底 → 测试红；
+清单必须与实测缺口逐条一致（补了兜底就删条目）。已负向验证闸门有效。
+存量 77 条的补齐按业务优先级逐步清，但**新增一律不许再欠**。
+
 | ID | 任务 | 批 | 依赖 | 需拍板 | 风险 | 预估 |
 |---|---|---|---|---|---|---|
 | P0-4 | 补齐 AI 治理漏洞 | 1 | — | | 低 | 0.5 天 |
