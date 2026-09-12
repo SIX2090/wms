@@ -1368,11 +1368,24 @@ fun StocktakeScreen(
         isLoading = uiState.isLoading,
         showScannerDialog = showScannerDialog,
         onShowScanner = { showScannerDialog = true },
-        onDismissScanner = { showScannerDialog = false },
+        onDismissScanner = {
+            showScannerDialog = false
+            viewModel.clearMaterialSuggestions()
+        },
         manualCode = manualCode,
         manualQty = manualQty,
-        onManualCodeChange = { manualCode = it },
+        // AI-MOB-ADD-KEYWORD-01：与查库存同口径的关键词模糊联想
+        onManualCodeChange = {
+            manualCode = it
+            viewModel.searchMaterialSuggestions(it)
+        },
         onManualQtyChange = { manualQty = it },
+        materialSuggestions = uiState.materialSuggestions,
+        materialSuggestionsLoading = uiState.materialSuggestionsLoading,
+        onMaterialSuggestionSelected = { material ->
+            manualCode = material.code.orEmpty()
+            viewModel.clearMaterialSuggestions()
+        },
         onManualAdd = {
             if (manualCode.isNotBlank()) {
                 addOrConfirmStocktakeLine(

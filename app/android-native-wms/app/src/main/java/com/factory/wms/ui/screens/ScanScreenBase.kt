@@ -1,11 +1,14 @@
 package com.factory.wms.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -494,11 +497,15 @@ fun ScanScreenBase(
             },
             text = {
                 Column {
+                    // AI-MOB-ADD-KEYWORD-01：输入框与「查库存」同口径——支持
+                    // 名称/规格/品牌关键词模糊联想，不再只认物料编码。
+                    // 后端 /api/material/search 本就按 code|name|spec|brand 四字段
+                    // LIKE 匹配，缺的只是这里把候选渲染出来。
                     OutlinedTextField(
                         value = manualCode,
                         onValueChange = onManualCodeChange,
-                        label = { Text("物料编码") },
-                        placeholder = { Text("输入或扫描物料编码") },
+                        label = { Text("物料编码 / 名称 / 规格 / 品牌") },
+                        placeholder = { Text("输入或扫描物料编码，也可搜名称/规格/品牌") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
@@ -507,6 +514,90 @@ fun ScanScreenBase(
                             focusedLabelColor = submitColor
                         )
                     )
+
+                    // 关键词模糊候选：命中即列出，点选后自动回填物料编码
+                    if (manualCode.isNotBlank()) {
+                        if (materialSuggestionsLoading) {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 6.dp),
+                                color = submitColor,
+                                trackColor = submitColor.copy(alpha = 0.12f)
+                            )
+                        } else if (materialSuggestions.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = submitColor.copy(alpha = 0.06f)
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        // 弹窗内空间有限：限高内部滚动，候选多也不撑破弹窗
+                                        .heightIn(max = 220.dp)
+                                        .verticalScroll(rememberScrollState())
+                                ) {
+                                    materialSuggestions.forEachIndexed { index, material ->
+                                        val specBrand = listOfNotNull(
+                                            material.spec?.takeIf { it.isNotBlank() }
+                                                ?.let { "规格: $it" },
+                                            material.brand?.takeIf { it.isNotBlank() }
+                                                ?.let { "品牌: $it" }
+                                        ).joinToString("   ")
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    onMaterialSuggestionSelected(material)
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    material.code.orEmpty(),
+                                                    style = MaterialTheme.typography.titleSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = submitColor
+                                                )
+                                                if (!material.name.isNullOrBlank()) {
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        material.name.orEmpty(),
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                            if (specBrand.isNotBlank()) {
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    specBrand,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                        if (index < materialSuggestions.size - 1) {
+                                            HorizontalDivider(
+                                                color = submitColor.copy(alpha = 0.12f),
+                                                thickness = 0.5.dp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(
                         verticalAlignment = Alignment.CenterVertically
