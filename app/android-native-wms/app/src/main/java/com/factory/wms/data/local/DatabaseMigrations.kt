@@ -16,11 +16,6 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 object DatabaseMigrations {
 
-    /** 全部已登记的迁移，按 (fromVersion -> toVersion) 顺序排列。 */
-    val ALL: Array<Migration> = arrayOf(
-        MIGRATION_1_2
-    )
-
     /**
      * v1 -> v2：新增离线待提交作业队列表（AI-MOB-OFFLINE-01）。
      *
@@ -63,4 +58,17 @@ object DatabaseMigrations {
             )
         }
     }
+
+    /**
+     * 全部已登记的迁移，按 (fromVersion -> toVersion) 顺序排列。
+     *
+     * **声明位置必须在各 [Migration] 常量之后**：Kotlin `object` 的属性初始化
+     * 严格按源码顺序执行，若 [ALL] 写在 [MIGRATION_1_2] 之前，初始化 [ALL] 时
+     * [MIGRATION_1_2] 仍为 null，编译期即报
+     * "variable 'MIGRATION_1_2' must be initialized"（BUG-2026-09-12-006）。
+     * 新增迁移时请追加到本行之前，切勿把本条上移。
+     */
+    val ALL: Array<Migration> = arrayOf(
+        MIGRATION_1_2
+    )
 }

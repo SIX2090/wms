@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.factory.wms.data.model.*
 import com.factory.wms.data.repository.WmsRepository
+import com.factory.wms.data.repository.WmsRepository.Companion.OfflineQueuedException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -754,7 +755,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     // 清空已扫明细（数据已安全落本地队列，用户不必重扫），
                     // 只在提示里说明"联网后自动提交"。
                     // 若不区分，用户看到"失败"会重扫一遍 → 重复单据。
-                    if (e is WmsRepository.OfflineQueuedException) {
+                    if (e is OfflineQueuedException) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             success = e.message,
@@ -818,7 +819,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     // 清空已扫明细（数据已安全落本地队列，用户不必重扫），
                     // 只在提示里说明"联网后自动提交"。
                     // 若不区分，用户看到"失败"会重扫一遍 → 重复单据。
-                    if (e is WmsRepository.OfflineQueuedException) {
+                    if (e is OfflineQueuedException) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             success = e.message,
@@ -918,7 +919,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     // 清空已扫明细（数据已安全落本地队列，用户不必重扫），
                     // 只在提示里说明"联网后自动提交"。
                     // 若不区分，用户看到"失败"会重扫一遍 → 重复单据。
-                    if (e is WmsRepository.OfflineQueuedException) {
+                    if (e is OfflineQueuedException) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             success = e.message,

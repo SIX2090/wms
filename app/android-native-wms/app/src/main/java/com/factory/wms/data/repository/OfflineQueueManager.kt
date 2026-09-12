@@ -2,14 +2,15 @@ package com.factory.wms.data.repository
 
 import android.content.Context
 import android.util.Log
-import com.factory.wms.data.api.ApiEnvelope
 import com.factory.wms.data.api.WmsApiService
 import com.factory.wms.data.local.PendingOperationDao
 import com.factory.wms.data.local.PendingOperationEntity
+import com.factory.wms.data.model.ApiEnvelope
 import com.factory.wms.data.model.InboundRequest
 import com.factory.wms.data.model.OutboundRequest
 import com.factory.wms.data.model.StocktakeRequest
 import com.factory.wms.data.model.SubmitResult
+import com.factory.wms.data.repository.WmsRepository.Companion.BusinessException
 import com.factory.wms.util.NetworkMonitor
 import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
@@ -174,7 +175,7 @@ class OfflineQueueManager private constructor(
 
                 val success = try {
                     replay(op)
-                } catch (e: WmsRepository.BusinessException) {
+                } catch (e: BusinessException) {
                     // 业务类失败：重试无意义，直接判失败并保留服务端给出的中文原因
                     markFailure(op, e.message ?: "服务端拒绝该请求", forceFail = true)
                     failCount++
@@ -237,7 +238,7 @@ class OfflineQueueManager private constructor(
         }.getOrNull() ?: "服务端返回 $code"
 
         if (code in 400..499) {
-            throw WmsRepository.BusinessException(msg)
+            throw BusinessException(msg)
         }
         throw Exception(msg)
     }
