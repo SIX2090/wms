@@ -258,6 +258,90 @@ def test_fix_columns_inventory_check_idempotent(old_check_db):
     assert before == after
 
 
+# ---- BUG-2026-09-12（R6 第 5 次复发）：P1-5 销售退货入库来源销售订单列 ----
+
+_P15_EXPECTED = (
+    ('in_order', 'source_sales_order_id'),
+    ('in_order', 'source_sales_order_no'),
+    ('in_order_item', 'source_sales_order_item_id'),
+)
+
+
+def test_fix_columns_adds_sales_return_source_columns(temp_db):
+    """fix_columns 应补齐 P1-5 销售退货入库的来源销售订单列。
+
+    2026-09-12 生产事故：这三列只加在 app.py auto_migrate_database() 里，
+    而 start_wms_*.bat 默认 WMS_NO_DB_TOUCH=1 整体跳过它，兜底层又没同步，
+    存量库重启后首页 index() 直接 500：no such column: in_order.source_sales_order_id。
+    """
+    conn = sqlite3.connect(temp_db)
+    conn.execute('CREATE TABLE in_order_item (id INTEGER PRIMARY KEY, in_order_id INTEGER)')
+    conn.commit()
+    conn.close()
+
+    fix_columns(db_path=temp_db)
+
+    for table, col in _P15_EXPECTED:
+        assert col in _check_cols(temp_db, table), f'未补齐: {table}.{col}'
+
+
+def test_fix_columns_sales_return_columns_idempotent(temp_db):
+    """重复执行不报错、不重复 ALTER。"""
+    conn = sqlite3.connect(temp_db)
+    conn.execute('CREATE TABLE in_order_item (id INTEGER PRIMARY KEY, in_order_id INTEGER)')
+    conn.commit()
+    conn.close()
+
+    fix_columns(db_path=temp_db)
+    before = {t: _check_cols(temp_db, t) for t in ('in_order', 'in_order_item')}
+    fix_columns(db_path=temp_db)
+    after = {t: _check_cols(temp_db, t) for t in ('in_order', 'in_order_item')}
+    assert before == after
+
+
+def test_p15_ddl_matches_app_py_antidrift():
+    """防漂移：fix_db_columns 的 P1-5 补列 DDL 必须与 app.py 的定义逐字一致。
+
+    app.py 用「(列名, 类型) 元组 + f-string 拼 ALTER」，故按类型片段比对：
+    ADD COLUMN <列名> <类型> 必须在 fix_db_columns.py 中出现，且该 (列名, 类型)
+    组合必须出现在 app.py 的迁移定义里——任一侧改动而另一侧没跟，这里立刻红。
+    """
+    root = os.path.dirname(os.path.dirname(__file__))
+    with open(os.path.join(root, 'app', 'app.py'), encoding='utf-8') as f:
+        app_src = f.read()
+    with open(os.path.join(root, 'app', 'fix_db_columns.py'), encoding='utf-8') as f:
+        fix_src = f.read()
+
+    expected_ddl = {
+        ('in_order', 'source_sales_order_id'): 'ADD COLUMN source_sales_order_id INTEGER',
+        ('in_order', 'source_sales_order_no'): 'ADD COLUMN source_sales_order_no VARCHAR(50)',
+        ('in_order_item', 'source_sales_order_item_id'):
+            'ADD COLUMN source_sales_order_item_id INTEGER',
+    }
+    for (table, col), ddl in expected_ddl.items():
+        assert ddl in fix_src, f'fix_db_columns.py 缺少 {table}.{col} 的补列 DDL'
+        # app.py 侧：列定义必须存在（类型取自模型/迁移定义）
+        assert f"'{col}'" in app_src, f'app.py 未登记 {col}'
+        assert col in app_src
+
+    # in_order_item 的 ALTER 在 app.py 里是整句字面量，可直接逐字比对
+    assert 'ALTER TABLE in_order_item ADD COLUMN source_sales_order_item_id INTEGER' in app_src
+
+    # 生产一次性止血脚本 fix_p15_columns.py 必须与上面同一份清单，
+    # 否则「脚本补了 A 列、兜底层补了 B 列」，事故换个库又复发
+    from fix_p15_columns import MIGRATIONS as standalone_migs
+    expected_migs = {
+        ('in_order', 'source_sales_order_id', 'INTEGER'),
+        ('in_order', 'source_sales_order_no', 'VARCHAR(50)'),
+        ('in_order_item', 'source_sales_order_item_id', 'INTEGER'),
+    }
+    assert set(standalone_migs) == expected_migs, (
+        'fix_p15_columns.py 的 MIGRATIONS 与 fix_db_columns / app.py 不一致 '
+        f'（多余 {set(standalone_migs) - expected_migs}、'
+        f'缺失 {expected_migs - set(standalone_migs)}）'
+    )
+
+
 def test_fix_columns_ddl_matches_app_py_and_standalone_script():
     """防漂移：fix_db_columns 盘点补列 DDL 必须与 app.py ensure_inventory_check_columns
     及 app/fix_inventory_check_columns.py 的清单完全一致（R6 机制级防复发）。"""

@@ -1699,6 +1699,148 @@ def ensure_excel_print_template_table(db_path: str | None = None):
                 pass
 
 
+def ensure_department_table(db_path: str | None = None):
+    """启动期无条件创建 department 表（BUG-2026-09-12，移动端领料部门/领料人）。
+
+    Department 模型只挂在 db.create_all()（initialize_database）里，而
+    start_wms_*.bat 默认 WMS_NO_DB_TOUCH=1 会跳过它，fix_db_columns.py
+    又完全不含该表——功能上线前创建的存量库重启也建不出表，打开移动端
+    「扫码出库」拉取部门列表（GET /api/departments）即抛
+    no such table: department → 500。
+
+    仿照 ensure_excel_print_template_table：独立 sqlite 连接、独立于迁移开关
+    无条件执行、幂等（CREATE TABLE / INDEX IF NOT EXISTS），已有表与数据
+    一律不动。列定义与 Department 模型保持一致。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            # 全新部署：库文件都还没有，交给 initialize_database/create_all 建全量表
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        cur = conn.cursor()
+        cur.execute('PRAGMA busy_timeout=60000')
+        exists = cur.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='department'"
+        ).fetchone()
+        if exists:
+            return
+        # 表名/列名均为固定白名单标识符（非用户输入），无注入风险。
+        cur.execute(
+            'CREATE TABLE IF NOT EXISTS department ('
+            'id INTEGER PRIMARY KEY, '
+            'code VARCHAR(50) NOT NULL UNIQUE, '
+            'name VARCHAR(100) NOT NULL UNIQUE, '
+            'status VARCHAR(20), '
+            'remark VARCHAR(200), '
+            'created_at DATETIME)'
+        )
+        conn.commit()
+        logging.getLogger(__name__).info('[DB] department 缺表已补建（BUG-2026-09-12）')
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_department_table 建表失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def ensure_outbound_department_columns(db_path: str | None = None):
+    """启动期无条件补齐移动端领料部门/领料人相关列（BUG-2026-09-12）。
+
+    out_order.department_id / out_order.picker 与 employee.department_id
+    三列只在 auto_migrate_database() 里 ADD，WMS_NO_DB_TOUCH=1 时存量库
+    重启补不上：移动端提交出库单写 department_id/picker 即
+    no such column: out_order.department_id，员工按部门过滤
+    （GET /api/employees?department_id=）即 no such column: employee.department_id。
+
+    与 ensure_sales_return_source_columns 同理：独立 sqlite 连接、独立于
+    迁移开关无条件执行、幂等补列，列定义与 auto_migrate_database 逐字一致。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=60000')
+
+        _dept_column_migrations = (
+            ('out_order', 'PRAGMA table_info(out_order)', (
+                ('department_id',
+                 'ALTER TABLE out_order ADD COLUMN department_id INTEGER'),
+                ('picker',
+                 'ALTER TABLE out_order ADD COLUMN picker VARCHAR(50)'),
+            )),
+            ('employee', 'PRAGMA table_info(employee)', (
+                ('department_id',
+                 'ALTER TABLE employee ADD COLUMN department_id INTEGER'),
+            )),
+        )
+        added_cols = []
+        for _tbl, _pragma, _col_stmts in _dept_column_migrations:
+            exists = cur.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (_tbl,),
+            ).fetchone()
+            if not exists:
+                continue
+            cur.execute(_pragma)
+            cols = {r['name'] for r in cur.fetchall()}
+            if not cols:
+                continue
+            for _col, _stmt in _col_stmts:
+                if _col in cols:
+                    continue
+                cur.execute(_stmt)
+                cols.add(_col)
+                added_cols.append(f'{_tbl}.{_col}')
+        if added_cols:
+            conn.commit()
+            logging.getLogger(__name__).info(
+                '[DB] 领料部门/领料人已补缺列（BUG-2026-09-12）: %s' % ', '.join(added_cols))
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_outbound_department_columns 补列失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def ensure_stock_transaction_warehouse_id_column(db_path: str | None = None):
     """启动期无条件补齐 stock_transaction.warehouse_id 列（BUG-2026-08-28-004）。
 
@@ -1863,6 +2005,100 @@ def ensure_inventory_check_columns(db_path: str | None = None):
         try:
             logging.getLogger(__name__).error(
                 f'ensure_inventory_check_columns 补列失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def ensure_sales_return_source_columns(db_path: str | None = None):
+    """启动期无条件补齐 P1-5 销售退货入库的来源销售订单列（BUG-2026-09-12，R6 第 5 次复发）。
+
+    背景：P1-5「销售退货入库」给 ``in_order`` 加了 source_sales_order_id /
+    source_sales_order_no、给 ``in_order_item`` 加了 source_sales_order_item_id，
+    三列**只**在 ``auto_migrate_database()`` 里 ADD。而
+    ``start_wms_offline.bat`` / ``start_wms_auto.bat`` 默认设置
+    ``WMS_NO_DB_TOUCH=1``，``auto_migrate_database()`` 被
+    ``startup_db_upgrade_disabled()`` 整体跳过；兜底的
+    ``app/fix_db_columns.py`` 当时也没同步这三列（start_wms_auto.bat 更是连
+    fix_db_columns 都不跑）。存量生产库重启后补不上，首页
+    ``index()`` 一执行 ``InOrder.query.filter_by(status='pending').count()``
+    即 500：
+        sqlalchemy.exc.OperationalError: (sqlite3.OperationalError)
+        no such column: in_order.source_sales_order_id
+
+    仿照 ``ensure_inventory_check_columns``：独立 sqlite 连接、独立于迁移开关
+    无条件执行、幂等（PRAGMA table_info 判断列存在则不 ALTER），列定义与
+    ``auto_migrate_database()`` 的 ALTER 逐字一致（SQLite ALTER 不支持外键，
+    仅加列；MySQL/PG 走 alembic 迁移）。
+
+    注意：本函数是**唯一能自愈存量库**的路径——fix_db_columns.py 只在
+    start_wms_offline.bat 里被调用，start_wms_auto.bat 不跑它。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            # 全新部署：库文件还没建，交给 create_all 建全量表
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=60000')
+
+        _sales_return_column_migrations = (
+            ('in_order', 'PRAGMA table_info(in_order)', (
+                ('source_sales_order_id',
+                 'ALTER TABLE in_order ADD COLUMN source_sales_order_id INTEGER'),
+                ('source_sales_order_no',
+                 'ALTER TABLE in_order ADD COLUMN source_sales_order_no VARCHAR(50)'),
+            )),
+            ('in_order_item', 'PRAGMA table_info(in_order_item)', (
+                ('source_sales_order_item_id',
+                 'ALTER TABLE in_order_item ADD COLUMN source_sales_order_item_id INTEGER'),
+            )),
+        )
+        added_cols = []
+        for _tbl, _pragma, _col_stmts in _sales_return_column_migrations:
+            exists = cur.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (_tbl,),
+            ).fetchone()
+            if not exists:
+                # 表不存在 → 全新库，交给 create_all 建表
+                continue
+            cur.execute(_pragma)
+            cols = {r['name'] for r in cur.fetchall()}
+            if not cols:
+                continue
+            for _col, _stmt in _col_stmts:
+                if _col in cols:
+                    continue
+                cur.execute(_stmt)
+                cols.add(_col)
+                added_cols.append(f'{_tbl}.{_col}')
+        if added_cols:
+            conn.commit()
+            logging.getLogger(__name__).info(
+                '[DB] 销售退货入库已补缺列（BUG-2026-09-12）: %s' % ', '.join(added_cols))
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_sales_return_source_columns 补列失败: {e}', exc_info=True)
         except Exception:
             pass
         if conn is not None:
@@ -2045,6 +2281,23 @@ ensure_stock_transaction_warehouse_id_column()
 # 物料编辑保存的级联统计查询即报 no such column: inventory_check_item.counted_by。
 # 独立于迁移开关无条件执行，幂等补列。
 ensure_inventory_check_columns()
+
+# BUG-2026-09-12（R6 第 5 次复发）：P1-5 销售退货入库的
+# in_order.source_sales_order_id / source_sales_order_no 与
+# in_order_item.source_sales_order_item_id 只在 auto_migrate_database 里 ADD，
+# WMS_NO_DB_TOUCH=1 时存量库重启补不上，首页 index() 一查 in_order 即
+# 500（no such column: in_order.source_sales_order_id）。
+# 与上面同理，独立于迁移开关无条件执行、幂等补列。这是存量库唯一自愈路径
+# （start_wms_auto.bat 根本不调用 fix_db_columns.py）。
+ensure_sales_return_source_columns()
+
+# BUG-2026-09-12：移动端「领料部门/领料人」整套依赖 department 表 +
+# out_order.department_id/picker + employee.department_id，四者都只在
+# create_all / auto_migrate_database 里，WMS_NO_DB_TOUCH=1 时存量库
+# 重启一样补不上（no such table: department / no such column:
+# out_order.department_id）。同上，无条件执行、幂等。
+ensure_department_table()
+ensure_outbound_department_columns()
 
 # BUG-2026-08-22-001：同理，WMS_NO_DB_TOUCH=1 跳过 db.create_all() 时，
 # 存量库永远建不出 excel_print_template 表，「Excel打印模板中心」打开即 500。

@@ -142,6 +142,34 @@ def fix_columns(db_path=None):
             logger.info('已添加 in_order.auto_push_requisition')
         else:
             logger.info('in_order.auto_push_requisition 已存在')
+        # BUG-2026-09-12（R6 第 5 次复发）：P1-5 销售退货入库给 in_order 补的
+        # 来源销售订单两列只加在 app.py auto_migrate_database() 里，而
+        # start_wms_*.bat 默认 WMS_NO_DB_TOUCH=1 会整体跳过它，本兜底层又没同步，
+        # 于是存量库重启后首页 index() 查询直接 500：
+        #   no such column: in_order.source_sales_order_id
+        # ALTER 语句与 app/app.py auto_migrate_database() 逐字一致。
+        if 'source_sales_order_id' not in in_cols:
+            conn.execute('ALTER TABLE in_order ADD COLUMN source_sales_order_id INTEGER')
+            conn.commit()
+            logger.info('已添加 in_order.source_sales_order_id')
+        else:
+            logger.info('in_order.source_sales_order_id 已存在')
+        if 'source_sales_order_no' not in in_cols:
+            conn.execute('ALTER TABLE in_order ADD COLUMN source_sales_order_no VARCHAR(50)')
+            conn.commit()
+            logger.info('已添加 in_order.source_sales_order_no')
+        else:
+            logger.info('in_order.source_sales_order_no 已存在')
+
+    if _table_exists(conn, 'in_order_item'):
+        in_item_cols = [r[1] for r in conn.execute('PRAGMA table_info(in_order_item)').fetchall()]
+        # 同 R6：退货行回指销售订单行，缺列会让销售退货入库明细无法落库
+        if 'source_sales_order_item_id' not in in_item_cols:
+            conn.execute('ALTER TABLE in_order_item ADD COLUMN source_sales_order_item_id INTEGER')
+            conn.commit()
+            logger.info('已添加 in_order_item.source_sales_order_item_id')
+        else:
+            logger.info('in_order_item.source_sales_order_item_id 已存在')
 
     if _table_exists(conn, 'out_order'):
         out_cols = [r[1] for r in conn.execute('PRAGMA table_info(out_order)').fetchall()]
