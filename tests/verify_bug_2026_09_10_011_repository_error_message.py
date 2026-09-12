@@ -86,6 +86,37 @@ def test_t5_key_apis_use_safe_call():
 
 def test_t6_cascade_catch_passes_business_exception():
     src = _src()
-    # submit 类接口（含额外处理）的外层 catch 必须先放行 BusinessException
-    cascade = src.count("} catch (e: BusinessException) {\n            Result.failure(e)")
-    assert cascade >= 5, f"级联 catch 放行 BusinessException 的数量不足：{cascade}"
+    # submit 类接口（含额外处理）的外层 catch 必须先放行 BusinessException，
+    # 否则服务端给出的业务原因会被兜底 catch 覆盖成"网络错误"。
+    #
+    # AI-MOB-OFFLINE-01 重构说明（2026-09-12）：原先 3 个 submit 方法各自内联
+    # 一份 try/catch（共 5 处 `} catch (e: BusinessException) { Result.failure(e)`），
+    # 重构后统一收口到共享的 `submitWithOfflineFallback`，只剩 1 处。
+    # **行为未削弱、反而更稳**（杜绝三份实现日后漂移，R6），
+    # 因此本用例改为断言"结构 + 语义"，而非脆弱的字符串计数。
+    # 若日后有人给某个 submit 单独写 try/catch 绕过共享入口，本用例会失败。
+    entry = "private suspend fun submitWithOfflineFallback("
+    assert entry in src, "应存在 submit 统一入口 submitWithOfflineFallback"
+
+    # 1) 共享入口内：BusinessException 分支必须先于 Exception 分支
+    body = src[src.index(entry):]
+    tail = "\n    /** 按作业类型写入本地操作日志"
+    body = body[:body.index(tail)] if tail in body else body
+    assert "catch (e: BusinessException)" in body and "catch (e: Exception)" in body, \
+        "共享入口必须同时捕获 BusinessException 与 Exception"
+    assert body.index("catch (e: BusinessException)") < body.index("catch (e: Exception)"), \
+        "BusinessException 必须先于兜底 Exception 捕获"
+    # 2) 业务拒绝原样放行，不得被包成"网络错误"
+    biz_branch = body[body.index("catch (e: BusinessException)"):]
+    biz_branch = biz_branch[:biz_branch.index("catch (e: Exception)")]
+    assert "Result.failure(e)" in biz_branch, "业务拒绝应原样透传 e（保留服务端 msg）"
+    assert "网络错误" not in biz_branch, "业务拒绝分支不得标注网络错误"
+    # 3) 三个 submit 入口都必须走共享函数（不允许绕过）
+    for fn in ("submitInbound", "submitOutbound", "submitStocktake"):
+        fn_body = src[src.index(f"suspend fun {fn}("):]
+        nxt = fn_body.find("suspend fun ", 10)
+        fn_body = fn_body[:nxt] if nxt != -1 else fn_body
+        assert "submitWithOfflineFallback" in fn_body, \
+            f"{fn} 必须走 submitWithOfflineFallback（否则错误分流口径会分叉）"
+        assert "catch (e: BusinessException)" not in fn_body, \
+            f"{fn} 不应自带 try/catch（应统一收口到共享入口）"
