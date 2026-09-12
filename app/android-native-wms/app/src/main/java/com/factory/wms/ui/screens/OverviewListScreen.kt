@@ -276,7 +276,9 @@ private fun AlertRow(item: AlertItemDto, accent: Color) {
                     "规格: ${item.spec}",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    // BUG-2026-09-12-002：缺货预警按单领料，规格尾部（颜色/线径）
+                    // 是防拿错货的关键，单行省略号会吞掉 → 放开到 2 行
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }

@@ -601,7 +601,11 @@ fun ScanScreenBase(
                                                     specBrand,
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1,
+                                                    // BUG-2026-09-12-002：规格是区分物料的关键
+                                                    // （如 ZB-BVR-450/750V 1*2.5 红/蓝 只差尾部），
+                                                    // 单行省略号会把差异吃掉 → 候选看起来全一样。
+                                                    // 放开到 2 行；候选区本身限高+内部滚动，不撑破弹窗。
+                                                    maxLines = 2,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                             }

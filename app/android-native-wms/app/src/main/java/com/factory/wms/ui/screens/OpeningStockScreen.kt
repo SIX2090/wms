@@ -453,7 +453,9 @@ fun OpeningStockScreen(
                                                     specBrand,
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1,
+                                                    // BUG-2026-09-12-002：同 ScanScreenBase——
+                                                    // 规格单行截断会吃掉区分物料的尾部差异，放开到 2 行
+                                                    maxLines = 2,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                             }
