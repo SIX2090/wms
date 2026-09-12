@@ -126,7 +126,7 @@
 | 36 | AI-MOB-HOME-F01 | 已完成 | 手机端首页接入"今日概览"条（复用既有 /api/mobile/dashboard） | AI-MOB-VOICE-F01 | AI-MOB-NAV-F01 |
 | 37 | AI-MOB-NAV-F01 | 已完成 | 手机端底部 Tab 导航（首页/入库/出库/查库存/我的） | AI-MOB-HOME-F01 | AI-MOB-STOCK-F01 |
 | 38 | AI-MOB-STOCK-F01 | 已完成 | 手机端查库存增加列表模式（复用既有 /api/mobile/stock/query） | AI-MOB-NAV-F01 | AI-MOB-CHECK-F01 |
-| 39 | AI-MOB-CHECK-F01 | 部分完成 | 手机盘点与 Web 盘点单据流对齐（仓库必填✓、盘点记录可回查✗） | AI-MOB-STOCK-F01 | AI-MOB-RPT-F01 |
+| 39 | AI-MOB-CHECK-F01 | 已完成 | 手机盘点与 Web 盘点单据流对齐（仓库必填✓、提交前选单✓、盘点记录可回查✓） | AI-MOB-STOCK-F01 | AI-MOB-RPT-F01 |
 | 40 | AI-MOB-RPT-F01 | 部分完成 | 手机端只读报表入口（日报只读视图✓；库存汇总/出入库明细独立端点✗） | AI-MOB-CHECK-F01 | AI-MOB-EMPTY-F01 |
 | 41 | AI-MOB-EMPTY-F01 | 部分完成 | 手机端统一空状态组件✓（16 处）；引导动作参数✗、首次登录引导✗ | AI-MOB-RPT-F01 | 无 |
 | 42 | AI-MOB-ARCH-F01 | 已完成 | 手机端物料档案：搜索物料 + 拍照/相册上传多图（每物料最多 5 张）+ 删除 | AI-MOB-NAV-F01 | 无 |
@@ -762,6 +762,11 @@
 > - ✗ `tests/verify_mobile_stocktake_flow.py` 不存在。
 >
 > 结论：**部分完成**。剩余工作量集中在"盘点记录回查"（后端列表端点 + 手机端记录页），约 1 个 atomic action。
+>
+> **回查补齐（2026-09-13，继上一条核实后当天完成）**——`AI-MOB-CHECK-F01` 至此**已完成**：
+> - ✓ **后端 `GET /api/mobile/stocktake/list`**（`app/routes/native_api.py`，A10 不落在 `app.py`）：`@csrf.exempt` + `@api_role_required('warehouse')`；按 `operator_id == 当前用户` 过滤（仅本人记录）；`warehouse/warehouse_code/warehouse_id` 可选筛选（传了就校验，非法仓库显式 400 而非静默空列表）；`status` 支持 `completed`（默认）/`void`/`all`；`_mobile_paginate` 分页并回传 `total/page/page_size/total_pages`（R1）；单行含 `item_count/diff_count/batch_no/batch_status/adjustment_status`，其中 `adjustment_status` 取 `AdjustmentOrder`（`source_type='check'` 批次维度 + `source_type='check_scan'` 历史维度）的 `pending/completed`，与 PC「完成盘点」口径一致。批量预取批次与调整单，避免 N+1。
+> - ✓ **Android 盘点记录页**：`WmsApiService.listStocktakeRecords()` → `StocktakeRecordDto/StocktakeRecordListData`（可空声明，守 BUG-2026-08-24-007）→ `WmsRepository.loadStocktakeRecords()` → `StocktakeRecordViewModel`（不在 `init` 加载，守 BUG-2026-08-24-006）→ `StocktakeRecordScreen`（`WmsEmptyState` 空态、正常/已作废切换、上拉加载更多）；`Screen.StocktakeRecord` + `NavGraph` 注册 + 首页「盘点记录」卡片入口。全程只读，无写操作。
+> - ✓ 回归：`tests/test_mob_check_f01_stocktake_list.py` 7 例（仅本人记录/401/仓库筛选与非法仓 400/R1 分页不重不漏/行字段与审核状态联动/状态筛选/只读性），与既有点相关回归 26 例全绿。
 
 ### AI-MOB-RPT-F01：手机端只读报表入口
 
@@ -971,7 +976,7 @@
 
 ## 11. 当前下一项
 
-**当前下一项：AI-MOB-CHECK-F01（手机盘点与 Web 盘点单据流对齐）**，其后按第 6 节第 6 批顺序串行推进 AI-MOB-RPT-F01 → AI-MOB-EMPTY-F01（手机端体验对齐批，2026-08-09 登记）。AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）均已完成。另有 AI-VOICE-OUT-F01（手机端语音建领料单草稿，2026-09-11 完成）为移动端语音能力新增，不占用第 6 批串行顺序。
+**当前下一项：AI-MOB-RPT-F01（手机端只读报表入口，仅剩库存汇总/出入库明细独立端点，日报只读视图已于 2026-09-11 完成）**，其后按第 6 节第 6 批顺序串行推进 AI-MOB-EMPTY-F01（手机端体验对齐批，2026-08-09 登记）。AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）、AI-MOB-CHECK-F01（手机盘点与 Web 单据流对齐，2026-09-13 完成回查收尾）均已完成。另有 AI-VOICE-OUT-F01（手机端语音建领料单草稿，2026-09-11 完成）为移动端语音能力新增，不占用第 6 批串行顺序。
 
 所有历史 AI 任务已完成；**AI-R07-F02（分类识别+按分类建议编号）已完成**。
 

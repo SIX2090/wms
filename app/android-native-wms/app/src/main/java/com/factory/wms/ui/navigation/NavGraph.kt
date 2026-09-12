@@ -50,6 +50,7 @@ import com.factory.wms.ui.viewmodel.list.OrderListViewModel
 import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
 import com.factory.wms.ui.viewmodel.report.ReportViewModel
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
+import com.factory.wms.ui.viewmodel.stocktake.StocktakeRecordViewModel
 import com.factory.wms.ui.viewmodel.voice.VoiceCommandViewModel
 import com.factory.wms.ui.viewmodel.voice.VoiceOutDraftViewModel
 
@@ -111,6 +112,8 @@ fun AppNavGraph() {
     val homeViewModel: HomeViewModel = viewModel()
     val materialArchiveViewModel: MaterialArchiveViewModel = viewModel()
     val reportViewModel: ReportViewModel = viewModel()
+    // AI-MOB-CHECK-F01：盘点记录回查页（本人经手记录，只读）
+    val stocktakeRecordViewModel: StocktakeRecordViewModel = viewModel()
 
     // AI-MOB-DRILLDOWN-01：首页概览下钻列表（库存告警 / 待处理单据）。
     // 两个下钻入口共用同一个 ViewModel——它的 ListKind 已能承载
@@ -323,6 +326,13 @@ fun AppNavGraph() {
                 composable(Screen.DailyReport.route) {
                     DailyReportScreen(
                         viewModel = reportViewModel,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(Screen.StocktakeRecord.route) {
+                    StocktakeRecordScreen(
+                        viewModel = stocktakeRecordViewModel,
                         onBack = { navController.popBackStack() }
                     )
                 }

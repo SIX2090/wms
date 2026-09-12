@@ -129,6 +129,13 @@ fun HomeScreen(
                 icon = Icons.Outlined.Assessment,
                 gradient = listOf(CardPinkLight, CardPinkDark),
                 screen = Screen.DailyReport
+            ),
+            FunctionCard(
+                title = "盘点记录",
+                subtitle = "本人盘点 · 回查差异与采纳状态",
+                icon = Icons.Outlined.History,
+                gradient = listOf(CardPurple, CardPurpleDark),
+                screen = Screen.StocktakeRecord
             )
         )
     }

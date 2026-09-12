@@ -1049,6 +1049,158 @@ def register_native_api_routes(app):
             orders = _list_pending_check_orders(wh_obj.name)
         return api_json_success({'orders': orders})
 
+    # AI-MOB-CHECK-F01：Android 盘点记录回查（仅本人提交的扫码盘点单）。
+    # 背景：手机盘点此前"提交即失联"——native_api_stocktake 返回后记录只挂在
+    # PC 批次详情，作业员本人无从回看自己盘过哪些单、差异多少、批次与调整草稿
+    # 是否被采纳，出错时无处对账。本接口按 operator_id == 当前用户过滤，
+    # 只读、分页（R1）、支持仓库/状态筛选。
+    @app.route('/api/mobile/stocktake/list')
+    @csrf.exempt
+    @api_role_required('warehouse')
+    def native_api_stocktake_list(user):
+        """盘点记录回查列表（Android）。
+
+        数据源：InventoryCheckScan（手机端提交的扫码盘点单，INV-BATCH-001-E
+        后均携带 check_id 挂到 PC 批次）。仅返回 operator_id == 当前登录用户
+        的记录——盘点记录的可见范围是"本人经手"，跨人查看走 PC 批次详情。
+
+        查询参数：
+        - warehouse / warehouse_code / warehouse_id：按仓库筛选（名称或编码）；
+          缺省不加仓库条件（回看全部经手记录，非业务写入，不受仓库必填约束）。
+        - status：completed（默认，正常记录）/ void（已作废留痕）/ all。
+        - page / page_size：分页，page_size 上限 MOBILE_API_PAGE_SIZE_MAX。
+        - check_no：按盘点单号模糊查询。
+
+        返回 items 每行：
+        - check_no / date / warehouse / status / remark / created_at；
+        - item_count / diff_count：明细条数与有差异条数（供列表直接展示）；
+        - batch_no / batch_status：关联 PC 批次单号与状态（待盘点/已完成）；
+        - adjustment_status：调整草稿审核状态——pending（待审核）/
+          completed（已审核，库存已真实调整）/ 空串（批次未完成或无差异，
+          尚未生成调整草稿）。INV-BATCH-001-E 后手机盘点不再独立生成草稿，
+          故状态取批次（InventoryCheck）维度，与 PC「完成盘点」的口径一致。
+        """
+        from app import (AdjustmentOrder, InventoryCheck, InventoryCheckScan,
+                         InventoryCheckScanItem, api_json_error,
+                         api_json_success, _mobile_paginate,
+                         MOBILE_API_PAGE_SIZE_DEFAULT, MOBILE_API_PAGE_SIZE_MAX,
+                         validate_inventory_warehouse)
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT,
+                                     type=int)
+        if page_size is None or page_size <= 0:
+            page_size = MOBILE_API_PAGE_SIZE_DEFAULT
+        page_size = min(page_size, MOBILE_API_PAGE_SIZE_MAX)
+
+        # 仓库筛选：提供参数时才过滤（含历史 warehouse 为空的脏数据不丢，
+        # 缺省展示本人全部经手记录）
+        wh_param = (request.args.get('warehouse')
+                    or request.args.get('warehouse_code')
+                    or request.args.get('warehouse_id') or '').strip()
+        query = InventoryCheckScan.query.filter(
+            InventoryCheckScan.operator_id == user.id)
+        if wh_param:
+            wh_obj, wh_err = validate_inventory_warehouse(wh_param)
+            if wh_err:
+                return api_json_error(wh_err, 400)
+            query = query.filter(InventoryCheckScan.warehouse == wh_obj.name)
+
+        status_filter = (request.args.get('status') or 'completed').strip()
+        if status_filter in ('completed', 'pending', 'void'):
+            query = query.filter(InventoryCheckScan.status == status_filter)
+        elif status_filter != 'all':
+            return api_json_error(
+                '状态筛选只支持 completed / void / all', 400)
+
+        check_no_kw = (request.args.get('check_no') or '').strip()
+        if check_no_kw:
+            query = query.filter(
+                InventoryCheckScan.check_no.like(f'%{check_no_kw}%'))
+
+        # 稳定排序：同秒内创建的多条记录按 id 倒序，避免分页抖动（R1）
+        query = query.order_by(InventoryCheckScan.created_at.desc(),
+                               InventoryCheckScan.id.desc())
+        page_data = _mobile_paginate(query, page, page_size)
+        rows = page_data['items']
+
+        # 批量预取本页涉及的批次与调整草稿，避免逐行查询（N+1）
+        batch_ids = {r.check_id for r in rows if r.check_id}
+        batches = {}
+        if batch_ids:
+            batches = {
+                b.id: b for b in InventoryCheck.query.filter(
+                    InventoryCheck.id.in_(batch_ids)).all()
+            }
+        # 调整草稿按批次维度（source_type='check'）聚合，另兼容 INV-BATCH-001-E
+        # 之前按扫码单维度（source_type='check_scan'）生成的历史草稿
+        scan_ids = {r.id for r in rows}
+        adj_by_batch = {}
+        adj_by_scan = {}
+        if batch_ids or scan_ids:
+            from sqlalchemy import or_
+            conds = []
+            if batch_ids:
+                conds.append(db.and_(AdjustmentOrder.source_type == 'check',
+                                     AdjustmentOrder.source_id.in_(batch_ids)))
+            if scan_ids:
+                conds.append(db.and_(AdjustmentOrder.source_type == 'check_scan',
+                                     AdjustmentOrder.source_id.in_(scan_ids)))
+            linked = AdjustmentOrder.query.filter(or_(*conds)).all()
+            for order in linked:
+                bucket = (adj_by_batch if order.source_type == 'check'
+                          else adj_by_scan)
+                bucket.setdefault(order.source_id, []).append(order)
+
+        items = []
+        for scan in rows:
+            scan_adj = adj_by_scan.get(scan.id, [])
+            batch = batches.get(scan.check_id) if scan.check_id else None
+            batch_adj = adj_by_batch.get(scan.check_id, []) if scan.check_id else []
+            linked_adj = scan_adj or batch_adj
+            if any(o.status == 'completed' for o in linked_adj):
+                adjustment_status = 'completed'
+            elif any(o.status == 'pending' for o in linked_adj):
+                adjustment_status = 'pending'
+            else:
+                adjustment_status = ''
+
+            item_count = 0
+            diff_count = 0
+            try:
+                item_count = InventoryCheckScanItem.query.filter_by(
+                    check_scan_id=scan.id).count()
+                diff_count = sum(
+                    1 for it in (scan.items or [])
+                    if abs(it.difference or 0) > 1e-9)
+            except Exception:
+                app.logger.exception('Android stocktake list item count failed')
+
+            items.append({
+                'id': scan.id,
+                'check_no': scan.check_no or '',
+                'date': scan.date.isoformat() if scan.date else '',
+                'warehouse': scan.warehouse or '',
+                'status': scan.status or '',
+                'remark': scan.remark or '',
+                'created_at': (scan.created_at.strftime('%Y-%m-%d %H:%M')
+                               if scan.created_at else ''),
+                'item_count': item_count,
+                'diff_count': diff_count,
+                'batch_no': batch.check_no if batch else '',
+                'batch_status': batch.status if batch else '',
+                'batch_status_label': (
+                    '已完成' if batch and batch.status == 'completed'
+                    else ('进行中' if batch else '未挂批次')),
+                'adjustment_status': adjustment_status,
+            })
+        return api_json_success({
+            'items': items,
+            'total': page_data['total'],
+            'page': page_data['page'],
+            'page_size': page_data['page_size'],
+            'total_pages': page_data['total_pages'],
+        })
+
     @app.route('/api/mobile/dashboard')
     @csrf.exempt
     @web_or_api_required

@@ -523,6 +523,27 @@ class WmsRepository(private val context: Context) {
             )
     }
 
+    /**
+     * AI-MOB-CHECK-F01：盘点记录回查（本人提交的扫码盘点单，第 1 页）。
+     *
+     * 回查场景是"翻看最近几次盘点"，首屏 20 条即可满足；不逐页全量拉取，
+     * 避免历史记录多时一次性拉爆（与每日报表"汇总需全集"的诉求不同，
+     * BUG-2026-08-28-002 的逐页合并策略不适用于此）。
+     */
+    suspend fun loadStocktakeRecords(
+        warehouse: String? = null,
+        status: String? = null,
+        page: Int = 1,
+        pageSize: Int = 20
+    ): Result<StocktakeRecordListData> {
+        ensureSession()
+        return safeCall { api.listStocktakeRecords(warehouse, status, page, pageSize) }
+            .fold(
+                onSuccess = { data -> Result.success(data) },
+                onFailure = { Result.failure(it) }
+            )
+    }
+
     /** 合同编号模糊搜索（出库选填合同字段快速匹配）。 */
     suspend fun searchContracts(keyword: String): Result<List<ContractDto>> {
         ensureSession()

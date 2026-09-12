@@ -73,6 +73,18 @@ interface WmsApiService {
         @Query("warehouse") warehouse: String? = null
     ): Response<ApiEnvelope<CheckOrdersListData>>
 
+    /**
+     * AI-MOB-CHECK-F01：盘点记录回查（仅本人提交的扫码盘点单，分页）。
+     * warehouse 为 null 时回看本人全部经手记录；status 缺省只看正常记录。
+     */
+    @GET("api/mobile/stocktake/list")
+    suspend fun listStocktakeRecords(
+        @Query("warehouse") warehouse: String? = null,
+        @Query("status") status: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 20
+    ): Response<ApiEnvelope<StocktakeRecordListData>>
+
     @Multipart
     @POST("api/ai/document_ocr")
     suspend fun documentOcr(

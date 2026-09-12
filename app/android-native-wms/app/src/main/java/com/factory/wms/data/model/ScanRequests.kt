@@ -71,6 +71,43 @@ data class CheckOrdersListData(
 )
 
 /**
+ * AI-MOB-CHECK-F01 盘点记录回查项（GET /api/mobile/stocktake/list data.items 元素）。
+ *
+ * 后端仅返回本人（operator_id == 当前登录用户）提交的记录。
+ * 注意 BUG-2026-08-24-007：后端可空列在 Kotlin 侧必须声明为可空，
+ * Gson 绕过 Kotlin 默认值，非空声明会在反序列化时抛异常。
+ */
+data class StocktakeRecordDto(
+    val id: Long = 0,
+    @SerializedName("check_no") val checkNo: String? = null,
+    val date: String? = null,
+    val warehouse: String? = null,
+    /** completed（正常）/ void（已作废留痕） */
+    val status: String? = null,
+    val remark: String? = null,
+    @SerializedName("created_at") val createdAt: String? = null,
+    /** 本单盘点明细条数 */
+    @SerializedName("item_count") val itemCount: Int? = null,
+    /** 其中有差异的条数 */
+    @SerializedName("diff_count") val diffCount: Int? = null,
+    /** 关联的 PC 盘点批次单号（INV-BATCH-001-E 后手机盘点一律挂批次） */
+    @SerializedName("batch_no") val batchNo: String? = null,
+    @SerializedName("batch_status") val batchStatus: String? = null,
+    @SerializedName("batch_status_label") val batchStatusLabel: String? = null,
+    /** 调整草稿审核状态：pending 待审核 / completed 已审核 / 空串 未生成 */
+    @SerializedName("adjustment_status") val adjustmentStatus: String? = null
+)
+
+/** AI-MOB-CHECK-F01 盘点记录回查响应（分页信封，R1）。 */
+data class StocktakeRecordListData(
+    val items: List<StocktakeRecordDto> = emptyList(),
+    val total: Int = 0,
+    val page: Int = 1,
+    @SerializedName("page_size") val pageSize: Int = 20,
+    @SerializedName("total_pages") val totalPages: Int = 0
+)
+
+/**
  * 盘点草稿持久化负载（断点续盘，BUG-2026-09-03-003）：
  * 盘点进行中 APP 被系统回收/误关后，重新进入盘点页可恢复上次未提交清单。
  */
