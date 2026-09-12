@@ -1257,8 +1257,6 @@ private fun StockListSection(
     }  // end Column（列表区容器）
 }
 
-/** AI-MOB-STOCK-F01：列表模式单行——编码/名称/规格 + 仓库级账面库存数量。 */
-@Composable
 /**
  * AI-MOB-STOCK-F02：查库存列表的排序与筛选条。
  *
@@ -1322,6 +1320,8 @@ private fun StockListSortFilterBar(
     }
 }
 
+/** AI-MOB-STOCK-F01：列表模式单行——编码/名称/规格 + 仓库级账面库存数量。 */
+@Composable
 private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
     val stock = material.stock ?: 0.0
     val minStock = material.minStock ?: 0.0
