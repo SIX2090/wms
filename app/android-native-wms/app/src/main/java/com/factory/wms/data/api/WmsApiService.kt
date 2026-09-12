@@ -40,13 +40,20 @@ interface WmsApiService {
      * - keyword：按 编码/名称/规格 模糊匹配；为空则返回全部物料分页。
      * - 响应含完整分页元数据（total/page/page_size/total_pages），调用方按
      *   total_pages 翻页合并取全，不得把默认 page_size 当业务上限（R1）。
+     *
+     * AI-MOB-STOCK-F02（清单 P1-1/P1-2）：sort / stock_filter 为可选参数，
+     * 不传时服务端走原 SQL 分页路径、行为不变。
+     * - sort：code_asc / code_desc / stock_asc / stock_desc（按仓库级库存排序）
+     * - stock_filter：all / nonzero / zero / low（low = 低于最低库存，与告警页同口径）
      */
     @GET("api/mobile/stock/query")
     suspend fun stockQuery(
         @Query("warehouse") warehouse: String,
         @Query("keyword") keyword: String? = null,
         @Query("page") page: Int = 1,
-        @Query("page_size") pageSize: Int = 20
+        @Query("page_size") pageSize: Int = 20,
+        @Query("sort") sort: String? = null,
+        @Query("stock_filter") stockFilter: String? = null
     ): Response<ApiEnvelope<StockQueryPageData>>
 
     @POST("api/inbound")

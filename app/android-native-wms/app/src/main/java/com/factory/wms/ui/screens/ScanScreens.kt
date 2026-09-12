@@ -2,6 +2,7 @@ package com.factory.wms.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -681,6 +682,8 @@ fun StockQueryScreen(
                     onKeywordChange = { viewModel.onStockListKeywordChange(it) },
                     onSubmit = { viewModel.loadStockList() },
                     onLoadMore = { viewModel.loadMoreStockList() },
+                    onSortChange = { viewModel.setStockListSort(it) },
+                    onFilterChange = { viewModel.setStockListFilter(it) },
                     modifier = Modifier.weight(1f)
                 )
             } else {
@@ -1103,6 +1106,8 @@ private fun StockListSection(
     onKeywordChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onLoadMore: () -> Unit,
+    onSortChange: (String) -> Unit,
+    onFilterChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     // 关键字输入防抖 300ms 后自动查询，减少无谓请求（与页内其它搜索一致的手感）
@@ -1151,6 +1156,17 @@ private fun StockListSection(
             }
         }
     }
+
+    // ── AI-MOB-STOCK-F02：排序 + 库存筛选 ──
+    // 排序/筛选都在服务端对全集生效（不是只排当前页），故切换后由 ViewModel
+    // 回到第 1 页重新拉取，不能只重排本地已加载的 items。
+    Spacer(modifier = Modifier.height(8.dp))
+    StockListSortFilterBar(
+        sort = uiState.stockListSort,
+        filter = uiState.stockListFilter,
+        onSortChange = onSortChange,
+        onFilterChange = onFilterChange
+    )
 
     // 结果总数提示（分页元数据来自服务端，R1）
     if (uiState.stockListLoaded && uiState.stockListTotal > 0) {
@@ -1243,6 +1259,69 @@ private fun StockListSection(
 
 /** AI-MOB-STOCK-F01：列表模式单行——编码/名称/规格 + 仓库级账面库存数量。 */
 @Composable
+/**
+ * AI-MOB-STOCK-F02：查库存列表的排序与筛选条。
+ *
+ * 排序按**仓库级库存**（服务端实时聚合值），不是全局 Material.stock；
+ * 切换后由服务端对全集重排并回到第 1 页，避免"只排当前页"的假排序。
+ */
+@Composable
+private fun StockListSortFilterBar(
+    sort: String,
+    filter: String,
+    onSortChange: (String) -> Unit,
+    onFilterChange: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = sort.isBlank(),
+                onClick = { onSortChange("") },
+                label = { Text("默认排序") }
+            )
+            FilterChip(
+                selected = sort == "stock_desc",
+                onClick = { onSortChange("stock_desc") },
+                label = { Text("库存多→少") }
+            )
+            FilterChip(
+                selected = sort == "stock_asc",
+                onClick = { onSortChange("stock_asc") },
+                label = { Text("库存少→多") }
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = filter.isBlank(),
+                onClick = { onFilterChange("") },
+                label = { Text("全部") }
+            )
+            FilterChip(
+                selected = filter == "nonzero",
+                onClick = { onFilterChange("nonzero") },
+                label = { Text("仅有货") }
+            )
+            FilterChip(
+                selected = filter == "zero",
+                onClick = { onFilterChange("zero") },
+                label = { Text("零库存") }
+            )
+            FilterChip(
+                selected = filter == "low",
+                onClick = { onFilterChange("low") },
+                label = { Text("低于安全线") }
+            )
+        }
+    }
+}
+
 private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
     val stock = material.stock ?: 0.0
     val minStock = material.minStock ?: 0.0

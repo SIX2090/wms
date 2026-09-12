@@ -1323,7 +1323,8 @@ def register_native_api_routes(app):
     def mobile_api_stock_query():
         """移动端库存查询：多条件模糊搜索 + 分页（按仓库级数量）"""
         from sqlalchemy.orm import joinedload
-        from app import (MOBILE_API_PAGE_SIZE_DEFAULT, Material, _mobile_paginate,
+        from app import (MOBILE_API_PAGE_SIZE_DEFAULT, MOBILE_API_PAGE_SIZE_MAX,
+                         Material, _mobile_paginate,
                          api_json_error, api_json_success, build_material_locations_map,
                          get_warehouse_stock_quantities, location_management_enabled,
                          normalize_stock_quantity, resolve_request_warehouse,
@@ -1350,12 +1351,71 @@ def register_native_api_routes(app):
                 Material.spec.like(like),
             ))
 
+        # AI-MOB-STOCK-F02（清单 P1-1/P1-2）：按仓库级库存排序与筛选。
+        #
+        # 为什么不在 SQL 层排序：仓库级库存不是 Material 的列，而是由
+        # get_warehouse_stock_quantities 从 LocationInventory（库位管理开）
+        # 或 StockTransaction（关，且单仓时退化为全局 Material.stock）聚合而来。
+        # 若在 SQL 里另写一套聚合用于 ORDER BY，一旦与上面 quantities 的口径
+        # 分叉，就会出现「排序按 A 口径、显示按 B 值」的错乱——这正是
+        # BUG-2026-09-12-005 那类同根因问题（R6）。故此处复用同一份 quantities。
+        #
+        # 为什么不能先分页再排序：那样只排当前 20 条，用户看到的是"排了序"
+        # 的假象，真正的顺序依然错——比不做更糟。故带排序/筛选时改为
+        # 先取全集、Python 层排序筛选、再手动切片分页。
+        #
+        # 默认（不带 sort / stock_filter）完全走原 SQL 分页路径，行为零变化。
+        sort = (request.args.get('sort') or '').strip()
+        stock_filter = (request.args.get('stock_filter') or '').strip()
+        if sort and sort not in ('code_asc', 'code_desc', 'stock_asc', 'stock_desc'):
+            return api_json_error(
+                'sort 只支持 code_asc / code_desc / stock_asc / stock_desc', 400)
+        if stock_filter and stock_filter not in ('all', 'nonzero', 'zero', 'low'):
+            return api_json_error(
+                'stock_filter 只支持 all / nonzero / zero / low', 400)
+
         query = query.order_by(Material.code.asc())
 
-        result = _mobile_paginate(query, page, page_size)
-        materials = result['items']
         # 仓库级数量汇总；无记录的物料按 0 处理，绝不回退全局 Material.stock
         quantities = get_warehouse_stock_quantities(warehouse)
+
+        if sort or stock_filter:
+            all_materials = query.all()
+            filtered = []
+            for m in all_materials:
+                qty = normalize_stock_quantity(quantities.get(m.id, 0))
+                if stock_filter == 'nonzero' and qty <= 0:
+                    continue
+                if stock_filter == 'zero' and qty > 0:
+                    continue
+                # 低于安全线与库存告警页同口径（<= min_stock，min_stock<=0 视为未设置）
+                if stock_filter == 'low' and (
+                        not (m.min_stock or 0) or qty > (m.min_stock or 0)):
+                    continue
+                filtered.append(m)
+            if sort == 'stock_asc':
+                # 次排序键用 code：库存相同（尤其中间一片 0）时保证分页稳定不抖动
+                filtered.sort(key=lambda m: (
+                    normalize_stock_quantity(quantities.get(m.id, 0)), m.code or ''))
+            elif sort == 'stock_desc':
+                filtered.sort(key=lambda m: (
+                    -normalize_stock_quantity(quantities.get(m.id, 0)), m.code or ''))
+            elif sort == 'code_desc':
+                filtered.sort(key=lambda m: m.code or '', reverse=True)
+            total = len(filtered)
+            page = max(1, page or 1)
+            # 上限与 _mobile_paginate 同一常量，避免两条路径的护栏分叉
+            page_size = min(max(1, page_size or MOBILE_API_PAGE_SIZE_DEFAULT),
+                            MOBILE_API_PAGE_SIZE_MAX)
+            materials = filtered[(page - 1) * page_size: page * page_size]
+            total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 0
+        else:
+            result = _mobile_paginate(query, page, page_size)
+            materials = result['items']
+            total = result['total']
+            page = result['page']
+            page_size = result['page_size']
+            total_pages = result['total_pages']
 
         # BUG-2026-09-12-003：列表模式与扫码（mobile_material_payload）字段对齐。
         # 此前列表接口只下发 stock/price/min_stock/reorder_point，漏了下发
@@ -1401,10 +1461,10 @@ def register_native_api_routes(app):
                 }
                 for m in materials
             ],
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'total_pages': result['total_pages'],
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': total_pages,
         })
 
     @app.route('/api/mobile/alert/list')

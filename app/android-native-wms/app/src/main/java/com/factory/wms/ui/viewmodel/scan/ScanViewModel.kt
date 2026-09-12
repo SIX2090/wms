@@ -61,6 +61,16 @@ data class ScanUiState(
     val stockListTotal: Int = 0,
     /** 是否已完成过一次列表查询（区分"未查询"与"查询结果为空"两种空态） */
     val stockListLoaded: Boolean = false,
+    /**
+     * AI-MOB-STOCK-F02：列表排序方式。空串表示不传（服务端维持原编码升序）。
+     * 取值 code_asc / code_desc / stock_asc / stock_desc。
+     */
+    val stockListSort: String = "",
+    /**
+     * AI-MOB-STOCK-F02：库存筛选。空串表示不筛选。
+     * 取值 all / nonzero / zero / low（low = 低于最低库存）。
+     */
+    val stockListFilter: String = "",
     // ── AI-MOB-OFFLINE-01：离线待同步队列状态 ──
     /** 待自动补传条数（断网提交已暂存）。>0 时页面提示"已保存，联网后自动提交" */
     val offlinePendingCount: Int = 0,
@@ -474,7 +484,11 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             stockListLoaded = false
         )
         viewModelScope.launch {
-            repository.queryStockPage(whParam, kw.trim(), page = 1, pageSize = STOCK_LIST_PAGE_SIZE)
+            repository.queryStockPage(
+                whParam, kw.trim(), page = 1, pageSize = STOCK_LIST_PAGE_SIZE,
+                sort = _uiState.value.stockListSort.takeIf { it.isNotBlank() },
+                stockFilter = _uiState.value.stockListFilter.takeIf { it.isNotBlank() }
+            )
                 .fold(
                     onSuccess = { data ->
                         _uiState.value = _uiState.value.copy(
@@ -515,7 +529,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.queryStockPage(
                 whParam, state.stockListKeyword.trim(), page = nextPage,
-                pageSize = STOCK_LIST_PAGE_SIZE
+                pageSize = STOCK_LIST_PAGE_SIZE,
+                sort = state.stockListSort.takeIf { it.isNotBlank() },
+                stockFilter = state.stockListFilter.takeIf { it.isNotBlank() }
             ).fold(
                 onSuccess = { data ->
                     _uiState.value = _uiState.value.copy(
@@ -548,6 +564,25 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     /** 列表模式关键词变化（仅更新输入框值，由页面防抖后调用 loadStockList 触发查询）。 */
     fun onStockListKeywordChange(text: String) {
         _uiState.value = _uiState.value.copy(stockListKeyword = text)
+    }
+
+    /**
+     * AI-MOB-STOCK-F02：切换排序方式并重新查询。
+     *
+     * 排序在服务端对**全集**生效（不是只排当前页），故必须回到第 1 页重新拉取，
+     * 不能只重排本地已加载的 items——那样用户看到的仍是"本页重排"的假排序。
+     */
+    fun setStockListSort(sort: String) {
+        if (_uiState.value.stockListSort == sort) return
+        _uiState.value = _uiState.value.copy(stockListSort = sort)
+        loadStockList()
+    }
+
+    /** AI-MOB-STOCK-F02：切换库存筛选并重新查询（同为服务端全量筛选，回到第 1 页）。 */
+    fun setStockListFilter(filter: String) {
+        if (_uiState.value.stockListFilter == filter) return
+        _uiState.value = _uiState.value.copy(stockListFilter = filter)
+        loadStockList()
     }
 
     /** 切仓后清空列表结果，避免显示上一个仓库的数据误导用户。 */

@@ -220,18 +220,23 @@ class WmsRepository(private val context: Context) {
      * - 走 safeCall：服务端业务提示（如"请选择仓库"）原样透传，不被
      *   覆盖为"网络错误"（BUG-2026-09-10-011）。
      */
+    /** AI-MOB-STOCK-F02：sort / stock_filter 透传，null 时服务端维持原行为。 */
     suspend fun queryStockPage(
         warehouse: String,
         keyword: String? = null,
         page: Int = 1,
-        pageSize: Int = 20
+        pageSize: Int = 20,
+        sort: String? = null,
+        stockFilter: String? = null
     ): Result<StockQueryPageData> {
         return safeCall {
             api.stockQuery(
                 warehouse = warehouse,
                 keyword = keyword?.takeIf { it.isNotBlank() },
                 page = page,
-                pageSize = pageSize
+                pageSize = pageSize,
+                sort = sort?.takeIf { it.isNotBlank() },
+                stockFilter = stockFilter?.takeIf { it.isNotBlank() }
             )
         }
     }
