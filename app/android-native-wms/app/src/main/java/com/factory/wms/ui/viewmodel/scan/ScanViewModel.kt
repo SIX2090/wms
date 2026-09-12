@@ -523,8 +523,15 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         stockListItems = (_uiState.value.stockListItems + data.items)
                             .distinctBy { it.id },
                         stockListPage = data.page,
+                        // total_pages 每页都取：它是翻页边界判定依据，数据变动时需随之更新
                         stockListTotalPages = data.totalPages,
-                        stockListTotal = data.total
+                        // BUG-2026-09-12-004（R1）：总数在首页确定后不再被翻页响应覆盖。
+                        // 服务端 total 为全量 count()、跨页恒定，但本字段是"共 N 条"统计值，
+                        // 语义上应与分页解耦（R1：汇总统计必须与分页解耦）。此处用
+                        // takeIf 保护：本页返回 0（字段缺失/异常）时不覆盖既有值，
+                        // 避免非空原生类型反序列化缺省为 0 导致统计静默归零。
+                        stockListTotal = data.total.takeIf { it > 0 }
+                            ?: _uiState.value.stockListTotal
                     )
                 },
                 onFailure = { e ->
