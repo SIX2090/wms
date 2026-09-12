@@ -71,7 +71,7 @@ jobs:
       # 为什么逐文件独立进程：多文件同进程混跑时 app 模块单例与
       # db.drop_all 内存库守卫互相干扰，会产生 169 例环境性假失败；
       # 逐文件执行已本地验证 99/108 文件全过。
-      # KNOWN-FAILURES：以下 7 个文件共 13 例历史真实失败，登记为
+      # KNOWN-FAILURES：以下 6 个文件共 10 例历史真实失败，登记为
       # BUG-2026-08-16-017 子任务（F1~F9）逐个修复后从此清单移除：
       #   F1 verify_app_py_split_subcontract.py（1 例）
       #   F2 verify_bug_2026_08_02_018_report.py（2 例）
@@ -79,7 +79,13 @@ jobs:
       #   F4 verify_bug_2026_08_04_010_material_api_all_response_key.py（1 例）
       #   F5 verify_bug_2026_08_09_003_takepicture_permission_and_path.py（2 例）
       #   F6 已修复移除（verify_bug_2026_08_13_002_scan_submit_bearer.py，2026-09-11 复核 7 passed）
-      #   F7 verify_bug_P15_P16_P21.py（3 例，TestBugP21BizReportWarehouseGuard 采购执行表仓库守卫）
+      #   F7 已修复移除（verify_bug_P15_P16_P21.py，2026-09-12 复核 7 passed。
+      #     真实原因不是"用例坏"而是"跑法错"：该文件是 pytest 式（7 个 def test_），
+      #     但当时 CI 无分流、一律 python 直接执行，顶层无入口 ⇒ 文件级断言在导入
+      #     期即触发、pytest fixture 不生效 ⇒ no such table: warehouse 报错被当失败。
+      #     同批摘除的 F6/F8 是同一原因。pytest 式/脚本式分流已由本 step 下方逻辑补齐，
+      #     故无需再"豁免"。原有 TestBugP21BizReportWarehouseGuard 仓库守卫断言已另行
+      #     迁入 tests/test_report_warehouse_guard.py 进主 pytest 收集，不依赖本清单。）
       #   F8 已修复移除（verify_mobile_asr_route.py，2026-09-11 复核 8 passed）
       #   F9 verify_mobile_recognize_material_api.py（5 例）
       - name: "Verify regression - verify_*.py (BUG-2026-08-16-017)"
@@ -90,7 +96,6 @@ jobs:
             tests/verify_bug_2026_08_02_021_in_order_contract.py
             tests/verify_bug_2026_08_04_010_material_api_all_response_key.py
             tests/verify_bug_2026_08_09_003_takepicture_permission_and_path.py
-            tests/verify_bug_P15_P16_P21.py
             tests/verify_mobile_recognize_material_api.py
           )
           is_known() {
