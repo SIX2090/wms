@@ -63,9 +63,6 @@ import com.factory.wms.ui.theme.OnSurface
 import com.factory.wms.ui.theme.Primary
 import com.factory.wms.ui.viewmodel.stocktake.StocktakeRecordViewModel
 
-/** 列表内边距：LazyColumn 的 contentPadding 参数（顶层常量，避免 Composable 内重复构造） */
-private val LazyPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
-
 /**
  * 盘点记录回查页（AI-MOB-CHECK-F01）。
  *
@@ -183,7 +180,9 @@ fun StocktakeRecordScreen(
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = LazyPadding,
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            horizontal = 16.dp, vertical = 4.dp
+                        ),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(uiState.records, key = { it.id }) { record ->
