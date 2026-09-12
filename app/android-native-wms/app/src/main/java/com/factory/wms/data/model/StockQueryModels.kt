@@ -24,5 +24,22 @@ data class StockQueryPageData(
     @SerializedName("total") val total: Int,
     @SerializedName("page") val page: Int,
     @SerializedName("page_size") val pageSize: Int,
-    @SerializedName("total_pages") val totalPages: Int
+    @SerializedName("total_pages") val totalPages: Int,
+    /**
+     * AI-MOB-STOCK-F03（清单 P1-3）：物料档案里命中该关键词的条数——**不看仓库、
+     * 不看库存**。仅用于 `total == 0` 时区分两种空态：档案里根本没这个编码
+     * （该去建档）／档案里有但这个仓没货或被筛选排除（该换仓或改筛选）。
+     * 无关键词时服务端不下发，为 null。
+     *
+     * 声明为可空（BUG-2026-08-24-007）：Gson 走反射绕过 Kotlin 默认值，
+     * 若声明成非空 Int，服务端不下发时会静默变 0，空态就会被误判成
+     * "档案里没有"，把"该换仓"说成"该建档"——比不改还糟。
+     */
+    @SerializedName("keyword_material_total") val keywordMaterialTotal: Int? = null,
+    /**
+     * AI-MOB-STOCK-F03（清单 P2-3）：服务端数据截止时刻（hh:mm），纯展示用。
+     * 查库存是要拿来决策（要不要领、领多少）的，没有截止时间用户无法判断
+     * 看到的是实时值还是几分钟前的。
+     */
+    @SerializedName("server_time") val serverTime: String? = null
 )

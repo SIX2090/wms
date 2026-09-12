@@ -71,6 +71,14 @@ data class ScanUiState(
      * 取值 all / nonzero / zero / low（low = 低于最低库存）。
      */
     val stockListFilter: String = "",
+    /**
+     * AI-MOB-STOCK-F03（清单 P1-3）：物料档案里命中当前关键词的条数，不看仓库、
+     * 不看库存。仅在 total=0 时用于区分「档案里没这个物料」与「这个仓没货 /
+     * 被筛选排除」——两种情形的正确动作完全不同（建档 vs 换仓改筛选）。
+     */
+    val stockListKeywordMaterialTotal: Int? = null,
+    /** AI-MOB-STOCK-F03（清单 P2-3）：服务端数据截止时刻（hh:mm），纯展示。 */
+    val stockListServerTime: String? = null,
     // ── AI-MOB-OFFLINE-01：离线待同步队列状态 ──
     /** 待自动补传条数（断网提交已暂存）。>0 时页面提示"已保存，联网后自动提交" */
     val offlinePendingCount: Int = 0,
@@ -97,6 +105,12 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private var materialSearchJob: Job? = null
     private var contractSearchSequence = 0
     private var contractSearchJob: Job? = null
+    // AI-MOB-STOCK-F03（清单 P2-2）：查库存列表的防抖查询此前没有可取消的 Job。
+    // 中文输入法逐字上屏，弱网下一个请求可能要几百毫秒，先发的慢请求会后到并
+    // 覆盖后发的结果，列表会闪回旧数据。沿用 materialSearchJob 的同一套模式：
+    // 取消 + 序号双保险（取消只管协程，序号兜住已发出、无法撤回的响应）。
+    private var stockListSequence = 0
+    private var stockListJob: Job? = null
 
     /**
      * AI-MOB-OFFLINE-01：观察离线队列计数，驱动页面"待同步"提示条。
@@ -473,6 +487,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val kw = keyword ?: _uiState.value.stockListKeyword
+        // P2-2：先取消上一个列表请求再发新的，并用序号丢弃迟到响应
+        val seq = ++stockListSequence
+        stockListJob?.cancel()
         _uiState.value = _uiState.value.copy(
             stockListKeyword = kw,
             stockListLoading = true,
@@ -481,9 +498,14 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             stockListPage = 0,
             stockListTotalPages = 0,
             stockListTotal = 0,
+            // 翻页请求可能还在飞，这里必须一并复位，否则它失败后没人把
+            // 底部转圈关掉（其响应已因序号过期被丢弃）
+            stockListLoadingMore = false,
+            stockListKeywordMaterialTotal = null,
+            stockListServerTime = null,
             stockListLoaded = false
         )
-        viewModelScope.launch {
+        stockListJob = viewModelScope.launch {
             repository.queryStockPage(
                 whParam, kw.trim(), page = 1, pageSize = STOCK_LIST_PAGE_SIZE,
                 sort = _uiState.value.stockListSort.takeIf { it.isNotBlank() },
@@ -491,21 +513,27 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             )
                 .fold(
                     onSuccess = { data ->
-                        _uiState.value = _uiState.value.copy(
-                            stockListLoading = false,
-                            stockListItems = data.items,
-                            stockListPage = data.page,
-                            stockListTotalPages = data.totalPages,
-                            stockListTotal = data.total,
-                            stockListLoaded = true
-                        )
+                        if (seq == stockListSequence) {
+                            _uiState.value = _uiState.value.copy(
+                                stockListLoading = false,
+                                stockListItems = data.items,
+                                stockListPage = data.page,
+                                stockListTotalPages = data.totalPages,
+                                stockListTotal = data.total,
+                                stockListKeywordMaterialTotal = data.keywordMaterialTotal,
+                                stockListServerTime = data.serverTime,
+                                stockListLoaded = true
+                            )
+                        }
                     },
                     onFailure = { e ->
-                        _uiState.value = _uiState.value.copy(
-                            stockListLoading = false,
-                            stockListError = e.message ?: "加载失败",
-                            stockListLoaded = true
-                        )
+                        if (seq == stockListSequence) {
+                            _uiState.value = _uiState.value.copy(
+                                stockListLoading = false,
+                                stockListError = e.message ?: "加载失败",
+                                stockListLoaded = true
+                            )
+                        }
                     }
                 )
         }
@@ -525,6 +553,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         val whParam = warehouse.code?.takeIf { it.isNotBlank() } ?: warehouse.name.orEmpty()
         if (whParam.isBlank()) return
         val nextPage = state.stockListPage + 1
+        // 序号在 loadStockList 里自增；用户改了关键词/排序后本页结果即为过期，
+        // 不能再往新列表上追加（否则会出现"搜 A 却混入 B 的物料"）。
+        val seq = stockListSequence
         _uiState.value = state.copy(stockListLoadingMore = true)
         viewModelScope.launch {
             repository.queryStockPage(
@@ -534,28 +565,34 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 stockFilter = state.stockListFilter.takeIf { it.isNotBlank() }
             ).fold(
                 onSuccess = { data ->
-                    _uiState.value = _uiState.value.copy(
-                        stockListLoadingMore = false,
-                        // 追加去重，避免翻页期间数据变动导致重复行
-                        stockListItems = (_uiState.value.stockListItems + data.items)
-                            .distinctBy { it.id },
-                        stockListPage = data.page,
-                        // total_pages 每页都取：它是翻页边界判定依据，数据变动时需随之更新
-                        stockListTotalPages = data.totalPages,
-                        // BUG-2026-09-12-004（R1）：总数在首页确定后不再被翻页响应覆盖。
-                        // 服务端 total 为全量 count()、跨页恒定，但本字段是"共 N 条"统计值，
-                        // 语义上应与分页解耦（R1：汇总统计必须与分页解耦）。此处用
-                        // takeIf 保护：本页返回 0（字段缺失/异常）时不覆盖既有值，
-                        // 避免非空原生类型反序列化缺省为 0 导致统计静默归零。
-                        stockListTotal = data.total.takeIf { it > 0 }
-                            ?: _uiState.value.stockListTotal
-                    )
+                    if (seq == stockListSequence) {
+                        _uiState.value = _uiState.value.copy(
+                            stockListLoadingMore = false,
+                            // 追加去重，避免翻页期间数据变动导致重复行
+                            stockListItems = (_uiState.value.stockListItems + data.items)
+                                .distinctBy { it.id },
+                            stockListPage = data.page,
+                            // total_pages 每页都取：它是翻页边界判定依据，数据变动时需随之更新
+                            stockListTotalPages = data.totalPages,
+                            // 数据截止时间每页都刷新（用户看到的是最新一页的时点）
+                            stockListServerTime = data.serverTime,
+                            // BUG-2026-09-12-004（R1）：总数在首页确定后不再被翻页响应覆盖。
+                            // 服务端 total 为全量 count()、跨页恒定，但本字段是"共 N 条"统计值，
+                            // 语义上应与分页解耦（R1：汇总统计必须与分页解耦）。此处用
+                            // takeIf 保护：本页返回 0（字段缺失/异常）时不覆盖既有值，
+                            // 避免非空原生类型反序列化缺省为 0 导致统计静默归零。
+                            stockListTotal = data.total.takeIf { it > 0 }
+                                ?: _uiState.value.stockListTotal
+                        )
+                    }
                 },
                 onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(
-                        stockListLoadingMore = false,
-                        stockListError = e.message ?: "加载失败"
-                    )
+                    if (seq == stockListSequence) {
+                        _uiState.value = _uiState.value.copy(
+                            stockListLoadingMore = false,
+                            stockListError = e.message ?: "加载失败"
+                        )
+                    }
                 }
             )
         }
@@ -1054,6 +1091,10 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
  * AI-MOB-STOCK-F01：查库存列表模式每页条数。
  * 与服务端 MOBILE_API_PAGE_SIZE_DEFAULT 口径一致；仅作为单页请求大小，
  * 不作业务上限（R1：按响应 total_pages 翻页取全）。
+ *
+ * 清单 P2-1：原为 20。仓库物料常在数百到数千，一页 20 条意味着滑到底要翻十
+ * 几次，而手机一屏能放 8~10 行——改成 50（仍在服务端上限 100 之内），翻页
+ * 次数降到约 1/2.5，弱网下的体感差别最明显。
  */
-private const val STOCK_LIST_PAGE_SIZE = 20
+private const val STOCK_LIST_PAGE_SIZE = 50
 

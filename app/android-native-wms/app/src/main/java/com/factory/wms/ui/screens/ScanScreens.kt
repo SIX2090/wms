@@ -1110,10 +1110,13 @@ private fun StockListSection(
     onFilterChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 关键字输入防抖 300ms 后自动查询，减少无谓请求（与页内其它搜索一致的手感）
+    // 关键字输入防抖后自动查询，减少无谓请求（与页内其它搜索一致的手感）。
+    // P2-2：原 300ms 对中文输入法偏激进——输入法组合期逐字上屏，打"深沟球轴承"
+    // 会连发 4~5 个请求，仓库弱网下表现为列表反复闪烁。放宽到 500ms；
+    // 请求本身的取消与乱序丢弃由 ViewModel 的 stockListJob + 序号兜底。
     LaunchedEffect(uiState.stockListKeyword) {
         if (uiState.stockListKeyword.isBlank() && !uiState.stockListLoaded) return@LaunchedEffect
-        delay(300)
+        delay(500)
         onSubmit()
     }
 
@@ -1171,12 +1174,29 @@ private fun StockListSection(
     // 结果总数提示（分页元数据来自服务端，R1）
     if (uiState.stockListLoaded && uiState.stockListTotal > 0) {
         Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            "共 ${uiState.stockListTotal} 条" +
-                if (uiState.selectedWarehouse != null) "（${uiState.selectedWarehouse.name ?: ""}）" else "",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "共 ${uiState.stockListTotal} 条" +
+                    if (uiState.selectedWarehouse != null) "（${uiState.selectedWarehouse.name ?: ""}）" else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+            // P2-3：在线查询此前没有任何"数据截止时间"，而查库存是要拿来决策
+            // （要不要领、领多少）的，没有时点用户无法判断看到的是实时值还是
+            // 几分钟前的。由服务端下发 hh:mm，避免手机时区不准显示错时间。
+            val serverTime = uiState.stockListServerTime
+            if (!serverTime.isNullOrBlank()) {
+                Text(
+                    "数据截止 $serverTime",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 
     Spacer(modifier = Modifier.height(8.dp))
@@ -1192,17 +1212,33 @@ private fun StockListSection(
         }
 
         uiState.stockListLoaded && uiState.stockListItems.isEmpty() -> {
+            // P1-3：空态必须分流。这个接口是仓库级语义，"搜不到"其实是两件事：
+            //   ① 物料档案里根本没这个编码 → 该去建档；
+            //   ② 档案里有，但这个仓没货 / 被"仅有货"等筛选排除 → 该换仓改筛选。
+            // 原来两句并一句，作业员看到"未找到"就跑去建档，白跑一趟。
+            // keywordMaterialTotal 为 null 表示服务端未下发该字段（老版本），
+            // 此时退回原文案，不猜——猜错比不改更糟。
+            val hitsInArchive = uiState.stockListKeywordMaterialTotal
+            val emptyTitle = when {
+                uiState.stockListKeyword.isBlank() -> "该仓库暂无物料库存记录"
+                hitsInArchive == null -> "未找到包含「${uiState.stockListKeyword}」的物料"
+                hitsInArchive == 0 -> "物料档案中没有「${uiState.stockListKeyword}」"
+                else -> "「${uiState.stockListKeyword}」在本仓没有符合条件的库存"
+            }
+            val emptySubtitle = when {
+                uiState.stockListKeyword.isBlank() -> "可切换仓库或换个关键词试试"
+                hitsInArchive == null -> "可切换仓库或换个关键词试试"
+                hitsInArchive == 0 -> "请先确认编码是否输错，或在电脑端建档"
+                else -> "档案里能查到 $hitsInArchive 条，可切换仓库或取消筛选再看"
+            }
             Box(
                 modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
                 contentAlignment = Alignment.Center
             ) {
                 WmsEmptyState(
                     icon = Icons.Outlined.Search,
-                    title = if (uiState.stockListKeyword.isBlank())
-                        "该仓库暂无物料库存记录"
-                    else
-                        "未找到包含「${uiState.stockListKeyword}」的物料",
-                    subtitle = "可切换仓库或换个关键词试试",
+                    title = emptyTitle,
+                    subtitle = emptySubtitle,
                     accentColor = CardOrange
                 )
             }
@@ -1325,10 +1361,17 @@ private fun StockListSortFilterBar(
 private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
     val stock = material.stock ?: 0.0
     val minStock = material.minStock ?: 0.0
+    // P2-4：零库存行原本与有货行视觉完全一致（同样的蓝编码、同样的红/绿数字），
+    // 一屏十条扫下来分不出哪些是真能领的。这里做弱化：主色编码与数量都降到
+    // 次要灰、卡片压平，并补一个"无库存"标记。不隐藏——有时就是要确认"确实为 0"。
+    // 用配色而非 alpha 实现：本文件没有 androidx.compose.ui.draw.alpha 的既有
+    // 用法，不为一个无法本地编译验证的新 import 冒险。
+    val noStock = stock <= 0.0
+    val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (noStock) 0.dp else 1.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground)
     ) {
         Row(
@@ -1342,14 +1385,14 @@ private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
                     material.code.orEmpty(),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    color = Primary
+                    color = if (noStock) mutedColor else Primary
                 )
                 if (!material.name.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         material.name.orEmpty(),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = if (noStock) mutedColor else MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -1375,13 +1418,21 @@ private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
                     formatQuantity(stock),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (stock > minStock) Success else Error
+                    color = if (noStock) mutedColor
+                    else if (stock > minStock) Success else Error
                 )
                 if (!material.unit.isNullOrBlank()) {
                     Text(
                         material.unit,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (noStock) {
+                    Text(
+                        "无库存",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = mutedColor
                     )
                 }
             }
