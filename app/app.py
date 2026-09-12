@@ -7787,7 +7787,7 @@ def get_recent_operation_logs(target_type, target_id, limit=10):
         app.logger.warning(f'get_recent_operation_logs failed: {e}')
         return []
 
-def build_material_locations_map(material_ids, wh_obj=None):
+def build_material_locations_map(material_ids, wh_obj=None, legacy_location_names=None):
     """BUG-2026-09-10-004：批量预取库位分布 {material_id: [{'location', 'quantity'}, ...]}。
 
     列表接口（/api/material/search、/api/material/all）逐物料查 LocationInventory
@@ -7795,11 +7795,18 @@ def build_material_locations_map(material_ids, wh_obj=None):
     过滤与排序口径和逐物料路径严格一致：非零库存、数量降序、库位升序，
     有仓库上下文按仓库过滤（R2：与该仓账面 stock 口径一致）。
     IN 分批（每批 500）兼容变量数受限的数据库。
+
+    BUG-2026-09-12-003：新增 legacy_location_names 参数（仓库名/编码列表）。
+    传入时额外纳入 warehouse_id 为 NULL 且 location 等于该仓库名/编码的历史行，
+    与 get_warehouse_stock_quantities 的口径保持一致——否则会出现
+    「汇总库存 70 但库位明细只列 50」的不一致，违反 R2 第 3 条（汇总=明细）。
+    不传时保持原有精确匹配行为（search/all 调用点不受影响）。
     """
     locations_map = {}
     ids = [mid for mid in (material_ids or []) if mid is not None]
     if not ids:
         return locations_map
+    legacy_names = [n for n in (legacy_location_names or []) if (n or '').strip()]
     for start in range(0, len(ids), 500):
         chunk = ids[start:start + 500]
         query = LocationInventory.query.filter(
@@ -7807,7 +7814,16 @@ def build_material_locations_map(material_ids, wh_obj=None):
             LocationInventory.quantity != 0,
         )
         if wh_obj is not None:
-            query = query.filter(LocationInventory.warehouse_id == wh_obj.id)
+            if legacy_names:
+                # 优先精确归属；OR 兼容历史脏数据（warehouse_id 为 NULL 但
+                # location 写的是本仓库名/编码）——与 get_warehouse_stock_quantities 同口径
+                query = query.filter(db.or_(
+                    LocationInventory.warehouse_id == wh_obj.id,
+                    db.and_(LocationInventory.warehouse_id.is_(None),
+                            LocationInventory.location.in_(legacy_names)),
+                ))
+            else:
+                query = query.filter(LocationInventory.warehouse_id == wh_obj.id)
         rows = query.order_by(
             LocationInventory.material_id.asc(),
             LocationInventory.quantity.desc(),

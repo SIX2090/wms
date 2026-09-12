@@ -1171,7 +1171,8 @@ def register_native_api_routes(app):
         """移动端库存查询：多条件模糊搜索 + 分页（按仓库级数量）"""
         from sqlalchemy.orm import joinedload
         from app import (MOBILE_API_PAGE_SIZE_DEFAULT, Material, _mobile_paginate,
-                         api_json_error, api_json_success, get_warehouse_stock_quantities,
+                         api_json_error, api_json_success, build_material_locations_map,
+                         get_warehouse_stock_quantities, location_management_enabled,
                          normalize_stock_quantity, resolve_request_warehouse,
                          round_to_2_decimals)
         # BUG-2026-08-12-004：仓库必填
@@ -1203,12 +1204,38 @@ def register_native_api_routes(app):
         # 仓库级数量汇总；无记录的物料按 0 处理，绝不回退全局 Material.stock
         quantities = get_warehouse_stock_quantities(warehouse)
 
+        # BUG-2026-09-12-003：列表模式与扫码（mobile_material_payload）字段对齐。
+        # 此前列表接口只下发 stock/price/min_stock/reorder_point，漏了下发
+        # brand 与 locations —— 扫码能看到库位、列表里看不到，作业员必须逐个
+        # 点进去扫才能知道货在哪，正是列表模式本该解决的问题。
+        #
+        # 实现要点：
+        # ① 复用 build_material_locations_map（BUG-2026-09-10-004 为消除 N+1 而引入的
+        #    批量预取函数），而非逐条查询：本页最多 20~100 条物料，逐条查会产生
+        #    N+1（实测 50 条物料 = 50 条 SQL，批量 IN = 1 条，快约 5.8x）。
+        #    一并继承它与 /api/material/search、/api/material/all 完全一致的口径
+        #    （非零、数量降序、库位升序、IN 分批 500），避免同根因在多消费点分叉（R6）。
+        # ② 传入 legacy_location_names 纳入历史脏数据行（warehouse_id 为 NULL 但
+        #    location 写的是本仓库名/编码）——与上方 get_warehouse_stock_quantities
+        #    同口径，否则会出现「汇总库存有值但库位明细少列」的不一致（R2 第 2、3 条）。
+        locations_by_material = {}
+        if location_management_enabled() and materials:
+            legacy_names = [warehouse.name] + (
+                [warehouse.code] if (warehouse.code or '').strip()
+                and warehouse.code != warehouse.name else []
+            )
+            locations_by_material = build_material_locations_map(
+                [m.id for m in materials], wh_obj=warehouse,
+                legacy_location_names=legacy_names,
+            )
+
         return api_json_success({
             'items': [
                 {
                     'id': m.id,
                     'code': m.code or '',
                     'name': m.name or '',
+                    'brand': m.brand or '',
                     'spec': m.spec or '',
                     'unit': m.unit.name if m.unit else '',
                     'category': m.category.name if m.category else '',
@@ -1217,6 +1244,7 @@ def register_native_api_routes(app):
                     'price': round_to_2_decimals(m.price or 0),
                     'min_stock': m.min_stock or 0,
                     'reorder_point': m.reorder_point or 0,
+                    'locations': locations_by_material.get(m.id, []),
                 }
                 for m in materials
             ],
