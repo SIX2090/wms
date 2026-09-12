@@ -101,6 +101,26 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
         )
     }
 
+    /**
+     * 校验扫码得到的编码是否命中建档物料（AI-MOB-SCAN-UX-01）。
+     *
+     * 用途：给期初建账扫码的声音/震动反馈判成功还是失败。
+     * 与 [ScanViewModel.materialExists] 同语义：网络异常时返回 true ——
+     * 断网时不该把「查不到」误报成「物料不存在」。
+     * 期初建账是全局口径，不带仓库（与 [searchMaterialSuggestions] 一致）。
+     */
+    suspend fun materialExists(code: String): Boolean {
+        return try {
+            val exact = repository.getMaterialInfo(code)
+            if (exact.isSuccess) return true
+            val fuzzy = repository.searchMaterial(code)
+            fuzzy.getOrNull()?.isNotEmpty() ?: true
+        } catch (e: Exception) {
+            // 网络/服务异常 → 不拦截，交由提交环节暴露问题
+            true
+        }
+    }
+
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }
