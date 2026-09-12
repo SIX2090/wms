@@ -156,6 +156,41 @@ interface WmsApiService {
         @Query("warehouse_id") warehouseId: String? = null
     ): Response<ApiEnvelope<DashboardDto>>
 
+    // ── 首页概览下钻（AI-MOB-DRILLDOWN-01）──
+    // 后端三个列表接口早已存在，手机端此前未接入：首页「库存告警」只跳到
+    // 查库存的空搜索框、「待处理单据」点了完全没反应。以下为对应声明。
+
+    // 仓库统一传 warehouse_id（服务端 resolve_request_warehouse 支持 id/code/name）：
+    // 首页存的本来就是仓库 id，用 id 可规避同名仓库的歧义。
+
+    /** 库存告警清单：仓库级库存 <= 最低库存的物料，按缺口排序。 */
+    @GET("api/mobile/alert/list")
+    suspend fun getAlertList(
+        @Query("warehouse_id") warehouseId: String,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 20
+    ): Response<ApiEnvelope<AlertListData>>
+
+    /** 入库单列表：status 传 pending/completed 筛选，留空为全部。 */
+    @GET("api/mobile/in_order/list")
+    suspend fun getInOrderList(
+        @Query("warehouse_id") warehouseId: String,
+        @Query("status") status: String? = null,
+        @Query("keyword") keyword: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 20
+    ): Response<ApiEnvelope<MobileOrderListData>>
+
+    /** 出库单列表：status 传 pending/completed 筛选，留空为全部。 */
+    @GET("api/mobile/out_order/list")
+    suspend fun getOutOrderList(
+        @Query("warehouse_id") warehouseId: String,
+        @Query("status") status: String? = null,
+        @Query("keyword") keyword: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 20
+    ): Response<ApiEnvelope<MobileOrderListData>>
+
     @Multipart
     @POST("mobile/api/asr")
     suspend fun asrAudio(

@@ -294,8 +294,7 @@ fun HomeScreen(
                 TodayOverviewBar(
                     dashboard = dashboard,
                     onNavigate = onNavigate
-                )
-            }
+                )            }
 
             // ── Card Grid ──
             Spacer(modifier = Modifier.height(20.dp))
@@ -550,7 +549,11 @@ fun TodayOverviewBar(
             sub = "入${dashboard.pendingInOrders} 出${dashboard.pendingOutOrders}",
             icon = Icons.Outlined.PendingActions,
             color = CardOrange,
-            screen = null
+            // AI-MOB-DRILLDOWN-01：此前为 null，点了完全没反应。
+            // 现在下钻到明细列表（可再切 入库单 / 出库单）。
+            // 即使当前为 0 单也允许进入——用户需要能确认"确实是 0"，
+            // 而不是怀疑点击没生效。
+            screen = Screen.OverviewOrders
         ),
         OverviewItem(
             label = "库存告警",
@@ -558,7 +561,9 @@ fun TodayOverviewBar(
             sub = "低于安全库存",
             icon = Icons.Outlined.WarningAmber,
             color = Error,
-            screen = Screen.StockQuery
+            // AI-MOB-DRILLDOWN-01：此前跳查库存的空白搜索框，
+            // 用户看到数字却不知道具体是哪些物料。改跳告警明细。
+            screen = Screen.OverviewAlerts
         )
     )
 

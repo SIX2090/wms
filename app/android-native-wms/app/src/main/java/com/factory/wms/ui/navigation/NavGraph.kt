@@ -31,10 +31,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.factory.wms.data.api.AuthEventBus
 import com.factory.wms.data.model.MaterialArchiveDto
 import com.factory.wms.ui.components.VoiceAssistantOverlay
@@ -44,6 +46,7 @@ import com.factory.wms.ui.viewmodel.ai.AiViewModel
 import com.factory.wms.ui.viewmodel.archive.MaterialArchiveViewModel
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.ui.viewmodel.home.HomeViewModel
+import com.factory.wms.ui.viewmodel.list.OrderListViewModel
 import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
 import com.factory.wms.ui.viewmodel.report.ReportViewModel
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
@@ -66,6 +69,23 @@ private data class BottomTab(
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 )
+
+/** 下钻路由的两个可选参数：wid = 仓库 id，wname = 仓库名（标题展示用）。 */
+private fun overviewDrilldownArgs() = listOf(
+    navArgument("wid") { type = NavType.StringType; defaultValue = "" },
+    navArgument("wname") { type = NavType.StringType; defaultValue = "" }
+)
+
+/**
+ * 把仓库名等明文拼进路由前做转义。
+ *
+ * 仓库名可能含 `/`、`?`、空格、中文——直接拼进 route 会被 Navigation 当成
+ * 路径分隔或参数起始符，导致下钻页拿到错误参数甚至匹配不到目的地。
+ * `Uri.encode` 保留 `/`，所以这里显式把它换成 `%2F`（同出库页合同号的
+ * 拼参处理口径一致）。
+ */
+private fun encodeQueryValue(raw: String?): String =
+    android.net.Uri.encode(raw.orEmpty()).replace("/", "%2F")
 
 @Composable
 private fun bottomTabs(): List<BottomTab> = listOf(
@@ -91,6 +111,11 @@ fun AppNavGraph() {
     val homeViewModel: HomeViewModel = viewModel()
     val materialArchiveViewModel: MaterialArchiveViewModel = viewModel()
     val reportViewModel: ReportViewModel = viewModel()
+
+    // AI-MOB-DRILLDOWN-01：首页概览下钻列表（库存告警 / 待处理单据）。
+    // 两个下钻入口共用同一个 ViewModel——它的 ListKind 已能承载
+    // 「告警 / 入库单 / 出库单」三种端点，用一个 key 复用同一份分页与筛选状态。
+    val overviewListViewModel: OrderListViewModel = viewModel(key = "overview_list")
 
     // 物料档案详情：选中的物料通过共享状态传递（避免 route 参数序列化 DTO）
     var selectedMaterialArchive by remember { mutableStateOf<MaterialArchiveDto?>(null) }
@@ -160,7 +185,20 @@ fun AppNavGraph() {
                         authViewModel = authViewModel,
                         homeViewModel = homeViewModel,
                         onNavigate = { screen ->
-                            navController.navigate(screen.route)
+                            // 下钻路由需要从首页带上当前仓库（后端按仓隔离，
+                            // 缺仓库会回退服务端默认仓，与首页口径不一致）
+                            navController.navigate(
+                                when (screen) {
+                                    Screen.OverviewOrders, Screen.OverviewAlerts -> {
+                                        val wid = homeViewModel.uiState.value.selectedWarehouseId.orEmpty()
+                                        val wname = homeViewModel.uiState.value.dashboard?.warehouse.orEmpty()
+                                        screen.route
+                                            .replace("{wid}", encodeQueryValue(wid))
+                                            .replace("{wname}", encodeQueryValue(wname))
+                                    }
+                                    else -> screen.route
+                                }
+                            )
                         },
                         onLogout = {
                             navController.navigate(Screen.Login.route) {
@@ -254,6 +292,32 @@ fun AppNavGraph() {
                             onBack = { navController.popBackStack() }
                         )
                     }
+                }
+
+                composable(
+                    route = Screen.OverviewAlerts.route,
+                    arguments = overviewDrilldownArgs()
+                ) { entry ->
+                    OverviewListScreen(
+                        target = OverviewTarget.ALERT,
+                        viewModel = overviewListViewModel,
+                        warehouseId = entry.arguments?.getString("wid").orEmpty(),
+                        warehouseName = entry.arguments?.getString("wname").orEmpty(),
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(
+                    route = Screen.OverviewOrders.route,
+                    arguments = overviewDrilldownArgs()
+                ) { entry ->
+                    OverviewListScreen(
+                        target = OverviewTarget.PENDING_ORDERS,
+                        viewModel = overviewListViewModel,
+                        warehouseId = entry.arguments?.getString("wid").orEmpty(),
+                        warehouseName = entry.arguments?.getString("wname").orEmpty(),
+                        onBack = { navController.popBackStack() }
+                    )
                 }
 
                 composable(Screen.DailyReport.route) {
