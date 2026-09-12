@@ -715,6 +715,11 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submitInbound(businessType: String = "采购入库") {
         viewModelScope.launch {
+            // BUG-2026-09-12-010：防重复提交守卫。
+            // 每次提交都会 newRequestId() 生成**新**幂等键，后端只能靠幂等键去重，
+            // 重复触发即两张单据、库存扣两次。此前仅靠 UI 关弹窗遮蔽（时序侥幸），
+            // ViewModel 层无任何防护；此处补上源头守卫（UI 层同时禁用按钮为第二道）。
+            if (_uiState.value.isLoading) return@launch
             val state = _uiState.value
             val warehouse = state.selectedWarehouse
             if (warehouse == null) {
@@ -773,6 +778,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submitOutbound() {
         viewModelScope.launch {
+            // BUG-2026-09-12-010：防重复提交守卫（同 submitInbound，重复点按＝新幂等键＝重复单据）
+            if (_uiState.value.isLoading) return@launch
             val state = _uiState.value
             val warehouse = state.selectedWarehouse
             if (warehouse == null) {
@@ -864,6 +871,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submitStocktake() {
         viewModelScope.launch {
+            // BUG-2026-09-12-010：防重复提交守卫（同 submitInbound）
+            if (_uiState.value.isLoading) return@launch
             val state = _uiState.value
             val warehouse = state.selectedWarehouse
             if (warehouse == null) {

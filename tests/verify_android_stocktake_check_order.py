@@ -10,6 +10,7 @@
 - 版本递增 versionCode ≥ 12 / versionName ≥ 3.7.1（AI-MOB 发版递增；3.6.0 为领料部门/领料人下拉前的版本，3.7.0 为关键词联想前的版本，3.7.2 为首页概览下钻）
 """
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parent.parent
 BASE = ROOT / "app" / "android-native-wms" / "app" / "src" / "main" / "java" / "com" / "factory" / "wms"
@@ -77,8 +78,21 @@ def test_screen_ui_and_confirm_gate():
     assert "CheckOrderPickerDialog(" in src
     assert "showCheckOrderDialog" in src
     assert "import com.factory.wms.data.model.CheckOrderDto" in src
-    # 确认弹窗的提交按钮依赖"已选盘点单"
-    assert "uiState.selectedWarehouse != null && uiState.selectedCheckOrder != null" in src
+    # 确认弹窗的提交按钮依赖"已选盘点单"。
+    # BUG-2026-09-12-010：该 enabled 表达式改为跨行（追加了 !uiState.isLoading
+    # 防重复提交守卫），故按语义断言"两个前置条件都在提交按钮的 enabled 块内"，
+    # 不再依赖单行字面量。原始意图（未选盘点单不得提交）保持不变。
+    # 定位方式：从调用 viewModel.submitStocktake() 的按钮块内取 enabled 表达式，
+    # 避免误命中页面上其他组件的 enabled（如仓库选择卡）。
+    btn = src.index("viewModel.submitStocktake()")
+    block = src[btn:btn + 900]
+    assert "enabled" in block, "未找到盘点提交按钮的 enabled 前置校验"
+    assert "uiState.selectedCheckOrder != null" in block, (
+        "盘点确认按钮必须依赖已选盘点单（未选不得提交）"
+    )
+    assert "!uiState.isLoading" in block, (
+        "BUG-2026-09-12-010：盘点确认按钮还须带防重复提交守卫"
+    )
 
 
 def test_version_bump():

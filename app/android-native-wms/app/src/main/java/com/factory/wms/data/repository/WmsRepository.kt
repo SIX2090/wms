@@ -415,7 +415,13 @@ class WmsRepository(private val context: Context) {
             if (queued) {
                 Result.failure(OfflineQueuedException(label))
             } else {
-                Result.failure(Exception("网络错误: ${e.message}"))
+                // BUG-2026-09-12-009：暂存**确实失败**（写库异常或参数不合法）。
+                // 此时必须说清"数据没保住"，让用户决定重扫或换网络重试；
+                // 绝不能沿用 OfflineQueuedException 的"已暂存"措辞，那是谎报。
+                // 也不再统一叫"网络错误"——原因可能是本地存储异常，写网络会误导排查方向。
+                Result.failure(
+                    Exception("提交失败且本地暂存未成功，请保持本页重试（原因：${e.message}）")
+                )
             }
         }
     }

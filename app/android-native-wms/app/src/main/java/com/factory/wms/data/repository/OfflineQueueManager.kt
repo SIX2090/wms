@@ -103,12 +103,18 @@ class OfflineQueueManager private constructor(
     /**
      * 入队一条已由人工确认的提交动作。
      *
+     * **suspend 且落库完成才返回**（BUG-2026-09-12-009）：本方法此前是非 suspend 的
+     * "fire-and-forget"，内部 `scope.launch { dao.upsert(...) }` 后立即 `return true`。
+     * 调用方拿到 true 就告诉用户"已暂存，联网后自动提交"，但此刻写库可能还没发生、
+     * 甚至可能失败（磁盘满 / DB 损坏）——**用户被引导相信数据是安全的，而它并不在**。
+     * 断网暂存这条链路的价值完全建立在"暂存一定成功"上，返回值必须反映真实结果。
+     *
      * @param requestId 与请求头 `X-Idempotency-Key` 一致（同一次提交必须复用同值）
      * @param warehouseCode 仓库编码；为空时**拒绝入队**——仓库必填（AGENTS.md 第二节），
      *        断网时更不得回退默认仓，否则补传会落到错误仓库。
-     * @return true 已入队；false 参数不合法未入队
+     * @return true 已确认写入本地队列；false 参数不合法或写库失败（**均不得当作已暂存**）
      */
-    fun enqueue(
+    suspend fun enqueue(
         requestId: String,
         operationType: String,
         payload: Any,
@@ -125,22 +131,24 @@ class OfflineQueueManager private constructor(
             return false
         }
 
-        scope.launch {
-            runCatching {
-                dao.upsert(
-                    PendingOperationEntity(
-                        requestId = requestId,
-                        operationType = operationType,
-                        payloadJson = gson.toJson(payload),
-                        warehouseCode = warehouseCode,
-                        summary = summary,
-                        status = PendingOperationEntity.STATUS_PENDING
-                    )
+        return runCatching {
+            dao.upsert(
+                PendingOperationEntity(
+                    requestId = requestId,
+                    operationType = operationType,
+                    payloadJson = gson.toJson(payload),
+                    warehouseCode = warehouseCode,
+                    summary = summary,
+                    status = PendingOperationEntity.STATUS_PENDING
                 )
-                refreshCounts()
-            }.onFailure { Log.e(TAG, "入队失败: ${it.message}", it) }
+            )
+            refreshCounts()
+            true
+        }.getOrElse { e ->
+            // 写库失败必须让调用方知道：不能返回 true 让 UI 谎称"已暂存"
+            Log.e(TAG, "入队失败（数据未暂存，必须告知用户）: ${e.message}", e)
+            false
         }
-        return true
     }
 
     // ───────────────────────── 补传 ─────────────────────────
@@ -190,6 +198,16 @@ class OfflineQueueManager private constructor(
                     runCatching { dao.deleteByRequestId(op.requestId) }
                     okCount++
                 } else {
+                    // BUG-2026-09-12-008：replay 返回 false 表示"重放无意义"的确定性失败
+                    // （当前唯一来源：operation_type 不在已知三类之内）。
+                    // 此处**必须**回写状态：上面的 markSyncing 已把该行置为 syncing，
+                    // 而 listPending / countPending / countFailed 全部按状态过滤，
+                    // syncing 行在三处都取不到 —— 不回写就等于把这条作业从队列中
+                    // 抹掉且无人知晓，正是 PendingOperationDao.resetStuckSyncing
+                    // 注释所斥的"静默丢数据"（R6：同类消费点已排查）。
+                    val error = "未知作业类型 `${op.operationType}`，无法补传"
+                    Log.w(TAG, "$error（requestId=${op.requestId}），转 failed 交人工处理")
+                    markFailure(op, error, forceFail = true)
                     failCount++
                 }
             }
@@ -202,7 +220,9 @@ class OfflineQueueManager private constructor(
     /**
      * 重放单条记录。
      *
-     * @return true 表示服务端已确认成功（含幂等回放）
+     * @return true 表示服务端已确认成功（含幂等回放）；
+     *         **false 表示"确定性失败"**，调用方必须回写状态（见 [doSync] 的 else 分支，
+     *         BUG-2026-09-12-008）——绝不可直接丢弃返回值。
      * @throws WmsRepository.BusinessException 服务端明确业务拒绝
      */
     private suspend fun replay(op: PendingOperationEntity): Boolean {
@@ -269,10 +289,18 @@ class OfflineQueueManager private constructor(
         }
     }
 
+    /**
+     * 补传结果摘要。
+     *
+     * 全失败时**不写"请检查网络"**：失败原因可能是业务拒绝（如盘点单已结束）或
+     * 未知作业类型，与网络无关；写"检查网络"会引导作业员反复切网络却始终无效
+     * （BUG-2026-09-10-011 同类：把非网络原因说成网络原因）。
+     * 具体原因由每条记录的 lastError 承载，UI 侧失败列表可见。
+     */
     private fun buildSummary(ok: Int, fail: Int, total: Int): String = when {
         ok == total -> "已同步 $ok 条离线记录"
         ok > 0 -> "已同步 $ok 条，$fail 条待重试"
-        else -> "$fail 条同步失败，请检查网络后重试"
+        else -> "$fail 条同步失败，已保留在本机待处理（详见失败列表）"
     }
 
     /** 人工重试失败记录（UI"重试"按钮）。 */

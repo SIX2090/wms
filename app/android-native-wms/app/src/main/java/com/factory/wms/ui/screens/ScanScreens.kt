@@ -196,6 +196,8 @@ fun InboundScreen(
                         showSubmitDialog = false
                         viewModel.submitInbound()
                     },
+                    // BUG-2026-09-12-010：提交中禁用，配合 ViewModel 层守卫双保险
+                    enabled = !uiState.isLoading,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CardBlue)
                 ) {
@@ -497,6 +499,8 @@ fun OutboundScreen(
                         showSubmitDialog = false
                         viewModel.submitOutbound()
                     },
+                    // BUG-2026-09-12-010：提交中禁用，配合 ViewModel 层守卫双保险
+                    enabled = !uiState.isLoading,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CardGreen)
                 ) {
@@ -1578,7 +1582,11 @@ fun StocktakeScreen(
                         showSubmitDialog = false
                         viewModel.submitStocktake()
                     },
-                    enabled = uiState.selectedWarehouse != null && uiState.selectedCheckOrder != null,
+                    // BUG-2026-09-12-010：在原有"仓库+盘点单必选"之上追加"非提交中"，
+                    // 不能用 isLoading 覆盖前置校验，否则未选盘点单时按钮会变可点。
+                    enabled = uiState.selectedWarehouse != null &&
+                        uiState.selectedCheckOrder != null &&
+                        !uiState.isLoading,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CardPurple)
                 ) {
