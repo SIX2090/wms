@@ -7,7 +7,7 @@
 - Repository loadPendingCheckOrders
 - ViewModel selectedCheckOrder / loadPendingCheckOrders / submit 携带 checkId 且未选单拦截
 - UI CheckOrderSelectorCard + CheckOrderPickerDialog + 确认弹窗 enabled 依赖盘点单
-- 版本递增 versionCode ≥ 11 / versionName 3.7.0（AI-MOB 发版递增；3.6.0 为 2026-09-12 领料部门/领料人下拉前的版本）
+- 版本递增 versionCode ≥ 12 / versionName 3.7.1（AI-MOB 发版递增；3.6.0 为领料部门/领料人下拉前的版本，3.7.0 为关键词联想前的版本）
 """
 from pathlib import Path
 
@@ -68,5 +68,5 @@ def test_screen_ui_and_confirm_gate():
 
 def test_version_bump():
     gradle = GRADLE.read_text(encoding="utf-8")
-    assert "versionCode = 11" in gradle
-    assert 'versionName = "3.7.0"' in gradle
+    assert "versionCode = 12" in gradle
+    assert 'versionName = "3.7.1"' in gradle

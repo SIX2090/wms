@@ -1,11 +1,14 @@
 package com.factory.wms.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -45,6 +48,13 @@ fun OpeningStockScreen(
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // AI-MOB-ADD-KEYWORD-01：弹窗关闭后清掉候选，避免下次打开时残留上一次的联想结果
+    LaunchedEffect(showManualDialog) {
+        if (!showManualDialog) {
+            viewModel.clearMaterialSuggestions()
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (uiState.warehouses.isEmpty() && !uiState.warehousesLoading) {
@@ -341,11 +351,16 @@ fun OpeningStockScreen(
             title = { Text("添加期初物料", fontWeight = FontWeight.SemiBold) },
             text = {
                 Column {
+                    // AI-MOB-ADD-KEYWORD-01：与查库存同口径——支持名称/规格/品牌
+                    // 关键词模糊联想，不再只认物料编码。
                     OutlinedTextField(
                         value = manualCode,
-                        onValueChange = { manualCode = it },
-                        label = { Text("物料编码") },
-                        placeholder = { Text("输入或扫描物料编码") },
+                        onValueChange = {
+                            manualCode = it
+                            viewModel.searchMaterialSuggestions(it)
+                        },
+                        label = { Text("物料编码 / 名称 / 规格 / 品牌") },
+                        placeholder = { Text("输入或扫描物料编码，也可搜名称/规格/品牌") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
@@ -354,6 +369,91 @@ fun OpeningStockScreen(
                             focusedLabelColor = CardCyan
                         )
                     )
+
+                    // 关键词模糊候选：命中即列出，点选后自动回填物料编码
+                    if (manualCode.isNotBlank()) {
+                        if (uiState.materialSuggestionsLoading) {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 6.dp),
+                                color = CardCyan,
+                                trackColor = CardCyan.copy(alpha = 0.12f)
+                            )
+                        } else if (uiState.materialSuggestions.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = CardCyan.copy(alpha = 0.06f)
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        // 弹窗内空间有限：限高内部滚动
+                                        .heightIn(max = 220.dp)
+                                        .verticalScroll(rememberScrollState())
+                                ) {
+                                    uiState.materialSuggestions.forEachIndexed { index, material ->
+                                        val specBrand = listOfNotNull(
+                                            material.spec?.takeIf { it.isNotBlank() }
+                                                ?.let { "规格: $it" },
+                                            material.brand?.takeIf { it.isNotBlank() }
+                                                ?.let { "品牌: $it" }
+                                        ).joinToString("   ")
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    manualCode = material.code.orEmpty()
+                                                    viewModel.clearMaterialSuggestions()
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    material.code.orEmpty(),
+                                                    style = MaterialTheme.typography.titleSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = CardCyan
+                                                )
+                                                if (!material.name.isNullOrBlank()) {
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        material.name.orEmpty(),
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                            if (specBrand.isNotBlank()) {
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    specBrand,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                        if (index < uiState.materialSuggestions.size - 1) {
+                                            HorizontalDivider(
+                                                color = CardCyan.copy(alpha = 0.12f),
+                                                thickness = 0.5.dp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         FilledIconButton(

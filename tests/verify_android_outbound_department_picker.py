@@ -12,7 +12,7 @@
   与 loadDepartments/loadEmployees/selectDepartment/selectEmployee，
   submitOutbound 从 state 取 departmentId/picker（不再由 UI 传文本）
 - UI 两张 PartySelectorCard + 两个 PartyPickerDialog + 确认弹窗回显
-- 版本递增 versionCode 11 / versionName 3.7.0（AI-MOB 发版递增）
+- 版本递增 versionCode 12 / versionName 3.7.1（AI-MOB 发版递增）
 """
 from pathlib import Path
 
@@ -102,5 +102,5 @@ def test_party_picker_component():
 
 def test_version_bump():
     gradle = GRADLE.read_text(encoding="utf-8")
-    assert "versionCode = 11" in gradle
-    assert 'versionName = "3.7.0"' in gradle
+    assert "versionCode = 12" in gradle
+    assert 'versionName = "3.7.1"' in gradle

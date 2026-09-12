@@ -3,10 +3,13 @@ package com.factory.wms.ui.viewmodel.opening
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.factory.wms.data.model.MaterialDto
 import com.factory.wms.data.model.OpeningStockLine
 import com.factory.wms.data.model.OpeningStockRequest
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.data.repository.WmsRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,7 +29,11 @@ data class OpeningStockUiState(
     // 建账日期（ISO yyyy-MM-dd）
     val date: String = LocalDate.now().toString(),
     // 扫码/手动录入的行，按物料合并
-    val lines: List<OpeningStockLine> = emptyList()
+    val lines: List<OpeningStockLine> = emptyList(),
+    // AI-MOB-ADD-KEYWORD-01：「添加期初物料」弹窗的关键词模糊候选
+    // （与查库存同口径：名称/规格/品牌都能搜）
+    val materialSuggestions: List<MaterialDto> = emptyList(),
+    val materialSuggestionsLoading: Boolean = false
 )
 
 class OpeningStockViewModel(application: Application) : AndroidViewModel(application) {
@@ -37,6 +44,62 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
     val uiState: StateFlow<OpeningStockUiState> = _uiState.asStateFlow()
 
     private val dateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+
+    // 关键词联想的防抖与竞态控制（与 ScanViewModel.searchMaterialSuggestions 同实现）
+    private var materialSearchSequence = 0
+    private var materialSearchJob: Job? = null
+
+    /**
+     * AI-MOB-ADD-KEYWORD-01：「添加期初物料」弹窗输入联想。
+     * 与查库存同口径——后端 /api/material/search 按 code|name|spec|brand
+     * 四字段 LIKE 匹配，输入名称/规格/品牌也能列出候选。
+     * 防抖 180ms + 序号防竞态（后发请求先到时丢弃旧结果）。
+     * 不传 warehouse：期初建账是全局口径，候选不带仓库级账面库存。
+     */
+    fun searchMaterialSuggestions(keyword: String) {
+        val normalizedKeyword = keyword.trim()
+        val searchSequence = ++materialSearchSequence
+        materialSearchJob?.cancel()
+        if (normalizedKeyword.isBlank()) {
+            _uiState.value = _uiState.value.copy(
+                materialSuggestions = emptyList(),
+                materialSuggestionsLoading = false
+            )
+            return
+        }
+
+        materialSearchJob = viewModelScope.launch {
+            delay(180)
+            _uiState.value = _uiState.value.copy(materialSuggestionsLoading = true)
+            repository.searchMaterial(normalizedKeyword).fold(
+                onSuccess = { materials ->
+                    if (searchSequence == materialSearchSequence) {
+                        _uiState.value = _uiState.value.copy(
+                            materialSuggestions = materials,
+                            materialSuggestionsLoading = false
+                        )
+                    }
+                },
+                onFailure = {
+                    if (searchSequence == materialSearchSequence) {
+                        _uiState.value = _uiState.value.copy(
+                            materialSuggestions = emptyList(),
+                            materialSuggestionsLoading = false
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun clearMaterialSuggestions() {
+        materialSearchSequence += 1
+        materialSearchJob?.cancel()
+        _uiState.value = _uiState.value.copy(
+            materialSuggestions = emptyList(),
+            materialSuggestionsLoading = false
+        )
+    }
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
