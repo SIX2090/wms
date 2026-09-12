@@ -15,6 +15,8 @@ import com.factory.wms.data.api.WmsApiService
 import com.factory.wms.data.local.AppDatabase
 import com.factory.wms.data.local.MaterialEntity
 import com.factory.wms.data.local.OperationLogEntity
+import com.factory.wms.data.local.PendingOperationEntity
+import com.factory.wms.util.NetworkMonitor
 import com.factory.wms.data.model.*
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.first
@@ -31,6 +33,22 @@ class WmsRepository(private val context: Context) {
     private val db: AppDatabase = AppDatabase.getDatabase(context)
     private val materialDao = db.materialDao()
     private val operationLogDao = db.operationLogDao()
+    private val pendingOperationDao = db.pendingOperationDao()
+
+    /**
+     * AI-MOB-OFFLINE-01：离线待提交作业队列。
+     *
+     * 网络不可用时把**人工已确认的提交**暂存本地，联网后自动补传（幂等，不产生重复单据）。
+     * lazy 避免构造期就注册网络回调。
+     */
+    val offlineQueue: OfflineQueueManager by lazy {
+        OfflineQueueManager.getInstance(
+            context,
+            pendingOperationDao,
+            api,
+            NetworkMonitor.getInstance(context)
+        )
+    }
 
     // EncryptedSharedPreferences for sensitive token storage
     private val encryptedPrefs by lazy {
@@ -56,6 +74,19 @@ class WmsRepository(private val context: Context) {
          * 用独立类型标记，外层 catch 原样放行、不再加"网络错误"前缀。
          */
         class BusinessException(message: String) : Exception(message)
+
+        /**
+         * AI-MOB-OFFLINE-01：网络不可用但**已成功暂存到离线队列**。
+         *
+         * 用独立类型而非普通 Exception，是为了让 UI 能区分两种情况并给出正确措辞：
+         * - 普通失败 → "提交失败，请重试"（用户需重扫/重试）
+         * - 本异常  → "已暂存，联网后自动提交"（数据没丢，用户可放心离开）
+         *
+         * 若混用同一类型，UI 会把"已安全暂存"显示成"失败"，用户重复操作反而制造重复数据。
+         */
+        class OfflineQueuedException(
+            val operationLabel: String
+        ) : Exception("网络不可用，$operationLabel 已暂存，联网后自动提交")
 
         private const val KEY_TOKEN = "auth_token"
         private val KEY_BASE_URL = stringPreferencesKey("base_url")
@@ -298,84 +329,141 @@ class WmsRepository(private val context: Context) {
     }
 
     suspend fun submitInbound(request: InboundRequest): Result<SubmitResult> {
-        return try {
-            val response = api.submitInbound(newRequestId(), request)
-            val result = handleResponse<SubmitResult>(response)
-            result.fold(
-                onSuccess = { submitResult ->
-                    // Log operation
-                    request.lines.forEach { line ->
-                        operationLogDao.insert(
-                            OperationLogEntity(
-                                operationType = "inbound",
-                                orderNo = submitResult.order_no,
-                                materialCode = line.material_code,
-                                quantity = line.quantity
-                            )
-                        )
-                    }
-                },
-                onFailure = { }
-            )
-            result
-        } catch (e: BusinessException) {
-            Result.failure(e)
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
-        }
+        return submitWithOfflineFallback(
+            operationType = PendingOperationEntity.TYPE_INBOUND,
+            payload = request,
+            warehouseCode = request.warehouseCode ?: request.warehouse,
+            lineCount = request.lines.size,
+            label = "入库"
+        ) { requestId -> api.submitInbound(requestId, request) }
     }
 
     suspend fun submitOutbound(request: OutboundRequest): Result<SubmitResult> {
-        return try {
-            val response = api.submitOutbound(newRequestId(), request)
-            val result = handleResponse<SubmitResult>(response)
-            result.fold(
-                onSuccess = { submitResult ->
-                    request.lines.forEach { line ->
-                        operationLogDao.insert(
-                            OperationLogEntity(
-                                operationType = "outbound",
-                                orderNo = submitResult.order_no,
-                                materialCode = line.material_code,
-                                quantity = line.quantity
-                            )
-                        )
-                    }
-                },
-                onFailure = { }
-            )
-            result
-        } catch (e: BusinessException) {
-            Result.failure(e)
-        } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
-        }
+        return submitWithOfflineFallback(
+            operationType = PendingOperationEntity.TYPE_OUTBOUND,
+            payload = request,
+            warehouseCode = request.warehouseCode ?: request.warehouse,
+            lineCount = request.lines.size,
+            label = "出库"
+        ) { requestId -> api.submitOutbound(requestId, request) }
     }
 
     suspend fun submitStocktake(request: StocktakeRequest): Result<SubmitResult> {
+        return submitWithOfflineFallback(
+            operationType = PendingOperationEntity.TYPE_STOCKTAKE,
+            payload = request,
+            warehouseCode = request.warehouseCode ?: request.warehouse,
+            lineCount = request.lines.size,
+            label = "盘点"
+        ) { requestId -> api.submitStocktake(requestId, request) }
+    }
+
+    /**
+     * AI-MOB-OFFLINE-01：提交统一入口——**网络类失败自动落离线队列**。
+     *
+     * ## 为什么这样分流（关键业务判断）
+     *
+     * - **业务类失败**（[BusinessException]，服务端 4xx 且带明确中文原因，如
+     *   "请选择仓库""库存不足"）：立即把失败返回给用户。这类错误重试无意义，
+     *   若入队会把**确定失败**伪装成"已暂存"，用户以为提交成功、实际永远不会成功——
+     *   比丢数据更危险。
+     * - **网络类失败**（连接失败/超时/IO）：入队暂存，联网后自动补传。
+     *   这是本任务要解决的场景（仓库弱网/地下室）。
+     *
+     * ## 幂等
+     *
+     * 无论走在线还是离线，**同一次用户提交复用同一个 requestId**：在线成功即完成；
+     * 在线失败转离线后补传时携带同一 requestId，后端 `mobile_api_idempotent` 保证
+     * 服务端最多生效一次。用户在弱网下反复点提交也不会产生重复单据。
+     *
+     * ## 仓库必填（AGENTS.md 第二节）
+     *
+     * [warehouseCode] 为空时**拒绝入队**并返回明确错误——断网不得回退默认仓，
+     * 否则补传会把货记到错误仓库。
+     */
+    private suspend fun submitWithOfflineFallback(
+        operationType: String,
+        payload: Any,
+        warehouseCode: String?,
+        lineCount: Int,
+        label: String,
+        call: suspend (String) -> Response<ApiEnvelope<SubmitResult>>
+    ): Result<SubmitResult> {
+        val requestId = newRequestId()
         return try {
-            val response = api.submitStocktake(newRequestId(), request)
+            val response = call(requestId)
             val result = handleResponse<SubmitResult>(response)
             result.fold(
                 onSuccess = { submitResult ->
-                    request.lines.forEach { line ->
-                        operationLogDao.insert(
-                            OperationLogEntity(
-                                operationType = "stocktake",
-                                orderNo = submitResult.check_no,
-                                materialCode = line.material_code,
-                                quantity = line.actual_stock
-                            )
-                        )
-                    }
+                    recordOperationLog(operationType, submitResult, payload)
                 },
                 onFailure = { }
             )
             result
         } catch (e: BusinessException) {
+            // 业务拒绝：不回退队列，原样交给 UI 展示服务端原因
             Result.failure(e)
         } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
+            // 网络类失败：尝试入队暂存
+            val queued = offlineQueue.enqueue(
+                requestId = requestId,
+                operationType = operationType,
+                payload = payload,
+                warehouseCode = warehouseCode,
+                summary = "$label $lineCount 项"
+            )
+            if (queued) {
+                Result.failure(OfflineQueuedException(label))
+            } else {
+                Result.failure(Exception("网络错误: ${e.message}"))
+            }
+        }
+    }
+
+    /** 按作业类型写入本地操作日志（在线成功路径；离线补传成功由队列侧不再重复记）。 */
+    private suspend fun recordOperationLog(
+        operationType: String,
+        submitResult: SubmitResult,
+        payload: Any
+    ) {
+        runCatching {
+            when (payload) {
+                is InboundRequest -> payload.lines.forEach { line ->
+                    operationLogDao.insert(
+                        OperationLogEntity(
+                            operationType = operationType,
+                            orderNo = submitResult.order_no,
+                            materialCode = line.material_code,
+                            quantity = line.quantity
+                        )
+                    )
+                }
+
+                is OutboundRequest -> payload.lines.forEach { line ->
+                    operationLogDao.insert(
+                        OperationLogEntity(
+                            operationType = operationType,
+                            orderNo = submitResult.order_no,
+                            materialCode = line.material_code,
+                            quantity = line.quantity
+                        )
+                    )
+                }
+
+                is StocktakeRequest -> payload.lines.forEach { line ->
+                    operationLogDao.insert(
+                        OperationLogEntity(
+                            operationType = operationType,
+                            orderNo = submitResult.check_no,
+                            materialCode = line.material_code,
+                            quantity = line.actual_stock
+                        )
+                    )
+                }
+            }
+        }.onFailure {
+            // 操作日志写失败不得影响已成功的业务提交
+            android.util.Log.w("WmsRepository", "写操作日志失败: ${it.message}")
         }
     }
 
