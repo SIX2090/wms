@@ -71,7 +71,8 @@ jobs:
       # 为什么逐文件独立进程：多文件同进程混跑时 app 模块单例与
       # db.drop_all 内存库守卫互相干扰，会产生 169 例环境性假失败；
       # 逐文件执行已本地验证 99/108 文件全过。
-      # KNOWN-FAILURES：以下 7 个文件共 13 例历史真实失败，登记为
+      # KNOWN-FAILURES：以下 6 个文件共 10 例历史真实失败（F7 的 3 例已于
+      # 2026-09-12 修复移除，13 - 3 = 10），登记为
       # BUG-2026-08-16-017 子任务（F1~F9）逐个修复后从此清单移除：
       #   F1 verify_app_py_split_subcontract.py（1 例）
       #   F2 verify_bug_2026_08_02_018_report.py（2 例）
@@ -79,7 +80,10 @@ jobs:
       #   F4 verify_bug_2026_08_04_010_material_api_all_response_key.py（1 例）
       #   F5 verify_bug_2026_08_09_003_takepicture_permission_and_path.py（2 例）
       #   F6 已修复移除（verify_bug_2026_08_13_002_scan_submit_bearer.py，2026-09-11 复核 7 passed）
-      #   F7 verify_bug_P15_P16_P21.py（3 例，TestBugP21BizReportWarehouseGuard 采购执行表仓库守卫）
+      #   F7 已修复移除（verify_bug_P15_P16_P21.py，2026-09-12 复核 10 passed：
+      #      TestBugP21BizReportWarehouseGuard 3 例此前失败的根因是「种子数据与仓库
+      #      归属口径不匹配」+「无仓库契约写成 200 空、实现是 400 请选择仓库」；
+      #      已校准契约并补入库单归属种子，另加换仓查询必须为空的隔离断言）
       #   F8 已修复移除（verify_mobile_asr_route.py，2026-09-11 复核 8 passed）
       #   F9 verify_mobile_recognize_material_api.py（5 例）
       - name: "Verify regression - verify_*.py (BUG-2026-08-16-017)"
@@ -90,7 +94,6 @@ jobs:
             tests/verify_bug_2026_08_02_021_in_order_contract.py
             tests/verify_bug_2026_08_04_010_material_api_all_response_key.py
             tests/verify_bug_2026_08_09_003_takepicture_permission_and_path.py
-            tests/verify_bug_P15_P16_P21.py
             tests/verify_mobile_recognize_material_api.py
           )
           is_known() {
