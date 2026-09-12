@@ -301,11 +301,23 @@ class TestBugP21BizReportWarehouseGuard:
             return {"mat": mat, "sup": sup}
 
     def _seed_biz_orders(self):
-        """在当前会话中造委外单 / 领料单 / 采购订单各一条，验证"有数据仍被守卫拦截"。"""
+        """在当前会话中造委外单 / 领料单 / 采购订单各一条，验证"有数据时守卫不误伤"。
+
+        2026-09-12 F7 种子校准：三类报表的仓库归属口径各不相同，种子必须落到
+        各自的归属字段上，否则造了数据也查不出来（此前 3 例失败的根因就是种子
+        与口径不匹配，被误判成"守卫误伤"）：
+        - 采购执行表：采购订单本身不记仓库，按**来源入库单**的仓库归属
+          （InOrder.warehouse，经 InOrderItem.source_purchase_order_item_id 或
+          InOrder.source_purchase_order_id 关联），未入库的订单无可确认归属、不纳入；
+        - 委外表：SubcontractOrder.warehouse（名称/编码任一匹配）；
+        - 工单领料表：ProductionRequisition.warehouse。
+        """
         from datetime import date as _date
         with app_module.app.app_context():
             mat = Material.query.filter_by(code="M001").first()
             sup = Supplier.query.filter_by(code="SUP001").first()
+            wh = Warehouse.query.filter_by(is_default=True, status="active").first()
+            wh_name = wh.name if wh else None
             if PurchaseOrder.query.count() == 0:
                 po = PurchaseOrder(
                     order_no="PO-001", date=_date.today(), supplier_id=sup.id,
@@ -313,14 +325,30 @@ class TestBugP21BizReportWarehouseGuard:
                 )
                 db.session.add(po)
                 db.session.flush()
-                db.session.add(PurchaseOrderItem(
+                po_item = PurchaseOrderItem(
                     purchase_order_id=po.id, material_id=mat.id,
                     quantity=10, received_quantity=0, price=10, amount=100,
+                )
+                db.session.add(po_item)
+                db.session.flush()
+                # 采购执行的仓库归属来自入库单：补一张该仓的采购入库单并回指采购行
+                db.session.add(InOrder(
+                    order_no="IN-001", date=_date.today(), supplier_id=sup.id,
+                    business_type="采购入库", warehouse=wh_name or "",
+                    source_purchase_order_id=po.id, status="completed",
+                    total_amount=100,
+                ))
+                db.session.flush()
+                db.session.add(InOrderItem(
+                    in_order_id=InOrder.query.filter_by(order_no="IN-001").first().id,
+                    material_id=mat.id, source_purchase_order_item_id=po_item.id,
+                    quantity=4, price=10, amount=40,
                 ))
             if SubcontractOrder.query.count() == 0:
                 sc = SubcontractOrder(
                     order_no="SC-001", date=_date.today(), supplier_id=sup.id,
                     status="pending", total_amount=50,
+                    warehouse=wh_name or "",
                 )
                 db.session.add(sc)
                 db.session.flush()
@@ -344,18 +372,28 @@ class TestBugP21BizReportWarehouseGuard:
             db.session.commit()
 
     def test_A_no_warehouse_no_default_returns_empty(self):
-        """无仓库参数 + 无默认仓库 → 三个业务报表返回空数据（守卫生效）。"""
+        """无仓库参数 + 无默认仓库 → 三个业务报表一律拒绝出数（守卫生效）。
+
+        2026-09-12 F7 契约校准：路由 /report/api/<type> 对"无仓库"返回
+        HTTP 400 + msg「请选择仓库」，而不是 200 + 空 data。保留实现的 400 语义，
+        理由是按仓库出数属强约束（AGENTS.md 仓库必填）：返回空 200 会让前端把
+        "你还没选仓库"渲染成"该仓没有数据"，用户据此判断"没有采购在途/没有委外"
+        是危险的。守卫的核心不变——**绝不返回跨仓全量数据**。
+        """
         self._seed_without_warehouse()
         client = _make_client()
         for report_type in ('purchase_order_execution', 'subcontract', 'requisition'):
             resp = client.get(f"/report/api/{report_type}")
             body = resp.get_json() or {}
-            assert resp.status_code == 200, (report_type, body)
-            assert body.get("status") == "success", (report_type, body)
-            assert body.get("data") == [], (
-                f"{report_type} 无仓库时未返回空，违反 AGENTS.md 仓库必填：{body}"
+            assert resp.status_code == 400, (
+                f"{report_type} 无仓库时应明确拒绝（400 请选择仓库），实际：{body}"
             )
-            assert body.get("total", 0) == 0, (report_type, body)
+            assert body.get("status") == "error", (report_type, body)
+            assert "请选择仓库" in (body.get("msg") or ""), (report_type, body)
+            # 强制拒绝而非静默返回：任何情况下都不带 data 列表
+            assert "data" not in body, (
+                f"{report_type} 无仓库时不应返回任何数据行：{body}"
+            )
 
     def test_B_default_warehouse_auto_used_returns_rows(self):
         """有默认仓库且未显式传仓库 → 自动带入默认仓，报表返回数据（不误伤）。"""
@@ -411,9 +449,11 @@ class TestBugP21BizReportWarehouseGuard:
                 category=cat, unit=unit, supplier=sup,
                 stock=0, price=10, min_stock=0, max_stock=9999, reorder_point=0,
             )
-            db.session.add_all([wh, unit, cat, sup, user, mat])
+            wh_b = Warehouse(code="WHB", name="仓库B", status="active")
+            db.session.add_all([wh, wh_b, unit, cat, sup, user, mat])
             db.session.commit()
             wh_id = wh.id
+            wh_b_id = wh_b.id
         self._seed_biz_orders()
         client = _make_client()
         for report_type in ('purchase_order_execution', 'subcontract', 'requisition'):
@@ -423,4 +463,13 @@ class TestBugP21BizReportWarehouseGuard:
             assert body.get("status") == "success", (report_type, body)
             assert body.get("data") != [], (
                 f"{report_type} 显式指定仓库时应返回数据：{body}"
+            )
+            # 2026-09-12 F7 补强：多仓隔离反向验证——同一批数据换一个仓查询
+            # 必须为空。历史 20+ 个多仓 BUG 全部源于"只看全局库存/不过滤仓库"，
+            # 只断言"本仓有数"挡不住"隔壁仓的数据也跟着跑出来"。
+            other = client.get(f"/report/api/{report_type}?warehouse_id={wh_b_id}")
+            other_body = other.get_json() or {}
+            assert other.status_code == 200, (report_type, other_body)
+            assert other_body.get("data") == [], (
+                f"{report_type} 换仓查询仍返回数据，仓库过滤失效（串仓）：{other_body}"
             )
