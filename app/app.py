@@ -24314,8 +24314,21 @@ def material_search_api():
     _warehouse_stock_map = (
         get_warehouse_stock_quantities(_wh_obj) if _wh_obj is not None else None
     )
+    # BUG-2026-09-12-005：库位分布必须与上方库存聚合同口径。
+    # get_warehouse_stock_quantities 会纳入 warehouse_id 为 NULL 但 location
+    # 等于本仓名/编码的历史行，而 build_material_locations_map 默认只做
+    # warehouse_id 精确匹配——两者口径分叉会让同一响应出现
+    # 「stock=70 但库位明细只列 50」的不一致（实测），作业员按库位找货会
+    # 少找 20 件（R2 第 2、3 条）。故带仓上下文时传入 legacy_location_names。
+    _legacy_loc_names = None
+    if _wh_obj is not None:
+        _legacy_loc_names = [_wh_obj.name] + (
+            [_wh_obj.code] if (_wh_obj.code or '').strip()
+            and _wh_obj.code != _wh_obj.name else []
+        )
     _locations_map = (
-        build_material_locations_map([m.id for m in materials], wh_obj=_wh_obj)
+        build_material_locations_map([m.id for m in materials], wh_obj=_wh_obj,
+                                     legacy_location_names=_legacy_loc_names)
         if location_management_enabled() else None
     )
     return jsonify({
