@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -19,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,6 +30,13 @@ import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.ui.viewmodel.scan.SubmittedPrintInfo
 import com.factory.wms.util.formatQuantity
+import com.factory.wms.util.ScanFeedback
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +79,15 @@ fun ScanScreenBase(
     onMaterialSuggestionSelected: (MaterialDto) -> Unit = {}
 ) {
     var showCameraScanner by remember { mutableStateOf(false) }
+    // AI-MOB-CONTINUOUS-SCAN-01：连续扫描的已扫条数与最近一次条码。
+    // 计数在弹窗内不自行维护（弹窗只负责"扫到"），由本层持有 —— 这样
+    // 顶部"已扫 N 件"的 N 与清单行数口径一致（清空清单时应一并复位）。
+    var continuousScanCount by remember { mutableStateOf(0) }
+    var lastScannedCode by remember { mutableStateOf<String?>(null) }
+    // AI-MOB-SCAN-UX-01：扫码后的物料校验是挂起调用（要判成功/失败给不同反馈），
+    // 用一个与组合生命周期绑定的 scope，弹窗关闭后自动取消，不会泄漏。
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
@@ -444,7 +458,13 @@ fun ScanScreenBase(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         OutlinedButton(
-                            onClick = { showCameraScanner = true },
+                            onClick = {
+                                // 每次打开相机都从 0 起算本轮的"已扫 N 件"，
+                                // 否则上一轮的计数会串到本轮，与清单对不上。
+                                continuousScanCount = 0
+                                lastScannedCode = null
+                                showCameraScanner = true
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
@@ -630,6 +650,16 @@ fun ScanScreenBase(
                             singleLine = true,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
+                            // AI-MOB-SCAN-UX-01：数量框必须弹数字键盘。
+                            // 原先未声明 keyboardOptions，弹的是全键盘，输数量要先切符号页，
+                            // 现场戴手套时误触率高。Decimal 允许小数点（WMS 有 0.5 这类计量单位）。
+                            // ImeAction.Done + onDone 直接加行：扫完码输完数量敲回车即完成，
+                            // 不用再挪手去点"添加"按钮。
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Decimal,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(onDone = { onManualAdd() }),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = submitColor,
                                 focusedLabelColor = submitColor
@@ -681,9 +711,25 @@ fun ScanScreenBase(
     if (showCameraScanner) {
         ScannerDialog(
             onDismiss = { showCameraScanner = false },
+            continuous = true,
+            scannedCount = continuousScanCount,
+            lastScannedCode = lastScannedCode,
             onBarcodeScanned = { barcode ->
-                showCameraScanner = false
+                // AI-MOB-CONTINUOUS-SCAN-01：不再关弹窗，扫中即累计，
+                // 用户点"完成"才退出（onDismiss 由弹窗内部按钮触发）。
+                continuousScanCount += 1
+                lastScannedCode = barcode
                 onScanBarcode(barcode)
+                // AI-MOB-SCAN-UX-01：声音+震动反馈。
+                // 现场工人不看屏幕，靠体感分辨"这一件进去了没有"。
+                // 未建档的码用双震+低频音区分，避免一路扫下去到提交才发现有行查无此物。
+                scope.launch {
+                    if (viewModel.materialExists(barcode)) {
+                        ScanFeedback.success(context)
+                    } else {
+                        ScanFeedback.failure(context)
+                    }
+                }
             }
         )
     }

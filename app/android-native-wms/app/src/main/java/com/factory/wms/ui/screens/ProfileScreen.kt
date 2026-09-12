@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import com.factory.wms.BuildConfig
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
+import com.factory.wms.util.ScanFeedback
 
 /** "我的"页：账号信息、服务器信息、语音指令说明、退出登录。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,6 +36,10 @@ fun ProfileScreen(
 ) {
     val uiState by authViewModel.uiState.collectAsState()
     var showLogoutDialog by remember { mutableStateOf(false) }
+    // AI-MOB-SCAN-UX-01：扫码声音/震动反馈开关。
+    // 初值取 ScanFeedback 的内存缓存（进程启动时已 warmUp），避免首帧闪烁成默认值。
+    val context = LocalContext.current
+    var scanFeedbackEnabled by remember { mutableStateOf(ScanFeedback.enabled) }
 
     Scaffold(
         containerColor = Background
@@ -133,6 +139,24 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // ── 扫码设置（AI-MOB-SCAN-UX-01）──
+            ProfileSectionCard("扫码设置") {
+                ProfileToggleRow(
+                    icon = Icons.Outlined.VolumeUp,
+                    label = "扫码提示音与震动",
+                    description = "扫中给短震+提示音，未匹配给双震+警告音",
+                    checked = scanFeedbackEnabled,
+                    onCheckedChange = { enabled ->
+                        scanFeedbackEnabled = enabled
+                        ScanFeedback.setEnabled(context, enabled)
+                    },
+                    showDivider = false
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ── 应用信息 ──
             ProfileSectionCard("应用信息") {
                 ProfileRow(
                     icon = Icons.Outlined.Info,
@@ -276,6 +300,59 @@ private fun ProfileSectionCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             content()
+        }
+    }
+}
+
+@Composable
+private fun ProfileToggleRow(
+    icon: ImageVector,
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    showDivider: Boolean = true
+) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(SurfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, tint = OnSurfaceVariant, modifier = Modifier.size(18.dp))
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                // 副标题说明"开了会怎样"——只有开关没有说明，用户不敢乱动
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
+        }
+        if (showDivider) {
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 64.dp, end = 16.dp),
+                color = DividerSoft,
+                thickness = 1.dp
+            )
         }
     }
 }

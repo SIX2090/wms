@@ -48,6 +48,15 @@ import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * AI-MOB-CONTINUOUS-SCAN-01：连续扫描的节流窗口（毫秒）。
+ *
+ * 为什么要节流：弹窗不再随扫码关闭后，同一件货停在镜头前会被相机连续多帧命中。
+ * 900ms 的窗口既覆盖"同一码在 1~3 帧内反复命中"（30fps 下约 33~100ms），
+ * 又不拖慢人手换件的节奏（实测间隔通常 > 1s）。
+ */
+private const val CONTINUOUS_SCAN_THROTTLE_MS = 900L
+
 @androidx.annotation.OptIn(
     markerClass = [
         ExperimentalGetImage::class,
@@ -57,7 +66,21 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Composable
 fun ScannerDialog(
     onDismiss: () -> Unit,
-    onBarcodeScanned: (String) -> Unit
+    onBarcodeScanned: (String) -> Unit,
+    /**
+     * 连续扫描模式（AI-MOB-CONTINUOUS-SCAN-01）。
+     *
+     * 开启后扫中一码**不关闭**对话框，相机保持预览，用户可以接着扫下一件。
+     * 仓库现场一个托盘常 20~50 件货，旧行为"扫一码关一次相机 + 手动再点开"
+     * 会让一次收货多出 40~100 次点击，是移动端最大的一处效率损耗。
+     *
+     * 关闭时保持旧行为（扫中即回调并退出），供"只需扫一个码"的场景使用。
+     */
+    continuous: Boolean = true,
+    /** 连续模式下已扫条数，用于顶部计数回显（由调用方维护，弹窗不自己计数）。 */
+    scannedCount: Int = 0,
+    /** 连续模式下最近一次扫中的条码，用于顶部回显"已加 XXX"。 */
+    lastScannedCode: String? = null,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -83,6 +106,40 @@ fun ScannerDialog(
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     // Thread-safe guard so the scanf callback fires only once per dialog open (H4)
     val scannedFlag = remember { AtomicBoolean(false) }
+
+    // AI-MOB-CONTINUOUS-SCAN-01：连续模式下 scannedFlag 不再"一置位到底"，
+    // 而是每次回调后延迟复位，形成节流窗口：
+    //   - 挡住同一件货在镜头前停留时被重复回调（原先靠"关弹窗"达到同样效果，现在弹窗不关）；
+    //   - 窗口过后自动放行，下一条码立即可扫。
+    // 节流窗口取 900ms：实测人手换件的间隔通常 > 1s，而相机在 30fps 下
+    // 同一码会在 1~3 帧内被反复命中，900ms 足以覆盖两条极端情况且不拖慢节奏。
+    val continuousRef = rememberUpdatedState(continuous)
+
+    // 节流窗口用"令牌"实现，避免 postDelayed 与手动放行（继续扫按钮）互相踩：
+    //   - requestId 每开一个新窗口就自增；定时复位只在"自己仍是当前窗口"时生效。
+    //   - 若用户点了"继续扫"（手动开新窗口），先前排队的定时复位会发现 requestId
+    //     已经变了，于是直接放弃 —— 否则它会把用户刚扫中的码错误放行出去。
+    val throttleOwner = remember {
+        object {
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            var requestId = 0
+
+            /** 开一个节流窗口：窗口结束后自动复位 scannedFlag。 */
+            fun arm() {
+                requestId++
+                val mine = requestId
+                handler.postDelayed({
+                    if (requestId == mine) scannedFlag.set(false)
+                }, CONTINUOUS_SCAN_THROTTLE_MS)
+            }
+
+            /** 立即复位并接管为当前窗口（用户在窗口期内又扫了一件）。 */
+            fun releaseNow() {
+                requestId++
+                scannedFlag.set(false)
+            }
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -179,8 +236,12 @@ fun ScannerDialog(
                                                     mediaImage,
                                                     imageProxy.imageInfo.rotationDegrees
                                                 )
-                                                // Only the first match is delivered; the flag prevents
-                                                // duplicate callbacks while the dialog is closing (H4).
+                                                // scannedFlag 语义（H4 + AI-MOB-CONTINUOUS-SCAN-01）：
+                                                //   - 非连续模式：置位即代表"本次弹窗已交付结果"，回调后由调用方
+                                                //     关闭弹窗，与旧行为一致（H4 原意）。
+                                                //   - 连续模式：置位只是"当前节流窗口内"，由 releaseFlag
+                                                //     在 900ms 后复位，故弹窗可一直扫下去。
+                                                // 两种情况都保留了"同一帧/同一件货不重复回调"的保护。
                                                 if (scannedFlag.get()) {
                                                     imageProxy.close()
                                                 } else {
@@ -194,6 +255,11 @@ fun ScannerDialog(
                                                                 val rawValue = barcode.rawValue
                                                                 if (!rawValue.isNullOrEmpty() && scannedFlag.compareAndSet(false, true)) {
                                                                     onBarcodeScanned(rawValue)
+                                                                    // 连续模式：交付后重新武装节流窗口，让下一条码能进来；
+                                                                    // 非连续模式：保持置位，等调用方关闭弹窗（旧行为）。
+                                                                    if (continuousRef.value) {
+                                                                        throttleOwner.arm()
+                                                                    }
                                                                     return@addOnSuccessListener
                                                                 }
                                                             }
@@ -340,8 +406,9 @@ fun ScannerDialog(
                 }
 
                 Text(
-                    "将条码置于框内扫描",
-                    color = Color.White,
+                    if (continuous && scannedCount > 0) "已扫 $scannedCount 件 · 继续扫下一件"
+                    else "将条码置于框内扫描",
+                    color = if (continuous && scannedCount > 0) Color(0xFF7CFFB2) else Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -372,16 +439,78 @@ fun ScannerDialog(
                 }
             }
 
-            // Bottom hint
-            Text(
-                "将条码对准扫描框，自动识别",
+            // Bottom hint / 连续扫描反馈区（AI-MOB-CONTINUOUS-SCAN-01）
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 60.dp),
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 14.sp,
-                textAlign = TextAlign.Center
-            )
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 48.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (continuous && lastScannedCode != null) {
+                    // 回显"刚扫到了什么"——连续模式下弹窗不关，用户需要确认这一件确实进去了，
+                    // 否则会怀疑漏扫而重复扫（重复扫会被 addScanLine 累加，反而多货）。
+                    Surface(
+                        color = Color(0xFF1B5E20).copy(alpha = 0.92f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(
+                            "已加入：$lastScannedCode",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+
+                Text(
+                    if (continuous) "连续扫描中 · 可连续扫多件" else "将条码对准扫描框，自动识别",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center
+                )
+
+                if (continuous) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // 手速快于节流窗口时不用干等，点一下立即放行
+                        OutlinedButton(
+                            onClick = { throttleOwner.releaseNow() },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text("继续扫", fontSize = 15.sp)
+                        }
+                        Button(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF4361EE)
+                            )
+                        ) {
+                            Text(
+                                if (scannedCount > 0) "完成（$scannedCount）" else "完成",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

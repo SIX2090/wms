@@ -7,6 +7,7 @@ import com.factory.wms.data.api.RetrofitClient
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.util.DebugLogger
+import com.factory.wms.util.ScanFeedback
 import java.io.File
 
 class WmsApplication : Application(), ImageLoaderFactory {
@@ -18,6 +19,10 @@ class WmsApplication : Application(), ImageLoaderFactory {
         // P2-A: 清理 cacheDir/camera/ 下超过 24 小时的临时拍照文件，
         // 避免 FileProvider 缓存目录无限累积占用空间。
         cleanupStaleCameraCache()
+        // AI-MOB-SCAN-UX-01：预热扫码反馈开关（默认开）。
+        // 扫码回调在相机分析线程上要求"立刻"出反馈，不能在那时做磁盘 IO，
+        // 故在进程启动时读一次进内存，之后同步判断。
+        ScanFeedback.warmUp(this)
     }
 
     // Coil 2.x：网络下载走 ImageLoader.Builder.callFactory，

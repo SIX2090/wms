@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -28,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.CheckOrderDto
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.data.model.WarehouseDto
+import com.factory.wms.ui.components.OfflineDataBanner
 import com.factory.wms.ui.components.PartyPickerDialog
 import com.factory.wms.ui.components.PartyPickerItem
 import com.factory.wms.ui.components.PartySelectorCard
@@ -40,7 +40,10 @@ import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.ui.viewmodel.scan.SubmittedPrintInfo
 import com.factory.wms.util.formatQuantity
+import com.factory.wms.util.ScanFeedback
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -566,6 +569,9 @@ fun StockQueryScreen(
     // AI-MOB-STOCK-F01：扫码（单个物料详情）/ 列表（按仓分页浏览）两种模式
     var listMode by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    // AI-MOB-SCAN-UX-01：扫码反馈（声音+震动）
+    val queryContext = LocalContext.current
+    val queryScope = rememberCoroutineScope()
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
@@ -864,6 +870,13 @@ fun StockQueryScreen(
                     colors = CardDefaults.cardColors(containerColor = CardBackground)
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
+                        // AI-MOB-OFFLINE-HINT-01：缓存回退时必须显著提示。
+                        // 不给提示的话，用户无法区分「实时库存 5」和「三天前的 5」，
+                        // 看到数字就出库 —— 这是业务风险，不是体验问题。
+                        if (material.fromCache) {
+                            OfflineDataBanner(cachedAtMillis = material.cachedAtMillis)
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
                         // Header
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1021,11 +1034,22 @@ fun StockQueryScreen(
     if (showScannerDialog) {
         ScannerDialog(
             onDismiss = { showScannerDialog = false },
+            // 查库存是"扫一个看一个"的场景，扫中即退出，保持旧行为不启用连续扫描。
+            continuous = false,
             onBarcodeScanned = { barcode ->
                 showScannerDialog = false
                 manualCode = barcode
                 viewModel.clearMaterialSuggestions()
                 viewModel.searchMaterialByCode(barcode)
+                // AI-MOB-SCAN-UX-01：查库存同样是"扫到就想知道结果"的场景，
+                // 声音+震动让工人不用盯着屏幕等查询返回。
+                queryScope.launch {
+                    if (viewModel.materialExists(barcode)) {
+                        ScanFeedback.success(queryContext)
+                    } else {
+                        ScanFeedback.failure(queryContext)
+                    }
+                }
             }
         )
     }

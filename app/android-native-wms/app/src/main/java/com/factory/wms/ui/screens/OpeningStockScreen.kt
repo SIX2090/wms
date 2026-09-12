@@ -32,7 +32,12 @@ import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
 import com.factory.wms.util.formatQuantity
+import com.factory.wms.util.ScanFeedback
 import java.util.Calendar
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +48,12 @@ fun OpeningStockScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showManualDialog by remember { mutableStateOf(false) }
     var showCameraScanner by remember { mutableStateOf(false) }
+    // AI-MOB-CONTINUOUS-SCAN-01：期初建账同样是"连续扫一批"的场景，启用连续扫描。
+    var continuousScanCount by remember { mutableStateOf(0) }
+    var lastScannedCode by remember { mutableStateOf<String?>(null) }
+    // AI-MOB-SCAN-UX-01：扫码反馈需要的 context 与协程作用域
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var showDateDialog by remember { mutableStateOf(false) }
     var showWarehouseDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
@@ -300,7 +311,12 @@ fun OpeningStockScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         OutlinedButton(
-                            onClick = { showCameraScanner = true },
+                            onClick = {
+                                // 每轮从 0 起算"已扫 N 件"
+                                continuousScanCount = 0
+                                lastScannedCode = null
+                                showCameraScanner = true
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
@@ -477,6 +493,13 @@ fun OpeningStockScreen(
                             singleLine = true,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
+                            // AI-MOB-SCAN-UX-01：数量框弹数字键盘。
+                            // 这里不绑 onDone 加行：本对话框的"添加"按钮有 enabled = 编码非空
+                            // 的前置条件（见下方 confirmButton），回车直接提交会绕过该校验。
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Decimal,
+                                imeAction = ImeAction.Next
+                            ),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = CardCyan,
                                 focusedLabelColor = CardCyan
@@ -551,11 +574,24 @@ fun OpeningStockScreen(
     if (showCameraScanner) {
         ScannerDialog(
             onDismiss = { showCameraScanner = false },
+            continuous = true,
+            scannedCount = continuousScanCount,
+            lastScannedCode = lastScannedCode,
             onBarcodeScanned = { barcode ->
-                showCameraScanner = false
+                // AI-MOB-CONTINUOUS-SCAN-01：扫中不关弹窗，连续累计，点"完成"退出。
+                continuousScanCount += 1
+                lastScannedCode = barcode
                 viewModel.addLine(barcode, manualQty.toDoubleOrNull() ?: 1.0)
                 manualCode = ""
                 manualQty = "1"
+                // AI-MOB-SCAN-UX-01：声音+震动反馈（成功/失败可凭体感分辨）
+                scope.launch {
+                    if (viewModel.materialExists(barcode)) {
+                        ScanFeedback.success(context)
+                    } else {
+                        ScanFeedback.failure(context)
+                    }
+                }
             }
         )
     }

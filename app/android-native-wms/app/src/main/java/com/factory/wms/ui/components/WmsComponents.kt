@@ -7,8 +7,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +32,8 @@ import com.factory.wms.ui.theme.OnSurfaceVariant
 import com.factory.wms.ui.theme.Primary
 import com.factory.wms.ui.theme.PrimaryContainer
 import com.factory.wms.ui.theme.SurfaceVariant
+import com.factory.wms.ui.theme.Warning
+import com.factory.wms.ui.theme.WarningContainer
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WMS 移动端共享设计组件（AI-APP-UI-001）
@@ -475,3 +479,73 @@ val WmsIconWellColor: Color get() = PrimaryContainer
 
 /** 辅助：弱化文本颜色（提示/次要说明）。 */
 val WmsHintColor: Color get() = OnSurfaceSecondary
+
+/**
+ * 离线（缓存回退）数据提示横幅（AI-MOB-OFFLINE-HINT-01）。
+ *
+ * 使用场景：`WmsRepository.getMaterialInfo` 在网络失败时回退到 Room 本地缓存，
+ * 返回的 `MaterialDto.fromCache == true`。此时界面上的库存数字**不是实时的**。
+ *
+ * 为什么必须显示：不给任何提示的话，用户无法区分
+ * 「实时库存 5」和「三天前缓存的 5」，看到数字就出库 5 ——
+ * 这是**业务风险**（超发/账面为负），不是单纯的体验问题。
+ *
+ * @param cachedAtMillis 缓存写入时间（epoch millis），为 null 时只提示"离线"不显示时长
+ */
+@Composable
+fun OfflineDataBanner(
+    cachedAtMillis: Long?,
+    modifier: Modifier = Modifier,
+    text: String = "离线数据"
+) {
+    val detail = remember(cachedAtMillis) { formatCacheAge(cachedAtMillis) }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(WarningContainer)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Outlined.CloudOff,
+            null,
+            tint = Warning,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                if (detail.isNullOrEmpty()) text else "$text · $detail",
+                color = Warning,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "当前无网络，显示的是本地缓存，可能不是最新库存",
+                color = Warning.copy(alpha = 0.85f),
+                fontSize = 11.sp
+            )
+        }
+    }
+}
+
+/**
+ * 把缓存时间戳转成"多久之前"的中文描述。
+ *
+ * 精度只给到分钟/小时/天 —— 现场用户关心的是"这个数还新不新"，
+ * 不需要精确到秒（反而增加阅读负担）。
+ */
+internal fun formatCacheAge(cachedAtMillis: Long?): String? {
+    if (cachedAtMillis == null || cachedAtMillis <= 0L) return null
+    val deltaMs = System.currentTimeMillis() - cachedAtMillis
+    // 时钟回拨或未来时间戳：不显示负数时长，退化成"刚刚"
+    if (deltaMs < 0) return "刚刚"
+    val minutes = deltaMs / 60_000L
+    return when {
+        minutes < 1L -> "刚刚"
+        minutes < 60L -> "$minutes 分钟前"
+        minutes < 60L * 24L -> "${minutes / 60L} 小时前"
+        else -> "${minutes / (60L * 24L)} 天前"
+    }
+}

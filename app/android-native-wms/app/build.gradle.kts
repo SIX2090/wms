@@ -13,9 +13,9 @@ android {
         applicationId = "com.factory.wms"
         minSdk = 26
         targetSdk = 35
-        // 2026-09-12 领料部门/领料人下拉（出库页新增字段）
-        versionCode = 13
-        versionName = "3.7.2"
+        // 2026-09-12 扫码体验三件套：连续扫描 + 数字键盘/回车加行 + 声音震动反馈 + 离线缓存提示
+        versionCode = 14
+        versionName = "3.8.0"
 
         // sherpa-onnx 本地语音识别开关：通过 -Pwms.sherpa=true 启用，
         // 默认 false（保持现有国内 / 离线构建无网络依赖）。启用后会引入

@@ -5,6 +5,11 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- AI-MOB-SCAN-UX-01：扫码成功/失败的声音+震动反馈。
+         仓库现场嘈杂、戴手套、光线差，工人基本不看屏幕；
+         没有体感反馈就必须盯着屏幕逐条确认，扫码的效率优势会被抵消。
+         属普通权限（normal），安装即授予，无需运行时申请。 -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 

@@ -282,7 +282,15 @@ class WmsRepository(private val context: Context) {
             // 网络不可用时，回退到 Room 本地缓存
             val cached = materialDao.getByCode(code)
             if (cached != null) {
-                Result.success(cached.toDto())
+                // AI-MOB-OFFLINE-HINT-01：标记为缓存数据并带上写入时间。
+                // 不给标记的话，UI 无法区分"实时库存 5"与"三天前的 5"，
+                // 用户看到数字就出库 —— 这是业务风险，不是体验问题。
+                Result.success(
+                    cached.toDto().copy(
+                        fromCache = true,
+                        cachedAtMillis = cached.lastSyncTime
+                    )
+                )
             } else {
                 Result.failure(BusinessException(e.message ?: "网络错误"))
             }

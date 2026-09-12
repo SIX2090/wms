@@ -208,6 +208,30 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * 校验扫码得到的编码是否命中建档物料（AI-MOB-SCAN-UX-01）。
+     *
+     * 用途：给扫码的**声音/震动反馈**判成功还是失败。
+     * 仓库现场工人不看屏幕，扫到未建档的码必须能靠体感立刻分辨出来，
+     * 否则会一路扫下去、到提交时才发现有行是"查无此物"。
+     *
+     * 与 [enrichScanLineMaterial] 的区别：那个是补全清单行的名称/规格（有副作用、异步），
+     * 这个只回答"这个码认不认识"，不写任何状态，可安全地在扫码回调里 await。
+     * 网络异常时返回 true —— 断网时不该把"查不到"误报成"物料不存在"。
+     */
+    suspend fun materialExists(code: String): Boolean {
+        val whCode = _uiState.value.selectedWarehouse?.code
+        return try {
+            val exact = repository.getMaterialInfo(code, whCode)
+            if (exact.isSuccess) return true
+            val fuzzy = repository.searchMaterial(code, whCode)
+            fuzzy.getOrNull()?.isNotEmpty() ?: true
+        } catch (e: Exception) {
+            // 网络/服务异常 → 不拦截，交由提交环节暴露问题
+            true
+        }
+    }
+
     /** 异步拉取物料信息补全清单行的名称/规格/品牌（扫码进入时通常只有编码）。 */
     private fun enrichScanLineMaterial(code: String) {
         viewModelScope.launch {
