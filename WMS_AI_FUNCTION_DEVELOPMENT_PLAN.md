@@ -126,9 +126,9 @@
 | 36 | AI-MOB-HOME-F01 | 已完成 | 手机端首页接入"今日概览"条（复用既有 /api/mobile/dashboard） | AI-MOB-VOICE-F01 | AI-MOB-NAV-F01 |
 | 37 | AI-MOB-NAV-F01 | 已完成 | 手机端底部 Tab 导航（首页/入库/出库/查库存/我的） | AI-MOB-HOME-F01 | AI-MOB-STOCK-F01 |
 | 38 | AI-MOB-STOCK-F01 | 已完成 | 手机端查库存增加列表模式（复用既有 /api/mobile/stock/query） | AI-MOB-NAV-F01 | AI-MOB-CHECK-F01 |
-| 39 | AI-MOB-CHECK-F01 | 待开发 | 手机盘点与 Web 盘点单据流对齐（仓库必填、盘点记录可回查） | AI-MOB-STOCK-F01 | AI-MOB-RPT-F01 |
-| 40 | AI-MOB-RPT-F01 | 待开发 | 手机端只读报表入口（库存汇总/出入库明细只读视图） | AI-MOB-CHECK-F01 | AI-MOB-EMPTY-F01 |
-| 41 | AI-MOB-EMPTY-F01 | 待开发 | 手机端统一空状态组件与新手引导 | AI-MOB-RPT-F01 | 无 |
+| 39 | AI-MOB-CHECK-F01 | 部分完成 | 手机盘点与 Web 盘点单据流对齐（仓库必填✓、盘点记录可回查✗） | AI-MOB-STOCK-F01 | AI-MOB-RPT-F01 |
+| 40 | AI-MOB-RPT-F01 | 部分完成 | 手机端只读报表入口（日报只读视图✓；库存汇总/出入库明细独立端点✗） | AI-MOB-CHECK-F01 | AI-MOB-EMPTY-F01 |
+| 41 | AI-MOB-EMPTY-F01 | 部分完成 | 手机端统一空状态组件✓（16 处）；引导动作参数✗、首次登录引导✗ | AI-MOB-RPT-F01 | 无 |
 | 42 | AI-MOB-ARCH-F01 | 已完成 | 手机端物料档案：搜索物料 + 拍照/相册上传多图（每物料最多 5 张）+ 删除 | AI-MOB-NAV-F01 | 无 |
 | 43 | AI-LI-WH-001 | 已完成 | LocationInventory warehouse_id 阶段一兼容迁移 | 无 | 已由 INV-AUDIT-001~005 完成 |
 | 44 | INV-AUDIT-001 | 已完成 | 库位库存按 warehouse_id 汇总到仓库库存 + 各单据 complete/revert 传入 warehouse_id | AI-LI-WH-001 | 无 |
@@ -751,6 +751,18 @@
 - `tests/verify_mobile_stocktake_flow.py` 覆盖：缺仓库且无默认仓库 → 400、默认仓库带入、盘点列表仅本人记录、调整草稿仍 Web 端人工完成。
 - 既有盘点相关验证无回归；Android CI `assembleDebug` 通过。
 
+> **状态核实（2026-09-13，手机端代码审查时逐项对照代码得出；原标注"待开发"不准确）**
+>
+> 已实现部分：
+> - **仓库必填** ✓ —— `ScanScreens.kt` 盘点确认按钮 `enabled` 含 `uiState.selectedWarehouse != null`（4 处校验），后端 `/api/stocktake` 亦按仓库必填规则处理。
+> - **提交前选进行中盘点单** ✓（超出原范围）—— `WmsApiService.kt:72 listPendingCheckOrders()` + 后端 `app/routes/mobile.py:704 /mobile/api/check_orders`（`mobile_check_orders` → `_list_pending_check_orders`）；`CheckOrderSelectorCard` / `CheckOrderPickerDialog` 已落地，`submitStocktake` 携带 `checkId`，并有断点续盘草稿自动回选。
+>
+> 仍未实现（本任务真正剩余的全部工作）：
+> - ✗ **盘点记录回查** —— 后端 `GET /api/mobile/stocktake/list` **未注册**（`grep` 全仓 0 命中）；Android 端**无"盘点记录"页**、无 `StocktakeRecord` 相关模型/接口。即"提交后不可回查"这一缺口完全没有动，与本任务标题「盘点记录可回查」不符。
+> - ✗ `tests/verify_mobile_stocktake_flow.py` 不存在。
+>
+> 结论：**部分完成**。剩余工作量集中在"盘点记录回查"（后端列表端点 + 手机端记录页），约 1 个 atomic action。
+
 ### AI-MOB-RPT-F01：手机端只读报表入口
 
 **目标**：对齐橙子库存通"报表"能力，手机端新增只读报表入口，让管理者在手机上查看库存汇总与出入库明细，而非只能回电脑。
@@ -763,6 +775,18 @@
 **验收**：
 - 新增端点配套 `tests/verify_mobile_report_api.py`（端点注册、权限拦截、仓库必填、只读性）；Android CI `assembleDebug` 通过。
 
+> **状态核实（2026-09-13，手机端代码审查时逐项对照代码得出；原标注"待开发"不准确）**
+>
+> 已实现部分（等价能力已具备，但形态与原计划不同）：
+> - **手机端只读报表入口** ✓ —— `ui/screens/ReportScreens.kt`（389 行）已上线，经 `Screen.DailyReport` 注册进 `NavGraph.kt:323`，首页有入口；`grep` 实测**零写操作**（`submit|post|create|delete` 命中数 = 0），符合"全部只读"边界。
+> - 后端走既有 `app/routes/native_api.py:1482 /api/mobile/report/daily_detail`（含仓库筛选、逐页翻页，另见 BUG-2026-09-10-007/008/009 系列修复）。
+>
+> 仍未实现 / 与原计划有差异：
+> - ✗ **`GET /api/mobile/report/stock_summary`（库存汇总）与 `/api/mobile/report/in_out_detail`（出入库明细）两个专用端点未新增**。当前报表页是"每日领料/入库明细"口径（daily_detail），与任务定义里的"库存汇总 + 出入库明细两个只读视图"**不是同一组能力**——管理者要看的"当前库存汇总"在手机端没有对应视图。
+> - ✗ `tests/verify_mobile_report_api.py` 不存在。
+>
+> 结论：**部分完成**。已交付的是"日报明细只读视图"，原计划中的"库存汇总"视图仍需补（可复用 `queryStockPage` 已有能力，或新增 `stock_summary` 端点）。
+
 ### AI-MOB-EMPTY-F01：手机端统一空状态组件与新手引导
 
 **目标**：对齐橙子库存通"空页面有引导"的细节体验，WMS App 所有列表/查询/识别结果为空时展示统一空状态组件（图标 + 说明 + 引导动作），首次登录提供一次性功能引导，降低新用户上手成本。
@@ -774,6 +798,18 @@
 
 **验收**：
 - Android CI `assembleDebug` 通过；各空列表页展示统一空状态与引导动作；首次登录出现引导、跳过/完成后不再出现。
+
+> **状态核实（2026-09-13，手机端代码审查时逐项对照代码得出；原标注"待开发"不准确）**
+>
+> 已实现部分：
+> - **统一空状态组件** ✓ —— `ui/components/WmsComponents.kt:247 fun WmsEmptyState(icon, title, subtitle, modifier, accentColor)`，已定义并接入 **16 处**，覆盖 6 个文件：`ScanScreens.kt`(5)、`MaterialArchiveScreens.kt`(3)、`OverviewListScreen.kt`(3)、`OpeningStockScreen.kt`(2)、`ScanScreenBase.kt`(2)、`WmsComponents.kt`(定义处)。
+>
+> 仍未实现：
+> - ✗ **引导动作参数** —— `WmsEmptyState` 签名只有 `icon/title/subtitle/modifier/accentColor`，**没有 `action`/`onAction` 可选参数**，即"可选引导按钮"这一项未实现（现有调用全部只有图标+文案，无引导动作）。
+> - ✗ **首次登录一次性引导** —— 全仓未找到引导蒙层/气泡相关实现及 DataStore"仅展示一次"标记，0 命中。
+> - ✗ 各页空态是否**全部**收口到 `WmsEmptyState` 未逐一核对（16 处之外可能仍有零散空态写法）。
+>
+> 结论：**部分完成**（约一半）。剩余工作量：给 `WmsEmptyState` 加可选 `action` 参数 + 实现首次登录引导（DataStore 标记）。
 
 ### AI-MENU-2026-07-30-B1：菜单/页面 title 批量对齐（剩余 9 项 → 0）
 
