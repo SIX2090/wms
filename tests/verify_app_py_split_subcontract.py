@@ -91,9 +91,14 @@ _SUPPLIER_ID = {"id": None}
 
 
 def _seed_base():
-    from app import Supplier
+    from app import Supplier, Warehouse
     supplier = Supplier(code="SUB-SUP", name="委外加工厂")
     db.session.add(supplier)
+    # BUG-2026-08-16-017 F1：委外单新增现在强制仓库必填（AGENTS.md 规则一，
+    # routes/subcontract.py add_subcontract 在无显式 warehouse 时回退
+    # get_default_warehouse()，两者皆空则 api_error('请选择仓库')）。
+    # 本测试原先只种了 admin + 供应商，故新增委外单必然被拒。补一个默认仓。
+    db.session.add(Warehouse(code="WH1", name="主仓", status="active", is_default=True))
     db.session.commit()
     _SUPPLIER_ID["id"] = supplier.id
 

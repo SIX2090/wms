@@ -10,12 +10,26 @@
 - T3-T4：合同自动补全静态断言
 - T5：Flask test client GET /in_order/add 渲染后包含修复 JS（运行时集成验证）
 """
+import os
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 IN_ORDER_ADD = ROOT / "app" / "templates" / "in_order_add.html"
 APP_JS = ROOT / "app" / "static" / "js" / "app.js"
+
+# BUG-2026-08-16-017 F3：T5 需要真实 app 实例做渲染集成。
+# 原实现在用例内 `sys.modules.pop("app")` 重新加载模块，触发
+# `InvalidRequestError: Table 'user' is already defined`
+# （SQLAlchemy declarative Base 二次定义），故改为模块级一次性导入：
+# 既满足 sys.path / cwd 前提，又不会重复定义表。
+sys.path.insert(0, str(ROOT / "app"))
+os.chdir(ROOT / "app")
+os.environ.setdefault("WMS_BOOTSTRAP_PASSWORD", "admin")
+os.environ.setdefault("WMS_DEBUG", "0")
+
+import app as app_module  # noqa: E402
 
 
 def _read(path: Path) -> str:
@@ -79,14 +93,14 @@ def test_T4_getContracts_unavailable_guard():
 
 
 def test_T5_in_order_add_renders_with_fixes():
-    """运行时集成：登录后 GET /in_order/add 渲染的 HTML 包含修复后的关键逻辑。"""
-    import sys
-    sys.path.insert(0, str(ROOT / "app"))
-    import os
-    os.chdir(ROOT / "app")
-    sys.modules.pop("app", None)
+    """运行时集成：登录后 GET /in_order/add 渲染的 HTML 包含修复后的关键逻辑。
 
-    import app as app_module
+    BUG-2026-08-16-017 F3：本用例原先做 `sys.modules.pop("app", None)` 再
+    `import app` 重新加载模块，导致 SQLAlchemy declarative Base 里 User 表
+    二次定义 —— `InvalidRequestError: Table 'user' is already defined`。
+    `app` 在 pytest 收集期/本文件其他用例中早已导入，重载既无必要也不安全，
+    直接复用模块级已导入的 app_module。
+    """
     from app import db, Warehouse, Supplier, User, Material, MaterialCategory, Unit
     from werkzeug.security import generate_password_hash
 

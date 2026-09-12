@@ -9,6 +9,12 @@ T3. 图形/外观识别：code/name/spec 全空，仅 description -> 用描述�
 T4. description 中文关键词回退匹配（无字母数字型号）。
 T5. 完全无法识别（description 空且无法匹配）-> 返回空 matches，不报错。
 T6. 未启用大模型/图片识别 -> 返回 400。
+
+返回结构约定（2026-09-12 复核）：
+  端点返回 `{status, success, data: {reply, extracted, matches, match_count}}`
+  ——业务字段全部在 `data` 包裹层内（app/routes/mobile.py:1100-1109）。
+  本测试原先把业务字段当顶层读，`KeyError: 'extracted'/'match_count'` 属用例侧过时，
+  非接口缺陷；下面统一经 `_data()` 取包裹层，`status` 仍在顶层（该字段确实是顶层）。
 """
 from __future__ import annotations
 
@@ -47,6 +53,19 @@ _PNG = (
 def _reset_db():
     db.drop_all()
     db.create_all()
+
+
+def _data(resp):
+    """取识物接口的业务数据包裹层。
+
+    BUG-2026-08-16-017 F9：接口契约是
+    `{status, success, data: {reply, extracted, matches, match_count}}`，
+    业务字段一律在 `data` 内。原用例读扁平路径（body["extracted"] 等）必然 KeyError。
+    """
+    body = resp.get_json()
+    assert isinstance(body, dict), f"响应不是 JSON 对象：{body!r}"
+    assert "data" in body, f"响应缺少 data 包裹层：{body!r}"
+    return body["data"]
 
 
 def _make_client():
@@ -146,9 +165,10 @@ class TestMobileRecognizeMaterialApi(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         body = r.get_json()
         self.assertEqual(body["status"], "success", body)
-        self.assertEqual(body["extracted"]["code"], "6204")
-        self.assertGreaterEqual(body["match_count"], 1)
-        self.assertEqual(body["matches"][0]["code"], "6204")
+        data = _data(r)
+        self.assertEqual(data["extracted"]["code"], "6204")
+        self.assertGreaterEqual(data["match_count"], 1)
+        self.assertEqual(data["matches"][0]["code"], "6204")
 
     def test_graphics_recognition_matches_by_description_token(self):
         """T3：图形/外观识别，code/name/spec 全空，仅 description 含型号 -> 匹配。"""
@@ -160,8 +180,9 @@ class TestMobileRecognizeMaterialApi(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         body = r.get_json()
         self.assertEqual(body["status"], "success", body)
-        self.assertGreaterEqual(body["match_count"], 1)
-        self.assertEqual(body["matches"][0]["code"], "6204")
+        data = _data(r)
+        self.assertGreaterEqual(data["match_count"], 1)
+        self.assertEqual(data["matches"][0]["code"], "6204")
 
     def test_description_chinese_keyword_fallback(self):
         """T4：无字母数字型号，整段描述关键词回退匹配。"""
@@ -173,8 +194,9 @@ class TestMobileRecognizeMaterialApi(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         body = r.get_json()
         self.assertEqual(body["status"], "success", body)
-        self.assertGreaterEqual(body["match_count"], 1)
-        self.assertEqual(body["matches"][0]["name"], "继电器")
+        data = _data(r)
+        self.assertGreaterEqual(data["match_count"], 1)
+        self.assertEqual(data["matches"][0]["name"], "继电器")
 
     def test_unrecognizable_returns_empty_matches(self):
         """T5：完全无法识别 -> 返回空 matches，不报错。"""
@@ -186,8 +208,9 @@ class TestMobileRecognizeMaterialApi(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         body = r.get_json()
         self.assertEqual(body["status"], "success", body)
-        self.assertEqual(body["match_count"], 0)
-        self.assertEqual(body["matches"], [])
+        data = _data(r)
+        self.assertEqual(data["match_count"], 0)
+        self.assertEqual(data["matches"], [])
 
     def test_vision_disabled_returns_400(self):
         """T6：未启用大模型/图片识别 -> 400。"""
@@ -209,7 +232,7 @@ class TestMobileRecognizeMaterialApi(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         body = r.get_json()
         self.assertEqual(body["status"], "success", body)
-        self.assertGreaterEqual(body["match_count"], 1)
+        self.assertGreaterEqual(_data(r)["match_count"], 1)
 
     def test_no_auth_returns_401(self):
         """T8：无 Web 会话且无 Bearer Token -> 401。"""

@@ -16,7 +16,17 @@ BUG-2026-08-04-010 回归测试：复制物料后采购入库单不显示
 测试：
   T1. /material/api/all 返回 materials 数组与分页元数据（total/page/per_page/truncated/next_page）
   T2. /material/api/all 返回 materials 数组（前端实际读取的键）
-  T3. 复制物料后保存，新物料出现在 /material/api/all 的 materials 中
+  T3. 复制物料 -> 改规格 -> 保存，新物料出现在 /material/api/all 的 materials 中
+  T3b.（反向断言）复制草稿的 name/spec 与原物料完全相同时必须被拒——
+      「同名同规格不能重复」是业务规则，不是 bug
+
+口径说明（BUG-2026-08-16-017 F4，2026-09-12 定稿）：
+  /material/<id>/copy 的 docstring 是 "Return a material draft for user review
+  before creating a new record" —— 它是 **草稿 DRAFT**，设计意图就是预填后由
+  用户改动。name+spec 唯一性校验（material_name_spec_exists，不看 code）是
+  有意为之：否则库里会出现两条完全相同的物料记录，那才是真问题。
+  故 T3 走真实正确流程「复制 → 改规格 → 保存」，并用 T3b 把该规则钉死；
+  若哪天有人把唯一性校验改松，T3b 立刻红。
 """
 from __future__ import annotations
 
@@ -109,7 +119,11 @@ class TestBug20260804010MaterialApiAllResponseKey:
             assert any(m["code"] == "M001" for m in data["materials"])
 
     def test_T3_copied_material_appears_in_materials(self):
-        """复制物料并保存后，新物料出现在 materials 中。"""
+        """复制物料 -> 改规格 -> 保存后，新物料出现在 materials 中。
+
+        复制拿到的是**草稿**（docstring: "a material draft for user review"），
+        必须改动 name 或 spec 才能保存——同名同规格会被唯一性校验拒掉。
+        """
         with app_module.app.app_context():
             _reset_db()
             _seed_admin()
@@ -126,11 +140,12 @@ class TestBug20260804010MaterialApiAllResponseKey:
             suggested_name = copy_data["material"]["name"]
             assert suggested_code, "应生成建议编码"
 
-            # 保存复制后的物料
+            # 保存复制后的物料：spec 改成不同值（区分新旧物料）
+            new_spec = "6204-1"
             add_resp = client.post("/material/add", data={
                 "code": suggested_code,
                 "name": suggested_name,
-                "spec": "6204",
+                "spec": new_spec,
                 "brand": "",
                 "price": "10",
             })
@@ -145,3 +160,40 @@ class TestBug20260804010MaterialApiAllResponseKey:
             codes = [m["code"] for m in data["materials"]]
             assert suggested_code in codes, \
                 f"复制后的物料 {suggested_code} 应出现在 materials 中，实际为 {codes}"
+
+    def test_T3b_copy_draft_unchanged_name_spec_rejected(self):
+        """反向断言：复制草稿原样提交（name+spec 与原物料全同）必须被拒。
+
+        锁定业务规则「同名同规格不能重复」——不校验 code 而校验 name+spec，
+        是为了避免库里出现两条完全相同的物料。若此断言失败，说明唯一性校验
+        被改松了，需人工确认是否有意为之。
+        """
+        with app_module.app.app_context():
+            _reset_db()
+            _seed_admin()
+            self._seed_material()  # Material(code="M001", name="轴承", spec="6204")
+            client = app_module.app.test_client()
+            _login(client)
+
+            copy_resp = client.post("/material/1/copy")
+            assert copy_resp.status_code == 200, copy_resp.get_data(as_text=True)
+            copy_data = copy_resp.get_json()
+            draft = copy_data["material"]
+
+            # 用草稿原样的 name + spec 提交（只换了 code）——必须被拒
+            add_resp = client.post("/material/add", data={
+                "code": draft["suggested_code"],
+                "name": draft["name"],
+                "spec": draft["spec"],
+                "brand": "",
+                "price": "10",
+            })
+            add_data = add_resp.get_json()
+            assert add_resp.status_code == 400, add_data
+            assert add_data["status"] == "error", add_data
+            assert "重复" in add_data["msg"], add_data
+
+            # 确认没有偷偷写进库
+            from app import Material as _M
+            assert _M.query.filter_by(code=draft["suggested_code"]).first() is None, \
+                "被拒的复制不应落库"

@@ -70,34 +70,45 @@ jobs:
       # BUG-2026-08-16-017：tests/verify_*.py 回归脚本纳入 CI。
       # 为什么逐文件独立进程：多文件同进程混跑时 app 模块单例与
       # db.drop_all 内存库守卫互相干扰，会产生 169 例环境性假失败；
-      # 逐文件执行已本地验证 99/108 文件全过。
-      # KNOWN-FAILURES：以下 6 个文件共 10 例历史真实失败，登记为
-      # BUG-2026-08-16-017 子任务（F1~F9）逐个修复后从此清单移除：
+      # 逐文件执行已本地验证全量文件通过。
+      #
+      # KNOWN-FAILURES 已于 2026-09-12 清零（F1~F9 全部修复完毕）。
+      # 附：各子任务最终根因归类（全部为**测试侧过时/写错**，零产品代码改动）：
       #   F1 verify_app_py_split_subcontract.py（1 例）
+      #      委外单新增改为强制仓库必填后，_seed_base() 未种默认仓 ⇒ 必然被拒。
+      #      修复：种子补 Warehouse(is_default=True)。
       #   F2 verify_bug_2026_08_02_018_report.py（2 例）
+      #      报表接口无仓库时改为显式 400「请选择仓库」（AGENTS.md 仓库必填规则），
+      #      用例仍期望 200 + 空数据。修复：断言改为 400 + msg 含「请选择仓库」。
+      #      口径定稿：静默返回 0 条会把"我没选仓库"伪装成"确实没数据"，故改测试不改产品。
       #   F3 verify_bug_2026_08_02_021_in_order_contract.py（1 例）
+      #      用例内 sys.modules.pop("app") 重载模块 ⇒ SQLAlchemy declarative Base
+      #      二次定义 InvalidRequestError: Table 'user' is already defined。
+      #      修复：改为模块级一次性 import app。
       #   F4 verify_bug_2026_08_04_010_material_api_all_response_key.py（1 例）
+      #      /material/<id>/copy 返回的是**草稿**（预填供用户复核），name+spec 与原
+      #      物料全同原样提交必然撞唯一性校验——这是正确业务规则，非缺陷。
+      #      修复：用例改为"复制→改 spec→保存"，并新增反向断言 T3b 钉死该规则。
       #   F5 verify_bug_2026_08_09_003_takepicture_permission_and_path.py（2 例）
-      #   F6 已修复移除（verify_bug_2026_08_13_002_scan_submit_bearer.py，2026-09-11 复核 7 passed）
-      #   F7 已修复移除（verify_bug_P15_P16_P21.py，2026-09-12 复核 7 passed。
+      #      实现用 `internal fun`，用例正则写死 `private\s+fun`。
+      #      修复：正则放开为 (?:private|internal)，public 仍判失败。
+      #   F6 verify_bug_2026_08_13_002_scan_submit_bearer.py（已修，2026-09-11 复核 7 passed）
+      #   F7 verify_bug_P15_P16_P21.py（已修，2026-09-12 复核 7 passed。
       #     真实原因不是"用例坏"而是"跑法错"：该文件是 pytest 式（7 个 def test_），
       #     但当时 CI 无分流、一律 python 直接执行，顶层无入口 ⇒ 文件级断言在导入
       #     期即触发、pytest fixture 不生效 ⇒ no such table: warehouse 报错被当失败。
       #     同批摘除的 F6/F8 是同一原因。pytest 式/脚本式分流已由本 step 下方逻辑补齐，
       #     故无需再"豁免"。原有 TestBugP21BizReportWarehouseGuard 仓库守卫断言已另行
       #     迁入 tests/test_report_warehouse_guard.py 进主 pytest 收集，不依赖本清单。）
-      #   F8 已修复移除（verify_mobile_asr_route.py，2026-09-11 复核 8 passed）
+      #   F8 verify_mobile_asr_route.py（已修，2026-09-11 复核 8 passed）
       #   F9 verify_mobile_recognize_material_api.py（5 例）
+      #      接口返回 {status, success, data: {reply, extracted, matches, match_count}}，
+      #      用例读扁平路径 ⇒ KeyError。修复：统一经 _data(resp) 取包裹层。
+      #
+      # 本清单现已空置（保留空数组，便于未来临时登记新失败而不必改结构）。
       - name: "Verify regression - verify_*.py (BUG-2026-08-16-017)"
         run: |
-          known_failures=(
-            tests/verify_app_py_split_subcontract.py
-            tests/verify_bug_2026_08_02_018_report.py
-            tests/verify_bug_2026_08_02_021_in_order_contract.py
-            tests/verify_bug_2026_08_04_010_material_api_all_response_key.py
-            tests/verify_bug_2026_08_09_003_takepicture_permission_and_path.py
-            tests/verify_mobile_recognize_material_api.py
-          )
+          known_failures=()
           is_known() {
             for k in "${known_failures[@]}"; do
               [ "$k" = "$1" ] && return 0
@@ -107,7 +118,7 @@ jobs:
           fails=0
           for f in tests/verify_*.py; do
             if is_known "$f"; then
-              echo "SKIP (known failure, BUG-2026-08-16-017 F1~F9 待修): $f"
+              echo "SKIP (known failure, BUG-2026-08-16-017): $f"
               continue
             fi
             echo ">> $f"

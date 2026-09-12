@@ -10,11 +10,19 @@ BUG-2026-08-02-014 回归测试：报表仓库必填筛选
   T1. report_view 页面渲染：应包含 warehouse 下拉框且有 required
   T2. report_view 页面默认预选 default_warehouse
   T3. report_api 不传 warehouse_id 时，自动带入默认仓库
-  T4. 无默认仓库 + 无 warehouse_id 参数时，builder 返回 []
+  T4. 无默认仓库 + 无 warehouse_id 参数时，接口显式报错 400「请选择仓库」
   T5-A. in_detail 按 warehouse_id 过滤
   T5-B. out_detail 按 warehouse_id 过滤
   T5-C. ledger 按 warehouse_id 过滤（StockTransaction.location == 仓库名）
-  T6. stock_query / inventory 报告：不传 warehouse_id 且无默认时返回空
+  T6. stock_query / inventory 报告：不传 warehouse_id 且无默认时显式报错 400
+
+口径说明（BUG-2026-08-16-017 F2，2026-09-12 定稿）：
+  T4/T6 原本断言「返回 success 且 total=0」，但产品其后按 AGENTS.md 规则一
+  改为显式拒绝（app/routes/report.py report_api_query：
+  `if not filters.get('warehouse_id'): return api_error('请选择仓库', 400)`）。
+  判定：产品行为正确，测试期望过时——「静默返回 0 条」会把『我没选仓库』
+  伪装成『确实没有数据』，用户会误判数据丢失。故测试改为锁定 400 口径。
+  若哪天有人把它改回「返回空集」，本测试立刻红。
 
 使用方法：
   cd /workspace && python -m pytest tests/verify_bug_2026_08_02_018_report.py -xvs
@@ -167,9 +175,12 @@ class TestBug20260802014:
 
             client = _make_client(app_module.app)
             resp = client.get("/report/api/in_detail", query_string={"page": 1, "page_size": 20})
+            # 无默认 + 不传 warehouse_id：必须显式报错，不得静默返回空表
+            # （静默返回 0 条会让用户以为"真的没数据"，实为"没选仓库"）
             data = resp.get_json()
-            assert data["status"] == "success"
-            assert data["total"] == 0, "无默认+不传warehouse_id 时应返回 0 条"
+            assert resp.status_code == 400, data
+            assert data["status"] == "error"
+            assert "请选择仓库" in data["msg"], data
 
     # -------------------------------------------------------------- T5-A
     def test_T5A_in_detail_filters_by_warehouse(self):
@@ -268,6 +279,8 @@ class TestBug20260802014:
 
             client = _make_client(app_module.app)
             resp = client.get("/report/api/inventory", query_string={"page": 1, "page_size": 20})
+            # 口径同 T4：无仓库必须显式报错
             data = resp.get_json()
-            assert data["status"] == "success"
-            assert data["total"] == 0, "库存查询报告无默认+无warehouse_id 参数应返回 0 条"
+            assert resp.status_code == 400, data
+            assert data["status"] == "error"
+            assert "请选择仓库" in data["msg"], data

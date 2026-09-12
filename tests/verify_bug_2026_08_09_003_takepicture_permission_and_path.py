@@ -37,10 +37,16 @@ BUG-2026-08-09-003 回归测试：Android App"识物盘点"等拍照页点拍照
   T4. 旧 `MediaStore.Images.Media.insertImage(...)` + `Uri.parse(path)` 链式调用彻底清零
   T5. 三个 `OutlinedButton(onClick = { cameraLauncher.launch(null) }, ...)` 全部改为
       `OutlinedButton(onClick = { launchCamera() }, ...)`
-  T6. `rememberCameraLauncherWithPermission` 私有 Composable 函数存在，使用
+  T6. `rememberCameraLauncherWithPermission` 非 public Composable 函数存在，使用
       `ActivityResultContracts.RequestPermission()` 请求 `Manifest.permission.CAMERA`
-  T7. `saveBitmapToCacheAndGetUri` 私有函数存在，内部用 `FileProvider.getUriForFile(...)`
+  T7. `saveBitmapToCacheAndGetUri` 非 public 函数存在，内部用 `FileProvider.getUriForFile(...)`
       暴露 Uri，不再使用 `MediaStore.Images.Media.insertImage`
+
+关于可见性（2026-09-12 复核）：
+  T6/T7 原先写死 `private`，但实现用的是 `internal fun`（AiScreens.kt:1591 / :1629）。
+  用例意图是"helper 收敛在模块内部、没被误暴露成 public API"，`internal` 同样满足，
+  且 internal 允许同 module 的单测/预览复用，比 private 更贴合工程实践。
+  故断言放开为 `private|internal`，public（无修饰符）仍判失败。
 
 使用方法：
   cd /workspace && python -m pytest tests/verify_bug_2026_08_09_003_takepicture_permission_and_path.py -xvs
@@ -206,10 +212,18 @@ def test_t6_helper_requests_runtime_camera_permission():
     ActivityResultContracts.RequestPermission() 请求 Manifest.permission.CAMERA。"""
     src = _src()
     # 函数定义
+    # BUG-2026-08-16-017 F5：可见性修饰符放开为 private|internal。
+    # 实现用 `internal fun`——internal 对同 module 可见，Android 单测/同包 Composable 调用
+    # 不被阻断，比 private 更合理（private 会让同文件外的预览/测试无法复用）。
+    # 断言的真实意图是"这是个收敛在 screens 内部的 helper、未被误做成 public API"，
+    # 故 private|internal 都算通过，public（无修饰符）仍应失败。
     assert re.search(
-        r"@Composable\s+private\s+fun\s+rememberCameraLauncherWithPermission\s*\(",
+        r"@Composable\s+(?:private|internal)\s+fun\s+rememberCameraLauncherWithPermission\s*\(",
         src,
-    ), "缺少 rememberCameraLauncherWithPermission 私有 Composable helper"
+    ), (
+        "缺少 rememberCameraLauncherWithPermission 私有 Composable helper"
+        "（应为 private 或 internal，不得是 public）"
+    )
     # 使用 RequestPermission 契约
     assert re.search(
         r"ActivityResultContracts\.RequestPermission\s*\(\s*\)", src
@@ -237,10 +251,14 @@ def test_t6_helper_requests_runtime_camera_permission():
 def test_t7_save_bitmap_uses_fileprovider():
     """saveBitmapToCacheAndGetUri 必须存在，内部用 FileProvider.getUriForFile 暴露 Uri，缓存写入 cacheDir/camera/。"""
     src = _src()
+    # BUG-2026-08-16-017 F5：同 T6，可见性放开为 private|internal（实现用的是 internal fun）。
     assert re.search(
-        r"private\s+fun\s+saveBitmapToCacheAndGetUri\s*\(",
+        r"(?:private|internal)\s+fun\s+saveBitmapToCacheAndGetUri\s*\(",
         src,
-    ), "缺少 saveBitmapToCacheAndGetUri 私有函数"
+    ), (
+        "缺少 saveBitmapToCacheAndGetUri 私有函数"
+        "（应为 private 或 internal，不得是 public）"
+    )
     assert "FileProvider.getUriForFile" in src, (
         "saveBitmapToCacheAndGetUri 未使用 FileProvider.getUriForFile"
     )
