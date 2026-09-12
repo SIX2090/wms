@@ -6,14 +6,17 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [MaterialEntity::class, OperationLogEntity::class],
-    version = 1,
+    entities = [MaterialEntity::class, OperationLogEntity::class, PendingOperationEntity::class],
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun materialDao(): MaterialDao
     abstract fun operationLogDao(): OperationLogDao
+
+    /** AI-MOB-OFFLINE-01：离线待提交作业队列。 */
+    abstract fun pendingOperationDao(): PendingOperationDao
 
     companion object {
         @Volatile

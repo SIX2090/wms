@@ -1,6 +1,7 @@
 package com.factory.wms.data.local
 
 import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
  * 集中管理 Room schema 的显式迁移。
@@ -17,16 +18,49 @@ object DatabaseMigrations {
 
     /** 全部已登记的迁移，按 (fromVersion -> toVersion) 顺序排列。 */
     val ALL: Array<Migration> = arrayOf(
-        // 示例：v1 -> v2 新增字段时启用下面这条
-        // MIGRATION_1_2
+        MIGRATION_1_2
     )
 
-    // 示例写法（未来 schema 变更时解除注释并实现）：
-    //
-    // private val MIGRATION_1_2 = object : Migration(1, 2) {
-    //     override fun migrate(db: SupportSQLiteDatabase) {
-    //         db.execSQL("ALTER TABLE materials ADD COLUMN new_field TEXT DEFAULT NULL")
-    //         // 需要新增/重建索引、表时同样在此执行对应 SQL
-    //     }
-    // }
+    /**
+     * v1 -> v2：新增离线待提交作业队列表（AI-MOB-OFFLINE-01）。
+     *
+     * 关键点：**纯新增表迁移，不触碰 materials / operation_logs 任何数据**。
+     * 升级路径只执行 CREATE TABLE + CREATE INDEX，既有本地物料缓存与操作日志
+     * 原样保留——丢缓存会直接导致断网时扫不了码，是必须避免的回归。
+     *
+     * DDL 必须与 [PendingOperationEntity] 的 Room 生成结果严格一致，否则 Room 的
+     * schema 校验（identity hash 比对）会在打开数据库时报
+     * "Migration didn't properly handle ..."。要点：
+     *   - 列顺序与实体声明顺序一致
+     *   - warehouse_code / last_error 可为 NULL（实体声明为 `String?`）
+     *   - 其余列 NOT NULL，且**不写数据库级 DEFAULT**（Room 未标注 defaultValue 时
+     *     即不生成 DEFAULT，多写反而导致 schema 不匹配）
+     *   - 索引名遵循 Room 约定：index_pending_operations_<列名>_<列名>
+     */
+    private val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `pending_operations` (" +
+                    "`request_id` TEXT NOT NULL, " +
+                    "`operation_type` TEXT NOT NULL, " +
+                    "`payload_json` TEXT NOT NULL, " +
+                    "`warehouse_code` TEXT, " +
+                    "`summary` TEXT NOT NULL, " +
+                    "`status` TEXT NOT NULL, " +
+                    "`attempt_count` INTEGER NOT NULL, " +
+                    "`last_error` TEXT, " +
+                    "`created_at` INTEGER NOT NULL, " +
+                    "`updated_at` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`request_id`))"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_pending_operations_status_created_at` " +
+                    "ON `pending_operations` (`status`, `created_at`)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_pending_operations_operation_type` " +
+                    "ON `pending_operations` (`operation_type`)"
+            )
+        }
+    }
 }
