@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.MaterialDto
 import com.factory.wms.data.model.ScanLine
+import com.factory.wms.ui.components.PendingSyncBanner
 import com.factory.wms.ui.components.ScannerDialog
 import com.factory.wms.ui.components.WmsEmptyState
 import com.factory.wms.ui.components.WmsGradientHeader
@@ -76,7 +77,14 @@ fun ScanScreenBase(
     onDismissPrint: (() -> Unit)? = null,
     materialSuggestions: List<MaterialDto> = emptyList(),
     materialSuggestionsLoading: Boolean = false,
-    onMaterialSuggestionSelected: (MaterialDto) -> Unit = {}
+    onMaterialSuggestionSelected: (MaterialDto) -> Unit = {},
+    // ── AI-MOB-OFFLINE-01：离线待同步状态（由各页从 ScanViewModel.uiState 透传）──
+    /** 待自动补传条数 */
+    offlinePendingCount: Int = 0,
+    /** 重试耗尽的失败条数 */
+    offlineFailedCount: Int = 0,
+    /** 人工重试失败记录 */
+    onRetryOffline: () -> Unit = {}
 ) {
     var showCameraScanner by remember { mutableStateOf(false) }
     // AI-MOB-CONTINUOUS-SCAN-01：连续扫描的已扫条数与最近一次条码。
@@ -111,6 +119,16 @@ fun ScanScreenBase(
 
             // 可选的自定义横幅（如「语音草稿已生成」）
             banner?.invoke()
+
+            // AI-MOB-OFFLINE-01：离线待同步横幅。
+            // 四个扫码页（入库/出库/盘点/查库存）共用本基类，在此渲染一次即全覆盖。
+            // 仅在有暂存/失败记录时显示，正常在线提交时完全不占空间。
+            PendingSyncBanner(
+                pendingCount = offlinePendingCount,
+                failedCount = offlineFailedCount,
+                onRetry = onRetryOffline,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
 
             // 提交成功后的"打印单据"横幅
             submittedPrint?.let { info ->

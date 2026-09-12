@@ -108,6 +108,10 @@ fun InboundScreen(
             manualCode = material.code.orEmpty()
             viewModel.clearMaterialSuggestions()
         },
+        // AI-MOB-OFFLINE-01：断网提交已暂存条数 / 失败条数 / 人工重试
+        offlinePendingCount = uiState.offlinePendingCount,
+        offlineFailedCount = uiState.offlineFailedCount,
+        onRetryOffline = { viewModel.retryOfflineSync() },
         onManualAdd = {
             if (manualCode.isNotBlank()) {
                 viewModel.addScanLine(
@@ -312,6 +316,10 @@ fun OutboundScreen(
             manualCode = material.code.orEmpty()
             viewModel.clearMaterialSuggestions()
         },
+        // AI-MOB-OFFLINE-01：断网提交已暂存条数 / 失败条数 / 人工重试
+        offlinePendingCount = uiState.offlinePendingCount,
+        offlineFailedCount = uiState.offlineFailedCount,
+        onRetryOffline = { viewModel.retryOfflineSync() },
         onManualAdd = {
             if (manualCode.isNotBlank()) {
                 viewModel.addScanLine(
@@ -1410,6 +1418,10 @@ fun StocktakeScreen(
             manualCode = material.code.orEmpty()
             viewModel.clearMaterialSuggestions()
         },
+        // AI-MOB-OFFLINE-01：断网提交已暂存条数 / 失败条数 / 人工重试
+        offlinePendingCount = uiState.offlinePendingCount,
+        offlineFailedCount = uiState.offlineFailedCount,
+        onRetryOffline = { viewModel.retryOfflineSync() },
         onManualAdd = {
             if (manualCode.isNotBlank()) {
                 addOrConfirmStocktakeLine(

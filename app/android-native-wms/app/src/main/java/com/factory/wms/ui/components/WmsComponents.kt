@@ -8,6 +8,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.CloudSync
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -26,6 +28,8 @@ import androidx.compose.ui.unit.sp
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.CardBackground
 import com.factory.wms.ui.theme.DividerSoft
+import com.factory.wms.ui.theme.Error
+import com.factory.wms.ui.theme.ErrorContainer
 import com.factory.wms.ui.theme.OnSurface
 import com.factory.wms.ui.theme.OnSurfaceSecondary
 import com.factory.wms.ui.theme.OnSurfaceVariant
@@ -549,3 +553,84 @@ internal fun formatCacheAge(cachedAtMillis: Long?): String? {
         else -> "${minutes / (60L * 24L)} 天前"
     }
 }
+
+/**
+ * AI-MOB-OFFLINE-01：待同步作业横幅。
+ *
+ * 使用场景：断网提交时数据已暂存本地队列（[com.factory.wms.data.repository.OfflineQueueManager]），
+ * 联网后自动补传。此横幅让作业员**明确知道数据没有丢**，可以放心离开继续下一单。
+ *
+ * ## 为什么必须区分「待同步」与「失败」（关键）
+ *
+ * 两者混用一个提示是危险的：
+ * - 「待同步」= 数据安全，只是还没传上去 → 用户可以走开，不用重做
+ * - 「失败」  = 重试已耗尽，需要人工介入 → 用户必须重做或找管理员
+ *
+ * 若把"待同步"显示成"提交失败"，用户会**重扫一遍**，反而制造重复单据。
+ * 故 [failedCount] > 0 时文案与配色都升级为警示态，并提供人工重试入口。
+ *
+ * @param pendingCount 待自动补传条数
+ * @param failedCount 重试耗尽、需人工处理的条数
+ * @param onRetry 人工触发重试（重试全部失败记录并立即尝试补传）
+ */
+@Composable
+fun PendingSyncBanner(
+    pendingCount: Int,
+    failedCount: Int,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (pendingCount <= 0 && failedCount <= 0) return
+
+    val isFailed = failedCount > 0
+    val container = if (isFailed) ErrorContainer else WarningContainer
+    val accent = if (isFailed) Error else Warning
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(container)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            if (isFailed) Icons.Outlined.ErrorOutline else Icons.Outlined.CloudSync,
+            null,
+            tint = accent,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                if (isFailed) "$failedCount 条同步失败" else "$pendingCount 条待同步",
+                color = accent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                if (isFailed) {
+                    "已重试多次仍失败，请检查网络后点「重试」，或联系管理员"
+                } else {
+                    "数据已保存，联网后自动提交，无需重做"
+                },
+                color = accent.copy(alpha = 0.85f),
+                fontSize = 11.sp
+            )
+        }
+        if (isFailed) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "重试",
+                color = accent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onRetry() }
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            )
+        }
+    }
+}
+

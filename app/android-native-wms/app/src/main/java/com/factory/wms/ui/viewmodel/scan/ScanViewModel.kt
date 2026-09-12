@@ -59,7 +59,12 @@ data class ScanUiState(
     val stockListTotalPages: Int = 0,
     val stockListTotal: Int = 0,
     /** 是否已完成过一次列表查询（区分"未查询"与"查询结果为空"两种空态） */
-    val stockListLoaded: Boolean = false
+    val stockListLoaded: Boolean = false,
+    // ── AI-MOB-OFFLINE-01：离线待同步队列状态 ──
+    /** 待自动补传条数（断网提交已暂存）。>0 时页面提示"已保存，联网后自动提交" */
+    val offlinePendingCount: Int = 0,
+    /** 重试耗尽的失败条数，需人工介入 */
+    val offlineFailedCount: Int = 0
 )
 
 /** 提交成功后可再次触发打印的单据信息。 */
@@ -81,6 +86,30 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private var materialSearchJob: Job? = null
     private var contractSearchSequence = 0
     private var contractSearchJob: Job? = null
+
+    /**
+     * AI-MOB-OFFLINE-01：观察离线队列计数，驱动页面"待同步"提示条。
+     *
+     * 断网提交的数据已安全暂存，必须让作业员**看见**这个事实：
+     * 否则他会以为提交失败而重扫一遍，反而制造重复单据。
+     */
+    init {
+        viewModelScope.launch {
+            repository.offlineQueue.pendingCount.collect { count ->
+                _uiState.value = _uiState.value.copy(offlinePendingCount = count)
+            }
+        }
+        viewModelScope.launch {
+            repository.offlineQueue.failedCount.collect { count ->
+                _uiState.value = _uiState.value.copy(offlineFailedCount = count)
+            }
+        }
+    }
+
+    /** AI-MOB-OFFLINE-01：人工重试全部失败记录并立即尝试补传。 */
+    fun retryOfflineSync() {
+        repository.offlineQueue.retryFailed()
+    }
 
     /**
      * AI-VOICE-OUT-F01：出库页换仓回调。
@@ -714,7 +743,21 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 },
                 onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                    // AI-MOB-OFFLINE-01：断网但已暂存 → 当"成功"对待，
+                    // 清空已扫明细（数据已安全落本地队列，用户不必重扫），
+                    // 只在提示里说明"联网后自动提交"。
+                    // 若不区分，用户看到"失败"会重扫一遍 → 重复单据。
+                    if (e is WmsRepository.OfflineQueuedException) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            success = e.message,
+                            error = null,
+                            scanLines = emptyList(),
+                            totalQuantity = 0.0
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                    }
                 }
             )
         }
@@ -764,7 +807,21 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 },
                 onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                    // AI-MOB-OFFLINE-01：断网但已暂存 → 当"成功"对待，
+                    // 清空已扫明细（数据已安全落本地队列，用户不必重扫），
+                    // 只在提示里说明"联网后自动提交"。
+                    // 若不区分，用户看到"失败"会重扫一遍 → 重复单据。
+                    if (e is WmsRepository.OfflineQueuedException) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            success = e.message,
+                            error = null,
+                            scanLines = emptyList(),
+                            totalQuantity = 0.0
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                    }
                 }
             )
         }
@@ -850,7 +907,21 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     viewModelScope.launch { repository.clearStocktakeDraft() }
                 },
                 onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                    // AI-MOB-OFFLINE-01：断网但已暂存 → 当"成功"对待，
+                    // 清空已扫明细（数据已安全落本地队列，用户不必重扫），
+                    // 只在提示里说明"联网后自动提交"。
+                    // 若不区分，用户看到"失败"会重扫一遍 → 重复单据。
+                    if (e is WmsRepository.OfflineQueuedException) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            success = e.message,
+                            error = null,
+                            scanLines = emptyList(),
+                            totalQuantity = 0.0
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                    }
                 }
             )
         }
