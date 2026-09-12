@@ -145,12 +145,33 @@ query = query.order_by(Material.code.asc())   # 唯一排序:按物料编码
 ## 修复建议优先级
 
 ```
-P0-1  total 覆盖赋值改为只取首次              → 1 行改动,消除统计错乱风险
-P0-2  列表接口补 locations(需仓校) + brand    → 后端补字段,前端已能渲染
-P1-1  列表接口加 sort 参数(stock_asc/desc)    → 复用告警页已有排序逻辑
-P1-2  列表接口加 stock_filter(nonzero/low)    → 与告警能力对齐
-P1-3  空态文案按"物料不存在/本仓无货"分流      → 需后端区分返回
-P2-*  见上,均为小改动
+P0-1  total 覆盖赋值改为只取首次              → 1 行改动,消除统计错乱风险     [已修]
+P0-2  列表接口补 locations(需仓校) + brand    → 后端补字段,前端已能渲染       [已修]
+P1-1  列表接口加 sort 参数(stock_asc/desc)    → 复用告警页已有排序逻辑        [未做]
+P1-2  列表接口加 stock_filter(nonzero/low)    → 与告警能力对齐                [未做]
+P1-3  空态文案按"物料不存在/本仓无货"分流      → 需后端区分返回                [未做]
+P2-*  见上,均为小改动                                                        [未做]
 ```
 
-**P0-2 最值得先做**:它修的是"查得到却看不见"的信息缺失,且前端 `MaterialDto.locations` 与 `StockListRow` 的渲染逻辑都已就位,**只差后端补一个字段**——但要注意库位查询必须复用 `material_lookup` 里那段**含历史 NULL warehouse_id 的兼容逻辑**(`mobile.py:112-118`),否则会重踩 BUG-2026-08-18-002 那类"历史脏数据查不出来"的坑(R2 第 2 条)。
+> **状态复核（2026-09-13）**
+>
+> 本清单原以 `ec1437f` 为基准写成，其后主线上另有修复落地，**清单结论已落后于代码**，
+> 逐项对照现状复核如下：
+>
+> - **P0-1 已修**：`ScanViewModel.kt:527` 用 `takeIf { it > 0 }` 保护，总数不再被翻页
+>   响应覆盖（登记 BUG-2026-09-12-004）。
+> - **P0-2 已修**：commit `1a627ed`（BUG-2026-09-12-003）。**注意：本清单曾据旧代码
+>   断言"列表路径不下发 locations/brand"，该结论已失效**——现 `/api/mobile/stock/query`
+>   响应已含 `brand` 与 `locations`，且实现比本清单的建议更完整：
+>   ① 复用 `build_material_locations_map` 批量预取（50 条物料由 50 条 SQL 降为 1 条），
+>   而非逐条查询；② 通过新增的 `legacy_location_names` 参数纳入 `warehouse_id IS NULL`
+>   的历史行，与 `get_warehouse_stock_quantities` 汇总同口径（否则会出现"汇总 70、
+>   明细只列 50"的 R2 第 3 条违规）；③ 无仓上下文时保持 `None`，`/api/material/search`
+>   与 `/api/material/all` 两个既有调用点零改动。
+>   相关的口径分叉问题另见 BUG-2026-09-12-005（已修）。
+> - **P1-1 / P1-2 / P1-3 / P2-* 仍未做**：已确认 `/api/mobile/stock/query` 目前只解析
+>   `warehouse*`、`keyword`、`page`、`page_size`，**没有任何 sort / stock_filter 参数**，
+>   清单这部分结论依旧成立。
+> - **P2-2 描述需更正**：本清单称"防抖 300ms"，实际代码中查库存搜索**未使用防抖**，
+>   而是用 `materialSearchSequence` 序号递增做响应乱序保护。两者都能避免旧响应覆盖
+>   新结果，但防抖还能减少请求量——这是"缺失防抖"而非"防抖参数不当"。
