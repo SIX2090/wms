@@ -205,6 +205,66 @@ class WmsRepository(private val context: Context) {
         }
     }
 
+    // ── 首页概览下钻（AI-MOB-DRILLDOWN-01）──
+    // 三个接口后端早已提供（native_api.py），手机端此前未接入。
+
+    /**
+     * 库存告警清单：仓库级库存 <= 最低库存的物料，按缺口从小到大排序
+     * （缺口最小的排前面——最接近达标的先补，性价比最高）。
+     * [warehouseId] 必填（AGENTS.md 多仓隔离）；库存预警未启用时后端返回
+     * 空列表 + 提示，不是错误。
+     */
+    suspend fun getAlertList(
+        warehouseId: String,
+        page: Int = 1,
+        pageSize: Int = 20
+    ): Result<AlertListData> {
+        return safeCall {
+            api.getAlertList(warehouseId = warehouseId, page = page, pageSize = pageSize)
+        }
+    }
+
+    /**
+     * 入库单列表。[status] 传 "pending"/"completed"，留空为全部。
+     * [warehouseId] 必填，服务端按仓库隔离（跨仓不可见）。
+     */
+    suspend fun getInOrderList(
+        warehouseId: String,
+        status: String? = null,
+        keyword: String? = null,
+        page: Int = 1,
+        pageSize: Int = 20
+    ): Result<MobileOrderListData> {
+        return safeCall {
+            api.getInOrderList(
+                warehouseId = warehouseId,
+                status = status?.takeIf { it.isNotBlank() },
+                keyword = keyword?.takeIf { it.isNotBlank() },
+                page = page,
+                pageSize = pageSize
+            )
+        }
+    }
+
+    /** 出库单列表。参数语义同 [getInOrderList]。 */
+    suspend fun getOutOrderList(
+        warehouseId: String,
+        status: String? = null,
+        keyword: String? = null,
+        page: Int = 1,
+        pageSize: Int = 20
+    ): Result<MobileOrderListData> {
+        return safeCall {
+            api.getOutOrderList(
+                warehouseId = warehouseId,
+                status = status?.takeIf { it.isNotBlank() },
+                keyword = keyword?.takeIf { it.isNotBlank() },
+                page = page,
+                pageSize = pageSize
+            )
+        }
+    }
+
     suspend fun getMaterialInfo(code: String, warehouseCode: String? = null): Result<MaterialDto> {
         return try {
             // 网络优先：查库存要求实时准确，先请求后端（已选仓库时按仓库级口径），成功后再回写本地缓存

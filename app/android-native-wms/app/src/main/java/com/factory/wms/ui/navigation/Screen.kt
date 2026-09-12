@@ -15,4 +15,18 @@ sealed class Screen(val route: String, val title: String) {
     data object MaterialArchiveDetail : Screen("material_archive_detail", "物料档案图片")
     data object DailyReport : Screen("daily_report", "每日报表")
     data object Profile : Screen("profile", "我的")
+
+    /**
+     * 首页概览「待处理单据」下钻（AI-MOB-DRILLDOWN-01）。
+     *
+     * 路由带两个查询参数：`wid` 仓库 id（后端 resolve_request_warehouse 要它做
+     * 多仓隔离）与 `wname` 仓库名（标题展示用，非 id 时不传也可）。
+     * 仓库必须从首页带过来——列表接口在缺仓库时会回退到服务端默认仓，
+     * 与用户在首页看到的口径不一致（首页默认落第一个真实仓，
+     * 见 HomeViewModel.loadWarehouses）。
+     */
+    data object OverviewOrders : Screen("overview_orders?wid={wid}&wname={wname}", "待处理单据")
+
+    /** 首页概览「库存告警」下钻（AI-MOB-DRILLDOWN-01）。参数语义同 [OverviewOrders]。 */
+    data object OverviewAlerts : Screen("overview_alerts?wid={wid}&wname={wname}", "库存告警")
 }

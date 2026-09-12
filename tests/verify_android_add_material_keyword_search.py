@@ -16,7 +16,7 @@
 4. OpeningStockViewModel 需具备 materialSuggestions / 
    materialSuggestionsLoading 状态与 searchMaterialSuggestions / 
    clearMaterialSuggestions 方法（防抖 + 序号防竞态）。
-5. 版本递增 versionCode 12 / versionName 3.7.1。
+5. 版本递增 versionCode ≥ 12 / versionName ≥ 3.7.1（3.7.2 起为首页概览下钻）。
 """
 from __future__ import annotations
 
@@ -30,6 +30,18 @@ SRC = ANDROID / "app" / "src" / "main" / "java" / "com" / "factory" / "wms"
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _version_code(gradle: str) -> int:
+    m = re.search(r"versionCode\s*=\s*(\d+)", gradle)
+    assert m, "build.gradle.kts 未找到 versionCode"
+    return int(m.group(1))
+
+
+def _version_tuple(gradle: str) -> tuple:
+    m = re.search(r'versionName\s*=\s*"([\d.]+)"', gradle)
+    assert m, "build.gradle.kts 未找到 versionName"
+    return tuple(int(x) for x in m.group(1).split("."))
 
 
 # A9:no-test=reason=下面各 test_ 函数即本契约测试本体，被测对象为 Android 源码文本
@@ -125,7 +137,7 @@ def test_opening_viewmodel_has_suggestion_state_and_debounce():
 
 
 def test_version_bumped():
-    """版本递增：versionCode 12 / versionName 3.7.1。"""
+    """版本递增：versionCode ≥ 12 / versionName ≥ 3.7.1（本文件锁定的是关键词联想，不锁具体版本号）。"""
     gradle = _read(ANDROID / "app" / "build.gradle.kts")
-    assert "versionCode = 12" in gradle
-    assert 'versionName = "3.7.1"' in gradle
+    assert _version_code(gradle) >= 12
+    assert _version_tuple(gradle) >= (3, 7, 1)

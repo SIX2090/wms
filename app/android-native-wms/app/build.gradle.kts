@@ -14,8 +14,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // 2026-09-12 领料部门/领料人下拉（出库页新增字段）
-        versionCode = 12
-        versionName = "3.7.1"
+        versionCode = 13
+        versionName = "3.7.2"
 
         // sherpa-onnx 本地语音识别开关：通过 -Pwms.sherpa=true 启用，
         // 默认 false（保持现有国内 / 离线构建无网络依赖）。启用后会引入

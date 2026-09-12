@@ -7,7 +7,7 @@
 - Repository loadPendingCheckOrders
 - ViewModel selectedCheckOrder / loadPendingCheckOrders / submit 携带 checkId 且未选单拦截
 - UI CheckOrderSelectorCard + CheckOrderPickerDialog + 确认弹窗 enabled 依赖盘点单
-- 版本递增 versionCode ≥ 12 / versionName 3.7.1（AI-MOB 发版递增；3.6.0 为领料部门/领料人下拉前的版本，3.7.0 为关键词联想前的版本）
+- 版本递增 versionCode ≥ 12 / versionName ≥ 3.7.1（AI-MOB 发版递增；3.6.0 为领料部门/领料人下拉前的版本，3.7.0 为关键词联想前的版本，3.7.2 为首页概览下钻）
 """
 from pathlib import Path
 
@@ -18,6 +18,21 @@ GRADLE = ROOT / "app" / "android-native-wms" / "app" / "build.gradle.kts"
 
 def _p(rel: str) -> str:
     return (BASE / rel).read_text(encoding="utf-8")
+
+
+def _version_code(gradle: str) -> int:
+    """versionCode 取整数，便于断言 >= 而非锁死某个具体值。"""
+    import re
+    m = re.search(r"versionCode\s*=\s*(\d+)", gradle)
+    assert m, "build.gradle.kts 未找到 versionCode"
+    return int(m.group(1))
+
+
+def _version_tuple(gradle: str) -> tuple:
+    import re
+    m = re.search(r'versionName\s*=\s*"([\d.]+)"', gradle)
+    assert m, "build.gradle.kts 未找到 versionName"
+    return tuple(int(x) for x in m.group(1).split("."))
 
 
 def test_model_check_id_fields():
@@ -68,5 +83,5 @@ def test_screen_ui_and_confirm_gate():
 
 def test_version_bump():
     gradle = GRADLE.read_text(encoding="utf-8")
-    assert "versionCode = 12" in gradle
-    assert 'versionName = "3.7.1"' in gradle
+    assert _version_code(gradle) >= 12
+    assert _version_tuple(gradle) >= (3, 7, 1)

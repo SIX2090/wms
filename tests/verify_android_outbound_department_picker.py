@@ -12,8 +12,10 @@
   与 loadDepartments/loadEmployees/selectDepartment/selectEmployee，
   submitOutbound 从 state 取 departmentId/picker（不再由 UI 传文本）
 - UI 两张 PartySelectorCard + 两个 PartyPickerDialog + 确认弹窗回显
-- 版本递增 versionCode 12 / versionName 3.7.1（AI-MOB 发版递增）
+- 版本递增 versionCode ≥ 12 / versionName ≥ 3.7.1（AI-MOB 发版递增；
+  3.7.2 为首页概览下钻，本文件不锁具体版本号）
 """
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,6 +25,19 @@ GRADLE = ROOT / "app" / "android-native-wms" / "app" / "build.gradle.kts"
 
 def _p(rel: str) -> str:
     return (BASE / rel).read_text(encoding="utf-8")
+
+
+def _version_code(gradle: str) -> int:
+    """versionCode 取整数，便于断言 >= 而非锁死某个具体值。"""
+    m = re.search(r"versionCode\s*=\s*(\d+)", gradle)
+    assert m, "build.gradle.kts 未找到 versionCode"
+    return int(m.group(1))
+
+
+def _version_tuple(gradle: str) -> tuple:
+    m = re.search(r'versionName\s*=\s*"([\d.]+)"', gradle)
+    assert m, "build.gradle.kts 未找到 versionName"
+    return tuple(int(x) for x in m.group(1).split("."))
 
 
 def test_model_dtos_and_request_fields():
@@ -102,5 +117,5 @@ def test_party_picker_component():
 
 def test_version_bump():
     gradle = GRADLE.read_text(encoding="utf-8")
-    assert "versionCode = 12" in gradle
-    assert 'versionName = "3.7.1"' in gradle
+    assert _version_code(gradle) >= 12
+    assert _version_tuple(gradle) >= (3, 7, 1)
