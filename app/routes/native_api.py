@@ -1080,8 +1080,8 @@ def register_native_api_routes(app):
           尚未生成调整草稿）。INV-BATCH-001-E 后手机盘点不再独立生成草稿，
           故状态取批次（InventoryCheck）维度，与 PC「完成盘点」的口径一致。
         """
-        from app import (AdjustmentOrder, InventoryCheck, InventoryCheckScan,
-                         InventoryCheckScanItem, api_json_error,
+        from app import (STOCK_COMPARE_EPSILON, AdjustmentOrder, InventoryCheck,
+                         InventoryCheckScan, api_json_error,
                          api_json_success, _mobile_paginate,
                          MOBILE_API_PAGE_SIZE_DEFAULT, MOBILE_API_PAGE_SIZE_MAX,
                          validate_inventory_warehouse)
@@ -1167,11 +1167,12 @@ def register_native_api_routes(app):
             item_count = 0
             diff_count = 0
             try:
-                item_count = InventoryCheckScanItem.query.filter_by(
-                    check_scan_id=scan.id).count()
-                diff_count = sum(
-                    1 for it in (scan.items or [])
-                    if abs(it.difference or 0) > 1e-9)
+                # 差异判定阈值必须与 PC 端一致（STOCK_COMPARE_EPSILON），
+                # 否则同一批盘点数据在手机端与电脑端显示的差异条数会不同。
+                for it in (scan.items or []):
+                    item_count += 1
+                    if abs(it.difference or 0) > STOCK_COMPARE_EPSILON:
+                        diff_count += 1
             except Exception:
                 app.logger.exception('Android stocktake list item count failed')
 
