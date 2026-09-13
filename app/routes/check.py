@@ -263,7 +263,7 @@ def register_check_routes(app):
                          _material_from_payload, _parse_form_date, api_error,
                          generate_order_no, get_default_warehouse,
                          get_warehouse_stock_quantities, log_operation,
-                         parse_float_value, round_to_2_decimals,
+                         location_management_enabled, parse_float_value, round_to_2_decimals,
                          resolve_inventory_warehouse_id, validate_inventory_warehouse)
         data = request.get_json(silent=True) or {}
         order_id = _clean_int(data.get('order_id'))
@@ -343,16 +343,27 @@ def register_check_routes(app):
             # - 新增行取当前仓库级账面（视为该行首次录入时点的基准）；
             # - 提交集之外的旧行删除（全量提交语义与旧版一致）；
             # - 首次写入明细时设置 frozen_at，一经设置不再变更。
-            existing_items = {item.material_id: item for item in check.items}
-            submitted_material_ids = set()
+            existing_items = {(item.material_id, (item.area or '').strip()): item for item in check.items}
+            if len(existing_items) != len(check.items):
+                db.session.rollback()
+                return api_error('盘点单存在重复物料和区域，请先删除重复明细')
+            submitted_keys = set()
             for item_data in items_data:
                 material = _material_from_payload(item_data)
                 if not material:
                     return api_error(f'物料不存在：{item_data.get("code") or ""}')
-                submitted_material_ids.add(material.id)
+                area = (item_data.get('area') or item_data.get('location') or '').strip()
+                if location_management_enabled() and not area:
+                    db.session.rollback()
+                    return api_error(f'库位管理已启用，物料 {material.code} 请填写库位/区域')
+                row_key = (material.id, area)
+                if row_key in submitted_keys:
+                    db.session.rollback()
+                    return api_error(f'物料 {material.code} 在区域 {area or "未分区"} 重复，请合并后保存')
+                submitted_keys.add(row_key)
                 raw_actual = item_data.get('actual_stock')
                 has_actual = raw_actual is not None and str(raw_actual).strip() != ''
-                row = existing_items.get(material.id)
+                row = existing_items.get(row_key)
                 if row is not None:
                     # 已有行：冻结账面保留，只更新实盘/原因/差异
                     if has_actual:
@@ -367,14 +378,15 @@ def register_check_routes(app):
                     db.session.add(InventoryCheckItem(
                         inventory_check_id=check.id,
                         material_id=material.id,
+                        area=area,
                         system_stock=system_stock,
                         actual_stock=actual_stock,
                         difference=round_to_2_decimals(actual_stock - system_stock),
                         reason=(item_data.get('reason') or item_data.get('remark') or '').strip()
                     ))
             # 删除提交集之外的旧行
-            for material_id, row in existing_items.items():
-                if material_id not in submitted_material_ids:
+            for row_key, row in existing_items.items():
+                if row_key not in submitted_keys:
                     db.session.delete(row)
             # 首次写入明细即冻结账面基准
             if check.frozen_at is None:
@@ -997,7 +1009,7 @@ def register_check_routes(app):
                          _order_no_from_row, _parse_excel_date, _read_import_sheet,
                          api_error, get_default_warehouse,
                          get_warehouse_stock_quantities, normalize_stock_quantity,
-                         round_to_2_decimals, validate_excel_extension,
+                         location_management_enabled, round_to_2_decimals, validate_excel_extension,
                          validate_excel_size, validate_inventory_warehouse)
         file = request.files.get('file')
         if not file:
@@ -1019,6 +1031,7 @@ def register_check_routes(app):
             'unit': ['单位'],
             'system_stock': ['系统库存', '账面库存'],
             'actual_stock': ['实际库存', '盘点库存'],
+            'area': ['区域', '库位', '盘点区域'],
             'reason': ['差异原因', '原因'],
             'remark': ['备注'],
         }
@@ -1093,9 +1106,21 @@ def register_check_routes(app):
                 book_stock = normalize_stock_quantity((checks_wh_stock.get(order_no) or {}).get(material.id) or 0)
                 system_stock = _get_excel_number(row, col_map, 'system_stock', book_stock)
                 actual_stock = _get_excel_number(row, col_map, 'actual_stock', system_stock)
+                area = (_get_excel_cell(row, col_map, 'area') or '').strip()
+                if location_management_enabled() and not area:
+                    skip += 1
+                    skip_details.append(f'第{row_idx}行：库位管理已启用，请填写库位/区域')
+                    continue
+                if InventoryCheckItem.query.filter_by(
+                    inventory_check_id=check.id, material_id=material.id, area=area
+                ).first():
+                    skip += 1
+                    skip_details.append(f'第{row_idx}行：物料 {material.code} 与区域 {area or "未分区"} 重复')
+                    continue
                 db.session.add(InventoryCheckItem(
                     inventory_check_id=check.id,
                     material_id=material.id,
+                    area=area,
                     system_stock=system_stock,
                     actual_stock=actual_stock,
                     difference=round_to_2_decimals(actual_stock - system_stock),

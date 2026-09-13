@@ -24936,6 +24936,7 @@ def _render_check_form(check=None):
     return render_template(
         'document_table_form.html',
         doc_type='check',
+        location_management_enabled=location_management_enabled(),
         icon='bi-clipboard-check',
         page_title='新增库存盘点单' if check is None else ('查看库存盘点单' if check.status != 'pending' else '编辑库存盘点单'),
         list_url=url_for('check_list'),
@@ -24962,6 +24963,7 @@ def _render_check_form(check=None):
             _material_line_data(item, extra={
                 'system_stock': float(item.system_stock or 0),
                 'actual_stock': float(item.actual_stock or 0),
+                'area': item.area or '',
                 'difference': float(item.difference or 0),
                 'reason': item.reason or '',
                 # INV-BATCH-001-D：行级盘点归属回查（谁在何时盘了这行）
