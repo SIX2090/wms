@@ -651,66 +651,65 @@ def register_check_routes(app):
     @login_required
     def add_check_item(id):
         """添加盘点明细"""
-        from app import (InventoryCheck, InventoryCheckItem, Material, Warehouse,
-                         api_error, get_warehouse_stock_quantities, log_operation)
+        from datetime import datetime
+        from app import (InventoryCheck, InventoryCheckItem, Material,
+                         _acquire_order_write_lock, api_error, get_default_warehouse,
+                         get_warehouse_stock_quantities, location_management_enabled,
+                         log_operation, validate_inventory_warehouse)
         check = InventoryCheck.query.get_or_404(id)
         if check.status != 'pending':
             return api_error('只有草稿状态的盘点单可以添加明细')
-        
-        material_id = request.form.get('material_id')
-        if not material_id:
-            return api_error('请选择物料')
-        
         try:
-            material_id = int(material_id)
+            material_id = int(request.form.get('material_id', ''))
         except (ValueError, TypeError):
-            return api_error('物料ID格式不正确')
-        
-        material = Material.query.get(material_id)
-        if not material:
-            return api_error('物料不存在')
-        
-        # 检查是否已存在该物料的盘点记录
-        existing_item = InventoryCheckItem.query.filter_by(
-            inventory_check_id=id, 
-            material_id=material_id
-        ).first()
-        
-        if existing_item:
-            return api_error(f'物料 {material.code} 已存在于盘点单中')
-        
+            return api_error('请选择有效物料')
+        area = (request.form.get('area') or request.form.get('location') or '').strip()
         try:
-            # 创建盘点明细，系统库存为该仓库级当前库存，实际库存默认为系统库存
-            # W1：仓库级口径（与 save_check_table 一致），仓库解析失败时回退全局库存
-            wh_obj = None
-            if check.warehouse:
-                wh_obj = Warehouse.query.filter(db.or_(
-                    Warehouse.name == check.warehouse,
-                    Warehouse.code == check.warehouse,
-                )).first()
-            if wh_obj:
-                system_stock = get_warehouse_stock_quantities(wh_obj).get(material_id, 0) or 0
-            else:
-                system_stock = material.stock or 0
-            item = InventoryCheckItem(
-                inventory_check_id=id,
-                material_id=material_id,
-                system_stock=system_stock,
-                actual_stock=system_stock,
-                difference=0
-            )
-            db.session.add(item)
-            try:
-                db.session.commit()
-            except Exception as e:
+            check, locked = _acquire_order_write_lock(InventoryCheck, id, 'pending')
+            if not locked or check is None:
                 db.session.rollback()
-                app.logger.error(f'数据库操作失败: {e}')
-                return jsonify({'status': 'error', 'msg': '添加失败，请稍后重试'}), 500
-            
+                return api_error('盘点单状态已变更，请刷新后重试')
+            material = db.session.get(Material, material_id)
+            if not material:
+                db.session.rollback()
+                return api_error('物料不存在')
+            warehouse = (check.warehouse or '').strip()
+            if not warehouse:
+                if check.items or check.frozen_at is not None:
+                    db.session.rollback()
+                    return api_error('历史盘点单已有冻结明细但缺少仓库，请人工核实归属后处理')
+                default_wh = get_default_warehouse()
+                if default_wh:
+                    warehouse = default_wh.name
+            wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+            if wh_err:
+                db.session.rollback()
+                return api_error(wh_err)
+            if location_management_enabled() and not area:
+                db.session.rollback()
+                return api_error('库位管理已启用，请填写库位/区域')
+            existing_item = InventoryCheckItem.query.filter(
+                InventoryCheckItem.inventory_check_id == id,
+                InventoryCheckItem.material_id == material_id,
+                db.func.coalesce(InventoryCheckItem.area, '') == area,
+            ).first()
+            if existing_item:
+                db.session.rollback()
+                return api_error('该物料在此区域已存在，请修改现有明细')
+            system_stock = get_warehouse_stock_quantities(wh_obj).get(material_id, 0) or 0
+            check.warehouse = wh_obj.name
+            if check.frozen_at is None:
+                check.frozen_at = datetime.now()
+            db.session.add(InventoryCheckItem(
+                inventory_check_id=id, material_id=material_id, area=area,
+                system_stock=system_stock, actual_stock=system_stock, difference=0,
+            ))
+            db.session.commit()
             log_operation('添加盘点明细', f'盘点单：{check.check_no}，物料：{material.code}', 'check', id)
             return jsonify({'status': 'success', 'msg': '盘点明细添加成功'})
-        except Exception as e:
+        except Exception:
             db.session.rollback()
+            app.logger.warning('盘点明细添加失败：check_id=%s', id)
             return api_error('添加失败，请稍后重试')
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
