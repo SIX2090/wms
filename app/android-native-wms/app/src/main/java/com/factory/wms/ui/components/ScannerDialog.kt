@@ -81,6 +81,7 @@ fun ScannerDialog(
     scannedCount: Int = 0,
     /** 连续模式下最近一次扫中的条码，用于顶部回显"已加 XXX"。 */
     lastScannedCode: String? = null,
+    feedbackMessage: String? = null,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -456,7 +457,7 @@ fun ScannerDialog(
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Text(
-                            "已加入：$lastScannedCode",
+                            feedbackMessage ?: "已加入：$lastScannedCode",
                             color = Color.White,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium,

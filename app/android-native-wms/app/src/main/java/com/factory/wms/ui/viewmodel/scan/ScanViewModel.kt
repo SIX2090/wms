@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.factory.wms.data.model.*
 import com.factory.wms.data.repository.WmsRepository
 import com.factory.wms.data.repository.WmsRepository.Companion.OfflineQueuedException
+import com.factory.wms.util.formatQuantity
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,7 @@ data class ScanUiState(
     val materialSuggestionsLoading: Boolean = false,
     val scanLines: List<ScanLine> = emptyList(),
     val totalQuantity: Double = 0.0,
+    val scanFeedback: String? = null,
     // 仓库选择（出入库必填，透传给后端）
     val warehouses: List<WarehouseDto> = emptyList(),
     val warehousesLoading: Boolean = false,
@@ -214,6 +216,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addScanLine(line: ScanLine) {
+        if (_uiState.value.isLoading) return
         val current = _uiState.value.scanLines.toMutableList()
         val existingIndex = current.indexOfFirst { it.material_code == line.material_code && it.location_code.orEmpty() == line.location_code.orEmpty() }
         if (existingIndex >= 0) {
@@ -224,6 +227,11 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
         _uiState.value = _uiState.value.copy(
             scanLines = current,
+            scanFeedback = if (existingIndex >= 0) {
+                "${line.material_code} 已累计 ${formatQuantity(current[existingIndex].quantity)}（本次 +${formatQuantity(line.quantity)}）"
+            } else {
+                "${line.material_code} 已加入 ${formatQuantity(line.quantity)}"
+            },
             totalQuantity = current.sumOf { it.quantity }
         )
 
@@ -310,12 +318,22 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun removeScanLine(index: Int) {
+    fun removeScanLine(expected: ScanLine) {
+        if (_uiState.value.isLoading) return
         val current = _uiState.value.scanLines.toMutableList()
+        val index = current.indexOfFirst {
+            it.material_code == expected.material_code &&
+                it.location_code.orEmpty() == expected.location_code.orEmpty()
+        }
+        if (index < 0 || current[index].quantity != expected.quantity) {
+            _uiState.value = _uiState.value.copy(scanFeedback = "明细已变化，请重新核对后移除")
+            return
+        }
         if (index in current.indices) {
             current.removeAt(index)
             _uiState.value = _uiState.value.copy(
                 scanLines = current,
+                scanFeedback = "${expected.material_code} 已移除",
                 totalQuantity = current.sumOf { it.quantity }
             )
         }
@@ -1097,4 +1115,3 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
  * 次数降到约 1/2.5，弱网下的体感差别最明显。
  */
 private const val STOCK_LIST_PAGE_SIZE = 50
-

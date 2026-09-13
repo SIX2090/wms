@@ -87,6 +87,27 @@ fun ScanScreenBase(
     onRetryOffline: () -> Unit = {}
 ) {
     var showCameraScanner by remember { mutableStateOf(false) }
+    var pendingRemoval by remember { mutableStateOf<ScanLine?>(null) }
+    val scanState by viewModel.uiState.collectAsState()
+    val scanFeedback = scanState.scanFeedback.takeIf { scanLines.isNotEmpty() }
+    pendingRemoval?.let { line ->
+        AlertDialog(
+            onDismissRequest = { pendingRemoval = null },
+            title = { Text("确认移除物料") },
+            text = {
+                Text("${line.material_code} ${line.material_name.orEmpty()}\n规格：${line.material_spec.orEmpty()}\n库位/区域：${line.location_code.orEmpty()}\n数量：${formatQuantity(line.quantity)}")
+            },
+            confirmButton = {
+                TextButton(enabled = !isLoading, onClick = {
+                    viewModel.removeScanLine(line)
+                    pendingRemoval = null
+                }) { Text("确认移除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRemoval = null }) { Text("取消") }
+            }
+        )
+    }
     // AI-MOB-CONTINUOUS-SCAN-01：连续扫描的已扫条数与最近一次条码。
     // 计数在弹窗内不自行维护（弹窗只负责"扫到"），由本层持有 —— 这样
     // 顶部"已扫 N 件"的 N 与清单行数口径一致（清空清单时应一并复位）。
@@ -119,6 +140,14 @@ fun ScanScreenBase(
 
             // 可选的自定义横幅（如「语音草稿已生成」）
             banner?.invoke()
+            scanFeedback?.let { message ->
+                Text(
+                    text = message,
+                    color = gradient,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
 
             // AI-MOB-OFFLINE-01：离线待同步横幅。
             // 四个扫码页（入库/出库/盘点/查库存）共用本基类，在此渲染一次即全覆盖。
@@ -348,7 +377,8 @@ fun ScanScreenBase(
                                     )
                                 }
                                 IconButton(
-                                    onClick = { viewModel.removeScanLine(index) },
+                                    onClick = { pendingRemoval = line },
+                                    enabled = !isLoading,
                                     modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
@@ -736,6 +766,7 @@ fun ScanScreenBase(
             continuous = true,
             scannedCount = continuousScanCount,
             lastScannedCode = lastScannedCode,
+            feedbackMessage = scanFeedback,
             onBarcodeScanned = { barcode ->
                 // AI-MOB-CONTINUOUS-SCAN-01：不再关弹窗，扫中即累计，
                 // 用户点"完成"才退出（onDismiss 由弹窗内部按钮触发）。
