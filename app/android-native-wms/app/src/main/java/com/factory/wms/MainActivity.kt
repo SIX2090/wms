@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.factory.wms.ui.navigation.AppNavGraph
 import com.factory.wms.ui.theme.WmsTheme
@@ -37,7 +36,7 @@ class MainActivity : ComponentActivity() {
         val missing = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO).filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (missing.isNotEmpty()) ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQUEST_STARTUP_PERMISSIONS)
+        if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), REQUEST_STARTUP_PERMISSIONS)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {

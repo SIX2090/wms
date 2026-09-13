@@ -45,6 +45,7 @@
 - 首次实现的 Compose 权限门禁在现场版本出现启动即退出现象，无法取得设备 logcat，按最小风险回退为 Activity 原生 `requestPermissions`：业务导航正常启动，同时在 `onCreate` 请求 `CAMERA` 与 `RECORD_AUDIO`；拒绝时 Toast 提示，扫码/语音功能继续由各自入口做权限兜底。已授权设备不会重复弹窗。
 - 回归：`tests/test_android_startup_permissions.py` 与扫码直开测试共 5 passed；本机无 Java/Android SDK，未完成 APK 编译和真机权限弹窗验收，需安装新 APK 后确认不再崩溃。
 - `ad39926` 的 Android APK Build #474 曾显示红叉，但该运行日志接口返回 GitHub 403，无法取得具体编译错误；本地同样因无 Java/SDK 无法重现。当前源码已改为 Activity 原生请求，后续新提交的 CI 结果作为实际构建依据。
+- `76c8fea` 触发的新构建仍在同一 Build Release 步骤失败；本次进一步去掉 `ActivityCompat` 依赖，直接调用 Activity 原生 `requestPermissions`，减少厂商/依赖兼容面。
 
 ## 判定规则
 
