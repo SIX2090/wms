@@ -140,6 +140,10 @@ fun ScanScreenBase(
 
             // 可选的自定义横幅（如「语音草稿已生成」）
             banner?.invoke()
+            scanState.draftSaveError?.let { message ->
+                Text(message, color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
             scanFeedback?.let { message ->
                 Text(
                     text = message,

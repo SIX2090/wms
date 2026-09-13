@@ -62,6 +62,7 @@ fun InboundScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
+        viewModel.restoreEditDraft("inbound")
         if (uiState.warehouses.isEmpty() && !uiState.warehousesLoading) {
             viewModel.loadWarehouses()
         }
@@ -265,6 +266,7 @@ fun OutboundScreen(
     }
 
     LaunchedEffect(Unit) {
+        viewModel.restoreEditDraft("outbound")
         if (uiState.warehouses.isEmpty() && !uiState.warehousesLoading) {
             viewModel.loadWarehouses()
         }

@@ -8,11 +8,19 @@ import com.factory.wms.data.repository.WmsRepository
 import com.factory.wms.data.repository.WmsRepository.Companion.OfflineQueuedException
 import com.factory.wms.util.formatQuantity
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.cancelAndJoin
+import java.util.UUID
 
 data class ScanUiState(
     val isLoading: Boolean = false,
@@ -27,6 +35,9 @@ data class ScanUiState(
     val scanLines: List<ScanLine> = emptyList(),
     val totalQuantity: Double = 0.0,
     val scanFeedback: String? = null,
+    val pendingSubmissionId: String? = null,
+    val inboundBusinessType: String = "采购入库",
+    val draftSaveError: String? = null,
     // 仓库选择（出入库必填，透传给后端）
     val warehouses: List<WarehouseDto> = emptyList(),
     val warehousesLoading: Boolean = false,
@@ -113,6 +124,109 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     // 取消 + 序号双保险（取消只管协程，序号兜住已发出、无法撤回的响应）。
     private var stockListSequence = 0
     private var stockListJob: Job? = null
+    private val draftMutex = Mutex()
+    private var editDraftKey: String? = null
+    private var editDraftOperation: String? = null
+    private var editDraftJob: Job? = null
+
+    private fun editDraftSnapshot(): ScanEditDraft {
+        val state = _uiState.value
+        return ScanEditDraft(
+            state.scanLines.map { DraftScanLine(it, it.material_name, it.material_spec, it.material_brand) },
+            state.selectedWarehouse, state.selectedDepartment, state.selectedEmployee,
+            state.contractNo, state.pendingSubmissionId, state.inboundBusinessType
+        )
+    }
+
+    suspend fun restoreEditDraft(operation: String) {
+        try {
+            val key = repository.editDraftKey(operation)
+            if (key == editDraftKey) return
+            editDraftJob?.cancelAndJoin()
+            _uiState.value = ScanUiState(isLoading = true)
+            val draft = repository.loadEditDraft(key)
+            editDraftKey = key
+            editDraftOperation = operation
+            if (draft != null) {
+                val lines = draft.lines.map {
+                    it.line.copy(material_name = it.name, material_spec = it.spec, material_brand = it.brand)
+                }
+                _uiState.value = _uiState.value.copy(
+                    scanLines = lines, totalQuantity = lines.sumOf { it.quantity },
+                    selectedWarehouse = draft.warehouse, selectedDepartment = draft.department,
+                    selectedEmployee = draft.employee, contractNo = draft.contractNo,
+                    pendingSubmissionId = draft.requestId, inboundBusinessType = draft.inboundBusinessType,
+                    success = if (draft.requestId == null) "已恢复上次未提交清单，请核对仓库和数量"
+                    else "已恢复待核实提交，请点提交核实原请求；核实前不可修改清单"
+                )
+            }
+            _uiState.value = _uiState.value.copy(isLoading = false)
+            editDraftJob = viewModelScope.launch {
+                _uiState.map { editDraftSnapshot() }.distinctUntilChanged().collect {
+                    persistEditDraft()
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _uiState.value = _uiState.value.copy(isLoading = true,
+                error = "未能安全恢复清单，请重新进入本页：${error.message}")
+        }
+    }
+
+    private suspend fun persistEditDraft(): Boolean = draftMutex.withLock {
+        val key = editDraftKey ?: return@withLock false
+        try {
+            repository.saveEditDraft(key, editDraftSnapshot())
+            _uiState.value = _uiState.value.copy(draftSaveError = null)
+            true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _uiState.value = _uiState.value.copy(draftSaveError = "清单未保存到本机，请勿退出：${error.message}")
+            false
+        }
+    }
+
+    private suspend fun prepareDraftSubmission(): String? {
+        val operation = editDraftOperation
+        val currentKey = try {
+            operation?.let { repository.editDraftKey(it) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+        if (currentKey == null || currentKey != editDraftKey) {
+            _uiState.value = _uiState.value.copy(isLoading = false, error = "登录账号或服务器已变更，请重新进入本页")
+            return null
+        }
+        val requestId = _uiState.value.pendingSubmissionId ?: UUID.randomUUID().toString()
+        _uiState.value = _uiState.value.copy(pendingSubmissionId = requestId)
+        if (!persistEditDraft()) {
+            _uiState.value = _uiState.value.copy(isLoading = false, error = "清单未安全保存，暂不提交，请重试")
+            return null
+        }
+        return requestId
+    }
+
+    private suspend fun finishDraftSubmission(result: Result<SubmitResult>) {
+        val failure = result.exceptionOrNull()
+        if (result.isSuccess || failure is OfflineQueuedException ||
+            (failure is WmsRepository.Companion.BusinessException && failure.safeToEdit)) {
+            _uiState.value = _uiState.value.copy(pendingSubmissionId = null)
+        }
+        persistEditDraft()
+    }
+
+    private fun draftEditingBlocked(): Boolean {
+        if (_uiState.value.isLoading) return true
+        if (_uiState.value.pendingSubmissionId != null) {
+            _uiState.value = _uiState.value.copy(error = "上次提交结果待核实，请先点提交核实，不可改动原清单")
+            return true
+        }
+        return false
+    }
 
     /**
      * AI-MOB-OFFLINE-01：观察离线队列计数，驱动页面"待同步"提示条。
@@ -217,6 +331,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addScanLine(line: ScanLine) {
         if (_uiState.value.isLoading) return
+        if (draftEditingBlocked()) return
         val current = _uiState.value.scanLines.toMutableList()
         val existingIndex = current.indexOfFirst { it.material_code == line.material_code && it.location_code.orEmpty() == line.location_code.orEmpty() }
         if (existingIndex >= 0) {
@@ -254,6 +369,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
      * 仅把数量改为本次扫码数量（防误把已盘物料再次累加导致实盘数翻倍）。
      */
     fun replaceScanLineQuantity(line: ScanLine) {
+        if (draftEditingBlocked()) return
         val current = _uiState.value.scanLines.toMutableList()
         val existingIndex = current.indexOfFirst { it.material_code == line.material_code && it.location_code.orEmpty() == line.location_code.orEmpty() }
         if (existingIndex >= 0) {
@@ -319,6 +435,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun removeScanLine(expected: ScanLine) {
+        if (draftEditingBlocked()) return
         if (_uiState.value.isLoading) return
         val current = _uiState.value.scanLines.toMutableList()
         val index = current.indexOfFirst {
@@ -340,6 +457,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearScanLines() {
+        if (draftEditingBlocked()) return
         _uiState.value = _uiState.value.copy(scanLines = emptyList(), totalQuantity = 0.0)
     }
 
@@ -349,7 +467,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             val result = repository.getWarehouses()
             result.fold(
                 onSuccess = { warehouses ->
-                    val first = warehouses.firstOrNull() ?: _uiState.value.selectedWarehouse
+                    val selected = _uiState.value.selectedWarehouse
+                    val first = if (selected != null) warehouses.firstOrNull { it.code == selected.code }
+                        ?: selected else warehouses.firstOrNull()
                     _uiState.value = _uiState.value.copy(
                         warehousesLoading = false,
                         warehouses = warehouses,
@@ -381,7 +501,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(
                         departmentsLoading = false,
                         departments = departments,
-                        selectedDepartment = keep
+                        selectedDepartment = if (_uiState.value.pendingSubmissionId != null)
+                            _uiState.value.selectedDepartment else keep
                     )
                 },
                 onFailure = { e ->
@@ -405,7 +526,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(
                         employeesLoading = false,
                         employees = employees,
-                        selectedEmployee = keep
+                        selectedEmployee = if (_uiState.value.pendingSubmissionId != null)
+                            _uiState.value.selectedEmployee else keep
                     )
                 },
                 onFailure = { e ->
@@ -420,12 +542,14 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 选择领料部门（可传 null 清除）；换部门后联动刷新员工列表。 */
     fun selectDepartment(department: DepartmentDto?) {
+        if (draftEditingBlocked()) return
         _uiState.value = _uiState.value.copy(selectedDepartment = department)
         loadEmployees()
     }
 
     /** 选择领料人（可传 null 清除）。 */
     fun selectEmployee(employee: EmployeeDto?) {
+        if (draftEditingBlocked()) return
         _uiState.value = _uiState.value.copy(selectedEmployee = employee)
     }
 
@@ -465,6 +589,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectWarehouse(warehouse: WarehouseDto) {
+        if (draftEditingBlocked()) return
         val changed = _uiState.value.selectedWarehouse?.code != warehouse.code
         _uiState.value = _uiState.value.copy(
             selectedWarehouse = warehouse,
@@ -660,6 +785,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 输入变化时调用：防抖 180ms 后模糊搜索合同（片段如 0709 可匹配 HD260709）。 */
     fun onContractNoChange(text: String) {
+        if (draftEditingBlocked()) return
         _uiState.value = _uiState.value.copy(contractNo = text)
         val keyword = text.trim()
         val searchSequence = ++contractSearchSequence
@@ -697,6 +823,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 选中建议项：回填完整合同编号并收起建议列表。 */
     fun selectContract(contract: ContractDto) {
+        if (draftEditingBlocked()) return
         contractSearchSequence += 1
         contractSearchJob?.cancel()
         _uiState.value = _uiState.value.copy(
@@ -822,13 +949,16 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = _uiState.value.copy(inboundBusinessType =
+                if (state.pendingSubmissionId == null) businessType else state.inboundBusinessType)
+            val requestId = prepareDraftSubmission() ?: return@launch
             val request = InboundRequest(
                 lines = lines,
-                businessType = businessType,
+                businessType = _uiState.value.inboundBusinessType,
                 warehouse = warehouse.code,
                 warehouseCode = warehouse.code
             )
-            val result = repository.submitInbound(request)
+            val result = repository.submitInbound(request, requestId)
             result.fold(
                 onSuccess = { submitResult ->
                     _uiState.value = _uiState.value.copy(
@@ -863,6 +993,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             )
+            finishDraftSubmission(result)
         }
     }
 
@@ -882,6 +1013,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            val requestId = prepareDraftSubmission() ?: return@launch
             val request = OutboundRequest(
                 lines = lines,
                 receiver = null,
@@ -892,7 +1024,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 warehouseCode = warehouse.code,
                 contractNo = state.contractNo.trim().ifBlank { null }
             )
-            val result = repository.submitOutbound(request)
+            val result = repository.submitOutbound(request, requestId, replay = state.pendingSubmissionId != null)
             result.fold(
                 onSuccess = { submitResult ->
                     _uiState.value = _uiState.value.copy(
@@ -929,6 +1061,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             )
+            finishDraftSubmission(result)
         }
     }
 

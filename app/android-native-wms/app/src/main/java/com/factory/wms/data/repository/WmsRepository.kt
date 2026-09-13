@@ -73,7 +73,7 @@ class WmsRepository(private val context: Context) {
          * 现场看到"网络错误"却反复重试（其实网络正常，是业务前置条件未满足）。
          * 用独立类型标记，外层 catch 原样放行、不再加"网络错误"前缀。
          */
-        class BusinessException(message: String) : Exception(message)
+        class BusinessException(message: String, val safeToEdit: Boolean = false) : Exception(message)
 
         /**
          * AI-MOB-OFFLINE-01：网络不可用但**已成功暂存到离线队列**。
@@ -120,6 +120,31 @@ class WmsRepository(private val context: Context) {
         } catch (e: Exception) {
             null
         }
+    }
+
+    suspend fun editDraftKey(operation: String): String {
+        require(operation == "inbound" || operation == "outbound")
+        val preferences = context.dataStore.data.first()
+        val server = preferences[KEY_BASE_URL].orEmpty().trimEnd('/')
+        val username = preferences[KEY_USERNAME].orEmpty()
+        check(server.isNotBlank() && username.isNotBlank()) { "请先登录再恢复清单" }
+        val scope = Gson().toJson(listOf(server, username, operation))
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(scope.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return "scan_edit_$digest"
+    }
+
+    suspend fun saveEditDraft(key: String, draft: ScanEditDraft?) {
+        context.dataStore.edit {
+            if (draft == null || draft.lines.isEmpty()) it.remove(stringPreferencesKey(key))
+            else it[stringPreferencesKey(key)] = Gson().toJson(draft)
+        }
+    }
+
+    suspend fun loadEditDraft(key: String): ScanEditDraft? {
+        val json = context.dataStore.data.first()[stringPreferencesKey(key)] ?: return null
+        return Gson().fromJson(json, ScanEditDraft::class.java)
     }
 
     suspend fun clearStocktakeDraft() {
@@ -333,25 +358,27 @@ class WmsRepository(private val context: Context) {
         }
     }
 
-    suspend fun submitInbound(request: InboundRequest): Result<SubmitResult> {
+    suspend fun submitInbound(request: InboundRequest, requestId: String = newRequestId()): Result<SubmitResult> {
         return submitWithOfflineFallback(
             operationType = PendingOperationEntity.TYPE_INBOUND,
             payload = request,
             warehouseCode = request.warehouseCode ?: request.warehouse,
             lineCount = request.lines.size,
-            label = "入库"
+            label = "入库",
+            requestId = requestId
         ) { requestId -> api.submitInbound(requestId, request) }
     }
 
-    suspend fun submitOutbound(request: OutboundRequest): Result<SubmitResult> {
+    suspend fun submitOutbound(request: OutboundRequest, requestId: String = newRequestId(), replay: Boolean = false): Result<SubmitResult> {
         return submitWithOfflineFallback(
             operationType = PendingOperationEntity.TYPE_OUTBOUND,
             payload = request,
             warehouseCode = request.warehouseCode ?: request.warehouse,
             lineCount = request.lines.size,
-            label = "出库"
+            label = "出库",
+            requestId = requestId
         ) { requestId ->
-            handleResponse<OutboundPreflightResult>(api.preflightOutbound(request)).getOrThrow()
+            if (!replay) handleResponse<OutboundPreflightResult>(api.preflightOutbound(request)).getOrThrow()
             api.submitOutbound(requestId, request)
         }
     }
@@ -395,9 +422,9 @@ class WmsRepository(private val context: Context) {
         warehouseCode: String?,
         lineCount: Int,
         label: String,
+        requestId: String = newRequestId(),
         call: suspend (String) -> Response<ApiEnvelope<SubmitResult>>
     ): Result<SubmitResult> {
-        val requestId = newRequestId()
         return try {
             val response = call(requestId)
             val result = handleResponse<SubmitResult>(response)
@@ -739,7 +766,8 @@ class WmsRepository(private val context: Context) {
                 val errorBody = response.errorBody()?.string()
                 Gson().fromJson(errorBody, ApiEnvelope::class.java)?.displayMessage()
             } catch (_: Exception) { null }
-            Result.failure(BusinessException(errorMsg ?: "请求失败 (${response.code()})"))
+            Result.failure(BusinessException(errorMsg ?: "请求失败 (${response.code()})",
+                safeToEdit = response.code() in listOf(400, 404, 422)))
         }
     }
 }
