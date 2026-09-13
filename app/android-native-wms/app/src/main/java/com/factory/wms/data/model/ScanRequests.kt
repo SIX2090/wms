@@ -20,6 +20,10 @@ data class InboundRequest(
     @SerializedName("warehouse_code") val warehouseCode: String? = null
 )
 
+data class OutboundPreflightResult(
+    @SerializedName("warehouse_code") val warehouseCode: String? = null
+)
+
 data class OutboundRequest(
     val lines: List<ScanLine>,
     // BUG-2026-09-10-002：手机端出库即仓库领料，业务类型与 PC 领料单统一为「领料单」；

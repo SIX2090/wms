@@ -350,7 +350,10 @@ class WmsRepository(private val context: Context) {
             warehouseCode = request.warehouseCode ?: request.warehouse,
             lineCount = request.lines.size,
             label = "出库"
-        ) { requestId -> api.submitOutbound(requestId, request) }
+        ) { requestId ->
+            handleResponse<OutboundPreflightResult>(api.preflightOutbound(request)).getOrThrow()
+            api.submitOutbound(requestId, request)
+        }
     }
 
     suspend fun submitStocktake(request: StocktakeRequest): Result<SubmitResult> {

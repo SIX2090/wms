@@ -62,6 +62,11 @@ interface WmsApiService {
         @Body request: InboundRequest
     ): Response<ApiEnvelope<SubmitResult>>
 
+    @POST("api/outbound/preflight")
+    suspend fun preflightOutbound(
+        @Body request: OutboundRequest
+    ): Response<ApiEnvelope<OutboundPreflightResult>>
+
     @POST("api/outbound")
     suspend fun submitOutbound(
         @Header("X-Idempotency-Key") requestId: String,

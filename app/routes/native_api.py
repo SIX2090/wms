@@ -36,6 +36,26 @@ from flask import jsonify, request
 from db import db
 
 
+def _native_outbound_stock_error(parsed, warehouse):
+    from app import (allow_negative_stock, get_warehouse_stock_quantities,
+                     location_management_enabled, normalize_stock_quantity)
+    required = {}
+    for material, quantity, line in parsed:
+        if location_management_enabled() and not (
+                line.get('location_code') or line.get('location') or '').strip():
+            return '启用库位管理后，出库必须填写库位'
+        required[material.id] = normalize_stock_quantity(
+            required.get(material.id, 0) + quantity)
+    if not allow_negative_stock():
+        stock = get_warehouse_stock_quantities(warehouse)
+        for material, _quantity, _line in parsed:
+            available = stock.get(material.id, 0)
+            quantity = required[material.id]
+            if quantity > available:
+                return f'{material.code} 库存不足：本仓可用 {available:g}，本次 {quantity:g}'
+    return None
+
+
 def _ensure_login_schema():
     """确保登录所需的关键表和列存在（WMS_NO_DB_TOUCH=1 场景下兜底）。
 
@@ -719,6 +739,39 @@ def register_native_api_routes(app):
             return api_json_error('入库提交失败', 500)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
+    @app.route('/api/outbound/preflight', methods=['POST'])
+    @csrf.exempt
+    @api_role_required('warehouse', 'production')
+    def native_api_outbound_preflight(user):
+        from pydantic import BaseModel, Field, ValidationError
+        from app import api_json_error, api_json_success, parse_api_lines, resolve_request_warehouse
+
+        class PreflightLine(BaseModel):
+            material_code: str = Field(min_length=1)
+            quantity: float = Field(gt=0, le=1000000000000, allow_inf_nan=False)
+            location_code: str | None = None
+
+        class PreflightRequest(BaseModel):
+            lines: list[PreflightLine] = Field(min_length=1, max_length=2000)
+            warehouse: str | None = None
+            warehouse_code: str | None = None
+            warehouse_id: int | None = None
+
+        try:
+            payload = PreflightRequest.model_validate(request.get_json(silent=True)).model_dump()
+        except ValidationError:
+            return api_json_error('参数错误：请检查物料、仓库及正数数量', 400)
+        parsed, error = parse_api_lines(payload)
+        if error:
+            return api_json_error(error, 400)
+        warehouse, error = resolve_request_warehouse(payload)
+        if error:
+            return api_json_error(error, 400)
+        error = _native_outbound_stock_error(parsed, warehouse)
+        if error:
+            return api_json_error(error, 400)
+        return api_json_success({'warehouse_code': warehouse.code}, '库存预检通过，实际提交时再次校验')
+
     @app.route('/api/outbound', methods=['POST'])
     @csrf.exempt
     @api_role_required('warehouse', 'production')
@@ -726,7 +779,7 @@ def register_native_api_routes(app):
     def native_api_outbound(user):
         from datetime import date
         from app import (OutOrder, OutOrderItem, allow_negative_stock, api_json_error,
-                         api_json_success, check_stock_sufficient, deduct_stock,
+                         api_json_success, deduct_stock,
                          generate_order_no, location_management_enabled,
                          location_required_on_save, parse_api_lines, parse_float_value,
                          resolve_request_warehouse, round_to_2_decimals,
@@ -758,11 +811,9 @@ def register_native_api_routes(app):
                 if not location:
                     return api_json_error('启用库位管理后，出库必须填写库位')
 
-        if not allow_negative_stock():
-            for material, quantity, _line in parsed:
-                sufficient, current_stock, error_msg = check_stock_sufficient(material, quantity)
-                if not sufficient:
-                    return api_json_error(error_msg or f'{material.code} 库存不足，当前库存 {current_stock}')
+        stock_error = _native_outbound_stock_error(parsed, warehouse)
+        if stock_error:
+            return api_json_error(stock_error, 400)
 
         try:
             # 2026-09-12 领料部门/领料人：department_id 优先，department 文本
@@ -2541,4 +2592,3 @@ def register_native_api_routes(app):
             db.session.rollback()
             app.logger.exception('Mobile voice out draft failed')
             return api_json_error('语音建单草稿生成失败，请稍后重试', 500)
-
