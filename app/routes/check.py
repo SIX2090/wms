@@ -264,7 +264,7 @@ def register_check_routes(app):
                          generate_order_no, get_default_warehouse,
                          get_warehouse_stock_quantities, log_operation,
                          parse_float_value, round_to_2_decimals,
-                         validate_inventory_warehouse)
+                         resolve_inventory_warehouse_id, validate_inventory_warehouse)
         data = request.get_json(silent=True) or {}
         order_id = _clean_int(data.get('order_id'))
         check_no = (data.get('order_no') or data.get('check_no') or '').strip() or generate_order_no('CK')
@@ -321,6 +321,9 @@ def register_check_routes(app):
                     check = InventoryCheck(check_no=check_no, status='pending', operator_id=current_user.id)
                     db.session.add(check)
 
+            if check.items and resolve_inventory_warehouse_id(check.warehouse) != wh_obj.id:
+                db.session.rollback()
+                return api_error('盘点明细已冻结账面，不能更换仓库；请新建盘点单')
             check.check_no = check_no
             check.date = _parse_form_date(data.get('date'), check.date if order_id else date.today())
             check.remark = (header.get('remark') or '').strip()
