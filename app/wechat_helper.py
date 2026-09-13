@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Local Windows WeChat sender helper for WMS.
 
@@ -25,7 +25,7 @@ from ctypes import wintypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
-# cgi 模块在 Python 3.13 被移除，改用标准库 email 解析 multipart/form-data
+# cgi 妯″潡鍦?Python 3.13 琚Щ闄わ紝鏀圭敤鏍囧噯搴?email 瑙ｆ瀽 multipart/form-data
 from email.parser import BytesParser
 from email.policy import default as default_email_policy
 
@@ -80,8 +80,7 @@ kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
 kernel32.GlobalLock.restype = ctypes.c_void_p
 kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
 kernel32.GlobalUnlock.restype = wintypes.BOOL
-# 显式声明 GlobalFree 签名，否则 ctypes 默认按 int 返回可能截断 64 位句柄
-kernel32.GlobalFree.argtypes = [wintypes.HGLOBAL]
+# 鏄惧紡澹版槑 GlobalFree 绛惧悕锛屽惁鍒?ctypes 榛樿鎸?int 杩斿洖鍙兘鎴柇 64 浣嶅彞鏌?kernel32.GlobalFree.argtypes = [wintypes.HGLOBAL]
 kernel32.GlobalFree.restype = wintypes.HGLOBAL
 kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
 kernel32.OpenProcess.restype = wintypes.HANDLE
@@ -145,16 +144,14 @@ user32.GetForegroundWindow.restype = wintypes.HWND
 
 
 class _SendError(RuntimeError):
-    """带机器可读错误码的发送失败，供 WMS 主服务按 code 归类（替代脆弱的关键词匹配）。"""
+    """甯︽満鍣ㄥ彲璇婚敊璇爜鐨勫彂閫佸け璐ワ紝渚?WMS 涓绘湇鍔℃寜 code 褰掔被锛堟浛浠ｈ剢寮辩殑鍏抽敭璇嶅尮閰嶏級銆?""
 
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
 
 
-# 剪贴板 / 键盘输入 / 前台焦点是全局资源：ThreadingHTTPServer 每请求一线程，
-# 并发 /send 会互相抢焦点、串剪贴板导致发错图发错人，必须全局串行化。
-SEND_LOCK = threading.Lock()
+# 鍓创鏉?/ 閿洏杈撳叆 / 鍓嶅彴鐒︾偣鏄叏灞€璧勬簮锛歍hreadingHTTPServer 姣忚姹備竴绾跨▼锛?# 骞跺彂 /send 浼氫簰鐩告姠鐒︾偣銆佷覆鍓创鏉垮鑷村彂閿欏浘鍙戦敊浜猴紝蹇呴』鍏ㄥ眬涓茶鍖栥€?SEND_LOCK = threading.Lock()
 
 
 def _send_input(*inputs: INPUT) -> None:
@@ -212,7 +209,7 @@ def set_clipboard_dib(image_bytes: bytes) -> None:
             raise RuntimeError("GlobalAlloc failed")
         ptr = kernel32.GlobalLock(handle)
         if not ptr:
-            # GlobalLock 失败必须立即释放 GlobalAlloc 出来的内存，否则泄漏
+            # GlobalLock 澶辫触蹇呴』绔嬪嵆閲婃斁 GlobalAlloc 鍑烘潵鐨勫唴瀛橈紝鍚﹀垯娉勬紡
             kernel32.GlobalFree(handle)
             handle = 0
             raise RuntimeError("GlobalLock failed")
@@ -220,18 +217,16 @@ def set_clipboard_dib(image_bytes: bytes) -> None:
             ctypes.memmove(ptr, data, len(data))
         finally:
             kernel32.GlobalUnlock(handle)
-        # SetClipboardData 成功后系统接管该内存所有权，不能再 GlobalFree；
-        # 失败时调用方负责释放，否则每次失败都会泄漏一次 GlobalAlloc 内存
+        # SetClipboardData 鎴愬姛鍚庣郴缁熸帴绠¤鍐呭瓨鎵€鏈夋潈锛屼笉鑳藉啀 GlobalFree锛?        # 澶辫触鏃惰皟鐢ㄦ柟璐熻矗閲婃斁锛屽惁鍒欐瘡娆″け璐ラ兘浼氭硠婕忎竴娆?GlobalAlloc 鍐呭瓨
         if not user32.SetClipboardData(CF_DIB, handle):
             kernel32.GlobalFree(handle)
             handle = 0
             raise RuntimeError("SetClipboardData failed")
-        # 成功：交出所有权，避免 finally 再次释放
+        # 鎴愬姛锛氫氦鍑烘墍鏈夋潈锛岄伩鍏?finally 鍐嶆閲婃斁
         handle = 0
     finally:
         user32.CloseClipboard()
-        # 仅当异常路径或某步失败时，handle 才非 0，此时需要释放
-        if handle:
+        # 浠呭綋寮傚父璺緞鎴栨煇姝ュけ璐ユ椂锛宧andle 鎵嶉潪 0锛屾鏃堕渶瑕侀噴鏀?        if handle:
             kernel32.GlobalFree(handle)
 
 
@@ -307,7 +302,7 @@ def find_wechat_window() -> int | None:
         class_text = class_name or ""
         name = _process_name(pid).lower()
         is_wechat_process = "wechat" in name or "weixin" in name
-        has_wechat_title = "微信" in title_text or "WeChat" in title_text or "Weixin" in title_text
+        has_wechat_title = "寰俊" in title_text or "WeChat" in title_text or "Weixin" in title_text
         has_wechat_class = "WeChat" in class_text or "Weixin" in class_text or class_text.startswith("Qt")
         if not (is_wechat_process or has_wechat_title or has_wechat_class):
             continue
@@ -317,7 +312,7 @@ def find_wechat_window() -> int | None:
             continue
         if class_text in ignored_classes:
             continue
-        # Ignore small login/tip windows such as "该账号已登录"; use the real main
+        # Ignore small login/tip windows such as "璇ヨ处鍙峰凡鐧诲綍"; use the real main
         # chat window, which is large enough to contain the conversation list.
         if width < 520 or height < 420:
             continue
@@ -344,7 +339,7 @@ def activate_wechat() -> int:
     if not hwnd:
         raise _SendError(
             "wechat_window_not_found",
-            "未找到已打开的微信主窗口，请先登录微信并把微信主窗口打开到桌面，助手不会自动启动微信",
+            "鏈壘鍒板凡鎵撳紑鐨勫井淇′富绐楀彛锛岃鍏堢櫥褰曞井淇″苟鎶婂井淇′富绐楀彛鎵撳紑鍒版闈紝鍔╂墜涓嶄細鑷姩鍚姩寰俊",
         )
 
     user32.ShowWindow(hwnd, SW_RESTORE)
@@ -355,16 +350,13 @@ def activate_wechat() -> int:
 
 
 def _ensure_foreground(hwnd: int) -> None:
-    """确认微信主窗口仍在前台，否则中止本次自动化。
-
-    锁屏、远程桌面断开、弹窗抢焦点时 SendInput 会把 Ctrl+V/回车打进别的窗口，
-    可能把入库单图片粘贴/发送到错误位置，必须在每个关键步骤前校验。
-    """
+    """纭寰俊涓荤獥鍙ｄ粛鍦ㄥ墠鍙帮紝鍚﹀垯涓鏈鑷姩鍖栥€?
+    閿佸睆銆佽繙绋嬫闈㈡柇寮€銆佸脊绐楁姠鐒︾偣鏃?SendInput 浼氭妸 Ctrl+V/鍥炶溅鎵撹繘鍒殑绐楀彛锛?    鍙兘鎶婂叆搴撳崟鍥剧墖绮樿创/鍙戦€佸埌閿欒浣嶇疆锛屽繀椤诲湪姣忎釜鍏抽敭姝ラ鍓嶆牎楠屻€?    """
     fg = int(user32.GetForegroundWindow() or 0)
     if not fg:
-        raise _SendError("focus_lost", "无法获取前台窗口（可能已锁屏或会话断开），已中止发送")
+        raise _SendError("focus_lost", "鏃犳硶鑾峰彇鍓嶅彴绐楀彛锛堝彲鑳藉凡閿佸睆鎴栦細璇濇柇寮€锛夛紝宸蹭腑姝㈠彂閫?)
     if fg != hwnd and _window_pid(fg) != _window_pid(hwnd):
-        raise _SendError("focus_lost", "微信窗口不在前台（焦点被其他窗口抢走），已中止发送")
+        raise _SendError("focus_lost", "寰俊绐楀彛涓嶅湪鍓嶅彴锛堢劍鐐硅鍏朵粬绐楀彛鎶㈣蛋锛夛紝宸蹭腑姝㈠彂閫?)
 
 
 def open_contact(receiver_search_key: str) -> None:
@@ -382,14 +374,13 @@ def open_contact(receiver_search_key: str) -> None:
 
 
 def paste_image_and_optionally_send(image_bytes: bytes, receiver_search_key: str, auto_send: bool) -> str:
-    # 先校验接收人再碰剪贴板/微信窗口，失败时不产生任何 UI 副作用（便于安全重试）
-    receiver_search_key = (receiver_search_key or "").strip()
+    # 鍏堟牎楠屾帴鏀朵汉鍐嶇鍓创鏉?寰俊绐楀彛锛屽け璐ユ椂涓嶄骇鐢熶换浣?UI 鍓綔鐢紙渚夸簬瀹夊叏閲嶈瘯锛?    receiver_search_key = (receiver_search_key or "").strip()
     if not receiver_search_key:
         raise _SendError("no_receiver", "receiver_search_key is empty")
     try:
         set_clipboard_dib(image_bytes)
     except Exception as exc:
-        raise _SendError("clipboard_failed", f"写入剪贴板失败：{exc}") from exc
+        raise _SendError("clipboard_failed", f"鍐欏叆鍓创鏉垮け璐ワ細{exc}") from exc
     hwnd = activate_wechat()
     _ensure_foreground(hwnd)
     try:
@@ -397,29 +388,26 @@ def paste_image_and_optionally_send(image_bytes: bytes, receiver_search_key: str
     except _SendError:
         raise
     except Exception as exc:
-        raise _SendError("open_contact_failed", f"打开微信会话失败：{exc}") from exc
+        raise _SendError("open_contact_failed", f"鎵撳紑寰俊浼氳瘽澶辫触锛歿exc}") from exc
     _ensure_foreground(hwnd)
     try:
         hotkey(VK_CONTROL, VK_V)
     except Exception as exc:
-        raise _SendError("paste_failed", f"粘贴图片失败：{exc}") from exc
+        raise _SendError("paste_failed", f"绮樿创鍥剧墖澶辫触锛歿exc}") from exc
     time.sleep(0.5)
     if auto_send:
         _ensure_foreground(hwnd)
         try:
             press_key(VK_RETURN)
         except Exception as exc:
-            raise _SendError("send_key_failed", f"回车发送失败：{exc}") from exc
+            raise _SendError("send_key_failed", f"鍥炶溅鍙戦€佸け璐ワ細{exc}") from exc
         return "sent"
     return "ready"
 
 
 def send_image_task(image_bytes: bytes, task: dict) -> tuple[str, str, str]:
-    """执行一次发送任务，返回 (status, code, message)。
-
-    status: sent / ready / error；code 为机器可读错误码（成功时为 ok）。
-    全程持有 SEND_LOCK，串行化剪贴板与键盘输入，避免并发任务互相串扰。
-    """
+    """鎵ц涓€娆″彂閫佷换鍔★紝杩斿洖 (status, code, message)銆?
+    status: sent / ready / error锛沜ode 涓烘満鍣ㄥ彲璇婚敊璇爜锛堟垚鍔熸椂涓?ok锛夈€?    鍏ㄧ▼鎸佹湁 SEND_LOCK锛屼覆琛屽寲鍓创鏉夸笌閿洏杈撳叆锛岄伩鍏嶅苟鍙戜换鍔′簰鐩镐覆鎵般€?    """
     with SEND_LOCK:
         receiver_search_key = (
             task.get("receiver_search_key")
@@ -433,14 +421,13 @@ def send_image_task(image_bytes: bytes, task: dict) -> tuple[str, str, str]:
         except _SendError as exc:
             return "error", exc.code, str(exc)
         if status == "sent":
-            return "sent", "ok", f"已发送给：{receiver_search_key}"
-        return "ready", "ok", f"已粘贴到微信会话：{receiver_search_key}，请人工确认发送"
+            return "sent", "ok", f"宸插彂閫佺粰锛歿receiver_search_key}"
+        return "ready", "ok", f"宸茬矘璐村埌寰俊浼氳瘽锛歿receiver_search_key}锛岃浜哄伐纭鍙戦€?
 
 
 def helper_headers() -> dict[str, str]:
-    # 未配置 token 时拒绝发起请求，避免使用弱默认值导致任意客户端可触发本机微信发送
-    if not WMS_HELPER_TOKEN:
-        raise RuntimeError("WECHAT_HELPER_TOKEN 未配置，拒绝以无认证方式调用 WMS 主服务")
+    # 鏈厤缃?token 鏃舵嫆缁濆彂璧疯姹傦紝閬垮厤浣跨敤寮遍粯璁ゅ€煎鑷翠换鎰忓鎴风鍙Е鍙戞湰鏈哄井淇″彂閫?    if not WMS_HELPER_TOKEN:
+        raise RuntimeError("WECHAT_HELPER_TOKEN 鏈厤缃紝鎷掔粷浠ユ棤璁よ瘉鏂瑰紡璋冪敤 WMS 涓绘湇鍔?)
     return {"X-Wechat-Helper-Token": WMS_HELPER_TOKEN}
 
 
@@ -471,7 +458,7 @@ def poll_once() -> int:
             processed += 1
             logger.info("[poll] task %s: %s(%s) %s", task_id, status, code, message)
         except Exception as exc:
-            message = f"本机微信助手发送失败：{exc}"
+            message = f"鏈満寰俊鍔╂墜鍙戦€佸け璐ワ細{exc}"
             try:
                 requests.post(report_url, headers=helper_headers(), json={"status": "failed", "msg": message}, timeout=20)
             except Exception:
@@ -490,12 +477,9 @@ def poll_loop() -> None:
 
 
 def parse_multipart(handler: BaseHTTPRequestHandler) -> tuple[dict[str, str], bytes]:
-    """解析 multipart/form-data 请求体。
-
-    原实现依赖 cgi.FieldStorage，但 cgi 模块自 Python 3.13 起被移除。
-    这里改用标准库 email 模块构造完整 MIME 消息后遍历 parts，行为与
-    FieldStorage 等价：text 字段进入 fields，image 字段读取为 bytes。
-    """
+    """瑙ｆ瀽 multipart/form-data 璇锋眰浣撱€?
+    鍘熷疄鐜颁緷璧?cgi.FieldStorage锛屼絾 cgi 妯″潡鑷?Python 3.13 璧疯绉婚櫎銆?    杩欓噷鏀圭敤鏍囧噯搴?email 妯″潡鏋勯€犲畬鏁?MIME 娑堟伅鍚庨亶鍘?parts锛岃涓轰笌
+    FieldStorage 绛変环锛歵ext 瀛楁杩涘叆 fields锛宨mage 瀛楁璇诲彇涓?bytes銆?    """
     ctype = handler.headers.get("content-type", "")
     if not ctype.startswith("multipart/form-data"):
         raise RuntimeError("Content-Type must be multipart/form-data")
@@ -506,8 +490,7 @@ def parse_multipart(handler: BaseHTTPRequestHandler) -> tuple[dict[str, str], by
     if content_length <= 0:
         raise RuntimeError("Content-Length missing or invalid")
     body = handler.rfile.read(content_length)
-    # email 解析器需要完整的 RFC 822 消息（含头部），把 HTTP 头拼到 body 前
-    raw = b"Content-Type: " + ctype.encode("ascii") + b"\r\n\r\n" + body
+    # email 瑙ｆ瀽鍣ㄩ渶瑕佸畬鏁寸殑 RFC 822 娑堟伅锛堝惈澶撮儴锛夛紝鎶?HTTP 澶存嫾鍒?body 鍓?    raw = b"Content-Type: " + ctype.encode("ascii") + b"\r\n\r\n" + body
     message = BytesParser(policy=default_email_policy).parsebytes(raw)
 
     fields: dict[str, str] = {}
@@ -520,11 +503,11 @@ def parse_multipart(handler: BaseHTTPRequestHandler) -> tuple[dict[str, str], by
             payload = part.get_payload(decode=True) or b""
             filename = part.get_filename()
             if filename is not None or name == "image":
-                # 文件类型字段
+                # 鏂囦欢绫诲瀷瀛楁
                 if name == "image":
                     image_bytes = payload
             else:
-                # 普通文本字段，按 utf-8 解码
+                # 鏅€氭枃鏈瓧娈碉紝鎸?utf-8 瑙ｇ爜
                 try:
                     fields[name] = payload.decode("utf-8")
                 except UnicodeDecodeError:
@@ -546,25 +529,22 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _check_auth(self) -> bool:
-        """校验请求方是否持有正确的 helper token。
-
-        /send 端点会触发本机微信发送图片，必须与 WMS 主服务→helper 的出站
-        请求使用同一 token，避免本机任意进程（包括恶意软件）直接 POST 即可
-        借助本助手向任意微信联系人发送图片。token 未配置时一律拒绝。
-        """
+        """鏍￠獙璇锋眰鏂规槸鍚︽寔鏈夋纭殑 helper token銆?
+        /send 绔偣浼氳Е鍙戞湰鏈哄井淇″彂閫佸浘鐗囷紝蹇呴』涓?WMS 涓绘湇鍔♀啋helper 鐨勫嚭绔?        璇锋眰浣跨敤鍚屼竴 token锛岄伩鍏嶆湰鏈轰换鎰忚繘绋嬶紙鍖呮嫭鎭舵剰杞欢锛夌洿鎺?POST 鍗冲彲
+        鍊熷姪鏈姪鎵嬪悜浠绘剰寰俊鑱旂郴浜哄彂閫佸浘鐗囥€倀oken 鏈厤缃椂涓€寰嬫嫆缁濄€?        """
         if not WMS_HELPER_TOKEN:
             return False
         incoming = self.headers.get("X-Wechat-Helper-Token", "")
         if not incoming:
             return False
-        # 使用 hmac.compare_digest 避免时序攻击
+        # 浣跨敤 hmac.compare_digest 閬垮厤鏃跺簭鏀诲嚮
         import hmac
         return hmac.compare_digest(incoming, WMS_HELPER_TOKEN)
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/health":
-            # /health 不触发发送，可放行无认证访问以便本地探活
+            # /health 涓嶈Е鍙戝彂閫侊紝鍙斁琛屾棤璁よ瘉璁块棶浠ヤ究鏈湴鎺㈡椿
             self._json(200, {
                 "status": "ok",
                 "wechat_window_found": bool(find_wechat_window()),
@@ -574,7 +554,7 @@ class Handler(BaseHTTPRequestHandler):
                 "poll_interval": POLL_INTERVAL,
             })
             return
-        # 其它 GET 路径要求认证（与 POST /send 一致）
+        # 鍏跺畠 GET 璺緞瑕佹眰璁よ瘉锛堜笌 POST /send 涓€鑷达級
         if not self._check_auth():
             self._json(403, {"status": "error", "msg": "forbidden: missing or invalid X-Wechat-Helper-Token"})
             return
@@ -585,7 +565,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path != "/send":
             self._json(404, {"status": "error", "msg": "not found"})
             return
-        # /send 会真实触发本机微信发送图片，必须校验 helper token
+        # /send 浼氱湡瀹炶Е鍙戞湰鏈哄井淇″彂閫佸浘鐗囷紝蹇呴』鏍￠獙 helper token
         if not self._check_auth():
             self._json(403, {"status": "error", "msg": "forbidden: missing or invalid X-Wechat-Helper-Token"})
             return
@@ -614,19 +594,18 @@ def main() -> None:
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8")
     if POLL_ENABLED:
-        # poll 模式需要主动向 WMS 主服务认证拉取任务，未配置 token 时拒绝启动，
-        # 避免使用弱默认 token 导致任意人可触发本机微信发送图片
-        if not WMS_HELPER_TOKEN:
-            logger.critical("[FATAL] 已启用轮询模式(POLL_ENABLED=1)但未配置 WECHAT_HELPER_TOKEN 环境变量，拒绝启动。")
-            logger.critical("        请在启动前设置 WECHAT_HELPER_TOKEN（与 WMS 主服务 instance/wechat_helper_token 文件中的值一致）。")
+        # poll 妯″紡闇€瑕佷富鍔ㄥ悜 WMS 涓绘湇鍔¤璇佹媺鍙栦换鍔★紝鏈厤缃?token 鏃舵嫆缁濆惎鍔紝
+        # 閬垮厤浣跨敤寮遍粯璁?token 瀵艰嚧浠绘剰浜哄彲瑙﹀彂鏈満寰俊鍙戦€佸浘鐗?        if not WMS_HELPER_TOKEN:
+            logger.critical("[FATAL] 宸插惎鐢ㄨ疆璇㈡ā寮?POLL_ENABLED=1)浣嗘湭閰嶇疆 WECHAT_HELPER_TOKEN 鐜鍙橀噺锛屾嫆缁濆惎鍔ㄣ€?)
+            logger.critical("        璇峰湪鍚姩鍓嶈缃?WECHAT_HELPER_TOKEN锛堜笌 WMS 涓绘湇鍔?instance/wechat_helper_token 鏂囦欢涓殑鍊间竴鑷达級銆?)
             sys.exit(1)
         thread = threading.Thread(target=poll_loop, name="wechat-task-poller", daemon=True)
         thread.start()
         logger.info("Polling WMS tasks from %s every %ss", WMS_BASE_URL, POLL_INTERVAL)
     else:
         if not WMS_HELPER_TOKEN:
-            logger.warning("[WARNING] 未配置 WECHAT_HELPER_TOKEN，/send 端点将拒绝所有请求。")
-            logger.warning("          请设置 WECHAT_HELPER_TOKEN 后重启，或在 WMS 主服务启用轮询模式由其主动推送任务。")
+            logger.warning("[WARNING] 鏈厤缃?WECHAT_HELPER_TOKEN锛?send 绔偣灏嗘嫆缁濇墍鏈夎姹傘€?)
+            logger.warning("          璇疯缃?WECHAT_HELPER_TOKEN 鍚庨噸鍚紝鎴栧湪 WMS 涓绘湇鍔″惎鐢ㄨ疆璇㈡ā寮忕敱鍏朵富鍔ㄦ帹閫佷换鍔°€?)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     logger.info("WMS WeChat helper listening on http://%s:%s", HOST, PORT)
     logger.info("Default mode: use already-open WeChat, paste image, and wait for manual confirmation.")
@@ -635,3 +614,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
