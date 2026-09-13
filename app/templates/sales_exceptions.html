@@ -2,6 +2,9 @@
 {% block title %}销售异常工作台{% endblock %}
 {% block content %}
 <div class="container-fluid py-3">
+  {% if stock_scope_incomplete %}
+  <div class="alert alert-warning" role="alert">部分销售订单的发货仓库为空、不存在或已停用，库存待人工确认；未计入缺货判断，请检查来源订单的发货仓库。</div>
+  {% endif %}
   <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <div><h4 class="mb-1"><i class="bi bi-exclamation-triangle text-danger"></i> 销售异常工作台</h4><div class="text-muted small">只读异常清单；处理前请打开来源单据，系统不会自动改库存或修正订单。</div></div>
     <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_dashboard') }}"><i class="bi bi-arrow-left"></i> 返回工作台</a>

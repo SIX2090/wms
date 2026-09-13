@@ -10,6 +10,8 @@
 
 | BUG-2026-09-13-014 | [P2] 图片回归测试未关闭静态响应，Windows 删除失败；固定迁移文件名被旧运行污染 | 已修复并验证（2026-09-13）：两项测试使用 tmp_path 独立静态/上传/旧图目录，monkeypatch 恢复配置与工作目录；通过响应上下文关闭文件句柄，再执行原有删除清理。保留默认上传根目录、HTTP 200、PNG 类型和逐字节内容断言；迁移加强为首次精确复制 1 个、再次复制 0 个。R6：同类点已排查该文件两处静态响应和迁移实现；不修改生产上传/迁移逻辑，不删除旧运行或生产图片。专项连续两轮各 2 passed；全量 pytest tests -q --tb=short --disable-warnings：1632 passed、85 skipped、1934 warnings、0 failed（251 秒）。 |
 
+| BUG-2026-09-13-015 | [P1] 销售看板与异常页仍按全局库存判断缺货，其他仓有货掩盖本仓不足 | 已修复并验证（2026-09-13）：两个页面通过共享 _sales_analysis_stock 按仓库 ID 优先、历史名称/编码兼容解析，使用 get_warehouse_stock_quantities；按请求缓存同仓库存，不回退全局或默认仓。无效/空/停用仓库明确在页面提示库存待人工确认，不伪造缺货结论。R6：与 BUG-2026-09-13-010 同根因的非 AI 页面遗漏；sales.py 全部库存读取点已排查，剩余下推两处原已使用仓库口径，现无 material.stock 裸用。新增测试 tests/test_bug_2026_09_13_015_sales_page_stock.py：初始 8 项失败，修复扩充后 13 passed，覆盖双仓隔离、ID 优先、历史编码流水、部分发货余量、无效/停用仓库、缓存、真实模板渲染及只读不改库存。全量 pytest tests -q --tb=short --disable-warnings：1645 passed、85 skipped、1934 warnings、0 failed；verify_wms_bugs.py 与双静态门禁通过。未运行会创建业务记录的 full_smoke_test.py，使用隔离数据库真实页面 GET 渲染回归替代。生产需重启 WMS 服务生效。 |
+
 ## 判定规则
 
 | BUG-2026-09-13-008 | [P0] 微信助手编码损坏及字面反引号换行导致 SyntaxError，模块无法加载且全量 pytest 收集中断 | **已修复并验证（2026-09-13），发布以本次 Git 记录为准**：根因为 f46e472/27b330a 的错误文本写入；依据原始 51ddf0c 恢复完整 UTF-8 内容和被吞并的代码行，保留预期的中文安全错误提示，改为只记录异常类型的 warning，禁止回传异常原文或 traceback 刷屏。R6：复查 BUG-2026-08-11-009 与 08-16-019；恢复既有发送串行锁、焦点校验、无 token 拒绝逻辑，不触发实际微信发送。新增模拟 /send 解析异常的回归，相关 pytest 12 passed；py_compile 通过。全量 pytest tests -q --tb=short：1626 passed、85 skipped、4 failed（253 秒），四项均为既有 Windows 路径和图片文件占用问题：test_auto_migrate_db_path 两项、test_material_image_static_path 两项；收集阻断已解除，未进行真实微信发送。 |

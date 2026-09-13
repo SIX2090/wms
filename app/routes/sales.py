@@ -89,6 +89,22 @@ def _sales_push_shortages(warehouse, qty_by_material_id, exclude_order_ids=()):
 
 
 # no-test:reason=路由注册辅助函数，能力由 sales_* 各路由测试覆盖
+def _sales_analysis_stock(order, cache):
+    from app import get_warehouse_stock_quantities, validate_sales_warehouse
+
+    key = (order.warehouse_id, order.warehouse)
+    if key not in cache:
+        warehouse, error = validate_sales_warehouse(order.warehouse, order.warehouse_id)
+        if error:
+            cache[key] = None
+        else:
+            stock_key = ('stock', warehouse.id)
+            if stock_key not in cache:
+                cache[stock_key] = get_warehouse_stock_quantities(warehouse)
+            cache[key] = cache[stock_key]
+    return cache[key]
+
+
 def register_sales_routes(app):
     @app.route('/sales/download_template')
     @require_role('warehouse', 'purchase', 'sales')
@@ -1110,10 +1126,14 @@ def register_sales_routes(app):
         overdue_orders = [order for order in pending_orders if order.delivery_date and order.delivery_date < today]
         pending_outbounds = OutOrder.query.filter_by(business_type='销售出库', status='pending').order_by(OutOrder.date.asc(), OutOrder.id.asc()).limit(12).all()
         shortage_items = []
+        stock_cache = {}
         for order in ready_orders:
+            warehouse_stock = _sales_analysis_stock(order, stock_cache)
+            if warehouse_stock is None:
+                continue
             for item in order.items:
                 remaining = round_to_2_decimals((item.quantity or 0) - (item.shipped_quantity or 0))
-                stock = float(item.material.stock or 0) if item.material else 0
+                stock = float(warehouse_stock.get(item.material_id, 0) or 0)
                 if remaining > STOCK_COMPARE_EPSILON and stock + STOCK_COMPARE_EPSILON < remaining:
                     shortage_items.append({'order': order, 'item': item, 'remaining': remaining, 'stock': round_to_2_decimals(stock)})
         shortage_items.sort(key=lambda row: (row['stock'] - row['remaining'], row['order'].delivery_date or date.max))
@@ -1135,6 +1155,7 @@ def register_sales_routes(app):
             overdue_orders=overdue_orders,
             pending_outbounds=pending_outbounds,
             shortage_items=shortage_items[:12],
+            stock_scope_incomplete=any(value is None for value in stock_cache.values()),
             month_amount=round_to_2_decimals(sum(order.total_amount or 0 for order in month_orders)),
             pending_amount=round_to_2_decimals(sum(order.total_amount or 0 for order in pending_orders)),
             pending_count=len(pending_orders),
@@ -1158,7 +1179,9 @@ def register_sales_routes(app):
             joinedload(SalesOrder.customer),
             selectinload(SalesOrder.items).joinedload(SalesOrderItem.material),
         ).order_by(SalesOrder.delivery_date.asc(), SalesOrder.id.asc()).all()
+        stock_cache = {}
         for order in orders:
+            warehouse_stock = _sales_analysis_stock(order, stock_cache)
             if order.delivery_date and order.delivery_date < today and order.shipment_status != 'shipped':
                 exceptions.append({
                     'kind': 'overdue', 'label': '逾期未发货', 'severity': '高', 'order': order,
@@ -1174,11 +1197,12 @@ def register_sales_routes(app):
                         'item': item, 'outbound': None,
                         'detail': f'订单 {quantity:g}，已发货 {shipped:g}',
                     })
-                if remaining > STOCK_COMPARE_EPSILON and item.material and float(item.material.stock or 0) + STOCK_COMPARE_EPSILON < remaining:
+                stock = float(warehouse_stock.get(item.material_id, 0) or 0) if warehouse_stock is not None else None
+                if remaining > STOCK_COMPARE_EPSILON and item.material and stock is not None and stock + STOCK_COMPARE_EPSILON < remaining:
                     exceptions.append({
                         'kind': 'shortage', 'label': '库存不足', 'severity': '高', 'order': order,
                         'item': item, 'outbound': None,
-                        'detail': f'待发 {remaining:g}，现存 {float(item.material.stock or 0):g}',
+                        'detail': f'待发 {remaining:g}，本仓现存 {stock:g}',
                     })
                 if float(item.price or 0) <= 0:
                     exceptions.append({
@@ -1207,6 +1231,7 @@ def register_sales_routes(app):
         exceptions.sort(key=lambda row: (severity_order.get(row['severity'], 9), row['order'].delivery_date if row['order'] else date.max, row['detail']))
         return render_template(
             'sales_exceptions.html', exceptions=exceptions, kind=kind,
+            stock_scope_incomplete=any(value is None for value in stock_cache.values()),
             counts={value: sum(1 for row in exceptions if row['kind'] == value) for value in ('overdue', 'shortage', 'over_shipped', 'missing_source', 'price')},
         )
 
