@@ -177,6 +177,11 @@ class TestDocumentAudit:
 
     def test_revert_transfer_audits(self, client):
         with app_module.app.test_request_context():
+            material = Material.query.filter_by(code="M001").first()
+            warehouse = Warehouse.query.filter_by(code="WHA").first()
+            ok, error = add_stock(material, 10, 'in', 'in_order', 1, warehouse=warehouse)
+            assert ok, error
+            db.session.commit()
             transfer = _make_completed_transfer("TF-REV", 10)
             transfer_no, tid = transfer.transfer_no, transfer.id
         resp = client.post(f"/transfer/{tid}/revert")

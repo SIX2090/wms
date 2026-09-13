@@ -3756,6 +3756,23 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
     if not mat:
         return False, '物料不存在', None
 
+    if warehouse and not location_management_enabled() and not allow_negative_stock():
+        warehouse_id = resolve_inventory_warehouse_id(warehouse)
+        warehouse_obj = db.session.get(Warehouse, warehouse_id) if warehouse_id else None
+        if not warehouse_obj:
+            return False, '请选择有效仓库', mat
+        db.session.execute(
+            sa_update(Material).where(Material.id == material_id).values(stock=Material.stock)
+        )
+        db.session.expire(mat, ['stock'])
+        available = get_warehouse_stock_quantities(warehouse_obj).get(material_id, 0)
+        legacy_reversal = (
+            str(transaction_type or '').startswith('revert')
+            and _material_stock_unattributed(material_id)
+        )
+        if not is_stock_sufficient(available, qty) and not legacy_reversal:
+            return False, f'物料 {mat.code} 在仓库 {warehouse_obj.name} 库存不足，当前库存：{available:.2f}', mat
+
     condition = Material.id == material_id
     if not allow_negative_stock():
         condition = db.and_(condition, Material.stock >= qty)

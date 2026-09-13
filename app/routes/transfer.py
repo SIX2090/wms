@@ -482,15 +482,17 @@ def register_transfer_routes(app):
                     ).order_by(Warehouse.id.asc()).first()
                 if from_wh_obj:
                     src_stock = get_warehouse_stock_quantities(from_wh_obj)
+                    required = {}
                     for item in transfer.items:
                         if not item.material_id:
                             continue
                         qty = item.quantity or 0
-                        if qty > 0 and (src_stock.get(item.material_id, 0) + 1e-9) < qty:
+                        required[item.material_id] = required.get(item.material_id, 0) + qty
+                        if qty > 0 and (src_stock.get(item.material_id, 0) + 1e-9) < required[item.material_id]:
                             mat_code = item.material.code if item.material else str(item.material_id)
                             available = src_stock.get(item.material_id, 0)
                             db.session.rollback()
-                            return api_error(f'调出仓库 {transfer.from_warehouse} 库存不足：{mat_code}（需要 {qty}，可用 {available:.2f}）')
+                            return api_error(f'调出仓库 {transfer.from_warehouse} 库存不足：{mat_code}（需要 {required[item.material_id]}，可用 {available:.2f}）')
             for item in transfer.items:
                 if not item.material_id:
                     continue
@@ -541,7 +543,7 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def revert_transfer(id):
-        from app import (TransferOrder, _acquire_order_write_lock, add_stock_transaction, api_error, location_management_enabled, log_audit, log_operation, update_location_inventory)
+        from app import (TransferOrder, Warehouse, _acquire_order_write_lock, add_stock_transaction, api_error, get_warehouse_stock_quantities, location_management_enabled, log_audit, log_operation, resolve_inventory_warehouse_id, update_location_inventory)
         from sqlalchemy.orm import selectinload
         from flask import jsonify
         """反提交调拨单"""
@@ -557,6 +559,21 @@ def register_transfer_routes(app):
             transfer = locked
             # BUG-2026-08-02-013：与 complete_transfer 对称，未开启库位管理时不写 LocationInventory。
             use_location = location_management_enabled()
+            if not use_location:
+                warehouse_id = resolve_inventory_warehouse_id(transfer.to_warehouse)
+                destination = db.session.get(Warehouse, warehouse_id) if warehouse_id else None
+                if not destination:
+                    db.session.rollback()
+                    return api_error('调入仓库不存在，无法反提交')
+                available = get_warehouse_stock_quantities(destination)
+                required = {}
+                for item in transfer.items:
+                    if not item.material_id:
+                        continue
+                    required[item.material_id] = required.get(item.material_id, 0) + (item.quantity or 0)
+                    if available.get(item.material_id, 0) + 1e-9 < required[item.material_id]:
+                        db.session.rollback()
+                        return api_error(f'调入仓库 {destination.name} 库存不足，无法反提交调拨单')
             for item in transfer.items:
                 if item.material:
                     quantity = item.quantity or 0
