@@ -16880,19 +16880,32 @@ def _ai_check_draft(module_key, order):
     items = list(getattr(order, 'items', []) or [])
     if not items:
         issues.append('没有明细行，不能提交。')
+    warehouse = None
+    if module_key == 'out_order':
+        warehouse, warehouse_error = validate_inventory_warehouse(getattr(order, 'warehouse', None))
+        if not warehouse:
+            issues.append(warehouse_error or '??????????????')
+    elif module_key == 'transfer':
+        warehouse, warehouse_error = validate_inventory_warehouse(
+            getattr(order, 'from_warehouse', None) or getattr(order, 'from_location', None),
+        )
+        if not warehouse:
+            issues.append(warehouse_error or '??????????????')
+    warehouse_stock = get_warehouse_stock_quantities(warehouse) if warehouse else {}
     seen = set()
     for item in items:
         material = getattr(item, 'material', None)
         qty = round_to_2_decimals(getattr(item, 'quantity', 0) or 0)
         code = material.code if material else str(getattr(item, 'material_id', ''))
         if qty <= 0:
-            issues.append(f'{code} 数量必须大于 0。')
+            issues.append(f'{code} ?????? 0?')
         if material and material.id in seen:
-            issues.append(f'{code} 重复出现，建议合并后再提交。')
+            issues.append(f'{code} ??????????????')
         if material:
             seen.add(material.id)
-        if module_key in ('out_order', 'transfer') and material and qty > (material.stock or 0) and not allow_negative_stock():
-            issues.append(f'{code} 库存不足：需 {qty}，当前 {normalize_stock_quantity(material.stock or 0)}。')
+        if module_key in ('out_order', 'transfer') and material and qty > warehouse_stock.get(material.id, 0) and not allow_negative_stock():
+            current_stock = normalize_stock_quantity(warehouse_stock.get(material.id, 0))
+            issues.append(f'{code} ?????? {qty}??? {current_stock}?')
     if module_key == 'in_order':
         if is_purchase_in_order(order) and purchase_in_order_requires_order() and not getattr(order, 'source_purchase_order_id', None):
             issues.append('采购入库要求关联采购订单，当前草稿没有来源采购订单。')
