@@ -361,7 +361,11 @@ def register_requisition_routes(app):
             quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), item.quantity))
             if quantity <= 0:
                 return api_error('数量必须大于0')
-            if item.material and (item.material.stock or 0) < quantity:
+            warehouse_obj, warehouse_err = validate_inventory_warehouse(requisition.warehouse)
+            if warehouse_err:
+                return api_error(warehouse_err)
+            warehouse_stock = get_warehouse_stock_quantities(warehouse_obj)
+            if item.material and warehouse_stock.get(item.material.id, 0) < quantity:
                 return api_error(f'物料 {item.material.code} 库存不足，当前库存：{item.material.stock or 0}')
 
             item.quantity = quantity
@@ -433,7 +437,8 @@ def register_requisition_routes(app):
     def batch_add_requisition_items(id):
         from app import (Material, ProductionRequisition,
                          ProductionRequisitionItem, allow_negative_stock,
-                         api_error, is_stock_sufficient, parse_float_value,
+                         api_error, get_warehouse_stock_quantities, is_stock_sufficient, parse_float_value,
+                         validate_inventory_warehouse,
                          round_to_2_decimals)
         requisition = ProductionRequisition.query.get_or_404(id)
         if requisition.status != 'pending':
@@ -461,7 +466,12 @@ def register_requisition_routes(app):
                 if not material:
                     errors.append(f'第 {line_no} 行物料不存在：{material_code}')
                     continue
-                if not allow_negative_stock() and not is_stock_sufficient(material.stock or 0, quantity):
+                warehouse_obj, warehouse_err = validate_inventory_warehouse(requisition.warehouse)
+                if warehouse_err:
+                    errors.append(warehouse_err)
+                    continue
+                warehouse_stock = get_warehouse_stock_quantities(warehouse_obj)
+                if not allow_negative_stock() and not is_stock_sufficient(warehouse_stock.get(material.id, 0), quantity):
                     errors.append(f'第 {line_no} 行库存不足：{material_code}')
                     continue
                 db.session.add(ProductionRequisitionItem(
