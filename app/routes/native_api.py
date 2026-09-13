@@ -36,9 +36,27 @@ from flask import jsonify, request
 from db import db
 
 
+def _native_document_location(parsed):
+    from app import location_management_enabled
+    if not location_management_enabled():
+        return '', None
+    locations = set()
+    for _material, _quantity, line in parsed:
+        location = line.get('location_code') or line.get('location') or ''
+        if not isinstance(location, str) or not location.strip() or len(location.strip()) > 100:
+            return None, '启用库位管理后必须填写有效库位（1至100字）'
+        locations.add(location.strip())
+    if len(locations) != 1:
+        return None, '当前单据仅支持一个库位，不同库位请分单提交'
+    return next(iter(locations)), None
+
+
 def _native_outbound_stock_error(parsed, warehouse):
     from app import (allow_negative_stock, get_warehouse_stock_quantities,
                      location_management_enabled, normalize_stock_quantity)
+    location, error = _native_document_location(parsed)
+    if error:
+        return error
     required = {}
     for material, quantity, line in parsed:
         if location_management_enabled() and not (
@@ -53,6 +71,20 @@ def _native_outbound_stock_error(parsed, warehouse):
             quantity = required[material.id]
             if quantity > available:
                 return f'{material.code} 库存不足：本仓可用 {available:g}，本次 {quantity:g}'
+    if location:
+        from app import LocationInventory, allow_negative_location_stock
+        if not allow_negative_location_stock():
+            rows = LocationInventory.query.filter(
+                LocationInventory.warehouse_id == warehouse.id,
+                LocationInventory.material_id.in_(list(required)),
+                LocationInventory.location == location,
+            ).all()
+            quantities = {row.material_id: row.quantity or 0 for row in rows}
+            for material, _quantity, _line in parsed:
+                available = quantities.get(material.id, 0)
+                quantity = required[material.id]
+                if quantity > available:
+                    return f'{material.code} 库位 {location} 可用 {available:g}，本次 {quantity:g}，请核对库位'
     return None
 
 
@@ -681,6 +713,9 @@ def register_native_api_routes(app):
         if warehouse_error:
             return api_json_error(warehouse_error, 400)
         order_warehouse = warehouse.name
+        document_location, location_error = _native_document_location(parsed)
+        if location_error:
+            return api_json_error(location_error, 400)
         if location_management_enabled() and location_required_on_save():
             for _material, _quantity, line in parsed:
                 location = (line.get('location_code') or line.get('location') or '').strip()
@@ -694,6 +729,7 @@ def register_native_api_routes(app):
                 warehouse=order_warehouse,
                 business_type=business_type,
                 purpose='Android扫码入库',
+                location=document_location,
                 remark='Android原生端提交',
                 status='completed',
                 operator_id=user.id,
@@ -717,17 +753,11 @@ def register_native_api_routes(app):
                 if not ok:
                     db.session.rollback()
                     return api_json_error(msg or '库存增加失败', 500)
-                location = (line.get('location_code') or line.get('location') or '').strip()
-                # BUG-2026-08-18-003：客户端可能传仓库编号作为 location，
-                # 关库位管理时统一为仓库名，避免流水 location 不一致。
-                if location and not location_management_enabled():
-                    wh_code = (order.warehouse.code or '').strip() if hasattr(order.warehouse, 'code') else ''
-                    if wh_code and location == wh_code:
-                        location = (order.warehouse.name or '').strip()
-                loc_ok, loc_msg = update_location_inventory(material, location, quantity, warehouse=order.warehouse)
-                if not loc_ok:
-                    db.session.rollback()
-                    return api_json_error(loc_msg or '库位库存更新失败', 500)
+                if document_location:
+                    loc_ok, loc_msg = update_location_inventory(material, document_location, quantity, warehouse=order.warehouse)
+                    if not loc_ok:
+                        db.session.rollback()
+                        return api_json_error(loc_msg or '库位库存更新失败', 500)
             order.total_amount = round_to_2_decimals(total_amount)
             enqueue_auto_print_job('in_order', order.id, order.warehouse,
                                    created_by=user.id, source_event='scan_inbound')
@@ -794,6 +824,9 @@ def register_native_api_routes(app):
             return api_json_error(warehouse_error, 400)
         order_warehouse = warehouse.name
         # 合同编号（选填）：命中合同档案则回填 contract_id/project_name，
+        document_location, location_error = _native_document_location(parsed)
+        if location_error:
+            return api_json_error(location_error, 400)
         # 未命中仍保留用户输入文本（与 Web 端单据头口径一致）。
         from app import Contract
         contract_no_input = (payload.get('contract_no') or '').strip()
@@ -852,6 +885,7 @@ def register_native_api_routes(app):
                 department_id=department.id if department else None,
                 picker=picker_text,
                 purpose='Android原生端提交',
+                location=document_location,
                 remark='Android原生端提交',
                 status='completed',
                 operator_id=user.id,
