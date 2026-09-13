@@ -39,6 +39,12 @@
 - 仅人工提交携带照片；图片随原请求离线暂存。读取接口按单据创建人/管理员授权，不公开静态图片地址；后端解码验证并重编码清理元数据。
 - 后端隔离测试 5 passed，Python 语法检查通过；Android 已接入相机权限入口、JPEG 压缩、每单最多3张、随请求发送并进入编辑草稿恢复。照片仍只在人工点击提交后写库，业务拒绝不进离线队列。Android 编译/真机验收仍待具备 Java/SDK 的环境完成；需真机验证权限拒绝、照片大小、离线暂存与服务端查看。
 
+### MOBILE-PERMISSION-001（2026-09-13，权限体验修复）
+
+- Android 安装包只能声明危险权限，不能绕过系统静默授予相机/麦克风；原应用仅在扫码或语音功能进入后才分别请求，设备若已将权限设为“禁止”时现场才发现不可用。
+- `MainActivity` 现在首次启动即一次性请求 `CAMERA` 与 `RECORD_AUDIO`；两项均未授权前不进入业务导航，拒绝后显示中文原因和“去设置开启权限”入口。已授权设备不会重复弹窗，符合 Android 权限模型。
+- 回归：`tests/test_android_startup_permissions.py` 与扫码直开测试共 5 passed；本机无 Java/Android SDK，未完成 APK 编译和真机权限弹窗验收。
+
 ## 判定规则
 
 | BUG-2026-09-13-008 | [P0] 微信助手编码损坏及字面反引号换行导致 SyntaxError，模块无法加载且全量 pytest 收集中断 | **已修复并验证（2026-09-13），发布以本次 Git 记录为准**：根因为 f46e472/27b330a 的错误文本写入；依据原始 51ddf0c 恢复完整 UTF-8 内容和被吞并的代码行，保留预期的中文安全错误提示，改为只记录异常类型的 warning，禁止回传异常原文或 traceback 刷屏。R6：复查 BUG-2026-08-11-009 与 08-16-019；恢复既有发送串行锁、焦点校验、无 token 拒绝逻辑，不触发实际微信发送。新增模拟 /send 解析异常的回归，相关 pytest 12 passed；py_compile 通过。全量 pytest tests -q --tb=short：1626 passed、85 skipped、4 failed（253 秒），四项均为既有 Windows 路径和图片文件占用问题：test_auto_migrate_db_path 两项、test_material_image_static_path 两项；收集阻断已解除，未进行真实微信发送。 |
