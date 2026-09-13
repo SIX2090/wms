@@ -58,6 +58,7 @@ fun InboundScreen(
     var showWarehouseDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
+    var locationCode by remember { mutableStateOf("") }
     var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -119,7 +120,8 @@ fun InboundScreen(
                 viewModel.addScanLine(
                     ScanLine(
                         material_code = manualCode.trim(),
-                        quantity = manualQty.toDoubleOrNull() ?: 1.0
+                        quantity = manualQty.toDoubleOrNull() ?: 1.0,
+                        location_code = locationCode.trim().ifBlank { null }
                     )
                 )
                 manualCode = ""
@@ -132,7 +134,8 @@ fun InboundScreen(
             viewModel.addScanLine(
                 ScanLine(
                     material_code = barcode.trim(),
-                    quantity = manualQty.toDoubleOrNull() ?: 1.0
+                    quantity = manualQty.toDoubleOrNull() ?: 1.0,
+                    location_code = locationCode.trim().ifBlank { null }
                 )
             )
             manualCode = ""
@@ -244,6 +247,7 @@ fun OutboundScreen(
     var showEmployeeDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
+    var locationCode by remember { mutableStateOf("") }
     var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -330,7 +334,8 @@ fun OutboundScreen(
                 viewModel.addScanLine(
                     ScanLine(
                         material_code = manualCode.trim(),
-                        quantity = manualQty.toDoubleOrNull() ?: 1.0
+                        quantity = manualQty.toDoubleOrNull() ?: 1.0,
+                        location_code = locationCode.trim().ifBlank { null }
                     )
                 )
                 manualCode = ""
@@ -342,7 +347,8 @@ fun OutboundScreen(
             viewModel.addScanLine(
                 ScanLine(
                     material_code = barcode.trim(),
-                    quantity = manualQty.toDoubleOrNull() ?: 1.0
+                    quantity = manualQty.toDoubleOrNull() ?: 1.0,
+                    location_code = locationCode.trim().ifBlank { null }
                 )
             )
             manualCode = ""
@@ -389,6 +395,16 @@ fun OutboundScreen(
                     onContractNoChange = { viewModel.onContractNoChange(it) },
                     onSelect = { viewModel.selectContract(it) },
                     accentColor = CardGreen
+                )
+                OutlinedTextField(
+                    value = locationCode,
+                    onValueChange = { locationCode = it },
+                    label = { Text("库位编码（启用库位管理时必填）") },
+                    placeholder = { Text("例如 A-01-02，也可扫描库位标签") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    enabled = !uiState.isLoading,
+                    leadingIcon = { Icon(Icons.Outlined.Place, contentDescription = null) }
                 )
             }
         },
