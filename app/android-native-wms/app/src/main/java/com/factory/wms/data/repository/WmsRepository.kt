@@ -73,7 +73,13 @@ class WmsRepository(private val context: Context) {
          * 现场看到"网络错误"却反复重试（其实网络正常，是业务前置条件未满足）。
          * 用独立类型标记，外层 catch 原样放行、不再加"网络错误"前缀。
          */
-        class BusinessException(message: String, val safeToEdit: Boolean = false) : Exception(message)
+        class BusinessException(message: String) : Exception(message) {
+            var safeToEdit: Boolean = false
+
+            constructor(message: String, safeToEdit: Boolean) : this(message) {
+                this.safeToEdit = safeToEdit
+            }
+        }
 
         /**
          * AI-MOB-OFFLINE-01：网络不可用但**已成功暂存到离线队列**。
