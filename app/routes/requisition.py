@@ -111,7 +111,8 @@ def register_requisition_routes(app):
                          _clean_int, _material_from_payload, _parse_form_date,
                          allow_negative_stock, api_error,
                          assert_warehouse_active, generate_order_no,
-                         get_default_warehouse, is_stock_sufficient,
+                         get_default_warehouse, get_warehouse_stock_quantities,
+                         is_stock_sufficient, validate_inventory_warehouse,
                          location_management_enabled, log_operation,
                          normalize_stock_quantity, parse_float_value,
                          round_to_2_decimals)
@@ -143,6 +144,11 @@ def register_requisition_routes(app):
             return api_error('库位管理已启用，请选择库位')
 
         try:
+            warehouse_obj, warehouse_err = validate_inventory_warehouse(warehouse)
+            if warehouse_err:
+                return api_error(warehouse_err)
+            warehouse_stock = get_warehouse_stock_quantities(warehouse_obj)
+            required_by_material = {}
             if order_id:
                 requisition = db.session.get(ProductionRequisition, order_id)
                 if not requisition:
@@ -181,17 +187,18 @@ def register_requisition_routes(app):
             for item_data in items_data:
                 material = _material_from_payload(item_data)
                 if not material:
+                    db.session.rollback()
                     return api_error(f'物料不存在：{item_data.get("code") or ""}')
                 quantity = round_to_2_decimals(parse_float_value(item_data.get('quantity'), 0))
                 if quantity <= 0:
+                    db.session.rollback()
                     return api_error(f'物料 {material.code} 的数量必须大于0')
-                warehouse_obj, warehouse_err = validate_inventory_warehouse(warehouse)
-                if warehouse_err:
-                    return api_error(warehouse_err)
-                warehouse_stock = get_warehouse_stock_quantities(warehouse_obj)
                 current_stock = normalize_stock_quantity(warehouse_stock.get(material.id, 0))
-                if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
+                required = required_by_material.get(material.id, 0) + quantity
+                if not allow_negative_stock() and not is_stock_sufficient(current_stock, required):
+                    db.session.rollback()
                     return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
+                required_by_material[material.id] = required
                 db.session.add(ProductionRequisitionItem(
                     requisition_id=requisition.id,
                     material_id=material.id,
@@ -308,8 +315,9 @@ def register_requisition_routes(app):
     @login_required
     def add_requisition_item(id):
         from app import (Material, ProductionRequisition,
-                         ProductionRequisitionItem, api_error, parse_float_value,
-                         round_to_2_decimals)
+                         ProductionRequisitionItem, allow_negative_stock, api_error,
+                         get_warehouse_stock_quantities, is_stock_sufficient,
+                         parse_float_value, round_to_2_decimals, validate_inventory_warehouse)
         requisition = ProductionRequisition.query.get_or_404(id)
         if requisition.status != 'pending':
             return api_error('只有草稿状态的工单领料单可以添加明细')
@@ -323,6 +331,16 @@ def register_requisition_routes(app):
                 return api_error('物料编码不存在')
             if quantity <= 0:
                 return api_error('工单领料数量必须大于 0')
+
+            warehouse_obj, warehouse_err = validate_inventory_warehouse(requisition.warehouse)
+            if warehouse_err:
+                return api_error(warehouse_err)
+            available = get_warehouse_stock_quantities(warehouse_obj).get(material.id, 0)
+            required = quantity + sum(
+                sibling.quantity or 0 for sibling in requisition.items
+                if sibling.material_id == material.id)
+            if not allow_negative_stock() and not is_stock_sufficient(available, required):
+                return api_error(f'物料 {material.code} 库存不足，当前仓库库存：{available}，本单合计需求：{required}')
 
             item = ProductionRequisitionItem(
                 requisition_id=id,
@@ -348,7 +366,9 @@ def register_requisition_routes(app):
     @login_required
     def update_requisition_item(id, item_id):
         from app import (ProductionRequisition, ProductionRequisitionItem,
-                         api_error, get_warehouse_stock_quantities, parse_float_value, round_to_2_decimals, validate_inventory_warehouse)
+                         allow_negative_stock, api_error, get_warehouse_stock_quantities,
+                         is_stock_sufficient, parse_float_value, round_to_2_decimals,
+                         validate_inventory_warehouse)
         requisition = ProductionRequisition.query.get_or_404(id)
         if requisition.status != 'pending':
             return api_error('只有草稿状态的工单领料单可以修改明细')
@@ -365,8 +385,12 @@ def register_requisition_routes(app):
             if warehouse_err:
                 return api_error(warehouse_err)
             warehouse_stock = get_warehouse_stock_quantities(warehouse_obj)
-            if item.material and warehouse_stock.get(item.material.id, 0) < quantity:
-                return api_error(f'物料 {item.material.code} 库存不足，当前库存：{item.material.stock or 0}')
+            available = warehouse_stock.get(item.material_id, 0)
+            required = quantity + sum(
+                sibling.quantity or 0 for sibling in requisition.items
+                if sibling.id != item.id and sibling.material_id == item.material_id)
+            if not allow_negative_stock() and not is_stock_sufficient(available, required):
+                return api_error(f'物料 {item.material.code} 库存不足，当前仓库库存：{available}，本单合计需求：{required}')
 
             item.quantity = quantity
             db.session.commit()
@@ -452,6 +476,14 @@ def register_requisition_routes(app):
         added = 0
         errors = []
         try:
+            warehouse_obj, warehouse_err = validate_inventory_warehouse(requisition.warehouse)
+            if warehouse_err:
+                return api_error(warehouse_err)
+            warehouse_stock = get_warehouse_stock_quantities(warehouse_obj)
+            required_by_material = {}
+            for existing in requisition.items:
+                required_by_material[existing.material_id] = (
+                    required_by_material.get(existing.material_id, 0) + (existing.quantity or 0))
             for line_no, raw_line in enumerate(content.splitlines(), start=1):
                 line = raw_line.strip()
                 if not line:
@@ -466,14 +498,11 @@ def register_requisition_routes(app):
                 if not material:
                     errors.append(f'第 {line_no} 行物料不存在：{material_code}')
                     continue
-                warehouse_obj, warehouse_err = validate_inventory_warehouse(requisition.warehouse)
-                if warehouse_err:
-                    errors.append(warehouse_err)
-                    continue
-                warehouse_stock = get_warehouse_stock_quantities(warehouse_obj)
-                if not allow_negative_stock() and not is_stock_sufficient(warehouse_stock.get(material.id, 0), quantity):
+                required = required_by_material.get(material.id, 0) + quantity
+                if not allow_negative_stock() and not is_stock_sufficient(warehouse_stock.get(material.id, 0), required):
                     errors.append(f'第 {line_no} 行库存不足：{material_code}')
                     continue
+                required_by_material[material.id] = required
                 db.session.add(ProductionRequisitionItem(
                     requisition_id=id,
                     material_id=material.id,

@@ -115,6 +115,10 @@ def test_save_table_persists_location(client):
     """save_table 必须把 location 持久化到数据库。"""
     with app_module.app.app_context():
         set_system_setting("location_management_enabled", "1")
+        material = Material.query.filter_by(code='M001').first()
+        warehouse = Warehouse.query.filter_by(name='默认仓').first()
+        db.session.add(LocationInventory(material_id=material.id, warehouse_id=warehouse.id,
+                                          location='默认仓-A1', quantity=100))
         db.session.commit()
     rid = _create_pending_requisition(client, location="默认仓-A1")
     with app_module.app.app_context():

@@ -157,6 +157,11 @@ class TestRequisitionAddWarehouseLocation:
         """save_table：开启库位管理且填库位时保存成功。"""
         with app_module.app.app_context():
             _seed(True)
+            material = Material.query.filter_by(code='M001').first()
+            warehouse = Warehouse.query.filter_by(name='仓库A').first()
+            db.session.add(app_module.LocationInventory(
+                material_id=material.id, warehouse_id=warehouse.id, location='仓A-A1', quantity=100))
+            db.session.commit()
         resp = _post_save_table(client, warehouse="仓库A", location="仓A-A1")
         assert resp.status_code == 200, resp.get_data(as_text=True)
         data = resp.get_json()
