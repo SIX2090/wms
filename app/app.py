@@ -25204,7 +25204,7 @@ def _create_adjustment_drafts_from_check(check):
         system_stock = normalize_stock_quantity(item.system_stock or 0)
         actual_stock = normalize_stock_quantity(item.actual_stock or 0)
         diff = normalize_stock_quantity(actual_stock - system_stock)
-        if abs(diff) <= STOCK_COMPARE_EPSILON:
+        if abs(diff) <= STOCK_COMPARE_EPSILON and not (item.area or '').strip():
             continue
         entry = _net.get(item.material_id)
         if entry is None:
