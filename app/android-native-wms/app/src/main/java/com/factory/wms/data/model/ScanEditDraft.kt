@@ -17,4 +17,5 @@ data class ScanEditDraft(
     val inboundBusinessType: String = "采购入库",
     val selectedLocation: String? = null,
     val locationEnabled: Boolean? = null
+    ,val evidence: List<String> = emptyList()
 )

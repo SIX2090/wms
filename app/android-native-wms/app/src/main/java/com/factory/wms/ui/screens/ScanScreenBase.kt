@@ -39,6 +39,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.launch
+import android.graphics.Bitmap
+import java.io.ByteArrayOutputStream
+import android.util.Base64
+import com.factory.wms.ui.screens.rememberCameraLauncherWithPermission
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,6 +95,11 @@ fun ScanScreenBase(
     var pendingRemoval by remember { mutableStateOf<ScanLine?>(null) }
     val scanState by viewModel.uiState.collectAsState()
     val scanFeedback = scanState.scanFeedback.takeIf { scanLines.isNotEmpty() }
+    val evidenceCamera = rememberCameraLauncherWithPermission(snackbarHostState) { bitmap: Bitmap ->
+        val output = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 80, output)
+        viewModel.addEvidence(Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP))
+    }
     pendingRemoval?.let { line ->
         AlertDialog(
             onDismissRequest = { pendingRemoval = null },
@@ -143,6 +152,11 @@ fun ScanScreenBase(
             banner?.invoke()
             if (submitLabel == "提交入库" || submitLabel == "提交出库") {
                 ScanLocationSelector(viewModel)
+                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = evidenceCamera, enabled = !isLoading && scanState.evidence.size < 3) {
+                        Text("拍照取证（${scanState.evidence.size}/3）")
+                    }
+                }
             }
             scanState.draftSaveError?.let { message ->
                 Text(message, color = MaterialTheme.colorScheme.error,

@@ -17,7 +17,8 @@ data class InboundRequest(
     val lines: List<ScanLine>,
     @SerializedName("business_type") val businessType: String = "采购入库",
     val warehouse: String? = null,
-    @SerializedName("warehouse_code") val warehouseCode: String? = null
+    @SerializedName("warehouse_code") val warehouseCode: String? = null,
+    val evidence: List<String> = emptyList()
 )
 
 data class OutboundPreflightResult(
@@ -38,7 +39,8 @@ data class OutboundRequest(
     /** 2026-09-12 领料人（选填）：员工姓名，后端写入 OutOrder.picker */
     val picker: String? = null,
     /** 合同编号（选填）：命中合同档案由后端回填 contract_id/工程名称 */
-    @SerializedName("contract_no") val contractNo: String? = null
+    @SerializedName("contract_no") val contractNo: String? = null,
+    val evidence: List<String> = emptyList()
 )
 
 data class StocktakeLine(

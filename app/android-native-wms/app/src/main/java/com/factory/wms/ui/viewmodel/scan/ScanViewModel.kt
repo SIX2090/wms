@@ -42,6 +42,7 @@ data class ScanUiState(
     val locationEnabled: Boolean? = null,
     val locationOptions: List<String> = emptyList(),
     val locationError: String? = null,
+    val evidence: List<String> = emptyList(),
     // 仓库选择（出入库必填，透传给后端）
     val warehouses: List<WarehouseDto> = emptyList(),
     val warehousesLoading: Boolean = false,
@@ -141,6 +142,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             state.selectedWarehouse, state.selectedDepartment, state.selectedEmployee,
             state.contractNo, state.pendingSubmissionId, state.inboundBusinessType,
             state.selectedLocation, state.locationEnabled
+            ,state.evidence
         )
     }
 
@@ -163,6 +165,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     selectedEmployee = draft.employee, contractNo = draft.contractNo,
                     pendingSubmissionId = draft.requestId, inboundBusinessType = draft.inboundBusinessType,
                     selectedLocation = draft.selectedLocation.orEmpty(), locationEnabled = draft.locationEnabled,
+                    evidence = draft.evidence,
                     success = if (draft.requestId == null) "已恢复上次未提交清单，请核对仓库和数量"
                     else "已恢复待核实提交，请点提交核实原请求；核实前不可修改清单"
                 )
@@ -244,6 +247,15 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
         val lines = _uiState.value.scanLines.map { it.copy(location_code = location.ifBlank { null }) }
         _uiState.value = _uiState.value.copy(selectedLocation = location, scanLines = lines, locationError = null)
+    }
+
+    fun addEvidence(encodedJpeg: String) {
+        if (draftEditingBlocked()) return
+        if (_uiState.value.evidence.size >= 3) {
+            _uiState.value = _uiState.value.copy(error = "每张单据最多3张取证照片")
+            return
+        }
+        _uiState.value = _uiState.value.copy(evidence = _uiState.value.evidence + encodedJpeg)
     }
 
     fun loadLocationOptions() {
@@ -1018,6 +1030,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 businessType = _uiState.value.inboundBusinessType,
                 warehouse = warehouse.code,
                 warehouseCode = warehouse.code
+                ,evidence = _uiState.value.evidence
             )
             val result = repository.submitInbound(request, requestId)
             result.fold(
@@ -1085,6 +1098,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 warehouse = warehouse.code,
                 warehouseCode = warehouse.code,
                 contractNo = state.contractNo.trim().ifBlank { null }
+                ,evidence = _uiState.value.evidence
             )
             val result = repository.submitOutbound(request, requestId, replay = state.pendingSubmissionId != null)
             result.fold(
