@@ -689,6 +689,7 @@ def register_native_api_routes(app):
     @api_role_required('warehouse')
     @mobile_api_idempotent('inbound')
     def native_api_inbound(user):
+        from document_evidence import _decode_evidence, _save_evidence
         from datetime import date
         from app import (InOrder, InOrderItem, add_stock, api_json_error,
                          api_json_success, generate_order_no, location_management_enabled,
@@ -700,6 +701,9 @@ def register_native_api_routes(app):
         parsed, error = parse_api_lines(payload)
         if error:
             return api_json_error(error)
+        evidence, evidence_error = _decode_evidence(payload)
+        if evidence_error:
+            return api_json_error(evidence_error, 400)
         business_type = (payload.get('business_type') or payload.get('type') or '').strip()
         if business_type in ('product', '产品', '产品入库'):
             business_type = '产品入库'
@@ -759,6 +763,7 @@ def register_native_api_routes(app):
                         db.session.rollback()
                         return api_json_error(loc_msg or '库位库存更新失败', 500)
             order.total_amount = round_to_2_decimals(total_amount)
+            _save_evidence(evidence, 'in_order', order.id, user.id)
             enqueue_auto_print_job('in_order', order.id, order.warehouse,
                                    created_by=user.id, source_event='scan_inbound')
             db.session.commit()
@@ -807,6 +812,7 @@ def register_native_api_routes(app):
     @api_role_required('warehouse', 'production')
     @mobile_api_idempotent('outbound')
     def native_api_outbound(user):
+        from document_evidence import _decode_evidence, _save_evidence
         from datetime import date
         from app import (OutOrder, OutOrderItem, allow_negative_stock, api_json_error,
                          api_json_success, deduct_stock,
@@ -824,6 +830,9 @@ def register_native_api_routes(app):
             return api_json_error(warehouse_error, 400)
         order_warehouse = warehouse.name
         # 合同编号（选填）：命中合同档案则回填 contract_id/project_name，
+        evidence, evidence_error = _decode_evidence(payload)
+        if evidence_error:
+            return api_json_error(evidence_error, 400)
         document_location, location_error = _native_document_location(parsed)
         if location_error:
             return api_json_error(location_error, 400)
@@ -928,6 +937,7 @@ def register_native_api_routes(app):
                         db.session.rollback()
                         return api_json_error(msg)
             order.total_amount = round_to_2_decimals(total_amount)
+            _save_evidence(evidence, 'out_order', order.id, user.id)
             enqueue_auto_print_job('out_order', order.id, order.warehouse,
                                    created_by=user.id, source_event='scan_outbound')
             db.session.commit()
@@ -1401,6 +1411,25 @@ def register_native_api_routes(app):
             'warehouse_id': None if all_warehouses else (warehouse.id if warehouse else None),
             'all_warehouses': all_warehouses,
         })
+
+    @app.route('/api/mobile/document/<document_type>/<int:order_id>/evidence')
+    @csrf.exempt
+    @api_role_required('warehouse', 'production')
+    def native_api_document_evidence(user, document_type, order_id):
+        import base64
+        from app import InOrder, OutOrder, api_json_error, api_json_success
+        from document_evidence import DocumentEvidence
+        model = {'in_order': InOrder, 'out_order': OutOrder}.get(document_type)
+        if model is None:
+            return api_json_error('不支持的单据类型', 400)
+        order = db.session.get(model, order_id)
+        if not order or (user.role != 'admin' and order.operator_id != user.id):
+            return api_json_error('单据不存在或无权查看', 404)
+        column = DocumentEvidence.in_order_id if document_type == 'in_order' else DocumentEvidence.out_order_id
+        rows = DocumentEvidence.query.filter(column == order_id).order_by(DocumentEvidence.id).all()
+        response = api_json_success({'items': [base64.b64encode(row.image).decode('ascii') for row in rows]})
+        response.headers['Cache-Control'] = 'no-store'
+        return response
 
     @app.route('/api/mobile/location/options')
     @csrf.exempt

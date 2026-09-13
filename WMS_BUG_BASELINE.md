@@ -33,6 +33,12 @@
 - 全仓查无默认库位配置字段，接口如实返回 default_location=null，不将仓库物理地址或库存最多库位冒充默认。后续配置默认库位属于独立主数据需求。
 - 新增 tests/test_native_api_location_options.py 验证双仓隔离、分页全集、认证、无效仓及关闭模式；源码回归检查共享入口与标签扫描。全量初次 1708 passed、85 skipped、1 failed，为旧源码测试绑定 addScanLine 形参名；已调整该断言并保留物料补全行为检查。Android 缺 Java/SDK，未编译/安装，真机验收仍待完成。
 
+### MOBILE-DOCUMENT-EVIDENCE-001（2026-09-13，新增能力，非重复BUG）
+
+- 单据拍照取证独立于物料图片，使用 DocumentEvidence 关联入库/出库单；每单最多3张JPEG，长边1600像素、单张300KB上限，与单据同一事务提交，失败整单回滚。
+- 仅人工提交携带照片；图片随原请求离线暂存。读取接口按单据创建人/管理员授权，不公开静态图片地址；后端解码验证并重编码清理元数据。
+- 后端隔离测试 5 passed，Python 语法检查通过；Android 客户端尚未接入照片选择/压缩/提交字段，故不能声称手机端拍照功能已完成。Android 编译/真机验收仍待具备 Java/SDK 的环境完成，客户端接线作为下一 atomic action。
+
 ## 判定规则
 
 | BUG-2026-09-13-008 | [P0] 微信助手编码损坏及字面反引号换行导致 SyntaxError，模块无法加载且全量 pytest 收集中断 | **已修复并验证（2026-09-13），发布以本次 Git 记录为准**：根因为 f46e472/27b330a 的错误文本写入；依据原始 51ddf0c 恢复完整 UTF-8 内容和被吞并的代码行，保留预期的中文安全错误提示，改为只记录异常类型的 warning，禁止回传异常原文或 traceback 刷屏。R6：复查 BUG-2026-08-11-009 与 08-16-019；恢复既有发送串行锁、焦点校验、无 token 拒绝逻辑，不触发实际微信发送。新增模拟 /send 解析异常的回归，相关 pytest 12 passed；py_compile 通过。全量 pytest tests -q --tb=short：1626 passed、85 skipped、4 failed（253 秒），四项均为既有 Windows 路径和图片文件占用问题：test_auto_migrate_db_path 两项、test_material_image_static_path 两项；收集阻断已解除，未进行真实微信发送。 |

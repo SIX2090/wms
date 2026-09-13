@@ -4932,6 +4932,9 @@ class Material(db.Model):
     unit = db.relationship('Unit', backref=db.backref('materials', cascade='save-update, merge'))  # Related unit
     supplier = db.relationship('Supplier', backref=db.backref('materials', cascade='save-update, merge'))  # Related supplier
 
+from document_evidence import DocumentEvidence
+
+
 class MaterialImage(db.Model):
     """物料档案图片（每个物料最多 MAX_MATERIAL_IMAGES=5 张）。
 
