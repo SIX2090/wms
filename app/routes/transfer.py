@@ -102,7 +102,7 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def save_transfer_table():
-        from app import (TransferOrder, TransferOrderItem, _clean_int, _material_from_payload, _parse_form_date, allow_negative_stock, api_error, generate_order_no, is_stock_sufficient, location_management_enabled, log_operation, normalize_stock_quantity, parse_float_value, round_to_2_decimals, validate_inventory_warehouse)
+        from app import (TransferOrder, TransferOrderItem, _clean_int, _material_from_payload, _parse_form_date, allow_negative_stock, api_error, generate_order_no, get_warehouse_stock_quantities, is_stock_sufficient, location_management_enabled, log_operation, normalize_stock_quantity, parse_float_value, round_to_2_decimals, validate_inventory_warehouse)
         from flask import jsonify, request
         data = request.get_json(silent=True) or {}
         order_id = _clean_int(data.get('order_id'))
@@ -183,7 +183,8 @@ def register_transfer_routes(app):
                 quantity = round_to_2_decimals(parse_float_value(item_data.get('quantity'), 0))
                 if quantity <= 0:
                     return api_error(f'物料 {material.code} 的数量必须大于0')
-                current_stock = normalize_stock_quantity(material.stock or 0)
+                from_stock = get_warehouse_stock_quantities(from_wh_obj).get(material.id, 0)
+                current_stock = normalize_stock_quantity(from_stock)
                 if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
                     return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
                 price = round_to_2_decimals(parse_float_value(item_data.get('price'), material.price or 0))
