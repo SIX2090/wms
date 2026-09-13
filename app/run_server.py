@@ -79,6 +79,32 @@ def _is_addr_in_use_error(exc: OSError) -> bool:
             or 'address already in use' in str(exc).lower())
 
 
+def _default_waitress_threads() -> int:
+    """按 CPU 核数自适应的 Waitress 默认线程数（BUG-2026-09-13-001）。
+
+    历史：默认值曾从 8 写死上调为 16（缓解生产日志中 queue depth 12 的排队）。
+    但生产部署多为 2 vCPU / 2GB 低配云主机：Python GIL 下同进程纯计算无法
+    多核并行，16 线程在 2 核机器上并不能提升吞吐，反而徒增内存占用
+    （每线程栈 + 每请求上下文）与上下文切换开销，间接加剧排队。
+
+    规则：4 线程起步，每核 4 线程，封顶 16（保持 4 核及以上机器的既有行为不变）。
+    """
+    cores = os.cpu_count() or 1
+    return max(4, min(16, cores * 4))
+
+
+def _resolve_waitress_threads(env) -> int:
+    """解析最终线程数：WMS_THREADS 环境变量显式设置时优先，否则用自适应默认。
+
+    环境变量值会 strip；空字符串/未设置视为未设置。非法值按原行为由 int() 抛错
+    （启动期快速失败，便于现场发现配置笔误）。
+    """
+    raw = (env.get("WMS_THREADS") or "").strip()
+    if raw:
+        return int(raw)
+    return _default_waitress_threads()
+
+
 def _github_auto_update_setting_enabled() -> bool:
     """Read system setting github_auto_update_enabled; default False if unavailable."""
     try:
@@ -125,9 +151,11 @@ def main():
     # 端口/Host 支持环境变量覆盖：CI 测试时用 WMS_PORT=18080 避免与本机服务冲突
     host = os.environ.get("WMS_HOST", app.config.get("HOST", "0.0.0.0"))
     port = int(os.environ.get("WMS_PORT", app.config.get("PORT", 8080)))
-    # 线程数 8→16：缓解并发请求打满线程池导致排队（日志曾出现 queue depth 12）。
-    # WAL 下读不持写锁，扩并发读线程是安全的；SQLite 写仍由 BEGIN IMMEDIATE 串行化。
-    threads = int(os.environ.get("WMS_THREADS", "16"))
+    # 线程数默认按 CPU 核数自适应（BUG-2026-09-13-001）：
+    # 曾写死 16（8→16 为缓解 queue depth 12），但生产多为 2 vCPU/2GB 低配云主机，
+    # GIL 下 16 线程不增吞吐，只增内存占用与上下文切换开销，反而加剧排队。
+    # WMS_THREADS 可显式覆盖；SQLite 写仍由 BEGIN IMMEDIATE 串行化。
+    threads = _resolve_waitress_threads(os.environ)
 
     print("=" * 60, flush=True)
     print("WMS server starting", flush=True)
