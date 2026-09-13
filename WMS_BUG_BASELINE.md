@@ -42,8 +42,8 @@
 ### MOBILE-PERMISSION-001（2026-09-13，权限体验修复）
 
 - Android 安装包只能声明危险权限，不能绕过系统静默授予相机/麦克风；原应用仅在扫码或语音功能进入后才分别请求，设备若已将权限设为“禁止”时现场才发现不可用。
-- `MainActivity` 现在首次启动即一次性请求 `CAMERA` 与 `RECORD_AUDIO`；两项均未授权前不进入业务导航，拒绝后显示中文原因和“去设置开启权限”入口。已授权设备不会重复弹窗，符合 Android 权限模型。
-- 回归：`tests/test_android_startup_permissions.py` 与扫码直开测试共 5 passed；本机无 Java/Android SDK，未完成 APK 编译和真机权限弹窗验收。
+- 首次实现的 Compose 权限门禁在现场版本出现启动即退出现象，无法取得设备 logcat，按最小风险回退为 Activity 原生 `requestPermissions`：业务导航正常启动，同时在 `onCreate` 请求 `CAMERA` 与 `RECORD_AUDIO`；拒绝时 Toast 提示，扫码/语音功能继续由各自入口做权限兜底。已授权设备不会重复弹窗。
+- 回归：`tests/test_android_startup_permissions.py` 与扫码直开测试共 5 passed；本机无 Java/Android SDK，未完成 APK 编译和真机权限弹窗验收，需安装新 APK 后确认不再崩溃。
 
 ## 判定规则
 

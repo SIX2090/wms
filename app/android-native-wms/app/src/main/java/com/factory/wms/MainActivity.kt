@@ -1,32 +1,16 @@
 package com.factory.wms
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.factory.wms.ui.navigation.AppNavGraph
 import com.factory.wms.ui.theme.WmsTheme
@@ -35,63 +19,35 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        requestStartupPermissions()
         setContent {
             WmsTheme {
-                PermissionGate()
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    AppNavGraph()
+                }
             }
         }
     }
 
-    @androidx.compose.runtime.Composable
-    private fun PermissionGate() {
-        val required = remember {
-            arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
-        }
-        var denied by remember { mutableStateOf(false) }
-        val launcher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { result ->
-            denied = required.any { result[it] != true &&
-                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
-        }
-        val missing = required.filter {
+    private fun requestStartupPermissions() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M) return
+        val missing = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO).filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
+        if (missing.isNotEmpty()) ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQUEST_STARTUP_PERMISSIONS)
+    }
 
-        LaunchedEffect(Unit) {
-            if (missing.isNotEmpty()) launcher.launch(required)
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_STARTUP_PERMISSIONS && grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
+            android.widget.Toast.makeText(this, "相机和麦克风权限未开启，可在系统设置中允许", android.widget.Toast.LENGTH_LONG).show()
         }
+    }
 
-        if (missing.isEmpty()) {
-            AppNavGraph()
-        } else {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text("WMS扫码需要相机和麦克风权限")
-                    Text(
-                        if (denied) "请在系统设置中开启相机和麦克风权限后继续使用。"
-                        else "首次启动需要开启相机和麦克风权限。"
-                    )
-                    Button(onClick = {
-                        if (denied) {
-                            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                data = Uri.parse("package:$packageName")
-                            })
-                        } else {
-                            launcher.launch(required)
-                        }
-                    }) {
-                        Text(if (denied) "去设置开启权限" else "允许相机和麦克风")
-                    }
-                }
-            }
-        }
+    private companion object {
+        private const val REQUEST_STARTUP_PERMISSIONS = 3001
     }
 }
