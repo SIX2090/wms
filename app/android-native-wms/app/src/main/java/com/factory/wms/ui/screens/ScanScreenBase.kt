@@ -29,6 +29,7 @@ import com.factory.wms.ui.components.WmsEmptyState
 import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
+import com.factory.wms.ui.components.ScanLocationSelector
 import com.factory.wms.ui.viewmodel.scan.SubmittedPrintInfo
 import com.factory.wms.util.formatQuantity
 import com.factory.wms.util.ScanFeedback
@@ -140,6 +141,9 @@ fun ScanScreenBase(
 
             // 可选的自定义横幅（如「语音草稿已生成」）
             banner?.invoke()
+            if (submitLabel == "提交入库" || submitLabel == "提交出库") {
+                ScanLocationSelector(viewModel)
+            }
             scanState.draftSaveError?.let { message ->
                 Text(message, color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))

@@ -7,7 +7,7 @@ ANDROID = ROOT / 'app/android-native-wms/app/src/main/java/com/factory/wms'
 
 def test_scan_merge_feedback_is_separate_from_submit_success():
     source = (ANDROID / 'ui/viewmodel/scan/ScanViewModel.kt').read_text(encoding='utf-8')
-    body = source.split('fun addScanLine(line: ScanLine)', 1)[1].split('fun existingLineQuantity', 1)[0]
+    body = source.split('fun addScanLine(', 1)[1].split('fun existingLineQuantity', 1)[0]
     assert 'scanFeedback =' in body
     assert '已累计' in body
     assert 'formatQuantity' in body

@@ -75,7 +75,7 @@ def test_add_scan_line_enriches_material_details():
     2026-09-03 重构（BUG-2026-09-03-003）：addScanLine 的异步补全抽为
     enrichScanLineMaterial(code) 私有函数供 add/replace 复用，锚点随之更新。
     """
-    assert "fun addScanLine(line: ScanLine)" in SCAN_VM
+    assert "fun addScanLine(incoming: ScanLine)" in SCAN_VM
     assert "private fun enrichScanLineMaterial(" in SCAN_VM
     assert "enrichScanLineMaterial(line.material_code)" in SCAN_VM
     assert "repository.getMaterialInfo(" in SCAN_VM

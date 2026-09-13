@@ -520,6 +520,21 @@ class WmsRepository(private val context: Context) {
         }
     }
 
+    suspend fun getLocationOptions(warehouseCode: String): Result<LocationOptions> {
+        return runCatching {
+            val items = mutableListOf<String>()
+            var page = 1
+            var last: LocationOptions
+            do {
+                last = safeCall { api.getLocationOptions(warehouseCode, page) }.getOrThrow()
+                check(last.enabled != null && last.totalPages != null) { "库位配置响应不完整" }
+                items.addAll(last.items.orEmpty())
+                page++
+            } while (page <= (last.totalPages ?: 0))
+            last.copy(items = items.distinct())
+        }
+    }
+
     suspend fun getWarehouses(): Result<List<WarehouseDto>> {
         return safeCall { api.getWarehouses() }
             .fold(

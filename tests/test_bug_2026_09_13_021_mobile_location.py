@@ -7,9 +7,12 @@ ROOT = Path(__file__).resolve().parents[1] / 'app/android-native-wms/app/src/mai
 def test_outbound_location_input_and_line_binding():
     source = (ROOT / 'ui/screens/ScanScreens.kt').read_text(encoding='utf-8')
     outbound = source.split('fun OutboundScreen(', 1)[1]
-    assert 'var locationCode' in outbound
-    assert '库位编码（启用库位管理时必填）' in outbound
-    assert outbound.count('location_code = locationCode.trim().ifBlank { null }') >= 2
+    assert outbound.count('location_code = uiState.selectedLocation.ifBlank { null }') >= 2
+    base = (ROOT / 'ui/screens/ScanScreenBase.kt').read_text(encoding='utf-8')
+    assert 'ScanLocationSelector(viewModel)' in base
+    selector = (ROOT / 'ui/components/ScanLocationSelector.kt').read_text(encoding='utf-8')
+    assert '扫描库位标签' in selector
+    assert 'continuous = false' in selector
 
 
 def test_location_is_sent_in_outbound_request():

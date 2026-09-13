@@ -113,6 +113,14 @@ interface WmsApiService {
     @GET("api/warehouses")
     suspend fun getWarehouses(): Response<ApiEnvelope<WarehousesListData>>
 
+    @GET("api/mobile/location/options")
+    suspend fun getLocationOptions(
+        @Query("warehouse_code") warehouseCode: String,
+        @Query("page") page: Int,
+        @Query("page_size") pageSize: Int = 100
+    ): Response<ApiEnvelope<LocationOptions>>
+
+
     /** 2026-09-12 领料部门下拉：启用部门列表 */
     @GET("api/departments")
     suspend fun getDepartments(): Response<ApiEnvelope<DepartmentsListData>>

@@ -1402,6 +1402,30 @@ def register_native_api_routes(app):
             'all_warehouses': all_warehouses,
         })
 
+    @app.route('/api/mobile/location/options')
+    @csrf.exempt
+    @api_role_required('warehouse', 'production')
+    def native_api_location_options(user):
+        from app import LocationInventory, api_json_error, api_json_success, location_management_enabled, resolve_request_warehouse
+        warehouse, error = resolve_request_warehouse(request.args)
+        if error:
+            return api_json_error(error, 400)
+        enabled = location_management_enabled()
+        page = max(1, request.args.get('page', 1, type=int) or 1)
+        page_size = min(100, max(1, request.args.get('page_size', 100, type=int) or 100))
+        query = db.session.query(LocationInventory.location).filter(
+            LocationInventory.warehouse_id == warehouse.id,
+            LocationInventory.location != '',
+        ).distinct()
+        total = query.count() if enabled else 0
+        rows = query.order_by(LocationInventory.location).offset((page - 1) * page_size).limit(page_size).all() if enabled else []
+        return api_json_success({
+            'warehouse_code': warehouse.code, 'enabled': enabled,
+            'items': [row[0] for row in rows], 'default_location': None,
+            'total': total, 'page': page, 'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size,
+        })
+
     @app.route('/api/mobile/stock/query')
     @csrf.exempt
     @web_or_api_required

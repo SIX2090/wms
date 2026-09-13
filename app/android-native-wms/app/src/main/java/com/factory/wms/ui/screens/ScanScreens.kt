@@ -58,7 +58,6 @@ fun InboundScreen(
     var showWarehouseDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
-    var locationCode by remember { mutableStateOf("") }
     var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -121,7 +120,7 @@ fun InboundScreen(
                     ScanLine(
                         material_code = manualCode.trim(),
                         quantity = manualQty.toDoubleOrNull() ?: 1.0,
-                        location_code = locationCode.trim().ifBlank { null }
+                        location_code = uiState.selectedLocation.ifBlank { null }
                     )
                 )
                 manualCode = ""
@@ -135,7 +134,7 @@ fun InboundScreen(
                 ScanLine(
                     material_code = barcode.trim(),
                     quantity = manualQty.toDoubleOrNull() ?: 1.0,
-                    location_code = locationCode.trim().ifBlank { null }
+                    location_code = uiState.selectedLocation.ifBlank { null }
                 )
             )
             manualCode = ""
@@ -247,13 +246,14 @@ fun OutboundScreen(
     var showEmployeeDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
-    var locationCode by remember { mutableStateOf("") }
     var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     // 语音建单跳转过来的物料行：只消费一次，随后立刻通知外部清空
     LaunchedEffect(voicePrefillLines) {
         if (voicePrefillLines.isNotEmpty()) {
+            viewModel.restoreEditDraft("outbound")
+            if (viewModel.uiState.value.pendingSubmissionId != null || viewModel.uiState.value.isLoading) return@LaunchedEffect
             voicePrefillLines.forEach { (code, qty) ->
                 viewModel.addScanLine(ScanLine(material_code = code, quantity = qty))
             }
@@ -335,7 +335,7 @@ fun OutboundScreen(
                     ScanLine(
                         material_code = manualCode.trim(),
                         quantity = manualQty.toDoubleOrNull() ?: 1.0,
-                        location_code = locationCode.trim().ifBlank { null }
+                        location_code = uiState.selectedLocation.ifBlank { null }
                     )
                 )
                 manualCode = ""
@@ -348,7 +348,7 @@ fun OutboundScreen(
                 ScanLine(
                     material_code = barcode.trim(),
                     quantity = manualQty.toDoubleOrNull() ?: 1.0,
-                    location_code = locationCode.trim().ifBlank { null }
+                    location_code = uiState.selectedLocation.ifBlank { null }
                 )
             )
             manualCode = ""
@@ -395,16 +395,6 @@ fun OutboundScreen(
                     onContractNoChange = { viewModel.onContractNoChange(it) },
                     onSelect = { viewModel.selectContract(it) },
                     accentColor = CardGreen
-                )
-                OutlinedTextField(
-                    value = locationCode,
-                    onValueChange = { locationCode = it },
-                    label = { Text("库位编码（启用库位管理时必填）") },
-                    placeholder = { Text("例如 A-01-02，也可扫描库位标签") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    enabled = !uiState.isLoading,
-                    leadingIcon = { Icon(Icons.Outlined.Place, contentDescription = null) }
                 )
             }
         },

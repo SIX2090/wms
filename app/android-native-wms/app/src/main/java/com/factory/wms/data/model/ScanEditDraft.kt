@@ -14,5 +14,7 @@ data class ScanEditDraft(
     val employee: EmployeeDto?,
     val contractNo: String,
     val requestId: String? = null,
-    val inboundBusinessType: String = "采购入库"
+    val inboundBusinessType: String = "采购入库",
+    val selectedLocation: String? = null,
+    val locationEnabled: Boolean? = null
 )

@@ -38,6 +38,10 @@ data class ScanUiState(
     val pendingSubmissionId: String? = null,
     val inboundBusinessType: String = "采购入库",
     val draftSaveError: String? = null,
+    val selectedLocation: String = "",
+    val locationEnabled: Boolean? = null,
+    val locationOptions: List<String> = emptyList(),
+    val locationError: String? = null,
     // 仓库选择（出入库必填，透传给后端）
     val warehouses: List<WarehouseDto> = emptyList(),
     val warehousesLoading: Boolean = false,
@@ -125,6 +129,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private var stockListSequence = 0
     private var stockListJob: Job? = null
     private val draftMutex = Mutex()
+    private val restoreMutex = Mutex()
     private var editDraftKey: String? = null
     private var editDraftOperation: String? = null
     private var editDraftJob: Job? = null
@@ -134,14 +139,15 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         return ScanEditDraft(
             state.scanLines.map { DraftScanLine(it, it.material_name, it.material_spec, it.material_brand) },
             state.selectedWarehouse, state.selectedDepartment, state.selectedEmployee,
-            state.contractNo, state.pendingSubmissionId, state.inboundBusinessType
+            state.contractNo, state.pendingSubmissionId, state.inboundBusinessType,
+            state.selectedLocation, state.locationEnabled
         )
     }
 
-    suspend fun restoreEditDraft(operation: String) {
+    suspend fun restoreEditDraft(operation: String) = restoreMutex.withLock {
         try {
             val key = repository.editDraftKey(operation)
-            if (key == editDraftKey) return
+            if (key == editDraftKey) return@withLock
             editDraftJob?.cancelAndJoin()
             _uiState.value = ScanUiState(isLoading = true)
             val draft = repository.loadEditDraft(key)
@@ -156,6 +162,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     selectedWarehouse = draft.warehouse, selectedDepartment = draft.department,
                     selectedEmployee = draft.employee, contractNo = draft.contractNo,
                     pendingSubmissionId = draft.requestId, inboundBusinessType = draft.inboundBusinessType,
+                    selectedLocation = draft.selectedLocation.orEmpty(), locationEnabled = draft.locationEnabled,
                     success = if (draft.requestId == null) "已恢复上次未提交清单，请核对仓库和数量"
                     else "已恢复待核实提交，请点提交核实原请求；核实前不可修改清单"
                 )
@@ -226,6 +233,50 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             return true
         }
         return false
+    }
+
+    fun selectLocation(value: String) {
+        if (draftEditingBlocked()) return
+        val location = value.trim()
+        if (location.length > 100) {
+            _uiState.value = _uiState.value.copy(locationError = "库位编码最长100字")
+            return
+        }
+        val lines = _uiState.value.scanLines.map { it.copy(location_code = location.ifBlank { null }) }
+        _uiState.value = _uiState.value.copy(selectedLocation = location, scanLines = lines, locationError = null)
+    }
+
+    fun loadLocationOptions() {
+        if (editDraftOperation == null) return
+        val code = _uiState.value.selectedWarehouse?.code ?: return
+        viewModelScope.launch {
+            val result = repository.getLocationOptions(code)
+            if (_uiState.value.selectedWarehouse?.code != code) return@launch
+            result.fold(onSuccess = { options ->
+                val state = _uiState.value
+                _uiState.value = state.copy(locationEnabled = options.enabled,
+                    locationOptions = options.items.orEmpty(), locationError = null)
+                if (state.pendingSubmissionId == null && !state.isLoading) {
+                    if (options.enabled == false) selectLocation("")
+                    else if (state.selectedLocation.isBlank()) options.defaultLocation?.let { selectLocation(it) }
+                }
+            }, onFailure = { error ->
+                _uiState.value = _uiState.value.copy(locationError = error.message ?: "库位配置加载失败，请重试")
+            })
+        }
+    }
+
+    private fun locationReadyForSubmission(): Boolean {
+        val state = _uiState.value
+        if (state.pendingSubmissionId != null) return true
+        val error = when {
+            state.locationEnabled == null -> "请先联网确认库位配置，再提交"
+            state.locationEnabled == true && (state.selectedLocation.isBlank() ||
+                state.scanLines.any { it.location_code != state.selectedLocation }) -> "请先选择本单库位，全部明细必须属于同一库位"
+            else -> null
+        }
+        if (error != null) _uiState.value = state.copy(error = error)
+        return error == null
     }
 
     /**
@@ -329,9 +380,11 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun addScanLine(line: ScanLine) {
+    fun addScanLine(incoming: ScanLine) {
         if (_uiState.value.isLoading) return
         if (draftEditingBlocked()) return
+        val line = if (editDraftOperation != null) incoming.copy(location_code =
+            if (_uiState.value.locationEnabled == false) null else _uiState.value.selectedLocation.ifBlank { null }) else incoming
         val current = _uiState.value.scanLines.toMutableList()
         val existingIndex = current.indexOfFirst { it.material_code == line.material_code && it.location_code.orEmpty() == line.location_code.orEmpty() }
         if (existingIndex >= 0) {
@@ -477,6 +530,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     // INV-BATCH-001-E：默认选中首仓后即拉取该仓进行中盘点单
                     if (first?.code != null) loadPendingCheckOrders()
+                    loadLocationOptions()
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(
@@ -593,10 +647,16 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         val changed = _uiState.value.selectedWarehouse?.code != warehouse.code
         _uiState.value = _uiState.value.copy(
             selectedWarehouse = warehouse,
+            selectedLocation = if (changed) "" else _uiState.value.selectedLocation,
+            locationEnabled = if (changed) null else _uiState.value.locationEnabled,
+            locationOptions = if (changed) emptyList() else _uiState.value.locationOptions,
+            scanLines = if (changed && editDraftOperation != null)
+                _uiState.value.scanLines.map { it.copy(location_code = null) } else _uiState.value.scanLines,
             checkOrders = if (changed) emptyList() else _uiState.value.checkOrders,
             selectedCheckOrder = if (changed) null else _uiState.value.selectedCheckOrder
         )
         if (changed) {
+            loadLocationOptions()
             _onWarehouseChanged?.invoke(warehouse)
             loadPendingCheckOrders()
             // AI-MOB-STOCK-F01：换仓后清空列表结果，避免展示上一仓数据误导用户；
@@ -932,6 +992,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submitInbound(businessType: String = "采购入库") {
         viewModelScope.launch {
+            if (!locationReadyForSubmission()) return@launch
             // BUG-2026-09-12-010：防重复提交守卫。
             // 每次提交都会 newRequestId() 生成**新**幂等键，后端只能靠幂等键去重，
             // 重复触发即两张单据、库存扣两次。此前仅靠 UI 关弹窗遮蔽（时序侥幸），
@@ -999,6 +1060,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submitOutbound() {
         viewModelScope.launch {
+            if (!locationReadyForSubmission()) return@launch
             // BUG-2026-09-12-010：防重复提交守卫（同 submitInbound，重复点按＝新幂等键＝重复单据）
             if (_uiState.value.isLoading) return@launch
             val state = _uiState.value
