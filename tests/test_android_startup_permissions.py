@@ -14,7 +14,7 @@ def test_manifest_declares_camera_and_microphone():
 
 def test_startup_requests_both_permissions_before_app_navigation():
     source = MAIN.read_text(encoding='utf-8')
-    assert 'ActivityCompat.requestPermissions' in source
+    assert 'requestPermissions(missing.toTypedArray(), REQUEST_STARTUP_PERMISSIONS)' in source
     assert 'Manifest.permission.CAMERA' in source
     assert 'Manifest.permission.RECORD_AUDIO' in source
     assert 'AppNavGraph()' in source
