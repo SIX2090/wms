@@ -15403,52 +15403,47 @@ def _ai_sf_query_partial_stalled():
         return 0, []
 
 def _ai_sf_query_short_stock():
-    """AI-SALES-F02 缺货待核对：SalesOrderItem.quantity > material.stock。返回 (count, list[dict])。"""
+    """AI-SALES-F02 ??????????????????"""
     try:
-        from sqlalchemy import func as _func
-        # 联接 Material 表查 quantity > stock（Material.stock 是字符串，需 cast）
-        # 简化：取 SalesOrderItem join Material，过滤数量大于库存
-        records = (
-            db.session.query(SalesOrderItem, Material)
-            .join(Material, SalesOrderItem.material_id == Material.id)
-            .join(SalesOrder, SalesOrderItem.sales_order_id == SalesOrder.id)
-            .filter(
-                SalesOrder.status.in_(['draft', 'confirmed']),
-                SalesOrder.shipment_status.in_(['pending', 'partial']),
-            )
-            .order_by(SalesOrderItem.id.desc())
-            .limit(50)
-            .all()
-        )
-        items = []
-        count = 0
-        for it, mat in records:
-            qty = it.quantity or 0
-            # Material.stock 是字符串，需安全转 float
-            try:
-                stock_val = float(mat.stock or 0)
-            except (TypeError, ValueError):
-                stock_val = 0.0
-            # 已发货数量从 SalesOrderItem.shipped_quantity
-            shipped = it.shipped_quantity or 0
-            pending_qty = qty - shipped
+        records = (db.session.query(SalesOrderItem, Material, SalesOrder)
+                   .join(Material, SalesOrderItem.material_id == Material.id)
+                   .join(SalesOrder, SalesOrderItem.sales_order_id == SalesOrder.id)
+                   .filter(SalesOrder.status.in_(['draft', 'confirmed']),
+                           SalesOrder.shipment_status.in_(['pending', 'partial']))
+                   .order_by(SalesOrderItem.id.desc()).all())
+        warehouse_by_order, stock_by_warehouse = {}, {}
+        for _, _, order in records:
+            if order.id in warehouse_by_order:
+                continue
+            warehouse, error = validate_sales_warehouse(order.warehouse, order.warehouse_id)
+            if not warehouse:
+                app.logger.warning('AI-SALES-F02 skip order %s: invalid warehouse (%s)', order.id, error or 'unknown')
+                continue
+            warehouse_by_order[order.id] = warehouse
+            stock_by_warehouse.setdefault(warehouse.id, get_warehouse_stock_quantities(warehouse))
+        items, count = [], 0
+        for item, material, order in records:
+            warehouse = warehouse_by_order.get(order.id)
+            if not warehouse:
+                continue
+            stock_val = float(stock_by_warehouse[warehouse.id].get(material.id, 0) or 0)
+            quantity = float(item.quantity or 0)
+            shipped = float(item.shipped_quantity or 0)
+            pending_qty = max(0.0, quantity - shipped)
             if pending_qty > stock_val:
                 count += 1
                 if len(items) < 5:
                     shortage = pending_qty - stock_val
-                    so = it.sales_order
-                    items.append({
-                        'id': it.id,
-                        'title': f'{so.order_no if so else ""} - {mat.code or ""}',
-                        'subtitle': mat.name or '未知物料',
-                        'detail': f'应发 {pending_qty} 库存 {stock_val}，缺 {shortage}',
-                        'jump_url': f'/sales_order/detail/{so.id}' if so else '/sales_order/list',
-                        'metric_scope': 'SalesOrderItem.quantity - shipped_quantity > Material.stock',
-                        'extra': {'quantity': qty, 'shipped': shipped, 'stock': stock_val, 'shortage': shortage},
-                    })
+                    items.append({'id': item.id, 'title': f'{order.order_no or ""} - {material.code or ""}',
+                                  'subtitle': material.name or '????',
+                                  'detail': f'?? {warehouse.name}??? {pending_qty} ?? {stock_val}?? {shortage}',
+                                  'jump_url': f'/sales_order/detail/{order.id}',
+                                  'metric_scope': 'SalesOrderItem.pending_quantity > warehouse stock; count is full result set',
+                                  'extra': {'quantity': quantity, 'shipped': shipped, 'stock': stock_val,
+                                            'shortage': shortage, 'warehouse_id': warehouse.id}})
         return count, items
     except Exception as exc:  # noqa: BLE001
-        app.logger.warning(f'查询缺货待核对异常: {exc}')
+        app.logger.warning(f'?????????: {exc}')
         return 0, []
 
 def _ai_sf_query_customer_urgency():
@@ -15544,74 +15539,65 @@ def _ai_sf_query_merge_candidates():
         return 0, []
 
 def _ai_sf_query_customer_followup_list():
-    """AI-SALES-F02 客户跟进清单：按客户归组的待跟进订单汇总。返回 list[dict]。"""
+    """AI-SALES-F02 ?????????????????????"""
     try:
         from datetime import date as _date
         today = _date.today()
-        orders = (
-            SalesOrder.query.options(joinedload(SalesOrder.customer))
-            .filter(SalesOrder.status.in_(['draft', 'confirmed']))
-            .filter(SalesOrder.shipment_status.in_(['pending', 'partial']))
-            .all()
-        )
-        customer_map: dict[int, dict] = {}
-        for o in orders:
-            cid = o.customer_id or 0
+        orders = (SalesOrder.query.options(joinedload(SalesOrder.customer))
+                  .filter(SalesOrder.status.in_(['draft', 'confirmed']))
+                  .filter(SalesOrder.shipment_status.in_(['pending', 'partial'])).all())
+        customer_map = {}
+        for order in orders:
+            cid = order.customer_id or 0
             if cid not in customer_map:
-                cname = (o.customer.name if o.customer else '') or f'客户#{cid}'
-                customer_map[cid] = {
-                    'customer_id': cid,
-                    'customer_name': cname,
-                    'pending_count': 0,
-                    'overdue_count': 0,
-                    'short_stock_count': 0,
-                    'order_ids': [],
-                }
-            customer_map[cid]['order_ids'].append(o.id)
-            if o.delivery_date and o.delivery_date >= today:
+                cname = (order.customer.name if order.customer else '') or f'??#{cid}'
+                customer_map[cid] = {'customer_id': cid, 'customer_name': cname,
+                                     'pending_count': 0, 'overdue_count': 0,
+                                     'short_stock_count': 0, 'order_ids': []}
+            customer_map[cid]['order_ids'].append(order.id)
+            if order.delivery_date and order.delivery_date >= today:
                 customer_map[cid]['pending_count'] += 1
-            elif o.delivery_date and o.delivery_date < today:
+            elif order.delivery_date and order.delivery_date < today:
                 customer_map[cid]['overdue_count'] += 1
-            # 统计该订单的缺货明细
-            for it in (o.items or []):
-                try:
-                    stock_val = float(it.material.stock or 0) if it.material else 0.0
-                except (TypeError, ValueError):
-                    stock_val = 0.0
-                pending_qty = (it.quantity or 0) - (it.shipped_quantity or 0)
+        warehouse_by_order, stock_by_warehouse = {}, {}
+        for order in orders:
+            warehouse, error = validate_sales_warehouse(order.warehouse, order.warehouse_id)
+            if not warehouse:
+                app.logger.warning('AI-SALES-F02 skip order %s: invalid warehouse (%s)', order.id, error or 'unknown')
+                continue
+            warehouse_by_order[order.id] = warehouse
+            stock_by_warehouse.setdefault(warehouse.id, get_warehouse_stock_quantities(warehouse))
+        for order in orders:
+            warehouse = warehouse_by_order.get(order.id)
+            if not warehouse:
+                continue
+            stock_map = stock_by_warehouse[warehouse.id]
+            for item in (order.items or []):
+                stock_val = float(stock_map.get(item.material_id, 0) or 0)
+                pending_qty = max(0.0, float(item.quantity or 0) - float(item.shipped_quantity or 0))
                 if pending_qty > stock_val:
-                    customer_map[cid]['short_stock_count'] += 1
-
+                    customer_map[order.customer_id or 0]['short_stock_count'] += 1
         result = []
         for cid, info in customer_map.items():
-            pending = info['pending_count']
-            overdue = info['overdue_count']
-            short = info['short_stock_count']
+            pending, overdue, short = info['pending_count'], info['overdue_count'], info['short_stock_count']
             if overdue > 0:
-                suggestion = f'{info["customer_name"]} 有 {overdue} 张逾期订单，建议优先催发货。'
+                suggestion = f'{info["customer_name"]} ? {overdue} ??????????????'
             elif short > 0:
-                suggestion = f'{info["customer_name"]} 有 {short} 条缺货明细，建议跟进出库时间。'
+                suggestion = f'{info["customer_name"]} ? {short} ???????????????'
             elif pending > 0:
-                suggestion = f'{info["customer_name"]} 有 {pending} 张待发订单，建议确认发货时间。'
+                suggestion = f'{info["customer_name"]} ? {pending} ???????????????'
             else:
-                suggestion = f'{info["customer_name"]} 暂无待跟进事项。'
-            result.append({
-                'customer_id': cid,
-                'customer_name': info['customer_name'],
-                'pending_count': pending,
-                'overdue_count': overdue,
-                'short_stock_count': short,
-                'followup_suggestion': suggestion,
-                'needs_manual_confirmation': True,  # 对外沟通必须人工确认
-                'jump_url': f'/sales_order/list?customer_id={cid}',
-            })
+                suggestion = f'{info["customer_name"]} ????????'
+            result.append({'customer_id': cid, 'customer_name': info['customer_name'],
+                           'pending_count': pending, 'overdue_count': overdue,
+                           'short_stock_count': short, 'followup_suggestion': suggestion,
+                           'needs_manual_confirmation': True,
+                           'jump_url': f'/sales_order/list?customer_id={cid}'})
         result.sort(key=lambda x: (-(x['overdue_count'] + x['short_stock_count']), x['customer_name']))
         return result[:20]
     except Exception as exc:  # noqa: BLE001
-        app.logger.warning(f'查询客户跟进清单异常: {exc}')
+        app.logger.warning(f'??????????: {exc}')
         return []
-
-# ===== AI-R12 知识库版本生命周期 ORM adapter =====
 
 def _ai_kv_query_all_versions():
     """AI-R12 查询所有知识版本（含未发布）。返回 list[KnowledgeVersion]。"""
