@@ -76,12 +76,24 @@
   | `verify_android_offline_hint::t3` | 正则要求 `materialDao.getByCode`，实际为 `runCatching { materialDao?.getByCode }` | 正则放宽，仍强制 `fromCache`/`cachedAtMillis` 语义 |
   | `verify_bug_2026_08_11_004::t3` | 断言 `submitOpeningStock` 内直调 `operationLogDao.insert`，实际已统一走 `logOperation()` | 断言改为必须调用 `logOperation()` + 全文件校验落库链路仍在 |
 - **补充验证（2026-09-14）**：上述 6 个测试 + 本 BUG 新增回归 **40 passed**；**全量 pytest 1724 passed / 85 skipped / 0 failed**（286s）；`lint_wms_rules.py --staged` **0 违规**。
-- **APK 分发链核验（2026-09-14，重要）**：经 `gh-proxy.com` 打通 GitHub API（`api.github.com` 直连 000、`ghproxy.net` 对 API 返 403），实测：
-  - `#481` 本次推送触发，`failure`；`#970` WMS CI 同批 `failure`（即上述两组问题）。
-  - 固定 Release 资产 `wms-mobile-scan.apk` 下载完整（25,095,687 B，SHA256 `92a46c14…be2dbe2e`，CRC 全通过）。
-  - **该 APK 解析出 `versionCode=15` / `versionName=3.8.0`，而源码为 `versionCode=14`；`git log --all -S "versionCode = 15"` 全历史检索无任何提交** → 包来源不明。
-  - **dex 常量池中不存在本次修复的任何标志串**（`本地数据库不可用`、`加密存储不可用`、`resetSecurePrefsFile`、`createEncryptedPrefs`、`safeCache`、`logOperation` 全部缺失；对照组 `wms_database`/`wms_secure_prefs`/`WmsRepo` 均存在）→ **Release 上的包是修复前旧代码**。
-  - **结论**：现场「重装仍是老问题」的直接原因是**分发链断裂**——CI 自 #424 起持续失败，Release 资产从未被新包覆盖，固定直链永远发旧包。CI 修复转绿前，现场无论如何重装都拿不到修复版。
+- **APK 分发链核验（2026-09-14）——含一处自我更正**：
+  - 经 `gh-proxy.com` 打通 GitHub API（`api.github.com` 直连 000、`ghproxy.net` 对 API 返 403），可读 Actions 状态与日志。
+  - `#481`（`b6497c7`）`failure`；`#970` WMS CI 同批 `failure`。二者根因已定位并修复（见上两条）。
+  - 修复推送 `1c8c67d` 后：**`#482 Android APK Build` = success**（#423 以来首次全绿，13 步含 assembleRelease / lintRelease / testReleaseUnitTest / 上传 APK / 发布 Release 全通过）、**`#971 WMS CI` = success**、`#1266 WMS AI Verification` = success。
+  - **⚠ 自我更正**：先前据 AXML 字符串池顺序误判「Release APK 的 `versionCode=15`，全历史不存在，属幽灵包」。用 `pyaxmlparser` 精确解析后确认真实值为 **`versionCode=14` / `versionName=3.8.0`**，与源码 `build.gradle.kts` **完全一致**；字符串池中的 `'15'` 实为 `minSdkVersion` 的残留，属解析误读。**「版本号幽灵包」结论作废。**
+  - **但「现场装的是旧包」这一核心判断仍然成立，且有更强证据**：对 Release 资产做 dex 常量池逐项比对——
+    | 修复标志串（本次新增） | 旧包（#481 前，SHA `92a46c14…`） | 新包（#482 后，SHA `2fb3e7dc…`） |
+    |---|---|---|
+    | `本地数据库不可用` | 无 | **有** |
+    | `加密存储不可用` | 无 | **有** |
+    | `降级为无本地缓存` | 无 | **有** |
+    | `降级为待登录状态` | 无 | **有** |
+    | `读取 token 失败，按未登录处理` | 无 | **有** |
+    | `会话还原失败，降级为未登录` | 无 | **有** |
+    | `建库失败，尝试删除本地库重建` | 无 | **有** |
+    | 对照组 `wms_database` / `wms_secure_prefs` / `WmsRepo` / `离线队列预热失败` | 有 | 有 |
+  - **结论**：CI 自 #424 起持续失败期间，Release 资产确实停在 #423 时代的旧代码（无任何本次修复标志串），这解释了「现场重装仍是老问题」。**现已修复：`#482` 转绿并成功发布新包，新包经 dex 级验证确认包含全部三层兜底修复。**
+  - **生效条件**：用户需**卸载旧包后重新安装**新版（`app-release.apk` / Release 直链 `wms-mobile-scan.apk`）。因 `versionCode` 仍为 14 未递增，覆盖安装可能被系统拒（同版本号覆盖），**卸载重装是稳妥路径**；建议后续提交统一递增 `versionCode`。
 
 ## 判定规则
 
