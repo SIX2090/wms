@@ -298,13 +298,16 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
      * 否则他会以为提交失败而重扫一遍，反而制造重复单据。
      */
     init {
+        // BUG-2026-09-13-023：本地库不可用时 offlineQueue 为 null（降级为无离线能力），
+        // 此时不订阅计数流，页面按"无待同步"呈现，不得因此崩溃。
+        val queue = repository.offlineQueue ?: return
         viewModelScope.launch {
-            repository.offlineQueue.pendingCount.collect { count ->
+            queue.pendingCount.collect { count ->
                 _uiState.value = _uiState.value.copy(offlinePendingCount = count)
             }
         }
         viewModelScope.launch {
-            repository.offlineQueue.failedCount.collect { count ->
+            queue.failedCount.collect { count ->
                 _uiState.value = _uiState.value.copy(offlineFailedCount = count)
             }
         }
@@ -312,7 +315,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     /** AI-MOB-OFFLINE-01：人工重试全部失败记录并立即尝试补传。 */
     fun retryOfflineSync() {
-        repository.offlineQueue.retryFailed()
+        repository.offlineQueue?.retryFailed()
     }
 
     /**

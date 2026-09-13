@@ -47,6 +47,21 @@
 - `ad39926` 的 Android APK Build #474 曾显示红叉，但该运行日志接口返回 GitHub 403，无法取得具体编译错误；本地同样因无 Java/SDK 无法重现。当前源码已改为 Activity 原生请求，后续新提交的 CI 结果作为实际构建依据。
 - `76c8fea` 触发的新构建仍在同一 Build Release 步骤失败；本次进一步去掉 `ActivityCompat` 依赖，直接调用 Activity 原生 `requestPermissions`，减少厂商/依赖兼容面。
 
+### BUG-2026-09-13-023（2026-09-13，Android 启动崩溃：本地持久化未兜底）
+
+- **现场证据**：用户截图 `Screenshot_20260913_235020_com.factory.wms.jpg`，系统弹「WMS扫码屡次停止运行」，状态栏「取货中」。`WMS扫码` 即 `com.factory.wms` 的 `android:label`，`MainActivity` 为唯一 Activity（Compose 单 Activity 架构），故为**主进程启动期崩溃**，非单功能失效。
+- **根因（代码实证，非推测）**：崩溃点在**数据持久化层**，不在权限层。`AppNavGraph` 组合期一次性创建 11 个 ViewModel（`NavGraph.kt:81-91`），每个都构造 `WmsRepository`；而 `WmsRepository` 构造期同步执行 `AppDatabase.getDatabase(context)`（Room 建库），且 `encryptedPrefs` 用 `EncryptedSharedPreferences`（依赖 Android Keystore）。`AuthViewModel.init` 的协程**直接读取**两者且**无 try/catch**：任一步失败（Keystore 失效 / 库文件损坏 / 磁盘满）都会让协程抛未捕获异常 → 杀进程。佐证：同文件 `logout()` 早已有 try/catch，**`getSavedToken()` 没有**——不对称。
+- **为何前 5 次修复无效**：`MOBILE-PERMISSION-001` 的 `90a0ef9`/`ad39926`/`b9516a9`/`e950815` 全部围绕权限门禁，方向本身偏离根因；且该缺陷登记已写明「无法取得设备 logcat」，属**盲改**。权限门禁只需从主路径移开即可（现版本已正确），但数据层未兜底，崩溃条件依然存在。
+- **修复（三层兜底，均降级不中断启动）**：
+  ① `WmsRepository.kt`：`db` 改 `AppDatabase?`（构造期建库失败降级为无本地缓存）；`encryptedPrefs` 改可空（创建失败置 null 并删除损坏 prefs 文件）；`getSavedToken()` 自身 try/catch；`saveLoginInfo` 写失败不阻断登录；`logout()` 的 DataStore 清理补 try/catch；新增 `safeCache()` / `logOperation()` 统一入口，本地写失败只记 WARN；`offlineQueue` 改可空（本地库不可用时降级为直连提交，入队前判空且**不谎报"已暂存"**）。
+  ② `AppDatabase.kt`：`getDatabase()` 建库失败先 `deleteDatabase` 再重建一次（本地库为可重建缓存，不值得牺牲启动）；抽出 `buildDatabase()` 并提常量 `DB_NAME`。
+  ③ `AuthViewModel.kt`：会话还原整体 try/catch，失败降级为未登录（`isLoggedIn=false`），绝不因本地缓存问题导致 App 打不开；401 登出链路同样兜底。
+  连带适配：`ScanViewModel` 订阅离线计数改可空安全调用。
+- **R6 同根因排查**：全量 grep 可空引用连锁，发现并修复 `recordOperationLog` 内 **3 处** `operationLogDao.insert` 未改安全调用（`db` 可空化后会编译失败），另行核对 `WmsApplication.warmUpOfflineQueue` 已用 `runCatching` 无需改。
+- **验证**：新增 `tests/test_android_startup_crash_resilience.py` **7/7 passed**（锁死三层兜底断言，防后续重构删掉 try/catch 导致复发）；相关安卓/移动端回归 **177 passed / 4 skipped**；**全量 pytest 1724 passed / 85 skipped / 0 failed**；`lint_wms_rules.py --staged` **0 违规**。
+- **未完成项（重要）**：沙箱无 Java/Android SDK（历史工具链已随沙箱重建丢失，重新下载 kotlinc 仅得 2.9MB 残缺包），**未能执行 `./gradlew assembleRelease`**。按 `BUG-2026-09-12-006` 已确立规则「Kotlin 改动须以 CI `assembleRelease` 结果为唯一验收依据，未确认 CI 转绿不得声称完成」，**本次修复的编译验收仍待 CI 确认**。
+- **阻塞线索（需现场核对）**：台账 `MOBILE-PERMISSION-001` 已记 `Android APK Build` 自 **#424** 起每次在 `Build Release APK (R8 瘦身)` 步骤失败（**#423 为最后一个绿版**）。若该状态持续，则 **APK 产物从未更新**，现场设备安装的始终是 #423 之前的旧包——这可能是「装了新包仍是同样问题」的直接原因。需在 Actions 页面确认最新构建是否转绿。
+
 ## 判定规则
 
 | BUG-2026-09-13-008 | [P0] 微信助手编码损坏及字面反引号换行导致 SyntaxError，模块无法加载且全量 pytest 收集中断 | **已修复并验证（2026-09-13），发布以本次 Git 记录为准**：根因为 f46e472/27b330a 的错误文本写入；依据原始 51ddf0c 恢复完整 UTF-8 内容和被吞并的代码行，保留预期的中文安全错误提示，改为只记录异常类型的 warning，禁止回传异常原文或 traceback 刷屏。R6：复查 BUG-2026-08-11-009 与 08-16-019；恢复既有发送串行锁、焦点校验、无 token 拒绝逻辑，不触发实际微信发送。新增模拟 /send 解析异常的回归，相关 pytest 12 passed；py_compile 通过。全量 pytest tests -q --tb=short：1626 passed、85 skipped、4 failed（253 秒），四项均为既有 Windows 路径和图片文件占用问题：test_auto_migrate_db_path 两项、test_material_image_static_path 两项；收集阻断已解除，未进行真实微信发送。 |

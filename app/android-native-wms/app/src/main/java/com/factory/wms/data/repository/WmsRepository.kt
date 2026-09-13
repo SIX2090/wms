@@ -30,38 +30,88 @@ class WmsRepository(private val context: Context) {
 
     private val api: WmsApiService
         get() = RetrofitClient.apiService
-    private val db: AppDatabase = AppDatabase.getDatabase(context)
-    private val materialDao = db.materialDao()
-    private val operationLogDao = db.operationLogDao()
-    private val pendingOperationDao = db.pendingOperationDao()
+    // BUG-2026-09-13-023：本地数据层（Room）失败不应导致 App 无法启动。
+    // 本类由 AppNavGraph 组合期的 11 个 ViewModel 同时构造，构造期抛异常 = 闪退。
+    // 本地库只存物料缓存、操作日志与离线待传队列（均可重建、非权威数据），
+    // 故降级为"无本地缓存"继续运行；离线队列在 db 为空时不可用（降级为直连模式）。
+    private val db: AppDatabase? = try {
+        AppDatabase.getDatabase(context)
+    } catch (e: Exception) {
+        android.util.Log.w(
+            "WmsRepo",
+            "本地数据库不可用，已降级为无本地缓存: ${e.javaClass.simpleName}: ${e.message}"
+        )
+        null
+    }
+    private val materialDao = db?.materialDao()
+    private val operationLogDao = db?.operationLogDao()
+    private val pendingOperationDao = db?.pendingOperationDao()
 
     /**
      * AI-MOB-OFFLINE-01：离线待提交作业队列。
      *
      * 网络不可用时把**人工已确认的提交**暂存本地，联网后自动补传（幂等，不产生重复单据）。
      * lazy 避免构造期就注册网络回调。
+     * BUG-2026-09-13-023：db 为空（本地库不可用）时返回 null，
+     * 由调用方降级为直连提交，不得因离线能力缺失阻塞启动。
      */
-    val offlineQueue: OfflineQueueManager by lazy {
+    val offlineQueue: OfflineQueueManager? by lazy {
+        val dao = pendingOperationDao ?: return@lazy null
         OfflineQueueManager.getInstance(
             context,
-            pendingOperationDao,
+            dao,
             api,
             NetworkMonitor.getInstance(context)
         )
     }
 
     // EncryptedSharedPreferences for sensitive token storage
-    private val encryptedPrefs by lazy {
+    //
+    // BUG-2026-09-13-023（启动崩溃）：EncryptedSharedPreferences 依赖 Android Keystore。
+    // 在下列场景 MasterKey 会失效并抛 GeneralSecurityException / IOException 等**运行时异常**：
+    //   - 用户清除应用数据 / 恢复出厂后残留旧密钥别名；
+    //   - 换机由系统备份还原（备份不包含 Keystore 密钥）；
+    //   - 部分厂商 ROM 的 Keystore 实现缺陷（个别机型冷启动时密钥暂不可用）；
+    //   - 系统时间被大幅调整导致密钥失效。
+    // 该异常发生在 AuthViewModel.init 的协程中，未捕获会直接杀进程 → "应用屡次停止运行"。
+    // 处理策略：捕获后返回 null（等价于"无已保存凭据"），交由登录页走正常登录流程；
+    // 同时删除损坏的 prefs 文件，让下一次写入重建一份干净密钥，避免永久不可用。
+    private val encryptedPrefs: android.content.SharedPreferences? by lazy {
+        try {
+            createEncryptedPrefs()
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "WmsRepo",
+                "加密存储不可用，已降级为待登录状态: ${e.javaClass.simpleName}: ${e.message}"
+            )
+            resetSecurePrefsFile()
+            null
+        }
+    }
+
+    private fun createEncryptedPrefs(): android.content.SharedPreferences {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
-        EncryptedSharedPreferences.create(
+        return EncryptedSharedPreferences.create(
             context,
-            "wms_secure_prefs",
+            SECURE_PREFS_NAME,
             masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
+    }
+
+    /** 删除损坏的加密 prefs 文件（含日记文件），下次写入会以新密钥重建，避免永久卡死。 */
+    private fun resetSecurePrefsFile() {
+        try {
+            val prefsFile = java.io.File(context.filesDir.parentFile, "shared_prefs/$SECURE_PREFS_NAME.xml")
+            if (prefsFile.exists() && !prefsFile.delete()) {
+                android.util.Log.w("WmsRepo", "损坏的加密 prefs 文件删除失败: ${prefsFile.name}")
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("WmsRepo", "重置加密 prefs 失败: ${e.message}")
+        }
     }
 
     companion object {
@@ -95,6 +145,7 @@ class WmsRepository(private val context: Context) {
         ) : Exception("网络不可用，$operationLabel 已暂存，联网后自动提交")
 
         private const val KEY_TOKEN = "auth_token"
+        private const val SECURE_PREFS_NAME = "wms_secure_prefs"
         private val KEY_BASE_URL = stringPreferencesKey("base_url")
         private val KEY_USERNAME = stringPreferencesKey("username")
         private val KEY_ROLE = stringPreferencesKey("role")
@@ -106,8 +157,18 @@ class WmsRepository(private val context: Context) {
     // 在请求重试/网络抖动时避免重复入库、重复扣库存。
     private fun newRequestId(): String = UUID.randomUUID().toString()
 
+    /**
+     * 读取已保存 token。加密存储不可用时返回 null（等价"未登录"），
+     * 绝不向上抛异常——本方法在 App 冷启动链路中被调用，抛异常即闪退。
+     */
     suspend fun getSavedToken(): String? {
-        return encryptedPrefs.getString(KEY_TOKEN, null)
+        return try {
+            encryptedPrefs?.getString(KEY_TOKEN, null)
+        } catch (e: Exception) {
+            // getString 本身也可能因密钥中途失效（如 Keystore 被系统回收）抛异常
+            android.util.Log.w("WmsRepo", "读取 token 失败，按未登录处理: ${e.message}")
+            null
+        }
     }
 
     suspend fun getSavedBaseUrl(): String? {
@@ -179,7 +240,12 @@ class WmsRepository(private val context: Context) {
 
     suspend fun saveLoginInfo(token: String, baseUrl: String, username: String, role: String) {
         // Token stored in EncryptedSharedPreferences
-        encryptedPrefs.edit().putString(KEY_TOKEN, token).apply()
+        // 写失败不阻断登录：内存态 token 已足够本次会话使用，仅"下次冷启动需重新登录"。
+        try {
+            encryptedPrefs?.edit()?.putString(KEY_TOKEN, token)?.apply()
+        } catch (e: Exception) {
+            android.util.Log.w("WmsRepo", "保存 token 失败（本次会话仍可用）: ${e.message}")
+        }
         // Non-sensitive data stored in DataStore
         context.dataStore.edit {
             it[KEY_BASE_URL] = baseUrl
@@ -196,13 +262,18 @@ class WmsRepository(private val context: Context) {
         // logout() 流程必须先清空本地凭据，再清空 DataStore + RetrofitClient 内存。
         // 加密 prefs 的 clear() 是同步操作（commit 而非 apply），保证 logout 返回时数据已落盘。
         try {
-            encryptedPrefs.edit().clear().commit()
+            encryptedPrefs?.edit()?.clear()?.commit()
         } catch (e: Exception) {
             // 加密 prefs 清空失败不阻塞 logout 流程（已下台仍应可继续）
             android.util.Log.w("WmsRepo", "清空加密 prefs 失败: ${e.message}")
         }
-        // Clear non-sensitive data
-        context.dataStore.edit { it.clear() }
+        // DataStore 清空失败同样不应阻断登出：内存态 token 一定会被清掉，
+        // 最坏情况是下次冷启动仍读到旧 baseUrl（用户改一次即恢复）。
+        try {
+            context.dataStore.edit { it.clear() }
+        } catch (e: Exception) {
+            android.util.Log.w("WmsRepo", "清空 DataStore 失败: ${e.message}")
+        }
         RetrofitClient.setToken(null)
     }
 
@@ -339,15 +410,15 @@ class WmsRepository(private val context: Context) {
             val result = handleResponse<MaterialDto>(response)
             result.fold(
                 onSuccess = { dto ->
-                    // 成功后更新缓存
-                    materialDao.insert(dto.toEntity())
+                    // 成功后更新缓存（本地库不可用时跳过，不影响主流程）
+                    safeCache { materialDao?.insert(dto.toEntity()) }
                 },
                 onFailure = { }
             )
             result
         } catch (e: Exception) {
             // 网络不可用时，回退到 Room 本地缓存
-            val cached = materialDao.getByCode(code)
+            val cached = runCatching { materialDao?.getByCode(code) }.getOrNull()
             if (cached != null) {
                 // AI-MOB-OFFLINE-HINT-01：标记为缓存数据并带上写入时间。
                 // 不给标记的话，UI 无法区分"实时库存 5"与"三天前的 5"，
@@ -361,6 +432,33 @@ class WmsRepository(private val context: Context) {
             } else {
                 Result.failure(BusinessException(e.message ?: "网络错误"))
             }
+        }
+    }
+
+    /** 本地缓存写入统一入口：失败只记日志，绝不影响网络主流程。 */
+    private suspend fun safeCache(block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: Exception) {
+            android.util.Log.w("WmsRepo", "本地缓存写入失败（已忽略）: ${e.message}")
+        }
+    }
+
+    private suspend fun logOperation(
+        operationType: String,
+        orderNo: String?,
+        materialCode: String,
+        quantity: Double
+    ) {
+        safeCache {
+            operationLogDao?.insert(
+                OperationLogEntity(
+                    operationType = operationType,
+                    orderNo = orderNo,
+                    materialCode = materialCode,
+                    quantity = quantity
+                )
+            )
         }
     }
 
@@ -446,7 +544,10 @@ class WmsRepository(private val context: Context) {
             Result.failure(e)
         } catch (e: Exception) {
             // 网络类失败：尝试入队暂存
-            val queued = offlineQueue.enqueue(
+            // BUG-2026-09-13-023：本地库不可用时 offlineQueue 为 null（降级为无离线能力），
+            // 此时按"暂存失败"处理，明确告知用户数据未保住，绝不能谎报已暂存。
+            val queue = offlineQueue
+            val queued = queue != null && queue.enqueue(
                 requestId = requestId,
                 operationType = operationType,
                 payload = payload,
@@ -476,7 +577,7 @@ class WmsRepository(private val context: Context) {
         runCatching {
             when (payload) {
                 is InboundRequest -> payload.lines.forEach { line ->
-                    operationLogDao.insert(
+                    operationLogDao?.insert(
                         OperationLogEntity(
                             operationType = operationType,
                             orderNo = submitResult.order_no,
@@ -487,7 +588,7 @@ class WmsRepository(private val context: Context) {
                 }
 
                 is OutboundRequest -> payload.lines.forEach { line ->
-                    operationLogDao.insert(
+                    operationLogDao?.insert(
                         OperationLogEntity(
                             operationType = operationType,
                             orderNo = submitResult.order_no,
@@ -498,7 +599,7 @@ class WmsRepository(private val context: Context) {
                 }
 
                 is StocktakeRequest -> payload.lines.forEach { line ->
-                    operationLogDao.insert(
+                    operationLogDao?.insert(
                         OperationLogEntity(
                             operationType = operationType,
                             orderNo = submitResult.check_no,
@@ -656,13 +757,11 @@ class WmsRepository(private val context: Context) {
             result.fold(
                 onSuccess = {
                     request.lines.forEachIndexed { index, line ->
-                        operationLogDao.insert(
-                            OperationLogEntity(
-                                operationType = "opening_stock",
-                                orderNo = "期初-${index + 1}",
-                                materialCode = line.materialCode,
-                                quantity = line.quantity
-                            )
+                        logOperation(
+                            operationType = "opening_stock",
+                            orderNo = "期初-${index + 1}",
+                            materialCode = line.materialCode,
+                            quantity = line.quantity
                         )
                     }
                     Result.success("期初库存已保存")
