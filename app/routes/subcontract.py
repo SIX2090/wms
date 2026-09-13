@@ -295,7 +295,8 @@ def register_subcontract_routes(app):
                          SubcontractOrder, _acquire_order_write_lock,
                          allow_negative_stock, api_error,
                          assert_warehouse_active, deduct_stock_atomic, generate_order_no,
-                         is_stock_sufficient, location_management_enabled,
+                         get_warehouse_stock_quantities, is_stock_sufficient, location_management_enabled,
+                         validate_inventory_warehouse,
                          log_operation, normalize_stock_quantity,
                          parse_float_value, round_to_2_decimals, update_location_inventory)
         order = SubcontractOrder.query.get_or_404(id)
@@ -317,7 +318,12 @@ def register_subcontract_routes(app):
         material = Material.query.filter_by(code=material_code).first()
         if not material:
             return api_error('物料编码不存在')
-        current_stock = normalize_stock_quantity(material.stock or 0)
+        warehouse_obj, warehouse_err = validate_inventory_warehouse(warehouse)
+        if warehouse_err:
+            return api_error(warehouse_err)
+        current_stock = normalize_stock_quantity(
+            get_warehouse_stock_quantities(warehouse_obj).get(material.id, 0) or 0
+        )
         if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
             return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
 
@@ -1188,8 +1194,9 @@ def register_subcontract_routes(app):
     def add_subcontract_issue_item(id):
         """添加委外发料明细"""
         from app import (Material, SubcontractIssue, SubcontractIssueItem,
-                         allow_negative_stock, api_error, is_stock_sufficient,
-                         normalize_stock_quantity, parse_float_value)
+                         allow_negative_stock, api_error, get_warehouse_stock_quantities,
+                         is_stock_sufficient, normalize_stock_quantity, parse_float_value,
+                         validate_inventory_warehouse)
         issue = SubcontractIssue.query.get_or_404(id)
         if issue.status != 'pending':
             return api_error('只有待发料状态可以添加明细')
@@ -1208,9 +1215,19 @@ def register_subcontract_routes(app):
                 return api_error(f'物料 {material_code} 不存在')
 
             # 检查库存是否充足
-            current_stock = normalize_stock_quantity(material.stock or 0)
-            if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-                return api_error(f'物料 {material_code} 库存不足，当前库存：{current_stock:.2f}')
+            warehouse_obj, warehouse_err = validate_inventory_warehouse(issue.warehouse)
+            if warehouse_err:
+                return api_error(warehouse_err)
+            required_quantity = quantity + sum(
+                normalize_stock_quantity(sibling.quantity or 0)
+                for sibling in issue.items
+                if sibling.material_id == material.id
+            )
+            current_stock = normalize_stock_quantity(
+                get_warehouse_stock_quantities(warehouse_obj).get(material.id, 0) or 0
+            )
+            if not allow_negative_stock() and not is_stock_sufficient(current_stock, required_quantity):
+                return api_error(f'?? {material_code} ????????????{current_stock:.2f}????{required_quantity:.2f}')
             
             item = SubcontractIssueItem(
                 issue_id=id,
@@ -1242,9 +1259,9 @@ def register_subcontract_routes(app):
         from sqlalchemy.orm import selectinload
         from app import (SubcontractIssue, _acquire_order_write_lock,
                          allow_negative_stock, api_error, assert_warehouse_active,
-                         deduct_stock_atomic, is_stock_sufficient,
-                         location_management_enabled, log_operation,
-                         normalize_stock_quantity, update_location_inventory)
+                         deduct_stock_atomic, get_warehouse_stock_quantities, is_stock_sufficient,
+                         location_management_enabled, log_operation, normalize_stock_quantity,
+                         update_location_inventory, validate_inventory_warehouse)
         issue = SubcontractIssue.query.get_or_404(id)
         if issue.status != 'pending':
             return api_error('只有待发料状态可以完成发料')
@@ -1269,15 +1286,26 @@ def register_subcontract_routes(app):
                 db.session.rollback()
                 return api_error('发料单没有明细，无法完成')
             # 先检查库存是否充足
+            warehouse_obj, warehouse_err = validate_inventory_warehouse(issue.warehouse)
+            if warehouse_err:
+                db.session.rollback()
+                return api_error(warehouse_err)
+            warehouse_stock = get_warehouse_stock_quantities(warehouse_obj)
+            required_by_material = {}
+            materials_by_id = {}
             for item in issue.items:
                 if item.material:
-                    current_stock = normalize_stock_quantity(item.material.stock or 0)
-                    quantity = normalize_stock_quantity(item.quantity or 0)
-                    if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
+                    required_by_material[item.material_id] = required_by_material.get(item.material_id, 0) + normalize_stock_quantity(item.quantity or 0)
+                    materials_by_id[item.material_id] = item.material
+            if not allow_negative_stock():
+                for material_id, required_quantity in required_by_material.items():
+                    material = materials_by_id[material_id]
+                    current_stock = normalize_stock_quantity(warehouse_stock.get(material_id, 0) or 0)
+                    if not is_stock_sufficient(current_stock, required_quantity):
                         db.session.rollback()
                         return jsonify({
                             'status': 'error',
-                            'msg': f'物料 {item.material.code} 库存不足，当前库存：{current_stock:.2f}'
+                            'msg': f'?? {material.code} ????????????{current_stock:.2f}????{required_quantity:.2f}'
                         })
 
             # 扣减库存（使用原子扣减并检查返回值，避免并发超卖与失败仍标记 completed）
