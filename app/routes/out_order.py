@@ -33,6 +33,31 @@ from db import db
 from utils import get_default_print_template, print_token_or_login_required, require_role
 
 
+def _out_order_stock_error(order):
+    from app import (allow_negative_stock, get_warehouse_stock_quantities,
+                     is_stock_sufficient, normalize_stock_quantity,
+                     validate_inventory_warehouse)
+
+    warehouse, error = validate_inventory_warehouse(order.warehouse)
+    if error:
+        return error
+    requirements = {}
+    for item in order.items:
+        if not item.material_id or item.material is None:
+            return '出库明细物料不存在，请修正后重新提交'
+        quantity = normalize_stock_quantity(item.quantity or 0)
+        if quantity <= 0:
+            return f'物料 {item.material.code} 出库数量必须是有限正数'
+        requirements[item.material_id] = requirements.get(item.material_id, 0) + quantity
+    if not allow_negative_stock():
+        stock = get_warehouse_stock_quantities(warehouse)
+        for material_id, quantity in requirements.items():
+            available = stock.get(material_id, 0)
+            if not is_stock_sufficient(available, quantity):
+                return f'出库仓库 {warehouse.name} 库存不足：物料 {material_id} 需要 {quantity:.2f}，可用 {available:.2f}'
+    return None
+
+
 def _build_out_order_excel(order):
     """按用户指定样式生成领料单 Excel（无合计行）。
 
@@ -920,33 +945,10 @@ def register_out_order_routes(app):
                 if not remaining_ok:
                     db.session.rollback()
                     return api_error(remaining_err or '出库数量超过销售订单未发货数量')
-            # WMS-AUDIT-2026-08-28 (2): 库位管理关闭时按仓库维度校验库存。
-            # 原实现只校验全局 Material.stock，多仓场景下 A 仓有货即可在 B 仓
-            # 开单出库、把 B 仓库存扣成负数。与 transfer.py 调出校验对齐；
-            # 开启库位管理时由 deduct_location_inventory_atomic 精确拦截。
-            if not use_location and not allow_negative_stock():
-                wh_obj = None
-                if (order.warehouse or '').strip():
-                    wh_key = order.warehouse.strip()
-                    wh_obj = Warehouse.query.filter(
-                        db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
-                    ).order_by(Warehouse.id.asc()).first()
-                if wh_obj:
-                    wh_stock = get_warehouse_stock_quantities(wh_obj)
-                    for _chk_item in order.items:
-                        if not _chk_item.material_id:
-                            continue
-                        _need = normalize_stock_quantity(_chk_item.quantity or 0)
-                        if _need <= 0:
-                            continue
-                        _avail = wh_stock.get(_chk_item.material_id, 0)
-                        if (_avail + 1e-9) < _need:
-                            _code = (_chk_item.material.code if _chk_item.material
-                                     else str(_chk_item.material_id))
-                            db.session.rollback()
-                            return api_error(
-                                f'出库仓库 {order.warehouse} 库存不足：{_code}'
-                                f'（需要 {_need:.2f}，可用 {_avail:.2f}）')
+            stock_error = _out_order_stock_error(order)
+            if stock_error:
+                db.session.rollback()
+                return api_error(stock_error)
             for item in order.items:
                 if not item.material_id:
                     continue
@@ -1241,40 +1243,9 @@ def register_out_order_routes(app):
                 skipped.append(f'{order.order_no}(检测到异常，请单独审核)')
                 db.session.rollback()
                 continue
-            stock_ok = True
-            # WMS-AUDIT-2026-08-28 (2): 批量出库同样按仓库维度校验（与单张对齐）
-            if not location_management_enabled() and not allow_negative_stock():
-                wh_obj = None
-                if (order.warehouse or '').strip():
-                    wh_key = order.warehouse.strip()
-                    wh_obj = Warehouse.query.filter(
-                        db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
-                    ).order_by(Warehouse.id.asc()).first()
-                if wh_obj:
-                    wh_stock = get_warehouse_stock_quantities(wh_obj)
-                    for _chk_item in order.items:
-                        if not _chk_item.material_id:
-                            continue
-                        _need = normalize_stock_quantity(_chk_item.quantity or 0)
-                        if _need <= 0:
-                            continue
-                        _avail = wh_stock.get(_chk_item.material_id, 0)
-                        if (_avail + 1e-9) < _need:
-                            _code = (_chk_item.material.code if _chk_item.material
-                                     else str(_chk_item.material_id))
-                            skipped.append(
-                                f'{order.order_no}(出库仓库 {order.warehouse} '
-                                f'库存不足：{_code} 需要 {_need:.2f}，可用 {_avail:.2f})')
-                            stock_ok = False
-                            break
-            for item in order.items:
-                stock = normalize_stock_quantity(item.material.stock or 0)
-                quantity = normalize_stock_quantity(item.quantity or 0)
-                if item.material and not allow_negative_stock() and not is_stock_sufficient(stock, quantity):
-                    skipped.append(f'{order.order_no}(物料{item.material.code}库存不足)')
-                    stock_ok = False
-                    break
-            if not stock_ok:
+            stock_error = _out_order_stock_error(order)
+            if stock_error:
+                skipped.append(f'{order.order_no}({stock_error})')
                 db.session.rollback()
                 continue
             try:
