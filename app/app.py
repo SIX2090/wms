@@ -235,8 +235,8 @@ def _resolve_sqlite_db_path(uri=None, instance_path=None):
         db_path = uri[len('sqlite:///'):]
         if not os.path.isabs(db_path):
             base = instance_path or app.instance_path
-            db_path = os.path.join(base, db_path)
-        return db_path
+            db_path = os.path.normpath(os.path.join(base, db_path))
+        return db_path.replace('\\', '/')
     except Exception:
         return None
 
