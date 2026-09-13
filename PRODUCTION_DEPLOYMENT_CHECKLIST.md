@@ -170,6 +170,15 @@
 - [ ] 日活跃用户 ≥ 60%
 - [ ] 反馈响应率 100%
 
+## 慢请求定位（2026-09-13 新增，PERF-REQUEST-TIMING-001）
+
+- 代码拉取后重启 WMS 服务；`WMS_SLOW_REQUEST_MS` 默认 `500`，只记录严格超过阈值的请求。设 `1000` 改为一秒，设 `0` 关闭；负数、非数字及非有限值回退 500ms 并给出警告。环境变量必须配置到实际服务进程，修改后重启生效。
+- 搜索现有 `LOG_FILE` 中的 `slow_request`；默认 `logs/app.log` 相对于服务工作目录，沿用既有 10MB/5 备份轮转配置，不新建数据库表或写入业务库。
+- 日志字段：method、route（注册的路由模板而非含业务 ID 的实际路径）、endpoint、status、elapsed_ms、streamed、phase=response_ready。不记录请求体、Cookie、Authorization、查询参数或未匹配的原始路径。
+- 计时范围为 Flask before_request 至 after_request 响应准备阶段，包括应用前置校验；不包含 Waitress 排队、网络传输及流式生成器完整执行时间。不要把 SSE 的该耗时当成模型生成总耗时，也不要据此直接计算完整请求 P95。
+- 先观察一个代表性的业务周期，按 route 聚类定位慢接口。确认热点后再优化 SQL、缓存或任务调度，不凭 queue depth 日志盲调线程数。
+- 本地验证：`python -m pytest tests/test_request_timing.py -q`。计时模块记录日志失败时不改变业务响应；部署人员仍应检查日志目录权限、可写性和磁盘空间。
+
 ## 部署检查清单签署
 
 - [ ] 技术负责人确认

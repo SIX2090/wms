@@ -27,6 +27,7 @@ class Config:
     LOG_FILE = os.environ.get('LOG_FILE') or 'logs/app.log'
     LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB
     LOG_BACKUP_COUNT = 5
+    WMS_SLOW_REQUEST_MS = os.environ.get('WMS_SLOW_REQUEST_MS', '500')
     
     # 分页配置
     DEFAULT_PER_PAGE = 20

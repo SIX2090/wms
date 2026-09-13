@@ -2256,6 +2256,9 @@ except Exception as _safe_filter_exc:  # noqa: BLE001 - 脱敏过滤器加载失
 # Log active configuration
 app.logger.info("Flask config loaded: env=%s, DEBUG=%s", env, app.config.get('DEBUG'))
 
+from request_timing import init_request_timing
+init_request_timing(app)
+
 # BUG-2026-08-18-005：启动期自动把历史无仓库采购入库单/领料单回填到默认仓库。
 # 独立于 schema 迁移开关执行：start_wms_offline.bat 默认设置 WMS_NO_DB_TOUCH=1
 # 会跳过 auto_migrate_database，若回填也放进同一分支，生产重启时永远不会生效。
