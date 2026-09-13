@@ -185,7 +185,11 @@ def register_requisition_routes(app):
                 quantity = round_to_2_decimals(parse_float_value(item_data.get('quantity'), 0))
                 if quantity <= 0:
                     return api_error(f'物料 {material.code} 的数量必须大于0')
-                current_stock = normalize_stock_quantity(material.stock or 0)
+                warehouse_obj, warehouse_err = validate_inventory_warehouse(warehouse)
+                if warehouse_err:
+                    return api_error(warehouse_err)
+                warehouse_stock = get_warehouse_stock_quantities(warehouse_obj)
+                current_stock = normalize_stock_quantity(warehouse_stock.get(material.id, 0))
                 if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
                     return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
                 db.session.add(ProductionRequisitionItem(
@@ -344,7 +348,7 @@ def register_requisition_routes(app):
     @login_required
     def update_requisition_item(id, item_id):
         from app import (ProductionRequisition, ProductionRequisitionItem,
-                         api_error, parse_float_value, round_to_2_decimals)
+                         api_error, get_warehouse_stock_quantities, parse_float_value, round_to_2_decimals, validate_inventory_warehouse)
         requisition = ProductionRequisition.query.get_or_404(id)
         if requisition.status != 'pending':
             return api_error('只有草稿状态的工单领料单可以修改明细')
