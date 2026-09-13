@@ -300,15 +300,18 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // BUG-2026-09-13-023：本地库不可用时 offlineQueue 为 null（降级为无离线能力），
         // 此时不订阅计数流，页面按"无待同步"呈现，不得因此崩溃。
-        val queue = repository.offlineQueue ?: return
-        viewModelScope.launch {
-            queue.pendingCount.collect { count ->
-                _uiState.value = _uiState.value.copy(offlinePendingCount = count)
+        // 注意：init 块内不允许 `return`（'return' is prohibited here），只能以 if 包裹。
+        val queue = repository.offlineQueue
+        if (queue != null) {
+            viewModelScope.launch {
+                queue.pendingCount.collect { count ->
+                    _uiState.value = _uiState.value.copy(offlinePendingCount = count)
+                }
             }
-        }
-        viewModelScope.launch {
-            queue.failedCount.collect { count ->
-                _uiState.value = _uiState.value.copy(offlineFailedCount = count)
+            viewModelScope.launch {
+                queue.failedCount.collect { count ->
+                    _uiState.value = _uiState.value.copy(offlineFailedCount = count)
+                }
             }
         }
     }

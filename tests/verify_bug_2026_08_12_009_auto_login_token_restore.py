@@ -96,9 +96,13 @@ def test_t4_saved_token_persisted_in_encrypted_prefs():
     src = _read(REPO_FILE)
     assert "EncryptedSharedPreferences" in src, "WmsRepository 未使用 EncryptedSharedPreferences"
     assert 'KEY_TOKEN = "auth_token"' in src, "WmsRepository 缺少 auth_token 键"
-    assert re.search(r"fun\s+getSavedToken[\s\S]*?encryptedPrefs\.getString\(KEY_TOKEN", src), (
-        "getSavedToken() 未从 encryptedPrefs 读取 KEY_TOKEN"
-    )
+    # BUG-2026-09-13-023：encryptedPrefs 改为可空（Keystore 失效时降级），
+    # getSavedToken 内部必须用安全调用 `encryptedPrefs?.getString(KEY_TOKEN, ...)`，
+    # 并由外层 try/catch 兜底。语义要求不变：仍必须从 encryptedPrefs 读 KEY_TOKEN。
+    assert re.search(
+        r"fun\s+getSavedToken[\s\S]*?encryptedPrefs\?*\.\s*getString\(\s*KEY_TOKEN",
+        src,
+    ), "getSavedToken() 未从 encryptedPrefs 读取 KEY_TOKEN"
 
 
 # ---------- T5: 自动跳转契约完好 ----------

@@ -86,8 +86,12 @@ def test_t2_cache_fields_have_defaults():
 def test_t3_cache_fallback_sets_marker_and_timestamp():
     src = _read(REPO)
     # 定位 getMaterialInfo 的 catch 分支
+    # BUG-2026-09-13-023：materialDao 已改为可空（本地库建不出来时降级），
+    # 缓存回退改为 runCatching { materialDao?.getByCode(code) }.getOrNull()，
+    # 故此处正则放宽为"materialDao 可空调用 getByCode"，语义要求不变。
     m = re.search(
-        r"val\s+cached\s*=\s*materialDao\.getByCode\(code\)(?P<body>.{0,600}?)Result\.failure",
+        r"cached\s*=\s*(?:runCatching\s*\{\s*)?materialDao\??\.getByCode\(code\)"
+        r"(?P<body>.{0,600}?)Result\.failure",
         src, re.DOTALL,
     )
     assert m, "未找到缓存回退分支（materialDao.getByCode 后的处理）"

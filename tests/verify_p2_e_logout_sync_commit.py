@@ -54,14 +54,21 @@ def _extract_function_body(src: str, func_name: str) -> str:
     return src[brace_start: end + 1]
 
 
-# ---------- T1: logout() 出现 encryptedPrefs.edit().clear() ----------
+# ---------- T1: logout() 出现 prefs.edit().clear() ----------
 def test_t1_logout_clears_encrypted_prefs():
-    """logout() 必须调用 encryptedPrefs.edit().clear() 清空所有键值。"""
+    """logout() 必须调用 encryptedPrefs.edit().clear() 清空所有键值。
+
+    BUG-2026-09-13-023：encryptedPrefs 已改为可空。原先写法
+    `encryptedPrefs?.edit()?.clear()?.commit()` 在 prefs 为 null 时整链短路，
+    commit() 是否执行不可知、返回值被吞，违背 P2-E「必须真正同步落盘」的要求。
+    现改为先 `val prefs = encryptedPrefs` 显式判空再调用，故断言放宽为
+    接受 `prefs.edit().clear()` —— 仍然必须是 clear()（全清），不是 remove(单键)。
+    """
     src = _src()
     body = _extract_function_body(src, "logout")
     assert body, "logout() 函数未找到"
     assert re.search(
-        r"encryptedPrefs\s*\.\s*edit\s*\(\s*\)\s*\.\s*clear\s*\(",
+        r"(?:encryptedPrefs|prefs)\s*\.\s*edit\s*\(\s*\)\s*\.\s*clear\s*\(",
         body,
     ), (
         "logout() 缺少 encryptedPrefs.edit().clear() 调用；"
@@ -75,14 +82,17 @@ def test_t2_logout_uses_commit_synchronously():
     src = _src()
     body = _extract_function_body(src, "logout")
     assert body, "logout() 函数未找到"
-    # 找到 encryptedPrefs.edit().clear() 后必须跟 .commit()
-    # 允许跨多行写法
+    # 找到 edit().clear() 后必须跟 .commit()（允许跨多行 / 可空对象名 prefs）
     assert re.search(
-        r"encryptedPrefs\s*\.\s*edit\s*\(\s*\)\s*\.\s*clear\s*\(\s*\)\s*\.\s*commit\s*\(\s*\)",
+        r"(?:encryptedPrefs|prefs)\s*\.\s*edit\s*\(\s*\)\s*\.\s*clear\s*\(\s*\)\s*\.\s*commit\s*\(\s*\)",
         body,
     ), (
         "logout() 必须使用 encryptedPrefs.edit().clear().commit() 同步提交；"
         "P2-E：必须保证 token 在闪存上被覆写，避免物理文件残留加密 token"
+    )
+    # 不得退化为 apply()（异步，返回即认为清空，不保证落盘）
+    assert not re.search(r"\.\s*clear\s*\(\s*\)\s*\.\s*apply\s*\(", body), (
+        "logout() 不得使用 apply() —— P2-E 要求同步 commit，保证 logout 返回时已落盘"
     )
 
 

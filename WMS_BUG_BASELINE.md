@@ -61,6 +61,27 @@
 - **验证**：新增 `tests/test_android_startup_crash_resilience.py` **7/7 passed**（锁死三层兜底断言，防后续重构删掉 try/catch 导致复发）；相关安卓/移动端回归 **177 passed / 4 skipped**；**全量 pytest 1724 passed / 85 skipped / 0 failed**；`lint_wms_rules.py --staged` **0 违规**。
 - **未完成项（重要）**：沙箱无 Java/Android SDK（历史工具链已随沙箱重建丢失，重新下载 kotlinc 仅得 2.9MB 残缺包），**未能执行 `./gradlew assembleRelease`**。按 `BUG-2026-09-12-006` 已确立规则「Kotlin 改动须以 CI `assembleRelease` 结果为唯一验收依据，未确认 CI 转绿不得声称完成」，**本次修复的编译验收仍待 CI 确认**。
 - **阻塞线索（需现场核对）**：台账 `MOBILE-PERMISSION-001` 已记 `Android APK Build` 自 **#424** 起每次在 `Build Release APK (R8 瘦身)` 步骤失败（**#423 为最后一个绿版**）。若该状态持续，则 **APK 产物从未更新**，现场设备安装的始终是 #423 之前的旧包——这可能是「装了新包仍是同样问题」的直接原因。需在 Actions 页面确认最新构建是否转绿。
+- **补充修复（2026-09-14，`b6497c7` 推送后 CI 反馈）**：推送后 CI 实际跑出 **Android APK Build #481 = failure**，失败步骤正是 `Build Release APK (R8 瘦身)`，报错唯一一条：
+  ```
+  e: .../ui/viewmodel/scan/ScanViewModel.kt:303:48 'return' is prohibited here.
+  > Task :app:compileReleaseKotlin FAILED
+  ```
+  **根因**：本次修复给 `ScanViewModel.init` 写了 `val queue = repository.offlineQueue ?: return`。Kotlin **不允许在 `init` 块内使用 `return`**（没有可返回的函数体）——这是语法级硬错误，属本次改动新引入。**修复**：改为显式判空包裹 `if (queue != null) { ... }`。同时回查全仓库 Kotlin 源码，确认无第二处「init 块内 return」（其余 `?: return` 均在普通函数体内，合法）。
+- **连带修复（同一 CI 运行暴露）**：**`WMS CI #970 = failure`**，`Verify regression - verify_*.py` 步骤 **6 个测试失败**，全部是**字符串/正则硬编码了修复前的旧写法**，代码语义本身正确：
+  | 测试 | 失败原因 | 处置 |
+  |---|---|---|
+  | `verify_p2_e_logout_sync_commit::t1/t2` | 断言 `encryptedPrefs.edit().clear().commit()` 无安全调用；实际改成了 `prefs.edit()...` | **代码同时存在真 bug**：原 `encryptedPrefs?.edit()?.clear()?.commit()` 安全调用链在 prefs 为 null 时整链短路，`commit()` 是否执行不可知、返回值被 `?.` 吞掉，违背 P2-E「必须真正同步落盘」。已改为 `val prefs = encryptedPrefs; if (prefs != null) { if (!prefs.edit().clear().commit()) 记 WARN }`，测试断言同步放宽并补「不得用 apply()」断言 |
+  | `verify_bug_2026_08_12_009::t4` | 断言 `encryptedPrefs.getString(KEY_TOKEN`，实际为安全调用 `?.getString` | 测试断言放宽为 `encryptedPrefs\?*\.\s*getString(` |
+  | `verify_bug_2026_09_12_008::test_009` | 断言 `offlineQueue.enqueue(`，实际为 `queue != null && queue.enqueue(` | 断言改为 `queue\.enqueue\(` + 校验先判空 |
+  | `verify_android_offline_hint::t3` | 正则要求 `materialDao.getByCode`，实际为 `runCatching { materialDao?.getByCode }` | 正则放宽，仍强制 `fromCache`/`cachedAtMillis` 语义 |
+  | `verify_bug_2026_08_11_004::t3` | 断言 `submitOpeningStock` 内直调 `operationLogDao.insert`，实际已统一走 `logOperation()` | 断言改为必须调用 `logOperation()` + 全文件校验落库链路仍在 |
+- **补充验证（2026-09-14）**：上述 6 个测试 + 本 BUG 新增回归 **40 passed**；**全量 pytest 1724 passed / 85 skipped / 0 failed**（286s）；`lint_wms_rules.py --staged` **0 违规**。
+- **APK 分发链核验（2026-09-14，重要）**：经 `gh-proxy.com` 打通 GitHub API（`api.github.com` 直连 000、`ghproxy.net` 对 API 返 403），实测：
+  - `#481` 本次推送触发，`failure`；`#970` WMS CI 同批 `failure`（即上述两组问题）。
+  - 固定 Release 资产 `wms-mobile-scan.apk` 下载完整（25,095,687 B，SHA256 `92a46c14…be2dbe2e`，CRC 全通过）。
+  - **该 APK 解析出 `versionCode=15` / `versionName=3.8.0`，而源码为 `versionCode=14`；`git log --all -S "versionCode = 15"` 全历史检索无任何提交** → 包来源不明。
+  - **dex 常量池中不存在本次修复的任何标志串**（`本地数据库不可用`、`加密存储不可用`、`resetSecurePrefsFile`、`createEncryptedPrefs`、`safeCache`、`logOperation` 全部缺失；对照组 `wms_database`/`wms_secure_prefs`/`WmsRepo` 均存在）→ **Release 上的包是修复前旧代码**。
+  - **结论**：现场「重装仍是老问题」的直接原因是**分发链断裂**——CI 自 #424 起持续失败，Release 资产从未被新包覆盖，固定直链永远发旧包。CI 修复转绿前，现场无论如何重装都拿不到修复版。
 
 ## 判定规则
 

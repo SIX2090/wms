@@ -95,7 +95,15 @@ def test_auth_view_model_init_cannot_kill_process():
 
 
 def test_scan_view_model_tolerates_missing_offline_queue():
-    """ScanViewModel 订阅离线队列计数时必须容忍 null。"""
+    """ScanViewModel 订阅离线队列计数时必须容忍 null。
+
+    BUG-2026-09-13-023 追加修复：#481 CI 暴露 Kotlin 硬编译错误
+    `ScanViewModel.kt:303:48 'return' is prohibited here`——init 块内不允许
+    使用 `return` 做提前退出。必须改为 `if (queue != null) { ... }` 包裹。
+    此断言即为防止该类写法回潮。
+    """
     source = _read(SCAN_VIEW_MODEL)
-    assert "val queue = repository.offlineQueue ?: return" in source
+    # 必须用 if 判空包裹，不能写成 `?: return`
+    assert "val queue = repository.offlineQueue\n        if (queue != null) {" in source
+    assert "?: return\n" not in source.split("init {")[1].split("}")[0] if "init {" in source else True
     assert "repository.offlineQueue?.retryFailed()" in source

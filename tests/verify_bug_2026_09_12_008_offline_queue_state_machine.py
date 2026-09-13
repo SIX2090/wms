@@ -204,7 +204,11 @@ def test_009_enqueue_failure_returns_false():
 def test_009_repository_does_not_lie_when_queue_fails():
     """调用方：入队失败时不得复用 OfflineQueuedException 的"已暂存"措辞。"""
     body = _fn_body(_read(REPO), "private suspend fun submitWithOfflineFallback(")
-    assert "offlineQueue.enqueue(" in body
+    # BUG-2026-09-13-023：offlineQueue 改为可空（本地库不可用时降级为无离线能力），
+    # 入队改为先判空再调用：`val queued = queue != null && queue.enqueue(`。
+    # 语义要求不变：必须真的调用 enqueue，且失败时不得谎报已暂存。
+    assert re.search(r"queue\.enqueue\(", body), "必须调用 offlineQueue.enqueue"
+    assert "val queue = offlineQueue" in body, "必须先取出 offlineQueue 并判空"
     assert "OfflineQueuedException(label)" in body, "入队成功路径保留原异常类型"
     # 失败分支必须明确告知"未暂存"，且不能再写"网络错误"误导排查方向
     fail_part = body.split("} else {")[-1]

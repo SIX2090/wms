@@ -74,11 +74,25 @@ def test_t2_success_returns_fixed_message():
 
 # ---------- T3: 操作日志写入保留 ----------
 def test_t3_operation_log_kept():
-    """成功分支仍写入 opening_stock 操作日志。"""
-    body = _extract_function_body(_src(), "submitOpeningStock")
+    """成功分支仍写入 opening_stock 操作日志。
+
+    BUG-2026-09-13-023：日志写入已统一收敛到 logOperation() 辅助方法
+    （内部落 operationLogDao?.insert），submitOpeningStock 不再直调 DAO。
+    故断言改为「必须调用 logOperation 且 operationType=opening_stock」，
+    同时全文件层面确认 DAO 落库链路仍在（防止辅助方法被改成空实现）。
+    """
+    src = _src()
+    body = _extract_function_body(src, "submitOpeningStock")
     assert body, "submitOpeningStock 函数未找到"
-    assert "operationLogDao.insert" in body and 'operationType = "opening_stock"' in body, (
+    assert 'operationType = "opening_stock"' in body, (
         "submitOpeningStock 的 opening_stock 操作日志写入被误删"
+    )
+    assert re.search(r"\blogOperation\s*\(", body), (
+        "submitOpeningStock 成功分支必须调用 logOperation() 写操作日志"
+    )
+    # 全文件校验：落库链路必须真实存在（logOperation / recordOperationLog 内）
+    assert "operationLogDao?.insert" in src or "operationLogDao.insert" in src, (
+        "WmsRepository 中 operationLogDao 落库调用消失，日志写入链路已断"
     )
 
 

@@ -261,11 +261,22 @@ class WmsRepository(private val context: Context) {
         // 避免物理文件残留加密 token（虽然无法解出明文，但减少攻击面）。
         // logout() 流程必须先清空本地凭据，再清空 DataStore + RetrofitClient 内存。
         // 加密 prefs 的 clear() 是同步操作（commit 而非 apply），保证 logout 返回时数据已落盘。
-        try {
-            encryptedPrefs?.edit()?.clear()?.commit()
-        } catch (e: Exception) {
-            // 加密 prefs 清空失败不阻塞 logout 流程（已下台仍应可继续）
-            android.util.Log.w("WmsRepo", "清空加密 prefs 失败: ${e.message}")
+        //
+        // BUG-2026-09-13-023：encryptedPrefs 已改为可空（Keystore 失效时降级为 null）。
+        // 此处**不能**写成 `encryptedPrefs?.edit()?.clear()?.commit()`——安全调用链在
+        // prefs 为 null 时整体短路，虽然不会崩，但 commit() 是否真的执行变得不可知；
+        // 且 commit() 的布尔返回值会被 `?.` 吞掉，无法判断落盘是否成功。
+        // 改为显式判空 + 校验 commit 返回值：非 null 时必须真正同步落盘，失败记日志。
+        val prefs = encryptedPrefs
+        if (prefs != null) {
+            try {
+                if (!prefs.edit().clear().commit()) {
+                    android.util.Log.w("WmsRepo", "清空加密 prefs 未成功落盘（commit 返回 false）")
+                }
+            } catch (e: Exception) {
+                // 加密 prefs 清空失败不阻塞 logout 流程（已下台仍应可继续）
+                android.util.Log.w("WmsRepo", "清空加密 prefs 失败: ${e.message}")
+            }
         }
         // DataStore 清空失败同样不应阻断登出：内存态 token 一定会被清掉，
         // 最坏情况是下次冷启动仍读到旧 baseUrl（用户改一次即恢复）。
