@@ -62,6 +62,11 @@ def _seed_basics():
     db.session.flush()
     mat = Material(code="M001", name="测试物料", spec="S1", unit=unit, stock=100)
     db.session.add(mat)
+    db.session.flush()
+    db.session.add(LocationInventory(material_id=mat.id, warehouse_id=wh_a.id,
+                                     location='仓库A-L1', quantity=100))
+    db.session.add(app_module.StockTransaction(material_id=mat.id, warehouse_id=wh_a.id,
+                                               transaction_type='in', location=wh_a.name, quantity=100))
     db.session.commit()
     return wh_a, wh_b, mat
 

@@ -129,7 +129,7 @@ class TestTransferOffBranchSourceStock:
     def test_reject_when_source_insufficient(self, client):
         """T1：关库位管理，源仓库库存不足时完成被拒。
 
-        全局库存充足（Material.stock=10，save_table 通过），但源仓库 A 为空，
+        直接构造历史草稿：全局库存充足，但源仓库 A 为空，
         OFF 分支必须按仓库级口径拒绝从空仓库调出。
         """
         with app_module.app.test_request_context():
@@ -139,7 +139,17 @@ class TestTransferOffBranchSourceStock:
             ok, _ = add_stock(mat, 10, 'in', 'in_order', 1, warehouse=wh_b)
             assert ok
             db.session.commit()
-        tid = _create_transfer(client, "仓库A", "仓库B", 10)
+        with app_module.app.app_context():
+            order = TransferOrder(transfer_no=generate_order_no('TF'), status='pending',
+                                  from_warehouse='仓库A', to_warehouse='仓库B',
+                                  from_location='仓库A', to_location='仓库B')
+            db.session.add(order)
+            db.session.flush()
+            material = Material.query.filter_by(code='M001').first()
+            db.session.add(app_module.TransferOrderItem(transfer_order_id=order.id,
+                material_id=material.id, quantity=10, unit_id=material.unit_id))
+            db.session.commit()
+            tid = order.id
         resp = client.post(f"/transfer/{tid}/complete")
         data = resp.get_json()
         assert data.get("status") == "error", data
