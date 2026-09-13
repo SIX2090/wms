@@ -90,6 +90,7 @@ def test_ensure_department_table_startup_wiring_no_db_touch(tmp_path):
         conn.execute("CREATE TABLE out_order (id INTEGER PRIMARY KEY, order_no TEXT)")
 
     env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
     env["WMS_NO_DB_TOUCH"] = "1"
     env["WMS_SKIP_STARTUP_DB_UPGRADE"] = "1"
     env["DATABASE_URL"] = f"sqlite:///{db_path}"
@@ -104,6 +105,7 @@ def test_ensure_department_table_startup_wiring_no_db_touch(tmp_path):
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=300,
     )
     assert result.returncode == 0, f"app import failed:\n{result.stdout}\n{result.stderr}"

@@ -6,6 +6,8 @@
 
 | BUG-2026-09-13-012 | [P1] Windows 下 SQLite 相对路径返回反斜杠，导致迁移路径与测试/部署路径语义不一致 | 已修复（2026-09-13）：_resolve_sqlite_db_path 对相对路径规范化并统一返回正斜杠，避免 Windows 路径比较和跨平台迁移失败。R6：已 grep 路径解析与数据库迁移消费点，未发现同类未修复实现。验证：tests/test_auto_migrate_db_path.py 5 passed，静态门禁通过。 |
 
+| BUG-2026-09-13-013 | [P2] Windows 启动回归及验证脚本子进程编码不一致，readerthread 解码失败使 stdout=None | 已修复并验证（2026-09-13）：7 个启动回归与 scripts/verify_wms_bugs.py 的 19 个 Python 子进程调用明确设置子进程 PYTHONIOENCODING=utf-8、父进程 encoding=utf-8，保留严格解码和原有数据库/日志断言。R6：同类点已排查；与 BUG-2026-08-07-002 的导入隔离根因不同。专项 pytest 29 passed；verify_wms_bugs.py exit=0 且无 UnicodeDecodeError/readerthread；两项静态门禁通过。仅修测试验证链路，不改生产启动或业务数据。 |
+
 ## 判定规则
 
 | BUG-2026-09-13-008 | [P0] 微信助手编码损坏及字面反引号换行导致 SyntaxError，模块无法加载且全量 pytest 收集中断 | **已修复并验证（2026-09-13），发布以本次 Git 记录为准**：根因为 f46e472/27b330a 的错误文本写入；依据原始 51ddf0c 恢复完整 UTF-8 内容和被吞并的代码行，保留预期的中文安全错误提示，改为只记录异常类型的 warning，禁止回传异常原文或 traceback 刷屏。R6：复查 BUG-2026-08-11-009 与 08-16-019；恢复既有发送串行锁、焦点校验、无 token 拒绝逻辑，不触发实际微信发送。新增模拟 /send 解析异常的回归，相关 pytest 12 passed；py_compile 通过。全量 pytest tests -q --tb=short：1626 passed、85 skipped、4 failed（253 秒），四项均为既有 Windows 路径和图片文件占用问题：test_auto_migrate_db_path 两项、test_material_image_static_path 两项；收集阻断已解除，未进行真实微信发送。 |

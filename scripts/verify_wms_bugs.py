@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -488,6 +489,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_permission_matrix.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if permission_matrix.stdout:
@@ -559,6 +562,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_tool_registry.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if tool_registry.stdout:
@@ -575,6 +580,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_platform_foundations.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if platform_foundations.stdout:
@@ -591,6 +598,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_tools_endpoint.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if tools_endpoint.stdout:
@@ -635,6 +644,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_platform_boundaries.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if platform_boundaries.stdout:
@@ -651,6 +662,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_handlers.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if ai_handlers.stdout:
@@ -667,6 +680,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_streaming.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if ai_streaming.stdout:
@@ -683,6 +698,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_history.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if history_endpoint.stdout:
@@ -699,6 +716,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_draft_check_endpoint.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if draft_check_endpoint.stdout:
@@ -715,6 +734,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_warehouse_assistant_endpoint.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if warehouse_assistant_endpoint.stdout:
@@ -731,6 +752,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_chat_stream_endpoint.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if chat_stream_endpoint.stdout:
@@ -747,6 +770,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_document_jobs.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if document_jobs.stdout:
@@ -763,6 +788,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_document_evaluation.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if document_evaluation.stdout:
@@ -779,6 +806,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_agents.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if ai_agents.stdout:
@@ -795,6 +824,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_stage4_knowledge.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if ai_stage4.stdout:
@@ -811,6 +842,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_stage5_ops.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if ai_stage5.stdout:
@@ -827,6 +860,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_stage6_prelaunch.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if ai_stage6.stdout:
@@ -843,6 +878,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_stage7_replenishment.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if ai_stage7.stdout:
@@ -892,6 +929,8 @@ def main() -> int:
         [sys.executable, str(ROOT / 'scripts' / 'verify_ai_orchestrator.py')],
         cwd=str(ROOT),
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
     )
     if orchestrator.stdout:

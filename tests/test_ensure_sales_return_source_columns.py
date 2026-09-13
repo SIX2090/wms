@@ -150,6 +150,7 @@ def test_startup_wiring_runs_even_when_no_db_touch(tmp_path):
     db_path = _create_db_with_missing_columns(tmp_path / "inventory.db")
 
     env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
     env["WMS_NO_DB_TOUCH"] = "1"
     env["WMS_SKIP_STARTUP_DB_UPGRADE"] = "1"
     env["DATABASE_URL"] = f"sqlite:///{db_path}"
@@ -164,6 +165,7 @@ def test_startup_wiring_runs_even_when_no_db_touch(tmp_path):
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=300,
     )
     assert result.returncode == 0, f"app import failed:\n{result.stdout}\n{result.stderr}"
