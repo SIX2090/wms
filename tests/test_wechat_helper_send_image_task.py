@@ -23,6 +23,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 import wechat_helper  # noqa: E402
 
 
+def test_post_send_failure_returns_safe_chinese_message():
+    handler = object.__new__(wechat_helper.Handler)
+    handler.path = '/send'
+    handler._check_auth = mock.Mock(return_value=True)
+    handler._json = mock.Mock()
+    with mock.patch.object(wechat_helper, 'parse_multipart',
+                           side_effect=RuntimeError('sensitive-internal-value')), mock.patch.object(
+                               wechat_helper.logger, 'warning') as warning:
+        handler.do_POST()
+    status, payload = handler._json.call_args.args
+    assert status == 500
+    assert payload['code'] == 'send_failed'
+    assert '请检查微信窗口和剪贴板状态' in payload['msg']
+    assert 'sensitive-internal-value' not in payload['msg']
+    warning.assert_called_once()
+    assert 'sensitive-internal-value' not in str(warning.call_args)
+
+
 def test_send_image_task():
     """主路径聚合：ready / sent / error 三态与错误码透传。"""
     with mock.patch.object(
