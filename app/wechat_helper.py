@@ -579,9 +579,7 @@ class Handler(BaseHTTPRequestHandler):
             }
             status, code, message = send_image_task(image_bytes, task)
             self._json(200, {"status": status, "code": code, "msg": message})
-        except Exception as exc:
-            traceback.print_exc()
-            self._json(500, {"status": "error", "code": "send_failed", "msg": str(exc)})
+        except Exception as exc:`r`n            logger.exception("微信发送失败")`r`n            self._json(500, {"status": "error", "code": "send_failed", "msg": "微信发送失败，请检查微信窗口和剪贴板状态后重试"})
 
     def log_message(self, fmt: str, *args) -> None:
         sys.stdout.write("[%s] %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), fmt % args))
@@ -614,4 +612,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
