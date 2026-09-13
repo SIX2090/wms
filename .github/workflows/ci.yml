@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -107,6 +107,7 @@ jobs:
       #
       # 本清单现已空置（保留空数组，便于未来临时登记新失败而不必改结构）。
       - name: "Verify regression - verify_*.py (BUG-2026-08-16-017)"
+        timeout-minutes: 20
         run: |
           known_failures=()
           is_known() {
@@ -126,12 +127,12 @@ jobs:
             # 顶层断言）用 pytest 跑会 "no tests ran" exit 5 被误判失败，
             # 直接执行脚本本身；pytest 式文件照旧。
             if grep -q "def test_" "$f"; then
-              if ! timeout 300 python -m pytest "$f" -q > /tmp/verify_one.log 2>&1; then
+              if ! timeout --kill-after=10s 60s python -m pytest "$f" -q > /tmp/verify_one.log 2>&1; then
                 cat /tmp/verify_one.log
                 fails=$((fails+1))
               fi
             else
-              if ! timeout 300 python "$f" > /tmp/verify_one.log 2>&1; then
+              if ! timeout --kill-after=10s 60s python "$f" > /tmp/verify_one.log 2>&1; then
                 cat /tmp/verify_one.log
                 fails=$((fails+1))
               fi
