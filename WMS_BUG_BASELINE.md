@@ -269,8 +269,12 @@
      - `RetrofitClientSessionTest.kt`（8 例）：锁死 `apiService` 在 baseUrl 未配置时**必须抛 IllegalStateException** 且消息可读（BUG-2026-09-14-029 的安全守卫语义——防后人为"不崩"而删守卫致 token 泄漏到占位地址）；尾斜杠容错；登出后守卫恢复；token 生命周期；共享 OkHttpClient 实例稳定（Coil 复用连接池）；`setBaseUrl` 并发读写不产生"新 baseUrl + 旧 retrofit"中间态。
      - `OfflineQueueStateMachineTest.kt`（8 例）：用**真实 Room 内存库**验证状态机——①`syncing` 记录确实取不到（**这就是静默丢数据的机制**）②`resetStuckSyncing` 后必须重新可见（BUG-2026-09-12-008 核心）③达上限记录落 `failed` 且被 `countFailed` 统计（用户必须看得见）④**出口完整性**：pending∪failed 覆盖全部非成功路径，任何记录不得停留在 syncing ⑤`resetToPending` 清零次数与原因（否则刚重置就被下次失败打回）⑥`upsert` 按 requestId 幂等（弱网重复点击不产生重复单据的本地保障）⑦补传按入队时间升序（防同物料先出后入被颠倒）。
 - **回归**：新增 `tests/verify_bug_2026_09_14_033_android_unit_test_infra.py` 10 项——测试目录存在、含真实 `@Test`、3 个必需依赖已声明、Robolectric 资源开关已开、CI 仍保留 `testReleaseUnitTest`、**覆盖三个真实崩溃根因的契约**（baseUrl 守卫 / syncing 非终态 / 失败可见）、**反向断言禁止占位断言**（`assertTrue(true)` 之类糊弄门禁）、BUG 已登记基线。
-- **验证局限性（如实记录）**：沙箱无 Kotlin 工具链且 Maven Central / GitHub Releases 下载均被网络策略阻断（kotlinc 13.7MB 处截断、repo1.maven.org 不可达），**本地无法编译运行该 Kotlin 测试**。已改用**逐项 API 签名一致性核对**代替：核对 6 个 `RetrofitClient` 成员、11 个 DAO 方法、7 个 Entity 属性、5 个常量、`data class`（`copy()` 依赖）、`AppDatabase` 抽象类声明——**全部与源码一致**。真实编译与执行由 CI（`testReleaseUnitTest`，含 Android SDK 35 + JDK 17）完成，本条目 CI 验收待推送后确认。
-- **生效条件**：Android 改动；**不影响 APK 产物行为**（仅新增测试代码与依赖，`implementation` 依赖未变），无需重装。
+- **验证局限性（如实记录）**：沙箱无 Kotlin 工具链且 Maven Central / GitHub Releases 下载均被网络策略阻断（kotlinc 13.7MB 处截断、repo1.maven.org 不可达），**本地无法编译运行该 Kotlin 测试**。已改用**逐项 API 签名一致性核对**代替：核对 6 个 `RetrofitClient` 成员、11 个 DAO 方法、7 个 Entity 属性、5 个常量、`data class`（`copy()` 依赖）、`AppDatabase` 抽象类声明——**全部与源码一致**。
+- **CI 验收（已确认，含门禁有效性对照实验）**：
+  - `Android APK Build` **#499**（`a9e4b132`，常规构建）：**全步骤 success**，含 `Unit tests (BUG-2026-08-16-021)` success；
+  - **门禁有效性对照实验**：临时提交一个**必然失败**的测试探针（`assertEquals(1, 2)`），CI **#500**（`c100c254`）结果 `Unit tests` 步骤 **failure**，而 `Build Release APK (R8 瘦身)` 与 `Lint` **均 success**。该对照一次性证明三件事：①Kotlin 测试源**真实参与编译**（若测试有语法/依赖错误，编译与 Lint 阶段就会红，不会走到测试步骤）②Robolectric 及各测试依赖**正确解析** ③**门禁真实生效**——故意失败的断言被成功拦截。探针随后已移除，远端 main 重置回 `a9e4b132`（净变更零）。
+  - **结论**：门禁从「`app/src/test` 不存在 → Gradle NO-SOURCE 空跑却显示绿色」变为「**有真实测试且能拦截失败**」，BUG-2026-09-14-033 完成闭环。
+- **生效条件**：Android 改动；**不影响 APK 产物行为**（仅新增测试代码与 `testImplementation` 依赖，`implementation` 未变），无需重装。
 
 ### BUG-2026-09-14-032（2026-09-14，NavGraph 组合根饿汉创建全部 ViewModel：崩溃放大 + 启动开销 + 竞态温床）
 
