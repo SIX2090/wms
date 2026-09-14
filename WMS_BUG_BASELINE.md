@@ -220,7 +220,7 @@
 - **修复（独立 atomic action，仅改构建脚本版本号与注释，不动业务代码）**：`versionCode` 14→15、`versionName` 3.8.0→3.8.1，并补「每次发版必须递增 versionCode」注释。
 - **回归**：新增 `tests/verify_bug_2026_09_14_027_versioncode_increment.py` 3 项（versionCode≥15 防冻结/倒退、versionName 同步递增、防复发注释在位），连同既有版本契约测试（均用 `>=` 断言）共 **26 passed**（沙箱无 Java/Android SDK，静态契约测试，本地无法编译 APK）。
 - **生效条件与验收（重要）**：本改动需 CI `Android APK Build` 转绿产出 versionCode=15 新包后，用户**卸载旧包（连同可能损坏的本地库/Keystore）再重装** 3.8.1；此后覆盖安装可正常替换、可在「应用信息」核对版本号。**若装完 3.8.1 仍崩溃，则为未发现的第三根因，须现场抓 logcat 诊断，禁止再盲改**（BUG-2026-09-13-023 五次盲改教训）。
-- **CI 验收**：推送后以最新 `Android APK Build` 结果为准（见提交后记录）。
+- **CI 验收（已确认，commit `694bbcb4`）**：`Android APK Build` / `WMS CI` / `WMS AI Verification` **三工作流全部 success**（含本次新增的 verify 回归测试）；Release 资产 `wms-mobile-scan.apk`（25,095,683 字节）已于 2026-09-14T07:53:09Z 更新为 versionCode=15 / 3.8.1 新包，固定直链即刻生效。生产/用户侧生效仍须**卸载旧包后重装 3.8.1**（覆盖安装此后亦可正常替换）。
 
 ### BUG-2026-09-13-025（2026-09-14，分发链核验：用户"解析包时出现问题"= 下载截断，非代码缺陷）
 
