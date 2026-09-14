@@ -122,6 +122,90 @@
     | 对照 `wms_database` / `WmsRepo` | 有 | 有 | 有 |
   - **教训**：改动 Android 启动路径时，**不能在 `onCreate` 中做任何会打断 Activity 生命周期的同步操作**（权限申请、`startActivityForResult` 等）——必须让 `setContent` 先完成。测试若硬编码实现细节（如"必须调用某 API"），会把错误锁死，应断言**行为契约**而非**实现手段**。
 
+### BUG-2026-09-14-026（2026-09-14，加固：Gson 非空契约破坏入口与冷启动会话兜底）
+
+- **来源**：`BUG-2026-09-13-025` 交付时自列的遗留项，本轮动手修。
+- **性质**：**预防性加固**，非用户已触发的线上故障。按 `BUG-2026-08-24-007` 已确立的故障模式
+  （Gson 走 `Unsafe.allocateInstance` 绕过 Kotlin 构造器 → 非空字段被静默置 null → UI 层裸调 → 主线程 NPE → 整 App 崩溃）全量排查剩余入口后，定位两处：
+
+  **① `WmsRepository.loadEditDraft()` —— 唯一没有 try/catch 的反序列化入口**
+
+  | 对比项 | 状态 |
+  |---|---|
+  | `loadStocktakeDraft()` | 有 try/catch（既有正确范式） |
+  | `loadEditDraft()` | **无** try/catch，异常直接抛到冷启动链路 |
+
+  `ScanEditDraft` 的 `lines: List<DraftScanLine>`、`contractNo: String`、
+  `inboundBusinessType: String` 均为 Kotlin 非空声明，Gson 反序列化时可被置 null。
+  脏值经 `ScanViewModel.restoreEditDraft()` 的 `_uiState.copy(contractNo = draft.contractNo)`
+  （平台类型赋值，编译器**不插** `checkNotNull`）静默进入 UI 状态，随后在 UI 层裸调即崩。
+
+  **② `WmsRepository.getWarehouses()` —— 缺 `ensureSession()`**
+
+  | 方法 | `ensureSession()` |
+  |---|---|
+  | `getDepartments()` | ✅ |
+  | `getEmployees()` | ✅ |
+  | `getWarehouses()` | ❌ **缺失** |
+
+  该方法在冷启动首页（`HomeViewModel.init → loadDashboard`）即可能被调用，早于
+  `AuthViewModel` 的异步会话还原（`BUG-2026-08-24-006` 描述的同一竞态）。
+  `safeCall` 有兜底故**不崩**，但会出现「首个请求不带 baseUrl/token」的功能瑕疵。
+
+- **修复**（`WmsRepository.kt`，+46 行）：
+
+  ```kotlin
+  suspend fun loadEditDraft(key: String): ScanEditDraft? {
+      val json = context.dataStore.data.first()[stringPreferencesKey(key)] ?: return null
+      return try {
+          Gson().fromJson(json, ScanEditDraft::class.java)?.let { sanitizeEditDraft(it) }
+      } catch (e: Exception) {
+          android.util.Log.w("WmsRepo", "读取改单草稿失败，按无草稿处理: ${e.message}")
+          null
+      }
+  }
+
+  // 表达式体 + runCatching：任一处因脏数据抛异常，整体退化为"无草稿"
+  private fun sanitizeEditDraft(draft: ScanEditDraft): ScanEditDraft? = runCatching {
+      val safeLines = draft.lines.mapNotNull { entry ->
+          val code = entry.line.material_code
+          if (code.isBlank()) null else entry   // material_code 空的脏行无法定位物料，丢弃
+      }
+      draft.copy(lines = safeLines)
+  }.getOrNull()
+  ```
+  另在 `getWarehouses()` 首行补 `ensureSession()`。
+
+- **为什么选 `runCatching` 而不是逐字段 `?: 默认值`**：
+  逐字段判空会因 Kotlin 认为字段非空而触发 `USELESS_ELVIS` / `SENSELESS_COMPARISON`
+  等告警，需成片 `@Suppress`（且本地无 Kotlin 编译器可验证，风险不可控——
+  上一次编译错误就导致 #486 整包未产出）。`runCatching` 包裹是**零告警、零语法歧义**
+  的写法，语义等价：脏字段导致任一处抛 NPE → 整体退化为 null（"无草稿"）→
+  引导用户重扫，而不是把 null 带去 UI。能安全修补的坏行（`material_code` 为空）
+  在 `runCatching` 内用 `mapNotNull` 剔除，属于正常路径。
+
+- **验收（可复现）**：
+
+  | 项 | 结果 |
+  |---|---|
+  | 新增回归测试 | `tests/verify_bug_2026_09_14_026_gson_nonnull_and_session.py`，**10 项** |
+  | 全量测试 | 见下方 CI 记录 |
+  | 反向验证 | **三种破坏场景全部被精准捕获**（去 runCatching+坏行过滤 → 2 项失败；去 `ensureSession` → 2 项失败；去 try/catch → 1 项失败） |
+
+- **测试自身的两处缺陷（本轮自查发现并修正，值得记录）**：
+  1. **函数体截取用了近似匹配**：原以 `find("\n    private fun ", 1)` 找下一个成员，
+     但 `sanitizeEditDraft` 后面紧跟的是 `suspend fun`（缩进不同）→ 匹配失败 →
+     body 吞掉整个文件余下部分 → 断言在噪声里"碰巧"命中 → **假绿**。
+     改为**大括号配对**精确截取（表达式体函数的 `.getOrNull()` 在括号外，单独处理）。
+  2. **同名测试函数重复定义**：改稿时旧版未删，Python 后定义覆盖前者，
+     实际跑的是宽松的旧断言。已删除重复项。
+  > 教训：**断言写完全绿不算数，必须反向破坏验证能红**。第一次反向验证时测试全绿，
+  > 才发现测试本身是假的——如果跳过这一步，就会带着两个假测试提交。
+- **未修（已确认安全，不动）**：`OfflineQueueManager.replay()` 的三个 `fromJson`
+  调用点外层已有 `catch (e: Exception)` 兜底（`doSync` 内），异常会被转成
+  `markFailure` 并保留中文原因，**不会崩溃**。按"只改必要处"原则保持原样，
+  并加了一条回归断言锁住该兜底不被移除。
+
 ### BUG-2026-09-13-025（2026-09-14，分发链核验：用户"解析包时出现问题"= 下载截断，非代码缺陷）
 
 - **现场**：用户装包后截图系统提示「解析包时出现问题」，无法安装。

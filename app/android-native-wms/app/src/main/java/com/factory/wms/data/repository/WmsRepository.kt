@@ -209,10 +209,49 @@ class WmsRepository(private val context: Context) {
         }
     }
 
+    /**
+     * 读取扫码改单草稿（BUG-2026-09-14-026）。
+     *
+     * 与 [loadStocktakeDraft] 对齐：**反序列化必须 try/catch**。Gson 走的是
+     * `Unsafe.allocateInstance`，完全绕过 Kotlin 构造器与 init，因此**不会**执行
+     * 默认值、也不会做非空校验——`contractNo: String` 这类非空字段一旦在磁盘 JSON 里
+     * 缺失，会被静默置为 null 并装进"非空"属性（平台类型，编译器不插 checkNotNull）。
+     * 脏值随后在 UI 层被裸调（`.trim()` / 拼接 / 直接渲染）→ 主线程 NPE → 整 App 崩溃。
+     * 这与 BUG-2026-08-24-007 是同一类故障模式（Gson 破坏非空契约），只是入口换成了草稿。
+     *
+     * 两道防线：
+     * ① 最外层 try/catch —— JSON 本身损坏 / 结构不兼容时返回 null（等同"无草稿"），
+     *    而不是把异常抛到冷启动链路上去杀进程。
+     * ② [sanitizeEditDraft] —— 结构能解出来但含脏字段时，要么剔除坏行，
+     *    要么（脏到无法安全修补时）整体退化为 null，确保返回值里绝不带 null 字段进 UI。
+     */
     suspend fun loadEditDraft(key: String): ScanEditDraft? {
         val json = context.dataStore.data.first()[stringPreferencesKey(key)] ?: return null
-        return Gson().fromJson(json, ScanEditDraft::class.java)
+        return try {
+            Gson().fromJson(json, ScanEditDraft::class.java)?.let { sanitizeEditDraft(it) }
+        } catch (e: Exception) {
+            android.util.Log.w("WmsRepo", "读取改单草稿失败，按无草稿处理: ${e.message}")
+            null
+        }
     }
+
+    /**
+     * 净化反序列化后的草稿：剔除无法定位物料的坏行，并保证失败时退化为"无草稿"。
+     *
+     * draft 及其嵌套对象全部由 Gson 经 Unsafe 构造，Kotlin 的非空标注只是编译期契约，
+     * 运行期完全可能为 null。因此整段净化用 runCatching 包裹：任一处因脏数据（null 字段）
+     * 抛出，都退化为 null，绝不把异常或脏值抛给调用方。
+     *
+     * 只做"保证不崩"的最小修复，不改业务语义。
+     */
+    private fun sanitizeEditDraft(draft: ScanEditDraft): ScanEditDraft? = runCatching {
+        // 逐行净化：material_code 为空的脏行无法定位物料，直接丢弃
+        val safeLines = draft.lines.mapNotNull { entry ->
+            val code = entry.line.material_code
+            if (code.isBlank()) null else entry
+        }
+        draft.copy(lines = safeLines)
+    }.getOrNull()
 
     suspend fun clearStocktakeDraft() {
         context.dataStore.edit { it.remove(KEY_STOCKTAKE_DRAFT) }
@@ -654,6 +693,12 @@ class WmsRepository(private val context: Context) {
     }
 
     suspend fun getWarehouses(): Result<List<WarehouseDto>> {
+        // BUG-2026-09-14-026：补齐会话兜底，与 getDepartments / getEmployees 对齐。
+        // 本方法在冷启动首页（HomeViewModel.init → loadDashboard）即可能被调用，
+        // 早于 AuthViewModel 的异步会话还原。缺此调用时首个请求可能不带 baseUrl/token：
+        // baseUrl 为空会抛「服务器地址未配置」，token 缺失会让 401 拦截器误触发强制登出。
+        // ensureSession 幂等，且 safeCall 全程兜底，重复调用零开销。
+        ensureSession()
         return safeCall { api.getWarehouses() }
             .fold(
                 onSuccess = { data -> Result.success(data.items) },
