@@ -13,9 +13,11 @@ android {
         applicationId = "com.factory.wms"
         minSdk = 26
         targetSdk = 35
-        // 2026-09-12 扫码体验三件套：连续扫描 + 数字键盘/回车加行 + 声音震动反馈 + 离线缓存提示
-        versionCode = 14
-        versionName = "3.8.0"
+        // BUG-2026-09-14-027：versionCode 自 14 起被冻结，导致多次发版都显示 3.8.0、
+        // 系统按"同版本号"拒绝覆盖安装——现场设备长期停留在修复前的旧包，崩溃"屡次复现"
+        // 却始终装不上新代码。每次发版必须递增 versionCode，否则新旧包无法区分、无法覆盖。
+        versionCode = 15
+        versionName = "3.8.1"
 
         // sherpa-onnx 本地语音识别开关：通过 -Pwms.sherpa=true 启用，
         // 默认 false（保持现有国内 / 离线构建无网络依赖）。启用后会引入
