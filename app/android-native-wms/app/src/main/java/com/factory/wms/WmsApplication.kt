@@ -80,9 +80,10 @@ class WmsApplication : Application(), ImageLoaderFactory {
                 val sw = java.io.StringWriter()
                 throwable.printStackTrace(java.io.PrintWriter(sw))
                 val text = buildString {
-                    append("time=").append(java.text.SimpleDateFormat(
-                        "yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
-                        .format(java.util.Date())).append('\n')
+                    append("time=").append(
+                        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+                            .format(java.util.Date())
+                    ).append('\n')
                     append("thread=").append(thread.name).append('\n')
                     append("version=").append(BuildConfig.VERSION_NAME)
                         .append(" (").append(BuildConfig.VERSION_CODE).append(")\n")

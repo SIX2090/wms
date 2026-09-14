@@ -30,21 +30,36 @@ class WmsRepository(private val context: Context) {
 
     private val api: WmsApiService
         get() = RetrofitClient.apiService
-    private val db: AppDatabase = AppDatabase.getDatabase(context)
-    private val materialDao = db.materialDao()
-    private val operationLogDao = db.operationLogDao()
-    private val pendingOperationDao = db.pendingOperationDao()
+    // BUG-2026-09-13-023：本地数据层（Room）失败不应导致 App 无法启动。
+    // 本类由 AppNavGraph 组合期的 11 个 ViewModel 同时构造，构造期抛异常 = 闪退。
+    // 本地库只存物料缓存、操作日志与离线待传队列（均可重建、非权威数据），
+    // 故降级为"无本地缓存"继续运行；离线队列在 db 为空时不可用（降级为直连模式）。
+    private val db: AppDatabase? = try {
+        AppDatabase.getDatabase(context)
+    } catch (e: Exception) {
+        android.util.Log.w(
+            "WmsRepo",
+            "本地数据库不可用，已降级为无本地缓存: ${e.javaClass.simpleName}: ${e.message}"
+        )
+        null
+    }
+    private val materialDao = db?.materialDao()
+    private val operationLogDao = db?.operationLogDao()
+    private val pendingOperationDao = db?.pendingOperationDao()
 
     /**
      * AI-MOB-OFFLINE-01：离线待提交作业队列。
      *
      * 网络不可用时把**人工已确认的提交**暂存本地，联网后自动补传（幂等，不产生重复单据）。
      * lazy 避免构造期就注册网络回调。
+     * BUG-2026-09-13-023：db 为空（本地库不可用）时返回 null，
+     * 由调用方降级为直连提交，不得因离线能力缺失阻塞启动。
      */
-    val offlineQueue: OfflineQueueManager by lazy {
+    val offlineQueue: OfflineQueueManager? by lazy {
+        val dao = pendingOperationDao ?: return@lazy null
         OfflineQueueManager.getInstance(
             context,
-            pendingOperationDao,
+            dao,
             api,
             NetworkMonitor.getInstance(context)
         )
@@ -52,32 +67,29 @@ class WmsRepository(private val context: Context) {
 
     // EncryptedSharedPreferences for sensitive token storage
     //
-    // BUG-2026-09-13-001（「WMS扫码屡次停止运行」）：此处原为裸的 `by lazy { ... }`，
-    // 直接把 MasterKey / EncryptedSharedPreferences.create 的异常抛给调用方。
-    // 而唯一的启动路径 AuthViewModel.init 在协程里调 getSavedToken()，异常无人接住
-    // → 进程被杀 → 下次启动在同一行再崩 → 无限重启，用户看到的就是
-    // 「应用屡次停止运行」。
-    //
-    // 为什么真机会抛：EncryptedSharedPreferences 底层依赖 Android Keystore，
-    // 密钥文件损坏/丢失时各厂商 ROM 抛的是不同异常——系统升级、卸载重装、
-    // 恢复出厂、换机克隆、清除数据不彻底等场景都会命中（KeyStoreException /
-    // InvalidAlgorithmParameterException / AEADBadTagException / IOException）。
-    // 这**不是**开发者能在代码里避免的"用错 API"，而是必须兜住的运行环境异常。
-    //
-    // 处理策略：绝不让它冒泡。损坏时把存储文件清掉重建一次（自愈），仍失败则
-    // 彻底降级为 null（等同于"未登录"）——用户重新登录一次即可，而不是用不了。
-    // 重建前显式删除两个文件：SharedPreferences 本体 + MasterKey 所在 keystore
-    // 条目对应的文件。只删 prefs 而不换 key 会在下次 create 时再次抛
-    // （key 已坏，用它去解新文件照样失败）。
-    @Volatile
-    private var encryptedPrefsCache: android.content.SharedPreferences? = null
+    // BUG-2026-09-13-023（启动崩溃）：EncryptedSharedPreferences 依赖 Android Keystore。
+    // 在下列场景 MasterKey 会失效并抛 GeneralSecurityException / IOException 等**运行时异常**：
+    //   - 用户清除应用数据 / 恢复出厂后残留旧密钥别名；
+    //   - 换机由系统备份还原（备份不包含 Keystore 密钥）；
+    //   - 部分厂商 ROM 的 Keystore 实现缺陷（个别机型冷启动时密钥暂不可用）；
+    //   - 系统时间被大幅调整导致密钥失效。
+    // 该异常发生在 AuthViewModel.init 的协程中，未捕获会直接杀进程 → "应用屡次停止运行"。
+    // 处理策略：捕获后返回 null（等价于"无已保存凭据"），交由登录页走正常登录流程；
+    // 同时删除损坏的 prefs 文件，让下一次写入重建一份干净密钥，避免永久不可用。
+    private val encryptedPrefs: android.content.SharedPreferences? by lazy {
+        try {
+            createEncryptedPrefs()
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "WmsRepo",
+                "加密存储不可用，已降级为待登录状态: ${e.javaClass.simpleName}: ${e.message}"
+            )
+            resetSecurePrefsFile()
+            null
+        }
+    }
 
-    /** 加密存储是否处于"损坏且已放弃"状态（供调用方决定是否提示用户重新登录）。 */
-    @Volatile
-    var secureStorageBroken: Boolean = false
-        private set
-
-    private fun buildEncryptedPrefs(): android.content.SharedPreferences {
+    private fun createEncryptedPrefs(): android.content.SharedPreferences {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
@@ -90,38 +102,15 @@ class WmsRepository(private val context: Context) {
         )
     }
 
-    /**
-     * 取加密存储；损坏时自愈重建，仍失败则返回 null（调用方按"无凭据"处理）。
-     *
-     * 全程不抛异常——这是启动路径，崩一次就是用户用不了 App。
-     */
-    private fun encryptedPrefsOrNull(): android.content.SharedPreferences? {
-        encryptedPrefsCache?.let { return it }
-        synchronized(this) {
-            encryptedPrefsCache?.let { return it }
-            // 第一次尝试：直接构造
-            runCatching { buildEncryptedPrefs() }.onSuccess {
-                encryptedPrefsCache = it
-                secureStorageBroken = false
-                return it
-            }.onFailure {
-                android.util.Log.w(TAG, "加密存储不可用，尝试重建: ${it.message}")
+    /** 删除损坏的加密 prefs 文件（含日记文件），下次写入会以新密钥重建，避免永久卡死。 */
+    private fun resetSecurePrefsFile() {
+        try {
+            val prefsFile = java.io.File(context.filesDir.parentFile, "shared_prefs/$SECURE_PREFS_NAME.xml")
+            if (prefsFile.exists() && !prefsFile.delete()) {
+                android.util.Log.w("WmsRepo", "损坏的加密 prefs 文件删除失败: ${prefsFile.name}")
             }
-            // 第二次尝试：删掉旧文件与旧密钥后重建（自愈）
-            runCatching {
-                context.deleteSharedPreferences(SECURE_PREFS_NAME)
-                buildEncryptedPrefs()
-            }.onSuccess {
-                encryptedPrefsCache = it
-                secureStorageBroken = false
-                android.util.Log.i(TAG, "加密存储已重建，用户需重新登录一次")
-                return it
-            }.onFailure {
-                android.util.Log.e(TAG, "加密存储重建失败，降级为无凭据: ${it.message}")
-            }
-            // 彻底放弃：标记破损，后续一律按未登录处理，不再反复重试拖慢启动
-            secureStorageBroken = true
-            return null
+        } catch (e: Exception) {
+            android.util.Log.w("WmsRepo", "重置加密 prefs 失败: ${e.message}")
         }
     }
 
@@ -134,7 +123,13 @@ class WmsRepository(private val context: Context) {
          * 现场看到"网络错误"却反复重试（其实网络正常，是业务前置条件未满足）。
          * 用独立类型标记，外层 catch 原样放行、不再加"网络错误"前缀。
          */
-        class BusinessException(message: String) : Exception(message)
+        class BusinessException(message: String) : Exception(message) {
+            var safeToEdit: Boolean = false
+
+            constructor(message: String, safeToEdit: Boolean) : this(message) {
+                this.safeToEdit = safeToEdit
+            }
+        }
 
         /**
          * AI-MOB-OFFLINE-01：网络不可用但**已成功暂存到离线队列**。
@@ -150,26 +145,30 @@ class WmsRepository(private val context: Context) {
         ) : Exception("网络不可用，$operationLabel 已暂存，联网后自动提交")
 
         private const val KEY_TOKEN = "auth_token"
+        private const val SECURE_PREFS_NAME = "wms_secure_prefs"
         private val KEY_BASE_URL = stringPreferencesKey("base_url")
         private val KEY_USERNAME = stringPreferencesKey("username")
         private val KEY_ROLE = stringPreferencesKey("role")
         // BUG-2026-09-03-003 断点续盘：盘点草稿 JSON（DataStore）
         private val KEY_STOCKTAKE_DRAFT = stringPreferencesKey("stocktake_draft")
-        // BUG-2026-09-13-001：加密存储文件名与日志 TAG
-        private const val SECURE_PREFS_NAME = "wms_secure_prefs"
-        private const val TAG = "WmsRepo"
     }
 
     // 幂等键：每次写操作生成唯一 request_id，配合后端 mobile_api_idempotent
     // 在请求重试/网络抖动时避免重复入库、重复扣库存。
     private fun newRequestId(): String = UUID.randomUUID().toString()
 
+    /**
+     * 读取已保存 token。加密存储不可用时返回 null（等价"未登录"），
+     * 绝不向上抛异常——本方法在 App 冷启动链路中被调用，抛异常即闪退。
+     */
     suspend fun getSavedToken(): String? {
-        // BUG-2026-09-13-001：这是 App 每次启动都会走到的路径，
-        // 加密存储损坏时必须是"读不到 token"（→ 回登录页），而不是崩溃。
-        return runCatching { encryptedPrefsOrNull()?.getString(KEY_TOKEN, null) }
-            .onFailure { android.util.Log.w(TAG, "读取已保存 token 失败: ${it.message}") }
-            .getOrNull()
+        return try {
+            encryptedPrefs?.getString(KEY_TOKEN, null)
+        } catch (e: Exception) {
+            // getString 本身也可能因密钥中途失效（如 Keystore 被系统回收）抛异常
+            android.util.Log.w("WmsRepo", "读取 token 失败，按未登录处理: ${e.message}")
+            null
+        }
     }
 
     suspend fun getSavedBaseUrl(): String? {
@@ -188,6 +187,31 @@ class WmsRepository(private val context: Context) {
         } catch (e: Exception) {
             null
         }
+    }
+
+    suspend fun editDraftKey(operation: String): String {
+        require(operation == "inbound" || operation == "outbound")
+        val preferences = context.dataStore.data.first()
+        val server = preferences[KEY_BASE_URL].orEmpty().trimEnd('/')
+        val username = preferences[KEY_USERNAME].orEmpty()
+        check(server.isNotBlank() && username.isNotBlank()) { "请先登录再恢复清单" }
+        val scope = Gson().toJson(listOf(server, username, operation))
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(scope.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return "scan_edit_$digest"
+    }
+
+    suspend fun saveEditDraft(key: String, draft: ScanEditDraft?) {
+        context.dataStore.edit {
+            if (draft == null || draft.lines.isEmpty()) it.remove(stringPreferencesKey(key))
+            else it[stringPreferencesKey(key)] = Gson().toJson(draft)
+        }
+    }
+
+    suspend fun loadEditDraft(key: String): ScanEditDraft? {
+        val json = context.dataStore.data.first()[stringPreferencesKey(key)] ?: return null
+        return Gson().fromJson(json, ScanEditDraft::class.java)
     }
 
     suspend fun clearStocktakeDraft() {
@@ -216,12 +240,12 @@ class WmsRepository(private val context: Context) {
 
     suspend fun saveLoginInfo(token: String, baseUrl: String, username: String, role: String) {
         // Token stored in EncryptedSharedPreferences
-        // BUG-2026-09-13-001：写失败不能让登录整体崩掉。写不进去意味着本次凭据
-        // 无法持久化，用户下次启动需重新登录——这比崩溃好得多，而且此时本次
-        // 登录仍然是成功的（下面的 RetrofitClient.setToken 会把内存态设好）。
-        runCatching {
-            encryptedPrefsOrNull()?.edit()?.putString(KEY_TOKEN, token)?.apply()
-        }.onFailure { android.util.Log.w(TAG, "持久化 token 失败（本次登录仍有效）: ${it.message}") }
+        // 写失败不阻断登录：内存态 token 已足够本次会话使用，仅"下次冷启动需重新登录"。
+        try {
+            encryptedPrefs?.edit()?.putString(KEY_TOKEN, token)?.apply()
+        } catch (e: Exception) {
+            android.util.Log.w("WmsRepo", "保存 token 失败（本次会话仍可用）: ${e.message}")
+        }
         // Non-sensitive data stored in DataStore
         context.dataStore.edit {
             it[KEY_BASE_URL] = baseUrl
@@ -233,36 +257,33 @@ class WmsRepository(private val context: Context) {
     }
 
     suspend fun logout() {
-        clearCredentials()
-        // Clear non-sensitive data
-        context.dataStore.edit { it.clear() }
-    }
-
-    /**
-     * 只清凭据（加密 token + RetrofitClient 内存态），不动 DataStore 里的
-     * baseUrl/username/role。
-     *
-     * BUG-2026-09-13-001：与 [logout] 拆开，是因为"启动时发现凭据只恢复出一半"
-     * 这种场景需要的正是这个语义——把 token 与内存态清干净、避免带着半残凭据
-     * 发请求，但又没必要（也不该）顺手清掉服务器地址，用户重登时还得再填一遍。
-     *
-     * 全程不抛异常：这是启动路径与错误恢复路径共用的清理动作，
-     * 清理本身再崩一次就完全没有退路了。
-     */
-    suspend fun clearCredentials() {
         // P2-E: 同步 commit 清空加密 SharedPreferences，确保 token 在闪存上被覆写，
         // 避免物理文件残留加密 token（虽然无法解出明文，但减少攻击面）。
-        // 加密 prefs 的 clear() 是同步操作（commit 而非 apply），保证返回时数据已落盘。
-        runCatching {
-            encryptedPrefsOrNull()?.edit()?.clear()?.commit()
-        }.onFailure {
-            // 清空失败不阻塞流程（已下台仍应可继续）
-            android.util.Log.w(TAG, "清空加密 prefs 失败: ${it.message}")
+        // logout() 流程必须先清空本地凭据，再清空 DataStore + RetrofitClient 内存。
+        // 加密 prefs 的 clear() 是同步操作（commit 而非 apply），保证 logout 返回时数据已落盘。
+        //
+        // BUG-2026-09-13-023：encryptedPrefs 已改为可空（Keystore 失效时降级为 null）。
+        // 此处**不能**写成 `encryptedPrefs?.edit()?.clear()?.commit()`——安全调用链在
+        // prefs 为 null 时整体短路，虽然不会崩，但 commit() 是否真的执行变得不可知；
+        // 且 commit() 的布尔返回值会被 `?.` 吞掉，无法判断落盘是否成功。
+        // 改为显式判空 + 校验 commit 返回值：非 null 时必须真正同步落盘，失败记日志。
+        val prefs = encryptedPrefs
+        if (prefs != null) {
+            try {
+                if (!prefs.edit().clear().commit()) {
+                    android.util.Log.w("WmsRepo", "清空加密 prefs 未成功落盘（commit 返回 false）")
+                }
+            } catch (e: Exception) {
+                // 加密 prefs 清空失败不阻塞 logout 流程（已下台仍应可继续）
+                android.util.Log.w("WmsRepo", "清空加密 prefs 失败: ${e.message}")
+            }
         }
-        // 顺带丢弃已损坏实例的缓存，让下次读取重新走一次自愈重建
-        // （存储损坏时"退出登录"/"启动回登录页"都是一次自然的修复时机）
-        if (secureStorageBroken) {
-            synchronized(this) { encryptedPrefsCache = null }
+        // DataStore 清空失败同样不应阻断登出：内存态 token 一定会被清掉，
+        // 最坏情况是下次冷启动仍读到旧 baseUrl（用户改一次即恢复）。
+        try {
+            context.dataStore.edit { it.clear() }
+        } catch (e: Exception) {
+            android.util.Log.w("WmsRepo", "清空 DataStore 失败: ${e.message}")
         }
         RetrofitClient.setToken(null)
     }
@@ -400,15 +421,15 @@ class WmsRepository(private val context: Context) {
             val result = handleResponse<MaterialDto>(response)
             result.fold(
                 onSuccess = { dto ->
-                    // 成功后更新缓存
-                    materialDao.insert(dto.toEntity())
+                    // 成功后更新缓存（本地库不可用时跳过，不影响主流程）
+                    safeCache { materialDao?.insert(dto.toEntity()) }
                 },
                 onFailure = { }
             )
             result
         } catch (e: Exception) {
             // 网络不可用时，回退到 Room 本地缓存
-            val cached = materialDao.getByCode(code)
+            val cached = runCatching { materialDao?.getByCode(code) }.getOrNull()
             if (cached != null) {
                 // AI-MOB-OFFLINE-HINT-01：标记为缓存数据并带上写入时间。
                 // 不给标记的话，UI 无法区分"实时库存 5"与"三天前的 5"，
@@ -425,24 +446,56 @@ class WmsRepository(private val context: Context) {
         }
     }
 
-    suspend fun submitInbound(request: InboundRequest): Result<SubmitResult> {
+    /** 本地缓存写入统一入口：失败只记日志，绝不影响网络主流程。 */
+    private suspend fun safeCache(block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: Exception) {
+            android.util.Log.w("WmsRepo", "本地缓存写入失败（已忽略）: ${e.message}")
+        }
+    }
+
+    private suspend fun logOperation(
+        operationType: String,
+        orderNo: String?,
+        materialCode: String,
+        quantity: Double
+    ) {
+        safeCache {
+            operationLogDao?.insert(
+                OperationLogEntity(
+                    operationType = operationType,
+                    orderNo = orderNo,
+                    materialCode = materialCode,
+                    quantity = quantity
+                )
+            )
+        }
+    }
+
+    suspend fun submitInbound(request: InboundRequest, requestId: String = newRequestId()): Result<SubmitResult> {
         return submitWithOfflineFallback(
             operationType = PendingOperationEntity.TYPE_INBOUND,
             payload = request,
             warehouseCode = request.warehouseCode ?: request.warehouse,
             lineCount = request.lines.size,
-            label = "入库"
+            label = "入库",
+            requestId = requestId
         ) { requestId -> api.submitInbound(requestId, request) }
     }
 
-    suspend fun submitOutbound(request: OutboundRequest): Result<SubmitResult> {
+    suspend fun submitOutbound(request: OutboundRequest, requestId: String = newRequestId(), replay: Boolean = false): Result<SubmitResult> {
         return submitWithOfflineFallback(
             operationType = PendingOperationEntity.TYPE_OUTBOUND,
             payload = request,
             warehouseCode = request.warehouseCode ?: request.warehouse,
             lineCount = request.lines.size,
-            label = "出库"
-        ) { requestId -> api.submitOutbound(requestId, request) }
+            label = "出库",
+            requestId = requestId
+        ) { requestId ->
+            if (!replay) handleResponse<OutboundPreflightResult>(api.preflightOutbound(request)).getOrThrow()
+            api.submitOutbound(requestId, request)
+        }
     }
 
     suspend fun submitStocktake(request: StocktakeRequest): Result<SubmitResult> {
@@ -484,9 +537,9 @@ class WmsRepository(private val context: Context) {
         warehouseCode: String?,
         lineCount: Int,
         label: String,
+        requestId: String = newRequestId(),
         call: suspend (String) -> Response<ApiEnvelope<SubmitResult>>
     ): Result<SubmitResult> {
-        val requestId = newRequestId()
         return try {
             val response = call(requestId)
             val result = handleResponse<SubmitResult>(response)
@@ -502,7 +555,10 @@ class WmsRepository(private val context: Context) {
             Result.failure(e)
         } catch (e: Exception) {
             // 网络类失败：尝试入队暂存
-            val queued = offlineQueue.enqueue(
+            // BUG-2026-09-13-023：本地库不可用时 offlineQueue 为 null（降级为无离线能力），
+            // 此时按"暂存失败"处理，明确告知用户数据未保住，绝不能谎报已暂存。
+            val queue = offlineQueue
+            val queued = queue != null && queue.enqueue(
                 requestId = requestId,
                 operationType = operationType,
                 payload = payload,
@@ -532,7 +588,7 @@ class WmsRepository(private val context: Context) {
         runCatching {
             when (payload) {
                 is InboundRequest -> payload.lines.forEach { line ->
-                    operationLogDao.insert(
+                    operationLogDao?.insert(
                         OperationLogEntity(
                             operationType = operationType,
                             orderNo = submitResult.order_no,
@@ -543,7 +599,7 @@ class WmsRepository(private val context: Context) {
                 }
 
                 is OutboundRequest -> payload.lines.forEach { line ->
-                    operationLogDao.insert(
+                    operationLogDao?.insert(
                         OperationLogEntity(
                             operationType = operationType,
                             orderNo = submitResult.order_no,
@@ -554,7 +610,7 @@ class WmsRepository(private val context: Context) {
                 }
 
                 is StocktakeRequest -> payload.lines.forEach { line ->
-                    operationLogDao.insert(
+                    operationLogDao?.insert(
                         OperationLogEntity(
                             operationType = operationType,
                             orderNo = submitResult.check_no,
@@ -579,6 +635,21 @@ class WmsRepository(private val context: Context) {
     suspend fun recognizeMaterial(imagePart: okhttp3.MultipartBody.Part): Result<RecognizeMaterialResult> {
         return safeCall {
             api.recognizeMaterial(imagePart)
+        }
+    }
+
+    suspend fun getLocationOptions(warehouseCode: String): Result<LocationOptions> {
+        return runCatching {
+            val items = mutableListOf<String>()
+            var page = 1
+            var last: LocationOptions
+            do {
+                last = safeCall { api.getLocationOptions(warehouseCode, page) }.getOrThrow()
+                check(last.enabled != null && last.totalPages != null) { "库位配置响应不完整" }
+                items.addAll(last.items.orEmpty())
+                page++
+            } while (page <= (last.totalPages ?: 0))
+            last.copy(items = items.distinct())
         }
     }
 
@@ -697,13 +768,11 @@ class WmsRepository(private val context: Context) {
             result.fold(
                 onSuccess = {
                     request.lines.forEachIndexed { index, line ->
-                        operationLogDao.insert(
-                            OperationLogEntity(
-                                operationType = "opening_stock",
-                                orderNo = "期初-${index + 1}",
-                                materialCode = line.materialCode,
-                                quantity = line.quantity
-                            )
+                        logOperation(
+                            operationType = "opening_stock",
+                            orderNo = "期初-${index + 1}",
+                            materialCode = line.materialCode,
+                            quantity = line.quantity
                         )
                     }
                     Result.success("期初库存已保存")
@@ -828,7 +897,8 @@ class WmsRepository(private val context: Context) {
                 val errorBody = response.errorBody()?.string()
                 Gson().fromJson(errorBody, ApiEnvelope::class.java)?.displayMessage()
             } catch (_: Exception) { null }
-            Result.failure(BusinessException(errorMsg ?: "请求失败 (${response.code()})"))
+            Result.failure(BusinessException(errorMsg ?: "请求失败 (${response.code()})",
+                safeToEdit = response.code() in listOf(400, 404, 422)))
         }
     }
 }
