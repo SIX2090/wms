@@ -189,8 +189,14 @@
   | 项 | 结果 |
   |---|---|
   | 新增回归测试 | `tests/verify_bug_2026_09_14_026_gson_nonnull_and_session.py`，**10 项** |
-  | 全量测试 | 见下方 CI 记录 |
+  | 全量测试 | **1726 passed / 85 skipped / 0 failed** |
+  | 预提交门禁 | 0 处违规 |
+  | CI | `#490 Android APK Build` **success**、`#1274 AI Verification` success |
   | 反向验证 | **三种破坏场景全部被精准捕获**（去 runCatching+坏行过滤 → 2 项失败；去 `ensureSession` → 2 项失败；去 try/catch → 1 项失败） |
+  | 字节码级验收 | 新包字符串池含本轮新增日志 `"读取改单草稿失败，按无草稿处理: "` → 改动确已编译进 APK；`MainActivity.onCreate` 权限调用数仍为 **0** |
+
+  > 注：#490 编译成功意义特殊——这是本地无 Kotlin 编译器可用的情况下，
+  > 通过**选择零告警写法**而非"事后修编译错误"来规避 `#486` 那类事故的第一次实践。
 
 - **测试自身的两处缺陷（本轮自查发现并修正，值得记录）**：
   1. **函数体截取用了近似匹配**：原以 `find("\n    private fun ", 1)` 找下一个成员，
