@@ -122,6 +122,36 @@
     | 对照 `wms_database` / `WmsRepo` | 有 | 有 | 有 |
   - **教训**：改动 Android 启动路径时，**不能在 `onCreate` 中做任何会打断 Activity 生命周期的同步操作**（权限申请、`startActivityForResult` 等）——必须让 `setContent` 先完成。测试若硬编码实现细节（如"必须调用某 API"），会把错误锁死，应断言**行为契约**而非**实现手段**。
 
+### BUG-2026-09-13-025（2026-09-14，分发链核验：用户"解析包时出现问题"= 下载截断，非代码缺陷）
+
+- **现场**：用户装包后截图系统提示「解析包时出现问题」，无法安装。
+- **判定**：**不是代码缺陷**。安卓在解析阶段即拒收，说明 APK 文件头尾不齐——下载中途断流。正常包 `25,095,687` 字节；截断包无 EOCD 结尾，非合法 ZIP。
+- **核验动作**：从固定 Release（tag `android-apk`）重新拉取，逐项校验并留证：
+
+  | 校验项 | 结果 |
+  |---|---|
+  | 文件大小 | 25,095,687 字节（与 CI 产物一致） |
+  | ZIP 结构（EOCD） | 通过，`testzip()` 无损坏项 |
+  | 条目数 | 424 |
+  | 包名 / 版本 | `com.factory.wms` / versionCode **14**、versionName **3.8.0** |
+  | MD5 | `bf2bdbcb548dc61b04df857813bec865` |
+  | SHA256 | `6c51f8ebb324fa1157c8b53926f8e7e3…` |
+
+- **CI 全绿（本轮）**：`#488 Android APK Build` success（`e5eff9c`）、`#1272 AI Verification` success、`#977 WMS CI` success。对照 `#486` 为 failure（即 `BUG-2026-09-13-024` 的那次回归，该次**无包产出**）。
+- **字节码级验收（androguard，两代包对照）**：
+
+  | 验证项 | 线上固定 Release 包 | 工作区旧包 |
+  |---|---|---|
+  | `MainActivity.onCreate` 权限相关调用数 | **0** | **0** |
+
+  两代包均确认启动期权限申请已移除（对应 `BUG-2026-09-13-023` 第二根因修复）。
+  注：`encryptedPrefs` / `getSavedToken` 等私有成员名经 R8 混淆后无法在字符串池直接检索，故改以**方法调用序列**为验收口径——`MainActivity.onCreate` 的指令级调用数是不可伪造的硬证据。
+- **全量测试**：`1726 passed / 85 skipped / 0 failed`。
+- **分发结论**：固定 Release 直链
+  `https://github.com/SIX2090/wms/releases/download/android-apk/wms-mobile-scan.apk`
+  每次推送后由 CI 自动覆盖，永远为最新包。工作区 `/workspace/wms-mobile-scan.apk` 已替换为 #488 产物（MD5 同上）。
+- **教训**：**"装不上"与"装上了崩"是两条完全不同的路径**，前两轮把「解析包失败」并入「启动崩溃」一起排查，属于归因错误。分发链完整性应作为独立环节先验，再谈代码。
+
 ### BUG-2026-09-13-024（2026-09-14，我造成的回归：陈旧基线导致 6 个公共 API 与 3 个源文件被删，APK 构建 40 处编译错误）
 
 - **现场**：`Android APK Build #486`（远端 `7d2f81c6aa`）`step 8 Build Release APK (R8 瘦身)` = failure，卡在 `:app:compileReleaseKotlin`，**40 处错误全部集中在 `ScanViewModel.kt`**：
