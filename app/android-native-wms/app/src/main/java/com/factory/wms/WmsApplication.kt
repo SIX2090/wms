@@ -35,6 +35,7 @@ class WmsApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        installCrashLogger()
         RetrofitClient.onUnauthorized = {
             AuthEventBus.notifyUnauthorized()
         }
@@ -54,6 +55,50 @@ class WmsApplication : Application(), ImageLoaderFactory {
         // 离线队列对用户承诺的"联网后自动提交"就是空的。
         // 进程启动即预热，使该承诺与用户后续操作路径无关。
         warmUpOfflineQueue()
+    }
+
+    /**
+     * BUG-2026-09-13-001：「WMS扫码屡次停止运行」——现场只报一句系统弹窗，
+     * 拿不到任何堆栈，导致一个确定性崩溃被含糊描述成"修了一百遍还是不行"。
+     *
+     * 这里装一个进程级未捕获异常处理器，把堆栈落到
+     *   `filesDir/crash/last_crash.txt`
+     * 供现场取回（开发者选项里的"错误报告"能直接看到，或用 adb 拉取）。
+     *
+     * 刻意**不**改变崩溃行为（不吞异常、不"假装没崩"）：崩溃该发生就发生，
+     * 否则会掩盖真实缺陷、把崩溃变成静默的数据错误——那比崩溃更危险。
+     * 本处理器只做一件事：把真相留下来。
+     *
+     * 只保留最近一次崩溃，避免反复崩溃时无限写盘。
+     */
+    private fun installCrashLogger() {
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                val dir = File(filesDir, "crash")
+                if (!dir.exists()) dir.mkdirs()
+                val sw = java.io.StringWriter()
+                throwable.printStackTrace(java.io.PrintWriter(sw))
+                val text = buildString {
+                    append("time=").append(java.text.SimpleDateFormat(
+                        "yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+                        .format(java.util.Date())).append('\n')
+                    append("thread=").append(thread.name).append('\n')
+                    append("version=").append(BuildConfig.VERSION_NAME)
+                        .append(" (").append(BuildConfig.VERSION_CODE).append(")\n")
+                    append("sdk=").append(android.os.Build.VERSION.SDK_INT)
+                        .append(" device=").append(android.os.Build.MODEL)
+                        .append(" rom=").append(android.os.Build.MANUFACTURER).append('\n')
+                    append("---- stack ----\n").append(sw.toString())
+                }
+                File(dir, "last_crash.txt").writeText(text)
+                Log.e(TAG, "捕获到未处理异常，堆栈已写入 filesDir/crash/last_crash.txt")
+            }.onFailure {
+                Log.e(TAG, "写入崩溃日志失败: ${it.message}")
+            }
+            // 交回系统默认处理，保持标准崩溃行为不变
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
     }
 
     /**
