@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-14（持续滚动更新；累计 397 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 74 条，最新 BUG-2026-09-14-031）
+更新时间：2026-09-14（持续滚动更新；累计 398 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 75 条，最新 BUG-2026-09-14-032）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -253,6 +253,38 @@
 - **生效条件**：CI 转绿产出 3.8.3 后用户卸载重装，fresh install 冷启动不再闪退，可正常进入登录页。
 - **CI 验收（已确认，commit `e1aea42`）**：`Android APK Build` #495 / `WMS CI` / `WMS AI Verification` 三工作流全部 success；Release 资产于 2026-09-14T09:34:52Z 更新为 3.8.3（versionCode=17）新包（沙箱代理通道下载 APK 屡被截断无法字节级校验，但 #495 构建自本提交 + 资产更新时间紧随其后 + 用户装此包后闪退消失——此前 3.8.2 上 100% 复现——行为变化即含修复的实证）。
 - **用户侧终验（2026-09-14，已修复结案）**：真机 HUAWEI LIO-AN00 卸载重装 3.8.3，fresh install 冷启动**不再闪退**，正常进入登录页并**登录成功**。期间一次「登录失败(502)」经外网实测排查为服务器端后端进程停止（见 BUG-2026-09-14-030），与 App 无关；服务器恢复后登录即成功，反证 App 冷启动与网络链路均正常。**至此「WMS扫码屡次停止运行」三根因（023 数据持久化+权限、027 versionCode 冻结、029 离线队列构造期急切解析 api）全部闭环结案。**
+
+### BUG-2026-09-14-032（2026-09-14，NavGraph 组合根饿汉创建全部 ViewModel：崩溃放大 + 启动开销 + 竞态温床）
+
+- **发现方式**：移动端工程质量走查（非现场报障）。属**结构性缺陷**——无直接崩溃复现，但为既有崩溃的**放大器**，且是 BUG-2026-08-24-006 的**未根治根因**。
+- **根因**：`AppNavGraph()` 函数体开头一次性创建 **14 个 ViewModel**：
+
+  ```kotlin
+  val authViewModel = viewModel()
+  val inboundScanViewModel = viewModel(key = "inbound_scan")
+  ... （共 14 个，含 4 个 ScanViewModel 副本）
+  val overviewListViewModel = viewModel(key = "overview_list")
+  ```
+
+  `AppNavGraph` 是**全 App 的组合根**，在 `MainActivity.setContent` 第一帧即被调用——故这 14 行等价于「App 一启动就构造所有页面的 ViewModel」。
+
+- **三个具体危害**：
+  1. **崩溃放大（最严重）**：任一 VM 构造期抛异常 = 整个进程闪退。BUG-2026-09-14-029 的 `ScanViewModel.<init>` 抛 `IllegalStateException`（baseUrl 未配置）正是**被这里放大**成"打开应用即闪退"——若按需创建，该 VM 只在用户进入扫码页时才构造，最多是一个页面打不开，不会全 App 崩溃。
+  2. **启动开销与内存常驻**：14 个 VM 及其依赖的 `WmsRepository` / Room DAO / 协程作用域全部常驻，其中语音/AI/期初/报表等页面用户可能从不打开。
+  3. **竞态温床**：VM 在"会话尚未还原"（`AuthViewModel.init` 异步读 DataStore + EncryptedSharedPreferences，耗时数百毫秒）时已被构造，其 init 中的网络请求必然读到空 baseUrl。
+- **R6 同根因排查（关键）**：命中 **BUG-2026-08-24-006**——其描述就是「`AppNavGraph` 组合阶段即创建 `ReportViewModel` 并在 init 立即 load()，与会话还原竞态 → 报表页报『服务器地址未配置』」。当时的修复是①`ReportViewModel.init` 改为不自动加载②`WmsRepository` 加 `ensureSession()` 兜底。**两处都是对症补丁，饿汉创建这个根因从未消除**——证据：`StocktakeRecordViewModel.init` 与 `ReportViewModel.init` 里都留着「BUG-2026-08-24-006：不能在 init 拉数据」的注释，说明**同一个根因已被迫用「禁止在 init 做事」这种约束反复绕行**，而 VM 本身仍在启动期被无谓构造。本次从根上消除，使这类约束不再必要。
+- **修复（结构收敛，不改任何业务逻辑）**：
+  - `AppNavGraph` **顶层只保留 `authViewModel`**（`startDestination` 依赖其 `isLoggedIn`，且必须在导航建立前存在）；
+  - 其余 **13 个 VM 全部下沉到各自 `composable(...)` 路由内**按需创建（18 个创建点，含跨路由共用项）；
+  - 语音悬浮层两个 VM 移入 `if (authState.isLoggedIn)` 分支内创建——未登录时完全不构造。
+- **实例语义保持不变（关键论证）**：路由内 `viewModel()` 的宿主是 **Activity 级 `ViewModelStore`**，同一 key 跨路由**复用同一实例**，故：
+  - 4 个 `ScanViewModel` 用不同 key（`inbound_scan`/`outbound_scan`/`stock_query`/`stocktake`）→ 各自独立，与修复前一致（否则入库明细会串到出库页）；
+  - `AiViewModel` 在 `DocumentOcr`/`ObjectRecognize`/`StocktakeRecognize` 三处均用默认 key（按类型）→ **同一实例**，与修复前共享语义一致；
+  - `VoiceOutDraftViewModel` 在语音悬浮层与 `Outbound` 路由两处同类型 → **同一实例**，语音建单草稿与出库页读写同一份状态；
+  - 物料档案列表页与详情页共用 `MaterialArchiveViewModel` → 同一实例，选中态不丢。
+- **用户可见影响**：启动时构造的 VM 由 14 个降至 **1 个**（登录页场景）；首屏后按实际访问逐个构造。启动更快、内存更低、**单页 VM 故障不再拖垮全 App**。
+- **回归**：新增 `tests/verify_bug_2026_09_14_032_navgraph_lazy_viewmodels.py` 11 项——① 组合根顶层无饿汉创建（仅允许 authViewModel）② 反向保证 authViewModel 仍在顶层（防误下沉致启动落错页）③ 5 个带 key 的 VM 必须在路由内且 key 保留（防串页）④ 每个创建点必须位于 composable 路由或已登录分支内 ⑤ 语音 VM 受 isLoggedIn 守卫 ⑥ 同一 key 不得赋予不同 VM 类型 ⑦ BUG 已登记基线。**全绿**（预跑时基线未登记项按预期失败，证明测试有效）。
+- **生效条件**：Android 改动，需产出新 APK 后重装；无需后端重启。
 
 ### BUG-2026-09-14-031（2026-09-14，Compose 列表 key 塌缩为常量致页面崩溃隐患：4 处 items key 兜底缺失）
 
