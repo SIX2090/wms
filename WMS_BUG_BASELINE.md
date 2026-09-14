@@ -106,7 +106,20 @@
     | RECORD_AUDIO | `ui/components/VoiceAssistant.kt:80-137`（同机制，启用语音时请求） |
   - **R6 同根因排查**：全量 grep `requestPermissions` —— 移除后全项目**零调用**，`WmsApplication` 亦无权限申请，确认无第二处启动期申请。
   - **反向回归**：重写 `tests/test_android_startup_permissions.py`。**原文件正是锁死错误行为的元凶**——它断言 `MainActivity` 必须包含 `requestPermissions(`（`test_startup_requests_both_permissions_before_app_navigation`），使该写法无法被修正。新版改为 5 项反向断言：MainActivity **不得**出现 `requestPermissions(`（去注释后校验）与 `REQUEST_STARTUP_PERMISSIONS`；两个权限必须由 Compose 组件按需申请；`setContent`/`AppNavGraph` 组合完整。
-  - **验证**：`test_android_startup_permissions.py` + `test_android_startup_crash_resilience.py` **12 passed**；全量 pytest 待补记。CI 结果待观察。
+  - **验证**：`test_android_startup_permissions.py` + `test_android_startup_crash_resilience.py` **12 passed**；**全量 pytest 1726 passed / 85 skipped / 0 failed**；`lint_wms_rules.py --staged` **0 违规**。
+  - **CI 验收（`b99a586`）**：`#484 Android APK Build` **success**、`#973 WMS CI` **success**、`#1268 WMS AI Verification` **success**。
+  - **字节码级验证（androguard 反汇编 Release APK）**：第三代包（SHA256 `1074141f…`）的 `Lcom/factory/wms/MainActivity;.onCreate(Landroid/os/Bundle;)V` 共 **42 个方法调用，权限调用数 = 0**，全部为 `setContent` / `enableEdgeToEdge` / Window 组合逻辑；对照第二代包（`2fb3e7dc…`）该方法内仍含 `requestPermissions`。**确证启动期权限申请已从产物中消失。**
+  - 三代产物标志串总表（dex 常量池）：
+    | 标志串 | #481前(旧) | #482后 | #484后 |
+    |---|---|---|---|
+    | `本地数据库不可用` | 无 | 有 | 有 |
+    | `加密存储不可用` | 无 | 有 | 有 |
+    | `降级为无本地缓存` | 无 | 有 | 有 |
+    | `降级为待登录状态` | 无 | 有 | 有 |
+    | `读取 token 失败，按未登录处理` | 无 | 有 | 有 |
+    | `会话还原失败，降级为未登录` | 无 | 有 | 有 |
+    | `建库失败，尝试删除本地库重建` | 无 | 有 | 有 |
+    | 对照 `wms_database` / `WmsRepo` | 有 | 有 | 有 |
   - **教训**：改动 Android 启动路径时，**不能在 `onCreate` 中做任何会打断 Activity 生命周期的同步操作**（权限申请、`startActivityForResult` 等）——必须让 `setContent` 先完成。测试若硬编码实现细节（如"必须调用某 API"），会把错误锁死，应断言**行为契约**而非**实现手段**。
 
 ## 判定规则
