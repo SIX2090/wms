@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-14（持续滚动更新；累计 398 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 75 条，最新 BUG-2026-09-14-032）
+更新时间：2026-09-14（持续滚动更新；累计 399 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 76 条，最新 BUG-2026-09-14-033）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -253,6 +253,24 @@
 - **生效条件**：CI 转绿产出 3.8.3 后用户卸载重装，fresh install 冷启动不再闪退，可正常进入登录页。
 - **CI 验收（已确认，commit `e1aea42`）**：`Android APK Build` #495 / `WMS CI` / `WMS AI Verification` 三工作流全部 success；Release 资产于 2026-09-14T09:34:52Z 更新为 3.8.3（versionCode=17）新包（沙箱代理通道下载 APK 屡被截断无法字节级校验，但 #495 构建自本提交 + 资产更新时间紧随其后 + 用户装此包后闪退消失——此前 3.8.2 上 100% 复现——行为变化即含修复的实证）。
 - **用户侧终验（2026-09-14，已修复结案）**：真机 HUAWEI LIO-AN00 卸载重装 3.8.3，fresh install 冷启动**不再闪退**，正常进入登录页并**登录成功**。期间一次「登录失败(502)」经外网实测排查为服务器端后端进程停止（见 BUG-2026-09-14-030），与 App 无关；服务器恢复后登录即成功，反证 App 冷启动与网络链路均正常。**至此「WMS扫码屡次停止运行」三根因（023 数据持久化+权限、027 versionCode 冻结、029 离线队列构造期急切解析 api）全部闭环结案。**
+
+### BUG-2026-09-14-033（2026-09-14，Android 单元测试门禁自建起一直空跑：无测试目录、无测试依赖）
+
+- **发现方式**：移动端工程质量走查（非现场报障）。属**流程性缺陷**——门禁显示绿色但从未拦住任何东西。
+- **缺陷事实（两条并存，共同导致 `testReleaseUnitTest` 形同虚设）**：
+  1. `.github/workflows/android-build.yml` 自 **BUG-2026-08-16-021** 起就包含步骤 `./gradlew testReleaseUnitTest`，但 **`app/src/test` 目录根本不存在**；
+  2. `app/build.gradle.kts` 的 `dependencies` 里**没有任何测试依赖**（junit / robolectric / coroutines-test / androidx.test 全无）——即便写了测试也无法编译。
+- **为何一直没被发现**：Gradle 对"零测试源"的 `testReleaseUnitTest` 任务会**以 NO-SOURCE 成功退出**，CI 显示绿色。门禁"看起来有"，实际从未运行过一行断言。
+- **后果（这才是关键）**：项目所谓 55 个"Android 测试"**全部是 Python 正则匹配 Kotlin 源码字符串**——能防"某行守卫被删"，但**测不出任何运行时行为**。这正是 **BUG-2026-09-14-029（冷启动闪退）要修 5 轮才定位到真凶**的根因：每轮改完只能靠真机人肉验证，而沙箱/CI 又编译不了 APK，形成"盲改 → 真机复现 → 再盲改"的循环。
+- **修复（补基础设施 + 首批真实测试）**：
+  1. `build.gradle.kts` 新增 `testOptions.unitTests { isIncludeAndroidResources = true; isReturnDefaultValues = true }`（Robolectric 读资源与 Manifest 所必需）；
+  2. 新增测试依赖：`junit:junit:4.13.2`、`org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1`、`org.robolectric:robolectric:4.14.1`、`androidx.test:core:1.6.1`、`androidx.test.ext:junit:1.2.1`、`com.squareup.okhttp3:mockwebserver:4.12.0`、`androidx.arch.core:core-testing:2.2.0`；
+  3. 新建 `app/src/test/java/com/factory/wms/` 及**首批真实可执行测试**（Robolectric，`@Config(sdk=[31])` 对齐现场机型 HUAWEI LIO-AN00）：
+     - `RetrofitClientSessionTest.kt`（8 例）：锁死 `apiService` 在 baseUrl 未配置时**必须抛 IllegalStateException** 且消息可读（BUG-2026-09-14-029 的安全守卫语义——防后人为"不崩"而删守卫致 token 泄漏到占位地址）；尾斜杠容错；登出后守卫恢复；token 生命周期；共享 OkHttpClient 实例稳定（Coil 复用连接池）；`setBaseUrl` 并发读写不产生"新 baseUrl + 旧 retrofit"中间态。
+     - `OfflineQueueStateMachineTest.kt`（8 例）：用**真实 Room 内存库**验证状态机——①`syncing` 记录确实取不到（**这就是静默丢数据的机制**）②`resetStuckSyncing` 后必须重新可见（BUG-2026-09-12-008 核心）③达上限记录落 `failed` 且被 `countFailed` 统计（用户必须看得见）④**出口完整性**：pending∪failed 覆盖全部非成功路径，任何记录不得停留在 syncing ⑤`resetToPending` 清零次数与原因（否则刚重置就被下次失败打回）⑥`upsert` 按 requestId 幂等（弱网重复点击不产生重复单据的本地保障）⑦补传按入队时间升序（防同物料先出后入被颠倒）。
+- **回归**：新增 `tests/verify_bug_2026_09_14_033_android_unit_test_infra.py` 10 项——测试目录存在、含真实 `@Test`、3 个必需依赖已声明、Robolectric 资源开关已开、CI 仍保留 `testReleaseUnitTest`、**覆盖三个真实崩溃根因的契约**（baseUrl 守卫 / syncing 非终态 / 失败可见）、**反向断言禁止占位断言**（`assertTrue(true)` 之类糊弄门禁）、BUG 已登记基线。
+- **验证局限性（如实记录）**：沙箱无 Kotlin 工具链且 Maven Central / GitHub Releases 下载均被网络策略阻断（kotlinc 13.7MB 处截断、repo1.maven.org 不可达），**本地无法编译运行该 Kotlin 测试**。已改用**逐项 API 签名一致性核对**代替：核对 6 个 `RetrofitClient` 成员、11 个 DAO 方法、7 个 Entity 属性、5 个常量、`data class`（`copy()` 依赖）、`AppDatabase` 抽象类声明——**全部与源码一致**。真实编译与执行由 CI（`testReleaseUnitTest`，含 Android SDK 35 + JDK 17）完成，本条目 CI 验收待推送后确认。
+- **生效条件**：Android 改动；**不影响 APK 产物行为**（仅新增测试代码与依赖，`implementation` 依赖未变），无需重装。
 
 ### BUG-2026-09-14-032（2026-09-14，NavGraph 组合根饿汉创建全部 ViewModel：崩溃放大 + 启动开销 + 竞态温床）
 

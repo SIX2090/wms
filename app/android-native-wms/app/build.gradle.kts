@@ -104,6 +104,23 @@ android {
         compose = true
         buildConfig = true
     }
+
+    // BUG-2026-09-14-033：补 JVM 单元测试基础设施。
+    //
+    // 背景：CI 的 `testReleaseUnitTest` 步骤自 BUG-2026-08-16-021 加入以来**一直在空跑**
+    // ——`app/src/test` 目录不存在、dependencies 里也**没有任何测试依赖**
+    // （junit/robolectric 全无），测试门禁形同虚设。项目 55 个"Android 测试"全部是
+    // Python 正则匹配 Kotlin 源码字符串，测不出任何运行时行为——这正是
+    // BUG-2026-09-14-029（冷启动闪退）要修 5 轮才定位到真凶的根因。
+    //
+    // includeAndroidResources：Robolectric 需要访问合并后的资源与 Manifest，
+    // 否则 @Config 声明的 Application/资源读取会失败。
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -170,6 +187,18 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // ---- 单元测试依赖（BUG-2026-09-14-033）----
+    // 此前**完全没有任何测试依赖**，CI 的 testReleaseUnitTest 一直在空跑。
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    // Robolectric：在 JVM 上模拟 Android 运行时，可真实实例化 ViewModel/Repository、
+    // 访问 Application/Context/SharedPreferences，无需真机或模拟器。
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.test.ext:junit:1.2.1")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("androidx.arch.core:core-testing:2.2.0")
 }
 
 // -----------------------------------------------------------------------------
