@@ -153,7 +153,7 @@ class TestMobileMaterialArchiveApi(unittest.TestCase):
         self.assertEqual(len(body["data"]), 1)
         self.assertEqual(body["data"][0]["id"], mid)
         self.assertEqual(body["data"][0]["image_count"], 0)
-        # 空关键字返回全部（上限 50）
+        # 空关键字返回全部（BUG-2026-09-14-035 起不再截断前 50）
         r2 = self.client.get("/mobile/api/material_archive/search",
                              headers=self.headers)
         self.assertEqual(len(r2.get_json()["data"]), 2)

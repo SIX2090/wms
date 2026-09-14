@@ -69,6 +69,10 @@ _RECOGNIZE_WINDOW = 60
 _recognize_hits = defaultdict(list)
 _recognize_lock = threading.Lock()
 
+# BUG-2026-09-14-035：手机端物料档案「浏览全部」安全上限。物料主数据量可控，
+# 空关键字返回全部；此上限仅防极端大目录拖垮响应，超限时响应带 truncated 标记与真实 total。
+_MATERIAL_ARCHIVE_BROWSE_MAX = 5000
+
 
 def _recognize_rate_limited(key):
     """记录一次识图调用并检查限流。超限返回需等待秒数（int），否则返回 None。"""
@@ -1226,6 +1230,29 @@ def register_mobile_routes(app):
                 raise
             return 0
 
+    def _safe_material_image_counts(material_ids):
+        """批量统计多个物料的档案图片数（一次 GROUP BY），返回 {material_id: count}。
+
+        BUG-2026-09-14-035：搜索取全（空关键字返回全部物料）时，若仍逐物料
+        COUNT 会产生 N+1（数千次 SQL）。改为一次分组聚合；缺表回退空 dict（count 视为 0）。
+        """
+        from app import MaterialImage, db
+        if not material_ids:
+            return {}
+        try:
+            from sqlalchemy import func as sa_func
+            rows = (
+                db.session.query(MaterialImage.material_id, sa_func.count(MaterialImage.id))
+                .filter(MaterialImage.material_id.in_(material_ids))
+                .group_by(MaterialImage.material_id)
+                .all()
+            )
+            return {mid: cnt for mid, cnt in rows}
+        except Exception:
+            if _has_material_image_table():
+                raise
+            return {}
+
     # no-test:reason=helper 函数，能力由 mobile_material_archive_images T13 测试覆盖
     def _safe_material_image_list(material_id):
         from app import MaterialImage
@@ -1260,7 +1287,7 @@ def register_mobile_routes(app):
             return False
 
     # no-test:reason=从 mobile_* 路由内联 JS 里抽出的辅助函数，能力由 mobile_material_archive_* 路由测试覆盖
-    def _archive_material_payload(material):
+    def _archive_material_payload(material, image_count=None):
         return {
             'id': material.id,
             'code': material.code or '',
@@ -1268,7 +1295,8 @@ def register_mobile_routes(app):
             'spec': material.spec or '',
             'unit': material.unit.name if material.unit else '',
             'category': material.category.name if material.category else '',
-            'image_count': _safe_material_image_count(material.id),
+            # BUG-2026-09-14-035：image_count 由调用方批量预取传入（修 N+1）；未传则单条查询兜底
+            'image_count': _safe_material_image_count(material.id) if image_count is None else image_count,
         }
 
     @app.route('/mobile/api/material_archive/search')
@@ -1278,7 +1306,11 @@ def register_mobile_routes(app):
         from flask import jsonify, request
         from app import Material, db
         keyword = (request.args.get('keyword') or '').strip()
-        query = Material.query
+        # BUG-2026-09-14-035：预加载 unit/category，避免取全时逐物料惰性加载的二次 N+1
+        from sqlalchemy.orm import joinedload as _joinedload
+        query = Material.query.options(
+            _joinedload(Material.unit), _joinedload(Material.category)
+        )
         if keyword:
             like = f'%{keyword}%'
             query = query.filter(db.or_(
@@ -1287,11 +1319,19 @@ def register_mobile_routes(app):
                 Material.spec.like(like),
                 Material.brand.like(like),
             ))
-        materials = query.order_by(Material.code.asc()).limit(50).all()
+        # BUG-2026-09-14-035：手机端物料档案需展示全部物料。原 .limit(50) 把空关键字
+        # 浏览截断为前 50（R1：默认上限被当成全量）。改为返回全部匹配物料（主数据量可控），
+        # 附 total 元数据；仅设安全上限 _MATERIAL_ARCHIVE_BROWSE_MAX，超限 truncated + 真实 total。
+        total = query.count()
+        materials = query.order_by(Material.code.asc()).limit(_MATERIAL_ARCHIVE_BROWSE_MAX).all()
+        # N+1 修复：图片数一次 GROUP BY 批量预取（原逐物料 COUNT，取全时数千次 SQL）。
+        image_counts = _safe_material_image_counts([m.id for m in materials])
         return jsonify({
             'status': 'success',
             'success': True,
-            'data': [_archive_material_payload(m) for m in materials],
+            'total': total,
+            'truncated': total > _MATERIAL_ARCHIVE_BROWSE_MAX,
+            'data': [_archive_material_payload(m, image_counts.get(m.id, 0)) for m in materials],
         })
 
     @app.route('/mobile/api/material_archive/<int:id>/images')

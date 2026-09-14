@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-14（持续滚动更新；累计 401 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 77 条，最新 BUG-2026-09-14-034；另含新增能力条目 WECOM-BOT-001 等）
+更新时间：2026-09-14（持续滚动更新；累计 402 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 78 条，最新 BUG-2026-09-14-035；另含新增能力条目 WECOM-BOT-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -253,6 +253,16 @@
 - **生效条件**：CI 转绿产出 3.8.3 后用户卸载重装，fresh install 冷启动不再闪退，可正常进入登录页。
 - **CI 验收（已确认，commit `e1aea42`）**：`Android APK Build` #495 / `WMS CI` / `WMS AI Verification` 三工作流全部 success；Release 资产于 2026-09-14T09:34:52Z 更新为 3.8.3（versionCode=17）新包（沙箱代理通道下载 APK 屡被截断无法字节级校验，但 #495 构建自本提交 + 资产更新时间紧随其后 + 用户装此包后闪退消失——此前 3.8.2 上 100% 复现——行为变化即含修复的实证）。
 - **用户侧终验（2026-09-14，已修复结案）**：真机 HUAWEI LIO-AN00 卸载重装 3.8.3，fresh install 冷启动**不再闪退**，正常进入登录页并**登录成功**。期间一次「登录失败(502)」经外网实测排查为服务器端后端进程停止（见 BUG-2026-09-14-030），与 App 无关；服务器恢复后登录即成功，反证 App 冷启动与网络链路均正常。**至此「WMS扫码屡次停止运行」三根因（023 数据持久化+权限、027 versionCode 冻结、029 离线队列构造期急切解析 api）全部闭环结案。**
+
+### BUG-2026-09-14-035（2026-09-14，手机端物料档案只显示前 50 条：搜索接口 `.limit(50)` 截断 + 进入不加载）
+
+- **发现方式**：用户要求「手机端物料档案能展示所有物料」。
+- **根因（代码实证）**：①后端 `/mobile/api/material_archive/search` 硬编码 `.limit(50)`——空关键字浏览也只返回前 50（R1：默认上限被当成全量）；②`MaterialArchiveSearchScreen` 为纯搜索屏，进入不自动加载，空关键字显示「输入关键字搜索物料」。
+- **连带隐患**：`_archive_material_payload` 的 `image_count` 逐物料 `COUNT`、`unit`/`category` 惰性加载——若直接取全会放大为 N+1（数千次 SQL）。
+- **R6 同根因排查**：与 BUG-2026-09-07-003/004（报表截断）、BUG-2026-09-10-009（日报逐页翻页 R1）同 R1 模式；grep 移动端列表接口，本 search 为唯一硬编码小 limit 的物料主数据浏览接口，其余（库存/订单/预警）均已分页带 `total_pages`。
+- **修复**：①后端返回全部匹配物料（主数据量可控），附 `total`/`truncated` 元数据，安全上限 `_MATERIAL_ARCHIVE_BROWSE_MAX=5000`；`image_count` 改一次 GROUP BY 批量预取（`_safe_material_image_counts`），`unit`/`category` `joinedload` 预加载——取全收敛为常量次 SQL；②Android 进入即 `LaunchedEffect(Unit){ viewModel.search() }` 自动加载全部，空态文案改为「暂无物料档案」。
+- **回归**：新增 `tests/verify_bug_2026_09_14_035_material_archive_show_all.py` 6 项（空关键字返回全部 60 条+total、N+1 SQL≤12、超限 truncated+真实 total、关键字过滤、批量 image_count 正确、Android 自动加载静态断言+无硬编码 limit）；既有 `verify_mobile_material_archive_api.py` 12 项同步全绿；`lint_wms_rules` / `lint_no_raw_post_fetch` 0 违规。
+- **生效条件**：后端改动拉取后**重启 WMS 服务生效**（R3，接口可先 `?keyword=` 自查）；**Android 改动需 CI `assembleRelease` 产出新 APK 后重装**（本地沙箱无 Java/SDK，编译验收以 CI 为准，BUG-2026-09-12-006 规则）。
 
 ### WECOM-BOT-001（2026-09-14，新增能力：微信分享接入「企业微信群机器人」通道，非重复BUG）
 

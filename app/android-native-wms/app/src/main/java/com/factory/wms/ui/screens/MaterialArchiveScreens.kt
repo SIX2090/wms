@@ -73,6 +73,11 @@ fun MaterialArchiveSearchScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // BUG-2026-09-14-035：进入物料档案即加载全部物料（空关键字后端返回全量，不再截断前 50）。
+    LaunchedEffect(Unit) {
+        viewModel.search()
+    }
+
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
@@ -210,8 +215,9 @@ fun MaterialArchiveSearchScreen(
                 ) {
                     WmsEmptyState(
                         icon = Icons.Outlined.Inventory2,
-                        title = if (uiState.keyword.isBlank()) "输入关键字搜索物料" else "未找到匹配的物料",
-                        subtitle = if (uiState.keyword.isBlank()) "支持编码 / 名称 / 规格 / 品牌模糊搜索" else "换个关键字试试",
+                        // BUG-2026-09-14-035：进入即自动加载全部，空关键字仍为空 = 档案尚无物料
+                        title = if (uiState.keyword.isBlank()) "暂无物料档案" else "未找到匹配的物料",
+                        subtitle = if (uiState.keyword.isBlank()) "可先在电脑端新建物料，或按编码/名称/规格/品牌搜索" else "换个关键字试试",
                         accentColor = Primary
                     )
                 }
