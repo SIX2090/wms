@@ -43,6 +43,10 @@ WMS_HELPER_TOKEN = os.environ.get("WECHAT_HELPER_TOKEN")
 POLL_ENABLED = os.environ.get("WMS_WECHAT_HELPER_POLL", "0").lower() in {"1", "true", "yes"}
 POLL_INTERVAL = max(5, int(os.environ.get("WMS_WECHAT_HELPER_INTERVAL", "30")))
 
+# BUG-2026-09-14-034：助手→WMS 的回环调用（拉取/回报任务）同样禁走系统/环境代理。
+# 详见 WMS 侧 app.py 同名常量注释：代理软件"系统代理"会劫持 127.0.0.1 回环请求 → 502/超时。
+_LOOPBACK_NO_PROXY = {"http": None, "https": None}
+
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
@@ -451,7 +455,7 @@ def absolute_wms_url(url: str) -> str:
 
 def poll_once() -> int:
     tasks_url = f"{WMS_BASE_URL}/api/wechat_helper/tasks"
-    response = requests.get(tasks_url, headers=helper_headers(), params={"limit": 3}, timeout=20)
+    response = requests.get(tasks_url, headers=helper_headers(), params={"limit": 3}, timeout=20, proxies=_LOOPBACK_NO_PROXY)
     response.raise_for_status()
     payload = response.json()
     if payload.get("status") != "success":
@@ -463,16 +467,16 @@ def poll_once() -> int:
         report_url = absolute_wms_url(task.get("report_url") or f"/api/wechat_helper/task/{task_id}/report")
         try:
             image_url = absolute_wms_url(task.get("image_url") or f"/api/wechat_helper/task/{task_id}/image")
-            image_response = requests.get(image_url, headers=helper_headers(), timeout=30)
+            image_response = requests.get(image_url, headers=helper_headers(), timeout=30, proxies=_LOOPBACK_NO_PROXY)
             image_response.raise_for_status()
             status, code, message = send_image_task(image_response.content, task)
-            requests.post(report_url, headers=helper_headers(), json={"status": status, "code": code, "msg": message}, timeout=20).raise_for_status()
+            requests.post(report_url, headers=helper_headers(), json={"status": status, "code": code, "msg": message}, timeout=20, proxies=_LOOPBACK_NO_PROXY).raise_for_status()
             processed += 1
             logger.info("[poll] task %s: %s(%s) %s", task_id, status, code, message)
         except Exception as exc:
             message = f"本机微信助手发送失败：{exc}"
             try:
-                requests.post(report_url, headers=helper_headers(), json={"status": "failed", "msg": message}, timeout=20)
+                requests.post(report_url, headers=helper_headers(), json={"status": "failed", "msg": message}, timeout=20, proxies=_LOOPBACK_NO_PROXY)
             except Exception:
                 pass
             logger.error("[poll] task %s failed: %s", task_id, exc)

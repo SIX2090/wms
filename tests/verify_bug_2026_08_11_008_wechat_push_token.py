@@ -81,7 +81,7 @@ class TestDirectPushToken:
         # 模块级 token；测试内用 monkeypatch.setitem 固定，保证用例间相互隔离。
         monkeypatch.setitem(app_module.app.config, "WECHAT_HELPER_TOKEN", "test-helper-token-008")
 
-        def fake_post(url, data=None, files=None, headers=None, timeout=None):
+        def fake_post(url, data=None, files=None, headers=None, timeout=None, proxies=None):
             captured["url"] = url
             captured["headers"] = headers or {}
             captured["data"] = data or {}

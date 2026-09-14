@@ -86,7 +86,7 @@ class _FakeResponse:
 def _send(config, image, monkeypatch, post_side_effect):
     calls = []
 
-    def fake_post(url, data=None, files=None, headers=None, timeout=None):
+    def fake_post(url, data=None, files=None, headers=None, timeout=None, proxies=None):
         calls.append(url)
         result = post_side_effect(len(calls))
         if isinstance(result, Exception):

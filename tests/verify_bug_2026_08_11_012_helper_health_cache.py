@@ -86,7 +86,7 @@ class TestHelperHealthCache:
         """T1：30s 内第二次调用命中缓存，requests.get 仅调用 1 次。"""
         _reset_cache()
         calls = []
-        monkeypatch.setattr("requests.get", lambda url, timeout=None: calls.append(url) or _FakeResponse())
+        monkeypatch.setattr("requests.get", lambda url, timeout=None, **_kw: calls.append(url) or _FakeResponse())
         with app_module.app.app_context():
             first = app_module._wechat_share_get_helper_health(_make_config())
             second = app_module._wechat_share_get_helper_health(_make_config())
@@ -98,7 +98,7 @@ class TestHelperHealthCache:
         """T2：超过 30s 缓存过期，重新发起请求。"""
         _reset_cache()
         calls = []
-        monkeypatch.setattr("requests.get", lambda url, timeout=None: calls.append(url) or _FakeResponse())
+        monkeypatch.setattr("requests.get", lambda url, timeout=None, **_kw: calls.append(url) or _FakeResponse())
         t0 = dt.datetime(2026, 8, 11, 12, 0, 0)
         frozen = _freeze_time(monkeypatch, t0)
         try:
@@ -121,7 +121,7 @@ class TestHelperHealthCache:
         """T3：更换 helper_url 后旧缓存不命中。"""
         _reset_cache()
         calls = []
-        monkeypatch.setattr("requests.get", lambda url, timeout=None: calls.append(url) or _FakeResponse())
+        monkeypatch.setattr("requests.get", lambda url, timeout=None, **_kw: calls.append(url) or _FakeResponse())
         with app_module.app.app_context():
             app_module._wechat_share_get_helper_health(_make_config())
             app_module._wechat_share_get_helper_health(
@@ -136,7 +136,7 @@ class TestHelperHealthCache:
         """T4：未配置地址时不发请求，且已有缓存被清空。"""
         _reset_cache()
         calls = []
-        monkeypatch.setattr("requests.get", lambda url, timeout=None: calls.append(url) or _FakeResponse())
+        monkeypatch.setattr("requests.get", lambda url, timeout=None, **_kw: calls.append(url) or _FakeResponse())
         with app_module.app.app_context():
             app_module._wechat_share_get_helper_health(_make_config())
             assert len(calls) == 1

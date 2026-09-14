@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-14（持续滚动更新；累计 399 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 76 条，最新 BUG-2026-09-14-033）
+更新时间：2026-09-14（持续滚动更新；累计 400 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 77 条，最新 BUG-2026-09-14-034）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -253,6 +253,15 @@
 - **生效条件**：CI 转绿产出 3.8.3 后用户卸载重装，fresh install 冷启动不再闪退，可正常进入登录页。
 - **CI 验收（已确认，commit `e1aea42`）**：`Android APK Build` #495 / `WMS CI` / `WMS AI Verification` 三工作流全部 success；Release 资产于 2026-09-14T09:34:52Z 更新为 3.8.3（versionCode=17）新包（沙箱代理通道下载 APK 屡被截断无法字节级校验，但 #495 构建自本提交 + 资产更新时间紧随其后 + 用户装此包后闪退消失——此前 3.8.2 上 100% 复现——行为变化即含修复的实证）。
 - **用户侧终验（2026-09-14，已修复结案）**：真机 HUAWEI LIO-AN00 卸载重装 3.8.3，fresh install 冷启动**不再闪退**，正常进入登录页并**登录成功**。期间一次「登录失败(502)」经外网实测排查为服务器端后端进程停止（见 BUG-2026-09-14-030），与 App 无关；服务器恢复后登录即成功，反证 App 冷启动与网络链路均正常。**至此「WMS扫码屡次停止运行」三根因（023 数据持久化+权限、027 versionCode 冻结、029 离线队列构造期急切解析 api）全部闭环结案。**
+
+### BUG-2026-09-14-034（2026-09-14，微信分享批量「HTTP 502」+ 健康检查 10090 超时：系统代理劫持本机回环请求）
+
+- **发现方式**：现场报障。用户截图：微信分享记录批量「失败：微信发送助手返回错误：HTTP 502（错误码：http_502）」，当前状态面板「发送助手 不可用」，报错 `HTTPConnectionPool(host='127.0.0.1', port=10090): Read timed out. (read timeout=1.5)`，待发送/失败积压 160 条。
+- **根因（代码 + 现场证据，非推测）**：服务器为拉取 GitHub 代码常驻代理软件。代理开启「系统代理」后写入 Windows 注册表/环境变量代理（监听 `127.0.0.1:10090`）。WMS 侧 `_wechat_share_send_image`（POST /send）、`_wechat_share_get_helper_health`（GET /health）与助手侧 `poll_once` 均用 Python `requests` 默认行为调用本机回环地址（127.0.0.1:8765 / 8080）；requests 读取系统代理后把回环请求路由到 10090，代理无法处理回环目标 → 回 HTTP 502（POST /send）或 read timeout（GET /health）。**关键佐证**：健康检查报错端口是 **10090（代理端口）而非 8765（助手端口）**——证明请求被发去了代理。与 BUG-2026-09-14-030 的 502（服务器后端进程停止）根因不同。
+- **R6 同根因排查**：grep 全仓对回环 helper 的 requests 调用，确认消费点共 6 处——WMS 侧 2 处（app.py /send、/health）+ 助手侧 4 处（wechat_helper.py `poll_once` 的 GET tasks / GET image / POST report ×2），全部同一根因，本次一并修复；未发现其它对回环 helper 的 requests 调用点。
+- **修复**：新增模块常量 `_LOOPBACK_NO_PROXY = {'http': None, 'https': None}`（app.py 与 wechat_helper.py 各一），6 处回环调用统一显式传 `proxies=_LOOPBACK_NO_PROXY`。原理：requests 合并环境代理用 `setdefault`，显式 `None` 优先生效，`select_proxy` 返回 `None` → 直连本机，与代理开关状态无关，用户无需「不用就关代理」。
+- **回归**：新增 `tests/verify_bug_2026_09_14_034_loopback_no_proxy.py` 4 项——T1 /send 携带 no-proxy、T2 /health 携带 no-proxy、T3 机制证明（设 HTTP(S)_PROXY 且清 NO_PROXY 后，`merge_environment_settings`+`select_proxy` 仍返回 None 直连；对照组不传 no-proxy 时代理确被选中）、T4 助手源码静态断言（Windows-only 无法 import，按仓库惯例）；并为 008/010/012 现有测试桩补 `proxies` 形参适配新关键字。相关用例 **27 passed**（含 008/009/010/012 全绿）。
+- **生效条件**：仅改 WMS 主服务与微信助手进程对本机回环的 HTTP 调用方式，不改业务数据、不改助手 UI 自动化/剪贴板/前台校验逻辑；**生产需重启 WMS 服务（及微信助手进程）生效**。
 
 ### BUG-2026-09-14-033（2026-09-14，Android 单元测试门禁自建起一直空跑：无测试目录、无测试依赖）
 

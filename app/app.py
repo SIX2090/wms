@@ -22884,6 +22884,14 @@ def _wechat_share_helper_url_allowed(helper_url):
     return (parsed.hostname or '').lower() in {'127.0.0.1', 'localhost', '::1'}
 
 
+# BUG-2026-09-14-034：本机回环 HTTP 调用（WMS→微信助手 /send、/health；助手→WMS）绝不走系统/环境代理。
+# 服务器为拉取 GitHub 代码常驻代理软件，开启"系统代理"后 requests 会把 127.0.0.1 的回环请求
+# 也路由到代理监听端口（实测 10090），代理无法处理回环目标 → HTTP 502 / read timeout，
+# 这正是微信分享批量 502、健康检查超时的根因。显式传 proxies={'http': None, 'https': None}：
+# requests 合并环境代理用 setdefault，显式 None 优先生效，select_proxy 返回 None → 直连本机，与代理开关无关。
+_LOOPBACK_NO_PROXY = {'http': None, 'https': None}
+
+
 def _wechat_share_send_image(config, image_path):
     """直推分享图片到本机微信发送助手，返回 (status, code, message)。
 
@@ -22931,6 +22939,8 @@ def _wechat_share_send_image(config, image_path):
                 files=files,
                 headers={'X-Wechat-Helper-Token': helper_token},
                 timeout=10,
+                # BUG-2026-09-14-034：回环直连，禁走系统/环境代理
+                proxies=_LOOPBACK_NO_PROXY,
             )
 
     try:
@@ -23019,7 +23029,8 @@ def _wechat_share_get_helper_health(config):
 
     try:
         import requests
-        response = requests.get(health_url, timeout=1.5)
+        # BUG-2026-09-14-034：回环直连，禁走系统/环境代理
+        response = requests.get(health_url, timeout=1.5, proxies=_LOOPBACK_NO_PROXY)
         if not response.ok:
             health['message'] = f'助手返回 HTTP {response.status_code}'
         else:
