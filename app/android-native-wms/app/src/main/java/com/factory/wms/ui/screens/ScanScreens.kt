@@ -1259,7 +1259,11 @@ private fun StockListSection(
                     .weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(uiState.stockListItems, key = { it.id ?: 0 }) { material ->
+                // BUG-2026-09-14-031：key 不得用 `id ?: 0`——id 为可空 Int?，多条为 null 时
+                // key 全等 0，Compose 抛 IllegalArgumentException 直接崩溃（LazyColumn 要求
+                // key 唯一）。三级兜底：id → 物料编码 → hashCode，hashCode 与对象内容绑定，
+                // 同页出现两条相同物料时概率可忽略，且远优于让崩溃发生。
+                items(uiState.stockListItems, key = { it.id ?: it.code ?: it.hashCode() }) { material ->
                     StockListRow(material)
                 }
                 if (uiState.stockListLoadingMore) {

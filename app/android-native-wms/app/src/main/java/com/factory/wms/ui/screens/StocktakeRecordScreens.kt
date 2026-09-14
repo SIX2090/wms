@@ -185,7 +185,10 @@ fun StocktakeRecordScreen(
                         ),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(uiState.records, key = { it.id }) { record ->
+                        // BUG-2026-09-14-031：`key = { it.id }` 看似安全（id 非空 Long），但该字段
+                        // 有默认值 0，Gson 反序列化遇缺失/异常响应会落 0——同页多条即 key 冲突崩溃。
+                        // 统一为「id 有效则用 id，否则退 checkNo → hashCode」。
+                        items(uiState.records, key = { if (it.id != 0L) it.id else it.checkNo ?: it.hashCode() }) { record ->
                             StocktakeRecordCard(record)
                         }
                         if (uiState.hasMore) {

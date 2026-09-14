@@ -231,7 +231,9 @@ private fun AlertList(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(state.alerts, key = { it.id ?: 0 }) { item ->
+            // BUG-2026-09-14-031：key 不得用 `id ?: 0`（id 可空、多条 null 时 key 冲突崩溃）。
+            // 三级兜底：id → 物料编码 → hashCode。与 MaterialArchiveScreens 既有写法一致。
+            items(state.alerts, key = { it.id ?: it.code ?: it.hashCode() }) { item ->
                 AlertRow(item, accent)
             }
             item {
@@ -351,7 +353,8 @@ private fun OrderList(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(state.orders, key = { it.id ?: 0 }) { order ->
+            // BUG-2026-09-14-031：同上，单据用 orderNo 兜底（单号为业务唯一键）。
+            items(state.orders, key = { it.id ?: it.orderNo ?: it.hashCode() }) { order ->
                 OrderRow(order, accent, inbound = state.kind == ListKind.IN_ORDER)
             }
             item {
