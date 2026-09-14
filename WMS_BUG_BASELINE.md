@@ -122,6 +122,36 @@
     | 对照 `wms_database` / `WmsRepo` | 有 | 有 | 有 |
   - **教训**：改动 Android 启动路径时，**不能在 `onCreate` 中做任何会打断 Activity 生命周期的同步操作**（权限申请、`startActivityForResult` 等）——必须让 `setContent` 先完成。测试若硬编码实现细节（如"必须调用某 API"），会把错误锁死，应断言**行为契约**而非**实现手段**。
 
+### BUG-2026-09-13-024（2026-09-14，我造成的回归：陈旧基线导致 6 个公共 API 与 3 个源文件被删，APK 构建 40 处编译错误）
+
+- **现场**：`Android APK Build #486`（远端 `7d2f81c6aa`）`step 8 Build Release APK (R8 瘦身)` = failure，卡在 `:app:compileReleaseKotlin`，**40 处错误全部集中在 `ScanViewModel.kt`**：
+  ```
+  e: ScanViewModel.kt:151:34 Unresolved reference 'editDraftKey'
+  e: ScanViewModel.kt:190:24 Unresolved reference 'saveEditDraft'
+  e: ScanViewModel.kt:265:37 Unresolved reference 'getLocationOptions'
+  e: ScanViewModel.kt:1041:60 Too many arguments for
+      'suspend fun submitInbound(request: InboundRequest): Result<SubmitResult>'
+  e: ScanViewModel.kt:1109:72 No parameter with name 'replay' found
+  ```
+  因该包未产出新 APK，**用户手机上仍是旧包**——这正是"修了一百遍还是修不好"的直接原因：改动根本没到用户手上。
+- **根因**：上一提交 `bda6623` 修启动崩溃时**基线取错**——编辑的是本地工作树中一份陈旧副本，而非远端最新版。该提交把远端 `WmsRepository.kt` 从 **933 行裁到 863 行**，删除 6 个已被 `ScanViewModel` 依赖的成员（`editDraftKey` / `saveEditDraft` / `loadEditDraft` / `getLocationOptions` / `submitInbound(requestId)` / `submitOutbound(requestId, replay)`），并连带删除 3 个源文件（`data/model/LocationOptions.kt`、`data/model/ScanEditDraft.kt`、`ui/components/ScanLocationSelector.kt`）。
+- **为何本地与 AI 自查都没拦住（本次最重要的方法论教训）**：
+  ① 沙箱无 Compose/AGP，本地编译只能做「基线 vs HEAD 错误集**差集**」。而当时对比的两侧**都带这个缺陷**，差集为空 → 误判为"干净"。**差集法只能发现「本次新增」，发现不了「本来就不该被删的」。**
+  ② 更早一轮还误判过「本地 main 与远端同源」：实际 `git merge-base HEAD origin/main` **为空**（零共同提交），本地是一条与远端完全无关的历史。在该前提下做的所有"基线对比"都不可信。
+  ③ CI 日志一度取不到（`actions/jobs/*/logs` → 302 到 `productionresultssaN.blob.core.windows.net`，沙箱 DNS 把它解析到伪 IP `198.18.0.33` 导致 TLS 失败；`WebFetch` 又在 Android SDK 许可协议大段文本处被截断）。**本次打通方法**：用 `223.5.5.5` 的 DoH 拿真实 IP，再 `curl --resolve <host>:443:<真实IP>` 直连，成功取得 191,908 字节完整日志——**这是拿到真实编译错误的唯一路径，后续勿再走弯路**。
+- **修复**：将 `WmsRepository.kt` / `AuthViewModel.kt` 逐字节恢复到 `cc73fb0`（#485 全绿）版本。核对确认远端**已有等价且更完整的启动崩溃防护**（即 BUG-2026-09-13-023：`encryptedPrefs` 可空降级 + `resetSecurePrefsFile` 自愈 + `AuthViewModel.init` 整体 try/catch），故 `bda6623` 的这部分改动本身即为**重复实现**，回退无功能损失。
+- **保留项**：`bda6623` 中唯一确有增量价值的一项——`WmsApplication` 的**进程级崩溃落盘器**（`setDefaultUncaughtExceptionHandler` → `filesDir/crash/last_crash.txt`）。现场此前只有"屡次停止运行"一句系统弹窗、拿不到任何堆栈，该装置让下次崩溃可直接定位；刻意**不吞异常**（原样交回系统默认处理），避免把崩溃变成静默数据错误。
+- **验证**：
+  - 本地 kotlinc 全树编译（排除 Compose 包）**0 error**；对照修复前同一条命令报 **40 error，与远端 CI 日志逐条一致**。
+  - `WmsRepository.kt` / `AuthViewModel.kt` 与 `cc73fb0` **逐字节一致**（`git hash-object` 相同）；`WmsApplication.kt` 仅新增 `installCrashLogger()` 定义 + `onCreate` 内一行调用。
+  - `tests/verify_android_startup_crash_safety.py` **6/6 passed**；**逐条破坏性测试复验**：去掉 try/catch、去掉处理器安装、让处理器吞异常——三种注入均被捕获。其中"只定义不调用"一项经复验确认为**空跑**（只断言 `installCrashLogger` 字符串存在，函数定义本身就能满足），已改为按花括号配平取 `onCreate` 体、校验内部确有调用。
+  - 关联启动/编译门禁 **26 passed**；**全量 pytest 1727 passed / 84 skipped / 0 failed**（较修复前 1563 passed 多出 164 项——即被误删文件所携带的测试已回归）。
+  - 远端 `66cd2c0f9c`：**`Android APK Build #487` = success（13 步全绿，含 assembleRelease / lintRelease / testReleaseUnitTest / 上传 / 发布 Release）**、`WMS AI Verification #1271` = success、APK 资产已更新至 `2026-09-14T03:02:03Z`（25,095,687 字节）。
+- **R6 固化的规则**：
+  ① 改任何文件前，先确认本地基线即远端最新（`git merge-base --is-ancestor HEAD origin/main` 非空且 `git diff origin/main -- <file>` 为空），**不得凭工作树现状假设基线正确**；
+  ② Android 编译验收以 CI `assembleRelease` 为准，差集法不得作为"无新增错误"的充分证据；
+  ③ 取 CI 日志用 DoH 真实 IP + `--resolve` 直连，不因 302/截断就放弃取证。
+
 ## 判定规则
 
 | BUG-2026-09-13-008 | [P0] 微信助手编码损坏及字面反引号换行导致 SyntaxError，模块无法加载且全量 pytest 收集中断 | **已修复并验证（2026-09-13），发布以本次 Git 记录为准**：根因为 f46e472/27b330a 的错误文本写入；依据原始 51ddf0c 恢复完整 UTF-8 内容和被吞并的代码行，保留预期的中文安全错误提示，改为只记录异常类型的 warning，禁止回传异常原文或 traceback 刷屏。R6：复查 BUG-2026-08-11-009 与 08-16-019；恢复既有发送串行锁、焦点校验、无 token 拒绝逻辑，不触发实际微信发送。新增模拟 /send 解析异常的回归，相关 pytest 12 passed；py_compile 通过。全量 pytest tests -q --tb=short：1626 passed、85 skipped、4 failed（253 秒），四项均为既有 Windows 路径和图片文件占用问题：test_auto_migrate_db_path 两项、test_material_image_static_path 两项；收集阻断已解除，未进行真实微信发送。 |
