@@ -55,12 +55,18 @@ class WmsRepository(private val context: Context) {
      * BUG-2026-09-13-023：db 为空（本地库不可用）时返回 null，
      * 由调用方降级为直连提交，不得因离线能力缺失阻塞启动。
      */
+    // BUG-2026-09-14-029（真实冷启动崩溃根因，堆栈见 last_crash.txt）：
+    // 此前这里直接传 `api`，而 api 的 getter（RetrofitClient.apiService）在 baseUrl
+    // 未配置（未登录 / 全新安装 / 清除数据）时抛 IllegalStateException。ScanViewModel
+    // .init 会**同步**访问 offlineQueue（不在 safeCall 内），异常沿组合期传播 → 闪退。
+    // 改为传惰性提供者 `{ api }`：构造 OfflineQueueManager 时不解析 api，仅在真正同步
+    // （replay）时才取——那时用户已登录、baseUrl 已配置；即便仍为空也由 doSync 兜底。
     val offlineQueue: OfflineQueueManager? by lazy {
         val dao = pendingOperationDao ?: return@lazy null
         OfflineQueueManager.getInstance(
             context,
             dao,
-            api,
+            { api },
             NetworkMonitor.getInstance(context)
         )
     }

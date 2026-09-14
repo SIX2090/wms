@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-14（持续滚动更新；累计 394 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 71 条，最新 BUG-2026-09-14-028）
+更新时间：2026-09-14（持续滚动更新；累计 395 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 72 条，最新 BUG-2026-09-14-029）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -230,6 +230,24 @@
 - **修复（诊断桩，非业务改动、不改崩溃行为）**：`MainActivity.setContent` 内加门控——检测到 `crash/last_crash.txt` 存在时，**先渲染零依赖静态页 `CrashReportScreen`（不加载会崩的 AppNavGraph/不建任何 ViewModel/不触网/不读库）**，把堆栈直接显示在屏幕上，附「复制崩溃信息」（写剪贴板）与「我已记录，继续使用」（删文件后进主界面）两入口。用户截图/粘贴回传即可定位真凶。即使主界面必崩，报告页也能稳定渲染——这是"崩了还能打开看到错误"的关键。
 - **回归**：新增 `tests/verify_bug_2026_09_14_028_crash_report_screen.py` 5 项（读 filesDir 崩溃文件、有崩溃先报告页不进 AppNavGraph、报告页零依赖不建 ViewModel、有复制+继续两入口、dismiss 删文件），连同 BUG-2026-09-14-027 共 **8 passed**。版本号 15→16 / 3.8.1→3.8.2 便于用户核对装的是带报告页的包。
 - **生效条件与下一步**：CI 转绿产出 3.8.2 后，用户卸载重装 → 让 App 崩一次 → 再打开即见报告页 → 截图/复制堆栈回传。**拿到真实堆栈前不再做任何"修复"**（BUG-2026-09-13-023 五次盲改教训）。CI 验收待推送后确认。
+
+### BUG-2026-09-14-029（2026-09-14，「WMS扫码屡次停止运行」真实根因：离线队列构造期急切解析 api）
+
+- **现场证据（首次拿到真实堆栈）**：BUG-2026-09-14-028 的应用内崩溃报告页在真机 3.8.2 上捕获 `last_crash.txt`：
+  ```
+  RuntimeException: Cannot create an instance of class ScanViewModel
+    at ...NavGraphKt.AppNavGraph
+  Caused by: IllegalStateException: 服务器地址未配置，请先登录并填写服务器地址
+    at RetrofitClient.getApiService
+    at ScanViewModel.<init>
+  ```
+  设备 HUAWEI LIO-AN00 / sdk 31 / version 3.8.2(16)。**这是历轮首次拿到决定性堆栈——印证"无 logcat 盲改必失败"。**
+- **根因（代码实证）**：`AppNavGraph` 组合期创建 `ScanViewModel` → 其 `init`（`ScanViewModel.kt:304`）**同步**访问 `repository.offlineQueue`（**不在 safeCall 内**）→ `offlineQueue` 的 lazy 构造 `OfflineQueueManager` 时**急切**解析 `api`（`WmsRepository.api` getter = `RetrofitClient.apiService`，`RetrofitClient.kt:73` 在 `baseUrl` 空时 `check` 抛 `IllegalStateException`）→ fresh install / 清除数据 / 未登录时 baseUrl 为空 → 冷启动组合期抛异常 → 闪退。
+- **与前两轮"修复"的关系（为何一直不好）**：BUG-2026-09-13-023 修的数据持久化（Room/Keystore/AuthViewModel）与权限路径**都不是本次真凶**；本轮崩溃在**网络层 api 的构造期急切解析**。`apiService` 的 `check` 是**故意安全守卫**（防 token 发往未配置服务器），不能删；真正错误是 `OfflineQueueManager` 构造期就解析 api（它仅在 `replay()` 同步时才用 api）。
+- **R6 同根因排查**：协程内 api 访问（getDashboard/getWarehouses 等）全走 `safeCall`（`WmsRepository.kt:907`，catch Exception 兜底）→ 安全；`.offlineQueue` 全项目仅 3 处：`WmsApplication:114`（已 runCatching）、`ScanViewModel:304`（init 同步，本次崩点）、`ScanViewModel:321`（用户触发）——修复后三处均安全。`OfflineQueueManager.getInstance` 全项目仅 `WmsRepository:60` 一处调用。
+- **修复**：`OfflineQueueManager` 构造改收 `apiProvider: () -> WmsApiService`，内部 `by lazy { apiProvider() }` 延迟到 `replay()` 首用时才解析 api（彼时已登录、baseUrl 已配置；即便仍为空也由 `doSync` 的 try/catch 兜为失败，不崩）；`getInstance` 同步改签名；`WmsRepository.offlineQueue` 改传惰性 `{ api }`。**构造期彻底不碰网络层。**
+- **回归**：新增 `tests/verify_bug_2026_09_14_029_offlinequeue_lazy_api.py` 4 项（构造收 provider 非 eager api、内部 by lazy 解析、getInstance 收 provider、repository 传 { api } 非裸 api），连同 027/028 共 **12 passed**。版本 16→17 / 3.8.2→3.8.3。
+- **生效条件**：CI 转绿产出 3.8.3 后用户卸载重装，fresh install 冷启动不再闪退，可正常进入登录页。CI 验收待推送后确认。
 
 ### BUG-2026-09-13-025（2026-09-14，分发链核验：用户"解析包时出现问题"= 下载截断，非代码缺陷）
 

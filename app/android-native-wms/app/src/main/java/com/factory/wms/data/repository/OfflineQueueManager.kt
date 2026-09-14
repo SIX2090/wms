@@ -57,12 +57,19 @@ import retrofit2.Response
 class OfflineQueueManager private constructor(
     context: Context,
     private val dao: PendingOperationDao,
-    private val api: WmsApiService,
+    apiProvider: () -> WmsApiService,
     private val networkMonitor: NetworkMonitor
 ) {
 
     private val appContext = context.applicationContext
     private val gson = Gson()
+
+    // BUG-2026-09-14-029：api 改为惰性解析（by lazy），**首次真正同步时才取**。
+    // 构造期绝不触碰网络层——RetrofitClient.apiService 在 baseUrl 未配置（未登录 /
+    // 全新安装 / 清除数据）时会抛 IllegalStateException，若构造期解析，ScanViewModel
+    // 同步访问 offlineQueue 即在冷启动组合期崩溃。by lazy 延迟到 replay() 首用时，
+    // 彼时用户已登录、baseUrl 已配置；即便仍为空，异常也由 doSync 的 try/catch 兜为失败。
+    private val api: WmsApiService by lazy { apiProvider() }
 
     /** 补传互斥：网络抖动会频繁触发 onlineChanges，不加锁会并发重放同一批记录。 */
     private val syncMutex = Mutex()
@@ -339,11 +346,11 @@ class OfflineQueueManager private constructor(
         fun getInstance(
             context: Context,
             dao: PendingOperationDao,
-            api: WmsApiService,
+            apiProvider: () -> WmsApiService,
             networkMonitor: NetworkMonitor
         ): OfflineQueueManager {
             return instance ?: synchronized(this) {
-                instance ?: OfflineQueueManager(context, dao, api, networkMonitor)
+                instance ?: OfflineQueueManager(context, dao, apiProvider, networkMonitor)
                     .also { instance = it }
             }
         }
