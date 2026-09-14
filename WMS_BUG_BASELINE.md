@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-14（持续滚动更新；累计 400 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 77 条，最新 BUG-2026-09-14-034）
+更新时间：2026-09-14（持续滚动更新；累计 401 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 77 条，最新 BUG-2026-09-14-034；另含新增能力条目 WECOM-BOT-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -253,6 +253,14 @@
 - **生效条件**：CI 转绿产出 3.8.3 后用户卸载重装，fresh install 冷启动不再闪退，可正常进入登录页。
 - **CI 验收（已确认，commit `e1aea42`）**：`Android APK Build` #495 / `WMS CI` / `WMS AI Verification` 三工作流全部 success；Release 资产于 2026-09-14T09:34:52Z 更新为 3.8.3（versionCode=17）新包（沙箱代理通道下载 APK 屡被截断无法字节级校验，但 #495 构建自本提交 + 资产更新时间紧随其后 + 用户装此包后闪退消失——此前 3.8.2 上 100% 复现——行为变化即含修复的实证）。
 - **用户侧终验（2026-09-14，已修复结案）**：真机 HUAWEI LIO-AN00 卸载重装 3.8.3，fresh install 冷启动**不再闪退**，正常进入登录页并**登录成功**。期间一次「登录失败(502)」经外网实测排查为服务器端后端进程停止（见 BUG-2026-09-14-030），与 App 无关；服务器恢复后登录即成功，反证 App 冷启动与网络链路均正常。**至此「WMS扫码屡次停止运行」三根因（023 数据持久化+权限、027 versionCode 冻结、029 离线队列构造期急切解析 api）全部闭环结案。**
+
+### WECOM-BOT-001（2026-09-14，新增能力：微信分享接入「企业微信群机器人」通道，非重复BUG）
+
+- **背景**：本机助手 UI 自动化存在「微信窗口必须常开 + 不能切窗口」的**结构性**限制（BUG-2026-09-14-034 已修系统代理劫持回环，但窗口/焦点前提无法靠加固消除）。方案评估：无企业微信时第三方推送服务（WxPusher/PushPlus）均**只能发链接且需上传第三方图床**（隐私 + 有效期问题），故采用**免费企业微信群机器人 webhook**——唯一能同时满足「原生图 + 不开窗口 + 图片不出内网」的通道。
+- **机制**：`POST https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=XXX`，`image`（base64+md5，≤2MB）原生图直发 + `markdown` 摘要；国内 endpoint **直连**（`proxies={'http': None, 'https': None}`，复用 BUG-2026-09-14-034 思路，防代理错误路由出境被拒）；图片内联**不经过第三方图床**；每机器人限 20 条/分，批量推送单与单 `sleep(3)` 节流。
+- **实现**：配置存 `system_setting['wechat_share_wecom_webhook']`（**免数据库迁移**）；新增 `_wechat_share_wecom_webhook` / `_wechat_share_wecom_webhook_allowed`（白名单仅 qyapi 官方 send 端点，防 SSRF/key 泄露）/ `_wechat_share_wecom_image_bytes`（>2MB Pillow 重编码）/ `_wechat_share_send_wecom` / `_wechat_share_deliver` **调度器**——配 webhook 走企业微信、未配回退本机助手（**完全向后兼容**）；`_wechat_share_order` 组装 markdown 摘要（单号/供应商/明细数/合计），重发路由同步分流；设置页新增 webhook 输入框（FormData + base.html 全局 fetch 拦截器，**免改 JS**）。
+- **回归**：新增 `tests/verify_wecom_bot_001_channel.py` **8 项**（调度切换、image 载荷 base64+md5+proxies 直连、errcode 映射、超限重编码 JPEG、webhook 白名单、caption 先于图）；连同微信分享既有用例全绿；`lint_wms_rules` / `lint_no_raw_post_fetch` 0 违规。
+- **生效条件**：**生产需重启 WMS 服务**（模板缓存刷新，R3）。真实联调需用户免费注册企业微信→建群加机器人→把 webhook 填入「微信分享」设置页→点「立即执行」验证（单元测试以 mock webhook 完成，未触达真实腾讯接口）。
 
 ### BUG-2026-09-14-034（2026-09-14，微信分享批量「HTTP 502」+ 健康检查 10090 超时：系统代理劫持本机回环请求）
 

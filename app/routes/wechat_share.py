@@ -21,6 +21,7 @@ def register_wechat_share_routes(app):
             _wechat_share_log_trigger_label,
             _wechat_share_master_enabled,
             _wechat_share_today_in_orders,
+            _wechat_share_wecom_webhook,
             date,
             format_file_size,
             os,
@@ -61,6 +62,7 @@ def register_wechat_share_routes(app):
             today_count=len(today_orders),
             helper_configured=helper_configured,
             helper_health=helper_health,
+            wecom_webhook=_wechat_share_wecom_webhook(),
             latest_log=latest_log,
             log_counts=log_counts,
             log_filters={'status': status_filter, 'limit': log_limit},
@@ -81,6 +83,7 @@ def register_wechat_share_routes(app):
             _wechat_share_default_config,
             _wechat_share_helper_url_allowed,
             _wechat_share_time_is_valid,
+            _wechat_share_wecom_webhook_allowed,
             api_error,
             datetime,
             db,
@@ -118,6 +121,12 @@ def register_wechat_share_routes(app):
             return api_error('发送助手地址仅允许本机回环地址（http://127.0.0.1 或 http://localhost）')
         config.helper_url = helper_url
         config.updated_at = datetime.now()
+
+        # WECOM-BOT-001：企业微信机器人 webhook（存 system_setting，免迁移）。留空=停用企业微信通道、回退本机助手
+        wecom_webhook = (request.form.get('wecom_webhook') or '').strip()
+        if wecom_webhook and not _wechat_share_wecom_webhook_allowed(wecom_webhook):
+            return api_error('企业微信机器人 webhook 仅允许官方 https://qyapi.weixin.qq.com/cgi-bin/webhook/send 地址')
+        set_system_setting('wechat_share_wecom_webhook', wecom_webhook)
 
         if not config.receiver_search_key:
             config.receiver_search_key = config.receiver_name or config.receiver_wechat_id
@@ -161,6 +170,8 @@ def register_wechat_share_routes(app):
             _wechat_share_default_config,
             _wechat_share_output_dir,
             _wechat_share_send_image,
+            _wechat_share_send_wecom,
+            _wechat_share_wecom_webhook,
             datetime,
             db,
             jsonify,
@@ -180,6 +191,21 @@ def register_wechat_share_routes(app):
             return jsonify({'status': 'error', 'msg': '分享图片不存在，请重新生成今日图片'}), 404
 
         try:
+            # WECOM-BOT-001：已配企业微信 webhook 时重发走企业微信（群发，无需 frozen-receiver 逻辑）
+            wecom_webhook = _wechat_share_wecom_webhook()
+            if wecom_webhook:
+                status, result_code, message = _wechat_share_send_wecom(
+                    wecom_webhook, image_path, caption=f'**入库单 {log.order_no or "-"}**（重发）'
+                )
+                if status == 'failed' and result_code not in ('ok', ''):
+                    message = f'{message}（错误码：{result_code}）'
+                log.status = status
+                log.message = message
+                log.trigger_type = 'manual_resend'
+                log.sent_at = datetime.now() if status == 'sent' else None
+                db.session.commit()
+                log_operation('重发微信分享', f'记录：{log.id}，单据：{log.order_no or "-"}，状态：{log.status}（企业微信）', 'wechat_share', log.id)
+                return jsonify({'status': 'success', 'msg': message or '已重新提交企业微信机器人', 'log_status': log.status})
             # BUG-2026-08-11-014：重发冻结使用日志记录的历史接收人。
             # 列表"接收人"列展示的是分享时冻结的 receiver，若重发改用当前配置
             # 接收人，实际收件人与页面展示不一致（配置中途修改后会发错人）。

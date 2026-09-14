@@ -105,6 +105,15 @@
                             <input type="time" class="form-control" name="share_time" value="{{ share_config.share_time or '15:30' }}" required>
                         </div>
                         <div class="col-12">
+                            <label class="form-label">企业微信机器人 Webhook <span class="badge text-bg-success">推荐</span></label>
+                            <input type="text" class="form-control" name="wecom_webhook" value="{{ wecom_webhook or '' }}" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxx">
+                            <div class="form-text">
+                                <strong>配置后自动改用企业微信群推送原生图片</strong>：无需开着微信窗口、不怕锁屏/切窗口，图片直发不经过第三方图床；留空则回退下方「本机微信发送助手」。
+                                仅允许企业微信官方 <code>https://qyapi.weixin.qq.com/cgi-bin/webhook/send</code> 地址。
+                                获取方法：免费注册企业微信 → 建内部群 → 群「… → 群机器人 → 添加」→ 复制 webhook 地址粘贴到此处。
+                            </div>
+                        </div>
+                        <div class="col-12">
                             <label class="form-label">本机微信发送助手地址</label>
                             <input type="text" class="form-control" name="helper_url" value="{{ share_config.helper_url or 'http://127.0.0.1:8765/send' }}" placeholder="http://127.0.0.1:8765/send">
                             <div class="form-text">

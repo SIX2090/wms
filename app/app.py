@@ -22979,6 +22979,119 @@ def _wechat_share_send_image(config, image_path):
         return 'failed', 'auth_failed', '微信发送助手认证失败（token 不匹配），请检查 WECHAT_HELPER_TOKEN 配置是否一致'
     return 'failed', f'http_{response.status_code}', f'微信发送助手返回错误：HTTP {response.status_code}'
 
+# WECOM-BOT-001（2026-09-14）：企业微信群机器人 webhook 通道。
+# 机制：POST https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=XXX，
+# image 类型直接传 base64+md5（≤2MB）即原生图，markdown 类型发文本；国内 endpoint 直连。
+# 相比本机助手：摆脱"微信窗口必须常开+不能切窗口"的结构性限制；图片内联直发不过第三方图床。
+_WECOM_WEBHOOK_HOST = 'qyapi.weixin.qq.com'
+_WECOM_WEBHOOK_PATH = '/cgi-bin/webhook/send'
+_WECOM_IMAGE_MAX_BYTES = 2 * 1024 * 1024  # 企业微信 image 单张 ≤ 2MB
+
+
+def _wechat_share_wecom_webhook():
+    """读取已配置的企业微信机器人 webhook（存 system_setting，免迁移）。空串=未配置。"""
+    return str(get_system_setting('wechat_share_wecom_webhook', '') or '').strip()
+
+
+def _wechat_share_wecom_webhook_allowed(webhook_url):
+    """webhook 仅允许企业微信官方 send 端点（https + qyapi 主机 + 固定路径）。
+
+    webhook 含密钥 key，若允许配置成任意外网地址，key 会随请求泄露给第三方，
+    第三方即可借此向群内任意发消息/图片。对标 _wechat_share_helper_url_allowed。
+    """
+    try:
+        parsed = urlparse(str(webhook_url or '').strip())
+    except Exception:
+        return False
+    if parsed.scheme != 'https':
+        return False
+    if (parsed.hostname or '').lower() != _WECOM_WEBHOOK_HOST:
+        return False
+    return parsed.path.rstrip('/') == _WECOM_WEBHOOK_PATH
+
+
+def _wechat_share_wecom_image_bytes(image_path):
+    """读取分享图片字节；若超过企业微信 2MB 上限则用 Pillow 重编码/缩放至上限内。"""
+    with open(image_path, 'rb') as file_obj:
+        raw = file_obj.read()
+    if len(raw) <= _WECOM_IMAGE_MAX_BYTES:
+        return raw
+    from PIL import Image  # 延迟导入：仅超限时才需要
+    image = Image.open(image_path).convert('RGB')
+    quality = 85
+    data = raw
+    for _ in range(6):
+        buffer = io.BytesIO()
+        image.save(buffer, 'JPEG', quality=quality)
+        data = buffer.getvalue()
+        if len(data) <= _WECOM_IMAGE_MAX_BYTES:
+            return data
+        quality = max(40, quality - 15)
+        width, height = image.size
+        image = image.resize((max(1, int(width * 0.85)), max(1, int(height * 0.85))))
+    return data  # 尽力压缩后仍超限则原样返回，由企业微信侧报错
+
+
+def _wechat_share_send_wecom(webhook_url, image_path, caption=''):
+    """推送分享图片到企业微信群机器人，返回 (status, code, message)。
+
+    status: sent / pending / failed；code 机器可读：ok / wecom_not_configured /
+    invalid_wecom_webhook / wecom_offline / wecom_timeout / wecom_error / wecom_<errcode>。
+    可选 caption 以 markdown 先发（best-effort，失败不影响图片结果）。
+    """
+    import base64 as _b64
+    import hashlib as _hashlib
+
+    webhook_url = str(webhook_url or '').strip()
+    if not webhook_url:
+        return 'pending', 'wecom_not_configured', '企业微信机器人 webhook 未配置，图片已生成待发送'
+    if not _wechat_share_wecom_webhook_allowed(webhook_url):
+        return 'failed', 'invalid_wecom_webhook', '企业微信机器人 webhook 仅允许官方 https://qyapi.weixin.qq.com/cgi-bin/webhook/send 地址'
+
+    def _post(payload):
+        # 国内 endpoint 直连，禁走系统/环境代理（同 BUG-2026-09-14-034，防代理错误路由出境被拒）
+        return requests.post(webhook_url, json=payload, timeout=10, proxies=_LOOPBACK_NO_PROXY)
+
+    try:
+        image_bytes = _wechat_share_wecom_image_bytes(image_path)
+        if caption:
+            try:  # 摘要 best-effort：失败不阻断图片发送
+                _post({'msgtype': 'markdown', 'markdown': {'content': caption}})
+            except Exception:
+                app.logger.warning('企业微信机器人摘要发送失败（继续发图片）')
+        payload = {'msgtype': 'image', 'image': {
+            'base64': _b64.b64encode(image_bytes).decode('ascii'),
+            'md5': _hashlib.md5(image_bytes).hexdigest(),
+        }}
+        response = _post(payload)
+    except requests.exceptions.ConnectionError as exc:
+        app.logger.warning('企业微信机器人连接失败: %s', exc)
+        return 'failed', 'wecom_offline', f'企业微信机器人连接失败（请检查服务器能否访问 qyapi.weixin.qq.com）：{exc}'
+    except requests.exceptions.Timeout:
+        app.logger.warning('企业微信机器人响应超时')
+        return 'failed', 'wecom_timeout', '企业微信机器人响应超时，请稍后人工重发'
+    except Exception as exc:
+        app.logger.warning('企业微信机器人调用失败: %s', exc)
+        return 'failed', 'wecom_error', f'企业微信机器人调用失败：{exc}'
+
+    try:
+        result = response.json()
+    except ValueError:
+        result = {}
+    errcode = result.get('errcode')
+    if errcode == 0:
+        return 'sent', 'ok', '已推送到企业微信群'
+    errmsg = result.get('errmsg') or f'HTTP {response.status_code}'
+    return 'failed', f'wecom_{errcode}', f'企业微信机器人返回错误：{errmsg}（errcode={errcode}）'
+
+
+def _wechat_share_deliver(config, image_path, caption=''):
+    """分享发送调度：已配企业微信 webhook 则走企业微信，否则回退本机助手。"""
+    webhook_url = _wechat_share_wecom_webhook()
+    if webhook_url:
+        return _wechat_share_send_wecom(webhook_url, image_path, caption=caption)
+    return _wechat_share_send_image(config, image_path)
+
 def _wechat_share_helper_health_url(config):
     helper_url = (
         (config.helper_url or '').strip()
@@ -23102,8 +23215,17 @@ def _wechat_share_order(config, order, trigger_type='manual', force=False):
         file_obj.write(image_bytes.getvalue())
 
     image_size = os.path.getsize(image_path)
+    # WECOM-BOT-001：经调度器发送（配企业微信 webhook 走企业微信，否则回退本机助手），并附 markdown 摘要
+    supplier_name = getattr(getattr(order, 'supplier', None), 'name', '') or ''
+    item_count = len(getattr(order, 'items', None) or [])
+    total_amount = float(getattr(order, 'total_amount', 0) or 0)
+    caption = (
+        f'**入库单 {order.order_no}**\n'
+        f'> 供应商：{supplier_name or "-"}\n'
+        f'> 明细：{item_count} 项　合计：¥{total_amount:.2f}'
+    )
     # BUG-2026-08-11-010：直接采用结构化三元组，status 即日志状态，无需关键词猜测
-    status, result_code, message = _wechat_share_send_image(config, image_path)
+    status, result_code, message = _wechat_share_deliver(config, image_path, caption=caption)
     sent = (status == 'sent')
     if status == 'failed' and result_code not in ('ok', ''):
         message = f'{message}（错误码：{result_code}）'
@@ -23141,7 +23263,12 @@ def run_wechat_share_for_today(trigger_type='manual', force=False, config=None):
     created = 0
     skipped = 0
     logs = []
-    for order in orders:
+    # WECOM-BOT-001：企业微信机器人每机器人限 20 条/分钟，批量推送时单与单之间节流
+    wecom_throttle = bool(_wechat_share_wecom_webhook())
+    for index, order in enumerate(orders):
+        if wecom_throttle and index:
+            import time as _time
+            _time.sleep(3)
         log, action = _wechat_share_order(config, order, trigger_type=trigger_type, force=force)
         logs.append(log)
         if action == 'created':
