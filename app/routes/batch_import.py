@@ -582,10 +582,162 @@ def register_batch_import_routes(app):
     def label_template_export_stub():
         return redirect(url_for('batch_import_page', type='label_template'))
 
+    # ARCH-OS-IMPORT：期初库存 Excel 批量导入（替代原"仅重定向到批量导入页"的空 stub）。
+    # 解析 xlsx → 复用 batch_save 的同一校验/入账路径（_apply_opening_stock_balance），
+    # 仓库/物料/数量/单价/唯一键/停用仓库校验与手工保存完全一致。
     @app.route('/opening_stock/import', methods=['POST'])
+    @require_role('warehouse')
     @login_required
-    def opening_stock_import_stub():
-        return redirect(url_for('batch_import_page', type='opening_stock'))
+    def opening_stock_import():
+        from app import (
+            Material,
+            OpeningStock,
+            STOCK_COMPARE_EPSILON,
+            Warehouse,
+            _apply_opening_stock_balance,
+            _parse_opening_stock_date,
+            api_error,
+            current_app,
+            db,
+            jsonify,
+            log_operation,
+            normalize_stock_quantity,
+            parse_float_value,
+        )
+
+        file = request.files.get('file')
+        if not file:
+            return api_error('请选择要导入的期初库存文件')
+        _ext_ok, _ext_msg = validate_excel_extension(file.filename)
+        if not _ext_ok:
+            return api_error(_ext_msg)
+        _size_ok, _size_msg = validate_excel_size(file)
+        if not _size_ok:
+            return api_error(_size_msg)
+
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(file, read_only=True)
+            ws = wb.active
+            rows_iter = ws.iter_rows(values_only=True)
+            header_row = [str(c).strip() if c is not None else '' for c in next(rows_iter, [])]
+            col_map = {}
+            for idx, h in enumerate(header_row):
+                if not h:
+                    continue
+                if '仓库编码' in h or h == '仓库' or '仓库' in h:
+                    col_map.setdefault('warehouse', idx)
+                if '物料编码' in h or ('编码' in h and '物料' in h):
+                    col_map['material_code'] = idx
+                elif '物料名称' in h or ('名称' in h and '物料' in h):
+                    col_map['material_name'] = idx
+                elif '数量' in h:
+                    col_map['quantity'] = idx
+                elif '单价' in h or '价格' in h:
+                    col_map['price'] = idx
+                elif '备注' in h:
+                    col_map['remark'] = idx
+            if 'material_code' not in col_map or 'quantity' not in col_map:
+                return api_error(f'Excel 表头缺少"物料编码"或"数量"列。检测到的表头：{", ".join(header_row)}')
+
+            def _v(row, key, default=''):
+                i = col_map.get(key)
+                if i is None or i >= len(row):
+                    return default
+                v = row[i]
+                return '' if v is None else str(v).strip()
+
+            def _is_example_row(row):
+                # 模板示例行：物料名称含"示例"则跳过
+                name = _v(row, 'material_name')
+                return '示例' in name
+
+            imported = 0
+            skipped = 0
+            errors = []
+            seen_keys = set()
+            for row_no, row in enumerate(rows_iter, start=2):
+                if _is_example_row(row):
+                    continue
+                code = _v(row, 'material_code')
+                qty_raw = _v(row, 'quantity')
+                if not code and not qty_raw:
+                    continue  # 空行
+                material = Material.query.filter_by(code=code).first()
+                if not material:
+                    errors.append(f'第 {row_no} 行：物料编码 [{code}] 不存在')
+                    skipped += 1
+                    continue
+                wh_code = _v(row, 'warehouse')
+                warehouse = None
+                if wh_code:
+                    warehouse = Warehouse.query.filter(
+                        (Warehouse.code == wh_code) | (Warehouse.name == wh_code)
+                    ).first()
+                    if not warehouse:
+                        errors.append(f'第 {row_no} 行：仓库 [{wh_code}] 不存在')
+                        skipped += 1
+                        continue
+                else:
+                    # AGENTS.md 仓库必填：期初建账未指定仓库属数据错误，报错引导用户补列，
+                    # 不做静默默认仓回落（避免账实错仓）。
+                    errors.append(f'第 {row_no} 行：未指定仓库编码（期初建账仓库必填）')
+                    skipped += 1
+                    continue
+                if (warehouse.status or 'active') != 'active':
+                    errors.append(f'第 {row_no} 行：仓库 [{warehouse.name}] 已停用')
+                    skipped += 1
+                    continue
+                dedup_key = (material.id, warehouse.id)
+                if dedup_key in seen_keys:
+                    errors.append(f'第 {row_no} 行：物料+仓库重复，请合并后导入')
+                    skipped += 1
+                    continue
+                seen_keys.add(dedup_key)
+
+                quantity = parse_float_value(qty_raw, None)
+                price = parse_float_value(_v(row, 'price'), 0)
+                if quantity is None:
+                    errors.append(f'第 {row_no} 行：数量 [{qty_raw}] 无效')
+                    skipped += 1
+                    continue
+                if quantity < 0:
+                    errors.append(f'第 {row_no} 行：数量不能小于 0')
+                    skipped += 1
+                    continue
+                if price < 0:
+                    errors.append(f'第 {row_no} 行：单价不能小于 0')
+                    skipped += 1
+                    continue
+
+                try:
+                    opening = OpeningStock.query.filter_by(
+                        material_id=material.id, warehouse_id=warehouse.id
+                    ).with_for_update().first()
+                    quantity = normalize_stock_quantity(quantity)
+                    price = round_to_2_decimals(price)
+                    amount = round_to_2_decimals(quantity * price)
+                    _, delta = _apply_opening_stock_balance(
+                        opening, material, quantity, price, amount,
+                        _v(row, 'remark') or None, warehouse,
+                        _parse_opening_stock_date(None), '',
+                    )
+                    if opening is None or abs(delta) > STOCK_COMPARE_EPSILON:
+                        imported += 1
+                except ValueError as ve:
+                    errors.append(f'第 {row_no} 行：{ve}')
+                    skipped += 1
+
+            db.session.commit()
+            log_operation('批量导入期初库存', f'导入 {imported} 行，跳过 {skipped} 行', 'opening_stock', None)
+            msg = f'期初库存导入完成，共导入 {imported} 行'
+            if skipped:
+                msg += f'，跳过 {skipped} 行'
+            return jsonify({'status': 'success', 'msg': msg, 'imported': imported, 'skipped': skipped, 'errors': errors[:20]})
+        except Exception as e:  # noqa: BLE001
+            db.session.rollback()
+            current_app.logger.error(f'期初库存批量导入失败: {e}')
+            return api_error('期初库存导入失败，请检查文件格式后重试')
 
     @app.route('/opening_stock/export')
     @login_required

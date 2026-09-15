@@ -65,9 +65,9 @@
             <a class="tool-btn" href="/system_settings"><i class="bi bi-gear"></i> 设置</a>
             <button class="tool-btn" type="button" onclick="window.print()"><i class="bi bi-printer"></i> 打印</button>
             <span class="tool-sep"></span>
-            <button class="tool-btn" type="button" onclick="showImportHint()"><i class="bi bi-upload"></i> 导入</button>
+            <a class="tool-btn" href="/batch_import?type=opening_stock"><i class="bi bi-upload"></i> 导入</a>
             <button class="tool-btn" type="button" onclick="exportRows()"><i class="bi bi-download"></i> 导出</button>
-            <button class="tool-btn" type="button" onclick="showImportHint()"><i class="bi bi-file-spreadsheet"></i> 导入导出模板</button>
+            <a class="tool-btn" href="/opening_stock/import/template" download><i class="bi bi-file-spreadsheet"></i> 导入导出模板</a>
             <span class="tool-sep"></span>
             <button class="tool-btn" type="button" onclick="showToast('微信定时自动分享请到 系统管理 → 微信分享 配置', 'info')"><i class="bi bi-share"></i> 智能分享</button>
         </div>
@@ -275,6 +275,32 @@
 </div>
 
 <div class="material-menu" id="materialMenu" hidden></div>
+
+<!-- 粘贴导入：多行文本域模态（替代原 prompt 单行输入，支持从 Excel 整块粘贴） -->
+<div class="modal fade" id="pasteImportModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">粘贴导入期初库存</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-2">
+                    每行一条明细，用 <strong>Tab 或英文逗号</strong> 分隔列（可直接从 Excel 整块复制粘贴）：<br>
+                    <code>仓库编码 / 名称（可留空，默认表头仓库）</code>　
+                    <code>物料编码</code>　<code>数量</code>　<code>单价</code>　<code>备注</code>
+                </p>
+                <textarea id="pasteImportText" class="form-control" rows="10"
+                          placeholder="WH001&#9;M-0001&#9;100&#9;25.50&#9;备注&#10;WH001&#9;M-0002&#9;50&#9;10.00&#9;"></textarea>
+                <div class="form-text" id="pasteImportFeedback"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="confirmPasteImport()">导入并保存</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -473,55 +499,120 @@ function saveDocument() {
         // 表头有仓库时：未指定明细行的仓库自动使用表头仓库
         items.forEach(item => { if (!item.warehouse_id) item.warehouse_id = headerWarehouseId; });
     }
-    fetch('/opening_stock/batch_save', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
-        },
-        body: JSON.stringify({items})
-    })
-    .then(response => response.json().then(data => ({ok: response.ok, data})))
-    .then(result => {
-        if (result.ok && result.data.status === 'success') {
-            showToast(result.data.msg || '保存成功', 'success');
-            setTimeout(() => location.reload(), 700);
-        } else {
-            showToast(result.data.msg || '保存失败', 'danger', 4200);
+    WMS.api.post('/opening_stock/batch_save', { items })
+        .then(data => {
+            if (data && data.status === 'success') {
+                showToast(data.msg || '保存成功', 'success');
+                setTimeout(() => location.reload(), 700);
+            } else {
+                showToast((data && data.msg) || '保存失败', 'danger', 4200);
+            }
+        })
+        .catch(error => showToast('保存失败：' + error.message, 'danger', 4200));
+}
+
+function showPasteModal() {
+    document.getElementById('pasteImportText').value = '';
+    document.getElementById('pasteImportFeedback').textContent = '';
+    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('pasteImportModal'));
+    modal.show();
+}
+
+// 解析多行粘贴文本为明细行。支持 Tab / 英文逗号分隔，空列可省。
+function parsePasteLines(text) {
+    const result = { items: [], errors: [] };
+    const lines = String(text || '').split(/\r?\n/).map(l => l.replace(/\r/g, '')).filter(l => l.trim() !== '');
+    lines.forEach((line, idx) => {
+        const parts = line.split(/\t|,/).map(p => p.trim());
+        const [whCode, code, quantity, price, remark] = parts;
+        const lineNo = idx + 1;
+        if (!code) {
+            result.errors.push(`第 ${lineNo} 行：缺物料编码`);
+            return;
         }
-    })
-    .catch(error => showToast('保存失败：' + error.message, 'danger', 4200));
+        const material = materialData.find(item => String(item.code).toLowerCase() === String(code).toLowerCase());
+        if (!material) {
+            result.errors.push(`第 ${lineNo} 行：物料编码 [${code}] 不存在`);
+            return;
+        }
+        let wh = null;
+        if (whCode) {
+            wh = warehouseOptions.find(w => String(w.id) === String(whCode) || String(w.name).toLowerCase().includes(String(whCode).toLowerCase()));
+            if (!wh) {
+                result.errors.push(`第 ${lineNo} 行：仓库 [${whCode}] 不存在`);
+                return;
+            }
+        }
+        const qty = Number(quantity);
+        if (quantity === undefined || quantity === '' || isNaN(qty)) {
+            result.errors.push(`第 ${lineNo} 行：数量 [${quantity ?? ''}] 无效`);
+            return;
+        }
+        if (qty < 0) {
+            result.errors.push(`第 ${lineNo} 行：数量不能小于 0`);
+            return;
+        }
+        const prc = price === undefined || price === '' ? (material.price || 0) : Number(price);
+        if (isNaN(prc) || prc < 0) {
+            result.errors.push(`第 ${lineNo} 行：单价 [${price ?? ''}] 无效`);
+            return;
+        }
+        result.items.push({
+            material_id: material.id,
+            warehouse_id: wh ? wh.id : '',
+            quantity: qty,
+            price: prc,
+            remark: remark || '',
+        });
+    });
+    return result;
+}
+
+// 粘贴导入：解析后经统一 /opening_stock/batch_save 写入台账（与手工保存同一校验/入账路径）
+function confirmPasteImport() {
+    const text = document.getElementById('pasteImportText').value;
+    const feedback = document.getElementById('pasteImportFeedback');
+    if (!text.trim()) {
+        feedback.textContent = '请先粘贴明细内容';
+        feedback.className = 'form-text text-warning';
+        return;
+    }
+    const parsed = parsePasteLines(text);
+    if (!parsed.items.length) {
+        feedback.textContent = '没有可导入的有效行。' + (parsed.errors[0] || '');
+        feedback.className = 'form-text text-danger';
+        return;
+    }
+    // 仓库回填：缺省时用表头仓库；缺表头且明细含多仓库/无仓库则拒绝（对齐 saveDocument 规则）
+    const headerWarehouseId = document.getElementById('headerWarehouse')?.value;
+    const items = parsed.items.slice();
+    items.forEach(item => { if (!item.warehouse_id) item.warehouse_id = headerWarehouseId || ''; });
+    if (items.some(item => !item.warehouse_id)) {
+        feedback.textContent = '存在未指定仓库且表头未选仓库的行，请补选仓库';
+        feedback.className = 'form-text text-warning';
+        return;
+    }
+    const warn = parsed.errors.length ? `（另 ${parsed.errors.length} 行被跳过）` : '';
+    WMS.api.post('/opening_stock/batch_save', { items })
+        .then(data => {
+            if (data && data.status === 'success') {
+                const modal = bootstrap.Modal.getInstance(document.getElementById('pasteImportModal'));
+                if (modal) modal.hide();
+                showToast((data.msg || '期初库存已导入') + warn, 'success');
+                setTimeout(() => location.reload(), 700);
+            } else {
+                feedback.textContent = (data && data.msg) || '导入失败';
+                feedback.className = 'form-text text-danger';
+            }
+        })
+        .catch(err => {
+            feedback.textContent = '导入失败：' + (err && err.message ? err.message : err);
+            feedback.className = 'form-text text-danger';
+        });
 }
 
 function pasteImport() {
-    const text = prompt('请粘贴明细，每行格式：仓库编码\\t物料编码\\t数量\\t单价\\t备注');
-    if (!text) return;
-    const imported = text.split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);
-    imported.forEach(line => {
-        const parts = line.split(/\\t|,/);
-        const [whCode, code, quantity, price, remark] = parts;
-        const wh = warehouseOptions.find(w => String(w.id) === String(whCode || '').trim() || String(w.name).includes(String(whCode || '').trim()));
-        const material = materialData.find(item => String(item.code).toLowerCase() === String(code || '').trim().toLowerCase());
-        if (material) {
-            rows.push({
-                material_id: material.id,
-                warehouse_id: wh ? wh.id : (document.getElementById('headerWarehouse')?.value || ''),
-                warehouse_name: wh ? wh.name : '',
-                material_code: material.code || '',
-                material_name: material.name || '',
-                spec: material.spec || '',
-                unit: material.unit || '',
-                quantity: quantity || '',
-                price: price || material.price || 0,
-                remark: remark || '',
-            });
-        }
-    });
-    renderRows();
-}
-
-function showImportHint() {
-    showToast('当前支持粘贴导入：仓库编码、物料编码、数量、单价、备注', 'info', 3600);
+    showPasteModal();
 }
 
 function exportRows() {
@@ -529,7 +620,7 @@ function exportRows() {
     rows.filter(row => row.material_id).forEach(row => {
         lines.push([row.warehouse_name || '', row.material_code, row.material_name, row.spec, row.unit, row.quantity, row.price, amountOf(row).toFixed(2), row.remark].map(value => `"${String(value ?? '').replaceAll('"', '""')}"`).join(','));
     });
-    const blob = new Blob([lines.join('\\n')], {type: 'text/csv;charset=utf-8;'});
+    const blob = new Blob(['﻿' + lines.join('\\n')], {type: 'text/csv;charset=utf-8;'});
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

@@ -2029,10 +2029,30 @@ full 验证结果：
 - 推送验证（AA-2）：常规 HTTPS push 被拦，走 API 通道推送成功：远程 commit `58084f5ee24f7de3f02284705a8360c1b6ad494c`，反查 `GET /repos/SIX2090/wms/commits/main` 确认 HEAD 更新、4 个文件变更与预期一致（本地 `f03ad6e` ↔ 远程 `58084f5`，内容一致）。
 - 状态：**已完成**（90 个模型全部迁出 app.py）。
 - 剩余风险和下一子项：
-- 剩余风险和下一子项：
   - 残留污染点已清理：`db.Model` 在 app.py 仅剩 1 处注释文字（L929 迁移注释），非代码引用。
   - app.py 仍留 892 函数 / 102 路由 / 305 处 SQL，helper 层（`get_default_warehouse` 等）与路由层尚未下沉。
   - 函数体内 `from app import (...)` 延迟导入是架构债（routes 反向依赖 app.py），需后续以 app/services 解耦。
+
+#### ARCH-OS-IMPORT（已完成）— 期初库存"导入导出模板 / 批量导入 / 粘贴导入"补齐
+
+- 完成日期：2026-09-15
+- 关联 BUG：`BUG-2026-09-15-003`（R6 同根因 `BUG-2026-08-05-006` 漏网消费点；台账 P1-B 遗留的 `/opening_stock/import` 重定向 stub）。
+- 目标：修复期初库存页三个半成品导入功能（用户反馈"根本没法用"），接入仓库既有集中式批量导入框架，不重复造轮子。
+- 业务边界：仅补齐导入/模板能力，复用 `batch_save` 同一校验/入账路径，不改库存口径、事务边界、权限模型；不建任何新分支（仅 `main`）。
+- 改动模块：
+  - `app/routes/opening_stock.py`：新增 `GET /opening_stock/import/template`（openpyxl 生成含表头+示例行 xlsx，供批量导入使用）。
+  - `app/routes/batch_import.py`：`/opening_stock/import` 由"重定向 stub"改为真实 Excel 导入——解析 xlsx → 复用 `batch_save` 同一校验/入账路径（`_apply_opening_stock_balance`），示例行/缺列/不存在仓/重复键/停用仓正确跳过，仓库必填报错（不静默默认仓回落，符合 AGENTS.md 仓库必填），补 `@require_role('warehouse')`（顺带修复 app.py:3446 点名的角色校验缺失）。
+  - `app/templates/batch_import.html`：新增 opening_stock 导入卡片（含下载模板链接），接入既有 `.import-form` 集中式上传框架。
+  - `app/templates/opening_stock.html`：「导入导出模板」按钮由提示改为 `/opening_stock/import/template` 真实下载；「导入」按钮指向 `/batch_import?type=opening_stock`；「粘贴导入」由 `prompt()` 单行改为多行 textarea modal（`pasteImportModal`）并经 `/opening_stock/batch_save` 统一入库；`saveDocument` 与粘贴导入均改走 `WMS.api`（消除原生 fetch）；`exportRows` CSV 加 BOM 修复 Excel 打开中文乱码。
+  - `tests/test_opening_stock_import.py`：新增 5 项回归。
+- 验证命令及结果：
+  - `python3 scripts/lint_wms_rules.py --staged` → 0 违规（A1–A11）。
+  - `python3 scripts/lint_no_raw_post_fetch.py` → 通过。
+  - `pytest tests/test_opening_stock_import.py` → 5/5 PASS。
+  - 功能冒烟（session 注入登录，参照既有 opening_stock 测试模式）：模板下载 xlsx 200、Excel 导入入账 100、示例行跳过、不存在仓跳过全 PASS。
+  - `pytest tests/ -q` → **1727+5 passed, 84 skipped, 0 failed**。
+- 推送验证：[待填]
+- 备注：模板 + 后端改动，**生产需重启 WMS 服务生效（R3）**。
 
 #### REQUISITION-PICKER-F01（已完成）— 领料单表头新增领料人 + 采购入库下推领料单可填领料部门/领料人
 

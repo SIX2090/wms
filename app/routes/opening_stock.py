@@ -326,3 +326,39 @@ def register_opening_stock_routes(app):
             db.session.rollback()
             app.logger.error(f'批量保存期初库存失败: {e}')
             return jsonify({'status': 'error', 'msg': '期初库存保存失败'}), 500
+
+    # no-test:reason=纯 Excel 模板下载，能力由 verify_opening_stock_import_template 脚本覆盖
+    @app.route('/opening_stock/import/template')
+    @login_required
+    def download_opening_stock_import_template():
+        """期初库存 Excel 导入模板下载（含表头 + 示例行）。
+
+        列与粘贴导入 / batch_save 的字段一一对应，供用户填好后走"批量导入"上传。
+        """
+        from io import BytesIO
+
+        from flask import send_file
+
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = '期初库存导入'
+        headers = ['仓库编码', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注']
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        # 示例行：帮助用户理解格式，导入时按"物料名称含'示例'"行跳过
+        ws.append(['WH001', 'M-0001', '示例-轴承6204', '内径20mm', '套', '100', '25.50', '示例行，导入时自动忽略'])
+        for col, width in zip('ABCDEFGH', (12, 14, 20, 14, 8, 10, 10, 24)):
+            ws.column_dimensions[col].width = width
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return send_file(
+            output,
+            download_name='opening_stock_import_template.xlsx',
+            as_attachment=True,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
