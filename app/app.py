@@ -3880,6 +3880,10 @@ def _generate_order_no_locked(prefix):
                 last_order = TransferOrder.query.filter(TransferOrder.transfer_no.like(f'{prefix}{year_month}%')).order_by(TransferOrder.id.desc()).with_for_update().first()
             elif prefix == 'ADJ':
                 last_order = AdjustmentOrder.query.filter(AdjustmentOrder.adjustment_no.like(f'{prefix}{year_month}%')).order_by(AdjustmentOrder.id.desc()).with_for_update().first()
+            elif prefix == 'QS':
+                # ARCH-OS-DOC-01：期初库存单据号。不加此分支会落到 else → last_order=None
+                # → 每次从 0001 开始 → 撞 opening_stock_doc.doc_no 唯一约束 500。
+                last_order = OpeningStockDoc.query.filter(OpeningStockDoc.doc_no.like(f'{prefix}{year_month}%')).order_by(OpeningStockDoc.id.desc()).with_for_update().first()
             else:
                 last_order = None
 
@@ -3906,6 +3910,8 @@ def _generate_order_no_locked(prefix):
                     last_no = last_order.transfer_no
                 elif prefix == 'ADJ':
                     last_no = last_order.adjustment_no
+                elif prefix == 'QS':
+                    last_no = last_order.doc_no
                 else:
                     last_no = last_order.order_no if hasattr(last_order, 'order_no') else ''
 
