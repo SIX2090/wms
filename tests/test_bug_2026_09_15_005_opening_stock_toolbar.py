@@ -126,9 +126,15 @@ class TestOpeningStockTopToolbar:
         assert "onclick=\"clearEntryRows()\"" in html, "「删除」按钮应绑定 clearEntryRows()"
 
     def test_t8_query_panel_has_anchor_id(self):
-        html = _read()
-        assert 'id="opening-query-panel"' in html, (
-            "查询面板应具备 id=\"opening-query-panel\" 供「查找单据」锚点定位"
+        # BUG-2026-09-15-009 单据列表+编辑分离后：查询面板（含锚点）已从编辑器
+        # opening_stock.html 迁到单据列表页 opening_stock_list.html，编辑器不再内嵌台账面板。
+        editor_html = _read()
+        assert 'id="opening-query-panel"' not in editor_html, (
+            "编辑器（单据编辑页）不应再内嵌台账查询面板"
+        )
+        list_html = (ROOT / "app" / "templates" / "opening_stock_list.html").read_text(encoding="utf-8")
+        assert 'id="opening-query-panel"' in list_html, (
+            "查询面板锚点 id=\"opening-query-panel\" 应随面板迁到单据列表页保留"
         )
 
 

@@ -12,19 +12,20 @@ def register_opening_stock_routes(app):
     @app.route('/opening_stock')
     @login_required
     def opening_stock_list():
-        """期初库存列表"""
+        """期初库存单据列表（BUG-2026-09-15-009：单据列表 + 单据编辑分离）。
+
+        列表页只列**单据**（单据号/日期/仓库/明细行数/合计金额/备注），点开某张
+        才进单据编辑页（/opening_stock/<id>）；不再同页堆叠"台账查询 + 录入网格"
+        ——那是用户说的"乱七八糟"。新建走 /opening_stock/add（纯单据编辑页）。
+        """
         from app import (
-            Material,
             OpeningStock,
-            date,
+            OpeningStockDoc,
+            Warehouse,
             db,
             get_active_warehouses,
-            get_default_warehouse,
-            joinedload,
-            normalize_stock_quantity,
             render_template,
             request,
-            round_to_2_decimals,
         )
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 20, type=int)
@@ -32,69 +33,59 @@ def register_opening_stock_routes(app):
         per_page = max(1, per_page)
         per_page = per_page if per_page in [10, 20, 50, 100, 200] else 20
         search = (request.args.get('search') or '').strip()
-        sort_by = request.args.get('sort', 'created_at')
-        sort_order = request.args.get('order', 'desc')
-        warehouse_id = request.args.get('warehouse_id', type=int)  # AI-OS-MW-001: 仓库筛选
+        warehouse_id = request.args.get('warehouse_id', type=int)
 
-        query = OpeningStock.query.options(
-            joinedload(OpeningStock.material).joinedload(Material.unit),
-            joinedload(OpeningStock.operator),
-            joinedload(OpeningStock.warehouse),
-        ).join(Material)
+        query = OpeningStockDoc.query
         if search:
             like = f'%{search}%'
             query = query.filter(db.or_(
-                Material.code.like(like),
-                Material.name.like(like),
-                Material.spec.like(like),
-                OpeningStock.remark.like(like),
+                OpeningStockDoc.doc_no.like(like),
+                OpeningStockDoc.remark.like(like),
+                OpeningStockDoc.warehouse.has(db.or_(
+                    Warehouse.name.like(like), Warehouse.code.like(like))),
             ))
         if warehouse_id:
-            query = query.filter(OpeningStock.warehouse_id == warehouse_id)
-
-        allowed_sorts = {
-            'id': OpeningStock.id,
-            'material_code': Material.code,
-            'material_name': Material.name,
-            'quantity': OpeningStock.quantity,
-            'price': OpeningStock.price,
-            'amount': OpeningStock.amount,
-            'created_at': OpeningStock.created_at,
-            'updated_at': OpeningStock.updated_at,
-        }
-        sort_column = allowed_sorts.get(sort_by, OpeningStock.created_at)
-        query = query.order_by(sort_column.asc() if sort_order == 'asc' else sort_column.desc())
+            # 表头仓库或任一明细行仓库命中，即算该单据涉及此仓
+            query = query.filter(db.or_(
+                OpeningStockDoc.warehouse_id == warehouse_id,
+                OpeningStockDoc.lines.any(OpeningStock.warehouse_id == warehouse_id),
+            ))
+        query = query.order_by(OpeningStockDoc.created_at.desc(), OpeningStockDoc.id.desc())
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 
-        materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc(), Material.id.asc()).all()
-        material_options = [{
-            'id': material.id,
-            'code': material.code or '',
-            'name': material.name or '',
-            'spec': material.spec or '',
-            'unit': material.unit.name if material.unit else '',
-            'stock': normalize_stock_quantity(material.stock or 0),
-            'price': round_to_2_decimals(material.price or 0),
-        } for material in materials]
-        warehouses = get_active_warehouses()  # AI-OS-MW-001
+        docs = []
+        for doc in pagination.items:
+            lines = list(doc.lines)
+            wh_names = []
+            for line in lines:
+                if line.warehouse and line.warehouse.name and line.warehouse.name not in wh_names:
+                    wh_names.append(line.warehouse.name)
+            if doc.warehouse:
+                wh_display = doc.warehouse.name
+            elif len(wh_names) == 1:
+                wh_display = wh_names[0]
+            elif len(wh_names) > 1:
+                wh_display = '多仓库'
+            else:
+                wh_display = '未指定'
+            docs.append({
+                'id': doc.id,
+                'doc_no': doc.doc_no,
+                'date': doc.date,
+                'warehouse_display': wh_display,
+                'line_count': len(lines),
+                'total_amount': sum((line.amount or 0) for line in lines),
+                'remark': doc.remark or '',
+                'updated_at': doc.updated_at,
+            })
+
         return render_template(
-            'opening_stock.html',
-            records=pagination.items,
-            materials=materials,
-            material_options=material_options,
+            'opening_stock_list.html',
+            docs=docs,
             pagination=pagination,
             filters={'search': search, 'warehouse_id': warehouse_id},
-            sort_by=sort_by,
-            sort_order=sort_order,
             per_page=per_page,
-            doc_date=date.today().isoformat(),
-            warehouses=warehouses,
-            # BUG-2026-08-02-017：期初建账仓库必填，新建时预选默认仓库
-            default_warehouse=get_default_warehouse(),
-            # ARCH-OS-DOC-01：列表页不绑定单据，编辑态为空；
-            # 编辑已有单据走 GET /opening_stock/<id>
-            editing_doc=None,
-            edit_rows=[],
+            warehouses=get_active_warehouses(),
         )
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务

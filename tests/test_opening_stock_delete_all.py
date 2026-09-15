@@ -54,7 +54,9 @@ from app import (  # noqa: E402
 flask_app.config["TESTING"] = True
 flask_app.config["WTF_CSRF_ENABLED"] = False
 
-TEMPLATE = APP_DIR / "templates" / "opening_stock.html"
+# BUG-2026-09-15-009 起，「删除全部」按钮与 deleteAllOpeningStock 移到单据列表页
+# opening_stock_list.html（opening_stock.html 已变为纯单据编辑页，不再放全量删除入口）。
+TEMPLATE = APP_DIR / "templates" / "opening_stock_list.html"
 
 
 class TestOpeningStockDeleteAll:

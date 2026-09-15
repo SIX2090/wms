@@ -59,12 +59,12 @@
 <div class="opening-doc">
     <div class="opening-toolbar">
         <div class="toolbar-left">
+            <!-- BUG-2026-09-15-009：单据列表+编辑分离，编辑器提供返回列表入口 -->
+            <a class="tool-btn" href="/opening_stock"><i class="bi bi-list-ul"></i> 返回列表</a>
+            <span class="tool-sep"></span>
             <button class="tool-btn" type="button" onclick="resetDocument()"><i class="bi bi-plus-lg"></i> 新增</button>
             <button class="tool-btn" type="button" onclick="saveDocument()"><i class="bi bi-save"></i> 保存</button>
             <button class="tool-btn" type="button" onclick="clearEntryRows()" title="清空当前未保存的录入行"><i class="bi bi-eraser"></i> 清空录入</button>
-            <!-- BUG-2026-09-15-008：真正删除「已建账/已导入」的全部期初库存（物理删 + 库存回冲）。
-                 原「删除」只清空未保存录入行，是"删除不了"的根因；此处补全量删除入口。 -->
-            <button class="tool-btn danger" type="button" onclick="deleteAllOpeningStock()" title="删除全部已建账期初库存并回冲库存"><i class="bi bi-trash3"></i> 删除全部</button>
             <span class="tool-sep"></span>
             <a class="tool-btn" href="/batch_import?type=opening_stock"><i class="bi bi-cloud-upload"></i> 批量导入</a>
             <button class="tool-btn" type="button" onclick="window.print()"><i class="bi bi-printer"></i> 打印</button>
@@ -85,99 +85,9 @@
         </div>
     </div>
 
-    <div class="doc-panel" id="opening-query-panel" style="margin-top:12px;">
-        <div class="doc-title"><i class="bi bi-search"></i> 查询已建账期初库存</div>
-        <div class="doc-header">
-            <form method="get" action="/opening_stock" class="row g-3 align-items-end">
-                <div class="col-md-3">
-                    <label class="form-label">关键字</label>
-                    <input type="text" class="form-control" name="search" value="{{ filters.search or '' }}" placeholder="物料编码/名称/规格" data-ks="material" data-ks-put="code" data-ks-submit="1">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">仓库</label>
-                    <select class="form-select" name="warehouse_id">
-                        <option value="">全部仓库</option>
-                        {% for w in warehouses %}
-                            <option value="{{ w.id }}" {% if filters.warehouse_id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">每页</label>
-                    <select class="form-select" name="per_page">
-                        {% for opt in [10, 20, 50, 100, 200] %}
-                            <option value="{{ opt }}" {% if per_page == opt %}selected{% endif %}>{{ opt }} 条</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-3 d-flex gap-2">
-                    <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> 查询</button>
-                    <a class="btn btn-outline-secondary" href="/opening_stock"><i class="bi bi-x-circle"></i> 重置</a>
-                </div>
-            </form>
-        </div>
-        <div class="opening-grid-wrap" style="margin:0 16px 12px; max-height:none; min-height:auto;">
-            <table class="opening-grid">
-                <thead>
-                    <tr>
-                        <th style="width:42px;">序号</th>
-                        <th style="width:120px;">仓库</th>
-                        <th style="width:140px;">物料编码</th>
-                        <th>物料名称</th>
-                        <th style="width:90px;">规格</th>
-                        <th style="width:60px;">单位</th>
-                        <th style="width:90px;">数量</th>
-                        <th style="width:90px;">单价</th>
-                        <th style="width:120px;">期初余额</th>
-                        <th>备注</th>
-                        <th style="width:140px;">更新时间</th>
-                    </tr>
-                </thead>
-                <tbody>
-                {% if records %}
-                    {% for record in records %}
-                        <tr>
-                            <td class="row-no">{{ loop.index + ((pagination.page - 1) * pagination.per_page) }}</td>
-                            <td>{{ (record.warehouse.name if record.warehouse else '未指定') }}</td>
-                            <td>{{ (record.material.code if record.material else '') }}</td>
-                            <td>{{ (record.material.name if record.material else '') }}</td>
-                            <td>{{ (record.material.spec if record.material else '') }}</td>
-                            <td>{{ (record.material.unit.name if record.material and record.material.unit else '') }}</td>
-                            <td class="num">{{ '%.4f'|format(record.quantity or 0) }}</td>
-                            <td class="num">{{ '%.2f'|format(record.price or 0) }}</td>
-                            <td class="num">{{ '%.2f'|format(record.amount or 0) }}</td>
-                            <td>{{ record.remark or '' }}</td>
-                            <td>{{ record.updated_at.strftime('%Y-%m-%d %H:%M') if record.updated_at else '' }}</td>
-                        </tr>
-                    {% endfor %}
-                {% else %}
-                        <tr><td colspan="11" class="text-center text-muted" style="padding:18px;">暂无期初库存记录</td></tr>
-                {% endif %}
-                </tbody>
-            </table>
-        </div>
-        {% if pagination and pagination.total and pagination.total > 0 %}
-        <nav class="mt-2 mb-3 d-flex flex-wrap justify-content-between align-items-center gap-2" style="margin:0 16px 12px;">
-            <div class="text-muted small">共 {{ pagination.total }} 条 / 第 {{ pagination.page }} / {{ pagination.pages }} 页</div>
-            <ul class="pagination justify-content-center mb-0">
-                {%- if pagination.has_prev -%}
-                <li class="page-item"><a class="page-link" href="{{ url_for('opening_stock_list', page=pagination.prev_num, per_page=per_page, search=filters.search, warehouse_id=filters.warehouse_id) }}">上一页</a></li>
-                {%- endif -%}
-                {%- for page in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) -%}
-                {%- if page -%}
-                <li class="page-item {% if page==pagination.page %}active{% endif %}"><a class="page-link" href="{{ url_for('opening_stock_list', page=page, per_page=per_page, search=filters.search, warehouse_id=filters.warehouse_id) }}">{{ page }}</a></li>
-                {%- else -%}
-                <li class="page-item disabled"><span class="page-link">...</span></li>
-                {%- endif -%}
-                {%- endfor -%}
-                {%- if pagination.has_next -%}
-                <li class="page-item"><a class="page-link" href="{{ url_for('opening_stock_list', page=pagination.next_num, per_page=per_page, search=filters.search, warehouse_id=filters.warehouse_id) }}">下一页</a></li>
-                {%- endif -%}
-            </ul>
-        </nav>
-        {% endif %}
-    </div>
-
+    <!-- BUG-2026-09-15-009：单据列表 + 编辑分离。原台账查询面板已移至独立列表页
+         opening_stock_list.html（/opening_stock 只列单据）；本页（/opening_stock/<id>
+         与 /opening_stock/add）是纯单据编辑页。 -->
     <div class="doc-panel">
         <div class="doc-title">
             <i class="bi bi-file-earmark-plus"></i>
@@ -351,22 +261,9 @@ const existingRows = [
         remark: {{ (row.remark or '')|tojson }}
     }{{ "," if not loop.last else "" }}
 {% endfor %}
-{% else %}
-{% for record in records %}
-    {
-        material_id: {{ record.material_id }},
-        warehouse_id: {{ record.warehouse_id if record.warehouse_id is not none else 'null' }},
-        warehouse_name: {{ (record.warehouse.name if record.warehouse else '')|tojson }},
-        material_code: {{ (record.material.code if record.material else '')|tojson }},
-        material_name: {{ (record.material.name if record.material else '')|tojson }},
-        spec: {{ (record.material.spec if record.material else '')|tojson }},
-        unit: {{ (record.material.unit.name if record.material and record.material.unit else '')|tojson }},
-        quantity: {{ record.quantity or 0 }},
-        price: {{ record.price or 0 }},
-        remark: {{ (record.remark or '')|tojson }}
-    }{{ "," if not loop.last else "" }}
-{% endfor %}
 {% endif %}
+    // BUG-2026-09-15-009：单据列表+编辑分离后，本模板仅用于"新建(/add)/编辑(/<id>)"单据。
+    // 新建页从空白单据开始，不再把台账全部记录预填进录入网格（那是旧列表页行为）。
 ];
 
 let rows = existingRows.length ? existingRows.slice() : [];
@@ -450,26 +347,6 @@ function clearEntryRows() {
     if (!confirm('确定清空当前录入的全部明细行吗？（未保存的内容将丢失，已建账记录不受影响）')) return;
     rows = [];
     renderRows();
-}
-
-// BUG-2026-09-15-008：一键删除全部「已建账/已导入」期初库存（物理删除 + 库存回冲）。
-// 与上方 clearEntryRows（仅清空未保存录入）严格区分；双确认防误触，统一走 WMS.api（禁原生 fetch）。
-function deleteAllOpeningStock() {
-    if (!window.WMS || !WMS.api) return;
-    if (!confirm('【危险操作】确定删除全部期初库存吗？\n将删除所有期初明细行与单据，并把已入账的期初数量从库存中全部扣回。\n此操作不可恢复！')) return;
-    if (!confirm('请再次确认：真的要清空全部期初库存吗？')) return;
-    WMS.api.post('/opening_stock/delete_all', { confirm: true })
-        .then(function(data) {
-            if (data && data.status === 'success') {
-                showToast(data.msg || '已删除全部期初库存', 'success', 4200);
-                setTimeout(function() { window.location.reload(); }, 900);
-            } else {
-                showToast((data && data.msg) || '删除失败', 'danger', 4200);
-            }
-        })
-        .catch(function(error) {
-            showToast('删除失败：' + (error && error.message ? error.message : '未知错误'), 'danger', 4200);
-        });
 }
 
 function copyPreviousRow() {

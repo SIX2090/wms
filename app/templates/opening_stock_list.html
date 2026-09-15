@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}期初库存单据{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-primary" href="/opening_stock/add"><i class="bi bi-plus-lg"></i> 新增单据</a>
+            <a class="btn btn-outline-secondary" href="/batch_import?type=opening_stock"><i class="bi bi-cloud-upload"></i> 批量导入</a>
+        </div>
+        <!-- BUG-2026-09-15-008：一键删除全部已建账/已导入期初库存（物理删 + 库存回冲） -->
+        <button class="btn btn-outline-danger" type="button" onclick="deleteAllOpeningStock()" title="删除全部已建账期初库存并回冲库存">
+            <i class="bi bi-trash3"></i> 删除全部
+        </button>
+    </div>
+
+    <!-- 保留旧锚点 id：原编辑器内"查询已建账"面板的 #opening-query-panel 已随
+         BUG-2026-09-15-009 单据列表化迁到本页查询卡片，供页内定位/深链兼容。 -->
+    <div class="card mb-3" id="opening-query-panel">
+        <div class="card-header"><i class="bi bi-search"></i> 查询期初库存单据</div>
+        <div class="card-body">
+            <form method="get" action="/opening_stock" class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">关键字</label>
+                    <input type="text" class="form-control" name="search" value="{{ filters.search or '' }}" placeholder="单据号/备注/仓库">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">仓库</label>
+                    <select class="form-select" name="warehouse_id">
+                        <option value="">全部仓库</option>
+                        {% for w in warehouses %}
+                            <option value="{{ w.id }}" {% if filters.warehouse_id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">每页</label>
+                    <select class="form-select" name="per_page">
+                        {% for opt in [10, 20, 50, 100, 200] %}
+                            <option value="{{ opt }}" {% if per_page == opt %}selected{% endif %}>{{ opt }} 条</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex gap-2">
+                    <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> 查询</button>
+                    <a class="btn btn-outline-secondary" href="/opening_stock"><i class="bi bi-x-circle"></i> 重置</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width:52px;">序号</th>
+                        <th>单据号</th>
+                        <th style="width:120px;">日期</th>
+                        <th>仓库</th>
+                        <th class="text-end" style="width:96px;">明细行数</th>
+                        <th class="text-end" style="width:120px;">合计金额</th>
+                        <th>备注</th>
+                        <th style="width:150px;">更新时间</th>
+                        <th style="width:150px;">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if docs %}
+                    {% for d in docs %}
+                    <tr>
+                        <td>{{ loop.index + ((pagination.page - 1) * pagination.per_page) }}</td>
+                        <td><a href="/opening_stock/{{ d.id }}">{{ d.doc_no }}</a></td>
+                        <td>{{ d.date.strftime('%Y-%m-%d') if d.date else '' }}</td>
+                        <td>{{ d.warehouse_display }}</td>
+                        <td class="text-end">{{ d.line_count }}</td>
+                        <td class="text-end">{{ '%.2f'|format(d.total_amount or 0) }}</td>
+                        <td>{{ d.remark }}</td>
+                        <td>{{ d.updated_at.strftime('%Y-%m-%d %H:%M') if d.updated_at else '' }}</td>
+                        <td>
+                            <a class="btn btn-sm btn-outline-primary" href="/opening_stock/{{ d.id }}"><i class="bi bi-pencil-square"></i> 打开</a>
+                            <button class="btn btn-sm btn-outline-danger" type="button" onclick='deleteDoc({{ d.id }}, {{ d.doc_no|tojson }})'><i class="bi bi-trash"></i> 删除</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr><td colspan="9" class="text-center text-muted py-4">暂无期初库存单据，点击"新增单据"开始建账</td></tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% if pagination and pagination.total and pagination.total > 0 %}
+    <nav class="mt-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div class="text-muted small">共 {{ pagination.total }} 张 / 第 {{ pagination.page }} / {{ pagination.pages }} 页</div>
+        <ul class="pagination justify-content-center mb-0">
+            {%- if pagination.has_prev -%}
+            <li class="page-item"><a class="page-link" href="{{ url_for('opening_stock_list', page=pagination.prev_num, per_page=per_page, search=filters.search, warehouse_id=filters.warehouse_id) }}">上一页</a></li>
+            {%- endif -%}
+            {%- for page in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) -%}
+                {%- if page -%}
+                <li class="page-item {% if page==pagination.page %}active{% endif %}"><a class="page-link" href="{{ url_for('opening_stock_list', page=page, per_page=per_page, search=filters.search, warehouse_id=filters.warehouse_id) }}">{{ page }}</a></li>
+                {%- else -%}
+                <li class="page-item disabled"><span class="page-link">...</span></li>
+                {%- endif -%}
+            {%- endfor -%}
+            {%- if pagination.has_next -%}
+            <li class="page-item"><a class="page-link" href="{{ url_for('opening_stock_list', page=pagination.next_num, per_page=per_page, search=filters.search, warehouse_id=filters.warehouse_id) }}">下一页</a></li>
+            {%- endif -%}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// BUG-2026-09-15-008：一键删除全部「已建账/已导入」期初库存（物理删除 + 库存回冲）。
+// 双确认防误触，统一走 WMS.api（业务 JS 禁原生 fetch）。
+function deleteAllOpeningStock() {
+    if (!window.WMS || !WMS.api) return;
+    if (!confirm('【危险操作】确定删除全部期初库存吗？\n将删除所有期初明细行与单据，并把已入账的期初数量从库存中全部扣回。\n此操作不可恢复！')) return;
+    if (!confirm('请再次确认：真的要清空全部期初库存吗？')) return;
+    WMS.api.post('/opening_stock/delete_all', { confirm: true })
+        .then(function(data) {
+            if (data && data.status === 'success') {
+                showToast(data.msg || '已删除全部期初库存', 'success', 4200);
+                setTimeout(function() { window.location.reload(); }, 900);
+            } else {
+                showToast((data && data.msg) || '删除失败', 'danger', 4200);
+            }
+        })
+        .catch(function(error) {
+            showToast('删除失败：' + (error && error.message ? error.message : '未知错误'), 'danger', 4200);
+        });
+}
+
+// 删除单张单据（物理删除 + 库存回冲，后端负责）
+function deleteDoc(id, docNo) {
+    if (!window.WMS || !WMS.api) return;
+    if (!confirm('确定删除单据 ' + (docNo || '') + ' 吗？\n该单所有明细的期初数量将从库存中扣回，此操作不可恢复。')) return;
+    WMS.api.post('/opening_stock/' + id + '/delete')
+        .then(function(data) {
+            if (data && data.status === 'success') {
+                showToast(data.msg || '单据已删除', 'success');
+                setTimeout(function() { window.location.reload(); }, 800);
+            } else {
+                showToast((data && data.msg) || '删除失败', 'danger', 4200);
+            }
+        })
+        .catch(function(error) {
+            showToast('删除失败：' + (error && error.message ? error.message : '未知错误'), 'danger', 4200);
+        });
+}
+</script>
+{% endblock %}
