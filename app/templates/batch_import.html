@@ -310,6 +310,18 @@ document.querySelectorAll('.import-form').forEach(function(form) {
                 if (res.warnings) {
                     html += '<div class="alert alert-warning py-1 mb-1"><i class="bi bi-exclamation-triangle"></i> ' + res.warnings + '</div>';
                 }
+                // ARCH-OS-DOC-01：整批导入会生成一张期初库存单据，直接给入口，
+                // 用户点进去就能改日期/看明细，不用再去列表里翻是哪张。
+                if (res.detail_url) {
+                    html += '<a class="btn btn-sm btn-outline-primary mt-1" href="' + res.detail_url + '">'
+                        + '<i class="bi bi-file-earmark-text"></i> 查看单据 ' + (res.doc_no || '') + '（可改日期）</a>';
+                }
+                if (res.errors && res.errors.length) {
+                    html += '<div class="alert alert-warning py-1 mb-1 mt-1">'
+                        + res.errors.map(function(x) {
+                            return '<div>' + String(x).replace(/[<>&]/g, '') + '</div>';
+                        }).join('') + '</div>';
+                }
                 resultDiv.innerHTML = html;
             } else {
                 var errMsg = (res && res.msg) ? res.msg : '未知错误';

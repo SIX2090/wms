@@ -408,3 +408,80 @@ class TestOpeningStockMultiDoc:
         assert resp.status_code == 200, resp.data[:300]
         assert self._stock(self.m1) == 25.0
         assert OpeningStock.query.filter(OpeningStock.doc_id.is_(None)).count() == 0
+
+    # ---- T13 Excel 导入归单 ----
+
+    def _xlsx(self, rows):
+        import io
+
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["仓库编码", "物料编码", "物料名称", "数量", "单价", "备注", "日期"])
+        for row in rows:
+            ws.append(row)
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf
+
+    def _import(self, rows):
+        resp = self.client.post("/opening_stock/import", data={
+            "file": (self._xlsx(rows), "opening.xlsx"),
+        }, content_type="multipart/form-data")
+        assert resp.status_code == 200, resp.data[:300]
+        return resp.get_json()
+
+    def test_t13_import_batch_becomes_one_document(self):
+        """整批导入归入一张单据，并回传 doc_id/doc_no/详情链接。"""
+        body = self._import([
+            ["W1", "M001", "螺丝", 100, 5, "首批", "2026-08-20"],
+            ["W2", "M002", "螺母", 20, 3, "", ""],
+        ])
+        assert body["imported"] == 2 and body["skipped"] == 0, body
+        assert body["doc_no"] and body["doc_no"].startswith("QS"), body
+        assert body["detail_url"] == f"/opening_stock/{body['doc_id']}"
+        assert body["errors"] == []
+
+        doc = db.session.get(OpeningStockDoc, body["doc_id"])
+        assert doc is not None and len(doc.lines) == 2
+        assert all(line.doc_id == doc.id for line in doc.lines)
+        assert self._stock(self.m1) == 100.0
+        assert self._stock(self.m2) == 20.0
+
+    def test_t13b_second_import_creates_new_doc_not_edits_old(self):
+        """重复导入叠加而不是覆盖：跨单据允许同物料同仓（用户要多张单）。"""
+        first = self._import([["W1", "M001", "螺丝", 100, 5, "", ""]])
+        second = self._import([["W1", "M001", "螺丝", 30, 5, "", ""]])
+        assert first["doc_id"] != second["doc_id"]
+        assert OpeningStockDoc.query.count() == 2
+        assert self._stock(self.m1) == 130.0
+
+    def test_t13c_import_scoped_to_its_own_document(self):
+        """导入只在本批单据内匹配行，不会误改上一批单据的明细。"""
+        first = self._import([["W1", "M001", "螺丝", 100, 5, "", ""]])
+        self._import([["W1", "M001", "螺丝", 30, 5, "", ""]])
+        db.session.expire_all()
+        doc = db.session.get(OpeningStockDoc, first["doc_id"])
+        assert len(doc.lines) == 1
+        assert doc.lines[0].quantity == 100.0  # 未被第二批改动
+
+    def test_t13d_all_bad_rows_leave_no_empty_document(self):
+        before = OpeningStockDoc.query.count()
+        body = self._import([["W9", "M999", "不存在", 5, 1, "", ""]])
+        assert body["imported"] == 0 and body["skipped"] == 1, body
+        assert body["doc_id"] is None and body["doc_no"] is None
+        assert OpeningStockDoc.query.count() == before
+        assert body["errors"][0].startswith("第 2 行"), body
+
+    def test_t13e_imported_doc_date_is_editable(self):
+        """用户核心诉求：导入进来的单据要能改日期。"""
+        body = self._import([["W1", "M001", "螺丝", 60, 2, "", ""]])
+        resp = self.client.post(f"/opening_stock/{body['doc_id']}/date",
+                                json={"date": "2026-01-15"})
+        assert resp.status_code == 200, resp.data[:300]
+        db.session.expire_all()
+        doc = db.session.get(OpeningStockDoc, body["doc_id"])
+        assert doc.date == date(2026, 1, 15)
+        assert all(line.date == date(2026, 1, 15) for line in doc.lines)
+        assert self._stock(self.m1) == 60.0  # 改期不动账

@@ -592,17 +592,21 @@ def register_batch_import_routes(app):
         from app import (
             Material,
             OpeningStock,
+            OpeningStockDoc,
             STOCK_COMPARE_EPSILON,
             Warehouse,
             _apply_opening_stock_balance,
             _parse_opening_stock_date,
             api_error,
             current_app,
+            current_user,
             db,
+            generate_order_no,
             jsonify,
             log_operation,
             normalize_stock_quantity,
             parse_float_value,
+            round_to_2_decimals,
         )
 
         file = request.files.get('file')
@@ -683,6 +687,28 @@ def register_batch_import_routes(app):
             skipped = 0
             errors = []
             seen_keys = set()
+            # ARCH-OS-DOC-01：整批导入归入一张新单据，用户导入完就能在期初库存
+            # 列表里按单查看/改日期/走 首上下末 导航。单头日期取导入当天并允许
+            # 导入后修改（用户诉求"导入的期初库存单据怎么修改日期"）。
+            batch_doc = None
+            batch_lines = []
+
+            def _ensure_batch_doc():
+                """懒建单据头：整表全是错误行时不产生空单据污染列表。"""
+                nonlocal batch_doc
+                if batch_doc is None:
+                    batch_doc = OpeningStockDoc(
+                        doc_no=generate_order_no('QS'),
+                        date=_parse_opening_stock_date(None),
+                        warehouse_id=None,  # 一单可含多仓库，仓库在明细行上
+                        status='active',
+                        remark=f'Excel 导入（{file.filename or "未命名文件"}）',
+                        operator_id=current_user.id if current_user.is_authenticated else None,
+                    )
+                    db.session.add(batch_doc)
+                    db.session.flush()
+                return batch_doc
+
             for row_no, row in enumerate(rows_iter, start=2):
                 if _is_example_row(row):
                     continue
@@ -738,29 +764,68 @@ def register_batch_import_routes(app):
                     continue
 
                 try:
+                    doc = _ensure_batch_doc()
+                    # 只在本批单据内查找同 (物料,仓库) 行：跨单据允许重复，
+                    # 若不带 doc_id 过滤会命中别的单据的行，导致改错单/库存错算。
                     opening = OpeningStock.query.filter_by(
-                        material_id=material.id, warehouse_id=warehouse.id
+                        doc_id=doc.id, material_id=material.id, warehouse_id=warehouse.id
                     ).with_for_update().first()
                     quantity = normalize_stock_quantity(quantity)
                     price = round_to_2_decimals(price)
                     amount = round_to_2_decimals(quantity * price)
+                    row_date = _row_date(row)
                     _, delta = _apply_opening_stock_balance(
                         opening, material, quantity, price, amount,
                         _v(row, 'remark') or None, warehouse,
-                        _parse_opening_stock_date(_row_date(row)), '',
+                        _parse_opening_stock_date(row_date),
+                        '',
+                        doc_id=doc.id,
                     )
+                    batch_lines.append((doc, material, warehouse, row_date))
                     if opening is None or abs(delta) > STOCK_COMPARE_EPSILON:
                         imported += 1
                 except ValueError as ve:
                     errors.append(f'第 {row_no} 行：{ve}')
                     skipped += 1
 
+            # 明细行日期为空时跟随单头（导入行自带日期则保留，尊重 Excel 里的建账日）
+            db.session.flush()
+            for doc, material, warehouse, row_date in batch_lines:
+                if not row_date:
+                    line = OpeningStock.query.filter_by(
+                        doc_id=doc.id, material_id=material.id,
+                        warehouse_id=warehouse.id,
+                    ).first()
+                    if line is not None:
+                        line.date = doc.date
+
+            # 一行都没导入成功则不留空单据
+            if batch_doc is not None and not batch_lines:
+                db.session.delete(batch_doc)
+                batch_doc = None
+
             db.session.commit()
-            log_operation('批量导入期初库存', f'导入 {imported} 行，跳过 {skipped} 行', 'opening_stock', None)
+            doc_no = batch_doc.doc_no if batch_doc is not None else None
+            log_operation(
+                '批量导入期初库存',
+                f'导入 {imported} 行，跳过 {skipped} 行，单据 {doc_no or "-"}',
+                'opening_stock', batch_doc.id if batch_doc is not None else None,
+            )
             msg = f'期初库存导入完成，共导入 {imported} 行'
+            if doc_no:
+                msg += f'，已生成单据 {doc_no}'
             if skipped:
                 msg += f'，跳过 {skipped} 行'
-            return jsonify({'status': 'success', 'msg': msg, 'imported': imported, 'skipped': skipped, 'errors': errors[:20]})
+            return jsonify({
+                'status': 'success',
+                'msg': msg,
+                'imported': imported,
+                'skipped': skipped,
+                'errors': errors[:20],
+                'doc_id': batch_doc.id if batch_doc is not None else None,
+                'doc_no': doc_no,
+                'detail_url': f'/opening_stock/{batch_doc.id}' if batch_doc is not None else None,
+            })
         except Exception as e:  # noqa: BLE001
             db.session.rollback()
             current_app.logger.error(f'期初库存批量导入失败: {e}')
