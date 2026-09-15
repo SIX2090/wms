@@ -26099,7 +26099,7 @@ REPORT_DEFINITIONS = {
         },
     },
     'in_detail': {
-        'title': '入库明细报表',
+        'title': '全部入库明细报表',
         'description': '按单据和物料查看入库明细。',
         'icon': 'bi-box-arrow-in-down',
         'accent': 'success',

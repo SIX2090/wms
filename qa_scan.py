@@ -27,7 +27,7 @@ pages = [
     ('/report/view/supplier_purchase_summary', '供应商采购汇总表', '采购报表'),
     ('/report/view/material_purchase_summary', '物料采购汇总表', '采购报表'),
     ('/report/view/purchase_price_analysis', '采购价格分析表', '采购报表'),
-    ('/report/view/in_detail', '采购入库明细报表', '采购报表'),
+    ('/report/view/in_detail', '全部入库明细报表', '采购报表'),
     ('/sales/dashboard', '销售工作台', '销售管理'),
     ('/sales/exceptions', '销售异常工作台', '销售管理'),
     ('/sales', '销售订单列表', '销售管理'),

@@ -108,8 +108,8 @@ def register_report_routes(app):
                 'icon': 'bi-currency-yen',
             },
             {
-                'title': '采购入库明细报表',
-                'description': '按入库单据查询采购入库流水，适合核对到货、数量和金额。',
+                'title': '全部入库明细报表',
+                'description': '按入库单据查询全部入库类型流水（采购/产品/其他入库），适合核对到货、数量和金额。',
                 'url': url_for('report_view', report_type='in_detail'),
                 'icon': 'bi-box-arrow-in-down',
             },
