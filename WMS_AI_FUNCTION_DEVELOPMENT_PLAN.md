@@ -2026,7 +2026,8 @@ full 验证结果：
   - 首轮曾现 6 failed（索引测试按 app.py 源码文本计数），修正检索范围后全绿。
   - AA-2 后 `grep -c 'db\.Model' app/app.py` → 1（仅 L929 迁移注释），代码层面 0 模型残留。
 - 推送验证（AA-1）：常规 HTTPS push 被网络层拦（`gnutls_handshake() failed`），按 AGENTS.md §8.1 走 API 通道（Git Data API 四步重放）推送成功：远程 commit `da4074d2870ca3e7632a180b8eeb9924ddbabfd9`，反查 `GET /repos/SIX2090/wms/commits/main` 确认 HEAD 已更新、11 个文件变更与预期一致（本地 `6bbe17d` ↔ 远程 `da4074d`，内容一致）。
-- 推送验证（AA-2）：[待填]
+- 推送验证（AA-2）：常规 HTTPS push 被拦，走 API 通道推送成功：远程 commit `58084f5ee24f7de3f02284705a8360c1b6ad494c`，反查 `GET /repos/SIX2090/wms/commits/main` 确认 HEAD 更新、4 个文件变更与预期一致（本地 `f03ad6e` ↔ 远程 `58084f5`，内容一致）。
+- 状态：**已完成**（90 个模型全部迁出 app.py）。
 - 剩余风险和下一子项：
 - 剩余风险和下一子项：
   - 残留污染点已清理：`db.Model` 在 app.py 仅剩 1 处注释文字（L929 迁移注释），非代码引用。
