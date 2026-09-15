@@ -1112,7 +1112,10 @@ function handleOtherOrderToolbar(action, ev) {
         return;
     }
     if (action === 'smart-share') {
-        showToast('单据保存后可到列表页通过「智能分享」分享给协作伙伴', 'info');
+        // BUG-2026-09-15-002：原提示引导用户去列表页找分享入口，但列表页并无该按钮。
+        // 真实能力：①单据详情页全局操作栏「智能分享」生成图片；
+        // ②系统管理 → 微信分享（/wechat_share）配置定时自动推送。
+        showToast('单据保存后可在单据详情页使用「智能分享」生成图片；定时自动分享请到 系统管理 → 微信分享 配置', 'info');
         return;
     }
     if (action === 'nav-first' || action === 'nav-prev' || action === 'nav-next' || action === 'nav-last') {
