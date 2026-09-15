@@ -1720,13 +1720,25 @@ const WMS_ACTION_MODULES = {
         importUrl: '/requisition/import',
         templateUrl: '/export/template/requisition'
     },
+    // ARCH-OS-DOC-01：期初库存多单据化后接入单据导航（用户要求"首 上下末功能要有"）。
+    // 详情页 /opening_stock/<id> 是单据视图，/opening_stock/add 是新建单据。
+    opening_stock: {
+        match: /^\/opening_stock(\/?$|\/add|\/line\/\d+|\/\d+)/,
+        navigator: true,
+        detailUrl: '/opening_stock/{id}',
+        addUrl: '/opening_stock/add',
+        listUrl: '/opening_stock',
+        tableId: 'openingGrid',
+        detailDeleteUrl: '/opening_stock/{id}/delete',
+        importUrl: '/opening_stock/import',
+        templateUrl: '/opening_stock/import/template'
+    },
     subcontract: {
         match: /^\/subcontract(\/?$|\/\d+)/,
         navigator: true,
         detailUrl: '/subcontract/{id}',
         addTarget: '#addModal',
-        listUrl: '/subcontract',
-        deleteUrl: '/subcontract/batch_delete',
+        listUrl: '/subcontract',        deleteUrl: '/subcontract/batch_delete',
         detailDeleteUrl: '/subcontract/{id}/delete',
         exportUrl: '/subcontract/export',
         importUrl: '/subcontract/import',
@@ -2694,12 +2706,15 @@ function initDocumentEntryMode() {
         /^\/requisition\/add$/,
         /^\/requisition\/\d+(\/edit)?$/,
         /^\/bom\/add$/,
-        /^\/bom\/\d+(\/edit)?$/
+        /^\/bom\/\d+(\/edit)?$/,
+        // ARCH-OS-DOC-01：期初库存单据页（新建 / 查看某张单）
+        /^\/opening_stock\/add$/,
+        /^\/opening_stock\/\d+$/
     ];
     var isDocumentPath = documentPathPatterns.some(function(pattern) {
         return pattern.test(path);
     });
-    var tableSelectors = ['#docTable', '#adjustmentTable', '#materialTable', '#itemTable', '#bomItemsTable'];
+    var tableSelectors = ['#docTable', '#adjustmentTable', '#materialTable', '#itemTable', '#bomItemsTable', '#openingGrid'];
     var tables = [];
 
     tableSelectors.forEach(function(selector) {

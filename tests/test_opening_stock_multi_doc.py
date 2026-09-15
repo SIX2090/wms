@@ -485,3 +485,148 @@ class TestOpeningStockMultiDoc:
         assert doc.date == date(2026, 1, 15)
         assert all(line.date == date(2026, 1, 15) for line in doc.lines)
         assert self._stock(self.m1) == 60.0  # 改期不动账
+
+
+class TestOpeningStockFrontendWiring:
+    """ARCH-OS-DOC-01 前端接线：模板/JS 必须与后端单据模型一致。
+
+    这些是静态断言（不需要起服务），锁定三条最容易断的接线：
+    - 详情页必须把单据上下文注入给 JS，否则前端不知道在编辑哪张单；
+    - 保存必须走 /opening_stock/save 并带 doc_id，否则永远新建；
+    - JS 模块表必须注册 opening_stock，否则导航组不会渲染。
+    """
+
+    TEMPLATE = ROOT / "app" / "templates" / "opening_stock.html"
+    APP_JS = ROOT / "app" / "static" / "js" / "app.js"
+
+    def test_template_injects_document_context(self):
+        html = self.TEMPLATE.read_text(encoding="utf-8")
+        assert "window.__OPENING_DOC__" in html
+        assert "const OPENING_DOC = window.__OPENING_DOC__ || null;" in html
+
+    def test_template_has_real_navigation_buttons(self):
+        html = self.TEMPLATE.read_text(encoding="utf-8")
+        for target in ("first", "prev", "next", "last"):
+            assert f"navigateOpeningDoc('{target}')" in html, target
+        assert "function navigateOpeningDoc(" in html
+        assert "/api/document_navigation/opening_stock" in html
+
+    def test_template_saves_through_document_endpoint(self):
+        html = self.TEMPLATE.read_text(encoding="utf-8")
+        assert "WMS.api.post('/opening_stock/save'" in html
+        assert "if (OPENING_DOC) payload.doc_id = OPENING_DOC.id;" in html
+        # 不应再直接打 batch_save（那会永远新建兼容单，编辑失效）
+        assert "WMS.api.post('/opening_stock/batch_save'" not in html
+
+    def test_template_has_delete_current_doc(self):
+        html = self.TEMPLATE.read_text(encoding="utf-8")
+        assert "function deleteCurrentDoc()" in html
+        assert "/delete" in html
+
+    def test_app_js_registers_opening_stock_module(self):
+        js = self.APP_JS.read_text(encoding="utf-8")
+        assert "opening_stock: {" in js
+        assert "tableId: 'openingGrid'" in js
+        assert "'/opening_stock/{id}'" in js
+
+    def test_app_js_recognises_opening_stock_document_paths(self):
+        js = self.APP_JS.read_text(encoding="utf-8")
+        assert r"/^\/opening_stock\/add$/" in js
+        assert r"/^\/opening_stock\/\d+$/" in js
+        assert "'#openingGrid'" in js
+
+
+class TestEnsureOpeningStockDocColumns:
+    """R6 兜底：ensure_opening_stock_doc_columns 必须给存量库补出 doc_id。
+
+    起因：doc_id 起初只写在 auto_migrate_database() 里，而生产批处理默认
+    WMS_NO_DB_TOUCH=1 会把整个迁移跳过。存量库重启后一查 opening_stock.doc_id
+    就是 500（no such column）。本用例直接在一个"没有 doc_id 的旧库"上跑
+    兜底函数，验证补列成功、数据不丢、可重复执行。
+    """
+
+    def test_ensure_opening_stock_doc_columns(self, tmp_path):
+        """A9 规范要求的同名测试入口：补齐存量库缺失的 doc_id 列。"""
+        import sqlite3
+
+        from app import ensure_opening_stock_doc_columns
+
+        db_file = str(tmp_path / "a9.db")
+        conn = sqlite3.connect(db_file)
+        conn.execute(
+            "CREATE TABLE opening_stock ("
+            " id INTEGER PRIMARY KEY, material_id INTEGER, warehouse_id INTEGER,"
+            " date DATE, quantity FLOAT, price FLOAT, amount FLOAT, remark VARCHAR(500))"
+        )
+        conn.execute(
+            "INSERT INTO opening_stock (material_id, warehouse_id, quantity)"
+            " VALUES (7, 2, 33)"
+        )
+        conn.commit()
+        conn.close()
+
+        ensure_opening_stock_doc_columns(db_file)
+
+        conn = sqlite3.connect(db_file)
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(opening_stock)")}
+        rows = conn.execute("SELECT material_id, quantity FROM opening_stock").fetchall()
+        conn.close()
+        assert "doc_id" in cols
+        assert rows == [(7, 33.0)]
+
+    def test_ensure_opening_stock_doc_columns_adds_doc_id(self, tmp_path):
+        import sqlite3
+
+        from app import ensure_opening_stock_doc_columns
+
+        db_file = str(tmp_path / "legacy.db")
+        conn = sqlite3.connect(db_file)
+        conn.execute(
+            "CREATE TABLE opening_stock ("
+            " id INTEGER PRIMARY KEY, material_id INTEGER, warehouse_id INTEGER,"
+            " date DATE, quantity FLOAT, price FLOAT, amount FLOAT, remark VARCHAR(500))"
+        )
+        conn.execute(
+            "INSERT INTO opening_stock (material_id, warehouse_id, quantity)"
+            " VALUES (1, 1, 10)"
+        )
+        conn.commit()
+        cols_before = {r[1] for r in conn.execute("PRAGMA table_info(opening_stock)")}
+        conn.close()
+        assert "doc_id" not in cols_before
+
+        ensure_opening_stock_doc_columns(db_file)
+
+        conn = sqlite3.connect(db_file)
+        cols_after = {r[1] for r in conn.execute("PRAGMA table_info(opening_stock)")}
+        rows = conn.execute("SELECT material_id, quantity FROM opening_stock").fetchall()
+        conn.close()
+        assert "doc_id" in cols_after
+        assert rows == [(1, 10.0)], "补列不得丢数据"
+
+    def test_ensure_opening_stock_doc_columns_is_idempotent(self, tmp_path):
+        import sqlite3
+
+        from app import ensure_opening_stock_doc_columns
+
+        db_file = str(tmp_path / "legacy2.db")
+        conn = sqlite3.connect(db_file)
+        conn.execute(
+            "CREATE TABLE opening_stock ("
+            " id INTEGER PRIMARY KEY, material_id INTEGER, quantity FLOAT)"
+        )
+        conn.commit()
+        conn.close()
+
+        ensure_opening_stock_doc_columns(db_file)
+        ensure_opening_stock_doc_columns(db_file)  # 再跑一次不应抛错
+
+        conn = sqlite3.connect(db_file)
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(opening_stock)")]
+        conn.close()
+        assert cols.count("doc_id") == 1, "幂等：doc_id 不应重复添加"
+
+    def test_ensure_opening_stock_doc_columns_skips_missing_db(self, tmp_path):
+        """全新部署（库文件还没建）应静默跳过，交给 create_all。"""
+        from app import ensure_opening_stock_doc_columns
+        ensure_opening_stock_doc_columns(str(tmp_path / "not-created-yet.db"))

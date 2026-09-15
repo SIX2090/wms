@@ -70,7 +70,13 @@
             <a class="tool-btn" href="/wechat_share" title="系统管理 → 微信分享"><i class="bi bi-share"></i> 智能分享</a>
         </div>
         <div class="toolbar-right nav-tools">
-            <a class="tool-btn" href="#opening-query-panel"><i class="bi bi-search"></i> 查找单据</a>
+            <!-- ARCH-OS-DOC-01：真实的 首/上/下/末 单据导航（用户原话"首 上下末功能要有"）。
+                 这四个按钮在改造前是硬编码 disabled 的死按钮（BUG-2026-09-15-005 曾删除），
+                 现在期初库存已注册进 DOCUMENT_NAVIGATION_MODULES，改走真实跳转。 -->
+            <button class="tool-btn" type="button" onclick="navigateOpeningDoc('first')" title="首张单据"><i class="bi bi-chevron-bar-left"></i> 首张</button>
+            <button class="tool-btn" type="button" onclick="navigateOpeningDoc('prev')" title="上一张单据"><i class="bi bi-chevron-left"></i> 上一张</button>
+            <button class="tool-btn" type="button" onclick="navigateOpeningDoc('next')" title="下一张单据"><i class="bi bi-chevron-right"></i> 下一张</button>
+            <button class="tool-btn" type="button" onclick="navigateOpeningDoc('last')" title="末张单据"><i class="bi bi-chevron-bar-right"></i> 末张</button>
         </div>
     </div>
 
@@ -168,25 +174,38 @@
     </div>
 
     <div class="doc-panel">
-        <div class="doc-title"><i class="bi bi-file-earmark-plus"></i> 新增期初库存单</div>
+        <div class="doc-title">
+            <i class="bi bi-file-earmark-plus"></i>
+            <span id="docTitleText">{% if editing_doc %}期初库存单{% else %}新增期初库存单{% endif %}</span>
+            {% if editing_doc %}
+            <span id="headerDocNo" class="ms-2 text-muted" style="font-weight:400;font-size:13px;">{{ editing_doc.doc_no }}</span>
+            {% else %}
+            <span id="headerDocNo" class="ms-2 text-muted" style="font-weight:400;font-size:13px;"></span>
+            {% endif %}
+            {% if editing_doc %}
+            <button class="btn btn-sm btn-outline-danger ms-auto" type="button" onclick="deleteCurrentDoc()">
+                <i class="bi bi-trash"></i> 删除本单
+            </button>
+            {% endif %}
+        </div>
         <div class="doc-header">
             <div class="row g-3">
                 <div class="col-md-3">
                     <label class="form-label">日期</label>
-                    <input class="form-control" type="date" id="headerDocDate" value="{{ doc_date }}">
+                    <input class="form-control" type="date" id="headerDocDate" value="{{ (editing_doc.date.strftime('%Y-%m-%d') if editing_doc and editing_doc.date else doc_date) }}">
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label">单据仓库 <span class="text-danger">*</span></label>
-                    <select class="form-select" id="headerWarehouse" required>
-                        <option value="">请选择仓库</option>
+                    <label class="form-label">单据仓库</label>
+                    <select class="form-select" id="headerWarehouse">
+                        <option value="">不指定（各行自选仓库）</option>
                         {% for w in warehouses %}
-                            <option value="{{ w.id }}" {% if default_warehouse and default_warehouse.id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}</option>
+                            <option value="{{ w.id }}" {% if editing_doc and editing_doc.warehouse_id == w.id %}{{ 'selected' }}{% elif not editing_doc and default_warehouse and default_warehouse.id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-12">
                     <label class="form-label">备注</label>
-                    <textarea class="form-control" id="headerRemark" placeholder="选填：作为各行明细的默认备注（行内已单独填写备注的行不受影响）"></textarea>
+                    <textarea class="form-control" id="headerRemark" placeholder="选填：本单备注">{{ editing_doc.remark or '' if editing_doc else '' }}</textarea>
                 </div>
             </div>
         </div>
@@ -291,6 +310,19 @@
 
 {% block extra_js %}
 <script>
+// ARCH-OS-DOC-01：当前正在编辑的单据上下文（由后端注入）。
+// null/undefined 表示"新建"（保存时后端取号建单）；有 id 表示编辑已存在的某张单。
+{% if editing_doc %}
+window.__OPENING_DOC__ = {
+    id: {{ editing_doc.id }},
+    doc_no: {{ (editing_doc.doc_no or '')|tojson }},
+    date: {{ (editing_doc.date.isoformat() if editing_doc.date else '')|tojson }},
+    warehouse_id: {{ editing_doc.warehouse_id if editing_doc.warehouse_id is not none else 'null' }}
+};
+{% else %}
+window.__OPENING_DOC__ = null;
+{% endif %}
+const OPENING_DOC = window.__OPENING_DOC__ || null;
 const materialData = {{ material_options|tojson }};
 const warehouseData = {{ (warehouses|map(attribute='id')|list)|tojson }};
 const warehouseNameById = {{ (warehouses|map(attribute='name'))|list|tojson }};
@@ -298,6 +330,23 @@ const warehouseOptions = [
     {% for w in warehouses %}{id: {{ w.id }}, name: {{ (w.code + ' - ' + w.name)|tojson }}}{% if not loop.last %},{% endif %}{% endfor %}
 ];
 const existingRows = [
+{% if editing_doc %}
+{% for row in edit_rows %}
+    {
+        line_id: {{ row.line_id }},
+        material_id: {{ row.material_id }},
+        warehouse_id: {{ row.warehouse_id if row.warehouse_id is not none else 'null' }},
+        warehouse_name: {{ (row.warehouse_name or '')|tojson }},
+        material_code: {{ (row.material_code or '')|tojson }},
+        material_name: {{ (row.material_name or '')|tojson }},
+        spec: {{ (row.spec or '')|tojson }},
+        unit: {{ (row.unit or '')|tojson }},
+        quantity: {{ row.quantity or 0 }},
+        price: {{ row.price or 0 }},
+        remark: {{ (row.remark or '')|tojson }}
+    }{{ "," if not loop.last else "" }}
+{% endfor %}
+{% else %}
 {% for record in records %}
     {
         material_id: {{ record.material_id }},
@@ -312,6 +361,7 @@ const existingRows = [
         remark: {{ (record.remark or '')|tojson }}
     }{{ "," if not loop.last else "" }}
 {% endfor %}
+{% endif %}
 ];
 
 let rows = existingRows.length ? existingRows.slice() : [];
@@ -408,8 +458,74 @@ function copyPreviousRow() {
 }
 
 function resetDocument() {
+    // 新建：清空明细并回到"未取号"状态（保存时才生成单号）
     rows = [];
     renderRows();
+    if (typeof goToNewDoc === 'function') goToNewDoc();
+}
+
+// ARCH-OS-DOC-01：首/上/下/末 真实导航。
+// 详情页路径形如 /opening_stock/12，后端 /api/document_navigation/opening_stock
+// 按当前 id 返回 first/prev/next/last_id；新建页（无 id）首张=first、末张=last。
+function navigateOpeningDoc(target) {
+    if (!window.WMS || !WMS.api) return;
+    WMS.api.get('/api/document_navigation/opening_stock')
+        .then(function(data) {
+            const payload = (data && data.data) ? data.data : data;
+            let targetId = payload ? payload[target + '_id'] : null;
+            if (!payload) {
+                showToast('单据导航加载失败', 'danger', 3600);
+                return;
+            }
+            const isNewPage = !OPENING_DOC;
+            if (!targetId && isNewPage) {
+                // 新建页没有当前单据：首/末张直接取两端，上/下张给末/首张（与 app.js 同款兜底）
+                if (target === 'prev') targetId = payload.last_id;
+                else if (target === 'next') targetId = payload.first_id;
+            }
+            if (!targetId) {
+                if (target === 'first' || target === 'last') {
+                    showToast(payload.total ? '没有符合条件的单据' : '暂无期初库存单据', 'warning');
+                } else if (target === 'prev') {
+                    showToast('已经是首张单据', 'info');
+                } else {
+                    showToast('已经是末张单据', 'info');
+                }
+                return;
+            }
+            window.location.href = '/opening_stock/' + targetId;
+        })
+        .catch(function(error) {
+            showToast('单据导航失败：' + (error && error.message ? error.message : '未知错误'), 'danger', 3600);
+        });
+}
+
+// 跳转到新建页（清空当前编辑上下文）
+function goToNewDoc() {
+    if (window.location.pathname.replace(/\/+$/, '') !== '/opening_stock/add') {
+        window.location.href = '/opening_stock/add';
+    }
+}
+
+// 删除当前单据（物理删除 + 库存回冲，后端负责）
+function deleteCurrentDoc() {
+    if (!OPENING_DOC) {
+        showToast('当前是新建单据，无需删除', 'info');
+        return;
+    }
+    if (!confirm('确定删除单据 ' + (OPENING_DOC.doc_no || '') + ' 吗？\n该单所有明细的期初数量将从库存中扣回，此操作不可恢复。')) return;
+    WMS.api.post('/opening_stock/' + OPENING_DOC.id + '/delete')
+        .then(function(data) {
+            if (data && data.status === 'success') {
+                showToast(data.msg || '单据已删除', 'success');
+                setTimeout(function() { window.location.href = '/opening_stock'; }, 800);
+            } else {
+                showToast((data && data.msg) || '删除失败', 'danger', 4200);
+            }
+        })
+        .catch(function(error) {
+            showToast('删除失败：' + (error && error.message ? error.message : '未知错误'), 'danger', 4200);
+        });
 }
 
 function getMaterialMatches(keyword) {
@@ -505,11 +621,24 @@ function saveDocument() {
     if (headerRemark) {
         items.forEach(item => { if (!item.remark) item.remark = headerRemark; });
     }
-    WMS.api.post('/opening_stock/batch_save', { items })
+    // ARCH-OS-DOC-01：走单据级保存接口。
+    // 编辑已有单据时带 doc_id，后端按 (物料,仓库) upsert 并把消失的行回冲删除；
+    // 新建时 doc_id 为空，后端取号建单头（首/上/下/末 才能找到它）。
+    const payload = { items };
+    if (OPENING_DOC) payload.doc_id = OPENING_DOC.id;
+    if (headerDate) payload.date = headerDate;
+    if (headerWarehouseId) payload.warehouse_id = headerWarehouseId;
+    payload.remark = headerRemark;
+    WMS.api.post('/opening_stock/save', payload)
         .then(data => {
             if (data && data.status === 'success') {
                 showToast(data.msg || '保存成功', 'success');
-                setTimeout(() => location.reload(), 700);
+                // 新建成功后跳到详情页，这样首/上/下/末 和删除按钮都立即可用
+                const newId = data.doc_id;
+                setTimeout(() => {
+                    if (newId) window.location.href = '/opening_stock/' + newId;
+                    else window.location.reload();
+                }, 700);
             } else {
                 showToast((data && data.msg) || '保存失败', 'danger', 4200);
             }
@@ -584,7 +713,7 @@ function parsePasteLines(text, defaultDate) {
     return result;
 }
 
-// 粘贴导入：解析后经统一 /opening_stock/batch_save 写入台账（与手工保存同一校验/入账路径）
+// 粘贴导入：解析后并入当前单据（与手工保存同一 /opening_stock/save 路径）
 function confirmPasteImport() {
     const text = document.getElementById('pasteImportText').value;
     const feedback = document.getElementById('pasteImportFeedback');
@@ -609,13 +738,28 @@ function confirmPasteImport() {
         return;
     }
     const warn = parsed.errors.length ? `（另 ${parsed.errors.length} 行被跳过）` : '';
-    WMS.api.post('/opening_stock/batch_save', { items })
+    // ARCH-OS-DOC-01：粘贴的行要并入"当前这张单"。
+    // 若还打 batch_save（不带 doc_id），后端会另建兼容单据，粘贴进来的行就跑
+    // 到别的单里去了 —— 表现为"粘完保存，当前单没变化，还莫名多出一张单"。
+    // 这里与 saveDocument 统一走 /opening_stock/save，并带上已有单据的 doc_id。
+    const payload = { items };
+    if (OPENING_DOC) payload.doc_id = OPENING_DOC.id;
+    const headerDate = getHeaderDocDate();
+    if (headerDate) payload.date = headerDate;
+    if (headerWarehouseId) payload.warehouse_id = headerWarehouseId;
+    const headerRemark = (document.getElementById('headerRemark')?.value || '').trim();
+    if (headerRemark) payload.remark = headerRemark;
+    WMS.api.post('/opening_stock/save', payload)
         .then(data => {
             if (data && data.status === 'success') {
                 const modal = bootstrap.Modal.getInstance(document.getElementById('pasteImportModal'));
                 if (modal) modal.hide();
                 showToast((data.msg || '期初库存已导入') + warn, 'success');
-                setTimeout(() => location.reload(), 700);
+                const newId = data.doc_id;
+                setTimeout(() => {
+                    if (newId) window.location.href = '/opening_stock/' + newId;
+                    else window.location.reload();
+                }, 700);
             } else {
                 feedback.textContent = (data && data.msg) || '导入失败';
                 feedback.className = 'form-text text-danger';

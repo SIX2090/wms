@@ -26,14 +26,16 @@
 - 行工具栏移除 4 个占位按钮与静态"选择模板"下拉。
 
 验收点：
-T1. 顶部工具栏不再含 4 个永久禁用的单据导航键（首/上/下/末张）。
+T1. 顶部工具栏的 4 个单据导航键（首/上/下/末张）必须真实存在且绑定
+    navigateOpeningDoc() 跳转——ARCH-OS-DOC-01 把期初库存变成真正的多单据
+    实体后，用户要求「首 上下末功能要有」，约束由"必须移除"反转为"必须有且接通"。
 T2. 「导入」不再与「批量导入」重复（batch_import?type=opening_stock 仅出现一次）。
 T3. 「设置」不再跳转到与本页无关的 /system_settings。
 T4. 「智能分享」为指向 /wechat_share 的真实链接（不再是 toast 占位）。
-T5. 「查找单据」指向页内查询面板锚点（不再跳无关的库存台账报表）。
+T5. 「查找单据」入口真实可达（不跳无关报表、不是永久无效按钮）。
 T6. 「删除」重定义为 clearEntryRows（不再沿用错乱的 clearSelectedRows）。
 T7. 行工具栏移除 4 个 toast 占位按钮（最近使用/存为模板/批量修改/字段设置）。
-T8. 查询面板具备锚点 id 供「查找单据」定位。
+T8. 查询面板具备锚点 id 供定位。
 T9. 既有能力不受影响：新增/保存/批量导入/打印/导出/导入导出模板/
     添加物料/复制上一行/粘贴导入/刷新物料 仍在。
 """
@@ -53,13 +55,27 @@ def _read() -> str:
 class TestOpeningStockTopToolbar:
     """顶部工具栏精简修正。"""
 
-    def test_t1_card_nav_buttons_removed(self):
+    def test_t1_card_nav_buttons_are_real_and_wired(self):
+        """ARCH-OS-DOC-01 使期初库存成为真正的多单据实体，导航键必须"有且接通"。
+
+        本用例原先断言 4 个导航键**不存在**——那是期初库存还不是单据、导航键
+        硬编码 disabled 永久无效时的正确约束。多单据化后用户明确要求
+        「首 上下末功能要有」，约束随之反转为：按键存在，且必须绑定真实跳转，
+        不能又变成 disabled 死按钮。
+        """
         html = _read()
         for label in ("首张", "上一张", "下一张", "末张"):
-            assert label not in html, f"期初台账页无可导航单据，「{label}」永久无效，应移除"
-        # 单据导航图标不应再出现（硬编码 disabled 的 4 键已删除）
-        assert "bi-chevron-bar-left" not in html, "首张导航图标残留"
-        assert "bi-chevron-bar-right" not in html, "末张导航图标残留"
+            assert label in html, f"多单据化后应重新提供「{label}」导航"
+        for target in ("first", "prev", "next", "last"):
+            assert f"navigateOpeningDoc('{target}')" in html, (
+                f"「{target}」导航键必须绑定 navigateOpeningDoc('{target}') 真实跳转"
+            )
+        assert "navigateOpeningDoc(" in html and "function navigateOpeningDoc(" in html, (
+            "导航函数 navigateOpeningDoc 必须已定义，不能只留按钮壳"
+        )
+        # 不得再出现硬编码 disabled 的假导航（改造前的病症）
+        assert 'data-opening-nav="first" disabled' not in html, "导航键不应是 disabled 死按钮"
+        assert "disabled>首张" not in html, "导航键不应是 disabled 死按钮"
 
     def test_t2_duplicate_import_button_removed(self):
         html = _read()
@@ -85,12 +101,20 @@ class TestOpeningStockTopToolbar:
         assert "系统管理 → 微信分享" in html, "应保留「系统管理 → 微信分享」指向文案"
 
     def test_t5_find_document_points_to_query_panel(self):
+        """「查找单据」入口必须真实可达。
+
+        ARCH-OS-DOC-01 后工具栏右侧改成 4 个导航键（首/上/下/末），
+        原来指向 #opening-query-panel 的页内锚点链接被替换成真正的单据
+        导航（后端 /api/document_navigation/opening_stock 驱动跨页跳转）。
+        查询面板本身仍在，锚点 id 仍保留（T8 校验），本用例改为断言：
+        既不再跳无关报表，也不再是永久无效按钮。
+        """
         html = _read()
         assert "/report/view/ledger" not in html, (
             "「查找单据」不应再跳无关的库存台账报表"
         )
-        assert 'href="#opening-query-panel"' in html, (
-            "「查找单据」应指向页内查询面板锚点 #opening-query-panel"
+        assert "navigateOpeningDoc(" in html, (
+            "工具栏右侧应提供真实单据导航，而不是永久无效的占位按钮"
         )
 
     def test_t6_delete_redefined_as_clear_entry_rows(self):

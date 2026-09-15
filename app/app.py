@@ -2329,8 +2329,93 @@ def ensure_sales_return_source_columns(db_path: str | None = None):
                 pass
 
 
-app = Flask(__name__)
+def ensure_opening_stock_doc_columns(db_path: str | None = None):
+    """启动期无条件补齐 ARCH-OS-DOC-01 的 opening_stock.doc_id 列。
 
+    背景：期初库存多单据化给 ``opening_stock`` 加了 ``doc_id``（指向单据头
+    ``opening_stock_doc``），该列原本**只**在 ``auto_migrate_database()`` 里
+    ADD。而 ``start_wms_offline.bat`` / ``start_wms_auto.bat`` 默认设置
+    ``WMS_NO_DB_TOUCH=1``，``auto_migrate_database()`` 被
+    ``startup_db_upgrade_disabled()`` 整体跳过；兜底的
+    ``app/fix_db_columns.py`` 也不含这一列（start_wms_auto.bat 更是连
+    fix_db_columns 都不跑）。存量生产库重启后补不上，打开期初库存页 /
+    首上下末导航一查 ``opening_stock.doc_id`` 即 500：
+        sqlalchemy.exc.OperationalError: (sqlite3.OperationalError)
+        no such column: opening_stock.doc_id
+
+    仿照 ``ensure_sales_return_source_columns``：独立 sqlite 连接、独立于迁移
+    开关无条件执行、幂等（PRAGMA table_info 判断列存在则不 ALTER），列定义与
+    ``auto_migrate_database()`` 的 ALTER 一致（SQLite ALTER 不支持外键，仅
+    加列；MySQL/PG 走 alembic 迁移）。
+
+    注意：这里只补**列**。旧库还带 ``UNIQUE(material_id, warehouse_id)`` 约束，
+    需要重建表（auto_migrate_database 里的 12 步重建），那条路径天然要求
+    ``WMS_NO_DB_TOUCH`` 未开启，不在本函数职责内。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            # 全新部署：库文件还没建，交给 create_all 建全量表
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=60000')
+
+        added_cols = []
+        _migrations = (
+            ('opening_stock', 'PRAGMA table_info(opening_stock)', (
+                ('doc_id', 'ALTER TABLE opening_stock ADD COLUMN doc_id INTEGER'),
+            )),
+        )
+        for _tbl, _pragma, _col_stmts in _migrations:
+            exists = cur.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (_tbl,),
+            ).fetchone()
+            if not exists:
+                # 表不存在 → 全新库，交给 create_all 建表
+                continue
+            cur.execute(_pragma)
+            cols = {r['name'] for r in cur.fetchall()}
+            if not cols:
+                continue
+            for _col, _stmt in _col_stmts:
+                if _col in cols:
+                    continue
+                cur.execute(_stmt)
+                cols.add(_col)
+                added_cols.append(f'{_tbl}.{_col}')
+        if added_cols:
+            conn.commit()
+            logging.getLogger(__name__).info(
+                '[DB] 期初库存单据已补缺列（ARCH-OS-DOC-01）: %s' % ', '.join(added_cols))
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_opening_stock_doc_columns 补列失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+app = Flask(__name__)
 # Use config.py settings uniformly
 env = os.environ.get('FLASK_ENV', 'production')
 validate_production_security_config(env)
@@ -2508,6 +2593,12 @@ ensure_inventory_check_columns()
 # 与上面同理，独立于迁移开关无条件执行、幂等补列。这是存量库唯一自愈路径
 # （start_wms_auto.bat 根本不调用 fix_db_columns.py）。
 ensure_sales_return_source_columns()
+
+# ARCH-OS-DOC-01：期初库存多单据化给 opening_stock 加了 doc_id，只在
+# auto_migrate_database 里 ADD；WMS_NO_DB_TOUCH=1 时存量库重启补不上，
+# 一打开期初库存页/导航即 500（no such column: opening_stock.doc_id）。
+# 同上，独立于迁移开关无条件执行、幂等补列。
+ensure_opening_stock_doc_columns()
 
 # BUG-2026-09-12：移动端「领料部门/领料人」整套依赖 department 表 +
 # out_order.department_id/picker + employee.department_id，四者都只在
