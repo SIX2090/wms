@@ -2051,7 +2051,7 @@ full 验证结果：
   - `pytest tests/test_opening_stock_import.py` → 5/5 PASS。
   - 功能冒烟（session 注入登录，参照既有 opening_stock 测试模式）：模板下载 xlsx 200、Excel 导入入账 100、示例行跳过、不存在仓跳过全 PASS。
   - `pytest tests/ -q` → **1727+5 passed, 84 skipped, 0 failed**。
-- 推送验证：[待填]
+- 推送验证：常规 HTTPS push 被拦，走 API 通道推送成功：远程 commit `412cee9d2f0795b532c064a1d959113443110fcf`，反查 `GET /repos/SIX2090/wms/commits/main` 确认 HEAD 更新、7 个文件变更与预期一致（本地 `0755428` ↔ 远程 `412cee9`，内容一致）。
 - 备注：模板 + 后端改动，**生产需重启 WMS 服务生效（R3）**。
 
 #### REQUISITION-PICKER-F01（已完成）— 领料单表头新增领料人 + 采购入库下推领料单可填领料部门/领料人
