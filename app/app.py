@@ -20447,6 +20447,28 @@ def _document_nav_related(obj, relation_name, field_name='name'):
     return getattr(related, field_name, '') if related else ''
 
 DOCUMENT_NAVIGATION_MODULES = {
+    'opening_stock': {
+        # ARCH-OS-DOC-01：期初库存单据导航（用户要求「首 上下末功能要有」）。
+        # model 是单据头（不是明细行）——导航的单位是"单据"，与用户
+        # 「我要做几张单」的心智一致。
+        'model': OpeningStockDoc,
+        'number': 'doc_no',
+        'date': 'date',
+        # 必须让末段为纯数字：前端 getCurrentRecordId() 用
+        # /\/(\d+)(?:\/(?:edit|detail))?\/?$/ 从路径取当前单据 id。
+        'detail_url': '/opening_stock/{id}',
+        # 用户场景是"很多仓库很多物料很多仓管"，仓库名是第一识别要素；
+        # 补备注与明细行数，让用户在导航列表里能判断这是哪张单、多大。
+        'title': lambda item: ' | '.join(filter(None, [
+            (_document_nav_related(item, 'warehouse') or '未指定仓库'),
+            (item.remark or ''),
+            f'{len(item.lines)} 行明细',
+        ])),
+        'search': [
+            'doc_no', 'remark',
+            lambda item: _document_nav_related(item, 'warehouse'),
+        ],
+    },
     'in_order': {
         'model': InOrder,
         'number': 'order_no',
