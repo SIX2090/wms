@@ -7099,7 +7099,17 @@ def _parse_opening_stock_date(raw):
             pass
     return date.today()
 
-def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new_amount, remark, warehouse=None, doc_date=None, location=''):
+def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new_amount, remark, warehouse=None, doc_date=None, location='', doc_id=None):
+    """按差额把期初数量落到总账（ARCH-OS-DOC-01：opening 现在是单据明细行）。
+
+    差额算法本身与改造前完全一致（old = 该行旧值，delta = new - old，
+    Material.stock += delta）——这正是"允许同物料同仓多张单"能几乎不动账务
+    代码的原因：算法是行级的，天然支持同一物料多行。
+
+    doc_id：所属单据头。**必须由参数传入**，不能在调用方对返回值赋值——
+    opening 为 None（新建）时调用方手里的变量仍是 None，赋值会静默丢失，
+    导致明细行建出来不归属任何单据（首/上/下/末 永远找不到它）。
+    """
     old_quantity = normalize_stock_quantity(opening.quantity or 0) if opening else 0
     quantity_delta = normalize_stock_quantity(new_quantity - old_quantity)
     doc_date = doc_date or getattr(opening, 'date', None) or date.today()
@@ -7107,6 +7117,7 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
 
     if opening is None:
         opening = OpeningStock(
+            doc_id=doc_id,
             material_id=material.id,
             warehouse_id=warehouse.id if warehouse else None,
             date=doc_date,
@@ -7120,6 +7131,9 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
         db.session.add(opening)
         db.session.flush()
     else:
+        if doc_id is not None:
+            # 历史直连行（doc_id 为空）在首次按单据编辑时归入该单据
+            opening.doc_id = doc_id
         opening.quantity = new_quantity
         opening.price = new_price
         opening.amount = new_amount
@@ -7178,6 +7192,200 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
             if not ok_inv:
                 raise ValueError(msg_inv)
     return opening, quantity_delta
+
+
+def _reverse_opening_stock_line(line, reason='期初删除回冲'):
+    """删除期初明细行前的库存回冲（ARCH-OS-DOC-01）。
+
+    期初建账时已经通过 _apply_opening_stock_balance 把 quantity 加进了
+    Material.stock 并写了 StockTransaction。删除单据/明细行时必须原路减回，
+    否则库存虚高、账实分裂——这是"允许同物料同仓多张单"后新增的销毁路径
+    （改造前删除只是一条台账记录，现在每条记录都真实影响过总账）。
+
+    返回 (ok, msg)：
+      - (True, '')        回冲成功（或无差额，无需回冲）
+      - (False, msg)      库位账回冲失败（如库位库存不足），调用方必须 rollback
+
+    不在这里提交事务——由调用方统一 commit/rollback，保证"删单据 + 回冲"
+    是一个原子操作。
+    """
+    material = line.material
+    warehouse = line.warehouse
+    delta = -normalize_stock_quantity(line.quantity or 0)
+    if not material or abs(delta) <= STOCK_COMPARE_EPSILON:
+        return True, ''
+
+    db.session.execute(
+        sa_update(Material)
+        .where(Material.id == material.id)
+        .values(stock=Material.stock + delta)
+    )
+    db.session.expire(material, ['stock'])
+
+    db.session.add(StockTransaction(
+        material_id=material.id,
+        transaction_type='opening',
+        quantity=delta,
+        location=(warehouse.name if warehouse else (line.location or '')),
+        warehouse_id=line.warehouse_id,
+        reference_type='opening_stock',
+        reference_id=line.id,
+        operator_id=current_user.id if current_user.is_authenticated else None,
+        remark=reason,
+    ))
+
+    # 开启库位管理时同步回冲库位账（与 _apply_opening_stock_balance 对称）。
+    # 库位库存不足时返回失败，由调用方整体 rollback，绝不静默成功。
+    if location_management_enabled() and warehouse:
+        effective_location = (line.location or '').strip() or (warehouse.name or '').strip()
+        if effective_location:
+            ok_inv, msg_inv = update_location_inventory(
+                material, effective_location, delta, warehouse=warehouse)
+            if not ok_inv:
+                return False, msg_inv
+    return True, ''
+
+
+def _opening_stock_reverse_all_lines(doc):
+    """回冲一张单据的全部明细行。返回 (ok, msg, reversed_count)。
+
+    校验期间任一行失败立即返回，调用方 rollback 后整单不删——保证
+    "要么整单连同库存一起消失，要么都保留"。
+    """
+    reversed_count = 0
+    for line in list(doc.lines):
+        ok, msg = _reverse_opening_stock_line(line, reason='期初单据删除回冲')
+        if not ok:
+            return False, msg, reversed_count
+        reversed_count += 1
+    return True, '', reversed_count
+
+
+def _opening_stock_negative_hint(lines):
+    """删除回冲后检查库存是否变负，返回中文提示（不阻断删除，用户已确认）。
+
+    A11：Material.stock 是库存真相字段，这里只用于**提示文案**，不参与任何
+    库存校验判定，故按规则的行内豁免标注说明用途。
+    """
+    hints = []
+    seen = set()
+    for line in lines:
+        material = line.material
+        if not material or material.id in seen:
+            continue
+        seen.add(material.id)
+        # stock-truth:reason=仅用于删除后负库存的提示文案，不做库存校验/拦截
+        current_stock = db.session.query(Material.stock).filter(
+            Material.id == material.id).scalar()
+        if current_stock is not None and current_stock < 0:
+            warehouse_name = line.warehouse.name if line.warehouse else '未指定仓库'
+            hints.append(
+                f'删除后 {material.code} 在仓库 [{warehouse_name}] 库存为 '
+                f'{normalize_stock_quantity(current_stock)}，请核对后续出库单据'
+            )
+    return hints
+
+
+def _opening_stock_normalize_items(items, Material, Warehouse, normalize_stock_quantity,
+                                   parse_float_value, round_to_2_decimals):
+    """校验并规整期初库存明细行（ARCH-OS-DOC-01，batch_save / save 共用）。
+
+    返回 (normalized_items, error)；error 为 None 或 {'msg': str, 'code': int}。
+
+    校验口径与改造前 batch_save 逐条一致（R6：不能因为重构而放松校验）：
+      · 物料必填且存在；仓库必填、存在且未停用；
+      · 同一张单内 (物料, 仓库) 不得重复（不同单据之间允许重复）；
+      · 数量必填且不小于 0；单价不小于 0。
+    只有 date 的解析从"必填回落到今天"改为"允许为空"——空值由调用方按
+    单头日期补，这样"改单据日期"才能真正生效。
+    """
+    if not isinstance(items, list):
+        return None, {'msg': '明细数据格式错误', 'code': 400}
+
+    seen_keys = set()
+    normalized_items = []
+    for index, item in enumerate(items, start=1):
+        material_id = item.get('material_id')
+        try:
+            material_id = int(material_id)
+        except (TypeError, ValueError):
+            return None, {'msg': f'第 {index} 行请选择物料', 'code': 400}
+        warehouse_id = item.get('warehouse_id')
+        try:
+            warehouse_id = int(warehouse_id) if warehouse_id not in (None, '') else None
+        except (TypeError, ValueError):
+            warehouse_id = None
+        if not warehouse_id:
+            return None, {'msg': f'第 {index} 行请选择仓库', 'code': 400}
+        dedup_key = (material_id, warehouse_id)
+        if dedup_key in seen_keys:
+            return None, {'msg': f'第 {index} 行物料+仓库重复，请合并后保存', 'code': 400}
+        seen_keys.add(dedup_key)
+
+        material = Material.query.filter_by(id=material_id).with_for_update().first()
+        if not material:
+            return None, {'msg': f'第 {index} 行物料不存在', 'code': 400}
+        warehouse = Warehouse.query.filter_by(id=warehouse_id).with_for_update().first()
+        if not warehouse:
+            return None, {'msg': f'第 {index} 行仓库不存在', 'code': 400}
+        if (warehouse.status or 'active') != 'active':
+            return None, {'msg': f'第 {index} 行仓库 [{warehouse.name}] 已停用，禁止期初建账', 'code': 400}
+
+        quantity = parse_float_value(item.get('quantity'), None)
+        price = parse_float_value(item.get('price'), 0)
+        if quantity is None:
+            return None, {'msg': f'第 {index} 行请输入数量', 'code': 400}
+        if quantity < 0:
+            return None, {'msg': f'第 {index} 行期初数量不能小于 0', 'code': 400}
+        if price < 0:
+            return None, {'msg': f'第 {index} 行单价不能小于 0', 'code': 400}
+
+        raw_date = (item.get('date') or '').strip()
+        normalized_items.append({
+            'material': material,
+            'warehouse': warehouse,
+            # 空表示"跟随单据头日期"，由调用方补；非空则用明细自带日期
+            'date': _parse_opening_stock_date(raw_date) if raw_date else None,
+            # BUG-2026-08-16-002：期初库位（可选，空则以仓库名占位）
+            'location': ((item.get('location') or '')).strip(),
+            'quantity': normalize_stock_quantity(quantity),
+            'price': round_to_2_decimals(price),
+            'amount': round_to_2_decimals(quantity * price),
+            'remark': ((item.get('remark') or '').strip() or None),
+        })
+
+    if not normalized_items:
+        return None, {'msg': '请至少录入一行期初库存', 'code': 400}
+    return normalized_items, None
+
+
+def _opening_stock_compat_doc(raw_date, generate_order_no_fn):
+    """取（或懒创建）期初库存的"兼容单"（ARCH-OS-DOC-01）。
+
+    存在意义：batch_save 的老调用方（粘贴导入、移动端、既有测试、外部脚本）
+    不带 doc_id。改造后所有明细行都应归属某张单据（否则用户无法打开它改日期），
+    但又不能改变老调用方的"同 (物料,仓库) 单行 upsert"语义，因此把这些写入
+    统一归入一张固定的兼容单。
+
+    单号用 QS + 日期段固定值，保证幂等：多次无 doc_id 保存始终复用同一张单，
+    不会每次保存都新建单据把列表刷爆。
+    """
+    parsed = _parse_opening_stock_date(raw_date) if raw_date else date.today()
+    doc_no = f'QSLEGACY{parsed.strftime("%y%m")}'
+    doc = OpeningStockDoc.query.filter_by(doc_no=doc_no).with_for_update().first()
+    if doc:
+        return doc
+    doc = OpeningStockDoc(
+        doc_no=doc_no,
+        date=parsed,
+        warehouse_id=None,
+        status='active',
+        remark='兼容直连写入（不含单据标识的历史保存入口自动归集）',
+        operator_id=current_user.id if current_user.is_authenticated else None,
+    )
+    db.session.add(doc)
+    db.session.flush()
+    return doc
 
 
 def _material_image_search_terms(material):

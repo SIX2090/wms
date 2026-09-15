@@ -108,7 +108,10 @@ class TestOpeningStockRegister:
             with app_module.app.test_request_context():
                 assert url_for("opening_stock_list") == "/opening_stock"
                 assert url_for("add_opening_stock") == "/opening_stock/add"
-                assert url_for("get_opening_stock", id=1) == "/opening_stock/1"
+                # ARCH-OS-DOC-01：/opening_stock/<id> 改为渲染单据详情页，
+                # 原 JSON 明细接口搬到 /opening_stock/line/<id>（endpoint 名不变，
+                # 避免调用方与既有测试大面积改名）。见 tests/test_opening_stock_multi_doc.py。
+                assert url_for("get_opening_stock", id=1) == "/opening_stock/line/1"
                 assert url_for("edit_opening_stock", id=1) == "/opening_stock/edit/1"
                 assert url_for("batch_save_opening_stock") == "/opening_stock/batch_save"
 
@@ -145,8 +148,8 @@ class TestOpeningStockRegister:
             "material_id": mid, "warehouse_id": wid, "quantity": "5", "price": "5"
         })
         assert r2.get_json()["status"] == "error"
-        # 读取详情
-        g = client.get(f"/opening_stock/{oid}")
+        # 读取明细（ARCH-OS-DOC-01 后 JSON 接口在 /opening_stock/line/<id>）
+        g = client.get(f"/opening_stock/line/{oid}")
         gd = g.get_json()
         assert gd["status"] == "success", gd
         assert gd["record"]["material_code"] == "M1"
