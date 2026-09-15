@@ -241,6 +241,91 @@ def _resolve_sqlite_db_path(uri=None, instance_path=None):
         return None
 
 
+def _opening_stock_legacy_unique_index(cursor):
+    """探测 opening_stock 上是否仍带 AI-OS-MW-001 的 UNIQUE(material_id, warehouse_id)。
+
+    ARCH-OS-DOC-01：期初库存升级为多单据后，同物料同仓允许多行（不同单据各一份），
+    这个全局唯一约束必须移除——否则第二张单直接撞约束 500。
+
+    返回索引名（需重建表才能移除），无则返回 None。
+    """
+    try:
+        cursor.execute("PRAGMA index_list(opening_stock)")
+        indexes = cursor.fetchall()
+    except Exception:
+        return None
+    for idx in indexes:
+        # idx = (seq, name, unique, origin, partial)
+        if len(idx) < 3 or not idx[2]:
+            continue
+        name = idx[1]
+        try:
+            cursor.execute(f"PRAGMA index_info({name})")
+            cols = [row[2] for row in cursor.fetchall()]
+        except Exception:
+            continue
+        if cols == ['material_id', 'warehouse_id']:
+            return name
+    return None
+
+
+def _opening_stock_rebuild_table(cursor):
+    """SQLite 下重建 opening_stock 表以移除 UNIQUE(material_id, warehouse_id)。
+
+    SQLite 不支持 ALTER TABLE DROP CONSTRAINT，只能走官方 12 步重建。
+    调用前置条件（调用方已保证）：
+      1. 已在 BEGIN EXCLUSIVE 事务内（本函数不自行提交）；
+      2. 连接未开启 PRAGMA foreign_keys（本项目的 sqlite3.connect 未开），
+         因此 DROP/RENAME 不会触发外键级联破坏 stock_transaction 等表。
+    重建后由调用方比对行数，不一致则抛异常整体回滚。
+    """
+    cursor.execute("""
+        CREATE TABLE opening_stock_new (
+            id INTEGER NOT NULL PRIMARY KEY,
+            doc_id INTEGER,
+            material_id INTEGER NOT NULL,
+            warehouse_id INTEGER,
+            date DATE,
+            location VARCHAR(100) NOT NULL DEFAULT '',
+            quantity FLOAT NOT NULL DEFAULT 0,
+            price FLOAT NOT NULL DEFAULT 0,
+            amount FLOAT NOT NULL DEFAULT 0,
+            remark VARCHAR(500),
+            operator_id INTEGER,
+            created_at DATETIME,
+            updated_at DATETIME
+        )
+    """)
+    cursor.execute("""
+        INSERT INTO opening_stock_new
+            (id, doc_id, material_id, warehouse_id, date, location,
+             quantity, price, amount, remark, operator_id, created_at, updated_at)
+        SELECT id, doc_id, material_id, warehouse_id, date, location,
+               quantity, price, amount, remark, operator_id, created_at, updated_at
+        FROM opening_stock
+    """)
+    cursor.execute("DROP TABLE opening_stock")
+    cursor.execute("ALTER TABLE opening_stock_new RENAME TO opening_stock")
+
+
+def _next_opening_stock_doc_no(cursor, group_date):
+    """迁移期裸 SQL 取号：QS + YYMM + 4 位序号（按分组日期的月份段递增）。
+
+    auto_migrate_database 跑在 sqlite3 连接上，不能走 ORM 的 generate_order_no，
+    这里用同一套编号规则保证与运行期生成的单号风格一致。
+    """
+    ym = group_date.strftime('%y%m') if group_date else datetime.now().strftime('%y%m')
+    cursor.execute(
+        "SELECT doc_no FROM opening_stock_doc WHERE doc_no LIKE ? ORDER BY doc_no DESC LIMIT 1",
+        (f'QS{ym}%',),
+    )
+    row = cursor.fetchone()
+    seq = 1
+    if row and row[0] and str(row[0])[-4:].isdigit():
+        seq = int(str(row[0])[-4:]) + 1
+    return f'QS{ym}{seq:04d}'
+
+
 def auto_migrate_database():
     """自动迁移数据库，添加缺失的字段"""
     conn = None
@@ -295,6 +380,135 @@ def auto_migrate_database():
                 modified = True
             except Exception as _idx_exc:
                 app.logger.warning('[DB] 索引创建失败（已跳过，不影响启动）: %s' % _idx_exc)
+
+        # ===== ARCH-OS-DOC-01（2026-09-15）：期初库存多单据化迁移（幂等） =====
+        # 需求：期初库存要能"做几张单"（多仓库/多物料/多仓管），导入的单据要能改日期，
+        # 并支持 首/上/下/末 单据导航。原模型是"每 (物料,仓库) 一条余额"的扁平台账，
+        # 无单据概念，本次升级为"单据头 opening_stock_doc + 明细行 opening_stock.doc_id"。
+        # 三条不变量：
+        #   1) 迁移只加"归属"，不改任何 quantity/price/amount，Material.stock 不变；
+        #   2) 幂等：重复启动不重复建表/不重复建单/不重复回填；
+        #   3) 老库已有 (material_id, warehouse_id) 全局唯一约束时必须移除，否则多单撞约束。
+        # 位置约束（重要）：本块必须放在下方 "out_order 字段迁移" 的
+        # `if not _table_exists('out_order'): return` 之前——那个守卫会在缺少 out_order
+        # 表的库上直接结束整个迁移，寄生其后的迁移块永远不会执行（本块初次落地时
+        # 就踩了这个坑，测试全红才发现）。期初库存的迁移只依赖 opening_stock/material，
+        # 不应被其它业务表的守卫连坐。
+        if _table_exists('opening_stock') or _table_exists('material'):
+            # --- Step 1: 单据头表（新库由 db.create_all() 依模型建；老库在此补） ---
+            if not _table_exists('opening_stock_doc'):
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS opening_stock_doc (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        doc_no VARCHAR(50) NOT NULL UNIQUE,
+                        date DATE,
+                        warehouse_id INTEGER,
+                        status VARCHAR(20) NOT NULL DEFAULT 'active',
+                        remark VARCHAR(500),
+                        operator_id INTEGER,
+                        created_at DATETIME,
+                        updated_at DATETIME
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_opening_stock_doc_no ON opening_stock_doc(doc_no)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_opening_stock_doc_date ON opening_stock_doc(date)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_opening_stock_doc_warehouse ON opening_stock_doc(warehouse_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_opening_stock_doc_created ON opening_stock_doc(created_at)")
+                modified = True
+
+            if _table_exists('opening_stock'):
+                # --- Step 2: 明细行加 doc_id 列 ---
+                cursor.execute("PRAGMA table_info(opening_stock)")
+                _os_cols = [row[1] for row in cursor.fetchall()]
+                if _os_cols and 'doc_id' not in _os_cols:
+                    cursor.execute("ALTER TABLE opening_stock ADD COLUMN doc_id INTEGER")
+                    modified = True
+
+                # --- Step 3: 移除 AI-OS-MW-001 全局唯一约束（SQLite 只能重建表） ---
+                # 先物理备份，重建后比对行数；不一致直接抛异常让整个迁移回滚。
+                _legacy_uq = _opening_stock_legacy_unique_index(cursor)
+                if _legacy_uq:
+                    _log = logging.getLogger(__name__)
+                    if not _table_exists('opening_stock_backup_mw001'):
+                        cursor.execute(
+                            "CREATE TABLE opening_stock_backup_mw001 AS SELECT * FROM opening_stock")
+                        _log.warning(
+                            'ARCH-OS-DOC-01：检测到期初库存全局唯一约束 %s，已备份原表到 '
+                            'opening_stock_backup_mw001 后重建（多单据化必须移除该约束）',
+                            _legacy_uq,
+                        )
+                    cursor.execute("SELECT COUNT(*) FROM opening_stock")
+                    _before = cursor.fetchone()[0]
+                    _opening_stock_rebuild_table(cursor)
+                    cursor.execute("SELECT COUNT(*) FROM opening_stock")
+                    _after = cursor.fetchone()[0]
+                    if _after != _before:
+                        raise RuntimeError(
+                            f'ARCH-OS-DOC-01 期初库存表重建行数不一致 {_before} -> {_after}，已回滚迁移')
+                    _log.warning('ARCH-OS-DOC-01：期初库存表重建完成，%s 行数据无丢失', _after)
+                    modified = True
+                    cursor.execute("PRAGMA table_info(opening_stock)")
+                    _os_cols = [row[1] for row in cursor.fetchall()]
+
+                # --- Step 4: 单据内唯一索引（替代原全局唯一） ---
+                # SQLite 的 UNIQUE 视含 NULL 的元组互不相等，故 doc_id 为 NULL 的历史
+                # 直连行不参与约束，保持兼容。
+                cursor.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uix_opening_stock_line_doc "
+                    "ON opening_stock (material_id, warehouse_id, doc_id)"
+                )
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_opening_stock_doc ON opening_stock(doc_id)")
+
+                # --- Step 5: 按 (建账日期, 仓库) 回填历史单据 ---
+                # 用户确认口径：同一天同一仓库的历史记录归成一张单；同一天不同仓库各自一张
+                # （单据头有 warehouse_id，"一个仓库一张单"更符合直觉）。
+                # date 为 NULL 的行保守不归单，留 doc_id 为 NULL 等人工处理。
+                cursor.execute(
+                    "SELECT date, warehouse_id FROM opening_stock "
+                    "WHERE doc_id IS NULL AND date IS NOT NULL "
+                    "GROUP BY date, warehouse_id ORDER BY date ASC, warehouse_id ASC"
+                )
+                _groups = cursor.fetchall()
+                if _groups:
+                    _now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    _backfilled_docs = 0
+                    for _grp_date, _grp_wh in _groups:
+                        try:
+                            _grp_date_obj = datetime.strptime(str(_grp_date)[:10], '%Y-%m-%d').date()
+                        except (ValueError, TypeError):
+                            continue
+                        _doc_no = _next_opening_stock_doc_no(cursor, _grp_date_obj)
+                        cursor.execute(
+                            "INSERT INTO opening_stock_doc "
+                            "(doc_no, date, warehouse_id, status, remark, operator_id, created_at, updated_at) "
+                            "VALUES (?, ?, ?, 'active', ?, NULL, ?, ?)",
+                            (
+                                _doc_no, _grp_date_obj.isoformat(), _grp_wh,
+                                f'历史期初库存（按建账日期 {_grp_date_obj.isoformat()} 自动归集）',
+                                _now, _now,
+                            ),
+                        )
+                        _doc_id = cursor.lastrowid
+                        if _grp_wh is None:
+                            cursor.execute(
+                                "UPDATE opening_stock SET doc_id = ? "
+                                "WHERE doc_id IS NULL AND date = ? AND warehouse_id IS NULL",
+                                (_doc_id, _grp_date_obj.isoformat()),
+                            )
+                        else:
+                            cursor.execute(
+                                "UPDATE opening_stock SET doc_id = ? "
+                                "WHERE doc_id IS NULL AND date = ? AND warehouse_id = ?",
+                                (_doc_id, _grp_date_obj.isoformat(), _grp_wh),
+                            )
+                        _backfilled_docs += 1
+                    if _backfilled_docs:
+                        modified = True
+                        logging.getLogger(__name__).warning(
+                            'ARCH-OS-DOC-01：历史期初库存已按 (建账日期, 仓库) 归集为 %s 张单据；'
+                            '未归单行（日期为空）保留 doc_id 为空', _backfilled_docs,
+                        )
 
         # out_order 字段迁移
         if not _table_exists('out_order'):
@@ -452,6 +666,7 @@ def auto_migrate_database():
                 except Exception:
                     # 列已存在时 ALTER 报错，忽略
                     pass
+
         # BUG-2026-08-16-001：委外发料/收货单库位列（开启库位管理时同步库位账）
         for sc_table in ('subcontract_issue', 'subcontract_receive'):
             if _table_exists(sc_table):
@@ -4197,6 +4412,7 @@ from models import (
     MobileApiRequest,
     Notification,
     OpeningStock,
+    OpeningStockDoc,
     OperationAudit,
     OperationLog,
     OutOrder,

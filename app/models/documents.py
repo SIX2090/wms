@@ -25,6 +25,7 @@ __all__ = [
     'InventoryCheckScan',
     'InventoryCheckScanItem',
     'OpeningStock',
+    'OpeningStockDoc',
     'OperationLog',
     'OutOrder',
     'OutOrderItem',
@@ -48,17 +49,78 @@ __all__ = [
 ]
 
 
+class OpeningStockDoc(db.Model):
+    """期初库存单据头（ARCH-OS-DOC-01，2026-09-15）。
+
+    用户需求：期初库存要能"做几张单"——一个仓库一张单 / 一批物料一张单 /
+    不同仓管各建各的单，并且要能对导入进来的单据改日期 + 首/上/下/末 导航。
+
+    改造前 OpeningStock 是"每 (物料,仓库) 一条余额"的扁平台账，没有单据概念。
+    现在升级为"单据头 + 明细行"：
+
+    - 单据头（本表）承载 doc_no / date / warehouse / remark；
+    - 明细行为 OpeningStock（新增 doc_id 指向本表）；
+    - 某物料在某仓库的期初总量 = 该 (material_id, warehouse_id) 下所有明细行
+      quantity 之和（见 INVENTORY_TRUTH.md 的累计口径定义）。
+
+    兼容性：opening_stock.doc_id 为 NULL 的行 = 历史直连台账（迁移前 / 未归单
+    的旧写入），不参与单据导航，但仍计入累计库存。
+    """
+    __tablename__ = 'opening_stock_doc'
+    __table_args__ = (
+        db.Index('idx_opening_stock_doc_no', 'doc_no'),
+        db.Index('idx_opening_stock_doc_date', 'date'),
+        db.Index('idx_opening_stock_doc_warehouse', 'warehouse_id'),
+        db.Index('idx_opening_stock_doc_created', 'created_at'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    # QS + YYMM + 4 位序号（如 QS26090001），由 generate_order_no('QS') 取号
+    doc_no = db.Column(db.String(50), unique=True, nullable=False)
+    # 单据建账日期：权威值；用户在单头改日期时同步覆盖该单所有明细行的 date
+    date = db.Column(db.Date, default=date.today)
+    # 单据仓库：明细行仓库的默认值，历史数据可能为空
+    warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))
+    # active：正常单据。预留作废流转；当前删除走物理删除 + 库存回冲
+    status = db.Column(db.String(20), nullable=False, default='active')
+    remark = db.Column(db.String(500))
+    operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    warehouse = db.relationship('Warehouse', backref=db.backref('opening_stock_docs'))
+    operator = db.relationship('User', backref='opening_stock_docs')
+    # 明细行：删单据头时级联删明细（调用方必须先逐行回冲库存，见 _reverse_opening_stock_line）
+    lines = db.relationship(
+        'OpeningStock',
+        backref=db.backref('doc', lazy='joined'),
+        order_by='OpeningStock.id',
+        cascade='all, delete-orphan',
+        foreign_keys='OpeningStock.doc_id',
+    )
+
+
 class OpeningStock(db.Model):
-    """Opening stock balance for material setup (per warehouse)."""
+    """期初库存明细行（原"每 (物料,仓库) 一条余额台账"，ARCH-OS-DOC-01 升级为单据明细行）。
+
+    唯一性收窄：改造前 (material_id, warehouse_id) 全局唯一，现改为
+    (material_id, warehouse_id, doc_id) 单据内唯一——同一张单里重复录同一物料
+    仍是真错误，但不同单据可以各录一份（用户确认：允许同物料同仓多张单）。
+
+    doc_id 为 NULL 的行不参与该唯一约束（SQLite 的 UNIQUE 视含 NULL 的元组互不相等），
+    兼容历史直连台账写入。
+    """
     __tablename__ = 'opening_stock'
     __table_args__ = (
-        # AI-OS-MW-001：物料 × 仓库 唯一；兼容历史无 warehouse_id 记录（NULL 视为未指定）
-        db.UniqueConstraint('material_id', 'warehouse_id', name='uix_opening_stock_material_warehouse'),
+        # ARCH-OS-DOC-01：单据内同物料同仓唯一（替代 AI-OS-MW-001 的全局唯一）
+        db.UniqueConstraint('material_id', 'warehouse_id', 'doc_id', name='uix_opening_stock_line_doc'),
         db.Index('idx_opening_stock_material', 'material_id'),
         db.Index('idx_opening_stock_warehouse', 'warehouse_id'),
         db.Index('idx_opening_stock_created', 'created_at'),
+        db.Index('idx_opening_stock_doc', 'doc_id'),
     )
     id = db.Column(db.Integer, primary_key=True)
+    # ARCH-OS-DOC-01：所属单据头；NULL = 历史直连台账（迁移前 / 未归单的旧写入）
+    doc_id = db.Column(db.Integer, db.ForeignKey('opening_stock_doc.id'))
     material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)
     warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # AI-OS-MW-001: NULL 表示历史未指定仓库
     # AI-OS-APP-001：期初建账日期（旧记录回填为建账首日 2023-01-01）
@@ -77,6 +139,7 @@ class OpeningStock(db.Model):
     material = db.relationship('Material', backref=db.backref('opening_stock_records'))
     warehouse = db.relationship('Warehouse', backref=db.backref('opening_stocks'))
     operator = db.relationship('User', backref='opening_stocks')
+    # doc backref 由 OpeningStockDoc.lines 定义
 
 
 class InOrder(db.Model):
