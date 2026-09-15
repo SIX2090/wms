@@ -844,6 +844,82 @@ def register_opening_stock_routes(app):
             app.logger.error(f'删除期初库存明细行失败: {e}')
             return jsonify({'status': 'error', 'msg': '明细行删除失败'}), 500
 
+    @app.route('/opening_stock/delete_all', methods=['POST'])
+    @require_role('warehouse')
+    @login_required
+    def delete_all_opening_stock():
+        """一键删除全部期初库存（物理删除全部明细行 + 全部单据头，逐行回冲库存）。
+
+        用户诉求（BUG-2026-09-15-008）：导入/建账的期初库存要能一键清空重来。
+        与"删除本单"同一规则：物理删除 + 库存回冲；回冲后库存变负照常删除，
+        仅在返回消息里中文提示（不阻断）。doc_id 为 NULL 的历史直连台账行也
+        逐行回冲后删除，保证清空后 Material.stock / 库位账都不留期初残影。
+        """
+        from app import (
+            OpeningStock,
+            OpeningStockDoc,
+            _opening_stock_negative_hint,
+            _reverse_opening_stock_line,
+            app,
+            db,
+            jsonify,
+            log_operation,
+            request,
+        )
+        from pydantic import BaseModel, ValidationError
+
+        class OpeningStockDeleteAllRequest(BaseModel):
+            """全量删除入参：必须显式 confirm=true，服务端二次确认防误触（A8）。"""
+            confirm: bool
+
+        try:
+            payload = OpeningStockDeleteAllRequest.model_validate(
+                request.get_json(silent=True) or {})
+        except ValidationError:
+            return jsonify({'status': 'error', 'msg': '请确认删除操作'}), 400
+        if payload.confirm is not True:
+            return jsonify({'status': 'error', 'msg': '请确认删除操作'}), 400
+
+        try:
+            lines = OpeningStock.query.with_for_update().all()
+            reversed_count = 0
+            for line in lines:
+                ok, msg_rev = _reverse_opening_stock_line(line, reason='期初库存全量删除回冲')
+                if not ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': f'删除失败：{msg_rev}'}), 400
+                reversed_count += 1
+
+            hints = _opening_stock_negative_hint(lines)
+            # 先删全部明细行（解除对单据头的引用），再删全部单据头。
+            for line in lines:
+                db.session.delete(line)
+            docs = OpeningStockDoc.query.all()
+            deleted_docs = len(docs)
+            for doc in docs:
+                db.session.delete(doc)
+            db.session.commit()
+            log_operation('删除全部期初库存',
+                          f'回冲 {reversed_count} 行，删除 {deleted_docs} 张单据',
+                          'opening_stock', None)
+            msg = f'已删除全部期初库存：回冲 {reversed_count} 行明细，删除 {deleted_docs} 张单据'
+            if hints:
+                # 用户确认：照常删除，仅提示；用分号拼接避免消息过长刷屏
+                msg += '；注意：' + '；'.join(hints[:3])
+            return jsonify({
+                'status': 'success',
+                'msg': msg,
+                'reversed_count': reversed_count,
+                'deleted_docs': deleted_docs,
+            })
+        except ValueError as ve:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': str(ve)}), 400
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'删除全部期初库存失败: {e}')
+            return jsonify({'status': 'error', 'msg': '删除全部期初库存失败'}), 500
+
     @app.route('/opening_stock/<int:id>/date', methods=['POST'])
     @require_role('warehouse')
     @login_required

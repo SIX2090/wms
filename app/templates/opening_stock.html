@@ -8,6 +8,8 @@
 .toolbar-left, .toolbar-right { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
 .tool-btn { border:0; background:#fff; color:#172b4d; height:32px; padding:0 10px; display:inline-flex; align-items:center; gap:6px; font-size:13px; border-radius:4px; text-decoration:none; }
 .tool-btn:hover { background:#f1f5ff; color:#0d47a1; }
+.tool-btn.danger { color:#b91c1c; }
+.tool-btn.danger:hover { background:#fef2f2; color:#991b1b; }
 .tool-sep { width:1px; height:22px; background:#e5e7eb; margin:0 5px; }
 .nav-tools { border:1px solid #cfd8e8; border-radius:6px; background:#f8fbff; padding:2px 6px; }
 .doc-panel { background:#fff; border:1px solid #d9d9d9; border-radius:6px; margin-top:12px; overflow:hidden; }
@@ -59,7 +61,10 @@
         <div class="toolbar-left">
             <button class="tool-btn" type="button" onclick="resetDocument()"><i class="bi bi-plus-lg"></i> 新增</button>
             <button class="tool-btn" type="button" onclick="saveDocument()"><i class="bi bi-save"></i> 保存</button>
-            <button class="tool-btn" type="button" onclick="clearEntryRows()"><i class="bi bi-trash"></i> 删除</button>
+            <button class="tool-btn" type="button" onclick="clearEntryRows()" title="清空当前未保存的录入行"><i class="bi bi-eraser"></i> 清空录入</button>
+            <!-- BUG-2026-09-15-008：真正删除「已建账/已导入」的全部期初库存（物理删 + 库存回冲）。
+                 原「删除」只清空未保存录入行，是"删除不了"的根因；此处补全量删除入口。 -->
+            <button class="tool-btn danger" type="button" onclick="deleteAllOpeningStock()" title="删除全部已建账期初库存并回冲库存"><i class="bi bi-trash3"></i> 删除全部</button>
             <span class="tool-sep"></span>
             <a class="tool-btn" href="/batch_import?type=opening_stock"><i class="bi bi-cloud-upload"></i> 批量导入</a>
             <button class="tool-btn" type="button" onclick="window.print()"><i class="bi bi-printer"></i> 打印</button>
@@ -445,6 +450,26 @@ function clearEntryRows() {
     if (!confirm('确定清空当前录入的全部明细行吗？（未保存的内容将丢失，已建账记录不受影响）')) return;
     rows = [];
     renderRows();
+}
+
+// BUG-2026-09-15-008：一键删除全部「已建账/已导入」期初库存（物理删除 + 库存回冲）。
+// 与上方 clearEntryRows（仅清空未保存录入）严格区分；双确认防误触，统一走 WMS.api（禁原生 fetch）。
+function deleteAllOpeningStock() {
+    if (!window.WMS || !WMS.api) return;
+    if (!confirm('【危险操作】确定删除全部期初库存吗？\n将删除所有期初明细行与单据，并把已入账的期初数量从库存中全部扣回。\n此操作不可恢复！')) return;
+    if (!confirm('请再次确认：真的要清空全部期初库存吗？')) return;
+    WMS.api.post('/opening_stock/delete_all', { confirm: true })
+        .then(function(data) {
+            if (data && data.status === 'success') {
+                showToast(data.msg || '已删除全部期初库存', 'success', 4200);
+                setTimeout(function() { window.location.reload(); }, 900);
+            } else {
+                showToast((data && data.msg) || '删除失败', 'danger', 4200);
+            }
+        })
+        .catch(function(error) {
+            showToast('删除失败：' + (error && error.message ? error.message : '未知错误'), 'danger', 4200);
+        });
 }
 
 function copyPreviousRow() {
