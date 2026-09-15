@@ -20,9 +20,13 @@
             </select>
         </form>
         <div class="d-flex gap-2">
+            {# BUG-2026-09-15-001：AI解读依赖 {% if stats %} 内的 requestAiInsights() 函数与结果卡片，
+               按钮必须与函数同条件渲染，否则无仓库/stats=None 时是死按钮（ReferenceError）。 #}
+            {% if stats %}
             <button class="btn btn-primary" onclick="requestAiInsights()" id="aiInsightsBtn">
                 <i class="bi bi-stars"></i> AI解读
             </button>
+            {% endif %}
             <a href="{{ url_for('report') }}" class="btn btn-outline-secondary">
                 <i class="bi bi-arrow-left"></i> 返回报表中心
             </a>
