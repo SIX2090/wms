@@ -74,11 +74,11 @@ def client():
     yield c
 
 
-def _make_xlsx(rows):
+def _make_xlsx(rows, headers=("仓库编码", "物料编码", "物料名称", "规格", "单位", "数量", "单价", "备注")):
     from openpyxl import Workbook
     wb = Workbook()
     ws = wb.active
-    ws.append(["仓库编码", "物料编码", "物料名称", "规格", "单位", "数量", "单价", "备注"])
+    ws.append(list(headers))
     for r in rows:
         ws.append(r)
     buf = io.BytesIO()
@@ -167,3 +167,107 @@ def test_frontend_buttons_point_to_real_capability():
     assert "pasteImportModal" in src, "粘贴导入应使用多行 modal"
     assert "prompt(" not in src, "粘贴导入不应再用 prompt() 单行输入"
     assert "showImportHint" not in src, "导入导出模板不应再是提示占位"
+
+
+# ---------------------------------------------------------------------------
+# FIX-OS-DATE-001：新增期初库存单日期不可改
+# 根因：表头 <input type="date"> 无 id，collectItems() 不传 date，saveDocument()
+# 从不读取表头日期；粘贴导入 / Excel 导入同样丢弃日期。后端逐行
+# _parse_opening_stock_date(item.get('date')) 恒得 None → 一律落"今天"。
+# ---------------------------------------------------------------------------
+
+
+def test_batch_save_honours_date(client):
+    """POST /opening_stock/batch_save 带 date 时按指定日期落库（新增分支）。"""
+    with app_module.app.app_context():
+        m = Material.query.filter_by(code="M-0001").first()
+        wh = Warehouse.query.filter_by(code="WH001").first()
+        mid, wid = m.id, wh.id
+    rv = client.post("/opening_stock/batch_save", json={"items": [
+        {"material_id": mid, "warehouse_id": wid, "quantity": 100,
+         "price": 25.5, "date": "2026-01-15"},
+    ]})
+    assert rv.status_code == 200
+    assert rv.get_json()["status"] == "success"
+    with app_module.app.app_context():
+        rec = OpeningStock.query.filter_by(material_id=mid, warehouse_id=wid).first()
+        assert rec is not None
+        assert rec.date.isoformat() == "2026-01-15", f"实际日期={rec.date}"
+
+
+def test_batch_save_update_changes_date(client):
+    """已存在记录再次保存时，日期随请求更新（update 分支同样写 date）。"""
+    with app_module.app.app_context():
+        m = Material.query.filter_by(code="M-0001").first()
+        wh = Warehouse.query.filter_by(code="WH001").first()
+        mid, wid = m.id, wh.id
+    client.post("/opening_stock/batch_save", json={"items": [
+        {"material_id": mid, "warehouse_id": wid, "quantity": 100,
+         "price": 25.5, "date": "2026-01-15"},
+    ]})
+    client.post("/opening_stock/batch_save", json={"items": [
+        {"material_id": mid, "warehouse_id": wid, "quantity": 120,
+         "price": 25.5, "date": "2026-03-31"},
+    ]})
+    with app_module.app.app_context():
+        rec = OpeningStock.query.filter_by(material_id=mid, warehouse_id=wid).first()
+        assert rec.date.isoformat() == "2026-03-31", f"实际日期={rec.date}"
+        assert abs(rec.quantity - 120) < 1e-6
+
+
+def test_batch_save_missing_date_falls_back_today(client):
+    """不传 date 时回落当天（向后兼容：不破坏既有调用方）。"""
+    import datetime as _dt
+    with app_module.app.app_context():
+        m = Material.query.filter_by(code="M-0001").first()
+        wh = Warehouse.query.filter_by(code="WH001").first()
+        mid, wid = m.id, wh.id
+    client.post("/opening_stock/batch_save", json={"items": [
+        {"material_id": mid, "warehouse_id": wid, "quantity": 10, "price": 1},
+    ]})
+    with app_module.app.app_context():
+        rec = OpeningStock.query.filter_by(material_id=mid, warehouse_id=wid).first()
+        assert rec.date == _dt.date.today()
+
+
+def test_excel_template_has_date_column(client):
+    """Excel 模板含"日期"列，供用户指定建账日期。"""
+    rv = client.get("/opening_stock/import/template")
+    from openpyxl import load_workbook
+    wb = load_workbook(io.BytesIO(rv.data))
+    header = [c.value for c in wb.active[1]]
+    assert "日期" in header, f"模板表头应含日期列，实际={header}"
+
+
+def test_excel_import_honours_date(client):
+    """Excel 导入按"日期"列建账（支持字符串与日期对象两种单元格类型）。"""
+    import datetime as _dt
+    xlsx = _make_xlsx(
+        [
+            ["WH001", "M-0001", "轴承6204", "", "套", "100", "25.50", "字符串日期", "2026-05-06"],
+            ["WH001", "M-0001", "轴承6204", "", "套", "9", "1", "示例", "2026-05-06"],
+        ],
+        headers=("仓库编码", "物料编码", "物料名称", "规格", "单位", "数量", "单价", "备注", "日期"),
+    )
+    rv = client.post("/opening_stock/import", data={"file": (xlsx, "t.xlsx")},
+                     content_type="multipart/form-data")
+    assert rv.status_code == 200
+    assert rv.get_json()["status"] == "success"
+    with app_module.app.app_context():
+        m = Material.query.filter_by(code="M-0001").first()
+        rec = OpeningStock.query.filter_by(material_id=m.id).first()
+        assert rec is not None
+        assert rec.date.isoformat() == "2026-05-06", f"实际日期={rec.date}"
+        assert isinstance(rec.date, _dt.date)
+
+
+def test_frontend_date_wiring():
+    """前端日期链路：表头日期输入有 id 并被 saveDocument/粘贴导入读取。"""
+    src = (APP_DIR / "templates" / "opening_stock.html").read_text(encoding="utf-8")
+    assert 'id="headerDocDate"' in src, "表头日期输入应具备 id 供 JS 读取"
+    assert "getHeaderDocDate" in src, "应定义 getHeaderDocDate() 读取表头日期"
+    assert "item.date = headerDate" in src, "saveDocument 应把表头日期注入明细行"
+    assert 'id="pasteDocDate"' in src, "粘贴导入 modal 应提供建账日期输入"
+    assert "parsePasteLines(text, document.getElementById('pasteDocDate')" in src, \
+        "confirmPasteImport 应把 modal 日期传入解析器"
+    assert "date: rowDate || defaultDate" in src, "解析器应回填行日期或默认日期"

@@ -345,13 +345,14 @@ def register_opening_stock_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '期初库存导入'
-        headers = ['仓库编码', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注']
+        headers = ['仓库编码', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注', '日期']
         ws.append(headers)
         for cell in ws[1]:
             cell.font = Font(bold=True)
         # 示例行：帮助用户理解格式，导入时按"物料名称含'示例'"行跳过
-        ws.append(['WH001', 'M-0001', '示例-轴承6204', '内径20mm', '套', '100', '25.50', '示例行，导入时自动忽略'])
-        for col, width in zip('ABCDEFGH', (12, 14, 20, 14, 8, 10, 10, 24)):
+        # 日期列（I 列）格式 YYYY-MM-DD，留空则按导入当天建账
+        ws.append(['WH001', 'M-0001', '示例-轴承6204', '内径20mm', '套', '100', '25.50', '示例行，导入时自动忽略', '2026-01-01'])
+        for col, width in zip('ABCDEFGHI', (12, 14, 20, 14, 8, 10, 10, 24, 14)):
             ws.column_dimensions[col].width = width
         output = BytesIO()
         wb.save(output)

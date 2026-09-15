@@ -183,7 +183,7 @@
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">日期</label>
-                    <input class="form-control" type="date" value="{{ doc_date }}">
+                    <input class="form-control" type="date" id="headerDocDate" value="{{ doc_date }}">
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">入库来源</label>
@@ -288,8 +288,16 @@
                 <p class="text-muted small mb-2">
                     每行一条明细，用 <strong>Tab 或英文逗号</strong> 分隔列（可直接从 Excel 整块复制粘贴）：<br>
                     <code>仓库编码 / 名称（可留空，默认表头仓库）</code>　
-                    <code>物料编码</code>　<code>数量</code>　<code>单价</code>　<code>备注</code>
+                    <code>物料编码</code>　<code>数量</code>　<code>单价</code>　<code>备注</code>　
+                    <code>日期（可省，默认下方日期）</code>
                 </p>
+                <div class="row g-2 align-items-end mb-2">
+                    <div class="col-md-4">
+                        <label class="form-label">建账日期</label>
+                        <input type="date" class="form-control" id="pasteDocDate">
+                    </div>
+                    <div class="col-md-8 text-muted small">未在行内指定日期时，本日期作为所有导入行的默认建账日期。</div>
+                </div>
                 <textarea id="pasteImportText" class="form-control" rows="10"
                           placeholder="WH001&#9;M-0001&#9;100&#9;25.50&#9;备注&#10;WH001&#9;M-0002&#9;50&#9;10.00&#9;"></textarea>
                 <div class="form-text" id="pasteImportFeedback"></div>
@@ -476,6 +484,11 @@ function collectItems() {
         }));
 }
 
+// 表头日期：作为所有明细行的默认建账日期（缺省今天）
+function getHeaderDocDate() {
+    return document.getElementById('headerDocDate')?.value || '';
+}
+
 function saveDocument() {
     const headerWarehouseId = document.getElementById('headerWarehouse')?.value;
     const items = collectItems();
@@ -499,6 +512,11 @@ function saveDocument() {
         // 表头有仓库时：未指定明细行的仓库自动使用表头仓库
         items.forEach(item => { if (!item.warehouse_id) item.warehouse_id = headerWarehouseId; });
     }
+    // FIX-OS-DATE-001: 表头日期落到每行明细（后端 _parse_opening_stock_date 逐行解析）
+    const headerDate = getHeaderDocDate();
+    if (headerDate) {
+        items.forEach(item => { if (!item.date) item.date = headerDate; });
+    }
     WMS.api.post('/opening_stock/batch_save', { items })
         .then(data => {
             if (data && data.status === 'success') {
@@ -514,17 +532,20 @@ function saveDocument() {
 function showPasteModal() {
     document.getElementById('pasteImportText').value = '';
     document.getElementById('pasteImportFeedback').textContent = '';
+    // FIX-OS-DATE-001: 默认沿用表头日期，避免导入时丢失用户选择的建账日期
+    document.getElementById('pasteDocDate').value = getHeaderDocDate();
     const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('pasteImportModal'));
     modal.show();
 }
 
 // 解析多行粘贴文本为明细行。支持 Tab / 英文逗号分隔，空列可省。
-function parsePasteLines(text) {
+// FIX-OS-DATE-001: 支持可选的"日期"列（第 6 列），格式 YYYY-MM-DD，非法则该行回落默认日期。
+function parsePasteLines(text, defaultDate) {
     const result = { items: [], errors: [] };
     const lines = String(text || '').split(/\r?\n/).map(l => l.replace(/\r/g, '')).filter(l => l.trim() !== '');
     lines.forEach((line, idx) => {
         const parts = line.split(/\t|,/).map(p => p.trim());
-        const [whCode, code, quantity, price, remark] = parts;
+        const [whCode, code, quantity, price, remark, dateRaw] = parts;
         const lineNo = idx + 1;
         if (!code) {
             result.errors.push(`第 ${lineNo} 行：缺物料编码`);
@@ -557,12 +578,19 @@ function parsePasteLines(text) {
             result.errors.push(`第 ${lineNo} 行：单价 [${price ?? ''}] 无效`);
             return;
         }
+        // FIX-OS-DATE-001: 行内日期优先，缺省用默认日期；非法日期告警并回落默认
+        let rowDate = (dateRaw || '').trim();
+        if (rowDate && !/^\d{4}-\d{2}-\d{2}$/.test(rowDate)) {
+            result.errors.push(`第 ${lineNo} 行：日期 [${rowDate}] 格式应为 YYYY-MM-DD，已用默认日期`);
+            rowDate = '';
+        }
         result.items.push({
             material_id: material.id,
             warehouse_id: wh ? wh.id : '',
             quantity: qty,
             price: prc,
             remark: remark || '',
+            date: rowDate || defaultDate || '',
         });
     });
     return result;
@@ -577,7 +605,7 @@ function confirmPasteImport() {
         feedback.className = 'form-text text-warning';
         return;
     }
-    const parsed = parsePasteLines(text);
+    const parsed = parsePasteLines(text, document.getElementById('pasteDocDate')?.value || '');
     if (!parsed.items.length) {
         feedback.textContent = '没有可导入的有效行。' + (parsed.errors[0] || '');
         feedback.className = 'form-text text-danger';

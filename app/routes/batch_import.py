@@ -635,6 +635,8 @@ def register_batch_import_routes(app):
                     col_map['quantity'] = idx
                 elif '单价' in h or '价格' in h:
                     col_map['price'] = idx
+                elif '日期' in h:
+                    col_map['date'] = idx
                 elif '备注' in h:
                     col_map['remark'] = idx
             if 'material_code' not in col_map or 'quantity' not in col_map:
@@ -646,6 +648,31 @@ def register_batch_import_routes(app):
                     return default
                 v = row[i]
                 return '' if v is None else str(v).strip()
+
+            def _raw(row, key):
+                # FIX-OS-DATE-001: 取原始单元格值（日期列可能是 datetime/date 对象，str() 会带时间部分）
+                i = col_map.get(key)
+                if i is None or i >= len(row):
+                    return None
+                return row[i]
+
+            def _row_date(row):
+                # 解析行日期：支持 datetime/date 对象与 YYYY-MM-DD 字符串；非法或空返回 None（回落当天）
+                import datetime as _dt
+                v = _raw(row, 'date')
+                if v is None or (isinstance(v, str) and not v.strip()):
+                    return None
+                if isinstance(v, _dt.datetime):
+                    return v.date().isoformat()
+                if isinstance(v, _dt.date):
+                    return v.isoformat()
+                s = str(v).strip()
+                for fmt in ('%Y-%m-%d', '%Y/%m/%d', '%Y.%m.%d', '%Y%m%d'):
+                    try:
+                        return _dt.datetime.strptime(s[:10] if fmt == '%Y-%m-%d' else s, fmt).date().isoformat()
+                    except (ValueError, TypeError):
+                        continue
+                return None
 
             def _is_example_row(row):
                 # 模板示例行：物料名称含"示例"则跳过
@@ -720,7 +747,7 @@ def register_batch_import_routes(app):
                     _, delta = _apply_opening_stock_balance(
                         opening, material, quantity, price, amount,
                         _v(row, 'remark') or None, warehouse,
-                        _parse_opening_stock_date(None), '',
+                        _parse_opening_stock_date(_row_date(row)), '',
                     )
                     if opening is None or abs(delta) > STOCK_COMPARE_EPSILON:
                         imported += 1
