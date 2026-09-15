@@ -76,7 +76,6 @@ def register_opening_stock_routes(app):
             'price': round_to_2_decimals(material.price or 0),
         } for material in materials]
         warehouses = get_active_warehouses()  # AI-OS-MW-001
-        opening_doc_no = f'OP{date.today().strftime("%Y%m%d")}'
         return render_template(
             'opening_stock.html',
             records=pagination.items,
@@ -87,7 +86,6 @@ def register_opening_stock_routes(app):
             sort_by=sort_by,
             sort_order=sort_order,
             per_page=per_page,
-            opening_doc_no=opening_doc_no,
             doc_date=date.today().isoformat(),
             warehouses=warehouses,
             # BUG-2026-08-02-017：期初建账仓库必填，新建时预选默认仓库

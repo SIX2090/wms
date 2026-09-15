@@ -172,16 +172,8 @@
         <div class="doc-header">
             <div class="row g-3">
                 <div class="col-md-3">
-                    <label class="form-label">单据编号</label>
-                    <input class="form-control" value="{{ opening_doc_no }}" readonly>
-                </div>
-                <div class="col-md-3">
                     <label class="form-label">日期</label>
                     <input class="form-control" type="date" id="headerDocDate" value="{{ doc_date }}">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">入库来源</label>
-                    <input class="form-control" value="期初建账" readonly>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">单据仓库 <span class="text-danger">*</span></label>
@@ -194,7 +186,7 @@
                 </div>
                 <div class="col-md-12">
                     <label class="form-label">备注</label>
-                    <textarea class="form-control" id="headerRemark"></textarea>
+                    <textarea class="form-control" id="headerRemark" placeholder="选填：作为各行明细的默认备注（行内已单独填写备注的行不受影响）"></textarea>
                 </div>
             </div>
         </div>
@@ -507,6 +499,11 @@ function saveDocument() {
     const headerDate = getHeaderDocDate();
     if (headerDate) {
         items.forEach(item => { if (!item.date) item.date = headerDate; });
+    }
+    // BUG-2026-09-15-006: 表头备注接通保存——作为各行明细的默认备注（行内已填备注的行不受影响）
+    const headerRemark = (document.getElementById('headerRemark')?.value || '').trim();
+    if (headerRemark) {
+        items.forEach(item => { if (!item.remark) item.remark = headerRemark; });
     }
     WMS.api.post('/opening_stock/batch_save', { items })
         .then(data => {
