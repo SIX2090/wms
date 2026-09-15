@@ -130,6 +130,8 @@
             <button class="btn btn-outline-secondary" type="button" onclick="copyPreviousRow()"><i class="bi bi-files"></i> 复制上一行</button>
             <button class="btn btn-outline-secondary" type="button" onclick="pasteImport()"><i class="bi bi-clipboard"></i> 粘贴导入</button>
             <button class="btn btn-outline-secondary" type="button" onclick="location.reload()"><i class="bi bi-arrow-clockwise"></i> 刷新物料</button>
+            <button class="btn btn-outline-danger text-nowrap" type="button" onclick="batchDeleteSelectedRows()" title="删除勾选的明细行（已建账行会同时回冲库存）"><i class="bi bi-trash3"></i> 删除选中行</button>
+            <span class="ms-auto text-muted small align-self-center" id="selectedHint">未勾选</span>
         </div>
 
         <div class="tabs">
@@ -141,6 +143,7 @@
             <table class="opening-grid" id="openingGrid">
                 <thead>
                     <tr>
+                        <th style="width:38px;" class="text-center"><input type="checkbox" id="openingCheckAll" title="全选 / 取消全选" aria-label="全选明细行"></th>
                         <th style="width:42px;">序号</th>
                         <th style="width:120px;">仓库</th>
                         <th style="width:150px;">物料编码</th>
@@ -270,7 +273,6 @@ let rows = existingRows.length ? existingRows.slice() : [];
 let activeCodeInput = null;
 const gridBody = document.getElementById('openingGridBody');
 const materialMenu = document.getElementById('materialMenu');
-
 function emptyRow() {
     return {material_id: '', warehouse_id: '', warehouse_name: '', material_code: '', material_name: '', spec: '', unit: '', quantity: '', price: '', remark: ''};
 }
@@ -292,12 +294,14 @@ function warehouseOptionsHtml(selectedId) {
 
 function renderRows() {
     if (rows.length === 0) {
-        gridBody.innerHTML = '<tr><td colspan="11" class="text-center text-muted" style="padding:18px;">暂无明细，请点击"添加物料"开始录入</td></tr>';
+        gridBody.innerHTML = '<tr><td colspan="12" class="text-center text-muted" style="padding:18px;">暂无明细，请点击"添加物料"开始录入</td></tr>';
+        syncCheckAllState();
         updateTotal();
         return;
     }
     gridBody.innerHTML = rows.map((row, index) => `
         <tr data-index="${index}">
+            <td class="text-center"><input type="checkbox" class="opening-row-check" data-index="${index}"${selectedFlags[index] ? ' checked' : ''} onchange="onRowCheckToggle(${index}, this.checked)" aria-label="勾选第 ${index + 1} 行"></td>
             <td class="row-no">${index + 1}</td>
             <td><select class="form-select form-select-sm" onchange="updateField(${index}, 'warehouse_id', this.value); updateField(${index}, 'warehouse_name', this.options[this.selectedIndex]?.text || '');">${warehouseOptionsHtml(row.warehouse_id)}</select></td>
             <td class="code-cell"><input data-field="material_code" value="${escapeHtml(row.material_code || '')}" autocomplete="off" oninput="updateField(${index}, 'material_code', this.value); showMaterialMenu(this, ${index});" onfocus="showMaterialMenu(this, ${index});"></td>
@@ -311,7 +315,122 @@ function renderRows() {
             <td><div class="action-cell"><button class="icon-btn" type="button" onclick="insertRowAfter(${index})" title="插入行"><i class="bi bi-plus-circle"></i></button><button class="icon-btn danger" type="button" onclick="deleteRow(${index})" title="删除行"><i class="bi bi-trash"></i></button></div></td>
         </tr>
     `).join('');
+    syncCheckAllState();
     updateTotal();
+}
+
+// ---- 批量删行（勾选）----
+// selectedFlags 与 rows 同下标，保存"这一行是否被勾选"。
+// 不用 DOM 查询读勾选态：renderRows() 会整体重建 tbody，DOM 态随之下线，
+// 必须把勾选态提到数据层才能在重渲染（改数量、加行、插入行）后不丢。
+let selectedFlags = [];
+const checkAllBox = document.getElementById('openingCheckAll');
+
+// 行数变化（增删/插入/重载）后把勾选数组对齐到新长度，多退少补。
+function syncSelectedFlags(rowCount) {
+    if (selectedFlags.length > rowCount) selectedFlags.length = rowCount;
+    while (selectedFlags.length < rowCount) selectedFlags.push(false);
+}
+
+function onRowCheckToggle(index, checked) {
+    selectedFlags[index] = !!checked;
+    syncCheckAllState();
+}
+
+// 表头全选框的 checked/indeterminate 随行勾选态联动（半选态也要体现）
+function syncCheckAllState() {
+    if (!checkAllBox) return;
+    const enabled = rows.map((_, i) => i);
+    const checkedCount = enabled.filter(i => selectedFlags[i]).length;
+    checkAllBox.checked = enabled.length > 0 && checkedCount === enabled.length;
+    checkAllBox.indeterminate = checkedCount > 0 && checkedCount < enabled.length;
+    // 勾选计数提示：让用户明确"已勾几行"，避免点删除时才发现勾错
+    const hint = document.getElementById('selectedHint');
+    if (hint) {
+        hint.textContent = checkedCount ? `已勾选 ${checkedCount} 行` : '未勾选';
+        hint.className = checkedCount
+            ? 'ms-auto text-danger small align-self-center'
+            : 'ms-auto text-muted small align-self-center';
+    }
+}
+
+function onCheckAllToggle(checked) {
+    selectedFlags = rows.map(() => !!checked);
+    renderRows();
+}
+
+if (checkAllBox) {
+    checkAllBox.addEventListener('change', function() { onCheckAllToggle(this.checked); });
+}
+
+// 批量删除勾选的明细行。
+// 分两条路径，语义必须说清楚给用户：
+//   · 已保存行（有 line_id）→ 调后端批量接口，立即物理删除 + 库存回冲；
+//   · 未保存行（刚加、还没存过）→ 只从录入网格移除，不涉及库存。
+// 混选时两条路径都走，并在确认框里分别报出数量，避免用户误以为"删了但没生效"。
+function batchDeleteSelectedRows() {
+    if (!rows.length) {
+        showToast('当前没有可删除的明细行', 'info');
+        return;
+    }
+    const selectedIndexes = rows.map((_, i) => i).filter(i => selectedFlags[i]);
+    if (!selectedIndexes.length) {
+        showToast('请先勾选要删除的明细行', 'warning');
+        return;
+    }
+
+    const savedLines = selectedIndexes.filter(i => rows[i].line_id);
+    const unsavedLines = selectedIndexes.filter(i => !rows[i].line_id);
+
+    let confirmMsg = `确定删除勾选的 ${selectedIndexes.length} 行明细吗？`;
+    if (savedLines.length) {
+        confirmMsg += `\n其中 ${savedLines.length} 行已建账，将立即从库存中扣回，此操作不可恢复。`;
+    }
+    if (unsavedLines.length) {
+        confirmMsg += `\n另有 ${unsavedLines.length} 行尚未保存，仅从当前录入中移除。`;
+    }
+    if (!confirm(confirmMsg)) return;
+
+    // 未保存行直接在本地移除（不碰后端）
+    if (!savedLines.length) {
+        removeRowsAt(selectedIndexes);
+        showToast(`已移除 ${selectedIndexes.length} 行未保存的明细`, 'success');
+        return;
+    }
+
+    if (!OPENING_DOC) {
+        // 理论不可达：没有单据就不该有 line_id。兜底按未保存处理，避免打到不存在的单据 id。
+        removeRowsAt(selectedIndexes);
+        showToast(`已移除 ${selectedIndexes.length} 行未保存的明细`, 'success');
+        return;
+    }
+
+    const lineIds = savedLines.map(i => rows[i].line_id);
+    WMS.api.post('/opening_stock/' + OPENING_DOC.id + '/lines/delete', { line_ids: lineIds })
+        .then(function(data) {
+            if (data && data.status === 'success') {
+                // 已保存行已被后端删除，本地同步摘掉；未保存行一并移除
+                removeRowsAt(selectedIndexes);
+                let msg = data.msg || '明细行已删除';
+                if (unsavedLines.length) msg += `；另移除 ${unsavedLines.length} 行未保存明细`;
+                showToast(msg, 'success', 4200);
+            } else {
+                showToast((data && data.msg) || '删除失败', 'danger', 4200);
+            }
+        })
+        .catch(function(error) {
+            showToast('删除失败：' + (error && error.message ? error.message : '未知错误'), 'danger', 4200);
+        });
+}
+
+// 按下标数组删除本地行（从后往前删，避免下标位移错杀）
+function removeRowsAt(indexes) {
+    indexes.slice().sort((a, b) => b - a).forEach(i => {
+        rows.splice(i, 1);
+        selectedFlags.splice(i, 1);
+    });
+    syncSelectedFlags(rows.length);
+    renderRows();
 }
 
 function updateField(index, field, value) {
@@ -325,16 +444,22 @@ function updateField(index, field, value) {
 
 function addRow() {
     rows.push(emptyRow());
+    syncSelectedFlags(rows.length);
     renderRows();
 }
 
 function insertRowAfter(index) {
     rows.splice(index + 1, 0, emptyRow());
+    // 勾选态按下标对齐：插入点之后的勾选要跟着行往后挪，否则会误勾到相邻行
+    selectedFlags.splice(index + 1, 0, false);
+    syncSelectedFlags(rows.length);
     renderRows();
 }
 
 function deleteRow(index) {
     rows.splice(index, 1);
+    selectedFlags.splice(index, 1);
+    syncSelectedFlags(rows.length);
     renderRows();
 }
 
@@ -346,6 +471,7 @@ function clearEntryRows() {
     }
     if (!confirm('确定清空当前录入的全部明细行吗？（未保存的内容将丢失，已建账记录不受影响）')) return;
     rows = [];
+    selectedFlags = [];
     renderRows();
 }
 
@@ -356,12 +482,14 @@ function copyPreviousRow() {
         return;
     }
     rows.push({...filled[filled.length - 1], remark: ''});
+    syncSelectedFlags(rows.length);
     renderRows();
 }
 
 function resetDocument() {
     // 新建：清空明细并回到"未取号"状态（保存时才生成单号）
     rows = [];
+    selectedFlags = [];
     renderRows();
     if (typeof goToNewDoc === 'function') goToNewDoc();
 }
@@ -776,6 +904,11 @@ document.addEventListener('click', event => {
     }
 });
 
-document.addEventListener('DOMContentLoaded', renderRows);
+document.addEventListener('DOMContentLoaded', function() {
+    // 首次渲染前先把勾选态对齐到已有行数，否则编辑已有单据时
+    // selectedFlags 为空数组、syncCheckAllState 读到 undefined 会误判全选态
+    syncSelectedFlags(rows.length);
+    renderRows();
+});
 </script>
 {% endblock %}

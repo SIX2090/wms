@@ -788,6 +788,111 @@ def register_opening_stock_routes(app):
             app.logger.error(f'删除期初库存单据失败: {e}')
             return jsonify({'status': 'error', 'msg': '期初库存单据删除失败'}), 500
 
+    @app.route('/opening_stock/<int:id>/lines/delete', methods=['POST'])
+    @require_role('warehouse')
+    @login_required
+    def batch_delete_opening_stock_lines(id):
+        """批量删除单据内的多条明细行（逐行回冲库存，ARCH-OS-DOC-01）。
+
+        用户诉求（原话）：「把批量删行做出来」。此前只有两条路：
+          · 每行一个删除图标 → 只删前端 rows 数组，必须再点"保存"才落库；
+          · 后端 `/line/<line_id>/delete` 单行接口 → 前端从未接线（死接口），
+            且一次只删一行，几十行的导入单要按几十次并发几十个请求。
+        批量删行补齐"已保存明细行"的一步到位删除，也让上面那个死接口的前端
+        接线问题不再需要绕行。
+
+        实现口径（与"删除本单"完全一致，避免同类点规则漂移）：
+        - `line_ids` 走 pydantic `list[int]` 校验（A8），空列表直接 400；
+        - 越权防护：**每一条** line_id 都必须属于路径上的这张单据，否则整体
+          400 且一行不删——不能只校验第一条就放行；
+        - 逐行 `_reverse_opening_stock_line` 回冲，任一行失败整体 rollback，
+          保证"要么全删全回冲，要么原样保留"，不留半残状态；
+        - 回冲后库存为负**照常删除**，仅在返回消息里给中文提示（不阻断，
+          与 delete_opening_stock_doc 同规则）。
+        """
+        from app import (
+            OpeningStock,
+            OpeningStockDoc,
+            _opening_stock_negative_hint,
+            _reverse_opening_stock_line,
+            app,
+            db,
+            jsonify,
+            log_operation,
+            request,
+        )
+        from pydantic import BaseModel, Field, ValidationError
+
+        class OpeningStockLineIdsRequest(BaseModel):
+            """批量删行入参：至少 1 个明细行 id。"""
+            line_ids: list[int] = Field(min_length=1)
+
+        doc = OpeningStockDoc.query.filter_by(id=id).with_for_update().first()
+        if not doc:
+            return jsonify({'status': 'error', 'msg': '期初库存单据不存在'}), 404
+
+        try:
+            payload = OpeningStockLineIdsRequest.model_validate(
+                request.get_json(silent=True) or {})
+        except ValidationError:
+            return jsonify({'status': 'error', 'msg': '请先勾选要删除的明细行'}), 400
+
+        # 去重但保持用户勾选顺序，便于提示与日志可读
+        line_ids = list(dict.fromkeys(payload.line_ids))
+        if any(line_id <= 0 for line_id in line_ids):
+            return jsonify({'status': 'error', 'msg': '明细行标识格式错误'}), 400
+
+        try:
+            lines = OpeningStock.query.filter(
+                OpeningStock.id.in_(line_ids),
+                OpeningStock.doc_id == id,
+            ).with_for_update().all()
+            # 越权/脏数据防护：请求的行必须全部落在本单据内，否则整批拒绝
+            if len(lines) != len(line_ids):
+                db.session.rollback()
+                return jsonify({
+                    'status': 'error',
+                    'msg': '所选明细行不属于本单据或已被删除，请刷新后重试',
+                }), 400
+
+            # 回冲顺序与勾选顺序无关，但统一按 id 升序回冲，保证日志与流水可复现
+            lines.sort(key=lambda line: line.id)
+
+            reversed_count = 0
+            for line in lines:
+                ok, msg_rev = _reverse_opening_stock_line(line, reason='期初单据批量删行回冲')
+                if not ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': f'删除失败：{msg_rev}'}), 400
+                reversed_count += 1
+
+            hints = _opening_stock_negative_hint(lines)
+            for line in lines:
+                db.session.delete(line)
+            db.session.commit()
+            log_operation(
+                '批量删除期初库存明细行',
+                f'单据 {doc.doc_no}：删除 {len(lines)} 行，回冲 {reversed_count} 行库存',
+                'opening_stock', doc.id,
+            )
+            msg = f'已删除 {len(lines)} 行明细，库存已回冲'
+            if hints:
+                # 用户确认：照常删除，仅提示；用分号拼接避免消息过长刷屏
+                msg += '；注意：' + '；'.join(hints[:3])
+            return jsonify({
+                'status': 'success',
+                'msg': msg,
+                'deleted_count': len(lines),
+                'reversed_count': reversed_count,
+            })
+        except ValueError as ve:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': str(ve)}), 400
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'批量删除期初库存明细行失败: {e}')
+            return jsonify({'status': 'error', 'msg': '批量删除明细行失败'}), 500
+
     # pydantic:reason=DELETE 无请求体，id/line_id 由路由 <int:> 转换器完成类型校验，无需 pydantic 模型
     @app.route('/opening_stock/<int:id>/line/<int:line_id>/delete', methods=['POST'])
     @require_role('warehouse')
