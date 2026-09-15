@@ -1999,6 +1999,36 @@ full 验证结果：
 - 子修复（BUG-2026-08-05-002）：`complete_in_order` / `update_completed_in_order` / `update_in_order` 三个函数的延迟导入均漏 `InOrder`，点击"完成入库"即抛 `NameError`，单据停在草稿、下推按钮不出现（被 `except` 吞掉）。在三个函数导入补入 `InOrder`，并在 `complete_in_order` 的 `except` 补 `app.logger.exception` 记录堆栈。新增静态检查 `scripts/check_in_order_imports.py` 扫描全部使用 `InOrder` 的函数确保导入覆盖。回归：`scripts/repro_complete_in_order.py`、`tests/verify_bug_2026_08_05_002_complete_in_order_imports.py`（3 用例）、`scripts/verify_inbound_push.py`、`make check` 全 PASS。
 - 子修复（BUG-2026-08-05-003）：`routes/material.py` 迁移时 `delete_material` 的引用完整性校验漏掉 `PurchaseOrderItem` / `SalesOrderItem` / `AIMaterialAlias` / `AIDocumentItem` 四张表，被采购/销售订单明细引用的物料删除时走不到拦截分支，直接 `db.session.delete` 触发外键 `NOT NULL constraint failed`，`except` 捕获后返回晦涩"数据库操作失败: (sqlite3.IntegrityError)..."，用户感知"物料删不掉"。在 `delete_material` 的 `from app import (...)` 补入四模型并在校验里补 `material_id` 检查，与既有引用拦截一致。回归：`scripts/repro_material_delete_ref.py`（PO/SO 引用拦截且明细保留、无引用删除成功）、`tests/verify_app_py_split_material.py::test_delete_material_referenced_by_purchase_order_item`、`make check` 116 passed。
 
+#### ARCH-MODELS-01（进行中）— app.py 模型区按域抽取到 app/models/ 包
+
+- 完成日期：2026-09-15（AA-1 核心业务模型 64 个）
+- 目标：把 `app/app.py` 模型区（原 L4136–L7353，约 3200 行）的 90 个 `db.Model` 类按域抽取到 `app/models/` 包，`app.py` 以门面导入保持全部既有调用点零改动。app.py 是 god-object（34,307 行 / 892 函数 / 90 模型 / 102 遗留路由），本次先摘收益最大、风险最低的模型层。
+- 关联历史任务：`SYS-AUDIT-010`（曾评估 SystemSetting 迁 `models.py` 后暂缓，理由"架构改动大、回归风险高"）；`AI-REFACTOR-APP-SPLIT`（路由拆分先例，register-on-app 保持 endpoint 名不变）。重启条件：1727 用例全量回归兜底 + 门面模式（调用点零改动）+ 用户明确授权。
+- 业务边界：纯结构搬迁，不改任何模型字段/关系/表名/迁移 DDL，不改业务逻辑、权限、事务边界；不建任何新分支（仅 `main`）。
+- 改动模块（AA-1）：
+  - 新增 `app/models/__init__.py`：包文档 + 6 域模块 `from models.<domain> import *` 汇总。
+  - 新增 `app/models/core.py`（8 模型：User/LoginLog/ApiToken/MobileApiRequest/OperationAudit/Notification/UserFieldConfig/SystemSetting）。
+  - 新增 `app/models/master_data.py`（10 模型：Employee/MaterialCategory/Unit/Supplier/Customer/Warehouse/Department/Contract/Material/MaterialImage）。
+  - 新增 `app/models/print.py`（8 模型：PrintWorkstation/PrintDevice/PrintRouteRule/PrintJob/LabelTemplate/InOrderPrintTemplate/OutOrderPrintTemplate/ExcelPrintTemplate）。
+  - 新增 `app/models/documents.py`（34 模型：出入库及业务单据 OpeningStock/InOrder/OutOrder/InventoryCheck*/Subcontract*/BOM*/ProductionRequisition*/Transfer*/Adjustment*/AfterSaleOut*/Purchase*/Sales*）。
+  - 新增 `app/models/inventory.py`（2 模型：LocationInventory/StockTransaction）。
+  - 新增 `app/models/wechat.py`（2 模型：WechatShareConfig/WechatShareLog）。
+  - `app/app.py`：删除模型区 1380 行（含前导空行），改为 `from models import (...)` 门面（64 名）；`User.increment_failed_count` 内 `max_login_failures()`/`account_lock_minutes()` 改为运行时延迟导入（两者留守 app.py）；`User` 6 个方法补 `# no-test:reason=ARCH-MODELS-01 ...` 豁免注释（满足 A9）。
+  - 删除 `app/models.py` 存根（12 行，仅 `from app import db`，无人引用；不删会与 `app/models/` 包命名冲突并致循环导入）。
+  - `tests/test_filter_advanced.py`：`test_performance_index_declared_in_model_and_migration` 模型侧检索范围由仅 `app.py` 扩展为 `app/app.py + app/models/*.py`（迁移 DDL 仍在 app.py），断言意图不变。
+- 关键设计：`from models import X` 与 `from db import db` 均为平铺导入，与 `document_evidence.py`（既有"独立模型文件 + app.py 门面导入"先例）、`run_server.py`、`app.py` 现状一致；`app/models/core.py`（含 User）整体置于 `from document_evidence import DocumentEvidence` 之后，规避对 `document_evidence` 的循环依赖。
+- 验证命令及结果：
+  - `python3 scripts/lint_wms_rules.py --staged` → 0 违规（A1–A11）。
+  - `python3 scripts/lint_no_raw_post_fetch.py` → 通过。
+  - 门面完整性快照：迁移前后 `dir(app)` 公开名 1263 → 1263（丢失 0 / 新增 0）。
+  - `pytest tests/ -q` → **1727 passed, 84 skipped, 0 failed**（与迁移前基线一致）。
+  - 首轮曾现 6 failed（索引测试按 app.py 源码文本计数），修正检索范围后全绿。
+- 推送验证：[待填]
+- 剩余风险和下一子项：
+  - AA-2（ARCH-MODELS-02）：AI 相关 26 个模型迁入 `app/models/ai.py`。
+  - app.py 仍留 892 函数 / 102 路由 / 305 处 SQL，helper 层（`get_default_warehouse` 等）与路由层尚未下沉。
+  - 函数体内 `from app import (...)` 延迟导入是架构债（routes 反向依赖 app.py），需后续以 app/services 解耦。
+
 #### REQUISITION-PICKER-F01（已完成）— 领料单表头新增领料人 + 采购入库下推领料单可填领料部门/领料人
 
 - 完成日期：2026-08-06

@@ -249,9 +249,17 @@ def test_performance_index_declared_in_model_and_migration(index_name):
 
     新库由 db.create_all() 依 __table_args__ 建；老库由 auto_migrate_database()
     的 DDL 补。任一处缺失，对应场景就会静默缺索引。
+
+    ARCH-MODELS-01（2026-09-15）：核心业务模型已迁至 app/models/ 包（按域分模块），
+    故模型侧检索范围扩展为「app/app.py + app/models/*.py」；迁移 DDL 仍留在 app.py。
+    断言意图不变：模型侧 + 迁移侧各出现一次。
     """
     src = (APP_DIR / "app.py").read_text(encoding="utf-8")
-    cnt = src.count(index_name)
+    model_src = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in sorted((APP_DIR / "models").glob("*.py"))
+    )
+    cnt = src.count(index_name) + model_src.count(index_name)
     assert cnt == 2, (
         "%s 应在模型 __table_args__ 与自动迁移 DDL 中各出现一次，实际 %d 次"
         % (index_name, cnt))
