@@ -796,10 +796,10 @@ def register_opening_stock_routes(app):
 
         用户诉求（原话）：「把批量删行做出来」。此前只有两条路：
           · 每行一个删除图标 → 只删前端 rows 数组，必须再点"保存"才落库；
-          · 后端 `/line/<line_id>/delete` 单行接口 → 前端从未接线（死接口），
+          · 后端单行接口 `/line/<line_id>/delete` → 前端从未接线（死接口），
             且一次只删一行，几十行的导入单要按几十次并发几十个请求。
-        批量删行补齐"已保存明细行"的一步到位删除，也让上面那个死接口的前端
-        接线问题不再需要绕行。
+        本接口补齐"已保存明细行"的一步到位删除；那条单行死接口已随之**废弃移除**
+        （见下方 tombstone 注释），其能力被本接口完全包含。删单行请传单个 line_id。
 
         实现口径（与"删除本单"完全一致，避免同类点规则漂移）：
         - `line_ids` 走 pydantic `list[int]` 校验（A8），空列表直接 400；
@@ -893,52 +893,23 @@ def register_opening_stock_routes(app):
             app.logger.error(f'批量删除期初库存明细行失败: {e}')
             return jsonify({'status': 'error', 'msg': '批量删除明细行失败'}), 500
 
-    # pydantic:reason=DELETE 无请求体，id/line_id 由路由 <int:> 转换器完成类型校验，无需 pydantic 模型
-    @app.route('/opening_stock/<int:id>/line/<int:line_id>/delete', methods=['POST'])
-    @require_role('warehouse')
-    @login_required
-    def delete_opening_stock_line(id, line_id):
-        """删除单据内的一条明细行（回冲该行库存，ARCH-OS-DOC-01）。"""
-        from app import (
-            OpeningStock,
-            OpeningStockDoc,
-            _opening_stock_negative_hint,
-            _reverse_opening_stock_line,
-            app,
-            db,
-            jsonify,
-            log_operation,
-        )
-        doc = OpeningStockDoc.query.filter_by(id=id).first()
-        if not doc:
-            return jsonify({'status': 'error', 'msg': '期初库存单据不存在'}), 404
-        line = OpeningStock.query.filter_by(id=line_id, doc_id=id).with_for_update().first()
-        if not line:
-            # 防越权：行必须属于该单据，避免用别的单据 id 删这里的行
-            return jsonify({'status': 'error', 'msg': '该单据下不存在这行明细'}), 404
-
-        try:
-            lines = [line]
-            ok, msg_rev = _reverse_opening_stock_line(line, reason='期初单据删行回冲')
-            if not ok:
-                db.session.rollback()
-                return jsonify({'status': 'error', 'msg': f'删除失败：{msg_rev}'}), 400
-            hints = _opening_stock_negative_hint(lines)
-            db.session.delete(line)
-            db.session.commit()
-            log_operation('删除期初库存明细行',
-                          f'单据 {doc.doc_no}：删除 1 行明细', 'opening_stock', doc.id)
-            msg = '明细行已删除，库存已回冲'
-            if hints:
-                msg += '；注意：' + '；'.join(hints[:3])
-            return jsonify({'status': 'success', 'msg': msg})
-        except ValueError as ve:
-            db.session.rollback()
-            return jsonify({'status': 'error', 'msg': str(ve)}), 400
-        except Exception as e:
-            db.session.rollback()
-            app.logger.error(f'删除期初库存明细行失败: {e}')
-            return jsonify({'status': 'error', 'msg': '明细行删除失败'}), 500
+    # 【已废弃 2026-09-16，BUG-2026-09-16-001】原 `POST /opening_stock/<int:id>/line/<int:line_id>/delete`
+    # 单行删除接口在此移除。删除理由与替代方案：
+    #   · 自 ARCH-OS-DOC-01 引入起，前端 opening_stock.html 从未调用过它（全仓库零调用点：
+    #     模板 / app/static/js 业务代码 / Android App / tests 均无引用），是一个死接口；
+    #   · 它一次只能删一行，而用户诉求是"勾选多行一次删掉"，该容器本身就不合用；
+    #   · 无 A9 测试覆盖，且其能力已被覆盖更全的 `/lines/delete` 批量接口完全包含
+    #     （批量接口同样逐行回冲、同样有越权防护，且额外具备入参校验与去重幂等）。
+    # 若日后确需"删单行"，请直接调 `/lines/delete` 并传单个 line_id —— 语义与返回一致，
+    # 不要恢复本接口（两个接口并存会重新制造"同一个能力两处实现、规则各自漂移"的隐患，见 R6）。
+    #
+    # 删除前的完整实现（如需追溯）：
+    #   doc = OpeningStockDoc.query.filter_by(id=id).first() → 404「期初库存单据不存在」
+    #   line = OpeningStock.query.filter_by(id=line_id, doc_id=id).with_for_update().first()
+    #          → 404「该单据下不存在这行明细」（防越权：行必须属于该单据）
+    #   _reverse_opening_stock_line(line, reason='期初单据删行回冲') → 失败则 rollback + 400
+    #   _opening_stock_negative_hint([line]) → 负库存仅中文提示，不阻断
+    #   db.session.delete(line) + commit + log_operation('删除期初库存明细行', ...)
 
     @app.route('/opening_stock/delete_all', methods=['POST'])
     @require_role('warehouse')

@@ -3,10 +3,11 @@
 
 背景：改造前只有两条删行路径——
   · 每行一个删除图标 → 只改前端 rows 数组，必须再点"保存"才落库；
-  · 后端 `/opening_stock/<id>/line/<line_id>/delete` 单行接口 → 前端从未接线
+  · 后端单行接口 `/opening_stock/<id>/line/<line_id>/delete` → 前端从未接线
     （死接口），且一次只删一行，几十行的导入单要按几十次。
 本次补齐 `POST /opening_stock/<id>/lines/delete`：一次删多行、逐行回冲库存、
 越权整体拒绝，前端加勾选列 + 表头全选 + 「删除选中行」按钮。
+那条单行死接口已随之废弃移除（能力被本批量接口完全包含），T9 锁死该结局。
 
 覆盖：
   T1 批量删 2 行：库存按各自数量回冲，剩余行与未选行不受影响
@@ -15,7 +16,9 @@
   T4 单据不存在 → 404
   T5 未登录访问被拦截（不删除）
   T6 回冲写入 StockTransaction 负向流水（账实可追溯）
-  T7 前端静态断言：勾选列 + 全选 + 批量删除按钮 + 端点齐全
+  T7 重复 id 去重：只删一次、只回冲一次
+  T8 前端静态断言：勾选列 + 全选 + 批量删除按钮 + 端点齐全
+  T9 单行死接口已废弃：路由表不再注册，防止被无意恢复造成双实现漂移
 """
 from __future__ import annotations
 
@@ -299,3 +302,30 @@ class TestOpeningStockBatchDeleteFrontend:
         assert "indeterminate" in html, "全选框应体现半选态"
         # 勾选态必须提到数据层，否则 renderRows 重建 tbody 后勾选丢失
         assert "selectedFlags" in html, "勾选态需存于数据层以跨重渲染保持"
+
+
+class TestDeprecatedSingleLineDeleteRoute:
+    """T9：单行删除死接口已废弃移除，防止被无意恢复。"""
+
+    def test_t9_single_line_route_removed(self):
+        """路由表不得再注册 `/opening_stock/<id>/line/<line_id>/delete`。
+
+        该接口自 ARCH-OS-DOC-01 起前端零调用（含 Android App 与全部 tests），
+        且能力已被 `/lines/delete` 完全包含。两个接口并存会重新制造
+        "同一能力两处实现、回冲规则各自漂移"的隐患（R6），故删除并用本用例锁死。
+        删除单行请调 `/lines/delete` 传单个 line_id。
+        """
+        rules = {str(r.rule) for r in flask_app.url_map.iter_rules()}
+        assert "/opening_stock/<int:id>/line/<int:line_id>/delete" not in rules, (
+            "单行删除死接口已被废弃移除，不应重新注册；删单行请走 "
+            "/opening_stock/<id>/lines/delete（传单个 line_id）"
+        )
+        # 批量接口必须仍在（确保上面删的是死接口、不是把删行能力整体删掉了）
+        assert "/opening_stock/<int:id>/lines/delete" in rules
+
+    def test_t9_single_line_route_returns_404(self):
+        """即便有人手工拼老 URL，也只能拿到 404（不再有删行能力）。"""
+        client = flask_app.test_client()
+        resp = client.post("/opening_stock/1/line/1/delete", json={})
+        assert resp.status_code == 404
+
