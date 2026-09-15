@@ -11,7 +11,7 @@
 - inventory.py: 库存事实
 - wechat.py: 微信分享
 
-AI 相关 26 个模型仍留守 app/app.py，待 ARCH-MODELS-02 迁入 ai.py。
+AI 相关 26 个模型已由 ARCH-MODELS-02 迁入 ai.py。至此 90 个模型全部脱离 app.py。
 app.py 以 ``from models import (...)`` 门面导入，保持全部既有调用点不变。
 """
 
@@ -21,3 +21,4 @@ from models.print import *  # noqa: F401,F403
 from models.documents import *  # noqa: F401,F403
 from models.inventory import *  # noqa: F401,F403
 from models.wechat import *  # noqa: F401,F403
+from models.ai import *  # noqa: F401,F403
