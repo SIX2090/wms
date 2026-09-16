@@ -242,7 +242,21 @@ window.__OPENING_DOC__ = {
 window.__OPENING_DOC__ = null;
 {% endif %}
 const OPENING_DOC = window.__OPENING_DOC__ || null;
-const materialData = {{ material_options|tojson }};
+// BUG-2026-09-16-012：物料不再整库内嵌（Material.query.all() 全量塞页面，
+// 物料上千时首屏卡死，R1）。改为「服务端搜索 + 本地缓存」：
+//   · 联想：/api/material/search?keyword= 防抖 200ms 拉取（最多返回服务端上限条）；
+//   · 粘贴导入：/opening_stock/materials/lookup 按编码批量预热缓存；
+//   · 选中/解析一律查缓存（payload 与移动端同一构造器 api_material_payload）。
+const materialCache = new Map();      // id(Number) -> 物料 payload
+const materialCodeIndex = new Map();  // code(小写) -> 物料 payload
+function cacheMaterial(m) {
+    if (!m || m.id === null || m.id === undefined) return;
+    materialCache.set(Number(m.id), m);
+    materialCodeIndex.set(String(m.code || '').toLowerCase(), m);
+}
+function findMaterialByCode(code) {
+    return materialCodeIndex.get(String(code || '').trim().toLowerCase()) || null;
+}
 const warehouseData = {{ (warehouses|map(attribute='id')|list)|tojson }};
 const warehouseNameById = {{ (warehouses|map(attribute='name'))|list|tojson }};
 // BUG-2026-09-16-004：导出需要"仓库编码"（官方导入模板第 1 列），单独建一份 id→code 映射。
@@ -613,22 +627,12 @@ function deleteCurrentDoc() {
         });
 }
 
-function getMaterialMatches(keyword) {
-    const kw = String(keyword || '').trim().toLowerCase();
-    return materialData.filter(item => {
-        if (!kw) return true;
-        return [item.code, item.name, item.spec].some(value => String(value || '').toLowerCase().includes(kw));
-    }).slice(0, 30);
-}
+// BUG-2026-09-16-012：联想改服务端搜索——防抖 200ms + 序号防竞态
+//（后发请求先到时丢弃旧结果，与手机端 searchMaterialSuggestions 同思路）。
+let materialSearchSeq = 0;
+let materialSearchTimer = null;
 
-function showMaterialMenu(input, index) {
-    activeCodeInput = {input, index};
-    const rect = input.getBoundingClientRect();
-    const matches = getMaterialMatches(input.value);
-    materialMenu.style.left = `${rect.left}px`;
-    materialMenu.style.top = `${rect.bottom + 4}px`;
-    materialMenu.style.width = `${Math.max(rect.width, 520)}px`;
-    materialMenu.hidden = false;
+function renderMaterialMenuItems(matches, index) {
     materialMenu.innerHTML = matches.length ? matches.map(item => `
         <div class="material-menu-item" onclick="selectMaterial(${index}, ${item.id})">
             <span class="code">${escapeHtml(item.code || '')}</span>
@@ -640,8 +644,39 @@ function showMaterialMenu(input, index) {
     `).join('') : '<div class="material-menu-item">没有匹配物料</div>';
 }
 
+function showMaterialMenu(input, index) {
+    activeCodeInput = {input, index};
+    const rect = input.getBoundingClientRect();
+    materialMenu.style.left = `${rect.left}px`;
+    materialMenu.style.top = `${rect.bottom + 4}px`;
+    materialMenu.style.width = `${Math.max(rect.width, 520)}px`;
+    materialMenu.hidden = false;
+    const kw = String(input.value || '').trim();
+    if (!kw) {
+        // 空关键字不再展示"全部物料前 30 条"（整库内嵌已移除）——提示输入关键字
+        materialMenu.innerHTML = '<div class="material-menu-item">输入编码 / 名称 / 规格关键字搜索物料</div>';
+        return;
+    }
+    materialMenu.innerHTML = '<div class="material-menu-item">搜索中…</div>';
+    const seq = ++materialSearchSeq;
+    if (materialSearchTimer) clearTimeout(materialSearchTimer);
+    materialSearchTimer = setTimeout(function() {
+        WMS.api.get('/api/material/search?keyword=' + encodeURIComponent(kw))
+            .then(function(data) {
+                if (seq !== materialSearchSeq) return;  // 已有更新的输入，丢弃旧结果
+                const items = (data && data.data) || [];
+                items.forEach(cacheMaterial);
+                renderMaterialMenuItems(items, index);
+            })
+            .catch(function() {
+                if (seq !== materialSearchSeq) return;
+                materialMenu.innerHTML = '<div class="material-menu-item">搜索失败，请重试</div>';
+            });
+    }, 200);
+}
+
 function selectMaterial(index, materialId) {
-    const material = materialData.find(item => Number(item.id) === Number(materialId));
+    const material = materialCache.get(Number(materialId));
     if (!material) return;
     rows[index] = {
         ...rows[index],
@@ -816,7 +851,9 @@ function parsePasteLines(text, defaultDate) {
             result.errors.push(`第 ${lineNo} 行：缺物料编码`);
             return;
         }
-        const material = materialData.find(item => String(item.code).toLowerCase() === String(code).toLowerCase());
+        // BUG-2026-09-16-012：物料解析改查本地缓存（confirmPasteImport 已先走
+        // /opening_stock/materials/lookup 批量预热），不再依赖整库内嵌的 materialData。
+        const material = findMaterialByCode(code);
         if (!material) {
             result.errors.push(`第 ${lineNo} 行：物料编码 [${code}] 不存在`);
             return;
@@ -861,6 +898,27 @@ function parsePasteLines(text, defaultDate) {
     return result;
 }
 
+// BUG-2026-09-16-012：从粘贴文本收集候选物料编码（仅用于批量预热缓存）。
+// 与 parsePasteLines 同一列序约定（编码在第 2 列 parts[1]、同样的表头跳过规则）——
+// 两处列序必须一起改；完整行级校验仍在 parsePasteLines 内做，这里不做任何拦截。
+function extractPasteCodes(text) {
+    const codes = [];
+    const rawLines = String(text || '').split(/\r?\n/).map(l => l.replace(/\r/g, '')).filter(l => l.trim() !== '');
+    let startIndex = 0;
+    if (rawLines.length) {
+        const headFirst = splitCsvLine(rawLines[0])[0] || '';
+        const headClean = headFirst.replace(/^"|"$/g, '').trim();
+        if (headClean === '仓库' || headClean === '仓库编码' || headClean === '物料编码') {
+            startIndex = 1;
+        }
+    }
+    rawLines.slice(startIndex).forEach(line => {
+        const code = splitCsvLine(line)[1];
+        if (code) codes.push(code);
+    });
+    return codes;
+}
+
 // 粘贴导入：解析后并入当前单据（与手工保存同一 /opening_stock/save 路径）
 function confirmPasteImport() {
     const text = document.getElementById('pasteImportText').value;
@@ -870,6 +928,28 @@ function confirmPasteImport() {
         feedback.className = 'form-text text-warning';
         return;
     }
+    // BUG-2026-09-16-012：先把未缓存的编码批量预热（一次请求），再同步解析。
+    // 缓存已覆盖时直接解析，零额外请求。
+    const pendingCodes = extractPasteCodes(text).filter(code => !findMaterialByCode(code));
+    if (pendingCodes.length) {
+        feedback.textContent = '正在解析物料编码…';
+        feedback.className = 'form-text text-muted';
+        WMS.api.post('/opening_stock/materials/lookup', { codes: pendingCodes.slice(0, 500) })
+            .then(function(data) {
+                const items = (data && data.data && data.data.items) || [];
+                items.forEach(cacheMaterial);
+                doPasteImport(text, feedback);
+            })
+            .catch(function(err) {
+                feedback.textContent = '物料解析失败：' + (err && err.message ? err.message : '未知错误');
+                feedback.className = 'form-text text-danger';
+            });
+        return;
+    }
+    doPasteImport(text, feedback);
+}
+
+function doPasteImport(text, feedback) {
     const parsed = parsePasteLines(text, document.getElementById('pasteDocDate')?.value || '');
     if (!parsed.items.length) {
         feedback.textContent = '没有可导入的有效行。' + (parsed.errors[0] || '');

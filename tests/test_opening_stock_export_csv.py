@@ -82,7 +82,10 @@ def js_runtime(tmp_path_factory):
     src = _template_src()
     funcs = "\n\n".join(
         _extract_function(src, n)
-        for n in ("csvCell", "splitCsvLine", "parsePasteLines", "exportRows")
+        for n in ("csvCell", "splitCsvLine", "parsePasteLines", "exportRows",
+                  # BUG-2026-09-16-012：parsePasteLines 的物料解析改走缓存，
+                  # 这两个缓存函数同样是模板真实实现，一并抽取执行
+                  "cacheMaterial", "findMaterialByCode")
     )
 
     harness = tmp_path_factory.mktemp("os_export") / "harness.js"
@@ -92,10 +95,15 @@ def js_runtime(tmp_path_factory):
 
 // ---- 模板数据源的等价替身（仅数据，不含逻辑）----
 let rows = [];
-const materialData = [
+// BUG-2026-09-16-012：整库内嵌 materialData 已移除，改为缓存 Map +
+// 模板真实的 cacheMaterial/findMaterialByCode（上方已抽取）——数据形状与
+// 服务端 api_material_payload 一致，测试数据经真实 cacheMaterial 灌入。
+const materialCache = new Map();
+const materialCodeIndex = new Map();
+[
     { id: 1, code: 'M001', name: '轴承6204', spec: '内径20mm', unit: '套', price: 25.5 },
     { id: 2, code: 'M002', name: '电机', spec: '1.5kW', unit: '台', price: 800 },
-];
+].forEach(cacheMaterial);
 const warehouseOptions = [
     { id: 7, name: 'WH001 - 主仓库' },
     { id: 8, name: 'WH002 - 备件仓' },

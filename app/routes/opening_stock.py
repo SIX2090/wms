@@ -180,23 +180,12 @@ def register_opening_stock_routes(app):
             'location': line.location or '',
         } for line in doc.lines]
 
-        materials = Material.query.options(joinedload(Material.unit)).order_by(
-            Material.code.asc(), Material.id.asc()).all()
-        material_options = [{
-            'id': material.id,
-            'code': material.code or '',
-            'name': material.name or '',
-            'spec': material.spec or '',
-            'unit': material.unit.name if material.unit else '',
-            'stock': normalize_stock_quantity(material.stock or 0),
-            'price': round_to_2_decimals(material.price or 0),
-        } for material in materials]
-
+        # BUG-2026-09-16-012：不再整库内嵌物料——物料联想改走 /api/material/search
+        # 服务端搜索，粘贴导入改走 /opening_stock/materials/lookup 批量解析。
+        # 物料上千时 Material.query.all() 全量塞页面会让首屏卡死（R1）。
         return render_template(
             'opening_stock.html',
             records=[],
-            materials=materials,
-            material_options=material_options,
             pagination=None,
             filters={'search': '', 'warehouse_id': None},
             sort_by='created_at',
@@ -219,32 +208,16 @@ def register_opening_stock_routes(app):
         isFormPage() 识别为录入态。
         """
         from app import (
-            Material,
             date,
             get_active_warehouses,
             get_default_warehouse,
-            joinedload,
             location_management_enabled,
-            normalize_stock_quantity,
             render_template,
-            round_to_2_decimals,
         )
-        materials = Material.query.options(joinedload(Material.unit)).order_by(
-            Material.code.asc(), Material.id.asc()).all()
-        material_options = [{
-            'id': material.id,
-            'code': material.code or '',
-            'name': material.name or '',
-            'spec': material.spec or '',
-            'unit': material.unit.name if material.unit else '',
-            'stock': normalize_stock_quantity(material.stock or 0),
-            'price': round_to_2_decimals(material.price or 0),
-        } for material in materials]
+        # BUG-2026-09-16-012：不再整库内嵌物料（同单据编辑页），联想走服务端搜索。
         return render_template(
             'opening_stock.html',
             records=[],
-            materials=materials,
-            material_options=material_options,
             pagination=None,
             filters={'search': '', 'warehouse_id': None},
             sort_by='created_at',
@@ -1053,6 +1026,56 @@ def register_opening_stock_routes(app):
             db.session.rollback()
             app.logger.error(f'修改期初库存单据日期失败: {e}')
             return jsonify({'status': 'error', 'msg': '建账日期修改失败'}), 500
+
+    @app.route('/opening_stock/materials/lookup', methods=['POST'])
+    @login_required
+    def opening_stock_materials_lookup():
+        """期初网格批量物料解析（BUG-2026-09-16-012）：按编码批量取物料档案。
+
+        背景：期初编辑页不再整库内嵌物料（原把全部物料查询结果序列化塞页面，
+        物料上千时首屏卡死），联想改走 /api/material/search 服务端搜索；但粘贴
+        导入是一次性给几十~几百个编码，逐个调搜索接口会打满请求，故提供
+        批量精确解析：传编码列表，一次返回命中物料 payload + 未命中清单。
+
+        与 /api/material/search 同一 payload 构造器（api_material_payload），
+        避免两处字段各自漂移（R6）。
+        """
+        from app import (
+            Material,
+            api_json_error,
+            api_json_success,
+            api_material_payload,
+            db,
+            request,
+        )
+        from pydantic import BaseModel, Field, ValidationError
+
+        class OpeningStockMaterialLookupRequest(BaseModel):
+            """批量物料解析入参：编码列表，去重前上限 500 条（与粘贴导入规模匹配）。"""
+            codes: list[str] = Field(min_length=1, max_length=500)
+
+        try:
+            payload = OpeningStockMaterialLookupRequest.model_validate(
+                request.get_json(silent=True) or {})
+        except ValidationError:
+            return api_json_error('物料编码列表格式不正确（1~500 个）', 400)
+
+        # 归一化：去空白、去重保序；全空等同格式错误
+        codes = list(dict.fromkeys(
+            code.strip() for code in payload.codes if code and code.strip()))
+        if not codes:
+            return api_json_error('物料编码列表不能为空', 400)
+
+        # 大小写不敏感匹配（与原前端 materialData.find 的 toLowerCase 比较同口径，
+        # 粘贴来源的大小写差异不应导致"物料不存在"误报）
+        lowered = [code.lower() for code in codes]
+        materials = Material.query.filter(db.func.lower(Material.code).in_(lowered)).all()
+        found_lowered = {(m.code or '').lower() for m in materials}
+        missing = [code for code, low in zip(codes, lowered) if low not in found_lowered]
+        return api_json_success({
+            'items': [api_material_payload(m) for m in materials],
+            'missing': missing,
+        })
 
     # no-test:reason=纯 Excel 模板下载，能力由 verify_opening_stock_import_template 脚本覆盖
     @app.route('/opening_stock/import/template')
