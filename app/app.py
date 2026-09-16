@@ -7717,6 +7717,61 @@ def _opening_stock_compat_doc(raw_date, generate_order_no_fn):
     return doc
 
 
+def _opening_stock_progress_matrix(OpeningStock, db, warehouse_ids):
+    """建账进度聚合：{(material_id): {warehouse_id: 累计期初数量}} 与 NULL 仓库行。
+
+    P1-A 建账进度看板与它的 CSV 导出共用本函数——两处各自实现一遍 SUM 聚合
+    与"0 算未建账"的判定，是典型的 R6 同根因漂移风险（改一处忘另一处，
+    页面显示已建账、导出却说未建账）。口径只有一份，就在这里。
+
+    口径（INVENTORY_TRUTH.md §2.1.2）：
+    - 某 (物料, 仓库) 期初 = 该组合下**全部单据** quantity 之和（一次分组查询
+      拿全量，避免逐物料 N+1）；
+    - 合计为 0 视为未建账（录 0 与没录在库存上等价）；
+    - warehouse_id 为 NULL 的历史行归入 None 键，不猜归属。
+
+    返回 qty_map；调用方自行决定怎么展示/筛选。
+    """
+    agg_rows = (db.session.query(
+        OpeningStock.material_id,
+        OpeningStock.warehouse_id,
+        db.func.coalesce(db.func.sum(OpeningStock.quantity), 0),
+    ).group_by(OpeningStock.material_id, OpeningStock.warehouse_id).all())
+    qty_map = {}
+    for material_id, warehouse_id, qty in agg_rows:
+        qty_map.setdefault(material_id, {})[warehouse_id] = float(qty or 0)
+    return qty_map
+
+
+def _opening_stock_progress_cells(qty_map, material_id, warehouse_ids):
+    """把某物料的聚合结果摊成建账进度行数据（页面与导出共用的唯一判定处）。
+
+    返回 (cells, built_count, orphan_quantity, has_orphan, is_gap)：
+    - cells: 每个启用仓库一个格子 {'warehouse_id','quantity','built'}
+    - built_count: 已建账的启用仓库数
+    - orphan_*: warehouse_id 为 NULL 的历史行（不归属任何仓库）
+    - is_gap: 完全未建账（一个已建账仓位都没有，含历史行也没有）
+    """
+    per_wh = qty_map.get(material_id, {})
+    cells = []
+    built_count = 0
+    for wid in warehouse_ids:
+        qty = per_wh.get(wid)
+        # 0 视为未建账：录 0 与没录在库存上等价
+        is_built = qty is not None and abs(qty) > 1e-9
+        if is_built:
+            built_count += 1
+        cells.append({
+            'warehouse_id': wid,
+            'quantity': qty if qty is not None else 0,
+            'built': is_built,
+        })
+    orphan = per_wh.get(None)
+    has_orphan = orphan is not None and abs(orphan) > 1e-9
+    is_gap = (built_count + (1 if has_orphan else 0)) == 0
+    return cells, built_count, (orphan if has_orphan else None), has_orphan, is_gap
+
+
 def _material_image_search_terms(material):
     """按名称+规格构造搜索词，品牌作为补充，去噪声后缀。
 

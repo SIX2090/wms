@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}期初建账进度{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <h4 class="mb-1"><i class="bi bi-clipboard-check"></i> 期初建账进度</h4>
+            <div class="text-muted small">行 = 物料，列 = 仓库。格子有数字表示该仓库已建账，<span class="text-danger fw-bold">未建账</span>表示还缺这一摊。</div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-outline-secondary" href="/opening_stock"><i class="bi bi-list-ul"></i> 期初单据列表</a>
+            <a class="btn btn-primary" href="/opening_stock/add"><i class="bi bi-plus-lg"></i> 新增单据</a>
+            <!-- 导出链接带上全部筛选字段（含 per_page），保证与页面所见筛选口径一致 -->
+            <a class="btn btn-outline-primary" href="/opening_stock/progress/export?only_gap={{ filters.only_gap }}&search={{ filters.search|urlencode }}&per_page={{ per_page }}"><i class="bi bi-download"></i> 导出未建账清单</a>
+        </div>
+    </div>
+
+    <!-- 全库口径统计：与当前页筛选无关，回答"整体还差多少"（R1） -->
+    <div class="card mb-3">
+        <div class="card-body py-3">
+            <div class="row g-3 align-items-center">
+                <div class="col-md-3 col-6">
+                    <div class="text-muted small">物料总数</div>
+                    <div class="fs-4 fw-bold">{{ stats.total_materials }}</div>
+                </div>
+                <div class="col-md-3 col-6">
+                    <div class="text-muted small">已建账物料</div>
+                    <div class="fs-4 fw-bold text-success">{{ stats.built_materials }}</div>
+                </div>
+                <div class="col-md-3 col-6">
+                    <div class="text-muted small">未建账物料</div>
+                    <div class="fs-4 fw-bold {% if stats.gap_materials %}text-danger{% else %}text-success{% endif %}">{{ stats.gap_materials }}</div>
+                </div>
+                <div class="col-md-3 col-6">
+                    <div class="text-muted small">启用仓库数</div>
+                    <div class="fs-4 fw-bold">{{ stats.warehouse_count }}</div>
+                </div>
+            </div>
+            <div class="mt-3">
+                <div class="d-flex justify-content-between small text-muted mb-1">
+                    <span>建账完成度</span>
+                    <span>{{ stats.percent }}%</span>
+                </div>
+                <div class="progress" style="height:10px;">
+                    <div class="progress-bar bg-success" role="progressbar"
+                         style="width: {{ stats.percent }}%;"
+                         aria-valuenow="{{ stats.percent }}" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header"><i class="bi bi-funnel"></i> 筛选</div>
+        <div class="card-body">
+            <form method="get" action="/opening_stock/progress" class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">关键字</label>
+                    <input type="text" class="form-control" name="search" value="{{ filters.search or '' }}" placeholder="物料编码/名称/规格">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">显示范围</label>
+                    <select class="form-select" name="only_gap">
+                        <option value="1" {% if filters.only_gap == '1' %}selected{% endif %}>只看未建账</option>
+                        <option value="0" {% if filters.only_gap != '1' %}selected{% endif %}>全部物料</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">每页</label>
+                    <select class="form-select" name="per_page">
+                        {% for opt in [20, 50, 100, 200] %}
+                            <option value="{{ opt }}" {% if per_page == opt %}selected{% endif %}>{{ opt }} 条</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex gap-2">
+                    <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> 查询</button>
+                    <a class="btn btn-outline-secondary" href="/opening_stock/progress"><i class="bi bi-x-circle"></i> 重置</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width:52px;">序号</th>
+                        <th style="width:120px;">物料编码</th>
+                        <th>物料名称</th>
+                        <th style="width:110px;">规格</th>
+                        <th style="width:60px;">单位</th>
+                        <th style="width:96px;" class="text-center">建账进度</th>
+                        {% for w in warehouses %}
+                            <th class="text-center" style="min-width:110px;" title="{{ w.code }} - {{ w.name }}">
+                                {{ w.name }}
+                                <div class="text-muted fw-normal" style="font-size:11px;">{{ w.code }}</div>
+                            </th>
+                        {% endfor %}
+                        {% if show_orphan_col %}
+                            <th class="text-center text-muted" style="min-width:110px;" title="历史直连台账行（未指定仓库），不归属任何仓库">
+                                未指定仓库
+                            </th>
+                        {% endif %}
+                        <th style="width:88px;" class="text-center">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if rows %}
+                    {% for r in rows %}
+                    <tr>
+                        <td>{{ loop.index + ((pagination.page - 1) * pagination.per_page) }}</td>
+                        <td><code>{{ r.code }}</code></td>
+                        <td>
+                            {{ r.name }}
+                            {% if r.is_gap %}<span class="badge bg-danger ms-1 align-middle">未建账</span>{% endif %}
+                        </td>
+                        <td class="text-muted small">{{ r.spec or '-' }}</td>
+                        <td class="text-muted small">{{ r.unit or '-' }}</td>
+                        <td class="text-center">
+                            <span class="badge {% if r.built_count %}bg-success{% else %}bg-secondary{% endif %}">
+                                {{ r.built_count }}/{{ r.warehouse_count }}
+                            </span>
+                        </td>
+                        {% for c in r.cells %}
+                            <td class="text-center">
+                                {% if c.built %}
+                                    <span class="text-success fw-bold" title="{{ c.warehouse_name }} 已建账">{{ '%.2f'|format(c.quantity) }}</span>
+                                {% else %}
+                                    <span class="text-danger">未建账</span>
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                        {% if show_orphan_col %}
+                        <td class="text-center">
+                            {% if r.has_orphan %}
+                                <span class="text-muted">{{ '%.2f'|format(r.orphan_quantity) }}</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        {% endif %}
+                        <td class="text-center">
+                            <!-- 属性用单引号：tojson 产出双引号 JSON，用双引号包裹会提前截断属性 -->
+                            <button class="btn btn-sm btn-outline-primary" type="button"
+                                    onclick='copyUnbuiltRow({{ r.code|tojson }}, {{ r.name|tojson }})'
+                                    title="复制物料编码到剪贴板，粘贴进录入网格即可建账">
+                                <i class="bi bi-clipboard"></i> 复制
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="{{ 7 + (warehouses|length) + (1 if show_orphan_col else 0) }}" class="text-center text-muted py-4">
+                            {% if filters.only_gap == '1' %}
+                                太棒了，当前筛选范围内没有未建账的物料。
+                                <a href="/opening_stock/progress?only_gap=0">查看全部物料</a>
+                            {% else %}
+                                暂无物料，请先到「基础资料 - 物料」维护物料档案。
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% if pagination and pagination.total and pagination.total > 0 %}
+    <nav class="mt-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div class="text-muted small">
+            共 {{ pagination.total }} 个物料 / 第 {{ pagination.page }} / {{ pagination.pages }} 页
+            {% if filters.only_gap == '1' %}<span class="ms-2">（已切换到"只看未建账"）</span>{% endif %}
+        </div>
+        <ul class="pagination justify-content-center mb-0">
+            {%- if pagination.has_prev -%}
+            <li class="page-item"><a class="page-link" href="{{ url_for('opening_stock_progress', page=pagination.prev_num, per_page=per_page, search=filters.search, only_gap=filters.only_gap) }}">上一页</a></li>
+            {%- endif -%}
+            {%- for page in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) -%}
+                {%- if page -%}
+                <li class="page-item {% if page==pagination.page %}active{% endif %}"><a class="page-link" href="{{ url_for('opening_stock_progress', page=page, per_page=per_page, search=filters.search, only_gap=filters.only_gap) }}">{{ page }}</a></li>
+                {%- else -%}
+                <li class="page-item disabled"><span class="page-link">...</span></li>
+                {%- endif -%}
+            {%- endfor -%}
+            {%- if pagination.has_next -%}
+            <li class="page-item"><a class="page-link" href="{{ url_for('opening_stock_progress', page=pagination.next_num, per_page=per_page, search=filters.search, only_gap=filters.only_gap) }}">下一页</a></li>
+            {%- endif -%}
+        </ul>
+    </nav>
+    {% endif %}
+
+    <div class="card mt-3">
+        <div class="card-header"><i class="bi bi-info-circle"></i> 口径说明</div>
+        <div class="card-body small text-muted">
+            <ul class="mb-0">
+                <li><strong>已建账</strong>：该物料在该仓库下的期初数量合计不为 0（同一物料同一仓库可以有多张单据，系统按<strong>全部单据累加</strong>，绝不取单行当余额）。</li>
+                <li><strong>未建账</strong>：该物料在该仓库没有任何期初记录，或合计为 0。录 0 与没录在库存上是等价的，统一按未建账展示。</li>
+                <li><strong>未指定仓库列</strong>：迁移前的历史期初数据没有仓库归属，系统不猜测、不摊派，单列一栏让你看得见。</li>
+                <li>停用仓库不参与建账统计。</li>
+                <li>点「复制」把物料编码复制到剪贴板，粘贴进录入网格的物料列即可快速建账。</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 复制单个未建账物料的编码：用户拿到录入网格里粘贴，省去手打编码。
+// 剪贴板 API 在非 HTTPS 环境不可用（自建 WMS 常见 http 访问），
+// 这里做降级：失败则弹出可手动复制的输入框，不让功能直接消失。
+function copyUnbuiltRow(code, name) {
+    var text = code;
+    function fallback() {
+        window.prompt('复制下面的物料编码（' + (name || '') + '）：', text);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () {
+            if (window.showToast) showToast('已复制物料编码 ' + text, 'success');
+        }).catch(fallback);
+    } else {
+        fallback();
+    }
+}
+</script>
+{% endblock %}

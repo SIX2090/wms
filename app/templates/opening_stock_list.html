@@ -7,6 +7,8 @@
         <div class="d-flex gap-2 flex-wrap">
             <a class="btn btn-primary" href="/opening_stock/add"><i class="bi bi-plus-lg"></i> 新增单据</a>
             <a class="btn btn-outline-secondary" href="/batch_import?type=opening_stock"><i class="bi bi-cloud-upload"></i> 批量导入</a>
+            <!-- P1-A 建账进度：回答"还差哪些物料没建账"，避免建到一半不知漏了谁 -->
+            <a class="btn btn-outline-info" href="/opening_stock/progress"><i class="bi bi-clipboard-check"></i> 建账进度</a>
         </div>
         <!-- BUG-2026-09-15-008：一键删除全部已建账/已导入期初库存（物理删 + 库存回冲） -->
         <button class="btn btn-outline-danger" type="button" onclick="deleteAllOpeningStock()" title="删除全部已建账期初库存并回冲库存">

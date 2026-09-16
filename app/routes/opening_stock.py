@@ -1077,6 +1077,213 @@ def register_opening_stock_routes(app):
             'missing': missing,
         })
 
+    @app.route('/opening_stock/progress')
+    @login_required
+    def opening_stock_progress():
+        """期初建账进度看板：以「物料 × 仓库」矩阵回答"还差哪些没建账"。
+
+        用户诉求（P1-A）：仓库几百上千个物料，期初录到一半根本不知道漏了谁，
+        只能反复翻单据台账对账。本页把口径摊开成矩阵——行是物料、列是仓库，
+        格子显示该 (物料, 仓库) 的累计期初数量，空格子即"未建账"。
+
+        口径（与 INVENTORY_TRUTH.md §2.1.2 一致）：
+        - 某 (物料, 仓库) 的期初 = 该组合下**所有单据**明细行 quantity 之和，
+          绝不取单行当余额（多单据各录一份是允许的，取单行会漏算）。
+        - 期初数量为 0 的行按"未建账"处理：录 0 和没录在库存上等价，
+          不把 0 行算作已建账，否则用户点进去看到 0 会更困惑。
+        - warehouse_id 为 NULL 的历史行（迁移前直连台账）单列一列"未指定仓库"，
+          不猜归属、不摊派到任意仓库（"看得见的空洞"原则）。
+
+        排除停用仓库（status != 'active'）：停用仓不该再作为建账目标出现。
+
+        R1：物料可能上万，本页**不做业务截断**，但分页返回并给出 total，
+        默认每页 50 条物料；同时返回每行"已建账仓数/总仓数"便于排序取重点。
+        R2：多仓库边界——每个仓库各自成列独立计数，互相不污染；
+        单仓短路场景（Warehouse.query.count()==1）在数据层不影响本页
+        （本页按 warehouse_id 精确聚合，不走 get_warehouse_stock_quantities
+        的单仓全量回落，避免把全局库存误标成该仓已建账）。
+        """
+        from app import (
+            Material,
+            OpeningStock,
+            Warehouse,
+            _opening_stock_progress_cells,
+            _opening_stock_progress_matrix,
+            db,
+            render_template,
+            request,
+        )
+
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        per_page = max(1, per_page)
+        per_page = per_page if per_page in [20, 50, 100, 200] else 50
+        search = (request.args.get('search') or '').strip()
+        # 只看"有缺口"的物料：已全仓位建账的物料默认不占版面
+        only_gap = (request.args.get('only_gap') or '1') == '1'
+
+        warehouses = Warehouse.query.filter_by(status='active').order_by(
+            Warehouse.code.asc()).all()
+        warehouse_ids = [w.id for w in warehouses]
+        wh_by_id = {w.id: w for w in warehouses}
+
+        # 口径唯一实现在 app.py 的 _opening_stock_progress_*（与导出共用，防 R6 漂移）
+        qty_map = _opening_stock_progress_matrix(OpeningStock, db, warehouse_ids)
+
+        query = Material.query
+        if search:
+            like = f'%{search}%'
+            query = query.filter(db.or_(
+                Material.code.like(like),
+                Material.name.like(like),
+                Material.spec.like(like),
+            ))
+        query = query.order_by(Material.code.asc())
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+
+        rows = []
+        for material in pagination.items:
+            cells, built_count, orphan_qty, has_orphan, is_gap = \
+                _opening_stock_progress_cells(qty_map, material.id, warehouse_ids)
+            for cell in cells:
+                warehouse = wh_by_id[cell['warehouse_id']]
+                cell['warehouse_code'] = warehouse.code
+                cell['warehouse_name'] = warehouse.name
+            rows.append({
+                'material_id': material.id,
+                'code': material.code,
+                'name': material.name,
+                'spec': material.spec,
+                'unit': material.unit.name if material.unit else '',
+                'cells': cells,
+                'built_count': built_count,
+                'warehouse_count': len(warehouse_ids),
+                'orphan_quantity': orphan_qty,
+                'has_orphan': has_orphan,
+                'is_gap': is_gap,
+            })
+
+        if only_gap:
+            rows = [r for r in rows if r['is_gap']]
+
+        # 全库统计（不受分页/筛选影响），供页面顶部进度条使用——
+        # 用户真正想知道的是"整体还差多少"，不能拿当前页行数当总量（R1）。
+        all_material_ids = [mid for (mid,) in db.session.query(Material.id).all()]
+        built_ids = set()
+        for material_id in all_material_ids:
+            _, built_count, _, has_orphan, _ = _opening_stock_progress_cells(
+                qty_map, material_id, warehouse_ids)
+            if built_count or has_orphan:
+                built_ids.add(material_id)
+        total_materials = len(all_material_ids)
+        fully_built = len(built_ids)
+
+        # 历史直连台账（warehouse_id NULL）存在才显示该列，无数据不占版面
+        show_orphan_col = any(
+            per_wh.get(None) is not None and abs(per_wh[None]) > 1e-9
+            for per_wh in qty_map.values()
+        )
+
+        return render_template(
+            'opening_stock_progress.html',
+            rows=rows,
+            warehouses=warehouses,
+            pagination=pagination,
+            per_page=per_page,
+            filters={'search': search, 'only_gap': '1' if only_gap else '0'},
+            show_orphan_col=show_orphan_col,
+            # 全库口径统计：进度条用，与当前页筛选无关
+            stats={
+                'total_materials': total_materials,
+                'built_materials': fully_built,
+                'gap_materials': total_materials - fully_built,
+                'warehouse_count': len(warehouse_ids),
+                'percent': round(fully_built * 100.0 / total_materials, 1)
+                if total_materials else 0.0,
+            },
+        )
+
+    @app.route('/opening_stock/progress/export')
+    @login_required
+    def opening_stock_progress_export():
+        """导出未建账清单为 CSV（供仓管打印/分派建账任务）。
+
+        与 /opening_stock/progress 同口径（同样的 SUM 聚合与 0 判定），
+        不重复实现第二套判定，避免两处漂移（R6）。
+
+        R4 降级：纯 CSV 下载，不依赖前端 JS；无物料时也返回带表头的空文件，
+        而不是报错，让用户能明确知道"确实全建完了"。
+        """
+        from flask import send_file
+        from app import (
+            Material,
+            OpeningStock,
+            Warehouse,
+            _opening_stock_progress_cells,
+            _opening_stock_progress_matrix,
+            db,
+            request,
+        )
+
+        search = (request.args.get('search') or '').strip()
+        only_gap = (request.args.get('only_gap') or '1') == '1'
+
+        warehouses = Warehouse.query.filter_by(status='active').order_by(
+            Warehouse.code.asc()).all()
+        warehouse_ids = [w.id for w in warehouses]
+
+        # 与页面的口径唯一实现共用（app.py），不在此重复写第二套判定
+        qty_map = _opening_stock_progress_matrix(OpeningStock, db, warehouse_ids)
+
+        query = Material.query
+        if search:
+            like = f'%{search}%'
+            query = query.filter(db.or_(
+                Material.code.like(like),
+                Material.name.like(like),
+                Material.spec.like(like),
+            ))
+        materials = query.order_by(Material.code.asc()).all()
+
+        import csv
+        import io
+
+        buffer = io.BytesIO()
+        # utf-8-sig：Excel 打开中文 CSV 不乱码。
+        # 注意用 TextIOWrapper 时要 detach()，否则 wrapper 被 GC 时会连带关掉
+        # BytesIO，send_file 读到已关闭的流抛 "I/O operation on closed file"。
+        wrapper = io.TextIOWrapper(buffer, encoding='utf-8-sig', newline='')
+        writer = csv.writer(wrapper)
+        header = ['物料编码', '物料名称', '规格', '单位', '已建账仓数', '仓库总数']
+        header += [w.name for w in warehouses]
+        header.append('未指定仓库')
+        header.append('状态')
+        writer.writerow(header)
+
+        for material in materials:
+            cells, built_count, orphan_qty, has_orphan, is_gap = \
+                _opening_stock_progress_cells(qty_map, material.id, warehouse_ids)
+            if only_gap and not is_gap:
+                continue
+            writer.writerow(
+                [material.code, material.name, material.spec or '',
+                 material.unit.name if material.unit else '',
+                 built_count, len(warehouse_ids)]
+                + ['%.2f' % c['quantity'] if c['built'] else '未建账' for c in cells]
+                + ['%.2f' % orphan_qty if has_orphan else '',
+                   '未建账' if is_gap else '已建账']
+            )
+        wrapper.flush()
+        # detach 交还底层 BytesIO 的所有权，避免 wrapper 析构时关闭 buffer
+        wrapper.detach()
+        buffer.seek(0)
+        return send_file(
+            buffer,
+            download_name='opening_stock_progress.csv',
+            as_attachment=True,
+            mimetype='text/csv',
+        )
+
     # no-test:reason=纯 Excel 模板下载，能力由 verify_opening_stock_import_template 脚本覆盖
     @app.route('/opening_stock/import/template')
     @login_required
