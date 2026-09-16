@@ -58,6 +58,9 @@ fun OpeningStockScreen(
     var showWarehouseDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
+    // BUG-2026-09-16-010：点行改数量——已录入行不再只能删了重扫
+    var editLineIndex by remember { mutableStateOf<Int?>(null) }
+    var editQty by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
 
     // AI-MOB-ADD-KEYWORD-01：弹窗关闭后清掉候选，避免下次打开时残留上一次的联想结果
@@ -250,6 +253,10 @@ fun OpeningStockScreen(
                         OpeningStockLineCard(
                             line = line,
                             index = index,
+                            onClick = {
+                                editLineIndex = index
+                                editQty = formatQuantity(line.quantity)
+                            },
                             onRemove = { viewModel.removeLine(index) }
                         )
                     }
@@ -545,6 +552,103 @@ fun OpeningStockScreen(
         )
     }
 
+    // BUG-2026-09-16-010：点行改数量对话框——设为确切值（与扫码累加互补）
+    editLineIndex?.let { index ->
+        val line = uiState.lines.getOrNull(index)
+        if (line != null) {
+            AlertDialog(
+                onDismissRequest = { editLineIndex = null },
+                shape = RoundedCornerShape(20.dp),
+                title = {
+                    Text(
+                        "修改数量：${line.materialCode}",
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FilledIconButton(
+                            onClick = {
+                                val current = editQty.toDoubleOrNull() ?: 1.0
+                                editQty = formatQuantity((current - 1).coerceAtLeast(0.0))
+                            },
+                            modifier = Modifier.size(44.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = CardCyan.copy(alpha = 0.1f)
+                            )
+                        ) {
+                            Icon(Icons.Outlined.Remove, "减1", tint = CardCyan, modifier = Modifier.size(22.dp))
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = editQty,
+                            onValueChange = { editQty = it },
+                            label = { Text("数量（确切值）") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Decimal,
+                                imeAction = ImeAction.Done
+                            ),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CardCyan,
+                                focusedLabelColor = CardCyan
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        FilledIconButton(
+                            onClick = {
+                                val current = editQty.toDoubleOrNull() ?: 0.0
+                                editQty = formatQuantity(current + 1)
+                            },
+                            modifier = Modifier.size(44.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan)
+                        ) {
+                            Icon(Icons.Outlined.Add, "加1", tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val qty = editQty.toDoubleOrNull()
+                            if (qty != null && qty >= 0) {
+                                viewModel.updateLineQuantity(index, qty)
+                                editLineIndex = null
+                            }
+                        },
+                        enabled = (editQty.toDoubleOrNull() ?: -1.0) >= 0.0,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CardCyan)
+                    ) {
+                        Text("确定")
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = {
+                            viewModel.removeLine(index)
+                            editLineIndex = null
+                        }) {
+                            Text("删除该行", color = Error)
+                        }
+                        TextButton(onClick = { editLineIndex = null }) {
+                            Text("取消")
+                        }
+                    }
+                }
+            )
+        } else {
+            // 行已被移除（如清空后弹窗还在），直接关掉
+            editLineIndex = null
+        }
+    }
+
     // 日期选择对话框
     if (showDateDialog) {
         DatePickerDialogComposable(
@@ -603,10 +707,13 @@ fun OpeningStockScreen(
 private fun OpeningStockLineCard(
     line: OpeningStockLine,
     index: Int,
+    onClick: () -> Unit,
     onRemove: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground)

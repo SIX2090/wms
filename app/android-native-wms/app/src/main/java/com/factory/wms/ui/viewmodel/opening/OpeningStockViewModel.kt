@@ -170,8 +170,12 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
         val current = _uiState.value.lines.toMutableList()
         val existingIndex = current.indexOfFirst { it.materialCode == trimmed }
         if (existingIndex >= 0) {
+            // BUG-2026-09-16-010：同编码合并必须**累加**而非覆盖——
+            // 连续扫描场景同一件货扫 N 次就是 N 件，覆盖会让扫 100 个
+            // 轴承提交数量恒为 1，连续扫描名存实亡。要改成确切值请用
+            // 行点击弹窗（updateLineQuantity），不要退回覆盖语义。
             val existing = current[existingIndex]
-            current[existingIndex] = existing.copy(quantity = quantity)
+            current[existingIndex] = existing.copy(quantity = existing.quantity + quantity)
         } else {
             current.add(OpeningStockLine(materialCode = trimmed, quantity = quantity))
         }
@@ -203,6 +207,24 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
         if (index in current.indices) {
             current.removeAt(index)
             _uiState.value = _uiState.value.copy(lines = current)
+        }
+    }
+
+    /**
+     * BUG-2026-09-16-010：行点击弹窗改数量（设为确切值）。
+     *
+     * 与 [addLine] 的累加语义互补：扫码/手动添加负责"加"，本函数负责
+     * "改成对的数"——此前已录入行数量错了只能删行重扫，操作成本高。
+     */
+    fun updateLineQuantity(index: Int, quantity: Double) {
+        if (quantity < 0) {
+            _uiState.value = _uiState.value.copy(error = "数量不能小于 0")
+            return
+        }
+        val current = _uiState.value.lines.toMutableList()
+        if (index in current.indices) {
+            current[index] = current[index].copy(quantity = quantity)
+            _uiState.value = _uiState.value.copy(lines = current, error = null)
         }
     }
 
