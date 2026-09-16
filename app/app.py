@@ -3467,6 +3467,13 @@ SYSTEM_SETTING_GROUPS = [
                 'remark': '用于后续列表打印时合并重复表头或重复字段。',
             },
             {
+                'key': 'auto_print_on_submit',
+                'label': '提交后自动打印',
+                'type': 'bool',
+                'default': '1',
+                'remark': '手机扫码/移动端提交入库、出库成功后自动创建打印任务（手机提交 → 本地电脑自动出纸）。不用打印可关闭：关闭后提交不再自动建任务；已滞留未打印的自动任务由巡检自动作废（不再每天产生「任务滞留」告警），手动打印不受影响。',
+            },
+            {
                 'key': 'print_alert_enabled',
                 'label': '打印告警',
                 'type': 'bool',

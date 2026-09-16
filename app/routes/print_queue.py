@@ -444,6 +444,29 @@ def _job_tspl_view(job):
     return view
 
 
+# 自动打印来源事件：enqueue_auto_print_job 各调用点使用的 source_event 取值
+# （mobile 扫码提交/草稿确认、native App 入出库）。手动建任务（/print_queue/jobs）
+# 走模型默认值 'manual'，不在此列——「提交后自动打印」总开关关闭时，巡检
+# 只作废自动来源的滞留任务，手动任务不受影响（BUG-2026-09-16-008）。
+AUTO_PRINT_SOURCE_EVENTS = (
+    'auto',
+    'scan_draft_confirm_in', 'scan_draft_confirm_out',
+    'scan_inbound', 'scan_outbound',
+    'scan_submit_in', 'scan_submit_out',
+)
+
+
+def auto_print_on_submit_enabled():
+    """「提交后自动打印」总开关（BUG-2026-09-16-008）。
+
+    默认开启（保持既有行为：提交入/出库自动建打印任务）；系统设置 → 打印参数
+    可关闭。关闭后：enqueue_auto_print_job 不再建任务；check_print_health
+    巡检把滞留的自动来源 pending 任务自动作废。
+    """
+    from app import get_system_setting_bool
+    return get_system_setting_bool('auto_print_on_submit', True)
+
+
 def enqueue_auto_print_job(job_type, target_id, warehouse_name, target_ids=None,
                            copies=1, created_by=None, source_event='auto'):
     """扫码/手工入库出库成功后自动创建打印任务，供桌面打印工作站或定向代理出纸。
@@ -457,7 +480,11 @@ def enqueue_auto_print_job(job_type, target_id, warehouse_name, target_ids=None,
       SERVER-AUTOPRINT-01：无任何规则时若内置本机打印代理在线且有可用打印机，
       优先兜底定向到内置代理（零配置自动打印），再退化为未定向任务。
     - 任务始终创建，不阻塞业务操作；由调用方同一事务提交，保证单据与打印任务原子写入。
+    - BUG-2026-09-16-008：「提交后自动打印」总开关关闭时直接返回 None 不建
+      任务（全部调用点均不使用返回值，业务单据照常提交）；手动打印不受影响。
     """
+    if not auto_print_on_submit_enabled():
+        return None
     from app import PrintJob
     assignment = _resolve_job_assignment(job_type, warehouse_name)
     job = PrintJob(

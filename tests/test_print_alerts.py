@@ -134,10 +134,12 @@ def test_check_print_health(client):
         old = datetime.now() - timedelta(minutes=30)
         _make_job(created_at=old)
         stats = check_print_health()
-        assert stats == {"pending_timeout": 1, "workstation_offline": 0}
+        assert stats == {"pending_timeout": 1, "workstation_offline": 0,
+                         "auto_cancelled": 0}
         db.session.add(SystemSetting(key="print_alert_enabled", value="0"))
         db.session.commit()
-        assert check_print_health() == {"pending_timeout": 0, "workstation_offline": 0}
+        assert check_print_health() == {"pending_timeout": 0, "workstation_offline": 0,
+                                        "auto_cancelled": 0}
 
 
 def test_mark_failed_creates_alert(client):

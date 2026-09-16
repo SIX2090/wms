@@ -150,16 +150,37 @@ def check_print_health():
       无人认领 → 按任务当日去重告警（无人接单的信号）。
     - 工作站离线：启用中的工作站离线（心跳超窗）且仍有定向到它的 pending
       任务 → 按工作站当日去重告警。
-    返回 {'pending_timeout': n, 'workstation_offline': m} 供测试断言。
+    - BUG-2026-09-16-008：「提交后自动打印」总开关关闭时，滞留的自动来源
+      pending 任务逐批自动作废（status='cancelled'），不再每天零点重复告警；
+      手动建的任务（source_event='manual'）与阈值内的新任务不动。
+    返回 {'pending_timeout': n, 'workstation_offline': m, 'auto_cancelled': k} 供测试断言。
     """
     from app import PrintJob, PrintWorkstation, get_system_setting_int
 
-    stats = {'pending_timeout': 0, 'workstation_offline': 0}
+    stats = {'pending_timeout': 0, 'workstation_offline': 0, 'auto_cancelled': 0}
+    timeout_min = get_system_setting_int('print_alert_pending_timeout_min', 10)
+    cutoff = datetime.now() - timedelta(minutes=max(1, timeout_min))
+
+    # 自动打印已停用 → 滞留自动任务作废（在告警开关判断之前执行：
+    # 即便告警也关了，队列卫生仍要维持，且作废后自然不再产生滞留告警）
+    from routes.print_queue import (AUTO_PRINT_SOURCE_EVENTS,
+                                    auto_print_on_submit_enabled)
+    if not auto_print_on_submit_enabled():
+        stale_auto = PrintJob.query.filter(
+            PrintJob.status == 'pending',
+            PrintJob.created_at < cutoff,
+            PrintJob.source_event.in_(AUTO_PRINT_SOURCE_EVENTS),
+        ).order_by(PrintJob.created_at.asc()).limit(200).all()
+        for job in stale_auto:
+            job.status = 'cancelled'
+            job.error_msg = '提交后自动打印已停用，滞留任务由巡检自动作废'
+        if stale_auto:
+            db.session.commit()
+            stats['auto_cancelled'] = len(stale_auto)
+
     if not _print_alert_enabled():
         return stats
 
-    timeout_min = get_system_setting_int('print_alert_pending_timeout_min', 10)
-    cutoff = datetime.now() - timedelta(minutes=max(1, timeout_min))
     stale_jobs = PrintJob.query.filter(
         PrintJob.status == 'pending',
         PrintJob.created_at < cutoff,
