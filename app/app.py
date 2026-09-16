@@ -2465,6 +2465,80 @@ def ensure_opening_stock_doc_table(db_path: str | None = None):
                 pass
 
 
+def cleanup_dangling_opening_stock_transactions(db_path: str | None = None):
+    """启动期无条件清理指向已删除期初明细行的悬挂库存流水（BUG-2026-09-16-007）。
+
+    背景：BUG-2026-09-16-007 之前，删除期初单据/明细行走的是"追加一条
+    quantity=-N 回冲流水"，明细行物理删除后，其 +N/-N 流水仍留在
+    stock_transaction 里——库存台账继续显示单据编号 opening_stock-<id>
+    指向不存在明细行的记录（用户原话：期初库存被我删除了怎么还有单据，
+    搞得乱七八糟的）。新口径"删除了就没有流水"只约束此后的删除路径，
+    历史遗留的悬挂流水必须由本函数统一清一次。
+
+    口径：reference_type='opening_stock' 且 reference_id 已不在
+    opening_stock 表中的流水一律物理删除（幂等，存量清完后每次启动 0 条）。
+
+    唯一例外（误删防护）：routes/material.py「新增物料带初始库存」的审计流水
+    复用 reference_type='opening_stock'，但 reference_id 是 **material.id**
+    而非明细行 id（remark='新增物料初始库存'），物料还在、流水合法，必须按
+    remark 排除——仅靠 id 域无法区分（material.id 与 opening_stock.id 可能
+    撞号）。
+
+    仿 ensure_* 系列：独立 sqlite 连接、独立于迁移开关无条件执行、幂等、
+    busy_timeout=60000，失败仅记日志不阻断启动（R4）。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            # 全新部署：库文件还没建，无历史悬挂流水可清
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        cur = conn.cursor()
+        cur.execute('PRAGMA busy_timeout=60000')
+        for tbl in ('stock_transaction', 'opening_stock'):
+            exists = cur.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (tbl,),
+            ).fetchone()
+            if not exists:
+                return
+        cur.execute(
+            "DELETE FROM stock_transaction "
+            "WHERE reference_type = 'opening_stock' "
+            "AND (remark IS NULL OR remark != '新增物料初始库存') "
+            "AND reference_id NOT IN (SELECT id FROM opening_stock)"
+        )
+        removed = cur.rowcount or 0
+        if removed:
+            conn.commit()
+            logging.getLogger(__name__).info(
+                '[DB] 期初库存已清理 %s 条指向已删除明细行的悬挂流水'
+                '（BUG-2026-09-16-007）', removed)
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'cleanup_dangling_opening_stock_transactions 清理失败: {e}',
+                exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def ensure_opening_stock_doc_columns(db_path: str | None = None):
     """启动期无条件补齐 ARCH-OS-DOC-01 的 opening_stock.doc_id 列。
 
@@ -2743,6 +2817,12 @@ ensure_opening_stock_doc_columns()
 # 无条件幂等建表 + 按 (建账日期, 仓库) 回填历史单据（与迁移同一实现，
 # 缺 doc_id 列也顺带兜底）。放在补列之后注册，先列后表再回填。
 ensure_opening_stock_doc_table()
+
+# BUG-2026-09-16-007：删除了就没有流水——历史"追加 -N 回冲流水"遗留的
+# 悬挂流水（明细行已物理删除、台账仍显示 opening_stock-<id>）启动期统一
+# 清理；「新增物料初始库存」流水（reference_id=material.id）按 remark 排除
+# 不误删。无条件执行、幂等，清完后每次启动 0 条。
+cleanup_dangling_opening_stock_transactions()
 
 # BUG-2026-09-12：移动端「领料部门/领料人」整套依赖 department 表 +
 # out_order.department_id/picker + employee.department_id，四者都只在
@@ -7430,23 +7510,42 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
 
 
 def _reverse_opening_stock_line(line, reason='期初删除回冲'):
-    """删除期初明细行前的库存回冲（ARCH-OS-DOC-01）。
+    """删除期初明细行前的库存回冲 + 流水清理（ARCH-OS-DOC-01 / BUG-2026-09-16-007）。
 
     期初建账时已经通过 _apply_opening_stock_balance 把 quantity 加进了
     Material.stock 并写了 StockTransaction。删除单据/明细行时必须原路减回，
     否则库存虚高、账实分裂——这是"允许同物料同仓多张单"后新增的销毁路径
     （改造前删除只是一条台账记录，现在每条记录都真实影响过总账）。
 
+    BUG-2026-09-16-007 口径变更（用户明确要求"删除了就没有流水"）：
+    旧行为是追加一条 quantity=-N 的回冲流水（remark=reason），删单后库存台账
+    仍残留 +N/-N 两条记录、且单据编号 opening_stock-<id> 指向已物理删除的
+    明细行（悬挂引用）。现改为**物理删除该明细行的全部库存流水**（建账 +N
+    与历次编辑的差额流水一并移除），与入库单/出库单/调整单/售后出库单删除时
+    同步清理自身流水的既有惯例一致（in_order.py / out_order.py /
+    adjustment.py / after_sale_out.py 同口径）。库存余额照常回冲（Material.stock
+    与库位账），只是流水不留痕。reason 参数保留仅兼容既有调用点与审计文案，
+    流水本身不再落库；历史遗留的悬挂流水由启动期
+    cleanup_dangling_opening_stock_transactions() 统一清理。
+
     返回 (ok, msg)：
       - (True, '')        回冲成功（或无差额，无需回冲）
       - (False, msg)      库位账回冲失败（如库位库存不足），调用方必须 rollback
 
-    不在这里提交事务——由调用方统一 commit/rollback，保证"删单据 + 回冲"
-    是一个原子操作。
+    不在这里提交事务——由调用方统一 commit/rollback，保证"删单据 + 回冲
+    + 清流水"是一个原子操作。
     """
     material = line.material
     warehouse = line.warehouse
     delta = -normalize_stock_quantity(line.quantity or 0)
+
+    # 删除了就没有流水：无论当前数量是否为零（如先建 5 再改成 0 的行仍残留
+    # +5/-5 两条编辑流水），都物理删除该明细行的全部库存流水（建账 +N 与历次
+    # 编辑差额），不再追加 -N 回冲流水，台账不留指向已删除明细行的悬挂引用。
+    StockTransaction.query.filter_by(
+        reference_type='opening_stock', reference_id=line.id
+    ).delete(synchronize_session=False)
+
     if not material or abs(delta) <= STOCK_COMPARE_EPSILON:
         return True, ''
 
@@ -7456,18 +7555,6 @@ def _reverse_opening_stock_line(line, reason='期初删除回冲'):
         .values(stock=Material.stock + delta)
     )
     db.session.expire(material, ['stock'])
-
-    db.session.add(StockTransaction(
-        material_id=material.id,
-        transaction_type='opening',
-        quantity=delta,
-        location=(warehouse.name if warehouse else (line.location or '')),
-        warehouse_id=line.warehouse_id,
-        reference_type='opening_stock',
-        reference_id=line.id,
-        operator_id=current_user.id if current_user.is_authenticated else None,
-        remark=reason,
-    ))
 
     # 开启库位管理时同步回冲库位账（与 _apply_opening_stock_balance 对称）。
     # 库位库存不足时返回失败，由调用方整体 rollback，绝不静默成功。

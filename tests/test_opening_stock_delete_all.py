@@ -21,7 +21,8 @@
   T3 无记录时调用返回成功（幂等，不报错）
   T4 doc_id 为 NULL 的历史直连行也被删除并回冲
   T5 未登录访问被拦截（302 跳登录，不删除）
-  T6 回冲写入 StockTransaction 负向流水（账实可追溯）
+  T6 删除了就没有流水（BUG-2026-09-16-007）：全删后 opening 流水清零、
+     不新增负向回冲流水
   T7 前端静态断言：删除全部按钮 + deleteAllOpeningStock + 端点齐全
 """
 from __future__ import annotations
@@ -231,22 +232,29 @@ class TestOpeningStockDeleteAll:
             body = {}
         assert body.get("status") != "success"
 
-    # ---- T6 回冲写入负向流水 ----
+    # ---- T6 删除了就没有流水（BUG-2026-09-16-007）----
 
-    def test_t6_reversal_writes_stock_transaction(self):
+    def test_t6_delete_all_removes_transactions_no_reversal_rows(self):
         self._seed_two_docs()
-        before = StockTransaction.query.filter(
+        # 建账时每行各写一条 +N 流水
+        assert StockTransaction.query.filter(
+            StockTransaction.transaction_type == "opening").count() == 2
+        neg_before = StockTransaction.query.filter(
             StockTransaction.transaction_type == "opening",
             StockTransaction.quantity < 0,
         ).count()
+
         st, body = self._delete_all({"confirm": True})
         assert st == 200, body
-        after = StockTransaction.query.filter(
+
+        # 全删后流水物理清零，且不再新增任何负向回冲流水
+        assert StockTransaction.query.filter(
+            StockTransaction.transaction_type == "opening").count() == 0
+        neg_after = StockTransaction.query.filter(
             StockTransaction.transaction_type == "opening",
             StockTransaction.quantity < 0,
         ).count()
-        # 两行各写一条负向回冲流水
-        assert after - before == 2
+        assert neg_after == neg_before
 
 
 class TestOpeningStockDeleteAllFrontend:

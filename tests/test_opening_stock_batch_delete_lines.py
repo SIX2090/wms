@@ -15,7 +15,8 @@
   T3 line_ids 缺失 / 空列表 / 非正数 → 400，数据不动
   T4 单据不存在 → 404
   T5 未登录访问被拦截（不删除）
-  T6 回冲写入 StockTransaction 负向流水（账实可追溯）
+  T6 删除了就没有流水（BUG-2026-09-16-007）：被删行全部流水物理移除、
+     不新增负向回冲流水，未删行流水不受影响
   T7 重复 id 去重：只删一次、只回冲一次
   T8 前端静态断言：勾选列 + 全选 + 批量删除按钮 + 端点齐全
   T9 单行死接口已废弃：路由表不再注册，防止被无意恢复造成双实现漂移
@@ -247,25 +248,42 @@ class TestOpeningStockBatchDeleteLines:
             body = {}
         assert body.get("status") != "success"
 
-    # ---- T6 回冲写负向流水 ----
+    # ---- T6 删除了就没有流水（BUG-2026-09-16-007）----
 
-    def test_t6_reversal_writes_negative_transactions(self):
-        doc_id = self._seed_doc([(self.m1, 10), (self.m2, 20)])
-        before = StockTransaction.query.filter(
+    def test_t6_delete_removes_transactions_no_reversal_rows(self):
+        doc_id = self._seed_doc([(self.m1, 10), (self.m2, 20), (self.m3, 30)])
+        lines = self._lines_of(doc_id)
+        # 建账时每行各写一条 +N 流水
+        for line in lines:
+            assert StockTransaction.query.filter_by(
+                reference_type="opening_stock", reference_id=line.id).count() == 1
+        neg_before = StockTransaction.query.filter(
             StockTransaction.transaction_type == "opening",
             StockTransaction.quantity < 0,
         ).count()
 
-        line_ids = [l.id for l in self._lines_of(doc_id)]
-        st, body = self._batch_delete(doc_id, {"line_ids": line_ids})
+        # 删前两行、保留第三行
+        target_ids = [lines[0].id, lines[1].id]
+        keep_id = lines[2].id
+        st, body = self._batch_delete(doc_id, {"line_ids": target_ids})
         assert st == 200, body
 
-        after = StockTransaction.query.filter(
+        # 被删两行的全部流水物理移除，未删行流水原样保留（不串账）
+        for lid in target_ids:
+            assert StockTransaction.query.filter_by(
+                reference_type="opening_stock", reference_id=lid).count() == 0
+        assert StockTransaction.query.filter_by(
+            reference_type="opening_stock", reference_id=keep_id).count() == 1
+        # 不再新增任何负向回冲流水（旧口径是每删一行追加一条 -N）
+        neg_after = StockTransaction.query.filter(
             StockTransaction.transaction_type == "opening",
             StockTransaction.quantity < 0,
         ).count()
-        # 两行各写一条负向回冲流水
-        assert after - before == 2
+        assert neg_after == neg_before
+        # 库存回冲口径不变
+        assert self._stock(self.m1) == 0.0
+        assert self._stock(self.m2) == 0.0
+        assert self._stock(self.m3) == 30.0
 
     # ---- T7 幂等与重复 id ----
 
