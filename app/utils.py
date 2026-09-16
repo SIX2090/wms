@@ -61,16 +61,25 @@ def parse_float_value(value, default=0):
     P0-BUGFIX: 用 math.isfinite 拦截 NaN/Infinity。
     float('nan') 不抛异常，且 nan <= 0 为 False，会绕过上游
     `if quantity <= 0` 校验进入库存，导致 Material.stock 被污染为 NaN。
+
+    BUG-2026-09-16-015：`default=None` 时不得崩溃。
+    调用方用 `parse_float_value(x, None)` 表示"解析不出来就给我 None，
+    我自己报错"（期初导入/批量保存的"数量必填且必须合法"校验）。
+    但原实现的无条件 `float(default)` 在 default=None 时抛 TypeError，
+    被上层 except Exception 兜成 500「服务器内部错误」——用户只是把数量
+    填成了非数字/负数/留空，却拿到 500，真实原因（哪一行、哪里错）全丢。
+    现在 default 为 None 时直接返回 None，让调用方走自己的友好报错分支；
+    非 None 的 default 行为完全不变（存量调用方零影响）。
     """
     try:
         if value is None or value == '':
-            return float(default)
+            return float(default) if default is not None else None
         result = float(value)
         if not math.isfinite(result) or result < 0:
-            return float(default)
+            return float(default) if default is not None else None
         return result
     except (TypeError, ValueError):
-        return float(default)
+        return float(default) if default is not None else None
 
 
 def parse_int_value(value, default=0, minimum=None, maximum=None):

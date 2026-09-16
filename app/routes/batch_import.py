@@ -24,6 +24,39 @@ from db import db
 from utils import require_role, validate_excel_extension, validate_excel_size, round_to_2_decimals
 
 
+def _opening_stock_existing_summary(OpeningStock, OpeningStockDoc, material_id, warehouse_id):
+    """该 (物料, 仓库) 当前已有期初合计与涉及单据数（P1-B 预检用，只读）。
+
+    口径与 INVENTORY_TRUTH.md §2.1.2 一致：跨**全部单据**累加 quantity，
+    不取单行。预检要如实告诉用户"这行会并入已有账（当前合计 X，涉及 N 张单）"，
+    而不是等正式导入后才让人发现期初被叠加了。
+
+    注意：跨单据累加是刻意的——同物料同仓可以有多张单，此处只做只读汇总，
+    不修改任何数据。
+    """
+    rows = db.session.query(
+        OpeningStockDoc.doc_no,
+        OpeningStock.quantity,
+    ).join(
+        OpeningStock, OpeningStock.doc_id == OpeningStockDoc.id
+    ).filter(
+        OpeningStock.material_id == material_id,
+        OpeningStock.warehouse_id == warehouse_id,
+    ).all()
+    total = sum(float(qty or 0) for _, qty in rows)
+    doc_nos = {doc_no for doc_no, _ in rows}
+    # 兼容历史直连台账行（doc_id 为 NULL，不参与上面的 JOIN）
+    orphan_total = db.session.query(
+        db.func.coalesce(db.func.sum(OpeningStock.quantity), 0)
+    ).filter(
+        OpeningStock.material_id == material_id,
+        OpeningStock.warehouse_id == warehouse_id,
+        OpeningStock.doc_id.is_(None),
+    ).scalar()
+    total += float(orphan_total or 0)
+    return total, len(doc_nos)
+
+
 # no-test:reason=路由注册辅助函数，能力由 batch_import 各路由测试覆盖
 def register_batch_import_routes(app):
     @app.route('/import/out_order', methods=['POST'])
@@ -589,6 +622,20 @@ def register_batch_import_routes(app):
     @require_role('warehouse')
     @login_required
     def opening_stock_import():
+        """期初库存 Excel 导入（P1-B 两段式：预检 → 确认）。
+
+        两段式原因：导入是**批量写库存**的高风险动作，原来"选文件 → 直接入账"
+        一步到位，用户看不到会导入什么、会跳过哪些行、会不会覆盖已有单据，
+        出错只能事后删单回冲。现在：
+          - 第一段 `dry_run=true`：走完全相同的解析+校验，**不写任何数据**，
+            返回逐行结果（将导入/将跳过 + 原因 + 与既有单据的关系），
+            让用户先看清再决定；
+          - 第二段不带 dry_run：真正落库。
+
+        关键设计：两段**共用同一条代码路径**，dry_run 只控制"写不写"。
+        绝不为了预检另写一套校验——两套校验必然漂移，出现"预检说没问题、
+        正式导入却跳过"（或反之）是最坏结果，比没有预检更伤信任（R6）。
+        """
         from app import (
             Material,
             OpeningStock,
@@ -608,6 +655,10 @@ def register_batch_import_routes(app):
             parse_float_value,
             round_to_2_decimals,
         )
+
+        # 预检开关：只接受 true/false/1/0 等常见真值写法，其余按正式导入处理
+        _dry_raw = (request.form.get('dry_run') or '').strip().lower()
+        dry_run = _dry_raw in ('1', 'true', 'yes', 'on')
 
         file = request.files.get('file')
         if not file:
@@ -687,6 +738,8 @@ def register_batch_import_routes(app):
             skipped = 0
             errors = []
             seen_keys = set()
+            # P1-B：预检逐行结果（dry_run 时返回给前端，正式导入时为空）
+            preview_rows = []
             # ARCH-OS-DOC-01：整批导入归入一张新单据，用户导入完就能在期初库存
             # 列表里按单查看/改日期/走 首上下末 导航。单头日期取导入当天并允许
             # 导入后修改（用户诉求"导入的期初库存单据怎么修改日期"）。
@@ -716,10 +769,18 @@ def register_batch_import_routes(app):
                 qty_raw = _v(row, 'quantity')
                 if not code and not qty_raw:
                     continue  # 空行
+                # P1-B：本行处理结果，统一在循环末尾落到 preview_rows
+                # （只加一个记录点，避免在 6 个跳过分支各写一遍导致漏记）
+                outcome = {'row_no': row_no, 'material_code': code, 'action': 'import',
+                           'reason': '', 'material_name': '', 'warehouse': '',
+                           'quantity': None, 'price': None, 'date': '',
+                           'existing_quantity': None, 'existing_docs': 0}
                 material = Material.query.filter_by(code=code).first()
                 if not material:
                     errors.append(f'第 {row_no} 行：物料编码 [{code}] 不存在')
                     skipped += 1
+                    outcome.update(action='skip', reason=f'物料编码 [{code}] 不存在')
+                    preview_rows.append(outcome)
                     continue
                 wh_code = _v(row, 'warehouse')
                 warehouse = None
@@ -730,50 +791,87 @@ def register_batch_import_routes(app):
                     if not warehouse:
                         errors.append(f'第 {row_no} 行：仓库 [{wh_code}] 不存在')
                         skipped += 1
+                        outcome.update(action='skip', reason=f'仓库 [{wh_code}] 不存在')
+                        preview_rows.append(outcome)
                         continue
                 else:
                     # AGENTS.md 仓库必填：期初建账未指定仓库属数据错误，报错引导用户补列，
                     # 不做静默默认仓回落（避免账实错仓）。
                     errors.append(f'第 {row_no} 行：未指定仓库编码（期初建账仓库必填）')
                     skipped += 1
+                    outcome.update(action='skip', reason='未指定仓库编码（期初建账仓库必填）')
+                    preview_rows.append(outcome)
                     continue
                 if (warehouse.status or 'active') != 'active':
                     errors.append(f'第 {row_no} 行：仓库 [{warehouse.name}] 已停用')
                     skipped += 1
+                    outcome.update(action='skip', reason=f'仓库 [{warehouse.name}] 已停用')
+                    preview_rows.append(outcome)
                     continue
                 dedup_key = (material.id, warehouse.id)
                 if dedup_key in seen_keys:
                     errors.append(f'第 {row_no} 行：物料+仓库重复，请合并后导入')
                     skipped += 1
+                    outcome.update(action='skip', reason='物料+仓库在文件内重复')
+                    preview_rows.append(outcome)
                     continue
-                seen_keys.add(dedup_key)
+                # 注意：dedup_key 在**本行校验全部通过后**才登记（见下方
+                # seen_keys.add）。若在此处提前登记，一行"数量非法/负数"被跳过
+                # 之后，同 (物料,仓库) 的后续合法行会被误判成"文件内重复"一并
+                # 跳过——用户改了错误行重传仍然导入不进来，且提示驴唇不对马嘴。
 
                 quantity = parse_float_value(qty_raw, None)
                 price = parse_float_value(_v(row, 'price'), 0)
                 if quantity is None:
-                    errors.append(f'第 {row_no} 行：数量 [{qty_raw}] 无效')
+                    # BUG-2026-09-16-015：负数/非数字/空值统一落到这里，
+                    # 提示要能区分，否则用户看到"无效"不知道该改什么
+                    if not str(qty_raw or '').strip():
+                        reason = '数量为空'
+                    elif str(qty_raw).strip().startswith('-'):
+                        reason = f'数量 [{qty_raw}] 不能小于 0'
+                    else:
+                        reason = f'数量 [{qty_raw}] 无效，必须是大于等于 0 的数字'
+                    errors.append(f'第 {row_no} 行：{reason}')
                     skipped += 1
-                    continue
-                if quantity < 0:
-                    errors.append(f'第 {row_no} 行：数量不能小于 0')
-                    skipped += 1
+                    outcome.update(action='skip', reason=reason)
+                    preview_rows.append(outcome)
                     continue
                 if price < 0:
                     errors.append(f'第 {row_no} 行：单价不能小于 0')
                     skipped += 1
+                    outcome.update(action='skip', reason='单价不能小于 0')
+                    preview_rows.append(outcome)
                     continue
+                # 本行已通过全部文件级校验，登记去重键（后续同键行才算真重复）
+                seen_keys.add(dedup_key)
 
                 try:
+                    quantity = normalize_stock_quantity(quantity)
+                    price = round_to_2_decimals(price)
+                    amount = round_to_2_decimals(quantity * price)
+                    row_date = _row_date(row)
+
+                    # 预检：查该 (物料,仓库) 是否已有期初（跨全部单据），
+                    # 告诉用户这行是"新增"还是"并入已有账"。只读查询，无副作用。
+                    existing_qty, existing_docs = _opening_stock_existing_summary(
+                        OpeningStock, OpeningStockDoc, material.id, warehouse.id)
+                    outcome.update(
+                        material_name=material.name, warehouse=warehouse.name,
+                        quantity=quantity, price=price, date=row_date or '',
+                        existing_quantity=existing_qty, existing_docs=existing_docs)
+
+                    if dry_run:
+                        # 预检阶段绝不写库：不建单据、不动库存、不落明细
+                        imported += 1
+                        preview_rows.append(outcome)
+                        continue
+
                     doc = _ensure_batch_doc()
                     # 只在本批单据内查找同 (物料,仓库) 行：跨单据允许重复，
                     # 若不带 doc_id 过滤会命中别的单据的行，导致改错单/库存错算。
                     opening = OpeningStock.query.filter_by(
                         doc_id=doc.id, material_id=material.id, warehouse_id=warehouse.id
                     ).with_for_update().first()
-                    quantity = normalize_stock_quantity(quantity)
-                    price = round_to_2_decimals(price)
-                    amount = round_to_2_decimals(quantity * price)
-                    row_date = _row_date(row)
                     _, delta = _apply_opening_stock_balance(
                         opening, material, quantity, price, amount,
                         _v(row, 'remark') or None, warehouse,
@@ -784,9 +882,36 @@ def register_batch_import_routes(app):
                     batch_lines.append((doc, material, warehouse, row_date))
                     if opening is None or abs(delta) > STOCK_COMPARE_EPSILON:
                         imported += 1
+                    preview_rows.append(outcome)
                 except ValueError as ve:
                     errors.append(f'第 {row_no} 行：{ve}')
                     skipped += 1
+                    outcome.update(action='skip', reason=str(ve))
+                    preview_rows.append(outcome)
+
+            # ===== 预检分支：任何写操作到此为止，回滚只读事务后返回逐行结果 =====
+            if dry_run:
+                # 预检路径上没有写操作，但查询可能开了只读事务；
+                # 显式 rollback 确保即使将来有人在预检路径里误加写入也不会落库。
+                db.session.rollback()
+                importable = [r for r in preview_rows if r['action'] == 'import']
+                overwrite = [r for r in importable if r.get('existing_docs')]
+                fresh = [r for r in importable if not r.get('existing_docs')]
+                return jsonify({
+                    'status': 'success',
+                    'dry_run': True,
+                    'msg': (f'预检完成：{len(importable)} 行可导入'
+                            f'（其中 {len(fresh)} 行新增、{len(overwrite)} 行并入已有期初），'
+                            f'{skipped} 行有问题'),
+                    'imported': len(importable),
+                    'skipped': skipped,
+                    'errors': errors[:20],
+                    'rows': preview_rows[:500],
+                    'total_rows': len(preview_rows),
+                    'truncated': len(preview_rows) > 500,
+                    'fresh_count': len(fresh),
+                    'overwrite_count': len(overwrite),
+                })
 
             # 明细行日期为空时跟随单头（导入行自带日期则保留，尊重 Excel 里的建账日）
             db.session.flush()
@@ -822,6 +947,11 @@ def register_batch_import_routes(app):
                 'imported': imported,
                 'skipped': skipped,
                 'errors': errors[:20],
+                # 与预检同一份逐行结果契约：调用方（前端/AI/脚本）不必为两段写
+                # 两套解析，也让"预检结果 vs 实际结果"可直接逐行比对（P1-B）。
+                'rows': preview_rows[:500],
+                'total_rows': len(preview_rows),
+                'truncated': len(preview_rows) > 500,
                 'doc_id': batch_doc.id if batch_doc is not None else None,
                 'doc_no': doc_no,
                 'detail_url': f'/opening_stock/{batch_doc.id}' if batch_doc is not None else None,

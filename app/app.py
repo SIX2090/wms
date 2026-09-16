@@ -7663,9 +7663,14 @@ def _opening_stock_normalize_items(items, Material, Warehouse, normalize_stock_q
         quantity = parse_float_value(item.get('quantity'), None)
         price = parse_float_value(item.get('price'), 0)
         if quantity is None:
-            return None, {'msg': f'第 {index} 行请输入数量', 'code': 400}
-        if quantity < 0:
-            return None, {'msg': f'第 {index} 行期初数量不能小于 0', 'code': 400}
+            # BUG-2026-09-16-015：负数/非数字/空值都会走到这里（parse_float_value
+            # 对非法值统一返回 default=None），提示需覆盖三种情况，不能只说"请输入"。
+            raw_qty = item.get('quantity')
+            if raw_qty is None or (isinstance(raw_qty, str) and not raw_qty.strip()):
+                hint = '请输入数量'
+            else:
+                hint = f'数量 [{raw_qty}] 无效，必须是大于等于 0 的数字'
+            return None, {'msg': f'第 {index} 行{hint}', 'code': 400}
         if price < 0:
             return None, {'msg': f'第 {index} 行单价不能小于 0', 'code': 400}
 

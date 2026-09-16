@@ -100,20 +100,31 @@
         </div>
     </div>
     <div class="col-md-6">
-        <div class="card {% if module_type == 'opening_stock' %}batch-card-highlight{% endif %}">
+        <div class="card {% if module_type == 'opening_stock' %}batch-card-highlight{% endif %}" id="opening-stock-import-card">
             <div class="card-header"><h5 class="mb-0">导入期初库存</h5></div>
             <div class="card-body">
-                <p class="text-muted small">需包含 仓库编码、物料编码、数量 三列；可选 物料名称、单价、备注。经统一期初校验入账（仓库/物料/数量/单价/唯一键/停用仓库）</p>
-                <form class="import-form" data-url="/opening_stock/import" enctype="multipart/form-data">
+                <p class="text-muted small">需包含 仓库编码、物料编码、数量 三列；可选 物料名称、单价、备注、日期。经统一期初校验入账（仓库/物料/数量/单价/唯一键/停用仓库）。<strong>先预检、确认无误再导入。</strong></p>
+                <form class="import-form" data-url="/opening_stock/import" enctype="multipart/form-data" id="openingStockImportForm">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label class="form-label">选择文件</label>
                         <input type="file" class="form-control" name="file" accept=".xlsx,.xls" required>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-upload"></i> 导入期初库存</button>
+                    <!-- P1-B 两段式：先预检（不落库），看清结果再确认导入 -->
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="openingStockPrecheckBtn" onclick="precheckOpeningStock()">
+                        <i class="bi bi-clipboard-check"></i> 预检（不导入）
+                    </button>
+                    <button type="submit" class="btn btn-primary btn-sm ms-1 d-none" id="openingStockConfirmBtn">
+                        <i class="bi bi-upload"></i> 确认导入
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm ms-1 d-none" id="openingStockCancelBtn" onclick="cancelOpeningStockPrecheck()">
+                        取消
+                    </button>
                     <a href="/opening_stock/import/template" class="btn btn-sm btn-outline-secondary ms-2"><i class="bi bi-download"></i> 下载模板</a>
                 </form>
                 <div class="import-result mt-2"></div>
+                <!-- 预检结果表（默认隐藏，预检通过后展开） -->
+                <div id="openingStockPreview" class="mt-2 d-none"></div>
             </div>
         </div>
     </div>
@@ -274,10 +285,16 @@
 document.querySelectorAll('.import-form').forEach(function(form) {
     form.addEventListener('submit', function(e) {
         e.preventDefault();
+        // P1-B：期初库存导入走两段式，必须先在预检结果上确认，不允许直接提交。
+        // 未确认时点"确认导入"应被拦截（按钮是 d-none 的，此处为兜底防护）。
+        if (form.id === 'openingStockImportForm' && !openingStockPrechecked) {
+            return;
+        }
         var btn = form.querySelector('button[type="submit"]');
         var resultDiv = form.parentElement.querySelector('.import-result');
         var url = form.dataset.url;
         btn.disabled = true;
+        var originalHtml = btn.innerHTML;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 导入中...';
         resultDiv.innerHTML = '';
         var formData = new FormData(form);
@@ -304,7 +321,7 @@ document.querySelectorAll('.import-form').forEach(function(form) {
             return r.json();
         }).then(function(res) {
             btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-upload"></i> 导入';
+            btn.innerHTML = originalHtml;
             if (res && res.status === 'success') {
                 var html = '<div class="alert alert-success py-1 mb-1"><i class="bi bi-check-circle"></i> ' + res.msg + '</div>';
                 if (res.warnings) {
@@ -325,17 +342,201 @@ document.querySelectorAll('.import-form').forEach(function(form) {
                         }).join('') + '</div>';
                 }
                 resultDiv.innerHTML = html;
+                // 导入成功后重置两段式，避免残留预检结果误导下次操作
+                if (form.id === 'openingStockImportForm') {
+                    resetOpeningStockImport();
+                }
             } else {
                 var errMsg = (res && res.msg) ? res.msg : '未知错误';
                 resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1"><i class="bi bi-x-circle"></i> ' + errMsg + '</div>';
             }
         }).catch(function(err) {
             btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-upload"></i> 导入';
+            btn.innerHTML = originalHtml;
             var msg = (err && err.message) ? err.message : '请求失败，请稍后重试';
             resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1"><i class="bi bi-x-circle"></i> ' + msg + '</div>';
         });
     });
+});
+
+// ==================== P1-B 期初库存导入两段式 ====================
+// 第一段：预检（dry_run，不写任何库存），展示逐行"将导入/将跳过 + 原因"；
+// 第二段：用户看清后点「确认导入」才真正落库。
+var openingStockPrechecked = false;
+
+function openingStockEl(id) { return document.getElementById(id); }
+
+function resetOpeningStockImport() {
+    openingStockPrechecked = false;
+    var preview = openingStockEl('openingStockPreview');
+    if (preview) { preview.classList.add('d-none'); preview.innerHTML = ''; }
+    var confirmBtn = openingStockEl('openingStockConfirmBtn');
+    var cancelBtn = openingStockEl('openingStockCancelBtn');
+    var preBtn = openingStockEl('openingStockPrecheckBtn');
+    if (confirmBtn) confirmBtn.classList.add('d-none');
+    if (cancelBtn) cancelBtn.classList.add('d-none');
+    if (preBtn) { preBtn.classList.remove('d-none'); preBtn.disabled = false; }
+}
+
+function cancelOpeningStockPrecheck() {
+    var form = openingStockEl('openingStockImportForm');
+    var resultDiv = form ? form.parentElement.querySelector('.import-result') : null;
+    if (resultDiv) resultDiv.innerHTML = '';
+    resetOpeningStockImport();
+}
+
+function precheckOpeningStock() {
+    var form = openingStockEl('openingStockImportForm');
+    if (!form) return;
+    var fileInput = form.querySelector('input[type="file"]');
+    var resultDiv = form.parentElement.querySelector('.import-result');
+    var preview = openingStockEl('openingStockPreview');
+    var preBtn = openingStockEl('openingStockPrecheckBtn');
+
+    if (!fileInput || !fileInput.files || !fileInput.files.length) {
+        resultDiv.innerHTML = '<div class="alert alert-warning py-1 mb-1">请先选择要导入的文件</div>';
+        return;
+    }
+
+    // 换文件后必须重新预检，防止"预检 A 文件、导入 B 文件"
+    openingStockPrechecked = false;
+    openingStockEl('openingStockConfirmBtn').classList.add('d-none');
+    openingStockEl('openingStockCancelBtn').classList.add('d-none');
+    preview.classList.add('d-none');
+    preview.innerHTML = '';
+
+    preBtn.disabled = true;
+    preBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 预检中...';
+    resultDiv.innerHTML = '';
+
+    var formData = new FormData(form);
+    formData.set('dry_run', 'true');
+
+    fetch(form.dataset.url, {
+        method: 'POST',
+        body: formData,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    }).then(function(r) {
+        if (!r.ok) {
+            return r.json().catch(function() {
+                throw { message: '预检失败：HTTP ' + r.status };
+            }).then(function(err) {
+                throw { message: '预检失败：' + ((err && err.msg) || ('HTTP ' + r.status)) };
+            });
+        }
+        return r.json();
+    }).then(function(res) {
+        preBtn.disabled = false;
+        preBtn.innerHTML = '<i class="bi bi-clipboard-check"></i> 重新预检';
+        if (!res || res.status !== 'success') {
+            resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1">'
+                + ((res && res.msg) || '预检失败') + '</div>';
+            return;
+        }
+        renderOpeningStockPreview(res, resultDiv, preview);
+    }).catch(function(err) {
+        preBtn.disabled = false;
+        preBtn.innerHTML = '<i class="bi bi-clipboard-check"></i> 预检（不导入）';
+        resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1">'
+            + ((err && err.message) || '预检请求失败') + '</div>';
+    });
+}
+
+function renderOpeningStockPreview(res, resultDiv, preview) {
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[<>&"]/g, function(c) {
+            return { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c];
+        });
+    }
+    var rows = res.rows || [];
+    var ok = rows.filter(function(r) { return r.action === 'import'; });
+    var bad = rows.filter(function(r) { return r.action !== 'import'; });
+
+    var head = '<div class="alert alert-info py-2 mb-2">'
+        + '<i class="bi bi-info-circle"></i> <strong>预检结果（尚未导入任何数据）</strong>：'
+        + '可导入 <strong>' + ok.length + '</strong> 行'
+        + '（新增 ' + (res.fresh_count || 0) + ' 行'
+        + (res.overwrite_count ? '，<span class="text-warning">并入已有期初 ' + res.overwrite_count + ' 行</span>' : '')
+        + '）'
+        + (bad.length ? '，有问题 <strong class="text-danger">' + bad.length + '</strong> 行' : '')
+        + '</div>';
+
+    if (res.overwrite_count) {
+        head += '<div class="alert alert-warning py-1 mb-2">'
+            + '<i class="bi bi-exclamation-triangle"></i> 有 ' + res.overwrite_count
+            + ' 行的物料在该仓库已有期初，导入后会与该行数量<strong>合并累加</strong>，请确认是否为预期。'
+            + '</div>';
+    }
+
+    var tbl = '<div class="table-responsive" style="max-height:360px;overflow:auto;">'
+        + '<table class="table table-sm table-hover mb-1"><thead class="table-light"><tr>'
+        + '<th>行</th><th>物料</th><th>仓库</th><th class="text-end">数量</th>'
+        + '<th class="text-end">单价</th><th>日期</th><th>结果</th></tr></thead><tbody>';
+
+    rows.forEach(function(r) {
+        var isOk = r.action === 'import';
+        var result = isOk
+            ? (r.existing_docs
+                ? '<span class="badge bg-warning text-dark">并入已有 ' + Number(r.existing_quantity || 0).toFixed(2) + '</span>'
+                : '<span class="badge bg-success">新增</span>')
+            : '<span class="badge bg-danger">跳过</span> ' + esc(r.reason || '');
+        tbl += '<tr class="' + (isOk ? '' : 'table-danger') + '">'
+            + '<td>' + esc(r.row_no) + '</td>'
+            + '<td><code>' + esc(r.material_code) + '</code> ' + esc(r.material_name) + '</td>'
+            + '<td>' + esc(r.warehouse) + '</td>'
+            + '<td class="text-end">' + (r.quantity == null ? '-' : Number(r.quantity).toFixed(2)) + '</td>'
+            + '<td class="text-end">' + (r.price == null ? '-' : Number(r.price).toFixed(2)) + '</td>'
+            + '<td>' + esc(r.date) + '</td>'
+            + '<td>' + result + '</td>'
+            + '</tr>';
+    });
+    tbl += '</tbody></table></div>';
+    if (res.truncated) {
+        tbl += '<div class="text-muted small">仅显示前 500 行（共 ' + res.total_rows + ' 行）</div>';
+    }
+
+    var foot = '';
+    if (ok.length) {
+        foot = '<div class="mt-2"><button class="btn btn-primary btn-sm" type="button" onclick="confirmOpeningStockImport()">'
+            + '<i class="bi bi-check2-circle"></i> 确认导入这 ' + ok.length + ' 行</button>'
+            + '<button class="btn btn-outline-secondary btn-sm ms-1" type="button" onclick="cancelOpeningStockPrecheck()">取消</button>'
+            + '</div>';
+    } else {
+        foot = '<div class="alert alert-danger py-1 mb-0 mt-2">没有可导入的行，请修正文件后重新预检。</div>';
+    }
+
+    preview.innerHTML = head + tbl + foot;
+    preview.classList.remove('d-none');
+    resultDiv.innerHTML = '';
+    openingStockPrechecked = true;
+    // 预检表内已有确认按钮，隐藏表单上的重复按钮避免混淆
+    openingStockEl('openingStockConfirmBtn').classList.add('d-none');
+    openingStockEl('openingStockCancelBtn').classList.add('d-none');
+}
+
+// 预检表里的「确认导入」：复用表单提交链路（此时 openingStockPrechecked=true 放行）
+function confirmOpeningStockImport() {
+    var form = openingStockEl('openingStockImportForm');
+    if (!form) return;
+    openingStockPrechecked = true;
+    if (typeof form.requestSubmit === 'function') {
+        form.requestSubmit();
+    } else {
+        form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    }
+}
+
+// 换文件即作废预检结果：防止"预检 A 文件、导入 B 文件"的张冠李戴
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.closest && e.target.closest('#openingStockImportForm')
+        && e.target.type === 'file') {
+        var preview = openingStockEl('openingStockPreview');
+        var resultDiv = openingStockEl('openingStockImportForm').parentElement.querySelector('.import-result');
+        if (preview && !preview.classList.contains('d-none')) {
+            resetOpeningStockImport();
+            if (resultDiv) resultDiv.innerHTML = '<div class="alert alert-warning py-1 mb-1">文件已更换，请重新预检</div>';
+        }
+    }
 });
 </script>
 {% endblock %}
