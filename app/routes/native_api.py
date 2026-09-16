@@ -2131,9 +2131,23 @@ def register_native_api_routes(app):
     @app.route('/api/opening_stock')
     @web_or_api_required
     def native_api_opening_stock_list():
-        """移动端期初库存列表：按解析仓库过滤，返回建账日期等信息"""
+        """移动端已建账明细列表：按仓库过滤 + 标准分页（P1-C）。
+
+        R1：此前这里写死 `.limit(200)` —— 分页上限被当成了业务上限，
+        第 201 条之后的建账记录手机端永远看不到，且响应不带 total，
+        用户无法知道"本仓到底建了多少条"。现在走 `_mobile_paginate`，
+        与 /api/mobile/alert/list 等列表接口同一分页约定：
+        page（默认 1）/ page_size（默认 20，上限 100），响应带
+        total / page / page_size / total_pages。
+        **分页只影响明细返回，不影响 total**（total 基于过滤后全集）。
+
+        另返回 built_total（本仓建账明细行数）与 built_quantity（本仓期初
+        数量合计），二者基于**过滤前**的仓库全集计算，与分页彻底解耦（R1），
+        供 App 顶部展示"本仓已建账 N 项 / 合计 Q"。
+        """
         from sqlalchemy.orm import joinedload
-        from app import (OpeningStock, api_json_error, api_json_success,
+        from app import (Material, OpeningStock, _mobile_paginate, api_json_error,
+                         api_json_success, MOBILE_API_PAGE_SIZE_DEFAULT,
                          normalize_stock_quantity, resolve_request_warehouse,
                          round_to_2_decimals)
         # BUG-2026-08-12-004：仓库必填——未传参时带入默认仓库，无默认仓库返回 400
@@ -2142,12 +2156,24 @@ def register_native_api_routes(app):
             return api_json_error(wh_err, 400)
         keyword = (request.args.get('keyword') or '').strip()
 
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+
+        # 汇总口径：本仓全集（不受 keyword 与分页影响），与明细彻底解耦（R1）
+        built_total = OpeningStock.query.filter(
+            OpeningStock.warehouse_id == warehouse.id
+        ).count()
+        built_quantity = OpeningStock.query.filter(
+            OpeningStock.warehouse_id == warehouse.id
+        ).with_entities(
+            db.func.coalesce(db.func.sum(OpeningStock.quantity), 0)
+        ).scalar()
+
         query = OpeningStock.query.options(
             joinedload(OpeningStock.material),
             joinedload(OpeningStock.warehouse),
         ).filter(OpeningStock.warehouse_id == warehouse.id)
         if keyword:
-            from app import Material
             like = f'%{keyword}%'
             query = query.join(Material, OpeningStock.material_id == Material.id).filter(
                 db.or_(
@@ -2157,7 +2183,8 @@ def register_native_api_routes(app):
                 )
             )
 
-        items = query.order_by(OpeningStock.created_at.desc(), OpeningStock.id.desc()).limit(200).all()
+        query = query.order_by(OpeningStock.created_at.desc(), OpeningStock.id.desc())
+        page_data = _mobile_paginate(query, page, page_size)
         return api_json_success({
             'items': [
                 {
@@ -2172,10 +2199,104 @@ def register_native_api_routes(app):
                     'quantity': normalize_stock_quantity(o.quantity or 0),
                     'price': round_to_2_decimals(o.price or 0),
                     'amount': round_to_2_decimals(o.amount or 0),
+                    'remark': o.remark or '',
                 }
-                for o in items
-            ]
+                for o in page_data['items']
+            ],
+            'total': page_data['total'],
+            'page': page_data['page'],
+            'page_size': page_data['page_size'],
+            'total_pages': page_data['total_pages'],
+            'built_total': built_total,
+            'built_quantity': normalize_stock_quantity(built_quantity or 0),
         })
+
+    # pydantic:reason=存量路由按手写校验，与同文件 POST /api/opening_stock 一致，pydantic 迁移另行任务
+    @app.route('/api/opening_stock/<int:line_id>', methods=['POST'])
+    @csrf.exempt
+    @api_role_required('warehouse')
+    @mobile_api_idempotent('opening_stock_edit')
+    def native_api_opening_stock_update(user, line_id):
+        """移动端编辑已建账明细：按差额调整数量/单价（P1-C）。
+
+        口径与 PC 端 POST /opening_stock/edit/<id> 完全一致：
+        - 走 `_apply_opening_stock_balance`，内部按 delta = new − old 调整
+          Material.stock 并写 opening 流水（绝不覆盖式写总账）；
+        - 不允许换物料、不允许换仓库（换目标请到那边新建）；
+        - 库位账同步失败（ValueError）返回 400 并整体回滚，不写脏账。
+
+        请求体：{quantity?, price?, remark?} —— 三个字段都可选，
+        缺省的按原值保留（PATCH 语义）。至少给一个，否则 400。
+        """
+        from app import (Material, OpeningStock, _apply_opening_stock_balance,
+                         api_json_error, api_json_success, normalize_stock_quantity,
+                         parse_float_value, round_to_2_decimals)
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return api_json_error('请求格式错误', 400)
+        if not any(k in payload for k in ('quantity', 'price', 'remark')):
+            return api_json_error('请至少提交 quantity / price / remark 之一', 400)
+
+        opening = OpeningStock.query.filter_by(id=line_id).with_for_update().first()
+        if not opening:
+            return api_json_error('期初库存记录不存在', 404)
+        if opening.warehouse_id is None:
+            # 历史无仓库归属行（"看得见的空洞"）：不允许手机端改，
+            # 避免在仓库归属未知时改动总账（warehouse_id 是唯一归属依据）。
+            return api_json_error('该期初记录未归属仓库，请在 PC 端先补齐仓库', 400)
+        material = Material.query.get(opening.material_id)
+        if not material:
+            return api_json_error('物料不存在，无法调整', 400)
+
+        # 数量：缺省保留原值；显式传空串视为未填
+        if 'quantity' in payload:
+            raw_qty = payload.get('quantity')
+            if raw_qty is None or (isinstance(raw_qty, str) and not raw_qty.strip()):
+                return api_json_error('数量不能为空', 400)
+            quantity = parse_float_value(raw_qty, None)
+            if quantity is None:
+                return api_json_error(f'数量 [{raw_qty}] 无效，必须是大于等于 0 的数字', 400)
+            quantity = normalize_stock_quantity(quantity)
+        else:
+            quantity = normalize_stock_quantity(opening.quantity or 0)
+
+        # 单价：缺省保留原值，允许 0
+        if 'price' in payload:
+            raw_price = payload.get('price')
+            if raw_price is None or (isinstance(raw_price, str) and not raw_price.strip()):
+                price = round_to_2_decimals(opening.price or 0)
+            else:
+                price = round_to_2_decimals(parse_float_value(raw_price, None))
+        else:
+            price = round_to_2_decimals(opening.price or 0)
+
+        remark = payload.get('remark')
+        remark = remark.strip() if isinstance(remark, str) else (opening.remark or '')
+        amount = round_to_2_decimals(quantity * price)
+
+        try:
+            opening, delta = _apply_opening_stock_balance(
+                opening, material, quantity, price, amount, remark,
+                opening.warehouse, opening.date,
+            )
+            opening.operator_id = user.id
+            db.session.commit()
+            return api_json_success({
+                'id': opening.id,
+                'material_code': material.code or '',
+                'quantity': normalize_stock_quantity(opening.quantity or 0),
+                'price': round_to_2_decimals(opening.price or 0),
+                'amount': round_to_2_decimals(opening.amount or 0),
+                'delta': delta,
+            }, '期初库存已更新')
+        except ValueError as ve:
+            # BUG-2026-08-16-002 同口径：库位账同步失败要回明确原因并整体回滚
+            db.session.rollback()
+            return api_json_error(str(ve), 400)
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('Android opening stock update failed')
+            return api_json_error('期初库存更新失败', 500)
 
     # pydantic:reason=存量起步按手写校验，pydantic 迁移另行任务
     @app.route('/api/opening_stock', methods=['POST'])

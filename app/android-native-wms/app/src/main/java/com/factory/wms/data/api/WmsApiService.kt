@@ -151,10 +151,18 @@ interface WmsApiService {
         @Query("page_size") pageSize: Int = 20
     ): Response<ApiEnvelope<DailyReportData>>
 
+    /**
+     * 已建账明细列表（P1-C）。
+     *
+     * R1：此前无分页参数，服务端写死 200 条上限，第 201 条之后手机端看不到。
+     * 现在支持 page/page_size，响应带 total/total_pages/built_total/built_quantity。
+     */
     @GET("api/opening_stock")
     suspend fun getOpeningStock(
         @Query("warehouse_id") warehouseId: Int? = null,
-        @Query("keyword") keyword: String? = null
+        @Query("keyword") keyword: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 20
     ): Response<ApiEnvelope<OpeningStockListData>>
 
     @POST("api/opening_stock")
@@ -162,6 +170,19 @@ interface WmsApiService {
         @Header("X-Idempotency-Key") requestId: String,
         @Body request: OpeningStockRequest
     ): Response<ApiEnvelope<SubmitResult>>
+
+    /**
+     * 编辑已建账明细（P1-C）：按差额调整数量/单价。
+     *
+     * 只提交要改的字段（PATCH 语义）；服务端走 _apply_opening_stock_balance，
+     * 按 delta = new − old 调整总账并写 opening 流水，不允许换物料/换仓库。
+     */
+    @POST("api/opening_stock/{lineId}")
+    suspend fun updateOpeningStock(
+        @Header("X-Idempotency-Key") requestId: String,
+        @Path("lineId") lineId: Int,
+        @Body request: OpeningStockUpdateRequest
+    ): Response<ApiEnvelope<OpeningStockUpdateResult>>
 
     @POST("api/mobile/inbound_draft")
     suspend fun createInboundDraft(

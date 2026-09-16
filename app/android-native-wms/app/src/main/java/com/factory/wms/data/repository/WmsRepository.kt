@@ -804,12 +804,53 @@ class WmsRepository(private val context: Context) {
         return Result.success(first.copy(items = allItems, page = 1))
     }
 
+    /**
+     * 已建账明细列表（P1-C），带标准分页。
+     *
+     * 返回 [OpeningStockListData] 而非裸 List——列表页需要 total/total_pages
+     * 才能翻页，需要 built_total/built_quantity 才能显示本仓建账概览。
+     * （R1：这两个汇总由后端按仓库全集算，不随分页缩小。）
+     */
+    suspend fun getOpeningStockPage(
+        warehouseId: Int? = null,
+        keyword: String? = null,
+        page: Int = 1,
+        pageSize: Int = 20
+    ): Result<OpeningStockListData> {
+        return safeCall {
+            api.getOpeningStock(
+                warehouseId = warehouseId,
+                keyword = keyword?.takeIf { it.isNotBlank() },
+                page = page,
+                pageSize = pageSize
+            )
+        }
+    }
+
+    /**
+     * 兼容旧调用方：只要 items 的场景（如建账后回显）继续用这个。
+     * 新列表页请用 [getOpeningStockPage]。
+     */
     suspend fun getOpeningStock(warehouseId: Int? = null, keyword: String? = null): Result<List<OpeningStockDto>> {
-        return safeCall { api.getOpeningStock(warehouseId, keyword) }
+        return getOpeningStockPage(warehouseId = warehouseId, keyword = keyword)
             .fold(
                 onSuccess = { data -> Result.success(data.items) },
                 onFailure = { Result.failure(it) }
             )
+    }
+
+    /**
+     * 编辑已建账明细（P1-C）：按差额调整数量/单价。
+     *
+     * 走 safeCall 统一错误映射 + 幂等键，避免网络重试重复调整。
+     */
+    suspend fun updateOpeningStock(
+        lineId: Int,
+        request: OpeningStockUpdateRequest
+    ): Result<OpeningStockUpdateResult> {
+        return safeCall {
+            api.updateOpeningStock(newRequestId(), lineId, request)
+        }
     }
 
     suspend fun submitOpeningStock(request: OpeningStockRequest): Result<String> {
