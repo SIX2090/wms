@@ -8,6 +8,9 @@ S2. GET /api/opening_stock 期初库存列表（可按仓库筛选）。
 S3. POST /api/opening_stock 期初建账：选择日期+仓库，扫码物料行，库存随之增加。
 S4. POST 校验：缺仓库、物料不存在、数量为负均返回 4xx。
 S5. 同物料同仓库二次提交按差额调整，不产生 500。
+S6. 移动端提交的明细行必须归入 QSLEGACY 兼容单，且 PC 单据列表可见（BUG-2026-09-16-009）。
+S7. 历史 doc_id=NULL 悬空行在移动端再次提交时被收养进兼容单。
+S8. 静态契约：提交链路必须向入账函数传 doc_id。
 """
 from __future__ import annotations
 
@@ -184,6 +187,66 @@ class TestMobileOpeningStockApi:
             m1 = Material.query.filter_by(code="M001").first()
             assert m1.stock == 150, m1.stock
 
+    def test_submit_lines_attached_to_doc(self):
+        """S6（BUG-2026-09-16-009）：移动端提交的明细行必须归入单据——
+
+        此前漏传 doc_id，行 doc_id=NULL，PC 单据列表/首上下末导航永远
+        找不到（跨端黑洞）。现与 batch_save 兼容分支同口径归 QSLEGACY 单。
+        """
+        client = self._setup()
+        headers = _bearer(client)
+        r = client.post("/api/opening_stock", json={
+            "date": "2026-09-16",
+            "warehouse_code": "MC",
+            "lines": [{"material_code": "M001", "quantity": 100}],
+        }, headers=headers)
+        assert r.status_code == 200, r.get_data(as_text=True)
+        with app_module.app.app_context():
+            from app import OpeningStock, OpeningStockDoc
+            line = OpeningStock.query.first()
+            assert line is not None
+            assert line.doc_id is not None, "移动端提交的明细行 doc_id 仍为 NULL"
+            doc = OpeningStockDoc.query.get(line.doc_id)
+            assert doc is not None
+            assert doc.doc_no.startswith("QSLEGACY"), doc.doc_no
+        # PC 端单据列表必须能看到这张兼容单（跨端可见性闭环）
+        _login(client)
+        r2 = client.get("/opening_stock")
+        assert r2.status_code == 200
+        assert "QSLEGACY" in r2.get_data(as_text=True)
+
+    def test_submit_adopts_legacy_null_doc_lines(self):
+        """S7（BUG-2026-09-16-009）：历史 doc_id=NULL 直连行在移动端再次
+        提交同 (物料,仓库) 时被收养进兼容单（_apply_opening_stock_balance
+        既有归单逻辑），不留悬空行。"""
+        client = self._setup()
+        with app_module.app.app_context():
+            from app import Material, OpeningStock, Warehouse
+            m = Material.query.filter_by(code="M001").first()
+            w = Warehouse.query.filter_by(code="MC").first()
+            db.session.add(OpeningStock(
+                doc_id=None, material_id=m.id, warehouse_id=w.id,
+                quantity=10, price=1, amount=10))
+            db.session.commit()
+        headers = _bearer(client)
+        r = client.post("/api/opening_stock", json={
+            "warehouse_code": "MC",
+            "lines": [{"material_code": "M001", "quantity": 20}],
+        }, headers=headers)
+        assert r.status_code == 200, r.get_data(as_text=True)
+        with app_module.app.app_context():
+            from app import OpeningStock
+            line = OpeningStock.query.first()
+            assert line.doc_id is not None, "历史悬空行未被收养进单据"
+            assert line.quantity == 20
+
+    def test_static_submit_passes_doc_id(self):
+        """S8（静态契约）：native_api 期初提交必须向 _apply_opening_stock_balance
+        传 doc_id——防止后续重构再次漏参退回跨端黑洞。"""
+        src = (ROOT / "app" / "routes" / "native_api.py").read_text(encoding="utf-8")
+        assert "_opening_stock_compat_doc(" in src, "移动端提交未取兼容单"
+        assert "doc_id=compat_doc.id" in src, "移动端提交未把兼容单 id 传给入账函数"
+
 
 def main():
     import traceback
@@ -194,6 +257,9 @@ def main():
         "test_submit_opening_stock",
         "test_submit_validation",
         "test_submit_adjust_delta",
+        "test_submit_lines_attached_to_doc",
+        "test_submit_adopts_legacy_null_doc_lines",
+        "test_static_submit_passes_doc_id",
     ]
     failed = 0
     for name in methods:

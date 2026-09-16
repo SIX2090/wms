@@ -2185,8 +2185,10 @@ def register_native_api_routes(app):
     def native_api_opening_stock_submit(user):
         """移动端期初建账提交：选择日期+仓库，扫码录入物料行"""
         from app import (Material, OpeningStock, Warehouse,
-                         _apply_opening_stock_balance, _parse_opening_stock_date,
-                         api_json_error, api_json_success, normalize_stock_quantity,
+                         _apply_opening_stock_balance, _opening_stock_compat_doc,
+                         _parse_opening_stock_date,
+                         api_json_error, api_json_success, generate_order_no,
+                         normalize_stock_quantity,
                          parse_float_value, round_to_2_decimals)
         payload = request.get_json(silent=True) or {}
         lines = payload.get('lines') if isinstance(payload, dict) else None
@@ -2204,6 +2206,12 @@ def register_native_api_routes(app):
         if (warehouse.status or 'active') != 'active':
             return api_json_error(f'仓库 [{warehouse.name}] 已停用，禁止期初建账', 403)
         doc_date = _parse_opening_stock_date(payload.get('date'))
+        # BUG-2026-09-16-009：移动端提交必须归入单据——此前调
+        # _apply_opening_stock_balance 漏传 doc_id，明细行 doc_id=NULL，
+        # PC 端单据列表/首上下末导航永远找不到（跨端黑洞），只能整库清。
+        # 与 batch_save 兼容分支同一口径：无单写入统一归入 QSLEGACY 兼容单，
+        # 保持「同 (物料,仓库) 单行 upsert」语义不变。
+        compat_doc = _opening_stock_compat_doc(payload.get('date'), generate_order_no)
 
         try:
             saved = []
@@ -2234,7 +2242,8 @@ def register_native_api_routes(app):
                     material_id=material.id, warehouse_id=warehouse.id
                 ).with_for_update().first()
                 opening, _delta = _apply_opening_stock_balance(
-                    opening, material, quantity, price, amount, remark, warehouse, doc_date
+                    opening, material, quantity, price, amount, remark, warehouse, doc_date,
+                    doc_id=compat_doc.id,
                 )
                 opening.operator_id = user.id
                 saved.append({'material_code': code, 'quantity': quantity, 'price': price})
