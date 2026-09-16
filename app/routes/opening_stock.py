@@ -149,6 +149,7 @@ def register_opening_stock_routes(app):
             get_active_warehouses,
             get_default_warehouse,
             joinedload,
+            location_management_enabled,
             normalize_stock_quantity,
             render_template,
             round_to_2_decimals,
@@ -206,6 +207,7 @@ def register_opening_stock_routes(app):
             default_warehouse=doc.warehouse or get_default_warehouse(),
             editing_doc=doc,
             edit_rows=edit_rows,
+            location_management_enabled=location_management_enabled(),
         )
 
     @app.route('/opening_stock/add')
@@ -222,6 +224,7 @@ def register_opening_stock_routes(app):
             get_active_warehouses,
             get_default_warehouse,
             joinedload,
+            location_management_enabled,
             normalize_stock_quantity,
             render_template,
             round_to_2_decimals,
@@ -252,6 +255,7 @@ def register_opening_stock_routes(app):
             default_warehouse=get_default_warehouse(),
             editing_doc=None,
             edit_rows=[],
+            location_management_enabled=location_management_enabled(),
         )
 
     @app.route('/opening_stock/line/<int:id>')

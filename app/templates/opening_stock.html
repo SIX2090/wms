@@ -146,6 +146,7 @@
                         <th style="width:38px;" class="text-center"><input type="checkbox" id="openingCheckAll" title="全选 / 取消全选" aria-label="全选明细行"></th>
                         <th style="width:42px;">序号</th>
                         <th style="width:120px;">仓库</th>
+                        {% if location_management_enabled %}<th style="width:110px;">库位 <span class="text-danger">*</span></th>{% endif %}
                         <th style="width:150px;">物料编码</th>
                         <th>物料名称</th>
                         <th style="width:100px;">规格</th>
@@ -251,6 +252,10 @@ const warehouseCodeById = {
 const warehouseOptions = [
     {% for w in warehouses %}{id: {{ w.id }}, name: {{ (w.code + ' - ' + w.name)|tojson }}}{% if not loop.last %},{% endif %}{% endfor %}
 ];
+// BUG-2026-09-16-011：库位管理开关（AGENTS.md 规则二）——开启时网格显示
+// 库位列且保存前必填校验；空态 colspan 随之 +1，避免列数对不上表头。
+const LOCATION_ENABLED = {{ 'true' if location_management_enabled else 'false' }};
+const GRID_COLSPAN = LOCATION_ENABLED ? 13 : 12;
 const existingRows = [
 {% if editing_doc %}
 {% for row in edit_rows %}
@@ -265,7 +270,8 @@ const existingRows = [
         unit: {{ (row.unit or '')|tojson }},
         quantity: {{ row.quantity or 0 }},
         price: {{ row.price or 0 }},
-        remark: {{ (row.remark or '')|tojson }}
+        remark: {{ (row.remark or '')|tojson }},
+        location: {{ (row.location or '')|tojson }}
     }{{ "," if not loop.last else "" }}
 {% endfor %}
 {% endif %}
@@ -278,7 +284,7 @@ let activeCodeInput = null;
 const gridBody = document.getElementById('openingGridBody');
 const materialMenu = document.getElementById('materialMenu');
 function emptyRow() {
-    return {material_id: '', warehouse_id: '', warehouse_name: '', material_code: '', material_name: '', spec: '', unit: '', quantity: '', price: '', remark: ''};
+    return {material_id: '', warehouse_id: '', warehouse_name: '', material_code: '', material_name: '', spec: '', unit: '', quantity: '', price: '', remark: '', location: ''};
 }
 
 function amountOf(row) {
@@ -298,7 +304,7 @@ function warehouseOptionsHtml(selectedId) {
 
 function renderRows() {
     if (rows.length === 0) {
-        gridBody.innerHTML = '<tr><td colspan="12" class="text-center text-muted" style="padding:18px;">暂无明细，请点击"添加物料"开始录入</td></tr>';
+        gridBody.innerHTML = `<tr><td colspan="${GRID_COLSPAN}" class="text-center text-muted" style="padding:18px;">暂无明细，请点击"添加物料"开始录入</td></tr>`;
         syncCheckAllState();
         updateTotal();
         return;
@@ -308,6 +314,7 @@ function renderRows() {
             <td class="text-center"><input type="checkbox" class="opening-row-check" data-index="${index}"${selectedFlags[index] ? ' checked' : ''} onchange="onRowCheckToggle(${index}, this.checked)" aria-label="勾选第 ${index + 1} 行"></td>
             <td class="row-no">${index + 1}</td>
             <td><select class="form-select form-select-sm" onchange="updateField(${index}, 'warehouse_id', this.value); updateField(${index}, 'warehouse_name', this.options[this.selectedIndex]?.text || '');">${warehouseOptionsHtml(row.warehouse_id)}</select></td>
+            ${LOCATION_ENABLED ? `<td><input data-field="location" value="${escapeHtml(row.location || '')}" placeholder="库位" oninput="updateField(${index}, 'location', this.value);"></td>` : ''}
             <td class="code-cell"><input data-field="material_code" value="${escapeHtml(row.material_code || '')}" autocomplete="off" oninput="updateField(${index}, 'material_code', this.value); showMaterialMenu(this, ${index});" onfocus="showMaterialMenu(this, ${index});"></td>
             <td><input value="${escapeHtml(row.material_name || '')}" readonly></td>
             <td><input value="${escapeHtml(row.spec || '')}" readonly></td>
@@ -658,6 +665,7 @@ function collectItems() {
             quantity: row.quantity,
             price: row.price,
             remark: row.remark,
+            location: (row.location || '').trim(),
         }));
 }
 
@@ -688,6 +696,19 @@ function saveDocument() {
     } else {
         // 表头有仓库时：未指定明细行的仓库自动使用表头仓库
         items.forEach(item => { if (!item.warehouse_id) item.warehouse_id = headerWarehouseId; });
+    }
+    // BUG-2026-09-16-011：库位管理启用时库位必填（AGENTS.md 规则二，与入库单同口径）。
+    // 仓库兜底解析之后再校验，确保每行最终都有明确归属。
+    if (LOCATION_ENABLED) {
+        const missingLocRows = [];
+        rows.forEach((row, i) => {
+            const isEmptyRow = !(row.material_id || row.material_code || row.quantity || row.price || row.remark || row.warehouse_id);
+            if (!isEmptyRow && !(row.location || '').trim()) missingLocRows.push(i + 1);
+        });
+        if (missingLocRows.length) {
+            showToast(`库位管理已启用，第 ${missingLocRows.slice(0, 5).join('、')} 行${missingLocRows.length > 5 ? ' 等' : ''} 未填写库位，请补全后再保存`, 'danger', 4200);
+            return;
+        }
     }
     // FIX-OS-DATE-001: 表头日期落到每行明细（后端 _parse_opening_stock_date 逐行解析）
     const headerDate = getHeaderDocDate();
