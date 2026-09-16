@@ -312,8 +312,10 @@ document.querySelectorAll('.import-form').forEach(function(form) {
                 }
                 // ARCH-OS-DOC-01：整批导入会生成一张期初库存单据，直接给入口，
                 // 用户点进去就能改日期/看明细，不用再去列表里翻是哪张。
+                // BUG-2026-08-25-002：记录级链接须新开标签页，保留导入结果页便于对照
+                // （与其余 36 个模板的记录级链接口径一致，避免同规则在此处漂移）。
                 if (res.detail_url) {
-                    html += '<a class="btn btn-sm btn-outline-primary mt-1" href="' + res.detail_url + '">'
+                    html += '<a class="btn btn-sm btn-outline-primary mt-1" href="' + res.detail_url + '" target="_blank" rel="noopener">'
                         + '<i class="bi bi-file-earmark-text"></i> 查看单据 ' + (res.doc_no || '') + '（可改日期）</a>';
                 }
                 if (res.errors && res.errors.length) {

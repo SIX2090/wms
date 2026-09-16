@@ -244,6 +244,10 @@ const OPENING_DOC = window.__OPENING_DOC__ || null;
 const materialData = {{ material_options|tojson }};
 const warehouseData = {{ (warehouses|map(attribute='id')|list)|tojson }};
 const warehouseNameById = {{ (warehouses|map(attribute='name'))|list|tojson }};
+// BUG-2026-09-16-004：导出需要"仓库编码"（官方导入模板第 1 列），单独建一份 id→code 映射。
+const warehouseCodeById = {
+    {% for w in warehouses %}{{ w.id }}: {{ (w.code or '')|tojson }}{% if not loop.last %},{% endif %}{% endfor %}
+};
 const warehouseOptions = [
     {% for w in warehouses %}{id: {{ w.id }}, name: {{ (w.code + ' - ' + w.name)|tojson }}}{% if not loop.last %},{% endif %}{% endfor %}
 ];
@@ -312,7 +316,7 @@ function renderRows() {
             <td class="num"><input type="number" min="0" step="0.0001" data-field="price" value="${escapeHtml(row.price ?? '')}" oninput="updateField(${index}, 'price', this.value);"></td>
             <td class="amount"><input value="${formatMoney(amountOf(row), false)}" readonly></td>
             <td><input data-field="remark" value="${escapeHtml(row.remark || '')}" oninput="updateField(${index}, 'remark', this.value);"></td>
-            <td><div class="action-cell"><button class="icon-btn" type="button" onclick="insertRowAfter(${index})" title="插入行"><i class="bi bi-plus-circle"></i></button><button class="icon-btn danger" type="button" onclick="deleteRow(${index})" title="删除行"><i class="bi bi-trash"></i></button></div></td>
+            <td><div class="action-cell"><button class="icon-btn" type="button" onclick="insertRowAfter(${index})" title="插入行"><i class="bi bi-plus-circle"></i></button><button class="icon-btn danger" type="button" onclick="deleteRow(${index})" title="${row.line_id ? '删除本行（已建账，将立即回冲库存）' : '删除本行（尚未保存）'}"><i class="bi bi-trash"></i></button></div></td>
         </tr>
     `).join('');
     syncCheckAllState();
@@ -456,11 +460,55 @@ function insertRowAfter(index) {
     renderRows();
 }
 
+// 行内删除图标：删除单行。
+// BUG-2026-09-16-005：原先这里只做 rows.splice()，删的是**前端数组**——
+//   已建账的行必须再点一次「保存」才会由后端差集回冲落库。用户点完删除图标
+//   看见行消失了，以为已删除就直接离开页面，结果下次打开该行又在（且库存未回冲）。
+//   界面也没有任何提示，属"静默失效"。
+// 现按行是否已建账分流，与 batchDeleteSelectedRows 同一口径：
+//   · 已建账行（有 line_id）→ 走 /lines/delete 立即物理删除 + 库存回冲；
+//   · 未保存行 → 仅从录入网格移除，并明确提示"尚未保存"。
 function deleteRow(index) {
+    const row = rows[index];
+    if (!row) return;
+
+    const isSaved = !!(row.line_id);
+    const label = row.material_name || row.material_code || `第 ${index + 1} 行`;
+
+    if (isSaved && OPENING_DOC) {
+        const confirmed = confirm(
+            `确定删除「${label}」吗？\n该行已建账，将立即从库存中扣回，此操作不可恢复。`
+        );
+        if (!confirmed) return;
+        WMS.api.post('/opening_stock/' + OPENING_DOC.id + '/lines/delete', {
+            line_ids: [row.line_id],
+        })
+            .then(function(data) {
+                if (data && data.status === 'success') {
+                    rows.splice(index, 1);
+                    selectedFlags.splice(index, 1);
+                    syncSelectedFlags(rows.length);
+                    renderRows();
+                    showToast(data.msg || '明细行已删除，库存已回冲', 'success', 4200);
+                } else {
+                    showToast((data && data.msg) || '删除失败', 'danger', 4200);
+                }
+            })
+            .catch(function(error) {
+                showToast(
+                    '删除失败：' + (error && error.message ? error.message : '未知错误'),
+                    'danger', 4200
+                );
+            });
+        return;
+    }
+
+    // 未保存行：本地移除即可，但必须让用户知道"还没落库、需保存才生效"。
     rows.splice(index, 1);
     selectedFlags.splice(index, 1);
     syncSelectedFlags(rows.length);
     renderRows();
+    showToast(`已移除「${label}」（尚未保存，点「保存」后才生效）`, 'info', 3600);
 }
 
 // 顶部工具栏「删除」：清空当前录入的全部明细行（仅未保存内容；已建账记录不受影响）。
@@ -687,12 +735,61 @@ function showPasteModal() {
 
 // 解析多行粘贴文本为明细行。支持 Tab / 英文逗号分隔，空列可省。
 // FIX-OS-DATE-001: 支持可选的"日期"列（第 6 列），格式 YYYY-MM-DD，非法则该行回落默认日期。
+// BUG-2026-09-16-004：兼容「本页导出」的 CSV 重新粘贴/导入——
+//   ① 支持带引号的单元格（Excel/WPS 另存 CSV 均为 "a","b" 形式）与其中的 "" 转义；
+//   ② 自动跳过表头行（首列是「仓库」/「仓库编码」）；
+//   ③ 若检测到导出格式的 9 列（仓库编码,物料编码,物料名称,规格,单位,数量,单价,备注,日期），
+//      按导出列序取值，保证"导出→改→粘贴导入"闭环；否则维持原有 6 列宽松解析。
+function splitCsvLine(line) {
+    // 手写 CSV 切分：支持双引号包裹、"" 转义、引号内逗号，同时兼容无引号的裸 Tab/逗号文本。
+    const cells = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i += 1) {
+        const ch = line[i];
+        if (inQuotes) {
+            if (ch === '"') {
+                if (line[i + 1] === '"') { cur += '"'; i += 1; } else { inQuotes = false; }
+            } else {
+                cur += ch;
+            }
+        } else if (ch === '"') {
+            inQuotes = true;
+        } else if (ch === ',' || ch === '\t') {
+            cells.push(cur.trim());
+            cur = '';
+        } else {
+            cur += ch;
+        }
+    }
+    cells.push(cur.trim());
+    return cells;
+}
+
 function parsePasteLines(text, defaultDate) {
     const result = { items: [], errors: [] };
-    const lines = String(text || '').split(/\r?\n/).map(l => l.replace(/\r/g, '')).filter(l => l.trim() !== '');
+    const rawLines = String(text || '').split(/\r?\n/).map(l => l.replace(/\r/g, '')).filter(l => l.trim() !== '');
+    // 跳过表头行：首列（去引号后）为「仓库」或「仓库编码」即判定表头。
+    let startIndex = 0;
+    if (rawLines.length) {
+        const headFirst = splitCsvLine(rawLines[0])[0] || '';
+        const headClean = headFirst.replace(/^"|"$/g, '').trim();
+        if (headClean === '仓库' || headClean === '仓库编码' || headClean === '物料编码') {
+            startIndex = 1;
+        }
+    }
+    const lines = rawLines.slice(startIndex);
     lines.forEach((line, idx) => {
-        const parts = line.split(/\t|,/).map(p => p.trim());
-        const [whCode, code, quantity, price, remark, dateRaw] = parts;
+        const parts = splitCsvLine(line);
+        // 9 列 = 本页导出格式（仓库编码,物料编码,物料名称,规格,单位,数量,单价,备注,日期）；
+        // 其余按宽松的 6 列（仓库,编码,数量,单价,备注,日期）。
+        const isExportFormat = parts.length >= 9;
+        const whCode = parts[0];
+        const code = parts[1];
+        const quantity = isExportFormat ? parts[5] : parts[2];
+        const price = isExportFormat ? parts[6] : parts[3];
+        const remark = isExportFormat ? parts[7] : parts[4];
+        const dateRaw = isExportFormat ? parts[8] : parts[5];
         const lineNo = idx + 1;
         if (!code) {
             result.errors.push(`第 ${lineNo} 行：缺物料编码`);
@@ -805,18 +902,53 @@ function pasteImport() {
     showPasteModal();
 }
 
+// BUG-2026-09-16-004 修复：导出 CSV 三处缺陷一并收口。
+//   1) 原 `lines.join('\\n')` 在单引号字符串里是**字面反斜杠+n**，不是换行符——
+//      整个文件塌成一行 `…备注"\\n"仓库"…`，Excel/WPS 打开只有第 1 行有内容。
+//   2) 原表头行用裸 join(',')、未加引号，与数据行（全部带引号）格式不一致。
+//   3) 原列序（仓库,编码,名称,规格,单位,数量,单价,余额,备注）与导入侧列序
+//      （仓库,编码,数量,单价,备注,日期）**不一致**，导出的文件无法回导。
+// 现改为与后端 /opening_stock/import/template 的官方列序完全一致
+// （仓库编码,物料编码,物料名称,规格,单位,数量,单价,备注,日期），保证"导出→改→导入"闭环。
+function csvCell(value) {
+    return `"${String(value ?? '').replaceAll('"', '""')}"`;
+}
+
 function exportRows() {
-    const lines = [['仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '期初余额', '备注'].join(',')];
-    rows.filter(row => row.material_id).forEach(row => {
-        lines.push([row.warehouse_name || '', row.material_code, row.material_name, row.spec, row.unit, row.quantity, row.price, amountOf(row).toFixed(2), row.remark].map(value => `"${String(value ?? '').replaceAll('"', '""')}"`).join(','));
+    const exportRowsData = rows.filter(row => row.material_id);
+    if (!exportRowsData.length) {
+        showToast('当前单据没有可导出的明细行，请先添加明细', 'warning');
+        return;
+    }
+    const headers = ['仓库编码', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注', '日期'];
+    // 日期取单据表头日期（真实 id 是 headerDocDate）；无单据时取粘贴导入的日期框兜底。
+    const docDate = (document.getElementById('headerDocDate')?.value)
+        || (OPENING_DOC && OPENING_DOC.date) || '';
+    const lines = [headers.map(csvCell).join(',')];
+    exportRowsData.forEach(row => {
+        lines.push([
+            warehouseCodeById[row.warehouse_id] || row.warehouse_name || '',
+            row.material_code,
+            row.material_name,
+            row.spec,
+            row.unit,
+            row.quantity,
+            row.price,
+            row.remark,
+            docDate,
+        ].map(csvCell).join(','));
     });
-    const blob = new Blob(['﻿' + lines.join('\\n')], {type: 'text/csv;charset=utf-8;'});
+    // 真实换行用 '\n'（不能写成 '\\n'）；前置 BOM 让 Excel 正确识别 UTF-8 中文。
+    const blob = new Blob(['\ufeff' + lines.join('\n')], {type: 'text/csv;charset=utf-8;'});
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'opening_stock.csv';
+    link.download = 'opening_stock_' + ((OPENING_DOC && OPENING_DOC.doc_no) || 'new') + '.csv';
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    showToast(`已导出 ${exportRowsData.length} 行明细`, 'success');
 }
 
 function updateTotal() {
