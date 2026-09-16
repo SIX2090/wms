@@ -52,6 +52,22 @@
 .material-menu-item .name { font-weight:600; color:#111827; margin-right:10px; }
 .material-menu-item .meta { color:#64748b; margin-right:10px; }
 @media (max-width:900px) { .opening-doc { padding:8px; } .opening-grid-wrap { margin:0 8px; } .grid-footer { margin:0 8px; grid-template-columns:1fr 90px 90px; } .grid-footer span:nth-child(2), .grid-footer span:nth-child(3), .grid-footer span:nth-child(6) { display:none; } .material-menu { left:8px !important; right:8px; min-width:auto; } }
+/* P1-D 草稿恢复提示条：默认不进文档流，检测到草稿才显形 */
+.draft-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 12px;
+    padding: 10px 14px;
+    border: 1px solid #f0c36d;
+    border-left: 4px solid #e8a33d;
+    border-radius: 8px;
+    background: #fff8e6;
+    color: #7a5200;
+    font-size: 13px;
+}
+.draft-banner[hidden] { display: none; }
+.draft-banner-actions { margin-left: auto; display: flex; gap: 8px; }
 </style>
 {% endblock %}
 
@@ -88,6 +104,23 @@
     <!-- BUG-2026-09-15-009：单据列表 + 编辑分离。原台账查询面板已移至独立列表页
          opening_stock_list.html（/opening_stock 只列单据）；本页（/opening_stock/<id>
          与 /opening_stock/add）是纯单据编辑页。 -->
+
+    <!-- P1-D 草稿恢复提示条：默认隐藏，检测到本单有未保存草稿时由 JS 显形。
+         用户录入到一半刷新/误关页面/切去查别的单，回来时草稿还在。
+         不自动覆盖，必须用户点「恢复」——避免"我明明清空了它怎么又回来了"。 -->
+    <div class="draft-banner" id="draftBanner" hidden>
+        <i class="bi bi-clock-history"></i>
+        <span id="draftBannerText">检测到本单有未保存的录入草稿</span>
+        <span class="draft-banner-actions">
+            <button class="btn btn-sm btn-warning" type="button" onclick="restoreDraft()">
+                <i class="bi bi-arrow-counterclockwise"></i> 恢复草稿
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="discardDraft()">
+                丢弃并清除
+            </button>
+        </span>
+    </div>
+
     <div class="doc-panel">
         <div class="doc-title">
             <i class="bi bi-file-earmark-plus"></i>
@@ -342,6 +375,223 @@ function renderRows() {
     `).join('');
     syncCheckAllState();
     updateTotal();
+    // P1-D：注意——这里**故意不**落草稿。
+    // renderRows() 不只在用户编辑时跑，它在页面加载、恢复草稿、服务端行回填时
+    // 都会跑。若在这里无条件 scheduleDraftSave()，打开一张已建账的单据就会
+    // 立刻写出一份"草稿"：用户什么都没改，刷新却提示"有未保存草稿"；更糟的是
+    // 保存成功后 clearDraft() 刚清掉，紧随其后的 700ms 跳转重新加载页面又把它
+    // 写回来（实测复现）。因此落草稿一律由"用户意图"驱动（updateField / addRow /
+    // insertRowAfter / deleteRow / clearEntryRows / 表头输入 / 粘贴导入），
+    // 这些入口各自显式调用 scheduleDraftSave()。
+}
+
+// ======================================================================
+// P1-D 录入草稿防丢
+//
+// 问题：期初录入是个"扫几十上百行"的慢活。手机端连着扫码枪扫到一半刷新、
+// 误点返回列表、浏览器崩了、切去别处查一下料——回来录入全没了，只能重扫。
+// 期初又是账的起点，重录成本极高且容易录漏。
+//
+// 方案：把**当前录入网格**按单据维度存进 localStorage，页面加载时若检测到
+// 未保存草稿则显形提示条，用户点「恢复草稿」才真的覆盖——不自动应用，
+// 避免"我明明清空了它怎么又自己回来了"这种更吓人的体验。
+//
+// 口径细节：
+//   · 作用域按单据：新建页 key = 'new'，编辑页 key = 单据 id。切到别的单
+//     不会串草稿（编辑页草稿里那些行属于那张单，不该跑到另一张单去）。
+//   · 只存"用户改过"的行：全空行不入库，避免刚打开页面就凭空多出一行空白。
+//   · 已建账行（有 line_id）也存：用户在详情页改了数量但没保存就刷新，
+//     这些改动同样会丢，必须一起兜住。
+//   · 保存成功后清除：草稿的语义是"未落库的改动"，落库了就该消失。
+//   · 配额/隐私模式兜底：localStorage 可能不可用（无痕模式、配额满），
+//     所有读写都包 try/catch，失败静默降级——草稿是锦上添花，不能因此报错。
+// ======================================================================
+const DRAFT_KEY_PREFIX = 'wms.opening_stock.draft.';
+const DRAFT_SAVE_DEBOUNCE_MS = 400;
+// 草稿作用域：新建页是 'new'，编辑页是该单据 id
+const DRAFT_SCOPE = OPENING_DOC && OPENING_DOC.id ? String(OPENING_DOC.id) : 'new';
+const DRAFT_KEY = DRAFT_KEY_PREFIX + DRAFT_SCOPE;
+let draftSaveTimer = null;
+// 恢复草稿时置位，避免恢复动作本身又触发一轮保存
+let draftRestoring = false;
+
+/** 判断一行是否"用户动过"（全空行不存）。 */
+function isMeaningfulRow(row) {
+    return !!(row.material_id || row.material_code || row.quantity ||
+              row.price || row.remark || row.warehouse_id ||
+              (row.location || '').trim());
+}
+
+/** 只把动过的行写进草稿（避免把整张表的空行也塞进去撑爆配额）。 */
+function collectDraftRows() {
+    return rows.filter(isMeaningfulRow).map(row => ({
+        line_id: row.line_id ?? null,
+        material_id: row.material_id,
+        warehouse_id: row.warehouse_id,
+        warehouse_name: row.warehouse_name,
+        material_code: row.material_code,
+        material_name: row.material_name,
+        spec: row.spec,
+        unit: row.unit,
+        quantity: row.quantity,
+        price: row.price,
+        remark: row.remark,
+        location: row.location,
+    }));
+}
+
+/** 表头三件套：日期 / 单据仓库 / 备注。存在草稿里一起恢复。 */
+function collectDraftHeader() {
+    const read = id => {
+        const el = document.getElementById(id);
+        return el ? el.value : '';
+    };
+    return {
+        date: read('headerDocDate'),
+        warehouse_id: read('headerWarehouse'),
+        remark: read('headerRemark'),
+    };
+}
+
+function readDraft() {
+    try {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !Array.isArray(parsed.rows) || !parsed.rows.length) return null;
+        return parsed;
+    } catch (e) {
+        // 无痕模式 / 数据被外部改坏 / 配额异常：当作没有草稿
+        return null;
+    }
+}
+
+/** 立即落盘（供 debounce 与 beforeunload 共用）。 */
+function persistDraftNow() {
+    try {
+        const draftRows = collectDraftRows();
+        const header = collectDraftHeader();
+        if (!draftRows.length) {
+            // 全清空了：草稿本身也该消失，否则下次进来会提示"有草稿"却恢复出空表
+            localStorage.removeItem(DRAFT_KEY);
+            return;
+        }
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({
+            scope: DRAFT_SCOPE,
+            saved_at: new Date().toISOString(),
+            header: header,
+            rows: draftRows,
+        }));
+    } catch (e) {
+        // 写失败（配额满/隐私模式）静默降级，不打断录入
+    }
+}
+
+/** 防抖落盘：连续敲键盘时不每字符都写一次 localStorage。 */
+function scheduleDraftSave() {
+    if (draftRestoring) return;
+    if (draftSaveTimer) clearTimeout(draftSaveTimer);
+    draftSaveTimer = setTimeout(persistDraftNow, DRAFT_SAVE_DEBOUNCE_MS);
+}
+
+function clearDraft() {
+    if (draftSaveTimer) { clearTimeout(draftSaveTimer); draftSaveTimer = null; }
+    try {
+        localStorage.removeItem(DRAFT_KEY);
+    } catch (e) {
+        // 忽略：清不掉也不影响主流程
+    }
+}
+
+/** 草稿保存时间的可读文案（"3 分钟前"）。 */
+function draftSavedAgoText(savedAt) {
+    const ts = Date.parse(savedAt || '');
+    if (isNaN(ts)) return '';
+    const minutes = Math.floor((Date.now() - ts) / 60000);
+    if (minutes < 1) return '刚刚';
+    if (minutes < 60) return minutes + ' 分钟前';
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + ' 小时前';
+    return Math.floor(hours / 24) + ' 天前';
+}
+
+/**
+ * 页面加载时检查草稿并显形提示条。
+ *
+ * 只在"当前网格没有任何有效行"时提示——如果本单在服务端已有明细（编辑页）
+ * 或用户已经开始录入，说明他手上就是最新的，再弹恢复提示纯属打扰。
+ */
+function checkDraftOnLoad() {
+    const banner = document.getElementById('draftBanner');
+    if (!banner) return;
+    if (collectDraftRows().length) return;   // 当前已有内容，不打扰
+
+    const draft = readDraft();
+    if (!draft) return;
+
+    const label = document.getElementById('draftBannerText');
+    if (label) {
+        const ago = draftSavedAgoText(draft.saved_at);
+        label.textContent = '检测到本单有未保存的录入草稿：'
+            + draft.rows.length + ' 行' + (ago ? '（' + ago + '保存）' : '');
+    }
+    banner.hidden = false;
+}
+
+/** 「恢复草稿」：把草稿行灌回网格。注意已建账行的 line_id 要保留，
+ *  否则恢复后再保存会被后端当成新增行（同一物料出两行）。 */
+function restoreDraft() {
+    const draft = readDraft();
+    if (!draft) {
+        showToast('草稿已不存在，可能已在其他标签页清除', 'warning');
+        hideDraftBanner();
+        return;
+    }
+    draftRestoring = true;
+    try {
+        rows = draft.rows.map(item => ({
+            line_id: item.line_id ?? null,
+            material_id: item.material_id || '',
+            warehouse_id: item.warehouse_id || '',
+            warehouse_name: item.warehouse_name || '',
+            material_code: item.material_code || '',
+            material_name: item.material_name || '',
+            spec: item.spec || '',
+            unit: item.unit || '',
+            quantity: item.quantity ?? '',
+            price: item.price ?? '',
+            remark: item.remark || '',
+            location: item.location || '',
+        }));
+        selectedFlags = [];
+        syncSelectedFlags(rows.length);
+        renderRows();
+        // 表头三件套一并回填（日期/单据仓库/备注）
+        const head = draft.header || {};
+        const setVal = (id, value) => {
+            const el = document.getElementById(id);
+            if (el && value !== undefined && value !== null) el.value = value;
+        };
+        setVal('headerDocDate', head.date);
+        setVal('headerWarehouse', head.warehouse_id);
+        setVal('headerRemark', head.remark);
+        hideDraftBanner();
+        showToast('已恢复 ' + rows.length + ' 行草稿，记得点「保存」才会落库', 'success', 4200);
+    } finally {
+        draftRestoring = false;
+    }
+}
+
+/** 「丢弃并清除」：删掉草稿，网格保持现状。 */
+function discardDraft() {
+    clearDraft();
+    hideDraftBanner();
+    showToast('草稿已丢弃', 'info', 2400);
+}
+
+function hideDraftBanner() {
+    const banner = document.getElementById('draftBanner');
+    if (banner) banner.hidden = true;
 }
 
 // ---- 批量删行（勾选）----
@@ -465,12 +715,16 @@ function updateField(index, field, value) {
         if (tr) tr.querySelector('.amount input').value = formatMoney(amountOf(rows[index]), false);
         updateTotal();
     }
+    // P1-D：直接改字段不走 renderRows()，要单独触发草稿保存
+    scheduleDraftSave();
 }
 
 function addRow() {
     rows.push(emptyRow());
     syncSelectedFlags(rows.length);
     renderRows();
+    // P1-D：加行是用户意图 → 落草稿
+    scheduleDraftSave();
 }
 
 function insertRowAfter(index) {
@@ -479,6 +733,8 @@ function insertRowAfter(index) {
     selectedFlags.splice(index + 1, 0, false);
     syncSelectedFlags(rows.length);
     renderRows();
+    // P1-D：插行是用户意图 → 落草稿
+    scheduleDraftSave();
 }
 
 // 行内删除图标：删除单行。
@@ -510,6 +766,8 @@ function deleteRow(index) {
                     selectedFlags.splice(index, 1);
                     syncSelectedFlags(rows.length);
                     renderRows();
+                    // P1-D：删行已落库成功 → 该行不该继续留在草稿里
+                    scheduleDraftSave();
                     showToast(data.msg || '明细行已删除，库存已回冲', 'success', 4200);
                 } else {
                     showToast((data && data.msg) || '删除失败', 'danger', 4200);
@@ -529,6 +787,8 @@ function deleteRow(index) {
     selectedFlags.splice(index, 1);
     syncSelectedFlags(rows.length);
     renderRows();
+    // P1-D：删行是用户意图 → 落草稿（否则刷新后删掉的行又回来了）
+    scheduleDraftSave();
     showToast(`已移除「${label}」（尚未保存，点「保存」后才生效）`, 'info', 3600);
 }
 
@@ -542,6 +802,10 @@ function clearEntryRows() {
     rows = [];
     selectedFlags = [];
     renderRows();
+    // P1-D：这是用户明确的"不要了"，草稿要跟着一起清——否则下次进来
+    // 提示"有草稿"再恢复出来，就变成了"清空没生效"。
+    clearDraft();
+    hideDraftBanner();
 }
 
 function copyPreviousRow() {
@@ -553,6 +817,8 @@ function copyPreviousRow() {
     rows.push({...filled[filled.length - 1], remark: ''});
     syncSelectedFlags(rows.length);
     renderRows();
+    // P1-D：复制上一行是用户意图 → 落草稿
+    scheduleDraftSave();
 }
 
 function resetDocument() {
@@ -560,6 +826,9 @@ function resetDocument() {
     rows = [];
     selectedFlags = [];
     renderRows();
+    // P1-D：点「新增」是明确的"这张单不要了"，草稿一并清掉
+    clearDraft();
+    hideDraftBanner();
     if (typeof goToNewDoc === 'function') goToNewDoc();
 }
 
@@ -689,6 +958,8 @@ function selectMaterial(index, materialId) {
     };
     materialMenu.hidden = true;
     renderRows();
+    // P1-D：选中物料是用户意图 → 落草稿
+    scheduleDraftSave();
 }
 
 function collectItems() {
@@ -766,6 +1037,10 @@ function saveDocument() {
     WMS.api.post('/opening_stock/save', payload)
         .then(data => {
             if (data && data.status === 'success') {
+                // P1-D：落库成功 → 草稿使命结束，必须清掉。
+                // 不清的话下次进这张单会提示"有未保存草稿"，恢复出来一堆
+                // 已经被服务端合并过的行，用户会以为保存没生效。
+                clearDraft();
                 showToast(data.msg || '保存成功', 'success');
                 // 新建成功后跳到详情页，这样首/上/下/末 和删除按钮都立即可用
                 const newId = data.doc_id;
@@ -966,6 +1241,10 @@ function doPasteImport(text, feedback) {
         return;
     }
     const warn = parsed.errors.length ? `（另 ${parsed.errors.length} 行被跳过）` : '';
+    // P1-D：这里**不**落草稿。粘贴导入不是"先并入网格再等用户保存"，
+    // 它直接 POST /opening_stock/save 然后 700ms 跳转——网格里的 rows
+    // 从头到尾没被粘贴内容碰过，此刻落草稿只会把用户原本那几行又存一遍
+    // （存了也无意义，因为成功后立刻 clearDraft）。真正要做的是成功后清草稿。
     // ARCH-OS-DOC-01：粘贴的行要并入"当前这张单"。
     // 若还打 batch_save（不带 doc_id），后端会另建兼容单据，粘贴进来的行就跑
     // 到别的单里去了 —— 表现为"粘完保存，当前单没变化，还莫名多出一张单"。
@@ -980,6 +1259,10 @@ function doPasteImport(text, feedback) {
     WMS.api.post('/opening_stock/save', payload)
         .then(data => {
             if (data && data.status === 'success') {
+                // P1-D：粘贴导入同样直接落库，草稿使命结束 → 清掉。
+                // 不清的话，导入成功后 700ms 跳转，详情页加载时残留草稿
+                // 会把用户已经入库的行当成"未保存改动"再提示一遍。
+                clearDraft();
                 const modal = bootstrap.Modal.getInstance(document.getElementById('pasteImportModal'));
                 if (modal) modal.hide();
                 showToast((data.msg || '期初库存已导入') + warn, 'success');
@@ -1142,6 +1425,36 @@ document.addEventListener('DOMContentLoaded', function() {
     // selectedFlags 为空数组、syncCheckAllState 读到 undefined 会误判全选态
     syncSelectedFlags(rows.length);
     renderRows();
+    // P1-D：渲染完再看有没有可恢复的草稿（此时才拿得到"当前是否已有内容"）
+    checkDraftOnLoad();
+    // P1-D：表头三件套（日期/仓库/备注）也是用户录入的一部分——
+    // 用户选好日期仓库、录了十几行，刷新后表头蒸发同样得重来。
+    // 它们不在 rows 里，用委托监听统一记录（草稿里一并存 head 字段）。
+    ['headerDocDate', 'headerWarehouse', 'headerRemark'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const evt = el.tagName === 'SELECT' ? 'change' : 'input';
+        el.addEventListener(evt, function() { scheduleDraftSave(); });
+    });
+});
+
+// P1-D：关页/刷新前把待写草稿立刻落盘。
+// 键入是防抖 400ms 的，用户敲完最后一个数立刻刷新的场景下定时器还没触发，
+// 这时只能靠 beforeunload/pagehide 补一刀——否则"防丢"在最后一步最该丢。
+window.addEventListener('beforeunload', function() {
+    if (draftSaveTimer) {
+        clearTimeout(draftSaveTimer);
+        draftSaveTimer = null;
+        persistDraftNow();
+    }
+});
+// pagehide 兜移动端：iOS Safari 等场景 beforeunload 不一定触发
+window.addEventListener('pagehide', function() {
+    if (draftSaveTimer) {
+        clearTimeout(draftSaveTimer);
+        draftSaveTimer = null;
+        persistDraftNow();
+    }
 });
 </script>
 {% endblock %}

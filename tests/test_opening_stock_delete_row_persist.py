@@ -78,6 +78,10 @@ function confirm(msg) { calls.push({ type: 'confirm', msg }); return confirmAnsw
 function showToast(msg, type) { toasts.push({ msg, type }); }
 // renderRows 依赖 DOM，桩掉（本测试只关心状态与网络调用）
 function renderRows() { calls.push({ type: 'render' }); }
+// P1-D 新增：deleteRow 现在会顺带落一份录入草稿（删行也是用户意图）。
+// 本测试聚焦"删除是否落库"，草稿机制另有 test_opening_stock_entry_draft.py 专测，
+// 这里与其他 DOM/提示函数一样桩掉，仅记录调用以便断言顺序。
+function scheduleDraftSave() { calls.push({ type: 'draft' }); }
 const document = { getElementById: () => null };
 
 const WMS = {
