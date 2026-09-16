@@ -1023,6 +1023,28 @@ def main() -> int:
     ai_providers_py = read_text('app/ai/providers.py')
     ai_registry_py = read_text('app/ai/tools/registry.py')
     ai_orchestrator_py = read_text('app/ai/orchestrator.py')
+
+    # ARCH-MODELS-01（2026-09-15）把 19 张 AI 表从 app/app.py 模型区迁到
+    # app/models/ai.py（类定义逐字保留，app.py 侧改为 `from models.ai import (...)`）。
+    # 该迁移与 A10「app.py 不得持续膨胀」同向，是**正确**的重构方向。
+    # 但本脚本的 AI 相关断言长期只在 app_py 里找 `class Xxx(...)`，迁移后全部落空，
+    # 导致 AI-DOCUMENT-JOB-MODELS-001 / AI-CONTROLLED-AGENTS-001 /
+    # AI-IDEMPOTENCY-001 / AI-AUDIT-001 四项自 2026-09-15 起恒为 FAIL，
+    # 把整条 WMS CI 拖成红灯（后续步骤因门禁顺序全部 skipped），
+    # 使 CI 失去"看红绿判断新改动是否安全"的作用。
+    #
+    # 修法：模型类断言改为在「app.py + app/models/*.py」合并文本上查找。
+    # 用合并文本而非直接改读 models 文件，是为了同时兼容两种形态——
+    # 若将来某张表又迁回 app.py，断言依然成立，不会再次误报。
+    # 注意：路由、helper、模板等非模型断言仍然只查 app_py（它们本就没迁走，
+    # 保持原判据不变，避免放宽检查力度）。
+    ai_models_src = app_py + "\n" + "\n".join(
+        read_text(p) for p in (
+            'app/models/ai.py',
+            'app/models/core.py',
+            'app/models/__init__.py',
+        )
+    )
     checks.append((
         'AI-FOUNDATION-MODULES-001',
         'def validate_json_schema_payload' in ai_schemas_py
@@ -1038,10 +1060,10 @@ def main() -> int:
 
     checks.append((
         'AI-DOCUMENT-JOB-MODELS-001',
-        'class AIDocumentJob' in app_py
-        and 'class AIDocumentItem' in app_py
-        and 'class AIDocumentAttempt' in app_py
-        and 'class AIDocumentFeedback' in app_py
+        'class AIDocumentJob' in ai_models_src
+        and 'class AIDocumentItem' in ai_models_src
+        and 'class AIDocumentAttempt' in ai_models_src
+        and 'class AIDocumentFeedback' in ai_models_src
         and "@app.route('/ai/document_jobs')" in app_py
         and "@app.route('/ai/document_jobs/<int:id>')" in app_py
         and "@app.route('/ai/document_jobs/<int:id>/confirm', methods=['POST'])" in app_py
@@ -1073,8 +1095,8 @@ def main() -> int:
 
     checks.append((
         'AI-CONTROLLED-AGENTS-001',
-        'class AIAgentTask' in app_py
-        and 'class AIAgentStep' in app_py
+        'class AIAgentTask' in ai_models_src
+        and 'class AIAgentStep' in ai_models_src
         and 'def _ai_run_warehouse_patrol_agent' in app_py
         and 'def _ai_run_purchase_followup_agent' in app_py
         and "@app.route('/ai/agent_tasks')" in app_py
@@ -1092,8 +1114,8 @@ def main() -> int:
 
     checks.append((
         'AI-IDEMPOTENCY-001',
-        'class AIRequestIdempotency' in app_py
-        and 'uix_ai_request_user_request' in app_py
+        'class AIRequestIdempotency' in ai_models_src
+        and 'uix_ai_request_user_request' in ai_models_src
         and 'from ai.idempotency import configure_ai_idempotency_service' in app_py
         and '_ai_idempotency = configure_ai_idempotency_service(' in app_py
         and '_ai_idempotent_request = _ai_idempotency.idempotent_request' in app_py
@@ -1111,9 +1133,9 @@ def main() -> int:
 
     checks.append((
         'AI-AUDIT-001',
-        'class AIRun' in app_py
-        and 'class AIToolCall' in app_py
-        and 'ai_run_id = db.Column' in app_py
+        'class AIRun' in ai_models_src
+        and 'class AIToolCall' in ai_models_src
+        and 'ai_run_id = db.Column' in ai_models_src
         and 'def finish_run(self, run_id: int, status: str, error_message: str = \'\')' in ai_idempotency_py
         and 'self.finish_run(record.ai_run_id' in ai_idempotency_py
         and re.search(
