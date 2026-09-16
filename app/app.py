@@ -326,6 +326,89 @@ def _next_opening_stock_doc_no(cursor, group_date):
     return f'QS{ym}{seq:04d}'
 
 
+def _create_opening_stock_doc_table(cursor):
+    """建期初库存单据头表 opening_stock_doc + 4 个索引（幂等）。
+
+    ARCH-OS-DOC-01 的建表 DDL 公共实现：``auto_migrate_database()`` Step 1 与
+    启动兜底 ``ensure_opening_stock_doc_table()``（BUG-2026-09-16-006）共用，
+    避免两处表结构各自漂移（R6）。列定义与 ``OpeningStockDoc`` 模型一致。
+    CREATE TABLE/INDEX IF NOT EXISTS，已有表与数据一律不动。
+    """
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS opening_stock_doc (
+            id INTEGER NOT NULL PRIMARY KEY,
+            doc_no VARCHAR(50) NOT NULL UNIQUE,
+            date DATE,
+            warehouse_id INTEGER,
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            remark VARCHAR(500),
+            operator_id INTEGER,
+            created_at DATETIME,
+            updated_at DATETIME
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_opening_stock_doc_no ON opening_stock_doc(doc_no)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_opening_stock_doc_date ON opening_stock_doc(date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_opening_stock_doc_warehouse ON opening_stock_doc(warehouse_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_opening_stock_doc_created ON opening_stock_doc(created_at)")
+
+
+def _backfill_opening_stock_docs(cursor):
+    """按 (建账日期, 仓库) 把 doc_id 为空的历史 opening_stock 行归集成单据（幂等）。
+
+    ARCH-OS-DOC-01 Step 5 的公共实现：``auto_migrate_database()`` 与启动兜底
+    ``ensure_opening_stock_doc_table()``（BUG-2026-09-16-006）共用，避免两处
+    回填口径漂移（R6）。用户确认口径：同一天同一仓库的历史记录归成一张单；
+    同一天不同仓库各自一张（单据头有 warehouse_id，"一个仓库一张单"更符合
+    直觉）。date 为 NULL 的行保守不归单，留 doc_id 为 NULL 等人工处理。
+    只加"归属"，不改任何 quantity/price/amount，Material.stock 不变。
+
+    前提：opening_stock 表存在且有 doc_id 列、opening_stock_doc 表存在。
+    返回本次新建的单据数；没有待归单行时返回 0。
+    """
+    cursor.execute(
+        "SELECT date, warehouse_id FROM opening_stock "
+        "WHERE doc_id IS NULL AND date IS NOT NULL "
+        "GROUP BY date, warehouse_id ORDER BY date ASC, warehouse_id ASC"
+    )
+    groups = cursor.fetchall()
+    if not groups:
+        return 0
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    backfilled = 0
+    for grp_date, grp_wh in groups:
+        try:
+            grp_date_obj = datetime.strptime(str(grp_date)[:10], '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            continue
+        doc_no = _next_opening_stock_doc_no(cursor, grp_date_obj)
+        cursor.execute(
+            "INSERT INTO opening_stock_doc "
+            "(doc_no, date, warehouse_id, status, remark, operator_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'active', ?, NULL, ?, ?)",
+            (
+                doc_no, grp_date_obj.isoformat(), grp_wh,
+                f'历史期初库存（按建账日期 {grp_date_obj.isoformat()} 自动归集）',
+                now, now,
+            ),
+        )
+        doc_id = cursor.lastrowid
+        if grp_wh is None:
+            cursor.execute(
+                "UPDATE opening_stock SET doc_id = ? "
+                "WHERE doc_id IS NULL AND date = ? AND warehouse_id IS NULL",
+                (doc_id, grp_date_obj.isoformat()),
+            )
+        else:
+            cursor.execute(
+                "UPDATE opening_stock SET doc_id = ? "
+                "WHERE doc_id IS NULL AND date = ? AND warehouse_id = ?",
+                (doc_id, grp_date_obj.isoformat(), grp_wh),
+            )
+        backfilled += 1
+    return backfilled
+
+
 def auto_migrate_database():
     """自动迁移数据库，添加缺失的字段"""
     conn = None
@@ -396,24 +479,10 @@ def auto_migrate_database():
         # 不应被其它业务表的守卫连坐。
         if _table_exists('opening_stock') or _table_exists('material'):
             # --- Step 1: 单据头表（新库由 db.create_all() 依模型建；老库在此补） ---
+            # DDL 与启动兜底 ensure_opening_stock_doc_table() 共用
+            # _create_opening_stock_doc_table（BUG-2026-09-16-006，防 R6 漂移）。
             if not _table_exists('opening_stock_doc'):
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS opening_stock_doc (
-                        id INTEGER NOT NULL PRIMARY KEY,
-                        doc_no VARCHAR(50) NOT NULL UNIQUE,
-                        date DATE,
-                        warehouse_id INTEGER,
-                        status VARCHAR(20) NOT NULL DEFAULT 'active',
-                        remark VARCHAR(500),
-                        operator_id INTEGER,
-                        created_at DATETIME,
-                        updated_at DATETIME
-                    )
-                """)
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_opening_stock_doc_no ON opening_stock_doc(doc_no)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_opening_stock_doc_date ON opening_stock_doc(date)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_opening_stock_doc_warehouse ON opening_stock_doc(warehouse_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_opening_stock_doc_created ON opening_stock_doc(created_at)")
+                _create_opening_stock_doc_table(cursor)
                 modified = True
 
             if _table_exists('opening_stock'):
@@ -464,51 +533,15 @@ def auto_migrate_database():
                 # 用户确认口径：同一天同一仓库的历史记录归成一张单；同一天不同仓库各自一张
                 # （单据头有 warehouse_id，"一个仓库一张单"更符合直觉）。
                 # date 为 NULL 的行保守不归单，留 doc_id 为 NULL 等人工处理。
-                cursor.execute(
-                    "SELECT date, warehouse_id FROM opening_stock "
-                    "WHERE doc_id IS NULL AND date IS NOT NULL "
-                    "GROUP BY date, warehouse_id ORDER BY date ASC, warehouse_id ASC"
-                )
-                _groups = cursor.fetchall()
-                if _groups:
-                    _now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    _backfilled_docs = 0
-                    for _grp_date, _grp_wh in _groups:
-                        try:
-                            _grp_date_obj = datetime.strptime(str(_grp_date)[:10], '%Y-%m-%d').date()
-                        except (ValueError, TypeError):
-                            continue
-                        _doc_no = _next_opening_stock_doc_no(cursor, _grp_date_obj)
-                        cursor.execute(
-                            "INSERT INTO opening_stock_doc "
-                            "(doc_no, date, warehouse_id, status, remark, operator_id, created_at, updated_at) "
-                            "VALUES (?, ?, ?, 'active', ?, NULL, ?, ?)",
-                            (
-                                _doc_no, _grp_date_obj.isoformat(), _grp_wh,
-                                f'历史期初库存（按建账日期 {_grp_date_obj.isoformat()} 自动归集）',
-                                _now, _now,
-                            ),
-                        )
-                        _doc_id = cursor.lastrowid
-                        if _grp_wh is None:
-                            cursor.execute(
-                                "UPDATE opening_stock SET doc_id = ? "
-                                "WHERE doc_id IS NULL AND date = ? AND warehouse_id IS NULL",
-                                (_doc_id, _grp_date_obj.isoformat()),
-                            )
-                        else:
-                            cursor.execute(
-                                "UPDATE opening_stock SET doc_id = ? "
-                                "WHERE doc_id IS NULL AND date = ? AND warehouse_id = ?",
-                                (_doc_id, _grp_date_obj.isoformat(), _grp_wh),
-                            )
-                        _backfilled_docs += 1
-                    if _backfilled_docs:
-                        modified = True
-                        logging.getLogger(__name__).warning(
-                            'ARCH-OS-DOC-01：历史期初库存已按 (建账日期, 仓库) 归集为 %s 张单据；'
-                            '未归单行（日期为空）保留 doc_id 为空', _backfilled_docs,
-                        )
+                # 实现与启动兜底 ensure_opening_stock_doc_table() 共用
+                # _backfill_opening_stock_docs（BUG-2026-09-16-006，防 R6 漂移）。
+                _backfilled_docs = _backfill_opening_stock_docs(cursor)
+                if _backfilled_docs:
+                    modified = True
+                    logging.getLogger(__name__).warning(
+                        'ARCH-OS-DOC-01：历史期初库存已按 (建账日期, 仓库) 归集为 %s 张单据；'
+                        '未归单行（日期为空）保留 doc_id 为空', _backfilled_docs,
+                    )
 
         # out_order 字段迁移
         if not _table_exists('out_order'):
@@ -2329,6 +2362,109 @@ def ensure_sales_return_source_columns(db_path: str | None = None):
                 pass
 
 
+def ensure_opening_stock_doc_table(db_path: str | None = None):
+    """启动期无条件创建 opening_stock_doc 单据头表并回填历史单据（BUG-2026-09-16-006）。
+
+    背景：ARCH-OS-DOC-01 期初库存多单据化引入单据头表 ``opening_stock_doc``，
+    建表只发生在 ``db.create_all()`` / ``auto_migrate_database()``（Step 1），
+    历史行归单只在 ``auto_migrate_database()``（Step 5）。而
+    ``start_wms_offline.bat`` / ``start_wms_auto.bat`` 默认 ``WMS_NO_DB_TOUCH=1``
+    会把迁移整体跳过；``ensure_opening_stock_doc_columns()`` 只补了
+    ``opening_stock.doc_id`` **列**、没建**表**。于是「功能上线前建的存量库 +
+    WMS_NO_DB_TOUCH=1 重启」叠加态下表根本不存在，打开期初库存单据列表
+    （/opening_stock）、首/上/下/末导航、单据新增/编辑/删除等所有消费点即抛
+    ``no such table: opening_stock_doc`` → 500。R6 同根因历史：
+    BUG-2026-08-22-001（缺 excel_print_template 表）、BUG-2026-09-12（缺
+    department 表）——均为"建表只在迁移里、迁移被开关跳过"。
+
+    仿照 ``ensure_excel_print_template_table``：独立 sqlite 连接、独立于迁移
+    开关无条件执行、幂等。要点：
+    - 建表 DDL 与历史回填均复用 ``auto_migrate_database()`` 抽出的公共函数
+      （``_create_opening_stock_doc_table`` / ``_backfill_opening_stock_docs``），
+      两处同一实现，避免口径漂移（R6）；
+    - 必须回填：只建空表会让单据列表"能打开但空空如也"，用户的历史期初在
+      界面上等同于消失（数据没丢，但会误认丢失而重复录入）；
+    - 老库 ``UNIQUE(material_id, warehouse_id)`` 的 12 步重建仍属
+      ``auto_migrate_database()`` 职责（天然要求迁移开关未开），这里不碰；
+      同理 ``uix_opening_stock_line_doc`` 唯一索引只由迁移创建——极端脏数据
+      （同 (日期,仓库) 下重复 (物料,仓库) 行）会让建唯一索引失败，若在兜底
+      路径创建会连累建表整体回滚、500 依旧；
+    - 失败仅记日志不阻断启动（R4：busy_timeout=60000，锁冲突下次启动重试）。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            # 全新部署：库文件还没建，交给 create_all 建全量表
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=60000')
+
+        def _tbl_exists(name):
+            return cur.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (name,),
+            ).fetchone() is not None
+
+        changed = False
+        # --- 1) 单据头表（与迁移同一 DDL，幂等） ---
+        if not _tbl_exists('opening_stock_doc'):
+            _create_opening_stock_doc_table(cur)
+            changed = True
+
+        if _tbl_exists('opening_stock'):
+            # --- 2) doc_id 列兜底（与 ensure_opening_stock_doc_columns 同口径，
+            #        使本函数独立可用、与注册顺序无关） ---
+            cur.execute('PRAGMA table_info(opening_stock)')
+            os_cols = {r['name'] for r in cur.fetchall()}
+            if os_cols and 'doc_id' not in os_cols:
+                cur.execute('ALTER TABLE opening_stock ADD COLUMN doc_id INTEGER')
+                os_cols.add('doc_id')
+                changed = True
+            if 'doc_id' in os_cols:
+                # --- 3) 明细行 doc_id 查询索引（非唯一，与迁移同名幂等） ---
+                cur.execute(
+                    'CREATE INDEX IF NOT EXISTS idx_opening_stock_doc '
+                    'ON opening_stock(doc_id)')
+                # --- 4) 历史行按 (建账日期, 仓库) 归单（与迁移同一实现，幂等） ---
+                backfilled = _backfill_opening_stock_docs(cur)
+                if backfilled:
+                    changed = True
+                    logging.getLogger(__name__).warning(
+                        '[DB] 期初库存历史已按 (建账日期, 仓库) 归集为 %s 张单据'
+                        '（BUG-2026-09-16-006 兜底）；未归单行（日期为空）保留 doc_id 为空',
+                        backfilled,
+                    )
+        if changed:
+            conn.commit()
+            logging.getLogger(__name__).info(
+                '[DB] opening_stock_doc 缺表已补建/历史已归单（BUG-2026-09-16-006）')
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_opening_stock_doc_table 建表/回填失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def ensure_opening_stock_doc_columns(db_path: str | None = None):
     """启动期无条件补齐 ARCH-OS-DOC-01 的 opening_stock.doc_id 列。
 
@@ -2599,6 +2735,14 @@ ensure_sales_return_source_columns()
 # 一打开期初库存页/导航即 500（no such column: opening_stock.doc_id）。
 # 同上，独立于迁移开关无条件执行、幂等补列。
 ensure_opening_stock_doc_columns()
+
+# BUG-2026-09-16-006：同理，opening_stock_doc 单据头表只在 create_all /
+# auto_migrate_database 里建，WMS_NO_DB_TOUCH=1 的存量库重启建不出表，
+# 期初库存单据列表/导航/新增/编辑/删除所有消费点即 500
+# （no such table: opening_stock_doc）。上一行只补了 doc_id 列；这里
+# 无条件幂等建表 + 按 (建账日期, 仓库) 回填历史单据（与迁移同一实现，
+# 缺 doc_id 列也顺带兜底）。放在补列之后注册，先列后表再回填。
+ensure_opening_stock_doc_table()
 
 # BUG-2026-09-12：移动端「领料部门/领料人」整套依赖 department 表 +
 # out_order.department_id/picker + employee.department_id，四者都只在
