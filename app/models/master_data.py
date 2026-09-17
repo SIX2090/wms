@@ -132,7 +132,33 @@ class Contract(db.Model):
 
 
 class Material(db.Model):
-    """Material master data."""
+    """Material master data.
+
+    ⚠️ 库存阈值命名约定（AI-CI-GREEN-005，务必先读再改）
+
+    对外（界面文案 / Excel 表头 / API 字段）叫「安全库存」的概念，
+    在数据库里的列名是 ``reorder_point``——**两者是同一个东西**，
+    历史上数据库先叫 reorder_point，界面后统一为"安全库存"，为免动存量数据故保留列名。
+
+    对照表：
+
+        +----------------+------------------+----------------------------+
+        | 数据库列       | 对外名称         | 语义                       |
+        +================+==================+============================+
+        | min_stock      | 最低库存         | 低于它即不可接受（红线）   |
+        | max_stock      | 最大库存         | 高于它即超储               |
+        | reorder_point  | **安全库存**     | 低于它即需补货（预警线）   |
+        | alert_days     | 预警天数         | 有效期预警提前天数         |
+        +----------------+------------------+----------------------------+
+
+    ``safety_stock``（不带下划线前缀的那个名字）**不是数据库列**，而是运行时
+    计算值 ``max(reorder_point, min_stock)``，仅出现在 API 响应、Excel 导出列
+    和报表字典里。写库只走 ``reorder_point``（全仓写入点仅 3 处：
+    routes/material.py 的新增与编辑、routes/inventory_alert.py 的批量设置）。
+
+    因此：改「安全库存」相关逻辑时，**写库用 reorder_point，读展示可用 safety_stock**，
+    不要新增第四种叫法（如 safe_stock / security_stock）。
+    """
     __tablename__ = 'material'
     __table_args__ = (
         db.Index('idx_material_code', 'code'),
@@ -155,9 +181,10 @@ class Material(db.Model):
     purpose = db.Column(db.String(200))  # Purpose
     image = db.Column(db.String(200))  # Image path
     stock = db.Column(db.Float, default=0)  # Inventory
-    min_stock = db.Column(db.Float, default=0)  # Minimum inventory
-    max_stock = db.Column(db.Float, default=0)  # Maximum inventory
-    reorder_point = db.Column(db.Float, default=0)  # Reorder point
+    # ---- 库存阈值三兄弟：命名对照见下方「命名约定」注释 ----
+    min_stock = db.Column(db.Float, default=0)  # Minimum inventory（对外：「最低库存」）
+    max_stock = db.Column(db.Float, default=0)  # Maximum inventory（对外：「最大库存」）
+    reorder_point = db.Column(db.Float, default=0)  # Reorder point（对外：「安全库存」）
     expiry_date = db.Column(db.Date)  # Validity period
     alert_days = db.Column(db.Integer, default=30)  # Alert
     price = db.Column(db.Float, default=0)  # Unit price

@@ -120,7 +120,7 @@ class NotificationManager:
                 type='low_stock',
                 target_id=material.id,
                 title=f'库存预警：{material.name}',
-                content=f'物料 "{material.name}" ({material.code}) 库存不足，当前库存 {material.stock}，最小库存 {material.min_stock}',
+                content=f'物料 "{material.name}" ({material.code}) 库存不足，当前库存 {material.stock}，最低库存 {material.min_stock}',
                 is_read=False
             )
             db.session.add(notification)
@@ -194,7 +194,7 @@ class NotificationManager:
                             <td class="warning">{material.stock}</td>
                         </tr>
                         <tr>
-                            <th>最小库存</th>
+                            <th>最低库存</th>
                             <td>{material.min_stock}</td>
                         </tr>
                         <tr>

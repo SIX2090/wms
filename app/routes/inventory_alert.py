@@ -79,6 +79,9 @@ def register_inventory_alert_routes(app):
         sort_order = request.args.get('order', 'asc')
         if status_filter not in ('low', 'danger', 'normal', 'disabled'):
             status_filter = ''
+        # 排序键：注意 'safety_stock' 是 _material_alert_status_values() 算出的
+        # **计算值**（max(reorder_point, min_stock)），不是数据库列——所以下面
+        # 统一对 display_item 字典排序（而非对 Material 模型属性排序），两者键名一致。
         if sort_by not in {'code', 'name', 'spec', 'category', 'supplier', 'stock', 'min_stock', 'safety_stock', 'status'}:
             sort_by = 'code'
         if sort_order not in ('asc', 'desc'):
@@ -98,6 +101,9 @@ def register_inventory_alert_routes(app):
         normal_stock = []
         alert_materials = []
 
+        # 搜索别名表：除统一后的正式叫法外，保留历史叫法作为**输入别名**，
+        # 避免老用户按旧词搜索搜不到（输出文案一律走 status_labels 的正式叫法）。
+        # 正式叫法见 Material 模型 docstring 的「库存阈值命名约定」。
         status_terms = {
             'low': {'low', '最低', '低于最低库存', '低于最小库存', '库存不足', '不足'},
             'danger': {'danger', '安全', '低于安全库存', '预警'},

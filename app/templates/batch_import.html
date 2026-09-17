@@ -25,7 +25,7 @@
         <div class="card {% if module_type == 'material' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入物料</h5></div>
             <div class="card-body">
-                <p class="text-muted small">按表头名称自动匹配列，列顺序不限。表头需含：物料编码、物料名称、规格、单位、分类、供应商、单价、最小库存</p>
+                <p class="text-muted small">按表头名称自动匹配列，列顺序不限。表头需含：物料编码、物料名称、规格、单位、分类、供应商、单价、最低库存</p>
                 <form class="import-form" data-url="/material/import" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
