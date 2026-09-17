@@ -88,8 +88,16 @@ class NotificationManager:
 
     def check_low_stock(self, db, Material, User):
         """检查低库存物料并发送通知"""
-        from app import Notification
-        
+        from app import Notification, inventory_alert_enabled
+
+        # AI-CI-GREEN-005-F02：总开关未启用时一律不发预警通知。
+        # 此前本函数直接查 `stock <= min_stock`，与列表/页面侧口径不一致 ——
+        # 那边走 _material_low_stock_filter()，内含 inventory_alert_enabled() 判断。
+        # 结果就是：开关关着时页面写「库存预警未启用」，定时器却每天 9:00 照发
+        # 站内通知 + 邮件，用户会被自相矛盾的系统搞糊涂。
+        if not inventory_alert_enabled():
+            return []
+
         # 获取低库存物料
         low_stock_materials = Material.query.filter(
             Material.stock <= Material.min_stock,
