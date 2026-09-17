@@ -215,6 +215,7 @@
 | 111 | AI-CI-GREEN-001 | 已完成（第二批分拆为 AI-CI-GREEN-002） | WMS CI 存量红灯排查修复：全量套件 51 failed + 124 errors（test_p1_*_location_required 7F / test_print_* ~40F / TestOpeningStock* 124E FK 错误），推送前后失败清单完全一致（8d578ba8 与 d4fcf0f6 均为 51F/124E/1818P），单跑/小组跑全绿 → 测试间状态污染。目标：定位污染源并修复，WMS CI 转绿 | 无 | 无 | 见下方排查记录 |
 | 112 | AI-MOB-RPT-F03 | 已完成 | 手机端库存日报口径扩展（需求 2026-09-17：「显示各仓各种物料每天的库存而不是查询」，两轮口径确认为：用户选仓→自动显示该仓**结存>0**全部物料、可翻日期看历史某天收市结存）：①`GET /api/mobile/report/stock_daily` 新增 date 参数（yyyy-MM-dd 默认今天，历史结存=当前结存−该日之后归属该仓的流水增量，新增 `get_warehouse_txn_delta_map()` 归属口径与 `get_warehouse_stock_quantities` 逐条一致）+ 明细只出结存>0（零/负库存计入 summary.zero_materials）+ 历史日期 generated_at=23:59；②安卓库存日报页加日期导航条（前一天/后一天/回到今天、到达今天禁用后翻、date 参数链路贯通、空态文案按>0口径改写、副标题对齐「按仓展示」） | AI-MOB-RPT-F02 | 无 | 提交 `17f9c38`（后端+测试）、`3d3334f`（安卓+验证脚本），API 通道重放远程 `ab0cdf8d`/`54dbd5e6`；验证：新增 `tests/test_mobile_stock_daily_history.py` 11 项 PASSED（date 校验/逐日回推/>0 过滤/历史多仓隔离/汇总分页解耦/delta_map 直接单测）+ F02 回归与相邻切片 82 passed + `tests/verify_stock_daily_date_nav.py` 13/13 PASSED，lint 0 违规；生效条件：后端重启 WMS 服务 + CI 出包后重装 APK |
 | 113 | AI-CI-GREEN-002 | 已完成 | WMS CI 存量红灯清零（第二批，需求 2026-09-17 用户：「请修复这些红色的」）：「Verify regression - verify_*.py」步骤残留 2 个红灯文件，逐条定位为**测试侧断言过时/写错，零产品代码改动**——①`tests/verify_app_py_split_batch_import.py`（2F）：`/opening_stock/import` 已由 ARCH-OS-IMPORT 从"空 stub 重定向页"升级为**真实 Excel 批量导入**（endpoint 名 `opening_stock_import_stub`→`opening_stock_import`），产品行为正确，是用例 P4 仍按"一律跳转 /batch_import"断言 ⇒ 未选文件时正确返回 400 api_error 反被当失败；②`tests/verify_voice_out_draft_ui.py`（1F，T1c）：断言写死 `voiceDraftViewModel = voiceDraftViewModel,`，而 NavGraph 出于 BUG-2026-09-14-032（语音 VM 惰性创建、未登录不构造）必须用无默认值 `viewModel<T>()` 传入，本就不存在同名局部变量；更关键的是 T1c 与同组 T1d（断言该局部 val 存在）**互斥**，属"写入即坏、自 ebf2e04 引入起从未通过"的自相矛盾断言 | 无 | AI-CI-GREEN-001 | 改动：`verify_app_py_split_batch_import.py` 按"每个入口各自的正确契约"分流断言（仍为空 stub 的 user/label_template 断言 3xx 跳转；已实现真实导入的 opening_stock 断言 400+JSON+文案含"文件"），并新增 `test_real_import_routes_report_error_instead_of_redirect` 钉死"真实导入接口不许以 3xx 伪装成功导航"；`verify_voice_out_draft_ui.py` T1c 改为正则同时接受 `voiceDraftViewModel = voiceDraftViewModel,` 与 `= viewModel()` 两种合法形态，删除 T5d 中条件恒真的 `'最后' not in dl` 空断言，并新增 T12 断言健壮性守卫（T12a 禁止同名标识符互斥对、T12b 禁止纯中文否定式恒真断言，均只扫可执行条件表达式、剔除注释与失败提示文案）——已用**注入反例**反验守卫有效（注入后 T12a/T12b 双红，还原即 53/53 全绿）；`scripts/_routes.json` 同步该 endpoint 名（1 行） | 验证：`verify_voice_out_draft_ui.py` 53/53 PASSED（修前 50/1）、`verify_app_py_split_batch_import.py` 9/9 PASSED（修前 6F/2F）、主套件 `pytest tests/` **1998 passed / 85 skipped / 0 failed**、lint A1–A11 0 违规、禁止裸调非 GET fetch 通过、verify_wms_bugs 无回归；生效条件：无产品代码改动，**无需重启服务、无需重新出包** |
+| 114 | CI-PERF-2026-09-17 | 已完成 | WMS CI 提速（需求 2026-09-17 用户：「这个 WMS CI 运行时间太长了可以优化？」）：原单一 job 串行 **20.0 分钟**，步骤耗时实测 `Unit tests + coverage` 526s（44%）+ `Verify regression` 583s（49%）= **93%**。根因两条：①覆盖率统计纯白跑 —— `--cov-fail-under=0` 不拦任何门槛、coverage.xml 在 workflow 内也无任何上传/发布动作，却占主套件约 70%（带 cov 526s vs 不带 310s）；②173 个 verify 文件逐进程跑，单文件启动开销中位数 2.99s（其中 `import app` 固定税 1.78s），166 次多余解释器+Flask app 构造 ≈ **8.6 分钟纯等待** | 无 | AI-CI-GREEN-002 | 改动：①**拆 3 个互不依赖的并行 job** —— `lint-and-static`（lint×2 + verify_wms_bugs + pip-audit + gitleaks + hooks，~40s）/ `unit-tests`（主套件，~90-150s）/ `verify-and-smoke`（verify + 冒烟，~190-260s，关键路径）；12 个实质校验步骤**一个不少**（仅去掉重复的 CI summary，pip-audit 归属静态门禁且**阻塞门禁属性不变**）；②主套件改 `pytest -n 4 --dist loadfile`（按文件分发、文件内仍串行），**去掉** `--cov=app --cov-report=* --cov-fail-under=0`；③新增 `scripts/run_verify_parallel.py` 承载 verify **并发调度**，`requirements-test.txt` 钉 `pytest-xdist==3.8.0` | **隔离模型零改动（关键）**：verify 仍是每文件一个独立 python 进程、不共享内存，只把串行等待换成进程池并发等待。实测排除了三条看起来更省事的路（均为本地复现、非推测）：**合并单进程**→`no such table: warehouse`（前文件 db.drop_all 拆内存库，后文件 import 期即查表），随后 172 个路径拼成超长命令行直接 file not found；**交给 xdist 共享 worker**→同一异常在收集阶段把整批带崩 `no tests ran`；**`--forked`**→隔离正确但子进程仍重新 import app，无净收益。与 AGENTS.md 记载的「多文件同进程混跑产生 169 例环境性假失败」结论一致，故不动隔离模型。脚本内**完整保留**原 step 语义：pytest式/脚本式分流、known_failures 清单、单文件 60s 超时、失败文件数汇总 + 非零退出 | 验证（本地逐 job 模拟 CI 环境）：JOB1 静态门禁 4 项全过；JOB2 `1998 passed / 85 skipped / 0 failed`（与串行**零差异**，重复两次一致）；JOB3 verify **173 文件 / 失败 0 / 177s**（串行 583s）+ 冒烟「✅ 全部通过」 | 预期 CI 总时长 20.0min → **约 4-5 min**（以 GitHub runner 实测为准，2-4 核收益低于本机 32 核实测） | 生效条件：纯 CI 配置改动，**无产品代码改动，无需重启服务、无需重新出包** |
 
 ## 5. 任务详细定义
 
@@ -1040,7 +1041,85 @@
 
 ## 11. 当前下一项
 
-**当前下一项：待用户指派**（AI-CI-GREEN-001 与其分拆出的 AI-CI-GREEN-002 均已完成，WMS CI 红灯清零）。第 6 节第 6 批手机端体验对齐批已全部收尾：AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）、AI-MOB-CHECK-F01（手机盘点与 Web 单据流对齐，2026-09-13 完成回查收尾）、AI-MOB-RPT-F01（日报只读视图 2026-09-11 完成；库存汇总由 F02 交付）、AI-MOB-RPT-F02（库存日报，2026-09-17 完成）、AI-MOB-RPT-F03（库存日报口径扩展：自动展示结存>0 + 可翻日期看历史，2026-09-17 完成）均已完成；AI-MOB-EMPTY-F01 空状态组件已接入 16 处（剩余引导动作参数/首次登录引导为低优先遗留）。另有 AI-VOICE-OUT-F01（手机端语音建领料单草稿，2026-09-11 完成）为移动端语音能力新增。F01 原计划遗留的 `in_out_detail` 出入库明细独立端点仍未做（用户未要求，有需求再立）。
+**当前下一项：待用户指派**（AI-CI-GREEN-001 与其分拆出的 AI-CI-GREEN-002 均已完成，WMS CI 红灯清零）。
+
+### CI-PERF-2026-09-17：WMS CI 提速（2026-09-17 立项）
+
+**背景**：用户提出「这个 WMS CI 运行时间太长了可以优化？」。基线：单一 job 串行 **20.0 分钟**。
+
+**实测耗时分布（单 job 内步骤级，非估算）**：
+| 步骤 | 耗时 | 占比 |
+| --- | --- | --- |
+| Unit tests + coverage | 526s | 44% |
+| Verify regression - verify_*.py | 583s | 49% |
+| verify_wms_bugs | 34s | 3% |
+| Install deps / pip-audit / 其他 | 50s | 4% |
+
+**两个根因（各自独立）**：
+
+1. **覆盖率统计是纯白跑**：`--cov=app --cov-report=term --cov-report=xml --cov-fail-under=0`。
+   `fail-under=0` 意味着**不拦任何门槛**；产出的 coverage.xml 在整个 workflow 里
+   也没有 upload/release 之类的消费方。实测这一块占主套件约 70%（带 cov 526s / 不带 310s），
+   即约 3.6 分钟换来一份没人看的报告。
+2. **verify 逐进程的启动开销**：173 个文件逐个起 python 进程，单文件耗时中位数 2.99s，
+   其中 `import app`（Flask app 构造）固定税 1.78s。166 次多余的「解释器启动 + 依赖导入」
+   ≈ **8.6 分钟纯等待**，真正执行断言的部分很少。
+
+**结构性发现**：主套件的收集规则是 pytest 默认的 `test_*.py`，
+所以 **172 个 `verify_*.py` 一个都没进主 pytest**（实测 `--collect-only` 收集 `tests/verify_` 为 0）。
+两个步骤跑的是**互不相交**的集合，却在各自付「导入整个 Flask app」的成本。
+
+**为什么不能把 verify 合并提速（三条路都实测排除了）**：
+- **合并进单进程 pytest**：`sqlalchemy.exc.OperationalError: no such table: warehouse`
+  —— 前面文件 `db.drop_all()` 拆掉内存库，后面文件在 **import 期**就查表；
+  随后 pytest 把 172 个路径拼成一条超长命令行，直接报 `file or directory not found`。
+- **交给 pytest-xdist 共享 worker（--dist loadfile）**：同一异常发生在**收集阶段**，
+  整批被带崩，`no tests ran in 3.44s`。
+- **`--forked`（父进程导入一次、子进程 fork）**：隔离正确、3 文件 29 passed，
+  但每个子进程仍要重新 import app，实测 8.21s **没有净收益**。
+
+结论与历史记载一致（当年多文件同进程混跑产生 169 例环境性假失败，被迫改逐文件独立进程）：
+**verify 的逐进程隔离必须保留**。因此优化方向不是「减少进程数」，而是
+「保留隔离、消除串行等待」。
+
+**实施**：
+1. **拆 3 个互不依赖的并行 job**（原步骤都是独立校验，拆开不减少任何校验项）：
+   - `lint-and-static`：lint×2 + verify_wms_bugs + pip-audit + gitleaks + hooks 可重现性（~40s，最快反馈通道）
+   - `unit-tests`：主套件（~90-150s）
+   - `verify-and-smoke`：verify 分流 + 冒烟（~190-260s，**关键路径**）
+   12 个实质校验步骤一个不少；pip-audit 只读 requirements.txt、实测 13s，归入静态门禁，
+   **阻塞门禁属性不变**（无 continue-on-error）。
+2. **主套件并行**：`pytest tests/ -q -p no:pylama -n 4 --dist loadfile`，
+   并去掉 `--cov=*`（附注释说明将来若恢复覆盖率门禁，应拆独立 job 并设**真实阈值**，
+   不得以 `fail-under=0` 挂在关键路径上）。选 `--dist loadfile` 是因为它按**文件**分发、
+   文件内仍串行 —— 历史那批污染是「文件之间互相污染」，保持文件边界即可绕开。
+3. **新增 `scripts/run_verify_parallel.py`**：verify 并发调度。隔离模型与原先 for 循环**完全一致**
+   （每文件独立进程、不共享内存），仅把串行等待换成 `ThreadPoolExecutor` 并发等待。
+   脚本内完整保留原 step 语义：pytest式/脚本式分流、`KNOWN_FAILURES` 清单（当前为空、
+   保留结构）、单文件 60s 超时（超时按失败、rc=124）、失败文件数汇总 + 非零退出。
+   并发度默认 `min(8, cpu_count)` —— 不盲目拉满，因为并发过高会 CPU 争抢、
+   反而让 60s 超时更容易被误触发。
+4. `requirements-test.txt` 钉 `pytest-xdist==3.8.0`（与既有「测试依赖钉版」约定一致）。
+
+**等价性验证（本地逐 job 模拟 CI 环境）**：
+| 检查项 | 结果 |
+| --- | --- |
+| JOB1 静态门禁 4 项 | 全过（lint 0 违规 / fetch 通过 / 回归无异常 / hooks 值正确） |
+| JOB2 主套件（`-n 4 --dist loadfile`） | **1998 passed / 85 skipped / 0 failed**，与串行**零差异**（重复两次结果一致） |
+| JOB3 verify（并发调度） | **173 文件 / 失败 0 / 177s**（串行 583s） |
+| JOB3 冒烟 | 「✅ CI 冒烟测试 全部通过」 |
+
+**预期收益**：20.0 min → **约 4-5 min**（关键路径变成 verify-and-smoke 的 ~190-260s + 排队/装依赖）。
+注意本机 32 核实测（主套件 526s→89s、verify 583s→177s）**会高于** GitHub 标准 runner
+（2-4 核）的实际收益，最终数字以 GitHub 实测为准。
+
+**生效条件**：纯 CI 配置改动，无产品代码改动，**无需重启 WMS 服务、无需重新出包 APK**。
+
+**教训 / 可复用**：
+1. 优化前先量出**步骤级耗时分布**，别凭感觉。「93% 集中在两步」这个事实直接决定了方案。
+2. 去掉 `--cov-fail-under=0` 这类**零门槛门禁**：它既拦不住东西，又占用关键路径。
+3. 遇到「必须逐进程隔离」的测试集合，正确做法是**并发调度进程**（保留隔离、消除串行等待），
+   而不是想办法合并进程 —— 后者会直接撞上当年那批环境性假失败。第 6 节第 6 批手机端体验对齐批已全部收尾：AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）、AI-MOB-CHECK-F01（手机盘点与 Web 单据流对齐，2026-09-13 完成回查收尾）、AI-MOB-RPT-F01（日报只读视图 2026-09-11 完成；库存汇总由 F02 交付）、AI-MOB-RPT-F02（库存日报，2026-09-17 完成）、AI-MOB-RPT-F03（库存日报口径扩展：自动展示结存>0 + 可翻日期看历史，2026-09-17 完成）均已完成；AI-MOB-EMPTY-F01 空状态组件已接入 16 处（剩余引导动作参数/首次登录引导为低优先遗留）。另有 AI-VOICE-OUT-F01（手机端语音建领料单草稿，2026-09-11 完成）为移动端语音能力新增。F01 原计划遗留的 `in_out_detail` 出入库明细独立端点仍未做（用户未要求，有需求再立）。
 
 所有历史 AI 任务已完成；**AI-R07-F02（分类识别+按分类建议编号）已完成**。
 

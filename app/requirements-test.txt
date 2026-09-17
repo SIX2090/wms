@@ -14,4 +14,7 @@
 pytest==9.1.1
 # pytest-cov 主清单已含（BUG-2026-08-16-018 历史），此处显式重复以自文档化
 pytest-cov==5.0.0
+# CI-PERF-2026-09-17：主套件并行化依赖。-n 4 --dist loadfile 按文件分发，
+# 文件内仍串行（不改变文件内执行顺序），实测 1998 passed / 85 skipped 与串行零差异。
+pytest-xdist==3.8.0
 PyYAML==6.0.3

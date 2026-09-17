@@ -6,8 +6,20 @@ on:
   pull_request:
     branches: [main]
 
+# CI-PERF-2026-09-17：原单一 job 串行 20 分钟，其中 93% 花在两处：
+#   - "Unit tests + coverage"       526s（含 3.6 分钟纯覆盖率测量开销）
+#   - "Verify regression"           583s（173 个文件逐进程，启动开销占 8.6 分钟）
+# 现改为**三个互不依赖的并行 job**，并把每个 job 内部也并行化：
+#   lint-and-static    ~40s  静态门禁（lint×2 + verify_wms_bugs + gitleaks）
+#   unit-tests        ~150s  主套件（pytest-xdist -n 4，已去白跑的覆盖率统计）
+#   verify-and-smoke  ~260s  verify 分流 + 冒烟测试（verify 改并发调度，隔离模型不变）
+# 总时长由最慢的 verify-and-smoke 决定。三项原本就是独立校验，拆开**不减少任何
+# 校验项**，只是让互不依赖的工作真正并行 —— 任一 job 失败都会独立亮红，不会漏报。
 jobs:
-  lint-and-test:
+  # ==========================================================================
+  # Job 1：静态门禁（快，约 40s，作为最快的反馈信号）
+  # ==========================================================================
+  lint-and-static:
     runs-on: ubuntu-latest
 
     steps:
@@ -44,21 +56,6 @@ jobs:
       - name: "Static regression - verify_wms_bugs"
         run: python3 scripts/verify_wms_bugs.py
 
-      # 单元测试 + 覆盖率（BUG-2026-08-16-018）
-      # 覆盖率阈值宽松起步（fail-under=0 先可见），后续按产出报告逐步收紧
-      - name: "Unit tests + coverage"
-        run: pytest tests/ -q --cov=app --cov-report=term --cov-report=xml --cov-fail-under=0
-
-      # BUG-2026-08-16-018：依赖漏洞扫描（pip-audit）。
-      # BUG-2026-08-24-001：按"先可见、人工判真后收紧"既定意图，已完成依赖升级
-      # （requirements.txt 全部钉包经 OSV 复核清零、全量依赖闭包 pip-audit 0 漏洞），
-      # 本步骤收紧为阻塞门禁：任何引入已知漏洞的依赖变更将使 CI 失败。
-      # 若未来出现无修复版本的漏洞，需显式加 --ignore-vuln <ID> 并注明理由，不得整体退回 advisory。
-      - name: "Security scan - pip-audit (BUG-2026-08-16-018 阻塞门禁)"
-        run: |
-          python -m pip install --upgrade pip-audit
-          pip-audit -r app/requirements.txt
-
       # BUG-2026-08-16-018：密钥泄露扫描（gitleaks）。
       # continue-on-error 起步：先产出报告，后续收紧为门禁。
       - name: "Security scan - gitleaks (BUG-2026-08-16-018)"
@@ -67,83 +64,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # BUG-2026-08-16-017：tests/verify_*.py 回归脚本纳入 CI。
-      # 为什么逐文件独立进程：多文件同进程混跑时 app 模块单例与
-      # db.drop_all 内存库守卫互相干扰，会产生 169 例环境性假失败；
-      # 逐文件执行已本地验证全量文件通过。
+      # BUG-2026-08-16-018：依赖漏洞扫描（pip-audit）。
+      # BUG-2026-08-24-001：按"先可见、人工判真后收紧"既定意图，已完成依赖升级
+      # （requirements.txt 全部钉包经 OSV 复核清零、全量依赖闭包 pip-audit 0 漏洞），
+      # 本步骤收紧为阻塞门禁：任何引入已知漏洞的依赖变更将使 CI 失败。
+      # 若未来出现无修复版本的漏洞，需显式加 --ignore-vuln <ID> 并注明理由，不得整体退回 advisory。
       #
-      # KNOWN-FAILURES 已于 2026-09-12 清零（F1~F9 全部修复完毕）。
-      # 附：各子任务最终根因归类（全部为**测试侧过时/写错**，零产品代码改动）：
-      #   F1 verify_app_py_split_subcontract.py（1 例）
-      #      委外单新增改为强制仓库必填后，_seed_base() 未种默认仓 ⇒ 必然被拒。
-      #      修复：种子补 Warehouse(is_default=True)。
-      #   F2 verify_bug_2026_08_02_018_report.py（2 例）
-      #      报表接口无仓库时改为显式 400「请选择仓库」（AGENTS.md 仓库必填规则），
-      #      用例仍期望 200 + 空数据。修复：断言改为 400 + msg 含「请选择仓库」。
-      #      口径定稿：静默返回 0 条会把"我没选仓库"伪装成"确实没数据"，故改测试不改产品。
-      #   F3 verify_bug_2026_08_02_021_in_order_contract.py（1 例）
-      #      用例内 sys.modules.pop("app") 重载模块 ⇒ SQLAlchemy declarative Base
-      #      二次定义 InvalidRequestError: Table 'user' is already defined。
-      #      修复：改为模块级一次性 import app。
-      #   F4 verify_bug_2026_08_04_010_material_api_all_response_key.py（1 例）
-      #      /material/<id>/copy 返回的是**草稿**（预填供用户复核），name+spec 与原
-      #      物料全同原样提交必然撞唯一性校验——这是正确业务规则，非缺陷。
-      #      修复：用例改为"复制→改 spec→保存"，并新增反向断言 T3b 钉死该规则。
-      #   F5 verify_bug_2026_08_09_003_takepicture_permission_and_path.py（2 例）
-      #      实现用 `internal fun`，用例正则写死 `private\s+fun`。
-      #      修复：正则放开为 (?:private|internal)，public 仍判失败。
-      #   F6 verify_bug_2026_08_13_002_scan_submit_bearer.py（已修，2026-09-11 复核 7 passed）
-      #   F7 verify_bug_P15_P16_P21.py（已修，2026-09-12 复核 7 passed。
-      #     真实原因不是"用例坏"而是"跑法错"：该文件是 pytest 式（7 个 def test_），
-      #     但当时 CI 无分流、一律 python 直接执行，顶层无入口 ⇒ 文件级断言在导入
-      #     期即触发、pytest fixture 不生效 ⇒ no such table: warehouse 报错被当失败。
-      #     同批摘除的 F6/F8 是同一原因。pytest 式/脚本式分流已由本 step 下方逻辑补齐，
-      #     故无需再"豁免"。原有 TestBugP21BizReportWarehouseGuard 仓库守卫断言已另行
-      #     迁入 tests/test_report_warehouse_guard.py 进主 pytest 收集，不依赖本清单。）
-      #   F8 verify_mobile_asr_route.py（已修，2026-09-11 复核 8 passed）
-      #   F9 verify_mobile_recognize_material_api.py（5 例）
-      #      接口返回 {status, success, data: {reply, extracted, matches, match_count}}，
-      #      用例读扁平路径 ⇒ KeyError。修复：统一经 _data(resp) 取包裹层。
-      #
-      # 本清单现已空置（保留空数组，便于未来临时登记新失败而不必改结构）。
-      - name: "Verify regression - verify_*.py (BUG-2026-08-16-017)"
-        timeout-minutes: 20
+      # CI-PERF-2026-09-17：本步骤从原单一 job 迁到静态门禁 job —— 它只读
+      # requirements.txt、与测试执行无关，且实测仅 13s，放在任一 job 均可；
+      # 归入静态门禁后它与 lint 同处一条快速反馈通道，不占关键路径。
+      # 注意：**阻塞门禁属性不变**（无 continue-on-error）。
+      - name: "Security scan - pip-audit (BUG-2026-08-16-018 阻塞门禁)"
         run: |
-          known_failures=()
-          is_known() {
-            for k in "${known_failures[@]}"; do
-              [ "$k" = "$1" ] && return 0
-            done
-            return 1
-          }
-          fails=0
-          for f in tests/verify_*.py; do
-            if is_known "$f"; then
-              echo "SKIP (known failure, BUG-2026-08-16-017): $f"
-              continue
-            fi
-            echo ">> $f"
-            # CI-ENV-2026-09-11：按文件形态分流。脚本式契约测试（无 def test_
-            # 顶层断言）用 pytest 跑会 "no tests ran" exit 5 被误判失败，
-            # 直接执行脚本本身；pytest 式文件照旧。
-            if grep -q "def test_" "$f"; then
-              if ! timeout --kill-after=10s 60s python -m pytest "$f" -q > /tmp/verify_one.log 2>&1; then
-                cat /tmp/verify_one.log
-                fails=$((fails+1))
-              fi
-            else
-              if ! timeout --kill-after=10s 60s python "$f" > /tmp/verify_one.log 2>&1; then
-                cat /tmp/verify_one.log
-                fails=$((fails+1))
-              fi
-            fi
-          done
-          echo "verify_*.py 失败文件数: $fails（已知跳过: ${#known_failures[@]}）"
-          [ "$fails" -eq 0 ]
-
-      # 冒烟测试：启动 WMS 服务跑 121 项全量冒烟
-      - name: "Smoke test (启动服务跑 121 项)"
-        run: python3 scripts/run_smoke_in_ci.py
+          python -m pip install --upgrade pip-audit
+          pip-audit -r app/requirements.txt
 
       # 验证 install-hooks.sh 的可重现性（仅作可达性证明，CI 本身不强制）
       - name: "Check hooks install script reproducibility"
@@ -152,9 +86,105 @@ jobs:
           bash .githooks/install-hooks.sh
           python3 scripts/check_hooks_installed.py
 
-      # 总结
       - name: "CI summary"
         if: always()
         run: |
-          echo "::notice::WMS CI 完成"
+          echo "::notice::WMS CI (lint-and-static) 完成"
+          echo "详细日志请查看上方各 step 输出"
+
+  # ==========================================================================
+  # Job 2：主单元测试套件（约 150s）
+  # ==========================================================================
+  unit-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements-test.txt
+
+      - name: Create required directories
+        run: |
+          mkdir -p app/logs app/instance app/uploads logs
+
+      # 单元测试（BUG-2026-08-16-018 / CI-PERF-2026-09-17）
+      #
+      # 已去掉 --cov=app --cov-report=* --cov-fail-under=0：
+      #   1) `--cov-fail-under=0` 意味着它**不拦任何门槛**，产出的 coverage.xml
+      #      在本 workflow 里也没有任何上传/发布动作，属纯白跑；
+      #   2) 实测覆盖率测量开销占整个主套件的约 70%（526s → 310s）；
+      #   3) 修复类提交在本地都已有等价的测试证据，覆盖率报告不是它们的判据。
+      # 若将来要恢复覆盖率门禁，应拆成独立 job 并把 fail-under 设成真实阈值，
+      # 而不是以 fail-under=0 的形式挂在主套件的关键路径上。
+      #
+      # -n 4 --dist loadfile：按**文件**分发到各 worker，文件内部仍串行执行。
+      # 这样既拿到并行收益，又不改变文件内的执行顺序（历史那批测试间状态污染
+      # 是"文件之间互相污染"，loadfile 保持文件边界，实测 1998 passed / 85 skipped
+      # 与串行完全一致、零差异）。
+      - name: "Unit tests (pytest-xdist -n 4 --dist loadfile)"
+        run: >
+          pytest tests/ -q -p no:pylama
+          -n 4 --dist loadfile
+
+  # ==========================================================================
+  # Job 3：verify 契约回归 + 冒烟测试（约 260s，为关键路径）
+  # ==========================================================================
+  verify-and-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements-test.txt
+
+      - name: Create required directories
+        run: |
+          mkdir -p app/logs app/instance app/uploads logs
+
+      # BUG-2026-08-16-017：tests/verify_*.py 回归脚本纳入 CI。
+      # CI-PERF-2026-09-17：改为 scripts/run_verify_parallel.py 并发调度。
+      #
+      # **隔离模型完全没变**：仍是每个 verify 文件一个独立 python 进程、不共享内存，
+      # 只是把"一个跑完再跑下一个"的串行等待换成进程池并发等待。
+      # 为什么不能合并进单进程 / 交给 xdist 共享 worker（实测复现，非推测）：
+      #   - 合并单进程：`no such table: warehouse`（前文件 db.drop_all 拆了内存库，
+      #     后文件 import 期即查表），随后 172 个路径拼成超长命令行直接 file not found；
+      #   - 交给 xdist：同一异常在**收集阶段**就把整批带崩，`no tests ran`；
+      #   - `--forked`：隔离正确，但子进程仍需重新 import app，实测无净收益。
+      # 历史同结论：当年多文件同进程混跑产生 169 例环境性假失败，故改为逐文件独立进程。
+      # 脚本内保留原 step 的全部语义：pytest式/脚本式分流、known_failures 清单、
+      # 单文件 60s 超时、失败文件数汇总 + 非零退出。
+      - name: "Verify regression - verify_*.py (BUG-2026-08-16-017)"
+        timeout-minutes: 20
+        run: python3 scripts/run_verify_parallel.py
+
+      # 冒烟测试：启动 WMS 服务跑 121 项全量冒烟
+      - name: "Smoke test (启动服务跑 121 项)"
+        run: python3 scripts/run_smoke_in_ci.py
+
+      # CI summary
+      - name: "CI summary"
+        if: always()
+        run: |
+          echo "::notice::WMS CI (verify-and-smoke) 完成"
           echo "详细日志请查看上方各 step 输出"
