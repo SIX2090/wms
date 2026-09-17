@@ -2515,6 +2515,12 @@
                             <a class="flyout-link" href="/report/view/warehouse_monthly"><i class="bi bi-calendar3"></i> 仓库月报表</a>
                             <a class="flyout-link" href="/report/view/requisition"><i class="bi bi-file-earmark-text"></i> 工单领料报表</a>
                             <a class="flyout-link" href="/report/view/subcontract"><i class="bi bi-tools"></i> 委外加工报表</a>
+                            {# AI-CI-GREEN-005-F03：/alert 是唯一能看 danger 档（低于安全库存）的页面，
+                                此前全仓零链接、只能手敲 URL，等于白做。开关关着时不展示入口，
+                                与首页「库存预警物料」卡片的显隐保持一致。 #}
+                            {% if inventory_alert_enabled %}
+                            <a class="flyout-link" href="/alert"><i class="bi bi-exclamation-triangle"></i> 库存预警</a>
+                            {% endif %}
                         </div>
                         <div class="flyout-col">
                             <div class="flyout-col-title">AI 功能</div>

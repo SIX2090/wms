@@ -50,6 +50,14 @@
             <button class="btn btn-warning btn-sm" onclick="openLabelTemplate()">
                 <i class="bi bi-grid-3x3"></i> 标签模板
             </button>
+            {# AI-CI-GREEN-005-F03：物料档案是设置最低库存/安全库存的地方，
+                设完直接跳预警页看结果是最自然的一条路径。 #}
+            {% if inventory_alert_enabled %}
+            <div class="vr"></div>
+            <a href="/alert" class="btn btn-outline-danger btn-sm" title="查看低于最低库存与低于安全库存的物料">
+                <i class="bi bi-exclamation-triangle"></i> 库存预警
+            </a>
+            {% endif %}
         </div>
     </div>
 </div>
