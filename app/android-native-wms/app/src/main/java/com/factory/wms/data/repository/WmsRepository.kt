@@ -805,6 +805,34 @@ class WmsRepository(private val context: Context) {
     }
 
     /**
+     * 库存日报（AI-MOB-RPT-F02）：按仓库分页拉取当天各物料结存明细（只读）。
+     *
+     * warehouseId 必传（仓库必填，AGENTS.md §二）。与 getDailyReport 的
+     * 「逐页合并全集」不同：库存日报明细可能上千行，页面边滚边出（loadMore
+     * 驱动翻页），故此处只拉单页、由 ViewModel 持有分页状态。summary 由服务端
+     * 按过滤后全集计算、每页都带（R1 汇总与分页解耦），首页取值即可。
+     * 走 safeCall：服务端业务提示（如"请选择仓库"）原样透传，不被"网络错误"覆盖。
+     */
+    suspend fun getStockDailyReport(
+        warehouseId: String,
+        keyword: String? = null,
+        sort: String = "code_asc",
+        page: Int = 1,
+        pageSize: Int = 20
+    ): Result<StockDailyReportData> {
+        ensureSession()
+        return safeCall {
+            api.stockDailyReport(
+                warehouseId = warehouseId,
+                keyword = keyword?.takeIf { it.isNotBlank() },
+                sort = sort,
+                page = page,
+                pageSize = pageSize
+            )
+        }
+    }
+
+    /**
      * 已建账明细列表（P1-C），带标准分页。
      *
      * 返回 [OpeningStockListData] 而非裸 List——列表页需要 total/total_pages

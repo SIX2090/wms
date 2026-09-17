@@ -131,6 +131,13 @@ fun HomeScreen(
                 screen = Screen.DailyReport
             ),
             FunctionCard(
+                title = "库存日报",
+                subtitle = "按仓查询 · 各物料当天结存",
+                icon = Icons.Outlined.Inventory2,
+                gradient = listOf(CardCyanLight, CardCyanDark),
+                screen = Screen.StockDailyReport
+            ),
+            FunctionCard(
                 title = "盘点记录",
                 subtitle = "本人盘点 · 回查差异与采纳状态",
                 icon = Icons.Outlined.History,

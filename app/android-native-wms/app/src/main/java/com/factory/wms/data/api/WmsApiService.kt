@@ -152,6 +152,20 @@ interface WmsApiService {
     ): Response<ApiEnvelope<DailyReportData>>
 
     /**
+     * 库存日报（AI-MOB-RPT-F02）：按仓库查看当天各物料结存明细（只读）。
+     * warehouseId 必传（仓库必填，AGENTS.md §二；不支持全部仓库汇总——
+     * 结存跨仓无意义）；summary 基于过滤后全集，与分页解耦（R1）。
+     */
+    @GET("api/mobile/report/stock_daily")
+    suspend fun stockDailyReport(
+        @Query("warehouse_id") warehouseId: String,
+        @Query("keyword") keyword: String? = null,
+        @Query("sort") sort: String = "code_asc",
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 20
+    ): Response<ApiEnvelope<StockDailyReportData>>
+
+    /**
      * 已建账明细列表（P1-C）。
      *
      * R1：此前无分页参数，服务端写死 200 条上限，第 201 条之后手机端看不到。

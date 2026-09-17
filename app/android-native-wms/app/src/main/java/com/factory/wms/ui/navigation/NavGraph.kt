@@ -49,6 +49,7 @@ import com.factory.wms.ui.viewmodel.home.HomeViewModel
 import com.factory.wms.ui.viewmodel.list.OrderListViewModel
 import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
 import com.factory.wms.ui.viewmodel.report.ReportViewModel
+import com.factory.wms.ui.viewmodel.report.StockDailyReportViewModel
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.ui.viewmodel.stocktake.StocktakeRecordViewModel
 import com.factory.wms.ui.viewmodel.voice.VoiceCommandViewModel
@@ -346,6 +347,14 @@ fun AppNavGraph() {
                     val reportViewModel: ReportViewModel = viewModel()
                     DailyReportScreen(
                         viewModel = reportViewModel,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(Screen.StockDailyReport.route) {
+                    val stockDailyReportViewModel: StockDailyReportViewModel = viewModel()
+                    StockDailyReportScreen(
+                        viewModel = stockDailyReportViewModel,
                         onBack = { navController.popBackStack() }
                     )
                 }

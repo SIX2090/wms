@@ -19,8 +19,8 @@ android {
         // 3.8.2(16)=BUG-2026-09-14-028 应用内崩溃报告页（捕获第三根因的真实堆栈）。
         // 3.8.3(17)=BUG-2026-09-14-029 离线队列 api 改惰性解析，修 fresh install 冷启动闪退。
         // 3.8.4(18)=BUG-2026-09-14-035 手机端物料档案展示全部物料（空关键字浏览返回全量）。
-        versionCode = 18
-        versionName = "3.8.4"
+        versionCode = 19
+        versionName = "3.8.5"
 
         // sherpa-onnx 本地语音识别开关：通过 -Pwms.sherpa=true 启用，
         // 默认 false（保持现有国内 / 离线构建无网络依赖）。启用后会引入
