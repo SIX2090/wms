@@ -2062,12 +2062,21 @@ def register_native_api_routes(app):
         仓库必填（AGENTS.md §二，resolve_request_warehouse 缺省回退默认仓）；
         不支持全部仓库汇总——结存跨仓无意义，避免误导（用户明确"按仓来查询"）。
         汇总（summary）基于过滤后全集，与分页解耦（R1）；只读，无任何写操作。
+
+        AI-MOB-RPT-F03（需求 2026-09-17）口径扩展：
+        - date 参数（yyyy-MM-dd，默认今天）：历史某天结存 = 当前结存 − 该日之后
+          归属该仓的流水增量（流水为事实来源，归属与 get_warehouse_stock_quantities
+          逐条一致，R6）；未来日期与非法格式 → 400。
+        - 明细只出结存 > 0 的物料（用户口径"显示库存大于 0 的物料"）；
+          零/负库存种数仍计入 summary.zero_materials 供参考。
+        - generated_at：今天 = 当前 hh:mm；历史日期 = 23:59（当天收市语义）。
         """
-        from datetime import date as _date, datetime as _dt
+        from datetime import date as _date, datetime as _dt, timedelta as _td
         from sqlalchemy.orm import joinedload
         from app import (MOBILE_API_PAGE_SIZE_DEFAULT, MOBILE_API_PAGE_SIZE_MAX,
                          Material, api_json_error, api_json_success,
-                         get_warehouse_stock_quantities, normalize_stock_quantity,
+                         get_warehouse_stock_quantities, get_warehouse_txn_delta_map,
+                         normalize_stock_quantity,
                          resolve_request_warehouse, round_to_2_decimals)
 
         warehouse, wh_err = resolve_request_warehouse(request.args)
@@ -2079,6 +2088,19 @@ def register_native_api_routes(app):
         if sort not in ('code_asc', 'code_desc', 'stock_asc', 'stock_desc'):
             return api_json_error(
                 'sort 只支持 code_asc / code_desc / stock_asc / stock_desc', 400)
+
+        # AI-MOB-RPT-F03：date 参数校验（默认今天；非法格式/未来日期 → 400）
+        date_str = (request.args.get('date') or '').strip()
+        today = _date.today()
+        query_date = today
+        if date_str:
+            try:
+                query_date = _dt.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return api_json_error('date 格式须为 yyyy-MM-dd', 400)
+        if query_date > today:
+            return api_json_error('date 不能晚于今天', 400)
+
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
 
@@ -2098,15 +2120,26 @@ def register_native_api_routes(app):
         # quantities（R6 防口径分叉）；summary 需要全集数字，故统一走
         # 「取全集 → Python 层计算/排序 → 手动切片分页」，不做先分页后排序的假象。
         quantities = get_warehouse_stock_quantities(warehouse)
+        # F03 历史日期：减去「次日 00:00 起」归属该仓的流水增量；当天则无需回推
+        if query_date < today:
+            since = _dt.combine(query_date + _td(days=1), _dt.min.time())
+            delta = get_warehouse_txn_delta_map(warehouse, since)
+        else:
+            delta = {}
         rows = []
         total_qty = 0.0
         in_stock_count = 0
+        zero_count = 0
         for m in query.all():
-            qty = normalize_stock_quantity(quantities.get(m.id, 0))
-            total_qty += qty
-            if qty != 0:
+            qty = normalize_stock_quantity(
+                quantities.get(m.id, 0) - delta.get(m.id, 0))
+            # F03 用户口径：只展示结存 > 0 的物料；零/负库存只计入 summary
+            if qty > 0:
                 in_stock_count += 1
-            rows.append((m, qty))
+                total_qty += qty
+                rows.append((m, qty))
+            else:
+                zero_count += 1
 
         if sort == 'stock_asc':
             rows.sort(key=lambda row: (row[1], row[0].code or ''))
@@ -2125,19 +2158,23 @@ def register_native_api_routes(app):
         total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 0
 
         return api_json_success({
-            'date': _date.today().isoformat(),
+            'date': query_date.isoformat(),
             # 只用于显示的数据截止时间，由服务端格式化（与 stock/query 同理由：
-            # 手机本地时区不准时会显示错的时间）
-            'generated_at': _dt.now().strftime('%H:%M'),
+            # 手机本地时区不准时会显示错的时间）。F03：历史日期显示 23:59
+            # （当天收市结存语义），今天显示当前时刻。
+            'generated_at': (_dt.now().strftime('%H:%M') if query_date == today
+                             else '23:59'),
             'warehouse': {
                 'id': warehouse.id,
                 'name': warehouse.name or '',
                 'code': warehouse.code or '',
             },
             'summary': {
+                # F03：展示集即结存 > 0 的物料，total_materials 与之同口径；
+                # 零/负库存种数单列，便于知道"被滤掉多少种"
                 'total_materials': total,
                 'in_stock_materials': in_stock_count,
-                'zero_materials': total - in_stock_count,
+                'zero_materials': zero_count,
                 'total_quantity': round_to_2_decimals(total_qty),
             },
             'items': [

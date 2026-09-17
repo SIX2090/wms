@@ -4954,6 +4954,82 @@ def get_warehouse_stock_quantities(warehouse):
 
     return {material_id: float(quantity or 0) for material_id, quantity in rows}
 
+
+def get_warehouse_txn_delta_map(warehouse, since_dt):
+    """某时刻之后、归属于该仓库的流水净增量 {material_id: quantity}。
+
+    AI-MOB-RPT-F03（库存日报历史日期）：历史某天结存 = 当前结存 − 该日之后
+    的流水增量（流水是唯一事实来源，INVENTORY_TRUTH.md ③）。
+    closing(D) = get_warehouse_stock_quantities(warehouse)[m] − delta_map[m]，
+    其中 since_dt = D+1 日 00:00。
+
+    归属规则必须与 get_warehouse_stock_quantities **逐条一致**（R6 防口径分叉，
+    否则会出现「今天数对、昨天数错」的诡异偏差）：
+    - 关库位管理且单仓：全部流水都归属唯一仓库（对应其 Material.stock 全局口径回退）；
+    - 开库位管理：warehouse_id 精确 + NULL-warehouse_id 的仓库名/编码兜底
+      （与其 LocationInventory 分支同名/编码子句一致）；
+    - 关库位管理多仓：warehouse_id 精确 + NULL 行的 location 名/编码/库位名兜底
+      （_warehouse_location_filter_values），空 location 历史行按来源单据归属补入。
+    """
+    if not warehouse or since_dt is None:
+        return {}
+    warehouse_key = (warehouse.name or '').strip()
+    warehouse_code = (warehouse.code or '').strip()
+
+    if not location_management_enabled() and Warehouse.query.count() == 1:
+        # 单仓：一切流水都属于这个仓（与 get_warehouse_stock_quantities 单仓回退同源）
+        rows = (db.session.query(StockTransaction.material_id,
+                                 func.coalesce(func.sum(StockTransaction.quantity), 0))
+                .filter(StockTransaction.created_at >= since_dt)
+                .group_by(StockTransaction.material_id).all())
+        return {material_id: float(quantity or 0) for material_id, quantity in rows}
+
+    if location_management_enabled():
+        # 与 LocationInventory 分支的子句一致：warehouse_id 精确 + NULL 行按仓库名/编码
+        name_clauses = [StockTransaction.warehouse_id == warehouse.id]
+        if warehouse_key:
+            name_clauses.append(db.and_(
+                StockTransaction.warehouse_id.is_(None),
+                StockTransaction.location == warehouse_key,
+            ))
+        if warehouse_code and warehouse_code != warehouse_key:
+            name_clauses.append(db.and_(
+                StockTransaction.warehouse_id.is_(None),
+                StockTransaction.location == warehouse_code,
+            ))
+        rows = (db.session.query(StockTransaction.material_id,
+                                 func.coalesce(func.sum(StockTransaction.quantity), 0))
+                .filter(db.or_(*name_clauses), StockTransaction.created_at >= since_dt)
+                .group_by(StockTransaction.material_id).all())
+        return {material_id: float(quantity or 0) for material_id, quantity in rows}
+
+    # 关库位管理多仓：与 get_warehouse_stock_quantities 的 OFF 分支逐条一致
+    loc_names = _warehouse_location_filter_values(warehouse.id, warehouse_key, warehouse_code)
+    clauses = [StockTransaction.warehouse_id == warehouse.id]
+    if loc_names:
+        clauses.append(db.and_(
+            StockTransaction.warehouse_id.is_(None),
+            StockTransaction.location.in_(loc_names),
+        ))
+    rows = (db.session.query(StockTransaction.material_id,
+                             func.coalesce(func.sum(StockTransaction.quantity), 0))
+            .filter(db.or_(*clauses), StockTransaction.created_at >= since_dt)
+            .group_by(StockTransaction.material_id).all())
+    result = {material_id: float(quantity or 0) for material_id, quantity in rows}
+    # 空 location 历史行按来源单据仓库归属补入（与其 OFF 分支兜底一致）
+    empty_txns = StockTransaction.query.filter(
+        StockTransaction.created_at >= since_dt,
+        StockTransaction.warehouse_id.is_(None),
+        db.or_(StockTransaction.location.is_(None), StockTransaction.location == ''),
+        StockTransaction.reference_type.isnot(None),
+        StockTransaction.reference_type != '',
+        StockTransaction.reference_id.isnot(None),
+    ).all()
+    for t in _filter_txn_list_by_warehouse_scope(empty_txns, loc_names, warehouse.id):
+        result[t.material_id] = result.get(t.material_id, 0.0) + float(t.quantity or 0)
+    return result
+
+
 def get_committed_quantities(warehouse_id, exclude_sales_order_id=None):
     """返回 {material_id: 已承诺未发数量}——销售占用账（派生值，不落库）。
 

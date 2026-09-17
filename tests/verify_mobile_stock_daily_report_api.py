@@ -12,7 +12,8 @@ S4. 多仓库隔离：A/B 两仓各有库存，查 A 仓只见 A 仓数量（R2�
 S5. 汇总与分页解耦：page_size=2 时 summary 仍反映过滤后全集（R1）。
 S6. 分页元数据完整：total / page / page_size / total_pages（R1）。
 S7. 结存口径为仓库级数量，不回退全局 Material.stock（A11/R2）。
-S8. 非法 sort 参数 → 400；keyword 过滤生效；零库存物料仍在明细中（每个物料都要能看到）。
+S8. 非法 sort 参数 → 400；keyword 过滤生效；零库存物料不进明细、计入
+    summary.zero_materials（F03 口径扩展后行为，2026-09-17 起）。
 """
 from __future__ import annotations
 
@@ -208,8 +209,11 @@ class TestMobileStockDailyReportApi:
 
         r = client.get(f"{URL}?warehouse_id={wh_b}")
         data = r.get_json()["data"]
-        item = next(i for i in data["items"] if i["code"] == "M001")
-        assert item["stock"] == 0, f"B仓无流水应为 0，实际 {item['stock']}（疑似回退全局账）"
+        # F03（2026-09-17 口径扩展）：明细只出结存 > 0 物料，B 仓无流水的 M001 不再出现，
+        # 但绝不因缺行而回退全局账——zero_materials 反映被滤掉的种数
+        assert all(i["code"] != "M001" for i in data["items"]), \
+            "B仓无流水不应列出 M001（F03 起零库存不进明细，且不得回退全局账）"
+        assert data["summary"]["zero_materials"] == 1
 
     def test_sort_validation_and_keyword_and_zero_stock(self):
         """S8：非法 sort → 400；keyword 过滤；零库存物料仍出现在明细。"""
@@ -226,13 +230,14 @@ class TestMobileStockDailyReportApi:
         r = client.get(f"{URL}?warehouse_id={wh_a}&keyword=螺母")
         assert r.status_code == 200, r.get_data(as_text=True)
         data = r.get_json()["data"]
-        assert data["total"] == 1
-        assert data["items"][0]["code"] == "M002"
-        assert data["items"][0]["stock"] == 0  # 零库存也列出（每个物料的明细）
+        # F03（2026-09-17 口径扩展）：keyword 命中的零库存物料不再进 items，
+        # 只计入 summary.zero_materials（明细只出结存 > 0）
+        assert data["total"] == 0
+        assert data["summary"]["zero_materials"] == 1
 
         r = client.get(f"{URL}?warehouse_id={wh_a}&sort=stock_desc")
         codes = [i["code"] for i in r.get_json()["data"]["items"]]
-        assert codes == ["M001", "M002"]
+        assert codes == ["M001"]
 
         # 响应基础字段齐全：当天日期 / 仓库信息 / 数据截止时间
         data = r.get_json()["data"]
