@@ -812,13 +812,17 @@ class WmsRepository(private val context: Context) {
      * 驱动翻页），故此处只拉单页、由 ViewModel 持有分页状态。summary 由服务端
      * 按过滤后全集计算、每页都带（R1 汇总与分页解耦），首页取值即可。
      * 走 safeCall：服务端业务提示（如"请选择仓库"）原样透传，不被"网络错误"覆盖。
+     *
+     * AI-MOB-RPT-F03：date 传历史日期（yyyy-MM-dd）时服务端回推当天收市结存；
+     * null 按今天。明细服务端已过滤为结存 > 0（用户口径：只显示有库存物料）。
      */
     suspend fun getStockDailyReport(
         warehouseId: String,
         keyword: String? = null,
         sort: String = "code_asc",
         page: Int = 1,
-        pageSize: Int = 20
+        pageSize: Int = 20,
+        date: String? = null
     ): Result<StockDailyReportData> {
         ensureSession()
         return safeCall {
@@ -827,7 +831,8 @@ class WmsRepository(private val context: Context) {
                 keyword = keyword?.takeIf { it.isNotBlank() },
                 sort = sort,
                 page = page,
-                pageSize = pageSize
+                pageSize = pageSize,
+                date = date?.takeIf { it.isNotBlank() }
             )
         }
     }

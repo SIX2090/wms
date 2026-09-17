@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -53,8 +54,10 @@ data class StockDailyReportUiState(
     /** 滚动翻页加载中（列表底部 footer） */
     val isLoadingMore: Boolean = false,
     val error: String? = null,
-    /** 当前查询日期（yyyy-MM-dd）。结存是当前快照，恒为当天 */
+    /** 当前查询日期（yyyy-MM-dd）。AI-MOB-RPT-F03：可翻日期，历史日期为当天收市结存 */
     val date: String = "",
+    /** 日期是否处于「今天模式」：true 时每次刷新自动跟随系统当天（跨天不重启也生效） */
+    val dateIsToday: Boolean = true,
     /** 数据截止时间（服务端下发 hh:mm，只用于显示） */
     val generatedAt: String? = null,
     val warehouses: List<WarehouseDto> = emptyList(),
@@ -126,15 +129,39 @@ class StockDailyReportViewModel(application: Application) : AndroidViewModel(app
     /** 点搜索 / 换仓 / 下拉刷新：从第 1 页重新拉 */
     fun refresh() {
         // BUG-2026-09-10-003 模式：App 跨天未重启时进入页面仍按旧日期展示，
-        // 每次刷新前校正为系统当天（结存语义上就是"当前"，日期仅作展示口径）
-        val today = apiDateFormat.format(Date())
-        if (today != _uiState.value.date) {
-            _uiState.value = _uiState.value.copy(date = today)
+        // 处于今天模式时每次刷新前校正为系统当天（历史翻页模式不强制校正）
+        if (_uiState.value.dateIsToday) {
+            val today = apiDateFormat.format(Date())
+            if (today != _uiState.value.date) {
+                _uiState.value = _uiState.value.copy(date = today)
+            }
         }
         // 仓库必填（AGENTS.md §二）：未选仓不发请求（不拉全量、不回退默认仓）
         val warehouseId = _uiState.value.selectedWarehouseId ?: return
         pager.reset()
         loadPage(warehouseId, page = 1, append = false)
+    }
+
+    /** 日期前后翻页（AI-MOB-RPT-F03）：翻到历史日期看当天收市结存；不允许翻到未来 */
+    fun shiftDay(offset: Int) {
+        val current = apiDateFormat.parse(_uiState.value.date) ?: Date()
+        val cal = Calendar.getInstance().apply {
+            time = current
+            add(Calendar.DAY_OF_YEAR, offset)
+        }
+        val today = apiDateFormat.format(Date())
+        val next = apiDateFormat.format(cal.time)
+        if (next > today) return // 服务端对未来日期 400，此处直接钳制
+        _uiState.value = _uiState.value.copy(date = next, dateIsToday = next == today)
+        refresh()
+    }
+
+    /** 回到今天并切回「今天模式」（跨天自动跟随恢复） */
+    fun resetToday() {
+        val today = apiDateFormat.format(Date())
+        if (_uiState.value.date == today && _uiState.value.dateIsToday) return
+        _uiState.value = _uiState.value.copy(date = today, dateIsToday = true)
+        refresh()
     }
 
     /** 滚动到底翻页：只在还有页、不在加载中、且已查出过数据时才拉下一页 */
@@ -155,7 +182,8 @@ class StockDailyReportViewModel(application: Application) : AndroidViewModel(app
             repository.getStockDailyReport(
                 warehouseId = warehouseId,
                 keyword = _uiState.value.keyword,
-                page = page
+                page = page,
+                date = _uiState.value.date.takeIf { it.isNotBlank() }
             ).fold(
                 onSuccess = { data ->
                     pager.onPageLoaded(data.page, data.totalPages)

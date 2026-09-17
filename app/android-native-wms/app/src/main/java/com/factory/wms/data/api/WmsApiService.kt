@@ -162,7 +162,9 @@ interface WmsApiService {
         @Query("keyword") keyword: String? = null,
         @Query("sort") sort: String = "code_asc",
         @Query("page") page: Int = 1,
-        @Query("page_size") pageSize: Int = 20
+        @Query("page_size") pageSize: Int = 20,
+        // AI-MOB-RPT-F03：历史日期（yyyy-MM-dd），null 时服务端按今天
+        @Query("date") date: String? = null
     ): Response<ApiEnvelope<StockDailyReportData>>
 
     /**

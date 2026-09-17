@@ -132,7 +132,7 @@ fun HomeScreen(
             ),
             FunctionCard(
                 title = "库存日报",
-                subtitle = "按仓查询 · 各物料当天结存",
+                subtitle = "按仓展示 · 各物料每日结存",
                 icon = Icons.Outlined.Inventory2,
                 gradient = listOf(CardCyanLight, CardCyanDark),
                 screen = Screen.StockDailyReport

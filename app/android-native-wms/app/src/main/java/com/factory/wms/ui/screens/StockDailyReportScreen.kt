@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Card
@@ -32,6 +34,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -53,14 +56,17 @@ import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.Primary
 import com.factory.wms.ui.theme.Success
 import com.factory.wms.ui.viewmodel.report.StockDailyReportViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 /**
  * 库存日报页（AI-MOB-RPT-F02）：按仓库查看当天各物料结存明细。
  * 服务端：GET /api/mobile/report/stock_daily（只读，零写操作）。
  *
- * 与每日报表（出入库明细）的差异：结存是当前快照、语义上恒为当天，
- * 故无日期前后翻页，仅展示查询日期与数据截止时间。
+ * AI-MOB-RPT-F03（需求 2026-09-17）：进入即自动展示所选仓**结存 > 0** 的
+ * 全部物料（服务端过滤，无需搜索）；顶部日期可前后翻页回看历史某天收市结存
+ * （流水回推），「回到今天」恢复今天模式。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,7 +114,7 @@ fun StockDailyReportScreen(
                     Column {
                         Text("库存日报", fontWeight = FontWeight.Bold, fontSize = 20.sp)
                         Text(
-                            "各物料当天结存 · 按仓查询",
+                            "各物料每日结存 · 按仓展示",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -134,7 +140,10 @@ fun StockDailyReportScreen(
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            // ── 日期与数据截止时间（结存快照，无日期翻页）──
+            // ── 日期导航（AI-MOB-RPT-F03：可翻日期看历史收市结存）──
+            // 「后一天」在到达今天后禁用（服务端对未来日期 400，此处前置钳制）；
+            // 历史日期「数据截至」显示 23:59（收市语义），今天显示当前时刻。
+            val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -148,20 +157,36 @@ fun StockDailyReportScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        uiState.date,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp
-                    )
-                    Text(
-                        "数据截至 ${uiState.generatedAt ?: "--:--"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    IconButton(onClick = { viewModel.shiftDay(-1) }) {
+                        Icon(Icons.Filled.ChevronLeft, "前一天")
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            uiState.date,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "数据截至 ${uiState.generatedAt ?: "--:--"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            TextButton(onClick = { viewModel.resetToday() }) {
+                                Text("回到今天", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    IconButton(
+                        onClick = { viewModel.shiftDay(1) },
+                        enabled = uiState.date < todayStr
+                    ) {
+                        Icon(Icons.Filled.ChevronRight, "后一天")
+                    }
                 }
             }
 
@@ -237,11 +262,13 @@ fun StockDailyReportScreen(
                         )
                     }
                     uiState.queried && uiState.items.isEmpty() -> {
+                        // F03 起明细只出结存 > 0：空态须区分「该仓当天无结存物料」
+                        // 与「被关键词滤掉」，不再笼统说"物料档案为空"
                         WmsEmptyState(
                             icon = Icons.Outlined.Inventory2,
-                            title = if (uiState.keyword.isBlank()) "该仓库暂无物料" else "未找到匹配物料",
+                            title = if (uiState.keyword.isBlank()) "该仓当天无结存物料" else "未找到匹配物料",
                             subtitle = if (uiState.keyword.isBlank()) {
-                                "物料档案为空，或换个仓库看看"
+                                "该仓没有库存大于 0 的物料\n（可换个仓库，或翻日期回看历史结存）"
                             } else {
                                 "「${uiState.keyword}」在该仓无匹配，换个关键词试试"
                             },
