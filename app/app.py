@@ -8242,6 +8242,52 @@ def _contract_delete_blockers(contract):
         blockers.append('已被' + '、'.join(refs) + '引用')
     return blockers
 
+
+def sync_contract_project_name(contract_id, old_contract_no, new_contract_no,
+                               new_project_name):
+    """合同/工程档案改名（或改号）后，同步全部冗余存储的单据头与明细行
+    （BUG-2026-09-17-001）。
+
+    历史包袱：单据表同时冗余 contract_no/project_name 文本，原设计注释为
+    「合同变更后历史单据保留原始值」——用户拍板改为**跟随同步**（2026-09-17：
+    「更改工程名称之前单据上的工程名称没有同步更改」）。
+
+    冗余字段消费点全量收口（R6 同类点不留遗漏）：InOrder / InOrderItem /
+    OutOrder / OutOrderItem / AfterSaleOutOrderItem / PurchaseOrder /
+    PurchaseOrderItem / SalesOrder / SalesOrderItem 共 9 张表。
+
+    匹配口径（与 _contract_delete_blockers 一致，两种引用方式都要命中）：
+    - `contract_id == contract_id`（外键引用）；
+    - 或 `contract_no == old_contract_no`（纯字符串引用，含历史未挂 FK 的行）。
+
+    工程名称只改不写死：project_name 恒更新为新名；contract_no 仅在改号时
+    （new != old）同步改写，未改号不动（保持单据号引用稳定）。
+    返回 {表名: 更新行数}（仅含实际有改动的表），调用方在同一事务内提交。
+    """
+    models = (InOrder, InOrderItem, OutOrder, OutOrderItem,
+              AfterSaleOutOrderItem, PurchaseOrder, PurchaseOrderItem,
+              SalesOrder, SalesOrderItem)
+    result = {}
+    if not old_contract_no and not contract_id:
+        return result
+    for model in models:
+        clauses = []
+        if contract_id and hasattr(model, 'contract_id'):
+            clauses.append(model.contract_id == contract_id)
+        if old_contract_no:
+            clauses.append(model.contract_no == old_contract_no)
+        if not clauses:
+            continue
+        updates = {'project_name': new_project_name}
+        if new_contract_no and new_contract_no != old_contract_no:
+            updates['contract_no'] = new_contract_no
+        count = (model.query.filter(db.or_(*clauses))
+                 .update(updates, synchronize_session=False))
+        if count:
+            result[model.__tablename__] = count
+    return result
+
+
 # ==================== Category management ====================
 
 def build_category_tree_rows(categories):

@@ -168,7 +168,7 @@ class InOrder(db.Model):
     auto_push_requisition = db.Column(db.Boolean, nullable=False, default=False)
     remark = db.Column(db.String(200))  # Remark
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
-    contract_no = db.Column(db.String(50))  # 冗余合同编号（合同变更后历史单据不变）
+    contract_no = db.Column(db.String(50))  # 冗余合同编号（改名/改号由 sync_contract_project_name 同步）
     project_name = db.Column(db.String(200))  # 冗余工程名称
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
@@ -229,7 +229,7 @@ class OutOrder(db.Model):
     source_sales_order_id = db.Column(db.Integer, db.ForeignKey('sales_order.id'))  # 关联销售订单ID（外键，替代 purpose 字符串解析）
     remark = db.Column(db.String(200))  # Remark
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
-    contract_no = db.Column(db.String(50))  # 冗余合同编号（合同变更后历史单据不变）
+    contract_no = db.Column(db.String(50))  # 冗余合同编号（改名/改号由 sync_contract_project_name 同步）
     project_name = db.Column(db.String(200))  # 冗余工程名称
     status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
@@ -777,7 +777,7 @@ class PurchaseOrder(db.Model):
     status = db.Column(db.String(20), default='pending')  # pending/partial/completed
     remark = db.Column(db.String(500))
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
-    contract_no = db.Column(db.String(50))  # 冗余合同编号（合同变更后历史单据不变）
+    contract_no = db.Column(db.String(50))  # 冗余合同编号（改名/改号由 sync_contract_project_name 同步）
     project_name = db.Column(db.String(200))  # 冗余工程名称
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     total_amount = db.Column(db.Float, default=0)
@@ -848,7 +848,7 @@ class SalesOrder(db.Model):
     currency = db.Column(db.String(20), default='CNY')
     settlement_method = db.Column(db.String(50))
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
-    contract_no = db.Column(db.String(50))  # 冗余合同编号（合同变更后历史单据不变）
+    contract_no = db.Column(db.String(50))  # 冗余合同编号（改名/改号由 sync_contract_project_name 同步）
     project_name = db.Column(db.String(200))  # 冗余工程名称（与 project_no 自由文本字段独立）
     created_at = db.Column(db.DateTime, default=datetime.now)
 

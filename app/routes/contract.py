@@ -128,17 +128,29 @@ def register_contract_routes(app):
         existing = Contract.query.filter(Contract.contract_no == contract_no, Contract.id != id).first()
         if existing:
             return api_error('合同编号已存在')
+        # BUG-2026-09-17-001：改名/改号前留存旧值，保存时同步历史单据冗余字段
+        old_contract_no = contract.contract_no
+        old_project_name = contract.project_name
         contract.contract_no = contract_no
         contract.project_name = project_name
         contract.status = request.form.get('status', 'active')
         contract.remark = request.form.get('remark', '').strip() or None
         try:
+            sync_counts = {}
+            if project_name != old_project_name or contract_no != old_contract_no:
+                from app import sync_contract_project_name
+                sync_counts = sync_contract_project_name(
+                    contract.id, old_contract_no, contract_no, project_name)
             db.session.commit()
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'编辑合同失败: {e}')
             return jsonify({'status': 'error', 'msg': '编辑失败，请稍后重试'}), 500
-        return jsonify({'status': 'success', 'msg': '编辑成功'})
+        msg = '编辑成功'
+        synced_total = sum(sync_counts.values())
+        if synced_total:
+            msg += f'，已同步更新 {synced_total} 条历史单据的工程名称'
+        return jsonify({'status': 'success', 'msg': msg})
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/contract/<int:id>/delete', methods=['POST'])
@@ -314,6 +326,7 @@ def register_contract_routes(app):
                 return jsonify({'status': 'error', 'msg': f'缺少必要列: {missing}'}), 400
             idx = {col: header.index(col) for col in header if col}
             added, updated, skipped = 0, 0, 0
+            renamed = []  # (contract_id, contract_no, new_project_name)：工程名实际变更的行
             for r in rows[1:]:
                 if not r or not r[0]:
                     skipped += 1
@@ -329,6 +342,9 @@ def register_contract_routes(app):
                 remark = str(d.get('备注', '')).strip() or None
                 existing = Contract.query.filter_by(contract_no=cno).first()
                 if existing:
+                    # BUG-2026-09-17-001：导入改名同样同步历史单据（R6 同类消费点）
+                    if existing.project_name != pname:
+                        renamed.append((existing.id, cno, pname))
                     existing.project_name = pname
                     existing.status = status
                     existing.remark = remark
@@ -336,10 +352,18 @@ def register_contract_routes(app):
                 else:
                     db.session.add(Contract(contract_no=cno, project_name=pname, status=status, remark=remark))
                     added += 1
+            # 同事务同步历史单据：任一失败整体回滚，不留"档案已改、单据半同步"
+            sync_total = 0
+            if renamed:
+                from app import sync_contract_project_name
+                for cid, cno, pname in renamed:
+                    sync_total += sum(sync_contract_project_name(cid, cno, cno, pname).values())
             db.session.commit()
             msg = f'导入完成：新增 {added} 条，更新 {updated} 条'
             if skipped:
                 msg += f'，跳过空行 {skipped} 条'
+            if sync_total:
+                msg += f'，同步更新 {sync_total} 条历史单据的工程名称'
             return jsonify({'status': 'success', 'msg': msg})
         except Exception as e:
             db.session.rollback()

@@ -113,8 +113,10 @@ class Contract(db.Model):
     """合同/工程档案主数据（精简版）。
 
     用于在采购入库单、领料出库单、采购订单、销售订单头上标记所属合同与工程，
-    便于按合同/工程维度归集与筛选。订单表同时冗余 contract_no/project_name 文本，
-    合同档案后续编辑或停用时历史单据保留原始值。
+    便于按合同/工程维度归集与筛选。订单表同时冗余 contract_no/project_name 文本；
+    BUG-2026-09-17-001 起，档案编辑/批量导入改名（改号）时由
+    sync_contract_project_name() 同步全部历史单据的冗余值（用户拍板：跟随同步，
+    不再保留原始快照）。
     """
     __tablename__ = 'contract'
     __table_args__ = (
