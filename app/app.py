@@ -2869,8 +2869,13 @@ csrf = CSRFProtect(app)
 
 # Uploads
 UPLOAD_FOLDER = app.config.get('UPLOAD_FOLDER', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads'))
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+# AI-CI-GREEN-004：必须用 exist_ok=True，不能写成 `if not exists: makedirs()`。
+# 后者是典型的 TOCTOU 竞态：CI 里 verify_*.py 以 4 路并发各起一个进程导入本模块，
+# 两个进程可能**同时**通过 os.path.exists 检查，随后一个建成、另一个抛
+# FileExistsError 直接把 conftest 导入打断（实测报错：
+#   app/app.py:2873 os.makedirs(UPLOAD_FOLDER) -> FileExistsError: File exists）。
+# 本地跑不出来是因为工作区目录早已存在，竞态窗口不存在——所以这是**只在 CI 复现**的缺陷。
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 migrated_legacy_material_images = migrate_legacy_material_images(UPLOAD_FOLDER)
 if migrated_legacy_material_images:
@@ -3111,8 +3116,8 @@ def apply_security_headers(response):
     return response
 
 # Ensure upload folder exists
-if not os.path.exists(app.config['UPLOAD_FOLDER']):
-    os.makedirs(app.config['UPLOAD_FOLDER'])
+# AI-CI-GREEN-004：同上，改 exist_ok=True 消除并发导入竞态（勿退回 exists 检查写法）。
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Notifications
 notification_manager.init_app(app)
@@ -32562,8 +32567,8 @@ import glob
 from pathlib import Path
 
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backups')
-if not os.path.exists(BACKUP_DIR):
-    os.makedirs(BACKUP_DIR)
+# AI-CI-GREEN-004：同 UPLOAD_FOLDER，统一 exist_ok=True 消除并发导入竞态。
+os.makedirs(BACKUP_DIR, exist_ok=True)
 
 def get_database_file_path():
     uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')

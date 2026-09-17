@@ -164,6 +164,19 @@ def _write_step_summary(failures, total_files: int, total_secs: float) -> None:
         except OSError as exc:  # noqa: BLE001
             print(f'[warn] 写 GITHUB_STEP_SUMMARY 失败: {exc}')
 
+    # 第三通道：workflow command 注解。
+    # 为什么还需要它：step summary 只在 job 页面渲染、artifact 走 blob 域名（本沙箱
+    # 实测两个通道分别在「check-run output 为空」与「DNS 落保留地址」上折戟），
+    # 而 `::error::` 注解能通过 `GET /check-runs/<job_id>/annotations` 稳定读到——
+    # AI-CI-GREEN-003 排查时实测该接口可返回 annotations_count 与逐条 message。
+    # 因此在无日志、无 artifact 的极端网络下，注解是**唯一还能读出失败文件名**的通道。
+    for path, rc, elapsed, out in failures:
+        first_lines = [ln.strip() for ln in out.strip().splitlines() if ln.strip()]
+        detail = ' | '.join(first_lines[-3:])[:400] if first_lines else '(无输出)'
+        # 单行、不含换行，避免 GitHub 截断注解
+        print(f'::error file={path},title=verify 失败 rc={rc} '
+              f'({elapsed:.1f}s)::[{path}] {detail}', flush=True)
+
     try:
         out_file = REPO_ROOT / 'verify_failures_summary.md'
         out_file.write_text(body, encoding='utf-8')
