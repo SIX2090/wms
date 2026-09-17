@@ -212,6 +212,7 @@
 
 | 109 | AI-MOB-OFFLINE-01 | 已完成 | 安卓 App 离线优先作业队列（需求 2026-09-12：手机 App 智能化——先解决「断网即瘫痪」地基）：此前 App 的"离线"只有提示没有降级（`AppDatabase` 仅 materials/operation_logs 两表 v1、全模块无 ConnectivityManager/NetworkCallback、`OperationLogEntity` 是成功后审计日志而非待提交队列），仓库货架深处/地下室弱网时提交失败 → 已扫明细全废、必须回有信号处重扫。本任务实现「人工已确认的提交动作」断网本地暂存 + 联网自动补传：①`PendingOperationEntity`（主键 = requestId = X-Idempotency-Key，复用后端 `mobile_api_idempotent` 回放 → 重复入队/并发补传不产生重复单据）；②`PendingOperationDao`（pending/syncing/failed 状态机 + `resetStuckSyncing` 复位进程被杀残留，否则永远补传不出去＝静默丢数据）；③`DatabaseMigrations.MIGRATION_1_2` 纯新增表、不触碰既有数据；④`NetworkMonitor`（INTERNET+VALIDATED 双条件判定，只连 AP 出口不通判离线；查询/注册异常一律按离线＝保守不丢数据）；⑤`OfflineQueueManager`（只入队网络类失败；业务类 `BusinessException` 立即返回用户，避免把「确定失败」伪装成「已暂存」；补传失败累计次数、达 5 次转 failed 显式告警，绝不静默丢弃）；⑥`WmsRepository` 三提交方法统一 `submitWithOfflineFallback` + 新增 `OfflineQueuedException` 与普通失败区分；⑦`PendingSyncBanner` 严格区分「待同步」与「失败」两态，断网暂存时清空已扫明细并按成功样式提示（数据已安全，用户不必重扫 → 否则重扫制造重复单据）。**边界（AGENTS.md §一/R5）**：队列只承载用户已点击提交的动作，AI 识别/语音草稿不得入队；仓库必填（§二）缺失拒绝入队、断网不回退默认仓；补传只调用原提交接口，单据状态流转仍由人工 | 无 | 见下方完成记录 |
 | 110 | AI-MOB-RPT-F02 | 已完成 | 手机端库存日报：按仓查询各物料当天结存明细（需求 2026-09-17：「开发一个仓库库存日报表，每一个仓库各物料当天的库存明细，按仓来查询」，口径确认「只需要结存」）：①后端新增 `GET /api/mobile/report/stock_daily`（仓库必填、结存=get_warehouse_stock_quantities 仓库级口径不回退全局账、summary 与分页解耦、完整分页元数据）；②安卓新增「库存日报」页（仓库必选只列真实仓、搜索、汇总卡、滚动分页、只读零写操作）+ 可单测分页状态机；③versionCode 18→19 / 3.8.4→3.8.5 | AI-MOB-RPT-F01 | 无 | 提交 `9a5c394`（后端+测试）、`18ecf23`（安卓+单测），API 通道重放远程 `d4fcf0f6`/`2f6495b2`；验证：新增 `tests/verify_mobile_stock_daily_report_api.py` 8/8 PASSED（端点注册/401/仓库必填400/两仓隔离/汇总与分页解耦/分页元数据/不回退全局账/sort校验+keyword+零库存列出），相邻移动回归 56/56 PASSED，lint 0 违规；CI：Android APK Build ✅（含新增 StockDailyPagerTest 7 用例）、WMS AI Verification ✅（WMS CI 红灯经核对为存量测试污染，与本次无关，另立 AI-CI-GREEN-001 排查）；遗留：`in_out_detail` 出入库明细端点未做（F01 原计划遗留，用户未要求）；生效条件：后端重启 WMS 服务 + CI 出包后重装 3.8.5 APK |
+| 111 | AI-CI-GREEN-001 | 进行中 | WMS CI 存量红灯排查修复：全量套件 51 failed + 124 errors（test_p1_*_location_required 7F / test_print_* ~40F / TestOpeningStock* 124E FK 错误），推送前后失败清单完全一致（8d578ba8 与 d4fcf0f6 均为 51F/124E/1818P），单跑/小组跑全绿 → 测试间状态污染。目标：定位污染源并修复，WMS CI 转绿 | 无 | 无 | 见下方排查记录 |
 
 ## 5. 任务详细定义
 
@@ -2319,3 +2320,16 @@ full 验证结果：
 - `6ca01555`：CI 全部构建命令改 release 变体；release 签名按 WMS_STORE_FILE 条件切换（缺省回退 debug，可覆盖安装）；校验 task 仅在配置正式签名时强制参数；Upload 增传 mapping.txt；新增 verify_release_build_slim.py 6 用例。
 
 **验证**：26/26 PASSED（sherpa CI + release 瘦身 + sherpa build config）；pre-commit 规则扫描 0 违规；本地与 origin/main SHA 一致。产物体积以 CI run 实测为准（预期 200MB → 30-60MB）。
+
+### AI-CI-GREEN-001：WMS CI 存量红灯排查修复（2026-09-17 立项）
+
+**背景**：用户发现 GitHub `WMS CI` 工作流全部红色。逐条核对运行日志得出：
+- 推送前后失败完全一致：`8d578ba8`（推送前）与 `d4fcf0f6`（AI-MOB-RPT-F02 后端）均为 **51 failed + 124 errors + 1818 passed**，失败清单逐项相同 → 存量问题，与 RPT-F02 无关。
+- 失败三群：①`test_p1_*_location_required`（7F，库位必填校验在全量套件中"失效"：期望拒绝实际保存成功）；②`test_print_*`（约 40F，登录/权限断言错乱：期望 302/403 实际 200）；③`TestOpeningStock*`（124E，setup 阶段 `FOREIGN KEY constraint failed`）。
+- **污染实锤**：同样测试本地单跑/小组跑全部通过（`test_opening_stock_doc_list.py` 单跑 8/8、p1+print 组跑 26/26），只在 1900+ 测试同进程全量跑时失败 → 测试间共享状态（模块级环境变量 / app.config / DB 连接 / 登录态 / 系统设置开关）被前面的测试文件污染。
+- 历史对照：09-12/09-13 期间全量本地跑仍接近全绿（1683P/0F）， breakage 为 09-15~09-16 引入。同类先例：BUG-2026-08-07-002（conftest 抢先导入修测试隔离）。
+- 附带发现：`tests/verify_*.py` 不被主 pytest 收集（命名不匹配 `test_*.py`），靠 CI「Verify regression」分流步骤执行；但该步骤排在失败的「Unit tests + coverage」之后被跳过 → verify 文件在 WMS CI 红灯期间完全不执行（AI-MOB-RPT-F02 的新测试因此未在 WMS CI 跑到，仅靠本地 + WMS AI Verification 覆盖）。
+
+**排查计划**：①本地全量复现（对齐 CI `pytest tests/ -q`）；②按字母序对三群失败做污染二分（候选污染区：test_a*~test_o* 段）；③逐群修复污染源（优先治本：污染文件自身收口状态）；④全量绿后观察 GitHub CI 转绿；⑤顺手评估「verify 分流步骤被前置失败跳过」的结构性问题（`if: always()` 或调整步骤顺序）。
+
+**排查记录**：（进行中，随 atomic action 推进补充）
