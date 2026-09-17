@@ -216,6 +216,8 @@
 | 112 | AI-MOB-RPT-F03 | 已完成 | 手机端库存日报口径扩展（需求 2026-09-17：「显示各仓各种物料每天的库存而不是查询」，两轮口径确认为：用户选仓→自动显示该仓**结存>0**全部物料、可翻日期看历史某天收市结存）：①`GET /api/mobile/report/stock_daily` 新增 date 参数（yyyy-MM-dd 默认今天，历史结存=当前结存−该日之后归属该仓的流水增量，新增 `get_warehouse_txn_delta_map()` 归属口径与 `get_warehouse_stock_quantities` 逐条一致）+ 明细只出结存>0（零/负库存计入 summary.zero_materials）+ 历史日期 generated_at=23:59；②安卓库存日报页加日期导航条（前一天/后一天/回到今天、到达今天禁用后翻、date 参数链路贯通、空态文案按>0口径改写、副标题对齐「按仓展示」） | AI-MOB-RPT-F02 | 无 | 提交 `17f9c38`（后端+测试）、`3d3334f`（安卓+验证脚本），API 通道重放远程 `ab0cdf8d`/`54dbd5e6`；验证：新增 `tests/test_mobile_stock_daily_history.py` 11 项 PASSED（date 校验/逐日回推/>0 过滤/历史多仓隔离/汇总分页解耦/delta_map 直接单测）+ F02 回归与相邻切片 82 passed + `tests/verify_stock_daily_date_nav.py` 13/13 PASSED，lint 0 违规；生效条件：后端重启 WMS 服务 + CI 出包后重装 APK |
 | 113 | AI-CI-GREEN-002 | 已完成 | WMS CI 存量红灯清零（第二批，需求 2026-09-17 用户：「请修复这些红色的」）：「Verify regression - verify_*.py」步骤残留 2 个红灯文件，逐条定位为**测试侧断言过时/写错，零产品代码改动**——①`tests/verify_app_py_split_batch_import.py`（2F）：`/opening_stock/import` 已由 ARCH-OS-IMPORT 从"空 stub 重定向页"升级为**真实 Excel 批量导入**（endpoint 名 `opening_stock_import_stub`→`opening_stock_import`），产品行为正确，是用例 P4 仍按"一律跳转 /batch_import"断言 ⇒ 未选文件时正确返回 400 api_error 反被当失败；②`tests/verify_voice_out_draft_ui.py`（1F，T1c）：断言写死 `voiceDraftViewModel = voiceDraftViewModel,`，而 NavGraph 出于 BUG-2026-09-14-032（语音 VM 惰性创建、未登录不构造）必须用无默认值 `viewModel<T>()` 传入，本就不存在同名局部变量；更关键的是 T1c 与同组 T1d（断言该局部 val 存在）**互斥**，属"写入即坏、自 ebf2e04 引入起从未通过"的自相矛盾断言 | 无 | AI-CI-GREEN-001 | 改动：`verify_app_py_split_batch_import.py` 按"每个入口各自的正确契约"分流断言（仍为空 stub 的 user/label_template 断言 3xx 跳转；已实现真实导入的 opening_stock 断言 400+JSON+文案含"文件"），并新增 `test_real_import_routes_report_error_instead_of_redirect` 钉死"真实导入接口不许以 3xx 伪装成功导航"；`verify_voice_out_draft_ui.py` T1c 改为正则同时接受 `voiceDraftViewModel = voiceDraftViewModel,` 与 `= viewModel()` 两种合法形态，删除 T5d 中条件恒真的 `'最后' not in dl` 空断言，并新增 T12 断言健壮性守卫（T12a 禁止同名标识符互斥对、T12b 禁止纯中文否定式恒真断言，均只扫可执行条件表达式、剔除注释与失败提示文案）——已用**注入反例**反验守卫有效（注入后 T12a/T12b 双红，还原即 53/53 全绿）；`scripts/_routes.json` 同步该 endpoint 名（1 行） | 验证：`verify_voice_out_draft_ui.py` 53/53 PASSED（修前 50/1）、`verify_app_py_split_batch_import.py` 9/9 PASSED（修前 6F/2F）、主套件 `pytest tests/` **1998 passed / 85 skipped / 0 failed**、lint A1–A11 0 违规、禁止裸调非 GET fetch 通过、verify_wms_bugs 无回归；生效条件：无产品代码改动，**无需重启服务、无需重新出包** |
 | 114 | CI-PERF-2026-09-17 | 已完成 | WMS CI 提速（需求 2026-09-17 用户：「这个 WMS CI 运行时间太长了可以优化？」）：原单一 job 串行 **20.0 分钟**，步骤耗时实测 `Unit tests + coverage` 526s（44%）+ `Verify regression` 583s（49%）= **93%**。根因两条：①覆盖率统计纯白跑 —— `--cov-fail-under=0` 不拦任何门槛、coverage.xml 在 workflow 内也无任何上传/发布动作，却占主套件约 70%（带 cov 526s vs 不带 310s）；②173 个 verify 文件逐进程跑，单文件启动开销中位数 2.99s（其中 `import app` 固定税 1.78s），166 次多余解释器+Flask app 构造 ≈ **8.6 分钟纯等待** | 无 | AI-CI-GREEN-002 | 改动：①**拆 3 个互不依赖的并行 job** —— `lint-and-static`（lint×2 + verify_wms_bugs + pip-audit + gitleaks + hooks，~40s）/ `unit-tests`（主套件，~90-150s）/ `verify-and-smoke`（verify + 冒烟，~190-260s，关键路径）；12 个实质校验步骤**一个不少**（仅去掉重复的 CI summary，pip-audit 归属静态门禁且**阻塞门禁属性不变**）；②主套件改 `pytest -n 4 --dist loadfile`（按文件分发、文件内仍串行），**去掉** `--cov=app --cov-report=* --cov-fail-under=0`；③新增 `scripts/run_verify_parallel.py` 承载 verify **并发调度**，`requirements-test.txt` 钉 `pytest-xdist==3.8.0` | **隔离模型零改动（关键）**：verify 仍是每文件一个独立 python 进程、不共享内存，只把串行等待换成进程池并发等待。实测排除了三条看起来更省事的路（均为本地复现、非推测）：**合并单进程**→`no such table: warehouse`（前文件 db.drop_all 拆内存库，后文件 import 期即查表），随后 172 个路径拼成超长命令行直接 file not found；**交给 xdist 共享 worker**→同一异常在收集阶段把整批带崩 `no tests ran`；**`--forked`**→隔离正确但子进程仍重新 import app，无净收益。与 AGENTS.md 记载的「多文件同进程混跑产生 169 例环境性假失败」结论一致，故不动隔离模型。脚本内**完整保留**原 step 语义：pytest式/脚本式分流、known_failures 清单、单文件 60s 超时、失败文件数汇总 + 非零退出 | 验证（本地逐 job 模拟 CI 环境）：JOB1 静态门禁 4 项全过；JOB2 `1998 passed / 85 skipped / 0 failed`（与串行**零差异**，重复两次一致）；JOB3 verify **173 文件 / 失败 0 / 177s**（串行 583s）+ 冒烟「✅ 全部通过」 | **GitHub 实测（run 3520xxxx, commit 6c7af190）：20.0min → 4.2min，三个 job 全绿** —— verify-and-smoke 254s（verify 217s + 冒烟 11s）/ unit-tests 192s（xdist 主套件 163s）/ lint-and-static 83s | 生效条件：纯 CI 配置改动，**无产品代码改动，无需重启服务、无需重新出包** |
+| 115 | AI-CI-GREEN-003 | 已完成 | verify 失败详情上报 + 并发度钉为 4（2026-09-17 立项）：CI 提速后 `verify-and-smoke` 成为唯一关键路径，提交 `572fefa8` 该 job 失败但**失败文件无法查明** —— job 日志端点匿名 403（无 admin 权限），带 token 后 302 重定向到 `productionresultssa4.blob.core.windows.net`，该域名在沙箱被 DNS 劫持到保留地址 `198.18.0.36`（8 个公共解析器 + DoH 全部同一结果），TLS 直接 EOF；`check-runs` annotations 为 0；失败 run 无 verify 摘要产物；本地 173 文件多轮全量复现均 0 失败；失败步骤 219s vs 绿灯 217s（非超时非变慢），两 commit 的 `ci.yml` blob SHA 完全相同 | 无 | CI-PERF-2026-09-17 | 改动：①`scripts/run_verify_parallel.py` 新增 `_write_step_summary()`，失败时把每个失败文件路径/退出码/耗时/末尾 3000 字输出写入 `$GITHUB_STEP_SUMMARY`（纯文本 REST 资源，绕开 blob 存储重定向）+ 落一份 `verify_failures_summary.md` 供 artifact 取走；②并发度默认 `min(8, cpu_count)` → `min(4, cpu_count)` 并显式钉住（每进程 import Flask app + 建内存库，属内存/IO 密集，过高并发会 CPU 争抢致 60s 超时误触发）；③`ci.yml` verify 步骤加 `env: VERIFY_WORKERS: '4'` + 新增 `if: always()` 的 artifact 上传（`verify-failures`，保留 7 天） | 验证：推送后 CI 全绿（新 HEAD `c6e46726`），`WMS CI` ✅ / `WMS AI Verification` ✅ / `Android APK Build` ✅ 三工作流全绿，`572fefa8` 红灯消解。**教训**：查不到就上报、别硬猜；不要用自造负载（曾起约 28 个 busy-loop 进程模拟 4 核，产生 15 个 `rc=124` 假"复现"，实际是无超时事件、单跑每个约 3s，还浪费约 25 分钟）；诊断摘要文件读取前别删 | 生效条件：纯 CI 配置改动，无产品代码改动，无需重启服务、无需重新出包 |
+| 116 | AI-CI-GREEN-005 | 已完成 | 库存阈值对外名称统一为「最低库存 / 安全库存」（需求 2026-09-17 用户：「我現在想知道这个wms系统有安全库存功能？」→「我在物料档案没有看到安全库存」→「你先全面检查启用安全库存有没问题，要统一名称」，用户选定**方案 A：只统一对外名称、不动数据库列**）：排查出看不到安全库存是**两因叠加** —— ①总开关 `inventory_alert_enabled` 默认关闭（`material.html` 把三列包在 `{% if inventory_alert_enabled %}` 里，而配置键 `INVENTORY_ALERT_ENABLED` **全仓只读不写**，实测库内为 `'0'`，置 `'1'` 后正常渲染）；②命名分裂（同概念库里叫 `reorder_point`，界面时叫「再订货点」时叫「安全库存」，`min_stock` 写作「最小库存」，`batch_import.html` 导入提示还把 `min_stock` 误标成"最小库存"与模板真实表头对不上）。另确认 `safety_stock` **不是数据库列**，是计算值 `max(reorder_point, min_stock)` | 无 | AI-CI-GREEN-003、CI-PERF-2026-09-17 | 统一映射（库列不动）：`min_stock`→最低库存 / `max_stock`→最大库存 / `reorder_point`→**安全库存** / `alert_days`→预警天数。改动：`app/models/master_data.py` 补「库存阈值命名约定」docstring（对照表 + `safety_stock` 是计算值 + 「写库只走 reorder_point、禁止新增第四种叫法」）+ 三个阈值列行内注释；`batch_import.html`、`notifications.py`（通知正文 + 邮件 HTML 表头）「最小库存」→「最低库存」；`ai_replenishment.html`/`_smart.html` 删除误导性的**独立**「再订货点」表述（与「安全库存」是同一库字段），口径改为「安全库存（含最低库存）」与 `safety_line = max(min_stock, reorder_point, coverage_stock)` 一致；`inventory_alert.py` 注明 `status_terms` 旧词只是查询输入别名（输出恒用 `status_labels`）、`sort_by` 的 `'safety_stock'` 是计算值（排序对象是 `display_item` 字典而非模型属性）；`export.py`/`material.py` 两处重复实现的模板生成器互加同步告警；新增 `tests/verify_inventory_threshold_naming.py` | 验证：新增用例 **5 passed**；**反向验证**（故意注入故障）证明守卫有效 —— 注入「最小库存」T1 报出文件名、两模板表头改到不一致 T3 变红、交换 `min_stock`↔`reorder_point` T4 变红，注入后均已还原；主套件 `pytest tests/` **1998 passed / 85 skipped / 0 failed**（零回归）；23 个物料/库存/预警 verify 脚本全部 rc=0；相邻套件 26 passed。提交 `440c76c`（API 重放为 `3dabb76c`，9 文件）。**遗留**：总开关 `INVENTORY_ALERT_ENABLED` 仍全仓只读不写、默认关闭（未擅自改默认值）；两处模板生成器仍为重复实现（本次按最小改动保留 + 留同步告警） | 生效条件：含 Jinja 模板与 Python 改动，**需重启 WMS 服务生效**；无库表结构变更、无需数据迁移 |
 
 ## 5. 任务详细定义
 
@@ -1041,7 +1043,7 @@
 
 ## 11. 当前下一项
 
-**当前下一项：待用户指派**（AI-CI-GREEN-001 与其分拆出的 AI-CI-GREEN-002 均已完成，WMS CI 红灯清零）。
+**当前下一项：待用户指派**（AI-CI-GREEN-001/002/003/005 与 CI-PERF-2026-09-17 均已完成，WMS CI 三工作流全绿、耗时 20.0min → 4.2min；库存阈值命名已统一为「最低库存 / 安全库存」）。
 
 ### CI-PERF-2026-09-17：WMS CI 提速（2026-09-17 立项）
 
@@ -1130,7 +1132,112 @@
 1. 优化前先量出**步骤级耗时分布**，别凭感觉。「93% 集中在两步」这个事实直接决定了方案。
 2. 去掉 `--cov-fail-under=0` 这类**零门槛门禁**：它既拦不住东西，又占用关键路径。
 3. 遇到「必须逐进程隔离」的测试集合，正确做法是**并发调度进程**（保留隔离、消除串行等待），
-   而不是想办法合并进程 —— 后者会直接撞上当年那批环境性假失败。第 6 节第 6 批手机端体验对齐批已全部收尾：AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）、AI-MOB-CHECK-F01（手机盘点与 Web 单据流对齐，2026-09-13 完成回查收尾）、AI-MOB-RPT-F01（日报只读视图 2026-09-11 完成；库存汇总由 F02 交付）、AI-MOB-RPT-F02（库存日报，2026-09-17 完成）、AI-MOB-RPT-F03（库存日报口径扩展：自动展示结存>0 + 可翻日期看历史，2026-09-17 完成）均已完成；AI-MOB-EMPTY-F01 空状态组件已接入 16 处（剩余引导动作参数/首次登录引导为低优先遗留）。另有 AI-VOICE-OUT-F01（手机端语音建领料单草稿，2026-09-11 完成）为移动端语音能力新增。F01 原计划遗留的 `in_out_detail` 出入库明细独立端点仍未做（用户未要求，有需求再立）。
+   而不是想办法合并进程 —— 后者会直接撞上当年那批环境性假失败。
+
+### AI-CI-GREEN-003：verify 失败详情上报 + 并发度钉为 4（2026-09-17 立项）
+
+**背景**：CI 提速后（CI-PERF-2026-09-17）`verify-and-smoke` job 成为唯一关键路径。
+在提交 `572fefa8` 上该 job 失败，但**失败文件无法从 GitHub 侧查明**：
+
+- job 日志端点 `/actions/jobs/<id>/logs` 匿名访问返回 **403 "Must have admin rights to Repository."**（权限层）；
+  带 token 后转 302 重定向到 `productionresultssa4.blob.core.windows.net/...job-logs.txt?...&sig=...`，
+  而该主机在本沙箱内被 DNS 劫持解析到保留地址 `198.18.0.36`（**网络层**），TLS 报
+  `UNEXPECTED_EOF_WHILE_READING`；raw UDP 向 8 个公共解析器（8.8.8.8 / 1.1.1.1 / 223.5.5.5 等）
+  查询均返回同一个 `198.18.0.36`，DoH 端点全部不可达 → **日志这条路走不通**。
+- `check-runs` 的 annotations 为 **0 条**；失败 run 的产物只有 `gitleaks-results.sarif`，无 verify 摘要。
+- 本地 173 个 verify 文件多轮全量复现**均为 0 失败**，无法定位；失败步骤耗时 219s vs 绿灯 217s，
+  **既非超时也非变慢**，两个 commit 的 `ci.yml` blob SHA 完全相同（`67b7ec679c55`）。
+
+**决策（关键）**：停止继续猜测/复现，改为**把诊断能力推上 CI**，让 CI 自己吐出失败详情。
+这一步直接结束了此前在「到底是哪个文件失败」上的空转。
+
+**改动**：
+- `scripts/run_verify_parallel.py` 新增 `_write_step_summary(failures, total_files, total_secs)`：
+  失败时把每个失败文件的路径、退出码、耗时、末尾 3000 字输出写入
+  `$GITHUB_STEP_SUMMARY`（**纯文本 API 资源，可经 REST 直读，绕开 blob 存储重定向**），
+  同时落一份 `verify_failures_summary.md` 供 artifact 取走。
+- 并发度默认由 `min(8, cpu_count)` **改为 `min(4, cpu_count)` 并显式钉住**：
+  每个 verify 进程都要 import Flask app + 建内存库，属内存/IO 密集；
+  并发过高会 CPU 争抢、反而让单文件 60s 超时被误触发（这条来自一次**自造事故**，见教训 2）。
+- `.github/workflows/ci.yml`：verify 步骤加 `env: VERIFY_WORKERS: '4'`；
+  新增 `if: always()` 的 artifact 上传步骤（`verify-failures`，`if-no-files-found: ignore`，保留 7 天）。
+
+**验证**：推送后 CI **全绿**（新 HEAD `c6e46726`），`WMS CI` ✅ / `WMS AI Verification` ✅ / `Android APK Build` ✅ 三工作流全绿；
+`572fefa8` 的红灯随之消解。
+
+**教训 / 可复用**：
+1. **查不到就上报，别硬猜**。日志因权限+DNS 双层封锁不可达时，正确动作是在 CI 内部生成
+   `GITHUB_STEP_SUMMARY` —— 它是纯文本 REST 资源，不受产物域名可达性影响，
+   **比拉完整日志更快更稳**（与 AI-CI-GREEN-002 教训 3 同源）。
+2. **不要用「自造负载」去模拟 CI 复现问题**。曾起约 28 个 busy-loop 进程模拟 4 核 runner，
+   得到 15 个文件 `rc=124`（60s 超时）的"复现"——但那**是我自己制造的假象**：
+   真实 CI 该步骤 219s vs 健康 217s，**没有任何超时事件**，那些"超时"文件单跑每个仅约 3s。
+   此举还顺带浪费了约 25 分钟（一次 flaky 排查在 1500s 内只跑了 1 轮，慢 8 倍）。
+3. 诊断脚本/摘要文件**在读取前不要删**（曾把 `verify_failures_summary.md` 当临时文件提前 `rm`，
+   只好从别处的日志把同样信息捞回来）。
+
+### AI-CI-GREEN-005：库存阈值对外名称统一为「最低库存 / 安全库存」（2026-09-17 立项）
+
+**背景**：用户问「这个 WMS 系统有安全库存功能？」→「我在物料档案没有看到安全库存」，
+要求「全面检查启用安全库存有没问题，要统一名称」。排查结论：
+
+- **功能存在且经端到端验证可用**，看不到是**两个独立原因叠加**：
+  1. **总开关默认关闭**：`material.html` 把 最低库存/安全库存/预警天数 三列包在
+     `{% if inventory_alert_enabled %}` 里；而配置键 `INVENTORY_ALERT_ENABLED`
+     **全仓只读不写**（没有任何地方 set 它），默认 `False` → 新部署一律看不到。
+     实测库内该配置为 `'0'`，置为 `'1'` 后页面正常渲染 安全库存。
+  2. **命名分裂**：同一概念在库里叫 `reorder_point`，界面/hint 里时而叫「再订货点」、
+     时而叫「安全库存」；`min_stock` 被写成「最小库存」；`batch_import.html` 的
+     导入提示还把 `min_stock` 误标成"最小库存"，**与模板真实表头对不上**。
+- `safety_stock` **不是数据库列**，是运行时计算值 `max(reorder_point, min_stock)`，
+  仅出现在 API 响应、Excel 导出列与报表字典里。
+
+**方案（用户选定方案 A：只统一对外名称，不动数据库列）**：
+| 数据库列（不动） | 对外统一名称 | 语义 |
+| --- | --- | --- |
+| `min_stock` | 最低库存 | 低于它即不可接受（红线） |
+| `max_stock` | 最大库存 | 高于它即超储 |
+| `reorder_point` | **安全库存** | 低于它即需补货（预警线） |
+| `alert_days` | 预警天数 | 有效期预警提前天数 |
+
+**改动**（1 个 atomic action，提交 `440c76c` / API 重放为 `3dabb76c`，9 文件）：
+- `app/models/master_data.py`：`Material` 补「库存阈值命名约定」docstring（含上表 +
+  `safety_stock` 是计算值的说明 + 「写库只走 `reorder_point`、禁止新增第四种叫法」），
+  三个阈值列加行内注释。
+- `app/templates/batch_import.html`、`app/notifications.py`（站内通知正文 + 邮件 HTML 表头）：
+  「最小库存」→「最低库存」。
+- `app/templates/ai_replenishment.html` / `_smart.html`：删掉误导性的**独立**「再订货点」表述
+  （它与「安全库存」是同一个库字段），口径改写为「安全库存（含最低库存）」，
+  与代码 `safety_line = max(min_stock, reorder_point, coverage_stock)` 一致。
+- `app/routes/inventory_alert.py`：注明 `status_terms` 里的旧词只是**查询输入别名**（兼容旧链接），
+  输出恒用 `status_labels`；注明 `sort_by` 的 `'safety_stock'` 是计算值、
+  排序对象是 `display_item` 字典而非模型属性（两者键名一致）。
+- `app/routes/export.py` / `app/routes/material.py`：两处物料模板生成器互加交叉引用告警
+  —— 它们是**重复实现**（表头当前一致，实测 `/export/template/material` 与
+  `/material/download_template` 均可用且表头相同），改一处必须同步另一处。
+- `tests/verify_inventory_threshold_naming.py`（新增）：5 项回归锁死统一命名
+  —— T1 界面文件不得再出现「最小库存」；T2 UI 不得出现「再订货点/再订购点」但**必须保留导入别名**；
+  T3 两个模板表头必须完全一致；T4 表单 → `reorder_point` 往返 + 导出/再导入稳定；
+  T5 命名约定必须写在模型 docstring 里。
+
+**验证**：
+| 检查项 | 结果 |
+| --- | --- |
+| 新增用例 | **5 passed** |
+| 反向验证（故意注入故障） | 注入「最小库存」→ T1 报出文件名；两模板表头改到不一致 → T3 变红；交换 `min_stock`↔`reorder_point` → T4 变红；**注入后均已还原** |
+| 主套件 `pytest tests/` | **1998 passed / 85 skipped / 0 failed**（与改动前基线一致，零回归） |
+| 物料/库存/预警相关 verify 脚本 | 23 个全部 rc=0 |
+| 相邻套件 | 26 passed |
+
+**生效条件**：改动含 Jinja 模板与 Python，**需重启 WMS 服务生效**；无库表结构变更、无需数据迁移。
+
+**遗留（未做，非本次范围）**：
+- **总开关默认值**：`INVENTORY_ALERT_ENABLED` 全仓只读不写，仍默认关闭。若希望新部署默认可见安全库存，
+  需要一处显式设默认值（属独立决策，未擅自改）。
+- **两处物料模板生成器仍是重复实现**：本次按「最小改动」保留，只在两侧留了同步告警；
+  理想做法是收敛为单一实现。
+
+第 6 节第 6 批手机端体验对齐批已全部收尾：AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）、AI-MOB-CHECK-F01（手机盘点与 Web 单据流对齐，2026-09-13 完成回查收尾）、AI-MOB-RPT-F01（日报只读视图 2026-09-11 完成；库存汇总由 F02 交付）、AI-MOB-RPT-F02（库存日报，2026-09-17 完成）、AI-MOB-RPT-F03（库存日报口径扩展：自动展示结存>0 + 可翻日期看历史，2026-09-17 完成）均已完成；AI-MOB-EMPTY-F01 空状态组件已接入 16 处（剩余引导动作参数/首次登录引导为低优先遗留）。另有 AI-VOICE-OUT-F01（手机端语音建领料单草稿，2026-09-11 完成）为移动端语音能力新增。F01 原计划遗留的 `in_out_detail` 出入库明细独立端点仍未做（用户未要求，有需求再立）。
 
 所有历史 AI 任务已完成；**AI-R07-F02（分类识别+按分类建议编号）已完成**。
 
