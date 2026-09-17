@@ -127,7 +127,7 @@
 | 37 | AI-MOB-NAV-F01 | 已完成 | 手机端底部 Tab 导航（首页/入库/出库/查库存/我的） | AI-MOB-HOME-F01 | AI-MOB-STOCK-F01 |
 | 38 | AI-MOB-STOCK-F01 | 已完成 | 手机端查库存增加列表模式（复用既有 /api/mobile/stock/query） | AI-MOB-NAV-F01 | AI-MOB-CHECK-F01 |
 | 39 | AI-MOB-CHECK-F01 | 已完成 | 手机盘点与 Web 盘点单据流对齐（仓库必填✓、提交前选单✓、盘点记录可回查✓） | AI-MOB-STOCK-F01 | AI-MOB-RPT-F01 |
-| 40 | AI-MOB-RPT-F01 | 部分完成 | 手机端只读报表入口（日报只读视图✓；库存汇总/出入库明细独立端点✗） | AI-MOB-CHECK-F01 | AI-MOB-EMPTY-F01 |
+| 40 | AI-MOB-RPT-F01 | 部分完成 | 手机端只读报表入口（日报只读视图✓；库存汇总视图 2026-09-17 已由 AI-MOB-RPT-F02 以「结存」口径交付✓；出入库明细独立端点✗） | AI-MOB-CHECK-F01 | AI-MOB-RPT-F02 |
 | 41 | AI-MOB-EMPTY-F01 | 部分完成 | 手机端统一空状态组件✓（16 处）；引导动作参数✗、首次登录引导✗ | AI-MOB-RPT-F01 | 无 |
 | 42 | AI-MOB-ARCH-F01 | 已完成 | 手机端物料档案：搜索物料 + 拍照/相册上传多图（每物料最多 5 张）+ 删除 | AI-MOB-NAV-F01 | 无 |
 | 43 | AI-LI-WH-001 | 已完成 | LocationInventory warehouse_id 阶段一兼容迁移 | 无 | 已由 INV-AUDIT-001~005 完成 |
@@ -211,6 +211,7 @@
 | 108 | AI-VOICE-OUT-F01 | 已完成 | 手机端语音建领料单草稿（需求 2026-09-11：说「领8*25螺丝」自动建领料单让我确认，多匹配则让我选）：①后端三层容错解析（同音纠正 → 中文数字 → 分隔符统一「乘/叉/杠/×/x/X/·」归一）→ 结构化抽取**先锁规格再找数量**，根治既有 `_ai_parse_material_lines` 把 8*25 的 8 当数量、把规格截断成 25螺丝 的失效；②六层降级物料匹配（别名表 → 精确编码 → 全模糊 → **词根兜底 + 规格相似度排序** → 仅规格 → AI 四层），永不直接放弃，零命中仍返回最接近候选；③`POST /api/mobile/voice_out_draft` 两阶段协议（dry_run=true 只解析匹配/消歧，false 才建单），幂等 + 能力矩阵收口；④Android 端 `VoiceCommand.CreateOutboundDraft` 建单意图**优先于**「领料/出库」导航分支、`VoiceOutDraftViewModel` 两阶段编排、`VoiceOutDraftDialog` 四形态（解析中/多命中点选/确认/未找到）、出库页跳转预填 + 单号提示条。**边界（AGENTS.md:20 / R5）**：只建 `status=pending` 草稿，**绝不扣库存**；多命中必须用户点选；语音未说数量不猜、要求人工填；提交/完成仍由人工在出库页执行 | 无 | 见下方完成记录 |
 
 | 109 | AI-MOB-OFFLINE-01 | 已完成 | 安卓 App 离线优先作业队列（需求 2026-09-12：手机 App 智能化——先解决「断网即瘫痪」地基）：此前 App 的"离线"只有提示没有降级（`AppDatabase` 仅 materials/operation_logs 两表 v1、全模块无 ConnectivityManager/NetworkCallback、`OperationLogEntity` 是成功后审计日志而非待提交队列），仓库货架深处/地下室弱网时提交失败 → 已扫明细全废、必须回有信号处重扫。本任务实现「人工已确认的提交动作」断网本地暂存 + 联网自动补传：①`PendingOperationEntity`（主键 = requestId = X-Idempotency-Key，复用后端 `mobile_api_idempotent` 回放 → 重复入队/并发补传不产生重复单据）；②`PendingOperationDao`（pending/syncing/failed 状态机 + `resetStuckSyncing` 复位进程被杀残留，否则永远补传不出去＝静默丢数据）；③`DatabaseMigrations.MIGRATION_1_2` 纯新增表、不触碰既有数据；④`NetworkMonitor`（INTERNET+VALIDATED 双条件判定，只连 AP 出口不通判离线；查询/注册异常一律按离线＝保守不丢数据）；⑤`OfflineQueueManager`（只入队网络类失败；业务类 `BusinessException` 立即返回用户，避免把「确定失败」伪装成「已暂存」；补传失败累计次数、达 5 次转 failed 显式告警，绝不静默丢弃）；⑥`WmsRepository` 三提交方法统一 `submitWithOfflineFallback` + 新增 `OfflineQueuedException` 与普通失败区分；⑦`PendingSyncBanner` 严格区分「待同步」与「失败」两态，断网暂存时清空已扫明细并按成功样式提示（数据已安全，用户不必重扫 → 否则重扫制造重复单据）。**边界（AGENTS.md §一/R5）**：队列只承载用户已点击提交的动作，AI 识别/语音草稿不得入队；仓库必填（§二）缺失拒绝入队、断网不回退默认仓；补传只调用原提交接口，单据状态流转仍由人工 | 无 | 见下方完成记录 |
+| 110 | AI-MOB-RPT-F02 | 已完成 | 手机端库存日报：按仓查询各物料当天结存明细（需求 2026-09-17：「开发一个仓库库存日报表，每一个仓库各物料当天的库存明细，按仓来查询」，口径确认「只需要结存」）：①后端新增 `GET /api/mobile/report/stock_daily`（仓库必填、结存=get_warehouse_stock_quantities 仓库级口径不回退全局账、summary 与分页解耦、完整分页元数据）；②安卓新增「库存日报」页（仓库必选只列真实仓、搜索、汇总卡、滚动分页、只读零写操作）+ 可单测分页状态机；③versionCode 18→19 / 3.8.4→3.8.5 | AI-MOB-RPT-F01 | 无 | 提交 `9a5c394`（后端+测试）、`18ecf23`（安卓+单测），API 通道重放远程 `d4fcf0f6`/`2f6495b2`；验证：新增 `tests/verify_mobile_stock_daily_report_api.py` 8/8 PASSED（端点注册/401/仓库必填400/两仓隔离/汇总与分页解耦/分页元数据/不回退全局账/sort校验+keyword+零库存列出），相邻移动回归 56/56 PASSED，lint 0 违规；CI：Android APK Build ✅（含新增 StockDailyPagerTest 7 用例）、WMS AI Verification ✅（WMS CI 红灯经核对为存量测试污染，与本次无关，另立 AI-CI-GREEN-001 排查）；遗留：`in_out_detail` 出入库明细端点未做（F01 原计划遗留，用户未要求）；生效条件：后端重启 WMS 服务 + CI 出包后重装 3.8.5 APK |
 
 ## 5. 任务详细定义
 
@@ -791,6 +792,24 @@
 > - ✗ `tests/verify_mobile_report_api.py` 不存在。
 >
 > 结论：**部分完成**。已交付的是"日报明细只读视图"，原计划中的"库存汇总"视图仍需补（可复用 `queryStockPage` 已有能力，或新增 `stock_summary` 端点）。
+>
+> **补充（2026-09-17）**：「库存汇总」视图已由 **AI-MOB-RPT-F02** 以用户确认的「结存」口径交付（见下方 F02 完成记录）；剩余未做项仅为 `in_out_detail` 出入库明细独立端点。
+
+### AI-MOB-RPT-F02：手机端库存日报（按仓查询各物料当天结存）
+
+**目标**：管理者在手机上按仓库查看当天各物料结存明细（需求原话：「在手机端开发一个仓库库存日报表，我要知道每一个仓库各物料当天的库存明细，按仓来查询」；口径经用户两轮确认：安卓原生 App + 「只需要结存」，不做期初/入/出分列）。
+
+**范围与边界**：
+- 后端新增 `GET /api/mobile/report/stock_daily`（只读）：仓库必填（`resolve_request_warehouse`，缺省回退默认仓；不支持全部仓库汇总——结存跨仓无意义）；结存 = `get_warehouse_stock_quantities(warehouse)` 仓库级口径，无记录物料按 0，绝不回退全局 `Material.stock`（A11/R2）；`summary`（物料总数/有库存/零库存/合计数量）基于过滤后全集、与分页解耦（R1）；完整分页元数据；支持 keyword（编码/名称/规格模糊）与 sort（code_asc 默认/code_desc/stock_asc/stock_desc）。
+- 安卓端：新增 `StockDailyReportScreen`（仓库必选只列真实仓、日期+数据截止时间、搜索行、汇总卡、LazyColumn 滚动分页、加载/错误/空三态，复用 `WarehouseSelector`/`WmsEmptyState`，图标复用 `Inventory2`）；`StockDailyReportViewModel` + 纯逻辑分页状态机 `StockDailyPager`（换仓/换关键字/刷新重置页码）；首页「每日报表」后新增入口卡片；整页只读、零写操作（沿用 RPT-F01 边界）。
+- 版本号（BUG-2026-09-14-027 纪律）：versionCode 18→19、versionName 3.8.4→3.8.5。
+
+**验收与完成记录（2026-09-17）**：
+- 提交：本地 `9a5c394`（后端端点+测试）、`18ecf23`（安卓+单测）；git 协议 TLS 被拦，走 §8.1 API 通道重放，远程 `d4fcf0f6` / `2f6495b2`，均反查 `GET /repos/SIX2090/wms/commits/main` 确认文件清单一致。
+- 后端测试：新增 `tests/verify_mobile_stock_daily_report_api.py` **8/8 PASSED**（端点注册 / 未登录401 / 无默认仓未传仓400 / **R2 两仓隔离** / **R1 汇总与分页解耦**（page_size=2 时 summary 仍覆盖全集）/ 分页元数据完整且翻页合并为全集 / **结存不回退全局 Material.stock**（全局账 999、仓库账 7，断言取 7）/ 非法 sort 400 + keyword 过滤 + 零库存物料仍列出）；相邻移动回归 56/56 PASSED（daily_detail、warehouse_scope、opening_stock、scan_draft_flow）。
+- 安卓单测：新增 `StockDailyPagerTest` 7 用例（JUnit4 纯逻辑：首页可拉/翻页推进/到底禁拉/单页即止/重置/非法参数拒绝）；既有 25 个安卓契约测试零回归；pre-commit lint 0 违规。
+- CI（用户确认 APK 构建在 GitHub 完成）：`Android APK Build` ✅（compileReleaseKotlin + testReleaseUnitTest 通过，含新单测）、`WMS AI Verification` ✅；`WMS CI` 红灯经逐条比对为**推送前既有的 51 failed + 124 errors 存量测试污染**（推送前后失败清单完全一致），与本次改动无关，已另立 **AI-CI-GREEN-001** 排查修复。
+- 遗留子项：`GET /api/mobile/report/in_out_detail`（出入库明细独立端点）未做（F01 原计划遗留，用户未要求）；生效条件：后端需重启 WMS 服务生效（R3 同源：路由改动），安卓需 CI 出包后重装 3.8.5 APK。
 
 ### AI-MOB-EMPTY-F01：手机端统一空状态组件与新手引导
 
