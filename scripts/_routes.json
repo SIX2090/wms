@@ -3492,7 +3492,7 @@
   "methods": [
    "POST"
   ],
-  "endpoint": "opening_stock_import_stub"
+  "endpoint": "opening_stock_import"
  },
  {
   "path": "/opening_stock/export",

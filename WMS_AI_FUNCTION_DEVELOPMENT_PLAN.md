@@ -212,8 +212,9 @@
 
 | 109 | AI-MOB-OFFLINE-01 | 已完成 | 安卓 App 离线优先作业队列（需求 2026-09-12：手机 App 智能化——先解决「断网即瘫痪」地基）：此前 App 的"离线"只有提示没有降级（`AppDatabase` 仅 materials/operation_logs 两表 v1、全模块无 ConnectivityManager/NetworkCallback、`OperationLogEntity` 是成功后审计日志而非待提交队列），仓库货架深处/地下室弱网时提交失败 → 已扫明细全废、必须回有信号处重扫。本任务实现「人工已确认的提交动作」断网本地暂存 + 联网自动补传：①`PendingOperationEntity`（主键 = requestId = X-Idempotency-Key，复用后端 `mobile_api_idempotent` 回放 → 重复入队/并发补传不产生重复单据）；②`PendingOperationDao`（pending/syncing/failed 状态机 + `resetStuckSyncing` 复位进程被杀残留，否则永远补传不出去＝静默丢数据）；③`DatabaseMigrations.MIGRATION_1_2` 纯新增表、不触碰既有数据；④`NetworkMonitor`（INTERNET+VALIDATED 双条件判定，只连 AP 出口不通判离线；查询/注册异常一律按离线＝保守不丢数据）；⑤`OfflineQueueManager`（只入队网络类失败；业务类 `BusinessException` 立即返回用户，避免把「确定失败」伪装成「已暂存」；补传失败累计次数、达 5 次转 failed 显式告警，绝不静默丢弃）；⑥`WmsRepository` 三提交方法统一 `submitWithOfflineFallback` + 新增 `OfflineQueuedException` 与普通失败区分；⑦`PendingSyncBanner` 严格区分「待同步」与「失败」两态，断网暂存时清空已扫明细并按成功样式提示（数据已安全，用户不必重扫 → 否则重扫制造重复单据）。**边界（AGENTS.md §一/R5）**：队列只承载用户已点击提交的动作，AI 识别/语音草稿不得入队；仓库必填（§二）缺失拒绝入队、断网不回退默认仓；补传只调用原提交接口，单据状态流转仍由人工 | 无 | 见下方完成记录 |
 | 110 | AI-MOB-RPT-F02 | 已完成 | 手机端库存日报：按仓查询各物料当天结存明细（需求 2026-09-17：「开发一个仓库库存日报表，每一个仓库各物料当天的库存明细，按仓来查询」，口径确认「只需要结存」）：①后端新增 `GET /api/mobile/report/stock_daily`（仓库必填、结存=get_warehouse_stock_quantities 仓库级口径不回退全局账、summary 与分页解耦、完整分页元数据）；②安卓新增「库存日报」页（仓库必选只列真实仓、搜索、汇总卡、滚动分页、只读零写操作）+ 可单测分页状态机；③versionCode 18→19 / 3.8.4→3.8.5 | AI-MOB-RPT-F01 | 无 | 提交 `9a5c394`（后端+测试）、`18ecf23`（安卓+单测），API 通道重放远程 `d4fcf0f6`/`2f6495b2`；验证：新增 `tests/verify_mobile_stock_daily_report_api.py` 8/8 PASSED（端点注册/401/仓库必填400/两仓隔离/汇总与分页解耦/分页元数据/不回退全局账/sort校验+keyword+零库存列出），相邻移动回归 56/56 PASSED，lint 0 违规；CI：Android APK Build ✅（含新增 StockDailyPagerTest 7 用例）、WMS AI Verification ✅（WMS CI 红灯经核对为存量测试污染，与本次无关，另立 AI-CI-GREEN-001 排查）；遗留：`in_out_detail` 出入库明细端点未做（F01 原计划遗留，用户未要求）；生效条件：后端重启 WMS 服务 + CI 出包后重装 3.8.5 APK |
-| 111 | AI-CI-GREEN-001 | 进行中 | WMS CI 存量红灯排查修复：全量套件 51 failed + 124 errors（test_p1_*_location_required 7F / test_print_* ~40F / TestOpeningStock* 124E FK 错误），推送前后失败清单完全一致（8d578ba8 与 d4fcf0f6 均为 51F/124E/1818P），单跑/小组跑全绿 → 测试间状态污染。目标：定位污染源并修复，WMS CI 转绿 | 无 | 无 | 见下方排查记录 |
+| 111 | AI-CI-GREEN-001 | 已完成（第二批分拆为 AI-CI-GREEN-002） | WMS CI 存量红灯排查修复：全量套件 51 failed + 124 errors（test_p1_*_location_required 7F / test_print_* ~40F / TestOpeningStock* 124E FK 错误），推送前后失败清单完全一致（8d578ba8 与 d4fcf0f6 均为 51F/124E/1818P），单跑/小组跑全绿 → 测试间状态污染。目标：定位污染源并修复，WMS CI 转绿 | 无 | 无 | 见下方排查记录 |
 | 112 | AI-MOB-RPT-F03 | 已完成 | 手机端库存日报口径扩展（需求 2026-09-17：「显示各仓各种物料每天的库存而不是查询」，两轮口径确认为：用户选仓→自动显示该仓**结存>0**全部物料、可翻日期看历史某天收市结存）：①`GET /api/mobile/report/stock_daily` 新增 date 参数（yyyy-MM-dd 默认今天，历史结存=当前结存−该日之后归属该仓的流水增量，新增 `get_warehouse_txn_delta_map()` 归属口径与 `get_warehouse_stock_quantities` 逐条一致）+ 明细只出结存>0（零/负库存计入 summary.zero_materials）+ 历史日期 generated_at=23:59；②安卓库存日报页加日期导航条（前一天/后一天/回到今天、到达今天禁用后翻、date 参数链路贯通、空态文案按>0口径改写、副标题对齐「按仓展示」） | AI-MOB-RPT-F02 | 无 | 提交 `17f9c38`（后端+测试）、`3d3334f`（安卓+验证脚本），API 通道重放远程 `ab0cdf8d`/`54dbd5e6`；验证：新增 `tests/test_mobile_stock_daily_history.py` 11 项 PASSED（date 校验/逐日回推/>0 过滤/历史多仓隔离/汇总分页解耦/delta_map 直接单测）+ F02 回归与相邻切片 82 passed + `tests/verify_stock_daily_date_nav.py` 13/13 PASSED，lint 0 违规；生效条件：后端重启 WMS 服务 + CI 出包后重装 APK |
+| 113 | AI-CI-GREEN-002 | 已完成 | WMS CI 存量红灯清零（第二批，需求 2026-09-17 用户：「请修复这些红色的」）：「Verify regression - verify_*.py」步骤残留 2 个红灯文件，逐条定位为**测试侧断言过时/写错，零产品代码改动**——①`tests/verify_app_py_split_batch_import.py`（2F）：`/opening_stock/import` 已由 ARCH-OS-IMPORT 从"空 stub 重定向页"升级为**真实 Excel 批量导入**（endpoint 名 `opening_stock_import_stub`→`opening_stock_import`），产品行为正确，是用例 P4 仍按"一律跳转 /batch_import"断言 ⇒ 未选文件时正确返回 400 api_error 反被当失败；②`tests/verify_voice_out_draft_ui.py`（1F，T1c）：断言写死 `voiceDraftViewModel = voiceDraftViewModel,`，而 NavGraph 出于 BUG-2026-09-14-032（语音 VM 惰性创建、未登录不构造）必须用无默认值 `viewModel<T>()` 传入，本就不存在同名局部变量；更关键的是 T1c 与同组 T1d（断言该局部 val 存在）**互斥**，属"写入即坏、自 ebf2e04 引入起从未通过"的自相矛盾断言 | 无 | AI-CI-GREEN-001 | 改动：`verify_app_py_split_batch_import.py` 按"每个入口各自的正确契约"分流断言（仍为空 stub 的 user/label_template 断言 3xx 跳转；已实现真实导入的 opening_stock 断言 400+JSON+文案含"文件"），并新增 `test_real_import_routes_report_error_instead_of_redirect` 钉死"真实导入接口不许以 3xx 伪装成功导航"；`verify_voice_out_draft_ui.py` T1c 改为正则同时接受 `voiceDraftViewModel = voiceDraftViewModel,` 与 `= viewModel()` 两种合法形态，删除 T5d 中条件恒真的 `'最后' not in dl` 空断言，并新增 T12 断言健壮性守卫（T12a 禁止同名标识符互斥对、T12b 禁止纯中文否定式恒真断言，均只扫可执行条件表达式、剔除注释与失败提示文案）——已用**注入反例**反验守卫有效（注入后 T12a/T12b 双红，还原即 53/53 全绿）；`scripts/_routes.json` 同步该 endpoint 名（1 行） | 验证：`verify_voice_out_draft_ui.py` 53/53 PASSED（修前 50/1）、`verify_app_py_split_batch_import.py` 9/9 PASSED（修前 6F/2F）、主套件 `pytest tests/` **1998 passed / 85 skipped / 0 failed**、lint A1–A11 0 违规、禁止裸调非 GET fetch 通过、verify_wms_bugs 无回归；生效条件：无产品代码改动，**无需重启服务、无需重新出包** |
 
 ## 5. 任务详细定义
 
@@ -1039,7 +1040,7 @@
 
 ## 11. 当前下一项
 
-**当前下一项：AI-CI-GREEN-001（WMS CI 存量红灯排查修复，进行中）**。第 6 节第 6 批手机端体验对齐批已全部收尾：AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）、AI-MOB-CHECK-F01（手机盘点与 Web 单据流对齐，2026-09-13 完成回查收尾）、AI-MOB-RPT-F01（日报只读视图 2026-09-11 完成；库存汇总由 F02 交付）、AI-MOB-RPT-F02（库存日报，2026-09-17 完成）、AI-MOB-RPT-F03（库存日报口径扩展：自动展示结存>0 + 可翻日期看历史，2026-09-17 完成）均已完成；AI-MOB-EMPTY-F01 空状态组件已接入 16 处（剩余引导动作参数/首次登录引导为低优先遗留）。另有 AI-VOICE-OUT-F01（手机端语音建领料单草稿，2026-09-11 完成）为移动端语音能力新增。F01 原计划遗留的 `in_out_detail` 出入库明细独立端点仍未做（用户未要求，有需求再立）。
+**当前下一项：待用户指派**（AI-CI-GREEN-001 与其分拆出的 AI-CI-GREEN-002 均已完成，WMS CI 红灯清零）。第 6 节第 6 批手机端体验对齐批已全部收尾：AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）、AI-MOB-CHECK-F01（手机盘点与 Web 单据流对齐，2026-09-13 完成回查收尾）、AI-MOB-RPT-F01（日报只读视图 2026-09-11 完成；库存汇总由 F02 交付）、AI-MOB-RPT-F02（库存日报，2026-09-17 完成）、AI-MOB-RPT-F03（库存日报口径扩展：自动展示结存>0 + 可翻日期看历史，2026-09-17 完成）均已完成；AI-MOB-EMPTY-F01 空状态组件已接入 16 处（剩余引导动作参数/首次登录引导为低优先遗留）。另有 AI-VOICE-OUT-F01（手机端语音建领料单草稿，2026-09-11 完成）为移动端语音能力新增。F01 原计划遗留的 `in_out_detail` 出入库明细独立端点仍未做（用户未要求，有需求再立）。
 
 所有历史 AI 任务已完成；**AI-R07-F02（分类识别+按分类建议编号）已完成**。
 
@@ -2376,3 +2377,93 @@ full 验证结果：
 **排查计划**：①本地全量复现（对齐 CI `pytest tests/ -q`）；②按字母序对三群失败做污染二分（候选污染区：test_a*~test_o* 段）；③逐群修复污染源（优先治本：污染文件自身收口状态）；④全量绿后观察 GitHub CI 转绿；⑤顺手评估「verify 分流步骤被前置失败跳过」的结构性问题（`if: always()` 或调整步骤顺序）。
 
 **排查记录**：（进行中，随 atomic action 推进补充）
+
+> 收口（2026-09-17）：001 定位的三群污染（test_p1_*_location_required / test_print_* / TestOpeningStock*）
+> 已由提交 `05e936b3`（AI-CI-GREEN-001 本体）修复，主套件恢复全绿。此后 WMS CI 仍红，
+> 但红点已从「Unit tests + coverage」前移到其**下游**的「Verify regression - verify_*.py」步骤，
+> 属**另一批、另一类**问题，故拆分为 **AI-CI-GREEN-002** 独立立项排查，不混进本项。
+
+### AI-CI-GREEN-002：WMS CI 第二批红灯清零（verify 分流步骤，2026-09-17 立项）
+
+**背景**：用户看到 `WMS CI` 仍有多条红色运行，要求「请修复这些红色的」。逐条核对 GitHub
+Actions 运行与 job 内 15 个步骤的 conclusion，得出精确落点：
+
+- 失败并非全流程皆红，而是**只有第 12 步「Verify regression - verify_*.py」失败**；
+  前 11 步（含 lint 双门禁、verify_wms_bugs、Unit tests + coverage、pip-audit、gitleaks）
+  全部 ✅，第 13 步 Smoke test 因前置失败被 skip。
+- 同一批运行里 `Android APK Build` ✅、`WMS AI Verification` ✅ —— 印证问题与产品代码无关。
+- 覆盖 `ab0cdf8d` / `54dbd5e6` / `45cc8be3` 三次运行，红灯文件恒定 2 个，与 AI-MOB-RPT-F03 改动无因果关系。
+- 日志下载受限：`/logs` 端点 302 到 `productionresultssa6.blob.core.windows.net`，该域名在沙箱内
+  被 DNS 解析到保留地址 `198.18.0.33`（代理黑洞），TLS 直接 EOF，多种解析/端口探测均不可达。
+  改用 **job steps API 精确定位失败步骤** + **本地 173 个 verify 文件全量复现**（对齐 CI 的分流逻辑与
+  60s 超时），两条独立路径结论一致。
+
+**本地复现（对齐 CI 分流）**：173 个 `tests/verify_*.py` 中失败 2 个 ——
+`verify_app_py_split_batch_import.py`（2F）、`verify_voice_out_draft_ui.py`（顶层断言 1F，
+被 pytest 收集时表现为 INTERNALERROR + exit 1）。
+
+**根因（两处均为测试侧，产品代码零改动）**：
+
+① `verify_app_py_split_batch_import.py` —— 断言未跟随架构演进
+   - ARCH-OS-IMPORT 已把 `/opening_stock/import` 从「空 stub：重定向到 /batch_import」
+     升级为**真实的 Excel 批量导入**（解析 xlsx → 复用 `_apply_opening_stock_balance`
+     同一校验/入账路径，含 dry-run 预检两段式），endpoint 名随之由
+     `opening_stock_import_stub` 变为 `opening_stock_import`。
+   - 这是**正确的产品行为**，但用例 P4 仍按「一律 3xx 跳转 /batch_import」断言：
+     `test_endpoints_registered` 找不到旧 endpoint 名而失败；
+     `test_stub_routes_redirect` 对未上传文件的 POST 期望 3xx，实际拿到 400（api_error）而失败。
+   - 与 AGENTS.md 中既有 F1~F9 属**同一类**（测试侧重未跟上产品/架构变更），
+     不是新引入的缺陷。
+
+② `verify_voice_out_draft_ui.py` —— 自相矛盾的脆弱断言（写入即坏）
+   - T1c 断言字面量 `'voiceDraftViewModel = voiceDraftViewModel,'`，但 NavGraph 出于
+     BUG-2026-09-14-032（语音 VM **惰性创建**、未登录不构造）必须写成
+     `voiceDraftViewModel = viewModel(),` —— 该调用点**根本不存在同名局部变量**可供赋值。
+   - 更关键：T1c 与同组 T1d（断言存在 `val voiceDraftViewModel: VoiceOutDraftViewModel = viewModel()`）
+     **逻辑互斥** —— 有独立 val 才可能写 `= voiceDraftViewModel,`，而 T1c 又要求那个 val 不存在，
+     两条**在任何版本都不可能同时通过**。经 `git log -L` 追溯，该矛盾自本文件引入
+     （`ebf2e04`，2026-09-16 10:42）起就存在，从未通过 —— 是一颗被 `known_failures`
+     机制长期掩盖的哑弹，而非回归。
+   - 顺带发现 T5d 内嵌 `'最后' not in dl` 亦为**条件恒真**空断言（中文词恰不在该 Kotlin 源码中），
+     既无正向契约、又会让后续实现者误以为该词是禁用语。最坏后果是**红灯被误读成实现缺陷**。
+
+**修复（1 个 atomic action）**：
+- `tests/verify_app_py_split_batch_import.py`：把「三个模块一律当空 stub」改为
+  **按每个入口各自的正确契约分流断言** —— 仍是空 stub 的 user/label_template 断言 3xx 跳转
+  `/batch_import`；已实现真实导入的 opening_stock 断言 400 + JSON + 文案含「文件」。
+  并新增 `test_real_import_routes_report_error_instead_of_redirect`，钉死
+  「真实导入接口不许以 3xx 伪装成一次成功导航」—— 这条比原断言**守卫更强**，
+  没有采用「把失败的 URL 从清单里删掉」的偷懒做法（删掉等于放弃对该端点的守卫）。
+- `tests/verify_voice_out_draft_ui.py`：T1c 改为正则，**同时接受**两种合法传参形态
+  （`voiceDraftViewModel = voiceDraftViewModel,` 与 `= viewModel()`），
+  不再把实现细节（用不用独立 val）当作契约；删除 T5d 的恒真空断言；
+  **新增 T12 断言健壮性守卫**把本次两条教训固化成可执行断言：
+   - T12a 禁止同一标识符出现「互斥对」断言（防再写一次 T1c/T1d 式矛盾）；
+   - T12b 禁止纯中文否定式恒真断言（防再写一次 T5d 式空断言）。
+   T12 只扫**可执行条件表达式**、剔除注释与失败提示文案（否则守卫会被自己的错误输出触发），
+  且已用**注入反例**反向验证：注入 T1c 旧形态与 `'最后' not in dl` 后 T12a/T12b 双双变红，
+   还原后 53/53 全绿 —— 证明守卫不是恒真装饰。
+- `scripts/_routes.json`：同步该 endpoint 名（**1 行**改动；注意必须走文本替换，
+  用 `json.dumps` 整体重写会把整个文件缩进格式改掉，产生 4553 行伪 diff）。
+
+**验证**：
+| 检查项 | 修前 | 修后 |
+| --- | --- | --- |
+| `verify_voice_out_draft_ui.py` | 50 通过 / 1 失败 | **53 通过 / 0 失败** |
+| `verify_app_py_split_batch_import.py` | 6 通过 / 2 失败 | **9 通过 / 0 失败** |
+| 主套件 `pytest tests/` | — | **1998 passed / 85 skipped / 0 failed** |
+| lint A1–A11 | 0 违规 | 0 违规 |
+| 禁止裸调非 GET fetch | 通过 | 通过 |
+| verify_wms_bugs 静态回归 | 通过 | 通过 |
+| 全量 `tests/verify_*.py`（173 文件，对齐 CI 分流） | 失败 2 文件 | **失败 0 文件** |
+
+**生效条件**：无产品代码改动，**无需重启 WMS 服务、无需重新出包 APK**；
+仅需推送 main 后 CI 重新运行即验证转绿。
+
+**教训（可复用）**：
+1. 断言要断「契约」而不是「写法」——写死 `x = x,` 这类实现细节，实现一换写法测试就假红；
+   正反两种合法形态都应接受。
+2. 引入新断言时先自问「这条在**当前**代码上会过吗」——T1c/T1d 互斥说明当时没有实跑就提交；
+   本批已用 T12 系列把这类问题挡在合入前。
+3. CI 红灯定位优先用 **job steps API**（`/actions/runs/<id>/jobs`）拿到失败步骤号，
+   比拉完整日志更快且不受产物域名可达性影响。

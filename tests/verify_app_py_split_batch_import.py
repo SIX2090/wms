@@ -8,7 +8,18 @@ register-on-app 模式（register_batch_import_routes(app)），endpoint 名与 
 P1. 核心 endpoint 已注册，且无 batch_import.xxx 前缀重复。
 P2. GET /batch_import 返回 200。
 P3. /import/out_order 未上传文件时返回 api_error（JSON）。
-P4. 基础资料 import/export stub 路由存在并跳转（3xx）到 /batch_import。
+P4. 基础资料 import/export 入口可用，且**分流口径正确**：
+    - 仍是"空 stub"的入口（user / label_template）：跳转（3xx）到 /batch_import；
+    - 已升级为真实导入的入口（opening_stock，见下）：不再跳转，而是在
+      未上传文件时返回 api_error（400 + JSON）。
+
+迁移说明（AI-CI-GREEN-002，2026-09-17）：
+  原 P4 把三个模块一律当成"空 stub 跳广场页"，这在 ARCH-OS-IMPORT 落地后
+  已经不成立——`/opening_stock/import` 已由 stub 改为**真实的 Excel 批量导入**
+  （解析 xlsx → 复用 _apply_opening_stock_balance 同一校验/入账路径，见
+  app/routes/batch_import.py 中 ARCH-OS-IMPORT 段落的说明）。产品行为正确，
+  是**测试断言没跟着架构演进更新**。故此处按"每个入口各自的正确契约"分别断言，
+  而不是为了省事把 opening_stock 从断言里删掉（删掉等于放弃对它的守卫）。
 """
 from __future__ import annotations
 
@@ -41,9 +52,18 @@ ENDPOINTS = [
     "user_export_stub",
     "label_template_import_stub",
     "label_template_export_stub",
-    "opening_stock_import_stub",
+    # ARCH-OS-IMPORT：opening_stock 导入已从"空 stub"升级为真实实现，
+    # endpoint 名随之由 opening_stock_import_stub 变为 opening_stock_import。
+    # 导出侧仍是 stub，未动。
+    "opening_stock_import",
     "opening_stock_export_stub",
 ]
+
+# P4 分流：仍然是"跳转广场页"的空 stub 入口
+STUB_REDIRECT_GET = ["/user/export", "/label_template/export", "/opening_stock/export"]
+STUB_REDIRECT_POST = ["/user/import", "/label_template/import"]
+# P4 分流：已实现真实导入的入口——未选文件即返回业务错误，绝不静默跳转
+REAL_IMPORT_POST = ["/opening_stock/import"]
 
 
 def _reset_db():
@@ -244,11 +264,29 @@ def test_import_in_order_other_type_preserves_customer_and_customer_supplied():
 
 def test_stub_routes_redirect():
     client = _setup()
-    for url in ["/user/export", "/label_template/export", "/opening_stock/export"]:
+    for url in STUB_REDIRECT_GET:
         resp = client.get(url)
         assert resp.status_code in (301, 302, 303, 307, 308), f"{url} -> {resp.status_code}"
         assert "/batch_import" in resp.headers.get("Location", ""), f"{url} -> {resp.headers.get('Location')}"
-    for url in ["/user/import", "/label_template/import", "/opening_stock/import"]:
+    for url in STUB_REDIRECT_POST:
         resp = client.post(url)
         assert resp.status_code in (301, 302, 303, 307, 308), f"{url} -> {resp.status_code}"
         assert "/batch_import" in resp.headers.get("Location", ""), f"{url} -> {resp.headers.get('Location')}"
+
+
+def test_real_import_routes_report_error_instead_of_redirect():
+    """ARCH-OS-IMPORT 后的正确契约：真实导入接口不许"跳走"。
+
+    为什么这条要单独钉死：空 stub 靠 3xx 跳广场页"让用户自己再选一次"，
+    而真实导入接口若也以 3xx 响应，等于把"你没选文件"这个可自解释的错误
+    伪装成一次成功导航，用户会以为导入已受理。故断言 400 + JSON 业务错误。
+    """
+    client = _setup()
+    for url in REAL_IMPORT_POST:
+        resp = client.post(url, headers={"X-Requested-With": "XMLHttpRequest"})
+        assert resp.status_code == 400, f"{url} -> {resp.status_code}（应为 400 业务错误）"
+        payload = resp.get_json()
+        assert payload is not None, f"{url} 未返回 JSON"
+        assert payload.get("status") == "error", f"{url} -> {payload}"
+        # 文案必须指向"选文件"这一可操作动作，而不是泛化报错
+        assert "文件" in (payload.get("msg") or ""), f"{url} -> {payload.get('msg')}"

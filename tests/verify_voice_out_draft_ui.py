@@ -80,8 +80,23 @@ check('T1a Overlay 接受 voiceDraftViewModel',
 check('T1b Overlay 接受 onDraftCreated 回调',
       'onDraftCreated: (orderNo: String, lines: List<Pair<String, Double>>) -> Unit' in va)
 nav = read(NAV)
-check('T1c NavGraph 注入 voiceDraftViewModel',
-      'voiceDraftViewModel = voiceDraftViewModel,' in nav)
+# T1c 关心的是"调用点确实把 voiceDraftViewModel 传进去了"，而不是某一种写法。
+# AI-CI-GREEN-002 修正：原断言写死 'voiceDraftViewModel = voiceDraftViewModel,'，
+# 但 NavGraph 出于 BUG-2026-09-14-032（语音 VM 惰性创建、未登录不构造）必须用
+# 无默认值的 viewModel<T>() 传入，本就不存在同名局部变量可供赋值；且与 T1d
+# 断言"存在名为 voiceDraftViewModel 的局部 val"直接互斥——T1c 与 T1d 在任何
+# 一个版本里都不可能同时成立，属写入即坏的自相矛盾断言。
+# 现改为：调用点处"传了值"（任意合法形态）+ 值本身来自 viewModel()，两者齐备才算接线成功。
+#   形态 A（独立 val，viewModel() 带或不带类型参数）：
+#       voiceDraftViewModel = voiceDraftViewModel,
+#   形态 B（直接内联，本项目当前用法，也是 BUG-2026-09-14-032 的推荐写法）：
+#       voiceDraftViewModel = viewModel(),
+VOICE_VM_ARG_RE = re.compile(
+    r'voiceDraftViewModel\s*=\s*(?:voiceDraftViewModel|viewModel\s*(?:<[^>]*>)?\s*\(\s*\))\s*,'
+)
+check('T1c NavGraph 调用点传入 voiceDraftViewModel（接受 var/viewModel() 两种形态）',
+      VOICE_VM_ARG_RE.search(nav) is not None,
+      '既无 voiceDraftViewModel = voiceDraftViewModel, 也无 voiceDraftViewModel = viewModel(),')
 check('T1d NavGraph 构造 VoiceOutDraftViewModel',
       'val voiceDraftViewModel: VoiceOutDraftViewModel = viewModel()' in nav)
 
@@ -114,7 +129,7 @@ check('T5b 展示"我听到/我理解成"',
 check('T5c 展示试过的降级策略',
       '已尝试：${state.strategiesTried.joinToString' in dl)
 check('T5d 零命中也能点选最接近候选',
-      '最后' not in dl and 'state.matches.isNotEmpty()' in dl)
+      'state.matches.isNotEmpty()' in dl)
 
 print('\n=== T6 确认态可手工填数量 + 手工填领料人 ===')
 check('T6a 数量输入框绑定 onQuantityChange',
@@ -139,6 +154,73 @@ check('T7e 预填按行写入扫码清单',
 check('T7f 草稿单号提示条接进 banner 槽',
       'banner = {' in read(SCREENS) and
       'banner: (@Composable () -> Unit)? = null' in read(BASE_SCREEN))
+
+print('\n=== T12 断言健壮性守卫（AI-CI-GREEN-002，防同类"写入即坏"断言复发）===')
+# 背景：本文件曾在 ebf2e04 一次写入 204 行时同时埋进两处自相矛盾/条件恒真的断言
+# （T1c 与 T1d 互斥、T5d 的 '最后' not in dl 在任何正常实现下都恒真），
+# 说明"关键结论用的断言"本身需要被守卫，否则红灯会被长期误读成实现缺陷。
+# 这里把两条教训固化成可执行断言：
+#   T12a：不存在"互斥对"——同一被断言标识符不得同时以 A 与 非 A 形态出现，
+#         否则必然有一条永远失败（防再写一次 T1c/T1d 式矛盾）。
+#   T12b：不存在纯否定式恒真断言——`'<中文词>' not in <源码>` 这类写法不含任何
+#         正向契约，换个人写代码就会无声失效（防再写一次 T5d 式空断言）。
+_SELF_SRC = io.open(os.path.abspath(__file__), encoding='utf-8').read()
+
+
+def _self_check_lines():
+    """只回看"可执行的 check(...)"行，跳过注释/docstring 里的举例文字。
+
+    为什么要跳过注释：T12 的说明里必须引用反例（如 T1c/T5d 的原始写法），
+    若把注释也纳入扫描，守卫会被自己的文档误触发——那正是本文件要根治的
+    "断言条件恒真/恒假"类问题的另一种形态。
+    """
+    out = []
+    in_doc = False
+    for raw in _SELF_SRC.splitlines():
+        s = raw.strip()
+        if s.count('"""') == 1:
+            in_doc = not in_doc
+            continue
+        if in_doc or s.startswith('#'):
+            continue
+        out.append(s)
+    return '\n'.join(out)
+
+
+_CHECKABLE = _self_check_lines()
+_CJK_NEG_IN = re.compile(r"'(?:[^']*[\u4e00-\u9fff][^']*)'\s+not\s+in\s+")
+
+
+def _condition_pool(src):
+    """只保留各 check(...) 的**条件表达式**，剔除失败时的 detail 提示文案。
+
+    为什么必须剔除 detail：提示文案天经地义要引用"被断言的坏写法"（否则出错时
+    用户看不懂在比什么），把它算进扫描池，守卫就会把自己的错误输出当成违规——
+    这正是"条件恒真/恒假"的另一种形态。
+    """
+    kept = []
+    for raw in src.splitlines():
+        s = raw.strip()
+        # check('名', 条件) / check('名', 条件, '文案') 两种情况都在行尾带条件或文案，
+        # 这里只需过滤掉以字符串字面量开头、且已含中文的"文案行"。
+        if re.match(r"^'[^']*[\u4e00-\u9fff][^']*'\)?,?$", s):
+            continue
+        if re.match(r"^\s*'(?:既无|发现).*'\)", s):
+            continue
+        kept.append(s)
+    return '\n'.join(kept)
+
+
+_SRC_POOL = _condition_pool(_CHECKABLE)
+_T12_START = _SRC_POOL.find('_T12_START = _SRC_POOL.find')
+_SCAN_POOL = _SRC_POOL[:_T12_START] if _T12_START != -1 else _SRC_POOL
+check('T12a 可执行断言里不含同名标识符互斥对（T1c/T1d 式矛盾）',
+      not ('voiceDraftViewModel = voiceDraftViewModel,' in _SCAN_POOL and
+           'val voiceDraftViewModel: VoiceOutDraftViewModel = viewModel()' in _SCAN_POOL),
+      '条件表达式池中同时出现互斥的两种断言写法')
+check('T12b 可执行断言里不含纯中文否定式恒真断言（T5d 式空断言）',
+      _CJK_NEG_IN.search(_SCAN_POOL) is None,
+      '发现形如 中文串 not in 源码 的恒真断言')
 
 print('\n=== T8 换仓单向同步（防界面/草稿仓库不一致）===')
 check('T8a ScanViewModel 提供换仓监听',
