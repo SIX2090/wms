@@ -44,7 +44,8 @@ interface WmsApiService {
      * AI-MOB-STOCK-F02（清单 P1-1/P1-2）：sort / stock_filter 为可选参数，
      * 不传时服务端走原 SQL 分页路径、行为不变。
      * - sort：code_asc / code_desc / stock_asc / stock_desc（按仓库级库存排序）
-     * - stock_filter：all / nonzero / zero / low（low = 低于最低库存，与告警页同口径）
+     * - stock_filter：all / nonzero / zero / low（AI-CI-GREEN-005-F04：low 与告警页
+     *   同两级口径，即「库存 <= 安全库存」，不再只比最低库存）
      */
     @GET("api/mobile/stock/query")
     suspend fun stockQuery(
@@ -232,7 +233,7 @@ interface WmsApiService {
     // 仓库统一传 warehouse_id（服务端 resolve_request_warehouse 支持 id/code/name）：
     // 首页存的本来就是仓库 id，用 id 可规避同名仓库的歧义。
 
-    /** 库存告警清单：仓库级库存 <= 最低库存的物料，按缺口排序。 */
+    /** 库存告警清单：仓库级库存 <= 安全库存的物料（含低于最低库存的），按缺口排序。 */
     @GET("api/mobile/alert/list")
     suspend fun getAlertList(
         @Query("warehouse_id") warehouseId: String,

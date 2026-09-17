@@ -86,7 +86,8 @@ data class ScanUiState(
     val stockListSort: String = "",
     /**
      * AI-MOB-STOCK-F02：库存筛选。空串表示不筛选。
-     * 取值 all / nonzero / zero / low（low = 低于最低库存）。
+     * 取值 all / nonzero / zero / low（AI-CI-GREEN-005-F04：low = 两级告警口径，
+     * 即「库存 <= 安全库存」）。
      */
     val stockListFilter: String = "",
     /**

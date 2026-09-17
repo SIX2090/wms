@@ -113,15 +113,21 @@ def test_backend_order_payload_field_names():
                   "status", "total_amount", "operator", "remark", "created_at", "item_count"):
         assert f"'{field}'" in outbound, f"出库单 payload 缺少 {field}"
 
-    # 告警口径：<= 最低库存算告警（等于也算，是有意设计，不是 bug）
+    # 告警口径（AI-CI-GREEN-005-F04 起改为两级）：low = <= 最低库存，
+    # danger = <= 安全库存，等于也算（是有意设计，不是 bug）。判定必须复用
+    # _material_alert_status_values()，不得在这里另写一套比较（R6）。
     alert = re.search(r"def mobile_api_alert_list\(\):([\s\S]*?)\n    @app\.route", src)
     assert alert is None or True  # 端点本身在 native_api.py，下面单独查
     na = _read(ROOT / "app" / "routes" / "native_api.py")
-    assert "'gap': max(0, (m.min_stock or 0) - normalize_stock_quantity(quantities.get(m.id, 0)))" in na, (
-        "告警缺口 gap 计算口径变了——手机端「缺 X」徽章会失真"
+    assert "_material_alert_status_values(m, stock=qty)" in na, (
+        "告警判定没走统一状态函数——手机端会与 PC 首页/列表算出不同的数"
     )
-    assert "normalize_stock_quantity(quantities.get(m.id, 0)) <= (m.min_stock or 0)" in na, (
-        "告警判定改为 < 会与首页 alert_count 口径不一致（首页用 <=，等于最低库存也算告警）"
+    assert "status not in ('low', 'danger')" in na, (
+        "告警判定掉了 danger 档——「低于安全库存」这一整档会重新消失"
+    )
+    # 缺口按安全库存算：补货目标是拉回预警线，不是只拉回红线
+    assert "max(0.0, safety_stock - qty)" in na, (
+        "告警缺口 gap 不再按安全库存计算——手机端「缺 X」徽章会失真"
     )
 
 

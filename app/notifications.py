@@ -88,7 +88,7 @@ class NotificationManager:
 
     def check_low_stock(self, db, Material, User):
         """检查低库存物料并发送通知"""
-        from app import Notification, inventory_alert_enabled
+        from app import Notification, _material_low_stock_filter, inventory_alert_enabled
 
         # AI-CI-GREEN-005-F02：总开关未启用时一律不发预警通知。
         # 此前本函数直接查 `stock <= min_stock`，与列表/页面侧口径不一致 ——
@@ -98,11 +98,10 @@ class NotificationManager:
         if not inventory_alert_enabled():
             return []
 
-        # 获取低库存物料
-        low_stock_materials = Material.query.filter(
-            Material.stock <= Material.min_stock,
-            Material.min_stock > 0
-        ).all()
+        # 获取需要预警的物料。AI-CI-GREEN-005-F04：直接复用页面/列表侧的
+        # _material_low_stock_filter()，避免这里长出第二套判定（此前这里是
+        # `stock <= min_stock and min_stock > 0`，只覆盖 low 档、漏了 danger 档）。
+        low_stock_materials = Material.query.filter(_material_low_stock_filter()).all()
         
         if not low_stock_materials:
             return []

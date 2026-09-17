@@ -1313,7 +1313,8 @@ def register_native_api_routes(app):
         from datetime import date
         from sqlalchemy import func
         from app import (InOrder, InOrderItem, Material, OutOrder, OutOrderItem,
-                         api_json_error, api_json_success, get_warehouse_stock_quantities,
+                         _material_alert_status_values, api_json_error, api_json_success,
+                         db, get_warehouse_stock_quantities,
                          inventory_alert_enabled, resolve_request_warehouse)
         # 全部仓库汇总模式：显式 all 才跨仓，否则仍按仓库必填规则解析
         raw_wh_param = str(request.args.get('warehouse_id')
@@ -1376,26 +1377,33 @@ def register_native_api_routes(app):
         ).count()
 
         # 库存告警（按仓库级数量判定，不读全局 Material.stock）
+        # AI-CI-GREEN-005-F04：两级判定（low: <= 最低库存；danger: <= 安全库存），
+        # 与 PC 的 _material_low_stock_filter() / /alert 页同口径；此前只比
+        # min_stock，漏掉了「低于安全库存（danger 档）但高于最低库存」这一整档。
         alert_count = 0
         if inventory_alert_enabled():
-            candidates = Material.query.filter(Material.min_stock > 0).all()
+            candidates = Material.query.filter(
+                db.or_(Material.min_stock > 0, Material.reorder_point > 0)
+            ).all()
+
+            def _alerting(quantities, m):
+                return _material_alert_status_values(
+                    m, stock=quantities.get(m.id, 0))[3] in ('low', 'danger')
+
             if all_warehouses:
-                # 全部仓库汇总：逐仓判定，任一仓低于最低库存即计一次告警
+                # 全部仓库汇总：逐仓判定，任一仓告警即计一次
                 # （同一物料在多仓告警只算一条，避免重复计数）
                 from app import Warehouse as _Warehouse
                 alert_material_ids = set()
                 for wh in _Warehouse.query.filter_by(status='active').all():
                     quantities = get_warehouse_stock_quantities(wh)
                     for m in candidates:
-                        if quantities.get(m.id, 0) <= (m.min_stock or 0):
+                        if _alerting(quantities, m):
                             alert_material_ids.add(m.id)
                 alert_count = len(alert_material_ids)
             else:
                 quantities = get_warehouse_stock_quantities(warehouse)
-                alert_count = sum(
-                    1 for m in candidates
-                    if quantities.get(m.id, 0) <= (m.min_stock or 0)
-                )
+                alert_count = sum(1 for m in candidates if _alerting(quantities, m))
 
         return api_json_success({
             'today_in_orders': today_in_count,
@@ -1463,7 +1471,7 @@ def register_native_api_routes(app):
         from datetime import datetime
         from sqlalchemy.orm import joinedload
         from app import (MOBILE_API_PAGE_SIZE_DEFAULT, MOBILE_API_PAGE_SIZE_MAX,
-                         Material, _mobile_paginate,
+                         Material, _material_alert_status_values, _mobile_paginate,
                          api_json_error, api_json_success, build_material_locations_map,
                          get_warehouse_stock_quantities, location_management_enabled,
                          normalize_stock_quantity, resolve_request_warehouse,
@@ -1530,9 +1538,10 @@ def register_native_api_routes(app):
                     continue
                 if stock_filter == 'zero' and qty > 0:
                     continue
-                # 低于安全线与库存告警页同口径（<= min_stock，min_stock<=0 视为未设置）
-                if stock_filter == 'low' and (
-                        not (m.min_stock or 0) or qty > (m.min_stock or 0)):
+                # AI-CI-GREEN-005-F04：与库存告警页同口径 —— 走两级判定
+                # （low: <= min_stock；danger: <= safety_stock），不再只比 min_stock。
+                if stock_filter == 'low' and _material_alert_status_values(
+                        m, stock=qty)[3] not in ('low', 'danger'):
                     continue
                 filtered.append(m)
             if sort == 'stock_asc':
@@ -1631,10 +1640,11 @@ def register_native_api_routes(app):
     @csrf.exempt
     @web_or_api_required
     def mobile_api_alert_list():
-        """移动端库存告警列表：仓库级库存低于最低库存的物料"""
+        """移动端库存告警列表：仓库级库存需要预警的物料（两级：low/danger）。"""
         from sqlalchemy.orm import joinedload
         from app import (MOBILE_API_PAGE_SIZE_DEFAULT, MOBILE_API_PAGE_SIZE_MAX, Material,
-                         api_json_error, api_json_success, get_warehouse_stock_quantities,
+                         _material_alert_status_values, api_json_error, api_json_success,
+                         db, get_warehouse_stock_quantities,
                          inventory_alert_enabled, normalize_stock_quantity,
                          resolve_request_warehouse)
         # BUG-2026-08-12-004：仓库必填
@@ -1655,23 +1665,32 @@ def register_native_api_routes(app):
         page = max(1, page or 1)
         page_size = min(max(1, page_size or MOBILE_API_PAGE_SIZE_DEFAULT), MOBILE_API_PAGE_SIZE_MAX)
 
-        # 仓库级数量汇总；低库存判定针对解析仓库，不读全局 Material.stock
+        # 仓库级数量汇总；预警判定针对解析仓库，不读全局 Material.stock
+        # AI-CI-GREEN-005-F04：两级判定（low/danger），与 PC 同口径。此前只比
+        # min_stock，手机端因此完全看不到「低于安全库存」的 danger 档。
         quantities = get_warehouse_stock_quantities(warehouse)
         candidates = Material.query.options(
             joinedload(Material.unit),
             joinedload(Material.category),
             joinedload(Material.supplier),
         ).filter(
-            Material.min_stock > 0,
+            db.or_(Material.min_stock > 0, Material.reorder_point > 0),
         ).order_by(Material.code.asc()).all()
-        alerted = [
-            m for m in candidates
-            if normalize_stock_quantity(quantities.get(m.id, 0)) <= (m.min_stock or 0)
-        ]
-        alerted.sort(key=lambda m: (normalize_stock_quantity(quantities.get(m.id, 0)), m.code or ''))
 
-        total = len(alerted)
-        materials = alerted[(page - 1) * page_size: page * page_size]
+        rows = []
+        for m in candidates:
+            qty = normalize_stock_quantity(quantities.get(m.id, 0))
+            _, min_stock, safety_stock, status = _material_alert_status_values(m, stock=qty)
+            if status not in ('low', 'danger'):
+                continue
+            # 缺口一律按「安全库存」算：补货目标是把库存拉回预警线之上，
+            # 而不是只拉回红线（最低库存）之上。
+            rows.append((m, qty, min_stock, safety_stock, status,
+                         max(0.0, safety_stock - qty)))
+        rows.sort(key=lambda r: (r[5], r[0].code or ''))
+
+        total = len(rows)
+        page_rows = rows[(page - 1) * page_size: page * page_size]
 
         return api_json_success({
             'items': [
@@ -1681,12 +1700,15 @@ def register_native_api_routes(app):
                     'name': m.name or '',
                     'spec': m.spec or '',
                     'unit': m.unit.name if m.unit else '',
-                    'stock': normalize_stock_quantity(quantities.get(m.id, 0)),
-                    'min_stock': m.min_stock or 0,
+                    'stock': qty,
+                    'min_stock': min_stock or 0,
                     'reorder_point': m.reorder_point or 0,
-                    'gap': max(0, (m.min_stock or 0) - normalize_stock_quantity(quantities.get(m.id, 0))),
+                    # AI-CI-GREEN-005-F04：下发计算值安全库存，手机端不必自行解释
+                    'safety_stock': safety_stock or 0,
+                    'status': status,
+                    'gap': gap,
                 }
-                for m in materials
+                for m, qty, min_stock, safety_stock, status, gap in page_rows
             ],
             'total': total,
             'page': page,

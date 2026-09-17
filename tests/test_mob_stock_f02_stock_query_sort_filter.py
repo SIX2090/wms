@@ -119,11 +119,18 @@ def _seed_stock(material, warehouse, qty):
 
 
 def _seed_scene():
-    """A仓（默认）+ B仓，A 仓下 5 个物料，库存故意打乱编码顺序。"""
+    """A仓（默认）+ B仓，A 仓下 5 个物料，库存故意打乱编码顺序。
+
+    AI-CI-GREEN-005-F04：这里必须打开库存预警总开关。此前手机端 low 筛选自己比
+    `min_stock`、不看开关；现在与 PC 的 `/material?stock_filter=low` 一样走
+    `_material_low_stock_filter()`，开关关着就一条不返回——同一套数据不该有两种答案。
+    """
     _reset_db()
     _seed_user()
     wh_a = _seed_warehouse("SQA", "A仓", is_default=True)
     wh_b = _seed_warehouse("SQB", "B仓")
+    app_module.set_system_setting("inventory_alert_enabled", "1")
+    db.session.commit()
     # 编码升序 M1..M5，库存刻意乱序：50 / 0 / 30 / 0 / 10
     specs = [("M1", 50.0, 0.0), ("M2", 0.0, 0.0), ("M3", 30.0, 40.0),
              ("M4", 0.0, 0.0), ("M5", 10.0, 5.0)]
@@ -213,7 +220,13 @@ def test_t4_sort_uses_same_quantity_as_response():
 
 
 def test_t5_stock_filter_semantics():
-    """T5: nonzero / zero / low 筛选语义（low 与告警页同为 <= min_stock）。"""
+    """T5: nonzero / zero / low 筛选语义（low 与告警页同为两级判定）。
+
+    AI-CI-GREEN-005-F04：low 从「<= min_stock」放宽为两级口径（<= 最低库存 或
+    <= 安全库存），与告警页 /api/mobile/alert/list 完全一致。本场景里 M3/M5 只设了
+    min_stock，所以结论不变；两级口径本身的回归见
+    test_inventory_alert_two_band_unified.py。
+    """
     _seed_scene()
     client = _make_client()
     h = _bearer(client)

@@ -222,6 +222,7 @@
 | 118 | AI-CI-GREEN-005-F01 | 已完成 | 纠正「文案写安全库存、代码读 min_stock」的字段错位（需求 2026-09-17 用户：「手机端，电脑端安全库存预警在哪个地方？」→ 追问「手机端有再订货点？」→「先用一个详细的修复方案，订好准则」）：定位预警入口时发现 AI-CI-GREEN-005 的守门测试 `_user_facing_files()` 只收 `app/templates/*.html` + `notifications.py`，`app.py` 与 `ai/**` **一个都没扫**，导致一批反向错标长期存活——用户会照着错标去设置错误的字段（比单纯"名字旧"危险）。用户裁定方向为**分两批：先对齐叫法、再对齐判定**，多仓差异方向为**全部改用仓库级库存**；本批范围为用户勾选的「修反向错标」。准则（C1–C7，已写入修复方案）：C1 命名映射以 `models/master_data.py` 的「库存阈值命名约定」为唯一真值源；C2 **叫法跟着字段走**，读 `min_stock` 就必须写「最低库存」；C3 本批只改文案注释、**一行判定逻辑都不动**；C4 同根因一次扫完（R6）；C5 修完必须留机械守卫；C6 不动库列名/开关默认值/Kotlin/任何比较表达式；C7 每处改动须能回答"实际读哪个字段" | 无 | AI-CI-GREEN-005 | 修复 20 处（P0 用户可见 6 + P1 注释 docstring 14）。P0：`app/app.py` 9130 AI 库存健康建议「补货至安全库存{min_stock}」、26258 库存经营分析报表列标题 `{'field': 'min_stock', 'title': '安全库存'}`、26280 `_inventory_stock_status` 返回值「低于安全库存」；`ai/agents/replenishment.py` 103 补货建议解释「安全库存：{min_stock}」；`ai/analysis/master_data_quality.py` 73 质检项「未设置安全库存」；`ai/patrol_scheduler.py` 96 巡检告警「库存低于安全库存」—— 全部改为「最低库存」。P1：app.py 口径注释与两个函数 docstring、replenishment.py 模块/行内注释及 tool description、shortage.py 57/83、warehouse_patrol.py 176、patrol_scheduler.py 242、knowledge.py 104 同步对齐。**明确不动**（属正确用法）：`app.py:9770` / `inventory_alert.py:109/115` / `report.py:466` 的 `'danger': '低于安全库存'`（danger 档本就指 safety_stock）、`inventory_alert.py` 的 safety_stock 校验文案、`material.py`/`export.py` 表头与导入兼容别名、`templates/alert.html` danger 档 UI。守卫：`tests/verify_inventory_threshold_naming.py` 新增 T6/T7 —— T6「安全库存」与 `min_stock` 在 ±2 行窗口内共现即报错（`models/master_data.py`/`routes/material.py`/`routes/export.py`/`routes/inventory_alert.py` 四个文件白名单）；T7 「低于安全库存」所在行必须同时含 `danger` 或 `safety_stock` | 验证：守卫 **7 passed**（T1–T7）；主套件 `pytest tests/` **1998 passed / 85 skipped / 0 failed**（零回归，与 005 基线一致）；verify 全量（VERIFY_WORKERS=4）**174 文件 / 0 失败 / 165s**；`scripts/lint_wms_rules.py` **0 违规**；**反向验证**：故意注入 3 处旧文案（`app.py` 26280、`replenishment.py` 103、`master_data_quality.py` 73）→ T6 与 T7 同时变红并精确指名行号，还原后 7/7 转绿；扫描器实测当前非白名单命中 **0**。同步更新耦合断言 `tests/test_bug_2026_09_07_021_inventory_analysis.py` 182（该处是全仓唯一耦合此文案的测试）。提交 `35cf87e`（API 重放 `1549a62`，9 文件）。**遗留（后续批次，本批未做）**：①判定口径分裂——全仓存在 5 套判定（A 全局 `stock<=min_stock` / B 全局两级 `max(rp,ms)` / C 仓库级 `<=min_stock` / D 严格 `<` / E 读 `Stock.quantity`），PC 与手机端数字不可能对得上；②多仓差异（PC 用全局 `Material.stock`、手机端用 `get_warehouse_stock_quantities()`），用户已定方向为**全部改用仓库级库存**；③手机端 `ScanScreens.kt:982` 仍显示「再订货点」（`tests/test_bug_2026_09_10_003_android_stock_locations_display.py:36` 当前断言**锁死了这个旧字面量**，改动须同步）；`/alert` 是零入口孤儿页；`notifications.py:89 check_low_stock` 缺 `inventory_alert_enabled()` 判断（开关关着也每天 9:00 照发通知）；④`inventory_alert_enabled` 默认值仍为 `'0'`（未擅自改） | 生效条件：含 `app/app.py` 改动，生产**需重启 WMS 服务生效**；无库表变更、无需数据迁移 |
 | 119 | AI-CI-GREEN-005-F02 | 已完成 | 库存预警总开关必须同时管住「定时通知」（需求 2026-09-17 用户：「全部修」；本项是修复方案里 4 个排队批次中的「入口与通知」）：`NotificationManager.check_low_stock()` 直接查 `stock <= min_stock` 且**没有** `inventory_alert_enabled()` 判断，而列表/页面侧的 `_material_low_stock_filter()` 内含开关判断 —— 结果开关关着时页面写「库存预警未启用」，APScheduler 却每天 9:00 照发站内通知 + 邮件，同一个系统给出自相矛盾的答案。准则 C1/C4：判定只能有一处，不再单独写第二条 SQL；本项只加开关闸门，不改判定本身（判定对齐属 F04） | 无 | AI-CI-GREEN-005 | `app/notifications.py` `check_low_stock()` 开头补 `if not inventory_alert_enabled(): return []`，并把物料查询改为复用 `app._material_low_stock_filter()`（顺带消除第二套判定，见 F04）。新增 `tests/test_inventory_alert_switch_gates_notification.py` 3 条：T1 开关 '0' → 返回空且库内无 low_stock 通知；T2 开关 '1' → 产生 1 条（保证 T1 不是「永远不发」）；T3 由开启切回关闭 → 不再新增（证明是真闸门，不是只挡首轮） | 验证：新增 3 passed；主套件 2001 passed / 85 skipped / 0 failed（基线 1998，+3 零回归）；`scripts/lint_wms_rules.py` 0 违规；**反向验证**：删掉开关闸门后 T1 立刻变红，还原后转绿。提交 `e8ae4cc`（API 重放 `d25beb39`，2 文件）。生效条件：含 `notifications.py` 改动，生产**需重启 WMS 服务生效**（APScheduler 在进程内）；无库表变更 |
 | 120 | AI-CI-GREEN-005-F03 | 已完成 | 给孤儿页 `/alert` 补可见入口（需求 2026-09-17 用户：「全部修」）：`/alert`（库存预警页）是全仓**唯一**能看 danger 档（低于安全库存）的页面，但全站零链接、只能手敲 URL，等于白做；同时它是唯一在开关关闭时会主动跳转的预警页面。准则：入口显隐与首页「库存预警物料」卡片保持一致，开关关着就不展示，避免点进去才发现是空的 | 无 | AI-CI-GREEN-005 | `app/templates/base.html` 库存管理 flyout「列表/报表」列末新增 `{% if inventory_alert_enabled %}` 包裹的「库存预警」链接；`app/templates/material.html` 头部工具栏（`标签模板` 按钮后）新增同条件包裹的「库存预警」按钮（outline-danger + 感叹号图标，title 说明「查看低于最低库存与低于安全库存的物料」）。新增 `tests/verify_inventory_alert_entry_reachable.py` 3 条：T1 源码级 inbound link（正则匹配 `/alert` 的 href 或 `url_for` 调用，排除 alert.html 自身）；T2 开关开启 → `/alert` 200 且含「库存预警 / 低于最低库存 / 低于安全库存」；T3 开关关闭 → 302 跳 `/material`（与既有行为一致，不是新造的） | 验证：新增 3 passed；主套件 2001 passed / 85 skipped / 0 failed；lint 0 违规；**反向验证**：把 base.html 的 href 改掉后 T1 立刻变红并指名文件，还原后转绿。提交 `8ff41a3`（API 重放 `7f6512d4`，4 文件）。**R3 提醒**：改的是 Jinja 模板，生产需重启 WMS 服务生效（模板无缓存时也建议重启，避免旧进程用旧模板） |
+| 121 | AI-CI-GREEN-005-F04 | 已完成 | 预警判定统一为「两级」+ 手机端命名对齐（需求 2026-09-17 用户：「全部修」；方案里 4 个排队批次中的「判定对齐」+「手机端命名」）：全仓曾并存 5 套低库存判定方言（A 全局 `stock<=min_stock` / B 全局两级 / C 仓库级 `<=min_stock` / D 严格 `<` / E 读 `Stock.quantity`），同一套数据 PC 首页与 `/alert` 页给出两个数字，手机端则完全看不到 danger 档（低于安全库存）；手机端结果卡还写着旧叫法「再订货点」——T1/T2 守门测试只扫 `templates/*.html` + `notifications.py`，Kotlin 是第二个盲区。准则 C1：判定唯一真源 `_material_alert_status_values()`；C4/R6：所有调用点一次改完；C5：补 6 条回归 + T8 守卫 | 无 | AI-CI-GREEN-005 | 统一口径 `safety_stock = max(reorder_point, min_stock)`；low = `stock <= min_stock`，danger = `stock <= safety_stock`。`app.py`：`_material_low_stock_filter()` 改两级、`_material_normal_stock_filter()` 同步取反、`_material_alert_status_values(material, stock=None)` 新增可选 `stock` 参数以支持仓库级判定；`notifications.py` 复用同一过滤器（消除第二套判定）；`native_api.py`：dashboard `alert_count`、`stock/query` 的 `stock_filter=low`、`alert/list` 全部改两级，`alert/list` 响应新增 `safety_stock`/`status`、缺口改按安全库存算；Kotlin：`AlertItemDto` 加 `safety_stock`/`status`、`OverviewListScreen` 显示「现有 X / 安全 Y」并改写 4 处文案、`ScanScreens:982`「再订货点」→「安全库存」、`WmsApiService`/`WmsRepository`/`OrderListViewModel`/`ScanViewModel` 注释同步。新增 `tests/test_inventory_alert_two_band_unified.py` 6 条；`verify_inventory_threshold_naming.py` 新增 T8（扫 Android `ui/screens` + `ui/viewmodel` 旧叫法）并把 T6 收紧为只判展示文案 | 验证：新增 6 passed；主套件 2007 passed / 85 skipped / 0 failed（基线 1998，+9 零回归）；verify 全量 0 失败 / 169s；lint 0 违规；台账一致性 PASS；**反向验证**：注入①单级判定 → T2 红，注入②`alert/list` 只比 min_stock → T3 红，注入③Kotlin 旧叫法 → T8 红，还原后全绿。同步更新 3 处耦合断言（`test_bug_2026_09_10_003` 锁死字面量、`test_mob_stock_f02` 补开总开关、`verify_android_home_overview_drilldown` 锁死 gap 公式）。**行为变更**：预警数变多（danger 档首次纳入，这是目的）；手机端「低库存」筛选与 PC 一样受总开关管辖；缺口按安全库存算。生效条件：含 `app.py`/`routes/*.py` 改动，生产**需重启 WMS 服务生效**；Kotlin 需重新构建 APK；无库表变更。**仍未做**：PC 侧多仓对齐（改走 `get_warehouse_stock_quantities()`）、AI 侧方言 D/E 收敛 |
 
 ## 5. 任务详细定义
 
@@ -1047,13 +1048,10 @@
 
 ## 11. 当前下一项
 
-**当前下一项：AI-CI-GREEN-005-F04（判定对齐 + 手机端命名，用户「全部修」已授权，进行中）**（AI-CI-GREEN-001/002/003/004/005、AI-CI-GREEN-005-F01/F02/F03 与 CI-PERF-2026-09-17 均已完成；WMS CI 三工作流全绿、耗时 20.0min → 4.2min；库存阈值命名已统一为「最低库存 / 安全库存」，Python 侧字段-文案错位清零并加了 T6/T7 守卫；总开关已能同时管住通知；`/alert` 已有可见入口；CI verify 的 makedirs TOCTOU 竞态已根治）。
-
-**F04 进行中的两件事（本批）**：
-1. **判定对齐**：全端 5 套低库存判定口径收敛为 1 套两级（low = `stock <= min_stock` / danger = `stock <= safety_stock`，`safety_stock = max(reorder_point, min_stock)`），唯一真源 `_material_alert_status_values()`。行为变更：预警数会变多（danger 档首次纳入）。
-2. **手机端命名**：`ScanScreens.kt:982`「再订货点」→「安全库存」，及全部「低于最低库存」的告警文案改为「低于安全库存」（须同步改 `test_bug_2026_09_10_003` 的锁死断言）。
+**当前下一项：待用户指派**（AI-CI-GREEN-001/002/003/004/005、AI-CI-GREEN-005-F01/F02/F03/F04 与 CI-PERF-2026-09-17 均已完成；WMS CI 三工作流全绿、耗时 20.0min → 4.2min；库存阈值命名已统一为「最低库存 / 安全库存」，Python 与 Kotlin 两侧的错位/旧叫法均已清零并加了 T6/T7/T8 守卫；预警判定已收敛为 1 套两级口径，手机端首次能看到 danger 档；总开关已能同时管住通知；`/alert` 已有可见入口；CI verify 的 makedirs TOCTOU 竞态已根治）。
 
 **仍未做（等用户指派）**：
+0. **上线须知**：F04 是行为变更——预警物料数会变多（danger 档首次纳入）；手机端「低库存」筛选与 PC 一样受 `inventory_alert_enabled` 总开关管辖；缺口按安全库存算。含 `app.py` 改动，生产**需重启 WMS 服务生效**；Kotlin 改动需重新构建 APK。
 1. **多仓对齐**：按用户裁定方向「全部用仓库级库存」，PC 侧首页计数、物料列表、`/alert` 改走 `get_warehouse_stock_quantities()`（手机端已经是仓库级）。注意：`get_warehouse_stock_quantities()` 在**只有一个仓库**时会回退全局 `Material.stock`，单仓客户改后行为不变。
 2. **AI 侧方言 D/E 收敛**：`ai/**` 里的严格 `<` 判定与直接读 `Stock.quantity` 的两处，尚未归入统一状态函数。
 
@@ -1306,6 +1304,82 @@ AI-R01～R17 的基础能力已经完成。AI-R17-F01 真实用户白名单灰�
 **验证**：守卫 7 passed；主套件 1998 passed / 85 skipped / 0 failed（零回归）；
 verify 全量 174 文件 / 0 失败 / 165s；lint 0 违规；反向验证注入 3 处旧文案后 T6/T7
 同时变红并精确指名行号，还原后 7/7 转绿。提交 `35cf87e`（API 重放 `1549a62`，9 文件）。
+
+### AI-CI-GREEN-005-F04：预警判定统一为两级 + 手机端命名对齐（2026-09-17 立项）
+
+**背景**：用户「全部修」。F01 只统一了**叫法**，判定仍是 5 套方言并存：
+
+| 方言 | 判定 | 位置 |
+| --- | --- | --- |
+| A | 全局 `stock <= min_stock` | PC 首页计数、物料列表、AI 报表（主流） |
+| B | 全局两级 `max(reorder_point, min_stock)` | 仅 `/alert` 页与 `report.py` |
+| C | 仓库级 `<= min_stock` | 手机端 + `stock_query.py` |
+| D | 严格 `<` | AI 健康评分 |
+| E | 直接读 `Stock.quantity` | `ai/agents/**` |
+
+后果是**同一套数据给出两个数字**：首页/物料列表看到 N 条，点进 `/alert` 看到 N+danger
+条；手机端更彻底——danger 档（低于安全库存）从未出现过，因为整个移动端只比 `min_stock`。
+同时手机端结果卡上仍写着「再订货点」（`ScanScreens.kt:982`）—— 这是 T1/T2 守门测试的
+**第二个盲区**：它们只扫 `templates/*.html` + `notifications.py`，Kotlin 一次都没扫过。
+
+**统一后的唯一口径**（真源 `app.py::_material_alert_status_values`）：
+
+```
+safety_stock = max(reorder_point, min_stock)
+low    = stock <= min_stock      → 对外：低于最低库存（已破红线）
+danger = stock <= safety_stock   → 对外：低于安全库存（已到预警线）
+normal = 其余
+disabled = 总开关关闭 或 两个阈值都没设
+```
+
+**改动清单**：
+
+| 位置 | 改动 |
+| --- | --- |
+| `app.py` `_material_low_stock_filter()` | 由 `stock <= min_stock` 改为 `<= min_stock OR <= reorder_point`（两级） |
+| `app.py` `_material_normal_stock_filter()` | 同步取反，保证两个过滤器仍互补 |
+| `app.py` `_material_alert_status_values(material, stock=None)` | 新增可选 `stock` 参数，允许调用方传**仓库级**数量（A11）；不传时回退全局 `material.stock` |
+| `notifications.py` `check_low_stock()` | 改为复用 `_material_low_stock_filter()`，消除第二套判定 |
+| `native_api.py` dashboard `alert_count` | 改走两级判定；候选集由 `min_stock > 0` 放宽为 `min_stock > 0 OR reorder_point > 0` |
+| `native_api.py` `stock/query` `stock_filter=low` | 改走两级判定 |
+| `native_api.py` `alert/list` | 改走两级判定；响应新增 `safety_stock`、`status`；缺口由 `min_stock - qty` 改为 `safety_stock - qty` |
+| Kotlin `AlertItemDto` | 新增 `safety_stock`、`status` 字段 |
+| Kotlin `OverviewListScreen` | 告警行显示「现有 X / 安全 Y」；标题/空态/计数文案全部改为「安全库存」 |
+| Kotlin `ScanScreens:982` | 「再订货点」→「安全库存」（该处读的是 `reorderPoint`） |
+| Kotlin `WmsApiService` / `WmsRepository` / `OrderListViewModel` / `ScanViewModel` | 注释与空态文案同步为两级口径 |
+
+**行为变更（上线须知）**：
+1. 预警物料数会**变多**——danger 档（低于安全库存但高于最低库存）首次纳入，这是本次的目的。
+2. 手机端查库存的「低库存」筛选现在与 PC `/material?stock_filter=low` 一样受
+   `inventory_alert_enabled` 总开关管辖（此前它自己比 `min_stock`、不看开关）。
+   开关关着时该筛选返回空——这是口径统一的必然结果，与 PC 一致。
+3. 缺口（手机端「缺 X」徽章）按**安全库存**算，不再按最低库存算。
+
+**守卫**：
+- 新增 `tests/test_inventory_alert_two_band_unified.py` 6 条：四档状态机、SQL 过滤器与
+  状态函数**逐条一致**（核心）、手机端返回 danger 档、`stock_filter=low` 同口径、
+  缺口按安全库存算、判定用仓库级库存（场景里全局 stock 全设 0 作探针）。
+- `verify_inventory_threshold_naming.py` 新增 **T8**：扫描 Android `ui/screens` 与
+  `ui/viewmodel` 两层，出现「最小库存 / 再订货点 / 再订购点」即报错（`data/**` 是开发者
+  文档，不纳入）。
+- **T6 精化**：判定对象收紧为**展示文案**（去掉 `#` 注释后再看代码部分）。理由：设计
+  注释里同时提到两个列名是合法的、甚至是应该的；把注释算作违规只会逼人把注释写得更
+  含糊。本次被逼出的正例：`app.py` 两级口径注释块、`native_api.py` 缺口注释——这些
+  注释改用真实列名（`reorder_point` / `min_stock`）表述后更清楚。
+
+**验证**：新增 6 passed；主套件 **2007 passed / 85 skipped / 0 failed**（基线 1998，
++9 零回归）；verify 全量 **0 失败 / 169s**；lint **0 违规**；台账一致性 PASS；
+**反向验证**：注入①`_material_low_stock_filter` 退回单级 → T2 红；注入②`alert/list`
+退回只比 `min_stock` → T3 红；注入③Kotlin 退回「再订货点」→ T8 红；还原后全绿。
+同步更新 3 处耦合断言：`test_bug_2026_09_10_003`（锁死旧字面量）、
+`test_mob_stock_f02`（补开总开关）、`verify_android_home_overview_drilldown`（锁死旧
+gap 公式）。生效条件：含 `app.py` / `routes/*.py` 与 Jinja 之外的 Kotlin 改动，
+生产**需重启 WMS 服务生效**；Kotlin 改动需重新构建 APK；无库表变更、无需数据迁移。
+
+**仍未做（等用户指派）**：①多仓对齐——PC 侧首页计数、物料列表、`/alert` 仍未改用
+`get_warehouse_stock_quantities()`（手机端已是仓库级）；注意该函数在**只有一个仓库**
+时会回退全局 `Material.stock`，单仓客户改后行为不变。②AI 侧方言 D/E（严格 `<`、直读
+`Stock.quantity`）尚未归入统一状态函数。
 
 ## 12. 下一批 AI 开发总表
 

@@ -86,7 +86,7 @@ fun OverviewListScreen(
             WmsGradientHeader(
                 title = if (target == OverviewTarget.ALERT) "库存告警" else "待处理单据",
                 subtitle = buildString {
-                    append(if (target == OverviewTarget.ALERT) "低于最低库存的物料" else "待处理的出入库单")
+                    append(if (target == OverviewTarget.ALERT) "低于安全库存的物料" else "待处理的出入库单")
                     if (warehouseName.isNotBlank()) append(" · $warehouseName")
                 },
                 accent = accent,
@@ -187,7 +187,7 @@ private fun StatusFilterRow(current: String?, accent: Color, onSelect: (String?)
     }
 }
 
-/** 库存告警清单：编码/名称/规格 + 现有库存 vs 最低库存 + 缺口。 */
+/** 库存告警清单：编码/名称/规格 + 现有库存 vs 安全库存 + 缺口。 */
 @Composable
 private fun AlertList(
     state: ListUiState,
@@ -199,7 +199,9 @@ private fun AlertList(
             WmsEmptyState(
                 icon = Icons.Outlined.WarningAmber,
                 title = "本仓暂无库存告警",
-                subtitle = state.notice ?: "所有物料都在最低库存之上",
+                // AI-CI-GREEN-005-F04：告警口径是两级（low/danger），两档都落在
+                // 「库存 <= 安全库存」内，所以列表为空 ⟺ 所有物料都在安全库存之上。
+                subtitle = state.notice ?: "所有物料都在安全库存之上",
                 accentColor = accent
             )
         }
@@ -220,7 +222,7 @@ private fun AlertList(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
-            "共 ${state.total} 项低于最低库存",
+            "共 ${state.total} 项低于安全库存",
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -246,7 +248,10 @@ private fun AlertList(
 @Composable
 private fun AlertRow(item: AlertItemDto, accent: Color) {
     val stock = item.stock ?: 0.0
-    val minStock = item.minStock ?: 0.0
+    // AI-CI-GREEN-005-F04：后端下发安全库存（计算值 = max(reorder_point, min_stock)），
+    // 告警线以它为准；minStock 只是红线，低于它属于更严重的 low 档。
+    // 命名对照表见服务端 models/master_data.py 的「库存阈值命名约定」。
+    val safetyStock = item.safetyStock ?: item.minStock ?: 0.0
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -301,7 +306,8 @@ private fun AlertRow(item: AlertItemDto, accent: Color) {
                 }
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    "现有 ${formatQuantity(stock)} / 最低 ${formatQuantity(minStock)}",
+                    // 与安全库存对比：补货目标是把库存拉回预警线之上
+                    "现有 ${formatQuantity(stock)} / 安全 ${formatQuantity(safetyStock)}",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

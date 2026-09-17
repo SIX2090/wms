@@ -31,9 +31,11 @@ def test_material_dto_has_locations_field_with_compat_default():
 def test_result_card_badge_compares_against_min_stock():
     # 徽标必须按 stock 与 minStock 比较（不是恒与 0 比）
     assert "(material.stock ?: 0.0) > (material.minStock ?: 0.0)" in screens_src
-    # 结果卡展示最低库存/再订货点（后端本次起下发真值）
+    # 结果卡展示最低库存/安全库存（后端本次起下发真值）
     assert 'InfoChip("最低库存", formatQuantity((material.minStock ?: 0).toDouble()))' in screens_src
-    assert 'InfoChip("再订货点", formatQuantity((material.reorderPoint ?: 0).toDouble()))' in screens_src
+    # AI-CI-GREEN-005-F04：这里读的是 reorderPoint，对外必须叫「安全库存」。
+    # 旧叫法「再订货点」已下线，见 verify_inventory_threshold_naming.py 的 T8。
+    assert 'InfoChip("安全库存", formatQuantity((material.reorderPoint ?: 0).toDouble()))' in screens_src
 
 
 def test_result_card_has_locations_distribution_block():

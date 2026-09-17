@@ -979,7 +979,10 @@ fun StockQueryScreen(
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
                             InfoChip("单价", "¥${"%.2f".format(material.price ?: 0.0)}")
-                            InfoChip("再订货点", formatQuantity((material.reorderPoint ?: 0).toDouble()))
+                            // AI-CI-GREEN-005-F04：这里读的是 reorderPoint，对外叫「安全库存」，
+                            // 与 PC 物料档案表单、Excel 表头保持一致（命名表见服务端
+                            // models/master_data.py 的「库存阈值命名约定」）。
+                            InfoChip("安全库存", formatQuantity((material.reorderPoint ?: 0).toDouble()))
                             InfoChip("分类", material.category ?: "-")
                         }
 

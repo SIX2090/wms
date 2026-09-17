@@ -26,6 +26,9 @@ T6. Python 侧不得出现「文案写安全库存、代码读 min_stock」的�
     补）：上一轮只扫模板 + notifications.py，app.py 与 ai/** 全在盲区，正是本次
     错标能长期存活的根因。
 T7. 「低于安全库存」只能出现在 danger 档（判定对象为 safety_stock 计算值）的标签行。
+T8. Android 侧界面文案同样不得出现旧叫法（AI-CI-GREEN-005-F04 补）：T1/T2 只扫了
+    模板 + notifications.py，Kotlin 是第二个盲区——「再订货点」这个叫法在手机端
+    查库存结果卡上一直活着，正是同一根因（扫描集覆盖不全）的又一次漏网。
 """
 from __future__ import annotations
 
@@ -257,11 +260,21 @@ def _read_lines(path):
     return path.read_text(encoding="utf-8", errors="replace").splitlines()
 
 
-def test_t6_no_safety_stock_label_on_min_stock_code():
-    """T6：「安全库存」不得与 min_stock 共现（白名单 4 个文件除外）。
+def _code_part(line):
+    """去掉行尾注释，只留代码部分。
 
-    命中条件：某行含「安全库存」，且其 ±2 行窗口内出现 min_stock。
-    这类共现几乎必然是「文案指 reorder_point、代码却读 min_stock」的错位。
+    AI-CI-GREEN-005-F04：T6 的判定对象是**展示给用户看的字符串**，不是开发注释。
+    设计说明里同时提到「安全库存」和两个列名是完全合法的（甚至应该写清楚），
+    把这类注释算作违规只会逼人把注释写得更含糊，反而丢信息。
+    """
+    return line.split("#", 1)[0]
+
+
+def test_t6_no_safety_stock_label_on_min_stock_code():
+    """T6：展示文案里的「安全库存」不得与 min_stock 共现（白名单 4 个文件除外）。
+
+    命中条件：某行的**代码部分**含「安全库存」，且其 ±2 行的代码部分窗口内出现
+    min_stock。这类共现几乎必然是「文案指 reorder_point、代码却读 min_stock」的错位。
     """
     files = _py_source_files()
     assert len(files) > 50, f"扫描集异常，只找到 {len(files)} 个 .py 文件"
@@ -270,7 +283,7 @@ def test_t6_no_safety_stock_label_on_min_stock_code():
     for f in files:
         if _rel(f) in T6_ALLOWLIST:
             continue
-        lines = _read_lines(f)
+        lines = [_code_part(l) for l in _read_lines(f)]
         for i, line in enumerate(lines):
             if "安全库存" not in line:
                 continue
@@ -304,6 +317,50 @@ def test_t7_low_below_safety_stock_only_for_danger_band():
     assert not offenders, (
         "以下位置的「低于安全库存」不在 danger 档标签行上"
         "（判定若走 min_stock，应写「低于最低库存」）：\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+# ---------- T8：Android 界面文案（第二个盲区） ----------
+
+# AI-CI-GREEN-005-F04：只扫「会渲染给用户看」的两层：ui/screens（页面）与
+# ui/viewmodel（空态/提示文案）。data/** 是 DTO 与接口注释，属于开发者文档，
+# 里面解释公式时难免提到历史列名，不纳入扫描。
+ANDROID_UI_DIRS = [
+    APP_DIR / "android-native-wms/app/src/main/java/com/factory/wms/ui/screens",
+    APP_DIR / "android-native-wms/app/src/main/java/com/factory/wms/ui/viewmodel",
+]
+
+
+def _android_ui_files():
+    files = []
+    for d in ANDROID_UI_DIRS:
+        if not d.is_dir():
+            continue
+        files.extend(sorted(d.rglob("*.kt")))
+    return files
+
+
+def test_t8_no_legacy_label_in_android_ui():
+    """T8：Android 界面文案不得出现「最小库存 / 再订货点 / 再订购点」。
+
+    正确叫法：min_stock→最低库存，reorder_point→安全库存。手机端查库存结果卡的
+    「再订货点」InfoChip 就是这么被发现的——它读的是 reorderPoint，却挂了旧名字。
+    """
+    files = _android_ui_files()
+    assert len(files) > 5, f"扫描集异常，只找到 {len(files)} 个 Kotlin 界面文件"
+
+    offenders = []
+    for f in files:
+        text = f.read_text(encoding="utf-8")
+        for legacy in ("最小库存", "再订货点", "再订购点"):
+            if legacy in text:
+                offenders.append(
+                    f"{f.relative_to(APP_DIR / 'android-native-wms')} -> {legacy}"
+                )
+
+    assert not offenders, (
+        "以下 Android 界面文件仍在用旧叫法（应为「最低库存」/「安全库存」）：\n  "
         + "\n  ".join(offenders)
     )
 

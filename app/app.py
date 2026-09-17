@@ -6750,23 +6750,52 @@ def _material_alert_enabled_filter():
         return false()
     return db.or_(Material.min_stock > 0, Material.reorder_point > 0)
 
+# AI-CI-GREEN-005-F04：预警判定统一为「两级」——
+#   low    = stock <= min_stock              （已破红线：低于最低库存）
+#   danger = stock <= safety_stock           （已到预警线：低于安全库存）
+#   safety_stock = max(reorder_point, min_stock)
+# 两者合起来就是 stock <= max(min_stock, reorder_point)，即「需要预警」。
+#
+# 改之前本函数只判 `stock <= min_stock`（即只有 low 档），而 /alert 页面用的
+# _material_alert_status_values() 是两级。同一套数据因此出现两套答案：
+# 首页/列表/手机端看到 N 条，/alert 页看到 N+danger 条。现在两者对齐。
 def _material_low_stock_filter():
-    return db.and_(_material_alert_enabled_filter(), Material.stock <= Material.min_stock)
+    return db.and_(
+        _material_alert_enabled_filter(),
+        db.or_(
+            Material.stock <= Material.min_stock,
+            Material.stock <= Material.reorder_point,
+        ),
+    )
 
 def _material_normal_stock_filter():
     if not inventory_alert_enabled():
         return true()
     return db.or_(
         db.and_(Material.min_stock <= 0, Material.reorder_point <= 0),
-        Material.stock > Material.min_stock
+        db.and_(
+            Material.stock > Material.min_stock,
+            Material.stock > Material.reorder_point,
+        ),
     )
 
-def _material_alert_status_values(material):
+def _material_alert_status_values(material, stock=None):
+    """返回 (stock, min_stock, safety_stock, alert_status)。
+
+    AI-CI-GREEN-005-F04：`stock` 可由调用方显式传入（用于**仓库级**数量判定，
+    见 A11：`get_warehouse_stock_quantities()`）。不传时回退物料主档的全局
+    `material.stock`，供 AI 报告/基础资料等全局视角使用。
+
+    alert_status：disabled / low / danger / normal（见上方两级口径说明）。
+    """
     if not inventory_alert_enabled():
         return material.stock or 0, 0, 0, 'disabled'
     min_stock = material.min_stock or 0
     safety_stock = max(material.reorder_point or 0, min_stock)
-    stock = material.stock or 0
+    if stock is None:
+        # 调用方没有仓库上下文（AI 报表/基础资料等全局视角）时才回退总账；凡有仓库
+        # 上下文者一律显式传 stock=get_warehouse_stock_quantities(...).get(id, 0)。
+        stock = material.stock or 0  # stock-truth:reason=全局视角回退总账，非业务校验
     if min_stock <= 0 and safety_stock <= 0:
         alert_status = 'disabled'
     elif stock <= min_stock:

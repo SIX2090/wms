@@ -139,7 +139,8 @@ class OrderListViewModel(application: Application) : AndroidViewModel(applicatio
                     total = data.total,
                     error = null,
                     notice = if (data.items.isEmpty() && data.total == 0) {
-                        "本仓暂无低于最低库存的物料"
+                        // AI-CI-GREEN-005-F04：告警是两级口径，都落在「库存 <= 安全库存」
+                        "本仓暂无低于安全库存的物料"
                     } else null
                 )
             },

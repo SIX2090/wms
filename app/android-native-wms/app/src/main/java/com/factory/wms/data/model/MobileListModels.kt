@@ -27,7 +27,14 @@ data class AlertItemDto(
     val stock: Double?,
     @SerializedName("min_stock") val minStock: Double?,
     @SerializedName("reorder_point") val reorderPoint: Double?,
-    /** 缺口 = 最低库存 - 现有库存（后端已保证 >= 0），用于排序与提示 */
+    /**
+     * AI-CI-GREEN-005-F04：安全库存 = max(再订货点, 最低库存)，后端算好的计算值。
+     * 告警判定是两级：low = 库存 <= 最低库存；danger = 库存 <= 安全库存。
+     */
+    @SerializedName("safety_stock") val safetyStock: Double?,
+    /** 告警档位：low / danger（后端 _material_alert_status_values 的 alert_status） */
+    val status: String?,
+    /** 缺口 = 安全库存 - 现有库存（后端已保证 >= 0），用于排序与提示 */
     val gap: Double?
 )
 
