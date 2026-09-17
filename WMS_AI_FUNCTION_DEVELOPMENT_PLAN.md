@@ -219,6 +219,7 @@
 | 115 | AI-CI-GREEN-003 | 已完成 | verify 失败详情上报 + 并发度钉为 4（2026-09-17 立项）：CI 提速后 `verify-and-smoke` 成为唯一关键路径，提交 `572fefa8` 该 job 失败但**失败文件无法查明** —— job 日志端点匿名 403（无 admin 权限），带 token 后 302 重定向到 `productionresultssa4.blob.core.windows.net`，该域名在沙箱被 DNS 劫持到保留地址 `198.18.0.36`（8 个公共解析器 + DoH 全部同一结果），TLS 直接 EOF；`check-runs` annotations 为 0；失败 run 无 verify 摘要产物；本地 173 文件多轮全量复现均 0 失败；失败步骤 219s vs 绿灯 217s（非超时非变慢），两 commit 的 `ci.yml` blob SHA 完全相同 | 无 | CI-PERF-2026-09-17 | 改动：①`scripts/run_verify_parallel.py` 新增 `_write_step_summary()`，失败时把每个失败文件路径/退出码/耗时/末尾 3000 字输出写入 `$GITHUB_STEP_SUMMARY`（纯文本 REST 资源，绕开 blob 存储重定向）+ 落一份 `verify_failures_summary.md` 供 artifact 取走；②并发度默认 `min(8, cpu_count)` → `min(4, cpu_count)` 并显式钉住（每进程 import Flask app + 建内存库，属内存/IO 密集，过高并发会 CPU 争抢致 60s 超时误触发）；③`ci.yml` verify 步骤加 `env: VERIFY_WORKERS: '4'` + 新增 `if: always()` 的 artifact 上传（`verify-failures`，保留 7 天） | 验证：推送后 CI 全绿（新 HEAD `c6e46726`），`WMS CI` ✅ / `WMS AI Verification` ✅ / `Android APK Build` ✅ 三工作流全绿，`572fefa8` 红灯消解。**教训**：查不到就上报、别硬猜；不要用自造负载（曾起约 28 个 busy-loop 进程模拟 4 核，产生 15 个 `rc=124` 假"复现"，实际是无超时事件、单跑每个约 3s，还浪费约 25 分钟）；诊断摘要文件读取前别删 | 生效条件：纯 CI 配置改动，无产品代码改动，无需重启服务、无需重新出包 |
 | 116 | AI-CI-GREEN-005 | 已完成 | 库存阈值对外名称统一为「最低库存 / 安全库存」（需求 2026-09-17 用户：「我現在想知道这个wms系统有安全库存功能？」→「我在物料档案没有看到安全库存」→「你先全面检查启用安全库存有没问题，要统一名称」，用户选定**方案 A：只统一对外名称、不动数据库列**）：排查出看不到安全库存是**两因叠加** —— ①总开关 `inventory_alert_enabled` 默认关闭（`material.html` 把三列包在 `{% if inventory_alert_enabled %}` 里，而配置键 `INVENTORY_ALERT_ENABLED` **全仓只读不写**，实测库内为 `'0'`，置 `'1'` 后正常渲染）；②命名分裂（同概念库里叫 `reorder_point`，界面时叫「再订货点」时叫「安全库存」，`min_stock` 写作「最小库存」，`batch_import.html` 导入提示还把 `min_stock` 误标成"最小库存"与模板真实表头对不上）。另确认 `safety_stock` **不是数据库列**，是计算值 `max(reorder_point, min_stock)` | 无 | AI-CI-GREEN-003、CI-PERF-2026-09-17 | 统一映射（库列不动）：`min_stock`→最低库存 / `max_stock`→最大库存 / `reorder_point`→**安全库存** / `alert_days`→预警天数。改动：`app/models/master_data.py` 补「库存阈值命名约定」docstring（对照表 + `safety_stock` 是计算值 + 「写库只走 reorder_point、禁止新增第四种叫法」）+ 三个阈值列行内注释；`batch_import.html`、`notifications.py`（通知正文 + 邮件 HTML 表头）「最小库存」→「最低库存」；`ai_replenishment.html`/`_smart.html` 删除误导性的**独立**「再订货点」表述（与「安全库存」是同一库字段），口径改为「安全库存（含最低库存）」与 `safety_line = max(min_stock, reorder_point, coverage_stock)` 一致；`inventory_alert.py` 注明 `status_terms` 旧词只是查询输入别名（输出恒用 `status_labels`）、`sort_by` 的 `'safety_stock'` 是计算值（排序对象是 `display_item` 字典而非模型属性）；`export.py`/`material.py` 两处重复实现的模板生成器互加同步告警；新增 `tests/verify_inventory_threshold_naming.py` | 验证：新增用例 **5 passed**；**反向验证**（故意注入故障）证明守卫有效 —— 注入「最小库存」T1 报出文件名、两模板表头改到不一致 T3 变红、交换 `min_stock`↔`reorder_point` T4 变红，注入后均已还原；主套件 `pytest tests/` **1998 passed / 85 skipped / 0 failed**（零回归）；23 个物料/库存/预警 verify 脚本全部 rc=0；相邻套件 26 passed。提交 `440c76c`（API 重放为 `3dabb76c`，9 文件）。**遗留**：总开关 `INVENTORY_ALERT_ENABLED` 仍全仓只读不写、默认关闭（未擅自改默认值）；两处模板生成器仍为重复实现（本次按最小改动保留 + 留同步告警） | 生效条件：含 Jinja 模板与 Python 改动，**需重启 WMS 服务生效**；无库表结构变更、无需数据迁移 |
 | 117 | AI-CI-GREEN-004 | 已完成 | 消除 makedirs TOCTOU 竞态（CI verify 红根因，2026-09-17 立项）：纯文档提交 `a843dce0` 的 WMS CI 红，`verify-and-smoke` 步骤失败。**读不到日志/产物**（沙箱 DNS 把 `productionresultssa*.blob.core.windows.net` 劫持到保留地址 `198.18.0.37`，TLS 直接 EOF），改为**绕过污染 DNS**：用 `doh.pub` 解析出真实边缘 IP（`blob.blz25prdstrz09a.trafficmanager.net` → `20.209.226.1`），`curl --resolve` 取回 `verify-failures` artifact，拿到第一手报错：`ImportError while loading conftest` ← `app/app.py:2873 os.makedirs(UPLOAD_FOLDER)` → **`FileExistsError: [Errno 17] File exists`**。根因是 `if not os.path.exists(d): os.makedirs(d)` 的 **TOCTOU 竞态**：CI 全新 checkout（目录不存在），verify_*.py 4 路并发各起进程导入 app.py，两进程可能同时通过 exists 检查，一个建成、另一个抛错打断 conftest 导入 | 无 | AI-CI-GREEN-003、CI-PERF-2026-09-17 | 修复：全仓 `os.makedirs` 统一 `exist_ok=True` —— UPLOAD_FOLDER（2878，CI 报错点）、UPLOAD_FOLDER 二次确认（3120）、BACKUP_DIR（32571）；至此 app/app.py 全部 11 处 makedirs 均 exist_ok=True。新增 `tests/verify_makedirs_concurrency_safe.py`（4 项：T1 全仓 makedirs 必须带 exist_ok；T2 禁止 exists+makedirs 组合写法；T3 点名校验 UPLOAD_FOLDER/BACKUP_DIR；T4 扫描器自检）。另在 `scripts/run_verify_parallel.py` 增发 `::error file=...` **注解**作为第三条观测通道（step summary 实测不进 check-run output、artifact 走被劫持的 blob 域名，而 `GET /check-runs/<job_id>/annotations` 可稳定读到） | 验证：竞态机理最小复现 `if not exists: makedirs` 30 轮×6 并发 → **141 次 FileExistsError**，`exist_ok=True` 同条件 → **0 次**；并发导入（目录每次清空）修复后 5 轮×8 进程 = **40/40 成功**；注入反例把 UPLOAD_FOLDER 改回竞态写法 → T1/T2/T3 **三项同时变红**并指名行号，还原后 4/4 全绿；主套件 1998 passed / 85 skipped（零回归）；verify 全量（VERIFY_WORKERS=4 + 目录预先清空复现 CI 条件）**174 文件 / 0 失败 / 182s**；lint 0 违规。**教训**：①"本地全绿、CI 必红"优先怀疑**环境差异+竞态**（本机目录已存在 → 竞态窗口为 0），而非业务逻辑；②被 DNS 劫持时可用 DoH 取真实 IP + `curl --resolve` 绕过，是读 CI 产物的有效兜底；③写扫描器注意正则陷阱 —— 非贪婪 `(.*?)` 遇嵌套括号会截断（本次误报 5 处假阳性），跨行嵌套量词 `(?:.*\n)*?` 在大文件上会**灾难性回溯**（实测 90s+ 不返回） | 生效条件：含 app.py 改动，生产需重启 WMS 服务；无库表变更、无需数据迁移 |
+| 118 | AI-CI-GREEN-005-F01 | 已完成 | 纠正「文案写安全库存、代码读 min_stock」的字段错位（需求 2026-09-17 用户：「手机端，电脑端安全库存预警在哪个地方？」→ 追问「手机端有再订货点？」→「先用一个详细的修复方案，订好准则」）：定位预警入口时发现 AI-CI-GREEN-005 的守门测试 `_user_facing_files()` 只收 `app/templates/*.html` + `notifications.py`，`app.py` 与 `ai/**` **一个都没扫**，导致一批反向错标长期存活——用户会照着错标去设置错误的字段（比单纯"名字旧"危险）。用户裁定方向为**分两批：先对齐叫法、再对齐判定**，多仓差异方向为**全部改用仓库级库存**；本批范围为用户勾选的「修反向错标」。准则（C1–C7，已写入修复方案）：C1 命名映射以 `models/master_data.py` 的「库存阈值命名约定」为唯一真值源；C2 **叫法跟着字段走**，读 `min_stock` 就必须写「最低库存」；C3 本批只改文案注释、**一行判定逻辑都不动**；C4 同根因一次扫完（R6）；C5 修完必须留机械守卫；C6 不动库列名/开关默认值/Kotlin/任何比较表达式；C7 每处改动须能回答"实际读哪个字段" | 无 | AI-CI-GREEN-005 | 修复 20 处（P0 用户可见 6 + P1 注释 docstring 14）。P0：`app/app.py` 9130 AI 库存健康建议「补货至安全库存{min_stock}」、26258 库存经营分析报表列标题 `{'field': 'min_stock', 'title': '安全库存'}`、26280 `_inventory_stock_status` 返回值「低于安全库存」；`ai/agents/replenishment.py` 103 补货建议解释「安全库存：{min_stock}」；`ai/analysis/master_data_quality.py` 73 质检项「未设置安全库存」；`ai/patrol_scheduler.py` 96 巡检告警「库存低于安全库存」—— 全部改为「最低库存」。P1：app.py 口径注释与两个函数 docstring、replenishment.py 模块/行内注释及 tool description、shortage.py 57/83、warehouse_patrol.py 176、patrol_scheduler.py 242、knowledge.py 104 同步对齐。**明确不动**（属正确用法）：`app.py:9770` / `inventory_alert.py:109/115` / `report.py:466` 的 `'danger': '低于安全库存'`（danger 档本就指 safety_stock）、`inventory_alert.py` 的 safety_stock 校验文案、`material.py`/`export.py` 表头与导入兼容别名、`templates/alert.html` danger 档 UI。守卫：`tests/verify_inventory_threshold_naming.py` 新增 T6/T7 —— T6「安全库存」与 `min_stock` 在 ±2 行窗口内共现即报错（`models/master_data.py`/`routes/material.py`/`routes/export.py`/`routes/inventory_alert.py` 四个文件白名单）；T7 「低于安全库存」所在行必须同时含 `danger` 或 `safety_stock` | 验证：守卫 **7 passed**（T1–T7）；主套件 `pytest tests/` **1998 passed / 85 skipped / 0 failed**（零回归，与 005 基线一致）；verify 全量（VERIFY_WORKERS=4）**174 文件 / 0 失败 / 165s**；`scripts/lint_wms_rules.py` **0 违规**；**反向验证**：故意注入 3 处旧文案（`app.py` 26280、`replenishment.py` 103、`master_data_quality.py` 73）→ T6 与 T7 同时变红并精确指名行号，还原后 7/7 转绿；扫描器实测当前非白名单命中 **0**。同步更新耦合断言 `tests/test_bug_2026_09_07_021_inventory_analysis.py` 182（该处是全仓唯一耦合此文案的测试）。提交 `35cf87e`（API 重放 `1549a62`，9 文件）。**遗留（后续批次，本批未做）**：①判定口径分裂——全仓存在 5 套判定（A 全局 `stock<=min_stock` / B 全局两级 `max(rp,ms)` / C 仓库级 `<=min_stock` / D 严格 `<` / E 读 `Stock.quantity`），PC 与手机端数字不可能对得上；②多仓差异（PC 用全局 `Material.stock`、手机端用 `get_warehouse_stock_quantities()`），用户已定方向为**全部改用仓库级库存**；③手机端 `ScanScreens.kt:982` 仍显示「再订货点」（`tests/test_bug_2026_09_10_003_android_stock_locations_display.py:36` 当前断言**锁死了这个旧字面量**，改动须同步）；`/alert` 是零入口孤儿页；`notifications.py:89 check_low_stock` 缺 `inventory_alert_enabled()` 判断（开关关着也每天 9:00 照发通知）；④`inventory_alert_enabled` 默认值仍为 `'0'`（未擅自改） | 生效条件：含 `app/app.py` 改动，生产**需重启 WMS 服务生效**；无库表变更、无需数据迁移 |
 
 ## 5. 任务详细定义
 
@@ -1044,7 +1045,13 @@
 
 ## 11. 当前下一项
 
-**当前下一项：待用户指派**（AI-CI-GREEN-001/002/003/004/005 与 CI-PERF-2026-09-17 均已完成；WMS CI 三工作流全绿、耗时 20.0min → 4.2min；库存阈值命名已统一为「最低库存 / 安全库存」；CI verify 的 makedirs TOCTOU 竞态已根治）。
+**当前下一项：待用户指派**（AI-CI-GREEN-001/002/003/004/005、AI-CI-GREEN-005-F01 与 CI-PERF-2026-09-17 均已完成；WMS CI 三工作流全绿、耗时 20.0min → 4.2min；库存阈值命名已统一为「最低库存 / 安全库存」，且 Python 侧的字段-文案错位已清零并加了 T6/T7 守卫；CI verify 的 makedirs TOCTOU 竞态已根治）。
+
+**已排队的后续批次（等用户指派）**：
+1. **判定对齐**：全端 5 套低库存判定口径收敛为 1 套两级（low = `stock <= min_stock` / danger = `stock <= safety_stock`）—— 行为变更，预警数会变多，需回归。
+2. **多仓对齐**：按用户裁定方向「全部用仓库级库存」，PC 侧首页计数、物料列表、`/alert` 改走 `get_warehouse_stock_quantities()`。
+3. **手机端命名**：`ScanScreens.kt:982`「再订货点」→「安全库存」、`HomeScreen.kt:575` 文案对齐（须同步改 `test_bug_2026_09_10_003` 的锁死断言）。
+4. **入口与通知**：给孤儿页 `/alert` 加菜单入口（`base.html` 库存管理 flyout「列表/报表」列末）+ `material.html` 头部按钮；`notifications.py:89 check_low_stock` 补 `inventory_alert_enabled()` 判断。
 
 ### CI-PERF-2026-09-17：WMS CI 提速（2026-09-17 立项）
 
@@ -1243,6 +1250,58 @@
 所有历史 AI 任务已完成；**AI-R07-F02（分类识别+按分类建议编号）已完成**。
 
 AI-R01～R17 的基础能力已经完成。AI-R17-F01 真实用户白名单灰度与一键回滚闭环已完成。AI-R17-F02 连续七天真实上线验收已完成。AI-R08-F01 文档确认状态与提交前强制门禁已完成。AI-R14-F01 数据保留管理页、分批清理和自动调度已完成。AI-R15-F01 业务质量运营看板与版本回归告警已完成。AI-R10-F01 仓库 AI 工作台正式接入导航已完成。AI-R11-F01 采购到货 AI 工作台正式接入导航已完成。AI-R06-F01 真实采购订单与送货通知匹配调优已完成。AI-R07-F01 真实物料别名、包装换算和高风险规则治理已完成。AI-SALES-F01 AI 销售订单/销售出库草稿真实闭环验收已完成（销售草稿证据链、部分发货、多次发货、销售对账、AI 只建/检草稿校验、8项专项测试通过）。**AI-R17-F03 正式发布、备份恢复和运营交接已完成**（发布清单、备份恢复、恢复演练、回滚演练、交接文档、发布包组装、发布和回滚操作、8项专项测试通过）。
+
+### AI-CI-GREEN-005-F01：纠正「文案写安全库存、代码读 min_stock」的字段错位（2026-09-17 立项）
+
+**背景**：用户追问「手机端，电脑端安全库存预警在哪个地方？」→「手机端有再订货点？」，
+定位入口时发现 AI-CI-GREEN-005 的守门测试扫描集有盲区，顺带查出一批**反向错标**——
+文案写「安全库存」，代码读的却是 `min_stock`。这类错标比"名字旧"危险：用户会照着
+错标去设置错误的字段（例如把"补货至安全库存 30"理解成要改安全库存，实际改的是最低库存）。
+
+**根因**：`tests/verify_inventory_threshold_naming.py` 的 `_user_facing_files()`
+只收 `app/templates/*.html` + `app/notifications.py`，`app.py` 与 `ai/**` 一个都没扫。
+
+**准则（C1–C7，本次订立，后续所有阈值改动照此执行）**：
+
+| 编号 | 准则 |
+| --- | --- |
+| C1 | 命名映射以 `models/master_data.py` 的「库存阈值命名约定」为**唯一真值源** |
+| C2 | **叫法跟着字段走**：读 `min_stock` 就必须写「最低库存」，禁止用「安全库存」指代它 |
+| C3 | 叫法与判定解耦——本批只改文案/注释，**一行判定逻辑都不动** |
+| C4 | 同根因一次扫完（R6），不能只改被发现的那一处 |
+| C5 | 修完必须留机械守卫，否则同类错标还会回流 |
+| C6 | 不动库列名、不动开关默认值、不动 Kotlin、不动任何比较表达式 |
+| C7 | 每处改动必须能回答"它实际读的是哪个字段" |
+
+**修复 20 处**（P0 用户可见 6 处 + P1 注释/docstring 14 处）：
+
+| 类型 | 位置 | 改正 |
+| --- | --- | --- |
+| P0 | `app/app.py` 9130 | AI 库存健康建议「补货至安全库存{min_stock}」→ 最低库存 |
+| P0 | `app/app.py` 26258 | 库存经营分析报表列标题 `{'field': 'min_stock'}` 误标 → 最低库存 |
+| P0 | `app/app.py` 26280 | `_inventory_stock_status` 返回值「低于安全库存」→ 低于最低库存 |
+| P0 | `ai/agents/replenishment.py` 103 | 补货建议解释「安全库存：{min_stock}」→ 最低库存 |
+| P0 | `ai/analysis/master_data_quality.py` 73 | 质检项「未设置安全库存」→ 未设置最低库存 |
+| P0 | `ai/patrol_scheduler.py` 96 | 巡检告警「库存低于安全库存」→ 低于最低库存 |
+| P1 | `app.py` 口径注释 + 两个函数 docstring、`replenishment.py` 模块/行内注释及 tool description、`shortage.py` 57/83、`warehouse_patrol.py` 176、`patrol_scheduler.py` 242、`knowledge.py` 104 | 共 14 处同步对齐 |
+
+**明确不动**（属正确用法，防误伤）：`app.py:9770`、`inventory_alert.py:109/115`、
+`report.py:466` 的 `'danger': '低于安全库存'`（danger 档本就指 `safety_stock` 计算值）；
+`inventory_alert.py` 的 safety_stock 校验文案；`material.py`/`export.py` 的表头与导入
+兼容别名；`templates/alert.html` 的 danger 档 UI。
+
+**守卫**：`tests/verify_inventory_threshold_naming.py` 新增 T6/T7 两条纯文本扫描
+（不涉及 app 导入，跑得快，不撞 verify 单文件 60s 超时）：
+
+- **T6**：「安全库存」与 `min_stock` 在 ±2 行窗口内共现即报错；白名单 4 个文件
+  （`models/master_data.py` 约定本体、`routes/material.py` 与 `routes/export.py`
+  表头+别名注释、`routes/inventory_alert.py` safety_stock 校验文案）。
+- **T7**：出现「低于安全库存」的行必须同时含 `danger` 或 `safety_stock`
+  （danger 档专属叫法）。
+
+**验证**：守卫 7 passed；主套件 1998 passed / 85 skipped / 0 failed（零回归）；
+verify 全量 174 文件 / 0 失败 / 165s；lint 0 违规；反向验证注入 3 处旧文案后 T6/T7
+同时变红并精确指名行号，还原后 7/7 转绿。提交 `35cf87e`（API 重放 `1549a62`，9 文件）。
 
 ## 12. 下一批 AI 开发总表
 
