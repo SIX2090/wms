@@ -9126,7 +9126,8 @@ def _ai_inventory_health_report(days=30, limit=200, risk_filter='all'):
         # 生成AI建议
         ai_suggestion = ''
         if risk_type == 'shortage':
-            ai_suggestion = f'库存紧张，建议立即补货至安全库存{min_stock}以上'
+            # AI-CI-GREEN-005-F01：这里补货目标是 min_stock，对外必须叫「最低库存」。
+            ai_suggestion = f'库存紧张，建议立即补货至最低库存{min_stock}以上'
         elif risk_type == 'overstock':
             ai_suggestion = f'库存超储，建议控制采购节奏，消耗至最大库存{max_stock}以下'
         elif risk_type == 'stagnant':
@@ -26204,10 +26205,14 @@ def _collect_inventory_rows(filters):
     return rows
 
 # ============ 库存经营分析（BUG-2026-09-07-021，阶段 1 补标） ============
+# AI-CI-GREEN-005-F01：本段所有阈值比较都走最低库存列，对外叫法必须与之保持一致；
+# 其它阈值列各有自己的对外名称，混用会造成"报表写 A、实际比 B"（完整对照表见
+# models/master_data.py 的「库存阈值命名约定」）。
+#
 # 口径（先定义后实现，后续写入《报表指标口径字典》）：
 # - 库存状态：min_stock>0 且 stock<=0 → 缺货；min_stock>0 且 stock<=min_stock →
-#   低于安全库存；未设安全库存（min_stock<=0）不预警；
-# - 建议补货量：预警时补至最高库存（未设最高则补至安全库存），正常为 0；
+#   低于最低库存；未设最低库存（min_stock<=0）不预警；
+# - 建议补货量：预警时补至最高库存（未设最高则补至最低库存），正常为 0；
 # - ABC 分类：筛选后物料按库存金额（stock×当前价）降序，累计占比（不含自身）
 #   <70% → A、<90% → B、其余 C；金额合计为 0 时全部归 C；
 # - 呆滞：有库存（stock>0）且距最后出库（全局物料维度，v1 口径，多仓下其他仓
@@ -26252,7 +26257,8 @@ def _inventory_analysis_columns():
         {'field': 'stock', 'title': '当前库存'},
         {'field': 'price', 'title': '单价', 'type': 'money'},
         {'field': 'stock_value', 'title': '库存金额', 'type': 'money'},
-        {'field': 'min_stock', 'title': '安全库存'},
+        # AI-CI-GREEN-005-F01：该列取 min_stock，标题必须是「最低库存」
+        {'field': 'min_stock', 'title': '最低库存'},
         {'field': 'stock_status', 'title': '库存状态'},
         {'field': 'suggest_qty', 'title': '建议补货量'},
         {'field': 'abc_class', 'title': 'ABC 分类'},
@@ -26263,16 +26269,20 @@ def _inventory_analysis_columns():
 
 
 def _inventory_stock_status(stock, min_stock):
-    """库存状态：缺货 / 低于安全库存 / 正常（未设安全库存不预警）。"""
+    """库存状态：缺货 / 低于最低库存 / 正常（未设最低库存不预警）。
+
+    AI-CI-GREEN-005-F01：判定对象是 min_stock，故对外叫「低于最低库存」；
+    danger 档用的是另一套阈值、有另一套叫法，完整对照见 models/master_data.py。
+    """
     if min_stock > 0 and stock <= 0:
         return '缺货'
     if min_stock > 0 and stock <= min_stock:
-        return '低于安全库存'
+        return '低于最低库存'
     return '正常'
 
 
 def _inventory_suggest_qty(stock, min_stock, max_stock):
-    """建议补货量：预警时补至最高库存（未设最高则补至安全库存）。"""
+    """建议补货量：预警时补至最高库存（未设最高则补至最低库存）。"""
     if min_stock <= 0 or stock > min_stock:
         return 0.0
     target = max_stock if max_stock > min_stock else min_stock

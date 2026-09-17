@@ -92,7 +92,8 @@ def _evaluate_rule(rule, db, models: dict[str, Any]) -> list[dict[str, Any]]:
         if low_stock_materials:
             alerts.append({
                 'title': f'发现 {len(low_stock_materials)} 项低库存物料',
-                'message': f'以下物料库存低于安全库存：{", ".join(m.code or m.name for m in low_stock_materials[:10])}',
+                # AI-CI-GREEN-005-F01：上面 filter 比的是 min_stock，对外叫「最低库存」
+                'message': f'以下物料库存低于最低库存：{", ".join(m.code or m.name for m in low_stock_materials[:10])}',
                 'severity': 'warning',
                 'data_context': {
                     'material_ids': [m.id for m in low_stock_materials],
@@ -239,7 +240,7 @@ def get_default_rules() -> list[dict[str, Any]]:
         },
         {
             'name': '低库存预警',
-            'description': '检测库存低于安全库存的物料',
+            'description': '检测库存低于最低库存的物料',
             'rule_type': RULE_TYPE_LOW_STOCK,
             'threshold_value': 0,
             'severity': 'warning',

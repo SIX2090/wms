@@ -10,7 +10,8 @@ SQL 下沉），Python 全量构建 + 切片分页，019/020 的分批导出/模
 
 口径（v1，用户裁定 021/022/023 合并为单原子动作，库龄/周转不做）：
 - 库存状态：min_stock>0 才预警——stock<=0 缺货 / stock<=min_stock 低于
-  安全库存 / 其余正常；建议补货量 = 补至 max_stock（未设则 min_stock）。
+  最低库存 / 其余正常；建议补货量 = 补至 max_stock（未设则 min_stock）。
+  （AI-CI-GREEN-005-F01：比较对象是 min_stock，对外叫「最低库存」）
 - ABC：库存金额降序累计占比（不含自身）<70%→A / <90%→B / 其余 C；
   同金额按物料 id 升序；金额合计 <=0 全 C（首项豁免：单物料 A 不是 C）。
 - 呆滞：stock>0 且 idle_days >= stock_idle_days（系统设置默认 90）；
@@ -178,13 +179,13 @@ class TestBug20260907021:
         rows = self._rows_by_code(self._query().get_json())
         assert rows['M3']['stock_status'] == '缺货', rows['M3']
         assert rows['M3']['suggest_qty'] == 20.0, "缺货应补至 max_stock=20"
-        assert rows['M2']['stock_status'] == '低于安全库存', rows['M2']
+        assert rows['M2']['stock_status'] == '低于最低库存', rows['M2']
         assert rows['M2']['suggest_qty'] == 1.0, "未设 max 应补至 min_stock=5-4=1"
         assert rows['M1']['stock_status'] == '正常', rows['M1']
         assert rows['M4']['stock_status'] == '正常', "min_stock=0 不应预警"
         assert rows['M4']['suggest_qty'] == 0.0
         assert rows['M5']['stock_status'] == '正常'
-        # 展示字段：单价/安全库存原样透出
+        # 展示字段：单价/最低库存原样透出
         assert rows['M2']['price'] == 50.0 and rows['M2']['min_stock'] == 5.0
 
     def test_T3_abc_classes_cumulative_ratio(self):

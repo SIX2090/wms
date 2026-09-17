@@ -69,7 +69,8 @@ def master_data_quality_score(
                 issues.append('缺少单位')
                 material_score -= 3
             if m.min_stock is None:
-                issues.append('未设置安全库存')
+                # AI-CI-GREEN-005-F01：检查的是 min_stock，对外叫「最低库存」
+                issues.append('未设置最低库存')
                 material_score -= 2
             if not m.price or m.price <= 0:
                 issues.append('未设置参考价格')

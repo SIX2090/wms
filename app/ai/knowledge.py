@@ -101,7 +101,7 @@ AI_KNOWLEDGE_BASE: tuple[AIKnowledgeEntry, ...] = (
     AIKnowledgeEntry(
         key='replenishment_rule',
         title='补货规则',
-        summary='当库存低于安全库存时触发补货建议，综合考虑未到货采购量和待审批请购量。',
+        summary='当库存低于最低库存时触发补货建议，综合考虑未到货采购量和待审批请购量。',
         rule='补货建议仅供参考，实际请购需人工确认；AI不得自动创建请购单。',
         page_endpoint='ai_replenishment',
         page_label='补货建议',

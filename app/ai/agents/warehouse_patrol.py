@@ -173,7 +173,7 @@ def warehouse_patrol_agent(
         },
         {
             'name': '检查低库存预警',
-            'description': '查找低于安全库存的物料',
+            'description': '查找低于最低库存的物料',
             'tool_name': 'check_low_stock',
             'is_write': False,
         },

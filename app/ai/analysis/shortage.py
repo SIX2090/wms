@@ -54,7 +54,7 @@ def shortage_analysis(
             stock = Stock.query.filter_by(material_id=m.id).first()
             current_qty = stock.quantity if stock else 0
 
-            # 只处理低于安全库存的物料
+            # 只处理低于最低库存的物料（比较对象是 min_stock）
             if current_qty >= m.min_stock:
                 continue
 
@@ -80,7 +80,7 @@ def shortage_analysis(
                     for item in po_items
                 )
 
-            # 净缺口 = 安全库存 - 当前库存 - 未到货 + 待出库
+            # 净缺口 = 最低库存 - 当前库存 - 未到货 + 待出库
             net_shortage = m.min_stock - current_qty - open_po + pending_out
 
             if net_shortage > 0:

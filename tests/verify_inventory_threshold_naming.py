@@ -22,6 +22,10 @@ T4. 安全库存字段必须能正确往返：填「安全库存」→ 落 reord
     导出再导入后值不变（防止把 reorder_point 写进 min_stock 这类错位）。
 T5. 界面文案与数据库列名的映射，必须在 Material 模型 docstring 里成文，
     避免下一个人重新猜。
+T6. Python 侧不得出现「文案写安全库存、代码读 min_stock」的错位（AI-CI-GREEN-005-F01
+    补）：上一轮只扫模板 + notifications.py，app.py 与 ai/** 全在盲区，正是本次
+    错标能长期存活的根因。
+T7. 「低于安全库存」只能出现在 danger 档（判定对象为 safety_stock 计算值）的标签行。
 """
 from __future__ import annotations
 
@@ -215,6 +219,93 @@ def test_t5_naming_convention_is_documented():
     for token in ("min_stock", "reorder_point", "safety_stock"):
         assert token in src, f"命名约定说明缺少 {token}"
     assert "安全库存" in src, "命名约定说明未点明 reorder_point 对外叫「安全库存」"
+
+
+# ---------- T6/T7：Python 侧「文案 ↔ 字段」错位扫描 ----------
+
+# AI-CI-GREEN-005-F01：上一轮（AI-CI-GREEN-005）的 _user_facing_files() 只收了
+# 模板和 notifications.py，app.py / ai/** 一个都没扫 —— 结果「文案写安全库存、
+# 代码读 min_stock」的错位在这两个目录里活了很久。以下是两类共现特征的机械守卫。
+
+T6_ALLOWLIST = {
+    "models/master_data.py",       # 命名约定本体，必然同时提到两边的名字
+    "routes/material.py",          # Excel 表头 + 导入兼容别名注释
+    "routes/export.py",            # 同上
+    "routes/inventory_alert.py",   # safety_stock 字段的校验/变更文案，属正确用法
+}
+
+
+def _py_source_files():
+    """app/ 下全部 .py（排除 Android 工程与 __pycache__）。"""
+    files = []
+    for dirpath, dirnames, filenames in os.walk(APP_DIR):
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in ("android-native-wms", "__pycache__", "node_modules")
+        ]
+        for name in filenames:
+            if name.endswith(".py"):
+                files.append(Path(dirpath) / name)
+    return sorted(files)
+
+
+def _rel(path):
+    return str(Path(path).resolve().relative_to(APP_DIR)).replace("\\", "/")
+
+
+def _read_lines(path):
+    return path.read_text(encoding="utf-8", errors="replace").splitlines()
+
+
+def test_t6_no_safety_stock_label_on_min_stock_code():
+    """T6：「安全库存」不得与 min_stock 共现（白名单 4 个文件除外）。
+
+    命中条件：某行含「安全库存」，且其 ±2 行窗口内出现 min_stock。
+    这类共现几乎必然是「文案指 reorder_point、代码却读 min_stock」的错位。
+    """
+    files = _py_source_files()
+    assert len(files) > 50, f"扫描集异常，只找到 {len(files)} 个 .py 文件"
+
+    offenders = []
+    for f in files:
+        if _rel(f) in T6_ALLOWLIST:
+            continue
+        lines = _read_lines(f)
+        for i, line in enumerate(lines):
+            if "安全库存" not in line:
+                continue
+            window = "\n".join(lines[max(0, i - 2): i + 3])
+            if "min_stock" in window:
+                offenders.append(f"{_rel(f)}:{i + 1} | {line.strip()[:90]}")
+
+    assert not offenders, (
+        "以下位置「安全库存」与 min_stock 共现，极可能是文案与字段错位"
+        "（若确实是合法用法，请先确认再把它加进 T6_ALLOWLIST）：\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_t7_low_below_safety_stock_only_for_danger_band():
+    """T7：.py 中出现「低于安全库存」的行，必须同时含 danger 或 safety_stock。
+
+    「低于安全库存」是 danger 档的专属叫法，判定对象是计算值
+    safety_stock = max(reorder_point, min_stock)（`_material_alert_status_values`）。
+    凡是判定走 min_stock 的地方，都必须写「低于最低库存」。
+    """
+    offenders = []
+    for f in _py_source_files():
+        for i, line in enumerate(_read_lines(f)):
+            if "低于安全库存" not in line:
+                continue
+            if "danger" in line or "safety_stock" in line:
+                continue
+            offenders.append(f"{_rel(f)}:{i + 1} | {line.strip()[:90]}")
+
+    assert not offenders, (
+        "以下位置的「低于安全库存」不在 danger 档标签行上"
+        "（判定若走 min_stock，应写「低于最低库存」）：\n  "
+        + "\n  ".join(offenders)
+    )
 
 
 if __name__ == "__main__":

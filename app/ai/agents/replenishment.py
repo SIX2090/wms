@@ -1,7 +1,8 @@
 """阶段3：低库存补货Agent。
 
 功能：
-1. 结合现存库存、安全库存、未到货采购量、待审批请购量
+1. 结合现存库存、最低库存、未到货采购量、待审批请购量
+   （AI-CI-GREEN-005-F01：本 Agent 的补货触发线是 min_stock，对外叫「最低库存」）
 2. 计算建议补货量
 3. 生成可解释的补货建议
 4. 可生成请购草稿（需确认）
@@ -39,7 +40,7 @@ def _get_materials_needing_replenishment(
             stock = Stock.query.filter_by(material_id=m.id).first()
             current_qty = stock.quantity if stock else 0
 
-            # 只处理低于安全库存的物料
+            # 只处理低于最低库存的物料（比较对象是 min_stock）
             if current_qty > m.min_stock:
                 continue
 
@@ -64,12 +65,12 @@ def _get_materials_needing_replenishment(
                 ).all()
                 pending_pr_qty = sum(item.quantity or 0 for item in pr_items)
 
-            # 建议补货量 = 安全库存 - 当前库存 - 未到货 + 缓冲
+            # 建议补货量 = 最低库存 - 当前库存 - 未到货 + 缓冲
             shortage = m.min_stock - current_qty - open_po_qty - pending_pr_qty
             if shortage <= 0:
                 continue
 
-            suggested_qty = max(shortage, m.min_stock * 0.5)  # 至少补到安全库存的50%
+            suggested_qty = max(shortage, m.min_stock * 0.5)  # 至少补到最低库存的50%
 
             results.append({
                 'material_id': m.id,
@@ -99,7 +100,7 @@ def _generate_replenishment_explanation(item: dict[str, Any]) -> str:
     parts = [
         f'**{item["code"]} {item["name"]}**',
         f'当前库存：{item["current_qty"]} {item["unit"]}',
-        f'安全库存：{item["min_stock"]} {item["unit"]}',
+        f'最低库存：{item["min_stock"]} {item["unit"]}',
     ]
 
     if item['open_po_qty'] > 0:
@@ -143,7 +144,7 @@ def replenishment_agent(
     steps = [
         {
             'name': '查询需要补货的物料',
-            'description': f'查询低于安全库存且有缺口的物料（最多{limit}项）',
+            'description': f'查询低于最低库存且有缺口的物料（最多{limit}项）',
             'tool_name': 'get_materials_needing_replenishment',
             'is_write': False,
         },
