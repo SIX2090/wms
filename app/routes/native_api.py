@@ -2051,6 +2051,116 @@ def register_native_api_routes(app):
             'total_pages': result['total_pages'],
         })
 
+    @app.route('/api/mobile/report/stock_daily')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_report_stock_daily():
+        """移动端库存日报（AI-MOB-RPT-F02）：按仓库查看当天各物料结存明细。
+
+        口径：结存 = get_warehouse_stock_quantities(warehouse) 的仓库级当前库存，
+        无记录物料按 0 处理，绝不回退全局 Material.stock（A11/R2）。
+        仓库必填（AGENTS.md §二，resolve_request_warehouse 缺省回退默认仓）；
+        不支持全部仓库汇总——结存跨仓无意义，避免误导（用户明确"按仓来查询"）。
+        汇总（summary）基于过滤后全集，与分页解耦（R1）；只读，无任何写操作。
+        """
+        from datetime import date as _date, datetime as _dt
+        from sqlalchemy.orm import joinedload
+        from app import (MOBILE_API_PAGE_SIZE_DEFAULT, MOBILE_API_PAGE_SIZE_MAX,
+                         Material, api_json_error, api_json_success,
+                         get_warehouse_stock_quantities, normalize_stock_quantity,
+                         resolve_request_warehouse, round_to_2_decimals)
+
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_json_error(wh_err, 400)
+
+        keyword = (request.args.get('keyword') or request.args.get('kw') or '').strip()
+        sort = (request.args.get('sort') or 'code_asc').strip()
+        if sort not in ('code_asc', 'code_desc', 'stock_asc', 'stock_desc'):
+            return api_json_error(
+                'sort 只支持 code_asc / code_desc / stock_asc / stock_desc', 400)
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+
+        query = Material.query.options(
+            joinedload(Material.unit),
+            joinedload(Material.category),
+        )
+        if keyword:
+            like = f'%{keyword}%'
+            query = query.filter(db.or_(
+                Material.code.like(like),
+                Material.name.like(like),
+                Material.spec.like(like),
+            ))
+
+        # 与 /api/mobile/stock/query 排序路径同模式：汇总与排序都基于同一份
+        # quantities（R6 防口径分叉）；summary 需要全集数字，故统一走
+        # 「取全集 → Python 层计算/排序 → 手动切片分页」，不做先分页后排序的假象。
+        quantities = get_warehouse_stock_quantities(warehouse)
+        rows = []
+        total_qty = 0.0
+        in_stock_count = 0
+        for m in query.all():
+            qty = normalize_stock_quantity(quantities.get(m.id, 0))
+            total_qty += qty
+            if qty != 0:
+                in_stock_count += 1
+            rows.append((m, qty))
+
+        if sort == 'stock_asc':
+            rows.sort(key=lambda row: (row[1], row[0].code or ''))
+        elif sort == 'stock_desc':
+            rows.sort(key=lambda row: (-row[1], row[0].code or ''))
+        elif sort == 'code_desc':
+            rows.sort(key=lambda row: row[0].code or '', reverse=True)
+        else:
+            rows.sort(key=lambda row: row[0].code or '')
+
+        total = len(rows)
+        page = max(1, page or 1)
+        page_size = min(max(1, page_size or MOBILE_API_PAGE_SIZE_DEFAULT),
+                        MOBILE_API_PAGE_SIZE_MAX)
+        page_rows = rows[(page - 1) * page_size: page * page_size]
+        total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 0
+
+        return api_json_success({
+            'date': _date.today().isoformat(),
+            # 只用于显示的数据截止时间，由服务端格式化（与 stock/query 同理由：
+            # 手机本地时区不准时会显示错的时间）
+            'generated_at': _dt.now().strftime('%H:%M'),
+            'warehouse': {
+                'id': warehouse.id,
+                'name': warehouse.name or '',
+                'code': warehouse.code or '',
+            },
+            'summary': {
+                'total_materials': total,
+                'in_stock_materials': in_stock_count,
+                'zero_materials': total - in_stock_count,
+                'total_quantity': round_to_2_decimals(total_qty),
+            },
+            'items': [
+                {
+                    'id': m.id,
+                    'code': m.code or '',
+                    'name': m.name or '',
+                    'brand': m.brand or '',
+                    # spec 可空列，显式 null 会让 Gson 把 App 端非空字段置 null
+                    # 引发 NPE（BUG-2026-08-24-007），统一兜底为 ''
+                    'spec': m.spec or '',
+                    'unit': m.unit.name if m.unit else '',
+                    'category': m.category.name if m.category else '',
+                    'stock': qty,
+                }
+                for m, qty in page_rows
+            ],
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': total_pages,
+        })
+
     @app.route('/api/mobile/profile')
     @csrf.exempt
     @web_or_api_required
